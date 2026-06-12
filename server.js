@@ -7,7 +7,8 @@ import dotenv            from "dotenv";
 import { fileURLToPath } from "url";
 import { Pool }          from "pg";
 
-import { initSocket, getOnlineCount } from "./socket.js";
+import { initSocket, getOnlineCount }        from "./socket.js";
+import { startJobRunner, stopJobRunner }     from "./jobs/jobRunner.js";
 
 dotenv.config();
 
@@ -23,8 +24,6 @@ const server = http.createServer(app);
 
 /* ═══════════════════════════════════════════════════════════════
    DATABASE
-   pool re-exported so existing files that import from server.js
-   continue to work unchanged.
 ═══════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
   connectionString       : process.env.COCKROACH_URI,
@@ -283,8 +282,6 @@ app.use(rateLimiter(MAX_REQ));
    CRON JOBS
 ═══════════════════════════════════════════════════════════════ */
 import "./jobs/expirePromotions.js";
-import { startChatCleanupJob } from "./jobs/cleanupChats.js";
-import { startCleanupJobs }    from "./jobs/cleanup.js";
 
 /* ═══════════════════════════════════════════════════════════════
    ROUTES
@@ -312,25 +309,11 @@ app.use("/api/seller/payout",    sellerPayoutRoutes);
 app.use("/api/seller-dashboard", sellerDashboardRouter);
 app.use("/api/seller/settings",  sellerSettingsRouter);
 
-/* ── Minimart — Product CRUD (market.users sellers) ────────────
-   POST   /api/products          → create listing
-   GET    /api/products          → public listing
-   GET    /api/products/:slug    → public detail (also used by MinimartPage)
-   PATCH  /api/products/:id      → update listing
-   DELETE /api/products/:id      → delete listing
-   + seller/mine, pause, wishlist, report, share
- ─────────────────────────────────────────────────────────────── */
+/* ── Minimart — Product CRUD ── */
 import marketRouter from "./routes/market/index.js";
 app.use("/api/products", marketRouter);
 
-/* ── Shop Detail — dedicated read-only API for /shop/:slug ─────
-   GET  /api/shop/:slug                    → full product detail
-   GET  /api/shop/related/:category/:id   → related products
-   POST /api/shop/:id/wishlist             → toggle wishlist
-   GET  /api/shop/:id/wishlist             → check wishlist
-   POST /api/shop/:id/report              → report product
-   POST /api/shop/:id/share               → track share
- ─────────────────────────────────────────────────────────────── */
+/* ── Shop Detail ── */
 import marketDetailRouter from "./routes/marketDetail/index.js";
 app.use("/api/shop", marketDetailRouter);
 
@@ -499,6 +482,8 @@ app.use((err, req, res, _next) => {
 async function shutdown(signal) {
   console.log(`\n${signal} received — shutting down gracefully…`);
 
+  stopJobRunner();
+
   server.close(async () => {
     console.log("HTTP server closed");
     try {
@@ -542,9 +527,8 @@ server.listen(PORT, () => {
   console.log(`   CHECKOUT  : /api/checkout`);
   console.log(`   WEBHOOK   : https://minimart-ivrm.onrender.com/api/webhooks/flutterwave`);
 
-  startChatCleanupJob();
-  startCleanupJobs();
-  console.log("🧹 Cleanup jobs started");
+  startJobRunner();
+  console.log("🧹 Background jobs started");
 });
 
 export default app;
