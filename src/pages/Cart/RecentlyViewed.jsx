@@ -1,6 +1,8 @@
 // pages/Cart/RecentlyViewed.jsx
 
-import React, { useState, useEffect, memo, useCallback } from "react";
+import React, {
+  useState, useEffect, memo, useCallback,
+} from "react";
 import { useNavigate } from "react-router-dom";
 
 const RECENT_KEY = "mm_recently_viewed";
@@ -12,13 +14,15 @@ const fmt = (n) =>
     maximumFractionDigits: 0,
   })}`;
 
-// ── Track a product view (call from product detail page) ────
+// ═════════════════════════════════════════════════════════════
+// TRACK A PRODUCT VIEW
+// Call this from your product detail page
+// ═════════════════════════════════════════════════════════════
 export function trackProductView(product) {
   try {
-    const stored = JSON.parse(
+    const stored  = JSON.parse(
       localStorage.getItem(RECENT_KEY) || "[]"
     );
-    // Remove if already in list (move to front)
     const filtered = stored.filter((p) => p.id !== product.id);
     const updated  = [
       {
@@ -48,12 +52,14 @@ function loadRecentlyViewed() {
   }
 }
 
-// ── Product mini card ───────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// PRODUCT MINI CARD
+// ═════════════════════════════════════════════════════════════
 const ProductCard = memo(function ProductCard({ product, onAddToCart }) {
-  const navigate     = useNavigate();
-  const [imgErr, setImgErr] = useState(false);
-  const [adding, setAdding] = useState(false);
-  const [added,  setAdded]  = useState(false);
+  const navigate            = useNavigate();
+  const [imgErr,  setImgErr]  = useState(false);
+  const [adding,  setAdding]  = useState(false);
+  const [added,   setAdded]   = useState(false);
 
   const handleAdd = useCallback(async (e) => {
     e.stopPropagation();
@@ -68,17 +74,17 @@ const ProductCard = memo(function ProductCard({ product, onAddToCart }) {
     }
   }, [product, onAddToCart, adding, added]);
 
+  const handleNav = useCallback(() => {
+    navigate(`/product/${product.slug ?? product.id}`);
+  }, [navigate, product.slug, product.id]);
+
   return (
     <div
       className="ct-rp-card"
-      onClick={() => navigate(`/product/${product.slug ?? product.id}`)}
+      onClick={handleNav}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          navigate(`/product/${product.slug ?? product.id}`);
-        }
-      }}
+      onKeyDown={(e) => { if (e.key === "Enter") handleNav(); }}
       aria-label={`View ${product.name}`}
     >
       {/* Image */}
@@ -106,7 +112,9 @@ const ProductCard = memo(function ProductCard({ product, onAddToCart }) {
 
       {/* Add to cart */}
       <button
-        className={`ct-rp-add-btn ${added ? "ct-rp-add-btn--added" : ""}`}
+        className={`ct-rp-add-btn ${
+          added ? "ct-rp-add-btn--added" : ""
+        }`}
         onClick={handleAdd}
         disabled={adding}
         aria-label={`Add ${product.name} to cart`}
@@ -126,14 +134,20 @@ const ProductCard = memo(function ProductCard({ product, onAddToCart }) {
 // ═════════════════════════════════════════════════════════════
 // RECENTLY VIEWED SECTION
 // ═════════════════════════════════════════════════════════════
-const RecentlyViewed = memo(function RecentlyViewed({ onAddToCart }) {
+function RecentlyViewed({ onAddToCart }) {
   const [items, setItems] = useState(() => loadRecentlyViewed());
 
-  // Sync when storage changes
+  // Sync when another tab/component updates storage
   useEffect(() => {
     const handler = () => setItems(loadRecentlyViewed());
     window.addEventListener("recently-viewed-updated", handler);
-    return () => window.removeEventListener("recently-viewed-updated", handler);
+    return () =>
+      window.removeEventListener("recently-viewed-updated", handler);
+  }, []);
+
+  const handleClear = useCallback(() => {
+    localStorage.removeItem(RECENT_KEY);
+    setItems([]);
   }, []);
 
   if (!items.length) return null;
@@ -142,19 +156,13 @@ const RecentlyViewed = memo(function RecentlyViewed({ onAddToCart }) {
     <div className="ct-section-block">
       <div className="ct-section-header">
         <div>
-          <h3 className="ct-section-title">
-            👁️ Recently Viewed
-          </h3>
-          <p className="ct-section-sub">
-            Products you checked out
-          </p>
+          <h3 className="ct-section-title">👁️ Recently Viewed</h3>
+          <p className="ct-section-sub">Products you checked out</p>
         </div>
         <button
           className="ct-section-clear"
-          onClick={() => {
-            localStorage.removeItem(RECENT_KEY);
-            setItems([]);
-          }}
+          onClick={handleClear}
+          aria-label="Clear recently viewed"
         >
           Clear
         </button>
@@ -173,7 +181,11 @@ const RecentlyViewed = memo(function RecentlyViewed({ onAddToCart }) {
       </div>
     </div>
   );
-});
+}
 
-export { RecentlyViewed, trackProductView };
+// ── Named export for trackProductView (already exported above)
+// ── Default export for the component
 export default RecentlyViewed;
+
+// ── Named export for the component (for destructured imports)
+export { RecentlyViewed };
