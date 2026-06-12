@@ -6,6 +6,9 @@ import { pool }       from "../../server.js";
 import {
   authenticateSeller,
 }                     from "../../middleware/auth.js";
+import {
+  sendPasswordChangedEmail,
+}                     from "../../services/notificationService.js";
 
 const router = express.Router();
 
@@ -395,6 +398,12 @@ router.post(
          WHERE  id = $2`,
         [newHash, req.user.id]
       );
+
+      // ── Notify seller via email ──────────────────────────
+      await sendPasswordChangedEmail({
+        email: req.user.email,
+        name:  req.user.name,
+      });
 
       // ── Audit log ────────────────────────────────────────
       await pool.query(
