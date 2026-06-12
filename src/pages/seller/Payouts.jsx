@@ -3,6 +3,7 @@ import React, {
   useState, useEffect, useCallback, useMemo, useRef,
 } from "react";
 import { sellerApi } from "./SellerDashboard";
+import "./styles/Payouts.css";
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS
@@ -33,156 +34,154 @@ const timeAgo = (d) => {
   return `${Math.floor(s / 86400)}d ago`;
 };
 
-const copyText = (t) => {
+const copyText = (t) =>
   navigator.clipboard.writeText(t).catch(() => {});
-};
 
 // ─────────────────────────────────────────────────────────────
-// SHARED UI
+// STATUS CONFIG
 // ─────────────────────────────────────────────────────────────
-const Spin = ({ size = 22, color = "#6366f1" }) => (
-  <span style={{
-    width:        size,
-    height:       size,
-    border:       `${Math.max(2, Math.round(size / 9))}px solid #e5e7eb`,
-    borderTop:    `${Math.max(2, Math.round(size / 9))}px solid ${color}`,
-    borderRadius: "50%",
-    display:      "inline-block",
-    animation:    "spin 0.7s linear infinite",
-    flexShrink:   0,
-  }} />
+const STATUS_CFG = {
+  pending:    { label: "Pending",    icon: "⏳", cls: "badge--pending"    },
+  processing: { label: "Processing", icon: "⚡", cls: "badge--processing" },
+  paid:       { label: "Paid",       icon: "✅", cls: "badge--paid"       },
+  success:    { label: "Success",    icon: "✅", cls: "badge--paid"       },
+  failed:     { label: "Failed",     icon: "❌", cls: "badge--failed"     },
+  cancelled:  { label: "Cancelled",  icon: "🚫", cls: "badge--cancelled"  },
+  approved:   { label: "Approved",   icon: "👍", cls: "badge--approved"   },
+  rejected:   { label: "Rejected",   icon: "👎", cls: "badge--failed"     },
+};
+
+const STATUS_FILTERS = [
+  { key: "",           label: "All"        },
+  { key: "pending",    label: "Pending"    },
+  { key: "approved",   label: "Approved"   },
+  { key: "processing", label: "Processing" },
+  { key: "paid",       label: "Paid"       },
+  { key: "failed",     label: "Failed"     },
+  { key: "cancelled",  label: "Cancelled"  },
+];
+
+// ─────────────────────────────────────────────────────────────
+// SHARED COMPONENTS
+// ─────────────────────────────────────────────────────────────
+const Spinner = ({ size = 20, cls = "" }) => (
+  <span
+    className={`pw-spinner ${cls}`}
+    style={{ width: size, height: size }}
+    aria-hidden="true"
+  />
 );
 
-const STATUS_CFG = {
-  pending:    { label:"Pending",    bg:"#fffbeb", color:"#92400e", border:"#fde68a", icon:"⏳" },
-  processing: { label:"Processing", bg:"#eff6ff", color:"#1e40af", border:"#bfdbfe", icon:"⚡" },
-  success:    { label:"Success",    bg:"#ecfdf5", color:"#065f46", border:"#a7f3d0", icon:"✅" },
-  failed:     { label:"Failed",     bg:"#fef2f2", color:"#991b1b", border:"#fecaca", icon:"❌" },
-  cancelled:  { label:"Cancelled",  bg:"#f9fafb", color:"#6b7280", border:"#e5e7eb", icon:"🚫" },
-};
-
 const StatusBadge = ({ status }) => {
-  const c = STATUS_CFG[status] ?? STATUS_CFG.pending;
+  const cfg = STATUS_CFG[status] ?? STATUS_CFG.pending;
   return (
-    <span style={{
-      padding:      "0.22rem 0.65rem",
-      borderRadius: "100px",
-      fontSize:     "0.72rem",
-      fontWeight:   700,
-      background:   c.bg,
-      color:        c.color,
-      border:       `1px solid ${c.border}`,
-      display:      "inline-flex",
-      alignItems:   "center",
-      gap:          "0.3rem",
-      whiteSpace:   "nowrap",
-    }}>
-      {c.icon} {c.label}
+    <span className={`pw-badge ${cfg.cls}`}>
+      {cfg.icon} {cfg.label}
     </span>
   );
 };
 
-const InfoRow = ({ label, value, mono, onCopy, sub }) => (
-  <div style={{
-    display:        "flex",
-    justifyContent: "space-between",
-    alignItems:     "center",
-    padding:        "0.55rem 0",
-    borderBottom:   "1px solid #f3f4f6",
-    gap:            "0.5rem",
-  }}>
-    <span style={{ color:"#6b7280", fontSize:"0.8rem", flexShrink:0 }}>
-      {label}
-    </span>
-    <div style={{ textAlign:"right", minWidth:0 }}>
-      <div style={{ display:"flex", alignItems:"center",
-        gap:"0.35rem", justifyContent:"flex-end" }}>
-        <span style={{
-          fontWeight:   600,
-          color:        "#1f2937",
-          fontSize:     "0.82rem",
-          fontFamily:   mono ? "monospace" : "inherit",
-          overflow:     "hidden",
-          textOverflow: "ellipsis",
-          whiteSpace:   "nowrap",
-          maxWidth:     "200px",
-        }}>
-          {value ?? "—"}
-        </span>
-        {onCopy && value && (
-          <button
-            onClick={() => { copyText(value); }}
-            style={{ background:"none", border:"none",
-              cursor:"pointer", color:"#9ca3af",
-              padding:"0.1rem", fontSize:"0.82rem", lineHeight:1 }}
-            title="Copy"
-          >
-            📋
-          </button>
-        )}
-      </div>
-      {sub && (
-        <span style={{ fontSize:"0.68rem", color:"#9ca3af",
-          display:"block", marginTop:"0.1rem" }}>
-          {sub}
-        </span>
+const Toast = ({ type, text, onDismiss }) => (
+  <div className={`pw-toast pw-toast--${type}`} role="alert">
+    <span>{type === "error" ? "⚠️" : "✅"}</span>
+    <span>{text}</span>
+    {onDismiss && (
+      <button className="pw-toast__close" onClick={onDismiss}>
+        ✕
+      </button>
+    )}
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────
+// SKELETON LOADER
+// ─────────────────────────────────────────────────────────────
+const Skeleton = ({ h = 80, radius = 16 }) => (
+  <div
+    className="pw-skeleton"
+    style={{ height: h, borderRadius: radius }}
+  />
+);
+
+// ─────────────────────────────────────────────────────────────
+// INFO ROW
+// ─────────────────────────────────────────────────────────────
+const InfoRow = ({ label, value, mono, onCopy, copied }) => (
+  <div className="pw-info-row">
+    <span className="pw-info-row__label">{label}</span>
+    <div className="pw-info-row__right">
+      <span className={`pw-info-row__value${mono ? " mono" : ""}`}>
+        {value ?? "—"}
+      </span>
+      {onCopy && value && (
+        <button
+          className="pw-copy-btn"
+          onClick={() => onCopy(value)}
+          title="Copy"
+        >
+          {copied ? "✓" : "📋"}
+        </button>
       )}
     </div>
   </div>
 );
 
-const Section = ({ title, children }) => (
-  <div>
-    <p style={{
-      fontSize:      "0.68rem",
-      fontWeight:    700,
-      color:         "#9ca3af",
-      textTransform: "uppercase",
-      letterSpacing: "0.07em",
-      margin:        "0 0 0.6rem",
-    }}>
-      {title}
-    </p>
-    <div style={{
-      background:   "#f8fafc",
-      borderRadius: "12px",
-      padding:      "0.25rem 1rem",
-      border:       "1px solid #e5e7eb",
-    }}>
-      {children}
-    </div>
+// ─────────────────────────────────────────────────────────────
+// SECTION WRAPPER
+// ─────────────────────────────────────────────────────────────
+const DrawerSection = ({ title, children }) => (
+  <div className="pw-drawer-section">
+    <p className="pw-drawer-section__title">{title}</p>
+    <div className="pw-drawer-section__body">{children}</div>
   </div>
 );
 
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 // WITHDRAW MODAL
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 const WithdrawModal = ({ info, onClose, onSuccess }) => {
   const [amount,  setAmount]  = useState("");
   const [loading, setLoading] = useState(false);
-  const [msg,     setMsg]     = useState({ type:"", text:"" });
+  const [msg,     setMsg]     = useState(null);
   const inputRef              = useRef(null);
 
+  // Unique idempotency key per modal session
   const idemKey = useMemo(
     () => `WD-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     []
   );
 
   useEffect(() => {
-    setTimeout(() => inputRef.current?.focus(), 120);
+    const t = setTimeout(() => inputRef.current?.focus(), 120);
+    return () => clearTimeout(t);
   }, []);
 
-  const { wallet, bank, limits } = info;
+  // Trap focus inside modal
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const { wallet, bank, limits } = info ?? {};
   const parsed    = parseFloat(amount) || 0;
   const available = Number(wallet?.available_balance ?? 0);
+  const min       = limits?.min_withdrawal ?? 500;
+  const max       = Math.min(
+    available,
+    limits?.max_withdrawal ?? available
+  );
+  const dailyRem  = limits?.daily_remaining ?? 0;
 
+  // Fee preview
   const preview = useMemo(() => {
     if (!parsed || parsed <= 0) return null;
     const today = limits?.withdrawals_today ?? 0;
     let fee = 0;
-    if (today >= 3) {
-      const tiers = limits?.fee_tiers ?? [];
-      for (const tier of tiers) {
+    if (today >= (limits?.free_per_day ?? 3)) {
+      for (const tier of limits?.fee_tiers ?? []) {
         if (parsed <= (tier.max_amount ?? Infinity)) {
           fee = tier.fee_amount ?? 0;
           break;
@@ -192,30 +191,45 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
     return { amount: parsed, fee, net: parsed - fee, free: fee === 0 };
   }, [parsed, limits]);
 
-  const canSubmit =
-    !loading && parsed > 0 && !!bank?.bank_name
-    && parsed >= (limits?.min_withdrawal ?? 500)
-    && parsed <= available;
+  // Validation
+  const errors = useMemo(() => {
+    if (!parsed || parsed <= 0) return null;
+    if (parsed < min)      return `Minimum withdrawal is ${fmt(min)}`;
+    if (parsed > available) return "Amount exceeds available balance";
+    if (parsed > dailyRem)  return `Daily limit reached. Max remaining: ${fmt(dailyRem)}`;
+    if (!bank?.bank_name)   return "No bank account configured";
+    return null;
+  }, [parsed, min, available, dailyRem, bank]);
+
+  const canSubmit = !loading && !errors && parsed > 0 && !!bank?.bank_name;
+
+  const setPercent = (pct) => {
+    const val = parseFloat(
+      Math.min((available * pct) / 100, max).toFixed(2)
+    );
+    setAmount(String(val));
+    setMsg(null);
+  };
 
   const handleWithdraw = async () => {
     if (!canSubmit) return;
     setLoading(true);
-    setMsg({ type:"", text:"" });
+    setMsg(null);
     try {
       const { data } = await sellerApi.post(
         "/api/seller/payout/withdraw",
         { amount: parsed, idempotency_key: idemKey }
       );
       if (data.success) {
-        setMsg({ type:"success", text: data.message ?? "Withdrawal initiated!" });
-        setTimeout(() => { onSuccess(); onClose(); }, 1600);
+        setMsg({ type: "success", text: data.message ?? "Withdrawal request submitted!" });
+        setTimeout(() => { onSuccess(); onClose(); }, 1800);
       } else {
-        setMsg({ type:"error", text: data.message });
+        setMsg({ type: "error", text: data.message });
       }
     } catch (err) {
       setMsg({
         type: "error",
-        text: err.response?.data?.message ?? "Withdrawal failed. Try again.",
+        text: err.response?.data?.message ?? "Withdrawal failed. Please try again.",
       });
     } finally {
       setLoading(false);
@@ -223,79 +237,89 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
   };
 
   return (
-    <div style={wm.overlay} onClick={onClose}>
-      <div style={wm.modal} onClick={(e) => e.stopPropagation()}>
-
-        <div style={wm.header}>
-          <div style={{ display:"flex", alignItems:"center", gap:"0.75rem" }}>
-            <div style={wm.headerIcon}>💸</div>
+    <div
+      className="pw-modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Withdraw funds"
+      onClick={onClose}
+    >
+      <div
+        className="pw-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="pw-modal__header">
+          <div className="pw-modal__header-left">
+            <div className="pw-modal__icon">💸</div>
             <div>
-              <h2 style={wm.title}>Withdraw Funds</h2>
-              <p style={wm.headerSub}>Sent to your bank account</p>
+              <h2 className="pw-modal__title">Withdraw Funds</h2>
+              <p className="pw-modal__subtitle">
+                Sent directly to your bank account
+              </p>
             </div>
           </div>
-          <button style={wm.closeBtn} onClick={onClose}>✕</button>
+          <button
+            className="pw-icon-btn"
+            onClick={onClose}
+            aria-label="Close modal"
+          >
+            ✕
+          </button>
         </div>
 
+        {/* Free withdrawals banner */}
         {(limits?.free_remaining ?? 0) > 0 && (
-          <div style={wm.freeBanner}>
+          <div className="pw-free-banner">
             <span>🎁</span>
             <span>
-              <strong>{limits.free_remaining} free withdrawal
-              {limits.free_remaining > 1 ? "s" : ""}</strong> remaining — no fees!
+              <strong>
+                {limits.free_remaining} free withdrawal
+                {limits.free_remaining > 1 ? "s" : ""}
+              </strong>{" "}
+              remaining today — no fees!
             </span>
           </div>
         )}
 
-        <div style={wm.body}>
+        <div className="pw-modal__body">
 
-          <div style={wm.bankBox}>
-            <p style={wm.bankLabel}>Payout to</p>
+          {/* Bank destination */}
+          <div className="pw-bank-box">
+            <p className="pw-bank-box__label">Payout destination</p>
             {bank?.bank_name ? (
               <>
-                <p style={wm.bankName}>{bank.account_name}</p>
-                <p style={wm.bankSub}>
+                <p className="pw-bank-box__name">{bank.account_name}</p>
+                <p className="pw-bank-box__sub">
                   {bank.account_number} · {bank.bank_name}
                 </p>
               </>
             ) : (
-              <p style={{ color:"#ef4444", fontSize:"0.85rem",
-                margin:0, fontWeight:600 }}>
-                ⚠️ No bank configured — update in Settings
+              <p className="pw-bank-box__error">
+                ⚠️ No bank account configured — update in Settings
               </p>
             )}
           </div>
 
-          <div style={wm.availRow}>
-            <span style={{ color:"#6b7280", fontSize:"0.875rem" }}>
-              Available balance
-            </span>
-            <span style={{ fontWeight:800, color:"#10b981",
-              fontSize:"1.2rem" }}>
-              {fmt(available)}
-            </span>
+          {/* Available balance */}
+          <div className="pw-avail-row">
+            <span className="pw-avail-row__label">Available balance</span>
+            <span className="pw-avail-row__value">{fmt(available)}</span>
           </div>
 
-          <div style={wm.quickRow}>
+          {/* Quick percent buttons */}
+          <div className="pw-quick-row">
             {[25, 50, 75, 100].map((pct) => {
               const val = parseFloat(
-                Math.min(
-                  (available * pct) / 100,
-                  limits?.max_withdrawal ?? available
-                ).toFixed(2)
+                Math.min((available * pct) / 100, max).toFixed(2)
               );
               const active = parsed === val;
               return (
                 <button
                   key={pct}
-                  onClick={() => { setAmount(String(val)); setMsg({ type:"", text:"" }); }}
-                  style={{
-                    ...wm.quickBtn,
-                    background:  active ? "#6366f1" : "#f8fafc",
-                    color:       active ? "white"   : "#374151",
-                    borderColor: active ? "#6366f1" : "#e5e7eb",
-                    fontWeight:  active ? 700 : 500,
-                  }}
+                  className={`pw-quick-btn${active ? " pw-quick-btn--active" : ""}`}
+                  onClick={() => setPercent(pct)}
+                  disabled={!available}
                 >
                   {pct}%
                 </button>
@@ -303,111 +327,103 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
             })}
           </div>
 
-          <div style={{ position:"relative" }}>
-            <span style={wm.currSign}>₦</span>
+          {/* Amount input */}
+          <div className="pw-amount-wrap">
+            <span className="pw-amount-wrap__sign">₦</span>
             <input
               ref={inputRef}
               type="number"
               value={amount}
-              onChange={(e) => { setAmount(e.target.value); setMsg({ type:"", text:"" }); }}
+              onChange={(e) => { setAmount(e.target.value); setMsg(null); }}
               onKeyDown={(e) => { if (e.key === "Enter" && canSubmit) handleWithdraw(); }}
               placeholder="0.00"
-              min={limits?.min_withdrawal ?? 500}
-              max={available}
+              min={min}
+              max={max}
               step="0.01"
-              style={wm.amtInput}
+              className="pw-amount-input"
+              aria-label="Withdrawal amount"
+              aria-describedby="pw-amount-hint"
             />
             {amount && (
               <button
-                onClick={() => { setAmount(""); setMsg({ type:"",text:"" }); }}
-                style={wm.clearAmt}
-              >✕</button>
+                className="pw-amount-clear"
+                onClick={() => { setAmount(""); setMsg(null); }}
+                aria-label="Clear amount"
+              >
+                ✕
+              </button>
             )}
           </div>
 
-          <p style={wm.limitsHint}>
-            Min {fmt(limits?.min_withdrawal ?? 500)} ·
-            Daily remaining {fmt(limits?.daily_remaining)}
+          {/* Validation error */}
+          {errors && parsed > 0 && (
+            <p className="pw-field-error">⚠️ {errors}</p>
+          )}
+
+          {/* Hints */}
+          <p id="pw-amount-hint" className="pw-amount-hint">
+            Min {fmt(min)} · Max {fmt(max)} · Daily remaining {fmt(dailyRem)}
           </p>
 
-          {preview && (
-            <div style={{
-              ...wm.feeBox,
-              background:  preview.free ? "#f0fdf4" : "#f0f9ff",
-              borderColor: preview.free ? "#a7f3d0" : "#bfdbfe",
-            }}>
-              <div style={wm.feeRow}>
-                <span style={{ color:"#6b7280" }}>Amount</span>
-                <span style={{ fontWeight:600 }}>{fmt(preview.amount)}</span>
+          {/* Fee preview */}
+          {preview && !errors && (
+            <div className={`pw-fee-box${preview.free ? " pw-fee-box--free" : ""}`}>
+              <div className="pw-fee-row">
+                <span>Amount</span>
+                <span className="fw-600">{fmt(preview.amount)}</span>
               </div>
-              <div style={wm.feeRow}>
-                <span style={{ color:"#6b7280" }}>Fee</span>
-                <span style={{ fontWeight:700,
-                  color: preview.free ? "#10b981" : "#f59e0b" }}>
-                  {preview.free ? "🎁 Free" : `− ${fmt(preview.fee)}`}
+              <div className="pw-fee-row">
+                <span>Transfer fee</span>
+                <span className={`fw-700 ${preview.free ? "clr-green" : "clr-amber"}`}>
+                  {preview.free ? "🎁 Free" : `−${fmt(preview.fee)}`}
                 </span>
               </div>
-              <div style={wm.feeDivider} />
-              <div style={wm.feeRow}>
-                <span style={{ fontWeight:700, color:"#1f2937" }}>
-                  You receive
-                </span>
-                <span style={{ fontWeight:800, fontSize:"1.05rem",
-                  color: preview.free ? "#10b981" : "#6366f1" }}>
+              <div className="pw-fee-divider" />
+              <div className="pw-fee-row">
+                <span className="fw-700 clr-dark">You receive</span>
+                <span className={`fw-800 fs-lg ${preview.free ? "clr-green" : "clr-indigo"}`}>
                   {fmt(preview.net)}
                 </span>
               </div>
             </div>
           )}
 
-          {msg.text && (
-            <div style={{
-              padding:      "0.75rem 1rem",
-              borderRadius: "10px",
-              background:   msg.type === "error" ? "#fef2f2" : "#ecfdf5",
-              color:        msg.type === "error" ? "#991b1b" : "#065f46",
-              border:       `1px solid ${msg.type === "error" ? "#fecaca" : "#a7f3d0"}`,
-              fontSize:     "0.875rem",
-              fontWeight:   500,
-              display:      "flex",
-              alignItems:   "center",
-              gap:          "0.5rem",
-            }}>
-              {msg.type === "error" ? "⚠️" : "✅"} {msg.text}
-            </div>
+          {/* Feedback toast */}
+          {msg && (
+            <Toast
+              type={msg.type}
+              text={msg.text}
+              onDismiss={() => setMsg(null)}
+            />
           )}
 
+          {/* Submit */}
           <button
+            className="pw-submit-btn"
             onClick={handleWithdraw}
             disabled={!canSubmit}
-            style={{
-              ...wm.submitBtn,
-              opacity: canSubmit ? 1 : 0.5,
-              cursor:  canSubmit ? "pointer" : "not-allowed",
-            }}
+            aria-busy={loading}
           >
-            {loading
-              ? <span style={{ display:"flex", alignItems:"center",
-                  gap:"0.6rem", justifyContent:"center" }}>
-                  <Spin size={18} color="white" /> Processing...
-                </span>
-              : `💸 Withdraw${parsed > 0 ? ` ${fmt(parsed)}` : ""}`
-            }
+            {loading ? (
+              <span className="pw-submit-btn__loading">
+                <Spinner size={18} cls="pw-spinner--white" />
+                Processing…
+              </span>
+            ) : (
+              `💸 Withdraw${parsed > 0 ? ` ${fmt(parsed)}` : ""}`
+            )}
           </button>
 
-          <div style={wm.feeSchedule}>
-            <p style={{ fontWeight:700, color:"#374151",
-              margin:"0 0 0.4rem", fontSize:"0.82rem" }}>
-              💡 Fee Schedule
-            </p>
-            <p style={{ margin:"0 0 0.2rem", color:"#6b7280",
-              fontSize:"0.75rem" }}>
-              First 3 withdrawals per day: <strong>Free</strong>
+          {/* Fee schedule */}
+          <div className="pw-fee-schedule">
+            <p className="pw-fee-schedule__title">💡 Fee Schedule</p>
+            <p className="pw-fee-schedule__row">
+              First {limits?.free_per_day ?? 3} withdrawals/day:{" "}
+              <strong>Free</strong>
             </p>
             {(limits?.fee_tiers ?? []).map((tier, i) => (
-              <p key={i} style={{ margin:"0.15rem 0 0",
-                color:"#6b7280", fontSize:"0.75rem" }}>
-                {tier.label ?? `Tier ${i+1}`}:{" "}
+              <p key={i} className="pw-fee-schedule__row">
+                {tier.label ?? `Tier ${i + 1}`}:{" "}
                 <strong>₦{Number(tier.fee_amount ?? 0).toLocaleString()}</strong>
               </p>
             ))}
@@ -419,113 +435,9 @@ const WithdrawModal = ({ info, onClose, onSuccess }) => {
   );
 };
 
-const wm = {
-  overlay: {
-    position:"fixed", inset:0,
-    background:"rgba(0,0,0,0.55)",
-    display:"flex", alignItems:"center", justifyContent:"center",
-    zIndex:1000, padding:"1rem", backdropFilter:"blur(4px)",
-  },
-  modal: {
-    background:"white", borderRadius:"22px",
-    width:"100%", maxWidth:"420px",
-    maxHeight:"92vh", overflowY:"auto",
-    boxShadow:"0 24px 64px rgba(0,0,0,0.18)",
-    display:"flex", flexDirection:"column",
-  },
-  header: {
-    display:"flex", justifyContent:"space-between", alignItems:"center",
-    padding:"1.4rem 1.5rem 1rem", borderBottom:"1px solid #f3f4f6",
-    position:"sticky", top:0, background:"white", zIndex:1,
-    borderRadius:"22px 22px 0 0",
-  },
-  headerIcon: {
-    width:"44px", height:"44px",
-    background:"linear-gradient(135deg,#10b981,#059669)",
-    borderRadius:"12px", display:"flex",
-    alignItems:"center", justifyContent:"center",
-    fontSize:"1.3rem", flexShrink:0,
-  },
-  title:    { fontWeight:800, fontSize:"1.1rem", color:"#1f2937", margin:0 },
-  headerSub:{ color:"#9ca3af", fontSize:"0.75rem", margin:"0.1rem 0 0" },
-  closeBtn: { background:"none", border:"none", cursor:"pointer",
-    fontSize:"1.1rem", color:"#9ca3af", padding:"0.3rem",
-    borderRadius:"8px", lineHeight:1, flexShrink:0 },
-  freeBanner: {
-    display:"flex", alignItems:"center", gap:"0.6rem",
-    background:"#ecfdf5", borderBottom:"1px solid #a7f3d0",
-    padding:"0.75rem 1.5rem", color:"#065f46", fontSize:"0.85rem",
-  },
-  body: {
-    padding:"1.25rem 1.5rem 1.5rem",
-    display:"flex", flexDirection:"column", gap:"1rem",
-  },
-  bankBox: {
-    background:"#f8fafc", border:"1px solid #e5e7eb",
-    borderRadius:"12px", padding:"0.875rem 1rem",
-  },
-  bankLabel: {
-    fontSize:"0.68rem", fontWeight:700, color:"#9ca3af",
-    textTransform:"uppercase", letterSpacing:"0.06em",
-    margin:"0 0 0.35rem",
-  },
-  bankName: { fontWeight:700, color:"#1f2937", margin:0, fontSize:"0.95rem" },
-  bankSub:  { color:"#6b7280", fontSize:"0.8rem", margin:"0.2rem 0 0" },
-  availRow: {
-    display:"flex", justifyContent:"space-between", alignItems:"center",
-    padding:"0.5rem 0", borderBottom:"1px solid #f3f4f6",
-  },
-  quickRow: { display:"flex", gap:"0.5rem" },
-  quickBtn: {
-    flex:1, padding:"0.45rem 0", borderRadius:"100px",
-    border:"1px solid", cursor:"pointer", fontSize:"0.8rem",
-    transition:"all 0.15s", textAlign:"center", fontFamily:"inherit",
-  },
-  currSign: {
-    position:"absolute", left:"1rem", top:"50%",
-    transform:"translateY(-50%)", fontWeight:800,
-    fontSize:"1.25rem", color:"#374151", pointerEvents:"none",
-  },
-  amtInput: {
-    width:"100%", padding:"1rem 2.75rem 1rem 2.5rem",
-    border:"2px solid #e5e7eb", borderRadius:"12px",
-    fontSize:"1.6rem", fontWeight:800, color:"#1f2937",
-    boxSizing:"border-box", transition:"border-color 0.15s",
-    background:"white", fontFamily:"inherit",
-  },
-  clearAmt: {
-    position:"absolute", right:"0.875rem", top:"50%",
-    transform:"translateY(-50%)", background:"none",
-    border:"none", cursor:"pointer", color:"#9ca3af",
-    fontSize:"1rem", padding:"0.2rem", lineHeight:1,
-  },
-  limitsHint: { fontSize:"0.72rem", color:"#9ca3af", margin:"-0.5rem 0 0" },
-  feeBox: {
-    borderRadius:"12px", padding:"0.875rem 1rem",
-    border:"1px solid", display:"flex",
-    flexDirection:"column", gap:"0.5rem",
-  },
-  feeRow: {
-    display:"flex", justifyContent:"space-between",
-    alignItems:"center", fontSize:"0.875rem",
-  },
-  feeDivider: { height:"1px", background:"rgba(0,0,0,0.06)" },
-  submitBtn: {
-    display:"block", width:"100%", padding:"1rem",
-    background:"linear-gradient(135deg,#10b981,#059669)",
-    color:"white", border:"none", borderRadius:"14px",
-    fontWeight:700, fontSize:"1rem", transition:"opacity 0.15s",
-    fontFamily:"inherit",
-  },
-  feeSchedule: {
-    background:"#f8fafc", border:"1px solid #e5e7eb",
-    borderRadius:"10px", padding:"0.875rem 1rem",
-  },
-};
-
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 // DETAIL DRAWER
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 const DetailDrawer = ({ id, onClose, onCancelled }) => {
   const [data,       setData]       = useState(null);
   const [loading,    setLoading]    = useState(true);
@@ -549,20 +461,31 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
 
   useEffect(() => { load(); }, [load]);
 
+  // Auto-refresh when processing
   useEffect(() => {
-    if (data?.withdrawal?.status !== "processing") return;
+    const wd = data?.withdrawal;
+    if (wd?.status !== "processing") return;
     const t = setInterval(load, 30_000);
     return () => clearInterval(t);
   }, [data, load]);
 
+  // ESC to close
+  useEffect(() => {
+    const handler = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
   const handleCopy = (text, key) => {
     copyText(text);
     setCopied(key);
-    setTimeout(() => setCopied(""), 1800);
+    setTimeout(() => setCopied(""), 2000);
   };
 
   const handleCancel = async () => {
-    if (!window.confirm("Cancel this withdrawal and restore your balance?")) return;
+    if (!window.confirm(
+      "Cancel this withdrawal request and restore your balance?"
+    )) return;
     setCancelling(true);
     setCancelMsg(null);
     try {
@@ -570,105 +493,136 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
         `/api/seller/payout/withdrawal/${id}/cancel`
       );
       if (res.success) {
-        setCancelMsg({ type:"success", text: res.message ?? "Cancelled." });
+        setCancelMsg({ type: "success", text: res.message ?? "Withdrawal cancelled." });
         onCancelled?.();
         setTimeout(onClose, 1800);
       } else {
-        setCancelMsg({ type:"error", text: res.message });
+        setCancelMsg({ type: "error", text: res.message });
       }
     } catch (err) {
       setCancelMsg({
-        type:"error",
-        text: err.response?.data?.message ?? "Cancellation failed",
+        type: "error",
+        text: err.response?.data?.message ?? "Cancellation failed. Try again.",
       });
     } finally {
       setCancelling(false);
     }
   };
 
-  const wd = data?.withdrawal;
-  const sc = STATUS_CFG[wd?.status] ?? STATUS_CFG.pending;
+  const wd  = data?.withdrawal;
+  const cfg = STATUS_CFG[wd?.status] ?? STATUS_CFG.pending;
+
+  const gradientMap = {
+    paid:       "135deg, #059669, #10b981",
+    success:    "135deg, #059669, #10b981",
+    failed:     "135deg, #dc2626, #ef4444",
+    rejected:   "135deg, #dc2626, #ef4444",
+    processing: "135deg, #4f46e5, #7c3aed",
+    approved:   "135deg, #0369a1, #0ea5e9",
+    pending:    "135deg, #92400e, #d97706",
+    cancelled:  "135deg, #4b5563, #6b7280",
+  };
 
   return (
-    <div style={dd.overlay}>
-      <div style={dd.backdrop} onClick={onClose} />
-      <div style={dd.drawer}>
-
-        <div style={dd.header}>
+    <div className="pw-drawer-overlay">
+      <div
+        className="pw-drawer-backdrop"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        className="pw-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Withdrawal details"
+      >
+        {/* Drawer header */}
+        <div className="pw-drawer__header">
           <div>
-            <h3 style={dd.title}>Withdrawal Details</h3>
+            <h3 className="pw-drawer__title">Withdrawal Details</h3>
             {wd && (
-              <p style={{ color:"#9ca3af", fontSize:"0.75rem",
-                margin:"0.1rem 0 0" }}>
+              <p className="pw-drawer__sub">
                 {fmtDate(wd.requested_at ?? wd.created_at)}
               </p>
             )}
           </div>
-          <div style={{ display:"flex", gap:"0.4rem" }}>
-            <button onClick={load} style={dd.iconBtn} title="Refresh"
-              disabled={loading}>
-              <span style={{ display:"inline-block",
-                animation: loading ? "spin 0.7s linear infinite" : "none" }}>
+          <div className="pw-drawer__header-actions">
+            <button
+              className="pw-icon-btn"
+              onClick={load}
+              disabled={loading}
+              title="Refresh"
+              aria-label="Refresh"
+            >
+              <span
+                style={{
+                  display: "inline-block",
+                  animation: loading
+                    ? "pw-spin 0.7s linear infinite"
+                    : "none",
+                }}
+              >
                 ↻
               </span>
             </button>
-            <button onClick={onClose} style={dd.iconBtn}>✕</button>
+            <button
+              className="pw-icon-btn"
+              onClick={onClose}
+              aria-label="Close"
+            >
+              ✕
+            </button>
           </div>
         </div>
 
+        {/* Body */}
         {loading && !wd ? (
-          <div style={{ display:"flex", justifyContent:"center",
-            alignItems:"center", flex:1, padding:"4rem" }}>
-            <Spin size={32} />
+          <div className="pw-drawer__loading">
+            <Spinner size={36} />
           </div>
         ) : !wd ? (
-          <div style={{ padding:"4rem", textAlign:"center",
-            color:"#9ca3af" }}>
-            <span style={{ fontSize:"2rem" }}>❓</span>
+          <div className="pw-drawer__empty">
+            <span>❓</span>
             <p>Withdrawal not found</p>
           </div>
         ) : (
-          <div style={dd.body}>
+          <div className="pw-drawer__body">
 
-            <div style={{
-              background: `linear-gradient(135deg,${
-                wd.status === "success" ? "#059669,#10b981"
-                : wd.status === "failed" ? "#dc2626,#ef4444"
-                : "#4f46e5,#7c3aed"
-              })`,
-              borderRadius:"18px", padding:"1.5rem",
-              color:"white", textAlign:"center",
-            }}>
-              <p style={{ opacity:0.75, fontSize:"0.78rem", margin:"0 0 0.25rem" }}>
-                Amount Requested
-              </p>
-              <p style={{ fontWeight:800, fontSize:"2.5rem",
-                margin:"0 0 1rem", lineHeight:1 }}>
-                {fmt(wd.amount)}
-              </p>
-              <div style={{
-                display:"grid", gridTemplateColumns:"1fr 1fr 1fr",
-                gap:"0.5rem",
-                background:"rgba(255,255,255,0.12)",
-                borderRadius:"12px", padding:"0.875rem",
-              }}>
+            {/* Hero card */}
+            <div
+              className="pw-hero-card"
+              style={{
+                background: `linear-gradient(${
+                  gradientMap[wd.status] ?? gradientMap.pending
+                })`,
+              }}
+            >
+              <p className="pw-hero-card__label">Amount Requested</p>
+              <p className="pw-hero-card__amount">{fmt(wd.amount)}</p>
+
+              <div className="pw-hero-card__grid">
                 {[
-                  { label:"Fee",
-                    value: Number(wd.fee) === 0 ? "🎁 Free" : `−${fmt(wd.fee)}`,
-                    color: Number(wd.fee) === 0 ? "#86efac" : "#fde68a" },
-                  { label:"You Receive",
-                    value: fmt(wd.net_amount),
-                    color: "#86efac", bold:true },
-                  { label:"Status",
-                    value: sc.icon + " " + sc.label,
-                    color: "white" },
-                ].map(({ label, value, color, bold }) => (
-                  <div key={label}>
-                    <p style={{ opacity:0.65, fontSize:"0.65rem",
-                      margin:"0 0 0.2rem", textTransform:"uppercase",
-                      letterSpacing:"0.05em" }}>{label}</p>
-                    <p style={{ fontWeight: bold ? 800 : 600,
-                      margin:0, color, fontSize:"0.82rem" }}>
+                  {
+                    label: "Fee",
+                    value: Number(wd.fee) === 0
+                      ? "🎁 Free"
+                      : `−${fmt(wd.fee)}`,
+                    cls: Number(wd.fee) === 0 ? "clr-mint" : "clr-amber",
+                  },
+                  {
+                    label: "You Receive",
+                    value: fmt(wd.net_amount ?? (wd.amount - wd.fee)),
+                    cls: "clr-mint fw-800",
+                  },
+                  {
+                    label: "Status",
+                    value: `${cfg.icon} ${cfg.label}`,
+                    cls: "clr-white",
+                  },
+                ].map(({ label, value, cls }) => (
+                  <div key={label} className="pw-hero-card__cell">
+                    <p className="pw-hero-card__cell-label">{label}</p>
+                    <p className={`pw-hero-card__cell-value ${cls}`}>
                       {value}
                     </p>
                   </div>
@@ -676,101 +630,115 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
               </div>
             </div>
 
-            <Section title="Destination">
+            {/* Destination */}
+            <DrawerSection title="Destination">
               <InfoRow label="Account Name"   value={wd.account_name} />
-              <InfoRow label="Account Number" value={wd.account_number}
-                mono onCopy={() => handleCopy(wd.account_number, "acct")} />
-              <InfoRow label="Bank"           value={wd.bank_name} />
-            </Section>
+              <InfoRow
+                label="Account Number"
+                value={wd.account_number}
+                mono
+                onCopy={(v) => handleCopy(v, "acct")}
+                copied={copied === "acct"}
+              />
+              <InfoRow label="Bank" value={wd.bank_name} />
+            </DrawerSection>
 
-            <Section title="References">
-              <InfoRow label="Tx Ref" value={wd.tx_ref} mono
-                onCopy={() => handleCopy(wd.tx_ref, "txref")}
-                sub={copied === "txref" ? "✓ Copied!" : undefined} />
+            {/* References */}
+            <DrawerSection title="References">
+              <InfoRow
+                label="Transaction Ref"
+                value={wd.tx_ref}
+                mono
+                onCopy={(v) => handleCopy(v, "txref")}
+                copied={copied === "txref"}
+              />
               {wd.flw_transfer_id && (
-                <InfoRow label="FLW ID"
-                  value={String(wd.flw_transfer_id)} mono
-                  onCopy={() => handleCopy(String(wd.flw_transfer_id), "flwid")}
-                  sub={copied === "flwid" ? "✓ Copied!" : undefined} />
+                <InfoRow
+                  label="Flutterwave ID"
+                  value={String(wd.flw_transfer_id)}
+                  mono
+                  onCopy={(v) => handleCopy(v, "flwid")}
+                  copied={copied === "flwid"}
+                />
               )}
-            </Section>
+            </DrawerSection>
 
-            <Section title="Timeline">
-              <InfoRow label="Requested"
+            {/* Timeline */}
+            <DrawerSection title="Timeline">
+              <InfoRow
+                label="Requested"
                 value={fmtDate(wd.requested_at ?? wd.created_at)}
-                sub={timeAgo(wd.requested_at ?? wd.created_at)} />
-              {wd.processed_at && (
-                <InfoRow label="Processed"
-                  value={fmtDate(wd.processed_at)}
-                  sub={timeAgo(wd.processed_at)} />
+              />
+              {wd.approved_at && (
+                <InfoRow
+                  label="Approved"
+                  value={fmtDate(wd.approved_at)}
+                />
               )}
-            </Section>
+              {wd.processed_at && (
+                <InfoRow
+                  label="Processed"
+                  value={fmtDate(wd.processed_at)}
+                />
+              )}
+            </DrawerSection>
 
+            {/* Admin note */}
+            {wd.admin_note && (
+              <div className="pw-admin-note">
+                <p className="pw-admin-note__label">Admin Note</p>
+                <p className="pw-admin-note__text">{wd.admin_note}</p>
+              </div>
+            )}
+
+            {/* Failure reason */}
             {wd.failure_reason && (
-              <div style={{ background:"#fef2f2", border:"1px solid #fecaca",
-                borderRadius:"12px", padding:"0.875rem 1rem" }}>
-                <p style={{ fontWeight:700, color:"#991b1b",
-                  fontSize:"0.78rem", margin:"0 0 0.3rem",
-                  textTransform:"uppercase", letterSpacing:"0.05em" }}>
-                  Failure Reason
-                </p>
-                <p style={{ color:"#b91c1c", fontSize:"0.875rem", margin:0 }}>
+              <div className="pw-failure-box">
+                <p className="pw-failure-box__label">Failure Reason</p>
+                <p className="pw-failure-box__text">
                   {wd.failure_reason}
                 </p>
               </div>
             )}
 
+            {/* Processing indicator */}
             {wd.status === "processing" && (
-              <div style={{ display:"flex", alignItems:"center",
-                gap:"0.75rem", background:"#eff6ff",
-                border:"1px solid #bfdbfe", borderRadius:"12px",
-                padding:"0.875rem 1rem" }}>
-                <Spin size={18} color="#3b82f6" />
+              <div className="pw-processing-banner">
+                <Spinner size={18} cls="pw-spinner--blue" />
                 <div>
-                  <p style={{ fontWeight:600, color:"#1e40af",
-                    margin:0, fontSize:"0.85rem" }}>
+                  <p className="pw-processing-banner__title">
                     Transfer in progress
                   </p>
-                  <p style={{ color:"#3b82f6", fontSize:"0.72rem",
-                    margin:"0.15rem 0 0" }}>
+                  <p className="pw-processing-banner__sub">
                     Auto-refreshes every 30 seconds
                   </p>
                 </div>
               </div>
             )}
 
+            {/* Feedback */}
             {cancelMsg && (
-              <div style={{
-                padding:"0.75rem 1rem", borderRadius:"10px",
-                background: cancelMsg.type === "success" ? "#ecfdf5" : "#fef2f2",
-                color:      cancelMsg.type === "success" ? "#065f46" : "#991b1b",
-                border:     `1px solid ${cancelMsg.type === "success" ? "#a7f3d0" : "#fecaca"}`,
-                fontSize:"0.875rem", fontWeight:500,
-              }}>
-                {cancelMsg.type === "success" ? "✅" : "⚠️"} {cancelMsg.text}
-              </div>
+              <Toast type={cancelMsg.type} text={cancelMsg.text} />
             )}
 
-            {wd.status === "processing" && !wd.flw_transfer_id && (
+            {/* Cancel button — only when pending + no FLW ID yet */}
+            {(wd.status === "pending" || (
+              wd.status === "processing" && !wd.flw_transfer_id
+            )) && (
               <button
+                className="pw-cancel-btn"
                 onClick={handleCancel}
                 disabled={cancelling}
-                style={{
-                  width:"100%", padding:"0.875rem",
-                  border:"1px solid #fecaca", background:"#fef2f2",
-                  color:"#ef4444", borderRadius:"12px",
-                  fontWeight:700, cursor: cancelling ? "not-allowed" : "pointer",
-                  fontSize:"0.9rem", display:"flex",
-                  alignItems:"center", justifyContent:"center",
-                  gap:"0.5rem",
-                  opacity: cancelling ? 0.7 : 1,
-                  fontFamily:"inherit",
-                }}
+                aria-busy={cancelling}
               >
-                {cancelling
-                  ? <><Spin size={16} color="#ef4444" /> Cancelling...</>
-                  : "❌ Cancel Withdrawal"
-                }
+                {cancelling ? (
+                  <>
+                    <Spinner size={16} cls="pw-spinner--red" />
+                    Cancelling…
+                  </>
+                ) : (
+                  "❌ Cancel Withdrawal"
+                )}
               </button>
             )}
 
@@ -781,58 +749,26 @@ const DetailDrawer = ({ id, onClose, onCancelled }) => {
   );
 };
 
-const dd = {
-  overlay:  { position:"fixed", inset:0, zIndex:1000, display:"flex", justifyContent:"flex-end" },
-  backdrop: { flex:1, background:"rgba(0,0,0,0.4)", backdropFilter:"blur(3px)", cursor:"pointer" },
-  drawer: {
-    width:"100%", maxWidth:"440px", background:"white",
-    height:"100%", overflowY:"auto",
-    display:"flex", flexDirection:"column",
-    boxShadow:"-8px 0 40px rgba(0,0,0,0.12)",
-  },
-  header: {
-    display:"flex", justifyContent:"space-between", alignItems:"flex-start",
-    padding:"1.25rem 1.5rem", borderBottom:"1px solid #f3f4f6",
-    position:"sticky", top:0, background:"white", zIndex:1,
-  },
-  title: { fontWeight:800, color:"#1f2937", margin:0, fontSize:"1.05rem" },
-  iconBtn: {
-    background:"#f8fafc", border:"1px solid #e5e7eb",
-    cursor:"pointer", padding:"0.45rem 0.6rem",
-    color:"#6b7280", fontSize:"0.9rem",
-    borderRadius:"8px", lineHeight:1, fontFamily:"inherit",
-  },
-  body: {
-    padding:"1.5rem", display:"flex",
-    flexDirection:"column", gap:"1.25rem", flex:1,
-  },
-};
-
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 // STATS BAR
-// ─────────────────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
 const StatsBar = ({ stats }) => {
   if (!stats) return null;
   return (
-    <div style={{
-      display:"flex", gap:"1.5rem",
-      padding:"0.875rem 1.25rem",
-      background:"#f8fafc", borderTop:"1px solid #f3f4f6",
-      flexWrap:"wrap",
-    }}>
+    <div className="pw-stats-bar">
       {[
-        { label:"Total requests",  value: stats.total },
-        { label:"Total paid out",  value: fmt(stats.total_paid_out) },
-        { label:"Fees paid",       value: fmt(stats.total_fees_paid) },
-        { label:"Failed",          value: stats.failed_count,
-          danger: stats.failed_count > 0 },
+        { label: "Total requests",  value: stats.total },
+        { label: "Total paid out",  value: fmt(stats.total_paid_out)  },
+        { label: "Fees paid",       value: fmt(stats.total_fees_paid) },
+        {
+          label:  "Failed",
+          value:  stats.failed_count,
+          danger: stats.failed_count > 0,
+        },
       ].map(({ label, value, danger }) => (
-        <div key={label}>
-          <p style={{ fontSize:"0.68rem", color:"#9ca3af", margin:0 }}>
-            {label}
-          </p>
-          <p style={{ fontWeight:700, margin:0, fontSize:"0.9rem",
-            color: danger ? "#ef4444" : "#374151" }}>
+        <div key={label} className="pw-stats-bar__item">
+          <p className="pw-stats-bar__label">{label}</p>
+          <p className={`pw-stats-bar__value${danger ? " pw-stats-bar__value--danger" : ""}`}>
             {value}
           </p>
         </div>
@@ -840,18 +776,6 @@ const StatsBar = ({ stats }) => {
     </div>
   );
 };
-
-// ─────────────────────────────────────────────────────────────
-// STATUS FILTERS
-// ─────────────────────────────────────────────────────────────
-const STATUS_FILTERS = [
-  { key:"",           label:"All"        },
-  { key:"pending",    label:"Pending"    },
-  { key:"processing", label:"Processing" },
-  { key:"success",    label:"Success"    },
-  { key:"failed",     label:"Failed"     },
-  { key:"cancelled",  label:"Cancelled"  },
-];
 
 // ═════════════════════════════════════════════════════════════
 // MAIN PAYOUTS PAGE
@@ -868,9 +792,9 @@ export default function Payouts() {
   const [page,         setPage]         = useState(1);
   const [refreshing,   setRefreshing]   = useState(false);
   const [lastUpdated,  setLastUpdated]  = useState(null);
-  const [copied,       setCopied]       = useState(false);
+  const [vaCopied,     setVaCopied]     = useState(false);
 
-  // ── Load wallet info ──────────────────────────────────────
+  // ── Fetch wallet info ─────────────────────────────────────
   const loadInfo = useCallback(async () => {
     setLoadingInfo(true);
     setInfoError(null);
@@ -883,20 +807,23 @@ export default function Payouts() {
         setInfoError(data.message ?? "Failed to load wallet");
       }
     } catch (err) {
-      setInfoError(err.response?.data?.message ?? "Failed to load wallet");
+      setInfoError(
+        err.response?.data?.message ?? "Failed to load wallet info"
+      );
     } finally {
       setLoadingInfo(false);
     }
   }, []);
 
-  // ── Load withdrawal history ───────────────────────────────
+  // ── Fetch withdrawal history ──────────────────────────────
   const loadHistory = useCallback(async () => {
     setLoadingHist(true);
     try {
       const params = { page, limit: 12 };
       if (statusFilter) params.status = statusFilter;
       const { data } = await sellerApi.get(
-        "/api/seller/payout/history", params
+        "/api/seller/payout/history",
+        { params }
       );
       if (data.success) setHistory(data);
     } catch (err) {
@@ -909,8 +836,7 @@ export default function Payouts() {
   useEffect(() => { loadInfo(); },    [loadInfo]);
   useEffect(() => { loadHistory(); }, [loadHistory]);
 
-  // ── Auto refresh every 30 seconds ────────────────────────
-  // This picks up webhook-credited payments automatically
+  // ── Auto refresh every 30s ────────────────────────────────
   useEffect(() => {
     const t = setInterval(() => {
       loadInfo();
@@ -925,235 +851,200 @@ export default function Payouts() {
     setRefreshing(false);
   }, [loadInfo, loadHistory]);
 
-  const handleCopyVA = useCallback((acctNum) => {
-    copyText(acctNum);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  const handleCopyVA = useCallback((num) => {
+    copyText(num);
+    setVaCopied(true);
+    setTimeout(() => setVaCopied(false), 2000);
   }, []);
 
-  // ── Loading ───────────────────────────────────────────────
+  // ── Loading skeleton ──────────────────────────────────────
   if (loadingInfo && !info) {
     return (
-      <div style={{ display:"flex", flexDirection:"column",
-        gap:"1.25rem" }}>
-        {[140, 100, 200, 160].map((h, i) => (
-          <div key={i} style={{
-            height:        h,
-            background:    "white",
-            borderRadius:  "16px",
-            border:        "1px solid #f3f4f6",
-            backgroundImage: "linear-gradient(90deg,#f3f4f6 25%,#e9eaf0 50%,#f3f4f6 75%)",
-            backgroundSize:  "400px 100%",
-            animation:       "sdShimmer 1.4s infinite",
-          }} />
-        ))}
+      <div className="pw-skeleton-wrap">
+        <Skeleton h={56}  radius={12} />
+        <Skeleton h={120} radius={16} />
+        <Skeleton h={96}  radius={16} />
+        <Skeleton h={220} radius={16} />
+        <Skeleton h={400} radius={16} />
       </div>
     );
   }
 
+  // ── Error state ───────────────────────────────────────────
   if (infoError && !info) {
     return (
-      <div style={{ textAlign:"center", padding:"4rem 2rem" }}>
-        <span style={{ fontSize:"2.5rem" }}>⚠️</span>
-        <h3 style={{ fontWeight:700, color:"#1f2937",
-          margin:"0.75rem 0 0.4rem" }}>
-          Failed to load wallet
-        </h3>
-        <p style={{ color:"#6b7280", marginBottom:"1.5rem",
-          fontSize:"0.875rem" }}>
-          {infoError}
-        </p>
-        <button onClick={loadInfo} style={{
-          padding:"0.75rem 1.75rem", background:"#6366f1",
-          color:"white", border:"none", borderRadius:"10px",
-          fontWeight:700, cursor:"pointer", fontFamily:"inherit",
-        }}>
-          🔄 Retry
+      <div className="pw-error-state">
+        <span className="pw-error-state__icon">⚠️</span>
+        <h3 className="pw-error-state__title">Failed to load wallet</h3>
+        <p className="pw-error-state__msg">{infoError}</p>
+        <button className="pw-retry-btn" onClick={loadInfo}>
+          🔄 Try Again
         </button>
       </div>
     );
   }
 
   const { wallet, bank, virtual_account, limits } = info ?? {};
-  const available  = Number(wallet?.available_balance ?? 0);
-  const canWithdraw = available >= (limits?.min_withdrawal ?? 500)
-    && !!bank?.bank_name;
+  const available   = Number(wallet?.available_balance ?? 0);
+  const min         = limits?.min_withdrawal ?? 500;
+  const canWithdraw = available >= min && !!bank?.bank_name;
   const hasFreeLeft = (limits?.free_remaining ?? 0) > 0;
 
   return (
-    <div style={pg.root}>
+    <div className="pw-root">
 
-      {/* ── Header ─────────────────────────────────────── */}
-      <div style={pg.pageHeader}>
+      {/* ── Page header ──────────────────────────────────── */}
+      <div className="pw-page-header">
         <div>
-          <h2 style={pg.pageTitle}>💳 Payouts</h2>
-          <p style={pg.pageSub}>
-            Manage your earnings and bank withdrawals
+          <h2 className="pw-page-title">Payouts</h2>
+          <p className="pw-page-sub">
+            Manage your earnings &amp; bank withdrawals
           </p>
           {lastUpdated && (
-            <p style={{ color:"#9ca3af", fontSize:"0.72rem",
-              margin:"0.15rem 0 0" }}>
-              Updated {timeAgo(lastUpdated)}
-              {" · "}Auto-refreshes every 30s
+            <p className="pw-page-updated">
+              Updated {timeAgo(lastUpdated)} · Auto-refreshes every 30s
             </p>
           )}
         </div>
         <button
+          className="pw-refresh-btn"
           onClick={refresh}
           disabled={refreshing}
-          style={pg.refreshBtn}
+          aria-label="Refresh data"
         >
-          <span style={{ display:"inline-block",
-            animation: refreshing ? "spin 0.7s linear infinite" : "none" }}>
+          <span
+            style={{
+              display: "inline-block",
+              animation: refreshing
+                ? "pw-spin 0.7s linear infinite"
+                : "none",
+            }}
+          >
             ↻
           </span>
           {refreshing ? "Refreshing…" : "Refresh"}
         </button>
       </div>
 
-      {/* ── Free withdrawal alert ─────────────────────── */}
+      {/* ── Free withdrawal alert ─────────────────────────── */}
       {hasFreeLeft && (
-        <div style={pg.freeAlert}>
-          <span style={{ fontSize:"1.4rem" }}>🎁</span>
+        <div className="pw-free-alert">
+          <span className="pw-free-alert__icon">🎁</span>
           <div>
-            <p style={{ fontWeight:700, color:"#065f46",
-              margin:0, fontSize:"0.95rem" }}>
+            <p className="pw-free-alert__title">
               {limits.free_remaining} free withdrawal
               {limits.free_remaining > 1 ? "s" : ""} left today
             </p>
-            <p style={{ color:"#059669", fontSize:"0.8rem",
-              margin:"0.1rem 0 0" }}>
-              Withdraw now with zero fees
+            <p className="pw-free-alert__sub">
+              Withdraw now — zero fees
             </p>
           </div>
         </div>
       )}
 
-      {/* ── Balance cards ─────────────────────────────── */}
-      <div style={pg.balGrid}>
+      {/* ── Balance cards ─────────────────────────────────── */}
+      <div className="pw-bal-grid">
         {[
-          { icon:"💰", label:"Available",
-            value: fmt(wallet?.available_balance),
-            primary:true, sub:"Ready to withdraw" },
-          { icon:"⏳", label:"Pending",
+          {
+            icon:    "💰",
+            label:   "Available",
+            value:   fmt(wallet?.available_balance),
+            sub:     "Ready to withdraw",
+            primary: true,
+          },
+          {
+            icon:  "⏳",
+            label: "Pending",
             value: fmt(wallet?.pending_balance),
-            sub:"Being processed" },
-          { icon:"📥", label:"Total Received",
+            sub:   "Awaiting release",
+          },
+          {
+            icon:  "📥",
+            label: "Total Earned",
             value: fmt(wallet?.total_received),
-            sub:"All time" },
-          { icon:"📤", label:"Total Withdrawn",
+            sub:   "All time",
+          },
+          {
+            icon:  "📤",
+            label: "Total Withdrawn",
             value: fmt(wallet?.total_withdrawn),
-            sub:"All time" },
+            sub:   "All time",
+          },
         ].map((c) => (
-          <div key={c.label} style={{
-            ...pg.balCard,
-            background: c.primary
-              ? "linear-gradient(135deg,#4f46e5,#7c3aed)"
-              : "white",
-            border:     c.primary ? "none" : "1px solid #f3f4f6",
-            boxShadow:  c.primary
-              ? "0 4px 20px rgba(99,102,241,0.28)"
-              : "0 1px 4px rgba(0,0,0,0.04)",
-          }}>
-            <div style={{ display:"flex", alignItems:"center",
-              gap:"0.5rem", marginBottom:"0.75rem" }}>
-              <span style={{ fontSize:"1.15rem" }}>{c.icon}</span>
-              <span style={{ fontSize:"0.78rem", fontWeight:500,
-                color: c.primary ? "rgba(255,255,255,0.75)" : "#9ca3af" }}>
-                {c.label}
-              </span>
+          <div
+            key={c.label}
+            className={`pw-bal-card${c.primary ? " pw-bal-card--primary" : ""}`}
+          >
+            <div className="pw-bal-card__top">
+              <span className="pw-bal-card__icon">{c.icon}</span>
+              <span className="pw-bal-card__label">{c.label}</span>
             </div>
-            <p style={{ fontSize:"1.45rem", fontWeight:800,
-              color: c.primary ? "white" : "#1f2937",
-              margin:0, lineHeight:1 }}>
-              {c.value}
-            </p>
+            <p className="pw-bal-card__value">{c.value}</p>
             {c.sub && (
-              <p style={{ fontSize:"0.7rem",
-                color: c.primary ? "rgba(255,255,255,0.55)" : "#9ca3af",
-                margin:"0.3rem 0 0" }}>
-                {c.sub}
-              </p>
+              <p className="pw-bal-card__sub">{c.sub}</p>
             )}
           </div>
         ))}
       </div>
 
-      {/* ── Virtual account ───────────────────────────── */}
+      {/* ── Virtual account ───────────────────────────────── */}
       {virtual_account ? (
-        <div style={pg.vaCard}>
-          <div style={{ display:"flex", justifyContent:"space-between",
-            alignItems:"flex-start", flexWrap:"wrap", gap:"1rem" }}>
+        <div className="pw-va-card">
+          <div className="pw-va-card__top">
             <div>
-              <p style={pg.vaLabel}>
+              <p className="pw-va-card__label">
                 🏦 Virtual Account — Receive Payments
               </p>
-              <p style={pg.vaAccNumber}>
+              <p className="pw-va-card__number">
                 {virtual_account.account_number}
               </p>
-              <p style={pg.vaAccName}>
-                {virtual_account.account_name} · {virtual_account.bank_name}
+              <p className="pw-va-card__name">
+                {virtual_account.account_name} ·{" "}
+                {virtual_account.bank_name}
               </p>
             </div>
             <button
+              className="pw-va-copy-btn"
               onClick={() => handleCopyVA(virtual_account.account_number)}
-              style={pg.vaCopyBtn}
             >
-              {copied ? "✓ Copied!" : "📋 Copy Number"}
+              {vaCopied ? "✓ Copied!" : "📋 Copy"}
             </button>
           </div>
-          <p style={pg.vaNote}>
-            💡 Share this account number with buyers. Payments credited
-            here instantly update your wallet.
-          </p>
-          <p style={{
-            ...pg.vaNote,
-            background:  "rgba(255,255,255,0.08)",
-            marginTop:   "0.5rem",
-            fontSize:    "0.75rem",
-          }}>
-            ⏱️ Balance updates automatically every 30 seconds
-            after payment · Click Refresh to check immediately
+          <p className="pw-va-note">
+            💡 Share this account with buyers. Payments credited here
+            update your wallet automatically every 30 seconds.
           </p>
         </div>
       ) : (
-        <div style={pg.vaEmpty}>
-          <span style={{ fontSize:"2rem" }}>🏦</span>
+        <div className="pw-va-empty">
+          <span>🏦</span>
           <div>
-            <p style={{ fontWeight:600, color:"#374151", margin:0 }}>
-              No Virtual Account Yet
-            </p>
-            <p style={{ color:"#9ca3af", fontSize:"0.82rem",
-              margin:"0.2rem 0 0" }}>
+            <p className="pw-va-empty__title">No Virtual Account Yet</p>
+            <p className="pw-va-empty__sub">
               Created automatically when your store is activated
             </p>
           </div>
         </div>
       )}
 
-      {/* ── Withdraw CTA ──────────────────────────────── */}
-      <div style={pg.withdrawCard}>
-        <div style={{ minWidth:0 }}>
-          <h3 style={{ fontWeight:700, color:"#1f2937",
-            margin:"0 0 0.25rem", fontSize:"1rem" }}>
-            Request Withdrawal
+      {/* ── Withdraw CTA ──────────────────────────────────── */}
+      <div className="pw-withdraw-card">
+        <div className="pw-withdraw-card__info">
+          <h3 className="pw-withdraw-card__title">
+            Request a Withdrawal
           </h3>
           {bank?.bank_name ? (
-            <p style={{ color:"#6b7280", fontSize:"0.82rem", margin:0,
-              overflow:"hidden", textOverflow:"ellipsis",
-              whiteSpace:"nowrap" }}>
-              → {bank.account_name} ·{" "}
-              {bank.account_number} ({bank.bank_name})
+            <p className="pw-withdraw-card__bank">
+              → {bank.account_name} · {bank.account_number} (
+              {bank.bank_name})
             </p>
           ) : (
-            <p style={{ color:"#ef4444", fontSize:"0.82rem",
-              margin:0, fontWeight:500 }}>
-              ⚠️ No bank configured — update in Settings
+            <p className="pw-withdraw-card__no-bank">
+              ⚠️ No bank account — update in Settings
             </p>
           )}
           {limits && (
-            <p style={{ color:"#9ca3af", fontSize:"0.72rem",
-              margin:"0.3rem 0 0" }}>
+            <p className="pw-withdraw-card__limits">
               {limits.fee_schedule_label} · Daily remaining:{" "}
               <strong>{fmt(limits.daily_remaining)}</strong>
             </p>
@@ -1161,72 +1052,52 @@ export default function Payouts() {
         </div>
 
         <button
+          className="pw-withdraw-btn"
           onClick={() => setShowWithdraw(true)}
           disabled={!canWithdraw}
-          style={{
-            ...pg.withdrawBtn,
-            opacity: canWithdraw ? 1 : 0.45,
-            cursor:  canWithdraw ? "pointer" : "not-allowed",
-          }}
+          aria-disabled={!canWithdraw}
         >
           💸 Withdraw
           {hasFreeLeft && (
-            <span style={{
-              background:"rgba(255,255,255,0.25)",
-              fontSize:"0.65rem", padding:"0.1rem 0.45rem",
-              borderRadius:"100px", fontWeight:700,
-              border:"1px solid rgba(255,255,255,0.3)",
-            }}>
-              Free
-            </span>
+            <span className="pw-withdraw-btn__free-tag">Free</span>
           )}
         </button>
       </div>
 
-      {/* ── Limits info ───────────────────────────────── */}
+      {/* ── Limits row ────────────────────────────────────── */}
       {limits && (
-        <div style={pg.limitsRow}>
+        <div className="pw-limits-row">
           {[
-            { label:"Min withdrawal",    value: fmt(limits.min_withdrawal)  },
-            { label:"Max withdrawal",    value: fmt(limits.max_withdrawal)  },
-            { label:"Daily limit",       value: fmt(limits.daily_limit)     },
-            { label:"Used today",        value: fmt(limits.daily_used)      },
-            { label:"Withdrawals today", value: limits.withdrawals_today    },
+            { label: "Min withdrawal",    value: fmt(limits.min_withdrawal) },
+            { label: "Max withdrawal",    value: fmt(limits.max_withdrawal) },
+            { label: "Daily limit",       value: fmt(limits.daily_limit)    },
+            { label: "Used today",        value: fmt(limits.daily_used)     },
+            { label: "Withdrawals today", value: limits.withdrawals_today   },
           ].map(({ label, value }) => (
-            <div key={label} style={pg.limitItem}>
-              <p style={{ fontSize:"0.68rem", color:"#9ca3af",
-                margin:0, whiteSpace:"nowrap" }}>
-                {label}
-              </p>
-              <p style={{ fontWeight:700, color:"#374151",
-                margin:0, fontSize:"0.85rem" }}>
-                {value}
-              </p>
+            <div key={label} className="pw-limits-row__item">
+              <p className="pw-limits-row__label">{label}</p>
+              <p className="pw-limits-row__value">{value}</p>
             </div>
           ))}
         </div>
       )}
 
-      {/* ── Withdrawal history ────────────────────────── */}
-      <div style={pg.historyCard}>
+      {/* ── Withdrawal history ────────────────────────────── */}
+      <div className="pw-history-card">
 
-        <div style={pg.histHeader}>
-          <h3 style={pg.histTitle}>📤 Withdrawal History</h3>
-          <div style={{ display:"flex", gap:"0.3rem", flexWrap:"wrap" }}>
+        {/* History header + filters */}
+        <div className="pw-history-card__header">
+          <h3 className="pw-history-card__title">
+            📤 Withdrawal History
+          </h3>
+          <div className="pw-filter-row">
             {STATUS_FILTERS.map(({ key, label }) => (
               <button
                 key={key}
+                className={`pw-filter-btn${
+                  statusFilter === key ? " pw-filter-btn--active" : ""
+                }`}
                 onClick={() => { setStatusFilter(key); setPage(1); }}
-                style={{
-                  padding:"0.3rem 0.75rem", borderRadius:"100px",
-                  border:"1px solid", cursor:"pointer",
-                  fontSize:"0.72rem", fontWeight: statusFilter === key ? 700 : 500,
-                  background:  statusFilter === key ? "#6366f1" : "white",
-                  color:       statusFilter === key ? "white"   : "#6b7280",
-                  borderColor: statusFilter === key ? "#6366f1" : "#e5e7eb",
-                  transition:  "all 0.15s", whiteSpace:"nowrap",
-                  fontFamily:  "inherit",
-                }}
               >
                 {label}
               </button>
@@ -1234,20 +1105,18 @@ export default function Payouts() {
           </div>
         </div>
 
+        {/* History list */}
         {loadingHist ? (
-          <div style={{ display:"flex", justifyContent:"center",
-            padding:"3rem" }}>
-            <Spin size={28} />
+          <div className="pw-history-loading">
+            <Spinner size={28} />
           </div>
         ) : !history?.withdrawals?.length ? (
-          <div style={{ padding:"4rem 2rem", textAlign:"center" }}>
-            <span style={{ fontSize:"2.5rem" }}>📭</span>
-            <p style={{ fontWeight:700, color:"#374151",
-              margin:"0.75rem 0 0" }}>
+          <div className="pw-history-empty">
+            <span>📭</span>
+            <p className="pw-history-empty__title">
               No {statusFilter || ""} withdrawals yet
             </p>
-            <p style={{ color:"#9ca3af", fontSize:"0.85rem",
-              margin:"0.3rem 0 0" }}>
+            <p className="pw-history-empty__sub">
               Your withdrawal history will appear here
             </p>
           </div>
@@ -1259,93 +1128,80 @@ export default function Payouts() {
                 return (
                   <div
                     key={wd.id}
+                    className="pw-wd-row"
                     onClick={() => setSelectedId(wd.id)}
-                    style={pg.wdRow}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = "#fafafa";
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ")
+                        setSelectedId(wd.id);
                     }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = "";
-                    }}
+                    aria-label={`Withdrawal of ${fmt(wd.amount)} — ${sc.label}`}
                   >
-                    <div style={{
-                      width:"42px", height:"42px", borderRadius:"12px",
-                      background:sc.bg, border:`1px solid ${sc.border}`,
-                      display:"flex", alignItems:"center",
-                      justifyContent:"center", fontSize:"1.1rem",
-                      flexShrink:0,
-                    }}>
-                      {sc.icon}
+                    {/* Icon */}
+                    <div className={`pw-wd-row__icon-wrap pw-wd-icon--${wd.status}`}>
+                      <span>{sc.icon}</span>
                     </div>
 
-                    <div style={{ flex:1, minWidth:0 }}>
-                      <p style={{ fontWeight:600, color:"#1f2937",
-                        margin:0, fontSize:"0.875rem" }}>
-                        {wd.bank_name}
-                      </p>
-                      <p style={{ color:"#9ca3af", fontSize:"0.72rem",
-                        margin:"0.1rem 0 0" }}>
+                    {/* Info */}
+                    <div className="pw-wd-row__info">
+                      <p className="pw-wd-row__bank">{wd.bank_name}</p>
+                      <p className="pw-wd-row__sub">
                         ••••{wd.account_number?.slice(-4)} ·{" "}
                         {fmtDate(wd.created_at)}
                       </p>
                     </div>
 
-                    <div style={{ textAlign:"right", flexShrink:0 }}>
-                      <p style={{ fontWeight:800, color:"#ef4444",
-                        margin:0, fontSize:"0.95rem" }}>
+                    {/* Amount + status */}
+                    <div className="pw-wd-row__right">
+                      <p className="pw-wd-row__amount">
                         −{fmt(wd.amount)}
                       </p>
-                      <div style={{ marginTop:"0.2rem" }}>
+                      <p className="pw-wd-row__fee">
                         {Number(wd.fee) === 0 ? (
-                          <span style={{ fontSize:"0.68rem",
-                            color:"#10b981", fontWeight:600 }}>
+                          <span className="pw-wd-row__fee--free">
                             🎁 No fee
                           </span>
                         ) : (
-                          <span style={{ fontSize:"0.68rem",
-                            color:"#9ca3af" }}>
-                            fee {fmt(wd.fee)}
-                          </span>
+                          <span>fee {fmt(wd.fee)}</span>
                         )}
-                      </div>
-                      <div style={{ marginTop:"0.25rem" }}>
-                        <StatusBadge status={wd.status} />
-                      </div>
+                      </p>
+                      <StatusBadge status={wd.status} />
                     </div>
 
-                    <span style={{ color:"#d1d5db", flexShrink:0 }}>›</span>
+                    <span className="pw-wd-row__chevron">›</span>
                   </div>
                 );
               })}
             </div>
 
+            {/* Stats bar */}
             <StatsBar stats={history.stats} />
 
+            {/* Pagination */}
             {history.pagination?.total_pages > 1 && (
-              <div style={pg.pagBar}>
-                <p style={{ fontSize:"0.78rem", color:"#9ca3af", margin:0 }}>
+              <div className="pw-pagination">
+                <p className="pw-pagination__info">
                   Page {history.pagination.page} of{" "}
                   {history.pagination.total_pages} ·{" "}
                   {history.pagination.total} total
                 </p>
-                <div style={{ display:"flex", gap:"0.4rem" }}>
+                <div className="pw-pagination__btns">
                   <button
+                    className="pw-page-btn"
                     onClick={() => setPage((p) => Math.max(1, p - 1))}
                     disabled={page === 1}
-                    style={{ ...pg.pageBtn,
-                      opacity: page === 1 ? 0.4 : 1 }}
                   >
                     ← Prev
                   </button>
                   <button
-                    onClick={() => setPage((p) =>
-                      Math.min(history.pagination.total_pages, p + 1))}
+                    className="pw-page-btn"
+                    onClick={() =>
+                      setPage((p) =>
+                        Math.min(history.pagination.total_pages, p + 1)
+                      )
+                    }
                     disabled={page === history.pagination.total_pages}
-                    style={{
-                      ...pg.pageBtn,
-                      opacity: page === history.pagination.total_pages
-                        ? 0.4 : 1,
-                    }}
                   >
                     Next →
                   </button>
@@ -1356,7 +1212,7 @@ export default function Payouts() {
         )}
       </div>
 
-      {/* ── Modals ────────────────────────────────────── */}
+      {/* ── Modals ────────────────────────────────────────── */}
       {showWithdraw && info && (
         <WithdrawModal
           info={info}
@@ -1376,120 +1232,3 @@ export default function Payouts() {
     </div>
   );
 }
-
-// ─────────────────────────────────────────────────────────────
-// STYLES
-// ─────────────────────────────────────────────────────────────
-const pg = {
-  root: { display:"flex", flexDirection:"column", gap:"1.25rem" },
-  pageHeader: {
-    display:"flex", justifyContent:"space-between",
-    alignItems:"flex-start", flexWrap:"wrap", gap:"0.75rem",
-  },
-  pageTitle: { fontWeight:800, fontSize:"1.35rem", color:"#1f2937", margin:0 },
-  pageSub:   { color:"#9ca3af", fontSize:"0.85rem", margin:"0.2rem 0 0" },
-  refreshBtn: {
-    background:"white", border:"1px solid #e5e7eb",
-    borderRadius:"10px", padding:"0.6rem 1rem",
-    cursor:"pointer", display:"flex", alignItems:"center",
-    gap:"0.5rem", color:"#6b7280", fontSize:"0.85rem",
-    fontWeight:500, fontFamily:"inherit", whiteSpace:"nowrap",
-  },
-  freeAlert: {
-    background:"#ecfdf5", border:"1px solid #a7f3d0",
-    borderRadius:"14px", padding:"1rem 1.25rem",
-    display:"flex", alignItems:"center", gap:"0.75rem",
-  },
-  balGrid: {
-    display:"grid",
-    gridTemplateColumns:"repeat(auto-fill,minmax(185px,1fr))",
-    gap:"1rem",
-  },
-  balCard:    { borderRadius:"16px", padding:"1.25rem", transition:"box-shadow 0.2s" },
-  vaCard: {
-    background:"linear-gradient(135deg,#4f46e5,#7c3aed)",
-    borderRadius:"20px", padding:"1.5rem", color:"white",
-  },
-  vaLabel: {
-    fontSize:"0.7rem", fontWeight:700, opacity:0.7,
-    textTransform:"uppercase", letterSpacing:"0.06em",
-    margin:"0 0 0.6rem",
-  },
-  vaAccNumber: {
-    fontWeight:800, fontSize:"1.85rem",
-    fontFamily:"monospace", letterSpacing:"0.08em", margin:0,
-  },
-  vaAccName: { opacity:0.75, fontSize:"0.85rem", margin:"0.35rem 0 0" },
-  vaCopyBtn: {
-    background:"rgba(255,255,255,0.2)",
-    border:"1px solid rgba(255,255,255,0.3)",
-    borderRadius:"10px", padding:"0.55rem 1rem",
-    color:"white", cursor:"pointer", fontWeight:600,
-    fontSize:"0.82rem", whiteSpace:"nowrap", fontFamily:"inherit",
-    transition:"all 0.15s",
-  },
-  vaNote: {
-    background:"rgba(255,255,255,0.12)", borderRadius:"10px",
-    padding:"0.65rem 0.875rem", fontSize:"0.78rem",
-    margin:"1rem 0 0", opacity:0.85, lineHeight:1.5,
-  },
-  vaEmpty: {
-    background:"white", border:"2px dashed #e5e7eb",
-    borderRadius:"16px", padding:"1.5rem",
-    display:"flex", alignItems:"center",
-    gap:"1rem", color:"#9ca3af",
-  },
-  withdrawCard: {
-    background:"white", border:"1px solid #e5e7eb",
-    borderRadius:"16px", padding:"1.25rem 1.5rem",
-    display:"flex", justifyContent:"space-between",
-    alignItems:"center", flexWrap:"wrap", gap:"1rem",
-    boxShadow:"0 1px 4px rgba(0,0,0,0.04)",
-  },
-  withdrawBtn: {
-    display:"flex", alignItems:"center", gap:"0.5rem",
-    flexShrink:0, padding:"0.875rem 1.75rem",
-    background:"linear-gradient(135deg,#10b981,#059669)",
-    color:"white", border:"none", borderRadius:"12px",
-    fontWeight:700, fontSize:"0.95rem",
-    transition:"opacity 0.15s", fontFamily:"inherit",
-  },
-  limitsRow: {
-    display:"flex", gap:"0",
-    background:"white", borderRadius:"14px",
-    border:"1px solid #f3f4f6", overflow:"hidden",
-    boxShadow:"0 1px 4px rgba(0,0,0,0.04)",
-    flexWrap:"wrap",
-  },
-  limitItem: {
-    flex:"1 1 auto", padding:"0.875rem 1rem",
-    borderRight:"1px solid #f3f4f6", minWidth:0,
-  },
-  historyCard: {
-    background:"white", borderRadius:"16px",
-    border:"1px solid #f3f4f6", overflow:"hidden",
-    boxShadow:"0 1px 4px rgba(0,0,0,0.04)",
-  },
-  histHeader: {
-    display:"flex", justifyContent:"space-between", alignItems:"center",
-    padding:"1rem 1.25rem", borderBottom:"1px solid #f3f4f6",
-    flexWrap:"wrap", gap:"0.75rem",
-  },
-  histTitle: { fontWeight:700, color:"#1f2937", margin:0, fontSize:"0.95rem" },
-  wdRow: {
-    display:"flex", alignItems:"center", gap:"0.875rem",
-    padding:"1rem 1.25rem", borderBottom:"1px solid #f9fafb",
-    cursor:"pointer", transition:"background 0.1s",
-  },
-  pagBar: {
-    display:"flex", justifyContent:"space-between", alignItems:"center",
-    padding:"0.875rem 1.25rem", borderTop:"1px solid #f3f4f6",
-    flexWrap:"wrap", gap:"0.5rem",
-  },
-  pageBtn: {
-    padding:"0.4rem 0.75rem", border:"1px solid #e5e7eb",
-    borderRadius:"8px", background:"white", cursor:"pointer",
-    fontSize:"0.78rem", color:"#374151", fontWeight:500,
-    transition:"all 0.15s", fontFamily:"inherit",
-  },
-};
