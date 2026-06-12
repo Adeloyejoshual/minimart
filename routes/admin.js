@@ -17,6 +17,7 @@ import { rolesRouter, permissionsRouter } from "./admin/roles.js";
 import promotionRouter                  from "./admin/promotion.js";
 import verificationRouter               from "./admin/verification.js";
 import vendorVerificationRouter         from "./admin/vendorVerification.js";
+import withdrawalRouter                 from "./admin/withdrawalRoutes.js";
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -61,7 +62,6 @@ router.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // Update last login
     await pool.query(
       `UPDATE admins SET last_login = NOW() WHERE id = $1`,
       [admin.id]
@@ -99,7 +99,6 @@ router.get("/me", verifyAdmin, async (req, res) => {
 
     const admin = rows[0];
 
-    // Fetch permissions
     const { rows: perms } = await pool.query(
       `SELECT DISTINCT p.name
        FROM role_permissions rp
@@ -159,7 +158,6 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       todayRevenueRes,
       dailySalesRes,
 
-      // Vendor stats
       vendorsTotalRes,
       vendorsPendingRes,
       vendorsActiveRes,
@@ -259,10 +257,10 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       })),
 
       // Vendors
-      vendorsTotal:      Number(vendorsTotalRes.rows[0].count),
-      vendorsPending:    Number(vendorsPendingRes.rows[0].count),
-      vendorsActive:     Number(vendorsActiveRes.rows[0].count),
-      vendorsUnderReview:Number(vendorsReviewRes.rows[0].count),
+      vendorsTotal:       Number(vendorsTotalRes.rows[0].count),
+      vendorsPending:     Number(vendorsPendingRes.rows[0].count),
+      vendorsActive:      Number(vendorsActiveRes.rows[0].count),
+      vendorsUnderReview: Number(vendorsReviewRes.rows[0].count),
     });
 
   } catch (err) {
@@ -307,7 +305,6 @@ router.post("/register", verifyAdmin, requireSuperAdmin, async (req, res) => {
   }
 
   try {
-    // Check duplicate email
     const { rows: existing } = await pool.query(
       `SELECT id FROM admins WHERE email = $1`,
       [email.toLowerCase().trim()]
@@ -348,7 +345,6 @@ router.post(
   requireSuperAdmin,
   async (req, res) => {
     try {
-      // Prevent self-ban
       if (req.params.id === req.admin.id) {
         return res.status(400).json({ error: "Cannot ban yourself" });
       }
@@ -462,7 +458,6 @@ router.get("/logs", verifyAdmin, async (req, res) => {
     const limit  = Math.min(parseInt(req.query.limit)  || 100, 500);
     const offset = Math.max(parseInt(req.query.offset) || 0,   0);
 
-    // Try admin_logs first, fall back to audit_logs
     let rows;
     try {
       ({ rows } = await pool.query(
@@ -509,6 +504,7 @@ router.use("/roles",           rolesRouter);
 router.use("/permissions",     permissionsRouter);
 router.use("/plans",           promotionRouter);
 router.use("/verification",    verificationRouter);
-router.use("/vendors",         vendorVerificationRouter);  // ← NEW
+router.use("/vendors",         vendorVerificationRouter);
+router.use("/withdrawals",     withdrawalRouter);
 
 export default router;
