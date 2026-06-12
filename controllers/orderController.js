@@ -24,13 +24,13 @@ exports.createOrder = async (req, res) => {
     return res.status(400).json({ message: "Cart is empty" });
   }
   if (!shippingAddress) {
-    return res.status(400).json({ 
-      message: "Shipping address required" 
+    return res.status(400).json({
+      message: "Shipping address required",
     });
   }
   if (!["CASH_ON_DELIVERY", "ONLINE_PAYMENT"].includes(paymentMethod)) {
-    return res.status(400).json({ 
-      message: "Invalid payment method" 
+    return res.status(400).json({
+      message: "Invalid payment method",
     });
   }
 
@@ -90,45 +90,44 @@ exports.createOrder = async (req, res) => {
       return res.status(201).json({
         orderId,
         paymentMethod: "CASH_ON_DELIVERY",
-        status: "pending",
-        message: "Order placed successfully",
+        status:        "pending",
+        message:       "Order placed successfully",
       });
     }
 
     // ── ONLINE: generate Flutterwave payment link ──────────
     if (paymentMethod === "ONLINE_PAYMENT") {
-
       const user = await db("users")
         .where({ id: userId })
         .first();
 
       const paymentLink = await flutterwaveService.createPaymentLink({
-        amount:      grandTotal,
-        currency:    "NGN",
+        amount:        grandTotal,
+        currency:      "NGN",
         reference,
         orderId,
         customerEmail: user.email,
         customerName:  `${user.first_name} ${user.last_name}`,
         customerPhone: user.phone,
-        redirectUrl: `${process.env.FRONTEND_URL}/payment/callback`,
+        redirectUrl:   `${process.env.FRONTEND_URL}/payment/callback`,
       });
 
       // Save payment record
       await db("payments").insert({
-        id:          uuidv4(),
-        user_id:     userId,
-        order_id:    orderId,
+        id:         uuidv4(),
+        user_id:    userId,
+        order_id:   orderId,
         reference,
-        amount:      grandTotal,
-        type:        "order",
-        status:      "pending",
-        created_at:  new Date(),
+        amount:     grandTotal,
+        type:       "order",
+        status:     "pending",
+        created_at: new Date(),
       });
 
       return res.status(201).json({
         orderId,
-        paymentMethod:  "ONLINE_PAYMENT",
-        paymentUrl:     paymentLink,
+        paymentMethod: "ONLINE_PAYMENT",
+        paymentUrl:    paymentLink,
         reference,
       });
     }
@@ -136,8 +135,112 @@ exports.createOrder = async (req, res) => {
   } catch (err) {
     await trx.rollback();
     console.error("Create order error:", err);
-    return res.status(500).json({ 
-      message: "Order creation failed. Please try again." 
+    return res.status(500).json({
+      message: "Order creation failed. Please try again.",
+    });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/orders/:orderId
+// Returns order details for success page
+// ─────────────────────────────────────────────────────────────
+exports.getOrder = async (req, res) => {
+  const { orderId } = req.params;
+  const userId      = req.user.id;
+
+  try {
+    const order = await db("orders")
+      .where({ id: orderId, user_id: userId })
+      .first();
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const items = await db("order_items as oi")
+      .join("products as p", "oi.product_id", "p.id")
+      .where({ "oi.order_id": orderId })
+      .select(
+        "oi.id",
+        "oi.quantity",
+        "oi.unit_price",
+        "oi.total_price as totalPrice",
+        "p.name",
+        "p.images"
+      );
+
+    return res.status(200).json({
+      id:              order.id,
+      paymentMethod:   order.payment_method,
+      paymentStatus:   order.payment_status,
+      orderStatus:     order.order_status,
+      subtotal:        order.subtotal,
+      deliveryFee:     order.delivery_fee,
+      grandTotal:      order.grand_total,
+      shippingAddress: JSON.parse(order.shipping_address || "{}"),
+      reference:       order.reference,
+      createdAt:       order.created_at,
+      items: items.map((item) => ({
+        ...item,
+        image: Array.isArray(item.images) ? item.images[0] : item.images,
+      })),
+    });
+
+  } catch (err) {
+    console.error("getOrder error:", err);
+    return res.status(500).json({ message: "Could not fetch order" });
+  }
+};
+
+// ─────────────────────────────────────────────────────────────
+// POST /api/payments/retry
+// Generates a fresh Flutterwave link for a pending order
+// ─────────────────────────────────────────────────────────────
+exports.retryPayment = async (req, res) => {
+  const { orderId } = req.body;
+  const userId      = req.user.id;
+
+  try {
+    // Must belong to user, still pending, and ONLINE_PAYMENT
+    const order = await db("orders")
+      .where({
+        id:             orderId,
+        user_id:        userId,
+        payment_status: "pending",
+        payment_method: "ONLINE_PAYMENT",
+      })
+      .first();
+
+    if (!order) {
+      return res.status(404).json({
+        message:
+          "Order not found or already paid. Cannot retry this order.",
+      });
+    }
+
+    const user = await db("users")
+      .where({ id: userId })
+      .first();
+
+    // Reuse same reference so the webhook can still match this order
+    const paymentUrl = await flutterwaveService.createPaymentLink({
+      amount:        order.grand_total,
+      currency:      "NGN",
+      reference:     order.reference,
+      orderId:       order.id,
+      customerEmail: user.email,
+      customerName:  `${user.first_name} ${user.last_name}`,
+      customerPhone: user.phone,
+      redirectUrl:   `${process.env.FRONTEND_URL}/payment/callback`,
+    });
+
+    return res.status(200).json({ paymentUrl });
+
+  } catch (err) {
+    console.error("retryPayment error:", err);
+    return res.status(500).json({
+      message: "Could not generate payment link. Try again.",
     });
   }
 };
@@ -157,15 +260,12 @@ async function recalculateCart(cartItems, trx) {
       throw new Error(`Product ${item.productId} not found`);
     }
     if (product.stock_quantity < item.quantity) {
-      throw new Error(
-        `Insufficient stock for "${product.name}"`
-      );
+      throw new Error(`Insufficient stock for "${product.name}"`);
     }
 
     subtotal += Number(product.price) * item.quantity;
   }
 
-  // Delivery fee logic (can make dynamic later)
   const deliveryFee = subtotal >= 50000 ? 0 : 1500;
   const grandTotal  = subtotal + deliveryFee;
 
