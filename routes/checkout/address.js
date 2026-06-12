@@ -13,20 +13,17 @@ import {
 const router = express.Router();
 
 // ─────────────────────────────────────────────────────────────
-// HELPER — fetch one address belonging to this user
+// HELPERS
 // ─────────────────────────────────────────────────────────────
 async function findAddress(id, userId) {
   const { rows } = await pool.query(
     `SELECT * FROM public.user_addresses
-     WHERE id = $1 AND user_id = $2`,
+     WHERE  id = $1 AND user_id = $2`,
     [id, userId]
   );
   return rows[0] ?? null;
 }
 
-// ─────────────────────────────────────────────────────────────
-// HELPER — unset all defaults for a user
-// ─────────────────────────────────────────────────────────────
 async function clearDefaults(userId, client = pool) {
   await client.query(
     `UPDATE public.user_addresses
@@ -37,10 +34,33 @@ async function clearDefaults(userId, client = pool) {
   );
 }
 
+// ── Format row for response ───────────────────────────────────
+// Always returns bus_stop field (sourced from landmark column)
+// so frontend always gets the same shape
+function formatAddress(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    bus_stop: row.bus_stop ?? row.landmark ?? "",
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
+// NORMALISE INCOMING BODY
+// Accepts bus_stop OR landmark from frontend
+// Always stores in landmark column (existing DB column)
+// Also stores in bus_stop column if it exists
+// ─────────────────────────────────────────────────────────────
+function normalizeBusStop(body) {
+  return (
+    body.bus_stop?.trim()  ||
+    body.landmark?.trim()  ||
+    ""
+  );
+}
+
 // ═════════════════════════════════════════════════════════════
 // GET /api/checkout/address/zones
-// Public — no auth needed
-// Returns all delivery zones
 // ═════════════════════════════════════════════════════════════
 router.get("/zones", (_req, res) => {
   return res.json({
@@ -51,8 +71,7 @@ router.get("/zones", (_req, res) => {
 
 // ═════════════════════════════════════════════════════════════
 // GET /api/checkout/address
-// Returns all saved addresses for the logged-in buyer
-// Ordered: default first, then newest first
+// All addresses for logged-in buyer
 // ═════════════════════════════════════════════════════════════
 router.get("/", async (req, res) => {
   try {
@@ -66,6 +85,9 @@ router.get("/", async (req, res) => {
          city,
          address_line,
          landmark,
+         -- Return bus_stop column if it exists,
+         -- otherwise fall back to landmark
+         COALESCE(bus_stop, landmark, '')  AS bus_stop,
          additional_directions,
          call_before_delivery,
          is_default,
@@ -93,13 +115,19 @@ router.get("/", async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════
 // GET /api/checkout/address/:id
-// Returns a single address belonging to the user
 // ═════════════════════════════════════════════════════════════
 router.get("/:id", async (req, res) => {
   try {
-    const address = await findAddress(req.params.id, req.user.id);
+    const { rows } = await pool.query(
+      `SELECT
+         *,
+         COALESCE(bus_stop, landmark, '') AS bus_stop
+       FROM  public.user_addresses
+       WHERE id = $1 AND user_id = $2`,
+      [req.params.id, req.user.id]
+    );
 
-    if (!address) {
+    if (!rows.length) {
       return res.status(404).json({
         success: false,
         message: "Address not found",
@@ -108,7 +136,7 @@ router.get("/:id", async (req, res) => {
 
     return res.json({
       success: true,
-      data:    address,
+      data:    rows[0],
     });
 
   } catch (err) {
@@ -122,14 +150,34 @@ router.get("/:id", async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════
 // POST /api/checkout/address
-// Create a new delivery address
-// Body: full address object
+// Create a new address
+// Accepts bus_stop OR landmark — stored in both columns
 // ═════════════════════════════════════════════════════════════
 router.post("/", async (req, res) => {
-  // ── Normalise ─────────────────────────────────────────────
-  const data = normalizeAddress(req.body);
+  const data     = normalizeAddress(req.body);
+  const busStop  = normalizeBusStop(req.body);
 
-  // ── Validate ──────────────────────────────────────────────
+  // ── Validate bus stop ─────────────────────────────────────
+  if (!busStop) {
+    return res.status(422).json({
+      success: false,
+      message: "Please fix the errors below",
+      errors:  { bus_stop: "Nearest bus stop is required" },
+    });
+  }
+
+  if (busStop.length < 5) {
+    return res.status(422).json({
+      success: false,
+      message: "Please fix the errors below",
+      errors:  {
+        bus_stop: "Enter a real bus stop name (e.g. Oja Oba bus stop)",
+      },
+    });
+  }
+
+  // ── Full address validation ───────────────────────────────
+  data.landmark = busStop; // pass through validator
   const validation = validateAddress(data);
   if (!validation.valid) {
     return res.status(422).json({
@@ -139,17 +187,27 @@ router.post("/", async (req, res) => {
     });
   }
 
+  // ── Max address check ─────────────────────────────────────
+  const { rows: [{ count }] } = await pool.query(
+    `SELECT COUNT(*) FROM public.user_addresses WHERE user_id = $1`,
+    [req.user.id]
+  );
+  if (Number(count) >= 3) {
+    return res.status(400).json({
+      success: false,
+      message: "Maximum 3 addresses allowed. Delete one to add a new address.",
+    });
+  }
+
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    // ── Unset other defaults if this will be default ───────
     if (data.is_default) {
       await clearDefaults(req.user.id, client);
     }
 
-    // ── Insert ────────────────────────────────────────────
     const { rows: [address] } = await client.query(
       `INSERT INTO public.user_addresses
          (user_id,
@@ -160,23 +218,26 @@ router.post("/", async (req, res) => {
           city,
           address_line,
           landmark,
+          bus_stop,
           additional_directions,
           call_before_delivery,
           is_default,
           created_at,
           updated_at)
        VALUES
-         ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now(), now())
-       RETURNING *`,
+         ($1, $2, $3, $4, $5, $6, $7, $8, $8, $9, $10, $11, now(), now())
+       RETURNING
+         *,
+         COALESCE(bus_stop, landmark, '') AS bus_stop`,
       [
         req.user.id,
-        data.label,
+        data.label                 ?? "Home",
         data.recipient_name,
         data.phone,
         data.state,
         data.city,
         data.address_line,
-        data.landmark,
+        busStop,                   // $8 → both landmark AND bus_stop
         data.additional_directions ?? "",
         data.call_before_delivery  ?? false,
         data.is_default            ?? false,
@@ -205,18 +266,15 @@ router.post("/", async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════
 // PATCH /api/checkout/address/:id
-// Update an existing address (partial update supported)
-// Only updates fields that are present in the request body
+// Partial update — only fields present in body are changed
 // ═════════════════════════════════════════════════════════════
 router.patch("/:id", async (req, res) => {
-  const userId = req.user.id;
-  const { id } = req.params;
+  const userId  = req.user.id;
+  const { id }  = req.params;
+  const data    = normalizeAddress(req.body);
+  const errors  = {};
 
-  // ── Normalise incoming data ───────────────────────────────
-  const data   = normalizeAddress(req.body);
-  const errors = {};
-
-  // ── Field-level validation (only for provided fields) ─────
+  // ── Field-level validation ────────────────────────────────
   if (req.body.state !== undefined) {
     if (!data.state?.trim()) {
       errors.state = "State is required";
@@ -233,13 +291,20 @@ router.patch("/:id", async (req, res) => {
     }
   }
 
-  if (
-    req.body.landmark !== undefined &&
-    data.landmark !== undefined &&
-    data.landmark.trim().length > 0 &&
-    data.landmark.trim().length < 5
-  ) {
-    errors.landmark = "Please provide a more specific landmark";
+  // Validate bus_stop if provided (either field name)
+  const hasBusStop =
+    req.body.bus_stop !== undefined ||
+    req.body.landmark !== undefined;
+
+  const busStop = hasBusStop ? normalizeBusStop(req.body) : null;
+
+  if (hasBusStop) {
+    if (!busStop) {
+      errors.bus_stop = "Bus stop is required";
+    } else if (busStop.length < 5) {
+      errors.bus_stop =
+        "Enter a real bus stop (e.g. Oja Oba bus stop)";
+    }
   }
 
   if (
@@ -263,7 +328,6 @@ router.patch("/:id", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── Verify address belongs to user ────────────────────
     const existing = await findAddress(id, userId);
     if (!existing) {
       await client.query("ROLLBACK");
@@ -273,12 +337,10 @@ router.patch("/:id", async (req, res) => {
       });
     }
 
-    // ── If setting as default, clear others first ─────────
     if (data.is_default === true) {
       await clearDefaults(userId, client);
     }
 
-    // ── Update — COALESCE keeps existing value if null ────
     const { rows: [updated] } = await client.query(
       `UPDATE public.user_addresses
        SET
@@ -289,24 +351,25 @@ router.patch("/:id", async (req, res) => {
          city                  = COALESCE($6,  city),
          address_line          = COALESCE($7,  address_line),
          landmark              = COALESCE($8,  landmark),
+         bus_stop              = COALESCE($8,  bus_stop),
          additional_directions = COALESCE($9,  additional_directions),
          call_before_delivery  = COALESCE($10, call_before_delivery),
          is_default            = COALESCE($11, is_default),
          updated_at            = now()
        WHERE  id      = $1
          AND  user_id = $12
-       RETURNING *`,
+       RETURNING
+         *,
+         COALESCE(bus_stop, landmark, '') AS bus_stop`,
       [
         id,
-        // Only pass value if field was in request body
-        // otherwise pass null so COALESCE keeps existing
         req.body.label                 !== undefined ? data.label                 : null,
         req.body.recipient_name        !== undefined ? data.recipient_name        : null,
         req.body.phone                 !== undefined ? data.phone                 : null,
         req.body.state                 !== undefined ? data.state                 : null,
         req.body.city                  !== undefined ? data.city                  : null,
         req.body.address_line          !== undefined ? data.address_line          : null,
-        req.body.landmark              !== undefined ? data.landmark              : null,
+        hasBusStop                                   ? busStop                    : null,
         req.body.additional_directions !== undefined ? data.additional_directions : null,
         req.body.call_before_delivery  !== undefined
           ? (data.call_before_delivery ?? false)
@@ -340,17 +403,29 @@ router.patch("/:id", async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════
 // PUT /api/checkout/address/:id
-// Full replacement update (same logic as PATCH)
-// Kept for frontend compatibility
+// Full replacement — kept for frontend compatibility
 // ═════════════════════════════════════════════════════════════
 router.put("/:id", async (req, res) => {
-  const userId = req.user.id;
-  const { id } = req.params;
+  const userId  = req.user.id;
+  const { id }  = req.params;
+  const data    = normalizeAddress(req.body);
+  const busStop = normalizeBusStop(req.body);
 
-  // ── Normalise + full validation ───────────────────────────
-  const data       = normalizeAddress(req.body);
+  // ── Validate bus stop ─────────────────────────────────────
+  if (!busStop || busStop.length < 5) {
+    return res.status(422).json({
+      success: false,
+      message: "Please fix the errors below",
+      errors:  {
+        bus_stop: busStop
+          ? "Enter a more specific bus stop name"
+          : "Nearest bus stop is required",
+      },
+    });
+  }
+
+  data.landmark = busStop;
   const validation = validateAddress(data);
-
   if (!validation.valid) {
     return res.status(422).json({
       success: false,
@@ -364,7 +439,6 @@ router.put("/:id", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── Verify address belongs to user ────────────────────
     const existing = await findAddress(id, userId);
     if (!existing) {
       await client.query("ROLLBACK");
@@ -374,12 +448,10 @@ router.put("/:id", async (req, res) => {
       });
     }
 
-    // ── Clear defaults if setting this as default ─────────
     if (data.is_default) {
       await clearDefaults(userId, client);
     }
 
-    // ── Full update ───────────────────────────────────────
     const { rows: [updated] } = await client.query(
       `UPDATE public.user_addresses
        SET
@@ -390,22 +462,25 @@ router.put("/:id", async (req, res) => {
          city                  = $6,
          address_line          = $7,
          landmark              = $8,
+         bus_stop              = $8,
          additional_directions = $9,
          call_before_delivery  = $10,
          is_default            = $11,
          updated_at            = now()
        WHERE  id      = $1
          AND  user_id = $12
-       RETURNING *`,
+       RETURNING
+         *,
+         COALESCE(bus_stop, landmark, '') AS bus_stop`,
       [
         id,
-        data.label,
+        data.label                 ?? "Home",
         data.recipient_name,
         data.phone,
         data.state,
         data.city,
         data.address_line,
-        data.landmark,
+        busStop,
         data.additional_directions ?? "",
         data.call_before_delivery  ?? false,
         data.is_default            ?? false,
@@ -435,15 +510,12 @@ router.put("/:id", async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════
 // DELETE /api/checkout/address/:id
-// Delete a saved address
-// Cannot delete the only address if it is selected at checkout
 // ═════════════════════════════════════════════════════════════
 router.delete("/:id", async (req, res) => {
   const userId = req.user.id;
   const { id } = req.params;
 
   try {
-    // ── Check address exists + belongs to user ────────────
     const existing = await findAddress(id, userId);
     if (!existing) {
       return res.status(404).json({
@@ -458,7 +530,7 @@ router.delete("/:id", async (req, res) => {
       [id, userId]
     );
 
-    // ── If we deleted the default, promote the next one ───
+    // Promote next address as default if we deleted the default
     if (existing.is_default) {
       await pool.query(
         `UPDATE public.user_addresses
@@ -491,18 +563,15 @@ router.delete("/:id", async (req, res) => {
 
 // ═════════════════════════════════════════════════════════════
 // PATCH /api/checkout/address/:id/default
-// Set one address as the default
 // ═════════════════════════════════════════════════════════════
 router.patch("/:id/default", async (req, res) => {
   const userId = req.user.id;
   const { id } = req.params;
-
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    // ── Check address exists ──────────────────────────────
     const existing = await findAddress(id, userId);
     if (!existing) {
       await client.query("ROLLBACK");
@@ -512,16 +581,16 @@ router.patch("/:id/default", async (req, res) => {
       });
     }
 
-    // ── Clear all defaults ────────────────────────────────
     await clearDefaults(userId, client);
 
-    // ── Set this one as default ───────────────────────────
     const { rows: [updated] } = await client.query(
       `UPDATE public.user_addresses
        SET    is_default = true,
               updated_at = now()
        WHERE  id = $1 AND user_id = $2
-       RETURNING *`,
+       RETURNING
+         *,
+         COALESCE(bus_stop, landmark, '') AS bus_stop`,
       [id, userId]
     );
 
