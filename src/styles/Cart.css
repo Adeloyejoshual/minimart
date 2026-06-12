@@ -929,6 +929,428 @@ button { font-family: inherit; cursor: pointer; }
   margin:      0 0 12px;
 }
 
+/* ──────────────────────────────────────────────────────────
+   SECTION BLOCKS (Recently Viewed + You May Also Like)
+────────────────────────────────────────────────────────── */
+.ct-section-block {
+  background:    white;
+  border-radius: 16px;
+  border:        1px solid #f3f4f6;
+  padding:       1.25rem;
+  box-shadow:    0 1px 4px rgba(0, 0, 0, 0.04);
+  overflow:      hidden;
+}
+
+.ct-section-header {
+  display:         flex;
+  justify-content: space-between;
+  align-items:     flex-start;
+  margin-bottom:   1rem;
+}
+
+.ct-section-title {
+  font-weight: 700;
+  color:       #1f2937;
+  font-size:   0.95rem;
+  margin:      0 0 0.2rem;
+}
+
+.ct-section-sub {
+  font-size: 0.75rem;
+  color:     #9ca3af;
+  margin:    0;
+}
+
+.ct-section-clear {
+  background:  none;
+  border:      none;
+  cursor:      pointer;
+  font-size:   0.75rem;
+  color:       #9ca3af;
+  font-family: inherit;
+  padding:     0;
+  transition:  color 0.15s;
+}
+.ct-section-clear:hover { color: #ef4444; }
+
+.ct-section-see-all {
+  font-size:       0.8rem;
+  color:           #6366f1;
+  font-weight:     600;
+  text-decoration: none;
+  white-space:     nowrap;
+  flex-shrink:     0;
+}
+.ct-section-see-all:hover { text-decoration: underline; }
+
+/* ── Recently Viewed cards ── */
+.ct-rp-scroll {
+  overflow-x:              auto;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:         none;
+  margin:                  0 -1.25rem;
+  padding:                 0 1.25rem;
+}
+.ct-rp-scroll::-webkit-scrollbar { display: none; }
+
+.ct-rp-track {
+  display:   flex;
+  gap:       0.75rem;
+  width:     max-content;
+  padding-bottom: 0.25rem;
+}
+
+.ct-rp-card {
+  width:          130px;
+  flex-shrink:    0;
+  border:         1px solid #f3f4f6;
+  border-radius:  12px;
+  overflow:       hidden;
+  cursor:         pointer;
+  transition:     box-shadow 0.2s, transform 0.2s;
+  background:     white;
+  display:        flex;
+  flex-direction: column;
+}
+
+.ct-rp-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  transform:  translateY(-2px);
+}
+
+.ct-rp-card:focus-visible {
+  outline:        2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+.ct-rp-img-wrap {
+  width:           100%;
+  aspect-ratio:    1;
+  background:      #f8fafc;
+  overflow:        hidden;
+}
+
+.ct-rp-img {
+  width:      100%;
+  height:     100%;
+  object-fit: cover;
+  display:    block;
+  transition: transform 0.3s;
+}
+
+.ct-rp-card:hover .ct-rp-img { transform: scale(1.04); }
+
+.ct-rp-img-placeholder {
+  width:           100%;
+  height:          100%;
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  font-size:       2rem;
+  background:      #f8fafc;
+}
+
+.ct-rp-info {
+  padding: 0.6rem;
+  flex:    1;
+}
+
+.ct-rp-name {
+  font-size:     0.75rem;
+  font-weight:   600;
+  color:         #1f2937;
+  margin:        0 0 0.25rem;
+  overflow:      hidden;
+  text-overflow: ellipsis;
+  white-space:   nowrap;
+}
+
+.ct-rp-price {
+  font-size:   0.78rem;
+  font-weight: 700;
+  color:       #6366f1;
+  margin:      0;
+}
+
+.ct-rp-add-btn {
+  margin:        0.5rem 0.6rem 0.6rem;
+  padding:       0.4rem;
+  border:        1px solid #e5e7eb;
+  border-radius: 8px;
+  background:    white;
+  cursor:        pointer;
+  font-size:     0.72rem;
+  font-weight:   600;
+  color:         #374151;
+  font-family:   inherit;
+  transition:    all 0.15s;
+  text-align:    center;
+  display:       flex;
+  align-items:   center;
+  justify-content:center;
+  gap:           0.3rem;
+}
+
+.ct-rp-add-btn:hover:not(:disabled) {
+  background:   #6366f1;
+  color:        white;
+  border-color: #6366f1;
+}
+
+.ct-rp-add-btn--added {
+  background:   #ecfdf5;
+  color:        #065f46;
+  border-color: #a7f3d0;
+}
+
+.ct-rp-spinner {
+  width:         12px;
+  height:        12px;
+  border:        2px solid rgba(0,0,0,0.1);
+  border-top:    2px solid currentColor;
+  border-radius: 50%;
+  display:       inline-block;
+  animation:     ct-spin 0.6s linear infinite;
+}
+
+/* ── You May Also Like cards ── */
+.ct-sugg-scroll {
+  overflow-x:                  auto;
+  -webkit-overflow-scrolling:  touch;
+  scrollbar-width:             none;
+  margin:                      0 -1.25rem;
+  padding:                     0 1.25rem;
+}
+.ct-sugg-scroll::-webkit-scrollbar { display: none; }
+
+.ct-sugg-track {
+  display:   flex;
+  gap:       0.875rem;
+  width:     max-content;
+  padding-bottom: 0.25rem;
+}
+
+.ct-sugg-card {
+  width:          175px;
+  flex-shrink:    0;
+  border:         1px solid #f3f4f6;
+  border-radius:  14px;
+  overflow:       hidden;
+  cursor:         pointer;
+  background:     white;
+  display:        flex;
+  flex-direction: column;
+  transition:     box-shadow 0.2s, transform 0.2s;
+}
+
+.ct-sugg-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.1);
+  transform:  translateY(-2px);
+}
+
+.ct-sugg-card:focus-visible {
+  outline:        2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+.ct-sugg-img-wrap {
+  position:    relative;
+  width:       100%;
+  aspect-ratio:1;
+  overflow:    hidden;
+  background:  #f8fafc;
+}
+
+.ct-sugg-img {
+  width:      100%;
+  height:     100%;
+  object-fit: cover;
+  display:    block;
+  transition: transform 0.3s;
+}
+
+.ct-sugg-card:hover .ct-sugg-img { transform: scale(1.04); }
+
+.ct-sugg-img-placeholder {
+  width:           100%;
+  height:          100%;
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  font-size:       2.5rem;
+  background:      #f8fafc;
+}
+
+.ct-sugg-badge {
+  position:      absolute;
+  top:           8px;
+  left:          8px;
+  background:    #ef4444;
+  color:         white;
+  font-size:     0.62rem;
+  font-weight:   700;
+  padding:       0.2rem 0.5rem;
+  border-radius: 100px;
+}
+
+.ct-sugg-badge--new {
+  background: #6366f1;
+}
+
+.ct-sugg-info {
+  padding:        0.75rem;
+  flex:           1;
+  display:        flex;
+  flex-direction: column;
+  gap:            0.3rem;
+}
+
+.ct-sugg-name {
+  font-weight:   600;
+  color:         #1f2937;
+  font-size:     0.82rem;
+  margin:        0;
+  overflow:      hidden;
+  text-overflow: ellipsis;
+  display:       -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  line-height:   1.35;
+}
+
+.ct-sugg-rating {
+  display:     flex;
+  align-items: center;
+  gap:         0.3rem;
+}
+
+.ct-sugg-stars { color: #f59e0b; font-size: 0.72rem; }
+
+.ct-sugg-review-count {
+  color:     #9ca3af;
+  font-size: 0.68rem;
+}
+
+.ct-sugg-price-row {
+  display:     flex;
+  align-items: baseline;
+  gap:         0.4rem;
+}
+
+.ct-sugg-price {
+  font-weight: 700;
+  color:       #1f2937;
+  font-size:   0.9rem;
+}
+
+.ct-sugg-compare {
+  font-size:        0.72rem;
+  color:            #9ca3af;
+  text-decoration:  line-through;
+}
+
+.ct-sugg-add-btn {
+  margin:        0 0.75rem 0.75rem;
+  padding:       0.5rem;
+  border:        1.5px solid #6366f1;
+  border-radius: 8px;
+  background:    white;
+  color:         #6366f1;
+  cursor:        pointer;
+  font-size:     0.78rem;
+  font-weight:   700;
+  font-family:   inherit;
+  transition:    all 0.15s;
+  text-align:    center;
+  display:       flex;
+  align-items:   center;
+  justify-content:center;
+  gap:           0.3rem;
+}
+
+.ct-sugg-add-btn:hover:not(:disabled) {
+  background: #6366f1;
+  color:      white;
+}
+
+.ct-sugg-add-btn--added {
+  background:   #ecfdf5;
+  color:        #065f46;
+  border-color: #a7f3d0;
+}
+
+/* Suggestion skeleton */
+.ct-sugg-skeleton-row {
+  display: flex;
+  gap:     0.875rem;
+}
+
+.ct-sugg-skeleton-card {
+  width:          175px;
+  flex-shrink:    0;
+  border:         1px solid #f3f4f6;
+  border-radius:  14px;
+  overflow:       hidden;
+  padding-bottom: 0.75rem;
+}
+
+.ct-sugg-sk-img {
+  width:        100%;
+  aspect-ratio: 1;
+  border-radius:0;
+}
+
+.ct-sugg-sk-line {
+  height:       12px;
+  border-radius:6px;
+  margin:       0.5rem 0.75rem 0;
+}
+
+.ct-sugg-sk-line--sm { width: 60%; height: 10px; }
+
+/* ── Empty cart suggestions area ── */
+.ct-empty-suggestions {
+  max-width: 900px;
+  margin:    0 auto;
+  padding:   0 1.25rem 2rem;
+  display:   flex;
+  flex-direction: column;
+  gap:       1.25rem;
+}
+
+/* ── Price notice per item ── */
+.ct-price-notice {
+  font-size:   0.72rem;
+  color:       #f59e0b;
+  font-weight: 500;
+  margin:      0;
+}
+
+/* ── Unavailable item overlay ── */
+.ct-oos-overlay--unavail { background: rgba(107, 114, 128, 0.65); }
+.ct-item--unavail        { opacity: 0.6; }
+
+/* ─────────────────────────────────────────────────────────
+   FOOTER INTEGRATION
+────────────────────────────────────────────────────────── */
+.ct-page .footer {
+  margin-top: 2rem;
+}
+
+/* ─────────────────────────────────────────────────────────
+   RESPONSIVE ADDITIONS
+────────────────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .ct-sugg-card { width: 155px; }
+  .ct-rp-card   { width: 120px; }
+}
+
+@media (max-width: 480px) {
+  .ct-sugg-card { width: 145px; }
+  .ct-rp-card   { width: 110px; }
+  .ct-section-block { padding: 1rem; }
+}
+
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
