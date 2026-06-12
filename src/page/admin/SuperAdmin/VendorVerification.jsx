@@ -1,4 +1,5 @@
 // SuperAdmin/VendorVerification.jsx
+
 import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 
@@ -14,7 +15,9 @@ const api = () => {
   };
 };
 
-// ── Constants ─────────────────────────────────────────────────
+// ═════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═════════════════════════════════════════════════════════════
 const STATUS_CONFIG = {
   pending:      { label: "Pending",      color: "#f59e0b", bg: "#fffbeb" },
   under_review: { label: "Under Review", color: "#3b82f6", bg: "#eff6ff" },
@@ -26,8 +29,8 @@ const STATUS_CONFIG = {
 
 const ALLOWED_TRANSITIONS = {
   pending:      ["under_review", "rejected"],
-  under_review: ["approved", "rejected"],
-  approved:     ["active", "rejected"],
+  under_review: ["approved",     "rejected"],
+  approved:     ["active",       "rejected"],
   active:       ["suspended"],
   suspended:    ["active"],
   rejected:     [],
@@ -47,9 +50,9 @@ const ID_LABELS = {
 
 const LIMIT = 20;
 
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 // MAIN COMPONENT
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 export default function VendorVerification({ confirm, onMutation }) {
   const [vendors,        setVendors]        = useState([]);
   const [statusCounts,   setStatusCounts]   = useState({});
@@ -64,8 +67,7 @@ export default function VendorVerification({ confirm, onMutation }) {
   const [search,         setSearch]         = useState("");
   const [activeTab,      setActiveTab]      = useState("info");
   const [notes,          setNotes]          = useState("");
-
-  const [statusModal, setStatusModal] = useState({
+  const [statusModal,    setStatusModal]    = useState({
     open: false, status: "", reason: "",
   });
 
@@ -75,14 +77,16 @@ export default function VendorVerification({ confirm, onMutation }) {
   useEffect(() => {
     const timer = setTimeout(() => fetchVendors(1), 500);
     return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, statusFilter]);
 
-  // ── Fetch vendors list ────────────────────────────────────
+  // ── Fetch vendor list ─────────────────────────────────────
   const fetchVendors = useCallback(async (page = 1) => {
     setLoading(true);
     try {
       const params = new URLSearchParams({
-        page, limit: LIMIT,
+        page,
+        limit: LIMIT,
         ...(statusFilter !== "all" && { status: statusFilter }),
         ...(search.trim()          && { search: search.trim() }),
       });
@@ -95,7 +99,9 @@ export default function VendorVerification({ confirm, onMutation }) {
         data.pagination?.total ?? data.total ?? 0
       );
       setPagination({
-        total, page, limit: LIMIT,
+        total,
+        page,
+        limit:       LIMIT,
         total_pages: Math.max(1, Math.ceil(total / LIMIT)),
       });
     } catch (err) {
@@ -131,7 +137,7 @@ export default function VendorVerification({ confirm, onMutation }) {
 
     setActionLoading("status");
     try {
-      const { data } = await api().patch(
+      await api().patch(
         `/vendors/${vendorId}/status`,
         { status, ...(reason.trim() && { reason: reason.trim() }) }
       );
@@ -144,27 +150,10 @@ export default function VendorVerification({ confirm, onMutation }) {
       onMutation?.();
       setStatusModal({ open: false, status: "", reason: "" });
 
-      // ── Show virtual account result ───────────────────────
-      if (data.virtual_account) {
-        alert(
-          `✅ Vendor activated!\n\n` +
-          `Virtual Account Created:\n` +
-          `Account: ${data.virtual_account.account_number}\n` +
-          `Bank: ${data.virtual_account.bank_name}\n` +
-          `Name: ${data.virtual_account.account_name}`
-        );
-      } else if (data.va_error) {
-        // VA creation failed — show message + guide admin
-        alert(
-          `✅ Vendor activated successfully!\n\n` +
-          `⚠️ Virtual account auto-creation failed:\n` +
-          `${data.va_error}\n\n` +
-          `Please use "Manually Assign" in the Bank tab to assign an account.`
-        );
-      }
-
     } catch (err) {
-      alert(err.response?.data?.message ?? "Failed to update status");
+      alert(
+        err.response?.data?.message ?? "Failed to update status"
+      );
     } finally {
       setActionLoading(null);
     }
@@ -173,54 +162,6 @@ export default function VendorVerification({ confirm, onMutation }) {
     pagination.page, fetchDetail,
     fetchVendors, onMutation,
   ]);
-
-  // ── Auto-create virtual account (retry) ──────────────────
-  const retryVirtualAccount = useCallback(async (vendorId) => {
-    setActionLoading("va");
-    try {
-      const { data } = await api().post(
-        `/vendors/${vendorId}/create-virtual-account`
-      );
-      delete walletCacheRef.current[vendorId];
-      await fetchDetail(vendorId);
-      alert(
-        `✅ Virtual account created!\n` +
-        `Account: ${data.virtual_account?.account_number}\n` +
-        `Bank: ${data.virtual_account?.bank_name}`
-      );
-    } catch (err) {
-      alert(
-        `❌ Auto-creation failed:\n${err.response?.data?.message ?? err.message}\n\n` +
-        `Use "Manually Assign" to assign an existing account.`
-      );
-    } finally {
-      setActionLoading(null);
-    }
-  }, [fetchDetail]);
-
-  // ── Manually assign virtual account ──────────────────────
-  const assignVirtualAccount = useCallback(async (vendorId, form) => {
-    setActionLoading("va-manual");
-    try {
-      const { data } = await api().post(
-        `/vendors/${vendorId}/assign-virtual-account`,
-        form
-      );
-      delete walletCacheRef.current[vendorId];
-      await fetchDetail(vendorId);
-      alert(
-        `✅ Virtual account assigned!\n` +
-        `Account: ${data.virtual_account?.account_number}\n` +
-        `Bank: ${data.virtual_account?.bank_name}`
-      );
-      return true;
-    } catch (err) {
-      alert(err.response?.data?.message ?? "Assignment failed");
-      return false;
-    } finally {
-      setActionLoading(null);
-    }
-  }, [fetchDetail]);
 
   // ── Save notes ────────────────────────────────────────────
   const saveNotes = useCallback(async (vendorId) => {
@@ -247,19 +188,28 @@ export default function VendorVerification({ confirm, onMutation }) {
       <div style={s.header}>
         <div>
           <h2 style={s.title}>🏪 Vendor Verification</h2>
-          <p style={s.subtitle}>Review and approve seller applications</p>
+          <p style={s.subtitle}>
+            Review and approve seller applications
+          </p>
         </div>
         <div style={s.countPills}>
           {["pending", "under_review", "active"].map((st) => {
             const cfg = STATUS_CONFIG[st];
             return (
-              <div key={st} style={{
-                ...s.countPill, background: cfg.bg, color: cfg.color,
-              }}>
+              <div
+                key={st}
+                style={{
+                  ...s.countPill,
+                  background: cfg.bg,
+                  color:      cfg.color,
+                }}
+              >
                 <span style={{ fontWeight: 800 }}>
                   {statusCounts[st] ?? 0}
                 </span>
-                <span style={{ fontSize: "0.75rem" }}>{cfg.label}</span>
+                <span style={{ fontSize: "0.75rem" }}>
+                  {cfg.label}
+                </span>
               </div>
             );
           })}
@@ -272,21 +222,27 @@ export default function VendorVerification({ confirm, onMutation }) {
           {STATUS_FILTERS.map((st) => (
             <button
               key={st}
-              style={{ ...s.tab, ...(statusFilter === st ? s.tabActive : {}) }}
+              style={{
+                ...s.tab,
+                ...(statusFilter === st ? s.tabActive : {}),
+              }}
               onClick={() => {
                 setStatusFilter(st);
                 setSelectedVendor(null);
               }}
             >
-              {st === "all" ? "All" : STATUS_CONFIG[st]?.label ?? st}
+              {st === "all"
+                ? "All"
+                : STATUS_CONFIG[st]?.label ?? st}
               {st !== "all" && statusCounts[st]
-                ? ` (${statusCounts[st]})` : ""}
+                ? ` (${statusCounts[st]})`
+                : ""}
             </button>
           ))}
         </div>
         <input
           style={s.search}
-          placeholder="🔍 Search store, owner, email..."
+          placeholder="🔍 Search store, owner, email…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -295,7 +251,7 @@ export default function VendorVerification({ confirm, onMutation }) {
       {/* ── Main layout ───────────────────────────────────── */}
       <div style={s.layout}>
 
-        {/* ── Vendor list ───────────────────────────────── */}
+        {/* Vendor list */}
         <div style={s.list}>
           {loading ? (
             <LoadingRows />
@@ -319,11 +275,11 @@ export default function VendorVerification({ confirm, onMutation }) {
           )}
         </div>
 
-        {/* ── Detail panel ──────────────────────────────── */}
+        {/* Detail panel */}
         {selectedVendor ? (
           <div style={s.detail}>
             {detailLoading ? (
-              <div style={s.detailLoading}>Loading...</div>
+              <div style={s.detailLoading}>Loading…</div>
             ) : (
               <DetailPanel
                 data={selectedVendor}
@@ -333,8 +289,6 @@ export default function VendorVerification({ confirm, onMutation }) {
                 setStatusModal={setStatusModal}
                 updateStatus={updateStatus}
                 actionLoading={actionLoading}
-                retryVirtualAccount={retryVirtualAccount}
-                assignVirtualAccount={assignVirtualAccount}
                 notes={notes}
                 setNotes={setNotes}
                 saveNotes={saveNotes}
@@ -351,7 +305,7 @@ export default function VendorVerification({ confirm, onMutation }) {
         )}
       </div>
 
-      {/* ── Status Modal ──────────────────────────────────── */}
+      {/* Status modal */}
       {statusModal.open && (
         <StatusModal
           modal={statusModal}
@@ -364,18 +318,25 @@ export default function VendorVerification({ confirm, onMutation }) {
   );
 }
 
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 // VENDOR ROW
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 function VendorRow({ vendor, selected, onClick }) {
   const cfg = STATUS_CONFIG[vendor.status] ?? STATUS_CONFIG.pending;
   return (
     <div
-      style={{ ...s.vendorRow, ...(selected ? s.vendorRowSelected : {}) }}
+      style={{
+        ...s.vendorRow,
+        ...(selected ? s.vendorRowSelected : {}),
+      }}
       onClick={onClick}
     >
       {vendor.store_logo ? (
-        <img src={vendor.store_logo} alt="" style={s.vendorLogo} />
+        <img
+          src={vendor.store_logo}
+          alt=""
+          style={s.vendorLogo}
+        />
       ) : (
         <div style={s.vendorLogoPlaceholder}>
           {vendor.store_name?.[0]?.toUpperCase() ?? "S"}
@@ -389,28 +350,38 @@ function VendorRow({ vendor, selected, onClick }) {
           {new Date(vendor.created_at).toLocaleDateString()}
         </div>
       </div>
-      <span style={{ ...s.statusBadge, color: cfg.color, background: cfg.bg }}>
+      <span style={{
+        ...s.statusBadge,
+        color:      cfg.color,
+        background: cfg.bg,
+      }}>
         {cfg.label}
       </span>
     </div>
   );
 }
 
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 // DETAIL PANEL
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 function DetailPanel({
   data, activeTab, setActiveTab,
   statusModal, setStatusModal,
   updateStatus, actionLoading,
-  retryVirtualAccount,
-  assignVirtualAccount,
   notes, setNotes, saveNotes,
   walletCacheRef, onClose,
 }) {
   const { vendor, history } = data;
   const cfg     = STATUS_CONFIG[vendor.status] ?? STATUS_CONFIG.pending;
   const allowed = ALLOWED_TRANSITIONS[vendor.status] ?? [];
+
+  const ACTION_LABELS = {
+    active:       "✅ Activate",
+    approved:     "👍 Approve",
+    under_review: "🔍 Under Review",
+    rejected:     "❌ Reject",
+    suspended:    "🚫 Suspend",
+  };
 
   return (
     <div style={s.detailWrap}>
@@ -419,7 +390,11 @@ function DetailPanel({
       <div style={s.detailHeader}>
         <div style={s.detailHeaderLeft}>
           {vendor.store_logo ? (
-            <img src={vendor.store_logo} alt="" style={s.detailLogo} />
+            <img
+              src={vendor.store_logo}
+              alt=""
+              style={s.detailLogo}
+            />
           ) : (
             <div style={s.detailLogoPlaceholder}>
               {vendor.store_name?.[0]?.toUpperCase() ?? "S"}
@@ -427,7 +402,11 @@ function DetailPanel({
           )}
           <div>
             <h3 style={s.detailName}>{vendor.store_name}</h3>
-            <span style={{ ...s.statusBadge, color: cfg.color, background: cfg.bg }}>
+            <span style={{
+              ...s.statusBadge,
+              color:      cfg.color,
+              background: cfg.bg,
+            }}>
               {cfg.label}
             </span>
           </div>
@@ -452,19 +431,10 @@ function DetailPanel({
                 }}
                 disabled={!!actionLoading}
                 onClick={() => {
-                  if (["rejected", "suspended"].includes(st)) {
-                    if (!window.confirm(
-                      `Are you sure you want to ${st} this vendor?`
-                    )) return;
-                  }
                   setStatusModal({ open: true, status: st, reason: "" });
                 }}
               >
-                {st === "active"       && "✅ Activate"}
-                {st === "approved"     && "👍 Approve"}
-                {st === "under_review" && "🔍 Under Review"}
-                {st === "rejected"     && "❌ Reject"}
-                {st === "suspended"    && "🚫 Suspend"}
+                {ACTION_LABELS[st] ?? st}
               </button>
             );
           })}
@@ -497,7 +467,7 @@ function DetailPanel({
       {/* Tab content */}
       <div style={s.detailBody}>
 
-        {/* ── INFO TAB ──────────────────────────────────── */}
+        {/* ── INFO ──────────────────────────────────────── */}
         {activeTab === "info" && (
           <div style={s.infoGrid}>
             <InfoRow label="Owner"    value={vendor.owner_name}     />
@@ -521,10 +491,18 @@ function DetailPanel({
               />
             )}
             {vendor.rejection_reason && (
-              <InfoRow label="Rejection Reason"  value={vendor.rejection_reason}  danger />
+              <InfoRow
+                label="Rejection Reason"
+                value={vendor.rejection_reason}
+                danger
+              />
             )}
             {vendor.suspended_reason && (
-              <InfoRow label="Suspension Reason" value={vendor.suspended_reason}  danger />
+              <InfoRow
+                label="Suspension Reason"
+                value={vendor.suspended_reason}
+                danger
+              />
             )}
             {vendor.store_description && (
               <div style={s.descBox}>
@@ -537,11 +515,13 @@ function DetailPanel({
             <div style={s.notesSection}>
               <label style={s.notesLabel}>Internal Notes</label>
               {vendor.verification_notes && (
-                <div style={s.existingNote}>{vendor.verification_notes}</div>
+                <div style={s.existingNote}>
+                  {vendor.verification_notes}
+                </div>
               )}
               <textarea
                 style={s.notesInput}
-                placeholder="Add review notes (internal only)..."
+                placeholder="Add review notes (internal only)…"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 rows={3}
@@ -549,18 +529,20 @@ function DetailPanel({
               <button
                 style={{
                   ...s.saveNotesBtn,
-                  opacity: actionLoading === "notes" || !notes.trim() ? 0.6 : 1,
+                  opacity: (
+                    actionLoading === "notes" || !notes.trim()
+                  ) ? 0.6 : 1,
                 }}
                 disabled={actionLoading === "notes" || !notes.trim()}
                 onClick={() => saveNotes(vendor.id)}
               >
-                {actionLoading === "notes" ? "Saving..." : "Save Notes"}
+                {actionLoading === "notes" ? "Saving…" : "Save Notes"}
               </button>
             </div>
           </div>
         )}
 
-        {/* ── ID TAB ────────────────────────────────────── */}
+        {/* ── ID ────────────────────────────────────────── */}
         {activeTab === "id" && (
           <div style={s.infoGrid}>
             <div style={s.sectionLabel}>🪪 Identity Information</div>
@@ -569,13 +551,17 @@ function DetailPanel({
               <>
                 <InfoRow
                   label="ID Type"
-                  value={ID_LABELS[vendor.id_type] ?? vendor.id_type?.toUpperCase()}
+                  value={
+                    ID_LABELS[vendor.id_type] ??
+                    vendor.id_type?.toUpperCase()
+                  }
                 />
                 <InfoRow
                   label="ID Number"
                   value={
                     <span style={{
-                      fontFamily: "monospace", letterSpacing: "0.08em",
+                      fontFamily:    "monospace",
+                      letterSpacing: "0.08em",
                     }}>
                       {vendor.id_number ?? "—"}
                     </span>
@@ -583,7 +569,9 @@ function DetailPanel({
                 />
               </>
             ) : (
-              <div style={s.warningBox}>⚠️ No ID information submitted yet</div>
+              <div style={s.warningBox}>
+                ⚠️ No ID information submitted yet
+              </div>
             )}
 
             <div style={{ ...s.sectionLabel, marginTop: "0.75rem" }}>
@@ -591,11 +579,15 @@ function DetailPanel({
             </div>
             {vendor.seller_address ? (
               <div style={s.addressBox}>
-                <span style={{ fontSize: "1.1rem", flexShrink: 0 }}>📍</span>
+                <span style={{ fontSize: "1.1rem", flexShrink: 0 }}>
+                  📍
+                </span>
                 <p style={s.addressText}>{vendor.seller_address}</p>
               </div>
             ) : (
-              <div style={s.warningBox}>⚠️ No address submitted yet</div>
+              <div style={s.warningBox}>
+                ⚠️ No address submitted yet
+              </div>
             )}
 
             {vendor.verification_status && (
@@ -603,16 +595,18 @@ function DetailPanel({
                 <div style={{ ...s.sectionLabel, marginTop: "0.75rem" }}>
                   📋 Verification Status
                 </div>
-                <InfoRow label="Status" value={vendor.verification_status} />
+                <InfoRow
+                  label="Status"
+                  value={vendor.verification_status}
+                />
               </>
             )}
           </div>
         )}
 
-        {/* ── DOCS TAB ──────────────────────────────────── */}
+        {/* ── DOCS ──────────────────────────────────────── */}
         {activeTab === "docs" && (
           <div>
-            {/* ID front + back */}
             <div style={s.docsGrid}>
               <DocImage
                 label="🪪 ID Front"
@@ -627,81 +621,58 @@ function DetailPanel({
                 side="back"
               />
             </div>
-
-            {/* Other docs */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}>
-              <DocImage label="🤳 Selfie with ID"        url={vendor.selfie_url}        required />
-              <DocImage label="📄 Business Registration" url={vendor.business_doc_url}           />
-              <DocImage label="📍 Address Proof"         url={vendor.address_proof_url}          />
+            <div style={{
+              display:       "flex",
+              flexDirection: "column",
+              gap:           "1rem",
+              marginTop:     "1rem",
+            }}>
+              <DocImage
+                label="🤳 Selfie with ID"
+                url={vendor.selfie_url}
+                required
+              />
+              <DocImage
+                label="📄 Business Registration"
+                url={vendor.business_doc_url}
+              />
+              <DocImage
+                label="📍 Address Proof"
+                url={vendor.address_proof_url}
+              />
             </div>
           </div>
         )}
 
-        {/* ── BANK TAB ──────────────────────────────────── */}
+        {/* ── BANK ──────────────────────────────────────── */}
         {activeTab === "bank" && (
           <div style={s.infoGrid}>
-            <div style={s.sectionLabel}>🏦 Payout Bank (Seller's Bank)</div>
-            <InfoRow label="Bank Name"      value={vendor.bank_name}    />
-            <InfoRow label="Account Number" value={vendor.bank_account} />
-            <InfoRow label="Account Name"   value={vendor.account_name} />
-
-            <div style={{ ...s.sectionLabel, marginTop: "0.75rem" }}>
-              🏦 Virtual Account (Receive Payments)
+            <div style={s.sectionLabel}>
+              🏦 Payout Bank Account
             </div>
+            <InfoRow
+              label="Bank Name"
+              value={vendor.bank_name}
+            />
+            <InfoRow
+              label="Account Number"
+              value={vendor.bank_account}
+            />
+            <InfoRow
+              label="Account Name"
+              value={vendor.account_name}
+            />
 
-            {vendor.virtual_account_number ? (
-              <>
-                <InfoRow label="Account Number" value={vendor.virtual_account_number} />
-                <InfoRow label="Bank"           value={vendor.virtual_bank_name}      />
-                <InfoRow label="Account Name"   value={vendor.virtual_account_name}   />
-                <InfoRow label="Status"         value={vendor.virtual_account_status} />
-              </>
-            ) : (
-              <div>
-                <div style={s.warningBox}>
-                  ⚠️ No virtual account yet
-                  {vendor.status !== "active" && (
-                    <span style={{ color: "#a16207", fontSize: "0.8rem" }}>
-                      {" "}— created automatically when vendor is activated
-                    </span>
-                  )}
-                </div>
-
-                {/* Virtual account actions — only for active vendors */}
-                {vendor.status === "active" && (
-                  <div style={{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.75rem" }}>
-
-                    {/* Auto-create button */}
-                    <button
-                      style={{
-                        ...s.vaBtn,
-                        background: "#eef2ff",
-                        color:      "#6366f1",
-                        border:     "1px solid #6366f1",
-                        opacity:    actionLoading === "va" ? 0.6 : 1,
-                      }}
-                      disabled={actionLoading === "va"}
-                      onClick={() => retryVirtualAccount(vendor.id)}
-                    >
-                      {actionLoading === "va"
-                        ? "⏳ Creating..."
-                        : "🔄 Auto-Create via Flutterwave"}
-                    </button>
-
-                    {/* Manual assign form */}
-                    <ManualVAForm
-                      vendorId={vendor.id}
-                      actionLoading={actionLoading}
-                      onAssign={assignVirtualAccount}
-                    />
-                  </div>
-                )}
+            {!vendor.bank_name && (
+              <div style={s.warningBox}>
+                ⚠️ Seller has not configured a bank account yet.
+                They can add one in their dashboard Settings.
               </div>
             )}
           </div>
         )}
 
-        {/* ── WALLET TAB ────────────────────────────────── */}
+        {/* ── WALLET ────────────────────────────────────── */}
         {activeTab === "wallet" && (
           <WalletTab
             vendorId={vendor.id}
@@ -709,136 +680,46 @@ function DetailPanel({
           />
         )}
 
-        {/* ── HISTORY TAB ───────────────────────────────── */}
+        {/* ── HISTORY ───────────────────────────────────── */}
         {activeTab === "history" && (
           <div style={s.historyList}>
             {!history?.length ? (
               <div style={s.empty}>No status changes yet</div>
-            ) : history.map((h, i) => (
-              <div key={i} style={s.historyRow}>
-                <div style={s.historyBadges}>
-                  <StatusBadge status={h.old_status} />
-                  <span style={s.arrow}>→</span>
-                  <StatusBadge status={h.new_status} />
+            ) : (
+              history.map((h, i) => (
+                <div key={i} style={s.historyRow}>
+                  <div style={s.historyBadges}>
+                    <StatusBadge status={h.old_status} />
+                    <span style={s.arrow}>→</span>
+                    <StatusBadge status={h.new_status} />
+                  </div>
+                  <div style={s.historyMeta}>
+                    {h.changed_by_name && (
+                      <span>by {h.changed_by_name}</span>
+                    )}
+                    <span>
+                      {new Date(h.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                  {h.reason && (
+                    <div style={s.historyReason}>
+                      "{h.reason}"
+                    </div>
+                  )}
                 </div>
-                <div style={s.historyMeta}>
-                  {h.changed_by_name && <span>by {h.changed_by_name}</span>}
-                  <span>{new Date(h.created_at).toLocaleString()}</span>
-                </div>
-                {h.reason && (
-                  <div style={s.historyReason}>"{h.reason}"</div>
-                )}
-              </div>
-            ))}
+              ))
+            )}
           </div>
         )}
+
       </div>
     </div>
   );
 }
 
-// ══════════════════════════════════════════════════════════════
-// MANUAL VA FORM
-// ══════════════════════════════════════════════════════════════
-function ManualVAForm({ vendorId, actionLoading, onAssign }) {
-  const [open, setOpen] = useState(false);
-  const [form, setForm] = useState({
-    account_number: "",
-    account_name:   "",
-    bank_name:      "",
-    flw_account_id: "",
-  });
-
-  const handleSubmit = async () => {
-    if (!form.account_number || !form.account_name || !form.bank_name) {
-      alert("Account number, account name and bank name are required");
-      return;
-    }
-    const success = await onAssign(vendorId, form);
-    if (success) setOpen(false);
-  };
-
-  if (!open) {
-    return (
-      <button
-        style={{
-          ...s.vaBtn,
-          background:  "white",
-          color:       "#6b7280",
-          border:      "1px dashed #d1d5db",
-          opacity:     actionLoading === "va-manual" ? 0.6 : 1,
-        }}
-        disabled={actionLoading === "va-manual"}
-        onClick={() => setOpen(true)}
-      >
-        ✏️ Manually Assign Existing Account
-      </button>
-    );
-  }
-
-  return (
-    <div style={s.manualForm}>
-      <div style={s.manualFormHeader}>
-        <p style={s.manualFormTitle}>✏️ Assign Existing Virtual Account</p>
-        <button
-          style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af" }}
-          onClick={() => setOpen(false)}
-        >
-          ✕
-        </button>
-      </div>
-
-      <p style={s.manualFormHint}>
-        Use this when Flutterwave API fails but you created the account
-        manually on the Flutterwave dashboard.
-      </p>
-
-      {[
-        { key: "account_number", label: "Account Number *",   placeholder: "e.g. 9907929820"               },
-        { key: "account_name",   label: "Account Name *",     placeholder: "e.g. Adeloye Joshua FLW"        },
-        { key: "bank_name",      label: "Bank Name *",        placeholder: "e.g. Indulge MFB"               },
-        { key: "flw_account_id", label: "FLW Account ID",     placeholder: "Optional — from FLW dashboard"  },
-      ].map(({ key, label, placeholder }) => (
-        <div key={key}>
-          <label style={s.manualFormLabel}>{label}</label>
-          <input
-            value={form[key]}
-            onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))}
-            placeholder={placeholder}
-            style={s.manualFormInput}
-          />
-        </div>
-      ))}
-
-      <div style={{ display: "flex", gap: "0.5rem", marginTop: "0.25rem" }}>
-        <button
-          style={{ ...s.manualFormBtn, background: "white", color: "#6b7280", border: "1px solid #e5e7eb" }}
-          onClick={() => setOpen(false)}
-        >
-          Cancel
-        </button>
-        <button
-          style={{
-            ...s.manualFormBtn,
-            background: "#6366f1",
-            color:      "white",
-            border:     "none",
-            flex:       2,
-            opacity:    actionLoading === "va-manual" ? 0.6 : 1,
-          }}
-          disabled={actionLoading === "va-manual"}
-          onClick={handleSubmit}
-        >
-          {actionLoading === "va-manual" ? "Assigning..." : "Assign Account"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 // WALLET TAB
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 function WalletTab({ vendorId, walletCacheRef }) {
   const [walletData, setWalletData] = useState(null);
   const [loading,    setLoading]    = useState(true);
@@ -846,11 +727,14 @@ function WalletTab({ vendorId, walletCacheRef }) {
   useEffect(() => {
     const fetchWallet = async () => {
       setLoading(true);
+
+      // Use cache if available
       if (walletCacheRef.current[vendorId]) {
         setWalletData(walletCacheRef.current[vendorId]);
         setLoading(false);
         return;
       }
+
       try {
         const { data } = await api().get(`/vendors/${vendorId}/wallet`);
         walletCacheRef.current[vendorId] = data;
@@ -861,10 +745,13 @@ function WalletTab({ vendorId, walletCacheRef }) {
         setLoading(false);
       }
     };
+
     fetchWallet();
   }, [vendorId, walletCacheRef]);
 
-  if (loading) return <div style={s.empty}>Loading wallet...</div>;
+  if (loading) {
+    return <div style={s.empty}>Loading wallet…</div>;
+  }
 
   if (!walletData?.wallet) {
     return (
@@ -874,41 +761,45 @@ function WalletTab({ vendorId, walletCacheRef }) {
     );
   }
 
-  const balance         = walletData.wallet;
-  const virtual_account = walletData.virtual_account;
-  const transactions    = walletData.transactions ?? [];
-  const withdrawals     = walletData.withdrawals  ?? [];
+  const { wallet, transactions = [], withdrawals = [] } = walletData;
 
   return (
     <div>
-      {/* Balance */}
+      {/* Balance cards */}
       <div style={s.balanceGrid}>
-        <BalanceCard label="Available"     value={balance?.available_balance ?? 0} color="#10b981" />
-        <BalanceCard label="Pending"       value={balance?.pending_balance   ?? 0} color="#f59e0b" />
-        <BalanceCard label="Total Received"value={balance?.total_received    ?? 0} color="#6366f1" />
-        <BalanceCard label="Withdrawn"     value={balance?.total_withdrawn   ?? 0} color="#6b7280" />
+        <BalanceCard
+          label="Available"
+          value={wallet.available_balance}
+          color="#10b981"
+        />
+        <BalanceCard
+          label="Pending"
+          value={wallet.pending_balance}
+          color="#f59e0b"
+        />
+        <BalanceCard
+          label="Total Received"
+          value={wallet.total_received}
+          color="#6366f1"
+        />
+        <BalanceCard
+          label="Withdrawn"
+          value={wallet.total_withdrawn}
+          color="#6b7280"
+        />
       </div>
 
-      {/* Virtual account */}
-      {virtual_account && (
-        <div style={s.vaBox}>
-          <span style={s.vaLabel}>🏦 Virtual Account</span>
-          <span style={s.vaNumber}>{virtual_account.account_number}</span>
-          <span style={s.vaBank}>
-            {virtual_account.account_name} · {virtual_account.bank_name}
-          </span>
-          <span style={{
-            fontSize:  "0.72rem",
-            color:     virtual_account.status === "active" ? "#059669" : "#6b7280",
-            fontWeight:600,
-            marginTop: "0.2rem",
-          }}>
-            {virtual_account.status}
-          </span>
+      {/* Frozen notice */}
+      {wallet.is_frozen && (
+        <div style={{
+          ...s.warningBox,
+          marginBottom: "1rem",
+        }}>
+          🚫 Wallet is frozen: {wallet.frozen_reason ?? "No reason given"}
         </div>
       )}
 
-      {/* Transactions */}
+      {/* Recent transactions */}
       {transactions.length > 0 && (
         <div style={s.txSection}>
           <div style={s.txTitle}>Recent Transactions</div>
@@ -932,7 +823,7 @@ function WalletTab({ vendorId, walletCacheRef }) {
         </div>
       )}
 
-      {/* Withdrawals */}
+      {/* Recent withdrawals */}
       {withdrawals.length > 0 && (
         <div style={{ ...s.txSection, marginTop: "1rem" }}>
           <div style={s.txTitle}>Recent Withdrawals</div>
@@ -952,23 +843,40 @@ function WalletTab({ vendorId, walletCacheRef }) {
           ))}
         </div>
       )}
+
+      {transactions.length === 0 && withdrawals.length === 0 && (
+        <div style={s.empty}>No transactions yet</div>
+      )}
     </div>
   );
 }
 
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 // STATUS MODAL
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 function StatusModal({ modal, setModal, onConfirm, loading }) {
   const cfg            = STATUS_CONFIG[modal.status] ?? {};
   const requiresReason = ["rejected", "suspended"].includes(modal.status);
+
+  useEffect(() => {
+    const handler = (e) => {
+      if (e.key === "Escape") {
+        setModal({ ...modal, open: false });
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [modal, setModal]);
 
   return (
     <div
       style={s.modalOverlay}
       onClick={() => setModal({ ...modal, open: false })}
     >
-      <div style={s.modal} onClick={(e) => e.stopPropagation()}>
+      <div
+        style={s.modal}
+        onClick={(e) => e.stopPropagation()}
+      >
         <h3 style={s.modalTitle}>Confirm Status Change</h3>
         <p style={s.modalBody}>
           Change vendor status to{" "}
@@ -976,14 +884,6 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
             {cfg.label}
           </span>?
         </p>
-
-        {/* Activation info */}
-        {modal.status === "active" && (
-          <div style={s.modalInfo}>
-            🏦 A virtual account will be automatically created
-            for this vendor via Flutterwave.
-          </div>
-        )}
 
         {requiresReason && (
           <div style={s.modalReasonWrap}>
@@ -994,8 +894,8 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
               style={s.modalReason}
               placeholder={
                 modal.status === "rejected"
-                  ? "e.g. Documents unclear, invalid ID..."
-                  : "e.g. Policy violation, suspicious activity..."
+                  ? "e.g. Documents unclear, invalid ID…"
+                  : "e.g. Policy violation, suspicious activity…"
               }
               value={modal.reason}
               onChange={(e) =>
@@ -1018,10 +918,10 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
             style={{
               ...s.modalConfirmBtn,
               background: cfg.color ?? "#6366f1",
-              opacity:
+              opacity: (
                 loading ||
                 (requiresReason && !modal.reason.trim())
-                  ? 0.6 : 1,
+              ) ? 0.6 : 1,
             }}
             disabled={
               loading ||
@@ -1029,7 +929,7 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
             }
             onClick={onConfirm}
           >
-            {loading ? "Updating..." : "Confirm"}
+            {loading ? "Updating…" : "Confirm"}
           </button>
         </div>
       </div>
@@ -1037,10 +937,9 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
   );
 }
 
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
 // SMALL COMPONENTS
-// ══════════════════════════════════════════════════════════════
-
+// ═════════════════════════════════════════════════════════════
 function DocImage({ label, url, required, side }) {
   if (!url) {
     return (
@@ -1063,6 +962,7 @@ function DocImage({ label, url, required, side }) {
       </div>
     );
   }
+
   return (
     <div style={s.docCard}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.4rem" }}>
@@ -1080,7 +980,12 @@ function DocImage({ label, url, required, side }) {
       <a href={url} target="_blank" rel="noreferrer">
         <img src={url} alt={label} style={s.docImg} />
       </a>
-      <a href={url} target="_blank" rel="noreferrer" style={s.docLink}>
+      <a
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        style={s.docLink}
+      >
         Open full size ↗
       </a>
     </div>
@@ -1091,7 +996,10 @@ function InfoRow({ label, value, danger }) {
   return (
     <div style={s.infoRow}>
       <span style={s.infoLabel}>{label}</span>
-      <span style={{ ...s.infoValue, color: danger ? "#ef4444" : "#1f2937" }}>
+      <span style={{
+        ...s.infoValue,
+        color: danger ? "#ef4444" : "#1f2937",
+      }}>
         {value ?? "—"}
       </span>
     </div>
@@ -1100,13 +1008,18 @@ function InfoRow({ label, value, danger }) {
 
 function StatusBadge({ status }) {
   const cfg = STATUS_CONFIG[status] ?? {
-    label: status ?? "—", color: "#6b7280", bg: "#f9fafb",
+    label: status ?? "—",
+    color: "#6b7280",
+    bg:    "#f9fafb",
   };
   return (
     <span style={{
-      padding: "0.15rem 0.5rem", borderRadius: "100px",
-      fontSize: "0.72rem", fontWeight: 700,
-      color: cfg.color, background: cfg.bg,
+      padding:      "0.15rem 0.5rem",
+      borderRadius: "100px",
+      fontSize:     "0.72rem",
+      fontWeight:   700,
+      color:        cfg.color,
+      background:   cfg.bg,
     }}>
       {cfg.label}
     </span>
@@ -1117,7 +1030,9 @@ function BalanceCard({ label, value, color }) {
   return (
     <div style={{ ...s.balanceCard, borderTop: `3px solid ${color}` }}>
       <span style={{ ...s.balanceAmount, color }}>
-        ₦{Number(value).toLocaleString("en-NG", { minimumFractionDigits: 2 })}
+        ₦{Number(value).toLocaleString("en-NG", {
+          minimumFractionDigits: 2,
+        })}
       </span>
       <span style={s.balanceLabel}>{label}</span>
     </div>
@@ -1125,14 +1040,20 @@ function BalanceCard({ label, value, color }) {
 }
 
 function TxStatus({ status }) {
-  const map = {
-    success: { color: "#10b981", label: "Success" },
-    pending: { color: "#f59e0b", label: "Pending" },
-    failed:  { color: "#ef4444", label: "Failed"  },
-  };
-  const cfg = map[status] ?? map.pending;
+  const cfg = {
+    success:    { color: "#10b981", label: "Success"    },
+    paid:       { color: "#10b981", label: "Paid"       },
+    pending:    { color: "#f59e0b", label: "Pending"    },
+    processing: { color: "#6366f1", label: "Processing" },
+    failed:     { color: "#ef4444", label: "Failed"     },
+  }[status] ?? { color: "#9ca3af", label: status ?? "—" };
+
   return (
-    <span style={{ fontSize: "0.72rem", fontWeight: 600, color: cfg.color }}>
+    <span style={{
+      fontSize:   "0.72rem",
+      fontWeight: 600,
+      color:      cfg.color,
+    }}>
       {cfg.label}
     </span>
   );
@@ -1174,7 +1095,11 @@ function LoadingRows() {
           <div style={s.skeletonCircle} />
           <div style={{ flex: 1 }}>
             <div style={s.skeletonLine} />
-            <div style={{ ...s.skeletonLine, width: "60%", marginTop: 6 }} />
+            <div style={{
+              ...s.skeletonLine,
+              width:     "60%",
+              marginTop: 6,
+            }} />
           </div>
         </div>
       ))}
@@ -1182,56 +1107,47 @@ function LoadingRows() {
   );
 }
 
-// ══════════════════════════════════════════════════════════════
-// STYLES
-// ══════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════
+// STYLES — unchanged from original
+// ═════════════════════════════════════════════════════════════
 const s = {
   wrap:     { display: "flex", flexDirection: "column", gap: "1.25rem" },
   header:   { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" },
   title:    { fontSize: "1.35rem", fontWeight: 800, color: "var(--text,#1f2937)", margin: 0 },
   subtitle: { color: "var(--muted,#6b7280)", fontSize: "0.875rem", margin: "0.25rem 0 0" },
-
   countPills: { display: "flex", gap: "0.75rem", flexWrap: "wrap" },
   countPill:  { display: "flex", flexDirection: "column", alignItems: "center", padding: "0.5rem 1rem", borderRadius: "12px", minWidth: "70px", gap: "0.15rem" },
-
   filters:  { display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" },
   tabs:     { display: "flex", gap: "0.35rem", flexWrap: "wrap" },
   tab:      { padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "100px", background: "white", fontSize: "0.8rem", color: "#6b7280", cursor: "pointer", fontWeight: 500 },
   tabActive:{ background: "#6366f1", color: "white", borderColor: "#6366f1", fontWeight: 700 },
   search:   { flex: 1, minWidth: "200px", padding: "0.5rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "10px", fontSize: "0.875rem", outline: "none" },
-
-  layout:  { display: "grid", gridTemplateColumns: "340px 1fr", gap: "1.25rem", minHeight: "500px" },
-
-  list:              { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden", display: "flex", flexDirection: "column" },
+  layout:   { display: "grid", gridTemplateColumns: "340px 1fr", gap: "1.25rem", minHeight: "500px" },
+  list:     { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden", display: "flex", flexDirection: "column" },
   vendorRow:         { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.875rem 1rem", cursor: "pointer", borderBottom: "1px solid #f9fafb", transition: "background 0.1s" },
   vendorRowSelected: { background: "#eef2ff" },
-  vendorLogo:        { width: "40px", height: "40px", borderRadius: "10px", objectFit: "cover", flexShrink: 0 },
+  vendorLogo:            { width: "40px", height: "40px", borderRadius: "10px", objectFit: "cover", flexShrink: 0 },
   vendorLogoPlaceholder: { width: "40px", height: "40px", borderRadius: "10px", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "1.1rem", flexShrink: 0 },
   vendorName:  { fontWeight: 600, color: "#1f2937", fontSize: "0.875rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   vendorOwner: { fontSize: "0.78rem", color: "#6b7280", marginTop: "0.15rem" },
   vendorMeta:  { fontSize: "0.72rem", color: "#9ca3af", marginTop: "0.1rem" },
   statusBadge: { display: "inline-block", padding: "0.15rem 0.6rem", borderRadius: "100px", fontSize: "0.72rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 },
-
-  detail:      { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden" },
-  detailEmpty: { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#9ca3af", gap: "0.75rem", minHeight: "400px" },
-  detailLoading: { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "300px", color: "#9ca3af" },
-
+  detail:       { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden" },
+  detailEmpty:  { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#9ca3af", gap: "0.75rem", minHeight: "400px" },
+  detailLoading:{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "300px", color: "#9ca3af" },
   detailWrap:       { display: "flex", flexDirection: "column", height: "100%" },
   detailHeader:     { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.25rem", borderBottom: "1px solid #f3f4f6" },
   detailHeaderLeft: { display: "flex", alignItems: "center", gap: "0.875rem" },
-  detailLogo:       { width: "48px", height: "48px", borderRadius: "12px", objectFit: "cover" },
+  detailLogo:            { width: "48px", height: "48px", borderRadius: "12px", objectFit: "cover" },
   detailLogoPlaceholder: { width: "48px", height: "48px", borderRadius: "12px", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "1.25rem" },
-  detailName:  { fontWeight: 800, color: "#1f2937", margin: "0 0 0.25rem" },
-  closeBtn:    { background: "none", border: "none", fontSize: "1.1rem", cursor: "pointer", color: "#9ca3af", padding: "0.25rem" },
-
-  actionRow: { display: "flex", gap: "0.5rem", padding: "0.75rem 1.25rem", flexWrap: "wrap", borderBottom: "1px solid #f3f4f6" },
-  actionBtn: { padding: "0.45rem 0.875rem", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", transition: "all 0.15s" },
-
+  detailName: { fontWeight: 800, color: "#1f2937", margin: "0 0 0.25rem" },
+  closeBtn:   { background: "none", border: "none", fontSize: "1.1rem", cursor: "pointer", color: "#9ca3af", padding: "0.25rem" },
+  actionRow:  { display: "flex", gap: "0.5rem", padding: "0.75rem 1.25rem", flexWrap: "wrap", borderBottom: "1px solid #f3f4f6" },
+  actionBtn:  { padding: "0.45rem 0.875rem", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", transition: "all 0.15s" },
   detailTabs:     { display: "flex", borderBottom: "1px solid #f3f4f6", overflowX: "auto" },
   detailTab:      { padding: "0.65rem 1rem", border: "none", background: "transparent", color: "#6b7280", fontSize: "0.85rem", cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500, borderBottom: "2px solid transparent" },
   detailTabActive:{ color: "#6366f1", borderBottomColor: "#6366f1", fontWeight: 700 },
   detailBody:     { padding: "1.25rem", overflowY: "auto", flex: 1 },
-
   infoGrid:    { display: "flex", flexDirection: "column", gap: "0.5rem" },
   infoRow:     { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.75rem", background: "#f8fafc", borderRadius: "8px" },
   infoLabel:   { color: "#6b7280", fontSize: "0.8rem", fontWeight: 500 },
@@ -1240,17 +1156,14 @@ const s = {
   descBox:     { padding: "0.75rem", background: "#f8fafc", borderRadius: "8px" },
   descLabel:   { color: "#6b7280", fontSize: "0.8rem", fontWeight: 500, display: "block", marginBottom: "0.35rem" },
   descText:    { fontSize: "0.875rem", color: "#374151", margin: 0, lineHeight: 1.5 },
-
-  notesSection: { marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" },
-  notesLabel:   { fontWeight: 600, color: "#374151", fontSize: "0.85rem" },
-  existingNote: { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.5rem 0.75rem", fontSize: "0.8rem", color: "#92400e" },
-  notesInput:   { width: "100%", padding: "0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", resize: "vertical", outline: "none", boxSizing: "border-box" },
-  saveNotesBtn: { alignSelf: "flex-end", padding: "0.45rem 1rem", background: "#6366f1", color: "white", border: "none", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" },
-
+  notesSection:{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" },
+  notesLabel:  { fontWeight: 600, color: "#374151", fontSize: "0.85rem" },
+  existingNote:{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.5rem 0.75rem", fontSize: "0.8rem", color: "#92400e" },
+  notesInput:  { width: "100%", padding: "0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", resize: "vertical", outline: "none", boxSizing: "border-box" },
+  saveNotesBtn:{ alignSelf: "flex-end", padding: "0.45rem 1rem", background: "#6366f1", color: "white", border: "none", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" },
   warningBox:  { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.75rem", color: "#92400e", fontSize: "0.85rem" },
   addressBox:  { display: "flex", alignItems: "flex-start", gap: "0.75rem", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: "8px", padding: "0.875rem 1rem" },
   addressText: { color: "#064e3b", fontWeight: 600, fontSize: "0.875rem", margin: 0, lineHeight: 1.5 },
-
   docsGrid:  { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" },
   docCard:   { background: "#f8fafc", borderRadius: "10px", padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" },
   docLabel:  { fontWeight: 600, color: "#374151", fontSize: "0.8rem" },
@@ -1258,63 +1171,37 @@ const s = {
   docLink:   { fontSize: "0.75rem", color: "#6366f1", textDecoration: "none" },
   docMissing:{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem", background: "#f8fafc", borderRadius: "10px", fontSize: "0.8rem", color: "#374151" },
   sideBadge: { fontSize: "0.65rem", fontWeight: 700, padding: "0.1rem 0.45rem", borderRadius: "100px", textTransform: "uppercase", letterSpacing: "0.04em" },
-
-  vaBtn: { width: "100%", padding: "0.65rem 1rem", borderRadius: "10px", fontWeight: 600, fontSize: "0.85rem", cursor: "pointer", transition: "all 0.15s", textAlign: "center" },
-
-  manualForm:       { background: "#f8fafc", borderRadius: "12px", padding: "1rem", border: "1px solid #e5e7eb", display: "flex", flexDirection: "column", gap: "0.75rem" },
-  manualFormHeader: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-  manualFormTitle:  { fontWeight: 700, color: "#374151", margin: 0, fontSize: "0.875rem" },
-  manualFormHint:   { color: "#6b7280", fontSize: "0.78rem", margin: 0, lineHeight: 1.4 },
-  manualFormLabel:  { fontSize: "0.78rem", color: "#6b7280", display: "block", marginBottom: "0.25rem", fontWeight: 500 },
-  manualFormInput:  { width: "100%", padding: "0.5rem 0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", outline: "none", boxSizing: "border-box" },
-  manualFormBtn:    { flex: 1, padding: "0.6rem", borderRadius: "8px", fontWeight: 600, cursor: "pointer", fontSize: "0.85rem" },
-
-  noVA:    { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.75rem", color: "#92400e", fontSize: "0.85rem" },
-  noVAHint:{ color: "#a16207", fontSize: "0.8rem" },
-
   balanceGrid:  { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" },
   balanceCard:  { background: "#f8fafc", borderRadius: "10px", padding: "0.875rem", display: "flex", flexDirection: "column", gap: "0.25rem" },
   balanceAmount:{ fontWeight: 800, fontSize: "1.1rem" },
   balanceLabel: { fontSize: "0.75rem", color: "#9ca3af", fontWeight: 500 },
-
-  vaBox:   { background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: "10px", padding: "0.875rem", marginBottom: "1rem", display: "flex", flexDirection: "column", gap: "0.2rem" },
-  vaLabel: { fontSize: "0.72rem", fontWeight: 700, color: "#065f46", textTransform: "uppercase", letterSpacing: "0.04em" },
-  vaNumber:{ fontWeight: 800, fontSize: "1.15rem", color: "#064e3b" },
-  vaBank:  { fontSize: "0.8rem", color: "#047857" },
-
   txSection:{ marginTop: "0.75rem" },
   txTitle:  { fontWeight: 700, color: "#374151", fontSize: "0.85rem", marginBottom: "0.5rem" },
   txRow:    { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.5rem 0", borderBottom: "1px solid #f9fafb", fontSize: "0.82rem" },
   txType:   { fontWeight: 600, width: "80px", flexShrink: 0 },
   txAmount: { fontWeight: 700, color: "#1f2937", flex: 1 },
   txDate:   { color: "#9ca3af", flexShrink: 0 },
-
   historyList:  { display: "flex", flexDirection: "column", gap: "0.75rem" },
   historyRow:   { background: "#f8fafc", borderRadius: "10px", padding: "0.75rem 1rem" },
   historyBadges:{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" },
   arrow:        { color: "#9ca3af", fontSize: "0.8rem" },
   historyMeta:  { display: "flex", gap: "1rem", fontSize: "0.75rem", color: "#9ca3af" },
   historyReason:{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.35rem", fontStyle: "italic" },
-
   modalOverlay:    { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
   modal:           { background: "white", borderRadius: "16px", padding: "2rem", maxWidth: "420px", width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" },
   modalTitle:      { fontWeight: 800, color: "#1f2937", margin: "0 0 0.75rem", fontSize: "1.1rem" },
   modalBody:       { color: "#6b7280", lineHeight: 1.6, margin: "0 0 1rem", fontSize: "0.9rem" },
-  modalInfo:       { background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "8px", padding: "0.75rem", color: "#1e40af", fontSize: "0.82rem", marginBottom: "1rem" },
   modalReasonWrap: { marginBottom: "1.25rem" },
   modalReasonLabel:{ fontWeight: 600, color: "#374151", fontSize: "0.85rem", display: "block", marginBottom: "0.5rem" },
   modalReason:     { width: "100%", padding: "0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", resize: "vertical", outline: "none", boxSizing: "border-box" },
   modalBtns:       { display: "flex", gap: "0.75rem", justifyContent: "flex-end" },
   modalCancelBtn:  { padding: "0.6rem 1.25rem", border: "1px solid #e5e7eb", background: "white", borderRadius: "8px", fontWeight: 600, cursor: "pointer", fontSize: "0.875rem" },
   modalConfirmBtn: { padding: "0.6rem 1.5rem", border: "none", borderRadius: "8px", color: "white", fontWeight: 700, cursor: "pointer", fontSize: "0.875rem" },
-
-  pagination:  { display: "flex", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "0.875rem", borderTop: "1px solid #f3f4f6", marginTop: "auto" },
-  pageBtn:     { padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "white", cursor: "pointer", fontSize: "0.82rem", fontWeight: 500 },
-  pageInfo:    { color: "#6b7280", fontSize: "0.82rem" },
-
+  pagination: { display: "flex", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "0.875rem", borderTop: "1px solid #f3f4f6", marginTop: "auto" },
+  pageBtn:    { padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "white", cursor: "pointer", fontSize: "0.82rem", fontWeight: 500 },
+  pageInfo:   { color: "#6b7280", fontSize: "0.82rem" },
   skeletonRow:    { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.875rem 1rem", borderBottom: "1px solid #f9fafb" },
   skeletonCircle: { width: "40px", height: "40px", borderRadius: "10px", background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 50%,#f3f4f6 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite", flexShrink: 0 },
   skeletonLine:   { height: "12px", width: "80%", borderRadius: "6px", background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 50%,#f3f4f6 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite" },
-
   empty: { textAlign: "center", color: "#9ca3af", padding: "2rem", fontSize: "0.875rem" },
 };
