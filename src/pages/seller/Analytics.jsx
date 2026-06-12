@@ -1,431 +1,822 @@
 // pages/seller/Analytics.jsx
-import React, { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
-import { sellerApi } from "./SellerDashboard";
-import StatCard from "./components/StatCard";
 
-const fmt = (v) =>
+import React, {
+  useState, useEffect,
+  useCallback, useRef, memo,
+} from "react";
+import { useNavigate }   from "react-router-dom";
+import { sellerApi }     from "./SellerDashboard";
+import "./styles/Analytics.css";
+
+// ═════════════════════════════════════════════════════════════
+// HELPERS
+// ═════════════════════════════════════════════════════════════
+const fmt = (v, decimals = 0) =>
   `₦${Number(v ?? 0).toLocaleString("en-NG", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
   })}`;
 
-const Spin = () => (
-  <div style={{
-    width:32, height:32,
-    border:"3px solid #e5e7eb",
-    borderTop:"3px solid #6366f1",
-    borderRadius:"50%",
-    animation:"spin 0.7s linear infinite",
-    margin:"0 auto",
-  }} />
-);
+const fmtNum = (v) =>
+  Number(v ?? 0).toLocaleString("en-NG");
 
+const fmtDate = (d) =>
+  d
+    ? new Date(d).toLocaleDateString("en-NG", {
+        day:   "2-digit",
+        month: "short",
+        year:  "numeric",
+      })
+    : "—";
+
+const clamp = (v, min, max) => Math.min(Math.max(v, min), max);
+
+// ═════════════════════════════════════════════════════════════
+// CONSTANTS
+// ═════════════════════════════════════════════════════════════
 const RANGES = [
-  { key:"7d",  label:"7 days"  },
-  { key:"30d", label:"30 days" },
-  { key:"90d", label:"90 days" },
-  { key:"all", label:"All time"},
+  { key: "7d",  label: "7 days"  },
+  { key: "30d", label: "30 days" },
+  { key: "90d", label: "90 days" },
+  { key: "all", label: "All time"},
 ];
 
+const CHART_MODES = [
+  { key: "revenue", label: "Revenue" },
+  { key: "orders",  label: "Orders"  },
+];
+
+const ORDER_STATUS_CFG = {
+  pending:          { label: "Pending",    color: "#f59e0b", bg: "#fffbeb" },
+  processing:       { label: "Processing", color: "#6366f1", bg: "#eef2ff" },
+  shipped:          { label: "Shipped",    color: "#0ea5e9", bg: "#eff6ff" },
+  out_for_delivery: { label: "Delivering", color: "#8b5cf6", bg: "#f5f3ff" },
+  delivered:        { label: "Delivered",  color: "#10b981", bg: "#ecfdf5" },
+  cancelled:        { label: "Cancelled",  color: "#ef4444", bg: "#fef2f2" },
+};
+
+// ═════════════════════════════════════════════════════════════
+// SHARED COMPONENTS
+// ═════════════════════════════════════════════════════════════
+const Spinner = ({ size = 24 }) => (
+  <span
+    className="an-spinner"
+    style={{ width: size, height: size }}
+    aria-hidden="true"
+  />
+);
+
+const SectionError = ({ onRetry }) => (
+  <div className="an-section-error">
+    <span>⚠️</span>
+    <p>Failed to load</p>
+    <button className="an-retry-btn" onClick={onRetry}>
+      Retry
+    </button>
+  </div>
+);
+
+const NoData = ({ message = "No data for this period", onAction, actionLabel }) => (
+  <div className="an-no-data">
+    <span className="an-no-data__icon">📭</span>
+    <p className="an-no-data__msg">{message}</p>
+    {onAction && (
+      <button className="an-cta-btn" onClick={onAction}>
+        {actionLabel ?? "Get Started"}
+      </button>
+    )}
+  </div>
+);
+
+// ── Trend badge ──────────────────────────────────────────────
+const Trend = ({ value }) => {
+  if (value === null || value === undefined) return null;
+  const up  = Number(value) >= 0;
+  return (
+    <span className={`an-trend ${up ? "an-trend--up" : "an-trend--down"}`}>
+      {up ? "▲" : "▼"} {Math.abs(Number(value)).toFixed(1)}%
+    </span>
+  );
+};
+
+// ═════════════════════════════════════════════════════════════
+// STAT CARD
+// ═════════════════════════════════════════════════════════════
+const StatCard = memo(({ icon, label, value, sub, color, trend, loading }) => (
+  <div className="an-stat-card">
+    <div className="an-stat-card__top">
+      <div
+        className="an-stat-card__icon"
+        style={{ background: `${color}18`, color }}
+      >
+        {icon}
+      </div>
+      {trend !== undefined && <Trend value={trend} />}
+    </div>
+    <p className="an-stat-card__label">{label}</p>
+    {loading ? (
+      <div className="an-stat-card__skeleton" />
+    ) : (
+      <p className="an-stat-card__value" style={{ color }}>
+        {value}
+      </p>
+    )}
+    {sub && !loading && (
+      <p className="an-stat-card__sub">{sub}</p>
+    )}
+  </div>
+));
+
+// ═════════════════════════════════════════════════════════════
+// REVENUE CHART
+// ═════════════════════════════════════════════════════════════
+const RevenueChart = memo(({ chart, loading, error, mode, onModeChange, onRetry }) => {
+  const scrollRef  = useRef(null);
+  const tooltipRef = useRef(null);
+  const [tooltip, setTooltip] = useState(null);
+
+  const values = chart.map((d) =>
+    mode === "revenue" ? Number(d.revenue) : Number(d.orders)
+  );
+  const maxVal = Math.max(...values, 1);
+
+  const showTooltip = (e, d, i) => {
+    const rect  = e.currentTarget.getBoundingClientRect();
+    const wrap  = scrollRef.current?.getBoundingClientRect();
+    setTooltip({
+      x:     rect.left - (wrap?.left ?? 0) + rect.width / 2,
+      y:     rect.top  - (wrap?.top  ?? 0) - 8,
+      label: d.label,
+      value: mode === "revenue"
+        ? fmt(d.revenue)
+        : `${fmtNum(d.orders)} orders`,
+    });
+  };
+
+  return (
+    <div className="an-card">
+      <div className="an-card__header">
+        <h3 className="an-card__title">📈 Performance Chart</h3>
+
+        {/* Mode toggle */}
+        <div className="an-toggle-group">
+          {CHART_MODES.map(({ key, label }) => (
+            <button
+              key={key}
+              className={`an-toggle-btn ${
+                mode === key ? "an-toggle-btn--active" : ""
+              }`}
+              onClick={() => onModeChange(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="an-chart-skeleton">
+          {Array.from({ length: 14 }).map((_, i) => (
+            <div
+              key={i}
+              className="an-chart-skeleton__bar"
+              style={{ height: `${20 + (i % 5) * 18}%` }}
+            />
+          ))}
+        </div>
+      ) : error ? (
+        <SectionError onRetry={onRetry} />
+      ) : chart.length === 0 ? (
+        <NoData message="No data for this period" />
+      ) : (
+        <div className="an-chart-wrap" ref={scrollRef}>
+
+          {/* Y axis label */}
+          <div className="an-chart-y-labels">
+            <span>{mode === "revenue" ? fmt(maxVal) : fmtNum(maxVal)}</span>
+            <span>{mode === "revenue" ? fmt(maxVal / 2) : fmtNum(maxVal / 2)}</span>
+            <span>0</span>
+          </div>
+
+          {/* Bars */}
+          <div className="an-chart-bars">
+            {chart.map((d, i) => {
+              const val = mode === "revenue"
+                ? Number(d.revenue)
+                : Number(d.orders);
+              const pct = clamp((val / maxVal) * 100, 2, 100);
+              const isMax = val === maxVal;
+
+              return (
+                <div
+                  key={i}
+                  className="an-chart-col"
+                  onMouseEnter={(e) => showTooltip(e, d, i)}
+                  onMouseLeave={() => setTooltip(null)}
+                >
+                  <div className="an-chart-bar-wrap">
+                    <div
+                      className={`an-chart-bar ${
+                        isMax ? "an-chart-bar--peak" : ""
+                      }`}
+                      style={{ height: `${pct}%` }}
+                    />
+                  </div>
+                  <span className="an-chart-label">
+                    {d.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Tooltip */}
+          {tooltip && (
+            <div
+              ref={tooltipRef}
+              className="an-tooltip"
+              style={{
+                left:      tooltip.x,
+                top:       tooltip.y,
+                transform: "translate(-50%, -100%)",
+              }}
+            >
+              <p className="an-tooltip__label">{tooltip.label}</p>
+              <p className="an-tooltip__value">{tooltip.value}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════
+// TOP PRODUCTS TABLE
+// ═════════════════════════════════════════════════════════════
+const TopProducts = memo(({ products, loading, error, onRetry, onPostAd }) => {
+  const maxRev = Number(products[0]?.revenue ?? 1);
+
+  return (
+    <div className="an-card">
+      <div className="an-card__header">
+        <h3 className="an-card__title">🏆 Top Products</h3>
+        <span className="an-card__sub">
+          by revenue
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="an-products-skeleton">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="an-prod-skeleton-row">
+              <div className="an-skeleton an-skeleton--rank" />
+              <div className="an-prod-skeleton-info">
+                <div className="an-skeleton an-skeleton--name" />
+                <div className="an-skeleton an-skeleton--bar" />
+              </div>
+              <div className="an-skeleton an-skeleton--val" />
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <SectionError onRetry={onRetry} />
+      ) : products.length === 0 ? (
+        <NoData
+          message="No product sales yet"
+          onAction={onPostAd}
+          actionLabel="＋ Post Your First Product"
+        />
+      ) : (
+        <div className="an-products-list">
+          {products.map((p, i) => {
+            const pct = clamp((Number(p.revenue) / maxRev) * 100, 2, 100);
+            const rankCls = i === 0
+              ? "an-rank--gold"
+              : i === 1
+                ? "an-rank--silver"
+                : i === 2
+                  ? "an-rank--bronze"
+                  : "";
+
+            return (
+              <div key={p.id} className="an-prod-row">
+                {/* Rank */}
+                <span className={`an-rank ${rankCls}`}>
+                  {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}
+                </span>
+
+                {/* Product info */}
+                <div className="an-prod-info">
+                  <div className="an-prod-name-row">
+                    <p className="an-prod-name">{p.name}</p>
+                    <span className="an-prod-revenue">
+                      {fmt(p.revenue)}
+                    </span>
+                  </div>
+                  <div className="an-prod-meta">
+                    <span>{fmtNum(p.total_sold)} sold</span>
+                    {p.avg_price && (
+                      <span>avg {fmt(p.avg_price)}</span>
+                    )}
+                  </div>
+                  <div className="an-prod-bar-wrap">
+                    <div
+                      className={`an-prod-bar ${
+                        i === 0 ? "an-prod-bar--gold" : ""
+                      }`}
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════
+// ORDER BREAKDOWN
+// ═════════════════════════════════════════════════════════════
+const OrderBreakdown = memo(({ breakdown, loading, error, onRetry }) => {
+  const total = Object.values(breakdown).reduce(
+    (s, v) => s + Number(v), 0
+  );
+
+  return (
+    <div className="an-card">
+      <div className="an-card__header">
+        <h3 className="an-card__title">📦 Orders by Status</h3>
+        <span className="an-card__sub">{fmtNum(total)} total</span>
+      </div>
+
+      {loading ? (
+        <div className="an-breakdown-skeleton">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="an-breakdown-skeleton__row">
+              <div className="an-skeleton an-skeleton--status" />
+              <div className="an-skeleton an-skeleton--status-bar" />
+              <div className="an-skeleton an-skeleton--status-val" />
+            </div>
+          ))}
+        </div>
+      ) : error ? (
+        <SectionError onRetry={onRetry} />
+      ) : total === 0 ? (
+        <NoData message="No orders yet" />
+      ) : (
+        <div className="an-breakdown-list">
+          {Object.entries(ORDER_STATUS_CFG).map(([status, cfg]) => {
+            const count = Number(breakdown[status] ?? 0);
+            const pct   = total > 0
+              ? clamp((count / total) * 100, 0, 100)
+              : 0;
+
+            return (
+              <div key={status} className="an-breakdown-row">
+                <div className="an-breakdown-row__left">
+                  <span
+                    className="an-breakdown-dot"
+                    style={{ background: cfg.color }}
+                  />
+                  <span className="an-breakdown-label">
+                    {cfg.label}
+                  </span>
+                </div>
+                <div className="an-breakdown-bar-wrap">
+                  <div
+                    className="an-breakdown-bar"
+                    style={{
+                      width:      `${pct}%`,
+                      background: cfg.color,
+                    }}
+                  />
+                </div>
+                <div className="an-breakdown-row__right">
+                  <span className="an-breakdown-count">
+                    {fmtNum(count)}
+                  </span>
+                  <span className="an-breakdown-pct">
+                    {pct.toFixed(0)}%
+                  </span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ═════════════════════════════════════════════════════════════
+// RECENT ORDERS TABLE
+// ═════════════════════════════════════════════════════════════
+const RecentOrders = memo(({ orders, loading, error, onRetry }) => (
+  <div className="an-card">
+    <div className="an-card__header">
+      <h3 className="an-card__title">🧾 Recent Orders</h3>
+    </div>
+
+    {loading ? (
+      <div className="an-table-skeleton">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="an-table-skeleton__row">
+            {Array.from({ length: 4 }).map((__, j) => (
+              <div
+                key={j}
+                className="an-skeleton"
+                style={{ height: 10, flex: [2, 1, 1, 1][j] }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    ) : error ? (
+      <SectionError onRetry={onRetry} />
+    ) : orders.length === 0 ? (
+      <NoData message="No orders yet" />
+    ) : (
+      <div className="an-table-wrap">
+        <table className="an-table">
+          <thead>
+            <tr>
+              <th>Order</th>
+              <th>Date</th>
+              <th>Amount</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {orders.map((o) => {
+              const cfg = ORDER_STATUS_CFG[o.order_status]
+                ?? ORDER_STATUS_CFG.pending;
+              return (
+                <tr key={o.id}>
+                  <td>
+                    <p className="an-order-ref">{o.reference}</p>
+                    <p className="an-order-items">
+                      {o.item_count} item{o.item_count !== 1 ? "s" : ""}
+                    </p>
+                  </td>
+                  <td className="an-order-date">
+                    {fmtDate(o.created_at)}
+                  </td>
+                  <td className="an-order-amount">
+                    {fmt(o.vendor_earnings)}
+                  </td>
+                  <td>
+                    <span
+                      className="an-order-badge"
+                      style={{
+                        background: cfg.bg,
+                        color:      cfg.color,
+                      }}
+                    >
+                      {cfg.label}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    )}
+  </div>
+));
+
+// ═════════════════════════════════════════════════════════════
+// CSV EXPORT
+// ═════════════════════════════════════════════════════════════
+function exportCSV(chart, mode, range) {
+  const rows = [
+    ["Period", mode === "revenue" ? "Revenue (₦)" : "Orders"],
+    ...chart.map((d) => [
+      d.label,
+      mode === "revenue" ? d.revenue : d.orders,
+    ]),
+  ];
+
+  const csv     = rows.map((r) => r.join(",")).join("\n");
+  const blob    = new Blob([csv], { type: "text/csv" });
+  const url     = URL.createObjectURL(blob);
+  const link    = document.createElement("a");
+  link.href     = url;
+  link.download = `analytics-${mode}-${range}-${
+    new Date().toISOString().split("T")[0]
+  }.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+// ═════════════════════════════════════════════════════════════
+// MAIN ANALYTICS PAGE
+// ═════════════════════════════════════════════════════════════
 export default function Analytics() {
   const navigate = useNavigate();
 
-  const [range,       setRange]       = useState("30d");
-  const [stats,       setStats]       = useState(null);
-  const [chart,       setChart]       = useState([]);
-  const [topProds,    setTopProds]    = useState([]);
-  const [loadStats,   setLoadStats]   = useState(true);
-  const [loadChart,   setLoadChart]   = useState(true);
-  const [loadProds,   setLoadProds]   = useState(true);
+  const [range,      setRange]      = useState("30d");
+  const [chartMode,  setChartMode]  = useState("revenue");
+  const [refreshing, setRefreshing] = useState(false);
 
-  // ── navigate to PostAds page ──
-  const goToPostAd = () => navigate("/minimart/post-ad");
+  // Data
+  const [stats,     setStats]     = useState(null);
+  const [chart,     setChart]     = useState([]);
+  const [topProds,  setTopProds]  = useState([]);
+  const [breakdown, setBreakdown] = useState({});
+  const [recent,    setRecent]    = useState([]);
 
-  // GET /api/seller-dashboard/stats?range=
+  // Loading states
+  const [loadStats,     setLoadStats]     = useState(true);
+  const [loadChart,     setLoadChart]     = useState(true);
+  const [loadProds,     setLoadProds]     = useState(true);
+  const [loadBreakdown, setLoadBreakdown] = useState(true);
+  const [loadRecent,    setLoadRecent]    = useState(true);
+
+  // Error states
+  const [errStats,     setErrStats]     = useState(false);
+  const [errChart,     setErrChart]     = useState(false);
+  const [errProds,     setErrProds]     = useState(false);
+  const [errBreakdown, setErrBreakdown] = useState(false);
+  const [errRecent,    setErrRecent]    = useState(false);
+
+  // ── Fetch functions ───────────────────────────────────────
   const fetchStats = useCallback(async () => {
     setLoadStats(true);
+    setErrStats(false);
     try {
       const { data } = await sellerApi.get(
-        "/api/seller-dashboard/stats", { range }
+        "/api/seller-dashboard/stats",
+        { params: { range } }
       );
       if (data.success) setStats(data.stats);
-    } catch { /* */ } finally {
+    } catch {
+      setErrStats(true);
+    } finally {
       setLoadStats(false);
     }
   }, [range]);
 
-  // GET /api/seller-dashboard/revenue-chart?range=
   const fetchChart = useCallback(async () => {
     setLoadChart(true);
+    setErrChart(false);
     try {
       const { data } = await sellerApi.get(
-        "/api/seller-dashboard/revenue-chart", { range }
+        "/api/seller-dashboard/revenue-chart",
+        { params: { range } }
       );
       if (data.success) setChart(data.chart ?? []);
-    } catch { /* */ } finally {
+    } catch {
+      setErrChart(true);
+    } finally {
       setLoadChart(false);
     }
   }, [range]);
 
-  // GET /api/seller-dashboard/top-products?limit=10
   const fetchProds = useCallback(async () => {
     setLoadProds(true);
+    setErrProds(false);
     try {
       const { data } = await sellerApi.get(
-        "/api/seller-dashboard/top-products", { limit: 10 }
+        "/api/seller-dashboard/top-products",
+        { params: { limit: 10, range } }
       );
       if (data.success) setTopProds(data.products ?? []);
-    } catch { /* */ } finally {
+    } catch {
+      setErrProds(true);
+    } finally {
       setLoadProds(false);
+    }
+  }, [range]);
+
+  const fetchBreakdown = useCallback(async () => {
+    setLoadBreakdown(true);
+    setErrBreakdown(false);
+    try {
+      const { data } = await sellerApi.get(
+        "/api/seller-dashboard/order-breakdown",
+        { params: { range } }
+      );
+      if (data.success) setBreakdown(data.breakdown ?? {});
+    } catch {
+      setErrBreakdown(true);
+    } finally {
+      setLoadBreakdown(false);
+    }
+  }, [range]);
+
+  const fetchRecent = useCallback(async () => {
+    setLoadRecent(true);
+    setErrRecent(false);
+    try {
+      const { data } = await sellerApi.get(
+        "/api/seller-dashboard/recent-orders",
+        { params: { limit: 10 } }
+      );
+      if (data.success) setRecent(data.orders ?? []);
+    } catch {
+      setErrRecent(true);
+    } finally {
+      setLoadRecent(false);
     }
   }, []);
 
-  useEffect(() => { fetchStats(); }, [fetchStats]);
-  useEffect(() => { fetchChart(); }, [fetchChart]);
-  useEffect(() => { fetchProds(); }, [fetchProds]);
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      fetchStats(),
+      fetchChart(),
+      fetchProds(),
+      fetchBreakdown(),
+      fetchRecent(),
+    ]);
+    setRefreshing(false);
+  }, [fetchStats, fetchChart, fetchProds, fetchBreakdown, fetchRecent]);
 
-  const maxRev = Math.max(...chart.map((c) => c.revenue), 1);
-  const maxProd = topProds[0]?.revenue ?? 1;
+  // ── Effects ───────────────────────────────────────────────
+  useEffect(() => { fetchStats();     }, [fetchStats]);
+  useEffect(() => { fetchChart();     }, [fetchChart]);
+  useEffect(() => { fetchProds();     }, [fetchProds]);
+  useEffect(() => { fetchBreakdown(); }, [fetchBreakdown]);
+  useEffect(() => { fetchRecent();    }, [fetchRecent]);
+
+  // ── Derived ───────────────────────────────────────────────
+  const goToPostAd = () => navigate("/minimart/post-ad");
+
+  const STAT_CARDS = [
+    {
+      icon:    "💰",
+      label:   "Revenue",
+      value:   fmt(stats?.total_revenue),
+      color:   "#10b981",
+      trend:   stats?.revenue_change,
+      loading: loadStats,
+    },
+    {
+      icon:    "📦",
+      label:   "Orders",
+      value:   fmtNum(stats?.total_orders),
+      sub:     `${fmtNum(stats?.pending_orders ?? 0)} pending`,
+      color:   "#6366f1",
+      trend:   stats?.orders_change,
+      loading: loadStats,
+    },
+    {
+      icon:    "👥",
+      label:   "Customers",
+      value:   fmtNum(stats?.total_customers),
+      color:   "#f59e0b",
+      trend:   stats?.customers_change,
+      loading: loadStats,
+    },
+    {
+      icon:    "🛒",
+      label:   "Avg Order",
+      value:   fmt(stats?.avg_order_value),
+      color:   "#8b5cf6",
+      loading: loadStats,
+    },
+    {
+      icon:    "📈",
+      label:   "Conversion",
+      value:   `${Number(stats?.conversion_rate ?? 0).toFixed(1)}%`,
+      sub:     "views → orders",
+      color:   "#0ea5e9",
+      loading: loadStats,
+    },
+    {
+      icon:    "⭐",
+      label:   "Avg Rating",
+      value:   Number(stats?.avg_rating ?? 0).toFixed(1),
+      sub:     `${fmtNum(stats?.review_count)} reviews`,
+      color:   "#f59e0b",
+      loading: loadStats,
+    },
+  ];
 
   return (
-    <div style={{ display:"flex", flexDirection:"column",
-      gap:"1.25rem" }}>
+    <div className="an-root">
 
-      {/* Header */}
-      <div style={{ display:"flex", justifyContent:"space-between",
-        alignItems:"flex-start", flexWrap:"wrap", gap:"0.75rem" }}>
+      {/* ── Page header ──────────────────────────────────── */}
+      <div className="an-page-header">
         <div>
-          <h2 style={{ fontWeight:800, fontSize:"1.35rem",
-            color:"#1f2937", margin:0 }}>
-            📊 Analytics
-          </h2>
-          <p style={{ color:"#9ca3af", fontSize:"0.85rem",
-            margin:"0.2rem 0 0" }}>
-            Sales insights & performance trends
+          <h2 className="an-page-title">📊 Analytics</h2>
+          <p className="an-page-sub">
+            Sales insights &amp; performance trends
           </p>
         </div>
 
-        <div style={{ display:"flex", gap:"0.6rem",
-          alignItems:"center", flexWrap:"wrap" }}>
-
-          {/* Range tabs */}
-          <div style={{ display:"flex", gap:"0.3rem",
-            background:"white", border:"1px solid #e5e7eb",
-            borderRadius:"12px", padding:"4px" }}>
+        <div className="an-header-actions">
+          {/* Range selector */}
+          <div className="an-range-group" role="group" aria-label="Time range">
             {RANGES.map(({ key, label }) => (
               <button
                 key={key}
+                className={`an-range-btn ${
+                  range === key ? "an-range-btn--active" : ""
+                }`}
                 onClick={() => setRange(key)}
-                style={{
-                  padding:      "0.4rem 0.875rem",
-                  borderRadius: "8px",
-                  border:       "none",
-                  cursor:       "pointer",
-                  fontSize:     "0.8rem",
-                  fontWeight:   range === key ? 700 : 500,
-                  background:   range === key ? "#6366f1" : "transparent",
-                  color:        range === key ? "white"   : "#6b7280",
-                  transition:   "all 0.15s",
-                  whiteSpace:   "nowrap",
-                }}
+                aria-pressed={range === key}
               >
                 {label}
               </button>
             ))}
           </div>
 
-          {/* ➕ Post Product button → PostAds */}
+          {/* Export CSV */}
+          {chart.length > 0 && (
+            <button
+              className="an-export-btn"
+              onClick={() => exportCSV(chart, chartMode, range)}
+              title="Export to CSV"
+            >
+              ⬇ Export
+            </button>
+          )}
+
+          {/* Refresh */}
           <button
-            onClick={goToPostAd}
-            style={{
-              display:      "flex",
-              alignItems:   "center",
-              gap:          "0.4rem",
-              padding:      "0.5rem 1rem",
-              borderRadius: "10px",
-              border:       "none",
-              cursor:       "pointer",
-              fontSize:     "0.85rem",
-              fontWeight:   700,
-              color:        "white",
-              background:   "linear-gradient(135deg,#ff5722,#ff8a00)",
-              whiteSpace:   "nowrap",
-              transition:   "opacity 0.15s",
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.9")}
-            onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+            className="an-refresh-btn"
+            onClick={refreshAll}
+            disabled={refreshing}
+            aria-label="Refresh data"
           >
-            <span style={{ fontSize:"1rem", lineHeight:1 }}>＋</span>
-            Post Product
+            <span
+              style={{
+                display:   "inline-block",
+                animation: refreshing
+                  ? "an-spin 0.7s linear infinite"
+                  : "none",
+              }}
+            >
+              ↻
+            </span>
+          </button>
+
+          {/* Post product */}
+          <button
+            className="an-post-btn"
+            onClick={goToPostAd}
+          >
+            <span>＋</span> Post Product
           </button>
         </div>
       </div>
 
-      {/* Stat cards — from /stats */}
-      <div style={an.statsGrid}>
-        {[
-          {
-            icon:"💰", label:"Revenue",
-            value: loadStats ? "—"
-              : `₦${Number(stats?.total_revenue ?? 0)
-                  .toLocaleString("en-NG")}`,
-            color:"#10b981",
-            trend: stats?.revenue_change,
-            trendUp: (stats?.revenue_change ?? 0) >= 0,
-            loading: loadStats,
-          },
-          {
-            icon:"📦", label:"Orders",
-            value: stats?.total_orders ?? 0,
-            sub: `${stats?.pending_orders ?? 0} pending`,
-            color:"#6366f1",
-            trend: stats?.orders_change,
-            trendUp: (stats?.orders_change ?? 0) >= 0,
-            loading: loadStats,
-          },
-          {
-            icon:"👥", label:"Customers",
-            value: stats?.total_customers ?? 0,
-            color:"#f59e0b",
-            loading: loadStats,
-          },
-          {
-            icon:"🛒", label:"Avg Order",
-            value: loadStats ? "—"
-              : fmt(stats?.avg_order_value),
-            color:"#8b5cf6",
-            loading: loadStats,
-          },
-        ].map((c) => (
+      {/* ── Stat cards ───────────────────────────────────── */}
+      <div className="an-stats-grid">
+        {STAT_CARDS.map((c) => (
           <StatCard key={c.label} {...c} />
         ))}
       </div>
 
-      {/* Revenue chart — from /revenue-chart */}
-      <div style={an.card}>
-        <div style={an.cardHeader}>
-          <h3 style={an.cardTitle}>📈 Revenue Chart</h3>
-          {loadChart && (
-            <div style={{ width:16, height:16,
-              border:"2px solid #e5e7eb",
-              borderTop:"2px solid #6366f1",
-              borderRadius:"50%",
-              animation:"spin 0.7s linear infinite" }} />
-          )}
+      {/* ── Charts row ───────────────────────────────────── */}
+      <div className="an-charts-row">
+        <div className="an-charts-row__main">
+          <RevenueChart
+            chart={chart}
+            loading={loadChart}
+            error={errChart}
+            mode={chartMode}
+            onModeChange={setChartMode}
+            onRetry={fetchChart}
+          />
         </div>
-
-        {!loadChart && chart.length === 0 ? (
-          <div style={an.noData}>
-            <span style={{ fontSize:"2rem" }}>📭</span>
-            <p>No revenue data for this period</p>
-            <button onClick={goToPostAd} style={an.ctaBtn}>
-              ＋ Post Your First Product
-            </button>
-          </div>
-        ) : (
-          <>
-            {/* Max revenue label */}
-            <div style={{ display:"flex",
-              justifyContent:"space-between",
-              marginBottom:"0.5rem" }}>
-              <span style={{ fontSize:"0.7rem", color:"#9ca3af" }}>
-                {fmt(0)}
-              </span>
-              <span style={{ fontSize:"0.7rem", color:"#9ca3af" }}>
-                {fmt(maxRev)}
-              </span>
-            </div>
-
-            {/* Bars */}
-            <div style={{ display:"flex", alignItems:"flex-end",
-              gap:"4px", height:"140px" }}>
-              {(loadChart ? Array(12).fill({label:"",revenue:0})
-                : chart
-              ).map((d, i) => {
-                const pct = loadChart
-                  ? 0.2 + (i % 4) * 0.15
-                  : d.revenue / maxRev;
-                return (
-                  <div key={i}
-                    style={{ flex:1, display:"flex",
-                      flexDirection:"column",
-                      alignItems:"center", gap:"4px",
-                      minWidth:0 }}
-                    title={
-                      !loadChart
-                        ? `${d.label}: ${fmt(d.revenue)}`
-                        : ""
-                    }
-                  >
-                    <div style={{
-                      width:        "100%",
-                      height:       `${Math.max(pct * 116, 3)}px`,
-                      background:   loadChart
-                        ? "#f3f4f6"
-                        : d.revenue === maxRev
-                          ? "linear-gradient(180deg,#f59e0b,#d97706)"
-                          : "linear-gradient(180deg,#818cf8,#6366f1)",
-                      borderRadius: "4px 4px 0 0",
-                      transition:   "height 0.35s ease",
-                    }} />
-                    {!loadChart && (
-                      <span style={{ fontSize:"0.55rem",
-                        color:"#9ca3af", overflow:"hidden",
-                        textOverflow:"ellipsis",
-                        whiteSpace:"nowrap",
-                        maxWidth:"100%",
-                        textAlign:"center" }}>
-                        {d.label}
-                      </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </>
-        )}
+        <div className="an-charts-row__side">
+          <OrderBreakdown
+            breakdown={breakdown}
+            loading={loadBreakdown}
+            error={errBreakdown}
+            onRetry={fetchBreakdown}
+          />
+        </div>
       </div>
 
-      {/* Top products — from /top-products */}
-      <div style={an.card}>
-        <div style={an.cardHeader}>
-          <h3 style={an.cardTitle}>🏆 Top Products by Revenue</h3>
-          <span style={{ fontSize:"0.78rem", color:"#9ca3af" }}>
-            {topProds.length} products
-          </span>
+      {/* ── Bottom row ───────────────────────────────────── */}
+      <div className="an-bottom-row">
+        <div className="an-bottom-row__main">
+          <RecentOrders
+            orders={recent}
+            loading={loadRecent}
+            error={errRecent}
+            onRetry={fetchRecent}
+          />
         </div>
-
-        {loadProds ? (
-          <div style={{ padding:"2rem" }}><Spin /></div>
-        ) : topProds.length === 0 ? (
-          <div style={an.noData}>
-            <span style={{ fontSize:"2rem" }}>🏷️</span>
-            <p>No product sales yet</p>
-            <button onClick={goToPostAd} style={an.ctaBtn}>
-              ＋ Post Your First Product
-            </button>
-          </div>
-        ) : (
-          <div style={{ display:"flex", flexDirection:"column",
-            gap:"1rem" }}>
-            {topProds.map((p, i) => (
-              <div key={p.id}>
-                <div style={{ display:"flex",
-                  justifyContent:"space-between",
-                  alignItems:"center",
-                  marginBottom:"0.35rem" }}>
-                  <div style={{ display:"flex",
-                    alignItems:"center", gap:"0.625rem",
-                    minWidth:0 }}>
-                    <span style={{
-                      width:          "26px",
-                      height:         "26px",
-                      borderRadius:   "7px",
-                      background:     i < 3
-                        ? ["#fef9c3","#f3f4f6","#fff1f2"][i]
-                        : "#f9fafb",
-                      color:          i < 3
-                        ? ["#a16207","#6b7280","#9f1239"][i]
-                        : "#6b7280",
-                      display:        "flex",
-                      alignItems:     "center",
-                      justifyContent: "center",
-                      fontWeight:     800,
-                      fontSize:       "0.72rem",
-                      flexShrink:     0,
-                    }}>
-                      {i + 1}
-                    </span>
-                    <div style={{ minWidth:0 }}>
-                      <p style={{ fontWeight:600, color:"#1f2937",
-                        margin:0, fontSize:"0.875rem",
-                        overflow:"hidden",
-                        textOverflow:"ellipsis",
-                        whiteSpace:"nowrap",
-                        maxWidth:"200px" }}>
-                        {p.name}
-                      </p>
-                      <p style={{ color:"#9ca3af",
-                        fontSize:"0.7rem", margin:0 }}>
-                        {Number(p.total_sold).toLocaleString()} sold
-                      </p>
-                    </div>
-                  </div>
-                  <span style={{ fontWeight:800, color:"#10b981",
-                    fontSize:"0.9rem", whiteSpace:"nowrap",
-                    marginLeft:"0.75rem" }}>
-                    {fmt(p.revenue)}
-                  </span>
-                </div>
-
-                {/* Progress bar */}
-                <div style={{ height:"5px", background:"#f3f4f6",
-                  borderRadius:"100px", overflow:"hidden" }}>
-                  <div style={{
-                    height:       "100%",
-                    width:        `${(p.revenue / maxProd) * 100}%`,
-                    background:   i === 0
-                      ? "linear-gradient(90deg,#f59e0b,#d97706)"
-                      : "linear-gradient(90deg,#6366f1,#8b5cf6)",
-                    borderRadius: "100px",
-                    transition:   "width 0.5s ease",
-                  }} />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        <div className="an-bottom-row__side">
+          <TopProducts
+            products={topProds}
+            loading={loadProds}
+            error={errProds}
+            onRetry={fetchProds}
+            onPostAd={goToPostAd}
+          />
+        </div>
       </div>
 
     </div>
   );
 }
-
-const an = {
-  statsGrid: {
-    display:             "grid",
-    gridTemplateColumns: "repeat(auto-fill,minmax(185px,1fr))",
-    gap:                 "1rem",
-  },
-  card: {
-    background:   "white",
-    borderRadius: "16px",
-    padding:      "1.35rem",
-    border:       "1px solid #f3f4f6",
-    boxShadow:    "0 1px 4px rgba(0,0,0,0.04)",
-  },
-  cardHeader: {
-    display:        "flex",
-    justifyContent: "space-between",
-    alignItems:     "center",
-    marginBottom:   "1.1rem",
-  },
-  cardTitle: {
-    fontWeight: 700,
-    color:      "#1f2937",
-    margin:     0,
-    fontSize:   "0.95rem",
-  },
-  noData: {
-    padding:       "2.5rem",
-    textAlign:     "center",
-    color:         "#9ca3af",
-    display:       "flex",
-    flexDirection: "column",
-    alignItems:    "center",
-    gap:           "0.6rem",
-    fontSize:      "0.875rem",
-  },
-  ctaBtn: {
-    marginTop:    "0.5rem",
-    padding:      "0.55rem 1.1rem",
-    borderRadius: "10px",
-    border:       "none",
-    cursor:       "pointer",
-    fontSize:     "0.85rem",
-    fontWeight:   700,
-    color:        "white",
-    background:   "linear-gradient(135deg,#ff5722,#ff8a00)",
-  },
-};
