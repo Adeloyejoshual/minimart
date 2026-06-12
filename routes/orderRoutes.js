@@ -1,30 +1,69 @@
 // server/routes/orderRoutes.js
-const express        = require("express");
-const router         = express.Router();
-const orderCtrl      = require("../controllers/orderController");
-const { protect }    = require("../middleware/auth");
 
-router.post("/", protect, orderCtrl.createOrder);
-
-module.exports = router;
+const express     = require("express");
+const router      = express.Router();
+const orderCtrl   = require("../controllers/orderController");
+const { protect } = require("../middleware/auth");
 
 // ─────────────────────────────────────────────────────────────
+// All routes require authentication
+// ─────────────────────────────────────────────────────────────
 
-// server/routes/paymentRoutes.js
-const express      = require("express");
-const router       = express.Router();
-const webhookCtrl  = require("../controllers/webhookController");
-const paymentCtrl  = require("../controllers/paymentController");
-const { protect }  = require("../middleware/auth");
-// Raw body needed for webhook signature verification
-const rawBody      = require("../middleware/rawBody");
-
+/**
+ * POST /api/orders
+ * Create a new order
+ * Body: { cartItems, shippingAddress, paymentMethod, grandTotal }
+ * Returns: { orderId, paymentMethod, status } for COD
+ *          { orderId, paymentMethod, paymentUrl } for ONLINE
+ */
 router.post(
-  "/flutterwave/webhook",
-  rawBody,              // must come before express.json()
-  webhookCtrl.handleWebhook
+  "/",
+  protect,
+  orderCtrl.createOrder
 );
 
-router.post("/verify", protect, paymentCtrl.verifyPayment);
+/**
+ * GET /api/orders
+ * Get all orders for the logged-in user
+ * Query: ?page=1&limit=10&status=pending
+ */
+router.get(
+  "/",
+  protect,
+  orderCtrl.getUserOrders
+);
+
+/**
+ * GET /api/orders/:orderId
+ * Get a single order by ID
+ * Used by: OrderSuccessPage, OrderDetailPage
+ */
+router.get(
+  "/:orderId",
+  protect,
+  orderCtrl.getOrder
+);
+
+/**
+ * PATCH /api/orders/:orderId/cancel
+ * Customer cancels their own order
+ * Only allowed if order is still "pending"
+ */
+router.patch(
+  "/:orderId/cancel",
+  protect,
+  orderCtrl.cancelOrder
+);
+
+/**
+ * PATCH /api/orders/:orderId/confirm-delivery
+ * Customer confirms they received their order
+ * Triggers vendor balance release from pending → available
+ */
+router.patch(
+  "/:orderId/confirm-delivery",
+  protect,
+  orderCtrl.confirmDelivery
+);
 
 module.exports = router;
