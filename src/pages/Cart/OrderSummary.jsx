@@ -1,4 +1,12 @@
+// pages/Cart/OrderSummary.jsx
+
 import React, { memo } from "react";
+
+const fmt = (n) =>
+  `₦${Number(n ?? 0).toLocaleString("en-NG", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  })}`;
 
 const OrderSummary = memo(function OrderSummary({
   itemCount,
@@ -11,98 +19,140 @@ const OrderSummary = memo(function OrderSummary({
   onCheckout,
   user,
 }) {
-  const fmt = (n) => `₦${Number(n).toLocaleString("en-NG")}`;
+  const isDisabled = hasOutOfStock || selectedCount === 0;
+
+  const checkoutLabel = () => {
+    if (!user)            return "🔒 Login to Checkout";
+    if (selectedCount === 0) return "Select items to checkout";
+    if (hasOutOfStock)    return "⚠️ Remove out-of-stock items";
+    return `Checkout — ${fmt(grandTotal)}`;
+  };
 
   return (
     <div className="ct-summary-card">
       <h3 className="ct-summary-title">Order Summary</h3>
 
+      {/* ── Line items ──────────────────────────────────── */}
       <div className="ct-summary-rows">
+
         <div className="ct-summary-row">
-          <span>Subtotal ({itemCount} item{itemCount !== 1 ? "s" : ""})</span>
-          <span>{fmt(subtotal)}</span>
+          <span>
+            Subtotal
+            <span className="ct-summary-count">
+              ({itemCount} item{itemCount !== 1 ? "s" : ""})
+            </span>
+          </span>
+          <span className="ct-summary-val">{fmt(subtotal)}</span>
         </div>
 
-        <div className="ct-summary-row ct-summary-row--note">
+        <div className="ct-summary-row">
           <span>Delivery Fee</span>
-          <span className="ct-summary-delivery-note">
+          <span className="ct-summary-note">
             Calculated at checkout
           </span>
         </div>
 
-        <div className="ct-summary-row ct-summary-row--note">
+        <div className="ct-summary-row">
           <span>Service Fee</span>
-          <span className="ct-summary-delivery-note">Included</span>
+          <span className="ct-summary-note">Included</span>
         </div>
 
-        {couponApplied && (
+        {couponApplied && discount > 0 && (
           <div className="ct-summary-row ct-summary-row--discount">
-            <span>Coupon ({couponApplied.code})</span>
-            <span>- {fmt(discount)}</span>
+            <span>
+              Coupon
+              <span className="ct-coupon-code-tag">
+                {couponApplied.code}
+              </span>
+            </span>
+            <span className="ct-summary-discount-val">
+              − {fmt(discount)}
+            </span>
           </div>
         )}
       </div>
 
-      <div className="ct-summary-divider" />
+      {/* ── Divider + total ─────────────────────────────── */}
+      <div className="ct-summary-divider" aria-hidden="true" />
 
       <div className="ct-summary-total">
-        <span>Total</span>
-        <span className="ct-summary-total-amt">{fmt(grandTotal)}</span>
+        <div>
+          <span className="ct-summary-total-label">Total</span>
+          <p className="ct-summary-total-note">
+            Delivery fee excluded
+          </p>
+        </div>
+        <span
+          className="ct-summary-total-amt"
+          aria-label={`Total: ${fmt(grandTotal)}`}
+        >
+          {fmt(grandTotal)}
+        </span>
       </div>
 
-      <p className="ct-summary-delivery-text">
-        🚚 Delivery fee will be calculated based on your address
-      </p>
-
-      {/* Out of stock warning */}
+      {/* ── Out of stock warning ─────────────────────────── */}
       {hasOutOfStock && (
         <div className="ct-summary-oos-warn" role="alert">
-          ⚠️ Remove out-of-stock items before checkout
+          <span aria-hidden="true">⚠️</span>
+          <span>
+            Remove out-of-stock items before checkout
+          </span>
         </div>
       )}
 
-      {/* Checkout button */}
+      {/* ── Checkout button ──────────────────────────────── */}
       <button
-        className={`ct-summary-checkout ${
-          hasOutOfStock || selectedCount === 0 ? "ct-summary-checkout--disabled" : ""
-        }`}
+        className={[
+          "ct-summary-checkout",
+          isDisabled ? "ct-summary-checkout--disabled" : "",
+        ].filter(Boolean).join(" ")}
         onClick={onCheckout}
-        disabled={hasOutOfStock || selectedCount === 0}
+        disabled={isDisabled}
+        aria-disabled={isDisabled}
+        aria-label={checkoutLabel()}
       >
-        {!user
-          ? "🔒 Login to Checkout"
-          : selectedCount === 0
-            ? "Select items to checkout"
-            : `Proceed to Checkout (${fmt(grandTotal)})`}
+        {checkoutLabel()}
       </button>
 
+      {/* Login nudge */}
       {!user && (
         <p className="ct-summary-login-note">
-          You'll be asked to login before completing your order
+          Sign in to complete your purchase
         </p>
       )}
 
-      {/* Security note */}
+      {/* ── Security badge ───────────────────────────────── */}
       <div className="ct-summary-secure">
-        <span>🔒</span>
-        <span>Secure checkout powered by Minimart</span>
+        <svg width="14" height="14" viewBox="0 0 24 24"
+          fill="none" stroke="currentColor"
+          strokeWidth="2" strokeLinecap="round"
+          aria-hidden="true">
+          <rect x="3" y="11" width="18" height="11" rx="2"/>
+          <path d="M7 11V7a5 5 0 0110 0v4"/>
+        </svg>
+        <span>Secured by Flutterwave · SSL encrypted</span>
       </div>
 
-      {/* What happens next */}
+      {/* ── What happens next ─────────────────────────────── */}
       <div className="ct-summary-steps">
         <p className="ct-summary-steps-title">What happens next?</p>
-        {[
-          { icon:"📦", text:"Order placed"             },
-          { icon:"✅", text:"Seller confirms"           },
-          { icon:"🚚", text:"Minimart arranges delivery"},
-          { icon:"🏠", text:"Delivered to you"          },
-        ].map((s) => (
-          <div key={s.text} className="ct-summary-step">
-            <span>{s.icon}</span>
-            <span>{s.text}</span>
-          </div>
-        ))}
+        <ol className="ct-summary-step-list">
+          {[
+            { icon: "📦", text: "Order placed & confirmed"      },
+            { icon: "✅", text: "Seller prepares your items"    },
+            { icon: "🚚", text: "Minimart arranges delivery"    },
+            { icon: "🏠", text: "Delivered to your address"     },
+          ].map((step) => (
+            <li key={step.text} className="ct-summary-step">
+              <span className="ct-step-icon" aria-hidden="true">
+                {step.icon}
+              </span>
+              <span>{step.text}</span>
+            </li>
+          ))}
+        </ol>
       </div>
+
     </div>
   );
 });
