@@ -1,69 +1,122 @@
 // server/routes/orderRoutes.js
 
-const express     = require("express");
-const router      = express.Router();
-const orderCtrl   = require("../controllers/orderController");
-const { protect } = require("../middleware/auth");
+import express    from "express";
+import {
+  authenticateBuyer,
+  requireAdmin,
+  authenticate,
+}                 from "../middleware/auth.js";
+import {
+  createOrder,
+  getOrder,
+  getUserOrders,
+  cancelOrder,
+  confirmDelivery,
+  retryPayment,
+  getAllOrdersAdmin,
+  updateOrderStatusAdmin,
+}                 from "../controllers/orderController.js";
+
+const router = express.Router();
 
 // ─────────────────────────────────────────────────────────────
-// All routes require authentication
+// BUYER ROUTES
+// authenticateBuyer → only public.users (buyers) allowed
+// Sellers cannot place orders through this route
 // ─────────────────────────────────────────────────────────────
 
 /**
  * POST /api/orders
- * Create a new order
- * Body: { cartItems, shippingAddress, paymentMethod, grandTotal }
- * Returns: { orderId, paymentMethod, status } for COD
- *          { orderId, paymentMethod, paymentUrl } for ONLINE
+ * Buyer places a new order
+ *
+ * Body: {
+ *   cartItems,
+ *   shippingAddress,
+ *   paymentMethod,   // "CASH_ON_DELIVERY" | "ONLINE_PAYMENT"
+ *   grandTotal
+ * }
+ *
+ * Returns COD:    { orderId, paymentMethod, status }
+ * Returns ONLINE: { orderId, paymentMethod, paymentUrl }
  */
 router.post(
   "/",
-  protect,
-  orderCtrl.createOrder
+  authenticateBuyer,
+  createOrder
 );
 
 /**
  * GET /api/orders
- * Get all orders for the logged-in user
+ * Buyer gets their own order history
  * Query: ?page=1&limit=10&status=pending
  */
 router.get(
   "/",
-  protect,
-  orderCtrl.getUserOrders
+  authenticateBuyer,
+  getUserOrders
 );
 
 /**
  * GET /api/orders/:orderId
- * Get a single order by ID
+ * Buyer gets a single order detail
  * Used by: OrderSuccessPage, OrderDetailPage
  */
 router.get(
   "/:orderId",
-  protect,
-  orderCtrl.getOrder
+  authenticateBuyer,
+  getOrder
 );
 
 /**
  * PATCH /api/orders/:orderId/cancel
- * Customer cancels their own order
- * Only allowed if order is still "pending"
+ * Buyer cancels their own order
+ * Only allowed when order status is still "pending"
  */
 router.patch(
   "/:orderId/cancel",
-  protect,
-  orderCtrl.cancelOrder
+  authenticateBuyer,
+  cancelOrder
 );
 
 /**
  * PATCH /api/orders/:orderId/confirm-delivery
- * Customer confirms they received their order
- * Triggers vendor balance release from pending → available
+ * Buyer confirms they received the order
+ * Triggers: pending_balance → available_balance for vendor
  */
 router.patch(
   "/:orderId/confirm-delivery",
-  protect,
-  orderCtrl.confirmDelivery
+  authenticateBuyer,
+  confirmDelivery
 );
 
-module.exports = router;
+// ─────────────────────────────────────────────────────────────
+// ADMIN ROUTES
+// authenticate first → then requireAdmin
+// Double layer: valid JWT + admin role
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/orders/admin/all
+ * Admin views all orders across the platform
+ * Query: ?page=1&limit=20&status=pending&vendorId=xxx
+ */
+router.get(
+  "/admin/all",
+  authenticate,
+  requireAdmin,
+  getAllOrdersAdmin
+);
+
+/**
+ * PATCH /api/orders/admin/:orderId/status
+ * Admin manually updates order status
+ * Body: { status: "processing" | "shipped" | "delivered" | "cancelled" }
+ */
+router.patch(
+  "/admin/:orderId/status",
+  authenticate,
+  requireAdmin,
+  updateOrderStatusAdmin
+);
+
+export default router;
