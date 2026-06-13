@@ -1,58 +1,60 @@
+// pages/MarketDetail.jsx
+
 import React, {
   useState, useEffect, useCallback, useMemo, memo,
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import axios from "axios";
 
-import { API_URL, formatPrice, calcDiscount, getProductImage } from "../config/marketplace";
+import {
+  API_URL,
+  formatPrice,
+  calcDiscount,
+  getProductImage,
+} from "../config/marketplace";
 import useWishlist from "../hooks/useWishlist";
 
-import ImageGallery    from "./MarketDetail/ImageGallery";
-import VariantSelector from "./MarketDetail/VariantSelector";
-import SellerCard      from "./MarketDetail/SellerCard";
-import ProductInfo     from "./MarketDetail/ProductInfo";
-import SpecsSection    from "./MarketDetail/SpecsSection";
-import RelatedProducts from "./MarketDetail/RelatedProducts";
+// ── Child components ──
+import MarketDetailHeader from "../components/MarketDetailHeader";
+import ImageGallery       from "./MarketDetail/ImageGallery";
+import VariantSelector    from "./MarketDetail/VariantSelector";
+import SellerCard         from "./MarketDetail/SellerCard";
+import ProductInfo        from "./MarketDetail/ProductInfo";
+import SpecsSection       from "./MarketDetail/SpecsSection";
+import RelatedProducts    from "./MarketDetail/RelatedProducts";
+import RecentlyViewed     from "./Cart/RecentlyViewed";
+import YouMayAlsoLike     from "./Cart/YouMayAlsoLike";
+import { trackProductView } from "./Cart/RecentlyViewed";
 
 import "../styles/MarketDetail.css";
 
 /* ════════════════════════════════════════════════════════════
-   ICONS
+   CONSTANTS
+════════════════════════════════════════════════════════════ */
+const CART_KEY   = "mm_cart";
+const CART_API   = "https://minimart-ivrm.onrender.com/api/cart";
+
+function authHeaders() {
+  const token = localStorage.getItem("marketplace_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/* ════════════════════════════════════════════════════════════
+   ICONS (only ones not in the header)
 ════════════════════════════════════════════════════════════ */
 const Icon = {
-  back: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
-      <path d="M19 12H5M12 5l-7 7 7 7"/>
-    </svg>
-  ),
-  share: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
-      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-    </svg>
-  ),
-  heart: (filled) => (
-    <svg viewBox="0 0 24 24" fill={filled ? "currentColor" : "none"} stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z"/>
-    </svg>
-  ),
-  cart: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/>
-      <line x1="3" y1="6" x2="21" y2="6"/>
-      <path d="M16 10a4 4 0 01-8 0"/>
-    </svg>
-  ),
   flag: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/>
-      <line x1="4" y1="22" x2="4" y2="15"/>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+      aria-hidden="true">
+      <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+      <line x1="4" y1="22" x2="4" y2="15" />
     </svg>
   ),
   check: (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round">
-      <polyline points="20 6 9 17 4 12"/>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth={2.5} strokeLinecap="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
     </svg>
   ),
 };
@@ -62,21 +64,21 @@ const Icon = {
 ════════════════════════════════════════════════════════════ */
 function ProductSkeleton() {
   return (
-    <div className="md-skeleton">
+    <div className="md-skeleton" aria-busy="true" aria-label="Loading product">
       <div className="md-skel md-skel-hero" />
       <div className="md-skel-thumbs">
-        {[0,1,2,3].map((i) => (
+        {[0, 1, 2, 3].map((i) => (
           <div key={i} className="md-skel md-skel-thumb" />
         ))}
       </div>
       <div className="md-skel-body">
-        <div className="md-skel md-skel-line" style={{ width:"40%",  height:13 }} />
-        <div className="md-skel md-skel-line" style={{ width:"85%",  height:22, margin:"10px 0" }} />
-        <div className="md-skel md-skel-line" style={{ width:"30%",  height:28 }} />
-        <div style={{ height:20 }} />
-        <div className="md-skel md-skel-line" style={{ width:"100%", height:80,  borderRadius:12 }} />
-        <div style={{ height:12 }} />
-        <div className="md-skel md-skel-line" style={{ width:"100%", height:120, borderRadius:12 }} />
+        <div className="md-skel md-skel-line" style={{ width: "40%", height: 13 }} />
+        <div className="md-skel md-skel-line" style={{ width: "85%", height: 22, margin: "10px 0" }} />
+        <div className="md-skel md-skel-line" style={{ width: "30%", height: 28 }} />
+        <div style={{ height: 20 }} />
+        <div className="md-skel md-skel-line" style={{ width: "100%", height: 80, borderRadius: 12 }} />
+        <div style={{ height: 12 }} />
+        <div className="md-skel md-skel-line" style={{ width: "100%", height: 120, borderRadius: 12 }} />
       </div>
     </div>
   );
@@ -100,7 +102,6 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitted,  setSubmitted]  = useState(false);
 
-  /* Close on Escape */
   useEffect(() => {
     const fn = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", fn);
@@ -114,53 +115,31 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
       await axios.post(`${API_URL}/${productId}/report`, { reason, details });
       setSubmitted(true);
     } catch {
-      /* swallow — UX stays open so user can retry */
+      /* keep modal open so user can retry */
     } finally {
       setSubmitting(false);
     }
   }, [productId, reason, details]);
 
   return (
-    <div
-      className="md-modal-overlay"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Report listing"
-    >
+    <div className="md-modal-overlay" onClick={onClose}
+      role="dialog" aria-modal="true" aria-label="Report listing">
       <div className="md-modal" onClick={(e) => e.stopPropagation()}>
-
         {submitted ? (
-          /* ── Success state ── */
           <div className="md-report-done">
             <div className="md-report-check">{Icon.check}</div>
             <h3>Report Submitted</h3>
-            <p>
-              Our team will review this listing.
-              Thank you for keeping Minimart safe.
-            </p>
+            <p>Our team will review this listing. Thank you for keeping Minimart safe.</p>
             <button className="md-done-btn" onClick={onClose}>Done</button>
           </div>
-
         ) : (
-          /* ── Form state ── */
           <>
             <div className="md-modal-header">
               <h3>Report Listing</h3>
-              <button
-                className="md-modal-x"
-                onClick={onClose}
-                aria-label="Close report modal"
-              >
-                ✕
-              </button>
+              <button className="md-modal-x" onClick={onClose} aria-label="Close">✕</button>
             </div>
-
             <div className="md-modal-body">
-              <p className="md-modal-sub">
-                Why are you reporting this listing?
-              </p>
-
+              <p className="md-modal-sub">Why are you reporting this listing?</p>
               <div className="md-report-reasons">
                 {REPORT_REASONS.map((r) => (
                   <button
@@ -173,7 +152,6 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
                   </button>
                 ))}
               </div>
-
               <textarea
                 className="md-report-textarea"
                 placeholder="Additional details (optional)…"
@@ -184,16 +162,12 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
                 aria-label="Additional details"
               />
             </div>
-
             <div className="md-modal-footer">
-              <button className="md-modal-cancel" onClick={onClose}>
-                Cancel
-              </button>
+              <button className="md-modal-cancel" onClick={onClose}>Cancel</button>
               <button
                 className="md-modal-submit"
                 onClick={handleSubmit}
                 disabled={!reason || submitting}
-                aria-disabled={!reason || submitting}
               >
                 {submitting ? "Submitting…" : "Submit Report"}
               </button>
@@ -213,12 +187,10 @@ const ShareSheet = memo(function ShareSheet({ product, onClose }) {
   const text    = `Check out ${product.name} on Minimart — ${formatPrice(product.price)}`;
   const [copied, setCopied] = useState(false);
 
-  /* Track share on backend (fire-and-forget) */
   useEffect(() => {
     axios.post(`${API_URL}/${product.id}/share`).catch(() => {});
   }, [product.id]);
 
-  /* Close on Escape */
   useEffect(() => {
     const fn = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", fn);
@@ -230,103 +202,71 @@ const ShareSheet = memo(function ShareSheet({ product, onClose }) {
       await navigator.clipboard.writeText(pageUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2500);
-    } catch {
-      /* clipboard blocked — silently fail */
-    }
+    } catch { /* silently fail */ }
   }, [pageUrl]);
 
   const shareOptions = useMemo(() => [
     {
-      label: "WhatsApp",
-      icon:  "💬",
-      color: "#25D366",
-      href:  `https://wa.me/?text=${encodeURIComponent(`${text} ${pageUrl}`)}`,
+      label: "WhatsApp", icon: "💬", color: "#25D366",
+      href: `https://wa.me/?text=${encodeURIComponent(`${text} ${pageUrl}`)}`,
     },
     {
-      label: "Twitter",
-      icon:  "🐦",
-      color: "#1DA1F2",
-      href:  `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(pageUrl)}`,
+      label: "Twitter", icon: "🐦", color: "#1DA1F2",
+      href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(pageUrl)}`,
     },
     {
-      label: "Facebook",
-      icon:  "📘",
-      color: "#1877F2",
-      href:  `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`,
+      label: "Facebook", icon: "📘", color: "#1877F2",
+      href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`,
     },
     {
-      label: "Telegram",
-      icon:  "✈️",
-      color: "#0088cc",
-      href:  `https://t.me/share/url?url=${encodeURIComponent(pageUrl)}&text=${encodeURIComponent(text)}`,
+      label: "Telegram", icon: "✈️", color: "#0088cc",
+      href: `https://t.me/share/url?url=${encodeURIComponent(pageUrl)}&text=${encodeURIComponent(text)}`,
     },
   ], [text, pageUrl]);
 
   const thumbSrc = getProductImage(product);
 
   return (
-    <div
-      className="md-modal-overlay"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label="Share product"
-    >
+    <div className="md-modal-overlay" onClick={onClose}
+      role="dialog" aria-modal="true" aria-label="Share product">
       <div className="md-share-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="md-share-handle" aria-hidden="true" />
         <h3 className="md-share-title">Share this product</h3>
-
-        {/* Preview */}
         <div className="md-share-preview">
           {thumbSrc && (
-            <img
-              src={thumbSrc}
-              alt={product.name}
-              className="md-share-thumb"
-            />
+            <img src={thumbSrc} alt={product.name} className="md-share-thumb" />
           )}
           <div>
             <p className="md-share-name">{product.name}</p>
             <p className="md-share-price">{formatPrice(product.price)}</p>
           </div>
         </div>
-
-        {/* Platform options */}
         <div className="md-share-options">
           {shareOptions.map((opt) => (
-            <a
-              key={opt.label}
-              href={opt.href}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="md-share-opt"
+            <a key={opt.label} href={opt.href} target="_blank"
+              rel="noopener noreferrer" className="md-share-opt"
               style={{ "--sc": opt.color }}
-              aria-label={`Share on ${opt.label}`}
-            >
+              aria-label={`Share on ${opt.label}`}>
               <span className="md-share-opt-icon">{opt.icon}</span>
               <span className="md-share-opt-label">{opt.label}</span>
             </a>
           ))}
         </div>
-
         <button className="md-copy-link" onClick={copyLink}>
           {copied ? "✅ Link Copied!" : "📋 Copy Link"}
         </button>
-
-        <button className="md-share-cancel" onClick={onClose}>
-          Cancel
-        </button>
+        <button className="md-share-cancel" onClick={onClose}>Cancel</button>
       </div>
     </div>
   );
 });
 
 /* ════════════════════════════════════════════════════════════
-   TRUST BADGES  (static data outside component — no realloc)
+   TRUST BADGES
 ════════════════════════════════════════════════════════════ */
 const TRUST_BADGES = [
-  { icon: "🔒", label: "Secure\nPayment"   },
-  { icon: "✅", label: "Verified\nSeller"   },
+  { icon: "🔒", label: "Secure\nPayment"  },
+  { icon: "✅", label: "Verified\nSeller"  },
   { icon: "🚚", label: "Managed\nDelivery" },
   { icon: "↩️", label: "Easy\nReturns"     },
 ];
@@ -350,11 +290,28 @@ export default function MarketDetail({ user }) {
 
   const [cartCount, setCartCount] = useState(() => {
     try {
-      return JSON.parse(localStorage.getItem("mm_cart") || "[]").length;
+      return JSON.parse(localStorage.getItem(CART_KEY) || "[]").length;
     } catch {
       return 0;
     }
   });
+
+  /* Keep cart count synced across tabs */
+  useEffect(() => {
+    const sync = () => {
+      try {
+        setCartCount(JSON.parse(localStorage.getItem(CART_KEY) || "[]").length);
+      } catch {
+        setCartCount(0);
+      }
+    };
+    window.addEventListener("cart-updated", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("cart-updated", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
 
   /* ── Derived ── */
   const isWishlisted = product ? wishlist.has(product.id) : false;
@@ -364,7 +321,6 @@ export default function MarketDetail({ user }) {
     if (!slug) return;
 
     let cancelled = false;
-
     setLoading(true);
     setError(null);
     setProduct(null);
@@ -389,6 +345,12 @@ export default function MarketDetail({ user }) {
     return () => { cancelled = true; };
   }, [slug]);
 
+  /* ── Track product view for Recently Viewed ── */
+  useEffect(() => {
+    if (!product?.id) return;
+    trackProductView(product);
+  }, [product]);
+
   /* ── Pricing ── */
   const displayPrice = useMemo(() => {
     if (selectedVariant?.price) return Number(selectedVariant.price);
@@ -396,7 +358,7 @@ export default function MarketDetail({ user }) {
   }, [selectedVariant, product]);
 
   const originalPrice = useMemo(
-    () => Number(product?.original_price ?? 0),
+    () => Number(product?.original_price ?? product?.compare_price ?? 0),
     [product],
   );
 
@@ -410,13 +372,47 @@ export default function MarketDetail({ user }) {
     [originalPrice, displayPrice],
   );
 
-  /* ── Cart ── */
-  const handleAddToCart = useCallback(() => {
+  /* ── View count ── */
+  const viewLabel = useMemo(() => {
+    const v = product?.view_count ?? 0;
+    return v > 999 ? `${(v / 1000).toFixed(1)}k` : v;
+  }, [product?.view_count]);
+
+  /* ══════════════════════════════════════════════════════
+     ADD TO CART — works for BOTH guests and logged-in
+  ══════════════════════════════════════════════════════ */
+  const handleAddToCart = useCallback(async () => {
     if (!product) return;
 
+    const variantId = selectedVariant?.id ?? null;
+
+    /* ── Logged-in: use API ── */
+    if (user) {
+      try {
+        const { data } = await axios.post(
+          CART_API,
+          {
+            productId: product.id,
+            variantId,
+            qty: 1,
+          },
+          { headers: authHeaders() }
+        );
+        setCartCount(data.data?.cartCount ?? cartCount + 1);
+        setAddedToCart(true);
+        setTimeout(() => setAddedToCart(false), 2500);
+        window.dispatchEvent(new Event("cart-updated"));
+      } catch (err) {
+        console.error("[addToCart]", err.response?.data?.message ?? err.message);
+        // Could add toast here
+      }
+      return;
+    }
+
+    /* ── Guest: use localStorage ── */
     try {
-      const cart    = JSON.parse(localStorage.getItem("mm_cart") || "[]");
-      const itemId  = `${product.id}__${selectedVariant?.id ?? "default"}`;
+      const cart     = JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+      const itemId   = `${product.id}__${variantId ?? "default"}`;
       const existing = cart.findIndex((c) => c.id === itemId);
 
       const item = {
@@ -425,64 +421,72 @@ export default function MarketDetail({ user }) {
         name:      product.name,
         image:     getProductImage(product),
         price:     displayPrice,
+        originalPrice: originalPrice > displayPrice ? originalPrice : null,
         variant:   selectedVariant
-          ? {
-              id:   selectedVariant.id,
-              name: selectedVariant.name,
-              sku:  selectedVariant.sku,
-            }
+          ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku }
           : null,
         slug:    product.slug ?? product.id,
         qty:     1,
+        stock:   selectedVariant?.stock ?? product?.stock ?? 99,
         addedAt: Date.now(),
       };
 
       if (existing >= 0) {
-        cart[existing].qty += 1;
+        const maxQty = item.stock;
+        cart[existing].qty = Math.min(cart[existing].qty + 1, maxQty);
       } else {
         cart.push(item);
       }
 
-      localStorage.setItem("mm_cart", JSON.stringify(cart));
+      localStorage.setItem(CART_KEY, JSON.stringify(cart));
       setCartCount(cart.length);
       setAddedToCart(true);
       setTimeout(() => setAddedToCart(false), 2500);
-
-      /* Notify other tabs / components */
       window.dispatchEvent(new Event("cart-updated"));
     } catch {
-      /* localStorage blocked — silently fail */
+      /* localStorage blocked */
     }
-  }, [product, selectedVariant, displayPrice]);
+  }, [product, selectedVariant, displayPrice, originalPrice, user, cartCount]);
 
+  /* ── Buy now ── */
   const handleBuyNow = useCallback(() => {
     handleAddToCart();
-    navigate("/checkout");
+    setTimeout(() => navigate("/shop/checkout"), 300);
   }, [handleAddToCart, navigate]);
 
-  /* ── Modal toggles ── */
+  /* ── Add to cart from suggestion cards ── */
+  const handleSuggestionAddToCart = useCallback(async (suggProduct) => {
+    if (!user) {
+      navigate("/auth", { state: { from: `/product/${slug}` } });
+      return;
+    }
+
+    try {
+      await axios.post(
+        CART_API,
+        {
+          productId: suggProduct.id ?? suggProduct.productId,
+          variantId: suggProduct.variantId ?? null,
+          qty: 1,
+        },
+        { headers: authHeaders() }
+      );
+      setCartCount((c) => c + 1);
+      window.dispatchEvent(new Event("cart-updated"));
+    } catch (err) {
+      console.error("[suggAddToCart]", err.response?.data?.message ?? err.message);
+    }
+  }, [user, navigate, slug]);
+
+  /* ── Modals ── */
   const openReport  = useCallback(() => setShowReport(true),  []);
   const closeReport = useCallback(() => setShowReport(false), []);
-  const openShare   = useCallback(() => { if (product) setShowShare(true);  }, [product]);
+  const openShare   = useCallback(() => { if (product) setShowShare(true); }, [product]);
   const closeShare  = useCallback(() => setShowShare(false), []);
 
   const handleWishlist = useCallback(() => {
     if (product) toggleWishlist(product.id);
   }, [product, toggleWishlist]);
-
-  /* ── Topbar title ── */
-  const topbarTitle = useMemo(() => {
-    if (!product?.name) return "Product Detail";
-    return product.name.length > 30
-      ? `${product.name.slice(0, 30)}…`
-      : product.name;
-  }, [product?.name]);
-
-  /* ── View count label ── */
-  const viewLabel = useMemo(() => {
-    const v = product?.view_count ?? 0;
-    return v > 999 ? `${(v / 1000).toFixed(1)}k` : v;
-  }, [product?.view_count]);
 
   /* ════════════════════════════════════════════
      ERROR SCREENS
@@ -520,60 +524,20 @@ export default function MarketDetail({ user }) {
     <>
       <div className="md-page">
 
-        {/* ── Topbar ──────────────────────────────────── */}
-        <div className="md-topbar">
-          <button
-            className="md-back-btn"
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-          >
-            {Icon.back}
-          </button>
+        {/* ── Header (extracted) ── */}
+        <MarketDetailHeader
+          productName={product?.name}
+          cartCount={cartCount}
+          isWishlisted={isWishlisted}
+          onShare={openShare}
+          onToggleWishlist={handleWishlist}
+          productLoaded={!!product}
+        />
 
-          <span className="md-topbar-title">{topbarTitle}</span>
-
-          <div className="md-topbar-right">
-            {/* Cart */}
-            <button
-              className="md-icon-btn"
-              onClick={() => navigate("/shop/cart")}
-              aria-label={`Cart — ${cartCount} item${cartCount !== 1 ? "s" : ""}`}
-            >
-              {Icon.cart}
-              {cartCount > 0 && (
-                <span className="md-cart-dot" aria-hidden="true">
-                  {cartCount > 9 ? "9+" : cartCount}
-                </span>
-              )}
-            </button>
-
-            {/* Share */}
-            <button
-              className="md-icon-btn"
-              onClick={openShare}
-              aria-label="Share product"
-              disabled={!product}
-            >
-              {Icon.share}
-            </button>
-
-            {/* Wishlist */}
-            <button
-              className={`md-icon-btn${isWishlisted ? " md-icon-btn--heart" : ""}`}
-              onClick={handleWishlist}
-              aria-label={isWishlisted ? "Remove from wishlist" : "Save to wishlist"}
-              aria-pressed={isWishlisted}
-              disabled={!product}
-            >
-              {Icon.heart(isWishlisted)}
-            </button>
-          </div>
-        </div>
-
-        {/* ── Skeleton ────────────────────────────────── */}
+        {/* ── Skeleton ── */}
         {loading && <ProductSkeleton />}
 
-        {/* ── Product ─────────────────────────────────── */}
+        {/* ── Product ── */}
         {!loading && product && (
           <>
             {/* Gallery */}
@@ -597,9 +561,7 @@ export default function MarketDetail({ user }) {
                   <span className="md-badge md-badge--trending">🔥 Trending</span>
                 )}
                 {product.condition && product.condition !== "new" && (
-                  <span className="md-badge md-badge--cond">
-                    {product.condition}
-                  </span>
+                  <span className="md-badge md-badge--cond">{product.condition}</span>
                 )}
               </div>
 
@@ -608,9 +570,7 @@ export default function MarketDetail({ user }) {
 
               {/* Brand */}
               {product.brand && (
-                <p className="md-brand">
-                  by <strong>{product.brand}</strong>
-                </p>
+                <p className="md-brand">by <strong>{product.brand}</strong></p>
               )}
 
               {/* Price */}
@@ -618,23 +578,19 @@ export default function MarketDetail({ user }) {
                 <span className="md-price">{formatPrice(displayPrice)}</span>
                 {originalPrice > displayPrice && (
                   <>
-                    <span className="md-original">
-                      {formatPrice(originalPrice)}
-                    </span>
+                    <span className="md-original">{formatPrice(originalPrice)}</span>
                     <span className="md-disc-badge">-{discount}%</span>
                   </>
                 )}
               </div>
 
               {savings > 0 && (
-                <p className="md-savings">
-                  🎉 You save {formatPrice(savings)}
-                </p>
+                <p className="md-savings">🎉 You save {formatPrice(savings)}</p>
               )}
 
               {/* Stats */}
               {(product.view_count > 0 ||
-                product.save_count  > 0 ||
+                product.save_count > 0 ||
                 product.variants?.length > 0) && (
                 <div className="md-stats-row">
                   {product.view_count > 0 && (
@@ -644,9 +600,7 @@ export default function MarketDetail({ user }) {
                     <span className="md-stat">❤️ {product.save_count} saved</span>
                   )}
                   {product.variants?.length > 0 && (
-                    <span className="md-stat">
-                      📦 {product.variants.length} variants
-                    </span>
+                    <span className="md-stat">📦 {product.variants.length} variants</span>
                   )}
                 </div>
               )}
@@ -762,33 +716,47 @@ export default function MarketDetail({ user }) {
                 <span>Report this listing</span>
               </button>
 
-              {/* Bottom spacer for sticky bar */}
-              <div style={{ height: 110 }} aria-hidden="true" />
-            </div>
+            </div>{/* end md-content */}
 
-            {/* Related products */}
+            {/* ── Related Products ── */}
             {product.category && (
               <RelatedProducts
                 category={product.category}
                 excludeId={product.id}
               />
             )}
+
+            {/* ════════════════════════════════════════════
+                RECENTLY VIEWED + YOU MAY ALSO LIKE
+                Below everything — full width
+            ════════════════════════════════════════════ */}
+            <div className="md-suggestions-section">
+              <RecentlyViewed
+                onAddToCart={handleSuggestionAddToCart}
+              />
+
+              <YouMayAlsoLike
+                cartItems={[{ id: product.id }]}
+                onAddToCart={handleSuggestionAddToCart}
+              />
+            </div>
+
+            {/* Bottom spacer for sticky bar */}
+            <div style={{ height: 110 }} aria-hidden="true" />
+
           </>
         )}
       </div>
 
-      {/* ── Sticky bottom bar ───────────────────────── */}
+      {/* ── Sticky bottom bar ── */}
       {!loading && product && (
         <div className="md-sticky-bar" role="region" aria-label="Purchase actions">
           <div className="md-sticky-price-wrap">
             <span className="md-sticky-price">{formatPrice(displayPrice)}</span>
             {discount >= 10 && (
-              <span className="md-sticky-disc" aria-hidden="true">
-                -{discount}%
-              </span>
+              <span className="md-sticky-disc" aria-hidden="true">-{discount}%</span>
             )}
           </div>
-
           <div className="md-sticky-actions">
             <button
               className={`md-btn-cart${addedToCart ? " md-btn-cart--done" : ""}`}
@@ -797,30 +765,19 @@ export default function MarketDetail({ user }) {
             >
               {addedToCart ? "✓ Added!" : "Add to Cart"}
             </button>
-            <button
-              className="md-btn-buy"
-              onClick={handleBuyNow}
-              aria-label="Buy now"
-            >
+            <button className="md-btn-buy" onClick={handleBuyNow} aria-label="Buy now">
               Buy Now
             </button>
           </div>
         </div>
       )}
 
-      {/* ── Modals ──────────────────────────────────── */}
+      {/* ── Modals ── */}
       {showReport && product && (
-        <ReportModal
-          productId={product.id}
-          onClose={closeReport}
-        />
+        <ReportModal productId={product.id} onClose={closeReport} />
       )}
-
       {showShare && product && (
-        <ShareSheet
-          product={product}
-          onClose={closeShare}
-        />
+        <ShareSheet product={product} onClose={closeShare} />
       )}
     </>
   );
