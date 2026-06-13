@@ -1,15 +1,8 @@
-// cart/getCart.js
-/**
- * GET /api/cart
- * Returns full cart with LIVE prices, stock, and images.
- */
-
 import express from "express";
 import { pool } from "../../config/db.js";
 
 const router = express.Router();
 
-/* ── Helper — get or create cart ── */
 export async function getOrCreateCart(userId) {
   const { rows } = await pool.query(
     "SELECT id FROM market.carts WHERE user_id = $1 LIMIT 1",
@@ -27,7 +20,7 @@ export async function getOrCreateCart(userId) {
 router.get("/", async (req, res) => {
   try {
     const userId = req.user.id;
-    const cart   = await getOrCreateCart(userId);
+    const cart = await getOrCreateCart(userId);
 
     const { rows: items } = await pool.query(
       `SELECT
@@ -51,7 +44,8 @@ router.get("/", async (req, res) => {
          pv.compare_price   AS variant_compare_price,
          pv.stock           AS variant_stock,
          pv.attributes,
-         COALESCE(pv.stock, p.stock, 0) AS stock,
+         pv.stock           AS raw_variant_stock,
+         p.stock            AS raw_product_stock,
          (
            SELECT pi.image_url
            FROM   market.product_images pi
@@ -71,27 +65,44 @@ router.get("/", async (req, res) => {
     let priceChanges = 0;
 
     const enriched = items.map((row) => {
-      const livePrice    = Number(row.variant_price    ?? row.current_price ?? 0);
+      const livePrice = Number(row.variant_price ?? row.current_price ?? 0);
       const comparePrice = Number(row.variant_compare_price ?? row.compare_price ?? 0);
-      const cartPrice    = Number(row.cart_price ?? 0);
-      const stock        = Number(row.stock ?? 0);
+      const cartPrice = Number(row.cart_price ?? 0);
 
       const priceChanged = livePrice !== cartPrice;
       if (priceChanged) priceChanges++;
 
-      const isDeleted    = Boolean(row.deleted_at);
-      const isInactive   = !row.is_active;
+      const isDeleted = Boolean(row.deleted_at);
+      const isInactive = !row.is_active;
       const isUnapproved = !["active", "approved"].includes(row.status);
-      const unavailable  = isDeleted || isInactive || isUnapproved;
-      const outOfStock   = !unavailable && stock === 0;
+      const unavailable = isDeleted || isInactive || isUnapproved;
+
+      // ── Stock handling ──
+      // NULL stock = seller never set stock = treat as unlimited
+      // 0 stock    = seller explicitly set 0 = out of stock
+      const rawStock = row.raw_variant_stock ?? row.raw_product_stock;
+      const hasStockTracking = rawStock !== null && rawStock !== undefined;
+      const stock = hasStockTracking ? Number(rawStock) : null;
+      const outOfStock = !unavailable && hasStockTracking && stock === 0;
+
+      // ── Qty capping ──
+      // Only cap qty if stock is explicitly tracked
+      // If no stock tracking → keep whatever qty user set
+      let qty = row.qty;
+      if (hasStockTracking && stock > 0 && qty > stock) {
+        qty = stock;
+      }
+      if (outOfStock) {
+        qty = row.qty; // keep qty so user sees what they had
+      }
 
       return {
         id:           row.item_id,
         productId:    row.product_id,
         slug:         row.slug,
         name:         row.name,
-        image:        row.image   ?? null,
-        images:       row.image   ? [row.image] : [],
+        image:        row.image ?? null,
+        images:       row.image ? [row.image] : [],
         sellerId:     row.seller_id,
         sellerName:   row.seller_name,
         variant:      row.variant_id
@@ -102,36 +113,33 @@ router.get("/", async (req, res) => {
               attributes: row.attributes,
             }
           : null,
-        qty:           Math.min(row.qty, Math.max(stock, 1)),
+        qty,
         price:         livePrice,
         comparePrice:  comparePrice > livePrice ? comparePrice : null,
         originalPrice: comparePrice > livePrice ? comparePrice : null,
         cartPrice,
         priceChanged,
-        stock,           // ← CRITICAL: frontend needs this for maxQty
+        stock:         hasStockTracking ? stock : null,
         outOfStock,
         unavailable,
         status:        row.status,
-        isNew:         false,
-        rating:        0,
-        reviewCount:   0,
       };
     });
 
     const activeItems = enriched.filter((i) => !i.unavailable && !i.outOfStock);
-    const subtotal    = activeItems.reduce((s, i) => s + i.price * i.qty, 0);
-    const itemCount   = activeItems.reduce((s, i) => s + i.qty,          0);
+    const subtotal = activeItems.reduce((s, i) => s + i.price * i.qty, 0);
+    const itemCount = activeItems.reduce((s, i) => s + i.qty, 0);
 
     res.json({
       success: true,
       data: {
-        cartId:         cart.id,
-        items:          enriched,
+        cartId:        cart.id,
+        items:         enriched,
         subtotal,
         itemCount,
         priceChanges,
-        hasOutOfStock:  enriched.some((i) =>  i.outOfStock && !i.unavailable),
-        hasUnavailable: enriched.some((i) =>  i.unavailable),
+        hasOutOfStock:  enriched.some((i) => i.outOfStock && !i.unavailable),
+        hasUnavailable: enriched.some((i) => i.unavailable),
       },
     });
   } catch (err) {
