@@ -1,25 +1,29 @@
 // pages/CartPage.jsx
 
 import React, {
-  useState, useEffect, useCallback,
-  useMemo, useRef, memo,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  memo,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import axios            from "axios";
+import axios from "axios";
 
-import CartItem       from "./Cart/CartItem";
-import OrderSummary   from "./Cart/OrderSummary";
-import EmptyCart      from "./Cart/EmptyCart";
+import CartItem from "./Cart/CartItem";
+import OrderSummary from "./Cart/OrderSummary";
+import EmptyCart from "./Cart/EmptyCart";
 import RecentlyViewed from "./Cart/RecentlyViewed";
 import YouMayAlsoLike from "./Cart/YouMayAlsoLike";
-import Footer         from "../components/Footer";
+import Footer from "../components/Footer";
 
 import "../styles/Cart.css";
 
 /* ── Constants ── */
-const CART_KEY  = "mm_cart";
+const CART_KEY = "mm_cart";
 const SAVED_KEY = "mm_saved";
-const CART_API  = "https://minimart-ivrm.onrender.com/api/cart";
+const CART_API = "https://minimart-ivrm.onrender.com/api/cart";
 
 const fmt = (n) =>
   `₦${Number(n ?? 0).toLocaleString("en-NG", {
@@ -34,8 +38,11 @@ function authHeaders() {
 }
 
 function loadLocal(key) {
-  try   { return JSON.parse(localStorage.getItem(key) || "[]"); }
-  catch { return []; }
+  try {
+    return JSON.parse(localStorage.getItem(key) || "[]");
+  } catch {
+    return [];
+  }
 }
 
 function saveLocal(key, data) {
@@ -43,22 +50,30 @@ function saveLocal(key, data) {
 }
 
 /* ── API ── */
-const api = {
-  fetch:     ()                        => axios.get(CART_API,                        { headers: authHeaders() }),
-  addItem:   (productId, variantId, q) => axios.post(CART_API, { productId, variantId: variantId ?? null, qty: q ?? 1 }, { headers: authHeaders() }),
-  updateQty: (id, qty)                 => axios.patch(`${CART_API}/${id}`, { qty },  { headers: authHeaders() }),
-  remove:    (id)                      => axios.delete(`${CART_API}/${id}`,          { headers: authHeaders() }),
-  clear:     ()                        => axios.delete(CART_API,                     { headers: authHeaders() }),
-  saveItem:  (id)                      => axios.post(`${CART_API}/save/${id}`, {},   { headers: authHeaders() }),
-  moveItem:  (id)                      => axios.post(`${CART_API}/move/${id}`, {},   { headers: authHeaders() }),
-  getSaved:  ()                        => axios.get(`${CART_API}/saved`,             { headers: authHeaders() }),
-  rmSaved:   (id)                      => axios.delete(`${CART_API}/saved/${id}`,    { headers: authHeaders() }),
-  coupon:    (code, sub)               => axios.post(`${CART_API}/coupon`, { code, subtotal: sub }, { headers: authHeaders() }),
+const cartApi = {
+  fetch: () => axios.get(CART_API, { headers: authHeaders() }),
+  addItem: (productId, variantId, qty) =>
+    axios.post(CART_API, { productId, variantId: variantId ?? null, qty: qty ?? 1 }, { headers: authHeaders() }),
+  updateQty: (id, qty) => axios.patch(`${CART_API}/${id}`, { qty }, { headers: authHeaders() }),
+  remove: (id) => axios.delete(`${CART_API}/${id}`, { headers: authHeaders() }),
+  clear: () => axios.delete(CART_API, { headers: authHeaders() }),
+  saveItem: (id) => axios.post(`${CART_API}/save/${id}`, {}, { headers: authHeaders() }),
+  moveItem: (id) => axios.post(`${CART_API}/move/${id}`, {}, { headers: authHeaders() }),
+  getSaved: () => axios.get(`${CART_API}/saved`, { headers: authHeaders() }),
+  rmSaved: (id) => axios.delete(`${CART_API}/saved/${id}`, { headers: authHeaders() }),
+  coupon: (code, sub) => axios.post(`${CART_API}/coupon`, { code, subtotal: sub }, { headers: authHeaders() }),
 };
 
-/* ── Toast ── */
+/* ═══════════════════════════════════════════════════════
+   SUB-COMPONENTS
+═══════════════════════════════════════════════════════ */
+
 const Toast = memo(function Toast({ msg, type, onClose }) {
-  useEffect(() => { const t = setTimeout(onClose, 3500); return () => clearTimeout(t); }, [onClose]);
+  useEffect(() => {
+    const t = setTimeout(onClose, 3500);
+    return () => clearTimeout(t);
+  }, [onClose]);
+
   return (
     <div className={`ct-toast ct-toast--${type}`} role="alert">
       <span>{msg}</span>
@@ -67,38 +82,42 @@ const Toast = memo(function Toast({ msg, type, onClose }) {
   );
 });
 
-/* ── Saved Item Row ── */
+const PriceBanner = memo(function PriceBanner({ count, onDismiss }) {
+  if (!count) return null;
+  return (
+    <div className="ct-price-changed-banner" role="alert">
+      <p>{count} item{count > 1 ? "s" : ""} updated to current pricing.</p>
+      <button onClick={onDismiss} aria-label="Dismiss">✕</button>
+    </div>
+  );
+});
+
 const SavedRow = memo(function SavedRow({ item, onMove, onRemove }) {
   const [imgErr, setImgErr] = useState(false);
-  const src = !imgErr
-    ? (Array.isArray(item.images) ? item.images[0] : item.image ?? null)
-    : null;
+  const src = !imgErr ? (Array.isArray(item.images) ? item.images[0] : item.image ?? null) : null;
 
   return (
     <div className="ct-saved-item">
       <div className="ct-saved-img-wrap">
-        {src
-          ? <img src={src} alt={item.name} loading="lazy" onError={() => setImgErr(true)} />
-          : <span>📦</span>}
+        {src ? (
+          <img src={src} alt={item.name} loading="lazy" onError={() => setImgErr(true)} />
+        ) : (
+          <span>📦</span>
+        )}
       </div>
       <div className="ct-saved-info">
         <p className="ct-saved-name">{item.name}</p>
         <p className="ct-saved-price">{fmt(item.price)}</p>
       </div>
       <div className="ct-saved-actions">
-        <button className="ct-saved-move" onClick={() => onMove(item.id)}>
-          Move to Cart
-        </button>
-        <button className="ct-saved-remove" onClick={() => onRemove(item.id)}>
-          Remove
-        </button>
+        <button className="ct-saved-move" onClick={() => onMove(item.id)}>Move to Cart</button>
+        <button className="ct-saved-remove" onClick={() => onRemove(item.id)}>Remove</button>
       </div>
     </div>
   );
 });
 
-/* ── Skeleton ── */
-function Skeleton() {
+function CartSkeleton() {
   return (
     <div className="ct-layout" aria-busy="true">
       <div className="ct-items-col">
@@ -107,7 +126,7 @@ function Skeleton() {
             <div className="ct-skeleton-img ct-shimmer" />
             <div className="ct-skeleton-lines">
               <div className="ct-skeleton-line ct-skeleton-line--wide ct-shimmer" />
-              <div className="ct-skeleton-line ct-skeleton-line--mid  ct-shimmer" />
+              <div className="ct-skeleton-line ct-skeleton-line--mid ct-shimmer" />
               <div className="ct-skeleton-line ct-skeleton-line--short ct-shimmer" />
             </div>
           </div>
@@ -120,42 +139,29 @@ function Skeleton() {
   );
 }
 
-/* ── Price Changed Banner ── */
-const PriceBanner = memo(function PriceBanner({ count, onDismiss }) {
-  if (!count) return null;
-  return (
-    <div className="ct-price-changed-banner" role="alert">
-      <p>{count} item{count > 1 ? "s" : ""} updated to current pricing.</p>
-      <button onClick={onDismiss} aria-label="Dismiss">✕</button>
-    </div>
-  );
-});
-
-/* ════════════════════════════════════════════════════════════
-   CART PAGE
-════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════
+   MAIN CART PAGE
+═══════════════════════════════════════════════════════ */
 export default function CartPage({ user }) {
   const navigate = useNavigate();
 
-  /* ── State ── */
-  const [items,         setItems]         = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [savedItems,    setSavedItems]    = useState([]);
-  const [priceChanges,  setPriceChanges]  = useState(0);
-  const [toast,         setToast]         = useState(null);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [savedItems, setSavedItems] = useState([]);
+  const [priceChanges, setPriceChanges] = useState(0);
+  const [toast, setToast] = useState(null);
 
-  // Coupon
-  const [showCoupon,    setShowCoupon]    = useState(false);
-  const [couponCode,    setCouponCode]    = useState("");
+  const [showCoupon, setShowCoupon] = useState(false);
+  const [couponCode, setCouponCode] = useState("");
   const [couponApplied, setCouponApplied] = useState(null);
-  const [couponError,   setCouponError]   = useState("");
+  const [couponError, setCouponError] = useState("");
   const [couponLoading, setCouponLoading] = useState(false);
 
-  /* ── Refs ── */
   const qtyTimers = useRef({});
 
-  /* ── Toast helper ── */
-  const notify = useCallback((msg, type = "error") => setToast({ msg, type }), []);
+  const notify = useCallback((msg, type = "error") => {
+    setToast({ msg, type });
+  }, []);
 
   /* ── Fetch ── */
   const fetchCart = useCallback(async () => {
@@ -165,7 +171,7 @@ export default function CartPage({ user }) {
       return;
     }
     try {
-      const { data } = await api.fetch();
+      const { data } = await cartApi.fetch();
       setItems(data.data?.items ?? []);
       setPriceChanges(data.data?.priceChanges ?? 0);
     } catch {
@@ -176,16 +182,23 @@ export default function CartPage({ user }) {
   }, [user]);
 
   const fetchSaved = useCallback(async () => {
-    if (!user) { setSavedItems(loadLocal(SAVED_KEY)); return; }
+    if (!user) {
+      setSavedItems(loadLocal(SAVED_KEY));
+      return;
+    }
     try {
-      const { data } = await api.getSaved();
+      const { data } = await cartApi.getSaved();
       setSavedItems(data.data ?? []);
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
   }, [user]);
 
-  useEffect(() => { fetchCart(); fetchSaved(); }, [fetchCart, fetchSaved]);
+  useEffect(() => {
+    fetchCart();
+    fetchSaved();
+  }, [fetchCart, fetchSaved]);
 
-  /* ── Guest persistence ── */
   useEffect(() => {
     if (!user) {
       saveLocal(CART_KEY, items);
@@ -214,116 +227,143 @@ export default function CartPage({ user }) {
     [items]
   );
 
-  const discount   = couponApplied?.discount ?? 0;
+  const discount = couponApplied?.discount ?? 0;
   const grandTotal = Math.max(0, subtotal - discount);
 
-  /* ══════════════════════════════════════════════════════
-     updateQty — FIXED: no stale closure rollback
-  ══════════════════════════════════════════════════════ */
-  const updateQty = useCallback((id, delta) => {
-    let newQty;
+  /* ── updateQty (fixed — no stale closure) ── */
+  const updateQty = useCallback(
+    (id, delta) => {
+      let newQty;
 
-    setItems((prev) =>
-      prev.map((item) => {
-        if (item.id !== id) return item;
-        const max = Number.isFinite(item.stock) && item.stock > 0
-          ? item.stock : 99;
-        newQty = Math.max(1, Math.min(max, item.qty + delta));
-        return { ...item, qty: newQty };
-      })
-    );
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== id) return item;
+          const max =
+            Number.isFinite(item.stock) && item.stock > 0
+              ? item.stock
+              : 99;
+          newQty = Math.max(1, Math.min(max, item.qty + delta));
+          return { ...item, qty: newQty };
+        })
+      );
 
-    if (!user || newQty == null) return;
+      if (!user || newQty == null) return;
 
-    // Debounce API call — only fires after user stops clicking
-    clearTimeout(qtyTimers.current[id]);
-    qtyTimers.current[id] = setTimeout(async () => {
-      try {
-        await api.updateQty(id, newQty);
-      } catch {
-        // On failure: refetch server state (not stale closure)
+      clearTimeout(qtyTimers.current[id]);
+      qtyTimers.current[id] = setTimeout(async () => {
         try {
-          const { data } = await api.fetch();
-          setItems(data.data?.items ?? []);
+          await cartApi.updateQty(id, newQty);
         } catch {
-          notify("Failed to update quantity");
+          try {
+            const { data } = await cartApi.fetch();
+            setItems(data.data?.items ?? []);
+          } catch {
+            notify("Failed to update quantity");
+          }
         }
-      }
-    }, 500);
-  }, [user, notify]);
+      }, 500);
+    },
+    [user, notify]
+  );
 
   /* ── removeItem ── */
-  const removeItem = useCallback(async (id) => {
-    setItems((prev) => prev.filter((i) => i.id !== id));
-    if (user) {
-      try { await api.remove(id); }
-      catch { fetchCart(); notify("Failed to remove item"); }
-    }
-    window.dispatchEvent(new Event("cart-updated"));
-  }, [user, fetchCart, notify]);
+  const removeItem = useCallback(
+    async (id) => {
+      setItems((prev) => prev.filter((i) => i.id !== id));
+      if (user) {
+        try {
+          await cartApi.remove(id);
+        } catch {
+          fetchCart();
+          notify("Failed to remove item");
+        }
+      }
+      window.dispatchEvent(new Event("cart-updated"));
+    },
+    [user, fetchCart, notify]
+  );
 
   /* ── saveForLater ── */
-  const saveForLater = useCallback(async (id) => {
-    const item = items.find((i) => i.id === id);
-    if (!item) return;
+  const saveForLater = useCallback(
+    async (id) => {
+      const item = items.find((i) => i.id === id);
+      if (!item) return;
 
-    if (user) {
-      try {
-        await api.saveItem(id);
-        await fetchSaved();
-      } catch {
-        notify("Failed to save item");
-        return;
+      if (user) {
+        try {
+          await cartApi.saveItem(id);
+          await fetchSaved();
+        } catch {
+          notify("Failed to save item");
+          return;
+        }
+      } else {
+        setSavedItems((prev) => {
+          if (prev.find((s) => s.id === id)) return prev;
+          const next = [...prev, { ...item, savedAt: Date.now() }];
+          saveLocal(SAVED_KEY, next);
+          return next;
+        });
       }
-    } else {
-      setSavedItems((prev) => {
-        if (prev.find((s) => s.id === id)) return prev;
-        const next = [...prev, { ...item, savedAt: Date.now() }];
-        saveLocal(SAVED_KEY, next);
-        return next;
-      });
-    }
-    removeItem(id);
-  }, [items, user, fetchSaved, removeItem, notify]);
+      removeItem(id);
+    },
+    [items, user, fetchSaved, removeItem, notify]
+  );
 
   /* ── moveToCart ── */
-  const moveToCart = useCallback(async (id) => {
-    if (user) {
-      try {
-        await api.moveItem(id);
-        await fetchCart();
-        setSavedItems((prev) => prev.filter((s) => s.id !== id));
-      } catch { notify("Failed to move item"); }
-    } else {
-      const item = savedItems.find((s) => s.id === id);
-      if (!item) return;
-      setItems((prev) => prev.find((i) => i.id === id) ? prev : [...prev, { ...item, qty: 1 }]);
-      setSavedItems((prev) => {
-        const next = prev.filter((s) => s.id !== id);
-        saveLocal(SAVED_KEY, next);
-        return next;
-      });
-    }
-  }, [user, savedItems, fetchCart, notify]);
+  const moveToCart = useCallback(
+    async (id) => {
+      if (user) {
+        try {
+          await cartApi.moveItem(id);
+          await fetchCart();
+          setSavedItems((prev) => prev.filter((s) => s.id !== id));
+        } catch {
+          notify("Failed to move item");
+        }
+      } else {
+        const item = savedItems.find((s) => s.id === id);
+        if (!item) return;
+        setItems((prev) =>
+          prev.find((i) => i.id === id)
+            ? prev
+            : [...prev, { ...item, qty: 1 }]
+        );
+        setSavedItems((prev) => {
+          const next = prev.filter((s) => s.id !== id);
+          saveLocal(SAVED_KEY, next);
+          return next;
+        });
+      }
+    },
+    [user, savedItems, fetchCart, notify]
+  );
 
   /* ── removeSaved ── */
-  const removeSaved = useCallback(async (id) => {
-    setSavedItems((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      if (!user) saveLocal(SAVED_KEY, next);
-      return next;
-    });
-    if (user) {
-      try { await api.rmSaved(id); } catch {}
-    }
-  }, [user]);
+  const removeSaved = useCallback(
+    async (id) => {
+      setSavedItems((prev) => {
+        const next = prev.filter((s) => s.id !== id);
+        if (!user) saveLocal(SAVED_KEY, next);
+        return next;
+      });
+      if (user) {
+        try {
+          await cartApi.rmSaved(id);
+        } catch {
+          /* silent */
+        }
+      }
+    },
+    [user]
+  );
 
   /* ── clearCart ── */
   const clearCart = useCallback(() => {
     const backup = items;
     setItems([]);
     if (user) {
-      api.clear().catch(() => {
+      cartApi.clear().catch(() => {
         setItems(backup);
         notify("Failed to clear cart");
       });
@@ -334,18 +374,23 @@ export default function CartPage({ user }) {
   /* ── Coupon ── */
   const applyCoupon = useCallback(async () => {
     const code = couponCode.trim();
-    if (!code) { setCouponError("Enter a code"); return; }
+    if (!code) {
+      setCouponError("Enter a code");
+      return;
+    }
     setCouponLoading(true);
     setCouponError("");
     try {
-      const { data } = await api.coupon(code, subtotal);
+      const { data } = await cartApi.coupon(code, subtotal);
       if (data.success) {
         setCouponApplied(data.data);
       } else {
         setCouponError(data.message ?? "Invalid coupon");
       }
     } catch (err) {
-      setCouponError(err.response?.data?.message ?? "Invalid coupon");
+      setCouponError(
+        err.response?.data?.message ?? "Invalid coupon"
+      );
     } finally {
       setCouponLoading(false);
     }
@@ -358,48 +403,71 @@ export default function CartPage({ user }) {
     setShowCoupon(false);
   }, []);
 
-  // Clear coupon if cart empties
   useEffect(() => {
     if (couponApplied && subtotal === 0) removeCoupon();
   }, [subtotal, couponApplied, removeCoupon]);
 
-  /* ── Add to cart (from suggestion/recent cards) ── */
-  const handleAddToCart = useCallback(async (product) => {
+  /* ── handleAddToCart (from suggestions) ── */
+  const handleAddToCart = useCallback(
+    async (product) => {
+      if (!user) {
+        navigate("/auth", { state: { from: "/shop/cart" } });
+        return;
+      }
+      try {
+        await cartApi.addItem(
+          product.id ?? product.productId,
+          product.variantId ?? null,
+          1
+        );
+        await fetchCart();
+        window.dispatchEvent(new Event("cart-updated"));
+        notify(`${product.name ?? "Item"} added`, "success");
+      } catch (err) {
+        notify(
+          err.response?.data?.message ?? "Could not add item"
+        );
+      }
+    },
+    [user, navigate, fetchCart, notify]
+  );
+
+  /* ── Checkout ── */
+  const handleCheckout = useCallback(() => {
     if (!user) {
       navigate("/auth", { state: { from: "/shop/cart" } });
       return;
     }
-    try {
-      await api.addItem(product.id ?? product.productId, product.variantId ?? null, 1);
-      await fetchCart();
-      window.dispatchEvent(new Event("cart-updated"));
-      notify(`${product.name ?? "Item"} added`, "success");
-    } catch (err) {
-      notify(err.response?.data?.message ?? "Could not add item");
-    }
-  }, [user, navigate, fetchCart, notify]);
-
-  /* ── Checkout ── */
-  const handleCheckout = useCallback(() => {
-    if (!user) { navigate("/auth", { state: { from: "/shop/cart" } }); return; }
     if (hasOutOfStock || activeItems.length === 0) return;
     navigate("/shop/checkout");
   }, [user, hasOutOfStock, activeItems.length, navigate]);
 
-  /* ════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════
      RENDER
-  ════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════ */
   return (
     <div className="ct-page">
+      {toast && (
+        <Toast
+          msg={toast.msg}
+          type={toast.type}
+          onClose={() => setToast(null)}
+        />
+      )}
 
-      {/* ── Toast ── */}
-      {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-
-      {/* ── Header ── */}
       <header className="ct-topbar">
-        <button className="ct-back-btn" onClick={() => navigate(-1)} aria-label="Go back">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth={2.2} strokeLinecap="round" aria-hidden="true">
+        <button
+          className="ct-back-btn"
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth={2.2}
+            strokeLinecap="round"
+          >
             <path d="M19 12H5M12 5l-7 7 7 7" />
           </svg>
         </button>
@@ -412,19 +480,23 @@ export default function CartPage({ user }) {
         </div>
 
         {!loading && items.length > 0 && (
-          <button className="ct-clear-btn" onClick={clearCart} aria-label="Clear cart">
+          <button
+            className="ct-clear-btn"
+            onClick={clearCart}
+            aria-label="Clear cart"
+          >
             Clear
           </button>
         )}
       </header>
 
-      <PriceBanner count={priceChanges} onDismiss={() => setPriceChanges(0)} />
+      <PriceBanner
+        count={priceChanges}
+        onDismiss={() => setPriceChanges(0)}
+      />
 
-      {/* ── Loading ── */}
       {loading ? (
-        <Skeleton />
-
-      /* ── Empty ── */}
+        <CartSkeleton />
       ) : items.length === 0 ? (
         <div className="ct-empty-state">
           <EmptyCart
@@ -434,18 +506,15 @@ export default function CartPage({ user }) {
           />
           <div className="ct-empty-suggestions">
             <RecentlyViewed onAddToCart={handleAddToCart} />
-            <YouMayAlsoLike cartItems={[]} onAddToCart={handleAddToCart} />
+            <YouMayAlsoLike
+              cartItems={[]}
+              onAddToCart={handleAddToCart}
+            />
           </div>
         </div>
-
-      /* ── Cart with items ── */
       ) : (
         <div className="ct-layout">
-
-          {/* ── Left column ── */}
           <div className="ct-items-col">
-
-            {/* Items */}
             <div className="ct-items-list">
               {items.map((item) => (
                 <CartItem
@@ -458,10 +527,12 @@ export default function CartPage({ user }) {
               ))}
             </div>
 
-            {/* ── Coupon ── */}
             <div className="ct-coupon-section">
               {!showCoupon && !couponApplied && (
-                <button className="ct-coupon-toggle" onClick={() => setShowCoupon(true)}>
+                <button
+                  className="ct-coupon-toggle"
+                  onClick={() => setShowCoupon(true)}
+                >
                   Have a coupon code?
                 </button>
               )}
@@ -474,10 +545,14 @@ export default function CartPage({ user }) {
                     placeholder="Enter code"
                     value={couponCode}
                     onChange={(e) => {
-                      setCouponCode(e.target.value.toUpperCase());
+                      setCouponCode(
+                        e.target.value.toUpperCase()
+                      );
                       setCouponError("");
                     }}
-                    onKeyDown={(e) => e.key === "Enter" && applyCoupon()}
+                    onKeyDown={(e) =>
+                      e.key === "Enter" && applyCoupon()
+                    }
                     autoFocus
                     disabled={couponLoading}
                   />
@@ -490,26 +565,39 @@ export default function CartPage({ user }) {
                   </button>
                   <button
                     className="ct-coupon-cancel"
-                    onClick={() => { setShowCoupon(false); setCouponError(""); }}
+                    onClick={() => {
+                      setShowCoupon(false);
+                      setCouponError("");
+                    }}
                   >
                     ✕
                   </button>
                 </div>
               )}
 
-              {couponError && <p className="ct-coupon-error">{couponError}</p>}
+              {couponError && (
+                <p className="ct-coupon-error">
+                  {couponError}
+                </p>
+              )}
 
               {couponApplied && (
                 <div className="ct-coupon-applied">
                   <span>
-                    <strong>{couponApplied.code}</strong> — You save {fmt(couponApplied.discount)}
+                    <strong>{couponApplied.code}</strong>
+                    {" — You save "}
+                    {fmt(couponApplied.discount)}
                   </span>
-                  <button onClick={removeCoupon} aria-label="Remove coupon">✕</button>
+                  <button
+                    onClick={removeCoupon}
+                    aria-label="Remove coupon"
+                  >
+                    ✕
+                  </button>
                 </div>
               )}
             </div>
 
-            {/* ── Saved for later ── */}
             {savedItems.length > 0 && (
               <section className="ct-saved-section">
                 <h3 className="ct-saved-title">
@@ -528,13 +616,13 @@ export default function CartPage({ user }) {
               </section>
             )}
 
-            {/* ── Suggestions ── */}
             <RecentlyViewed onAddToCart={handleAddToCart} />
-            <YouMayAlsoLike cartItems={items} onAddToCart={handleAddToCart} />
-
+            <YouMayAlsoLike
+              cartItems={items}
+              onAddToCart={handleAddToCart}
+            />
           </div>
 
-          {/* ── Right column ── */}
           <aside className="ct-summary-col">
             <OrderSummary
               itemCount={itemCount}
@@ -550,17 +638,23 @@ export default function CartPage({ user }) {
         </div>
       )}
 
-      {/* ── Mobile sticky bar ── */}
       {!loading && items.length > 0 && (
         <div className="ct-sticky-bar">
           <div className="ct-sticky-info">
             <span className="ct-sticky-count">
               {itemCount} item{itemCount !== 1 ? "s" : ""}
             </span>
-            <span className="ct-sticky-total">{fmt(grandTotal)}</span>
+            <span className="ct-sticky-total">
+              {fmt(grandTotal)}
+            </span>
           </div>
           <button
-            className={`ct-checkout-btn ${hasOutOfStock ? "ct-checkout-btn--blocked" : ""}`}
+            className={
+              "ct-checkout-btn" +
+              (hasOutOfStock || !user
+                ? " ct-checkout-btn--blocked"
+                : "")
+            }
             onClick={handleCheckout}
             disabled={hasOutOfStock || !user}
           >
