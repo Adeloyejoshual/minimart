@@ -1,6 +1,6 @@
 // pages/Cart/CartItem.jsx
 
-import React, { useState, memo, useCallback } from "react";
+import React, { useState, memo, useCallback, useRef, useEffect } from "react";
 
 const fmt = (n) =>
   `₦${Number(n ?? 0).toLocaleString("en-NG", {
@@ -10,8 +10,6 @@ const fmt = (n) =>
 
 const CartItem = memo(function CartItem({
   item,
-  isSelected,
-  onToggleSelect,
   onUpdateQty,
   onRemove,
   onSaveForLater,
@@ -19,73 +17,73 @@ const CartItem = memo(function CartItem({
   const [imgErr,   setImgErr]   = useState(false);
   const [removing, setRemoving] = useState(false);
   const [saving,   setSaving]   = useState(false);
-  const [qtyBusy,  setQtyBusy]  = useState(false);
+  const removeTimer = useRef(null);
 
-  // ── Resolve image ──────────────────────────────────────
-  const resolveImage = () => {
-    if (imgErr) return null;
-    if (Array.isArray(item.images) && item.images.length > 0)
-      return item.images[0];
-    if (item.image) return item.image;
-    return null;
-  };
-  const imgSrc = resolveImage();
+  useEffect(() => () => clearTimeout(removeTimer.current), []);
 
-  const subtotal     = Number(item.price) * item.qty;
-  const hasDiscount  = item.originalPrice &&
-    Number(item.originalPrice) > Number(item.price);
+  /* ── Image ── */
+  const imgSrc = !imgErr
+    ? (Array.isArray(item.images) && item.images.length
+        ? item.images[0]
+        : item.image ?? null)
+    : null;
 
-  // ── Stock limits ───────────────────────────────────────
-  // Use per-item stock from API — never hardcode 99
-  const maxQty       = typeof item.stock === "number" ? item.stock : 99;
-  const nearMaxStock = !item.outOfStock && item.stock && item.stock <= 5;
+  /* ── Price ── */
+  const price       = Number(item.price ?? 0);
+  const subtotal    = price * item.qty;
+  const origPrice   = Number(item.originalPrice ?? item.comparePrice ?? 0);
+  const hasDiscount = origPrice > price;
+  const discountPct = hasDiscount
+    ? Math.round(((origPrice - price) / origPrice) * 100)
+    : 0;
+
+  /* ── Stock ── */
+  const maxQty       = Number.isFinite(item.stock) && item.stock > 0 ? item.stock : 99;
+  const outOfStock   = item.outOfStock || maxQty === 0;
+  const unavailable  = item.unavailable;
+  const lowStock     = !outOfStock && !unavailable && maxQty <= 5;
+  const atMin        = item.qty <= 1;
   const atMax        = item.qty >= maxQty;
 
-  // ── Handlers ──────────────────────────────────────────
+  /* ── Handlers ── */
   const handleRemove = useCallback(async () => {
+    if (removing) return;
     setRemoving(true);
-    try { await onRemove(item.id); } finally { setRemoving(false); }
-  }, [item.id, onRemove]);
+    try {
+      await onRemove(item.id);
+    } catch {
+      setRemoving(false);
+    }
+  }, [item.id, onRemove, removing]);
 
   const handleSave = useCallback(async () => {
+    if (saving) return;
     setSaving(true);
-    try { await onSaveForLater(item.id); } finally { setSaving(false); }
-  }, [item.id, onSaveForLater]);
+    try {
+      await onSaveForLater(item.id);
+    } catch {
+      setSaving(false);
+    }
+  }, [item.id, onSaveForLater, saving]);
 
-  const handleQty = useCallback(async (delta) => {
-    if (qtyBusy) return;
-    const next = item.qty + delta;
-    if (next < 1 || next > maxQty) return;
-    setQtyBusy(true);
-    try { await onUpdateQty(item.id, delta); } finally { setQtyBusy(false); }
-  }, [item.id, item.qty, maxQty, onUpdateQty, qtyBusy]);
+  const disabled = outOfStock || unavailable;
 
   return (
     <div
       className={[
         "ct-item",
-        item.outOfStock  ? "ct-item--oos"      : "",
-        item.unavailable ? "ct-item--unavail"  : "",
-        isSelected       ? "ct-item--selected" : "",
-        removing         ? "ct-item--removing" : "",
+        outOfStock  && "ct-item--oos",
+        unavailable && "ct-item--unavail",
+        removing    && "ct-item--removing",
       ].filter(Boolean).join(" ")}
-      aria-label={`Cart item: ${item.name}`}
     >
-      {/* ── Checkbox ───────────────────────────────────── */}
-      <label className="ct-item-check-label">
-        <input
-          type="checkbox"
-          className="ct-checkbox"
-          checked={isSelected}
-          onChange={onToggleSelect}
-          disabled={item.outOfStock || item.unavailable}
-          aria-label={`Select ${item.name}`}
-        />
-        <span className="ct-checkbox-custom" aria-hidden="true" />
-      </label>
-
-      {/* ── Image ──────────────────────────────────────── */}
-      <div className="ct-item-img-wrap">
+      {/* ── Image ── */}
+      <div
+        className="ct-item-img-wrap"
+        onClick={() => !disabled && window.open(`/product/${item.slug ?? item.productId}`, "_self")}
+        role={disabled ? undefined : "link"}
+        tabIndex={disabled ? -1 : 0}
+      >
         {imgSrc ? (
           <img
             src={imgSrc}
@@ -95,196 +93,99 @@ const CartItem = memo(function CartItem({
             onError={() => setImgErr(true)}
           />
         ) : (
-          <div className="ct-item-img-placeholder" aria-hidden="true">
-            📦
-          </div>
+          <div className="ct-item-img-placeholder">📦</div>
         )}
-        {item.outOfStock && (
-          <div className="ct-oos-overlay" aria-hidden="true">
-            <span>Out of Stock</span>
-          </div>
+
+        {outOfStock && (
+          <div className="ct-oos-overlay"><span>Out of Stock</span></div>
         )}
-        {item.unavailable && !item.outOfStock && (
-          <div className="ct-oos-overlay ct-oos-overlay--unavail" aria-hidden="true">
-            <span>Unavailable</span>
-          </div>
+        {unavailable && !outOfStock && (
+          <div className="ct-oos-overlay ct-oos-overlay--unavail"><span>Unavailable</span></div>
         )}
-        {hasDiscount && !item.outOfStock && !item.unavailable && (
-          <div className="ct-discount-badge">
-            {Math.round(
-              ((Number(item.originalPrice) - Number(item.price)) /
-                Number(item.originalPrice)) * 100
-            )}% off
-          </div>
+        {hasDiscount && !disabled && (
+          <span className="ct-discount-badge">-{discountPct}%</span>
         )}
       </div>
 
-      {/* ── Details ────────────────────────────────────── */}
+      {/* ── Details ── */}
       <div className="ct-item-details">
+        <p className="ct-item-name" title={item.name}>{item.name}</p>
 
-        {/* Name */}
-        <p className="ct-item-name" title={item.name}>
-          {item.name}
-        </p>
-
-        {/* Variant (if any) */}
         {item.variant && (
           <p className="ct-item-variant">
-            <span className="ct-variant-dot" aria-hidden="true" />
             {item.variant.name}
-            {item.variant.sku && (
-              <span className="ct-item-sku">
-                {" · "}SKU: {item.variant.sku}
-              </span>
-            )}
+            {item.variant.sku && <span className="ct-item-sku"> · {item.variant.sku}</span>}
           </p>
         )}
 
-        {/* Price row */}
+        {/* Price */}
         <div className="ct-item-price-row">
-          <span className="ct-item-price">{fmt(item.price)}</span>
+          <span className="ct-item-price">{fmt(price)}</span>
           {hasDiscount && (
-            <span className="ct-item-orig-price">
-              {fmt(item.originalPrice)}
-            </span>
+            <span className="ct-item-orig-price">{fmt(origPrice)}</span>
           )}
-          {item.qty > 1 && (
-            <span className="ct-item-subtotal">
-              = {fmt(subtotal)}
-            </span>
+          {item.qty > 1 && !disabled && (
+            <span className="ct-item-subtotal">= {fmt(subtotal)}</span>
           )}
         </div>
 
-        {/* Price changed notice */}
+        {/* Notices */}
         {item.priceChanged && (
-          <p className="ct-price-notice" role="status">
-            💡 Price updated from {fmt(item.cartPrice)}
-          </p>
+          <p className="ct-price-notice">Price updated from {fmt(item.cartPrice)}</p>
+        )}
+        {lowStock && (
+          <p className="ct-stock-warn">Only {maxQty} left</p>
+        )}
+        {outOfStock && (
+          <p className="ct-oos-warning">Out of stock — remove to proceed</p>
+        )}
+        {unavailable && !outOfStock && (
+          <p className="ct-oos-warning">No longer available</p>
         )}
 
-        {/* Near stock warning */}
-        {nearMaxStock && (
-          <p className="ct-stock-warn" role="status">
-            ⚡ Only {item.stock} left!
-          </p>
-        )}
-
-        {/* Out of stock */}
-        {item.outOfStock && (
-          <div className="ct-oos-warning" role="alert">
-            <span>⚠️</span>
-            <span>Out of stock — remove to proceed</span>
-          </div>
-        )}
-
-        {/* Unavailable */}
-        {item.unavailable && (
-          <div className="ct-oos-warning" role="alert">
-            <span>🚫</span>
-            <span>No longer available</span>
-          </div>
-        )}
-
-        {/* ── Bottom: qty + actions ─────────────────────── */}
+        {/* ── Bottom row: qty + actions ── */}
         <div className="ct-item-bottom">
-
-          {/* Quantity stepper — only if in stock */}
-          {!item.outOfStock && !item.unavailable && (
-            <div
-              className="ct-qty-wrap"
-              role="group"
-              aria-label="Quantity"
-            >
+          {/* Qty stepper */}
+          {!disabled && (
+            <div className="ct-qty-wrap" role="group" aria-label="Quantity">
               <button
                 className="ct-qty-btn"
-                onClick={() => handleQty(-1)}
-                disabled={item.qty <= 1 || qtyBusy}
-                aria-label="Decrease quantity"
+                onClick={() => !atMin && onUpdateQty(item.id, -1)}
+                disabled={atMin}
+                aria-label="Decrease"
               >
-                {qtyBusy
-                  ? <span className="ct-qty-spinner" aria-hidden="true" />
-                  : "−"
-                }
+                −
               </button>
-
-              <span
-                className="ct-qty-val"
-                aria-live="polite"
-                aria-label={`Quantity: ${item.qty}`}
-              >
-                {item.qty}
-              </span>
-
+              <span className="ct-qty-val" aria-live="polite">{item.qty}</span>
               <button
                 className="ct-qty-btn"
-                onClick={() => handleQty(1)}
-                disabled={atMax || qtyBusy}
-                aria-label="Increase quantity"
-                title={atMax ? `Max: ${maxQty}` : "Increase"}
+                onClick={() => !atMax && onUpdateQty(item.id, 1)}
+                disabled={atMax}
+                aria-label="Increase"
+                title={atMax ? `Max ${maxQty}` : undefined}
               >
-                {qtyBusy
-                  ? <span className="ct-qty-spinner" aria-hidden="true" />
-                  : "+"
-                }
+                +
               </button>
-
-              {/* Show stock limit if close to max */}
-              {maxQty < 99 && (
-                <span className="ct-qty-max">/ {maxQty}</span>
-              )}
             </div>
           )}
 
-          {/* Action links */}
+          {/* Actions */}
           <div className="ct-item-actions">
-            {!item.unavailable && (
-              <>
-                <button
-                  className="ct-action-btn ct-action-btn--save"
-                  onClick={handleSave}
-                  disabled={saving || removing}
-                  aria-label="Save for later"
-                >
-                  {saving ? (
-                    <span className="ct-btn-spinner" aria-hidden="true" />
-                  ) : (
-                    <>
-                      <svg width="12" height="12" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor"
-                        strokeWidth="2" strokeLinecap="round"
-                        aria-hidden="true">
-                        <path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/>
-                      </svg>
-                      Save
-                    </>
-                  )}
-                </button>
-                <span className="ct-action-sep" aria-hidden="true">·</span>
-              </>
+            {!unavailable && (
+              <button
+                className="ct-action-btn"
+                onClick={handleSave}
+                disabled={saving || removing}
+              >
+                {saving ? "Saving…" : "Save for later"}
+              </button>
             )}
-
             <button
               className="ct-action-btn ct-action-btn--remove"
               onClick={handleRemove}
               disabled={removing || saving}
-              aria-label={`Remove ${item.name}`}
             >
-              {removing ? (
-                <span className="ct-btn-spinner" aria-hidden="true" />
-              ) : (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor"
-                    strokeWidth="2" strokeLinecap="round"
-                    aria-hidden="true">
-                    <polyline points="3 6 5 6 21 6"/>
-                    <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6"/>
-                    <path d="M10 11v6M14 11v6"/>
-                    <path d="M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2"/>
-                  </svg>
-                  Remove
-                </>
-              )}
+              {removing ? "Removing…" : "Remove"}
             </button>
           </div>
         </div>
