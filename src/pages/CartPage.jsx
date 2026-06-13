@@ -1,5 +1,3 @@
-// pages/CartPage.jsx
-
 import React, {
   useState, useEffect, useCallback,
   useMemo, useRef, memo,
@@ -44,7 +42,8 @@ const cartApi = {
   fetch: () => axios.get(CART_API, { headers: authHeaders() }),
   addItem: (productId, variantId, qty) =>
     axios.post(CART_API, { productId, variantId: variantId ?? null, qty: qty ?? 1 }, { headers: authHeaders() }),
-  updateQty: (id, qty) => axios.patch(`${CART_API}/${id}`, { qty }, { headers: authHeaders() }),
+  updateQty: (id, qty) =>
+    axios.patch(`${CART_API}/${id}`, { qty }, { headers: authHeaders() }),
   remove: (id) => axios.delete(`${CART_API}/${id}`, { headers: authHeaders() }),
   clear: () => axios.delete(CART_API, { headers: authHeaders() }),
   saveItem: (id) => axios.post(`${CART_API}/save/${id}`, {}, { headers: authHeaders() }),
@@ -59,7 +58,7 @@ const Toast = memo(function Toast({ msg, type, onClose }) {
     return () => clearTimeout(t);
   }, [onClose]);
   return (
-    <div className={`ct-toast ct-toast--${type}`} role="alert">
+    <div className={"ct-toast ct-toast--" + type} role="alert">
       <span>{msg}</span>
       <button onClick={onClose} aria-label="Dismiss">✕</button>
     </div>
@@ -78,15 +77,16 @@ const PriceBanner = memo(function PriceBanner({ count, onDismiss }) {
 
 const SavedRow = memo(function SavedRow({ item, onMove, onRemove }) {
   const [imgErr, setImgErr] = useState(false);
-  const src = !imgErr ? (Array.isArray(item.images) ? item.images[0] : item.image ?? null) : null;
-
+  const src = !imgErr
+    ? (Array.isArray(item.images) ? item.images[0] : item.image ?? null)
+    : null;
   return (
     <div className="ct-saved-item">
       <div className="ct-saved-img-wrap">
         {src ? (
           <img src={src} alt={item.name} loading="lazy" onError={() => setImgErr(true)} />
         ) : (
-          <span>📦</span>
+          <div className="ct-saved-img-empty" />
         )}
       </div>
       <div className="ct-saved-info">
@@ -137,37 +137,25 @@ export default function CartPage({ user }) {
   const notify = useCallback((msg, type = "error") => setToast({ msg, type }), []);
 
   const fetchCart = useCallback(async () => {
-    if (!user) {
-      setItems(loadLocal(CART_KEY));
-      setLoading(false);
-      return;
-    }
+    if (!user) { setItems(loadLocal(CART_KEY)); setLoading(false); return; }
     try {
       const { data } = await cartApi.fetch();
       setItems(data.data?.items ?? []);
       setPriceChanges(data.data?.priceChanges ?? 0);
-    } catch {
-      setItems(loadLocal(CART_KEY));
-    } finally {
-      setLoading(false);
-    }
+    } catch { setItems(loadLocal(CART_KEY)); }
+    finally { setLoading(false); }
   }, [user]);
 
   const fetchSaved = useCallback(async () => {
     if (!user) { setSavedItems(loadLocal(SAVED_KEY)); return; }
-    try {
-      const { data } = await cartApi.getSaved();
-      setSavedItems(data.data ?? []);
-    } catch {}
+    try { const { data } = await cartApi.getSaved(); setSavedItems(data.data ?? []); }
+    catch {}
   }, [user]);
 
   useEffect(() => { fetchCart(); fetchSaved(); }, [fetchCart, fetchSaved]);
 
   useEffect(() => {
-    if (!user) {
-      saveLocal(CART_KEY, items);
-      window.dispatchEvent(new Event("cart-updated"));
-    }
+    if (!user) { saveLocal(CART_KEY, items); window.dispatchEvent(new Event("cart-updated")); }
   }, [items, user]);
 
   const activeItems = useMemo(() => items.filter((i) => !i.outOfStock && !i.unavailable), [items]);
@@ -192,22 +180,17 @@ export default function CartPage({ user }) {
       try {
         await cartApi.updateQty(id, newQty);
       } catch {
-        try {
-          const { data } = await cartApi.fetch();
-          setItems(data.data?.items ?? []);
-        } catch { notify("Failed to update quantity"); }
+        try { const { data } = await cartApi.fetch(); setItems(data.data?.items ?? []); }
+        catch {}
       }
     }, 500);
-  }, [user, notify]);
+  }, [user]);
 
   const removeItem = useCallback(async (id) => {
     setItems((prev) => prev.filter((i) => i.id !== id));
-    if (user) {
-      try { await cartApi.remove(id); }
-      catch { fetchCart(); notify("Failed to remove item"); }
-    }
+    if (user) { try { await cartApi.remove(id); } catch { fetchCart(); } }
     window.dispatchEvent(new Event("cart-updated"));
-  }, [user, fetchCart, notify]);
+  }, [user, fetchCart]);
 
   const saveForLater = useCallback(async (id) => {
     const item = items.find((i) => i.id === id);
@@ -228,29 +211,18 @@ export default function CartPage({ user }) {
 
   const moveToCart = useCallback(async (id) => {
     if (user) {
-      try {
-        await cartApi.moveItem(id);
-        await fetchCart();
-        setSavedItems((prev) => prev.filter((s) => s.id !== id));
-      } catch { notify("Failed to move item"); }
+      try { await cartApi.moveItem(id); await fetchCart(); setSavedItems((p) => p.filter((s) => s.id !== id)); }
+      catch { notify("Failed to move item"); }
     } else {
       const item = savedItems.find((s) => s.id === id);
       if (!item) return;
       setItems((prev) => prev.find((i) => i.id === id) ? prev : [...prev, { ...item, qty: 1 }]);
-      setSavedItems((prev) => {
-        const next = prev.filter((s) => s.id !== id);
-        saveLocal(SAVED_KEY, next);
-        return next;
-      });
+      setSavedItems((prev) => { const next = prev.filter((s) => s.id !== id); saveLocal(SAVED_KEY, next); return next; });
     }
   }, [user, savedItems, fetchCart, notify]);
 
   const removeSaved = useCallback(async (id) => {
-    setSavedItems((prev) => {
-      const next = prev.filter((s) => s.id !== id);
-      if (!user) saveLocal(SAVED_KEY, next);
-      return next;
-    });
+    setSavedItems((prev) => { const next = prev.filter((s) => s.id !== id); if (!user) saveLocal(SAVED_KEY, next); return next; });
     if (user) { try { await cartApi.rmSaved(id); } catch {} }
   }, [user]);
 
@@ -261,22 +233,23 @@ export default function CartPage({ user }) {
     window.dispatchEvent(new Event("cart-updated"));
   }, [items, user, notify]);
 
+  const handleAddToCart = useCallback(async (product) => {
+    if (!user) { navigate("/auth", { state: { from: "/shop/cart" } }); return; }
+    try {
+      await cartApi.addItem(product.id ?? product.productId, product.variantId ?? null, 1);
+      await fetchCart();
+      window.dispatchEvent(new Event("cart-updated"));
+      notify((product.name ?? "Item") + " added to cart", "success");
+    } catch (err) {
+      notify(err.response?.data?.message ?? "Could not add item");
+    }
+  }, [user, navigate, fetchCart, notify]);
+
   const handleCheckout = useCallback(() => {
     if (!user) { navigate("/auth", { state: { from: "/shop/cart" } }); return; }
     if (hasOutOfStock || activeItems.length === 0) return;
     navigate("/shop/checkout");
   }, [user, hasOutOfStock, activeItems.length, navigate]);
-
-  const handleAddAndCheckout = useCallback(async (product) => {
-    if (!user) { navigate("/auth", { state: { from: "/shop/cart" } }); return; }
-    try {
-      await cartApi.addItem(product.id ?? product.productId, product.variantId ?? null, 1);
-      window.dispatchEvent(new Event("cart-updated"));
-      navigate("/shop/checkout");
-    } catch (err) {
-      notify(err.response?.data?.message ?? "Could not add item");
-    }
-  }, [user, navigate, notify]);
 
   return (
     <div className="ct-page">
@@ -305,8 +278,8 @@ export default function CartPage({ user }) {
         <div className="ct-empty-state">
           <EmptyCart savedItems={savedItems} onMoveToCart={moveToCart} onRemoveSaved={removeSaved} />
           <div className="ct-empty-suggestions">
-            <RecentlyViewed onAddAndCheckout={handleAddAndCheckout} />
-            <YouMayAlsoLike cartItems={[]} onAddAndCheckout={handleAddAndCheckout} />
+            <RecentlyViewed onAddToCart={handleAddToCart} />
+            <YouMayAlsoLike cartItems={[]} onAddToCart={handleAddToCart} />
           </div>
         </div>
       ) : (
@@ -314,22 +287,14 @@ export default function CartPage({ user }) {
           <div className="ct-items-col">
             <div className="ct-items-list">
               {items.map((item) => (
-                <CartItem key={item.id} item={item} onUpdateQty={updateQty} onRemove={removeItem} onSaveForLater={saveForLater} />
+                <CartItem
+                  key={item.id}
+                  item={item}
+                  onUpdateQty={updateQty}
+                  onRemove={removeItem}
+                  onSaveForLater={saveForLater}
+                />
               ))}
-            </div>
-
-            <div className="ct-inline-checkout">
-              <div className="ct-inline-checkout-info">
-                <span className="ct-inline-checkout-label">Total ({itemCount} items)</span>
-                <span className="ct-inline-checkout-price">{fmt(grandTotal)}</span>
-              </div>
-              <button
-                className="ct-inline-checkout-btn"
-                onClick={handleCheckout}
-                disabled={hasOutOfStock || !user || activeItems.length === 0}
-              >
-                {!user ? "Login to Checkout" : hasOutOfStock ? "Remove unavailable items" : "Proceed to Checkout"}
-              </button>
             </div>
 
             {savedItems.length > 0 && (
@@ -343,17 +308,32 @@ export default function CartPage({ user }) {
               </section>
             )}
 
-            <RecentlyViewed onAddAndCheckout={handleAddAndCheckout} />
-            <YouMayAlsoLike cartItems={items} onAddAndCheckout={handleAddAndCheckout} />
+            <div className="ct-inline-checkout">
+              <div className="ct-inline-checkout-info">
+                <span className="ct-inline-checkout-label">Total ({itemCount} item{itemCount !== 1 ? "s" : ""})</span>
+                <span className="ct-inline-checkout-price">{fmt(grandTotal)}</span>
+              </div>
+              {hasOutOfStock && (
+                <p className="ct-inline-checkout-warn">Remove out-of-stock items before checkout</p>
+              )}
+              <button
+                className={"ct-inline-checkout-btn" + (!user || hasOutOfStock || activeItems.length === 0 ? " ct-inline-checkout-btn--disabled" : "")}
+                onClick={handleCheckout}
+                disabled={!user || hasOutOfStock || activeItems.length === 0}
+              >
+                {!user ? "Login to Checkout" : hasOutOfStock ? "Remove unavailable items" : "Proceed to Checkout"}
+              </button>
+            </div>
+
+            <RecentlyViewed onAddToCart={handleAddToCart} />
+            <YouMayAlsoLike cartItems={items} onAddToCart={handleAddToCart} />
           </div>
 
           <aside className="ct-summary-col">
             <OrderSummary
               itemCount={itemCount}
               subtotal={subtotal}
-              discount={0}
               grandTotal={grandTotal}
-              couponApplied={null}
               hasOutOfStock={hasOutOfStock}
               onCheckout={handleCheckout}
               user={user}
