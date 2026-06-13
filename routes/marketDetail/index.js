@@ -1,22 +1,32 @@
+// routes/products/index.js
+
 import express from "express";
 
-import getProductRouter      from "./getProduct.js";
+import suggestionsRouter    from "./suggestions.js";    // ← NEW
+import getProductRouter     from "./getProduct.js";
 import relatedProductsRouter from "./relatedProducts.js";
-import wishlistRouter        from "./wishlist.js";
-import reportRouter          from "./report.js";
-import shareRouter           from "./share.js";
+import wishlistRouter       from "./wishlist.js";
+import reportRouter         from "./report.js";
+import shareRouter          from "./share.js";
 
 const router = express.Router();
 
-/* Main product detail */
-router.use("/", getProductRouter);
+/* ══════════════════════════════════════════════════════════
+   ⚠️  ORDER MATTERS
+   suggestionsRouter MUST come before getProductRouter.
+   getProductRouter handles /:slug — if it comes first,
+   "suggestions" and "trending" get matched as product slugs
+   and return 404.
+══════════════════════════════════════════════════════════ */
 
-/* Related products */
-router.use("/", relatedProductsRouter);
+/* Static routes first */
+router.use("/", suggestionsRouter);      // GET /suggestions, /trending
 
-/* Interactions */
-router.use("/", wishlistRouter);
-router.use("/", reportRouter);
-router.use("/", shareRouter);
+/* Parameterised routes after */
+router.use("/", getProductRouter);       // GET /:slug
+router.use("/", relatedProductsRouter);  // GET /:slug/related  (or similar)
+router.use("/", wishlistRouter);         // POST /:slug/wishlist
+router.use("/", reportRouter);           // POST /:slug/report
+router.use("/", shareRouter);            // POST /:slug/share
 
 export default router;
