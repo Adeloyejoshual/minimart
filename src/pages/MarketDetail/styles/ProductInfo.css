@@ -1,0 +1,367 @@
+/* ═══════════════════════════════════════════════════════════════
+   CSS CUSTOM PROPERTIES (Design Tokens)
+   Single source of truth for all sizing, spacing, color values.
+   Overridden per breakpoint below.
+═══════════════════════════════════════════════════════════════ */
+
+:root {
+  /* Typography */
+  --pi-font-title:       13px;
+  --pi-font-body:        12px;
+  --pi-font-bullet:      12px;
+  --pi-font-heading:     11px;
+  --pi-font-toggle:      11px;
+  --pi-font-empty:       11px;
+  --pi-font-link:        12px;
+
+  /* Spacing */
+  --pi-section-padding:  10px 8px;
+  --pi-title-mb:         8px;
+  --pi-title-pb:         6px;
+  --pi-heading-mt:       10px;
+  --pi-heading-mb:       4px;
+  --pi-bullet-indent:    6px;
+  --pi-text-mv:          3px;
+  --pi-toggle-mt:        8px;
+
+  /* Collapse */
+  --pi-collapsed-height: 120px;
+  --pi-overlay-height:   55px;
+
+  /* Colors */
+  --pi-color-title:      #111;
+  --pi-color-heading:    #111;
+  --pi-color-body:       #444;
+  --pi-color-bullet:     #333;
+  --pi-color-empty:      #aaa;
+  --pi-color-link:       #f68b1e;
+  --pi-color-link-hover: #d4720f;
+  --pi-color-toggle:     #f68b1e;
+  --pi-color-border:     #f0f0f0;
+  --pi-color-divider:    #f0f0f0;
+  --pi-color-shadow:     rgba(0, 0, 0, 0.06);
+  --pi-color-bg:         #ffffff;
+
+  /* Overlay gradient */
+  --pi-overlay-start:    rgba(255, 255, 255, 0);
+  --pi-overlay-mid:      rgba(255, 255, 255, 0.85);
+  --pi-overlay-end:      rgba(255, 255, 255, 1);
+
+  /* Border radius */
+  --pi-radius:           6px;
+
+  /* Line height */
+  --pi-line-height:      1.6;
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   BREAKPOINTS USED
+   ┌──────────────────────────────────────────────────┐
+   │  Small phone      →  max-width: 374px            │
+   │  Normal phone     →  375px  –  767px  (default)  │
+   │  Small desktop    →  768px  –  1199px            │
+   │  Big desktop      →  1200px +                    │
+   └──────────────────────────────────────────────────┘
+═══════════════════════════════════════════════════════════════ */
+
+
+/* ───────────────────────────────────────────────────────────────
+   SMALL PHONE  →  max-width: 374px
+   Compact. Tight padding. Smaller font. Shorter collapse height.
+─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 374px) {
+  :root {
+    --pi-font-title:       12px;
+    --pi-font-body:        11.5px;
+    --pi-font-bullet:      11.5px;
+    --pi-font-heading:     10.5px;
+    --pi-font-toggle:      11px;
+    --pi-font-empty:       11px;
+    --pi-font-link:        11px;
+
+    --pi-section-padding:  8px 6px;
+    --pi-title-mb:         6px;
+    --pi-title-pb:         5px;
+    --pi-heading-mt:       8px;
+    --pi-heading-mb:       3px;
+    --pi-bullet-indent:    4px;
+    --pi-text-mv:          2px;
+    --pi-toggle-mt:        6px;
+
+    --pi-collapsed-height: 100px;
+    --pi-overlay-height:   45px;
+
+    --pi-line-height:      1.55;
+    --pi-radius:           5px;
+  }
+}
+
+
+/* ───────────────────────────────────────────────────────────────
+   NORMAL PHONE  →  375px – 767px  (base / mobile-first default)
+   Comfortable reading. Standard Jumia mobile layout.
+─────────────────────────────────────────────────────────────── */
+
+@media (min-width: 375px) and (max-width: 767px) {
+  :root {
+    --pi-font-title:       14px;
+    --pi-font-body:        13.5px;
+    --pi-font-bullet:      13.5px;
+    --pi-font-heading:     12px;
+    --pi-font-toggle:      13px;
+    --pi-font-empty:       12.5px;
+    --pi-font-link:        13px;
+
+    --pi-section-padding:  14px 12px;
+    --pi-title-mb:         10px;
+    --pi-title-pb:         8px;
+    --pi-heading-mt:       12px;
+    --pi-heading-mb:       5px;
+    --pi-bullet-indent:    10px;
+    --pi-text-mv:          4px;
+    --pi-toggle-mt:        10px;
+
+    --pi-collapsed-height: 140px;
+    --pi-overlay-height:   60px;
+
+    --pi-line-height:      1.7;
+    --pi-radius:           8px;
+  }
+}
+
+
+/* ───────────────────────────────────────────────────────────────
+   SMALL DESKTOP  →  768px – 1199px
+   Tablet / small laptop. More breathing room. Wider content area.
+─────────────────────────────────────────────────────────────── */
+
+@media (min-width: 768px) and (max-width: 1199px) {
+  :root {
+    --pi-font-title:       15px;
+    --pi-font-body:        14px;
+    --pi-font-bullet:      14px;
+    --pi-font-heading:     13px;
+    --pi-font-toggle:      13.5px;
+    --pi-font-empty:       13px;
+    --pi-font-link:        14px;
+
+    --pi-section-padding:  20px 18px;
+    --pi-title-mb:         14px;
+    --pi-title-pb:         10px;
+    --pi-heading-mt:       16px;
+    --pi-heading-mb:       6px;
+    --pi-bullet-indent:    14px;
+    --pi-text-mv:          5px;
+    --pi-toggle-mt:        12px;
+
+    --pi-collapsed-height: 170px;
+    --pi-overlay-height:   70px;
+
+    --pi-line-height:      1.75;
+    --pi-radius:           10px;
+  }
+}
+
+
+/* ───────────────────────────────────────────────────────────────
+   BIG DESKTOP  →  1200px +
+   Full marketplace layout. Large readable text. Generous spacing.
+─────────────────────────────────────────────────────────────── */
+
+@media (min-width: 1200px) {
+  :root {
+    --pi-font-title:       16px;
+    --pi-font-body:        15px;
+    --pi-font-bullet:      15px;
+    --pi-font-heading:     13.5px;
+    --pi-font-toggle:      14px;
+    --pi-font-empty:       14px;
+    --pi-font-link:        15px;
+
+    --pi-section-padding:  28px 26px;
+    --pi-title-mb:         18px;
+    --pi-title-pb:         12px;
+    --pi-heading-mt:       20px;
+    --pi-heading-mb:       8px;
+    --pi-bullet-indent:    18px;
+    --pi-text-mv:          6px;
+    --pi-toggle-mt:        16px;
+
+    --pi-collapsed-height: 200px;
+    --pi-overlay-height:   80px;
+
+    --pi-line-height:      1.8;
+    --pi-radius:           12px;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENT STYLES
+   All sizing values consumed from CSS custom properties above.
+   No hard-coded sizes here — fully token-driven.
+═══════════════════════════════════════════════════════════════ */
+
+
+/* ── Section Wrapper ─────────────────────────────────────────── */
+
+.pi-section {
+  padding:          var(--pi-section-padding);
+  background:       var(--pi-color-bg);
+  border-radius:    var(--pi-radius);
+  box-shadow:       0 1px 5px var(--pi-color-shadow);
+  box-sizing:       border-box;
+  width:            100%;
+}
+
+.pi-section-title {
+  font-size:        var(--pi-font-title);
+  font-weight:      700;
+  color:            var(--pi-color-title);
+  margin:           0 0 var(--pi-title-mb) 0;
+  padding-bottom:   var(--pi-title-pb);
+  border-bottom:    1px solid var(--pi-color-border);
+  letter-spacing:   0.3px;
+  text-transform:   uppercase;
+}
+
+
+/* ── Description Body ────────────────────────────────────────── */
+
+.pi-description {
+  position:         relative;
+  font-size:        var(--pi-font-body);
+  line-height:      var(--pi-line-height);
+  color:            var(--pi-color-body);
+  word-break:       break-word;
+  transition:       max-height 0.35s ease;
+}
+
+.pi-description--collapsed {
+  max-height:       var(--pi-collapsed-height);
+  overflow:         hidden;
+}
+
+
+/* ── Line Types ──────────────────────────────────────────────── */
+
+.pi-heading {
+  font-size:        var(--pi-font-heading);
+  font-weight:      700;
+  color:            var(--pi-color-heading);
+  text-transform:   uppercase;
+  letter-spacing:   0.5px;
+  margin:           var(--pi-heading-mt) 0 var(--pi-heading-mb) 0;
+  padding-bottom:   3px;
+  border-bottom:    1px dashed var(--pi-color-divider);
+}
+
+.pi-heading:first-child {
+  margin-top:       0;
+}
+
+.pi-bullet {
+  font-size:        var(--pi-font-bullet);
+  margin:           var(--pi-text-mv) 0 var(--pi-text-mv) var(--pi-bullet-indent);
+  color:            var(--pi-color-bullet);
+}
+
+.pi-text {
+  font-size:        var(--pi-font-body);
+  margin:           var(--pi-text-mv) 0;
+  color:            var(--pi-color-body);
+}
+
+.pi-divider {
+  border:           none;
+  border-top:       1px solid var(--pi-color-divider);
+  margin:           10px 0;
+}
+
+.pi-empty {
+  font-size:        var(--pi-font-empty);
+  color:            var(--pi-color-empty);
+  font-style:       italic;
+}
+
+
+/* ── Links ───────────────────────────────────────────────────── */
+
+.pi-link {
+  color:            var(--pi-color-link);
+  font-size:        var(--pi-font-link);
+  font-weight:      500;
+  text-decoration:  none;
+  word-break:       break-all;
+  transition:       color 0.2s ease;
+}
+
+.pi-link:hover {
+  color:            var(--pi-color-link-hover);
+  text-decoration:  underline;
+}
+
+.pi-link:focus-visible {
+  outline:          2px solid var(--pi-color-link);
+  outline-offset:   2px;
+  border-radius:    2px;
+}
+
+
+/* ── Fade Overlay ────────────────────────────────────────────── */
+
+.pi-fade-overlay {
+  position:         absolute;
+  bottom:           0;
+  left:             0;
+  right:            0;
+  height:           var(--pi-overlay-height);
+  background:       linear-gradient(
+                      to bottom,
+                      var(--pi-overlay-start)   0%,
+                      var(--pi-overlay-mid)    55%,
+                      var(--pi-overlay-end)   100%
+                    );
+  pointer-events:   none;   /* never blocks taps or text selection */
+}
+
+
+/* ── Toggle Button ───────────────────────────────────────────── */
+
+.pi-toggle-btn {
+  display:          inline-flex;
+  align-items:      center;
+  gap:              5px;
+  margin-top:       var(--pi-toggle-mt);
+  padding:          4px 0;
+  background:       none;
+  border:           none;
+  cursor:           pointer;
+  color:            var(--pi-color-toggle);
+  font-size:        var(--pi-font-toggle);
+  font-weight:      600;
+  transition:       color 0.2s ease,
+                    opacity 0.2s ease;
+}
+
+.pi-toggle-btn:hover {
+  color:            var(--pi-color-link-hover);
+  opacity:          0.9;
+}
+
+.pi-toggle-btn:focus-visible {
+  outline:          2px solid var(--pi-color-toggle);
+  outline-offset:   3px;
+  border-radius:    3px;
+}
+
+.pi-toggle-btn:active {
+  opacity:          0.7;
+}
+
+.pi-toggle-icon {
+  font-size:        10px;
+  line-height:      1;
+}
