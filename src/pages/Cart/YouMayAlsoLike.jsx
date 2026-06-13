@@ -1,7 +1,7 @@
 // pages/Cart/YouMayAlsoLike.jsx
 
 import React, {
-  useState, useEffect, memo, useCallback,
+  useState, useEffect, memo, useCallback, useRef,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -14,26 +14,62 @@ const fmt = (n) =>
     maximumFractionDigits: 0,
   })}`;
 
-// ── Single product card ──────────────────────────────────────
+// ── Waterfall endpoints — tries each until one returns data ─
+const ENDPOINTS = [
+  (exclude) => ({
+    url:    `${API_BASE}/products/suggestions`,
+    params: { exclude, limit: 16 },
+  }),
+  () => ({
+    url:    `${API_BASE}/products/trending`,
+    params: { limit: 16 },
+  }),
+  () => ({
+    url:    `${API_BASE}/products`,
+    params: { limit: 16, sort: "newest", status: "active" },
+  }),
+];
+
+function extractProducts(data) {
+  return (
+    data?.data?.products ??
+    data?.data?.items    ??
+    data?.data           ??
+    data?.products       ??
+    data?.items          ??
+    (Array.isArray(data) ? data : [])
+  );
+}
+
+// ═══════════════════════════════════════════════════════════
+// SINGLE SUGGESTION CARD
+// ═══════════════════════════════════════════════════════════
 const SuggCard = memo(function SuggCard({ product, onAddToCart }) {
-  const navigate          = useNavigate();
+  const navigate = useNavigate();
   const [imgErr, setImgErr] = useState(false);
   const [adding, setAdding] = useState(false);
   const [added,  setAdded]  = useState(false);
+  const addTimer = useRef(null);
+
+  useEffect(() => () => clearTimeout(addTimer.current), []);
 
   const image = !imgErr
     ? (Array.isArray(product.images)
-        ? product.images[0]
-        : product.image ?? null)
+        ? (product.images[0] ?? null)
+        : (product.image ?? null))
     : null;
 
-  const hasDiscount = product.compare_price &&
-    Number(product.compare_price) > Number(product.price);
+  const hasDiscount =
+    Number(product.compare_price ?? product.comparePrice ?? 0) >
+    Number(product.price ?? 0);
+
+  const comparePrice = Number(
+    product.compare_price ?? product.comparePrice ?? 0
+  );
 
   const discountPct = hasDiscount
     ? Math.round(
-        ((Number(product.compare_price) - Number(product.price)) /
-          Number(product.compare_price)) * 100
+        ((comparePrice - Number(product.price)) / comparePrice) * 100
       )
     : 0;
 
@@ -44,226 +80,249 @@ const SuggCard = memo(function SuggCard({ product, onAddToCart }) {
     try {
       await onAddToCart(product);
       setAdded(true);
-      setTimeout(() => setAdded(false), 2000);
+      addTimer.current = setTimeout(() => setAdded(false), 2200);
+    } catch {
+      // parent handles error
     } finally {
       setAdding(false);
     }
   }, [product, onAddToCart, adding, added]);
 
+  const handleNav = useCallback(() => {
+    navigate(`/product/${product.slug ?? product.id}`);
+  }, [navigate, product.slug, product.id]);
+
+  const name = product.name ?? product.title ?? "Product";
+
   return (
-    <div
-      className="ct-sugg-card"
-      onClick={() => navigate(`/product/${product.slug ?? product.id}`)}
+    <article
+      className="sugg-card"
+      onClick={handleNav}
+      onKeyDown={(e) => e.key === "Enter" && handleNav()}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          navigate(`/product/${product.slug ?? product.id}`);
-        }
-      }}
-      aria-label={`View ${product.name ?? product.title}`}
+      aria-label={`View ${name}`}
     >
-      {/* Image */}
-      <div className="ct-sugg-img-wrap">
+      {/* ── Image ── */}
+      <div className="sugg-card__img-wrap">
         {image ? (
           <img
             src={image}
-            alt={product.name ?? product.title}
-            className="ct-sugg-img"
+            alt={name}
+            className="sugg-card__img"
             loading="lazy"
             onError={() => setImgErr(true)}
           />
         ) : (
-          <div className="ct-sugg-img-placeholder" aria-hidden="true">
+          <div className="sugg-card__img-placeholder" aria-hidden="true">
             📦
           </div>
         )}
         {hasDiscount && (
-          <span className="ct-sugg-badge">-{discountPct}%</span>
+          <span className="sugg-card__badge sugg-card__badge--sale">
+            -{discountPct}%
+          </span>
         )}
-        {product.isNew && (
-          <span className="ct-sugg-badge ct-sugg-badge--new">New</span>
+        {product.isNew && !hasDiscount && (
+          <span className="sugg-card__badge sugg-card__badge--new">New</span>
         )}
       </div>
 
-      {/* Info */}
-      <div className="ct-sugg-info">
-        <p className="ct-sugg-name">
-          {product.name ?? product.title}
-        </p>
+      {/* ── Info ── */}
+      <div className="sugg-card__info">
+        <p className="sugg-card__name" title={name}>{name}</p>
 
-        {/* Rating */}
-        {product.rating > 0 && (
-          <div className="ct-sugg-rating">
-            <span className="ct-sugg-stars">
+        {Number(product.rating ?? 0) > 0 && (
+          <div
+            className="sugg-card__rating"
+            aria-label={`${product.rating} out of 5 stars`}
+          >
+            <span className="sugg-card__stars" aria-hidden="true">
               {"★".repeat(Math.round(product.rating))}
               {"☆".repeat(5 - Math.round(product.rating))}
             </span>
-            <span className="ct-sugg-review-count">
+            <span className="sugg-card__review-count">
               ({product.reviewCount ?? product.review_count ?? 0})
             </span>
           </div>
         )}
 
-        {/* Price */}
-        <div className="ct-sugg-price-row">
-          <span className="ct-sugg-price">
-            {fmt(product.price)}
-          </span>
+        <div className="sugg-card__price-row">
+          <span className="sugg-card__price">{fmt(product.price)}</span>
           {hasDiscount && (
-            <span className="ct-sugg-compare">
-              {fmt(product.compare_price)}
-            </span>
+            <span className="sugg-card__compare">{fmt(comparePrice)}</span>
           )}
         </div>
       </div>
 
-      {/* Add button */}
+      {/* ── Add button ── */}
       <button
-        className={`ct-sugg-add-btn ${
-          added ? "ct-sugg-add-btn--added" : ""
-        }`}
+        className={[
+          "sugg-card__add-btn",
+          added  ? "sugg-card__add-btn--added"   : "",
+          adding ? "sugg-card__add-btn--loading" : "",
+        ].filter(Boolean).join(" ")}
         onClick={handleAdd}
         disabled={adding}
-        aria-label={`Add ${product.name ?? product.title} to cart`}
+        aria-label={added ? `${name} added` : `Add ${name} to cart`}
       >
         {adding ? (
-          <span className="ct-rp-spinner" aria-hidden="true" />
+          <span className="sugg-spinner" aria-hidden="true" />
         ) : added ? (
           "✓ Added!"
         ) : (
           "Add to Cart"
         )}
       </button>
-    </div>
+    </article>
   );
 });
 
-// ── Skeleton cards ───────────────────────────────────────────
-function SuggSkeleton() {
+// ── Skeleton ─────────────────────────────────────────────────
+function SuggSkeleton({ count = 5 }) {
   return (
-    <div className="ct-sugg-skeleton-row">
-      {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="ct-sugg-skeleton-card">
-          <div className="ct-sugg-sk-img ct-skeleton" />
-          <div className="ct-sugg-sk-line ct-skeleton" />
-          <div className="ct-sugg-sk-line ct-sugg-sk-line--sm ct-skeleton" />
-        </div>
-      ))}
+    <div className="sugg-scroll">
+      <div className="sugg-track">
+        {Array.from({ length: count }).map((_, i) => (
+          <div key={i} className="sugg-skeleton" aria-hidden="true">
+            <div className="sugg-skeleton__img  sugg-shimmer" />
+            <div className="sugg-skeleton__line sugg-shimmer" />
+            <div className="sugg-skeleton__line sugg-skeleton__line--sm sugg-shimmer" />
+            <div className="sugg-skeleton__btn  sugg-shimmer" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-// ═════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 // YOU MAY ALSO LIKE SECTION
-// ═════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 const YouMayAlsoLike = memo(function YouMayAlsoLike({
-  cartItems = [],
+  cartItems   = [],
   onAddToCart,
 }) {
   const [products, setProducts] = useState([]);
   const [loading,  setLoading]  = useState(true);
   const [error,    setError]    = useState(false);
+  const [page,     setPage]     = useState(0);   // for load more
+  const fetchedRef = useRef(false);
 
   useEffect(() => {
+    // Only fetch once — products don't change while user is in cart
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+
     let cancelled = false;
 
-    const fetchSuggestions = async () => {
+    const run = async () => {
       setLoading(true);
       setError(false);
 
-      try {
-        // Build category hint from cart items
-        const cartIds = cartItems
-          .map((i) => i.productId ?? i.id)
-          .filter(Boolean)
-          .slice(0, 5)
-          .join(",");
+      const excludeIds = cartItems
+        .map((i) => i.productId ?? i.id)
+        .filter(Boolean)
+        .slice(0, 10)
+        .join(",");
 
-        // Fetch related / trending products
-        const { data } = await axios.get(
-          `${API_BASE}/products/suggestions`,
-          {
-            params: {
-              exclude: cartIds,
-              limit:   12,
-            },
-            timeout: 8000,
-          }
-        );
+      for (const buildEndpoint of ENDPOINTS) {
+        if (cancelled) return;
 
-        if (!cancelled) {
-          const items = data.data?.products
-            ?? data.data
-            ?? data.products
-            ?? [];
-          setProducts(items);
-        }
+        const { url, params } = buildEndpoint(excludeIds);
 
-      } catch {
-        // Fallback: try trending
         try {
-          const { data } = await axios.get(
-            `${API_BASE}/products/trending`,
-            { params: { limit: 12 }, timeout: 8000 }
-          );
-          if (!cancelled) {
-            setProducts(
-              data.data?.products ??
-              data.products       ??
-              []
-            );
+          const { data } = await axios.get(url, {
+            params,
+            timeout: 9000,
+          });
+
+          const found = extractProducts(data);
+
+          if (!cancelled && found.length > 0) {
+            setProducts(found);
+            setLoading(false);
+            return; // success
           }
-        } catch {
-          if (!cancelled) setError(true);
+        } catch (err) {
+          if (process.env.NODE_ENV === "development") {
+            console.warn(`[YouMayAlsoLike] ${url} failed:`, err.message);
+          }
+          // try next endpoint
         }
-      } finally {
-        if (!cancelled) setLoading(false);
+      }
+
+      // all endpoints failed
+      if (!cancelled) {
+        setError(true);
+        setLoading(false);
       }
     };
 
-    fetchSuggestions();
+    run();
     return () => { cancelled = true; };
-  }, []); // Only on mount
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Paginate locally — show 8 at a time
+  const PAGE_SIZE = 8;
+  const visible   = products.slice(0, PAGE_SIZE * (page + 1));
+  const hasMore   = visible.length < products.length;
 
   if (!loading && (error || products.length === 0)) return null;
 
   return (
-    <div className="ct-section-block">
+    <section
+      className="ct-section-block"
+      aria-label="You may also like"
+    >
+      {/* ── Header ── */}
       <div className="ct-section-header">
-        <div>
+        <div className="ct-section-header__left">
           <h3 className="ct-section-title">
-            ✨ You May Also Like
+            <span aria-hidden="true">✨</span> You May Also Like
           </h3>
-          <p className="ct-section-sub">
-            Hand-picked for you
-          </p>
+          <p className="ct-section-sub">Hand-picked for you</p>
         </div>
         <a
           href="/minimart"
           className="ct-section-see-all"
-          aria-label="See all products"
+          aria-label="Browse all products"
         >
           See all →
         </a>
       </div>
 
+      {/* ── Cards or skeleton ── */}
       {loading ? (
-        <SuggSkeleton />
+        <SuggSkeleton count={5} />
       ) : (
-        <div className="ct-sugg-scroll">
-          <div className="ct-sugg-track">
-            {products.map((product) => (
-              <SuggCard
-                key={product.id}
-                product={product}
-                onAddToCart={onAddToCart}
-              />
-            ))}
+        <>
+          <div className="sugg-scroll" role="list">
+            <div className="sugg-track">
+              {visible.map((product) => (
+                <div key={product.id} role="listitem">
+                  <SuggCard
+                    product={product}
+                    onAddToCart={onAddToCart}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+
+          {hasMore && (
+            <div className="sugg-load-more-wrap">
+              <button
+                className="sugg-load-more-btn"
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Load more
+              </button>
+            </div>
+          )}
+        </>
       )}
-    </div>
+    </section>
   );
 });
 
