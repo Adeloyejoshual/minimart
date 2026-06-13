@@ -1,12 +1,13 @@
 // pages/Cart/RecentlyViewed.jsx
 
 import React, {
-  useState, useEffect, memo, useCallback,
+  useState, useEffect, memo, useCallback, useRef,
 } from "react";
 import { useNavigate } from "react-router-dom";
 
 const RECENT_KEY = "mm_recently_viewed";
 const MAX_RECENT = 12;
+const VISIBLE    = 8;
 
 const fmt = (n) =>
   `₦${Number(n ?? 0).toLocaleString("en-NG", {
@@ -14,36 +15,47 @@ const fmt = (n) =>
     maximumFractionDigits: 0,
   })}`;
 
-// ═════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 // TRACK A PRODUCT VIEW
-// Call this from your product detail page
-// ═════════════════════════════════════════════════════════════
+// Import and call this on your product detail page
+// ═══════════════════════════════════════════════════════════
 export function trackProductView(product) {
+  if (!product?.id) return;
   try {
-    const stored  = JSON.parse(
-      localStorage.getItem(RECENT_KEY) || "[]"
+    const stored   = JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
+    const filtered = stored.filter(
+      (p) => String(p.id) !== String(product.id)
     );
-    const filtered = stored.filter((p) => p.id !== product.id);
-    const updated  = [
-      {
-        id:       product.id,
-        name:     product.name ?? product.title,
-        price:    product.price,
-        image:    Array.isArray(product.images)
-          ? product.images[0]
-          : product.image ?? product.imageUrl ?? null,
-        slug:     product.slug,
-        viewedAt: Date.now(),
-      },
-      ...filtered,
-    ].slice(0, MAX_RECENT);
 
+    const entry = {
+      id:          String(product.id),
+      name:        product.name ?? product.title ?? "Product",
+      price:       Number(product.price ?? 0),
+      comparePrice:Number(product.compare_price ?? product.comparePrice ?? 0),
+      image:       Array.isArray(product.images)
+                     ? (product.images[0] ?? null)
+                     : (product.image ?? product.imageUrl ?? null),
+      slug:        product.slug ?? String(product.id),
+      rating:      Number(product.rating ?? 0),
+      reviewCount: Number(
+                     product.reviewCount ??
+                     product.review_count ?? 0
+                   ),
+      isNew:       Boolean(product.isNew ?? product.is_new),
+      viewedAt:    Date.now(),
+    };
+
+    const updated = [entry, ...filtered].slice(0, MAX_RECENT);
     localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
     window.dispatchEvent(new Event("recently-viewed-updated"));
-  } catch {}
+  } catch (err) {
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[trackProductView]", err);
+    }
+  }
 }
 
-// ── Load from localStorage ──────────────────────────────────
+// ── load helper ─────────────────────────────────────────────
 function loadRecentlyViewed() {
   try {
     return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
@@ -52,14 +64,30 @@ function loadRecentlyViewed() {
   }
 }
 
-// ═════════════════════════════════════════════════════════════
-// PRODUCT MINI CARD
-// ═════════════════════════════════════════════════════════════
-const ProductCard = memo(function ProductCard({ product, onAddToCart }) {
-  const navigate            = useNavigate();
+// ═══════════════════════════════════════════════════════════
+// SINGLE PRODUCT CARD
+// ═══════════════════════════════════════════════════════════
+const RVCard = memo(function RVCard({ product, onAddToCart }) {
+  const navigate = useNavigate();
   const [imgErr,  setImgErr]  = useState(false);
   const [adding,  setAdding]  = useState(false);
   const [added,   setAdded]   = useState(false);
+  const addTimer = useRef(null);
+
+  const image = !imgErr ? (product.image ?? null) : null;
+
+  const hasDiscount =
+    product.comparePrice > 0 &&
+    product.comparePrice > product.price;
+
+  const discountPct = hasDiscount
+    ? Math.round(
+        ((product.comparePrice - product.price) / product.comparePrice) * 100
+      )
+    : 0;
+
+  // cleanup timer on unmount
+  useEffect(() => () => clearTimeout(addTimer.current), []);
 
   const handleAdd = useCallback(async (e) => {
     e.stopPropagation();
@@ -68,7 +96,9 @@ const ProductCard = memo(function ProductCard({ product, onAddToCart }) {
     try {
       await onAddToCart(product);
       setAdded(true);
-      setTimeout(() => setAdded(false), 2000);
+      addTimer.current = setTimeout(() => setAdded(false), 2200);
+    } catch {
+      // parent handles error toast
     } finally {
       setAdding(false);
     }
@@ -79,113 +109,196 @@ const ProductCard = memo(function ProductCard({ product, onAddToCart }) {
   }, [navigate, product.slug, product.id]);
 
   return (
-    <div
-      className="ct-rp-card"
+    <article
+      className="rv-card"
       onClick={handleNav}
+      onKeyDown={(e) => e.key === "Enter" && handleNav()}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter") handleNav(); }}
       aria-label={`View ${product.name}`}
     >
-      {/* Image */}
-      <div className="ct-rp-img-wrap">
-        {!imgErr && product.image ? (
+      {/* ── Image ── */}
+      <div className="rv-card__img-wrap">
+        {image ? (
           <img
-            src={product.image}
+            src={image}
             alt={product.name}
-            className="ct-rp-img"
+            className="rv-card__img"
             loading="lazy"
             onError={() => setImgErr(true)}
           />
         ) : (
-          <div className="ct-rp-img-placeholder" aria-hidden="true">
+          <div className="rv-card__img-placeholder" aria-hidden="true">
             📦
           </div>
         )}
+
+        {hasDiscount && (
+          <span className="rv-card__badge rv-card__badge--discount">
+            -{discountPct}%
+          </span>
+        )}
+        {product.isNew && !hasDiscount && (
+          <span className="rv-card__badge rv-card__badge--new">New</span>
+        )}
       </div>
 
-      {/* Info */}
-      <div className="ct-rp-info">
-        <p className="ct-rp-name">{product.name}</p>
-        <p className="ct-rp-price">{fmt(product.price)}</p>
+      {/* ── Info ── */}
+      <div className="rv-card__info">
+        <p className="rv-card__name" title={product.name}>
+          {product.name}
+        </p>
+
+        {product.rating > 0 && (
+          <div className="rv-card__rating" aria-label={`${product.rating} stars`}>
+            <span className="rv-card__stars" aria-hidden="true">
+              {"★".repeat(Math.round(product.rating))}
+              {"☆".repeat(5 - Math.round(product.rating))}
+            </span>
+            <span className="rv-card__review-count">
+              ({product.reviewCount})
+            </span>
+          </div>
+        )}
+
+        <div className="rv-card__price-row">
+          <span className="rv-card__price">{fmt(product.price)}</span>
+          {hasDiscount && (
+            <span className="rv-card__compare">
+              {fmt(product.comparePrice)}
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Add to cart */}
+      {/* ── Add button ── */}
       <button
-        className={`ct-rp-add-btn ${
-          added ? "ct-rp-add-btn--added" : ""
-        }`}
+        className={[
+          "rv-card__add-btn",
+          added   ? "rv-card__add-btn--added"   : "",
+          adding  ? "rv-card__add-btn--loading" : "",
+        ].filter(Boolean).join(" ")}
         onClick={handleAdd}
         disabled={adding}
-        aria-label={`Add ${product.name} to cart`}
+        aria-label={
+          added
+            ? `${product.name} added to cart`
+            : `Add ${product.name} to cart`
+        }
       >
         {adding ? (
-          <span className="ct-rp-spinner" aria-hidden="true" />
+          <span className="rv-spinner" aria-hidden="true" />
         ) : added ? (
-          "✓ Added"
+          <>
+            <span aria-hidden="true">✓</span> Added
+          </>
         ) : (
-          "+ Cart"
+          <>
+            <span aria-hidden="true">+</span> Cart
+          </>
         )}
       </button>
-    </div>
+    </article>
   );
 });
 
-// ═════════════════════════════════════════════════════════════
-// RECENTLY VIEWED SECTION
-// ═════════════════════════════════════════════════════════════
-function RecentlyViewed({ onAddToCart }) {
-  const [items, setItems] = useState(() => loadRecentlyViewed());
-
-  // Sync when another tab/component updates storage
-  useEffect(() => {
-    const handler = () => setItems(loadRecentlyViewed());
-    window.addEventListener("recently-viewed-updated", handler);
-    return () =>
-      window.removeEventListener("recently-viewed-updated", handler);
-  }, []);
-
-  const handleClear = useCallback(() => {
-    localStorage.removeItem(RECENT_KEY);
-    setItems([]);
-  }, []);
-
-  if (!items.length) return null;
-
+// ═══════════════════════════════════════════════════════════
+// SKELETON
+// ═══════════════════════════════════════════════════════════
+function RVSkeleton({ count = 4 }) {
   return (
-    <div className="ct-section-block">
-      <div className="ct-section-header">
-        <div>
-          <h3 className="ct-section-title">👁️ Recently Viewed</h3>
-          <p className="ct-section-sub">Products you checked out</p>
-        </div>
-        <button
-          className="ct-section-clear"
-          onClick={handleClear}
-          aria-label="Clear recently viewed"
-        >
-          Clear
-        </button>
-      </div>
-
-      <div className="ct-rp-scroll">
-        <div className="ct-rp-track">
-          {items.map((product) => (
-            <ProductCard
-              key={product.id}
-              product={product}
-              onAddToCart={onAddToCart}
-            />
-          ))}
-        </div>
+    <div className="rv-scroll">
+      <div className="rv-track">
+        {Array.from({ length: count }).map((_, i) => (
+          <div key={i} className="rv-skeleton" aria-hidden="true">
+            <div className="rv-skeleton__img  rv-shimmer" />
+            <div className="rv-skeleton__line rv-shimmer" />
+            <div className="rv-skeleton__line rv-skeleton__line--sm rv-shimmer" />
+            <div className="rv-skeleton__btn  rv-shimmer" />
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-// ── Named export for trackProductView (already exported above)
-// ── Default export for the component
-export default RecentlyViewed;
+// ═══════════════════════════════════════════════════════════
+// RECENTLY VIEWED SECTION
+// ═══════════════════════════════════════════════════════════
+function RecentlyViewed({ onAddToCart }) {
+  const [items,   setItems]   = useState(loadRecentlyViewed);
+  const [showAll, setShowAll] = useState(false);
 
-// ── Named export for the component (for destructured imports)
+  // stay in sync across tabs and components
+  useEffect(() => {
+    const sync = () => setItems(loadRecentlyViewed());
+    window.addEventListener("recently-viewed-updated", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("recently-viewed-updated", sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
+  const handleClear = useCallback(() => {
+    localStorage.removeItem(RECENT_KEY);
+    setItems([]);
+    window.dispatchEvent(new Event("recently-viewed-updated"));
+  }, []);
+
+  if (!items.length) return null;
+
+  const visible   = showAll ? items : items.slice(0, VISIBLE);
+  const remaining = items.length - VISIBLE;
+
+  return (
+    <section className="ct-section-block" aria-label="Recently viewed products">
+      {/* ── Header ── */}
+      <div className="ct-section-header">
+        <div className="ct-section-header__left">
+          <h3 className="ct-section-title">
+            <span aria-hidden="true">👁️</span> Recently Viewed
+          </h3>
+          <p className="ct-section-sub">
+            {items.length} product{items.length !== 1 ? "s" : ""} you checked out
+          </p>
+        </div>
+        <div className="ct-section-header__right">
+          {items.length > VISIBLE && (
+            <button
+              className="ct-section-show-more"
+              onClick={() => setShowAll((s) => !s)}
+              aria-expanded={showAll}
+            >
+              {showAll ? "Show less" : `+${remaining} more`}
+            </button>
+          )}
+          <button
+            className="ct-section-clear"
+            onClick={handleClear}
+            aria-label="Clear recently viewed history"
+          >
+            Clear
+          </button>
+        </div>
+      </div>
+
+      {/* ── Cards ── */}
+      <div className="rv-scroll" role="list">
+        <div className="rv-track">
+          {visible.map((product) => (
+            <div key={product.id} role="listitem">
+              <RVCard
+                product={product}
+                onAddToCart={onAddToCart}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+export default RecentlyViewed;
 export { RecentlyViewed };
