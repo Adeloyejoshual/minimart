@@ -1,9 +1,3 @@
-// cart/updateItem.js
-/**
- * PATCH /api/cart/:itemId
- * Body: { qty }  — absolute quantity, not delta
- */
-
 import express from "express";
 import { pool } from "../../config/db.js";
 
@@ -21,12 +15,12 @@ router.patch("/:itemId", async (req, res) => {
   }
 
   try {
-    /* Get live stock so we can cap qty correctly */
     const { rows: [item] } = await pool.query(
       `SELECT
          ci.id,
          ci.qty,
-         COALESCE(pv.stock, p.stock, 99) AS stock
+         pv.stock AS variant_stock,
+         p.stock  AS product_stock
        FROM  market.cart_items ci
        JOIN  market.carts c              ON c.id  = ci.cart_id
        JOIN  market.products p           ON p.id  = ci.product_id
@@ -43,9 +37,11 @@ router.patch("/:itemId", async (req, res) => {
       });
     }
 
-    /* Cap at real stock — never hardcode 99 */
-    const maxQty    = Number(item.stock) || 99;
-    const safeQty   = Math.max(1, Math.min(quantity, maxQty));
+    // NULL stock = no tracking = allow up to 99
+    const rawStock = item.variant_stock ?? item.product_stock;
+    const hasStockTracking = rawStock !== null && rawStock !== undefined;
+    const maxQty = hasStockTracking ? Number(rawStock) : 99;
+    const safeQty = Math.max(1, Math.min(quantity, maxQty || 99));
 
     const { rows: [updated] } = await pool.query(
       `UPDATE market.cart_items ci
@@ -62,10 +58,10 @@ router.patch("/:itemId", async (req, res) => {
     res.json({
       success: true,
       message: "Quantity updated",
-      data:    {
+      data: {
         qty:    updated.qty,
-        capped: safeQty < quantity, // tell frontend if we capped it
-        maxQty,
+        capped: safeQty < quantity,
+        maxQty: maxQty || 99,
       },
     });
   } catch (err) {
