@@ -1,8 +1,3 @@
-/**
- * DELETE /api/cart/:itemId
- * Remove a single item from cart.
- */
-
 import express from "express";
 import { pool } from "../../config/db.js";
 
@@ -20,13 +15,43 @@ router.delete("/:itemId", async (req, res) => {
     );
 
     if (!rowCount) {
-      return res.status(404).json({ success: false, message: "Cart item not found" });
+      return res.status(404).json({
+        success: false,
+        message: "Cart item not found",
+      });
     }
 
-    res.json({ success: true, message: "Item removed from cart" });
+    // Return updated cart count so frontend can sync
+    const { rows: [cart] } = await pool.query(
+      `SELECT c.id
+       FROM market.carts c
+       WHERE c.user_id = $1
+       LIMIT 1`,
+      [req.user.id]
+    );
+
+    let cartCount = 0;
+    if (cart) {
+      const { rows: [result] } = await pool.query(
+        `SELECT COALESCE(SUM(qty), 0)::int AS count
+         FROM market.cart_items
+         WHERE cart_id = $1`,
+        [cart.id]
+      );
+      cartCount = result.count;
+    }
+
+    res.json({
+      success: true,
+      message: "Item removed",
+      data: { cartCount },
+    });
   } catch (err) {
     console.error("[DELETE /api/cart/:itemId]", err.message);
-    res.status(500).json({ success: false, message: "Failed to remove item" });
+    res.status(500).json({
+      success: false,
+      message: "Failed to remove item",
+    });
   }
 });
 
