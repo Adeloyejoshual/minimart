@@ -1,7 +1,7 @@
+// cart/getCart.js
 /**
  * GET /api/cart
- * Returns full cart with LIVE prices and stock from DB.
- * Marks items that are out of stock or price-changed.
+ * Returns full cart with LIVE prices, stock, and images.
  */
 
 import express from "express";
@@ -9,126 +9,135 @@ import { pool } from "../../config/db.js";
 
 const router = express.Router();
 
+/* ── Helper — get or create cart ── */
+export async function getOrCreateCart(userId) {
+  const { rows } = await pool.query(
+    "SELECT id FROM market.carts WHERE user_id = $1 LIMIT 1",
+    [userId]
+  );
+  if (rows.length) return rows[0];
+
+  const { rows: created } = await pool.query(
+    "INSERT INTO market.carts (user_id) VALUES ($1) RETURNING id",
+    [userId]
+  );
+  return created[0];
+}
+
 router.get("/", async (req, res) => {
   try {
     const userId = req.user.id;
+    const cart   = await getOrCreateCart(userId);
 
-    /* Get or create cart */
-    let cart = await getOrCreateCart(userId);
-
-    /* Fetch items with live product data */
     const { rows: items } = await pool.query(
       `SELECT
-         ci.id            AS item_id,
+         ci.id              AS item_id,
          ci.qty,
-         ci.price         AS cart_price,
-         p.id             AS product_id,
+         ci.price           AS cart_price,
+         p.id               AS product_id,
          p.slug,
          p.name,
-         p.price          AS current_price,
+         p.price            AS current_price,
+         p.compare_price,
          p.status,
          p.is_active,
          p.deleted_at,
-         pv.id            AS variant_id,
+         p.user_id          AS seller_id,
+         u.name             AS seller_name,
+         pv.id              AS variant_id,
          pv.sku,
-         pv.name          AS variant_name,
-         pv.price         AS variant_price,
-         pv.stock,
+         pv.name            AS variant_name,
+         pv.price           AS variant_price,
+         pv.compare_price   AS variant_compare_price,
+         pv.stock           AS variant_stock,
          pv.attributes,
-         u.name           AS seller_name,
-         u.id             AS seller_id,
+         COALESCE(pv.stock, p.stock, 0) AS stock,
          (
            SELECT pi.image_url
-           FROM market.product_images pi
-           WHERE pi.product_id = p.id
-             AND pi.is_primary = true
-           LIMIT 1
+           FROM   market.product_images pi
+           WHERE  pi.product_id = p.id
+             AND  pi.is_primary = true
+           LIMIT  1
          ) AS image
-       FROM market.cart_items ci
-       JOIN market.products p ON p.id = ci.product_id
-       LEFT JOIN market.product_variants pv ON pv.id = ci.variant_id
-       LEFT JOIN market.users u ON u.id = p.user_id
+       FROM  market.cart_items ci
+       JOIN  market.products p        ON p.id  = ci.product_id
+       LEFT  JOIN market.product_variants pv ON pv.id = ci.variant_id
+       LEFT  JOIN market.users u      ON u.id  = p.user_id
        WHERE ci.cart_id = $1
        ORDER BY ci.created_at ASC`,
       [cart.id]
     );
 
-    /* Enrich items with live status */
-    const enriched = items.map((item) => {
-      const livePrice  = Number(item.variant_price ?? item.current_price);
-      const cartPrice  = Number(item.cart_price);
+    let priceChanges = 0;
+
+    const enriched = items.map((row) => {
+      const livePrice    = Number(row.variant_price    ?? row.current_price ?? 0);
+      const comparePrice = Number(row.variant_compare_price ?? row.compare_price ?? 0);
+      const cartPrice    = Number(row.cart_price ?? 0);
+      const stock        = Number(row.stock ?? 0);
+
       const priceChanged = livePrice !== cartPrice;
+      if (priceChanged) priceChanges++;
 
-      const isDeleted    = !!item.deleted_at;
-      const isInactive   = !item.is_active;
-      const isUnapproved = !["active", "approved"].includes(item.status);
-      const outOfStock   = Number(item.stock ?? 0) === 0;
-
-      const unavailable = isDeleted || isInactive || isUnapproved;
+      const isDeleted    = Boolean(row.deleted_at);
+      const isInactive   = !row.is_active;
+      const isUnapproved = !["active", "approved"].includes(row.status);
+      const unavailable  = isDeleted || isInactive || isUnapproved;
+      const outOfStock   = !unavailable && stock === 0;
 
       return {
-        id:           item.item_id,
-        productId:    item.product_id,
-        slug:         item.slug,
-        name:         item.name,
-        image:        item.image,
-        sellerName:   item.seller_name,
-        sellerId:     item.seller_id,
-        variant: item.variant_id ? {
-          id:         item.variant_id,
-          name:       item.variant_name,
-          sku:        item.sku,
-          attributes: item.attributes,
-        } : null,
-        qty:          item.qty,
-        price:        livePrice,          /* always use live price */
-        cartPrice,                         /* original price when added */
+        id:           row.item_id,
+        productId:    row.product_id,
+        slug:         row.slug,
+        name:         row.name,
+        image:        row.image   ?? null,
+        images:       row.image   ? [row.image] : [],
+        sellerId:     row.seller_id,
+        sellerName:   row.seller_name,
+        variant:      row.variant_id
+          ? {
+              id:         row.variant_id,
+              name:       row.variant_name,
+              sku:        row.sku,
+              attributes: row.attributes,
+            }
+          : null,
+        qty:           Math.min(row.qty, Math.max(stock, 1)),
+        price:         livePrice,
+        comparePrice:  comparePrice > livePrice ? comparePrice : null,
+        originalPrice: comparePrice > livePrice ? comparePrice : null,
+        cartPrice,
         priceChanged,
+        stock,           // ← CRITICAL: frontend needs this for maxQty
         outOfStock,
         unavailable,
-        status:       item.status,
+        status:        row.status,
+        isNew:         false,
+        rating:        0,
+        reviewCount:   0,
       };
     });
 
-    /* Compute totals */
-    const activeItems   = enriched.filter((i) => !i.unavailable && !i.outOfStock);
-    const subtotal      = activeItems.reduce((s, i) => s + (i.price * i.qty), 0);
-    const itemCount     = activeItems.reduce((s, i) => s + i.qty, 0);
-    const priceChanges  = enriched.filter((i) => i.priceChanged).length;
+    const activeItems = enriched.filter((i) => !i.unavailable && !i.outOfStock);
+    const subtotal    = activeItems.reduce((s, i) => s + i.price * i.qty, 0);
+    const itemCount   = activeItems.reduce((s, i) => s + i.qty,          0);
 
     res.json({
       success: true,
       data: {
-        cartId:       cart.id,
-        items:        enriched,
+        cartId:         cart.id,
+        items:          enriched,
         subtotal,
         itemCount,
         priceChanges,
-        hasOutOfStock:  enriched.some((i) => i.outOfStock && !i.unavailable),
-        hasUnavailable: enriched.some((i) => i.unavailable),
+        hasOutOfStock:  enriched.some((i) =>  i.outOfStock && !i.unavailable),
+        hasUnavailable: enriched.some((i) =>  i.unavailable),
       },
     });
   } catch (err) {
-    console.error("[GET /api/cart]", err.message);
+    console.error("[GET /api/cart]", err);
     res.status(500).json({ success: false, message: "Failed to fetch cart" });
   }
 });
-
-/* Helper — get or create cart for user */
-export async function getOrCreateCart(userId) {
-  const existing = await pool.query(
-    "SELECT id FROM market.carts WHERE user_id = $1",
-    [userId]
-  );
-
-  if (existing.rows.length) return existing.rows[0];
-
-  const created = await pool.query(
-    "INSERT INTO market.carts (user_id) VALUES ($1) RETURNING id",
-    [userId]
-  );
-
-  return created.rows[0];
-}
 
 export default router;
