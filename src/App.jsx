@@ -64,7 +64,7 @@ import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
 
 // ── Pages — Admin ─────────────────────────────────────────────
 import AdminLogin     from "./pages/admin/AdminLogin";
-import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminDashboard from "./page/admin/AdminDashboard";
 
 // ── Cart — from components/Cart (feature-based location) ──────
 import CartPage from "./components/Cart/CartPage";
