@@ -1,4 +1,4 @@
-// App.js
+// src/App.jsx
 import React, { useEffect, useState } from "react";
 import {
   BrowserRouter as Router,
@@ -7,7 +7,7 @@ import {
   Navigate,
   useLocation,
 } from "react-router-dom";
-import axios from "axios";
+import axios              from "axios";
 import toast, { Toaster } from "react-hot-toast";
 import { useProductCache } from "./context/ProductCacheContext";
 
@@ -21,7 +21,6 @@ import TermsAndConditions from "./pages/TermsAndConditions";
 import MinimartPage       from "./pages/MinimartPage";
 import P2P                from "./pages/P2P";
 import MenuPage           from "./pages/MenuPage";
-import CartPage           from "./pages/CartPage";
 
 // ── Pages — Homepage Sub-pages ────────────────────────────────
 import NearbyPage      from "./pages/Homepage/NearbyPage";
@@ -58,14 +57,17 @@ import CheckoutPage      from "./pages/CheckoutPage";
 import OrderSuccess      from "./pages/OrderSuccess";
 import OrderHistory      from "./pages/OrderHistory";
 
-// ── Pages — Checkout / Payment Flow ──────────────────────────
+// ── Pages — Checkout / Payment Flow ───────────────────────────
 import FlutterwaveRedirect from "./pages/Checkout/Payment/FlutterwaveRedirect";
 import OrderSuccessPage    from "./pages/Checkout/Payment/OrderSuccessPage";
 import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
 
 // ── Pages — Admin ─────────────────────────────────────────────
 import AdminLogin     from "./pages/admin/AdminLogin";
-import AdminDashboard from "./page/admin/AdminDashboard";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+
+// ── Cart — from components/Cart (feature-based location) ──────
+import CartPage from "./components/Cart/CartPage";
 
 // ─────────────────────────────────────────────────────────────
 // TOKEN KEYS — single source of truth
@@ -83,32 +85,40 @@ const USERS_API = "https://minimart-ivrm.onrender.com/api/users";
 const CART_API  = "https://minimart-ivrm.onrender.com/api/cart";
 
 // ─────────────────────────────────────────────────────────────
-// CART SYNC — merges guest localStorage cart into server cart
-// after a successful marketplace login.
+// CART SYNC
+// Merges guest localStorage cart into server cart after login.
+// Fire-and-forget — individual item failures are swallowed.
 // ─────────────────────────────────────────────────────────────
 async function syncCartAfterLogin(token) {
-  const localCart = JSON.parse(localStorage.getItem("mm_cart") || "[]");
-  if (!localCart.length) return;
+  try {
+    const raw       = localStorage.getItem("mm_cart");
+    const localCart = JSON.parse(raw || "[]");
 
-  for (const item of localCart) {
-    try {
-      await axios.post(
-        CART_API,
-        {
-          productId: item.productId,
-          variantId: item.variant?.id ?? null,
-          qty:       item.qty,
-        },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-    } catch {
-      // Individual item failures are silently swallowed so one
-      // bad item doesn't abort the rest of the sync.
+    if (!Array.isArray(localCart) || localCart.length === 0) return;
+
+    for (const item of localCart) {
+      try {
+        await axios.post(
+          `${CART_API}/items`,
+          {
+            product_id: item.productId,
+            variant_id: item.variant?.id ?? null,
+            qty:        item.qty,
+          },
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+      } catch {
+        // One bad item should not block the rest
+      }
     }
-  }
 
-  localStorage.removeItem("mm_cart");
-  window.dispatchEvent(new Event("cart-updated"));
+    localStorage.removeItem("mm_cart");
+    window.dispatchEvent(new Event("cart-updated"));
+  } catch {
+    // Silently ignore — cart sync is best-effort
+  }
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -116,10 +126,40 @@ async function syncCartAfterLogin(token) {
 // ─────────────────────────────────────────────────────────────
 function ScrollToTop() {
   const { pathname } = useLocation();
+
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [pathname]);
+
   return null;
+}
+
+// ─────────────────────────────────────────────────────────────
+// ROUTE GUARDS
+// Defined outside App to avoid re-creation on every render
+// ─────────────────────────────────────────────────────────────
+function ProtectedRoute({ user, children }) {
+  const location = useLocation();
+
+  if (!user) {
+    return (
+      <Navigate
+        to="/auth"
+        state={{ from: location }}
+        replace
+      />
+    );
+  }
+
+  return children;
+}
+
+function AdminProtectedRoute({ admin, children }) {
+  if (!admin) {
+    return <Navigate to="/admin/login" replace />;
+  }
+
+  return children;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -178,8 +218,8 @@ export default function App() {
 
   // ── Slow-server hint after 5 s ────────────────────────────
   useEffect(() => {
-    const t = setTimeout(() => setSlowServer(true), 5_000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setSlowServer(true), 5_000);
+    return () => clearTimeout(timer);
   }, []);
 
   // ── Loading screen ────────────────────────────────────────
@@ -207,33 +247,17 @@ export default function App() {
     localStorage.removeItem("active_location");
     localStorage.removeItem("cacheTime");
     setUser(userData);
-    syncCartAfterLogin(token); // fire-and-forget; errors are swallowed internally
+    syncCartAfterLogin(token);    // fire-and-forget
     toast.success(`Welcome back, ${userData.name}!`);
     navigateFn(from || "/", { replace: true });
   };
 
-  // ── Logout helper ─────────────────────────────────────────
+  // ── Logout handler ────────────────────────────────────────
   const handleLogout = () => {
     localStorage.removeItem(TOKEN_KEYS.marketplace);
     setUser(null);
     resetCache();
     toast.success("Signed out");
-  };
-
-  // ── Route guards ──────────────────────────────────────────
-  const ProtectedRoute = ({ children }) => {
-    const location = useLocation();
-    if (!user) {
-      return (
-        <Navigate to="/auth" state={{ from: location }} replace />
-      );
-    }
-    return children;
-  };
-
-  const AdminProtectedRoute = ({ children }) => {
-    if (!admin) return <Navigate to="/admin/login" replace />;
-    return children;
   };
 
   // ─────────────────────────────────────────────────────────
@@ -261,45 +285,58 @@ export default function App() {
         {/* ══════════════════════════════════════════════
             PUBLIC ROUTES
         ══════════════════════════════════════════════ */}
-        <Route path="/"
+        <Route
+          path="/"
           element={<Homepage key={user?.id ?? "guest"} user={user} />}
         />
-        <Route path="/search"
+        <Route
+          path="/search"
           element={<SearchPage user={user} />}
         />
-        <Route path="/product/:slug"
+        <Route
+          path="/product/:slug"
           element={<ProductDetail user={user} />}
         />
-        <Route path="/shop/:slug"
+        <Route
+          path="/shop/:slug"
           element={<MarketDetail user={user} />}
         />
-        <Route path="/seller/:id"
+        <Route
+          path="/seller/:id"
           element={<SellerProfile user={user} />}
         />
-        <Route path="/terms"
+        <Route
+          path="/terms"
           element={<TermsAndConditions />}
         />
-        <Route path="/minimart"
+        <Route
+          path="/minimart"
           element={<MinimartPage user={user} />}
         />
-        <Route path="/p2p"
+        <Route
+          path="/p2p"
           element={<P2P user={user} />}
         />
-        <Route path="/menu"
+        <Route
+          path="/menu"
           element={<MenuPage user={user} />}
         />
 
         {/* Homepage sub-pages */}
-        <Route path="/nearby"
+        <Route
+          path="/nearby"
           element={<NearbyPage user={user} />}
         />
-        <Route path="/deals"
+        <Route
+          path="/deals"
           element={<DealsPage user={user} />}
         />
-        <Route path="/latest"
+        <Route
+          path="/latest"
           element={<NewArrivalsPage user={user} />}
         />
-        <Route path="/trending"
+        <Route
+          path="/trending"
           element={<TrendingPage user={user} />}
         />
 
@@ -317,133 +354,206 @@ export default function App() {
 
         {/* ══════════════════════════════════════════════
             SELLER ROUTES
-            Both are self-contained — they read/write
-            seller_token (market.users) independently.
-            They never touch marketplace_token.
+            Self-contained — read/write seller_token
+            (market.users) independently.
+            Never touch marketplace_token.
         ══════════════════════════════════════════════ */}
-        <Route path="/become-seller"
+        <Route
+          path="/become-seller"
           element={<BecomeSeller user={user} />}
         />
-        <Route path="/seller/dashboard"
+        <Route
+          path="/seller/dashboard"
           element={<SellerDashboard />}
         />
-        <Route path="/seller/dashboard/:tab"
+        <Route
+          path="/seller/dashboard/:tab"
           element={<SellerDashboard />}
         />
 
         {/* ══════════════════════════════════════════════
             PROTECTED MARKETPLACE ROUTES
         ══════════════════════════════════════════════ */}
-        <Route path="/profile" element={
-          <ProtectedRoute>
-            <Profile user={user} onLogout={handleLogout} />
-          </ProtectedRoute>
-        } />
-        <Route path="/notifications" element={
-          <ProtectedRoute>
-            <NotificationsPage user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/settings" element={
-          <ProtectedRoute>
-            <SettingsPage user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/minimart/add" element={
-          <ProtectedRoute>
-            <AddProduct user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/conversations" element={
-          <ProtectedRoute>
-            <Conversations user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/chat/:threadId" element={
-          <ProtectedRoute>
-            <Chat user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/coupons" element={
-          <ProtectedRoute>
-            <Coupons user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/dashboard" element={
-          <ProtectedRoute>
-            <Dashboard user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/leaderboard" element={
-          <ProtectedRoute>
-            <Leaderboard user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/verification" element={
-          <ProtectedRoute>
-            <Verification user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/wallet" element={
-          <ProtectedRoute>
-            <Wallet user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/faq" element={
-          <ProtectedRoute>
-            <FAQ user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/complain" element={
-          <ProtectedRoute>
-            <Complain user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/support" element={
-          <ProtectedRoute>
-            <Support user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/invitation" element={
-          <ProtectedRoute>
-            <Invitation user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/minimart/post-ad" element={
-          <ProtectedRoute>
-            <PostAds user={user} />
-          </ProtectedRoute>
-        } />
-        <Route path="/payment/success"
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute user={user}>
+              <Profile user={user} onLogout={handleLogout} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/notifications"
+          element={
+            <ProtectedRoute user={user}>
+              <NotificationsPage user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/settings"
+          element={
+            <ProtectedRoute user={user}>
+              <SettingsPage user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/minimart/add"
+          element={
+            <ProtectedRoute user={user}>
+              <AddProduct user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/conversations"
+          element={
+            <ProtectedRoute user={user}>
+              <Conversations user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/chat/:threadId"
+          element={
+            <ProtectedRoute user={user}>
+              <Chat user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/coupons"
+          element={
+            <ProtectedRoute user={user}>
+              <Coupons user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute user={user}>
+              <Dashboard user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/leaderboard"
+          element={
+            <ProtectedRoute user={user}>
+              <Leaderboard user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/verification"
+          element={
+            <ProtectedRoute user={user}>
+              <Verification user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/wallet"
+          element={
+            <ProtectedRoute user={user}>
+              <Wallet user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/faq"
+          element={
+            <ProtectedRoute user={user}>
+              <FAQ user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/complain"
+          element={
+            <ProtectedRoute user={user}>
+              <Complain user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/support"
+          element={
+            <ProtectedRoute user={user}>
+              <Support user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/invitation"
+          element={
+            <ProtectedRoute user={user}>
+              <Invitation user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/minimart/post-ad"
+          element={
+            <ProtectedRoute user={user}>
+              <PostAds user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/payment/success"
           element={<PaymentSuccess />}
         />
 
         {/* ══════════════════════════════════════════════
-            SHOP — CART / CHECKOUT / ORDERS
+            CART / CHECKOUT / ORDERS
+            /shop/cart is open (guest browsing allowed)
+            Checkout + orders require login
         ══════════════════════════════════════════════ */}
-        <Route path="/shop/cart"
-          element={<CartPage user={user} />}
+        <Route
+          path="/shop/cart"
+          element={<CartPage />}
         />
-        <Route path="/shop/checkout"
-          element={<CheckoutPage user={user} />}
+        <Route
+          path="/shop/checkout"
+          element={
+            <ProtectedRoute user={user}>
+              <CheckoutPage user={user} />
+            </ProtectedRoute>
+          }
         />
-        <Route path="/shop/orders/:orderGroupId"
-          element={<OrderSuccess user={user} />}
+        <Route
+          path="/shop/orders/:orderGroupId"
+          element={
+            <ProtectedRoute user={user}>
+              <OrderSuccess user={user} />
+            </ProtectedRoute>
+          }
         />
-        <Route path="/shop/orders"
-          element={<OrderHistory user={user} />}
+        <Route
+          path="/shop/orders"
+          element={
+            <ProtectedRoute user={user}>
+              <OrderHistory user={user} />
+            </ProtectedRoute>
+          }
         />
 
         {/* ══════════════════════════════════════════════
             PAYMENT FLOW
         ══════════════════════════════════════════════ */}
-        <Route path="/payment/callback"
+        <Route
+          path="/payment/callback"
           element={<FlutterwaveRedirect />}
         />
-        <Route path="/order-success/:orderId"
+        <Route
+          path="/order-success/:orderId"
           element={<OrderSuccessPage />}
         />
-        <Route path="/payment-failed/:orderId"
+        <Route
+          path="/payment-failed/:orderId"
           element={<PaymentFailedPage />}
         />
 
@@ -469,16 +579,19 @@ export default function App() {
         <Route
           path="/admin/dashboard"
           element={
-            <AdminProtectedRoute>
+            <AdminProtectedRoute admin={admin}>
               <AdminDashboard admin={admin} />
             </AdminProtectedRoute>
           }
         />
 
         {/* ══════════════════════════════════════════════
-            FALLBACK
+            FALLBACK — redirect all unknowns to home
         ══════════════════════════════════════════════ */}
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route
+          path="*"
+          element={<Navigate to="/" replace />}
+        />
 
       </Routes>
     </Router>
