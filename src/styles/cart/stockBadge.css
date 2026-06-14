@@ -1,0 +1,54 @@
+/* src/styles/cart/stockBadge.css */
+
+.stock-badge {
+  display:       inline-flex;
+  align-items:   center;
+  gap:           5px;
+  font-size:     var(--fs-sm);
+  font-weight:   600;
+  padding:       3px 10px;
+  border-radius: var(--cart-radius-pill);
+  width:         fit-content;
+  line-height:   1.4;
+  white-space:   nowrap;
+}
+
+.stock-badge__dot {
+  width:         7px;
+  height:        7px;
+  border-radius: 50%;
+  flex-shrink:   0;
+}
+
+/* ── Variants ───────────────────────────────────────────────── */
+.stock-badge--success {
+  color:      var(--cart-success);
+  background: var(--cart-success-bg);
+}
+.stock-badge--success .stock-badge__dot {
+  background: var(--cart-success);
+}
+
+.stock-badge--warning {
+  color:      #92400e;
+  background: var(--cart-warning-bg);
+}
+.stock-badge--warning .stock-badge__dot {
+  background: var(--cart-warning);
+}
+
+.stock-badge--danger {
+  color:      var(--cart-danger);
+  background: var(--cart-danger-bg);
+}
+.stock-badge--danger .stock-badge__dot {
+  background: var(--cart-danger);
+}
+
+.stock-badge--error {
+  color:      var(--cart-muted);
+  background: var(--cart-muted-bg);
+}
+.stock-badge--error .stock-badge__dot {
+  background: var(--cart-muted);
+}
