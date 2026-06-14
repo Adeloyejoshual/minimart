@@ -1,0 +1,252 @@
+/* src/styles/cart/cart.css */
+
+/* ── Variables ──────────────────────────────────────────────── */
+:root {
+  /* Brand */
+  --cart-primary:         #f57c00;
+  --cart-primary-hover:   #e65100;
+  --cart-primary-light:   #fff3e0;
+
+  /* Surfaces */
+  --cart-bg:              #f4f5f7;
+  --cart-surface:         #ffffff;
+  --cart-border:          #e5e7eb;
+  --cart-border-dark:     #d1d5db;
+
+  /* Status */
+  --cart-success:         #16a34a;
+  --cart-success-bg:      #dcfce7;
+  --cart-warning:         #d97706;
+  --cart-warning-bg:      #fef3c7;
+  --cart-danger:          #dc2626;
+  --cart-danger-bg:       #fee2e2;
+  --cart-muted:           #6b7280;
+  --cart-muted-bg:        #f3f4f6;
+
+  /* Text */
+  --cart-text:            #111827;
+  --cart-text-sub:        #6b7280;
+  --cart-text-muted:      #9ca3af;
+
+  /* Shape */
+  --cart-radius:          12px;
+  --cart-radius-sm:       8px;
+  --cart-radius-pill:     999px;
+
+  /* Elevation */
+  --cart-shadow-sm:       0 1px 3px rgba(0,0,0,0.08);
+  --cart-shadow-md:       0 4px 16px rgba(0,0,0,0.10);
+  --cart-shadow-lg:       0 8px 32px rgba(0,0,0,0.12);
+
+  /* Spacing scale */
+  --sp-1:  4px;
+  --sp-2:  8px;
+  --sp-3:  12px;
+  --sp-4:  16px;
+  --sp-5:  20px;
+  --sp-6:  24px;
+  --sp-8:  32px;
+  --sp-10: 40px;
+  --sp-12: 48px;
+
+  /* Font sizes */
+  --fs-xs:   11px;
+  --fs-sm:   13px;
+  --fs-base: 14px;
+  --fs-md:   15px;
+  --fs-lg:   18px;
+  --fs-xl:   22px;
+  --fs-2xl:  28px;
+
+  /* Transition */
+  --cart-transition: 0.18s ease;
+}
+
+/* ── Box sizing reset ───────────────────────────────────────── */
+.cart-page *,
+.cart-page *::before,
+.cart-page *::after {
+  box-sizing: border-box;
+}
+
+/* ── Page ───────────────────────────────────────────────────── */
+.cart-page {
+  min-height:  100vh;
+  background:  var(--cart-bg);
+  padding:     var(--sp-6) var(--sp-4);
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.cart-page__header {
+  max-width:       1100px;
+  margin:          0 auto var(--sp-6);
+  display:         flex;
+  align-items:     center;
+  justify-content: space-between;
+  flex-wrap:       wrap;
+  gap:             var(--sp-3);
+}
+
+.cart-page__title {
+  font-size:   var(--fs-xl);
+  font-weight: 700;
+  color:       var(--cart-text);
+  line-height: 1.2;
+}
+
+.cart-page__count {
+  font-size:   var(--fs-md);
+  font-weight: 400;
+  color:       var(--cart-text-sub);
+  margin-left: var(--sp-2);
+}
+
+.cart-page__clear-btn {
+  background:    none;
+  border:        1.5px solid var(--cart-border-dark);
+  color:         var(--cart-danger);
+  font-size:     var(--fs-base);
+  font-weight:   500;
+  padding:       var(--sp-2) var(--sp-4);
+  border-radius: var(--cart-radius-sm);
+  cursor:        pointer;
+  transition:    background var(--cart-transition),
+                 border-color var(--cart-transition);
+}
+
+.cart-page__clear-btn:hover {
+  background:   var(--cart-danger-bg);
+  border-color: var(--cart-danger);
+}
+
+/* ── Main grid ──────────────────────────────────────────────── */
+.cart-page__inner {
+  max-width:             1100px;
+  margin:                0 auto;
+  display:               grid;
+  grid-template-columns: 1fr 340px;
+  gap:                   var(--sp-6);
+  align-items:           start;
+}
+
+/* ── Items column ───────────────────────────────────────────── */
+.cart-page__items {
+  display:        flex;
+  flex-direction: column;
+  gap:            var(--sp-3);
+}
+
+/* ── Skeleton ───────────────────────────────────────────────── */
+.cart-skeleton {
+  max-width:      1100px;
+  margin:         0 auto;
+  display:        flex;
+  flex-direction: column;
+  gap:            var(--sp-3);
+}
+
+.cart-skeleton__card {
+  background:    var(--cart-surface);
+  border:        1px solid var(--cart-border);
+  border-radius: var(--cart-radius);
+  padding:       var(--sp-4);
+  display:       flex;
+  gap:           var(--sp-4);
+  animation:     cart-skeleton-pulse 1.5s ease-in-out infinite;
+}
+
+.cart-skeleton__img {
+  width:         100px;
+  height:        100px;
+  border-radius: var(--cart-radius-sm);
+  background:    var(--cart-border);
+  flex-shrink:   0;
+}
+
+.cart-skeleton__body {
+  flex:           1;
+  display:        flex;
+  flex-direction: column;
+  gap:            var(--sp-2);
+  justify-content: center;
+}
+
+.cart-skeleton__line {
+  height:        13px;
+  border-radius: 6px;
+  background:    var(--cart-border);
+}
+
+.cart-skeleton__line--xl { width: 80%; }
+.cart-skeleton__line--lg { width: 65%; }
+.cart-skeleton__line--md { width: 45%; }
+.cart-skeleton__line--sm { width: 30%; }
+
+@keyframes cart-skeleton-pulse {
+  0%, 100% { opacity: 1;   }
+  50%       { opacity: 0.5; }
+}
+
+/* ── Error state ────────────────────────────────────────────── */
+.cart-error {
+  max-width:     480px;
+  margin:        var(--sp-12) auto;
+  background:    var(--cart-surface);
+  border:        1px solid var(--cart-border);
+  border-radius: var(--cart-radius);
+  padding:       var(--sp-8);
+  text-align:    center;
+}
+
+.cart-error__icon {
+  font-size:     52px;
+  margin-bottom: var(--sp-4);
+  display:       block;
+}
+
+.cart-error__title {
+  font-size:     var(--fs-lg);
+  font-weight:   700;
+  color:         var(--cart-text);
+  margin-bottom: var(--sp-2);
+}
+
+.cart-error__message {
+  font-size:     var(--fs-base);
+  color:         var(--cart-text-sub);
+  line-height:   1.6;
+  margin-bottom: var(--sp-6);
+}
+
+.cart-error__retry-btn {
+  padding:       10px var(--sp-6);
+  background:    var(--cart-primary);
+  color:         #fff;
+  border:        none;
+  border-radius: var(--cart-radius-sm);
+  font-size:     var(--fs-md);
+  font-weight:   600;
+  cursor:        pointer;
+  transition:    background var(--cart-transition);
+}
+
+.cart-error__retry-btn:hover {
+  background: var(--cart-primary-hover);
+}
+
+/* ── Responsive ─────────────────────────────────────────────── */
+@media (max-width: 900px) {
+  .cart-page__inner {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 600px) {
+  .cart-page {
+    padding: var(--sp-3) var(--sp-2);
+  }
+
+  .cart-page__title {
+    font-size: var(--fs-lg);
+  }
+}
