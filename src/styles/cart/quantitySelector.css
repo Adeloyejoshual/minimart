@@ -1,0 +1,113 @@
+/* src/styles/cart/quantitySelector.css */
+
+.qty {
+  display:       inline-flex;
+  align-items:   center;
+  border:        1.5px solid var(--cart-border-dark);
+  border-radius: var(--cart-radius-sm);
+  overflow:      hidden;
+  background:    var(--cart-surface);
+  height:        38px;
+  user-select:   none;
+  transition:    border-color var(--cart-transition);
+}
+
+.qty:focus-within {
+  border-color: var(--cart-primary);
+  box-shadow:   0 0 0 2px rgba(245, 124, 0, 0.15);
+}
+
+.qty--disabled {
+  opacity:        0.42;
+  pointer-events: none;
+}
+
+.qty--syncing {
+  border-color: var(--cart-primary);
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.qty__btn {
+  width:           38px;
+  height:          38px;
+  flex-shrink:     0;
+  border:          none;
+  background:      none;
+  cursor:          pointer;
+  font-size:       20px;
+  font-weight:     300;
+  line-height:     1;
+  color:           var(--cart-text);
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  transition:      background var(--cart-transition);
+}
+
+.qty__btn:hover:not(:disabled) {
+  background: var(--cart-bg);
+}
+
+.qty__btn:active:not(:disabled) {
+  background: var(--cart-border);
+}
+
+.qty__btn:disabled {
+  color:  var(--cart-text-muted);
+  cursor: not-allowed;
+}
+
+/* ── Value ──────────────────────────────────────────────────── */
+.qty__value {
+  position:        relative;
+  min-width:       44px;
+  height:          100%;
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  flex-direction:  column;
+  font-size:       var(--fs-base);
+  font-weight:     700;
+  color:           var(--cart-text);
+  border-left:     1.5px solid var(--cart-border);
+  border-right:    1.5px solid var(--cart-border);
+  padding:         0 var(--sp-2);
+}
+
+/* Sync spinner */
+.qty__spinner {
+  position:  absolute;
+  bottom:    3px;
+  font-size: 9px;
+  color:     var(--cart-primary);
+  animation: qty-spin 0.7s linear infinite;
+}
+
+@keyframes qty-spin {
+  from { transform: rotate(0deg);   }
+  to   { transform: rotate(360deg); }
+}
+
+/* ── Max label ──────────────────────────────────────────────── */
+.qty__max-label {
+  font-size:     var(--fs-xs);
+  font-weight:   600;
+  color:         var(--cart-warning);
+  margin-left:   var(--sp-2);
+  white-space:   nowrap;
+  background:    var(--cart-warning-bg);
+  padding:       1px var(--sp-1);
+  border-radius: 4px;
+}
+
+/* ── Mobile ─────────────────────────────────────────────────── */
+@media (max-width: 480px) {
+  .qty,
+  .qty__btn {
+    height: 34px;
+  }
+
+  .qty__btn {
+    width: 34px;
+  }
+}
