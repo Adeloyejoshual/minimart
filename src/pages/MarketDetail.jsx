@@ -22,9 +22,6 @@ import SellerCard         from "./MarketDetail/SellerCard";
 import ProductInfo        from "./MarketDetail/ProductInfo";
 import SpecsSection       from "./MarketDetail/SpecsSection";
 import RelatedProducts    from "./MarketDetail/RelatedProducts";
-import RecentlyViewed     from "./Cart/RecentlyViewed";
-import YouMayAlsoLike     from "./Cart/YouMayAlsoLike";
-import { trackProductView } from "./Cart/RecentlyViewed";
 
 import "../styles/MarketDetail.css";
 
@@ -345,12 +342,6 @@ export default function MarketDetail({ user }) {
     return () => { cancelled = true; };
   }, [slug]);
 
-  /* ── Track product view for Recently Viewed ── */
-  useEffect(() => {
-    if (!product?.id) return;
-    trackProductView(product);
-  }, [product]);
-
   /* ── Pricing ── */
   const displayPrice = useMemo(() => {
     if (selectedVariant?.price) return Number(selectedVariant.price);
@@ -404,7 +395,6 @@ export default function MarketDetail({ user }) {
         window.dispatchEvent(new Event("cart-updated"));
       } catch (err) {
         console.error("[addToCart]", err.response?.data?.message ?? err.message);
-        // Could add toast here
       }
       return;
     }
@@ -453,30 +443,6 @@ export default function MarketDetail({ user }) {
     handleAddToCart();
     setTimeout(() => navigate("/shop/checkout"), 300);
   }, [handleAddToCart, navigate]);
-
-  /* ── Add to cart from suggestion cards ── */
-  const handleSuggestionAddToCart = useCallback(async (suggProduct) => {
-    if (!user) {
-      navigate("/auth", { state: { from: `/product/${slug}` } });
-      return;
-    }
-
-    try {
-      await axios.post(
-        CART_API,
-        {
-          productId: suggProduct.id ?? suggProduct.productId,
-          variantId: suggProduct.variantId ?? null,
-          qty: 1,
-        },
-        { headers: authHeaders() }
-      );
-      setCartCount((c) => c + 1);
-      window.dispatchEvent(new Event("cart-updated"));
-    } catch (err) {
-      console.error("[suggAddToCart]", err.response?.data?.message ?? err.message);
-    }
-  }, [user, navigate, slug]);
 
   /* ── Modals ── */
   const openReport  = useCallback(() => setShowReport(true),  []);
@@ -725,21 +691,6 @@ export default function MarketDetail({ user }) {
                 excludeId={product.id}
               />
             )}
-
-            {/* ════════════════════════════════════════════
-                RECENTLY VIEWED + YOU MAY ALSO LIKE
-                Below everything — full width
-            ════════════════════════════════════════════ */}
-            <div className="md-suggestions-section">
-              <RecentlyViewed
-                onAddToCart={handleSuggestionAddToCart}
-              />
-
-              <YouMayAlsoLike
-                cartItems={[{ id: product.id }]}
-                onAddToCart={handleSuggestionAddToCart}
-              />
-            </div>
 
             {/* Bottom spacer for sticky bar */}
             <div style={{ height: 110 }} aria-hidden="true" />
