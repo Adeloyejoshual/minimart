@@ -1,25 +1,21 @@
 // src/components/Cart/CartPage.jsx
-import React, { lazy, Suspense } from "react";
-import { useCart }           from "../../features/cart/hooks/useCart";
-import { useCartIssues }     from "../../features/cart/hooks/useCart";
-import CartItem              from "./CartItem";
-import CartSummary           from "./CartSummary";
-import CartEmpty             from "./CartEmpty";
-import CartIssuesBanner      from "./CartIssuesBanner";
+import React from "react";
+import { useCart }       from "../../features/cart/hooks/useCart";
+import { useCartIssues } from "../../features/cart/hooks/useCart";
+import CartItem          from "./CartItem";
+import CartSummary       from "./CartSummary";
+import CartEmpty         from "./CartEmpty";
+import CartIssuesBanner  from "./CartIssuesBanner";
 import "../../styles/cart/cart.css";
-
-const RecommendedProducts = lazy(() =>
-  import("./RecommendedProducts")
-);
 
 export default function CartPage() {
   const {
     items,
-    status,
     error,
     isEmpty,
     isLoading,
     isError,
+    isUnauthenticated,
     fetchCart,
     clearCart,
   } = useCart();
@@ -29,7 +25,7 @@ export default function CartPage() {
   // ── Loading ──────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="cart-page" aria-busy="true" aria-label="Loading cart">
+      <div className="cart-page" aria-busy="true">
         <div className="cart-skeleton">
           {[1, 2, 3].map((n) => (
             <div className="cart-skeleton__card" key={n} aria-hidden="true">
@@ -47,6 +43,29 @@ export default function CartPage() {
     );
   }
 
+  // ── Not logged in ────────────────────────────────────────────
+  if (isUnauthenticated) {
+    return (
+      <div className="cart-page">
+        <div className="cart-error" role="alert">
+          <span className="cart-error__icon" aria-hidden="true">🔒</span>
+          <h2 className="cart-error__title">Sign in to view your cart</h2>
+          <p className="cart-error__message">
+            Your cart is saved to your account.
+            Please sign in to see your items.
+          </p>
+          <a
+            href="/auth"
+            className="cart-error__retry-btn"
+            style={{ textDecoration: "none", display: "inline-block" }}
+          >
+            Sign in
+          </a>
+        </div>
+      </div>
+    );
+  }
+
   // ── Error ────────────────────────────────────────────────────
   if (isError && error) {
     return (
@@ -54,7 +73,7 @@ export default function CartPage() {
         <div className="cart-error" role="alert">
           <span className="cart-error__icon" aria-hidden="true">⚠️</span>
           <h2 className="cart-error__title">Failed to load your cart</h2>
-          <p  className="cart-error__message">{error}</p>
+          <p className="cart-error__message">{error}</p>
           <button
             className="cart-error__retry-btn"
             onClick={fetchCart}
@@ -79,7 +98,6 @@ export default function CartPage() {
   return (
     <div className="cart-page">
 
-      {/* Page header */}
       <div className="cart-page__header">
         <h1 className="cart-page__title">
           Shopping Cart
@@ -98,15 +116,12 @@ export default function CartPage() {
         </button>
       </div>
 
-      {/* Issues banner */}
       {issues.length > 0 && (
         <CartIssuesBanner issues={issues} />
       )}
 
-      {/* Main layout grid */}
       <div className="cart-page__inner">
 
-        {/* Left — items list */}
         <section
           className="cart-page__items"
           aria-label="Cart items"
@@ -116,16 +131,9 @@ export default function CartPage() {
           ))}
         </section>
 
-        {/* Right — order summary */}
         <CartSummary />
 
       </div>
-
-      {/* Bottom — lazy loaded recommendations */}
-      <Suspense fallback={null}>
-        <RecommendedProducts />
-      </Suspense>
-
     </div>
   );
 }
