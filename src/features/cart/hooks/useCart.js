@@ -13,13 +13,9 @@ import {
   calcCartTotals,
 } from "../utils/cartHelpers";
 
-/**
- * ─────────────────────────────────────────────────────────────
- * useCart
- * Main cart hook — use in CartPage
- * Fetches cart on mount, exposes all store state + actions
- * ─────────────────────────────────────────────────────────────
- */
+// ─────────────────────────────────────────────────────────────
+// useCart — main hook, fetches cart on mount
+// ─────────────────────────────────────────────────────────────
 export function useCart() {
   const store = useCartStore();
 
@@ -30,43 +26,37 @@ export function useCart() {
 
   return {
     // State
-    cartId:    store.cartId,
-    items:     store.items,
-    issues:    store.issues,
-    currency:  store.currency,
-    subtotal:  store.subtotal,
-    totalQty:  store.totalQty,
-    hasIssues: store.hasIssues,
-    status:    store.status,
-    error:     store.error,
+    cartId:          store.cartId,
+    items:           store.items,
+    issues:          store.issues,
+    currency:        store.currency,
+    subtotal:        store.subtotal,
+    totalQty:        store.totalQty,
+    hasIssues:       store.hasIssues,
+    status:          store.status,
+    error:           store.error,
 
     // Derived
-    isEmpty:   store.items.length === 0,
-    isLoading: store.status === "loading",
-    isSyncing: store.status === "syncing",
-    isError:   store.status === "error",
+    isEmpty:         store.items.length === 0,
+    isLoading:       store.status === "loading",
+    isSyncing:       store.status === "syncing",
+    isError:         store.status === "error",
+    isUnauthenticated: store.status === "unauthenticated",
 
     // Actions
-    fetchCart:  store.fetchCart,
-    addItem:    store.addItem,
-    updateQty:  store.updateQty,
-    removeItem: store.removeItem,
-    clearCart:  store.clearCart,
-    clearError: store.clearError,
+    fetchCart:       store.fetchCart,
+    addItem:         store.addItem,
+    updateQty:       store.updateQty,
+    removeItem:      store.removeItem,
+    clearCart:       store.clearCart,
+    clearError:      store.clearError,
   };
 }
 
-/**
- * ─────────────────────────────────────────────────────────────
- * useCartItem
- * Per-item hook — use inside CartItem component
- * Only subscribes to the specific item → avoids full re-renders
- *
- * @param {string} itemId - UUID of the cart item
- * ─────────────────────────────────────────────────────────────
- */
+// ─────────────────────────────────────────────────────────────
+// useCartItem — per-item hook, granular subscription
+// ─────────────────────────────────────────────────────────────
 export function useCartItem(itemId) {
-  // Granular subscription — only re-renders when THIS item changes
   const item = useCartStore(
     useCallback(
       (state) => state.items.find((i) => i.id === itemId) ?? null,
@@ -77,63 +67,38 @@ export function useCartItem(itemId) {
   const updateQty  = useCartStore((s) => s.updateQty);
   const removeItem = useCartStore((s) => s.removeItem);
 
-  // Debounced API sync (600ms after last change)
-  // Keeps ref stable across renders
   const debouncedSync = useRef(
     debounce((id, qty) => {
-      cartApi.updateQty(id, qty).catch(() => {
-        // Errors handled by store rollback
-      });
+      cartApi.updateQty(id, qty).catch(() => {});
     }, 600)
   );
 
-  // Cleanup debounce on unmount
   useEffect(() => {
     const sync = debouncedSync.current;
     return () => sync.cancel?.();
   }, []);
 
-  /**
-   * Handle quantity change
-   * 1. Clamp qty to valid range
-   * 2. Optimistic update in store
-   * 3. Debounced API sync
-   */
   const handleQtyChange = useCallback(
     (newQty) => {
       if (!item) return;
-
       const clamped = clampQty(newQty, item.live_stock);
-      if (clamped === item.qty) return;   // no change
-
-      updateQty(itemId, clamped);               // optimistic
-      debouncedSync.current(itemId, clamped);   // deferred API
+      if (clamped === item.qty) return;
+      updateQty(itemId, clamped);
+      debouncedSync.current(itemId, clamped);
     },
     [item, itemId, updateQty]
   );
 
-  /**
-   * Handle remove
-   * Calls store.removeItem (handles optimistic + rollback)
-   */
   const handleRemove = useCallback(async () => {
     await removeItem(itemId);
   }, [itemId, removeItem]);
 
-  return {
-    item,
-    handleQtyChange,
-    handleRemove,
-  };
+  return { item, handleQtyChange, handleRemove };
 }
 
-/**
- * ─────────────────────────────────────────────────────────────
- * useCartTotals
- * Subscribes only to items for total calculation
- * Avoids re-render on non-total state changes
- * ─────────────────────────────────────────────────────────────
- */
+// ─────────────────────────────────────────────────────────────
+// useCartTotals — subscribes only to items + currency
+// ─────────────────────────────────────────────────────────────
 export function useCartTotals() {
   const items    = useCartStore((s) => s.items);
   const currency = useCartStore((s) => s.currency);
@@ -143,32 +108,21 @@ export function useCartTotals() {
     [items]
   );
 
-  return {
-    ...totals,
-    currency,
-  };
+  return { ...totals, currency };
 }
 
-/**
- * ─────────────────────────────────────────────────────────────
- * useCartIssues
- * Subscribes only to issues array
- * ─────────────────────────────────────────────────────────────
- */
+// ─────────────────────────────────────────────────────────────
+// useCartIssues
+// ─────────────────────────────────────────────────────────────
 export function useCartIssues() {
   const issues    = useCartStore((s) => s.issues);
   const hasIssues = useCartStore((s) => s.hasIssues);
-
   return { issues, hasIssues };
 }
 
-/**
- * ─────────────────────────────────────────────────────────────
- * useCartStatus
- * Subscribes only to status + error
- * Use in loading/error states
- * ─────────────────────────────────────────────────────────────
- */
+// ─────────────────────────────────────────────────────────────
+// useCartStatus
+// ─────────────────────────────────────────────────────────────
 export function useCartStatus() {
   const status     = useCartStore((s) => s.status);
   const error      = useCartStore((s) => s.error);
@@ -178,22 +132,19 @@ export function useCartStatus() {
   return {
     status,
     error,
-    isLoading: status === "loading",
-    isSyncing: status === "syncing",
-    isError:   status === "error",
-    isIdle:    status === "idle",
+    isLoading:         status === "loading",
+    isSyncing:         status === "syncing",
+    isError:           status === "error",
+    isIdle:            status === "idle",
+    isUnauthenticated: status === "unauthenticated",
     clearError,
-    retry:     fetchCart,
+    retry: fetchCart,
   };
 }
 
-/**
- * ─────────────────────────────────────────────────────────────
- * useCartBadge
- * Lightweight hook for nav badge (just total qty)
- * Minimal re-renders
- * ─────────────────────────────────────────────────────────────
- */
+// ─────────────────────────────────────────────────────────────
+// useCartBadge — nav badge (just total qty)
+// ─────────────────────────────────────────────────────────────
 export function useCartBadge() {
   return useCartStore((s) => s.totalQty);
 }
