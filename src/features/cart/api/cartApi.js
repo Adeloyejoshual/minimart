@@ -2,25 +2,36 @@
 
 const BASE_URL = "/api/cart";
 
-/**
- * ─────────────────────────────────────────────────────────────
- * CORE REQUEST HANDLER
- * All cart API calls go through here
- * Throws enriched Error objects on failure
- * ─────────────────────────────────────────────────────────────
- */
+// ─────────────────────────────────────────────────────────────
+// TOKEN — reads marketplace_token from localStorage
+// Matches TOKEN_KEYS.marketplace in App.jsx
+// ─────────────────────────────────────────────────────────────
+function getToken() {
+  return localStorage.getItem("marketplace_token") ?? null;
+}
+
+function getHeaders() {
+  const token = getToken();
+  const headers = {
+    "Content-Type": "application/json",
+    "Accept":        "application/json",
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+// ─────────────────────────────────────────────────────────────
+// CORE REQUEST HANDLER
+// ─────────────────────────────────────────────────────────────
 async function request(url, options = {}) {
   try {
     const response = await fetch(url, {
-      headers: {
-        "Content-Type": "application/json",
-        "Accept":        "application/json",
-      },
-      credentials: "include",   // sends session cookie / JWT cookie
+      headers: getHeaders(),
       ...options,
     });
 
-    // Parse body (always JSON from our API)
     let data;
     try {
       data = await response.json();
@@ -31,67 +42,41 @@ async function request(url, options = {}) {
       });
     }
 
-    // Successful response
     if (response.ok) {
       return data;
     }
 
-    // Server returned an error
-    const error         = new Error(data.message || "Cart request failed");
-    error.code          = data.error      || "UNKNOWN_ERROR";
-    error.status        = response.status;
-    error.violations    = data.violations || [];
-    error.context       = data.context    || {};
-    error.issues        = data.issues     || [];
-
+    const error          = new Error(data.message || "Cart request failed");
+    error.code           = data.error      || "UNKNOWN_ERROR";
+    error.status         = response.status;
+    error.violations     = data.violations || [];
+    error.context        = data.context    || {};
+    error.issues         = data.issues     || [];
     throw error;
 
   } catch (err) {
-    // Network failure — no response at all
     if (!err.status && err.code !== "INVALID_RESPONSE") {
-      const networkError    = new Error(
+      const networkError     = new Error(
         "Network error. Please check your connection."
       );
-      networkError.code     = "NETWORK_ERROR";
-      networkError.status   = 0;
-      networkError.original = err;
+      networkError.code      = "NETWORK_ERROR";
+      networkError.status    = 0;
+      networkError.original  = err;
       throw networkError;
     }
-
     throw err;
   }
 }
 
-/**
- * ─────────────────────────────────────────────────────────────
- * CART API
- * Matches backend routes exactly:
- *
- * GET    /api/cart
- * POST   /api/cart/items
- * PATCH  /api/cart/items/:itemId
- * DELETE /api/cart/items/:itemId
- * DELETE /api/cart
- * POST   /api/cart/validate
- * ─────────────────────────────────────────────────────────────
- */
+// ─────────────────────────────────────────────────────────────
+// CART API
+// ─────────────────────────────────────────────────────────────
 export const cartApi = {
 
-  /**
-   * GET /api/cart
-   * Returns full CartSummary:
-   * { cart_id, user_id, items[], issues[], subtotal, currency, ... }
-   */
   getCart() {
     return request(BASE_URL);
   },
 
-  /**
-   * POST /api/cart/items
-   * @param {string}      productId  - UUID
-   * @param {string|null} variantId  - UUID or null
-   * @param {number}      qty        - 1–99
-   */
   addItem(productId, variantId = null, qty = 1) {
     return request(`${BASE_URL}/items`, {
       method: "POST",
@@ -103,11 +88,6 @@ export const cartApi = {
     });
   },
 
-  /**
-   * PATCH /api/cart/items/:itemId
-   * @param {string} itemId - UUID
-   * @param {number} qty    - 1–99
-   */
   updateQty(itemId, qty) {
     return request(`${BASE_URL}/items/${itemId}`, {
       method: "PATCH",
@@ -115,32 +95,18 @@ export const cartApi = {
     });
   },
 
-  /**
-   * DELETE /api/cart/items/:itemId
-   * @param {string} itemId - UUID
-   */
   removeItem(itemId) {
     return request(`${BASE_URL}/items/${itemId}`, {
       method: "DELETE",
     });
   },
 
-  /**
-   * DELETE /api/cart
-   * Clears all items in the cart
-   */
   clearCart() {
     return request(BASE_URL, {
       method: "DELETE",
     });
   },
 
-  /**
-   * POST /api/cart/validate
-   * Server-side pre-checkout validation
-   * Returns 200 if valid
-   * Returns 409 with violations[] if issues found
-   */
   validateCart() {
     return request(`${BASE_URL}/validate`, {
       method: "POST",
