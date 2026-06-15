@@ -4,18 +4,22 @@ import { CartErrors } from "./cart.errors.js";
 
 const PRICE_DRIFT_THRESHOLD = 0.01;
 
+// Matches getProduct.js + cart.repository.js
+const ALLOWED_STATUSES = new Set(["active", "approved"]);
+
 class CartService {
-  // ── Get full cart ─────────────────────────────────────
+
+  // ── Get full cart ─────────────────────────────────────────
 
   async getCart(userId) {
     const cart     = await cartRepository.upsertCart(userId);
     const items    = await cartRepository.getCartItems(cart.id);
-
     const { cleanItems, issues } = this._auditItems(items);
 
     const totalQty = cleanItems.reduce((s, i) => s + i.qty, 0);
     const subtotal = cleanItems.reduce(
-      (s, i) => s + Number(i.live_price) * i.qty, 0
+      (s, i) => s + Number(i.live_price) * i.qty,
+      0
     );
 
     return {
@@ -32,35 +36,40 @@ class CartService {
     };
   }
 
-  // ── Add item ──────────────────────────────────────────
+  // ── Add item ──────────────────────────────────────────────
 
   async addItem(userId, productId, variantId, qty) {
     const cart = await cartRepository.upsertCart(userId);
-    return cartRepository.addItem(cart.id, productId, variantId ?? null, qty);
+    return cartRepository.addItem(
+      cart.id,
+      productId,
+      variantId ?? null,
+      qty
+    );
   }
 
-  // ── Update qty ────────────────────────────────────────
+  // ── Update qty ────────────────────────────────────────────
 
   async updateQty(userId, itemId, qty) {
     const cart = await cartRepository.upsertCart(userId);
     return cartRepository.updateQty(cart.id, itemId, qty);
   }
 
-  // ── Remove item ───────────────────────────────────────
+  // ── Remove item ───────────────────────────────────────────
 
   async removeItem(userId, itemId) {
     const cart = await cartRepository.upsertCart(userId);
     return cartRepository.removeItem(cart.id, itemId);
   }
 
-  // ── Clear cart ────────────────────────────────────────
+  // ── Clear cart ────────────────────────────────────────────
 
   async clearCart(userId) {
     const cart = await cartRepository.upsertCart(userId);
     return cartRepository.clearCart(cart.id);
   }
 
-  // ── Pre-checkout validation ───────────────────────────
+  // ── Pre-checkout validation ───────────────────────────────
 
   async validateForCheckout(userId) {
     const cart       = await cartRepository.upsertCart(userId);
@@ -76,11 +85,12 @@ class CartService {
     }
 
     for (const row of rows) {
+      // Use same ALLOWED_STATUSES as repository
       const unavailable =
-        row.deleted_at          ||
-        row.status !== "active" ||
-        !row.is_active          ||
-        row.is_hidden           ||
+        row.deleted_at                        ||
+        !ALLOWED_STATUSES.has(row.status)     ||
+        !row.is_active                        ||
+        row.is_hidden                         ||
         row.is_paused;
 
       if (unavailable) {
@@ -94,6 +104,7 @@ class CartService {
         continue;
       }
 
+      // Stock check (variants only)
       if (row.variant_id && row.live_stock !== null) {
         if (Number(row.live_stock) <= 0) {
           violations.push({
@@ -112,7 +123,7 @@ class CartService {
             product_id:   row.product_id,
             product_name: row.product_name,
             type:         "INSUFFICIENT_STOCK",
-            message:      `Only ${row.live_stock} units of "${row.product_name}" available`,
+            message: `Only ${row.live_stock} units of "${row.product_name}" available`,
             data: {
               available: Number(row.live_stock),
               requested: row.qty,
@@ -121,6 +132,7 @@ class CartService {
         }
       }
 
+      // Price drift check
       const saved = Number(row.saved_price);
       const live  = Number(row.live_price);
       const drift = saved > 0
@@ -146,13 +158,15 @@ class CartService {
     return { valid: true, item_count: rows.length };
   }
 
-  // ── Private: audit items for display ──────────────────
+  // ── Private: audit items for cart display ─────────────────
 
   _auditItems(items) {
     const cleanItems = [];
     const issues     = [];
 
     for (const item of items) {
+
+      // Deleted → exclude entirely
       if (item.product_deleted_at) {
         issues.push({
           item_id:    item.id,
@@ -163,10 +177,11 @@ class CartService {
         continue;
       }
 
+      // Unavailable → show greyed-out (still in list)
       const unavailable =
-        item.product_status !== "active" ||
-        !item.product_is_active          ||
-        item.product_is_hidden           ||
+        !ALLOWED_STATUSES.has(item.product_status) ||
+        !item.product_is_active                     ||
+        item.product_is_hidden                      ||
         item.product_is_paused;
 
       if (unavailable) {
@@ -178,9 +193,10 @@ class CartService {
         });
       }
 
+      // Stock checks (variants only)
       if (
-        item.variant_id            &&
-        item.live_stock !== null   &&
+        item.variant_id                  &&
+        item.live_stock !== null         &&
         Number(item.live_stock) <= 0
       ) {
         issues.push({
@@ -190,22 +206,23 @@ class CartService {
           message:    `"${item.product_name}" is out of stock`,
         });
       } else if (
-        item.variant_id            &&
-        item.live_stock !== null   &&
+        item.variant_id                  &&
+        item.live_stock !== null         &&
         item.qty > Number(item.live_stock)
       ) {
         issues.push({
           item_id:    item.id,
           product_id: item.product_id,
           type:       "INSUFFICIENT_STOCK",
-          message:    `Only ${item.live_stock} units of "${item.product_name}" available`,
-          data:       {
+          message: `Only ${item.live_stock} units of "${item.product_name}" available`,
+          data: {
             available: Number(item.live_stock),
             requested: item.qty,
           },
         });
       }
 
+      // Price drift
       const saved = Number(item.saved_price);
       const live  = Number(item.live_price);
       const drift = saved > 0
