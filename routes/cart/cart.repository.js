@@ -3,6 +3,7 @@ import { pool }       from "../../server.js";
 import { CartErrors } from "./cart.errors.js";
 
 const SQL = {
+
   UPSERT_CART: `
     INSERT INTO market.carts (user_id)
     VALUES ($1)
@@ -45,23 +46,34 @@ const SQL = {
       pi.image_url                                AS primary_image
 
     FROM market.cart_items ci
+
     JOIN market.products p
       ON p.id = ci.product_id
+
     LEFT JOIN market.product_variants pv
       ON pv.id = ci.variant_id
+
     LEFT JOIN market.product_images pi
       ON  pi.product_id = ci.product_id
       AND pi.is_primary  = true
+
     WHERE ci.cart_id = $1
     ORDER BY ci.created_at ASC
   `,
 
+  // ── status IN ('active','approved') ← matches getProduct.js
   GET_PRODUCT_FOR_UPDATE: `
     SELECT
-      id, name,
+      id,
+      name,
       price::FLOAT  AS price,
-      status, is_active, is_hidden, is_paused,
-      deleted_at, is_flagged, fraud_score
+      status,
+      is_active,
+      is_hidden,
+      is_paused,
+      deleted_at,
+      is_flagged,
+      fraud_score
     FROM market.products
     WHERE id = $1
     FOR UPDATE
@@ -69,11 +81,16 @@ const SQL = {
 
   GET_VARIANT_FOR_UPDATE: `
     SELECT
-      id, product_id, name, sku,
+      id,
+      product_id,
+      name,
+      sku,
       price::FLOAT  AS price,
-      stock, attributes
+      stock,
+      attributes
     FROM market.product_variants
-    WHERE id = $1 AND product_id = $2
+    WHERE id         = $1
+      AND product_id = $2
     FOR UPDATE
   `,
 
@@ -82,7 +99,8 @@ const SQL = {
       (cart_id, product_id, variant_id, qty, price)
     VALUES ($1, $2, $3, $4, $5)
     ON CONFLICT (
-      cart_id, product_id,
+      cart_id,
+      product_id,
       (COALESCE(variant_id, '00000000-0000-0000-0000-000000000000'))
     )
     DO UPDATE SET
@@ -95,20 +113,24 @@ const SQL = {
   GET_CART_ITEM: `
     SELECT *
     FROM market.cart_items
-    WHERE id = $1 AND cart_id = $2
+    WHERE id      = $1
+      AND cart_id = $2
     FOR UPDATE
   `,
 
   UPDATE_QTY: `
     UPDATE market.cart_items
-    SET qty = $1, updated_at = now()
-    WHERE id = $2 AND cart_id = $3
+    SET    qty        = $1,
+           updated_at = now()
+    WHERE  id      = $2
+      AND  cart_id = $3
     RETURNING *
   `,
 
   REMOVE_ITEM: `
     DELETE FROM market.cart_items
-    WHERE id = $1 AND cart_id = $2
+    WHERE id      = $1
+      AND cart_id = $2
     RETURNING id
   `,
 
@@ -142,14 +164,22 @@ const SQL = {
       p.deleted_at
 
     FROM market.cart_items ci
-    JOIN market.products p ON p.id = ci.product_id
-    LEFT JOIN market.product_variants pv ON pv.id = ci.variant_id
+    JOIN market.products p
+      ON p.id = ci.product_id
+    LEFT JOIN market.product_variants pv
+      ON pv.id = ci.variant_id
     WHERE ci.cart_id = $1
     FOR UPDATE
   `,
 };
 
+// ─────────────────────────────────────────────────────────────
+// Accepted statuses — must match getProduct.js
+// ─────────────────────────────────────────────────────────────
+const ALLOWED_STATUSES = new Set(["active", "approved"]);
+
 class CartRepository {
+
   async withTransaction(fn) {
     const client = await pool.connect();
     try {
@@ -165,7 +195,7 @@ class CartRepository {
     }
   }
 
-  // ── Cart ──────────────────────────────────────────────
+  // ── Cart ──────────────────────────────────────────────────
 
   async upsertCart(userId) {
     const { rows } = await pool.query(SQL.UPSERT_CART, [userId]);
@@ -182,14 +212,15 @@ class CartRepository {
     await runner.query(SQL.TOUCH_CART, [cartId]);
   }
 
-  // ── Add item ──────────────────────────────────────────
+  // ── Add item ──────────────────────────────────────────────
 
   async addItem(cartId, productId, variantId, qty) {
     return this.withTransaction(async (client) => {
 
-      // 1. Lock + validate product
+      // 1. Lock + fetch product
       const { rows: pRows } = await client.query(
-        SQL.GET_PRODUCT_FOR_UPDATE, [productId]
+        SQL.GET_PRODUCT_FOR_UPDATE,
+        [productId]
       );
 
       if (pRows.length === 0) {
@@ -198,32 +229,41 @@ class CartRepository {
 
       const product = pRows[0];
 
-      // 2. Check availability
+      // 2. Availability checks
+      //    status must be 'active' OR 'approved' (matches getProduct.js)
       if (product.deleted_at) {
         throw CartErrors.productUnavailable("product has been deleted");
       }
-      if (product.status !== "active") {
-        throw CartErrors.productUnavailable(`status is "${product.status}"`);
+
+      if (!ALLOWED_STATUSES.has(product.status)) {
+        throw CartErrors.productUnavailable(
+          `product status is "${product.status}" — must be active or approved`
+        );
       }
+
       if (!product.is_active) {
         throw CartErrors.productUnavailable("product is not active");
       }
+
       if (product.is_hidden) {
         throw CartErrors.productUnavailable("product is hidden");
       }
+
       if (product.is_paused) {
         throw CartErrors.productUnavailable("product is paused");
       }
-      if (product.is_flagged && product.fraud_score > 80) {
+
+      if (product.is_flagged && Number(product.fraud_score) > 80) {
         throw CartErrors.productUnavailable("product is under review");
       }
 
-      // 3. Variant check + stock
+      // 3. Variant + stock check
       let livePrice = Number(product.price);
 
       if (variantId) {
         const { rows: vRows } = await client.query(
-          SQL.GET_VARIANT_FOR_UPDATE, [variantId, productId]
+          SQL.GET_VARIANT_FOR_UPDATE,
+          [variantId, productId]
         );
 
         if (vRows.length === 0) {
@@ -235,35 +275,39 @@ class CartRepository {
         if (variant.product_id !== productId) {
           throw CartErrors.variantMismatch(variantId, productId);
         }
-        if (variant.stock <= 0) {
+
+        if (Number(variant.stock) <= 0) {
           throw CartErrors.outOfStock(productId);
         }
-        if (variant.stock < qty) {
-          throw CartErrors.insufficientStock(variant.stock, qty);
+
+        if (Number(variant.stock) < qty) {
+          throw CartErrors.insufficientStock(Number(variant.stock), qty);
         }
 
         livePrice = Number(variant.price);
       }
 
-      // 4. Upsert item
+      // 4. Upsert cart item (merges qty, caps at 99, refreshes price)
       const { rows: itemRows } = await client.query(
         SQL.UPSERT_CART_ITEM,
         [cartId, productId, variantId ?? null, qty, livePrice]
       );
 
+      // 5. Touch cart
       await this.touchCart(cartId, client);
 
       return itemRows[0];
     });
   }
 
-  // ── Update qty ────────────────────────────────────────
+  // ── Update qty ────────────────────────────────────────────
 
   async updateQty(cartId, itemId, qty) {
     return this.withTransaction(async (client) => {
 
       const { rows: itemRows } = await client.query(
-        SQL.GET_CART_ITEM, [itemId, cartId]
+        SQL.GET_CART_ITEM,
+        [itemId, cartId]
       );
 
       if (itemRows.length === 0) {
@@ -274,20 +318,23 @@ class CartRepository {
 
       if (item.variant_id) {
         const { rows: vRows } = await client.query(
-          `SELECT stock FROM market.product_variants
-           WHERE id = $1 FOR UPDATE`,
+          `SELECT stock
+           FROM market.product_variants
+           WHERE id = $1
+           FOR UPDATE`,
           [item.variant_id]
         );
 
         if (vRows.length > 0) {
           const stock = Number(vRows[0].stock);
-          if (stock <= 0) throw CartErrors.outOfStock(item.product_id);
-          if (stock < qty) throw CartErrors.insufficientStock(stock, qty);
+          if (stock <= 0)    throw CartErrors.outOfStock(item.product_id);
+          if (stock < qty)   throw CartErrors.insufficientStock(stock, qty);
         }
       }
 
       const { rows } = await client.query(
-        SQL.UPDATE_QTY, [qty, itemId, cartId]
+        SQL.UPDATE_QTY,
+        [qty, itemId, cartId]
       );
 
       await this.touchCart(cartId, client);
@@ -296,26 +343,36 @@ class CartRepository {
     });
   }
 
-  // ── Remove item ───────────────────────────────────────
+  // ── Remove item ───────────────────────────────────────────
 
   async removeItem(cartId, itemId) {
-    const { rows } = await pool.query(SQL.REMOVE_ITEM, [itemId, cartId]);
-    if (rows.length === 0) throw CartErrors.itemNotFound(itemId);
+    const { rows } = await pool.query(
+      SQL.REMOVE_ITEM,
+      [itemId, cartId]
+    );
+
+    if (rows.length === 0) {
+      throw CartErrors.itemNotFound(itemId);
+    }
+
     await this.touchCart(cartId);
     return rows[0];
   }
 
-  // ── Clear cart ────────────────────────────────────────
+  // ── Clear cart ────────────────────────────────────────────
 
   async clearCart(cartId) {
     await pool.query(SQL.CLEAR_CART, [cartId]);
     await this.touchCart(cartId);
   }
 
-  // ── Checkout validation ───────────────────────────────
+  // ── Checkout validation ───────────────────────────────────
 
   async getItemsForCheckout(cartId) {
-    const { rows } = await pool.query(SQL.VALIDATE_FOR_CHECKOUT, [cartId]);
+    const { rows } = await pool.query(
+      SQL.VALIDATE_FOR_CHECKOUT,
+      [cartId]
+    );
     return rows;
   }
 }
