@@ -1,21 +1,42 @@
-// src/components/TopNav.jsx
-import React, {
+/**
+ * src/components/TopNav.jsx
+ *
+ * Top navigation bar with:
+ * - Brand logo / home link
+ * - Hamburger menu
+ * - Live search with trigram scoring
+ * - Instant results from cache + API fallback
+ * - Search dropdown with product previews
+ */
+
+import {
   useState, useEffect, useMemo,
   useCallback, useRef,
 } from "react";
-import { useNavigate } from "react-router-dom";
-import { useProductCache } from "../context/ProductCacheContext";
-import HamburgerMenu from "./HamburgerMenu";
+import { useNavigate }      from "react-router-dom";
+import { useProductCache }  from "../context/ProductCacheContext";
+import HamburgerMenu        from "./HamburgerMenu";
 import "../styles/TopNav.css";
 
-const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
-const PH  = "https://placehold.co/88x88/eae6e0/a8a39d?text=?";
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+═══════════════════════════════════════════════════════════════ */
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
-/* ─────────────────────────────────────────────
-   SEARCH SCORING
-   Uses trigram overlap — far better than
-   character-by-character comparison.
-───────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const PH              = "https://placehold.co/88x88/eae6e0/a8a39d?text=?";
+const DEBOUNCE_MS     = 250;
+const MIN_QUERY_LEN   = 2;
+const MAX_RESULTS     = 6;
+const CACHE_THRESHOLD = 3; // use API only if cache has < N hits
+const TRIGRAM_MIN     = 0.2;
+
+/* ═══════════════════════════════════════════════════════════════
+   SEARCH SCORING — trigram overlap
+   Far better than character-by-character comparison.
+═══════════════════════════════════════════════════════════════ */
 const norm = (s = "") => s.toLowerCase().trim();
 
 const trigrams = (s) => {
@@ -37,76 +58,77 @@ const trigramScore = (query, target) => {
 };
 
 const scoreProduct = (query, product) => {
-  const q = norm(query);
+  const q     = norm(query);
   const title = norm(product.title || "");
 
   // Exact prefix match → top priority
-  if (title.startsWith(q)) return 1 + trigramScore(q, title);
+  if (title.startsWith(q))
+    return 1 + trigramScore(q, title);
 
   // Word boundary match
-  if (title.split(" ").some((w) => w.startsWith(q))) return 0.8 + trigramScore(q, title);
+  if (title.split(" ").some((w) => w.startsWith(q)))
+    return 0.8 + trigramScore(q, title);
 
   // Contains match
-  if (title.includes(q)) return 0.6 + trigramScore(q, title);
+  if (title.includes(q))
+    return 0.6 + trigramScore(q, title);
 
   // Trigram fallback
   const ts = trigramScore(q, title);
-  return ts > 0.2 ? ts : 0;
+  return ts > TRIGRAM_MIN ? ts : 0;
 };
 
-/* ─────────────────────────────────────────────
-   IMAGE EXTRACTOR
-───────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════ */
 const getImg = (p) => {
   const f = Array.isArray(p?.images) ? p.images[0] : null;
   if (!f) return PH;
-  return typeof f === "string" ? f : f.url || f.thumbnail_url || PH;
+  return typeof f === "string" ? f : (f.url || f.thumbnail_url || PH);
 };
 
 const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
 
-/* ─────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
    COMPONENT
-───────────────────────────────────────────── */
-export default function TopNav() {
-  const navigate           = useNavigate();
-  const { products }       = useProductCache();
+═══════════════════════════════════════════════════════════════ */
+export default function TopNav({ user }) {
+  const navigate         = useNavigate();
+  const { products }     = useProductCache();
 
   const [query,     setQuery]     = useState("");
   const [debounced, setDebounced] = useState("");
   const [apiHits,   setApiHits]   = useState([]);
   const [open,      setOpen]      = useState(false);
   const [fetching,  setFetching]  = useState(false);
-
-  /* ── HAMBURGER STATE ── */
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpen,  setMenuOpen]  = useState(false);
 
   const inputRef = useRef(null);
 
-  /* ── DEBOUNCE ─────────────────────────────── */
+  // ── Debounce query ────────────────────────────────────────
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(query.trim()), 250);
+    const t = setTimeout(() => setDebounced(query.trim()), DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [query]);
 
-  /* ── INSTANT RESULTS from cache ──────────── */
+  // ── Instant results from product cache ────────────────────
   const cacheResults = useMemo(() => {
-    if (!debounced || debounced.length < 2) return [];
+    if (!debounced || debounced.length < MIN_QUERY_LEN) return [];
 
     return products
       .map((p) => ({ ...p, _score: scoreProduct(debounced, p) }))
       .filter((p) => p._score > 0)
       .sort((a, b) => b._score - a._score)
-      .slice(0, 6);
+      .slice(0, MAX_RESULTS);
   }, [debounced, products]);
 
-  /* ── NETWORK SEARCH (when cache has < 3 hits) */
+  // ── Network search (only when cache has < threshold hits) ─
   useEffect(() => {
-    if (!debounced || debounced.length < 2) {
+    if (!debounced || debounced.length < MIN_QUERY_LEN) {
       setApiHits([]);
       return;
     }
-    if (cacheResults.length >= 3) {
+    if (cacheResults.length >= CACHE_THRESHOLD) {
       setApiHits([]);
       return;
     }
@@ -119,7 +141,7 @@ export default function TopNav() {
       .then((data) => {
         if (!cancelled) {
           const hits = Array.isArray(data) ? data : (data.products || []);
-          setApiHits(hits.slice(0, 6));
+          setApiHits(hits.slice(0, MAX_RESULTS));
         }
       })
       .catch(() => {})
@@ -128,14 +150,14 @@ export default function TopNav() {
     return () => { cancelled = true; };
   }, [debounced, cacheResults.length]);
 
-  /* ── MERGED RESULTS ───────────────────────── */
+  // ── Merged results (cache + API, deduped) ─────────────────
   const results = useMemo(() => {
-    const seen = new Set(cacheResults.map((p) => p.id));
+    const seen  = new Set(cacheResults.map((p) => p.id));
     const extra = apiHits.filter((p) => !seen.has(p.id));
-    return [...cacheResults, ...extra].slice(0, 6);
+    return [...cacheResults, ...extra].slice(0, MAX_RESULTS);
   }, [cacheResults, apiHits]);
 
-  /* ── ACTIONS ──────────────────────────────── */
+  // ── Actions ───────────────────────────────────────────────
   const goSearch = useCallback((text) => {
     const q = (text || query).trim();
     if (!q) return;
@@ -150,20 +172,20 @@ export default function TopNav() {
     navigate(`/product/${p.slug || p.id}`);
   }, [navigate]);
 
-  const close = useCallback(() => {
-    setOpen(false);
-  }, []);
+  const close = useCallback(() => setOpen(false), []);
 
-  const showDropdown = open && debounced.length >= 2;
+  const showDropdown = open && debounced.length >= MIN_QUERY_LEN;
 
-  /* ── RENDER ───────────────────────────────── */
+  // ── Render ────────────────────────────────────────────────
   return (
     <>
       <div className="tn-wrap">
 
-        {/* ── BRAND ROW ── */}
+        {/* ══════════════════════════════════════════════
+            BRAND ROW
+        ══════════════════════════════════════════════ */}
         <div className="tn-header">
-          {/* Hamburger button — left side */}
+          {/* Hamburger — left side */}
           <button
             className="tn-hamburger"
             onClick={() => setMenuOpen(true)}
@@ -175,12 +197,15 @@ export default function TopNav() {
             <span className="tn-ham-line" />
           </button>
 
+          {/* Brand */}
           <div className="tn-brand" onClick={() => navigate("/")}>
-            🛒 Mini<span>Mart</span>
+            🛒 Loe<span>mart</span>
           </div>
         </div>
 
-        {/* ── SEARCH ROW ── */}
+        {/* ══════════════════════════════════════════════
+            SEARCH ROW
+        ══════════════════════════════════════════════ */}
         <div className="tn-search-row">
           <div className="tn-search-box">
             <input
@@ -191,7 +216,7 @@ export default function TopNav() {
               onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
               onFocus={() => setOpen(true)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") goSearch();
+                if (e.key === "Enter")  goSearch();
                 if (e.key === "Escape") close();
               }}
               autoComplete="off"
@@ -202,9 +227,10 @@ export default function TopNav() {
               onClick={() => goSearch()}
               aria-label="Search"
             >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
-                stroke="currentColor" strokeWidth="2.5"
-                strokeLinecap="round" strokeLinejoin="round"
+              <svg
+                width="17" height="17" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor"
+                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
               >
                 <circle cx="11" cy="11" r="8" />
                 <line x1="21" y1="21" x2="16.65" y2="16.65" />
@@ -212,12 +238,15 @@ export default function TopNav() {
             </button>
           </div>
 
-          {/* ── DROPDOWN ── */}
+          {/* ══════════════════════════════════════════════
+              SEARCH DROPDOWN
+          ══════════════════════════════════════════════ */}
           {showDropdown && (
             <>
               <div className="tn-overlay" onClick={close} />
 
               <div className="tn-dropdown">
+                {/* Dropdown header */}
                 <div className="tn-drop-header">
                   <span className="tn-drop-count">
                     {fetching
@@ -227,7 +256,9 @@ export default function TopNav() {
                         : "No results"
                     }
                   </span>
-                  <button className="tn-drop-close" onClick={close}>✕ Close</button>
+                  <button className="tn-drop-close" onClick={close}>
+                    ✕ Close
+                  </button>
                 </div>
 
                 {results.length > 0 ? (
@@ -250,7 +281,9 @@ export default function TopNav() {
                         <div className="tn-result-body">
                           <div className="tn-result-title">{p.title}</div>
                           <div className="tn-result-meta">
-                            <span className="tn-result-price">{naira(p.price)}</span>
+                            <span className="tn-result-price">
+                              {naira(p.price)}
+                            </span>
                             {(p.location?.city || p.location_city) && (
                               <span className="tn-result-loc">
                                 · 📍 {p.location?.city || p.location_city}
@@ -292,10 +325,11 @@ export default function TopNav() {
 
       </div>
 
-      {/* ── HAMBURGER MENU (rendered outside tn-wrap so it overlays everything) ── */}
+      {/* Hamburger menu — outside tn-wrap so it overlays everything */}
       <HamburgerMenu
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
+        user={user}
       />
     </>
   );
