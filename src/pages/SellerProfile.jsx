@@ -1,31 +1,55 @@
 /**
- * pages/SellerProfile.jsx
+ * src/pages/SellerProfile.jsx
  * Route: /seller/:id
+ *
+ * Features:
+ * - Seller header (avatar, name, verified badge, rating, online status)
+ * - Trust score + stats bar
+ * - Message seller button (creates chat thread)
+ * - Masonry product grid with infinite scroll
+ * - Own profile detection
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams }                   from "react-router-dom";
 import TopNav      from "../components/TopNav";
 import BottomNav   from "../components/BottomNav";
 import MasonryGrid from "../components/MasonryGrid";
 
-const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+═══════════════════════════════════════════════════════════════ */
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
-function getToken() {
-  return localStorage.getItem("token") || sessionStorage.getItem("token") || "";
-}
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const PRODUCTS_PER_PAGE = 20;
 
-function authH() {
+/* ═══════════════════════════════════════════════════════════════
+   AUTH HELPERS
+═══════════════════════════════════════════════════════════════ */
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token")             ||
+  sessionStorage.getItem("token")           || "";
+
+const authH = () => {
   const t = getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
-}
+};
 
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════ */
 const dedup = (arr) => {
   const seen = new Set();
   return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
 };
 
-/* ── Skeleton for the seller header ── */
+/* ═══════════════════════════════════════════════════════════════
+   SKELETONS
+═══════════════════════════════════════════════════════════════ */
 const SkeletonHeader = () => (
   <div className="sp-header-skeleton">
     <div className="sk sp-sk-avatar" />
@@ -37,7 +61,6 @@ const SkeletonHeader = () => (
   </div>
 );
 
-/* ── Skeleton for the masonry grid ── */
 const SkeletonMasonry = () => (
   <div className="masonry">
     {[...Array(10)].map((_, i) => (
@@ -50,9 +73,144 @@ const SkeletonMasonry = () => (
   </div>
 );
 
+/* ═══════════════════════════════════════════════════════════════
+   INLINE STYLES
+═══════════════════════════════════════════════════════════════ */
+const STYLES = `
+  /* ── Seller header ── */
+  .sp-header { padding: 16px 16px 0; }
+  .sp-profile-row {
+    display: flex; align-items: flex-start;
+    gap: 14px; margin-bottom: 12px;
+  }
+  .sp-avatar {
+    width: 72px; height: 72px;
+    border-radius: 50%; object-fit: cover;
+    flex-shrink: 0; border: 2px solid #f0eeea;
+  }
+  .sp-info { flex: 1; min-width: 0; }
+  .sp-name-row {
+    display: flex; align-items: center;
+    gap: 6px; flex-wrap: wrap; margin-bottom: 4px;
+  }
+  .sp-name {
+    font-size: 18px; font-weight: 800;
+    color: #1a1a1a; letter-spacing: -0.3px;
+  }
+  .sp-verified {
+    background: #16a34a; color: #fff;
+    font-size: 10px; font-weight: 700;
+    padding: 2px 7px; border-radius: 999px;
+    letter-spacing: 0.3px;
+  }
+  .sp-desc {
+    font-size: 13px; color: #777;
+    line-height: 1.5; margin-bottom: 8px;
+  }
+  .sp-meta-row {
+    display: flex; align-items: center;
+    gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+  }
+  .sp-meta-pill {
+    font-size: 12px; font-weight: 600; color: #555;
+    background: #f5f4f0; padding: 3px 9px; border-radius: 999px;
+  }
+  .sp-meta-pill--online { background: #f0fdf4; color: #16a34a; }
+
+  /* ── Message button ── */
+  .sp-msg-btn {
+    display: flex; align-items: center; justify-content: center;
+    gap: 7px; width: 100%; padding: 12px 0;
+    border-radius: 12px; border: none;
+    background: #111; color: #fff;
+    font-size: 14px; font-weight: 700;
+    cursor: pointer; letter-spacing: 0.1px;
+    transition: background 0.15s, transform 0.1s;
+    margin-bottom: 16px;
+  }
+  .sp-msg-btn:active   { transform: scale(0.98); }
+  .sp-msg-btn:disabled { background: #ccc; cursor: not-allowed; }
+  .sp-msg-btn--own     { background: #f5f4f0; color: #888; cursor: default; }
+
+  /* ── Stats bar ── */
+  .sp-stats {
+    display: grid; grid-template-columns: repeat(4, 1fr);
+    border: 1.5px solid #f0eeea; border-radius: 14px;
+    overflow: hidden; margin: 0 16px 20px;
+  }
+  .sp-stat {
+    display: flex; flex-direction: column;
+    align-items: center; padding: 12px 6px;
+    border-right: 1px solid #f0eeea;
+  }
+  .sp-stat:last-child { border-right: none; }
+  .sp-stat-val {
+    font-size: 16px; font-weight: 900;
+    color: #1a1a1a; letter-spacing: -0.3px;
+  }
+  .sp-stat-label {
+    font-size: 10px; font-weight: 600; color: #aaa;
+    text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px;
+  }
+
+  /* ── Section heading ── */
+  .sp-section-head {
+    padding: 0 16px 12px;
+    font-size: 15px; font-weight: 800;
+    color: #1a1a1a; letter-spacing: -0.2px;
+  }
+
+  /* ── Skeletons ── */
+  .sp-header-skeleton {
+    display: flex; gap: 14px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  .sp-sk-avatar { width: 72px; height: 72px; border-radius: 50%; flex-shrink: 0; }
+  .sp-sk-lines  { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
+  .sp-sk-name   { height: 18px; width: 55%; border-radius: 8px; }
+  .sp-sk-desc   { height: 13px; width: 80%; border-radius: 8px; }
+  .sp-sk-meta   { height: 13px; width: 40%; border-radius: 8px; }
+
+  /* ── Error ── */
+  .err-box {
+    margin: 24px 16px;
+    background: #fff5f5; border: 1.5px solid #fecaca;
+    border-radius: 14px; padding: 20px; text-align: center;
+  }
+  .err-title { font-weight: 800; color: #dc2626; margin-bottom: 4px; }
+  .err-msg   { font-size: 13px; color: #888; margin-bottom: 14px; }
+  .err-btn   {
+    padding: 9px 24px; border-radius: 10px; border: none;
+    background: #ff5722; color: #fff;
+    font-weight: 700; font-size: 13px; cursor: pointer;
+  }
+
+  /* ── Empty ── */
+  .sp-empty       { text-align: center; padding: 48px 24px; color: #aaa; }
+  .sp-empty-emoji { font-size: 40px; margin-bottom: 12px; }
+  .sp-empty-title { font-size: 16px; font-weight: 700; color: #555; margin-bottom: 6px; }
+  .sp-empty-sub   { font-size: 13px; line-height: 1.5; }
+
+  /* ── Loading more ── */
+  .loading-more { text-align: center; font-size: 13px; color: #aaa; padding: 16px; }
+
+  /* ── Button spinner ── */
+  @keyframes btn-spin { to { transform: rotate(360deg); } }
+  .btn-spinner {
+    width: 16px; height: 16px;
+    border: 2px solid rgba(255,255,255,0.35);
+    border-top-color: #fff; border-radius: 50%;
+    animation: btn-spin 0.7s linear infinite;
+    flex-shrink: 0;
+  }
+`;
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENT
+═══════════════════════════════════════════════════════════════ */
 export default function SellerProfile({ user }) {
-  const { id }       = useParams();
-  const navigate     = useNavigate();
+  const { id }   = useParams();
+  const navigate = useNavigate();
 
   const [seller,       setSeller]       = useState(null);
   const [stats,        setStats]        = useState(null);
@@ -62,12 +220,12 @@ export default function SellerProfile({ user }) {
   const [error,        setError]        = useState(null);
   const [hasMore,      setHasMore]      = useState(false);
   const [page,         setPage]         = useState(1);
-  const [startingChat, setStartingChat] = useState(false); // ← NEW
+  const [startingChat, setStartingChat] = useState(false);
 
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
 
-  /* ── Bootstrap ── */
+  // ── Bootstrap ─────────────────────────────────────────────
   const bootstrap = useCallback(async () => {
     const res = await fetch(`${API}/seller/${id}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -76,7 +234,7 @@ export default function SellerProfile({ user }) {
     setSeller(data.seller);
     setStats(data.stats);
 
-    const initial = Array.isArray(data.products) ? data.products : [];
+    const initial       = Array.isArray(data.products) ? data.products : [];
     productsRef.current = dedup(initial);
     setProducts(productsRef.current);
     setHasMore(!!data.hasMore);
@@ -85,6 +243,8 @@ export default function SellerProfile({ user }) {
   useEffect(() => {
     setLoading(true);
     setError(null);
+    setSeller(null);
+    setStats(null);
     productsRef.current = [];
     setProducts([]);
     setPage(1);
@@ -94,44 +254,47 @@ export default function SellerProfile({ user }) {
       .finally(() => setLoading(false));
   }, [bootstrap]);
 
-  /* ── Load more ── */
+  // ── Load more ─────────────────────────────────────────────
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     const next = page + 1;
 
     try {
-      const res = await fetch(`${API}/seller/${id}/products?page=${next}&limit=20`);
+      const res = await fetch(
+        `${API}/seller/${id}/products?page=${next}&limit=${PRODUCTS_PER_PAGE}`
+      );
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
-      const incoming = Array.isArray(data.products) ? data.products : [];
-      const merged   = dedup([...productsRef.current, ...incoming]);
-
+      const incoming      = Array.isArray(data.products) ? data.products : [];
+      const merged        = dedup([...productsRef.current, ...incoming]);
       productsRef.current = merged;
       setProducts(merged);
       setHasMore(!!data.hasMore);
       setPage(next);
-    } catch (e) {
-      console.error("Load more failed", e);
+    } catch (err) {
+      console.error("[SellerProfile] loadMore:", err);
     } finally {
       setLoadingMore(false);
     }
   }, [id, loadingMore, hasMore, page]);
 
-  /* ── Infinite scroll ── */
+  // ── Infinite scroll ───────────────────────────────────────
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
+
     const io = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting) loadMore(); },
       { threshold: 0.1 }
     );
+
     io.observe(el);
     return () => io.disconnect();
   }, [loadMore, hasMore]);
 
-  /* ── Analytics ── */
+  // ── Analytics ─────────────────────────────────────────────
   const trackView = useCallback((productId) => {
     fetch(`${API}/products/${productId}/view`, { method: "POST" }).catch(() => {});
   }, []);
@@ -141,7 +304,7 @@ export default function SellerProfile({ user }) {
     navigate(`/product/${product.slug}`);
   }, [navigate]);
 
-  /* ── Retry ── */
+  // ── Retry ─────────────────────────────────────────────────
   const retry = useCallback(() => {
     setError(null);
     setLoading(true);
@@ -156,31 +319,26 @@ export default function SellerProfile({ user }) {
       .finally(() => setLoading(false));
   }, [bootstrap]);
 
-  /* ════════════════════════════════════════
-     START CHAT — creates thread then navigates
-  ════════════════════════════════════════ */
+  // ── Message seller (create thread → navigate to chat) ─────
   const handleMessageSeller = useCallback(async () => {
-    /* Not logged in */
     if (!user?.id) {
-      navigate("/login");
+      navigate("/auth");
       return;
     }
-
-    /* Viewing own profile */
     if (user.id === seller?.id) return;
 
     setStartingChat(true);
 
     try {
       const response = await fetch(`${API}/conversations`, {
-        method:  "POST",
-        headers: {
-          "Content-Type": "application/json",
+        method  : "POST",
+        headers : {
+          "Content-Type" : "application/json",
           ...authH(),
         },
         body: JSON.stringify({
-          buyerId:   user.id,
-          sellerId:  seller.id,
+          buyerId  : user.id,
+          sellerId : seller.id,
           productId: null,
         }),
       });
@@ -191,184 +349,41 @@ export default function SellerProfile({ user }) {
         throw new Error(data.message || `HTTP ${response.status}`);
       }
 
-      /* Server returns thread_id or id */
       const threadId = data.thread_id || data.id;
+      if (!threadId) throw new Error("No thread ID returned from server");
 
-      if (!threadId) {
-        throw new Error("No thread ID returned from server");
-      }
-
-      console.log("✅ Thread ready:", threadId);
+      console.log("[SellerProfile] thread ready:", threadId);
       navigate(`/chat/${threadId}`);
 
     } catch (err) {
-      console.error("Start chat failed:", err.message);
+      console.error("[SellerProfile] start chat:", err.message);
       alert("Could not open chat. Please try again.");
     } finally {
       setStartingChat(false);
     }
   }, [user, seller, navigate]);
 
-  /* ── Own profile check ── */
-  const isOwnProfile = user?.id && seller?.id && user.id === seller.id;
+  // ── Derived ───────────────────────────────────────────────
+  const isOwnProfile = !!(user?.id && seller?.id && user.id === seller.id);
 
+  // ── Render ────────────────────────────────────────────────
   return (
     <>
-      <style>{`
-        /* ── Seller header ── */
-        .sp-header { padding: 16px 16px 0; }
-        .sp-profile-row {
-          display: flex;
-          align-items: flex-start;
-          gap: 14px;
-          margin-bottom: 12px;
-        }
-        .sp-avatar {
-          width: 72px; height: 72px;
-          border-radius: 50%; object-fit: cover;
-          flex-shrink: 0; border: 2px solid #f0eeea;
-        }
-        .sp-info { flex: 1; min-width: 0; }
-        .sp-name-row {
-          display: flex; align-items: center;
-          gap: 6px; flex-wrap: wrap; margin-bottom: 4px;
-        }
-        .sp-name {
-          font-size: 18px; font-weight: 800;
-          color: #1a1a1a; letter-spacing: -0.3px;
-        }
-        .sp-verified {
-          background: #16a34a; color: #fff;
-          font-size: 10px; font-weight: 700;
-          padding: 2px 7px; border-radius: 999px;
-          letter-spacing: 0.3px;
-        }
-        .sp-desc {
-          font-size: 13px; color: #777;
-          line-height: 1.5; margin-bottom: 8px;
-        }
-        .sp-meta-row {
-          display: flex; align-items: center;
-          gap: 8px; flex-wrap: wrap;
-          margin-bottom: 12px;
-        }
-        .sp-meta-pill {
-          font-size: 12px; font-weight: 600; color: #555;
-          background: #f5f4f0; padding: 3px 9px; border-radius: 999px;
-        }
-        .sp-meta-pill--online { background: #f0fdf4; color: #16a34a; }
-
-        /* ── Message button ── */
-        .sp-msg-btn {
-          display: flex; align-items: center; justify-content: center;
-          gap: 7px; width: 100%;
-          padding: 12px 0;
-          border-radius: 12px;
-          border: none;
-          background: #111;
-          color: #fff;
-          font-size: 14px;
-          font-weight: 700;
-          cursor: pointer;
-          letter-spacing: 0.1px;
-          transition: background 0.15s, transform 0.1s;
-          margin-bottom: 16px;
-        }
-        .sp-msg-btn:active  { transform: scale(0.98); }
-        .sp-msg-btn:disabled {
-          background: #ccc;
-          cursor: not-allowed;
-        }
-        .sp-msg-btn--own {
-          background: #f5f4f0;
-          color: #888;
-          cursor: default;
-        }
-
-        /* ── Stats bar ── */
-        .sp-stats {
-          display: grid; grid-template-columns: repeat(4,1fr);
-          border: 1.5px solid #f0eeea;
-          border-radius: 14px; overflow: hidden;
-          margin: 0 16px 20px;
-        }
-        .sp-stat {
-          display: flex; flex-direction: column;
-          align-items: center; padding: 12px 6px;
-          border-right: 1px solid #f0eeea;
-        }
-        .sp-stat:last-child { border-right: none; }
-        .sp-stat-val {
-          font-size: 16px; font-weight: 900;
-          color: #1a1a1a; letter-spacing: -0.3px;
-        }
-        .sp-stat-label {
-          font-size: 10px; font-weight: 600; color: #aaa;
-          text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px;
-        }
-
-        /* ── Section heading ── */
-        .sp-section-head {
-          padding: 0 16px 12px;
-          font-size: 15px; font-weight: 800;
-          color: #1a1a1a; letter-spacing: -0.2px;
-        }
-
-        /* ── Skeletons ── */
-        .sp-header-skeleton {
-          display: flex; gap: 14px;
-          padding: 16px; margin-bottom: 16px;
-        }
-        .sp-sk-avatar { width: 72px; height: 72px; border-radius: 50%; flex-shrink: 0; }
-        .sp-sk-lines  { flex: 1; display: flex; flex-direction: column; gap: 8px; padding-top: 4px; }
-        .sp-sk-name   { height: 18px; width: 55%; border-radius: 8px; }
-        .sp-sk-desc   { height: 13px; width: 80%; border-radius: 8px; }
-        .sp-sk-meta   { height: 13px; width: 40%; border-radius: 8px; }
-
-        /* ── Error ── */
-        .err-box {
-          margin: 24px 16px;
-          background: #fff5f5; border: 1.5px solid #fecaca;
-          border-radius: 14px; padding: 20px; text-align: center;
-        }
-        .err-title { font-weight: 800; color: #dc2626; margin-bottom: 4px; }
-        .err-msg   { font-size: 13px; color: #888; margin-bottom: 14px; }
-        .err-btn   {
-          padding: 9px 24px; border-radius: 10px; border: none;
-          background: #ff5722; color: #fff;
-          font-weight: 700; font-size: 13px; cursor: pointer;
-        }
-
-        /* ── Empty ── */
-        .sp-empty { text-align: center; padding: 48px 24px; color: #aaa; }
-        .sp-empty-emoji { font-size: 40px; margin-bottom: 12px; }
-        .sp-empty-title { font-size: 16px; font-weight: 700; color: #555; margin-bottom: 6px; }
-        .sp-empty-sub   { font-size: 13px; line-height: 1.5; }
-
-        /* ── Loading more ── */
-        .loading-more { text-align: center; font-size: 13px; color: #aaa; padding: 16px; }
-
-        /* ── Spinner inside button ── */
-        @keyframes btn-spin { to { transform: rotate(360deg); } }
-        .btn-spinner {
-          width: 16px; height: 16px;
-          border: 2px solid rgba(255,255,255,0.35);
-          border-top-color: #fff;
-          border-radius: 50%;
-          animation: btn-spin 0.7s linear infinite;
-          flex-shrink: 0;
-        }
-      `}</style>
+      <style>{STYLES}</style>
 
       <TopNav user={user} />
 
       <div className="pg">
 
-        {/* ── Page back header ── */}
+        {/* ── Back header ── */}
         <div className="page-header">
-          <button className="back-btn" onClick={() => navigate(-1)} aria-label="Go back">
+          <button
+            className="back-btn"
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+          >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
             </svg>
           </button>
           <div className="page-title-wrap">
@@ -400,6 +415,7 @@ export default function SellerProfile({ user }) {
         {!loading && !error && seller && (
           <>
             <div className="sp-header">
+
               {/* Profile row */}
               <div className="sp-profile-row">
                 <img
@@ -420,16 +436,20 @@ export default function SellerProfile({ user }) {
                     {seller.store_description || "No description provided"}
                   </p>
                   <div className="sp-meta-row">
-                    <span className="sp-meta-pill">⭐ {seller.rating || 0}</span>
+                    <span className="sp-meta-pill">
+                      ⭐ {seller.rating || 0}
+                    </span>
                     <span className={`sp-meta-pill ${seller.is_online ? "sp-meta-pill--online" : ""}`}>
                       {seller.is_online ? "🟢 Online" : "⚪ Offline"}
                     </span>
-                    <span className="sp-meta-pill">Trust {seller.trust_score || 0}</span>
+                    <span className="sp-meta-pill">
+                      Trust {seller.trust_score || 0}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {/* ── Message Seller Button ── */}
+              {/* Message seller button */}
               {isOwnProfile ? (
                 <button className="sp-msg-btn sp-msg-btn--own" disabled>
                   This is your profile
@@ -448,11 +468,12 @@ export default function SellerProfile({ user }) {
                     </>
                   ) : (
                     <>
-                      <svg width="18" height="18" viewBox="0 0 24 24"
-                        fill="none" stroke="currentColor" strokeWidth={2.2}>
+                      <svg
+                        width="18" height="18" viewBox="0 0 24 24"
+                        fill="none" stroke="currentColor" strokeWidth={2.2}
+                      >
                         <path strokeLinecap="round" strokeLinejoin="round"
-                          d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0
-                             012-2h14a2 2 0 012 2z"/>
+                          d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" />
                       </svg>
                       Message Seller
                     </>
@@ -506,7 +527,9 @@ export default function SellerProfile({ user }) {
                   onClick={handleClick}
                 />
                 <div ref={sentinelRef} style={{ height: 1 }} />
-                {loadingMore && <p className="loading-more">Loading more…</p>}
+                {loadingMore && (
+                  <p className="loading-more">Loading more…</p>
+                )}
               </>
             )}
           </>
