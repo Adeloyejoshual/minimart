@@ -1,12 +1,51 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MiniMart Marketplace</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.jsx"></script>
-  </body>
-</html>
+<!-- ── Extra SEO ── -->
+<meta name="robots" content="index, follow, max-image-preview:large" />
+<meta name="googlebot" content="index, follow" />
+<meta name="rating" content="general" />
+<meta name="revisit-after" content="3 days" />
+<meta name="language" content="English" />
+<meta name="geo.region" content="NG" />
+<meta name="geo.country" content="Nigeria" />
+
+<!-- ── Breadcrumb JSON-LD ── -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Loemart",
+  "url": "https://loemart.com",
+  "logo": "https://loemart.com/icon-512.png",
+  "sameAs": [
+    "https://twitter.com/loemart",
+    "https://facebook.com/loemart",
+    "https://instagram.com/loemart"
+  ],
+  "contactPoint": {
+    "@type": "ContactPoint",
+    "contactType": "customer support",
+    "email": "support@loemart.com",
+    "availableLanguage": "English"
+  }
+}
+</script>
+
+<!-- ── Product Marketplace JSON-LD ── -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Loemart",
+  "alternateName": "Loemart Marketplace",
+  "url": "https://loemart.com",
+  "description": "Nigeria's neighbourhood marketplace — Buy, sell and discover quality products near you.",
+  "inLanguage": "en-NG",
+  "potentialAction": {
+    "@type": "SearchAction",
+    "target": {
+      "@type": "EntryPoint",
+      "urlTemplate": "https://loemart.com/search?q={search_term_string}"
+    },
+    "query-input": "required name=search_term_string"
+  }
+}
+</script>
