@@ -1,39 +1,55 @@
-// SuperAdmin/VendorVerification.jsx
+/**
+ * src/pages/SuperAdmin/VendorVerification.jsx
+ *
+ * Admin vendor verification panel.
+ * Features:
+ * - Vendor list with status filters + search
+ * - Detail panel with tabs (Info, ID, Docs, Bank, Wallet, History)
+ * - Status transitions with confirmation modal
+ * - Internal notes
+ * - Wallet balance + transactions
+ */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import axios from "axios";
 
-const BASE = "https://minimart-ivrm.onrender.com/api/admin";
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+═══════════════════════════════════════════════════════════════ */
+const BASE = `${import.meta.env.VITE_API_BASE_URL}/api/admin`;
 
-const api = () => {
+const makeApi = () => {
   const token = localStorage.getItem("admin_token");
   const h     = { Authorization: `Bearer ${token}` };
   return {
-    get:   (p)       => axios.get(`${BASE}${p}`,      { headers: h }),
-    patch: (p, b)    => axios.patch(`${BASE}${p}`, b, { headers: h }),
-    post:  (p, b={}) => axios.post(`${BASE}${p}`, b,  { headers: h }),
+    get   : (p)       => axios.get(`${BASE}${p}`,       { headers: h }),
+    patch : (p, b)    => axios.patch(`${BASE}${p}`, b,  { headers: h }),
+    post  : (p, b={}) => axios.post(`${BASE}${p}`, b,   { headers: h }),
   };
 };
 
-// ═════════════════════════════════════════════════════════════
-// CONSTANTS
-// ═════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const PAGE_LIMIT     = 20;
+const SEARCH_DELAY   = 500;
+
 const STATUS_CONFIG = {
-  pending:      { label: "Pending",      color: "#f59e0b", bg: "#fffbeb" },
-  under_review: { label: "Under Review", color: "#3b82f6", bg: "#eff6ff" },
-  approved:     { label: "Approved",     color: "#10b981", bg: "#ecfdf5" },
-  active:       { label: "Active",       color: "#6366f1", bg: "#eef2ff" },
-  rejected:     { label: "Rejected",     color: "#ef4444", bg: "#fef2f2" },
-  suspended:    { label: "Suspended",    color: "#6b7280", bg: "#f9fafb" },
+  pending      : { label: "Pending",      color: "#f59e0b", bg: "#fffbeb" },
+  under_review : { label: "Under Review", color: "#3b82f6", bg: "#eff6ff" },
+  approved     : { label: "Approved",     color: "#10b981", bg: "#ecfdf5" },
+  active       : { label: "Active",       color: "#6366f1", bg: "#eef2ff" },
+  rejected     : { label: "Rejected",     color: "#ef4444", bg: "#fef2f2" },
+  suspended    : { label: "Suspended",    color: "#6b7280", bg: "#f9fafb" },
 };
 
 const ALLOWED_TRANSITIONS = {
-  pending:      ["under_review", "rejected"],
-  under_review: ["approved",     "rejected"],
-  approved:     ["active",       "rejected"],
-  active:       ["suspended"],
-  suspended:    ["active"],
-  rejected:     [],
+  pending      : ["under_review", "rejected"],
+  under_review : ["approved",     "rejected"],
+  approved     : ["active",       "rejected"],
+  active       : ["suspended"],
+  suspended    : ["active"],
+  rejected     : [],
 };
 
 const STATUS_FILTERS = [
@@ -42,22 +58,45 @@ const STATUS_FILTERS = [
 ];
 
 const ID_LABELS = {
-  nin:      "NIN",
-  passport: "Passport",
-  drivers:  "Driver's Licence",
-  voters:   "Voter's Card",
+  nin      : "NIN",
+  passport : "Passport",
+  drivers  : "Driver's Licence",
+  voters   : "Voter's Card",
 };
 
-const LIMIT = 20;
+const ACTION_LABELS = {
+  active       : "✅ Activate",
+  approved     : "👍 Approve",
+  under_review : "🔍 Under Review",
+  rejected     : "❌ Reject",
+  suspended    : "🚫 Suspend",
+};
 
-// ═════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ═════════════════════════════════════════════════════════════
+const DETAIL_TABS = [
+  { key: "info",    label: "ℹ️ Info"    },
+  { key: "id",      label: "🪪 ID"      },
+  { key: "docs",    label: "📄 Docs"    },
+  { key: "bank",    label: "🏦 Bank"    },
+  { key: "wallet",  label: "💳 Wallet"  },
+  { key: "history", label: "📋 History" },
+];
+
+const TX_STATUS_CONFIG = {
+  success    : { color: "#10b981", label: "Success"    },
+  paid       : { color: "#10b981", label: "Paid"       },
+  pending    : { color: "#f59e0b", label: "Pending"    },
+  processing : { color: "#6366f1", label: "Processing" },
+  failed     : { color: "#ef4444", label: "Failed"     },
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════════════ */
 export default function VendorVerification({ confirm, onMutation }) {
   const [vendors,        setVendors]        = useState([]);
   const [statusCounts,   setStatusCounts]   = useState({});
   const [pagination,     setPagination]     = useState({
-    total: 0, page: 1, limit: LIMIT, total_pages: 1,
+    total: 0, page: 1, limit: PAGE_LIMIT, total_pages: 1,
   });
   const [loading,        setLoading]        = useState(true);
   const [selectedVendor, setSelectedVendor] = useState(null);
@@ -75,7 +114,7 @@ export default function VendorVerification({ confirm, onMutation }) {
 
   // ── Debounced search ──────────────────────────────────────
   useEffect(() => {
-    const timer = setTimeout(() => fetchVendors(1), 500);
+    const timer = setTimeout(() => fetchVendors(1), SEARCH_DELAY);
     return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, statusFilter]);
@@ -86,23 +125,21 @@ export default function VendorVerification({ confirm, onMutation }) {
     try {
       const params = new URLSearchParams({
         page,
-        limit: LIMIT,
-        ...(statusFilter !== "all" && { status: statusFilter }),
-        ...(search.trim()          && { search: search.trim() }),
+        limit : PAGE_LIMIT,
+        ...(statusFilter !== "all" && { status : statusFilter }),
+        ...(search.trim()          && { search : search.trim() }),
       });
 
-      const { data } = await api().get(`/vendors?${params}`);
+      const { data } = await makeApi().get(`/vendors?${params}`);
       setVendors(data.vendors ?? []);
       setStatusCounts(data.status_counts ?? {});
 
-      const total = Number(
-        data.pagination?.total ?? data.total ?? 0
-      );
+      const total = Number(data.pagination?.total ?? data.total ?? 0);
       setPagination({
         total,
         page,
-        limit:       LIMIT,
-        total_pages: Math.max(1, Math.ceil(total / LIMIT)),
+        limit       : PAGE_LIMIT,
+        total_pages : Math.max(1, Math.ceil(total / PAGE_LIMIT)),
       });
     } catch (err) {
       console.error("[VendorVerification] fetch:", err.message);
@@ -116,7 +153,7 @@ export default function VendorVerification({ confirm, onMutation }) {
     setDetailLoading(true);
     setActiveTab("info");
     try {
-      const { data } = await api().get(`/vendors/${id}`);
+      const { data } = await makeApi().get(`/vendors/${id}`);
       setSelectedVendor(data);
       setNotes(
         data?.vendor?.verification_notes ??
@@ -137,7 +174,7 @@ export default function VendorVerification({ confirm, onMutation }) {
 
     setActionLoading("status");
     try {
-      await api().patch(
+      await makeApi().patch(
         `/vendors/${vendorId}/status`,
         { status, ...(reason.trim() && { reason: reason.trim() }) }
       );
@@ -149,11 +186,8 @@ export default function VendorVerification({ confirm, onMutation }) {
 
       onMutation?.();
       setStatusModal({ open: false, status: "", reason: "" });
-
     } catch (err) {
-      alert(
-        err.response?.data?.message ?? "Failed to update status"
-      );
+      alert(err.response?.data?.message ?? "Failed to update status");
     } finally {
       setActionLoading(null);
     }
@@ -168,7 +202,7 @@ export default function VendorVerification({ confirm, onMutation }) {
     if (!notes.trim()) return;
     setActionLoading("notes");
     try {
-      await api().patch(
+      await makeApi().patch(
         `/vendors/${vendorId}/verification-notes`,
         { notes }
       );
@@ -184,13 +218,13 @@ export default function VendorVerification({ confirm, onMutation }) {
   return (
     <div style={s.wrap}>
 
-      {/* ── Header ─────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════
+          HEADER
+      ══════════════════════════════════════════════ */}
       <div style={s.header}>
         <div>
           <h2 style={s.title}>🏪 Vendor Verification</h2>
-          <p style={s.subtitle}>
-            Review and approve seller applications
-          </p>
+          <p style={s.subtitle}>Review and approve seller applications</p>
         </div>
         <div style={s.countPills}>
           {["pending", "under_review", "active"].map((st) => {
@@ -198,45 +232,31 @@ export default function VendorVerification({ confirm, onMutation }) {
             return (
               <div
                 key={st}
-                style={{
-                  ...s.countPill,
-                  background: cfg.bg,
-                  color:      cfg.color,
-                }}
+                style={{ ...s.countPill, background: cfg.bg, color: cfg.color }}
               >
                 <span style={{ fontWeight: 800 }}>
                   {statusCounts[st] ?? 0}
                 </span>
-                <span style={{ fontSize: "0.75rem" }}>
-                  {cfg.label}
-                </span>
+                <span style={{ fontSize: "0.75rem" }}>{cfg.label}</span>
               </div>
             );
           })}
         </div>
       </div>
 
-      {/* ── Filters ──────────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════
+          FILTERS
+      ══════════════════════════════════════════════ */}
       <div style={s.filters}>
         <div style={s.tabs}>
           {STATUS_FILTERS.map((st) => (
             <button
               key={st}
-              style={{
-                ...s.tab,
-                ...(statusFilter === st ? s.tabActive : {}),
-              }}
-              onClick={() => {
-                setStatusFilter(st);
-                setSelectedVendor(null);
-              }}
+              style={{ ...s.tab, ...(statusFilter === st ? s.tabActive : {}) }}
+              onClick={() => { setStatusFilter(st); setSelectedVendor(null); }}
             >
-              {st === "all"
-                ? "All"
-                : STATUS_CONFIG[st]?.label ?? st}
-              {st !== "all" && statusCounts[st]
-                ? ` (${statusCounts[st]})`
-                : ""}
+              {st === "all" ? "All" : STATUS_CONFIG[st]?.label ?? st}
+              {st !== "all" && statusCounts[st] ? ` (${statusCounts[st]})` : ""}
             </button>
           ))}
         </div>
@@ -248,10 +268,12 @@ export default function VendorVerification({ confirm, onMutation }) {
         />
       </div>
 
-      {/* ── Main layout ───────────────────────────────────── */}
+      {/* ══════════════════════════════════════════════
+          MAIN LAYOUT
+      ══════════════════════════════════════════════ */}
       <div style={s.layout}>
 
-        {/* Vendor list */}
+        {/* Vendor List */}
         <div style={s.list}>
           {loading ? (
             <LoadingRows />
@@ -275,7 +297,7 @@ export default function VendorVerification({ confirm, onMutation }) {
           )}
         </div>
 
-        {/* Detail panel */}
+        {/* Detail Panel */}
         {selectedVendor ? (
           <div style={s.detail}>
             {detailLoading ? (
@@ -305,7 +327,7 @@ export default function VendorVerification({ confirm, onMutation }) {
         )}
       </div>
 
-      {/* Status modal */}
+      {/* Status Modal */}
       {statusModal.open && (
         <StatusModal
           modal={statusModal}
@@ -318,25 +340,18 @@ export default function VendorVerification({ confirm, onMutation }) {
   );
 }
 
-// ═════════════════════════════════════════════════════════════
-// VENDOR ROW
-// ═════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
+   VENDOR ROW
+═══════════════════════════════════════════════════════════════ */
 function VendorRow({ vendor, selected, onClick }) {
   const cfg = STATUS_CONFIG[vendor.status] ?? STATUS_CONFIG.pending;
   return (
     <div
-      style={{
-        ...s.vendorRow,
-        ...(selected ? s.vendorRowSelected : {}),
-      }}
+      style={{ ...s.vendorRow, ...(selected ? s.vendorRowSelected : {}) }}
       onClick={onClick}
     >
       {vendor.store_logo ? (
-        <img
-          src={vendor.store_logo}
-          alt=""
-          style={s.vendorLogo}
-        />
+        <img src={vendor.store_logo} alt="" style={s.vendorLogo} />
       ) : (
         <div style={s.vendorLogoPlaceholder}>
           {vendor.store_name?.[0]?.toUpperCase() ?? "S"}
@@ -346,24 +361,19 @@ function VendorRow({ vendor, selected, onClick }) {
         <div style={s.vendorName}>{vendor.store_name}</div>
         <div style={s.vendorOwner}>{vendor.owner_email}</div>
         <div style={s.vendorMeta}>
-          {vendor.store_category} ·{" "}
-          {new Date(vendor.created_at).toLocaleDateString()}
+          {vendor.store_category} · {new Date(vendor.created_at).toLocaleDateString()}
         </div>
       </div>
-      <span style={{
-        ...s.statusBadge,
-        color:      cfg.color,
-        background: cfg.bg,
-      }}>
+      <span style={{ ...s.statusBadge, color: cfg.color, background: cfg.bg }}>
         {cfg.label}
       </span>
     </div>
   );
 }
 
-// ═════════════════════════════════════════════════════════════
-// DETAIL PANEL
-// ═════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
+   DETAIL PANEL
+═══════════════════════════════════════════════════════════════ */
 function DetailPanel({
   data, activeTab, setActiveTab,
   statusModal, setStatusModal,
@@ -375,14 +385,6 @@ function DetailPanel({
   const cfg     = STATUS_CONFIG[vendor.status] ?? STATUS_CONFIG.pending;
   const allowed = ALLOWED_TRANSITIONS[vendor.status] ?? [];
 
-  const ACTION_LABELS = {
-    active:       "✅ Activate",
-    approved:     "👍 Approve",
-    under_review: "🔍 Under Review",
-    rejected:     "❌ Reject",
-    suspended:    "🚫 Suspend",
-  };
-
   return (
     <div style={s.detailWrap}>
 
@@ -390,11 +392,7 @@ function DetailPanel({
       <div style={s.detailHeader}>
         <div style={s.detailHeaderLeft}>
           {vendor.store_logo ? (
-            <img
-              src={vendor.store_logo}
-              alt=""
-              style={s.detailLogo}
-            />
+            <img src={vendor.store_logo} alt="" style={s.detailLogo} />
           ) : (
             <div style={s.detailLogoPlaceholder}>
               {vendor.store_name?.[0]?.toUpperCase() ?? "S"}
@@ -402,11 +400,7 @@ function DetailPanel({
           )}
           <div>
             <h3 style={s.detailName}>{vendor.store_name}</h3>
-            <span style={{
-              ...s.statusBadge,
-              color:      cfg.color,
-              background: cfg.bg,
-            }}>
+            <span style={{ ...s.statusBadge, color: cfg.color, background: cfg.bg }}>
               {cfg.label}
             </span>
           </div>
@@ -424,15 +418,13 @@ function DetailPanel({
                 key={st}
                 style={{
                   ...s.actionBtn,
-                  background: c.bg,
-                  color:      c.color,
-                  border:     `1px solid ${c.color}`,
-                  opacity:    actionLoading ? 0.6 : 1,
+                  background : c.bg,
+                  color      : c.color,
+                  border     : `1px solid ${c.color}`,
+                  opacity    : actionLoading ? 0.6 : 1,
                 }}
                 disabled={!!actionLoading}
-                onClick={() => {
-                  setStatusModal({ open: true, status: st, reason: "" });
-                }}
+                onClick={() => setStatusModal({ open: true, status: st, reason: "" })}
               >
                 {ACTION_LABELS[st] ?? st}
               </button>
@@ -443,14 +435,7 @@ function DetailPanel({
 
       {/* Tabs */}
       <div style={s.detailTabs}>
-        {[
-          { key: "info",    label: "ℹ️ Info"    },
-          { key: "id",      label: "🪪 ID"       },
-          { key: "docs",    label: "📄 Docs"    },
-          { key: "bank",    label: "🏦 Bank"    },
-          { key: "wallet",  label: "💳 Wallet"  },
-          { key: "history", label: "📋 History" },
-        ].map((tab) => (
+        {DETAIL_TABS.map((tab) => (
           <button
             key={tab.key}
             style={{
@@ -464,46 +449,22 @@ function DetailPanel({
         ))}
       </div>
 
-      {/* Tab content */}
+      {/* Tab Content */}
       <div style={s.detailBody}>
 
-        {/* ── INFO ──────────────────────────────────────── */}
+        {/* ── INFO ── */}
         {activeTab === "info" && (
           <div style={s.infoGrid}>
             <InfoRow label="Owner"    value={vendor.owner_name}     />
             <InfoRow label="Email"    value={vendor.owner_email}    />
             <InfoRow label="Phone"    value={vendor.owner_phone}    />
             <InfoRow label="Category" value={vendor.store_category} />
-            <InfoRow
-              label="Applied"
-              value={new Date(vendor.created_at).toLocaleDateString()}
-            />
-            {vendor.approved_at && (
-              <InfoRow
-                label="Approved"
-                value={new Date(vendor.approved_at).toLocaleDateString()}
-              />
-            )}
-            {vendor.activated_at && (
-              <InfoRow
-                label="Activated"
-                value={new Date(vendor.activated_at).toLocaleDateString()}
-              />
-            )}
-            {vendor.rejection_reason && (
-              <InfoRow
-                label="Rejection Reason"
-                value={vendor.rejection_reason}
-                danger
-              />
-            )}
-            {vendor.suspended_reason && (
-              <InfoRow
-                label="Suspension Reason"
-                value={vendor.suspended_reason}
-                danger
-              />
-            )}
+            <InfoRow label="Applied"  value={new Date(vendor.created_at).toLocaleDateString()} />
+            {vendor.approved_at  && <InfoRow label="Approved"  value={new Date(vendor.approved_at).toLocaleDateString()}  />}
+            {vendor.activated_at && <InfoRow label="Activated" value={new Date(vendor.activated_at).toLocaleDateString()} />}
+            {vendor.rejection_reason  && <InfoRow label="Rejection Reason"  value={vendor.rejection_reason}  danger />}
+            {vendor.suspended_reason  && <InfoRow label="Suspension Reason" value={vendor.suspended_reason}  danger />}
+
             {vendor.store_description && (
               <div style={s.descBox}>
                 <span style={s.descLabel}>Description</span>
@@ -515,9 +476,7 @@ function DetailPanel({
             <div style={s.notesSection}>
               <label style={s.notesLabel}>Internal Notes</label>
               {vendor.verification_notes && (
-                <div style={s.existingNote}>
-                  {vendor.verification_notes}
-                </div>
+                <div style={s.existingNote}>{vendor.verification_notes}</div>
               )}
               <textarea
                 style={s.notesInput}
@@ -529,9 +488,7 @@ function DetailPanel({
               <button
                 style={{
                   ...s.saveNotesBtn,
-                  opacity: (
-                    actionLoading === "notes" || !notes.trim()
-                  ) ? 0.6 : 1,
+                  opacity: (actionLoading === "notes" || !notes.trim()) ? 0.6 : 1,
                 }}
                 disabled={actionLoading === "notes" || !notes.trim()}
                 onClick={() => saveNotes(vendor.id)}
@@ -542,7 +499,7 @@ function DetailPanel({
           </div>
         )}
 
-        {/* ── ID ────────────────────────────────────────── */}
+        {/* ── ID ── */}
         {activeTab === "id" && (
           <div style={s.infoGrid}>
             <div style={s.sectionLabel}>🪪 Identity Information</div>
@@ -551,27 +508,19 @@ function DetailPanel({
               <>
                 <InfoRow
                   label="ID Type"
-                  value={
-                    ID_LABELS[vendor.id_type] ??
-                    vendor.id_type?.toUpperCase()
-                  }
+                  value={ID_LABELS[vendor.id_type] ?? vendor.id_type?.toUpperCase()}
                 />
                 <InfoRow
                   label="ID Number"
                   value={
-                    <span style={{
-                      fontFamily:    "monospace",
-                      letterSpacing: "0.08em",
-                    }}>
+                    <span style={{ fontFamily: "monospace", letterSpacing: "0.08em" }}>
                       {vendor.id_number ?? "—"}
                     </span>
                   }
                 />
               </>
             ) : (
-              <div style={s.warningBox}>
-                ⚠️ No ID information submitted yet
-              </div>
+              <div style={s.warningBox}>⚠️ No ID information submitted yet</div>
             )}
 
             <div style={{ ...s.sectionLabel, marginTop: "0.75rem" }}>
@@ -579,15 +528,11 @@ function DetailPanel({
             </div>
             {vendor.seller_address ? (
               <div style={s.addressBox}>
-                <span style={{ fontSize: "1.1rem", flexShrink: 0 }}>
-                  📍
-                </span>
+                <span style={{ fontSize: "1.1rem", flexShrink: 0 }}>📍</span>
                 <p style={s.addressText}>{vendor.seller_address}</p>
               </div>
             ) : (
-              <div style={s.warningBox}>
-                ⚠️ No address submitted yet
-              </div>
+              <div style={s.warningBox}>⚠️ No address submitted yet</div>
             )}
 
             {vendor.verification_status && (
@@ -595,74 +540,34 @@ function DetailPanel({
                 <div style={{ ...s.sectionLabel, marginTop: "0.75rem" }}>
                   📋 Verification Status
                 </div>
-                <InfoRow
-                  label="Status"
-                  value={vendor.verification_status}
-                />
+                <InfoRow label="Status" value={vendor.verification_status} />
               </>
             )}
           </div>
         )}
 
-        {/* ── DOCS ──────────────────────────────────────── */}
+        {/* ── DOCS ── */}
         {activeTab === "docs" && (
           <div>
             <div style={s.docsGrid}>
-              <DocImage
-                label="🪪 ID Front"
-                url={vendor.id_card_url}
-                required
-                side="front"
-              />
-              <DocImage
-                label="🪪 ID Back"
-                url={vendor.id_card_back_url}
-                required
-                side="back"
-              />
+              <DocImage label="🪪 ID Front" url={vendor.id_card_url}      required side="front" />
+              <DocImage label="🪪 ID Back"  url={vendor.id_card_back_url} required side="back"  />
             </div>
-            <div style={{
-              display:       "flex",
-              flexDirection: "column",
-              gap:           "1rem",
-              marginTop:     "1rem",
-            }}>
-              <DocImage
-                label="🤳 Selfie with ID"
-                url={vendor.selfie_url}
-                required
-              />
-              <DocImage
-                label="📄 Business Registration"
-                url={vendor.business_doc_url}
-              />
-              <DocImage
-                label="📍 Address Proof"
-                url={vendor.address_proof_url}
-              />
+            <div style={{ display: "flex", flexDirection: "column", gap: "1rem", marginTop: "1rem" }}>
+              <DocImage label="🤳 Selfie with ID"        url={vendor.selfie_url}        required />
+              <DocImage label="📄 Business Registration" url={vendor.business_doc_url}           />
+              <DocImage label="📍 Address Proof"         url={vendor.address_proof_url}          />
             </div>
           </div>
         )}
 
-        {/* ── BANK ──────────────────────────────────────── */}
+        {/* ── BANK ── */}
         {activeTab === "bank" && (
           <div style={s.infoGrid}>
-            <div style={s.sectionLabel}>
-              🏦 Payout Bank Account
-            </div>
-            <InfoRow
-              label="Bank Name"
-              value={vendor.bank_name}
-            />
-            <InfoRow
-              label="Account Number"
-              value={vendor.bank_account}
-            />
-            <InfoRow
-              label="Account Name"
-              value={vendor.account_name}
-            />
-
+            <div style={s.sectionLabel}>🏦 Payout Bank Account</div>
+            <InfoRow label="Bank Name"      value={vendor.bank_name}    />
+            <InfoRow label="Account Number" value={vendor.bank_account} />
+            <InfoRow label="Account Name"   value={vendor.account_name} />
             {!vendor.bank_name && (
               <div style={s.warningBox}>
                 ⚠️ Seller has not configured a bank account yet.
@@ -672,7 +577,7 @@ function DetailPanel({
           </div>
         )}
 
-        {/* ── WALLET ────────────────────────────────────── */}
+        {/* ── WALLET ── */}
         {activeTab === "wallet" && (
           <WalletTab
             vendorId={vendor.id}
@@ -680,7 +585,7 @@ function DetailPanel({
           />
         )}
 
-        {/* ── HISTORY ───────────────────────────────────── */}
+        {/* ── HISTORY ── */}
         {activeTab === "history" && (
           <div style={s.historyList}>
             {!history?.length ? (
@@ -694,17 +599,11 @@ function DetailPanel({
                     <StatusBadge status={h.new_status} />
                   </div>
                   <div style={s.historyMeta}>
-                    {h.changed_by_name && (
-                      <span>by {h.changed_by_name}</span>
-                    )}
-                    <span>
-                      {new Date(h.created_at).toLocaleString()}
-                    </span>
+                    {h.changed_by_name && <span>by {h.changed_by_name}</span>}
+                    <span>{new Date(h.created_at).toLocaleString()}</span>
                   </div>
                   {h.reason && (
-                    <div style={s.historyReason}>
-                      "{h.reason}"
-                    </div>
+                    <div style={s.historyReason}>"{h.reason}"</div>
                   )}
                 </div>
               ))
@@ -717,9 +616,9 @@ function DetailPanel({
   );
 }
 
-// ═════════════════════════════════════════════════════════════
-// WALLET TAB
-// ═════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
+   WALLET TAB
+═══════════════════════════════════════════════════════════════ */
 function WalletTab({ vendorId, walletCacheRef }) {
   const [walletData, setWalletData] = useState(null);
   const [loading,    setLoading]    = useState(true);
@@ -736,7 +635,7 @@ function WalletTab({ vendorId, walletCacheRef }) {
       }
 
       try {
-        const { data } = await api().get(`/vendors/${vendorId}/wallet`);
+        const { data } = await makeApi().get(`/vendors/${vendorId}/wallet`);
         walletCacheRef.current[vendorId] = data;
         setWalletData(data);
       } catch (err) {
@@ -749,9 +648,7 @@ function WalletTab({ vendorId, walletCacheRef }) {
     fetchWallet();
   }, [vendorId, walletCacheRef]);
 
-  if (loading) {
-    return <div style={s.empty}>Loading wallet…</div>;
-  }
+  if (loading) return <div style={s.empty}>Loading wallet…</div>;
 
   if (!walletData?.wallet) {
     return (
@@ -765,36 +662,17 @@ function WalletTab({ vendorId, walletCacheRef }) {
 
   return (
     <div>
-      {/* Balance cards */}
+      {/* Balance Cards */}
       <div style={s.balanceGrid}>
-        <BalanceCard
-          label="Available"
-          value={wallet.available_balance}
-          color="#10b981"
-        />
-        <BalanceCard
-          label="Pending"
-          value={wallet.pending_balance}
-          color="#f59e0b"
-        />
-        <BalanceCard
-          label="Total Received"
-          value={wallet.total_received}
-          color="#6366f1"
-        />
-        <BalanceCard
-          label="Withdrawn"
-          value={wallet.total_withdrawn}
-          color="#6b7280"
-        />
+        <BalanceCard label="Available"     value={wallet.available_balance} color="#10b981" />
+        <BalanceCard label="Pending"       value={wallet.pending_balance}   color="#f59e0b" />
+        <BalanceCard label="Total Received" value={wallet.total_received}   color="#6366f1" />
+        <BalanceCard label="Withdrawn"     value={wallet.total_withdrawn}   color="#6b7280" />
       </div>
 
       {/* Frozen notice */}
       {wallet.is_frozen && (
-        <div style={{
-          ...s.warningBox,
-          marginBottom: "1rem",
-        }}>
+        <div style={{ ...s.warningBox, marginBottom: "1rem" }}>
           🚫 Wallet is frozen: {wallet.frozen_reason ?? "No reason given"}
         </div>
       )}
@@ -805,18 +683,11 @@ function WalletTab({ vendorId, walletCacheRef }) {
           <div style={s.txTitle}>Recent Transactions</div>
           {transactions.slice(0, 5).map((tx) => (
             <div key={tx.id} style={s.txRow}>
-              <span style={{
-                ...s.txType,
-                color: tx.type === "credit" ? "#10b981" : "#ef4444",
-              }}>
+              <span style={{ ...s.txType, color: tx.type === "credit" ? "#10b981" : "#ef4444" }}>
                 {tx.type === "credit" ? "↑" : "↓"} {tx.type}
               </span>
-              <span style={s.txAmount}>
-                ₦{Number(tx.amount).toLocaleString()}
-              </span>
-              <span style={s.txDate}>
-                {new Date(tx.created_at).toLocaleDateString()}
-              </span>
+              <span style={s.txAmount}>₦{Number(tx.amount).toLocaleString()}</span>
+              <span style={s.txDate}>{new Date(tx.created_at).toLocaleDateString()}</span>
               <TxStatus status={tx.status} />
             </div>
           ))}
@@ -829,15 +700,9 @@ function WalletTab({ vendorId, walletCacheRef }) {
           <div style={s.txTitle}>Recent Withdrawals</div>
           {withdrawals.slice(0, 5).map((wd) => (
             <div key={wd.id} style={s.txRow}>
-              <span style={{ ...s.txType, color: "#ef4444" }}>
-                ↓ withdrawal
-              </span>
-              <span style={s.txAmount}>
-                ₦{Number(wd.amount).toLocaleString()}
-              </span>
-              <span style={s.txDate}>
-                {new Date(wd.created_at).toLocaleDateString()}
-              </span>
+              <span style={{ ...s.txType, color: "#ef4444" }}>↓ withdrawal</span>
+              <span style={s.txAmount}>₦{Number(wd.amount).toLocaleString()}</span>
+              <span style={s.txDate}>{new Date(wd.created_at).toLocaleDateString()}</span>
               <TxStatus status={wd.status} />
             </div>
           ))}
@@ -851,18 +716,16 @@ function WalletTab({ vendorId, walletCacheRef }) {
   );
 }
 
-// ═════════════════════════════════════════════════════════════
-// STATUS MODAL
-// ═════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
+   STATUS MODAL
+═══════════════════════════════════════════════════════════════ */
 function StatusModal({ modal, setModal, onConfirm, loading }) {
   const cfg            = STATUS_CONFIG[modal.status] ?? {};
   const requiresReason = ["rejected", "suspended"].includes(modal.status);
 
   useEffect(() => {
     const handler = (e) => {
-      if (e.key === "Escape") {
-        setModal({ ...modal, open: false });
-      }
+      if (e.key === "Escape") setModal({ ...modal, open: false });
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
@@ -873,10 +736,7 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
       style={s.modalOverlay}
       onClick={() => setModal({ ...modal, open: false })}
     >
-      <div
-        style={s.modal}
-        onClick={(e) => e.stopPropagation()}
-      >
+      <div style={s.modal} onClick={(e) => e.stopPropagation()}>
         <h3 style={s.modalTitle}>Confirm Status Change</h3>
         <p style={s.modalBody}>
           Change vendor status to{" "}
@@ -898,9 +758,7 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
                   : "e.g. Policy violation, suspicious activity…"
               }
               value={modal.reason}
-              onChange={(e) =>
-                setModal({ ...modal, reason: e.target.value })
-              }
+              onChange={(e) => setModal({ ...modal, reason: e.target.value })}
               rows={3}
               autoFocus
             />
@@ -917,16 +775,11 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
           <button
             style={{
               ...s.modalConfirmBtn,
-              background: cfg.color ?? "#6366f1",
-              opacity: (
-                loading ||
-                (requiresReason && !modal.reason.trim())
-              ) ? 0.6 : 1,
+              background : cfg.color ?? "#6366f1",
+              opacity    : (loading || (requiresReason && !modal.reason.trim()))
+                ? 0.6 : 1,
             }}
-            disabled={
-              loading ||
-              (requiresReason && !modal.reason.trim())
-            }
+            disabled={loading || (requiresReason && !modal.reason.trim())}
             onClick={onConfirm}
           >
             {loading ? "Updating…" : "Confirm"}
@@ -937,9 +790,9 @@ function StatusModal({ modal, setModal, onConfirm, loading }) {
   );
 }
 
-// ═════════════════════════════════════════════════════════════
-// SMALL COMPONENTS
-// ═════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
+   SMALL COMPONENTS
+═══════════════════════════════════════════════════════════════ */
 function DocImage({ label, url, required, side }) {
   if (!url) {
     return (
@@ -949,8 +802,8 @@ function DocImage({ label, url, required, side }) {
           {side && (
             <span style={{
               ...s.sideBadge,
-              background: side === "front" ? "#eef2ff" : "#f0fdf4",
-              color:      side === "front" ? "#6366f1" : "#16a34a",
+              background : side === "front" ? "#eef2ff" : "#f0fdf4",
+              color      : side === "front" ? "#6366f1" : "#16a34a",
             }}>
               {side}
             </span>
@@ -970,8 +823,8 @@ function DocImage({ label, url, required, side }) {
         {side && (
           <span style={{
             ...s.sideBadge,
-            background: side === "front" ? "#eef2ff" : "#f0fdf4",
-            color:      side === "front" ? "#6366f1" : "#16a34a",
+            background : side === "front" ? "#eef2ff" : "#f0fdf4",
+            color      : side === "front" ? "#6366f1" : "#16a34a",
           }}>
             {side}
           </span>
@@ -980,12 +833,7 @@ function DocImage({ label, url, required, side }) {
       <a href={url} target="_blank" rel="noreferrer">
         <img src={url} alt={label} style={s.docImg} />
       </a>
-      <a
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        style={s.docLink}
-      >
+      <a href={url} target="_blank" rel="noreferrer" style={s.docLink}>
         Open full size ↗
       </a>
     </div>
@@ -996,10 +844,7 @@ function InfoRow({ label, value, danger }) {
   return (
     <div style={s.infoRow}>
       <span style={s.infoLabel}>{label}</span>
-      <span style={{
-        ...s.infoValue,
-        color: danger ? "#ef4444" : "#1f2937",
-      }}>
+      <span style={{ ...s.infoValue, color: danger ? "#ef4444" : "#1f2937" }}>
         {value ?? "—"}
       </span>
     </div>
@@ -1008,18 +853,18 @@ function InfoRow({ label, value, danger }) {
 
 function StatusBadge({ status }) {
   const cfg = STATUS_CONFIG[status] ?? {
-    label: status ?? "—",
-    color: "#6b7280",
-    bg:    "#f9fafb",
+    label : status ?? "—",
+    color : "#6b7280",
+    bg    : "#f9fafb",
   };
   return (
     <span style={{
-      padding:      "0.15rem 0.5rem",
-      borderRadius: "100px",
-      fontSize:     "0.72rem",
-      fontWeight:   700,
-      color:        cfg.color,
-      background:   cfg.bg,
+      padding      : "0.15rem 0.5rem",
+      borderRadius : "100px",
+      fontSize     : "0.72rem",
+      fontWeight   : 700,
+      color        : cfg.color,
+      background   : cfg.bg,
     }}>
       {cfg.label}
     </span>
@@ -1030,9 +875,7 @@ function BalanceCard({ label, value, color }) {
   return (
     <div style={{ ...s.balanceCard, borderTop: `3px solid ${color}` }}>
       <span style={{ ...s.balanceAmount, color }}>
-        ₦{Number(value).toLocaleString("en-NG", {
-          minimumFractionDigits: 2,
-        })}
+        ₦{Number(value).toLocaleString("en-NG", { minimumFractionDigits: 2 })}
       </span>
       <span style={s.balanceLabel}>{label}</span>
     </div>
@@ -1040,20 +883,9 @@ function BalanceCard({ label, value, color }) {
 }
 
 function TxStatus({ status }) {
-  const cfg = {
-    success:    { color: "#10b981", label: "Success"    },
-    paid:       { color: "#10b981", label: "Paid"       },
-    pending:    { color: "#f59e0b", label: "Pending"    },
-    processing: { color: "#6366f1", label: "Processing" },
-    failed:     { color: "#ef4444", label: "Failed"     },
-  }[status] ?? { color: "#9ca3af", label: status ?? "—" };
-
+  const cfg = TX_STATUS_CONFIG[status] ?? { color: "#9ca3af", label: status ?? "—" };
   return (
-    <span style={{
-      fontSize:   "0.72rem",
-      fontWeight: 600,
-      color:      cfg.color,
-    }}>
+    <span style={{ fontSize: "0.72rem", fontWeight: 600, color: cfg.color }}>
       {cfg.label}
     </span>
   );
@@ -1095,11 +927,7 @@ function LoadingRows() {
           <div style={s.skeletonCircle} />
           <div style={{ flex: 1 }}>
             <div style={s.skeletonLine} />
-            <div style={{
-              ...s.skeletonLine,
-              width:     "60%",
-              marginTop: 6,
-            }} />
+            <div style={{ ...s.skeletonLine, width: "60%", marginTop: 6 }} />
           </div>
         </div>
       ))}
@@ -1107,101 +935,101 @@ function LoadingRows() {
   );
 }
 
-// ═════════════════════════════════════════════════════════════
-// STYLES — unchanged from original
-// ═════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
+   STYLES
+═══════════════════════════════════════════════════════════════ */
 const s = {
-  wrap:     { display: "flex", flexDirection: "column", gap: "1.25rem" },
-  header:   { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" },
-  title:    { fontSize: "1.35rem", fontWeight: 800, color: "var(--text,#1f2937)", margin: 0 },
-  subtitle: { color: "var(--muted,#6b7280)", fontSize: "0.875rem", margin: "0.25rem 0 0" },
-  countPills: { display: "flex", gap: "0.75rem", flexWrap: "wrap" },
-  countPill:  { display: "flex", flexDirection: "column", alignItems: "center", padding: "0.5rem 1rem", borderRadius: "12px", minWidth: "70px", gap: "0.15rem" },
-  filters:  { display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" },
-  tabs:     { display: "flex", gap: "0.35rem", flexWrap: "wrap" },
-  tab:      { padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "100px", background: "white", fontSize: "0.8rem", color: "#6b7280", cursor: "pointer", fontWeight: 500 },
-  tabActive:{ background: "#6366f1", color: "white", borderColor: "#6366f1", fontWeight: 700 },
-  search:   { flex: 1, minWidth: "200px", padding: "0.5rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "10px", fontSize: "0.875rem", outline: "none" },
-  layout:   { display: "grid", gridTemplateColumns: "340px 1fr", gap: "1.25rem", minHeight: "500px" },
-  list:     { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden", display: "flex", flexDirection: "column" },
-  vendorRow:         { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.875rem 1rem", cursor: "pointer", borderBottom: "1px solid #f9fafb", transition: "background 0.1s" },
-  vendorRowSelected: { background: "#eef2ff" },
-  vendorLogo:            { width: "40px", height: "40px", borderRadius: "10px", objectFit: "cover", flexShrink: 0 },
-  vendorLogoPlaceholder: { width: "40px", height: "40px", borderRadius: "10px", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "1.1rem", flexShrink: 0 },
-  vendorName:  { fontWeight: 600, color: "#1f2937", fontSize: "0.875rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  vendorOwner: { fontSize: "0.78rem", color: "#6b7280", marginTop: "0.15rem" },
-  vendorMeta:  { fontSize: "0.72rem", color: "#9ca3af", marginTop: "0.1rem" },
-  statusBadge: { display: "inline-block", padding: "0.15rem 0.6rem", borderRadius: "100px", fontSize: "0.72rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 },
-  detail:       { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden" },
-  detailEmpty:  { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#9ca3af", gap: "0.75rem", minHeight: "400px" },
-  detailLoading:{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "300px", color: "#9ca3af" },
-  detailWrap:       { display: "flex", flexDirection: "column", height: "100%" },
-  detailHeader:     { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.25rem", borderBottom: "1px solid #f3f4f6" },
-  detailHeaderLeft: { display: "flex", alignItems: "center", gap: "0.875rem" },
-  detailLogo:            { width: "48px", height: "48px", borderRadius: "12px", objectFit: "cover" },
-  detailLogoPlaceholder: { width: "48px", height: "48px", borderRadius: "12px", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "1.25rem" },
-  detailName: { fontWeight: 800, color: "#1f2937", margin: "0 0 0.25rem" },
-  closeBtn:   { background: "none", border: "none", fontSize: "1.1rem", cursor: "pointer", color: "#9ca3af", padding: "0.25rem" },
-  actionRow:  { display: "flex", gap: "0.5rem", padding: "0.75rem 1.25rem", flexWrap: "wrap", borderBottom: "1px solid #f3f4f6" },
-  actionBtn:  { padding: "0.45rem 0.875rem", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", transition: "all 0.15s" },
-  detailTabs:     { display: "flex", borderBottom: "1px solid #f3f4f6", overflowX: "auto" },
-  detailTab:      { padding: "0.65rem 1rem", border: "none", background: "transparent", color: "#6b7280", fontSize: "0.85rem", cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500, borderBottom: "2px solid transparent" },
-  detailTabActive:{ color: "#6366f1", borderBottomColor: "#6366f1", fontWeight: 700 },
-  detailBody:     { padding: "1.25rem", overflowY: "auto", flex: 1 },
-  infoGrid:    { display: "flex", flexDirection: "column", gap: "0.5rem" },
-  infoRow:     { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.75rem", background: "#f8fafc", borderRadius: "8px" },
-  infoLabel:   { color: "#6b7280", fontSize: "0.8rem", fontWeight: 500 },
-  infoValue:   { fontWeight: 600, fontSize: "0.875rem", textAlign: "right", wordBreak: "break-all" },
-  sectionLabel:{ fontWeight: 700, color: "#374151", fontSize: "0.82rem", padding: "0.35rem 0", borderBottom: "1px solid #f3f4f6", marginBottom: "0.25rem" },
-  descBox:     { padding: "0.75rem", background: "#f8fafc", borderRadius: "8px" },
-  descLabel:   { color: "#6b7280", fontSize: "0.8rem", fontWeight: 500, display: "block", marginBottom: "0.35rem" },
-  descText:    { fontSize: "0.875rem", color: "#374151", margin: 0, lineHeight: 1.5 },
-  notesSection:{ marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" },
-  notesLabel:  { fontWeight: 600, color: "#374151", fontSize: "0.85rem" },
-  existingNote:{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.5rem 0.75rem", fontSize: "0.8rem", color: "#92400e" },
-  notesInput:  { width: "100%", padding: "0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", resize: "vertical", outline: "none", boxSizing: "border-box" },
-  saveNotesBtn:{ alignSelf: "flex-end", padding: "0.45rem 1rem", background: "#6366f1", color: "white", border: "none", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" },
-  warningBox:  { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.75rem", color: "#92400e", fontSize: "0.85rem" },
-  addressBox:  { display: "flex", alignItems: "flex-start", gap: "0.75rem", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: "8px", padding: "0.875rem 1rem" },
-  addressText: { color: "#064e3b", fontWeight: 600, fontSize: "0.875rem", margin: 0, lineHeight: 1.5 },
-  docsGrid:  { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" },
-  docCard:   { background: "#f8fafc", borderRadius: "10px", padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" },
-  docLabel:  { fontWeight: 600, color: "#374151", fontSize: "0.8rem" },
-  docImg:    { width: "100%", borderRadius: "8px", objectFit: "cover", maxHeight: "180px", border: "1px solid #e5e7eb" },
-  docLink:   { fontSize: "0.75rem", color: "#6366f1", textDecoration: "none" },
-  docMissing:{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem", background: "#f8fafc", borderRadius: "10px", fontSize: "0.8rem", color: "#374151" },
-  sideBadge: { fontSize: "0.65rem", fontWeight: 700, padding: "0.1rem 0.45rem", borderRadius: "100px", textTransform: "uppercase", letterSpacing: "0.04em" },
-  balanceGrid:  { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" },
-  balanceCard:  { background: "#f8fafc", borderRadius: "10px", padding: "0.875rem", display: "flex", flexDirection: "column", gap: "0.25rem" },
-  balanceAmount:{ fontWeight: 800, fontSize: "1.1rem" },
-  balanceLabel: { fontSize: "0.75rem", color: "#9ca3af", fontWeight: 500 },
-  txSection:{ marginTop: "0.75rem" },
-  txTitle:  { fontWeight: 700, color: "#374151", fontSize: "0.85rem", marginBottom: "0.5rem" },
-  txRow:    { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.5rem 0", borderBottom: "1px solid #f9fafb", fontSize: "0.82rem" },
-  txType:   { fontWeight: 600, width: "80px", flexShrink: 0 },
-  txAmount: { fontWeight: 700, color: "#1f2937", flex: 1 },
-  txDate:   { color: "#9ca3af", flexShrink: 0 },
-  historyList:  { display: "flex", flexDirection: "column", gap: "0.75rem" },
-  historyRow:   { background: "#f8fafc", borderRadius: "10px", padding: "0.75rem 1rem" },
-  historyBadges:{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" },
-  arrow:        { color: "#9ca3af", fontSize: "0.8rem" },
-  historyMeta:  { display: "flex", gap: "1rem", fontSize: "0.75rem", color: "#9ca3af" },
-  historyReason:{ fontSize: "0.8rem", color: "#6b7280", marginTop: "0.35rem", fontStyle: "italic" },
-  modalOverlay:    { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
-  modal:           { background: "white", borderRadius: "16px", padding: "2rem", maxWidth: "420px", width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" },
-  modalTitle:      { fontWeight: 800, color: "#1f2937", margin: "0 0 0.75rem", fontSize: "1.1rem" },
-  modalBody:       { color: "#6b7280", lineHeight: 1.6, margin: "0 0 1rem", fontSize: "0.9rem" },
-  modalReasonWrap: { marginBottom: "1.25rem" },
-  modalReasonLabel:{ fontWeight: 600, color: "#374151", fontSize: "0.85rem", display: "block", marginBottom: "0.5rem" },
-  modalReason:     { width: "100%", padding: "0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", resize: "vertical", outline: "none", boxSizing: "border-box" },
-  modalBtns:       { display: "flex", gap: "0.75rem", justifyContent: "flex-end" },
-  modalCancelBtn:  { padding: "0.6rem 1.25rem", border: "1px solid #e5e7eb", background: "white", borderRadius: "8px", fontWeight: 600, cursor: "pointer", fontSize: "0.875rem" },
-  modalConfirmBtn: { padding: "0.6rem 1.5rem", border: "none", borderRadius: "8px", color: "white", fontWeight: 700, cursor: "pointer", fontSize: "0.875rem" },
-  pagination: { display: "flex", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "0.875rem", borderTop: "1px solid #f3f4f6", marginTop: "auto" },
-  pageBtn:    { padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "white", cursor: "pointer", fontSize: "0.82rem", fontWeight: 500 },
-  pageInfo:   { color: "#6b7280", fontSize: "0.82rem" },
-  skeletonRow:    { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.875rem 1rem", borderBottom: "1px solid #f9fafb" },
-  skeletonCircle: { width: "40px", height: "40px", borderRadius: "10px", background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 50%,#f3f4f6 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite", flexShrink: 0 },
-  skeletonLine:   { height: "12px", width: "80%", borderRadius: "6px", background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 50%,#f3f4f6 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite" },
-  empty: { textAlign: "center", color: "#9ca3af", padding: "2rem", fontSize: "0.875rem" },
+  wrap        : { display: "flex", flexDirection: "column", gap: "1.25rem" },
+  header      : { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: "1rem" },
+  title       : { fontSize: "1.35rem", fontWeight: 800, color: "var(--text,#1f2937)", margin: 0 },
+  subtitle    : { color: "var(--muted,#6b7280)", fontSize: "0.875rem", margin: "0.25rem 0 0" },
+  countPills  : { display: "flex", gap: "0.75rem", flexWrap: "wrap" },
+  countPill   : { display: "flex", flexDirection: "column", alignItems: "center", padding: "0.5rem 1rem", borderRadius: "12px", minWidth: "70px", gap: "0.15rem" },
+  filters     : { display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" },
+  tabs        : { display: "flex", gap: "0.35rem", flexWrap: "wrap" },
+  tab         : { padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "100px", background: "white", fontSize: "0.8rem", color: "#6b7280", cursor: "pointer", fontWeight: 500 },
+  tabActive   : { background: "#6366f1", color: "white", borderColor: "#6366f1", fontWeight: 700 },
+  search      : { flex: 1, minWidth: "200px", padding: "0.5rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "10px", fontSize: "0.875rem", outline: "none" },
+  layout      : { display: "grid", gridTemplateColumns: "340px 1fr", gap: "1.25rem", minHeight: "500px" },
+  list        : { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden", display: "flex", flexDirection: "column" },
+  vendorRow          : { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.875rem 1rem", cursor: "pointer", borderBottom: "1px solid #f9fafb", transition: "background 0.1s" },
+  vendorRowSelected  : { background: "#eef2ff" },
+  vendorLogo         : { width: "40px", height: "40px", borderRadius: "10px", objectFit: "cover", flexShrink: 0 },
+  vendorLogoPlaceholder : { width: "40px", height: "40px", borderRadius: "10px", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "1.1rem", flexShrink: 0 },
+  vendorName  : { fontWeight: 600, color: "#1f2937", fontSize: "0.875rem", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  vendorOwner : { fontSize: "0.78rem", color: "#6b7280", marginTop: "0.15rem" },
+  vendorMeta  : { fontSize: "0.72rem", color: "#9ca3af", marginTop: "0.1rem" },
+  statusBadge : { display: "inline-block", padding: "0.15rem 0.6rem", borderRadius: "100px", fontSize: "0.72rem", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0 },
+  detail      : { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", overflow: "hidden" },
+  detailEmpty : { background: "white", borderRadius: "14px", border: "1px solid #f3f4f6", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", color: "#9ca3af", gap: "0.75rem", minHeight: "400px" },
+  detailLoading : { display: "flex", alignItems: "center", justifyContent: "center", minHeight: "300px", color: "#9ca3af" },
+  detailWrap       : { display: "flex", flexDirection: "column", height: "100%" },
+  detailHeader     : { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 1.25rem", borderBottom: "1px solid #f3f4f6" },
+  detailHeaderLeft : { display: "flex", alignItems: "center", gap: "0.875rem" },
+  detailLogo            : { width: "48px", height: "48px", borderRadius: "12px", objectFit: "cover" },
+  detailLogoPlaceholder : { width: "48px", height: "48px", borderRadius: "12px", background: "linear-gradient(135deg,#6366f1,#8b5cf6)", color: "white", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: "1.25rem" },
+  detailName  : { fontWeight: 800, color: "#1f2937", margin: "0 0 0.25rem" },
+  closeBtn    : { background: "none", border: "none", fontSize: "1.1rem", cursor: "pointer", color: "#9ca3af", padding: "0.25rem" },
+  actionRow   : { display: "flex", gap: "0.5rem", padding: "0.75rem 1.25rem", flexWrap: "wrap", borderBottom: "1px solid #f3f4f6" },
+  actionBtn   : { padding: "0.45rem 0.875rem", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer", transition: "all 0.15s" },
+  detailTabs      : { display: "flex", borderBottom: "1px solid #f3f4f6", overflowX: "auto" },
+  detailTab       : { padding: "0.65rem 1rem", border: "none", background: "transparent", color: "#6b7280", fontSize: "0.85rem", cursor: "pointer", whiteSpace: "nowrap", fontWeight: 500, borderBottom: "2px solid transparent" },
+  detailTabActive : { color: "#6366f1", borderBottomColor: "#6366f1", fontWeight: 700 },
+  detailBody  : { padding: "1.25rem", overflowY: "auto", flex: 1 },
+  infoGrid    : { display: "flex", flexDirection: "column", gap: "0.5rem" },
+  infoRow     : { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.5rem 0.75rem", background: "#f8fafc", borderRadius: "8px" },
+  infoLabel   : { color: "#6b7280", fontSize: "0.8rem", fontWeight: 500 },
+  infoValue   : { fontWeight: 600, fontSize: "0.875rem", textAlign: "right", wordBreak: "break-all" },
+  sectionLabel : { fontWeight: 700, color: "#374151", fontSize: "0.82rem", padding: "0.35rem 0", borderBottom: "1px solid #f3f4f6", marginBottom: "0.25rem" },
+  descBox      : { padding: "0.75rem", background: "#f8fafc", borderRadius: "8px" },
+  descLabel    : { color: "#6b7280", fontSize: "0.8rem", fontWeight: 500, display: "block", marginBottom: "0.35rem" },
+  descText     : { fontSize: "0.875rem", color: "#374151", margin: 0, lineHeight: 1.5 },
+  notesSection : { marginTop: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" },
+  notesLabel   : { fontWeight: 600, color: "#374151", fontSize: "0.85rem" },
+  existingNote : { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.5rem 0.75rem", fontSize: "0.8rem", color: "#92400e" },
+  notesInput   : { width: "100%", padding: "0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", resize: "vertical", outline: "none", boxSizing: "border-box" },
+  saveNotesBtn : { alignSelf: "flex-end", padding: "0.45rem 1rem", background: "#6366f1", color: "white", border: "none", borderRadius: "8px", fontWeight: 600, fontSize: "0.8rem", cursor: "pointer" },
+  warningBox   : { background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "0.75rem", color: "#92400e", fontSize: "0.85rem" },
+  addressBox   : { display: "flex", alignItems: "flex-start", gap: "0.75rem", background: "#ecfdf5", border: "1px solid #a7f3d0", borderRadius: "8px", padding: "0.875rem 1rem" },
+  addressText  : { color: "#064e3b", fontWeight: 600, fontSize: "0.875rem", margin: 0, lineHeight: 1.5 },
+  docsGrid  : { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem" },
+  docCard   : { background: "#f8fafc", borderRadius: "10px", padding: "0.75rem", display: "flex", flexDirection: "column", gap: "0.5rem" },
+  docLabel  : { fontWeight: 600, color: "#374151", fontSize: "0.8rem" },
+  docImg    : { width: "100%", borderRadius: "8px", objectFit: "cover", maxHeight: "180px", border: "1px solid #e5e7eb" },
+  docLink   : { fontSize: "0.75rem", color: "#6366f1", textDecoration: "none" },
+  docMissing : { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.75rem", background: "#f8fafc", borderRadius: "10px", fontSize: "0.8rem", color: "#374151" },
+  sideBadge  : { fontSize: "0.65rem", fontWeight: 700, padding: "0.1rem 0.45rem", borderRadius: "100px", textTransform: "uppercase", letterSpacing: "0.04em" },
+  balanceGrid   : { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem", marginBottom: "1rem" },
+  balanceCard   : { background: "#f8fafc", borderRadius: "10px", padding: "0.875rem", display: "flex", flexDirection: "column", gap: "0.25rem" },
+  balanceAmount : { fontWeight: 800, fontSize: "1.1rem" },
+  balanceLabel  : { fontSize: "0.75rem", color: "#9ca3af", fontWeight: 500 },
+  txSection : { marginTop: "0.75rem" },
+  txTitle   : { fontWeight: 700, color: "#374151", fontSize: "0.85rem", marginBottom: "0.5rem" },
+  txRow     : { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.5rem 0", borderBottom: "1px solid #f9fafb", fontSize: "0.82rem" },
+  txType    : { fontWeight: 600, width: "80px", flexShrink: 0 },
+  txAmount  : { fontWeight: 700, color: "#1f2937", flex: 1 },
+  txDate    : { color: "#9ca3af", flexShrink: 0 },
+  historyList   : { display: "flex", flexDirection: "column", gap: "0.75rem" },
+  historyRow    : { background: "#f8fafc", borderRadius: "10px", padding: "0.75rem 1rem" },
+  historyBadges : { display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.35rem" },
+  arrow         : { color: "#9ca3af", fontSize: "0.8rem" },
+  historyMeta   : { display: "flex", gap: "1rem", fontSize: "0.75rem", color: "#9ca3af" },
+  historyReason : { fontSize: "0.8rem", color: "#6b7280", marginTop: "0.35rem", fontStyle: "italic" },
+  modalOverlay     : { position: "fixed", inset: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000 },
+  modal            : { background: "white", borderRadius: "16px", padding: "2rem", maxWidth: "420px", width: "90%", boxShadow: "0 20px 60px rgba(0,0,0,0.2)" },
+  modalTitle       : { fontWeight: 800, color: "#1f2937", margin: "0 0 0.75rem", fontSize: "1.1rem" },
+  modalBody        : { color: "#6b7280", lineHeight: 1.6, margin: "0 0 1rem", fontSize: "0.9rem" },
+  modalReasonWrap  : { marginBottom: "1.25rem" },
+  modalReasonLabel : { fontWeight: 600, color: "#374151", fontSize: "0.85rem", display: "block", marginBottom: "0.5rem" },
+  modalReason      : { width: "100%", padding: "0.75rem", border: "1px solid #e5e7eb", borderRadius: "8px", fontSize: "0.875rem", resize: "vertical", outline: "none", boxSizing: "border-box" },
+  modalBtns        : { display: "flex", gap: "0.75rem", justifyContent: "flex-end" },
+  modalCancelBtn   : { padding: "0.6rem 1.25rem", border: "1px solid #e5e7eb", background: "white", borderRadius: "8px", fontWeight: 600, cursor: "pointer", fontSize: "0.875rem" },
+  modalConfirmBtn  : { padding: "0.6rem 1.5rem", border: "none", borderRadius: "8px", color: "white", fontWeight: 700, cursor: "pointer", fontSize: "0.875rem" },
+  pagination : { display: "flex", alignItems: "center", justifyContent: "center", gap: "1rem", padding: "0.875rem", borderTop: "1px solid #f3f4f6", marginTop: "auto" },
+  pageBtn    : { padding: "0.4rem 0.875rem", border: "1px solid #e5e7eb", borderRadius: "8px", background: "white", cursor: "pointer", fontSize: "0.82rem", fontWeight: 500 },
+  pageInfo   : { color: "#6b7280", fontSize: "0.82rem" },
+  skeletonRow    : { display: "flex", alignItems: "center", gap: "0.75rem", padding: "0.875rem 1rem", borderBottom: "1px solid #f9fafb" },
+  skeletonCircle : { width: "40px", height: "40px", borderRadius: "10px", background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 50%,#f3f4f6 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite", flexShrink: 0 },
+  skeletonLine   : { height: "12px", width: "80%", borderRadius: "6px", background: "linear-gradient(90deg,#f3f4f6 25%,#e5e7eb 50%,#f3f4f6 75%)", backgroundSize: "200% 100%", animation: "shimmer 1.5s infinite" },
+  empty : { textAlign: "center", color: "#9ca3af", padding: "2rem", fontSize: "0.875rem" },
 };
