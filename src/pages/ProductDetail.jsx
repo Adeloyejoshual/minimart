@@ -1,19 +1,99 @@
-// src/pages/ProductDetail.jsx
-import React, {
+/**
+ * src/pages/ProductDetail.jsx
+ * Route: /product/:slug
+ *
+ * Features:
+ * - Image gallery with lightbox
+ * - Description expand/collapse
+ * - Attributes, specifications, delivery
+ * - Seller card with trust score
+ * - Contact: in-app chat, WhatsApp, call
+ * - Reviews with rating breakdown + form
+ * - Similar products + more from seller
+ * - Favourites (local + API)
+ * - Safety tips
+ */
+
+import {
   useState, useEffect, useCallback, useMemo,
 } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useProductCache } from "../context/ProductCacheContext";
-import ProductHeader       from "../components/ProductHeader";
-import MasonryGrid         from "../components/MasonryGrid";
+import { useProductCache }  from "../context/ProductCacheContext";
+import ProductHeader        from "../components/ProductHeader";
+import MasonryGrid          from "../components/MasonryGrid";
 import "../styles/ProductDetail.css";
 
-const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
-const PH  = "https://placehold.co/800x600/eae6e0/a8a39d?text=Minimart";
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+═══════════════════════════════════════════════════════════════ */
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
-/* ─────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const PH            = "https://placehold.co/800x600/eae6e0/a8a39d?text=Loemart";
+const FAV_KEY       = "loemart_favs";
+const DESC_WORD_MAX = 60;
+const REVIEWS_LIMIT = 5;
+
+const SAFETY_TIPS = [
+  "Do not pay in advance, including for delivery.",
+  "Arrange to meet sellers in a safe, public location.",
+  "Carefully inspect the item before purchase.",
+  "Ensure the item you receive is the same one you inspected.",
+  "Only make payment when you are fully satisfied.",
+];
+
+/* ═══════════════════════════════════════════════════════════════
+   AUTH HELPERS
+═══════════════════════════════════════════════════════════════ */
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token")             ||
+  localStorage.getItem("authToken")         ||
+  null;
+
+const authH = () => {
+  const t = getToken();
+  return t ? { Authorization: `Bearer ${t}` } : {};
+};
+
+const readUserId = () => {
+  try {
+    for (const key of ["user", "loemart_user", "currentUser", "authUser"]) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      try {
+        const p  = JSON.parse(raw);
+        const id = p?.id || p?.user?.id || p?.data?.id;
+        if (id) return String(id);
+      } catch {}
+    }
+    const token = getToken();
+    if (token) {
+      const payload = JSON.parse(atob(token.split(".")[1]));
+      const id = payload?.id || payload?.sub || payload?.userId || payload?.user_id;
+      if (id) return String(id);
+    }
+    return null;
+  } catch { return null; }
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   FAVOURITES
+═══════════════════════════════════════════════════════════════ */
+const loadFavs = () => {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); }
+  catch { return {}; }
+};
+
+const saveFavs = (f) => {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(f)); } catch {}
+};
+
+/* ═══════════════════════════════════════════════════════════════
    HELPERS
-───────────────────────────────────── */
+═══════════════════════════════════════════════════════════════ */
 const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
 
 const fmtViews = (n) => {
@@ -52,64 +132,25 @@ const formatAttrKey = (k) =>
 
 const timeAgo = (date) => {
   if (!date) return "";
-  const diff = Math.floor((Date.now() - new Date(date)) / 1000);
-  if (diff < 60)      return "just now";
-  if (diff < 3600)    return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400)   return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 2592000) return `${Math.floor(diff / 86400)}d ago`;
+  const diff = Math.floor((Date.now() - new Date(date)) / 1_000);
+  if (diff < 60)       return "just now";
+  if (diff < 3_600)   return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86_400)  return `${Math.floor(diff / 3_600)}h ago`;
+  if (diff < 2_592_000) return `${Math.floor(diff / 86_400)}d ago`;
   return new Date(date).toLocaleDateString("en-NG", { month: "short", year: "numeric" });
 };
 
-/* ── Auth ── */
-function getToken() {
-  return (
-    localStorage.getItem("token") ||
-    localStorage.getItem("authToken") ||
-    localStorage.getItem("minimart_token") ||
-    null
-  );
-}
-
-function authH() {
-  const t = getToken();
-  return t ? { Authorization: `Bearer ${t}` } : {};
-}
-
-function readUserId() {
-  try {
-    for (const key of ["user", "minimart_user", "currentUser", "authUser"]) {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      try {
-        const p  = JSON.parse(raw);
-        const id = p?.id || p?.user?.id || p?.data?.id;
-        if (id) return String(id);
-      } catch {}
-    }
-    const token = getToken();
-    if (token) {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      const id = payload?.id || payload?.sub || payload?.userId || payload?.user_id;
-      if (id) return String(id);
-    }
-    return null;
-  } catch { return null; }
-}
-
-/* ── Favourites ── */
-const FAV_KEY  = "minimart_favs";
-const loadFavs = () => { try { return JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); } catch { return {}; } };
-const saveFavs = (f)  => { try { localStorage.setItem(FAV_KEY, JSON.stringify(f)); } catch {} };
-
-/* ── Start chat — creates thread then returns threadId ── */
-async function startChatThread({ buyerId, sellerId, productId }) {
-  if (!buyerId || !sellerId)        throw new Error("Missing buyer or seller ID");
-  if (buyerId === sellerId)         throw new Error("Cannot chat with yourself");
+/* ═══════════════════════════════════════════════════════════════
+   CHAT HELPER — creates thread then returns threadId
+═══════════════════════════════════════════════════════════════ */
+const startChatThread = async ({ buyerId, sellerId, productId }) => {
+  if (!buyerId || !sellerId)  throw new Error("Missing buyer or seller ID");
+  if (buyerId === sellerId)   throw new Error("Cannot chat with yourself");
 
   const res = await fetch(`${API}/conversations`, {
-    method:  "POST",
-    headers: { "Content-Type": "application/json", ...authH() },
-    body:    JSON.stringify({ buyerId, sellerId, productId: productId || null }),
+    method  : "POST",
+    headers : { "Content-Type": "application/json", ...authH() },
+    body    : JSON.stringify({ buyerId, sellerId, productId: productId || null }),
   });
 
   const data = await res.json();
@@ -119,29 +160,30 @@ async function startChatThread({ buyerId, sellerId, productId }) {
   if (!threadId) throw new Error("No thread ID returned");
 
   return threadId;
-}
+};
 
-/* ─────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
    SKELETON
-───────────────────────────────────── */
+═══════════════════════════════════════════════════════════════ */
 const Skel = ({ style }) => <div className="pd-skeleton" style={style} />;
+
 function LoadingSkeleton() {
   return (
     <div className="pd-page">
-      <Skel style={{ width:"100%", height:300 }} />
-      <div style={{ padding:16, display:"flex", flexDirection:"column", gap:12 }}>
-        <Skel style={{ width:"40%", height:13 }} />
-        <Skel style={{ width:"90%", height:22 }} />
-        <Skel style={{ width:"55%", height:32 }} />
-        <Skel style={{ width:"100%", height:80, marginTop:8 }} />
+      <Skel style={{ width: "100%", height: 300 }} />
+      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+        <Skel style={{ width: "40%", height: 13 }} />
+        <Skel style={{ width: "90%", height: 22 }} />
+        <Skel style={{ width: "55%", height: 32 }} />
+        <Skel style={{ width: "100%", height: 80, marginTop: 8 }} />
       </div>
     </div>
   );
 }
 
-/* ─────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
    FAQ ITEM
-───────────────────────────────────── */
+═══════════════════════════════════════════════════════════════ */
 function FaqItem({ q, a }) {
   const [open, setOpen] = useState(false);
   return (
@@ -155,11 +197,14 @@ function FaqItem({ q, a }) {
   );
 }
 
-/* ─────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
    REVIEW FORM
-───────────────────────────────────── */
+═══════════════════════════════════════════════════════════════ */
+const RATING_LABELS = ["", "Poor", "Fair", "Good", "Very Good", "Excellent"];
+
 function ReviewForm({ slug, userId, onSubmitted }) {
-  const navigate      = useNavigate();
+  const navigate = useNavigate();
+
   const [rating,      setRating]      = useState(0);
   const [hoverRating, setHoverRating] = useState(0);
   const [comment,     setComment]     = useState("");
@@ -173,7 +218,7 @@ function ReviewForm({ slug, userId, onSubmitted }) {
         <p className="pd-review-login-text">Log in to leave a review</p>
         <button
           className="pd-review-login-btn"
-          onClick={() => navigate(`/login?redirect=${encodeURIComponent(`/product/${slug}`)}`)}
+          onClick={() => navigate(`/auth?redirect=${encodeURIComponent(`/product/${slug}`)}`)}
         >
           Log in
         </button>
@@ -190,17 +235,20 @@ function ReviewForm({ slug, userId, onSubmitted }) {
     setSubmitting(true);
     setError(null);
     try {
-      const res  = await fetch(`${API}/product/slug/${encodeURIComponent(slug)}/reviews`, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json", ...authH() },
-        body:    JSON.stringify({ user_id: userId, rating, comment }),
-      });
+      const res  = await fetch(
+        `${API}/product/slug/${encodeURIComponent(slug)}/reviews`,
+        {
+          method  : "POST",
+          headers : { "Content-Type": "application/json", ...authH() },
+          body    : JSON.stringify({ user_id: userId, rating, comment }),
+        }
+      );
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Failed to submit");
       setDone(true);
       onSubmitted?.();
-    } catch (e) {
-      setError(e.message);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setSubmitting(false);
     }
@@ -210,7 +258,7 @@ function ReviewForm({ slug, userId, onSubmitted }) {
     <div className="pd-review-form">
       <div className="pd-review-form-title">Write a review</div>
       <div className="pd-star-picker">
-        {[1,2,3,4,5].map((n) => (
+        {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
             className={`pd-star-pick${(hoverRating || rating) >= n ? " active" : ""}`}
@@ -218,12 +266,12 @@ function ReviewForm({ slug, userId, onSubmitted }) {
             onMouseLeave={() => setHoverRating(0)}
             onClick={() => setRating(n)}
             aria-label={`${n} star`}
-          >★</button>
+          >
+            ★
+          </button>
         ))}
         {rating > 0 && (
-          <span className="pd-star-label">
-            {["","Poor","Fair","Good","Very Good","Excellent"][rating]}
-          </span>
+          <span className="pd-star-label">{RATING_LABELS[rating]}</span>
         )}
       </div>
       <textarea
@@ -247,16 +295,9 @@ function ReviewForm({ slug, userId, onSubmitted }) {
   );
 }
 
-/* ─────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
    SAFETY TIPS
-───────────────────────────────────── */
-const SAFETY_TIPS = [
-  "Do not pay in advance, including for delivery.",
-  "Arrange to meet sellers in a safe, public location.",
-  "Carefully inspect the item before purchase.",
-  "Ensure the item you receive is the same one you inspected.",
-  "Only make payment when you are fully satisfied.",
-];
+═══════════════════════════════════════════════════════════════ */
 function SafetyTips() {
   return (
     <div className="pd-section pd-safety">
@@ -273,15 +314,15 @@ function SafetyTips() {
   );
 }
 
-/* ═══════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
-═══════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 export default function ProductDetail({ user }) {
-  const { slug } = useParams();
-  const navigate = useNavigate();
+  const { slug }           = useParams();
+  const navigate           = useNavigate();
   const { addSingleProduct } = useProductCache();
 
-  /* ── state ── */
+  // ── State ─────────────────────────────────────────────────
   const [product,        setProduct]        = useState(null);
   const [seller,         setSeller]         = useState(null);
   const [similar,        setSimilar]        = useState([]);
@@ -296,15 +337,15 @@ export default function ProductDetail({ user }) {
   const [fav,            setFav]            = useState(false);
   const [reviewPage,     setReviewPage]     = useState(1);
   const [reviewTotal,    setReviewTotal]    = useState(0);
-  const [chatLoading,    setChatLoading]    = useState(false); // ← NEW
+  const [chatLoading,    setChatLoading]    = useState(false);
 
-  /* ── current user ── */
-  const userId = useMemo(() => {
-    // Prefer user prop (passed from App), fallback to localStorage decode
-    return user?.id || readUserId();
-  }, [user]);
+  // ── Current user ──────────────────────────────────────────
+  const userId = useMemo(() =>
+    user?.id || readUserId(),
+    [user]
+  );
 
-  /* ── derived ── */
+  // ── Derived ───────────────────────────────────────────────
   const images = useMemo(() => getImages(product), [product]);
 
   const attrs = useMemo(() => {
@@ -329,9 +370,15 @@ export default function ProductDetail({ user }) {
     return Object.entries(s).filter(([, v]) => v != null && v !== "");
   }, [product]);
 
-  /* ══════════════════════════════════
+  const delivery = useMemo(() => {
+    const d = product?.delivery;
+    if (!d || typeof d !== "object" || !d.available) return null;
+    return d;
+  }, [product]);
+
+  /* ════════════════════════════════════════════════════════════
      FETCH PRODUCT
-  ══════════════════════════════════ */
+  ════════════════════════════════════════════════════════════ */
   const fetchProduct = useCallback(async () => {
     if (!slug || slug === "undefined") {
       setError("Invalid product link.");
@@ -348,8 +395,8 @@ export default function ProductDetail({ user }) {
       setProduct(data);
       addSingleProduct(data);
       setFav(!!loadFavs()[data.id]);
-    } catch (e) {
-      setError(e.message);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -357,13 +404,13 @@ export default function ProductDetail({ user }) {
 
   useEffect(() => { fetchProduct(); }, [fetchProduct]);
 
-  /* ── Track view ── */
+  // Track view
   useEffect(() => {
     if (!product?.id) return;
     fetch(`${API}/product/products/${product.id}/view`, { method: "POST" }).catch(() => {});
   }, [product?.id]);
 
-  /* ── Fetch seller ── */
+  // Fetch seller
   useEffect(() => {
     if (!product?.seller_id) return;
     fetch(`${API}/seller/${product.seller_id}`)
@@ -372,13 +419,13 @@ export default function ProductDetail({ user }) {
       .catch(() => {});
   }, [product?.seller_id]);
 
-  /* ── Fetch seller's other products ── */
+  // Fetch seller's other products
   useEffect(() => {
     if (!product?.seller_id || !product?.id) return;
     const qs = new URLSearchParams({
-      seller_id: product.seller_id,
-      exclude:   product.id,
-      limit:     "10",
+      seller_id : product.seller_id,
+      exclude   : product.id,
+      limit     : "10",
     });
     fetch(`${API}/product/by-seller?${qs}`)
       .then((r) => r.ok ? r.json() : [])
@@ -386,12 +433,12 @@ export default function ProductDetail({ user }) {
       .catch(() => {});
   }, [product?.seller_id, product?.id]);
 
-  /* ── Fetch reviews ── */
+  // Fetch reviews
   const fetchReviews = useCallback(async (page = 1) => {
     if (!slug) return;
     try {
-      const res  = await fetch(
-        `${API}/product/slug/${encodeURIComponent(slug)}/reviews?limit=5&page=${page}`
+      const res = await fetch(
+        `${API}/product/slug/${encodeURIComponent(slug)}/reviews?limit=${REVIEWS_LIMIT}&page=${page}`
       );
       if (!res.ok) return;
       const data = await res.json();
@@ -406,13 +453,13 @@ export default function ProductDetail({ user }) {
 
   useEffect(() => { fetchReviews(1); }, [fetchReviews]);
 
-  /* ── Fetch similar ── */
+  // Fetch similar
   useEffect(() => {
     if (!product?.id || !product?.category_id) return;
     const qs = new URLSearchParams({
-      category_id: product.category_id,
-      exclude:     product.id,
-      limit:       "10",
+      category_id : product.category_id,
+      exclude     : product.id,
+      limit       : "10",
     });
     fetch(`${API}/product/similar?${qs}`)
       .then((r) => r.ok ? r.json() : [])
@@ -420,19 +467,19 @@ export default function ProductDetail({ user }) {
       .catch(() => {});
   }, [product?.id, product?.category_id]);
 
-  /* ── Lightbox keys ── */
+  // Lightbox keyboard navigation
   useEffect(() => {
     if (!lightbox) return;
     const h = (e) => {
-      if (e.key === "Escape")     setLightbox(false);
-      if (e.key === "ArrowRight") setActiveImg((i) => (i + 1) % images.length);
-      if (e.key === "ArrowLeft")  setActiveImg((i) => (i - 1 + images.length) % images.length);
+      if (e.key === "Escape")      setLightbox(false);
+      if (e.key === "ArrowRight")  setActiveImg((i) => (i + 1) % images.length);
+      if (e.key === "ArrowLeft")   setActiveImg((i) => (i - 1 + images.length) % images.length);
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [lightbox, images.length]);
 
-  /* ── Favourite ── */
+  // ── Favourite ─────────────────────────────────────────────
   const toggleFav = useCallback(async () => {
     if (!product?.id) return;
     const next = !fav;
@@ -442,24 +489,19 @@ export default function ProductDetail({ user }) {
     saveFavs(favs);
     if (userId) {
       fetch(`${API}/products/${product.id}/favorite`, {
-        method:  "POST",
-        headers: { "Content-Type": "application/json" },
-        body:    JSON.stringify({ user_id: userId }),
+        method  : "POST",
+        headers : { "Content-Type": "application/json" },
+        body    : JSON.stringify({ user_id: userId }),
       }).catch(() => {});
     }
   }, [fav, product, userId]);
 
-  /* ══════════════════════════════════
-     CONTACT ACTIONS
-  ══════════════════════════════════ */
-  const contactPhone = product?.phone || product?.contact?.phone;
-  const waNumber     = product?.whatsapp || product?.contact?.whatsapp;
-  const waLink       = product?.whatsapp_link || product?.contact?.whatsapp_link;
-
-  /* seller could be own listing */
-  const isOwnProduct = userId && product?.seller_id && userId === product.seller_id;
-
-  const hasContact = !!(waNumber || waLink || contactPhone || product?.seller_id);
+  // ── Contact ───────────────────────────────────────────────
+  const contactPhone = product?.phone               || product?.contact?.phone;
+  const waNumber     = product?.whatsapp            || product?.contact?.whatsapp;
+  const waLink       = product?.whatsapp_link       || product?.contact?.whatsapp_link;
+  const isOwnProduct = !!(userId && product?.seller_id && userId === product.seller_id);
+  const hasContact   = !!(waNumber || waLink || contactPhone || product?.seller_id);
 
   const openWhatsApp = useCallback(() => {
     if (!product) return;
@@ -476,68 +518,66 @@ export default function ProductDetail({ user }) {
     if (contactPhone) window.location.href = `tel:${contactPhone}`;
   }, [contactPhone]);
 
-  /* ── Open chat — creates real thread first ── */
   const openChat = useCallback(async () => {
     if (!userId) {
-      navigate(`/login?redirect=${encodeURIComponent(`/product/${slug}`)}`);
+      navigate(`/auth?redirect=${encodeURIComponent(`/product/${slug}`)}`);
       return;
     }
-    if (isOwnProduct) return;
-    if (!product?.seller_id) return;
+    if (isOwnProduct || !product?.seller_id) return;
 
     setChatLoading(true);
     try {
       const threadId = await startChatThread({
-        buyerId:   userId,
-        sellerId:  product.seller_id,
+        buyerId  : userId,
+        sellerId : product.seller_id,
         productId: product.id,
       });
       navigate(`/chat/${threadId}`);
     } catch (err) {
-      console.error("openChat failed:", err.message);
+      console.error("[ProductDetail] openChat:", err.message);
       alert("Could not open chat: " + err.message);
     } finally {
       setChatLoading(false);
     }
   }, [userId, isOwnProduct, product, slug, navigate]);
 
-  /* ── Delivery ── */
-  const delivery = useMemo(() => {
-    const d = product?.delivery;
-    if (!d || typeof d !== "object" || !d.available) return null;
-    return d;
-  }, [product]);
-
-  /* ══ RENDER ══ */
+  /* ════════════════════════════════════════════════════════════
+     LOADING / ERROR
+  ════════════════════════════════════════════════════════════ */
   if (loading) return <LoadingSkeleton />;
 
-  if (error) return (
-    <div className="pd-page">
-      <div className="pd-error">
-        <div className="pd-error-emoji">🔍</div>
-        <div className="pd-error-title">{error}</div>
-        <div className="pd-error-sub">
-          The listing may have been removed or the link is incorrect.
+  if (error) {
+    return (
+      <div className="pd-page">
+        <div className="pd-error">
+          <div className="pd-error-emoji">🔍</div>
+          <div className="pd-error-title">{error}</div>
+          <div className="pd-error-sub">
+            The listing may have been removed or the link is incorrect.
+          </div>
+          <Link className="pd-error-link" to="/">Browse Marketplace</Link>
         </div>
-        <Link className="pd-error-link" to="/">Browse Marketplace</Link>
       </div>
-    </div>
-  );
+    );
+  }
 
   if (!product) return null;
 
   const descWords      = (product.description || "").split(" ");
-  const needsToggle    = descWords.length > 60;
+  const needsToggle    = descWords.length > DESC_WORD_MAX;
   const hasMoreReviews = reviews.length < reviewTotal;
 
+  /* ════════════════════════════════════════════════════════════
+     RENDER
+  ════════════════════════════════════════════════════════════ */
   return (
     <>
       <ProductHeader
         product={product}
         seller={seller}
         reviewStats={reviewStats ? {
-          avg_rating: reviewStats.average,
-          total:      reviewStats.total,
+          avg_rating : reviewStats.average,
+          total      : reviewStats.total,
         } : null}
         onFavorite={toggleFav}
         isFavorited={fav}
@@ -545,10 +585,14 @@ export default function ProductDetail({ user }) {
 
       <div className="pd-page">
 
-        {/* ── GALLERY ── */}
+        {/* ══════════════════════════════════════════════
+            GALLERY
+        ══════════════════════════════════════════════ */}
         <div className="pd-gallery">
           <div className="pd-main-img-wrap" onClick={() => setLightbox(true)}>
-            {product.is_promoted && <span className="pd-promoted-badge">Featured</span>}
+            {product.is_promoted && (
+              <span className="pd-promoted-badge">Featured</span>
+            )}
             <img
               key={images[activeImg]}
               className="pd-main-img"
@@ -559,7 +603,9 @@ export default function ProductDetail({ user }) {
               fetchPriority="high"
             />
             {images.length > 1 && (
-              <span className="pd-img-counter">{activeImg + 1} / {images.length}</span>
+              <span className="pd-img-counter">
+                {activeImg + 1} / {images.length}
+              </span>
             )}
           </div>
 
@@ -580,7 +626,9 @@ export default function ProductDetail({ user }) {
 
         <div className="pd-body">
 
-          {/* ── TITLE BLOCK ── */}
+          {/* ══════════════════════════════════════════════
+              TITLE BLOCK
+          ══════════════════════════════════════════════ */}
           <div className="pd-title-block">
             {product.category_name && (
               <div className="pd-category-crumb">
@@ -591,7 +639,9 @@ export default function ProductDetail({ user }) {
             <h1 className="pd-title">{product.title}</h1>
             <div className="pd-price-row">
               <span className="pd-price">{naira(product.price)}</span>
-              {product.is_promoted && <span className="pd-price-note">Promoted listing</span>}
+              {product.is_promoted && (
+                <span className="pd-price-note">Promoted listing</span>
+              )}
             </div>
             <div className="pd-stats-row">
               <span className="pd-stat">{fmtViews(product.views)} views</span>
@@ -602,32 +652,40 @@ export default function ProductDetail({ user }) {
             </div>
           </div>
 
-          {/* ── DESCRIPTION ── */}
+          {/* ══════════════════════════════════════════════
+              DESCRIPTION
+          ══════════════════════════════════════════════ */}
           {product.description && (
             <div className="pd-section">
               <div className="pd-section-title">About this product</div>
               <p className="pd-desc">
                 {needsToggle && !descExpanded
-                  ? descWords.slice(0, 60).join(" ")
+                  ? descWords.slice(0, DESC_WORD_MAX).join(" ")
                   : product.description}
                 {needsToggle && !descExpanded && (
                   <span className="pd-desc-ellipsis">
                     …
-                    <button className="pd-desc-toggle" onClick={() => setDescExpanded(true)}>
+                    <button
+                      className="pd-desc-toggle"
+                      onClick={() => setDescExpanded(true)}
+                    >
                       read more
                     </button>
                   </span>
                 )}
               </p>
               {needsToggle && descExpanded && (
-                <button className="pd-desc-toggle" onClick={() => setDescExpanded(false)}>
+                <button
+                  className="pd-desc-toggle"
+                  onClick={() => setDescExpanded(false)}
+                >
                   Show less
                 </button>
               )}
             </div>
           )}
 
-          {/* ── FEATURES ── */}
+          {/* ── Features ── */}
           {highlights.length > 0 && (
             <div className="pd-section">
               <div className="pd-section-title">Features</div>
@@ -644,7 +702,7 @@ export default function ProductDetail({ user }) {
             </div>
           )}
 
-          {/* ── DETAILS ── */}
+          {/* ── Details ── */}
           {attrs.length > 0 && (
             <div className="pd-section">
               <div className="pd-section-title">Details</div>
@@ -661,7 +719,7 @@ export default function ProductDetail({ user }) {
             </div>
           )}
 
-          {/* ── SPECIFICATIONS ── */}
+          {/* ── Specifications ── */}
           {specs.length > 0 && (
             <div className="pd-section">
               <div className="pd-section-title">Specifications</div>
@@ -676,7 +734,7 @@ export default function ProductDetail({ user }) {
             </div>
           )}
 
-          {/* ── LOCATION ── */}
+          {/* ── Location ── */}
           {(product.location_city || product.location_state) && (
             <div className="pd-section">
               <div className="pd-section-title">Location</div>
@@ -694,7 +752,7 @@ export default function ProductDetail({ user }) {
             </div>
           )}
 
-          {/* ── DELIVERY ── */}
+          {/* ── Delivery ── */}
           {delivery && (
             <div className="pd-section">
               <div className="pd-section-title">Delivery</div>
@@ -726,7 +784,9 @@ export default function ProductDetail({ user }) {
             </div>
           )}
 
-          {/* ── SELLER ── */}
+          {/* ══════════════════════════════════════════════
+              SELLER
+          ══════════════════════════════════════════════ */}
           {(seller || product.seller_id) && (
             <div className="pd-section">
               <div className="pd-section-title">Seller</div>
@@ -751,7 +811,9 @@ export default function ProductDetail({ user }) {
                 <div className="pd-seller-info">
                   <div className="pd-seller-name">
                     {seller?.store_name || seller?.name || "Seller"}
-                    {seller?.verified && <span className="pd-seller-vfd">Verified</span>}
+                    {seller?.verified && (
+                      <span className="pd-seller-vfd">Verified</span>
+                    )}
                   </div>
                   <div className="pd-seller-meta">
                     {seller?.products_count > 0 && (
@@ -781,13 +843,15 @@ export default function ProductDetail({ user }) {
             </div>
           )}
 
-          {/* ── CONTACT ── */}
+          {/* ══════════════════════════════════════════════
+              CONTACT
+          ══════════════════════════════════════════════ */}
           {hasContact && !isOwnProduct && (
             <div className="pd-section">
               <div className="pd-section-title">Contact Seller</div>
               <div className="pd-contact-list">
 
-                {/* Chat button — creates real thread */}
+                {/* Chat — creates real thread */}
                 {product.seller_id && (
                   <button
                     className="pd-contact-btn pd-contact-chat"
@@ -797,21 +861,23 @@ export default function ProductDetail({ user }) {
                     {chatLoading ? (
                       <>
                         <span style={{
-                          display:"inline-block", width:14, height:14,
-                          border:"2px solid rgba(255,255,255,.3)",
-                          borderTop:"2px solid #fff",
-                          borderRadius:"50%",
-                          animation:"spin .7s linear infinite",
-                          marginRight:6,
-                          verticalAlign:"middle",
-                        }}/>
+                          display      : "inline-block",
+                          width        : 14,
+                          height       : 14,
+                          border       : "2px solid rgba(255,255,255,.3)",
+                          borderTop    : "2px solid #fff",
+                          borderRadius : "50%",
+                          animation    : "pd-spin .7s linear infinite",
+                          marginRight  : 6,
+                          verticalAlign: "middle",
+                        }} />
                         Opening chat…
                       </>
                     ) : (
                       <>
-                        <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
-                          stroke="currentColor" strokeWidth="2"
-                          strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="17" height="17" viewBox="0 0 24 24"
+                          fill="none" stroke="currentColor"
+                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                           <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
                         </svg>
                         Chat with Seller
@@ -838,9 +904,9 @@ export default function ProductDetail({ user }) {
                     className="pd-contact-btn pd-contact-call"
                     onClick={openCall}
                   >
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none"
-                      stroke="currentColor" strokeWidth="2"
-                      strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="17" height="17" viewBox="0 0 24 24"
+                      fill="none" stroke="currentColor"
+                      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.59 1.2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.73 16z"/>
                     </svg>
                     Call Seller
@@ -863,7 +929,9 @@ export default function ProductDetail({ user }) {
             </div>
           )}
 
-          {/* ── REVIEWS ── */}
+          {/* ══════════════════════════════════════════════
+              REVIEWS
+          ══════════════════════════════════════════════ */}
           <div className="pd-section">
             <div className="pd-section-title">
               Reviews
@@ -884,8 +952,8 @@ export default function ProductDetail({ user }) {
                   </div>
                 </div>
                 <div className="pd-review-bars">
-                  {[5,4,3,2,1].map((n) => {
-                    const key   = ["","one","two","three","four","five"][n] + "_star";
+                  {[5, 4, 3, 2, 1].map((n) => {
+                    const key   = ["", "one", "two", "three", "four", "five"][n] + "_star";
                     const count = reviewStats[key] || 0;
                     const pct   = reviewStats.total > 0
                       ? (count / reviewStats.total) * 100 : 0;
@@ -893,7 +961,7 @@ export default function ProductDetail({ user }) {
                       <div key={n} className="pd-review-bar-row">
                         <span className="pd-review-bar-label">{n}</span>
                         <div className="pd-review-bar-track">
-                          <div className="pd-review-bar-fill" style={{ width:`${pct}%` }}/>
+                          <div className="pd-review-bar-fill" style={{ width: `${pct}%` }} />
                         </div>
                         <span className="pd-review-bar-count">{count}</span>
                       </div>
@@ -953,7 +1021,9 @@ export default function ProductDetail({ user }) {
 
         </div>
 
-        {/* ── SIMILAR ── */}
+        {/* ══════════════════════════════════════════════
+            SIMILAR PRODUCTS
+        ══════════════════════════════════════════════ */}
         {similar.length > 0 && (
           <div className="pd-similar">
             <div className="pd-similar-title">You may also like</div>
@@ -965,7 +1035,9 @@ export default function ProductDetail({ user }) {
           </div>
         )}
 
-        {/* ── MORE FROM SELLER ── */}
+        {/* ══════════════════════════════════════════════
+            MORE FROM SELLER
+        ══════════════════════════════════════════════ */}
         {sellerProducts.length > 0 && (
           <div className="pd-similar">
             <div className="pd-similar-title">
@@ -987,14 +1059,18 @@ export default function ProductDetail({ user }) {
 
       </div>
 
-      {/* ── LIGHTBOX ── */}
+      {/* ══════════════════════════════════════════════
+          LIGHTBOX
+      ══════════════════════════════════════════════ */}
       {lightbox && (
         <div className="pd-lightbox" onClick={() => setLightbox(false)}>
           <button
             className="pd-lightbox-close"
             onClick={() => setLightbox(false)}
             aria-label="Close"
-          >✕</button>
+          >
+            ✕
+          </button>
 
           {images.length > 1 && (
             <button
@@ -1004,7 +1080,9 @@ export default function ProductDetail({ user }) {
                 setActiveImg((i) => (i - 1 + images.length) % images.length);
               }}
               aria-label="Previous"
-            >‹</button>
+            >
+              ‹
+            </button>
           )}
 
           <img
@@ -1022,13 +1100,14 @@ export default function ProductDetail({ user }) {
                 setActiveImg((i) => (i + 1) % images.length);
               }}
               aria-label="Next"
-            >›</button>
+            >
+              ›
+            </button>
           )}
         </div>
       )}
 
-      {/* spinner keyframe */}
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`@keyframes pd-spin { to { transform: rotate(360deg); } }`}</style>
     </>
   );
 }
