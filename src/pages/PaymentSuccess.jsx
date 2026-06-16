@@ -1,21 +1,54 @@
+// src/pages/PaymentSuccess.jsx
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 
-const API_BASE = "https://minimart-ivrm.onrender.com/api";
+const API_BASE = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
+// ---------------- CONSTANTS ----------------
+const REDIRECT_DELAY = 3000; // ms before redirecting to home on success
+
+// ---------------- STATUS VIEWS ----------------
+const VIEWS = {
+  verifying: {
+    icon:    "⏳",
+    title:   "Verifying your payment…",
+    message: "Please wait, do not close this page.",
+  },
+  success: {
+    icon:    "✅",
+    title:   "Payment Successful!",
+    message: "Your product is now live. Redirecting you home…",
+  },
+  cancelled: {
+    icon:    "❌",
+    title:   "Payment Cancelled",
+    message: "Your listing has been saved as a draft. You can complete payment anytime.",
+  },
+  failed: {
+    icon:    "⚠️",
+    title:   "Payment Failed",
+    message: "Your listing has been saved as a draft. Please try again.",
+  },
+};
+
+// ---------------- COMPONENT ----------------
 export default function PaymentSuccess() {
   const [searchParams] = useSearchParams();
   const navigate       = useNavigate();
+
   const [status, setStatus]   = useState("verifying"); // verifying | success | cancelled | failed
   const [message, setMessage] = useState("");
 
+  // ---------------- VERIFY PAYMENT ----------------
   useEffect(() => {
     // Paystack sends ?trxref=xxx&reference=xxx in the URL
-    const reference = searchParams.get("reference") || searchParams.get("trxref");
+    const reference =
+      searchParams.get("reference") ||
+      searchParams.get("trxref");
 
     if (!reference) {
       setStatus("failed");
-      setMessage("No payment reference found");
+      setMessage("No payment reference found.");
       return;
     }
 
@@ -25,7 +58,7 @@ export default function PaymentSuccess() {
       return;
     }
 
-    // Verify the payment with our backend
+    // Verify payment with backend
     fetch(`${API_BASE}/payment/verify`, {
       method:  "POST",
       headers: {
@@ -34,79 +67,64 @@ export default function PaymentSuccess() {
       },
       body: JSON.stringify({ reference }),
     })
-      .then((r) => r.json())
+      .then((res) => {
+        if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+        return res.json();
+      })
       .then((data) => {
         if (data.success || data.status === "success") {
           setStatus("success");
-          // Clear the stored payment session
           localStorage.removeItem("payment_retry");
-          // Redirect to home after 3 seconds
-          setTimeout(() => navigate("/"), 3000);
+          setTimeout(() => navigate("/"), REDIRECT_DELAY);
         } else {
           setStatus(data.status === "abandoned" ? "cancelled" : "failed");
-          setMessage(data.message ?? "Payment was not completed");
+          setMessage(data.message ?? "Payment was not completed.");
         }
       })
       .catch(() => {
         setStatus("failed");
-        setMessage("Could not verify payment — please contact support");
+        setMessage("Could not verify payment — please contact support.");
       });
+
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Render ──────────────────────────────────────────────────────────────
-  if (status === "verifying") {
-    return (
-      <div className="payment-result-page">
-        <div className="payment-result-icon">⏳</div>
-        <h2>Verifying your payment…</h2>
-        <p>Please wait, do not close this page.</p>
-      </div>
-    );
-  }
+  // ---------------- RENDER ----------------
+  const view = VIEWS[status];
 
-  if (status === "success") {
-    return (
-      <div className="payment-result-page">
-        <div className="payment-result-icon">✅</div>
-        <h2>Payment Successful!</h2>
-        <p>Your product is now live. Redirecting you home…</p>
-      </div>
-    );
-  }
+  return (
+    <div className="payment-result-page">
 
-  if (status === "cancelled") {
-    return (
-      <div className="payment-result-page">
-        <div className="payment-result-icon">❌</div>
-        <h2>Payment Cancelled</h2>
-        <p>{message}</p>
+      {/* Icon */}
+      <div className="payment-result-icon">
+        {view.icon}
+      </div>
+
+      {/* Title */}
+      <h2>{view.title}</h2>
+
+      {/* Dynamic message (from server) or default */}
+      <p>{message || view.message}</p>
+
+      {/* Extra message for cancelled/failed */}
+      {status === "cancelled" && (
         <p>Your listing has been saved as a draft. You can complete payment anytime.</p>
+      )}
+      {status === "failed" && (
+        <p>Your listing has been saved as a draft. Please try again.</p>
+      )}
+
+      {/* Actions for cancelled & failed */}
+      {(status === "cancelled" || status === "failed") && (
         <div className="payment-result-actions">
           <button onClick={() => navigate("/add-product")}>
-            Go Back to My Listing
+            {status === "cancelled" ? "Go Back to My Listing" : "Try Again"}
           </button>
           <button onClick={() => navigate("/")}>
             Go Home
           </button>
         </div>
-      </div>
-    );
-  }
+      )}
 
-  return (
-    <div className="payment-result-page">
-      <div className="payment-result-icon">⚠️</div>
-      <h2>Payment Failed</h2>
-      <p>{message}</p>
-      <p>Your listing has been saved as a draft. Please try again.</p>
-      <div className="payment-result-actions">
-        <button onClick={() => navigate("/add-product")}>
-          Try Again
-        </button>
-        <button onClick={() => navigate("/")}>
-          Go Home
-        </button>
-      </div>
     </div>
   );
 }
