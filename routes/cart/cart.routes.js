@@ -1,7 +1,7 @@
 // routes/cart/cart.routes.js
 import { Router }            from "express";
 import cartController        from "./cart.controller.js";
-import { authenticateBuyer } from "../middleware/auth.js";
+import { authenticateBuyer } from "../../middleware/auth.js";  // ← fixed
 import { CartError }         from "./cart.errors.js";
 
 const router = Router();
@@ -20,7 +20,6 @@ router.post   ("/validate",       cartController.validateCheckout);
 // eslint-disable-next-line no-unused-vars
 router.use((err, req, res, next) => {
 
-  // Log every cart error with full context
   console.error(
     `[CartRouter] ${req.method} ${req.originalUrl}`,
     {
@@ -66,7 +65,6 @@ router.use((err, req, res, next) => {
     });
   }
 
-  // Unknown — pass to global error handler
   next(err);
 });
 
