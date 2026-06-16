@@ -18,9 +18,9 @@ const __dirname  = path.dirname(__filename);
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const PORT           = process.env.PORT           || 5000;
-const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN  || "*";
-const APP_URL        = process.env.APP_URL         || "https://loemart.com";
+const PORT           = process.env.PORT          || 5000;
+const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
+const APP_URL        = process.env.APP_URL        || "https://loemart.com";
 
 /* ═══════════════════════════════════════════════════════════════
    APP + HTTP SERVER
@@ -149,6 +149,227 @@ const flwKeyMode = () => {
   if (key.includes("TEST")) return "test";
   return "live";
 };
+
+/* ═══════════════════════════════════════════════════════════════
+   SEO — SITEMAP (dynamic product pages)
+   GET /sitemap-products.xml
+   Generates XML sitemap from live active products in DB.
+   Cached for 1 hour to avoid hammering the DB.
+═══════════════════════════════════════════════════════════════ */
+const SITEMAP_CACHE_TTL = 60 * 60 * 1_000; // 1 hour
+let   sitemapCache      = null;
+let   sitemapCachedAt   = 0;
+
+app.get("/sitemap-products.xml", async (_req, res) => {
+  try {
+    // Serve from cache if fresh
+    if (sitemapCache && Date.now() - sitemapCachedAt < SITEMAP_CACHE_TTL) {
+      res.setHeader("Content-Type",  "application/xml");
+      res.setHeader("Cache-Control", "public, max-age=3600");
+      return res.send(sitemapCache);
+    }
+
+    // Fetch active products from DB
+    const { rows } = await pool.query(`
+      SELECT slug, updated_at
+      FROM   market.products
+      WHERE  status = 'active'
+      ORDER  BY updated_at DESC
+      LIMIT  5000
+    `);
+
+    const today = new Date().toISOString().split("T")[0];
+
+    let xml = `<?xml version="1.0" encoding="UTF-8"?>
+<urlset
+  xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
+    http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd"
+>\n`;
+
+    for (const row of rows) {
+      const lastmod = row.updated_at
+        ? new Date(row.updated_at).toISOString().split("T")[0]
+        : today;
+
+      xml += `  <url>
+    <loc>${APP_URL}/product/${row.slug}</loc>
+    <lastmod>${lastmod}</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>\n`;
+    }
+
+    xml += `</urlset>`;
+
+    // Store in cache
+    sitemapCache    = xml;
+    sitemapCachedAt = Date.now();
+
+    res.setHeader("Content-Type",  "application/xml");
+    res.setHeader("Cache-Control", "public, max-age=3600");
+    return res.send(xml);
+
+  } catch (err) {
+    console.error("❌ Sitemap products error:", err.message);
+    return res.status(500).send("Error generating sitemap");
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   SEO — SITEMAP INDEX
+   GET /sitemap-index.xml
+   Points to both static + dynamic sitemaps.
+═══════════════════════════════════════════════════════════════ */
+app.get("/sitemap-index.xml", (_req, res) => {
+  const today = new Date().toISOString().split("T")[0];
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+
+  <!-- Static pages sitemap -->
+  <sitemap>
+    <loc>${APP_URL}/sitemap.xml</loc>
+    <lastmod>${today}</lastmod>
+  </sitemap>
+
+  <!-- Dynamic product pages sitemap -->
+  <sitemap>
+    <loc>${APP_URL}/sitemap-products.xml</loc>
+    <lastmod>${today}</lastmod>
+  </sitemap>
+
+</sitemapindex>`;
+
+  res.setHeader("Content-Type",  "application/xml");
+  res.setHeader("Cache-Control", "public, max-age=86400"); // 24 hours
+  return res.send(xml);
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   SEO — ROBOTS.TXT (dynamic — uses APP_URL)
+   GET /robots.txt
+   Serves robots.txt dynamically so APP_URL is always correct.
+═══════════════════════════════════════════════════════════════ */
+app.get("/robots.txt", (_req, res) => {
+  const txt = `# Loemart — robots.txt
+# ${APP_URL}
+
+User-agent: *
+Allow: /
+Allow: /minimart
+Allow: /search
+Allow: /deals
+Allow: /trending
+Allow: /latest
+Allow: /nearby
+Allow: /p2p
+Allow: /product/
+Allow: /shop/
+Allow: /seller/
+Allow: /become-seller
+Allow: /menu
+Allow: /auth
+Allow: /terms
+Allow: /faq
+Allow: /support
+
+Disallow: /profile
+Disallow: /wallet
+Disallow: /settings
+Disallow: /notifications
+Disallow: /conversations
+Disallow: /chat/
+Disallow: /dashboard
+Disallow: /leaderboard
+Disallow: /coupons
+Disallow: /verification
+Disallow: /invitation
+Disallow: /complain
+Disallow: /shop/cart
+Disallow: /shop/checkout
+Disallow: /shop/orders
+Disallow: /shop/orders/
+Disallow: /payment/
+Disallow: /order-success/
+Disallow: /payment-failed/
+Disallow: /admin
+Disallow: /admin/
+Disallow: /admin/login
+Disallow: /admin/dashboard
+Disallow: /seller/dashboard
+Disallow: /seller/dashboard/
+Disallow: /api/
+Disallow: /minimart/add
+Disallow: /minimart/post-ad
+
+User-agent: Googlebot
+Allow: /
+Allow: /product/
+Allow: /seller/
+Allow: /minimart
+Allow: /search
+Allow: /deals
+Allow: /trending
+Allow: /latest
+Allow: /nearby
+Disallow: /admin/
+Disallow: /api/
+Disallow: /shop/checkout
+Disallow: /shop/orders/
+Disallow: /chat/
+Disallow: /profile
+Disallow: /wallet
+
+User-agent: Googlebot-Image
+Allow: /
+Allow: /uploads/
+
+User-agent: Bingbot
+Allow: /
+Allow: /product/
+Allow: /seller/
+Allow: /minimart
+Allow: /search
+Disallow: /admin/
+Disallow: /api/
+Disallow: /shop/checkout
+Disallow: /chat/
+Disallow: /profile
+
+User-agent: AhrefsBot
+Disallow: /
+
+User-agent: SemrushBot
+Disallow: /
+
+User-agent: DotBot
+Disallow: /
+
+User-agent: MJ12bot
+Disallow: /
+
+User-agent: BLEXBot
+Disallow: /
+
+User-agent: PetalBot
+Disallow: /
+
+User-agent: DataForSeoBot
+Disallow: /
+
+Sitemap: ${APP_URL}/sitemap.xml
+Sitemap: ${APP_URL}/sitemap-products.xml
+Sitemap: ${APP_URL}/sitemap-index.xml
+
+Crawl-delay: 10
+`;
+
+  res.setHeader("Content-Type",  "text/plain");
+  res.setHeader("Cache-Control", "public, max-age=86400"); // 24 hours
+  return res.send(txt);
+});
 
 /* ═══════════════════════════════════════════════════════════════
    WEBHOOKS  ⚠️  MUST be before express.json()
@@ -397,23 +618,24 @@ app.get("/api/health", async (_req, res) => {
   const mode = flwKeyMode();
 
   return res.json({
-    success       : true,
-    status        : dbOk ? "healthy" : "degraded",
-    database      : dbOk,
-    db_latency_ms : dbLatency,
-    db_error      : dbError ?? undefined,
-    uptime_s      : Math.floor(process.uptime()),
-    memory_mb     : Math.round(process.memoryUsage().rss / 1024 / 1024),
-    online_users  : getOnlineCount(),
-    node_version  : process.version,
-    env           : process.env.NODE_ENV || "development",
-    flw_key_set   : !!process.env.FLW_SECRET_KEY,
-    flw_hash_set  : !!process.env.FLW_SECRET_HASH,
-    flw_mode      : mode,
-    flw_key_prefix: process.env.FLW_SECRET_KEY
+    success        : true,
+    status         : dbOk ? "healthy" : "degraded",
+    database       : dbOk,
+    db_latency_ms  : dbLatency,
+    db_error       : dbError ?? undefined,
+    uptime_s       : Math.floor(process.uptime()),
+    memory_mb      : Math.round(process.memoryUsage().rss / 1024 / 1024),
+    online_users   : getOnlineCount(),
+    node_version   : process.version,
+    env            : process.env.NODE_ENV || "development",
+    flw_key_set    : !!process.env.FLW_SECRET_KEY,
+    flw_hash_set   : !!process.env.FLW_SECRET_HASH,
+    flw_mode       : mode,
+    flw_key_prefix : process.env.FLW_SECRET_KEY
       ? process.env.FLW_SECRET_KEY.slice(0, 14) + "…"
       : null,
-    webhook_url   : `${APP_URL}/api/webhooks/flutterwave`,
+    webhook_url    : `${APP_URL}/api/webhooks/flutterwave`,
+    sitemap_url    : `${APP_URL}/sitemap-products.xml`,
   });
 });
 
@@ -535,6 +757,8 @@ server.listen(PORT, () => {
   console.log(`   CART      : /api/cart`);
   console.log(`   CHECKOUT  : /api/checkout`);
   console.log(`   WEBHOOK   : ${APP_URL}/api/webhooks/flutterwave`);
+  console.log(`   SITEMAP   : ${APP_URL}/sitemap-products.xml`);
+  console.log(`   ROBOTS    : ${APP_URL}/robots.txt`);
 
   startJobRunner();
   console.log("🧹 Background jobs started");
