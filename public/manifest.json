@@ -1,0 +1,178 @@
+{
+  "name"             : "Loemart — Buy & Sell Near You",
+  "short_name"       : "Loemart",
+  "description"      : "Nigeria's neighbourhood marketplace. Buy, sell and discover quality products from verified sellers near you.",
+  "start_url"        : "/",
+  "scope"            : "/",
+  "display"          : "standalone",
+  "orientation"      : "portrait-primary",
+  "background_color" : "#ffffff",
+  "theme_color"      : "#e8630a",
+  "lang"             : "en-NG",
+  "dir"              : "ltr",
+  "categories"       : ["shopping", "lifestyle", "business"],
+
+  "icons": [
+    {
+      "src"    : "/favicon-16x16.png",
+      "sizes"  : "16x16",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/favicon-32x32.png",
+      "sizes"  : "32x32",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/favicon.png",
+      "sizes"  : "48x48",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/icon-72.png",
+      "sizes"  : "72x72",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/icon-96.png",
+      "sizes"  : "96x96",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/icon-128.png",
+      "sizes"  : "128x128",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/apple-touch-icon.png",
+      "sizes"  : "180x180",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/icon-192.png",
+      "sizes"  : "192x192",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/icon-256.png",
+      "sizes"  : "256x256",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/icon-384.png",
+      "sizes"  : "384x384",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/icon-512.png",
+      "sizes"  : "512x512",
+      "type"   : "image/png",
+      "purpose": "any"
+    },
+    {
+      "src"    : "/icon-512-maskable.png",
+      "sizes"  : "512x512",
+      "type"   : "image/png",
+      "purpose": "maskable"
+    }
+  ],
+
+  "screenshots": [
+    {
+      "src"          : "/screenshots/home.jpg",
+      "sizes"        : "390x844",
+      "type"         : "image/jpeg",
+      "form_factor"  : "narrow",
+      "label"        : "Loemart Homepage"
+    },
+    {
+      "src"          : "/screenshots/search.jpg",
+      "sizes"        : "390x844",
+      "type"         : "image/jpeg",
+      "form_factor"  : "narrow",
+      "label"        : "Search Products"
+    },
+    {
+      "src"          : "/screenshots/product.jpg",
+      "sizes"        : "390x844",
+      "type"         : "image/jpeg",
+      "form_factor"  : "narrow",
+      "label"        : "Product Detail"
+    },
+    {
+      "src"          : "/screenshots/home-desktop.jpg",
+      "sizes"        : "1280x800",
+      "type"         : "image/jpeg",
+      "form_factor"  : "wide",
+      "label"        : "Loemart on Desktop"
+    }
+  ],
+
+  "shortcuts": [
+    {
+      "name"       : "Browse Deals",
+      "short_name" : "Deals",
+      "description": "Browse cheap deals under ₦50,000",
+      "url"        : "/deals",
+      "icons"      : [{ "src": "/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name"       : "Trending Now",
+      "short_name" : "Trending",
+      "description": "See what's trending on Loemart",
+      "url"        : "/trending",
+      "icons"      : [{ "src": "/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name"       : "Sell an Item",
+      "short_name" : "Sell Now",
+      "description": "Post a product for sale on Loemart",
+      "url"        : "/minimart/add",
+      "icons"      : [{ "src": "/icon-96.png", "sizes": "96x96" }]
+    },
+    {
+      "name"       : "My Messages",
+      "short_name" : "Messages",
+      "description": "View your conversations",
+      "url"        : "/conversations",
+      "icons"      : [{ "src": "/icon-96.png", "sizes": "96x96" }]
+    }
+  ],
+
+  "related_applications": [
+    {
+      "platform": "webapp",
+      "url"     : "https://loemart.com"
+    }
+  ],
+
+  "prefer_related_applications": false,
+
+  "share_target": {
+    "action"     : "/share",
+    "method"     : "GET",
+    "enctype"    : "application/x-www-form-urlencoded",
+    "params"     : {
+      "title": "title",
+      "text" : "text",
+      "url"  : "url"
+    }
+  },
+
+  "protocol_handlers": [
+    {
+      "protocol": "web+loemart",
+      "url"     : "/product?id=%s"
+    }
+  ]
+}
