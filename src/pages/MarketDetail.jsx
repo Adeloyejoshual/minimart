@@ -1,5 +1,18 @@
-// pages/MarketDetail.jsx
-import React, {
+/**
+ * src/pages/MarketDetail.jsx
+ * Route: /shop/:slug
+ *
+ * Full product detail page with:
+ * - Image gallery
+ * - Variant selector
+ * - Add to cart (logged-in + guest)
+ * - Wishlist
+ * - Report listing
+ * - Share sheet
+ * - Related products
+ */
+
+import {
   useState, useEffect, useCallback, useMemo, memo,
 } from "react";
 import { useParams, useNavigate } from "react-router-dom";
@@ -24,32 +37,127 @@ import RelatedProducts    from "./MarketDetail/RelatedProducts";
 
 import "../styles/MarketDetail.css";
 
-/* ════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+═══════════════════════════════════════════════════════════════ */
+const BASE           = import.meta.env.VITE_API_BASE_URL;
+const API            = `${BASE}/api`;
+const CART_ITEMS_URL = `${API}/cart/items`;
+const CART_URL       = `${API}/cart`;
+
+/* ═══════════════════════════════════════════════════════════════
    CONSTANTS
-════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const CART_KEY = "mm_cart";
 
-// ── Backend endpoints ─────────────────────────────────────────
-// POST   /api/cart/items  → add item
-// GET    /api/cart        → get cart (returns total_qty)
-const CART_ITEMS_URL = "https://minimart-ivrm.onrender.com/api/cart/items";
+const TRUST_BADGES = [
+  { icon: "🔒", label: "Secure\nPayment"   },
+  { icon: "✅", label: "Verified\nSeller"  },
+  { icon: "🚚", label: "Managed\nDelivery" },
+  { icon: "↩️", label: "Easy\nReturns"     },
+];
 
-// ── Auth header helper ────────────────────────────────────────
-// Reads marketplace_token — matches TOKEN_KEYS.marketplace in App.jsx
-function authHeaders() {
+const REPORT_REASONS = [
+  "Fake or counterfeit product",
+  "Wrong or misleading information",
+  "Prohibited item",
+  "Spam or scam",
+  "Inappropriate content",
+  "Other",
+];
+
+/* ═══════════════════════════════════════════════════════════════
+   AUTH HELPERS
+═══════════════════════════════════════════════════════════════ */
+const isLoggedIn = () =>
+  !!localStorage.getItem("marketplace_token");
+
+const authHeaders = () => {
   const token = localStorage.getItem("marketplace_token");
   return token
     ? { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }
     : { "Content-Type": "application/json" };
-}
+};
 
-function isLoggedIn() {
-  return !!localStorage.getItem("marketplace_token");
-}
+/* ═══════════════════════════════════════════════════════════════
+   GUEST CART HELPERS
+   Manages mm_cart in localStorage for non-logged-in users.
+   Matches the shape expected by syncCartAfterLogin() in App.jsx
+═══════════════════════════════════════════════════════════════ */
+const readGuestCart = () => {
+  try {
+    return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+  } catch {
+    return [];
+  }
+};
 
-/* ════════════════════════════════════════════════════════════
+const writeGuestCart = (cart) => {
+  localStorage.setItem(CART_KEY, JSON.stringify(cart));
+  window.dispatchEvent(new Event("cart-updated"));
+};
+
+const addToGuestCart = (product, selectedVariant, displayPrice, originalPrice) => {
+  const cart      = readGuestCart();
+  const variantId = selectedVariant?.id ?? null;
+  const itemKey   = `${product.id}__${variantId ?? "default"}`;
+  const existing  = cart.findIndex((c) => c.id === itemKey);
+  const stock     = selectedVariant?.stock ?? product?.stock ?? 99;
+
+  const item = {
+    id            : itemKey,
+    productId     : product.id,
+    name          : product.name,
+    image         : getProductImage(product),
+    price         : displayPrice,
+    originalPrice : originalPrice > displayPrice ? originalPrice : null,
+    variant       : selectedVariant
+      ? { id: selectedVariant.id, name: selectedVariant.name, sku: selectedVariant.sku }
+      : null,
+    slug    : product.slug ?? product.id,
+    qty     : 1,
+    stock,
+    addedAt : Date.now(),
+  };
+
+  if (existing >= 0) {
+    cart[existing].qty = Math.min(cart[existing].qty + 1, stock);
+  } else {
+    cart.push(item);
+  }
+
+  writeGuestCart(cart);
+  return cart.length;
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   SERVER CART COUNT
+   Called after a successful API add — keeps badge accurate.
+═══════════════════════════════════════════════════════════════ */
+const fetchServerCartCount = async () => {
+  try {
+    const token = localStorage.getItem("marketplace_token");
+    if (!token) return null;
+
+    const res = await axios.get(CART_URL, {
+      headers : { Authorization: `Bearer ${token}` },
+      timeout : 5_000,
+    });
+
+    // Backend returns: { data: { total_qty, item_count, ... } }
+    return (
+      res.data?.data?.total_qty  ??
+      res.data?.data?.item_count ??
+      null
+    );
+  } catch {
+    return null;
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════════
    ICONS
-════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const Icon = {
   flag: (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -76,9 +184,9 @@ const Icon = {
   ),
 };
 
-/* ════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    SKELETON
-════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 function ProductSkeleton() {
   return (
     <div className="md-skeleton" aria-busy="true" aria-label="Loading product">
@@ -89,9 +197,9 @@ function ProductSkeleton() {
         ))}
       </div>
       <div className="md-skel-body">
-        <div className="md-skel md-skel-line" style={{ width: "40%",  height: 13 }} />
+        <div className="md-skel md-skel-line" style={{ width: "40%",  height: 13  }} />
         <div className="md-skel md-skel-line" style={{ width: "85%",  height: 22, margin: "10px 0" }} />
-        <div className="md-skel md-skel-line" style={{ width: "30%",  height: 28 }} />
+        <div className="md-skel md-skel-line" style={{ width: "30%",  height: 28  }} />
         <div style={{ height: 20 }} />
         <div className="md-skel md-skel-line" style={{ width: "100%", height: 80,  borderRadius: 12 }} />
         <div style={{ height: 12 }} />
@@ -101,60 +209,54 @@ function ProductSkeleton() {
   );
 }
 
-/* ════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    CART TOAST
-   Small inline confirmation — no library needed
-════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const CartToast = memo(function CartToast({ show, productName, onView }) {
   if (!show) return null;
+
   return (
     <div
       role="status"
       aria-live="polite"
       style={{
-        position:      "fixed",
-        bottom:        90,
-        left:          "50%",
-        transform:     "translateX(-50%)",
-        background:    "#111827",
-        color:         "#fff",
-        padding:       "12px 20px",
-        borderRadius:  10,
-        display:       "flex",
-        alignItems:    "center",
-        gap:           12,
-        zIndex:        9999,
-        boxShadow:     "0 4px 24px rgba(0,0,0,0.25)",
-        fontSize:      14,
-        whiteSpace:    "nowrap",
-        maxWidth:      "90vw",
-        overflow:      "hidden",
-        textOverflow:  "ellipsis",
-        animation:     "fadeInUp 0.25s ease",
+        position     : "fixed",
+        bottom       : 90,
+        left         : "50%",
+        transform    : "translateX(-50%)",
+        background   : "#111827",
+        color        : "#fff",
+        padding      : "12px 20px",
+        borderRadius : 10,
+        display      : "flex",
+        alignItems   : "center",
+        gap          : 12,
+        zIndex       : 9999,
+        boxShadow    : "0 4px 24px rgba(0,0,0,0.25)",
+        fontSize     : 14,
+        whiteSpace   : "nowrap",
+        maxWidth     : "90vw",
+        overflow     : "hidden",
+        textOverflow : "ellipsis",
+        animation    : "fadeInUp 0.25s ease",
       }}
     >
       <span style={{ color: "#4ade80", fontSize: 18 }}>✓</span>
-      <span
-        style={{
-          overflow:     "hidden",
-          textOverflow: "ellipsis",
-          maxWidth:     180,
-        }}
-      >
+      <span style={{ overflow: "hidden", textOverflow: "ellipsis", maxWidth: 180 }}>
         {productName} added
       </span>
       <button
         onClick={onView}
         style={{
-          background:    "#f57c00",
-          color:         "#fff",
-          border:        "none",
-          borderRadius:  6,
-          padding:       "4px 12px",
-          fontSize:      13,
-          fontWeight:    700,
-          cursor:        "pointer",
-          flexShrink:    0,
+          background   : "#f57c00",
+          color        : "#fff",
+          border       : "none",
+          borderRadius : 6,
+          padding      : "4px 12px",
+          fontSize     : 13,
+          fontWeight   : 700,
+          cursor       : "pointer",
+          flexShrink   : 0,
         }}
       >
         View Cart
@@ -163,18 +265,9 @@ const CartToast = memo(function CartToast({ show, productName, onView }) {
   );
 });
 
-/* ════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    REPORT MODAL
-════════════════════════════════════════════════════════════ */
-const REPORT_REASONS = [
-  "Fake or counterfeit product",
-  "Wrong or misleading information",
-  "Prohibited item",
-  "Spam or scam",
-  "Inappropriate content",
-  "Other",
-];
-
+═══════════════════════════════════════════════════════════════ */
 const ReportModal = memo(function ReportModal({ productId, onClose }) {
   const [reason,     setReason]     = useState("");
   const [details,    setDetails]    = useState("");
@@ -194,7 +287,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
       await axios.post(`${API_URL}/${productId}/report`, { reason, details });
       setSubmitted(true);
     } catch {
-      /* keep modal open so user can retry */
+      // Keep modal open so user can retry
     } finally {
       setSubmitting(false);
     }
@@ -215,7 +308,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
             <h3>Report Submitted</h3>
             <p>
               Our team will review this listing.
-              Thank you for keeping Minimart safe.
+              Thank you for keeping Loemart safe.
             </p>
             <button className="md-done-btn" onClick={onClose}>Done</button>
           </div>
@@ -231,6 +324,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
                 ✕
               </button>
             </div>
+
             <div className="md-modal-body">
               <p className="md-modal-sub">
                 Why are you reporting this listing?
@@ -239,9 +333,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
                 {REPORT_REASONS.map((r) => (
                   <button
                     key={r}
-                    className={`md-reason-btn${
-                      reason === r ? " md-reason-btn--active" : ""
-                    }`}
+                    className={`md-reason-btn${reason === r ? " md-reason-btn--active" : ""}`}
                     onClick={() => setReason(r)}
                     aria-pressed={reason === r}
                   >
@@ -259,6 +351,7 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
                 aria-label="Additional details"
               />
             </div>
+
             <div className="md-modal-footer">
               <button className="md-modal-cancel" onClick={onClose}>
                 Cancel
@@ -278,12 +371,12 @@ const ReportModal = memo(function ReportModal({ productId, onClose }) {
   );
 });
 
-/* ════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    SHARE SHEET
-════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const ShareSheet = memo(function ShareSheet({ product, onClose }) {
   const pageUrl = window.location.href;
-  const text    = `Check out ${product.name} on Minimart — ${formatPrice(product.price)}`;
+  const text    = `Check out ${product.name} on Loemart — ${formatPrice(product.price)}`;
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -300,26 +393,34 @@ const ShareSheet = memo(function ShareSheet({ product, onClose }) {
     try {
       await navigator.clipboard.writeText(pageUrl);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2500);
+      setTimeout(() => setCopied(false), 2_500);
     } catch { /* silently fail */ }
   }, [pageUrl]);
 
   const shareOptions = useMemo(() => [
     {
-      label: "WhatsApp", icon: "💬", color: "#25D366",
-      href: `https://wa.me/?text=${encodeURIComponent(`${text} ${pageUrl}`)}`,
+      label : "WhatsApp",
+      icon  : "💬",
+      color : "#25D366",
+      href  : `https://wa.me/?text=${encodeURIComponent(`${text} ${pageUrl}`)}`,
     },
     {
-      label: "Twitter", icon: "🐦", color: "#1DA1F2",
-      href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(pageUrl)}`,
+      label : "Twitter",
+      icon  : "🐦",
+      color : "#1DA1F2",
+      href  : `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(pageUrl)}`,
     },
     {
-      label: "Facebook", icon: "📘", color: "#1877F2",
-      href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`,
+      label : "Facebook",
+      icon  : "📘",
+      color : "#1877F2",
+      href  : `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(pageUrl)}`,
     },
     {
-      label: "Telegram", icon: "✈️", color: "#0088cc",
-      href: `https://t.me/share/url?url=${encodeURIComponent(pageUrl)}&text=${encodeURIComponent(text)}`,
+      label : "Telegram",
+      icon  : "✈️",
+      color : "#0088cc",
+      href  : `https://t.me/share/url?url=${encodeURIComponent(pageUrl)}&text=${encodeURIComponent(text)}`,
     },
   ], [text, pageUrl]);
 
@@ -336,6 +437,7 @@ const ShareSheet = memo(function ShareSheet({ product, onClose }) {
       <div className="md-share-sheet" onClick={(e) => e.stopPropagation()}>
         <div className="md-share-handle" aria-hidden="true" />
         <h3 className="md-share-title">Share this product</h3>
+
         <div className="md-share-preview">
           {thumbSrc && (
             <img
@@ -349,6 +451,7 @@ const ShareSheet = memo(function ShareSheet({ product, onClose }) {
             <p className="md-share-price">{formatPrice(product.price)}</p>
           </div>
         </div>
+
         <div className="md-share-options">
           {shareOptions.map((opt) => (
             <a
@@ -365,6 +468,7 @@ const ShareSheet = memo(function ShareSheet({ product, onClose }) {
             </a>
           ))}
         </div>
+
         <button className="md-copy-link" onClick={copyLink}>
           {copied ? "✅ Link Copied!" : "📋 Copy Link"}
         </button>
@@ -376,102 +480,9 @@ const ShareSheet = memo(function ShareSheet({ product, onClose }) {
   );
 });
 
-/* ════════════════════════════════════════════════════════════
-   TRUST BADGES
-════════════════════════════════════════════════════════════ */
-const TRUST_BADGES = [
-  { icon: "🔒", label: "Secure\nPayment"  },
-  { icon: "✅", label: "Verified\nSeller"  },
-  { icon: "🚚", label: "Managed\nDelivery" },
-  { icon: "↩️", label: "Easy\nReturns"     },
-];
-
-/* ════════════════════════════════════════════════════════════
-   GUEST CART HELPERS
-   Manages mm_cart in localStorage for non-logged-in users.
-   Matches the shape expected by syncCartAfterLogin() in App.jsx
-════════════════════════════════════════════════════════════ */
-function readGuestCart() {
-  try {
-    return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
-  } catch {
-    return [];
-  }
-}
-
-function writeGuestCart(cart) {
-  localStorage.setItem(CART_KEY, JSON.stringify(cart));
-  window.dispatchEvent(new Event("cart-updated"));
-}
-
-function addToGuestCart(product, selectedVariant, displayPrice, originalPrice) {
-  const cart      = readGuestCart();
-  const variantId = selectedVariant?.id ?? null;
-  const itemKey   = `${product.id}__${variantId ?? "default"}`;
-  const existing  = cart.findIndex((c) => c.id === itemKey);
-
-  const stock = selectedVariant?.stock ?? product?.stock ?? 99;
-
-  const item = {
-    id:            itemKey,
-    productId:     product.id,
-    name:          product.name,
-    image:         getProductImage(product),
-    price:         displayPrice,
-    originalPrice: originalPrice > displayPrice ? originalPrice : null,
-    variant:       selectedVariant
-      ? {
-          id:   selectedVariant.id,
-          name: selectedVariant.name,
-          sku:  selectedVariant.sku,
-        }
-      : null,
-    slug:    product.slug ?? product.id,
-    qty:     1,
-    stock,
-    addedAt: Date.now(),
-  };
-
-  if (existing >= 0) {
-    // Increment qty up to stock cap
-    cart[existing].qty = Math.min(cart[existing].qty + 1, stock);
-  } else {
-    cart.push(item);
-  }
-
-  writeGuestCart(cart);
-  return cart.length;
-}
-
-/* ════════════════════════════════════════════════════════════
-   READ LIVE CART COUNT FROM SERVER
-   Called after a successful API add — keeps badge accurate.
-   Uses the store's totalQty if available.
-════════════════════════════════════════════════════════════ */
-async function fetchServerCartCount() {
-  try {
-    const token = localStorage.getItem("marketplace_token");
-    if (!token) return null;
-
-    const res = await axios.get(
-      "https://minimart-ivrm.onrender.com/api/cart",
-      { headers: { Authorization: `Bearer ${token}` }, timeout: 5000 }
-    );
-
-    // Backend returns: { data: { total_qty, item_count, ... } }
-    return (
-      res.data?.data?.total_qty ??
-      res.data?.data?.item_count ??
-      null
-    );
-  } catch {
-    return null;
-  }
-}
-
-/* ════════════════════════════════════════════════════════════
-   MAIN PAGE
-════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════════════ */
 export default function MarketDetail({ user }) {
   const { slug }   = useParams();
   const navigate   = useNavigate();
@@ -489,12 +500,9 @@ export default function MarketDetail({ user }) {
   const [cartError,    setCartError]    = useState(null);
 
   // ── Cart count for badge (header) ─────────────────────────
-  // Initialised from localStorage for guests,
-  // updated from server for logged-in users
-  const [cartCount, setCartCount] = useState(() => {
-    if (isLoggedIn()) return 0;         // will be refreshed from server
-    return readGuestCart().length;
-  });
+  const [cartCount, setCartCount] = useState(() =>
+    isLoggedIn() ? 0 : readGuestCart().length
+  );
 
   // ── Modals ────────────────────────────────────────────────
   const [showReport, setShowReport] = useState(false);
@@ -503,7 +511,7 @@ export default function MarketDetail({ user }) {
   // ── Derived ───────────────────────────────────────────────
   const isWishlisted = product ? wishlist.has(product.id) : false;
 
-  /* ── Sync cart count from server on mount (logged-in) ── */
+  // ── Sync cart count from server on mount (logged-in) ──────
   useEffect(() => {
     if (!isLoggedIn()) return;
     fetchServerCartCount().then((count) => {
@@ -511,7 +519,7 @@ export default function MarketDetail({ user }) {
     });
   }, []);
 
-  /* ── Keep cart count synced across tabs + cart events ── */
+  // ── Keep cart count synced across tabs + cart events ──────
   useEffect(() => {
     const sync = () => {
       if (isLoggedIn()) {
@@ -532,7 +540,7 @@ export default function MarketDetail({ user }) {
     };
   }, []);
 
-  /* ── Fetch product ── */
+  // ── Fetch product ─────────────────────────────────────────
   useEffect(() => {
     if (!slug) return;
 
@@ -544,14 +552,12 @@ export default function MarketDetail({ user }) {
     setSelectedVariant(null);
 
     axios
-      .get(`${API_URL}/${slug}`, { timeout: 12000 })
+      .get(`${API_URL}/${slug}`, { timeout: 12_000 })
       .then(({ data }) => {
         if (cancelled) return;
         const p = data?.data ?? data?.product ?? data;
         setProduct(p);
-        if (p?.variants?.length > 0) {
-          setSelectedVariant(p.variants[0]);
-        }
+        if (p?.variants?.length > 0) setSelectedVariant(p.variants[0]);
       })
       .catch((err) => {
         if (cancelled) return;
@@ -564,7 +570,7 @@ export default function MarketDetail({ user }) {
     return () => { cancelled = true; };
   }, [slug]);
 
-  /* ── Pricing ── */
+  // ── Pricing ───────────────────────────────────────────────
   const displayPrice = useMemo(() => {
     if (selectedVariant?.price) return Number(selectedVariant.price);
     return Number(product?.price ?? 0);
@@ -590,16 +596,11 @@ export default function MarketDetail({ user }) {
     return v > 999 ? `${(v / 1000).toFixed(1)}k` : String(v);
   }, [product?.view_count]);
 
-  /* ══════════════════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════════
      ADD TO CART
-     ─────────────────────────────────────────────────────────
      LOGGED IN → POST /api/cart/items
-       Body: { product_id, variant_id, qty }   ← snake_case
-       Auth: Bearer marketplace_token
-
-     GUEST → localStorage mm_cart[]
-       Shape matches syncCartAfterLogin() in App.jsx
-  ══════════════════════════════════════════════════════════ */
+     GUEST     → localStorage mm_cart[]
+  ════════════════════════════════════════════════════════════ */
   const handleAddToCart = useCallback(async () => {
     if (!product || addingToCart) return;
 
@@ -610,38 +611,31 @@ export default function MarketDetail({ user }) {
 
     try {
       if (isLoggedIn()) {
-        /* ── Logged-in: POST to real cart API ── */
+        // Logged-in: POST to real cart API
         await axios.post(
-          CART_ITEMS_URL,                 // /api/cart/items  ← correct endpoint
+          CART_ITEMS_URL,
           {
-            product_id: product.id,       // snake_case matches backend validator
-            variant_id: variantId,        // null if no variant
-            qty:        1,
+            product_id : product.id,
+            variant_id : variantId,
+            qty        : 1,
           },
           { headers: authHeaders() }
         );
 
-        // Fetch real count from server after successful add
         const count = await fetchServerCartCount();
         if (count !== null) setCartCount(count);
-
-        // Trigger store refetch so CartPage stays in sync
         window.dispatchEvent(new Event("cart-updated"));
 
       } else {
-        /* ── Guest: localStorage cart ── */
+        // Guest: localStorage cart
         const newCount = addToGuestCart(
-          product,
-          selectedVariant,
-          displayPrice,
-          originalPrice
+          product, selectedVariant, displayPrice, originalPrice
         );
         setCartCount(newCount);
       }
 
-      // Show confirmation toast
       setAddedToCart(true);
-      setTimeout(() => setAddedToCart(false), 2500);
+      setTimeout(() => setAddedToCart(false), 2_500);
 
     } catch (err) {
       const msg =
@@ -651,40 +645,31 @@ export default function MarketDetail({ user }) {
 
       console.error("[MarketDetail] addToCart error:", msg);
       setCartError(msg);
-      setTimeout(() => setCartError(null), 4000);
+      setTimeout(() => setCartError(null), 4_000);
     } finally {
       setAddingToCart(false);
     }
-  }, [
-    product,
-    selectedVariant,
-    displayPrice,
-    originalPrice,
-    addingToCart,
-  ]);
+  }, [product, selectedVariant, displayPrice, originalPrice, addingToCart]);
 
-  /* ── Buy now ── */
+  // ── Buy now ───────────────────────────────────────────────
   const handleBuyNow = useCallback(async () => {
     await handleAddToCart();
     navigate("/shop/cart");
   }, [handleAddToCart, navigate]);
 
-  /* ── Go to cart ── */
-  const goToCart = useCallback(
-    () => navigate("/shop/cart"),
-    [navigate]
-  );
+  // ── Go to cart ────────────────────────────────────────────
+  const goToCart = useCallback(() => navigate("/shop/cart"), [navigate]);
 
-  /* ── Modals ── */
-  const openReport      = useCallback(() => setShowReport(true),              []);
-  const closeReport     = useCallback(() => setShowReport(false),             []);
-  const openShare       = useCallback(() => { if (product) setShowShare(true); }, [product]);
-  const closeShare      = useCallback(() => setShowShare(false),              []);
-  const handleWishlist  = useCallback(() => {
+  // ── Modals ────────────────────────────────────────────────
+  const openReport     = useCallback(() => setShowReport(true),                   []);
+  const closeReport    = useCallback(() => setShowReport(false),                  []);
+  const openShare      = useCallback(() => { if (product) setShowShare(true); },  [product]);
+  const closeShare     = useCallback(() => setShowShare(false),                   []);
+  const handleWishlist = useCallback(() => {
     if (product) toggleWishlist(product.id);
   }, [product, toggleWishlist]);
 
-  /* ── Variant stock check ── */
+  // ── Stock ─────────────────────────────────────────────────
   const isOutOfStock = useMemo(() => {
     if (selectedVariant) {
       return typeof selectedVariant.stock === "number" &&
@@ -693,26 +678,21 @@ export default function MarketDetail({ user }) {
     return false;
   }, [selectedVariant]);
 
-  const stockLeft = useMemo(() => {
-    if (selectedVariant?.stock !== undefined) {
-      return selectedVariant.stock;
-    }
-    return null;
-  }, [selectedVariant]);
+  const stockLeft = useMemo(
+    () => selectedVariant?.stock !== undefined ? selectedVariant.stock : null,
+    [selectedVariant]
+  );
 
-  /* ════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════════
      ERROR SCREENS
-  ════════════════════════════════════════════ */
+  ════════════════════════════════════════════════════════════ */
   if (!loading && error === "404") {
     return (
       <div className="md-not-found">
         <span className="md-nf-icon">🔍</span>
         <h2>Product Not Found</h2>
         <p>This listing may have been removed or is no longer available.</p>
-        <button
-          className="md-nf-btn"
-          onClick={() => navigate("/minimart")}
-        >
+        <button className="md-nf-btn" onClick={() => navigate("/minimart")}>
           Browse Products
         </button>
       </div>
@@ -725,19 +705,16 @@ export default function MarketDetail({ user }) {
         <span className="md-nf-icon">⚠️</span>
         <h2>Something went wrong</h2>
         <p>Could not load this product. Please try again.</p>
-        <button
-          className="md-nf-btn"
-          onClick={() => window.location.reload()}
-        >
+        <button className="md-nf-btn" onClick={() => window.location.reload()}>
           Try Again
         </button>
       </div>
     );
   }
 
-  /* ════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════════
      RENDER
-  ════════════════════════════════════════════ */
+  ════════════════════════════════════════════════════════════ */
   return (
     <>
       <div className="md-page">
@@ -758,13 +735,8 @@ export default function MarketDetail({ user }) {
         {/* ── Product ── */}
         {!loading && product && (
           <>
-            {/* Gallery */}
-            <ImageGallery
-              images={product.images ?? []}
-              name={product.name}
-            />
+            <ImageGallery images={product.images ?? []} name={product.name} />
 
-            {/* Content */}
             <div className="md-content">
 
               {/* Badges */}
@@ -773,14 +745,10 @@ export default function MarketDetail({ user }) {
                   <span className="md-cat-pill">{product.category}</span>
                 )}
                 {product.is_featured && (
-                  <span className="md-badge md-badge--featured">
-                    ⭐ Featured
-                  </span>
+                  <span className="md-badge md-badge--featured">⭐ Featured</span>
                 )}
                 {product.is_trending && (
-                  <span className="md-badge md-badge--trending">
-                    🔥 Trending
-                  </span>
+                  <span className="md-badge md-badge--trending">🔥 Trending</span>
                 )}
                 {product.condition && product.condition !== "new" && (
                   <span className="md-badge md-badge--cond">
@@ -801,49 +769,38 @@ export default function MarketDetail({ user }) {
 
               {/* Price */}
               <div className="md-price-block">
-                <span className="md-price">
-                  {formatPrice(displayPrice)}
-                </span>
+                <span className="md-price">{formatPrice(displayPrice)}</span>
                 {originalPrice > displayPrice && (
                   <>
-                    <span className="md-original">
-                      {formatPrice(originalPrice)}
-                    </span>
+                    <span className="md-original">{formatPrice(originalPrice)}</span>
                     <span className="md-disc-badge">-{discount}%</span>
                   </>
                 )}
               </div>
 
               {savings > 0 && (
-                <p className="md-savings">
-                  🎉 You save {formatPrice(savings)}
-                </p>
+                <p className="md-savings">🎉 You save {formatPrice(savings)}</p>
               )}
 
               {/* Stock indicator */}
               {stockLeft !== null && (
                 <p
                   style={{
-                    fontSize:    13,
-                    fontWeight:  600,
-                    marginTop:   4,
-                    color:       stockLeft === 0
-                      ? "#dc2626"
-                      : stockLeft <= 5
-                        ? "#dc2626"
-                        : stockLeft <= 10
-                          ? "#d97706"
-                          : "#16a34a",
+                    fontSize   : 13,
+                    fontWeight : 600,
+                    marginTop  : 4,
+                    color      :
+                      stockLeft === 0  ? "#dc2626" :
+                      stockLeft <= 5   ? "#dc2626" :
+                      stockLeft <= 10  ? "#d97706" :
+                                         "#16a34a",
                   }}
                   aria-live="polite"
                 >
-                  {stockLeft === 0
-                    ? "Out of stock"
-                    : stockLeft <= 5
-                      ? `⚠️ Only ${stockLeft} left`
-                      : stockLeft <= 10
-                        ? `🟡 Few units remaining (${stockLeft})`
-                        : "✅ In stock"}
+                  {stockLeft === 0   ? "Out of stock"
+                  : stockLeft <= 5   ? `⚠️ Only ${stockLeft} left`
+                  : stockLeft <= 10  ? `🟡 Few units remaining (${stockLeft})`
+                  : "✅ In stock"}
                 </p>
               )}
 
@@ -856,9 +813,7 @@ export default function MarketDetail({ user }) {
                     <span className="md-stat">👁 {viewLabel} views</span>
                   )}
                   {product.save_count > 0 && (
-                    <span className="md-stat">
-                      ❤️ {product.save_count} saved
-                    </span>
+                    <span className="md-stat">❤️ {product.save_count} saved</span>
                   )}
                   {product.variants?.length > 0 && (
                     <span className="md-stat">
@@ -881,10 +836,8 @@ export default function MarketDetail({ user }) {
               <div className="md-delivery-note">
                 <span aria-hidden="true">🚚</span>
                 <div>
-                  <strong>Managed Delivery by Minimart</strong>
-                  <p>
-                    We handle shipping, tracking and delivery for all orders
-                  </p>
+                  <strong>Managed Delivery by Loemart</strong>
+                  <p>We handle shipping, tracking and delivery for all orders</p>
                 </div>
               </div>
 
@@ -900,9 +853,7 @@ export default function MarketDetail({ user }) {
                   <ul className="md-features-list">
                     {product.key_features.map((f, i) => (
                       <li key={i} className="md-feature-item">
-                        <span className="md-feat-check" aria-hidden="true">
-                          ✓
-                        </span>
+                        <span className="md-feat-check" aria-hidden="true">✓</span>
                         <span>{f?.feature ?? f}</span>
                       </li>
                     ))}
@@ -910,7 +861,7 @@ export default function MarketDetail({ user }) {
                 </div>
               )}
 
-              {/* Specifications */}
+              {/* Specs */}
               {product.specifications?.length > 0 && (
                 <SpecsSection specs={product.specifications} />
               )}
@@ -967,7 +918,7 @@ export default function MarketDetail({ user }) {
               {/* Seller */}
               <SellerCard product={product} />
 
-              {/* Trust badges */}
+              {/* Trust Badges */}
               <div className="md-trust-grid" aria-label="Trust indicators">
                 {TRUST_BADGES.map((b) => (
                   <div key={b.label} className="md-trust-item">
@@ -977,7 +928,7 @@ export default function MarketDetail({ user }) {
                 ))}
               </div>
 
-              {/* Report button */}
+              {/* Report */}
               <button className="md-report-btn" onClick={openReport}>
                 {Icon.flag}
                 <span>Report this listing</span>
@@ -999,17 +950,11 @@ export default function MarketDetail({ user }) {
         )}
       </div>
 
-      {/* ── Sticky bottom bar ── */}
+      {/* ── Sticky Bottom Bar ── */}
       {!loading && product && (
-        <div
-          className="md-sticky-bar"
-          role="region"
-          aria-label="Purchase actions"
-        >
+        <div className="md-sticky-bar" role="region" aria-label="Purchase actions">
           <div className="md-sticky-price-wrap">
-            <span className="md-sticky-price">
-              {formatPrice(displayPrice)}
-            </span>
+            <span className="md-sticky-price">{formatPrice(displayPrice)}</span>
             {discount >= 10 && (
               <span className="md-sticky-disc" aria-hidden="true">
                 -{discount}%
@@ -1018,15 +963,9 @@ export default function MarketDetail({ user }) {
           </div>
 
           <div className="md-sticky-actions">
-            {/* Cart error message */}
             {cartError && (
               <span
-                style={{
-                  fontSize:   12,
-                  color:      "#dc2626",
-                  alignSelf:  "center",
-                  marginRight: 8,
-                }}
+                style={{ fontSize: 12, color: "#dc2626", alignSelf: "center", marginRight: 8 }}
                 role="alert"
               >
                 {cartError}
@@ -1038,21 +977,16 @@ export default function MarketDetail({ user }) {
               onClick={handleAddToCart}
               disabled={addingToCart || isOutOfStock}
               aria-label={
-                isOutOfStock
-                  ? "Out of stock"
-                  : addedToCart
-                    ? "Added to cart"
-                    : "Add to cart"
+                isOutOfStock  ? "Out of stock" :
+                addedToCart   ? "Added to cart" :
+                                "Add to cart"
               }
               aria-busy={addingToCart}
             >
-              {isOutOfStock
-                ? "Out of Stock"
-                : addingToCart
-                  ? "Adding…"
-                  : addedToCart
-                    ? "✓ Added!"
-                    : "Add to Cart"}
+              {isOutOfStock  ? "Out of Stock" :
+               addingToCart  ? "Adding…"      :
+               addedToCart   ? "✓ Added!"     :
+                               "Add to Cart"}
             </button>
 
             <button
@@ -1067,7 +1001,7 @@ export default function MarketDetail({ user }) {
         </div>
       )}
 
-      {/* ── Cart added toast ── */}
+      {/* ── Cart Toast ── */}
       <CartToast
         show={addedToCart}
         productName={product?.name ?? "Item"}
