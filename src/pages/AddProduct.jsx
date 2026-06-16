@@ -1,4 +1,18 @@
-import React, {
+/**
+ * src/pages/AddProduct.jsx
+ * Route: /minimart/add
+ *
+ * Multi-step product listing flow with:
+ * - Image compression + upload
+ * - Promotion plan selection
+ * - Paystack payment integration
+ * - GPS location detection
+ * - Auto-save draft
+ * - Progress overlay
+ * - Field-level error scrolling
+ */
+
+import {
   useEffect, useMemo, useState, useCallback, useRef,
 } from "react";
 import { Link } from "react-router-dom";
@@ -9,60 +23,96 @@ import { apiFetch, ApiError } from "../utils/apiFetch.js";
 import imageCompression      from "browser-image-compression";
 import "../styles/AddProduct.css";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+═══════════════════════════════════════════════════════════════ */
+const API_BASE = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
-const API_BASE        = "https://minimart-ivrm.onrender.com/api";
-const STORAGE_PAYMENT = "payment_retry";
-const MAX_IMAGES      = 6;
-const MAX_SIZE        = 3 * 1024 * 1024; // 3 MB
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const STORAGE_PAYMENT  = "payment_retry";
+const MAX_IMAGES       = 6;
+const MAX_SIZE         = 3 * 1024 * 1024; // 3 MB
+const COMPRESS_MAX_MB  = 1;
+const COMPRESS_MAX_DIM = 1280;
+const DRAFT_DELAY_MS   = 1_000;
+const UPLOAD_TIMEOUT   = 120_000; // 2 minutes
+const PAYMENT_MAX_AGE  = 30 * 60 * 1_000; // 30 minutes
+const GPS_TIMEOUT      = 10_000;
+const GPS_MAX_AGE      = 60_000;
+const BRAND_NAME       = "Loemart";
+const USER_AGENT       = "loemart-app/1.0";
 
 const INITIAL_FORM = {
-  title:          "",
-  description:    "",
-  price:          "",
-  category_id:    "",
-  subcategory_id: "",
-  attributes: {
-    brand:            "",
-    model:            "",
-    color:            "",
-    condition:        "",
-    used_detail:      "",
-    ram:              "",
-    storage:          "",
-    sim:              "",
-    year:             "",
-    engine:           "",
-    fuel_type:        "",
-    features:         [],
-    size:             "",
-    age_range:        "",
-    bedrooms:         "",
-    bathrooms:        "",
-    experience_level: "",
-    skills:           "",
+  title          : "",
+  description    : "",
+  price          : "",
+  category_id    : "",
+  subcategory_id : "",
+  attributes     : {
+    brand            : "",
+    model            : "",
+    color            : "",
+    condition        : "",
+    used_detail      : "",
+    ram              : "",
+    storage          : "",
+    sim              : "",
+    year             : "",
+    engine           : "",
+    fuel_type        : "",
+    features         : [],
+    size             : "",
+    age_range        : "",
+    bedrooms         : "",
+    bathrooms        : "",
+    experience_level : "",
+    skills           : "",
   },
-  delivery: {
-    available: false,
-    duration:  { from: "", to: "" },
-    fee:       "",
-    note:      "",
+  delivery : {
+    available : false,
+    duration  : { from: "", to: "" },
+    fee       : "",
+    note      : "",
   },
-  contact: {
-    phone:         "",
-    whatsapp:      "",
-    whatsapp_link: "",
-    email:         "",
-    preferred:     "chat",
+  contact : {
+    phone         : "",
+    whatsapp      : "",
+    whatsapp_link : "",
+    email         : "",
+    preferred     : "chat",
   },
 };
 
-// ─── Pure helpers ─────────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
+   ERROR → SELECTOR MAP
+   Maps validation error messages to CSS selectors so the
+   browser scrolls to and flashes the offending input.
+═══════════════════════════════════════════════════════════════ */
+const ERROR_SELECTOR_MAP = [
+  { match: "Title required",       sel: 'input[placeholder*="HP Pavilion"], input[placeholder*="Product Title"]' },
+  { match: "Description required", sel: 'textarea[placeholder*="Describe"]'           },
+  { match: "valid price",          sel: 'input[placeholder*="Enter price"]'            },
+  { match: "Category required",    sel: ".form-card:nth-of-type(2)"                   },
+  { match: "valid email",          sel: 'input[type="email"]'                         },
+  { match: "Phone must be",        sel: 'input[placeholder="08012345678"]'             },
+  { match: "WhatsApp number",      sel: 'input[type="tel"]:last-of-type'              },
+  { match: "image required",       sel: ".image-upload-box"                           },
+  { match: "state and city",       sel: ".detect-location-row, .detect-location-btn"  },
+  { match: "Terms",                sel: ".terms-checkbox-row"                         },
+  { match: "delivery days",        sel: 'input[type="number"]'                        },
+  { match: "Delivery end",         sel: 'input[type="number"]:last-of-type'           },
+  { match: "delivery fee",         sel: ".delivery-grid"                              },
+];
 
-const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
-const onlyDigits  = (v = "") => v.replace(/[^0-9]/g, "");
-const toArray     = (v)      => (Array.isArray(v) ? v : []);
-const getToken    = ()       => localStorage.getItem("token");
+/* ═══════════════════════════════════════════════════════════════
+   PURE HELPERS
+═══════════════════════════════════════════════════════════════ */
+const onlyNumbers  = (v = "") => v.replace(/[^0-9.]/g, "");
+const onlyDigits   = (v = "") => v.replace(/[^0-9]/g, "");
+const toArray      = (v)      => (Array.isArray(v) ? v : []);
+const getToken     = ()       => localStorage.getItem("marketplace_token") || localStorage.getItem("token");
 
 const displayPrice = (v) => {
   const n = Number(v);
@@ -74,16 +124,20 @@ const displayPrice = (v) => {
 const formatLabel = (t) =>
   t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
-const multipartPost = async (url, formData, token, timeoutMs = 120_000) => {
+/* ═══════════════════════════════════════════════════════════════
+   MULTIPART POST WITH TIMEOUT
+═══════════════════════════════════════════════════════════════ */
+const multipartPost = async (url, formData, token, timeoutMs = UPLOAD_TIMEOUT) => {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
   let res;
+
   try {
     res = await fetch(url, {
-      method:  "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body:    formData,
-      signal:  ctrl.signal,
+      method  : "POST",
+      headers : { Authorization: `Bearer ${token}` },
+      body    : formData,
+      signal  : ctrl.signal,
     });
   } catch (err) {
     if (err.name === "AbortError")
@@ -92,39 +146,22 @@ const multipartPost = async (url, formData, token, timeoutMs = 120_000) => {
   } finally {
     clearTimeout(tid);
   }
+
   const data = await res.json().catch(() => ({}));
   if (!res.ok)
     throw new ApiError(data?.message ?? `Request failed (${res.status})`, res.status);
   return data;
 };
 
-// ─── Auto-scroll to error field ───────────────────────────────────────────────
-// Maps validation error messages to CSS selectors so the browser
-// scrolls to and flashes the offending input automatically.
-
-const ERROR_SELECTOR_MAP = [
-  { match: "Title required",                   sel: 'input[placeholder*="HP Pavilion"], input[placeholder*="Product Title"]' },
-  { match: "Description required",             sel: 'textarea[placeholder*="Describe"]' },
-  { match: "valid price",                      sel: 'input[placeholder*="Enter price"]' },
-  { match: "Category required",                sel: ".form-card:nth-of-type(2)" },
-  { match: "valid email",                      sel: 'input[type="email"]' },
-  { match: "Phone must be",                    sel: 'input[placeholder="08012345678"]' },
-  { match: "WhatsApp number",                  sel: 'input[type="tel"]:last-of-type' },
-  { match: "image required",                   sel: ".image-upload-box" },
-  { match: "state and city",                   sel: ".detect-location-row, .detect-location-btn" },
-  { match: "Terms",                            sel: ".terms-checkbox-row" },
-  { match: "delivery days",                    sel: 'input[type="number"]' },
-  { match: "Delivery end",                     sel: 'input[type="number"]:last-of-type' },
-  { match: "delivery fee",                     sel: ".delivery-grid" },
-];
-
-function scrollToError(errorMessage) {
+/* ═══════════════════════════════════════════════════════════════
+   SCROLL TO ERROR FIELD
+═══════════════════════════════════════════════════════════════ */
+const scrollToError = (errorMessage) => {
   if (!errorMessage) return;
 
   const entry = ERROR_SELECTOR_MAP.find((e) => errorMessage.includes(e.match));
   const sel   = entry?.sel ?? ".form-error";
 
-  // Run after the error state renders
   requestAnimationFrame(() => {
     try {
       const el = document.querySelector(sel);
@@ -132,26 +169,25 @@ function scrollToError(errorMessage) {
 
       el.scrollIntoView({ behavior: "smooth", block: "center" });
 
-      // Focus if it is a real input
       if (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) {
         setTimeout(() => el.focus({ preventScroll: true }), 350);
       }
 
-      // Red flash animation
       el.classList.add("field-error-flash");
-      setTimeout(() => el.classList.remove("field-error-flash"), 2000);
+      setTimeout(() => el.classList.remove("field-error-flash"), 2_000);
     } catch {
       // Scroll is a nice-to-have — never crash for it
     }
   });
-}
+};
 
-// ─── Component ────────────────────────────────────────────────────────────────
-
-export default function AddProductPage({ user }) {
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════════════ */
+export default function AddProduct({ user }) {
   const STORAGE_DRAFT = `product_draft_${user?.id ?? "anon"}`;
 
-  // ── State ──────────────────────────────────────────────────────────────────
+  // ── State ─────────────────────────────────────────────────
   const [form,              setForm]              = useState(INITIAL_FORM);
   const [categories,        setCategories]        = useState([]);
   const [promotionPlans,    setPromotionPlans]    = useState([]);
@@ -168,43 +204,41 @@ export default function AddProductPage({ user }) {
   const [detectingLocation, setDetectingLocation] = useState(false);
   const [detectedCoords,    setDetectedCoords]    = useState(null);
 
-  // ── Progress overlay state ─────────────────────────────────────────────────
+  // Progress overlay
   const [progressVisible, setProgressVisible] = useState(false);
   const [progressStep,    setProgressStep]    = useState("compressing");
 
   // Hard submit lock — survives re-renders unlike `loading` state
   const isSubmittingRef = useRef(false);
-  // Always-current images ref — needed for safe cleanup on unmount
+  // Always-current images ref — for safe cleanup on unmount
   const imagesRef       = useRef([]);
 
-  // ── Derived ────────────────────────────────────────────────────────────────
+  // ── Derived ───────────────────────────────────────────────
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)) ?? null,
     [categories, form.category_id]
   );
+
   const options    = selectedCategory?.dynamicOptions ?? {};
   const attributes = form.attributes ?? INITIAL_FORM.attributes;
   const states     = Object.keys(locationsByState ?? {});
   const cities     = locationState ? (locationsByState[locationState] ?? []) : [];
 
-  // Determine if the selected plan is paid so ProgressOverlay
-  // knows whether to show the payment step
-  const isSelectedPlanPaid =
-    !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
+  const isSelectedPlanPaid = !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
-  // ── Feedback with auto-scroll ──────────────────────────────────────────────
+  // ── Feedback with auto-scroll ─────────────────────────────
   const showError = useCallback((msg) => {
     setError(msg);
-    scrollToError(msg); // ← scroll + flash the offending field
-    setTimeout(() => setError(""), 6000);
+    scrollToError(msg);
+    setTimeout(() => setError(""), 6_000);
   }, []);
 
   const showSuccess = useCallback((msg) => {
     setSuccess(msg);
-    setTimeout(() => setSuccess(""), 5000);
+    setTimeout(() => setSuccess(""), 5_000);
   }, []);
 
-  // ── Load categories ────────────────────────────────────────────────────────
+  // ── Load categories ───────────────────────────────────────
   useEffect(() => {
     apiFetch(`${API_BASE}/addproduct/categories`)
       .then((data) => {
@@ -217,7 +251,7 @@ export default function AddProductPage({ user }) {
       });
   }, [showError]);
 
-  // ── Load promotion plans from DB ───────────────────────────────────────────
+  // ── Load promotion plans ──────────────────────────────────
   useEffect(() => {
     setPlansLoading(true);
     apiFetch(`${API_BASE}/payment/plans`)
@@ -236,7 +270,7 @@ export default function AddProductPage({ user }) {
       .finally(() => setPlansLoading(false));
   }, [showError]);
 
-  // ── Resume or clear stale payment session ─────────────────────────────────
+  // ── Resume or clear stale payment session ─────────────────
   useEffect(() => {
     const checkPendingPayment = async () => {
       try {
@@ -246,7 +280,7 @@ export default function AddProductPage({ user }) {
         const session = JSON.parse(saved);
         const ageMs   = Date.now() - (session.createdAt ?? 0);
 
-        if (ageMs <= 30 * 60 * 1000) {
+        if (ageMs <= PAYMENT_MAX_AGE) {
           setPaymentData(session);
           showSuccess("💳 Incomplete payment found — tap 'Complete Payment' to finish");
           return;
@@ -257,12 +291,9 @@ export default function AddProductPage({ user }) {
           if (token) {
             try {
               const result = await apiFetch(`${API_BASE}/payment/verify`, {
-                method:  "POST",
-                headers: {
-                  "Content-Type": "application/json",
-                  Authorization:  `Bearer ${token}`,
-                },
-                body: JSON.stringify({ reference: session.reference }),
+                method  : "POST",
+                headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                body    : JSON.stringify({ reference: session.reference }),
               });
 
               if (result.status === "success") {
@@ -287,7 +318,7 @@ export default function AddProductPage({ user }) {
     checkPendingPayment();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Restore draft ──────────────────────────────────────────────────────────
+  // ── Restore draft ─────────────────────────────────────────
   useEffect(() => {
     if (plansLoading) return;
 
@@ -298,33 +329,34 @@ export default function AddProductPage({ user }) {
       const f     = draft.form ?? {};
 
       setForm({
-        title:          f.title          ?? "",
-        description:    f.description    ?? "",
-        price:          f.price          ?? "",
-        category_id:    f.category_id    ?? "",
-        subcategory_id: f.subcategory_id ?? "",
-        attributes: {
+        title          : f.title          ?? "",
+        description    : f.description    ?? "",
+        price          : f.price          ?? "",
+        category_id    : f.category_id    ?? "",
+        subcategory_id : f.subcategory_id ?? "",
+        attributes     : {
           ...INITIAL_FORM.attributes,
           ...(f.attributes ?? {}),
           features: toArray(f.attributes?.features),
         },
-        delivery: {
-          available: f.delivery?.available ?? false,
-          duration: {
-            from: f.delivery?.duration?.from ?? "",
-            to:   f.delivery?.duration?.to   ?? "",
+        delivery : {
+          available : f.delivery?.available ?? false,
+          duration  : {
+            from : f.delivery?.duration?.from ?? "",
+            to   : f.delivery?.duration?.to   ?? "",
           },
-          fee:  f.delivery?.fee  ?? "",
-          note: f.delivery?.note ?? "",
+          fee  : f.delivery?.fee  ?? "",
+          note : f.delivery?.note ?? "",
         },
-        contact: {
-          phone:         f.contact?.phone         ?? "",
-          whatsapp:      f.contact?.whatsapp      ?? "",
-          whatsapp_link: f.contact?.whatsapp_link ?? "",
-          email:         f.contact?.email         ?? "",
-          preferred:     f.contact?.preferred     ?? "chat",
+        contact : {
+          phone         : f.contact?.phone         ?? "",
+          whatsapp      : f.contact?.whatsapp      ?? "",
+          whatsapp_link : f.contact?.whatsapp_link ?? "",
+          email         : f.contact?.email         ?? "",
+          preferred     : f.contact?.preferred     ?? "chat",
         },
       });
+
       setLocationState(draft.locationState ?? "");
       setCity(draft.city ?? "");
 
@@ -339,10 +371,10 @@ export default function AddProductPage({ user }) {
     } catch {
       showError("Draft restore failed");
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [plansLoading]);
 
-  // ── Auto-save draft ────────────────────────────────────────────────────────
+  // ── Auto-save draft ───────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => {
       try {
@@ -350,15 +382,15 @@ export default function AddProductPage({ user }) {
           form,
           locationState,
           city,
-          imagesCount:  images.length,
-          selectedPlan: selectedPlan?.id ?? null,
+          imagesCount  : images.length,
+          selectedPlan : selectedPlan?.id ?? null,
         }));
       } catch { /* storage full — ignore */ }
-    }, 1000);
+    }, DRAFT_DELAY_MS);
     return () => clearTimeout(t);
   }, [form, locationState, city, images.length, selectedPlan, STORAGE_DRAFT]);
 
-  // ── Revoke object URLs on unmount ─────────────────────────────────────────
+  // ── Revoke object URLs on unmount ─────────────────────────
   useEffect(() => { imagesRef.current = images; }, [images]);
   useEffect(() => {
     return () => {
@@ -368,7 +400,7 @@ export default function AddProductPage({ user }) {
     };
   }, []);
 
-  // ── Form updaters ──────────────────────────────────────────────────────────
+  // ── Form updaters ─────────────────────────────────────────
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
@@ -421,13 +453,13 @@ export default function AddProductPage({ user }) {
     });
   }, []);
 
-  // ── Resume payment ─────────────────────────────────────────────────────────
+  // ── Resume payment ────────────────────────────────────────
   const resumePayment = useCallback(() => {
     if (!paymentData?.authUrl) return;
     window.open(paymentData.authUrl, "_blank");
   }, [paymentData]);
 
-  // ── Cancel pending payment ─────────────────────────────────────────────────
+  // ── Cancel pending payment ────────────────────────────────
   const cancelPendingPayment = useCallback(async () => {
     if (!paymentData?.reference) {
       localStorage.removeItem(STORAGE_PAYMENT);
@@ -439,12 +471,9 @@ export default function AddProductPage({ user }) {
       const token = getToken();
       if (token) {
         await apiFetch(`${API_BASE}/payment/verify`, {
-          method:  "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization:  `Bearer ${token}`,
-          },
-          body: JSON.stringify({ reference: paymentData.reference }),
+          method  : "POST",
+          headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body    : JSON.stringify({ reference: paymentData.reference }),
         });
       }
     } catch { /* non-critical */ }
@@ -455,7 +484,7 @@ export default function AddProductPage({ user }) {
     }
   }, [paymentData, showSuccess]);
 
-  // ── Clear draft ────────────────────────────────────────────────────────────
+  // ── Clear draft ───────────────────────────────────────────
   const clearDraft = useCallback(() => {
     setForm(INITIAL_FORM);
     setImages([]);
@@ -470,22 +499,24 @@ export default function AddProductPage({ user }) {
     showSuccess("Draft cleared");
   }, [STORAGE_DRAFT, showSuccess]);
 
-  // ── Location detection ─────────────────────────────────────────────────────
+  // ── Location detection ────────────────────────────────────
   const detectLocation = useCallback(async () => {
     if (!navigator.geolocation) {
       showError("Location detection not supported");
       return;
     }
+
     setDetectingLocation(true);
     navigator.geolocation.getCurrentPosition(
       async ({ coords: { latitude, longitude } }) => {
         try {
           const res  = await fetch(
             `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
-            { headers: { "User-Agent": "minimart-app/1.0" } }
+            { headers: { "User-Agent": USER_AGENT } }
           );
           const data = await res.json();
           const addr = data.address ?? {};
+
           const rawState = addr.state ?? addr.region ?? "";
           const rawCity  = addr.city ?? addr.town ?? addr.village
                         ?? addr.suburb ?? addr.county ?? "";
@@ -507,6 +538,7 @@ export default function AddProductPage({ user }) {
               if (matchedCity) setCity(matchedCity);
             }
           }
+
           setDetectedCoords({ latitude, longitude });
           showSuccess("📍 Location detected");
         } catch {
@@ -518,23 +550,20 @@ export default function AddProductPage({ user }) {
       },
       (err) => {
         setDetectingLocation(false);
-        const msgs = {
-          1: "Permission denied",
-          2: "Location unavailable",
-          3: "Request timed out",
-        };
+        const msgs = { 1: "Permission denied", 2: "Location unavailable", 3: "Request timed out" };
         showError(msgs[err.code] ?? "Location detection failed");
       },
-      { timeout: 10_000, maximumAge: 60_000 }
+      { timeout: GPS_TIMEOUT, maximumAge: GPS_MAX_AGE }
     );
   }, [showError, showSuccess]);
 
-  // ── Image handling ─────────────────────────────────────────────────────────
+  // ── Image handling ────────────────────────────────────────
   const handleImages = useCallback(async (files) => {
     if (images.length >= MAX_IMAGES) {
       showError("Maximum 6 images allowed");
       return;
     }
+
     const remaining  = MAX_IMAGES - images.length;
     const validFiles = Array.from(files)
       .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
@@ -549,15 +578,19 @@ export default function AddProductPage({ user }) {
       const compressed = await Promise.all(
         validFiles.map((f) =>
           imageCompression(f, {
-            maxSizeMB: 1, maxWidthOrHeight: 1280, useWebWorker: true,
+            maxSizeMB        : COMPRESS_MAX_MB,
+            maxWidthOrHeight : COMPRESS_MAX_DIM,
+            useWebWorker     : true,
           }).catch(() => f)
         )
       );
+
       const newImages = compressed.map((file) => ({
-        id:      `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        id      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
-        preview: URL.createObjectURL(file),
+        preview : URL.createObjectURL(file),
       }));
+
       setImages((prev) => [...prev, ...newImages]);
       showSuccess(`${newImages.length} image(s) added`);
     } catch {
@@ -573,7 +606,7 @@ export default function AddProductPage({ user }) {
     });
   }, []);
 
-  // ── Validation ─────────────────────────────────────────────────────────────
+  // ── Validation ────────────────────────────────────────────
   const validateForm = useCallback(() => {
     if (!form.title?.trim())                                          return "Title required";
     if (!form.description?.trim())                                    return "Description required";
@@ -589,29 +622,28 @@ export default function AddProductPage({ user }) {
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
-      if (!Number.isFinite(from) || !Number.isFinite(to))
-        return "Enter valid delivery days";
-      if (to < from)
-        return "Delivery end must be after start";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
-        return "Enter a valid delivery fee";
+      if (!Number.isFinite(from) || !Number.isFinite(to)) return "Enter valid delivery days";
+      if (to < from)                                       return "Delivery end must be after start";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Enter a valid delivery fee";
     }
+
     return null;
   }, [form, images.length, locationState, city, agreedToTerms]);
 
-  // ── Submit with progress tracking ──────────────────────────────────────────
+  /* ════════════════════════════════════════════════════════════
+     SUBMIT
+  ════════════════════════════════════════════════════════════ */
   const handleSubmit = useCallback(async () => {
     if (loading || isSubmittingRef.current) return;
     isSubmittingRef.current = true;
 
     const validationError = validateForm();
     if (validationError) {
-      showError(validationError); // auto-scrolls to the field
+      showError(validationError);
       isSubmittingRef.current = false;
       return;
     }
 
-    // Show overlay immediately
     setProgressVisible(true);
     setProgressStep("compressing");
     setLoading(true);
@@ -639,10 +671,10 @@ export default function AddProductPage({ user }) {
       const token = getToken();
       if (!token) throw new ApiError("Authentication required — please log in", 401);
 
-      // ── Step 1: Compressing (brief pause so user sees the step) ───────────
+      // Step 1: Compressing
       await new Promise((r) => setTimeout(r, 400));
 
-      // ── Step 2: Uploading images + creating product ────────────────────────
+      // Step 2: Uploading
       setProgressStep("uploading");
 
       const fd = new FormData();
@@ -666,6 +698,7 @@ export default function AddProductPage({ user }) {
         ...attributes,
         features: toArray(attributes.features),
       };
+
       fd.append("attributes",      JSON.stringify(safeAttributes));
       fd.append("delivery",        JSON.stringify(form.delivery));
       fd.append("contact",         JSON.stringify(form.contact));
@@ -673,65 +706,50 @@ export default function AddProductPage({ user }) {
       fd.append("whatsapp",        form.contact.whatsapp      ?? "");
       fd.append("whatsapp_link",   form.contact.whatsapp_link ?? "");
       fd.append("idempotency_key", crypto.randomUUID());
-      fd.append("seller_name",     user?.store_name || user?.name || "Minimart");
+      fd.append("seller_name",     user?.store_name || user?.name || BRAND_NAME);
       images.forEach((img) => fd.append("images", img.file));
 
-      // ── Step 3: Saving product to DB ──────────────────────────────────────
+      // Step 3: Saving
       setProgressStep("saving");
 
-      const data = await multipartPost(
-        `${API_BASE}/addproduct/products`, fd, token
-      );
-      if (!data.product?.id)
-        throw new ApiError("Product creation failed", 500);
+      const data = await multipartPost(`${API_BASE}/addproduct/products`, fd, token);
+      if (!data.product?.id) throw new ApiError("Product creation failed", 500);
       product = data.product;
 
-      // ── Step 4a: Free — Activate ───────────────────────────────────────────
+      // Step 4a: Free plan — Activate
       if (isFreePlan) {
         setProgressStep("activating");
 
-        await apiFetch(
-          `${API_BASE}/addproduct/products/${product.id}/activate`,
-          {
-            method:  "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization:  `Bearer ${token}`,
-            },
-            body: JSON.stringify({ promotion_id: null }),
-          }
-        );
+        await apiFetch(`${API_BASE}/addproduct/products/${product.id}/activate`, {
+          method  : "POST",
+          headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          body    : JSON.stringify({ promotion_id: null }),
+        });
 
         setProgressStep("finalizing");
         await new Promise((r) => setTimeout(r, 600));
-
         setProgressVisible(false);
         clearDraft();
         showSuccess("✅ Product live! Redirecting…");
-        setTimeout(() => { window.location.href = "/"; }, 1500);
+        setTimeout(() => { window.location.href = "/"; }, 1_500);
         return;
       }
 
-      // ── Step 4b: Paid — Initiate Paystack ────────────────────────────────
+      // Step 4b: Paid plan — Paystack
       setProgressStep("payment");
 
       const rawPrice     = Number(finalPlan.price);
       const discount     = Number(finalPlan.discount_percent ?? 0);
-      const effectiveAmt = Number(
-        (rawPrice * (1 - discount / 100)).toFixed(2)
-      );
+      const effectiveAmt = Number((rawPrice * (1 - discount / 100)).toFixed(2));
 
       const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
-        method:  "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization:  `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          email:      form.contact.email,
-          amount:     effectiveAmt,
-          plan_id:    planId,
-          product_id: product.id,
+        method  : "POST",
+        headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body    : JSON.stringify({
+          email      : form.contact.email,
+          amount     : effectiveAmt,
+          plan_id    : planId,
+          product_id : product.id,
         }),
       });
 
@@ -743,13 +761,13 @@ export default function AddProductPage({ user }) {
       setProgressVisible(false);
 
       const session = {
-        reference: payData.reference,
-        authUrl:   payData.authorization_url,
+        reference : payData.reference,
+        authUrl   : payData.authorization_url,
         planId,
-        productId: product.id,
-        email:     form.contact.email,
-        amount:    effectiveAmt,
-        createdAt: Date.now(),
+        productId : product.id,
+        email     : form.contact.email,
+        amount    : effectiveAmt,
+        createdAt : Date.now(),
       };
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
       setPaymentData(session);
@@ -757,9 +775,7 @@ export default function AddProductPage({ user }) {
       window.open(payData.authorization_url, "_blank");
 
     } catch (err) {
-      console.error("Submit error:", err);
-
-      // Always hide the overlay on error
+      console.error("[AddProduct] submit:", err);
       setProgressVisible(false);
 
       // Best-effort cleanup of orphaned draft product
@@ -767,8 +783,8 @@ export default function AddProductPage({ user }) {
         const token = getToken();
         if (token) {
           fetch(`${API_BASE}/addproduct/products/${product.id}`, {
-            method:  "DELETE",
-            headers: { Authorization: `Bearer ${token}` },
+            method  : "DELETE",
+            headers : { Authorization: `Bearer ${token}` },
           }).catch(() => {});
         }
       }
@@ -784,7 +800,7 @@ export default function AddProductPage({ user }) {
     clearDraft, showError, showSuccess, user,
   ]);
 
-  // ── Terms checkbox ─────────────────────────────────────────────────────────
+  // ── Terms checkbox ────────────────────────────────────────
   const TermsCheckbox = (
     <div className="terms-checkbox-row">
       <label className="terms-checkbox-label">
@@ -803,11 +819,9 @@ export default function AddProductPage({ user }) {
     </div>
   );
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────
   return (
     <div className="add-product-container">
-
-      {/* Progress overlay — blurred backdrop + animated card */}
       <ProgressOverlay
         visible={progressVisible}
         step={progressStep}
