@@ -1,64 +1,92 @@
-import React, { useState, useCallback, memo } from "react";
-import { Icon } from "./icons";
-import axios    from "axios";
-import { authH } from "./constants";
+/**
+ * src/pages/chat/ReportModal.jsx
+ *
+ * Report a seller from within a chat thread.
+ * Steps: pick reason → add details → success
+ */
 
-const BASE = "https://minimart-ivrm.onrender.com";
-const API  = `${BASE}/api`;
+import { useState, useCallback, memo } from "react";
+import { Icon }   from "./icons";
+import axios      from "axios";
+import { authH }  from "./constants";
 
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+═══════════════════════════════════════════════════════════════ */
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
 const REASONS = [
   {
-    id:    "scam",
-    label: "Scam / Fraud",
-    desc:  "Fake products, payment fraud, or deceptive listing",
-    icon:  "💸",
+    id    : "scam",
+    label : "Scam / Fraud",
+    desc  : "Fake products, payment fraud, or deceptive listing",
+    icon  : "💸",
   },
   {
-    id:    "fake_payment",
-    label: "Fake Payment Proof",
-    desc:  "Sent false payment screenshot or receipt",
-    icon:  "🧾",
+    id    : "fake_payment",
+    label : "Fake Payment Proof",
+    desc  : "Sent false payment screenshot or receipt",
+    icon  : "🧾",
   },
   {
-    id:    "harassment",
-    label: "Harassment",
-    desc:  "Abusive, threatening, or offensive messages",
-    icon:  "🚨",
+    id    : "harassment",
+    label : "Harassment",
+    desc  : "Abusive, threatening, or offensive messages",
+    icon  : "🚨",
   },
   {
-    id:    "threats",
-    label: "Threats",
-    desc:  "Physical threats or intimidation",
-    icon:  "⚠️",
+    id    : "threats",
+    label : "Threats",
+    desc  : "Physical threats or intimidation",
+    icon  : "⚠️",
   },
   {
-    id:    "spam",
-    label: "Spam",
-    desc:  "Unsolicited messages or irrelevant content",
-    icon:  "🗑️",
+    id    : "spam",
+    label : "Spam",
+    desc  : "Unsolicited messages or irrelevant content",
+    icon  : "🗑️",
   },
   {
-    id:    "inappropriate_content",
-    label: "Inappropriate Content",
-    desc:  "Offensive images or illegal material",
-    icon:  "🔞",
+    id    : "inappropriate_content",
+    label : "Inappropriate Content",
+    desc  : "Offensive images or illegal material",
+    icon  : "🔞",
   },
   {
-    id:    "other",
-    label: "Other",
-    desc:  "Something else not listed above",
-    icon:  "📋",
+    id    : "other",
+    label : "Other",
+    desc  : "Something else not listed above",
+    icon  : "📋",
   },
 ];
 
-function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
-  const [step,     setStep]     = useState("pick");   // pick | details | done
-  const [reason,   setReason]   = useState(null);
-  const [details,  setDetails]  = useState("");
-  const [loading,  setLoading]  = useState(false);
-  const [error,    setError]    = useState("");
+/** Placeholder text per reason */
+const PLACEHOLDERS = {
+  scam        : "e.g. They sent a fake payment screenshot and disappeared…",
+  harassment  : "e.g. They sent threatening messages after I declined…",
+  default     : "Describe what happened in detail…",
+};
 
-  const handleReasonSelect = useCallback(id => {
+const getPlaceholder = (reasonId) =>
+  PLACEHOLDERS[reasonId] ?? PLACEHOLDERS.default;
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENT
+═══════════════════════════════════════════════════════════════ */
+function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
+  const [step,    setStep]    = useState("pick");  // pick | details | done
+  const [reason,  setReason]  = useState(null);
+  const [details, setDetails] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState("");
+
+  const selectedReason = REASONS.find((r) => r.id === reason);
+
+  // ── Handlers ──────────────────────────────────────────────
+  const handleReasonSelect = useCallback((id) => {
     setReason(id);
     setStep("details");
   }, []);
@@ -70,19 +98,24 @@ function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
 
   const handleSubmit = useCallback(async () => {
     if (!reason) return;
+
     setLoading(true);
     setError("");
+
     try {
       await axios.post(
         `${API}/conversations/${threadId}/report`,
         { reason, details: details.trim(), userId },
         { headers: authH() }
       );
+
       setStep("done");
+
       setTimeout(() => {
         onSuccess?.();
         onClose();
-      }, 2800);
+      }, 2_800);
+
     } catch (err) {
       setError(
         err.response?.data?.message ||
@@ -93,15 +126,18 @@ function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
     }
   }, [reason, details, threadId, userId, onClose, onSuccess]);
 
-  const selectedReason = REASONS.find(r => r.id === reason);
-
+  // ── Render ────────────────────────────────────────────────
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-sheet report-sheet"
-        onClick={e => e.stopPropagation()}>
-        <div className="modal-handle"/>
+      <div
+        className="modal-sheet report-sheet"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="modal-handle" />
 
-        {/* ── PICK REASON ── */}
+        {/* ══════════════════════════════════════════════
+            STEP 1 — Pick Reason
+        ══════════════════════════════════════════════ */}
         {step === "pick" && (
           <>
             <div className="report-header">
@@ -109,7 +145,8 @@ function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
               <div>
                 <div className="report-title">Report Seller</div>
                 <div className="report-subtitle">
-                  What's the issue with <strong>{otherUserName}</strong>?
+                  What's the issue with{" "}
+                  <strong>{otherUserName}</strong>?
                 </div>
               </div>
               <button className="modal-close" onClick={onClose}>
@@ -118,7 +155,7 @@ function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
             </div>
 
             <div className="report-reasons">
-              {REASONS.map(r => (
+              {REASONS.map((r) => (
                 <button
                   key={r.id}
                   className="report-reason-btn"
@@ -141,7 +178,9 @@ function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
           </>
         )}
 
-        {/* ── DETAILS ── */}
+        {/* ══════════════════════════════════════════════
+            STEP 2 — Add Details
+        ══════════════════════════════════════════════ */}
         {step === "details" && (
           <>
             <div className="report-header">
@@ -159,7 +198,7 @@ function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
               </button>
             </div>
 
-            {/* selected reason card */}
+            {/* Selected reason card */}
             <div className="report-selected-card">
               <span className="report-selected-icon">
                 {selectedReason?.icon}
@@ -183,28 +222,24 @@ function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
                 className="modal-textarea report-textarea"
                 rows={4}
                 maxLength={1000}
-                placeholder={
-                  reason === "scam"
-                    ? "e.g. They sent a fake payment screenshot and disappeared…"
-                    : reason === "harassment"
-                    ? "e.g. They sent threatening messages after I declined…"
-                    : "Describe what happened in detail…"
-                }
+                placeholder={getPlaceholder(reason)}
                 value={details}
-                onChange={e => setDetails(e.target.value)}
+                onChange={(e) => setDetails(e.target.value)}
                 autoFocus
               />
               <div className="report-char-count">
-                {details.length}/1000
+                {details.length} / 1000
               </div>
             </div>
 
+            {/* Error */}
             {error && (
               <div className="report-error">
                 {Icon.warn} {error}
               </div>
             )}
 
+            {/* Warning */}
             <div className="report-warning-box">
               <span>⚠️</span>
               <div>
@@ -224,7 +259,10 @@ function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
                 disabled={loading}
               >
                 {loading ? (
-                  <><span className="mini-spinner"/>Submitting…</>
+                  <>
+                    <span className="mini-spinner" />
+                    Submitting…
+                  </>
                 ) : (
                   "Submit Report"
                 )}
@@ -233,13 +271,15 @@ function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
           </>
         )}
 
-        {/* ── SUCCESS ── */}
+        {/* ══════════════════════════════════════════════
+            STEP 3 — Success
+        ══════════════════════════════════════════════ */}
         {step === "done" && (
           <div className="report-success">
             <div className="report-success-icon">✅</div>
             <div className="report-success-title">Report Submitted</div>
             <div className="report-success-body">
-              Thank you for keeping MiniMart safe.
+              Thank you for keeping Loemart safe.
               Our team will review this conversation within{" "}
               <strong>24–48 hours</strong>.
             </div>
@@ -248,6 +288,7 @@ function ReportModal({ threadId, userId, otherUserName, onClose, onSuccess }) {
             </div>
           </div>
         )}
+
       </div>
     </div>
   );
