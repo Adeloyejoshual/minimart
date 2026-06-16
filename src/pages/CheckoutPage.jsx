@@ -1,6 +1,14 @@
-import React, {
-  useState, useEffect, useCallback, useMemo,
-} from "react";
+/**
+ * src/pages/CheckoutPage.jsx
+ * Route: /shop/checkout
+ *
+ * Multi-step checkout flow:
+ * Step 1 — Address
+ * Step 2 — Review
+ * Step 3 — Payment
+ */
+
+import { useState, useEffect, useCallback, useMemo, Fragment } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
 
@@ -10,34 +18,44 @@ import PaymentStep from "./Checkout/PaymentStep";
 
 import "../styles/Checkout.css";
 
-const API      = "https://minimart-ivrm.onrender.com/api";
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+═══════════════════════════════════════════════════════════════ */
+const API      = `${import.meta.env.VITE_API_BASE_URL}/api`;
 const CART_KEY = "mm_cart";
 
-function getToken() {
-  return (
-    localStorage.getItem("marketplace_token") ||
-    localStorage.getItem("token")
-  );
-}
+/* ═══════════════════════════════════════════════════════════════
+   TOKEN HELPERS
+═══════════════════════════════════════════════════════════════ */
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token");
 
-function authHeaders() {
-  return { Authorization: `Bearer ${getToken()}` };
-}
+const authHeaders = () => ({
+  Authorization: `Bearer ${getToken()}`,
+});
 
+/* ═══════════════════════════════════════════════════════════════
+   STEPS CONFIG
+═══════════════════════════════════════════════════════════════ */
 const STEPS = [
   { id: 1, label: "Address" },
   { id: 2, label: "Review"  },
   { id: 3, label: "Payment" },
 ];
 
+/* ═══════════════════════════════════════════════════════════════
+   COMPONENT
+═══════════════════════════════════════════════════════════════ */
 export default function CheckoutPage({ user }) {
   const navigate = useNavigate();
 
-  /* ── Redirect if not logged in ── */
+  // ── Redirect if not logged in ─────────────────────────────
   useEffect(() => {
     if (!user) navigate("/auth", { state: { from: "/shop/checkout" } });
   }, [user, navigate]);
 
+  // ── State ─────────────────────────────────────────────────
   const [step,            setStep]            = useState(1);
   const [addresses,       setAddresses]       = useState([]);
   const [selectedAddress, setSelectedAddress] = useState(null);
@@ -50,7 +68,7 @@ export default function CheckoutPage({ user }) {
   const [loading,         setLoading]         = useState(false);
   const [error,           setError]           = useState(null);
 
-  /* ── Load saved addresses ── */
+  // ── Load saved addresses ──────────────────────────────────
   useEffect(() => {
     if (!user) return;
 
@@ -60,14 +78,14 @@ export default function CheckoutPage({ user }) {
         const list = data.data ?? [];
         setAddresses(list);
 
-        /* Auto-select default address */
+        // Auto-select default address
         const def = list.find((a) => a.is_default) ?? list[0] ?? null;
         if (def) setSelectedAddress(def);
       })
       .catch(() => {});
   }, [user]);
 
-  /* ── Load cart ── */
+  // ── Load cart ─────────────────────────────────────────────
   useEffect(() => {
     if (!user) return;
 
@@ -77,21 +95,24 @@ export default function CheckoutPage({ user }) {
         setCartItems(data.data?.items ?? []);
       })
       .catch(() => {
+        // Fallback to localStorage cart
         try {
           setCartItems(
             JSON.parse(localStorage.getItem(CART_KEY) || "[]")
           );
-        } catch {}
+        } catch {
+          setCartItems([]);
+        }
       });
   }, [user]);
 
-  /* ── Subtotal ── */
+  // ── Subtotal ──────────────────────────────────────────────
   const subtotal = useMemo(
-    () => cartItems.reduce((s, i) => s + Number(i.price) * i.qty, 0),
+    () => cartItems.reduce((sum, item) => sum + Number(item.price) * item.qty, 0),
     [cartItems]
   );
 
-  /* ── Calculate delivery + payment options ── */
+  // ── Calculate delivery + payment options ──────────────────
   useEffect(() => {
     if (subtotal <= 0) return;
 
@@ -103,10 +124,11 @@ export default function CheckoutPage({ user }) {
       )
       .then(({ data }) => {
         setCalculation(data.data);
-        /* Auto-select first payment option */
+
+        // Auto-select first payment option
         if (data.data.paymentOptions?.length) {
           setPaymentMethod((prev) =>
-            /* Keep existing selection if still valid */
+            // Keep existing selection if still valid
             data.data.paymentOptions.some((o) => o.key === prev)
               ? prev
               : data.data.paymentOptions[0].key
@@ -116,7 +138,7 @@ export default function CheckoutPage({ user }) {
       .catch(() => {});
   }, [subtotal, discount]);
 
-  /* ── Address handlers ── */
+  // ── Address handlers ──────────────────────────────────────
 
   /** Called when a brand-new address is saved */
   const handleAddAddress = useCallback((addr) => {
@@ -128,18 +150,18 @@ export default function CheckoutPage({ user }) {
     setAddresses((prev) =>
       prev.map((a) => (a.id === id ? updated : a))
     );
-    /* If the edited address was selected, keep it fresh */
+    // Keep selected address fresh if it was edited
     setSelectedAddress((prev) =>
       prev?.id === id ? updated : prev
     );
   }, []);
 
-  /** Called when user clicks a card / saves a new address */
+  /** Called when user selects an address card */
   const handleSelectAddress = useCallback((addr) => {
     setSelectedAddress(addr);
   }, []);
 
-  /* ── Place order ── */
+  // ── Place order ───────────────────────────────────────────
   const handlePlaceOrder = useCallback(async () => {
     if (!selectedAddress || !paymentMethod) return;
 
@@ -150,20 +172,20 @@ export default function CheckoutPage({ user }) {
       const { data } = await axios.post(
         `${API}/checkout`,
         {
-          addressId:     selectedAddress.id,
+          addressId     : selectedAddress.id,
           paymentMethod,
-          couponCode:    couponCode || undefined,
+          couponCode    : couponCode || undefined,
           discount,
-          notes:         notes     || undefined,
+          notes         : notes     || undefined,
         },
         { headers: authHeaders() }
       );
 
       if (data.data.requiresPayment && data.data.paymentLink) {
-        /* Online payment → redirect to Flutterwave */
+        // Online payment → redirect to Flutterwave
         window.location.href = data.data.paymentLink;
       } else {
-        /* Cash on delivery → success page */
+        // Cash on delivery → success page
         navigate(`/shop/orders/${data.data.orderGroupId}`);
       }
     } catch (err) {
@@ -176,12 +198,14 @@ export default function CheckoutPage({ user }) {
     }
   }, [selectedAddress, paymentMethod, couponCode, discount, notes, navigate]);
 
+  // ── Guard ─────────────────────────────────────────────────
   if (!user) return null;
 
+  // ── Render ────────────────────────────────────────────────
   return (
     <div className="ck-page">
 
-      {/* ── Top bar ── */}
+      {/* ── Top Bar ── */}
       <div className="ck-topbar">
         <button
           className="ck-back-btn"
@@ -194,16 +218,16 @@ export default function CheckoutPage({ user }) {
         <div />
       </div>
 
-      {/* ── Step indicator ── */}
+      {/* ── Step Indicator ── */}
       <div className="ck-steps">
         {STEPS.map((s, i) => (
-          <React.Fragment key={s.id}>
+          <Fragment key={s.id}>
             <div
               className={[
                 "ck-step",
                 step === s.id ? "ck-step--active" : "",
                 step >  s.id ? "ck-step--done"   : "",
-              ].join(" ")}
+              ].join(" ").trim()}
             >
               <div className="ck-step-dot">
                 {step > s.id ? "✓" : s.id}
@@ -213,26 +237,30 @@ export default function CheckoutPage({ user }) {
 
             {i < STEPS.length - 1 && (
               <div
-                className={`ck-step-line ${
-                  step > s.id ? "ck-step-line--done" : ""
-                }`}
+                className={[
+                  "ck-step-line",
+                  step > s.id ? "ck-step-line--done" : "",
+                ].join(" ").trim()}
               />
             )}
-          </React.Fragment>
+          </Fragment>
         ))}
       </div>
 
-      {/* ── Global error banner ── */}
+      {/* ── Global Error Banner ── */}
       {error && (
         <div className="ck-error" role="alert">
           ⚠️ {error}
-          <button onClick={() => setError(null)} aria-label="Dismiss error">
+          <button
+            onClick={() => setError(null)}
+            aria-label="Dismiss error"
+          >
             ✕
           </button>
         </div>
       )}
 
-      {/* ── Step content ── */}
+      {/* ── Step Content ── */}
       <div className="ck-content">
 
         {/* Step 1 — Address */}
@@ -240,11 +268,11 @@ export default function CheckoutPage({ user }) {
           <AddressStep
             addresses={addresses}
             selected={selectedAddress}
-            onSelect={handleSelectAddress}   /* select a card            */
-            onAdd={handleAddAddress}          /* new address saved        */
-            onEdit={handleEditAddress}        /* existing address updated */
+            onSelect={handleSelectAddress}
+            onAdd={handleAddAddress}
+            onEdit={handleEditAddress}
             onNext={() => setStep(2)}
-            user={user}                       /* for auto-fill            */
+            user={user}
           />
         )}
 
