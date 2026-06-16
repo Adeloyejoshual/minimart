@@ -1,5 +1,7 @@
 /**
- * P2P.jsx — Minimart
+ * src/pages/P2P.jsx
+ * Route: /p2p
+ *
  * Peer-to-peer trading page:
  * - Browse active trade offers (sell / swap / free)
  * - Post a trade offer (modal)
@@ -11,39 +13,55 @@
  * - Movement-aware + 30-min refresh
  */
 
-import React, {
+import {
   useEffect, useState, useCallback, useRef, memo, useMemo,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import TopNav     from "../components/TopNav";
-import BottomNav  from "../components/BottomNav";
-import Footer     from "../components/Footer";
+import TopNav          from "../components/TopNav";
+import BottomNav       from "../components/BottomNav";
+import Footer          from "../components/Footer";
 import LocationPicker, { getActiveLocation } from "../components/LocationPicker";
 import { PinIcon, naira, getImageUrl } from "../components/MasonryCard";
 import CATEGORY_CONFIG from "../config/categories";
 
-/* ─── Constants ─────────────────────────────────────────── */
-const API = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
-const PH  = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
-const GPS_O = { timeout: 5000, enableHighAccuracy: false, maximumAge: 300_000 };
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+═══════════════════════════════════════════════════════════════ */
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const PH             = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
+const ITEMS_PER_PAGE = 24;
+const PROMO_INTERVAL = 10;
+const REFRESH_MS     = 1_800_000; // 30 minutes
+const MOVE_CHECK_MS  = 300_000;   // 5 minutes
+const MOVE_THRESHOLD = 2;         // km
+
+const GPS_OPTIONS = {
+  timeout            : 5_000,
+  enableHighAccuracy : false,
+  maximumAge         : 300_000,
+};
 
 const OFFER_TYPES = [
-  { key: "all",  label: "All Offers",  icon: "✦" },
-  { key: "sell", label: "For Sale",    icon: "💰" },
-  { key: "swap", label: "Swap / Trade",icon: "🔄" },
-  { key: "free", label: "Free",        icon: "🎁" },
+  { key: "all",  label: "All Offers",   icon: "✦" },
+  { key: "sell", label: "For Sale",     icon: "💰" },
+  { key: "swap", label: "Swap / Trade", icon: "🔄" },
+  { key: "free", label: "Free",         icon: "🎁" },
 ];
 
 const SORT_OPTS = [
-  { key: "smart",      label: "Best Match"  },
-  { key: "newest",     label: "Newest"      },
-  { key: "price_asc",  label: "Price ↑"    },
-  { key: "price_desc", label: "Price ↓"    },
+  { key: "smart",      label: "Best Match" },
+  { key: "newest",     label: "Newest"     },
+  { key: "price_asc",  label: "Price ↑"   },
+  { key: "price_desc", label: "Price ↓"   },
 ];
 
-const ITEMS_PER_PAGE = 24;
-
-/* ─── Helpers ────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════ */
 const dedup = (arr) => {
   const seen = new Set();
   return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
@@ -56,40 +74,46 @@ const getRecentCategories = () => {
 
 const personalScore = (p, recentCats) => {
   let score = 0;
-  score += (p.engagement_score || 0);
-  score += (p.is_promoted ? 50 : 0);
-  score += ((p.promotion_priority || 0) * 5);
-  score += (p.ctr || 0) * 30;
+  score += (p.engagement_score   || 0);
+  score += (p.is_promoted ? 50   : 0);
+  score += (p.promotion_priority || 0) * 5;
+  score += (p.ctr                || 0) * 30;
   if (recentCats.includes(p.category_id)) score += 20;
   return score;
 };
 
 const applySort = (arr, key, recentCats) => {
-  if (key === "newest")    return [...arr].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  if (key === "price_asc") return [...arr].sort((a, b) => Number(a.price) - Number(b.price));
-  if (key === "price_desc")return [...arr].sort((a, b) => Number(b.price) - Number(a.price));
-  /* smart */
+  if (key === "newest")     return [...arr].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  if (key === "price_asc")  return [...arr].sort((a, b) => Number(a.price) - Number(b.price));
+  if (key === "price_desc") return [...arr].sort((a, b) => Number(b.price) - Number(a.price));
   return [...arr].sort((a, b) => personalScore(b, recentCats) - personalScore(a, recentCats));
 };
 
 const getDistanceKm = (lat1, lon1, lat2, lon2) => {
-  const R = 6371, dLat = ((lat2 - lat1) * Math.PI) / 180,
-    dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a = Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) *
+  const R    = 6_371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
     Math.sin(dLon / 2) ** 2;
   return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
 };
 
-const injectPromoted = (products, promoted, interval = 10) => {
+const injectPromoted = (products, promoted, interval = PROMO_INTERVAL) => {
   if (!promoted.length) return products;
-  const result = [];
-  let promoIdx = 0;
-  const usedIds = new Set(products.map((p) => p.id));
+
+  const result   = [];
+  let promoIdx   = 0;
+  const usedIds  = new Set(products.map((p) => p.id));
+
   for (let i = 0; i < products.length; i++) {
     result.push(products[i]);
     if ((i + 1) % interval === 0) {
-      while (promoIdx < promoted.length && usedIds.has(promoted[promoIdx].id)) promoIdx++;
+      while (promoIdx < promoted.length && usedIds.has(promoted[promoIdx].id)) {
+        promoIdx++;
+      }
       if (promoIdx < promoted.length) {
         result.push({ ...promoted[promoIdx], _injected: true });
         usedIds.add(promoted[promoIdx].id);
@@ -101,7 +125,7 @@ const injectPromoted = (products, promoted, interval = 10) => {
 };
 
 const heroLocation = (meta) => {
-  const city  = meta?.location_city || meta?.city;
+  const city  = meta?.location_city  || meta?.city;
   const state = meta?.location_state || meta?.state;
   if (city && state) return `${city}, ${state}`;
   return city || state || meta?.location || null;
@@ -110,7 +134,7 @@ const heroLocation = (meta) => {
 const timeAgo = (dateStr) => {
   if (!dateStr) return "";
   const diff = Date.now() - new Date(dateStr).getTime();
-  const m = Math.floor(diff / 60000);
+  const m    = Math.floor(diff / 60_000);
   if (m < 1)  return "Just now";
   if (m < 60) return `${m}m ago`;
   const h = Math.floor(m / 60);
@@ -119,39 +143,52 @@ const timeAgo = (dateStr) => {
 };
 
 const offerTypeBadge = (product) => {
-  if (product.offer_type === "free")  return { label: "FREE",       cls: "badge--free"  };
-  if (product.offer_type === "swap")  return { label: "SWAP",       cls: "badge--swap"  };
-  if (Number(product.price) === 0)    return { label: "FREE",       cls: "badge--free"  };
-  return                                     { label: null,          cls: ""             };
+  if (product.offer_type === "free")  return { label: "FREE", cls: "badge--free" };
+  if (product.offer_type === "swap")  return { label: "SWAP", cls: "badge--swap" };
+  if (Number(product.price) === 0)    return { label: "FREE", cls: "badge--free" };
+  return { label: null, cls: "" };
 };
 
-/* ─── Skeletons ──────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   SKELETON
+═══════════════════════════════════════════════════════════════ */
 const SkeletonGrid = () => (
   <div className="p2p-grid">
     {[...Array(8)].map((_, i) => (
-      <div key={i} className="p2p-sk" style={{ height: `${200 + (i % 3) * 60}px` }} />
+      <div
+        key={i}
+        className="p2p-sk"
+        style={{ height: `${200 + (i % 3) * 60}px` }}
+      />
     ))}
   </div>
 );
 
-/* ─── Section Header ─────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   SECTION HEADER
+═══════════════════════════════════════════════════════════════ */
 const SectionHead = memo(({ title, chip, sub, onSeeAll }) => (
   <div className="p2p-sec-head">
     <div className="p2p-sec-label">
       <span className="p2p-sec-title">{title}</span>
-      {chip && <span className="p2p-sec-chip">{chip}</span>}
-      {sub  && <span className="p2p-sec-sub">{sub}</span>}
+      {chip     && <span className="p2p-sec-chip">{chip}</span>}
+      {sub      && <span className="p2p-sec-sub">{sub}</span>}
     </div>
-    {onSeeAll && <button className="p2p-see-all" onClick={onSeeAll}>See all →</button>}
+    {onSeeAll && (
+      <button className="p2p-see-all" onClick={onSeeAll}>See all →</button>
+    )}
   </div>
 ));
 
-/* ─── Offer Card ─────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   OFFER CARD
+═══════════════════════════════════════════════════════════════ */
 const OfferCard = memo(({ product, onClick, onView, priority = false }) => {
   const imgRef  = useRef(null);
   const cardRef = useRef(null);
-  const imageUrl = getImageUrl(product);
-  const badge    = offerTypeBadge(product);
+
+  const imageUrl   = getImageUrl(product);
+  const badge      = offerTypeBadge(product);
   const sellerName = product.seller_name || product.user?.name || "Seller";
   const initials   = sellerName.slice(0, 2).toUpperCase();
   const locCity    = product.location?.city || product.location_city || "";
@@ -162,7 +199,9 @@ const OfferCard = memo(({ product, onClick, onView, priority = false }) => {
   useEffect(() => {
     if (!onView || !cardRef.current) return;
     const obs = new IntersectionObserver(
-      ([e]) => { if (e.isIntersecting) { onView(product.id); obs.disconnect(); } },
+      ([e]) => {
+        if (e.isIntersecting) { onView(product.id); obs.disconnect(); }
+      },
       { threshold: 0.3 }
     );
     obs.observe(cardRef.current);
@@ -173,7 +212,8 @@ const OfferCard = memo(({ product, onClick, onView, priority = false }) => {
     <div
       ref={cardRef}
       className={`p2p-card${product._injected ? " p2p-card--promo" : ""}`}
-      role="button" tabIndex={0}
+      role="button"
+      tabIndex={0}
       onClick={() => onClick(product)}
       onKeyDown={(e) => { if (e.key === "Enter") onClick(product); }}
     >
@@ -207,16 +247,14 @@ const OfferCard = memo(({ product, onClick, onView, priority = false }) => {
           {product.offer_type === "free" || Number(product.price) === 0
             ? <span className="p2p-price-free">Free</span>
             : product.offer_type === "swap"
-            ? <span className="p2p-price-swap">Open to offers</span>
-            : <span>{naira(product.price)}</span>
+              ? <span className="p2p-price-swap">Open to offers</span>
+              : <span>{naira(product.price)}</span>
           }
         </div>
 
         <div className="p2p-card-meta">
-          {/* Seller avatar */}
           <div className="p2p-avatar">{initials}</div>
           <span className="p2p-seller">{sellerName}</span>
-
           <div className="p2p-card-loc">
             {dist && (
               <span className="p2p-dist">
@@ -238,16 +276,24 @@ const OfferCard = memo(({ product, onClick, onView, priority = false }) => {
   );
 });
 
-/* ─── Post Offer Modal ───────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   POST OFFER MODAL
+═══════════════════════════════════════════════════════════════ */
 const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
-  const [form, setForm]     = useState({ title: "", price: "", category: "", offer_type: "sell", description: "" });
-  const [busy, setBusy]     = useState(false);
+  const [form,   setForm]   = useState({
+    title       : "",
+    price       : "",
+    category    : "",
+    offer_type  : "sell",
+    description : "",
+  });
+  const [busy,   setBusy]   = useState(false);
   const [errors, setErrors] = useState({});
 
   const validate = () => {
     const e = {};
-    if (!form.title.trim())    e.title    = "Title is required";
-    if (!form.category)        e.category = "Pick a category";
+    if (!form.title.trim()) e.title    = "Title is required";
+    if (!form.category)     e.category = "Pick a category";
     if (form.offer_type === "sell" && !form.price) e.price = "Enter a price";
     return e;
   };
@@ -256,7 +302,7 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
     setBusy(true);
-    try { await onSubmit(form); onClose(); }
+    try   { await onSubmit(form); onClose(); }
     catch { /* handled upstream */ }
     finally { setBusy(false); }
   };
@@ -264,11 +310,21 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
   if (!open) return null;
 
   return (
-    <div className="p2p-modal-overlay" onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="p2p-modal" role="dialog" aria-modal="true" aria-label="Post a trade offer">
+    <div
+      className="p2p-modal-overlay"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        className="p2p-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Post a trade offer"
+      >
         <div className="p2p-modal-head">
           <span className="p2p-modal-title">Post a Trade Offer</span>
-          <button className="p2p-modal-close" onClick={onClose} aria-label="Close">✕</button>
+          <button className="p2p-modal-close" onClick={onClose} aria-label="Close">
+            ✕
+          </button>
         </div>
 
         {/* Offer type tabs */}
@@ -285,6 +341,8 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
         </div>
 
         <div className="p2p-modal-body">
+
+          {/* Title */}
           <label className="p2p-field">
             <span>Item title *</span>
             <input
@@ -296,12 +354,14 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
             {errors.title && <span className="p2p-err">{errors.title}</span>}
           </label>
 
+          {/* Price — sell only */}
           {form.offer_type === "sell" && (
             <label className="p2p-field">
               <span>Price (₦) *</span>
               <input
                 className={`p2p-input${errors.price ? " err" : ""}`}
-                type="number" placeholder="e.g. 150000"
+                type="number"
+                placeholder="e.g. 150000"
                 value={form.price}
                 onChange={(e) => setForm((f) => ({ ...f, price: e.target.value }))}
               />
@@ -309,6 +369,7 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
             </label>
           )}
 
+          {/* Swap target */}
           {form.offer_type === "swap" && (
             <label className="p2p-field">
               <span>What are you looking for?</span>
@@ -321,6 +382,7 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
             </label>
           )}
 
+          {/* Category */}
           <label className="p2p-field">
             <span>Category *</span>
             <select
@@ -336,6 +398,7 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
             {errors.category && <span className="p2p-err">{errors.category}</span>}
           </label>
 
+          {/* Description */}
           {form.offer_type !== "swap" && (
             <label className="p2p-field">
               <span>Description</span>
@@ -351,8 +414,14 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
         </div>
 
         <div className="p2p-modal-foot">
-          <button className="p2p-modal-cancel" onClick={onClose}>Cancel</button>
-          <button className="p2p-modal-submit" onClick={handleSubmit} disabled={busy}>
+          <button className="p2p-modal-cancel" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="p2p-modal-submit"
+            onClick={handleSubmit}
+            disabled={busy}
+          >
             {busy ? "Posting…" : "Post Offer →"}
           </button>
         </div>
@@ -361,38 +430,42 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
   );
 });
 
-/* ─── Match Me Banner ────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   MATCH ME BANNER
+═══════════════════════════════════════════════════════════════ */
 const MatchBanner = memo(({ onMatch }) => (
   <div className="p2p-match-banner">
     <div className="p2p-match-copy">
       <span className="p2p-match-icon">🤝</span>
       <div>
         <div className="p2p-match-title">Find your perfect trade partner</div>
-        <div className="p2p-match-sub">Tell us what you have & what you want — we'll find matches nearby</div>
+        <div className="p2p-match-sub">
+          Tell us what you have & what you want — we'll find matches nearby
+        </div>
       </div>
     </div>
     <button className="p2p-match-btn" onClick={onMatch}>Match Me</button>
   </div>
 ));
 
-/* ═══════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    P2P PAGE
-═══════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 export default function P2P({ user }) {
   const navigate = useNavigate();
 
-  const [offers,     setOffers]     = useState([]);
-  const [promoted,   setPromoted]   = useState([]);
-  const [meta,       setMeta]       = useState({});
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
+  const [offers,   setOffers]   = useState([]);
+  const [promoted, setPromoted] = useState([]);
+  const [meta,     setMeta]     = useState({});
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
 
-  /* Filters */
+  // Filters
   const [offerType,  setOfferType]  = useState("all");
   const [activeSort, setActiveSort] = useState("smart");
   const [visible,    setVisible]    = useState(ITEMS_PER_PAGE);
 
-  /* UI */
+  // UI
   const [pickerOpen, setPickerOpen] = useState(false);
   const [postOpen,   setPostOpen]   = useState(false);
 
@@ -400,7 +473,7 @@ export default function P2P({ user }) {
     JSON.parse(localStorage.getItem("lastLocation") || "null")
   );
 
-  /* ── Load P2P offers ── */
+  // ── Load P2P offers ───────────────────────────────────────
   const loadOffers = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -414,10 +487,12 @@ export default function P2P({ user }) {
     try {
       const data = await new Promise((resolve, reject) => {
         let done = false;
+
         const finish = (fn) => { if (done) return; done = true; fn(); };
+
         const timeout = setTimeout(() => {
           finish(() => fetchData().then(resolve).catch(reject));
-        }, 5000);
+        }, 5_000);
 
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
@@ -432,8 +507,13 @@ export default function P2P({ user }) {
                   .catch(() => fetchData().then(resolve).catch(reject));
               });
             },
-            () => { finish(() => { clearTimeout(timeout); fetchData().then(resolve).catch(reject); }); },
-            GPS_O
+            () => {
+              finish(() => {
+                clearTimeout(timeout);
+                fetchData().then(resolve).catch(reject);
+              });
+            },
+            GPS_OPTIONS
           );
         } else {
           finish(() => { clearTimeout(timeout); fetchData().then(resolve).catch(reject); });
@@ -441,62 +521,65 @@ export default function P2P({ user }) {
       });
 
       const all = dedup([
-        ...(data.products       || []),
-        ...(data.recommended    || []),
-        ...(data.trending       || []),
-        ...(data.latest         || []),
+        ...(data.products    || []),
+        ...(data.recommended || []),
+        ...(data.trending    || []),
+        ...(data.latest      || []),
       ]);
 
       setOffers(all);
       setPromoted(all.filter((p) => p.is_promoted));
       setMeta(data.meta || {});
-    } catch (e) {
-      console.error(e);
+
+    } catch (err) {
+      console.error("[P2P] load error:", err);
       setError("Could not load trade offers. Check your connection.");
     } finally {
       setLoading(false);
     }
   }, []);
 
-  /* ── Bootstrap ── */
+  // ── Bootstrap ─────────────────────────────────────────────
   useEffect(() => { loadOffers(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── 30-min refresh ── */
+  // ── 30-min refresh ────────────────────────────────────────
   useEffect(() => {
-    const id = setInterval(() => loadOffers(), 1_800_000);
+    const id = setInterval(() => loadOffers(), REFRESH_MS);
     return () => clearInterval(id);
   }, [loadOffers]);
 
-  /* ── Movement-aware refresh ── */
+  // ── Movement-aware refresh ────────────────────────────────
   useEffect(() => {
     if (!navigator.geolocation) return;
+
     const check = () => {
       navigator.geolocation.getCurrentPosition(
         ({ coords: { latitude, longitude } }) => {
           const prev = lastLocationRef.current;
           if (!prev) { lastLocationRef.current = { latitude, longitude }; return; }
-          if (getDistanceKm(prev.latitude, prev.longitude, latitude, longitude) > 2) {
+          if (getDistanceKm(prev.latitude, prev.longitude, latitude, longitude) > MOVE_THRESHOLD) {
             lastLocationRef.current = { latitude, longitude };
             localStorage.setItem("lastLocation", JSON.stringify({ latitude, longitude }));
             loadOffers();
           }
         },
         () => {},
-        { enableHighAccuracy: false, maximumAge: 300_000, timeout: 5000 }
+        { enableHighAccuracy: false, maximumAge: 300_000, timeout: 5_000 }
       );
     };
-    const id = setInterval(check, 300_000);
+
+    const id = setInterval(check, MOVE_CHECK_MS);
     return () => clearInterval(id);
   }, [loadOffers]);
 
-  /* ── Location changed ── */
+  // ── Location changed event ────────────────────────────────
   useEffect(() => {
     const h = () => loadOffers();
     window.addEventListener("locationChanged", h);
     return () => window.removeEventListener("locationChanged", h);
   }, [loadOffers]);
 
-  /* ── Click handler ── */
+  // ── Click + view tracking ─────────────────────────────────
   const handleClick = useCallback((product) => {
     fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
     navigate(`/product/${product.slug}`);
@@ -506,29 +589,28 @@ export default function P2P({ user }) {
     fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
   }, []);
 
-  /* ── Post offer ── */
+  // ── Post offer ────────────────────────────────────────────
   const handlePostOffer = useCallback(async (form) => {
     const res = await fetch(`${API}/products`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...form, p2p: true }),
+      method  : "POST",
+      headers : { "Content-Type": "application/json" },
+      body    : JSON.stringify({ ...form, p2p: true }),
     });
     if (!res.ok) throw new Error("Post failed");
     await loadOffers();
   }, [loadOffers]);
 
-  /* ── Derived ── */
+  // ── Derived ───────────────────────────────────────────────
   const activeLoc  = getActiveLocation();
   const locLabel   = useMemo(() => {
     if (activeLoc?.label) return activeLoc.label;
     return heroLocation(meta);
   }, [meta, activeLoc]);
   const cityLabel  = locLabel?.split(",")[0] || "Nigeria";
-
   const recentCats = useMemo(() => getRecentCategories(), []);
 
   const filtered = useMemo(() => {
-    if (offerType === "all") return offers;
+    if (offerType === "all")  return offers;
     if (offerType === "free") return offers.filter(
       (p) => p.offer_type === "free" || Number(p.price) === 0
     );
@@ -545,7 +627,6 @@ export default function P2P({ user }) {
     [sorted, visible, promoted]
   );
 
-  /* ── Counts ── */
   const typeCounts = useMemo(() => {
     const counts = { all: offers.length, sell: 0, swap: 0, free: 0 };
     offers.forEach((p) => {
@@ -556,22 +637,21 @@ export default function P2P({ user }) {
     return counts;
   }, [offers]);
 
-  /* ── Nearby highlights (top 4 with distance) ── */
   const nearbyHighlights = useMemo(
     () => offers.filter((p) => p.distance_km != null).slice(0, 4),
     [offers]
   );
 
-  /* ════════════════════════════════════════════
-     RENDER
-  ════════════════════════════════════════════ */
+  // ── Render ────────────────────────────────────────────────
   return (
     <>
-      <TopNav />
+      <TopNav user={user} />
 
       <div className="p2p-pg">
 
-        {/* ── Hero ── */}
+        {/* ══════════════════════════════════════════════
+            HERO
+        ══════════════════════════════════════════════ */}
         <div className="p2p-hero">
           <div className="p2p-hero-top">
             <div>
@@ -587,7 +667,9 @@ export default function P2P({ user }) {
               className="p2p-notify"
               aria-label="Notifications"
               onClick={() => navigate("/notifications")}
-            >🔔</button>
+            >
+              🔔
+            </button>
           </div>
 
           {/* Location pill */}
@@ -598,7 +680,9 @@ export default function P2P({ user }) {
           >
             <PinIcon size={13} />
             <span>{locLabel || "Set your location"}</span>
-            {meta.nearbySource === "gps" && <span className="p2p-gps-chip">GPS</span>}
+            {meta.nearbySource === "gps" && (
+              <span className="p2p-gps-chip">GPS</span>
+            )}
             <span className="p2p-loc-change">Change</span>
           </button>
 
@@ -619,46 +703,69 @@ export default function P2P({ user }) {
           </div>
         </div>
 
-        {/* ── Search ── */}
-        <div className="p2p-search-wrap" onClick={() => navigate("/search?p2p=1")}>
+        {/* ══════════════════════════════════════════════
+            SEARCH
+        ══════════════════════════════════════════════ */}
+        <div
+          className="p2p-search-wrap"
+          onClick={() => navigate("/search?p2p=1")}
+        >
           <div className="p2p-search">
             <span className="p2p-search-ic">🔍</span>
             <span className="p2p-search-txt">Search trade offers…</span>
           </div>
         </div>
 
-        {/* ── Match Me Banner ── */}
+        {/* ══════════════════════════════════════════════
+            MATCH ME BANNER
+        ══════════════════════════════════════════════ */}
         {!loading && offers.length > 0 && (
           <MatchBanner onMatch={() => navigate("/p2p/match")} />
         )}
 
-        {/* ── Error ── */}
+        {/* ══════════════════════════════════════════════
+            ERROR
+        ══════════════════════════════════════════════ */}
         {error && (
           <div className="p2p-err-box">
             <div className="p2p-err-title">Offers unavailable</div>
             <div className="p2p-err-msg">{error}</div>
-            <button className="p2p-err-btn" onClick={loadOffers}>Try again</button>
+            <button className="p2p-err-btn" onClick={loadOffers}>
+              Try again
+            </button>
           </div>
         )}
 
-        {/* ── Nearby Highlights ── */}
+        {/* ══════════════════════════════════════════════
+            NEARBY HIGHLIGHTS
+        ══════════════════════════════════════════════ */}
         {(loading || nearbyHighlights.length > 0) && (
           <div className="p2p-sec">
             <SectionHead
-              title={<><PinIcon size={13} style={{ verticalAlign: "middle", marginRight: 4 }} /> Near You</>}
+              title={
+                <>
+                  <PinIcon size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />
+                  Near You
+                </>
+              }
               sub={locLabel ? `in ${cityLabel}` : undefined}
               chip={meta.nearbySource === "gps" ? "GPS" : undefined}
             />
             {loading ? (
               <div className="p2p-row">
-                {[...Array(4)].map((_, i) => <div key={i} className="p2p-sk p2p-sk--row" />)}
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="p2p-sk p2p-sk--row" />
+                ))}
               </div>
             ) : (
               <div className="p2p-row">
                 {nearbyHighlights.map((p, i) => (
                   <OfferCard
-                    key={p.id} product={p} priority={i === 0}
-                    onClick={handleClick} onView={trackView}
+                    key={p.id}
+                    product={p}
+                    priority={i === 0}
+                    onClick={handleClick}
+                    onView={trackView}
                   />
                 ))}
               </div>
@@ -666,14 +773,16 @@ export default function P2P({ user }) {
           </div>
         )}
 
-        {/* ── All Offers ── */}
+        {/* ══════════════════════════════════════════════
+            ALL OFFERS
+        ══════════════════════════════════════════════ */}
         <div className="p2p-sec">
           <SectionHead
             title="All Offers"
             sub={`${filtered.length} listings`}
           />
 
-          {/* Offer type filter chips */}
+          {/* Filter chips */}
           <div className="p2p-filter-strip">
             {OFFER_TYPES.map((t) => (
               <button
@@ -705,11 +814,16 @@ export default function P2P({ user }) {
           )}
 
           {/* Grid */}
-          {loading ? <SkeletonGrid /> : filtered.length === 0 ? (
+          {loading ? (
+            <SkeletonGrid />
+          ) : filtered.length === 0 ? (
             <div className="p2p-empty">
               <div className="p2p-empty-emoji">🤝</div>
               <div className="p2p-empty-title">
-                No {offerType === "all" ? "" : OFFER_TYPES.find((t) => t.key === offerType)?.label} offers yet
+                No {offerType === "all"
+                  ? ""
+                  : OFFER_TYPES.find((t) => t.key === offerType)?.label}{" "}
+                offers yet
               </div>
               <div className="p2p-empty-sub">
                 Be the first to post in <strong>{cityLabel}</strong>!
@@ -723,11 +837,15 @@ export default function P2P({ user }) {
               <div className="p2p-grid">
                 {withInjections.map((p, i) => (
                   <OfferCard
-                    key={`${p.id}-${i}`} product={p} priority={i < 2}
-                    onClick={handleClick} onView={trackView}
+                    key={`${p.id}-${i}`}
+                    product={p}
+                    priority={i < 2}
+                    onClick={handleClick}
+                    onView={trackView}
                   />
                 ))}
               </div>
+
               {visible < sorted.length && (
                 <button
                   className="p2p-load-more"
@@ -740,13 +858,16 @@ export default function P2P({ user }) {
           )}
         </div>
 
-        {/* ── Intro CTA (when no offers) ── */}
+        {/* ══════════════════════════════════════════════
+            INTRO CTA (no offers)
+        ══════════════════════════════════════════════ */}
         {!loading && offers.length === 0 && !error && (
           <div className="p2p-welcome">
             <div className="p2p-welcome-icon">🔄</div>
             <div className="p2p-welcome-title">The P2P marketplace is open</div>
             <div className="p2p-welcome-sub">
-              Post your first offer and start trading directly with neighbours in {cityLabel}.
+              Post your first offer and start trading directly with
+              neighbours in {cityLabel}.
             </div>
             <button className="p2p-welcome-btn" onClick={() => setPostOpen(true)}>
               Post Your First Offer
@@ -757,7 +878,11 @@ export default function P2P({ user }) {
       </div>
 
       {/* ── FAB ── */}
-      <button className="p2p-fab" onClick={() => setPostOpen(true)} aria-label="Post a trade offer">
+      <button
+        className="p2p-fab"
+        onClick={() => setPostOpen(true)}
+        aria-label="Post a trade offer"
+      >
         <span className="p2p-fab-ic">🔄</span>
         Trade Now
       </button>
@@ -781,12 +906,10 @@ export default function P2P({ user }) {
   );
 }
 
-
-/* ═══════════════════════════════════════════════════════════
-   STYLES  (inject via <style> or import "./P2P.css")
-   These mirror Homepage.css naming patterns, prefixed p2p-.
-═══════════════════════════════════════════════════════════ */
-const P2PStyles = `
+/* ═══════════════════════════════════════════════════════════════
+   STYLES (auto-injected)
+═══════════════════════════════════════════════════════════════ */
+const P2P_STYLES = `
 /* ---------- Page ---------- */
 .p2p-pg {
   max-width: 960px;
@@ -832,10 +955,7 @@ const P2PStyles = `
   margin: 0 0 6px;
 }
 .p2p-hero-h1 i { font-style: italic; color: #64b4ff; }
-.p2p-hero-sub {
-  font-size: 13px;
-  color: rgba(255,255,255,.6);
-}
+.p2p-hero-sub  { font-size: 13px; color: rgba(255,255,255,.6); }
 .p2p-notify {
   background: rgba(255,255,255,.08);
   border: none;
@@ -877,16 +997,13 @@ const P2PStyles = `
 .p2p-stat-l { font-size: 10px; color: rgba(255,255,255,.5); margin-top: 2px; }
 
 /* ---------- Search ---------- */
-.p2p-search-wrap {
-  padding: 14px 16px 0;
-  cursor: pointer;
-}
+.p2p-search-wrap { padding: 14px 16px 0; cursor: pointer; }
 .p2p-search {
   display: flex; align-items: center; gap: 10px;
   background: #f4f2ef;
   border-radius: 12px; padding: 12px 16px;
 }
-.p2p-search-ic { font-size: 16px; }
+.p2p-search-ic  { font-size: 16px; }
 .p2p-search-txt { color: #a09890; font-size: 14px; flex: 1; }
 
 /* ---------- Match Banner ---------- */
@@ -899,13 +1016,12 @@ const P2PStyles = `
   display: flex; align-items: center; gap: 12px;
   justify-content: space-between;
 }
-.p2p-match-copy { display: flex; align-items: center; gap: 12px; }
-.p2p-match-icon { font-size: 28px; }
+.p2p-match-copy  { display: flex; align-items: center; gap: 12px; }
+.p2p-match-icon  { font-size: 28px; }
 .p2p-match-title { font-size: 14px; font-weight: 700; color: #1a1208; }
 .p2p-match-sub   { font-size: 11px; color: #7a5e38; margin-top: 2px; }
 .p2p-match-btn {
-  background: #e8630a;
-  color: #fff; border: none;
+  background: #e8630a; color: #fff; border: none;
   border-radius: 10px; padding: 10px 16px;
   font-size: 13px; font-weight: 700; cursor: pointer;
   white-space: nowrap; flex-shrink: 0;
@@ -938,8 +1054,8 @@ const P2PStyles = `
   font-size: 10px; font-weight: 700;
   padding: 2px 8px; border-radius: 20px;
 }
-.p2p-sec-sub   { font-size: 12px; color: #a09890; }
-.p2p-see-all   {
+.p2p-sec-sub { font-size: 12px; color: #a09890; }
+.p2p-see-all {
   background: none; border: none; cursor: pointer;
   color: #e8630a; font-size: 13px; font-weight: 600;
 }
@@ -953,9 +1069,7 @@ const P2PStyles = `
 .p2p-row::-webkit-scrollbar { display: none; }
 
 /* ---------- Masonry grid ---------- */
-.p2p-grid {
-  columns: 2; column-gap: 10px;
-}
+.p2p-grid { columns: 2; column-gap: 10px; }
 @media (min-width: 600px) { .p2p-grid { columns: 3; } }
 @media (min-width: 860px) { .p2p-grid { columns: 4; } }
 
@@ -971,10 +1085,7 @@ const P2PStyles = `
   transition: transform .15s ease, box-shadow .15s ease;
 }
 .p2p-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.08); }
-/* row variant */
-.p2p-row .p2p-card {
-  min-width: 148px; max-width: 160px; flex-shrink: 0;
-}
+.p2p-row .p2p-card { min-width: 148px; max-width: 160px; flex-shrink: 0; }
 .p2p-card--promo { border-color: #ffd9a8; }
 
 .p2p-card-img-wrap { position: relative; }
@@ -988,8 +1099,8 @@ const P2PStyles = `
   font-size: 9px; font-weight: 800; letter-spacing: .04em;
   padding: 3px 7px; border-radius: 6px;
 }
-.badge--free  { background: #27ae60; color: #fff; }
-.badge--swap  { background: #2980b9; color: #fff; }
+.badge--free      { background: #27ae60; color: #fff; }
+.badge--swap      { background: #2980b9; color: #fff; }
 .p2p-badge--ad    { top: 8px; left: auto; right: 8px; background: rgba(0,0,0,.5); color: #fff; }
 .p2p-badge--promo { background: #e8630a; color: #fff; }
 
@@ -1015,10 +1126,14 @@ const P2PStyles = `
   display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;
 }
-.p2p-seller { font-size: 11px; color: #5a5248; font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.p2p-seller {
+  font-size: 11px; color: #5a5248; font-weight: 500;
+  flex: 1; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap;
+}
 .p2p-card-loc { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.p2p-dist  { font-size: 10px; color: #e8630a; font-weight: 600; display: flex; align-items: center; gap: 2px; }
-.p2p-city  { font-size: 10px; color: #a09890; }
+.p2p-dist { font-size: 10px; color: #e8630a; font-weight: 600; display: flex; align-items: center; gap: 2px; }
+.p2p-city { font-size: 10px; color: #a09890; }
 
 .p2p-card-foot { display: flex; justify-content: space-between; align-items: center; }
 .p2p-time  { font-size: 10px; color: #c0b8b2; }
@@ -1048,12 +1163,9 @@ const P2PStyles = `
   background: #f4f2ef; border: 1px solid #e8e4de;
   border-radius: 20px; padding: 7px 14px;
   font-size: 13px; font-weight: 500; cursor: pointer;
-  white-space: nowrap;
-  transition: all .15s;
+  white-space: nowrap; transition: all .15s;
 }
-.p2p-filter-chip.active {
-  background: #1a1614; border-color: #1a1614; color: #fff;
-}
+.p2p-filter-chip.active { background: #1a1614; border-color: #1a1614; color: #fff; }
 .p2p-filter-count {
   background: #e8630a; color: #fff;
   font-size: 9px; font-weight: 800;
@@ -1064,15 +1176,12 @@ const P2PStyles = `
 .p2p-sort-chip {
   background: none; border: 1px solid #e8e4de;
   border-radius: 16px; padding: 5px 12px;
-  font-size: 12px; cursor: pointer; white-space: nowrap;
-  transition: all .15s;
+  font-size: 12px; cursor: pointer; white-space: nowrap; transition: all .15s;
 }
 .p2p-sort-chip.active { background: #e8630a; border-color: #e8630a; color: #fff; }
 
 /* ---------- Empty ---------- */
-.p2p-empty {
-  text-align: center; padding: 48px 20px;
-}
+.p2p-empty { text-align: center; padding: 48px 20px; }
 .p2p-empty-emoji { font-size: 40px; margin-bottom: 12px; }
 .p2p-empty-title { font-size: 17px; font-weight: 700; color: #1a1614; margin-bottom: 6px; }
 .p2p-empty-sub   { font-size: 13px; color: #a09890; margin-bottom: 18px; }
@@ -1102,16 +1211,14 @@ const P2PStyles = `
   display: block; width: 100%; margin: 16px 0;
   background: #f4f2ef; border: 1px solid #e8e4de;
   border-radius: 12px; padding: 13px;
-  font-size: 13px; font-weight: 600; cursor: pointer;
-  transition: background .15s;
+  font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s;
 }
 .p2p-load-more:hover { background: #ede9e3; }
 
 /* ---------- FAB ---------- */
 .p2p-fab {
   position: fixed; bottom: 80px; right: 20px; z-index: 100;
-  background: #e8630a;
-  color: #fff; border: none;
+  background: #e8630a; color: #fff; border: none;
   border-radius: 24px; padding: 14px 20px;
   font-size: 14px; font-weight: 800; cursor: pointer;
   display: flex; align-items: center; gap: 8px;
@@ -1126,7 +1233,6 @@ const P2PStyles = `
   position: fixed; inset: 0; z-index: 200;
   background: rgba(0,0,0,.5);
   display: flex; align-items: flex-end; justify-content: center;
-  padding: 0;
 }
 @media (min-width: 600px) {
   .p2p-modal-overlay { align-items: center; padding: 20px; }
@@ -1138,9 +1244,7 @@ const P2PStyles = `
   max-height: 90vh; overflow-y: auto;
   display: flex; flex-direction: column;
 }
-@media (min-width: 600px) {
-  .p2p-modal { border-radius: 24px; }
-}
+@media (min-width: 600px) { .p2p-modal { border-radius: 24px; } }
 .p2p-modal-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 20px 20px 0;
@@ -1160,38 +1264,26 @@ const P2PStyles = `
   flex-shrink: 0;
   background: #f4f2ef; border: 1px solid #e8e4de;
   border-radius: 20px; padding: 7px 14px;
-  font-size: 13px; font-weight: 500; cursor: pointer;
-  transition: all .15s;
+  font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s;
 }
-.p2p-modal-tab.active {
-  background: #1a1614; border-color: #1a1614; color: #fff;
-}
+.p2p-modal-tab.active { background: #1a1614; border-color: #1a1614; color: #fff; }
 .p2p-modal-body { padding: 0 20px; flex: 1; }
-.p2p-field {
-  display: flex; flex-direction: column; gap: 5px;
-  margin-bottom: 16px;
-}
+.p2p-field  { display: flex; flex-direction: column; gap: 5px; margin-bottom: 16px; }
 .p2p-field span { font-size: 13px; font-weight: 600; color: #3a3028; }
 .p2p-input, .p2p-select, .p2p-textarea {
   background: #f8f6f3;
   border: 1.5px solid #e8e4de;
   border-radius: 10px; padding: 11px 14px;
-  font-size: 14px; outline: none;
-  transition: border-color .15s;
+  font-size: 14px; outline: none; transition: border-color .15s;
   font-family: inherit;
 }
 .p2p-input:focus, .p2p-select:focus, .p2p-textarea:focus {
-  border-color: #e8630a;
-  background: #fff;
+  border-color: #e8630a; background: #fff;
 }
 .p2p-input.err, .p2p-select.err { border-color: #e74c3c; }
 .p2p-textarea { resize: vertical; }
 .p2p-err { font-size: 11px; color: #e74c3c; }
-
-.p2p-modal-foot {
-  display: flex; gap: 10px;
-  padding: 16px 20px 28px;
-}
+.p2p-modal-foot { display: flex; gap: 10px; padding: 16px 20px 28px; }
 .p2p-modal-cancel {
   flex: 1; background: #f4f2ef; border: none;
   border-radius: 12px; padding: 13px;
@@ -1200,8 +1292,7 @@ const P2PStyles = `
 .p2p-modal-submit {
   flex: 2; background: #e8630a; color: #fff; border: none;
   border-radius: 12px; padding: 13px;
-  font-size: 14px; font-weight: 700; cursor: pointer;
-  transition: opacity .15s;
+  font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .15s;
 }
 .p2p-modal-submit:disabled { opacity: .5; cursor: not-allowed; }
 `;
@@ -1209,7 +1300,7 @@ const P2PStyles = `
 /* Auto-inject styles if not already present */
 if (typeof document !== "undefined" && !document.getElementById("p2p-styles")) {
   const tag = document.createElement("style");
-  tag.id = "p2p-styles";
-  tag.textContent = P2PStyles;
+  tag.id          = "p2p-styles";
+  tag.textContent = P2P_STYLES;
   document.head.appendChild(tag);
 }
