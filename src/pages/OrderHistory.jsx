@@ -1,4 +1,18 @@
-import React, {
+/**
+ * src/pages/OrderHistory.jsx
+ * Route: /shop/orders
+ *
+ * Features:
+ * - Order list with status filter tabs
+ * - Search by order ID / tracking ID / city
+ * - Sort (newest, oldest, highest, lowest)
+ * - Summary cards (pending, delivered, total spent)
+ * - Product thumbnails per order
+ * - Reorder to cart
+ * - Delivery estimate
+ */
+
+import {
   useState, useEffect, useCallback, useMemo, memo, useRef,
 } from "react";
 import { useNavigate } from "react-router-dom";
@@ -6,33 +20,79 @@ import axios from "axios";
 
 import "./Checkout/styles/OrderHistory.css";
 
-const API = "https://minimart-ivrm.onrender.com/api";
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+═══════════════════════════════════════════════════════════════ */
+const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const ORDER_NUMBER_PREFIX = "LM"; // Loemart — was "MM" for Minimart
+const FETCH_TIMEOUT       = 12_000;
+
+const STATUS_CONFIG = {
+  pending    : { icon: "⏳", label: "Pending",     color: "#f59e0b", bg: "rgba(245,158,11,0.1)"   },
+  confirmed  : { icon: "✅", label: "Confirmed",   color: "#16a34a", bg: "rgba(22,163,74,0.1)"    },
+  processing : { icon: "📦", label: "Processing",  color: "#6366f1", bg: "rgba(99,102,241,0.1)"   },
+  shipped    : { icon: "🚚", label: "Shipped",     color: "#0891b2", bg: "rgba(8,145,178,0.1)"    },
+  delivered  : { icon: "🏠", label: "Delivered",   color: "#16a34a", bg: "rgba(22,163,74,0.1)"    },
+  cancelled  : { icon: "❌", label: "Cancelled",   color: "#dc2626", bg: "rgba(220,38,38,0.1)"    },
+  refunded   : { icon: "↩️",  label: "Refunded",   color: "#6b7280", bg: "rgba(107,114,128,0.1)"  },
+};
+
+const PAYMENT_CONFIG = {
+  pending  : { icon: "⏳", label: "Unpaid",   color: "#f59e0b" },
+  paid     : { icon: "✅", label: "Paid",     color: "#16a34a" },
+  failed   : { icon: "❌", label: "Failed",   color: "#dc2626" },
+  refunded : { icon: "↩️",  label: "Refunded", color: "#6b7280" },
+};
+
+const FILTER_TABS = [
+  { key: "all",       label: "All"       },
+  { key: "pending",   label: "Pending"   },
+  { key: "confirmed", label: "Confirmed" },
+  { key: "shipped",   label: "Shipped"   },
+  { key: "delivered", label: "Delivered" },
+  { key: "cancelled", label: "Cancelled" },
+];
+
+const SORT_OPTIONS = [
+  { value: "newest",  label: "Newest First"   },
+  { value: "oldest",  label: "Oldest First"   },
+  { value: "highest", label: "Highest Amount" },
+  { value: "lowest",  label: "Lowest Amount"  },
+];
+
+/* ═══════════════════════════════════════════════════════════════
+   AUTH HELPERS
+═══════════════════════════════════════════════════════════════ */
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token");
+
+const authHeaders = () => ({
+  Authorization: `Bearer ${getToken()}`,
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════ */
 const fmt = (n) => `₦${Number(n || 0).toLocaleString("en-NG")}`;
 
-function getToken() {
-  return (
-    localStorage.getItem("marketplace_token") ||
-    localStorage.getItem("token")
-  );
-}
-
-function authHeaders() {
-  return { Authorization: `Bearer ${getToken()}` };
-}
-
-/* ── Order number helper — consistent with OrderSuccess ── */
-function getOrderNumber(orderId, createdAt) {
-  if (!orderId) return "MM-UNKNOWN";
+/** Order number — consistent with OrderSuccess */
+const getOrderNumber = (orderId, createdAt) => {
+  if (!orderId) return `${ORDER_NUMBER_PREFIX}-UNKNOWN`;
   const d   = new Date(createdAt ?? Date.now());
   const y   = d.getFullYear();
   const m   = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   const ref = (orderId?.slice?.(0, 5) ?? "XXXXX").toUpperCase();
-  return `MM-${y}${m}${day}-${ref}`;
-}
+  return `${ORDER_NUMBER_PREFIX}-${y}${m}${day}-${ref}`;
+};
 
-/* ── Delivery estimate — matches OrderSuccess ── */
-function getDeliveryEstimate(createdAt, status, state) {
+/** Delivery estimate — matches OrderSuccess */
+const getDeliveryEstimate = (createdAt, status, state) => {
   if (status === "delivered" || status === "cancelled") return null;
 
   const created  = new Date(createdAt ?? Date.now());
@@ -47,47 +107,11 @@ function getDeliveryEstimate(createdAt, status, state) {
     d.toLocaleDateString("en-NG", { day: "numeric", month: "short" });
 
   return `${fmtD(earliest)} – ${fmtD(latest)}`;
-}
-
-/* ════════════════════════════════════════════════════════════
-   STATUS CONFIGS
-════════════════════════════════════════════════════════════ */
-const STATUS_CONFIG = {
-  pending:    { icon:"⏳", label:"Pending",     color:"#f59e0b", bg:"rgba(245,158,11,0.1)"   },
-  confirmed:  { icon:"✅", label:"Confirmed",    color:"#16a34a", bg:"rgba(22,163,74,0.1)"   },
-  processing: { icon:"📦", label:"Processing",   color:"#6366f1", bg:"rgba(99,102,241,0.1)"  },
-  shipped:    { icon:"🚚", label:"Shipped",       color:"#0891b2", bg:"rgba(8,145,178,0.1)"   },
-  delivered:  { icon:"🏠", label:"Delivered",     color:"#16a34a", bg:"rgba(22,163,74,0.1)"   },
-  cancelled:  { icon:"❌", label:"Cancelled",     color:"#dc2626", bg:"rgba(220,38,38,0.1)"   },
-  refunded:   { icon:"↩️",  label:"Refunded",      color:"#6b7280", bg:"rgba(107,114,128,0.1)" },
 };
 
-const PAYMENT_CONFIG = {
-  pending:  { icon:"⏳", label:"Unpaid",    color:"#f59e0b" },
-  paid:     { icon:"✅", label:"Paid",      color:"#16a34a" },
-  failed:   { icon:"❌", label:"Failed",    color:"#dc2626" },
-  refunded: { icon:"↩️",  label:"Refunded",  color:"#6b7280" },
-};
-
-const FILTER_TABS = [
-  { key:"all",       label:"All"       },
-  { key:"pending",   label:"Pending"   },
-  { key:"confirmed", label:"Confirmed" },
-  { key:"shipped",   label:"Shipped"   },
-  { key:"delivered", label:"Delivered" },
-  { key:"cancelled", label:"Cancelled" },
-];
-
-const SORT_OPTIONS = [
-  { value:"newest",  label:"Newest First"   },
-  { value:"oldest",  label:"Oldest First"   },
-  { value:"highest", label:"Highest Amount" },
-  { value:"lowest",  label:"Lowest Amount"  },
-];
-
-/* ════════════════════════════════════════════════════════════
-   PRODUCT THUMBNAILS — what they bought
-════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   PRODUCT THUMBNAILS
+═══════════════════════════════════════════════════════════════ */
 const ProductThumbs = memo(function ProductThumbs({ images = [], max = 4 }) {
   if (!images.length) return null;
 
@@ -117,27 +141,26 @@ const ProductThumbs = memo(function ProductThumbs({ images = [], max = 4 }) {
   );
 });
 
-/* ════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    ORDER CARD
-════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const OrderCard = memo(function OrderCard({ order, onReorder }) {
   const navigate = useNavigate();
 
-  /* Fix potential null crash */
-  const orderNumber  = getOrderNumber(order?.id, order?.created_at);
-  const trackingId   = order?.tracking_id ?? `ORD-${(order?.id?.slice?.(0, 8) ?? "UNKNOWN").toUpperCase()}`;
-  const statusCfg    = STATUS_CONFIG[order?.status]          ?? STATUS_CONFIG.pending;
-  const payCfg       = PAYMENT_CONFIG[order?.payment_status]  ?? PAYMENT_CONFIG.pending;
-  const isCOD        = order?.payment_method === "CASH_ON_DELIVERY";
-  const isDelivered  = order?.status === "delivered";
-  const isPending    = order?.payment_status === "pending" && !isCOD;
-  const estimate     = getDeliveryEstimate(order?.created_at, order?.status, order?.state);
+  const orderNumber = getOrderNumber(order?.id, order?.created_at);
+  const trackingId  = order?.tracking_id ?? `ORD-${(order?.id?.slice?.(0, 8) ?? "UNKNOWN").toUpperCase()}`;
+  const statusCfg   = STATUS_CONFIG[order?.status]         ?? STATUS_CONFIG.pending;
+  const payCfg      = PAYMENT_CONFIG[order?.payment_status] ?? PAYMENT_CONFIG.pending;
+  const isCOD       = order?.payment_method === "CASH_ON_DELIVERY";
+  const isDelivered = order?.status === "delivered";
+  const isPending   = order?.payment_status === "pending" && !isCOD;
+  const estimate    = getDeliveryEstimate(order?.created_at, order?.status, order?.state);
 
   const date = new Date(order?.created_at ?? Date.now()).toLocaleDateString("en-NG", {
     day: "numeric", month: "short", year: "numeric",
   });
 
-  /* Collect product images from all seller orders */
+  // Collect product images from all seller orders
   const productImages = useMemo(() => {
     const imgs = [];
     (order?.orders ?? []).forEach((o) => {
@@ -171,7 +194,7 @@ const OrderCard = memo(function OrderCard({ order, onReorder }) {
       onKeyDown={(e) => e.key === "Enter" && handleClick()}
       aria-label={`Order ${orderNumber} — ${fmt(order?.grand_total)}`}
     >
-      {/* ── Pending payment banner ── */}
+      {/* Pending payment banner */}
       {isPending && (
         <div className="oh-pending-banner">
           <span>⚠️ Payment incomplete</span>
@@ -187,7 +210,7 @@ const OrderCard = memo(function OrderCard({ order, onReorder }) {
         </div>
       )}
 
-      {/* ── Card header ── */}
+      {/* Card header */}
       <div className="oh-card-header">
         <div className="oh-card-ref-wrap">
           <span className="oh-card-ref">{orderNumber}</span>
@@ -209,18 +232,16 @@ const OrderCard = memo(function OrderCard({ order, onReorder }) {
         </div>
       </div>
 
-      {/* ── Product thumbnails ── */}
+      {/* Product thumbnails */}
       <ProductThumbs images={productImages} />
 
-      {/* ── Card body ── */}
+      {/* Card body */}
       <div className="oh-card-body">
-        {/* Tracking ID */}
         <div className="oh-card-tracking">
           <span>🔖</span>
           <span className="oh-tracking-val">{trackingId}</span>
         </div>
 
-        {/* Seller count */}
         <div className="oh-items-count">
           <span>📦</span>
           <span>
@@ -229,7 +250,6 @@ const OrderCard = memo(function OrderCard({ order, onReorder }) {
           </span>
         </div>
 
-        {/* Location */}
         {order?.city && (
           <div className="oh-card-location">
             <span>📍</span>
@@ -237,7 +257,6 @@ const OrderCard = memo(function OrderCard({ order, onReorder }) {
           </div>
         )}
 
-        {/* Delivery estimate */}
         {estimate && (
           <div className="oh-card-estimate">
             <span>📅</span>
@@ -245,21 +264,18 @@ const OrderCard = memo(function OrderCard({ order, onReorder }) {
           </div>
         )}
 
-        {/* Payment method */}
         <div className="oh-card-method">
           <span>{isCOD ? "💵" : "💳"}</span>
           <span>{isCOD ? "Cash on Delivery" : "Online Payment"}</span>
         </div>
       </div>
 
-      {/* ── Card footer ── */}
+      {/* Card footer */}
       <div className="oh-card-footer">
         <div className="oh-card-total">
           <span className="oh-total-label">Total</span>
           <span className="oh-total-amt">{fmt(order?.grand_total)}</span>
         </div>
-
-        {/* Quick actions */}
         <div className="oh-quick-actions" onClick={(e) => e.stopPropagation()}>
           {isDelivered ? (
             <button
@@ -269,10 +285,7 @@ const OrderCard = memo(function OrderCard({ order, onReorder }) {
               🔄 Reorder
             </button>
           ) : (
-            <button
-              className="oh-quick-btn"
-              onClick={handleTrack}
-            >
+            <button className="oh-quick-btn" onClick={handleTrack}>
               Track →
             </button>
           )}
@@ -282,9 +295,9 @@ const OrderCard = memo(function OrderCard({ order, onReorder }) {
   );
 });
 
-/* ════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    SKELETON
-════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 function OrderCardSkeleton() {
   return (
     <div className="oh-card oh-card--skeleton">
@@ -296,12 +309,12 @@ function OrderCardSkeleton() {
   );
 }
 
-/* ════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    SUMMARY CARDS
-════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const SummaryCards = memo(function SummaryCards({ orders }) {
-  const pending   = orders.filter((o) => o.status === "pending").length;
-  const delivered = orders.filter((o) => o.status === "delivered").length;
+  const pending    = orders.filter((o) => o.status === "pending").length;
+  const delivered  = orders.filter((o) => o.status === "delivered").length;
   const totalSpent = orders.reduce((s, o) => s + Number(o.grand_total ?? 0), 0);
 
   return (
@@ -333,12 +346,11 @@ const SummaryCards = memo(function SummaryCards({ orders }) {
   );
 });
 
-/* ════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    EMPTY STATE
-════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 const EmptyOrders = memo(function EmptyOrders({ filter, search }) {
-  const navigate = useNavigate();
-
+  const navigate  = useNavigate();
   const isSearch  = !!search;
   const statusCfg = STATUS_CONFIG[filter];
 
@@ -368,30 +380,30 @@ const EmptyOrders = memo(function EmptyOrders({ filter, search }) {
   );
 });
 
-/* ════════════════════════════════════════════════════════════
-   MAIN
-════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════════════ */
 export default function OrderHistory({ user }) {
   const navigate = useNavigate();
 
-  const [orders,    setOrders]    = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [filter,    setFilter]    = useState("all");
-  const [search,    setSearch]    = useState("");
-  const [sort,      setSort]      = useState("newest");
-  const [showSort,  setShowSort]  = useState(false);
+  const [orders,     setOrders]     = useState([]);
+  const [loading,    setLoading]    = useState(true);
+  const [error,      setError]      = useState(null);
+  const [filter,     setFilter]     = useState("all");
+  const [search,     setSearch]     = useState("");
+  const [sort,       setSort]       = useState("newest");
+  const [showSort,   setShowSort]   = useState(false);
   const [reordering, setReordering] = useState(false);
 
   const sortRef   = useRef(null);
   const searchRef = useRef(null);
 
-  /* Redirect if not logged in */
+  // ── Redirect if not logged in ─────────────────────────────
   useEffect(() => {
     if (!user) navigate("/auth", { state: { from: "/shop/orders" } });
   }, [user, navigate]);
 
-  /* Fetch orders */
+  // ── Fetch orders ──────────────────────────────────────────
   const fetchOrders = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -399,7 +411,7 @@ export default function OrderHistory({ user }) {
     try {
       const { data } = await axios.get(
         `${API}/checkout/orders`,
-        { headers: authHeaders(), timeout: 12000 }
+        { headers: authHeaders(), timeout: FETCH_TIMEOUT }
       );
       setOrders(data.data ?? []);
     } catch {
@@ -411,37 +423,38 @@ export default function OrderHistory({ user }) {
 
   useEffect(() => { fetchOrders(); }, [fetchOrders]);
 
-  /* Close sort on outside click */
+  // ── Close sort on outside click ───────────────────────────
   useEffect(() => {
     const fn = (e) => {
-      if (sortRef.current && !sortRef.current.contains(e.target))
+      if (sortRef.current && !sortRef.current.contains(e.target)) {
         setShowSort(false);
+      }
     };
     document.addEventListener("mousedown", fn);
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  /* Filter + search + sort */
+  // ── Filter + search + sort ────────────────────────────────
   const processed = useMemo(() => {
     let result = [...orders];
 
-    /* Filter by status */
+    // Filter by status
     if (filter !== "all") {
       result = result.filter((o) => o.status === filter);
     }
 
-    /* Search */
+    // Search
     if (search.trim()) {
       const q = search.trim().toLowerCase();
       result  = result.filter((o) =>
-        o.id?.toLowerCase().includes(q)              ||
-        o.tracking_id?.toLowerCase().includes(q)     ||
-        o.city?.toLowerCase().includes(q)            ||
+        o.id?.toLowerCase().includes(q)          ||
+        o.tracking_id?.toLowerCase().includes(q) ||
+        o.city?.toLowerCase().includes(q)        ||
         String(o.grand_total ?? "").includes(q)
       );
     }
 
-    /* Sort */
+    // Sort
     switch (sort) {
       case "oldest":
         result.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
@@ -452,14 +465,14 @@ export default function OrderHistory({ user }) {
       case "lowest":
         result.sort((a, b) => Number(a.grand_total) - Number(b.grand_total));
         break;
-      default: /* newest */
+      default: // newest
         result.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     }
 
     return result;
   }, [orders, filter, search, sort]);
 
-  /* Counts per status */
+  // ── Status counts ─────────────────────────────────────────
   const counts = useMemo(() =>
     orders.reduce((acc, o) => {
       acc[o.status] = (acc[o.status] ?? 0) + 1;
@@ -468,17 +481,18 @@ export default function OrderHistory({ user }) {
     [orders]
   );
 
-  /* Reorder handler */
+  // ── Reorder ───────────────────────────────────────────────
   const handleReorder = useCallback(async (order) => {
     if (reordering) return;
     setReordering(true);
+
     try {
       const token = getToken();
       const items = (order?.orders ?? []).flatMap((o) =>
         (o.items ?? []).map((item) => ({
-          productId: item.product_id,
-          variantId: item.variant_id ?? null,
-          qty:       item.qty,
+          productId : item.product_id,
+          variantId : item.variant_id ?? null,
+          qty       : item.qty,
         }))
       );
 
@@ -487,7 +501,7 @@ export default function OrderHistory({ user }) {
           .post(`${API}/cart`, item, {
             headers: { Authorization: `Bearer ${token}` },
           })
-          .catch(() => {});
+          .catch(() => {}); // skip failed items
       }
 
       window.dispatchEvent(new Event("cart-updated"));
@@ -503,10 +517,13 @@ export default function OrderHistory({ user }) {
 
   if (!user) return null;
 
+  // ── Render ────────────────────────────────────────────────
   return (
     <div className="oh-page">
 
-      {/* ── Topbar ── */}
+      {/* ══════════════════════════════════════════════
+          TOPBAR
+      ══════════════════════════════════════════════ */}
       <div className="oh-topbar">
         <button
           className="oh-back-btn"
@@ -523,6 +540,7 @@ export default function OrderHistory({ user }) {
             </span>
           )}
         </div>
+
         {/* Sort dropdown */}
         <div className="oh-sort-wrap" ref={sortRef}>
           <button
@@ -551,7 +569,9 @@ export default function OrderHistory({ user }) {
         </div>
       </div>
 
-      {/* ── Search bar ── */}
+      {/* ══════════════════════════════════════════════
+          SEARCH BAR
+      ══════════════════════════════════════════════ */}
       <div className="oh-search-wrap">
         <span className="oh-search-icon">🔍</span>
         <input
@@ -574,12 +594,16 @@ export default function OrderHistory({ user }) {
         )}
       </div>
 
-      {/* ── Summary cards ── */}
+      {/* ══════════════════════════════════════════════
+          SUMMARY CARDS
+      ══════════════════════════════════════════════ */}
       {!loading && orders.length > 0 && (
         <SummaryCards orders={orders} />
       )}
 
-      {/* ── Filter tabs ── */}
+      {/* ══════════════════════════════════════════════
+          FILTER TABS
+      ══════════════════════════════════════════════ */}
       <div className="oh-filter-wrap">
         <div className="oh-filter-tabs" role="tablist">
           {FILTER_TABS.map((tab) => {
@@ -607,7 +631,7 @@ export default function OrderHistory({ user }) {
         </div>
       </div>
 
-      {/* ── Active sort indicator ── */}
+      {/* Sort indicator */}
       {sort !== "newest" && (
         <div className="oh-sort-indicator">
           Sorted by: <strong>{activeSort?.label}</strong>
@@ -615,7 +639,9 @@ export default function OrderHistory({ user }) {
         </div>
       )}
 
-      {/* ── Content ── */}
+      {/* ══════════════════════════════════════════════
+          CONTENT
+      ══════════════════════════════════════════════ */}
       <div className="oh-content">
 
         {/* Error */}
@@ -654,9 +680,12 @@ export default function OrderHistory({ user }) {
             ))}
           </div>
         )}
+
       </div>
 
-      {/* Shop More FAB */}
+      {/* ══════════════════════════════════════════════
+          SHOP MORE FAB
+      ══════════════════════════════════════════════ */}
       {!loading && orders.length > 0 && (
         <button
           className="oh-fab"
@@ -666,6 +695,7 @@ export default function OrderHistory({ user }) {
           🛍️ Shop More
         </button>
       )}
+
     </div>
   );
 }
