@@ -1,51 +1,166 @@
-<!-- ── Extra SEO ── -->
-<meta name="robots" content="index, follow, max-image-preview:large" />
-<meta name="googlebot" content="index, follow" />
-<meta name="rating" content="general" />
-<meta name="revisit-after" content="3 days" />
-<meta name="language" content="English" />
-<meta name="geo.region" content="NG" />
-<meta name="geo.country" content="Nigeria" />
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <!-- ── Character Set & Viewport ── -->
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 
-<!-- ── Breadcrumb JSON-LD ── -->
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "Organization",
-  "name": "Loemart",
-  "url": "https://loemart.com",
-  "logo": "https://loemart.com/icon-512.png",
-  "sameAs": [
-    "https://twitter.com/loemart",
-    "https://facebook.com/loemart",
-    "https://instagram.com/loemart"
-  ],
-  "contactPoint": {
-    "@type": "ContactPoint",
-    "contactType": "customer support",
-    "email": "support@loemart.com",
-    "availableLanguage": "English"
-  }
-}
-</script>
+    <!-- ── Primary SEO ── -->
+    <title>Loemart — Buy &amp; Sell Near You in Nigeria</title>
+    <meta name="description"
+      content="Loemart is Nigeria's neighbourhood marketplace. Buy, sell and discover quality products from verified sellers near you. Fast delivery, secure checkout, free to list." />
+    <meta name="keywords"
+      content="loemart, buy and sell nigeria, online marketplace nigeria, verified sellers, fast delivery nigeria, sell online nigeria, cheap deals nigeria, phones for sale nigeria" />
+    <meta name="author"       content="Loemart" />
+    <meta name="theme-color"  content="#e8630a" />
+    <meta name="rating"       content="general" />
+    <meta name="language"     content="English" />
+    <meta name="revisit-after" content="3 days" />
+    <meta name="robots"       content="index, follow, max-image-preview:large" />
+    <meta name="googlebot"    content="index, follow" />
 
-<!-- ── Product Marketplace JSON-LD ── -->
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "WebSite",
-  "name": "Loemart",
-  "alternateName": "Loemart Marketplace",
-  "url": "https://loemart.com",
-  "description": "Nigeria's neighbourhood marketplace — Buy, sell and discover quality products near you.",
-  "inLanguage": "en-NG",
-  "potentialAction": {
-    "@type": "SearchAction",
-    "target": {
-      "@type": "EntryPoint",
-      "urlTemplate": "https://loemart.com/search?q={search_term_string}"
-    },
-    "query-input": "required name=search_term_string"
-  }
-}
-</script>
+    <!-- ── Geo targeting (Nigeria) ── -->
+    <meta name="geo.region"   content="NG" />
+    <meta name="geo.country"  content="Nigeria" />
+    <meta name="geo.placename" content="Nigeria" />
+
+    <!-- ── Canonical ── -->
+    <link rel="canonical" href="https://loemart.com/" />
+
+    <!-- ── Open Graph (Facebook, WhatsApp, LinkedIn) ── -->
+    <meta property="og:type"         content="website" />
+    <meta property="og:url"          content="https://loemart.com/" />
+    <meta property="og:title"        content="Loemart — Buy &amp; Sell Near You in Nigeria" />
+    <meta property="og:description"
+      content="Nigeria's neighbourhood marketplace. Buy, sell and discover quality products from verified sellers near you. Fast delivery, secure checkout." />
+    <meta property="og:image"        content="https://loemart.com/og-image.jpg" />
+    <meta property="og:image:width"  content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt"    content="Loemart Marketplace" />
+    <meta property="og:locale"       content="en_NG" />
+    <meta property="og:site_name"    content="Loemart" />
+
+    <!-- ── Twitter Card ── -->
+    <meta name="twitter:card"        content="summary_large_image" />
+    <meta name="twitter:site"        content="@loemart" />
+    <meta name="twitter:creator"     content="@loemart" />
+    <meta name="twitter:title"       content="Loemart — Buy &amp; Sell Near You in Nigeria" />
+    <meta name="twitter:description"
+      content="Nigeria's neighbourhood marketplace. Buy, sell and discover quality products near you." />
+    <meta name="twitter:image"       content="https://loemart.com/og-image.jpg" />
+    <meta name="twitter:image:alt"   content="Loemart Marketplace" />
+
+    <!-- ── Favicon ── -->
+    <link rel="icon"              type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon"              type="image/png"     href="/favicon.png"         sizes="32x32" />
+    <link rel="icon"              type="image/png"     href="/favicon-16x16.png"   sizes="16x16" />
+    <link rel="apple-touch-icon"                       href="/apple-touch-icon.png" sizes="180x180" />
+    <link rel="manifest"                               href="/manifest.json" />
+
+    <!-- ── Preconnect (performance) ── -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://loemart.com" />
+    <link rel="dns-prefetch" href="https://loemart.com" />
+
+    <!-- ── Fonts ── -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=DM+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+
+    <!-- ── WebSite Structured Data ── -->
+    <script type="application/ld+json">
+    {
+      "@context"   : "https://schema.org",
+      "@type"      : "WebSite",
+      "name"       : "Loemart",
+      "alternateName": "Loemart Marketplace",
+      "url"        : "https://loemart.com",
+      "description": "Nigeria's neighbourhood marketplace — Buy, sell and discover quality products near you.",
+      "inLanguage" : "en-NG",
+      "potentialAction": {
+        "@type"      : "SearchAction",
+        "target"     : {
+          "@type"      : "EntryPoint",
+          "urlTemplate": "https://loemart.com/search?q={search_term_string}"
+        },
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+
+    <!-- ── Organization Structured Data ── -->
+    <script type="application/ld+json">
+    {
+      "@context" : "https://schema.org",
+      "@type"    : "Organization",
+      "name"     : "Loemart",
+      "url"      : "https://loemart.com",
+      "logo"     : "https://loemart.com/icon-512.png",
+      "sameAs"   : [
+        "https://twitter.com/loemart",
+        "https://facebook.com/loemart",
+        "https://instagram.com/loemart"
+      ],
+      "contactPoint": {
+        "@type"            : "ContactPoint",
+        "contactType"      : "customer support",
+        "email"            : "support@loemart.com",
+        "availableLanguage": "English"
+      }
+    }
+    </script>
+
+    <!-- ── Marketplace Structured Data ── -->
+    <script type="application/ld+json">
+    {
+      "@context"           : "https://schema.org",
+      "@type"              : "Store",
+      "name"               : "Loemart",
+      "description"        : "Nigeria's neighbourhood marketplace",
+      "url"                : "https://loemart.com",
+      "image"              : "https://loemart.com/og-image.jpg",
+      "priceRange"         : "₦₦",
+      "currenciesAccepted" : "NGN",
+      "paymentAccepted"    : "Cash, Credit Card, Bank Transfer",
+      "areaServed"         : "Nigeria",
+      "address"            : {
+        "@type"          : "PostalAddress",
+        "addressCountry" : "NG"
+      }
+    }
+    </script>
+  </head>
+
+  <body>
+    <!-- ── No-script fallback ── -->
+    <noscript>
+      <div style="
+        text-align  : center;
+        padding     : 60px 24px;
+        font-family : sans-serif;
+        color       : #333;
+        max-width   : 480px;
+        margin      : 0 auto;
+      ">
+        <h1 style="color:#e8630a">Loemart</h1>
+        <h2>JavaScript Required</h2>
+        <p>
+          Loemart requires JavaScript to run.
+          Please enable it in your browser settings and refresh the page.
+        </p>
+        <p style="font-size:13px;color:#888;margin-top:16px">
+          Nigeria's neighbourhood marketplace
+        </p>
+      </div>
+    </noscript>
+
+    <!-- ── App root ── -->
+    <div id="root"></div>
+
+    <!-- ── Entry point ── -->
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
