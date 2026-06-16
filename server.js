@@ -7,8 +7,8 @@ import dotenv            from "dotenv";
 import { fileURLToPath } from "url";
 import { Pool }          from "pg";
 
-import { initSocket, getOnlineCount }        from "./socket.js";
-import { startJobRunner, stopJobRunner }     from "./jobs/jobRunner.js";
+import { initSocket, getOnlineCount }    from "./socket.js";
+import { startJobRunner, stopJobRunner } from "./jobs/jobRunner.js";
 
 dotenv.config();
 
@@ -16,21 +16,27 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 /* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const PORT           = process.env.PORT           || 5000;
+const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN  || "*";
+const APP_URL        = process.env.APP_URL         || "https://loemart.com";
+
+/* ═══════════════════════════════════════════════════════════════
    APP + HTTP SERVER
 ═══════════════════════════════════════════════════════════════ */
 const app    = express();
-const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
 
 /* ═══════════════════════════════════════════════════════════════
    DATABASE
 ═══════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
-  connectionString       : process.env.COCKROACH_URI,
-  ssl                    : { rejectUnauthorized: false },
-  max                    : 10,
-  idleTimeoutMillis      : 30_000,
-  connectionTimeoutMillis: 5_000,
+  connectionString        : process.env.COCKROACH_URI,
+  ssl                     : { rejectUnauthorized: false },
+  max                     : 10,
+  idleTimeoutMillis       : 30_000,
+  connectionTimeoutMillis : 5_000,
 });
 
 (async () => {
@@ -50,7 +56,6 @@ pool.on("error", (err) =>
 /* ═══════════════════════════════════════════════════════════════
    SOCKET.IO
 ═══════════════════════════════════════════════════════════════ */
-const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 export const io = initSocket(server, ALLOWED_ORIGIN);
 
 /* ═══════════════════════════════════════════════════════════════
@@ -76,6 +81,7 @@ export const clearCachePattern = (prefix) => {
   }
 };
 
+// Auto-evict expired cache entries every 60s
 setInterval(() => {
   const now = Date.now();
   for (const [key, item] of _cache.entries()) {
@@ -106,10 +112,10 @@ app.options("*", cors(corsOptions));
    SECURITY HEADERS
 ═══════════════════════════════════════════════════════════════ */
 app.use((_req, res, next) => {
-  res.setHeader("X-Content-Type-Options",  "nosniff");
-  res.setHeader("X-Frame-Options",         "DENY");
-  res.setHeader("X-XSS-Protection",        "1; mode=block");
-  res.setHeader("Referrer-Policy",         "strict-origin-when-cross-origin");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options",        "DENY");
+  res.setHeader("X-XSS-Protection",       "1; mode=block");
+  res.setHeader("Referrer-Policy",        "strict-origin-when-cross-origin");
   res.setHeader(
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(self)"
@@ -139,7 +145,7 @@ app.use(
 ═══════════════════════════════════════════════════════════════ */
 const flwKeyMode = () => {
   const key = process.env.FLW_SECRET_KEY ?? "";
-  if (!key)                return "missing";
+  if (!key)                 return "missing";
   if (key.includes("TEST")) return "test";
   return "live";
 };
@@ -238,6 +244,7 @@ const WINDOW_MS  = 60_000;
 const MAX_REQ    = 120;
 const UPLOAD_MAX = 20;
 
+// Auto-evict stale rate limit entries every 5 minutes
 setInterval(() => {
   const now = Date.now();
   for (const [ip, data] of _limiter.entries()) {
@@ -309,7 +316,7 @@ app.use("/api/seller/payout",    sellerPayoutRoutes);
 app.use("/api/seller-dashboard", sellerDashboardRouter);
 app.use("/api/seller/settings",  sellerSettingsRouter);
 
-/* ── Minimart — Product CRUD ── */
+/* ── Products ── */
 import marketRouter from "./routes/market/index.js";
 app.use("/api/products", marketRouter);
 
@@ -321,7 +328,7 @@ app.use("/api/shop", marketDetailRouter);
 import cartRouter from "./routes/cart/index.js";
 app.use("/api/cart", cartRouter);
 
-/* ── Legacy product routes (public.users — keep until migrated) */
+/* ── Legacy product routes (keep until migrated) ── */
 import addproductRouter    from "./routes/addproduct.js";
 import productDetailRouter from "./routes/productDetail.js";
 app.use("/api/addproduct", addproductRouter);
@@ -406,7 +413,7 @@ app.get("/api/health", async (_req, res) => {
     flw_key_prefix: process.env.FLW_SECRET_KEY
       ? process.env.FLW_SECRET_KEY.slice(0, 14) + "…"
       : null,
-    webhook_url   : "https://minimart-ivrm.onrender.com/api/webhooks/flutterwave",
+    webhook_url   : `${APP_URL}/api/webhooks/flutterwave`,
   });
 });
 
@@ -495,6 +502,7 @@ async function shutdown(signal) {
     process.exit(0);
   });
 
+  // Force exit if graceful shutdown takes too long
   setTimeout(() => {
     console.error("Forced exit after timeout");
     process.exit(1);
@@ -512,6 +520,7 @@ server.listen(PORT, () => {
 
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`   ENV       : ${process.env.NODE_ENV || "development"}`);
+  console.log(`   APP URL   : ${APP_URL}`);
   console.log(`   CORS      : ${ALLOWED_ORIGIN}`);
   console.log(`   FLW KEY   : ${
     mode === "missing" ? "❌ MISSING"   :
@@ -521,11 +530,11 @@ server.listen(PORT, () => {
   console.log(`   FLW HASH  : ${
     process.env.FLW_SECRET_HASH ? "✅ set" : "❌ MISSING — webhooks rejected"
   }`);
-  console.log(`   PRODUCTS  : /api/products  (market CRUD)`);
-  console.log(`   SHOP      : /api/shop      (detail + wishlist + report + share)`);
+  console.log(`   PRODUCTS  : /api/products`);
+  console.log(`   SHOP      : /api/shop`);
   console.log(`   CART      : /api/cart`);
   console.log(`   CHECKOUT  : /api/checkout`);
-  console.log(`   WEBHOOK   : https://minimart-ivrm.onrender.com/api/webhooks/flutterwave`);
+  console.log(`   WEBHOOK   : ${APP_URL}/api/webhooks/flutterwave`);
 
   startJobRunner();
   console.log("🧹 Background jobs started");
