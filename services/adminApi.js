@@ -1,40 +1,55 @@
+// src/api/adminApi.js
 import axios from "axios";
 
-const BASE_URL = "https://minimart-ivrm.onrender.com";
-
+/* ═══════════════════════════════════════════════════════════════
+   INSTANCE
+═══════════════════════════════════════════════════════════════ */
 const adminApi = axios.create({
-  baseURL: `${BASE_URL}/api/admin`,
-  headers: { "Content-Type": "application/json" },
-  timeout: 15_000,
+  baseURL : `${import.meta.env.VITE_API_BASE_URL}/api/admin`,
+  headers : { "Content-Type": "application/json" },
+  timeout : 15_000,
 });
 
-/* ─────────────────────────────────────────────
-   Request Interceptor
-───────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   TOKEN KEYS — single source of truth
+═══════════════════════════════════════════════════════════════ */
+const TOKEN_KEYS = [
+  "admin_token",
+  "adminToken",
+  "token",
+];
+
+const getAdminToken = () =>
+  TOKEN_KEYS.reduce((found, key) => found || localStorage.getItem(key), null);
+
+const clearAdminTokens = () => {
+  TOKEN_KEYS.forEach((key) => localStorage.removeItem(key));
+  localStorage.removeItem("admin_name");
+  localStorage.removeItem("admin_data");
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   REQUEST INTERCEPTOR
+   Attaches Bearer token to every request
+═══════════════════════════════════════════════════════════════ */
 adminApi.interceptors.request.use(
   (config) => {
-    const token =
-      localStorage.getItem("admin_token") ||
-      localStorage.getItem("adminToken")  ||
-      localStorage.getItem("token");
-
+    const token = getAdminToken();
     if (token) config.headers.Authorization = `Bearer ${token}`;
     return config;
   },
   (err) => Promise.reject(err)
 );
 
-/* ─────────────────────────────────────────────
-   Response Interceptor
-───────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSE INTERCEPTOR
+   Handles 401 — clears tokens and redirects to login
+═══════════════════════════════════════════════════════════════ */
 adminApi.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem("admin_token");
-      localStorage.removeItem("adminToken");
-      localStorage.removeItem("token");
-      localStorage.removeItem("admin_name");
+      clearAdminTokens();
 
       if (window.location.pathname.startsWith("/admin")) {
         window.location.href = "/admin/login";
@@ -44,38 +59,40 @@ adminApi.interceptors.response.use(
   }
 );
 
-/* ═══════════════════════════════════════════
-   Auth
-═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   AUTH
+═══════════════════════════════════════════════════════════════ */
 export const loginAdmin = (email, password) =>
   adminApi.post("/login", { email, password });
 
-export const getAdminMe = () => adminApi.get("/me");
+export const getAdminMe = () =>
+  adminApi.get("/me");
 
-/* ═══════════════════════════════════════════
-   Dashboard Stats
-═══════════════════════════════════════════ */
-export const getStats = () => adminApi.get("/stats");
+/* ═══════════════════════════════════════════════════════════════
+   DASHBOARD STATS
+═══════════════════════════════════════════════════════════════ */
+export const getStats = () =>
+  adminApi.get("/stats");
 
-/* ═══════════════════════════════════════════
-   Users
-═══════════════════════════════════════════ */
-export const getUsers  = ()   => adminApi.get("/users");
-export const banUser   = (id) => adminApi.post(`/users/${id}/ban`);
-export const unbanUser = (id) => adminApi.post(`/users/${id}/unban`);
+/* ═══════════════════════════════════════════════════════════════
+   USERS
+═══════════════════════════════════════════════════════════════ */
+export const getUsers  = ()    => adminApi.get("/users");
+export const banUser   = (id)  => adminApi.post(`/users/${id}/ban`);
+export const unbanUser = (id)  => adminApi.post(`/users/${id}/unban`);
 
-/* ═══════════════════════════════════════════
-   Admins
-═══════════════════════════════════════════ */
-export const getAdmins     = ()               => adminApi.get("/admins");
-export const registerAdmin = (data)           => adminApi.post("/register", data);
-export const banAdmin      = (id)             => adminApi.post(`/admins/${id}/ban`);
-export const assignRole    = (admin_id, role) =>
+/* ═══════════════════════════════════════════════════════════════
+   ADMINS
+═══════════════════════════════════════════════════════════════ */
+export const getAdmins     = ()                    => adminApi.get("/admins");
+export const registerAdmin = (data)                => adminApi.post("/register", data);
+export const banAdmin      = (id)                  => adminApi.post(`/admins/${id}/ban`);
+export const assignRole    = (admin_id, role)      =>
   adminApi.post("/assign-role", { admin_id, role });
 
-/* ═══════════════════════════════════════════
-   Market Products  (market.products)
-═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   MARKET PRODUCTS  (market.products)
+═══════════════════════════════════════════════════════════════ */
 export const getMarketProducts = (status = "") =>
   adminApi.get(`/market-products${status ? `?status=${status}` : ""}`);
 
@@ -103,66 +120,90 @@ export const removeMarketProduct = (id, reason) =>
 export const permanentDeleteMarketProduct = (id) =>
   adminApi.delete(`/market-products/${id}/permanent`);
 
+/* ═══════════════════════════════════════════════════════════════
+   VERIFICATION
+═══════════════════════════════════════════════════════════════ */
+export const getVerificationStats = () =>
+  adminApi.get("/verification/stats");
 
-/* ═══════════════════════════════════════════
-   Verification (admin)
-═══════════════════════════════════════════ */
-export const getVerificationStats      = ()         => adminApi.get("/verification/stats");
-
-export const getIdentityVerifications  = (status = "pending", limit = 50, offset = 0) =>
+// Identity
+export const getIdentityVerifications = (status = "pending", limit = 50, offset = 0) =>
   adminApi.get("/verification/identity", { params: { status, limit, offset } });
 
-export const getIdentityVerification   = (id)       => adminApi.get(`/verification/identity/${id}`);
-export const approveIdentity           = (id)       => adminApi.post(`/verification/identity/${id}/approve`);
-export const rejectIdentity            = (id, reason) => adminApi.post(`/verification/identity/${id}/reject`, { reason });
-export const resetIdentity             = (id, note)   => adminApi.post(`/verification/identity/${id}/reset`, { note });
+export const getIdentityVerification = (id) =>
+  adminApi.get(`/verification/identity/${id}`);
 
-export const getStoreVerifications     = (status = "pending", limit = 50, offset = 0) =>
+export const approveIdentity = (id) =>
+  adminApi.post(`/verification/identity/${id}/approve`);
+
+export const rejectIdentity = (id, reason) =>
+  adminApi.post(`/verification/identity/${id}/reject`, { reason });
+
+export const resetIdentity = (id, note) =>
+  adminApi.post(`/verification/identity/${id}/reset`, { note });
+
+// Store
+export const getStoreVerifications = (status = "pending", limit = 50, offset = 0) =>
   adminApi.get("/verification/store", { params: { status, limit, offset } });
 
-export const getStoreVerification      = (id)       => adminApi.get(`/verification/store/${id}`);
-export const approveStore              = (id)       => adminApi.post(`/verification/store/${id}/approve`);
-export const rejectStore               = (id, reason) => adminApi.post(`/verification/store/${id}/reject`, { reason });
-export const resetStore                = (id, note)   => adminApi.post(`/verification/store/${id}/reset`, { note });
+export const getStoreVerification = (id) =>
+  adminApi.get(`/verification/store/${id}`);
 
-export const forceVerifyEmail          = (userId)   => adminApi.post(`/verification/email/${userId}/force-verify`);
-export const revokeEmailVerification   = (userId)   => adminApi.post(`/verification/email/${userId}/revoke`);
-export const recalculateTrustScore     = (userId)   => adminApi.post(`/verification/trust/${userId}/recalculate`);
+export const approveStore = (id) =>
+  adminApi.post(`/verification/store/${id}/approve`);
 
-/* ═══════════════════════════════════════════
-   Payments
-═══════════════════════════════════════════ */
-export const getPayments   = ()   => adminApi.get("/payments");
-export const refundPayment = (id) => adminApi.post(`/payments/${id}/refund`);
+export const rejectStore = (id, reason) =>
+  adminApi.post(`/verification/store/${id}/reject`, { reason });
 
-/* ═══════════════════════════════════════════
-   Orders
-═══════════════════════════════════════════ */
-export const getOrders   = ()   => adminApi.get("/orders");
-export const cancelOrder = (id) => adminApi.post(`/orders/${id}/cancel`);
+export const resetStore = (id, note) =>
+  adminApi.post(`/verification/store/${id}/reset`, { note });
 
-/* ═══════════════════════════════════════════
-   Logs
-═══════════════════════════════════════════ */
-export const getLogs = () => adminApi.get("/logs");
+// Email & Trust
+export const forceVerifyEmail = (userId) =>
+  adminApi.post(`/verification/email/${userId}/force-verify`);
 
-/* ═══════════════════════════════════════════
-   System Config
-═══════════════════════════════════════════ */
+export const revokeEmailVerification = (userId) =>
+  adminApi.post(`/verification/email/${userId}/revoke`);
+
+export const recalculateTrustScore = (userId) =>
+  adminApi.post(`/verification/trust/${userId}/recalculate`);
+
+/* ═══════════════════════════════════════════════════════════════
+   PAYMENTS
+═══════════════════════════════════════════════════════════════ */
+export const getPayments   = ()    => adminApi.get("/payments");
+export const refundPayment = (id)  => adminApi.post(`/payments/${id}/refund`);
+
+/* ═══════════════════════════════════════════════════════════════
+   ORDERS
+═══════════════════════════════════════════════════════════════ */
+export const getOrders   = ()    => adminApi.get("/orders");
+export const cancelOrder = (id)  => adminApi.post(`/orders/${id}/cancel`);
+
+/* ═══════════════════════════════════════════════════════════════
+   LOGS
+═══════════════════════════════════════════════════════════════ */
+export const getLogs = () =>
+  adminApi.get("/logs");
+
+/* ═══════════════════════════════════════════════════════════════
+   SYSTEM CONFIG
+═══════════════════════════════════════════════════════════════ */
 export const getSystemConfig    = ()     => adminApi.get("/system");
 export const updateSystemConfig = (data) => adminApi.post("/system", data);
 
-/* ═══════════════════════════════════════════
-   Plans / Promotions
-═══════════════════════════════════════════ */
-export const getPlans   = ()         => adminApi.get("/plans");
-export const togglePlan = (id)       => adminApi.post(`/plans/${id}/toggle`);
-export const updatePlan = (id, data) => adminApi.put(`/plans/${id}`, data);
+/* ═══════════════════════════════════════════════════════════════
+   PLANS / PROMOTIONS
+═══════════════════════════════════════════════════════════════ */
+export const getPlans   = ()              => adminApi.get("/plans");
+export const togglePlan = (id)            => adminApi.post(`/plans/${id}/toggle`);
+export const updatePlan = (id, data)      => adminApi.put(`/plans/${id}`, data);
 
-/* ═══════════════════════════════════════════
-   Reports
-═══════════════════════════════════════════ */
-export const getReportStats = () => adminApi.get("/reports/stats");
+/* ═══════════════════════════════════════════════════════════════
+   REPORTS
+═══════════════════════════════════════════════════════════════ */
+export const getReportStats = () =>
+  adminApi.get("/reports/stats");
 
 export const getReports = (status = "all", limit = 50, offset = 0) =>
   adminApi.get("/reports", { params: { status, limit, offset } });
@@ -176,14 +217,14 @@ export const updateReportStatus = (reportId, status) =>
 export const banReportedUser = (reportId) =>
   adminApi.post(`/reports/${reportId}/ban-seller`);
 
-/* ═══════════════════════════════════════════
-   Roles & Permissions
-═══════════════════════════════════════════ */
-export const getRoles   = ()                       => adminApi.get("/roles");
+/* ═══════════════════════════════════════════════════════════════
+   ROLES & PERMISSIONS
+═══════════════════════════════════════════════════════════════ */
+export const getRoles   = () => adminApi.get("/roles");
 export const createRole = (role_name, description) =>
   adminApi.post("/roles", { role_name, description });
 
-export const getPermissions   = ()                  => adminApi.get("/permissions");
+export const getPermissions   = () => adminApi.get("/permissions");
 export const createPermission = (name, description) =>
   adminApi.post("/permissions", { name, description });
 
@@ -193,7 +234,7 @@ export const assignPermissionToRole = (role_id, permission_id) =>
 export const getRolePermissions = (roleId) =>
   adminApi.get(`/roles/${roleId}/permissions`);
 
-/* ═══════════════════════════════════════════
-   Default Export
-═══════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════════
+   DEFAULT EXPORT
+═══════════════════════════════════════════════════════════════ */
 export default adminApi;
