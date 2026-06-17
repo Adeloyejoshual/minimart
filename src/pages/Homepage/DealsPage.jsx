@@ -1,5 +1,5 @@
 /**
- * pages/Homepage/DealsPage.jsx
+ * src/pages/Homepage/DealsPage.jsx
  * Route: /deals
  *
  * Backend: GET /api/homepage?section=deals&page=N
@@ -17,6 +17,34 @@ import MasonryGrid from "../../components/MasonryGrid";
    ENV + API
 ═══════════════════════════════════════════════════════════════ */
 const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+
+/* ═══════════════════════════════════════════════════════════════
+   NORMALIZE PRODUCT
+   API returns numbers as strings e.g. price: "5000.00"
+   Convert all numeric fields to real numbers.
+═══════════════════════════════════════════════════════════════ */
+const normalizeProduct = (p) => ({
+  ...p,
+  price             : Number(p.price             || 0),
+  engagement_score  : Number(p.engagement_score  || 0),
+  clicks_count      : Number(p.clicks_count      || 0),
+  impression_count  : Number(p.impression_count  || 0),
+  views             : Number(p.views             || 0),
+  ctr               : Number(p.ctr               || 0),
+  promotion_priority: Number(p.promotion_priority || 0),
+
+  // ── Normalize image ──
+  image: p.image ||
+    (Array.isArray(p.images) && p.images.length > 0
+      ? (typeof p.images[0] === "string"
+          ? p.images[0]
+          : p.images[0]?.url || null)
+      : null),
+
+  // ── Normalize location ──
+  location_city  : p.location?.city  || p.location_city  || null,
+  location_state : p.location?.state || p.location_state || null,
+});
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
@@ -63,13 +91,16 @@ export default function DealsPage({ user }) {
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
 
-  /* ── Fetch deals ─────────────────────────────────────────── */
+  // ── Fetch deals ───────────────────────────────────────────
   const fetchDeals = useCallback(async (pageNum, append = false) => {
     const res = await fetch(buildUrl(pageNum));
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data     = await res.json();
-    const incoming = Array.isArray(data.products) ? data.products : [];
+
+    // ── Normalize string numbers to real numbers ──
+    const incoming = (Array.isArray(data.products) ? data.products : [])
+      .map(normalizeProduct);
 
     const merged = append
       ? dedup([...productsRef.current, ...incoming])
@@ -80,14 +111,14 @@ export default function DealsPage({ user }) {
     setHasMore(!!data.hasMore);
   }, []);
 
-  /* ── Bootstrap ───────────────────────────────────────────── */
+  // ── Bootstrap ─────────────────────────────────────────────
   useEffect(() => {
     fetchDeals(0)
       .catch(() => setError("Could not load listings."))
       .finally(() => setLoading(false));
   }, [fetchDeals]);
 
-  /* ── Load more ───────────────────────────────────────────── */
+  // ── Load more ─────────────────────────────────────────────
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
 
@@ -98,13 +129,13 @@ export default function DealsPage({ user }) {
       await fetchDeals(next, true);
       setPage(next);
     } catch (err) {
-      console.error("Load more failed:", err);
+      console.error("[DealsPage] loadMore:", err);
     } finally {
       setLoadingMore(false);
     }
   }, [loadingMore, hasMore, page, fetchDeals]);
 
-  /* ── Infinite scroll ─────────────────────────────────────── */
+  // ── Infinite scroll ───────────────────────────────────────
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -118,18 +149,18 @@ export default function DealsPage({ user }) {
     return () => io.disconnect();
   }, [loadMore, hasMore]);
 
-  /* ── Track view ──────────────────────────────────────────── */
+  // ── Track view ────────────────────────────────────────────
   const trackView = useCallback((id) => {
     fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
   }, []);
 
-  /* ── Handle click ────────────────────────────────────────── */
+  // ── Handle click ──────────────────────────────────────────
   const handleClick = useCallback((product) => {
     fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
     navigate(`/product/${product.slug}`);
   }, [navigate]);
 
-  /* ── Retry ───────────────────────────────────────────────── */
+  // ── Retry ─────────────────────────────────────────────────
   const retry = useCallback(() => {
     setError(null);
     setLoading(true);
@@ -142,7 +173,7 @@ export default function DealsPage({ user }) {
       .finally(() => setLoading(false));
   }, [fetchDeals]);
 
-  /* ── Render ──────────────────────────────────────────────── */
+  // ── Render ────────────────────────────────────────────────
   return (
     <>
       <TopNav user={user} />
@@ -160,7 +191,6 @@ export default function DealsPage({ user }) {
               <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
             </svg>
           </button>
-
           <div className="page-title-wrap">
             <h1 className="page-title">Cheap Deals</h1>
             <span className="sec-chip">Under ₦50k</span>
@@ -172,9 +202,7 @@ export default function DealsPage({ user }) {
           <div className="err-box">
             <div className="err-title">Could not load listings</div>
             <div className="err-msg">{error}</div>
-            <button className="err-btn" onClick={retry}>
-              Try again
-            </button>
+            <button className="err-btn" onClick={retry}>Try again</button>
           </div>
         )}
 
@@ -203,13 +231,8 @@ export default function DealsPage({ user }) {
               onView={trackView}
               onClick={handleClick}
             />
-
-            {/* Infinite scroll sentinel */}
             <div ref={sentinelRef} style={{ height: 1 }} />
-
-            {loadingMore && (
-              <p className="loading-more">Loading more…</p>
-            )}
+            {loadingMore && <p className="loading-more">Loading more…</p>}
           </>
         )}
 
