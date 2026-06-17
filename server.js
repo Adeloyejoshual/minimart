@@ -62,6 +62,25 @@ if (process.env.NODE_ENV === "production") {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   WWW → NON-WWW REDIRECT  ⚡ MUST be before CORS
+   Redirects https://www.loemart.com → https://loemart.com
+   This permanently fixes the CORS issue at the source.
+   301 = permanent redirect (browsers + Google cache this).
+═══════════════════════════════════════════════════════════════ */
+app.use((req, res, next) => {
+  const host = req.headers.host || "";
+
+  if (host.startsWith("www.")) {
+    const canonical = host.replace(/^www\./, "");
+    const newUrl    = `https://${canonical}${req.originalUrl}`;
+    console.log(`[www→] ${host}${req.originalUrl} → ${newUrl}`);
+    return res.redirect(301, newUrl);
+  }
+
+  next();
+});
+
+/* ═══════════════════════════════════════════════════════════════
    DATABASE
 ═══════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
@@ -123,6 +142,9 @@ setInterval(() => {
 
 /* ═══════════════════════════════════════════════════════════════
    CORS
+   Always allows loemart.com + www.loemart.com + localhost.
+   www is also handled by the redirect above, but we keep it
+   here as a safety net for direct API calls.
 ═══════════════════════════════════════════════════════════════ */
 const ALWAYS_ALLOWED = [
   "https://loemart.com",
@@ -140,7 +162,7 @@ const corsOptions = {
     // Wildcard = allow all
     if (ALLOWED_ORIGIN === "*") return cb(null, true);
 
-    // Build combined allowed list
+    // Build combined allowed list from env + hardcoded
     const fromEnv = ALLOWED_ORIGIN
       .split(",")
       .map((s) => s.trim())
@@ -150,7 +172,7 @@ const corsOptions = {
 
     if (allowed.includes(origin)) return cb(null, true);
 
-    console.warn(`[CORS] Blocked origin: ${origin}`);
+    console.warn(`[CORS] Blocked: ${origin}`);
     return cb(new Error(`CORS blocked: ${origin}`));
   },
   credentials    : true,
@@ -577,7 +599,8 @@ app.get("/api/health", async (_req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    SPA CATCH-ALL — production only
-   Serves index.html for all non-API routes
+   Serves index.html for all non-API routes.
+   ⚠️  MUST come after all API routes.
 ═══════════════════════════════════════════════════════════════ */
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
@@ -590,7 +613,7 @@ if (process.env.NODE_ENV === "production") {
         message : `API route not found: ${req.method} ${req.originalUrl}`,
       });
     }
-    // Serve React app for all other routes
+    // Serve React SPA for all other routes
     res.sendFile(path.join(distPath, "index.html"));
   });
 }
@@ -688,6 +711,7 @@ server.listen(PORT, () => {
   console.log(`   WEBHOOK   : ${APP_URL}/api/webhooks/flutterwave`);
   console.log(`   SITEMAP   : ${APP_URL}/sitemap-products.xml`);
   console.log(`   ROBOTS    : ${APP_URL}/robots.txt`);
+  console.log(`   WWW→      : www.loemart.com → loemart.com (301)`);
 
   startJobRunner();
   console.log("🧹 Background jobs started");
