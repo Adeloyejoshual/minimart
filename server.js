@@ -16,69 +16,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
 /* ═══════════════════════════════════════════════════════════════
-   CONSTANTS
-═══════════════════════════════════════════════════════════════ */
-const PORT           = process.env.PORT          || 5000;
-const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
-const APP_URL        = process.env.APP_URL        || "https://loemart.com";
-
-/* ═══════════════════════════════════════════════════════════════
    APP + HTTP SERVER
 ═══════════════════════════════════════════════════════════════ */
 const app    = express();
+const PORT   = process.env.PORT || 5000;
 const server = http.createServer(app);
-
-/* ═══════════════════════════════════════════════════════════════
-   ⚡ STATIC FILES — MUST BE FIRST
-   Serve before CORS/auth so assets are never blocked.
-   /assets/* files have content-hash names so cache 1 year.
-═══════════════════════════════════════════════════════════════ */
-if (process.env.NODE_ENV === "production") {
-  const distPath = path.join(__dirname, "dist");
-
-  // ── Hashed asset files — cache aggressively ──
-  app.use(
-    "/assets",
-    express.static(path.join(distPath, "assets"), {
-      maxAge      : "365d",
-      etag        : true,
-      lastModified: true,
-      immutable   : true,
-      setHeaders(res) {
-        res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
-      },
-    })
-  );
-
-  // ── Other public files (favicon, manifest, robots, etc.) ──
-  app.use(
-    express.static(distPath, {
-      maxAge      : "1d",
-      etag        : true,
-      lastModified: true,
-      index       : false,
-    })
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   WWW → NON-WWW REDIRECT  ⚡ MUST be before CORS
-   Redirects https://www.loemart.com → https://loemart.com
-   This permanently fixes the CORS issue at the source.
-   301 = permanent redirect (browsers + Google cache this).
-═══════════════════════════════════════════════════════════════ */
-app.use((req, res, next) => {
-  const host = req.headers.host || "";
-
-  if (host.startsWith("www.")) {
-    const canonical = host.replace(/^www\./, "");
-    const newUrl    = `https://${canonical}${req.originalUrl}`;
-    console.log(`[www→] ${host}${req.originalUrl} → ${newUrl}`);
-    return res.redirect(301, newUrl);
-  }
-
-  next();
-});
 
 /* ═══════════════════════════════════════════════════════════════
    DATABASE
@@ -108,7 +50,8 @@ pool.on("error", (err) =>
 /* ═══════════════════════════════════════════════════════════════
    SOCKET.IO
 ═══════════════════════════════════════════════════════════════ */
-export const io = initSocket(server, ALLOWED_ORIGIN);
+const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
+export const io      = initSocket(server, ALLOWED_ORIGIN);
 
 /* ═══════════════════════════════════════════════════════════════
    IN-MEMORY CACHE (TTL-based)
@@ -142,33 +85,32 @@ setInterval(() => {
 
 /* ═══════════════════════════════════════════════════════════════
    CORS
-   Always allows loemart.com + www.loemart.com + localhost.
-   www is also handled by the redirect above, but we keep it
-   here as a safety net for direct API calls.
+   ✅ Allow BOTH www and non-www — NO redirects at all
 ═══════════════════════════════════════════════════════════════ */
-const ALWAYS_ALLOWED = [
-  "https://loemart.com",
-  "https://www.loemart.com",
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "http://localhost:4173",
-];
-
 const corsOptions = {
   origin(origin, cb) {
-    // No origin = mobile / curl / same-origin request
+    // No origin = mobile / curl / same-origin
     if (!origin) return cb(null, true);
 
-    // Wildcard = allow all
+    // Wildcard = allow everything
     if (ALLOWED_ORIGIN === "*") return cb(null, true);
 
-    // Build combined allowed list from env + hardcoded
+    // Always allow loemart.com domains
+    const alwaysAllow = [
+      "https://www.loemart.com",
+      "https://loemart.com",
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "http://localhost:4173",
+    ];
+
+    // Build list from env + hardcoded
     const fromEnv = ALLOWED_ORIGIN
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
 
-    const allowed = [...new Set([...fromEnv, ...ALWAYS_ALLOWED])];
+    const allowed = [...new Set([...fromEnv, ...alwaysAllow])];
 
     if (allowed.includes(origin)) return cb(null, true);
 
@@ -187,10 +129,10 @@ app.options("*", cors(corsOptions));
    SECURITY HEADERS
 ═══════════════════════════════════════════════════════════════ */
 app.use((_req, res, next) => {
-  res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options",        "DENY");
-  res.setHeader("X-XSS-Protection",       "1; mode=block");
-  res.setHeader("Referrer-Policy",        "strict-origin-when-cross-origin");
+  res.setHeader("X-Content-Type-Options",  "nosniff");
+  res.setHeader("X-Frame-Options",         "DENY");
+  res.setHeader("X-XSS-Protection",        "1; mode=block");
+  res.setHeader("Referrer-Policy",         "strict-origin-when-cross-origin");
   res.setHeader(
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(self)"
@@ -199,7 +141,7 @@ app.use((_req, res, next) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   STATIC — uploads folder
+   STATIC — uploads
 ═══════════════════════════════════════════════════════════════ */
 app.use(
   "/uploads",
@@ -226,136 +168,6 @@ const flwKeyMode = () => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SEO — DYNAMIC SITEMAP (product pages)
-═══════════════════════════════════════════════════════════════ */
-const SITEMAP_CACHE_TTL = 60 * 60 * 1_000; // 1 hour
-let   sitemapCache      = null;
-let   sitemapCachedAt   = 0;
-
-app.get("/sitemap-products.xml", async (_req, res) => {
-  try {
-    if (sitemapCache && Date.now() - sitemapCachedAt < SITEMAP_CACHE_TTL) {
-      res.setHeader("Content-Type",  "application/xml");
-      res.setHeader("Cache-Control", "public, max-age=3600");
-      return res.send(sitemapCache);
-    }
-
-    const { rows } = await pool.query(`
-      SELECT slug, updated_at
-      FROM   market.products
-      WHERE  status = 'active'
-      ORDER  BY updated_at DESC
-      LIMIT  5000
-    `);
-
-    const today = new Date().toISOString().split("T")[0];
-
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
-
-    for (const row of rows) {
-      const lastmod = row.updated_at
-        ? new Date(row.updated_at).toISOString().split("T")[0]
-        : today;
-      xml += `  <url>
-    <loc>${APP_URL}/product/${row.slug}</loc>
-    <lastmod>${lastmod}</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.6</priority>
-  </url>\n`;
-    }
-
-    xml += `</urlset>`;
-    sitemapCache    = xml;
-    sitemapCachedAt = Date.now();
-
-    res.setHeader("Content-Type",  "application/xml");
-    res.setHeader("Cache-Control", "public, max-age=3600");
-    return res.send(xml);
-
-  } catch (err) {
-    console.error("❌ Sitemap error:", err.message);
-    return res.status(500).send("Error generating sitemap");
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   SEO — SITEMAP INDEX
-═══════════════════════════════════════════════════════════════ */
-app.get("/sitemap-index.xml", (_req, res) => {
-  const today = new Date().toISOString().split("T")[0];
-  const xml   = `<?xml version="1.0" encoding="UTF-8"?>
-<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <sitemap>
-    <loc>${APP_URL}/sitemap.xml</loc>
-    <lastmod>${today}</lastmod>
-  </sitemap>
-  <sitemap>
-    <loc>${APP_URL}/sitemap-products.xml</loc>
-    <lastmod>${today}</lastmod>
-  </sitemap>
-</sitemapindex>`;
-
-  res.setHeader("Content-Type",  "application/xml");
-  res.setHeader("Cache-Control", "public, max-age=86400");
-  return res.send(xml);
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   SEO — DYNAMIC ROBOTS.TXT
-═══════════════════════════════════════════════════════════════ */
-app.get("/robots.txt", (_req, res) => {
-  const txt = `# Loemart — robots.txt
-User-agent: *
-Allow: /
-Allow: /minimart
-Allow: /search
-Allow: /deals
-Allow: /trending
-Allow: /latest
-Allow: /nearby
-Allow: /p2p
-Allow: /product/
-Allow: /seller/
-Allow: /become-seller
-Allow: /terms
-Allow: /faq
-Allow: /support
-
-Disallow: /admin/
-Disallow: /api/
-Disallow: /profile
-Disallow: /wallet
-Disallow: /settings
-Disallow: /notifications
-Disallow: /conversations
-Disallow: /chat/
-Disallow: /dashboard
-Disallow: /shop/checkout
-Disallow: /shop/orders/
-Disallow: /payment/
-
-User-agent: AhrefsBot
-Disallow: /
-
-User-agent: SemrushBot
-Disallow: /
-
-User-agent: MJ12bot
-Disallow: /
-
-Sitemap: ${APP_URL}/sitemap.xml
-Sitemap: ${APP_URL}/sitemap-products.xml
-
-Crawl-delay: 10
-`;
-
-  res.setHeader("Content-Type",  "text/plain");
-  res.setHeader("Cache-Control", "public, max-age=86400");
-  return res.send(txt);
-});
-
-/* ═══════════════════════════════════════════════════════════════
    WEBHOOKS  ⚠️  MUST be before express.json()
 ═══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
@@ -363,12 +175,14 @@ import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
 import checkoutWebhookRouter            from "./routes/checkout/webhook.js";
 import checkoutRouter                   from "./routes/checkout/index.js";
 
+/* Paystack webhook */
 app.use(
   "/api/payment/webhook",
   express.raw({ type: "application/json" }),
   webhookRouter
 );
 
+/* Flutterwave webhook */
 app.use(
   "/api/webhooks/flutterwave",
   express.raw({ type: "application/json" }),
@@ -380,6 +194,7 @@ app.use(
   flwWebhookRouter
 );
 
+/* Flutterwave payload capture */
 app.post(
   "/api/webhooks/flw-capture",
   express.raw({ type: "*/*" }),
@@ -395,6 +210,7 @@ app.post(
     console.log("  event       :", body?.event);
     console.log("  amount      :", body?.data?.amount);
     console.log("  status      :", body?.data?.status);
+    console.log("  FULL BODY   :", JSON.stringify(body, null, 2));
     console.log("═══════════════════════════════════════════════");
 
     try {
@@ -414,6 +230,7 @@ app.post(
   }
 );
 
+/* Checkout webhook */
 app.use(
   "/api/checkout/webhook/payment",
   express.raw({ type: "application/json" }),
@@ -492,14 +309,20 @@ import "./jobs/expirePromotions.js";
 /* ═══════════════════════════════════════════════════════════════
    ROUTES
 ═══════════════════════════════════════════════════════════════ */
-app.use("/api/payment",          paymentRouter);
-app.use("/api/checkout",         checkoutRouter);
 
+/* ── Payment ── */
+app.use("/api/payment", paymentRouter);
+
+/* ── Checkout ── */
+app.use("/api/checkout", checkoutRouter);
+
+/* ── Auth ── */
 import authRouter             from "./routes/sellerAuth.routes.js";
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
 app.use("/api/auth",              authRouter);
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
 
+/* ── Seller ── */
 import sellerProfileRouter   from "./routes/sellerprofile.js";
 import sellerPayoutRoutes    from "./routes/seller/payout.js";
 import sellerDashboardRouter from "./routes/seller/dashboard.js";
@@ -509,50 +332,64 @@ app.use("/api/seller/payout",    sellerPayoutRoutes);
 app.use("/api/seller-dashboard", sellerDashboardRouter);
 app.use("/api/seller/settings",  sellerSettingsRouter);
 
+/* ── Products ── */
 import marketRouter from "./routes/market/index.js";
 app.use("/api/products", marketRouter);
 
+/* ── Shop Detail ── */
 import marketDetailRouter from "./routes/marketDetail/index.js";
 app.use("/api/shop", marketDetailRouter);
 
+/* ── Cart ── */
 import cartRouter from "./routes/cart/index.js";
 app.use("/api/cart", cartRouter);
 
+/* ── Legacy product routes ── */
 import addproductRouter    from "./routes/addproduct.js";
 import productDetailRouter from "./routes/productDetail.js";
 app.use("/api/addproduct", addproductRouter);
 app.use("/api/product",    productDetailRouter);
 
+/* ── Users ── */
 import userRouter from "./routes/users.js";
 app.use("/api/users", userRouter);
 
+/* ── Messaging ── */
 import messagesRouter      from "./routes/messages.js";
 import conversationsRouter from "./routes/conversations.js";
 app.use("/api/messages/upload", rateLimiter(UPLOAD_MAX));
 app.use("/api/messages",        messagesRouter);
 app.use("/api/conversations",   conversationsRouter);
 
+/* ── Admin ── */
 import adminRouter from "./routes/admin.js";
 app.use("/api/admin", adminRouter);
 
+/* ── Search ── */
 import searchRouter from "./routes/search.js";
 app.use("/api/search", searchRouter);
 
+/* ── Homepage ── */
 import homepageRouter from "./routes/homepage.js";
 app.use("/api/homepage", homepageRouter);
 
+/* ── Dashboard ── */
 import dashboardRoutes from "./routes/dashboard.js";
 app.use("/api/dashboard", dashboardRoutes);
 
+/* ── Notifications ── */
 import notificationsRouter from "./routes/notifications.js";
 app.use("/api/notifications", notificationsRouter);
 
+/* ── Wallet ── */
 import walletRoutes from "./routes/wallets.js";
 app.use("/api/v1/wallets", walletRoutes);
 
+/* ── P2P ── */
 import p2pRouter from "./routes/p2p.js";
 app.use("/api/p2p", p2pRouter);
 
+/* ── Verification ── */
 import verificationRouter from "./routes/verification.js";
 app.use("/api/verification", verificationRouter);
 
@@ -592,28 +429,25 @@ app.get("/api/health", async (_req, res) => {
     flw_key_prefix : process.env.FLW_SECRET_KEY
       ? process.env.FLW_SECRET_KEY.slice(0, 14) + "…"
       : null,
-    webhook_url    : `${APP_URL}/api/webhooks/flutterwave`,
-    sitemap_url    : `${APP_URL}/sitemap-products.xml`,
+    cors_allowed   : ALLOWED_ORIGIN,
+    webhook_url    : "https://www.loemart.com/api/webhooks/flutterwave",
   });
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   SPA CATCH-ALL — production only
-   Serves index.html for all non-API routes.
-   ⚠️  MUST come after all API routes.
+   STATIC BUILD (production SPA)
 ═══════════════════════════════════════════════════════════════ */
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
+  app.use(express.static(distPath, { maxAge: "1d" }));
 
   app.get("*", (req, res) => {
-    // Block API routes from falling through
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({
         success : false,
         message : `API route not found: ${req.method} ${req.originalUrl}`,
       });
     }
-    // Serve React SPA for all other routes
     res.sendFile(path.join(distPath, "index.html"));
   });
 }
@@ -694,7 +528,6 @@ server.listen(PORT, () => {
 
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`   ENV       : ${process.env.NODE_ENV || "development"}`);
-  console.log(`   APP URL   : ${APP_URL}`);
   console.log(`   CORS      : ${ALLOWED_ORIGIN}`);
   console.log(`   FLW KEY   : ${
     mode === "missing" ? "❌ MISSING"   :
@@ -708,10 +541,7 @@ server.listen(PORT, () => {
   console.log(`   SHOP      : /api/shop`);
   console.log(`   CART      : /api/cart`);
   console.log(`   CHECKOUT  : /api/checkout`);
-  console.log(`   WEBHOOK   : ${APP_URL}/api/webhooks/flutterwave`);
-  console.log(`   SITEMAP   : ${APP_URL}/sitemap-products.xml`);
-  console.log(`   ROBOTS    : ${APP_URL}/robots.txt`);
-  console.log(`   WWW→      : www.loemart.com → loemart.com (301)`);
+  console.log(`   WEBHOOK   : https://www.loemart.com/api/webhooks/flutterwave`);
 
   startJobRunner();
   console.log("🧹 Background jobs started");
