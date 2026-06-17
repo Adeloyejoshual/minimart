@@ -4,7 +4,7 @@
  *
  * Backend: GET /api/homepage?section=trending&page=N
  * section=trending → WHERE engagement_score > 0 OR clicks_count > 0
- *                    ORDER BY engagement_score DESC, clicks_count DESC, created_at DESC
+ *                    ORDER BY engagement_score DESC, clicks_count DESC
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -12,6 +12,7 @@ import { useNavigate } from "react-router-dom";
 import TopNav      from "../../components/TopNav";
 import BottomNav   from "../../components/BottomNav";
 import MasonryGrid from "../../components/MasonryGrid";
+import { normalizeProduct } from "../../utils/normalizeProduct";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
@@ -21,14 +22,11 @@ const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════════════════════ */
-
-/** Remove duplicate products by id */
 const dedup = (arr) => {
   const seen = new Set();
   return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
 };
 
-/** Build paginated trending URL */
 const buildUrl = (page) =>
   `${API}/homepage?section=trending&page=${page}`;
 
@@ -58,7 +56,7 @@ export default function TrendingPage({ user }) {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error,       setError]       = useState(null);
   const [hasMore,     setHasMore]     = useState(false);
-  const [page,        setPage]        = useState(0); // 0-based
+  const [page,        setPage]        = useState(0);
 
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
@@ -69,7 +67,10 @@ export default function TrendingPage({ user }) {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
     const data     = await res.json();
-    const incoming = Array.isArray(data.products) ? data.products : [];
+
+    // ── Normalize string numbers to real numbers ──
+    const incoming = (Array.isArray(data.products) ? data.products : [])
+      .map(normalizeProduct);
 
     const merged = append
       ? dedup([...productsRef.current, ...incoming])
@@ -90,15 +91,13 @@ export default function TrendingPage({ user }) {
   // ── Load more ─────────────────────────────────────────────
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
-
     setLoadingMore(true);
     const next = page + 1;
-
     try {
       await fetchTrending(next, true);
       setPage(next);
     } catch (err) {
-      console.error("Load more failed:", err);
+      console.error("[TrendingPage] loadMore:", err);
     } finally {
       setLoadingMore(false);
     }
@@ -108,17 +107,15 @@ export default function TrendingPage({ user }) {
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
-
     const io = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting) loadMore(); },
       { threshold: 0.1 }
     );
-
     io.observe(el);
     return () => io.disconnect();
   }, [loadMore, hasMore]);
 
-  // ── Track view + click ────────────────────────────────────
+  // ── Analytics ─────────────────────────────────────────────
   const trackView = useCallback((id) => {
     fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
   }, []);
@@ -135,7 +132,6 @@ export default function TrendingPage({ user }) {
     setPage(0);
     productsRef.current = [];
     setProducts([]);
-
     fetchTrending(0)
       .catch(() => setError("Still failing. Check your connection."))
       .finally(() => setLoading(false));
@@ -145,16 +141,10 @@ export default function TrendingPage({ user }) {
   return (
     <>
       <TopNav user={user} />
-
       <div className="pg">
 
-        {/* ── Page Header ── */}
         <div className="page-header">
-          <button
-            className="back-btn"
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-          >
+          <button className="back-btn" onClick={() => navigate(-1)} aria-label="Go back">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
               <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
             </svg>
@@ -165,7 +155,6 @@ export default function TrendingPage({ user }) {
           </div>
         </div>
 
-        {/* ── Error ── */}
         {error && (
           <div className="err-box">
             <div className="err-title">Could not load listings</div>
@@ -174,10 +163,8 @@ export default function TrendingPage({ user }) {
           </div>
         )}
 
-        {/* ── Skeleton ── */}
         {loading && <SkeletonMasonry />}
 
-        {/* ── Empty State ── */}
         {!loading && !error && products.length === 0 && (
           <div className="empty">
             <div className="empty-emoji">📈</div>
@@ -185,32 +172,19 @@ export default function TrendingPage({ user }) {
             <div className="empty-sub">
               Products gain trending status as they get views and clicks.
             </div>
-            <button className="empty-btn" onClick={() => navigate("/")}>
-              Browse All
-            </button>
+            <button className="empty-btn" onClick={() => navigate("/")}>Browse All</button>
           </div>
         )}
 
-        {/* ── Products ── */}
         {!loading && products.length > 0 && (
           <>
-            <MasonryGrid
-              products={products}
-              onView={trackView}
-              onClick={handleClick}
-            />
-
-            {/* Infinite scroll sentinel */}
+            <MasonryGrid products={products} onView={trackView} onClick={handleClick} />
             <div ref={sentinelRef} style={{ height: 1 }} />
-
-            {loadingMore && (
-              <p className="loading-more">Loading more…</p>
-            )}
+            {loadingMore && <p className="loading-more">Loading more…</p>}
           </>
         )}
 
       </div>
-
       <BottomNav />
     </>
   );
