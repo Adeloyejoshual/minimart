@@ -16,7 +16,7 @@
 import {
   useEffect, useState, useCallback, useRef, memo, useMemo,
 } from "react";
-import { useNavigate }    from "react-router-dom";
+import { useNavigate }     from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
 import TopNav        from "../components/TopNav";
 import BottomNav     from "../components/BottomNav";
@@ -40,9 +40,9 @@ const PH               = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Ima
 const RECENT_KEY       = "recentCategories";
 const ALL_PRODUCTS_LIMIT = 40;
 const PROMO_INTERVAL   = 10;
-const REFRESH_MS       = 1_800_000; // 30 minutes
-const MOVE_CHECK_MS    = 300_000;   // 5 minutes
-const MOVE_THRESHOLD   = 2;         // km
+const REFRESH_MS       = 1_800_000;
+const MOVE_CHECK_MS    = 300_000;
+const MOVE_THRESHOLD   = 2;
 const GPS_TIMEOUT_MS   = 5_000;
 const BRAND_NAME       = "Loemart";
 
@@ -81,14 +81,43 @@ const trackCategory = (categoryId) => {
   localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
 };
 
-/** Score a product for personalised ranking */
+/* ═══════════════════════════════════════════════════════════════
+   NORMALIZE PRODUCT
+   Converts string numbers to real numbers.
+   API returns engagement_score as "5" (string) not 5 (number).
+═══════════════════════════════════════════════════════════════ */
+const normalizeProduct = (p) => ({
+  ...p,
+  price            : Number(p.price            || 0),
+  engagement_score : Number(p.engagement_score || 0),
+  clicks_count     : Number(p.clicks_count     || 0),
+  impression_count : Number(p.impression_count || 0),
+  views            : Number(p.views            || 0),
+  ctr              : Number(p.ctr              || 0),
+  promotion_priority: Number(p.promotion_priority || 0),
+
+  /* ── Normalize image ──────────────────────────────────── */
+  image : p.image ||
+    (Array.isArray(p.images) && p.images.length > 0
+      ? (typeof p.images[0] === "string" ? p.images[0] : p.images[0]?.url)
+      : null),
+
+  /* ── Normalize location ───────────────────────────────── */
+  location_city  : p.location?.city  || p.location_city  || null,
+  location_state : p.location?.state || p.location_state || null,
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   SCORING
+═══════════════════════════════════════════════════════════════ */
 const personalScore = (p, recentCats) => {
+  // All values already normalized to numbers
   let score = 0;
-  score += (p.engagement_score     || 0);
-  score += (p.is_promoted ? 50     : 0);
-  score += ((p.promotion_priority  || 0) * 5);
-  score += (p.ctr                  || 0) * 30;
-  if (recentCats.includes(p.category_id)) score += 20;
+  score += p.engagement_score;
+  score += (p.is_promoted ? 50 : 0);
+  score += (p.promotion_priority * 5);
+  score += (p.ctr * 30);
+  if (p.category_id && recentCats.includes(p.category_id)) score += 20;
   return score;
 };
 
@@ -137,29 +166,21 @@ const heroLocation = (meta) => {
 
 const applySort = (arr, key) => {
   if (key === "newest")     return [...arr].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  if (key === "price_asc")  return [...arr].sort((a, b) => Number(a.price) - Number(b.price));
-  if (key === "price_desc") return [...arr].sort((a, b) => Number(b.price) - Number(a.price));
-  return arr; // smart — already ranked
+  if (key === "price_asc")  return [...arr].sort((a, b) => a.price - b.price);
+  if (key === "price_desc") return [...arr].sort((a, b) => b.price - a.price);
+  return arr;
 };
 
-/**
- * Mid-feed promoted injection.
- * Inserts a promoted product every `interval` items.
- * Never duplicates an already-visible promoted product.
- */
 const injectPromoted = (products, promoted, interval = PROMO_INTERVAL) => {
   if (!promoted.length) return products;
-
-  const result   = [];
-  let promoIdx   = 0;
-  const usedIds  = new Set(products.map((p) => p.id));
+  const result  = [];
+  let promoIdx  = 0;
+  const usedIds = new Set(products.map((p) => p.id));
 
   for (let i = 0; i < products.length; i++) {
     result.push(products[i]);
     if ((i + 1) % interval === 0) {
-      while (promoIdx < promoted.length && usedIds.has(promoted[promoIdx].id)) {
-        promoIdx++;
-      }
+      while (promoIdx < promoted.length && usedIds.has(promoted[promoIdx].id)) promoIdx++;
       if (promoIdx < promoted.length) {
         result.push({ ...promoted[promoIdx], _injected: true });
         usedIds.add(promoted[promoIdx].id);
@@ -170,38 +191,66 @@ const injectPromoted = (products, promoted, interval = PROMO_INTERVAL) => {
   return result;
 };
 
+/* ═══════════════════════════════════════════════════════════════
+   SPLIT PRODUCTS
+   All products are already normalized — no string-to-number needed.
+═══════════════════════════════════════════════════════════════ */
 const splitProducts = (products, recentCats = []) => {
-  // Featured: respect promotion_priority
+
+  // ── Featured ──────────────────────────────────────────────
   const featured = products
     .filter((p) => p.is_promoted)
-    .sort((a, b) => (b.promotion_priority || 0) - (a.promotion_priority || 0))
+    .sort((a, b) => b.promotion_priority - a.promotion_priority)
     .slice(0, 3);
 
-  // Near You: products with location data
+  // ── Near You ──────────────────────────────────────────────
   const nearby = products
-    .filter((p) => p.distance_km != null || p.location?.city || p.location_city)
+    .filter((p) =>
+      p.distance_km != null ||
+      p.location_city        ||
+      p.location?.city
+    )
     .slice(0, 10);
 
-  // For You: merged trending + recommended with session boost
-  const forYou = products
-    .map((p) => ({ ...p, _score: personalScore(p, recentCats) }))
-    .filter((p) => p._score > 0 || (p.engagement_score || 0) > 5 || (p.ctr || 0) > 0.05)
+  // ── For You ───────────────────────────────────────────────
+  // Lower threshold — show all products with any engagement
+  const scored = products.map((p) => ({
+    ...p,
+    _score: personalScore(p, recentCats),
+  }));
+
+  const forYou = scored
+    .filter((p) =>
+      p._score > 0          ||
+      p.engagement_score > 0 ||
+      p.ctr > 0
+    )
     .sort((a, b) => b._score - a._score)
     .slice(0, 20);
 
-  // Deals
-  const deals = shuffle(products.filter((p) => Number(p.price) <= 50_000)).slice(0, 20);
+  // ── Deals ─────────────────────────────────────────────────
+  const deals = shuffle(
+    products.filter((p) => p.price <= 50_000)
+  ).slice(0, 20);
 
-  // New Arrivals
+  // ── Latest ───────────────────────────────────────────────
   const latest = [...products]
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, 20);
 
-  // All Products: smart ranking
-  const all = [...products].sort((a, b) =>
-    ((b.engagement_score || 0) + (b.is_promoted ? 50 : 0) + ((b.promotion_priority || 0) * 5)) -
-    ((a.engagement_score || 0) + (a.is_promoted ? 50 : 0) + ((a.promotion_priority || 0) * 5))
-  );
+  // ── All (smart rank) ──────────────────────────────────────
+  const all = [...scored]
+    .sort((a, b) => b._score - a._score);
+
+  console.log("[splitProducts]", {
+    total    : products.length,
+    featured : featured.length,
+    nearby   : nearby.length,
+    forYou   : forYou.length,
+    deals    : deals.length,
+    latest   : latest.length,
+    all      : all.length,
+  });
 
   return { featured, nearby, forYou, deals, latest, all };
 };
@@ -265,7 +314,7 @@ const SectionEmpty = ({ emoji, title, sub, cta, onCta }) => (
    FEATURED CARD
 ═══════════════════════════════════════════════════════════════ */
 const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
-  const imageUrl = getImageUrl(product);
+  const imageUrl = product.image || getImageUrl(product) || PH;
   return (
     <div
       className="feat"
@@ -291,7 +340,7 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
         <div>
           <div className="feat-price">{naira(product.price)}</div>
           <div className="feat-loc">
-            {product.location?.city || product.location_city || "Nationwide"}
+            {product.location_city || product.location?.city || "Nationwide"}
           </div>
         </div>
       </div>
@@ -363,7 +412,7 @@ export default function Homepage({ user }) {
 
   // ── Apply fetched data ────────────────────────────────────
   const applyData = useCallback((data) => {
-    const incoming =
+    const raw =
       Array.isArray(data.products) && data.products.length > 0
         ? data.products
         : [
@@ -373,13 +422,16 @@ export default function Homepage({ user }) {
             ...(data.latest      || []),
           ];
 
-    const merged = dedup(incoming);
-    const recent = getRecentCategories();
+    // ── Normalize all products (string → number) ──
+    const normalized = dedup(raw).map(normalizeProduct);
+    const recent     = getRecentCategories();
 
-    productsRef.current = merged;
-    setAllProducts(merged);
-    setProducts(merged);
-    setSections(splitProducts(merged, recent));
+    console.log("[Homepage] products loaded:", normalized.length);
+
+    productsRef.current = normalized;
+    setAllProducts(normalized);
+    setProducts(normalized);
+    setSections(splitProducts(normalized, recent));
     setMeta(data.meta || {});
     setLoaded(true);
   }, [setProducts, setLoaded]);
@@ -419,7 +471,10 @@ export default function Homepage({ user }) {
               });
             },
             () => {
-              finish(() => { clearTimeout(timeout); fetchData().then(resolve).catch(reject); });
+              finish(() => {
+                clearTimeout(timeout);
+                fetchData().then(resolve).catch(reject);
+              });
             },
             GPS_OPTIONS
           );
@@ -430,7 +485,7 @@ export default function Homepage({ user }) {
 
       applyData(data);
     } catch (err) {
-      console.error("[Homepage] load:", err);
+      console.error("[Homepage] load error:", err);
       setError("Could not reach the marketplace. Check your connection.");
     } finally {
       setLoading(false);
@@ -439,11 +494,12 @@ export default function Homepage({ user }) {
 
   // ── Bootstrap ─────────────────────────────────────────────
   useEffect(() => {
-    if (cacheLoaded && cachedProducts?.length > 0 && localStorage.getItem("lastLocation")) {
-      const recent = getRecentCategories();
-      productsRef.current = cachedProducts;
-      setAllProducts(cachedProducts);
-      setSections(splitProducts(cachedProducts, recent));
+    if (cacheLoaded && cachedProducts?.length > 0) {
+      const normalized = cachedProducts.map(normalizeProduct);
+      const recent     = getRecentCategories();
+      productsRef.current = normalized;
+      setAllProducts(normalized);
+      setSections(splitProducts(normalized, recent));
       setLoading(false);
     } else {
       loadHomepage();
@@ -460,7 +516,6 @@ export default function Homepage({ user }) {
   // ── Movement-aware refresh ────────────────────────────────
   useEffect(() => {
     if (!navigator.geolocation) return;
-
     const check = () => {
       navigator.geolocation.getCurrentPosition(
         ({ coords: { latitude, longitude } }) => {
@@ -477,7 +532,6 @@ export default function Homepage({ user }) {
         { enableHighAccuracy: false, maximumAge: 300_000, timeout: 5_000 }
       );
     };
-
     const id = setInterval(check, MOVE_CHECK_MS);
     return () => clearInterval(id);
   }, [loadHomepage]);
@@ -514,7 +568,8 @@ export default function Homepage({ user }) {
       const res  = await fetch(url, { signal: catAbortRef.current.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      const prods = Array.isArray(data.products) ? data.products : [];
+      const prods = (Array.isArray(data.products) ? data.products : [])
+        .map(normalizeProduct);
       setCatProducts(shuffle(dedup(prods)));
     } catch (err) {
       if (err.name === "AbortError") return;
@@ -558,7 +613,6 @@ export default function Homepage({ user }) {
     [allProducts]
   );
 
-  // All Products: sorted + mid-feed promo injection
   const sortedAll = useMemo(
     () => applySort(sections.all, allSort),
     [sections.all, allSort]
@@ -578,9 +632,7 @@ export default function Homepage({ user }) {
 
       <div className="pg">
 
-        {/* ══════════════════════════════════════════════
-            HERO
-        ══════════════════════════════════════════════ */}
+        {/* ── Hero ── */}
         <div className="hero">
           <div className="hero-top anim">
             <div>
@@ -601,7 +653,6 @@ export default function Homepage({ user }) {
             </button>
           </div>
 
-          {/* Location pill */}
           <button
             className="hero-loc anim anim-1"
             onClick={() => setPickerOpen(true)}
@@ -613,7 +664,6 @@ export default function Homepage({ user }) {
             <span className="hero-loc-change">Change</span>
           </button>
 
-          {/* Stats */}
           <div className="hero-stats anim anim-2">
             <div className="hero-stat">
               <div className="hero-stat-n">{loading ? "—" : heroListingCount}</div>
@@ -630,9 +680,7 @@ export default function Homepage({ user }) {
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════════
-            SEARCH
-        ══════════════════════════════════════════════ */}
+        {/* ── Search ── */}
         <div
           className="search-wrap anim anim-3"
           onClick={() => navigate("/search")}
@@ -644,9 +692,7 @@ export default function Homepage({ user }) {
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════════
-            HERO QUICK-CAT CHIPS
-        ══════════════════════════════════════════════ */}
+        {/* ── Hero quick-cat chips ── */}
         <div className="hero-cats anim anim-3">
           {HERO_CATS.map((name) => {
             const cat = CATEGORY_CONFIG.find((c) => c.name === name);
@@ -664,9 +710,7 @@ export default function Homepage({ user }) {
           })}
         </div>
 
-        {/* ══════════════════════════════════════════════
-            FULL CATEGORY STRIP
-        ══════════════════════════════════════════════ */}
+        {/* ── Full category strip ── */}
         <div className="cat-strip anim anim-4">
           {allCats.map((cat) => {
             const isActive = activeCategory === cat.name;
@@ -683,9 +727,7 @@ export default function Homepage({ user }) {
           })}
         </div>
 
-        {/* ══════════════════════════════════════════════
-            ERROR
-        ══════════════════════════════════════════════ */}
+        {/* ── Error ── */}
         {error && (
           <div className="err-box">
             <div className="err-title">Marketplace unavailable</div>
@@ -703,15 +745,11 @@ export default function Homepage({ user }) {
               title={`${activeCatObj?.icon ?? ""} ${activeCategory}`}
               sub={locLabel ? `· ${cityLabel}` : undefined}
             />
-
             {catLoading && <SkeletonMasonry />}
-
             {!catLoading && (catError || catProducts?.length === 0) && (
               <div className="empty">
                 <div className="empty-emoji">📭</div>
-                <div className="empty-title">
-                  No listings in {activeCategory} yet
-                </div>
+                <div className="empty-title">No listings in {activeCategory} yet</div>
                 <div className="empty-sub">
                   Be the first seller in <strong>{cityLabel}</strong> for this category!
                 </div>
@@ -720,7 +758,6 @@ export default function Homepage({ user }) {
                 </button>
               </div>
             )}
-
             {!catLoading && catProducts?.length > 0 && (
               <MasonryGrid
                 products={catProducts}
@@ -736,7 +773,7 @@ export default function Homepage({ user }) {
         ══════════════════════════════════════════════ */}
         {activeCategory === "All" && (
           <>
-            {!loading && !error && sections.latest.length === 0 && (
+            {!loading && !error && sections.all.length === 0 && (
               <div className="empty">
                 <div className="empty-emoji">🛍</div>
                 <div className="empty-title">Welcome to {BRAND_NAME}</div>
@@ -754,9 +791,7 @@ export default function Homepage({ user }) {
               <div className="sec sec--primary anim anim-3">
                 <SectionHead title="Featured" />
                 {loading ? (
-                  <div className="feat-wrap">
-                    <div className="sk sk-ft" />
-                  </div>
+                  <div className="feat-wrap"><div className="sk sk-ft" /></div>
                 ) : (
                   <div className="feat-wrap">
                     {sections.featured.map((p) => (
