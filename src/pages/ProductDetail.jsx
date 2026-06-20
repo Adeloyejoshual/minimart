@@ -1,15 +1,24 @@
 /**
  * src/pages/ProductDetail.jsx
  * Route: /product/:slug
+ *
+ * Clean, modern product detail page for Loemart.
+ * Features:
+ * - Image gallery + lightbox
+ * - Description expand/collapse
+ * - Seller card + trust score
+ * - Contact: chat, WhatsApp, call
+ * - Reviews + star rating form
+ * - Similar + more from seller
+ * - Favourites (local + API)
+ * - Safety tips
  */
 
 import {
-  useState, useEffect, useCallback, useMemo,
+  useState, useEffect, useCallback, useMemo, memo,
 } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
-import { useProductCache }  from "../context/ProductCacheContext";
-import ProductHeader        from "../components/ProductHeader";
-import MasonryGrid          from "../components/MasonryGrid";
+import { useProductCache } from "../context/ProductCacheContext";
 import "../styles/ProductDetail.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -21,26 +30,27 @@ const API      = `${BASE_URL}/api`;
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const PH            = "https://placehold.co/800x600/eae6e0/a8a39d?text=Loemart";
+const PH            = "https://placehold.co/800x600/f0ede8/b0a89e?text=Loemart";
 const FAV_KEY       = "loemart_favs";
-const DESC_WORD_MAX = 60;
+const DESC_WORD_MAX = 80;
 const REVIEWS_LIMIT = 5;
 
 const SAFETY_TIPS = [
-  "Do not pay in advance, including for delivery.",
-  "Arrange to meet sellers in a safe, public location.",
-  "Carefully inspect the item before purchase.",
-  "Ensure the item you receive is the same one you inspected.",
-  "Only make payment when you are fully satisfied.",
+  "Never pay in advance — pay only on delivery.",
+  "Meet sellers in safe, public locations.",
+  "Inspect items carefully before buying.",
+  "Confirm you received the exact item shown.",
+  "Report suspicious listings immediately.",
 ];
 
+const RATING_LABELS = ["", "Poor", "Fair", "Good", "Very Good", "Excellent"];
+
 /* ═══════════════════════════════════════════════════════════════
-   AUTH HELPERS
+   AUTH
 ═══════════════════════════════════════════════════════════════ */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token")             ||
-  localStorage.getItem("authToken")         ||
   null;
 
 const authH = () => {
@@ -50,19 +60,17 @@ const authH = () => {
 
 const readUserId = () => {
   try {
-    for (const key of ["user", "loemart_user", "currentUser", "authUser"]) {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      try {
-        const p  = JSON.parse(raw);
-        const id = p?.id || p?.user?.id || p?.data?.id;
-        if (id) return String(id);
-      } catch {}
-    }
     const token = getToken();
     if (token) {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      const id = payload?.id || payload?.sub || payload?.userId || payload?.user_id;
+      const p  = JSON.parse(atob(token.split(".")[1]));
+      const id = p?.id || p?.sub || p?.userId || p?.user_id;
+      if (id) return String(id);
+    }
+    for (const key of ["user", "loemart_user", "authUser"]) {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const p  = JSON.parse(raw);
+      const id = p?.id || p?.user?.id;
       if (id) return String(id);
     }
     return null;
@@ -76,7 +84,6 @@ const loadFavs = () => {
   try { return JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); }
   catch { return {}; }
 };
-
 const saveFavs = (f) => {
   try { localStorage.setItem(FAV_KEY, JSON.stringify(f)); } catch {}
 };
@@ -84,150 +91,130 @@ const saveFavs = (f) => {
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════════════════════ */
-const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
+const naira = (n) =>
+  "₦" + Number(n || 0).toLocaleString("en-NG");
 
-const fmtViews = (n) => {
+const fmtNum = (n) => {
   const v = Number(n || 0);
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(1).replace(/\.0$/, "") + "m";
   if (v >= 1_000)     return (v / 1_000).toFixed(1).replace(/\.0$/, "") + "k";
   return v.toLocaleString();
 };
 
-const getImages = (product) => {
-  if (!product) return [];
-  const imgs = [];
+const timeAgo = (d) => {
+  if (!d) return "";
+  const s = Math.floor((Date.now() - new Date(d)) / 1_000);
+  if (s < 60)        return "just now";
+  if (s < 3_600)     return `${Math.floor(s / 60)}m ago`;
+  if (s < 86_400)    return `${Math.floor(s / 3_600)}h ago`;
+  if (s < 2_592_000) return `${Math.floor(s / 86_400)}d ago`;
+  return new Date(d).toLocaleDateString("en-NG", { month: "short", year: "numeric" });
+};
 
-  if (Array.isArray(product.images) && product.images.length) {
-    product.images.forEach((img) => {
+const getImages = (p) => {
+  if (!p) return [PH];
+  const imgs = [];
+  if (Array.isArray(p.images)) {
+    p.images.forEach((img) => {
       if (!img) return;
       const url = typeof img === "string" ? img : img?.url || img?.image_url;
       if (url && !imgs.includes(url)) imgs.push(url);
     });
   }
-
-  if (!imgs.length && product.main_image)    imgs.push(product.main_image);
-  if (!imgs.length && product.thumbnail_url) imgs.push(product.thumbnail_url);
-  if (!imgs.length && product.image)         imgs.push(product.image);
-
+  if (!imgs.length && p.main_image)    imgs.push(p.main_image);
+  if (!imgs.length && p.thumbnail_url) imgs.push(p.thumbnail_url);
+  if (!imgs.length && p.image)         imgs.push(p.image);
   return imgs.length ? imgs : [PH];
 };
 
-const stars = (rating = 0, size = "md") => {
-  const r = Math.min(5, Math.max(0, Math.round(Number(rating))));
-  return (
-    <span className={`pd-stars${size === "sm" ? " pd-star-sm" : ""}`}>
-      {"★".repeat(r)}
-      <span className="pd-star-empty">{"★".repeat(5 - r)}</span>
-    </span>
-  );
-};
-
-const formatAttrKey = (k) =>
+const fmtKey = (k) =>
   k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
-const timeAgo = (date) => {
-  if (!date) return "";
-  const diff = Math.floor((Date.now() - new Date(date)) / 1_000);
-  if (diff < 60)        return "just now";
-  if (diff < 3_600)     return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86_400)    return `${Math.floor(diff / 3_600)}h ago`;
-  if (diff < 2_592_000) return `${Math.floor(diff / 86_400)}d ago`;
-  return new Date(date).toLocaleDateString("en-NG", { month: "short", year: "numeric" });
-};
-
 /* ═══════════════════════════════════════════════════════════════
-   START CHAT
+   STAR DISPLAY
 ═══════════════════════════════════════════════════════════════ */
-const startChatThread = async ({ buyerId, sellerId, productId }) => {
-  if (!buyerId || !sellerId) throw new Error("Missing buyer or seller ID");
-  if (buyerId === sellerId)  throw new Error("Cannot chat with yourself");
-
-  const res = await fetch(`${API}/conversations`, {
-    method  : "POST",
-    headers : { "Content-Type": "application/json", ...authH() },
-    body    : JSON.stringify({ buyerId, sellerId, productId: productId || null }),
-  });
-
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.message || `HTTP ${res.status}`);
-
-  const threadId = data.thread_id || data.id;
-  if (!threadId) throw new Error("No thread ID returned");
-  return threadId;
-};
+const Stars = memo(({ rating = 0, size = "md" }) => {
+  const r = Math.min(5, Math.max(0, Math.round(Number(rating))));
+  return (
+    <span className={`pd-stars${size === "sm" ? " pd-stars--sm" : ""}`}>
+      {"★".repeat(r)}
+      <span className="pd-stars-empty">{"★".repeat(5 - r)}</span>
+    </span>
+  );
+});
 
 /* ═══════════════════════════════════════════════════════════════
    SKELETON
 ═══════════════════════════════════════════════════════════════ */
-const Skel = ({ style }) => <div className="pd-skeleton" style={style} />;
-
-function LoadingSkeleton() {
+function Skeleton() {
   return (
     <div className="pd-page">
-      <Skel style={{ width: "100%", height: 300 }} />
-      <div style={{ padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
-        <Skel style={{ width: "40%", height: 13 }} />
-        <Skel style={{ width: "90%", height: 22 }} />
-        <Skel style={{ width: "55%", height: 32 }} />
-        <Skel style={{ width: "100%", height: 80, marginTop: 8 }} />
+      <div className="pd-sk-hero" />
+      <div className="pd-sk-body">
+        <div className="pd-sk-line" style={{ width: "35%", height: 11 }} />
+        <div className="pd-sk-line" style={{ width: "90%", height: 24, marginTop: 8 }} />
+        <div className="pd-sk-line" style={{ width: "45%", height: 32, marginTop: 10 }} />
+        <div className="pd-sk-line" style={{ width: "100%", height: 90, marginTop: 20, borderRadius: 12 }} />
+        <div className="pd-sk-line" style={{ width: "100%", height: 120, marginTop: 12, borderRadius: 12 }} />
       </div>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   FAQ ITEM
+   MINI PRODUCT CARD (for similar / more from seller)
 ═══════════════════════════════════════════════════════════════ */
-function FaqItem({ q, a }) {
-  const [open, setOpen] = useState(false);
+const MiniCard = memo(function MiniCard({ product, onClick }) {
+  const img = getImages(product)[0];
   return (
-    <div className="pd-faq-item">
-      <button className="pd-faq-q" onClick={() => setOpen((v) => !v)}>
-        {q}
-        <span className={`pd-faq-chevron${open ? " open" : ""}`}>▼</span>
-      </button>
-      {open && <div className="pd-faq-a">{a}</div>}
+    <div className="pd-mini-card" onClick={() => onClick(product)} role="button" tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product)}>
+      <div className="pd-mini-img-wrap">
+        <img src={img} alt={product.title} loading="lazy"
+          onError={(e) => { e.currentTarget.src = PH; }} />
+        {product.is_promoted && <span className="pd-mini-promo">Featured</span>}
+      </div>
+      <div className="pd-mini-body">
+        <p className="pd-mini-title">{product.title}</p>
+        <p className="pd-mini-price">{naira(product.price)}</p>
+        {(product.location_city || product.location?.city) && (
+          <p className="pd-mini-loc">
+            📍 {product.location_city || product.location?.city}
+          </p>
+        )}
+      </div>
     </div>
   );
-}
+});
 
 /* ═══════════════════════════════════════════════════════════════
    REVIEW FORM
 ═══════════════════════════════════════════════════════════════ */
-const RATING_LABELS = ["", "Poor", "Fair", "Good", "Very Good", "Excellent"];
-
-function ReviewForm({ slug, userId, onSubmitted }) {
+function ReviewForm({ slug, userId, onDone }) {
   const navigate = useNavigate();
+  const [rating,  setRating]  = useState(0);
+  const [hover,   setHover]   = useState(0);
+  const [comment, setComment] = useState("");
+  const [busy,    setBusy]    = useState(false);
+  const [err,     setErr]     = useState(null);
+  const [done,    setDone]    = useState(false);
 
-  const [rating,      setRating]      = useState(0);
-  const [hoverRating, setHoverRating] = useState(0);
-  const [comment,     setComment]     = useState("");
-  const [submitting,  setSubmitting]  = useState(false);
-  const [error,       setError]       = useState(null);
-  const [done,        setDone]        = useState(false);
+  if (!userId) return (
+    <div className="pd-review-gate">
+      <p>Log in to leave a review</p>
+      <button onClick={() => navigate(`/auth?redirect=/product/${slug}`)}>
+        Log in
+      </button>
+    </div>
+  );
 
-  if (!userId) {
-    return (
-      <div className="pd-review-login-prompt">
-        <p className="pd-review-login-text">Log in to leave a review</p>
-        <button
-          className="pd-review-login-btn"
-          onClick={() => navigate(`/auth?redirect=${encodeURIComponent(`/product/${slug}`)}`)}
-        >
-          Log in
-        </button>
-      </div>
-    );
-  }
+  if (done) return (
+    <div className="pd-review-done">✅ Review submitted — thank you!</div>
+  );
 
-  if (done) {
-    return <div className="pd-review-done">Your review was submitted. Thank you!</div>;
-  }
-
-  const handleSubmit = async () => {
-    if (!rating) { setError("Please select a rating"); return; }
-    setSubmitting(true);
-    setError(null);
+  const submit = async () => {
+    if (!rating) { setErr("Please pick a rating"); return; }
+    setBusy(true); setErr(null);
     try {
       const res = await fetch(
         `${API}/product/slug/${encodeURIComponent(slug)}/reviews`,
@@ -237,73 +224,56 @@ function ReviewForm({ slug, userId, onSubmitted }) {
           body    : JSON.stringify({ user_id: userId, rating, comment }),
         }
       );
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Failed to submit");
+      if (!res.ok) { const d = await res.json(); throw new Error(d.message); }
       setDone(true);
-      onSubmitted?.();
-    } catch (err) {
-      setError(err.message);
+      onDone?.();
+    } catch (e) {
+      setErr(e.message || "Failed to submit");
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   };
 
   return (
     <div className="pd-review-form">
-      <div className="pd-review-form-title">Write a review</div>
+      <p className="pd-review-form-title">Write a review</p>
+
+      {/* Star picker */}
       <div className="pd-star-picker">
-        {[1, 2, 3, 4, 5].map((n) => (
+        {[1,2,3,4,5].map((n) => (
           <button
             key={n}
-            className={`pd-star-pick${(hoverRating || rating) >= n ? " active" : ""}`}
-            onMouseEnter={() => setHoverRating(n)}
-            onMouseLeave={() => setHoverRating(0)}
+            className={`pd-star-btn${(hover || rating) >= n ? " on" : ""}`}
+            onMouseEnter={() => setHover(n)}
+            onMouseLeave={() => setHover(0)}
             onClick={() => setRating(n)}
             aria-label={`${n} star`}
-          >
-            ★
-          </button>
+          >★</button>
         ))}
         {rating > 0 && (
           <span className="pd-star-label">{RATING_LABELS[rating]}</span>
         )}
       </div>
+
       <textarea
-        className="pd-review-textarea"
+        className="pd-review-ta"
         placeholder="Share your experience… (optional)"
         value={comment}
         onChange={(e) => setComment(e.target.value)}
         rows={3}
         maxLength={500}
       />
-      <div className="pd-review-char">{comment.length}/500</div>
-      {error && <div className="pd-review-error">{error}</div>}
+      <div className="pd-review-chars">{comment.length}/500</div>
+
+      {err && <p className="pd-review-err">{err}</p>}
+
       <button
         className="pd-review-submit"
-        onClick={handleSubmit}
-        disabled={submitting || !rating}
+        onClick={submit}
+        disabled={busy || !rating}
       >
-        {submitting ? "Submitting…" : "Submit Review"}
+        {busy ? "Submitting…" : "Submit Review"}
       </button>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   SAFETY TIPS
-═══════════════════════════════════════════════════════════════ */
-function SafetyTips() {
-  return (
-    <div className="pd-section pd-safety">
-      <div className="pd-section-title pd-safety-title">Safety Tips</div>
-      <div className="pd-safety-list">
-        {SAFETY_TIPS.map((tip, i) => (
-          <div key={i} className="pd-safety-item">
-            <span className="pd-safety-dot">•</span>
-            <span>{tip}</span>
-          </div>
-        ))}
-      </div>
     </div>
   );
 }
@@ -316,43 +286,38 @@ export default function ProductDetail({ user }) {
   const navigate             = useNavigate();
   const { addSingleProduct } = useProductCache();
 
-  // ── State ─────────────────────────────────────────────────
+  /* ── State ─────────────────────────────────────────────── */
   const [product,        setProduct]        = useState(null);
   const [seller,         setSeller]         = useState(null);
   const [similar,        setSimilar]        = useState([]);
-  const [sellerProducts, setSellerProducts] = useState([]);
+  const [moreSeller,     setMoreSeller]     = useState([]);
   const [reviews,        setReviews]        = useState([]);
   const [reviewStats,    setReviewStats]    = useState(null);
+  const [reviewTotal,    setReviewTotal]    = useState(0);
+  const [reviewPage,     setReviewPage]     = useState(1);
   const [loading,        setLoading]        = useState(true);
   const [error,          setError]          = useState(null);
   const [activeImg,      setActiveImg]      = useState(0);
   const [lightbox,       setLightbox]       = useState(false);
-  const [descExpanded,   setDescExpanded]   = useState(false);
+  const [expanded,       setExpanded]       = useState(false);
   const [fav,            setFav]            = useState(false);
-  const [reviewPage,     setReviewPage]     = useState(1);
-  const [reviewTotal,    setReviewTotal]    = useState(0);
-  const [chatLoading,    setChatLoading]    = useState(false);
+  const [chatBusy,       setChatBusy]       = useState(false);
 
-  // ── Current user ──────────────────────────────────────────
+  /* ── User ─────────────────────────────────────────────── */
   const userId = useMemo(() => user?.id || readUserId(), [user]);
 
-  // ── Derived ───────────────────────────────────────────────
+  /* ── Derived ──────────────────────────────────────────── */
   const images = useMemo(() => getImages(product), [product]);
 
   const attrs = useMemo(() => {
-    const raw = product?.attributes;
-    if (!raw || typeof raw !== "object") return [];
-    return Object.entries(raw).filter(([, v]) => v != null && v !== "");
+    const a = product?.attributes;
+    if (!a || typeof a !== "object") return [];
+    return Object.entries(a).filter(([, v]) => v != null && v !== "" && !Array.isArray(v));
   }, [product]);
 
-  const highlights = useMemo(() => {
+  const features = useMemo(() => {
     const h = product?.highlights;
     return Array.isArray(h) ? h.filter(Boolean) : [];
-  }, [product]);
-
-  const faqs = useMemo(() => {
-    const f = product?.faq;
-    return Array.isArray(f) ? f.filter((i) => i?.q && i?.a) : [];
   }, [product]);
 
   const specs = useMemo(() => {
@@ -361,16 +326,28 @@ export default function ProductDetail({ user }) {
     return Object.entries(s).filter(([, v]) => v != null && v !== "");
   }, [product]);
 
-  const delivery = useMemo(() => {
-    const d = product?.delivery;
-    if (!d || typeof d !== "object" || !d.available) return null;
-    return d;
+  const faqs = useMemo(() => {
+    const f = product?.faq;
+    return Array.isArray(f) ? f.filter((i) => i?.q && i?.a) : [];
   }, [product]);
 
-  /* ════════════════════════════════════════════════════════════
-     FETCH PRODUCT
-  ════════════════════════════════════════════════════════════ */
-  const fetchProduct = useCallback(async () => {
+  const delivery = useMemo(() => {
+    const d = product?.delivery;
+    return d?.available ? d : null;
+  }, [product]);
+
+  const isOwn     = !!(userId && product?.seller_id && userId === product.seller_id);
+  const waNumber  = product?.whatsapp      || product?.contact?.whatsapp;
+  const waLink    = product?.whatsapp_link || product?.contact?.whatsapp_link;
+  const phone     = product?.phone         || product?.contact?.phone;
+  const hasContact = !!(waNumber || waLink || phone || product?.seller_id);
+
+  /* ════════════════════════════════════════════════════════
+     DATA FETCHING
+  ════════════════════════════════════════════════════════ */
+
+  // ── Product ───────────────────────────────────────────
+  const loadProduct = useCallback(async () => {
     if (!slug || slug === "undefined") {
       setError("Invalid product link.");
       setLoading(false);
@@ -393,9 +370,9 @@ export default function ProductDetail({ user }) {
     }
   }, [slug, addSingleProduct]);
 
-  useEffect(() => { fetchProduct(); }, [fetchProduct]);
+  useEffect(() => { loadProduct(); }, [loadProduct]);
 
-  // ── Track view — uses /api/product/products/:id/view ──────
+  // ── Track view ────────────────────────────────────────
   useEffect(() => {
     if (!product?.id) return;
     fetch(`${API}/product/products/${product.id}/view`, {
@@ -403,7 +380,7 @@ export default function ProductDetail({ user }) {
     }).catch(() => {});
   }, [product?.id]);
 
-  // ── Fetch seller ──────────────────────────────────────────
+  // ── Seller ────────────────────────────────────────────
   useEffect(() => {
     if (!product?.seller_id) return;
     fetch(`${API}/seller/${product.seller_id}`)
@@ -412,25 +389,39 @@ export default function ProductDetail({ user }) {
       .catch(() => {});
   }, [product?.seller_id]);
 
-  // ── Fetch seller's other products ─────────────────────────
+  // ── More from seller ──────────────────────────────────
   useEffect(() => {
     if (!product?.seller_id || !product?.id) return;
     const qs = new URLSearchParams({
       seller_id : product.seller_id,
       exclude   : product.id,
-      limit     : "10",
+      limit     : "8",
     });
     fetch(`${API}/product/by-seller?${qs}`)
       .then((r) => r.ok ? r.json() : [])
-      .then((d) => setSellerProducts(Array.isArray(d) ? d : (d.products || [])))
+      .then((d) => setMoreSeller(Array.isArray(d) ? d : []))
       .catch(() => {});
   }, [product?.seller_id, product?.id]);
 
-  // ── Fetch reviews ─────────────────────────────────────────
-  const fetchReviews = useCallback(async (page = 1) => {
+  // ── Similar ───────────────────────────────────────────
+  useEffect(() => {
+    if (!product?.id || !product?.category_id) return;
+    const qs = new URLSearchParams({
+      category_id : product.category_id,
+      exclude     : product.id,
+      limit       : "8",
+    });
+    fetch(`${API}/product/similar?${qs}`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((d) => setSimilar(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  }, [product?.id, product?.category_id]);
+
+  // ── Reviews ───────────────────────────────────────────
+  const loadReviews = useCallback(async (page = 1) => {
     if (!slug) return;
     try {
-      const res = await fetch(
+      const res  = await fetch(
         `${API}/product/slug/${encodeURIComponent(slug)}/reviews?limit=${REVIEWS_LIMIT}&page=${page}`
       );
       if (!res.ok) return;
@@ -438,29 +429,16 @@ export default function ProductDetail({ user }) {
       setReviews((prev) =>
         page === 1 ? (data.reviews || []) : [...prev, ...(data.reviews || [])]
       );
-      const s = data.stats || null;
-      setReviewStats(s ? { ...s, avg_rating: s.average } : null);
-      setReviewTotal(data.stats?.total || 0);
+      if (data.stats) {
+        setReviewStats(data.stats);
+        setReviewTotal(data.stats.total || 0);
+      }
     } catch {}
   }, [slug]);
 
-  useEffect(() => { fetchReviews(1); }, [fetchReviews]);
+  useEffect(() => { loadReviews(1); }, [loadReviews]);
 
-  // ── Fetch similar ─────────────────────────────────────────
-  useEffect(() => {
-    if (!product?.id || !product?.category_id) return;
-    const qs = new URLSearchParams({
-      category_id : product.category_id,
-      exclude     : product.id,
-      limit       : "10",
-    });
-    fetch(`${API}/product/similar?${qs}`)
-      .then((r) => r.ok ? r.json() : [])
-      .then((d) => setSimilar(Array.isArray(d) ? d : (d.products || [])))
-      .catch(() => {});
-  }, [product?.id, product?.category_id]);
-
-  // ── Lightbox keyboard ─────────────────────────────────────
+  // ── Lightbox keyboard ─────────────────────────────────
   useEffect(() => {
     if (!lightbox) return;
     const h = (e) => {
@@ -472,13 +450,18 @@ export default function ProductDetail({ user }) {
     return () => window.removeEventListener("keydown", h);
   }, [lightbox, images.length]);
 
-  // ── Favourite ─────────────────────────────────────────────
-  const toggleFav = useCallback(async () => {
+  /* ════════════════════════════════════════════════════════
+     ACTIONS
+  ════════════════════════════════════════════════════════ */
+
+  // ── Favourite ─────────────────────────────────────────
+  const toggleFav = useCallback(() => {
     if (!product?.id) return;
     const next = !fav;
     setFav(next);
     const favs = loadFavs();
-    if (next) { favs[product.id] = true; } else { delete favs[product.id]; }
+    if (next) favs[product.id] = true;
+    else delete favs[product.id];
     saveFavs(favs);
     if (userId) {
       fetch(`${API}/product/products/${product.id}/favorite`, {
@@ -489,596 +472,682 @@ export default function ProductDetail({ user }) {
     }
   }, [fav, product, userId]);
 
-  // ── Contact ───────────────────────────────────────────────
-  const contactPhone = product?.phone         || product?.contact?.phone;
-  const waNumber     = product?.whatsapp      || product?.contact?.whatsapp;
-  const waLink       = product?.whatsapp_link || product?.contact?.whatsapp_link;
-  const isOwnProduct = !!(userId && product?.seller_id && userId === product.seller_id);
-  const hasContact   = !!(waNumber || waLink || contactPhone || product?.seller_id);
-
+  // ── WhatsApp ──────────────────────────────────────────
   const openWhatsApp = useCallback(() => {
     if (!product) return;
-    // ── Use correct route ──
-    fetch(`${API}/product/products/${product.id}/click`, {
-      method: "POST",
-    }).catch(() => {});
+    fetch(`${API}/product/products/${product.id}/click`, { method: "POST" }).catch(() => {});
     const msg = encodeURIComponent(
       `Hi, I'm interested in: ${product.title} — ${window.location.href}`
     );
-    const url = waLink ||
-      (waNumber ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${msg}` : null);
+    const url = waLink || (waNumber
+      ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${msg}`
+      : null);
     if (url) window.open(url, "_blank");
   }, [product, waLink, waNumber]);
 
+  // ── Call ─────────────────────────────────────────────
   const openCall = useCallback(() => {
-    if (contactPhone) window.location.href = `tel:${contactPhone}`;
-  }, [contactPhone]);
+    if (phone) window.location.href = `tel:${phone}`;
+  }, [phone]);
 
+  // ── Chat ─────────────────────────────────────────────
   const openChat = useCallback(async () => {
     if (!userId) {
-      navigate(`/auth?redirect=${encodeURIComponent(`/product/${slug}`)}`);
+      navigate(`/auth?redirect=/product/${slug}`);
       return;
     }
-    if (isOwnProduct || !product?.seller_id) return;
-
-    setChatLoading(true);
+    if (isOwn || !product?.seller_id) return;
+    setChatBusy(true);
     try {
-      const threadId = await startChatThread({
-        buyerId  : userId,
-        sellerId : product.seller_id,
-        productId: product.id,
+      const res  = await fetch(`${API}/conversations`, {
+        method  : "POST",
+        headers : { "Content-Type": "application/json", ...authH() },
+        body    : JSON.stringify({
+          buyerId  : userId,
+          sellerId : product.seller_id,
+          productId: product.id,
+        }),
       });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      const threadId = data.thread_id || data.id;
+      if (!threadId) throw new Error("No thread ID");
       navigate(`/chat/${threadId}`);
     } catch (err) {
-      console.error("[ProductDetail] openChat:", err.message);
       alert("Could not open chat: " + err.message);
     } finally {
-      setChatLoading(false);
+      setChatBusy(false);
     }
-  }, [userId, isOwnProduct, product, slug, navigate]);
+  }, [userId, isOwn, product, slug, navigate]);
 
-  /* ════════════════════════════════════════════════════════════
+  // ── Navigate to product ───────────────────────────────
+  const goProduct = useCallback((p) => {
+    navigate(`/product/${p.slug || p.id}`);
+  }, [navigate]);
+
+  /* ════════════════════════════════════════════════════════
      LOADING / ERROR
-  ════════════════════════════════════════════════════════════ */
-  if (loading) return <LoadingSkeleton />;
+  ════════════════════════════════════════════════════════ */
+  if (loading) return <Skeleton />;
 
-  if (error) {
-    return (
-      <div className="pd-page">
-        <div className="pd-error">
-          <div className="pd-error-emoji">🔍</div>
-          <div className="pd-error-title">{error}</div>
-          <div className="pd-error-sub">
-            The listing may have been removed or the link is incorrect.
-          </div>
-          <Link className="pd-error-link" to="/">Browse Marketplace</Link>
-        </div>
+  if (error) return (
+    <div className="pd-page">
+      <div className="pd-error-wrap">
+        <span className="pd-error-emoji">🔍</span>
+        <h2 className="pd-error-title">{error}</h2>
+        <p className="pd-error-sub">
+          This listing may have been removed or the link is incorrect.
+        </p>
+        <Link to="/" className="pd-error-btn">Browse Marketplace</Link>
       </div>
-    );
-  }
+    </div>
+  );
 
   if (!product) return null;
 
-  const descWords      = (product.description || "").split(" ");
-  const needsToggle    = descWords.length > DESC_WORD_MAX;
-  const hasMoreReviews = reviews.length < reviewTotal;
+  const words      = (product.description || "").split(" ");
+  const longDesc   = words.length > DESC_WORD_MAX;
+  const hasMore    = reviews.length < reviewTotal;
 
-  /* ════════════════════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════
      RENDER
-  ════════════════════════════════════════════════════════════ */
+  ════════════════════════════════════════════════════════ */
   return (
-    <>
-      <ProductHeader
-        product={product}
-        seller={seller}
-        reviewStats={reviewStats ? {
-          avg_rating : reviewStats.average,
-          total      : reviewStats.total,
-        } : null}
-        onFavorite={toggleFav}
-        isFavorited={fav}
-      />
+    <div className="pd-page">
 
-      <div className="pd-page">
+      {/* ══════════════════════════════════════════════
+          HEADER BAR
+      ══════════════════════════════════════════════ */}
+      <div className="pd-topbar">
+        <button className="pd-topbar-back" onClick={() => navigate(-1)} aria-label="Go back">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+            <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+          </svg>
+        </button>
 
-        {/* ── Gallery ── */}
-        <div className="pd-gallery">
-          <div className="pd-main-img-wrap" onClick={() => setLightbox(true)}>
-            {product.is_promoted && (
-              <span className="pd-promoted-badge">Featured</span>
-            )}
-            <img
-              key={images[activeImg]}
-              className="pd-main-img"
-              src={images[activeImg]}
-              alt={product.title}
-              loading="eager"
-              decoding="async"
-              fetchPriority="high"
-              onError={(e) => { e.currentTarget.src = PH; }}
-            />
-            {images.length > 1 && (
-              <span className="pd-img-counter">
-                {activeImg + 1} / {images.length}
-              </span>
-            )}
-          </div>
+        <div className="pd-topbar-actions">
+          {/* Share */}
+          <button
+            className="pd-topbar-btn"
+            onClick={() => {
+              if (navigator.share) {
+                navigator.share({ title: product.title, url: window.location.href });
+              } else {
+                navigator.clipboard?.writeText(window.location.href);
+                alert("Link copied!");
+              }
+            }}
+            aria-label="Share"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/>
+              <circle cx="18" cy="19" r="3"/>
+              <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/>
+            </svg>
+          </button>
 
+          {/* Favourite */}
+          <button
+            className={`pd-topbar-btn${fav ? " pd-topbar-btn--fav" : ""}`}
+            onClick={toggleFav}
+            aria-label={fav ? "Remove from favourites" : "Add to favourites"}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24"
+              fill={fav ? "currentColor" : "none"}
+              stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* ══════════════════════════════════════════════
+          GALLERY
+      ══════════════════════════════════════════════ */}
+      <div className="pd-gallery">
+
+        {/* Main image */}
+        <div
+          className="pd-main-wrap"
+          onClick={() => setLightbox(true)}
+          role="button"
+          aria-label="View full image"
+        >
+          {product.is_promoted && (
+            <span className="pd-badge-promo">⭐ Featured</span>
+          )}
+          <img
+            className="pd-main-img"
+            src={images[activeImg]}
+            alt={product.title}
+            loading="eager"
+            decoding="async"
+            fetchPriority="high"
+            onError={(e) => { e.currentTarget.src = PH; }}
+          />
           {images.length > 1 && (
-            <div className="pd-thumbs">
-              {images.map((src, i) => (
-                <div
-                  key={i}
-                  className={`pd-thumb${activeImg === i ? " active" : ""}`}
-                  onClick={() => setActiveImg(i)}
-                >
-                  <img
-                    src={src}
-                    alt={`Image ${i + 1}`}
-                    loading="lazy"
-                    onError={(e) => { e.currentTarget.src = PH; }}
-                  />
-                </div>
-              ))}
-            </div>
+            <span className="pd-img-counter">{activeImg + 1} / {images.length}</span>
           )}
+          <span className="pd-zoom-hint">🔍 Tap to zoom</span>
         </div>
 
-        <div className="pd-body">
-
-          {/* ── Title Block ── */}
-          <div className="pd-title-block">
-            {product.category_name && (
-              <div className="pd-category-crumb">
-                {product.category_name}
-                {product.subcategory_name && ` › ${product.subcategory_name}`}
-              </div>
-            )}
-            <h1 className="pd-title">{product.title}</h1>
-            <div className="pd-price-row">
-              <span className="pd-price">{naira(product.price)}</span>
-              {product.is_promoted && (
-                <span className="pd-price-note">Promoted listing</span>
-              )}
-            </div>
-            <div className="pd-stats-row">
-              <span className="pd-stat">{fmtViews(product.views)} views</span>
-              {product.favorites_count > 0 && (
-                <span className="pd-stat">{product.favorites_count} saved</span>
-              )}
-              <span className="pd-stat">{timeAgo(product.created_at)}</span>
-            </div>
-          </div>
-
-          {/* ── Description ── */}
-          {product.description && (
-            <div className="pd-section">
-              <div className="pd-section-title">About this product</div>
-              <p className="pd-desc">
-                {needsToggle && !descExpanded
-                  ? descWords.slice(0, DESC_WORD_MAX).join(" ")
-                  : product.description}
-                {needsToggle && !descExpanded && (
-                  <span className="pd-desc-ellipsis">
-                    …
-                    <button className="pd-desc-toggle" onClick={() => setDescExpanded(true)}>
-                      read more
-                    </button>
-                  </span>
-                )}
-              </p>
-              {needsToggle && descExpanded && (
-                <button className="pd-desc-toggle" onClick={() => setDescExpanded(false)}>
-                  Show less
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* ── Features ── */}
-          {highlights.length > 0 && (
-            <div className="pd-section">
-              <div className="pd-section-title">Features</div>
-              <div className="pd-features-list">
-                {highlights.map((h, i) => (
-                  <div key={i} className="pd-feature-item">
-                    <span className="pd-feature-check">✓</span>
-                    <span className="pd-feature-text">
-                      {typeof h === "string" ? h : h?.text || JSON.stringify(h)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Details ── */}
-          {attrs.length > 0 && (
-            <div className="pd-section">
-              <div className="pd-section-title">Details</div>
-              <div className="pd-attrs-stacked">
-                {attrs.map(([k, v]) => (
-                  <div key={k} className="pd-attr-stack-item">
-                    <span className="pd-attr-stack-key">{formatAttrKey(k)}</span>
-                    <span className="pd-attr-stack-val">
-                      {Array.isArray(v) ? v.join(", ") : String(v)}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Specifications ── */}
-          {specs.length > 0 && (
-            <div className="pd-section">
-              <div className="pd-section-title">Specifications</div>
-              <div className="pd-attrs-stacked">
-                {specs.map(([k, v]) => (
-                  <div key={k} className="pd-attr-stack-item">
-                    <span className="pd-attr-stack-key">{formatAttrKey(k)}</span>
-                    <span className="pd-attr-stack-val">{String(v)}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Location ── */}
-          {(product.location_city || product.location_state) && (
-            <div className="pd-section">
-              <div className="pd-section-title">Location</div>
-              <div className="pd-location-text">
-                {product.location_city && (
-                  <span className="pd-location-city">{product.location_city}</span>
-                )}
-                {product.location_city && product.location_state && (
-                  <span className="pd-location-sep">, </span>
-                )}
-                {product.location_state && (
-                  <span className="pd-location-state">{product.location_state}</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ── Delivery ── */}
-          {delivery && (
-            <div className="pd-section">
-              <div className="pd-section-title">Delivery</div>
-              <div className="pd-attrs-stacked">
-                <div className="pd-attr-stack-item">
-                  <span className="pd-attr-stack-key">Status</span>
-                  <span className="pd-attr-stack-val">
-                    Available
-                    {delivery.duration?.from && delivery.duration?.to && (
-                      <> — {delivery.duration.from}–{delivery.duration.to} days</>
-                    )}
-                  </span>
-                </div>
-                {delivery.fee != null && (
-                  <div className="pd-attr-stack-item">
-                    <span className="pd-attr-stack-key">Fee</span>
-                    <span className="pd-attr-stack-val">
-                      {Number(delivery.fee) === 0 ? "Free" : naira(delivery.fee)}
-                    </span>
-                  </div>
-                )}
-                {delivery.note && (
-                  <div className="pd-attr-stack-item">
-                    <span className="pd-attr-stack-key">Note</span>
-                    <span className="pd-attr-stack-val">{delivery.note}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ── Seller ── */}
-          {(seller || product.seller_id) && (
-            <div className="pd-section">
-              <div className="pd-section-title">Seller</div>
-              <div
-                className="pd-seller"
-                onClick={() => navigate(`/seller/${product.seller_id}`)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => e.key === "Enter" && navigate(`/seller/${product.seller_id}`)}
+        {/* Thumbnails */}
+        {images.length > 1 && (
+          <div className="pd-thumbs">
+            {images.map((src, i) => (
+              <button
+                key={i}
+                className={`pd-thumb${activeImg === i ? " pd-thumb--active" : ""}`}
+                onClick={() => setActiveImg(i)}
+                aria-label={`View image ${i + 1}`}
               >
-                {seller?.profile_image || seller?.store_logo ? (
-                  <img
-                    className="pd-seller-avatar"
-                    src={seller.profile_image || seller.store_logo}
-                    alt={seller.name || "Seller"}
-                    loading="lazy"
-                    onError={(e) => { e.currentTarget.style.display = "none"; }}
-                  />
-                ) : (
-                  <div className="pd-seller-avatar-fallback">
-                    {(seller?.name || "S").charAt(0).toUpperCase()}
-                  </div>
-                )}
-                <div className="pd-seller-info">
-                  <div className="pd-seller-name">
-                    {seller?.store_name || seller?.name || "Seller"}
-                    {seller?.verified && (
-                      <span className="pd-seller-vfd">Verified</span>
-                    )}
-                  </div>
-                  <div className="pd-seller-meta">
-                    {seller?.products_count > 0 && (
-                      <span>{seller.products_count} listings</span>
-                    )}
-                    {seller?.total_sales > 0 && (
-                      <span>· {Number(seller.total_sales).toLocaleString()} sales</span>
-                    )}
-                    {seller?.rating > 0 && (
-                      <span>· {Number(seller.rating).toFixed(1)} ★</span>
-                    )}
-                  </div>
-                  {seller?.trust_score != null && (
-                    <div className="pd-seller-trust">
-                      <div className="pd-trust-track">
-                        <div
-                          className="pd-trust-fill"
-                          style={{ width: `${Math.min(100, seller.trust_score)}%` }}
-                        />
-                      </div>
-                      <span className="pd-trust-val">{seller.trust_score}% trust</span>
-                    </div>
-                  )}
-                </div>
-                <span className="pd-seller-arrow">›</span>
-              </div>
-            </div>
-          )}
-
-          {/* ── Contact ── */}
-          {hasContact && !isOwnProduct && (
-            <div className="pd-section">
-              <div className="pd-section-title">Contact Seller</div>
-              <div className="pd-contact-list">
-
-                {/* Chat button */}
-                {product.seller_id && (
-                  <button
-                    className="pd-contact-btn pd-contact-chat"
-                    onClick={openChat}
-                    disabled={chatLoading}
-                  >
-                    {chatLoading ? (
-                      <>
-                        <span style={{
-                          display      : "inline-block",
-                          width        : 14,
-                          height       : 14,
-                          border       : "2px solid rgba(255,255,255,.3)",
-                          borderTop    : "2px solid #fff",
-                          borderRadius : "50%",
-                          animation    : "pd-spin .7s linear infinite",
-                          marginRight  : 6,
-                          verticalAlign: "middle",
-                        }} />
-                        Opening chat…
-                      </>
-                    ) : (
-                      <>
-                        <svg width="17" height="17" viewBox="0 0 24 24"
-                          fill="none" stroke="currentColor"
-                          strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-                        </svg>
-                        Chat with Seller
-                      </>
-                    )}
-                  </button>
-                )}
-
-                {/* WhatsApp button */}
-                {(waNumber || waLink) && (
-                  <button className="pd-contact-btn pd-contact-whatsapp" onClick={openWhatsApp}>
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
-                      <path d="M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.126 1.533 5.857L.057 23.571l5.89-1.548A11.95 11.95 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.028-1.378l-.36-.215-3.734.98 1.001-3.654-.235-.374A9.818 9.818 0 012.182 12C2.182 6.562 6.562 2.182 12 2.182S21.818 6.562 21.818 12 17.438 21.818 12 21.818z"/>
-                    </svg>
-                    Chat on WhatsApp
-                  </button>
-                )}
-
-                {/* Call button */}
-                {contactPhone && (
-                  <button className="pd-contact-btn pd-contact-call" onClick={openCall}>
-                    <svg width="17" height="17" viewBox="0 0 24 24"
-                      fill="none" stroke="currentColor" strokeWidth="2"
-                      strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.59 1.2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.73 16z"/>
-                    </svg>
-                    Call Seller
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* ── FAQ ── */}
-          {faqs.length > 0 && (
-            <div className="pd-section">
-              <div className="pd-section-title">FAQs</div>
-              <div className="pd-faq">
-                {faqs.map((item, i) => (
-                  <FaqItem key={i} q={item.q} a={item.a} />
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── Reviews ── */}
-          <div className="pd-section">
-            <div className="pd-section-title">
-              Reviews
-              {reviewStats?.total > 0 && (
-                <span className="pd-reviews-count-badge">{reviewStats.total}</span>
-              )}
-            </div>
-
-            {reviewStats?.total > 0 && (
-              <div className="pd-review-summary">
-                <div className="pd-review-avg-block">
-                  <div className="pd-review-score">
-                    {Number(reviewStats.average || 0).toFixed(1)}
-                  </div>
-                  {stars(reviewStats.average)}
-                  <div className="pd-review-total-txt">
-                    {reviewStats.total} review{reviewStats.total !== 1 ? "s" : ""}
-                  </div>
-                </div>
-                <div className="pd-review-bars">
-                  {[5, 4, 3, 2, 1].map((n) => {
-                    const key   = ["", "one", "two", "three", "four", "five"][n] + "_star";
-                    const count = reviewStats[key] || 0;
-                    const pct   = reviewStats.total > 0
-                      ? (count / reviewStats.total) * 100 : 0;
-                    return (
-                      <div key={n} className="pd-review-bar-row">
-                        <span className="pd-review-bar-label">{n}</span>
-                        <div className="pd-review-bar-track">
-                          <div className="pd-review-bar-fill" style={{ width: `${pct}%` }} />
-                        </div>
-                        <span className="pd-review-bar-count">{count}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {reviews.length > 0 ? (
-              <div className="pd-review-list">
-                {reviews.map((r, i) => (
-                  <div key={r.id || i} className="pd-review-item">
-                    <div className="pd-review-header">
-                      <div className="pd-review-author-wrap">
-                        <div className="pd-review-avatar">
-                          {r.author_image
-                            ? <img src={r.author_image} alt={r.author} />
-                            : (r.author || "A").charAt(0).toUpperCase()
-                          }
-                        </div>
-                        <div>
-                          <div className="pd-review-author">{r.author || "Anonymous"}</div>
-                          <div className="pd-review-date">{timeAgo(r.created_at)}</div>
-                        </div>
-                      </div>
-                      {stars(r.rating, "sm")}
-                    </div>
-                    {r.comment && <p className="pd-review-text">{r.comment}</p>}
-                  </div>
-                ))}
-                {hasMoreReviews && (
-                  <button
-                    className="pd-reviews-load-more"
-                    onClick={() => {
-                      const n = reviewPage + 1;
-                      setReviewPage(n);
-                      fetchReviews(n);
-                    }}
-                  >
-                    Load more reviews
-                  </button>
-                )}
-              </div>
-            ) : (
-              <div className="pd-no-reviews">No reviews yet. Be the first!</div>
-            )}
-
-            <ReviewForm
-              slug={slug}
-              userId={userId}
-              onSubmitted={() => { setReviewPage(1); fetchReviews(1); }}
-            />
-          </div>
-
-          <SafetyTips />
-        </div>
-
-        {/* ── Similar Products ── */}
-        {similar.length > 0 && (
-          <div className="pd-similar">
-            <div className="pd-similar-title">You may also like</div>
-            <MasonryGrid
-              products={similar}
-              onView={() => {}}
-              onClick={(p) => navigate(`/product/${p.slug || p.id}`)}
-            />
-          </div>
-        )}
-
-        {/* ── More from Seller ── */}
-        {sellerProducts.length > 0 && (
-          <div className="pd-similar">
-            <div className="pd-similar-title">
-              More from {seller?.store_name || seller?.name || "this seller"}
-            </div>
-            <MasonryGrid
-              products={sellerProducts}
-              onView={() => {}}
-              onClick={(p) => navigate(`/product/${p.slug || p.id}`)}
-            />
-            <button
-              className="pd-seller-see-all"
-              onClick={() => navigate(`/seller/${product.seller_id}`)}
-            >
-              See all listings
-            </button>
+                <img src={src} alt={`${i + 1}`} loading="lazy"
+                  onError={(e) => { e.currentTarget.src = PH; }} />
+              </button>
+            ))}
           </div>
         )}
       </div>
 
-      {/* ── Lightbox ── */}
-      {lightbox && (
-        <div className="pd-lightbox" onClick={() => setLightbox(false)}>
-          <button
-            className="pd-lightbox-close"
-            onClick={() => setLightbox(false)}
-            aria-label="Close"
-          >
-            ✕
-          </button>
-          {images.length > 1 && (
+      {/* ══════════════════════════════════════════════
+          TITLE + PRICE
+      ══════════════════════════════════════════════ */}
+      <div className="pd-title-block">
+        {product.category_name && (
+          <div className="pd-crumb">
+            {product.category_name}
+            {product.subcategory_name && ` › ${product.subcategory_name}`}
+          </div>
+        )}
+
+        <h1 className="pd-title">{product.title}</h1>
+
+        <div className="pd-price-row">
+          <span className="pd-price">{naira(product.price)}</span>
+          {product.is_promoted && (
+            <span className="pd-price-tag">Promoted</span>
+          )}
+        </div>
+
+        <div className="pd-meta-row">
+          {product.views > 0 && (
+            <span className="pd-meta">{fmtNum(product.views)} views</span>
+          )}
+          {product.favorites_count > 0 && (
+            <span className="pd-meta">♥ {product.favorites_count}</span>
+          )}
+          <span className="pd-meta">{timeAgo(product.created_at)}</span>
+        </div>
+
+        {/* Location pill */}
+        {(product.location_city || product.location_state) && (
+          <div className="pd-location-pill">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+            </svg>
+            <span>
+              {[product.location_city, product.location_state]
+                .filter(Boolean)
+                .join(", ")}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* ══════════════════════════════════════════════
+          CONTACT BUTTONS
+      ══════════════════════════════════════════════ */}
+      {hasContact && !isOwn && (
+        <div className="pd-contact-strip">
+          {/* Chat */}
+          {product.seller_id && (
             <button
-              className="pd-lightbox-prev"
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveImg((i) => (i - 1 + images.length) % images.length);
-              }}
-              aria-label="Previous"
+              className="pd-btn pd-btn--chat"
+              onClick={openChat}
+              disabled={chatBusy}
             >
-              ‹
+              {chatBusy ? (
+                <span className="pd-spinner" />
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                </svg>
+              )}
+              {chatBusy ? "Opening…" : "Chat"}
             </button>
           )}
-          <img
-            className="pd-lightbox-img"
-            src={images[activeImg]}
-            alt={product.title}
-            onClick={(e) => e.stopPropagation()}
-            onError={(e) => { e.currentTarget.src = PH; }}
-          />
-          {images.length > 1 && (
-            <button
-              className="pd-lightbox-next"
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveImg((i) => (i + 1) % images.length);
-              }}
-              aria-label="Next"
-            >
-              ›
+
+          {/* WhatsApp */}
+          {(waNumber || waLink) && (
+            <button className="pd-btn pd-btn--whatsapp" onClick={openWhatsApp}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
+                <path d="M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.126 1.533 5.857L.057 23.571l5.89-1.548A11.95 11.95 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.028-1.378l-.36-.215-3.734.98 1.001-3.654-.235-.374A9.818 9.818 0 012.182 12C2.182 6.562 6.562 2.182 12 2.182S21.818 6.562 21.818 12 17.438 21.818 12 21.818z"/>
+              </svg>
+              WhatsApp
+            </button>
+          )}
+
+          {/* Call */}
+          {phone && (
+            <button className="pd-btn pd-btn--call" onClick={openCall}>
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.59 1.2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.73 16z"/>
+              </svg>
+              Call
             </button>
           )}
         </div>
       )}
 
-      <style>{`@keyframes pd-spin { to { transform: rotate(360deg); } }`}</style>
-    </>
+      {/* ══════════════════════════════════════════════
+          DESCRIPTION
+      ══════════════════════════════════════════════ */}
+      {product.description && (
+        <div className="pd-section">
+          <h3 className="pd-section-h">About this product</h3>
+          <p className="pd-description">
+            {longDesc && !expanded
+              ? words.slice(0, DESC_WORD_MAX).join(" ") + "…"
+              : product.description}
+          </p>
+          {longDesc && (
+            <button className="pd-toggle" onClick={() => setExpanded((v) => !v)}>
+              {expanded ? "Show less ↑" : "Read more ↓"}
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          FEATURES
+      ══════════════════════════════════════════════ */}
+      {features.length > 0 && (
+        <div className="pd-section">
+          <h3 className="pd-section-h">Features</h3>
+          <ul className="pd-features">
+            {features.map((f, i) => (
+              <li key={i} className="pd-feature">
+                <span className="pd-feature-check">✓</span>
+                <span>{typeof f === "string" ? f : f?.text || String(f)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          DETAILS
+      ══════════════════════════════════════════════ */}
+      {attrs.length > 0 && (
+        <div className="pd-section">
+          <h3 className="pd-section-h">Details</h3>
+          <div className="pd-table">
+            {attrs.map(([k, v]) => (
+              <div key={k} className="pd-table-row">
+                <span className="pd-table-key">{fmtKey(k)}</span>
+                <span className="pd-table-val">
+                  {Array.isArray(v) ? v.join(", ") : String(v)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          SPECIFICATIONS
+      ══════════════════════════════════════════════ */}
+      {specs.length > 0 && (
+        <div className="pd-section">
+          <h3 className="pd-section-h">Specifications</h3>
+          <div className="pd-table">
+            {specs.map(([k, v]) => (
+              <div key={k} className="pd-table-row">
+                <span className="pd-table-key">{fmtKey(k)}</span>
+                <span className="pd-table-val">{String(v)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          DELIVERY
+      ══════════════════════════════════════════════ */}
+      {delivery && (
+        <div className="pd-section">
+          <h3 className="pd-section-h">Delivery</h3>
+          <div className="pd-delivery-card">
+            <div className="pd-delivery-icon">🚚</div>
+            <div className="pd-delivery-info">
+              <p className="pd-delivery-label">
+                {delivery.duration?.from && delivery.duration?.to
+                  ? `${delivery.duration.from}–${delivery.duration.to} days`
+                  : "Available"}
+              </p>
+              {delivery.fee != null && (
+                <p className="pd-delivery-fee">
+                  Fee: {Number(delivery.fee) === 0 ? "Free" : naira(delivery.fee)}
+                </p>
+              )}
+              {delivery.note && (
+                <p className="pd-delivery-note">{delivery.note}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          SELLER CARD
+      ══════════════════════════════════════════════ */}
+      {(seller || product.seller_id) && (
+        <div className="pd-section">
+          <h3 className="pd-section-h">Seller</h3>
+          <div
+            className="pd-seller-card"
+            onClick={() => navigate(`/seller/${product.seller_id}`)}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => e.key === "Enter" && navigate(`/seller/${product.seller_id}`)}
+          >
+            {/* Avatar */}
+            <div className="pd-seller-avatar">
+              {seller?.profile_image || seller?.store_logo ? (
+                <img
+                  src={seller.profile_image || seller.store_logo}
+                  alt={seller.name}
+                  loading="lazy"
+                  onError={(e) => { e.currentTarget.style.display = "none"; }}
+                />
+              ) : (
+                <span>{(seller?.name || "S").charAt(0).toUpperCase()}</span>
+              )}
+              {seller?.is_online && <span className="pd-seller-online" />}
+            </div>
+
+            {/* Info */}
+            <div className="pd-seller-info">
+              <div className="pd-seller-name-row">
+                <span className="pd-seller-name">
+                  {seller?.store_name || seller?.name || "Seller"}
+                </span>
+                {seller?.verified && (
+                  <span className="pd-seller-badge">✔ Verified</span>
+                )}
+              </div>
+              <div className="pd-seller-stats">
+                {seller?.products_count > 0 && (
+                  <span>{seller.products_count} listings</span>
+                )}
+                {seller?.total_sales > 0 && (
+                  <span>· {Number(seller.total_sales).toLocaleString()} sales</span>
+                )}
+                {seller?.rating > 0 && (
+                  <span>· {Number(seller.rating).toFixed(1)}★</span>
+                )}
+              </div>
+              {seller?.trust_score != null && (
+                <div className="pd-trust">
+                  <div className="pd-trust-bar">
+                    <div
+                      className="pd-trust-fill"
+                      style={{ width: `${Math.min(100, seller.trust_score)}%` }}
+                    />
+                  </div>
+                  <span className="pd-trust-label">{seller.trust_score}% trust</span>
+                </div>
+              )}
+            </div>
+
+            <svg className="pd-seller-chevron" width="16" height="16"
+              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+              <path d="M9 18l6-6-6-6"/>
+            </svg>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          FAQ
+      ══════════════════════════════════════════════ */}
+      {faqs.length > 0 && (
+        <div className="pd-section">
+          <h3 className="pd-section-h">FAQs</h3>
+          <div className="pd-faqs">
+            {faqs.map((item, i) => (
+              <FaqItem key={i} q={item.q} a={item.a} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          REVIEWS
+      ══════════════════════════════════════════════ */}
+      <div className="pd-section">
+        <h3 className="pd-section-h">
+          Reviews
+          {reviewStats?.total > 0 && (
+            <span className="pd-review-badge">{reviewStats.total}</span>
+          )}
+        </h3>
+
+        {/* Summary */}
+        {reviewStats?.total > 0 && (
+          <div className="pd-review-summary">
+            <div className="pd-review-avg">
+              <span className="pd-review-score">
+                {Number(reviewStats.average || 0).toFixed(1)}
+              </span>
+              <Stars rating={reviewStats.average} />
+              <span className="pd-review-count">
+                {reviewStats.total} review{reviewStats.total !== 1 ? "s" : ""}
+              </span>
+            </div>
+
+            <div className="pd-review-bars">
+              {[5, 4, 3, 2, 1].map((n) => {
+                const key   = ["", "one", "two", "three", "four", "five"][n] + "_star";
+                const count = reviewStats[key] || 0;
+                const pct   = reviewStats.total > 0
+                  ? (count / reviewStats.total) * 100 : 0;
+                return (
+                  <div key={n} className="pd-bar-row">
+                    <span className="pd-bar-n">{n}</span>
+                    <div className="pd-bar-track">
+                      <div className="pd-bar-fill" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="pd-bar-count">{count}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Review list */}
+        {reviews.length > 0 ? (
+          <div className="pd-review-list">
+            {reviews.map((r, i) => (
+              <div key={r.id || i} className="pd-review-item">
+                <div className="pd-review-top">
+                  <div className="pd-reviewer">
+                    <div className="pd-reviewer-avatar">
+                      {r.author_image
+                        ? <img src={r.author_image} alt={r.author} />
+                        : (r.author || "A").charAt(0).toUpperCase()
+                      }
+                    </div>
+                    <div>
+                      <p className="pd-reviewer-name">{r.author || "Anonymous"}</p>
+                      <p className="pd-reviewer-date">{timeAgo(r.created_at)}</p>
+                    </div>
+                  </div>
+                  <Stars rating={r.rating} size="sm" />
+                </div>
+                {r.comment && (
+                  <p className="pd-review-text">{r.comment}</p>
+                )}
+              </div>
+            ))}
+
+            {hasMore && (
+              <button
+                className="pd-load-more"
+                onClick={() => {
+                  const next = reviewPage + 1;
+                  setReviewPage(next);
+                  loadReviews(next);
+                }}
+              >
+                Load more reviews
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="pd-no-reviews">No reviews yet — be the first!</p>
+        )}
+
+        {/* Review form */}
+        <ReviewForm
+          slug={slug}
+          userId={userId}
+          onDone={() => { setReviewPage(1); loadReviews(1); }}
+        />
+      </div>
+
+      {/* ══════════════════════════════════════════════
+          SAFETY TIPS
+      ══════════════════════════════════════════════ */}
+      <div className="pd-section pd-safety-section">
+        <h3 className="pd-section-h pd-safety-h">🛡️ Safety Tips</h3>
+        <ul className="pd-safety-list">
+          {SAFETY_TIPS.map((tip, i) => (
+            <li key={i} className="pd-safety-item">
+              <span className="pd-safety-dot">•</span>
+              <span>{tip}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* ══════════════════════════════════════════════
+          SIMILAR PRODUCTS
+      ══════════════════════════════════════════════ */}
+      {similar.length > 0 && (
+        <div className="pd-section">
+          <h3 className="pd-section-h">You may also like</h3>
+          <div className="pd-mini-grid">
+            {similar.map((p) => (
+              <MiniCard key={p.id} product={p} onClick={goProduct} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          MORE FROM SELLER
+      ══════════════════════════════════════════════ */}
+      {moreSeller.length > 0 && (
+        <div className="pd-section">
+          <h3 className="pd-section-h">
+            More from {seller?.store_name || seller?.name || "this seller"}
+          </h3>
+          <div className="pd-mini-grid">
+            {moreSeller.map((p) => (
+              <MiniCard key={p.id} product={p} onClick={goProduct} />
+            ))}
+          </div>
+          <button
+            className="pd-see-all-btn"
+            onClick={() => navigate(`/seller/${product.seller_id}`)}
+          >
+            See all listings →
+          </button>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════════
+          LIGHTBOX
+      ══════════════════════════════════════════════ */}
+      {lightbox && (
+        <div className="pd-lightbox" onClick={() => setLightbox(false)}>
+          <button className="pd-lb-close" onClick={() => setLightbox(false)} aria-label="Close">
+            ✕
+          </button>
+
+          {images.length > 1 && (
+            <>
+              <button
+                className="pd-lb-prev"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveImg((i) => (i - 1 + images.length) % images.length);
+                }}
+                aria-label="Previous"
+              >‹</button>
+              <button
+                className="pd-lb-next"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setActiveImg((i) => (i + 1) % images.length);
+                }}
+                aria-label="Next"
+              >›</button>
+            </>
+          )}
+
+          <img
+            className="pd-lb-img"
+            src={images[activeImg]}
+            alt={product.title}
+            onClick={(e) => e.stopPropagation()}
+            onError={(e) => { e.currentTarget.src = PH; }}
+          />
+
+          {images.length > 1 && (
+            <p className="pd-lb-counter">
+              {activeImg + 1} / {images.length}
+            </p>
+          )}
+        </div>
+      )}
+
+      <style>{`
+        @keyframes pd-spin {
+          to { transform: rotate(360deg); }
+        }
+        .pd-spinner {
+          display: inline-block;
+          width: 14px;
+          height: 14px;
+          border: 2px solid rgba(255,255,255,.3);
+          border-top-color: #fff;
+          border-radius: 50%;
+          animation: pd-spin .7s linear infinite;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FAQ ITEM
+═══════════════════════════════════════════════════════════════ */
+function FaqItem({ q, a }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="pd-faq-item">
+      <button className="pd-faq-q" onClick={() => setOpen((v) => !v)}>
+        <span>{q}</span>
+        <span className={`pd-faq-arrow${open ? " pd-faq-arrow--open" : ""}`}>▼</span>
+      </button>
+      {open && <p className="pd-faq-a">{a}</p>}
+    </div>
   );
 }
