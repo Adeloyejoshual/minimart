@@ -8,8 +8,9 @@
  * - Offer-type filter chips
  * - "Match Me" smart pairing suggestion
  * - Masonry-style offer cards with avatar, badge, distance
+ * - Online green dot on seller avatars
  * - Session-personalised ranking (recentCategories)
- * - Mid-feed inject every 10 items (same pattern as Homepage)
+ * - Mid-feed inject every 10 items
  * - Movement-aware + 30-min refresh
  */
 
@@ -21,13 +22,13 @@ import TopNav          from "../components/TopNav";
 import BottomNav       from "../components/BottomNav";
 import Footer          from "../components/Footer";
 import LocationPicker, { getActiveLocation } from "../components/LocationPicker";
-import { PinIcon, naira, getImageUrl } from "../components/MasonryCard";
 import CATEGORY_CONFIG from "../config/categories";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
 ═══════════════════════════════════════════════════════════════ */
-const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API      = `${BASE_URL}/api`;
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -35,9 +36,9 @@ const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
 const PH             = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
 const ITEMS_PER_PAGE = 24;
 const PROMO_INTERVAL = 10;
-const REFRESH_MS     = 1_800_000; // 30 minutes
-const MOVE_CHECK_MS  = 300_000;   // 5 minutes
-const MOVE_THRESHOLD = 2;         // km
+const REFRESH_MS     = 1_800_000;
+const MOVE_CHECK_MS  = 300_000;
+const MOVE_THRESHOLD = 2;
 
 const GPS_OPTIONS = {
   timeout            : 5_000,
@@ -60,11 +61,45 @@ const SORT_OPTS = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════
+   NORMALIZE PRODUCT
+   API returns string numbers — convert all to real numbers
+═══════════════════════════════════════════════════════════════ */
+const normalizeProduct = (p) => {
+  if (!p || typeof p !== "object" || !p.id) return null;
+  return {
+    ...p,
+    price             : Number(p.price             || 0),
+    engagement_score  : Number(p.engagement_score  || 0),
+    clicks_count      : Number(p.clicks_count      || 0),
+    impression_count  : Number(p.impression_count  || 0),
+    views             : Number(p.views             || 0),
+    ctr               : Number(p.ctr               || 0),
+    promotion_priority: Number(p.promotion_priority || 0),
+    is_promoted       : !!p.is_promoted,
+
+    // Normalize image
+    image: p.image ||
+      (Array.isArray(p.images) && p.images.length > 0
+        ? (typeof p.images[0] === "string" ? p.images[0] : p.images[0]?.url || null)
+        : null) ||
+      p.main_image    ||
+      p.thumbnail_url ||
+      null,
+
+    // Normalize location
+    location_city  : p.location?.city  || p.location_city  || null,
+    location_state : p.location?.state || p.location_state || null,
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════════════════════ */
+const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
+
 const dedup = (arr) => {
   const seen = new Set();
-  return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
+  return arr.filter((p) => p && !seen.has(p.id) && seen.add(p.id));
 };
 
 const getRecentCategories = () => {
@@ -73,19 +108,20 @@ const getRecentCategories = () => {
 };
 
 const personalScore = (p, recentCats) => {
+  if (!p) return 0;
   let score = 0;
-  score += (p.engagement_score   || 0);
-  score += (p.is_promoted ? 50   : 0);
-  score += (p.promotion_priority || 0) * 5;
-  score += (p.ctr                || 0) * 30;
-  if (recentCats.includes(p.category_id)) score += 20;
+  score += (p.engagement_score    || 0);
+  score += (p.is_promoted ? 50    : 0);
+  score += ((p.promotion_priority || 0) * 5);
+  score += ((p.ctr                || 0) * 30);
+  if (p.category_id && recentCats.includes(p.category_id)) score += 20;
   return score;
 };
 
 const applySort = (arr, key, recentCats) => {
-  if (key === "newest")     return [...arr].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  if (key === "price_asc")  return [...arr].sort((a, b) => Number(a.price) - Number(b.price));
-  if (key === "price_desc") return [...arr].sort((a, b) => Number(b.price) - Number(a.price));
+  if (key === "newest")     return [...arr].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  if (key === "price_asc")  return [...arr].sort((a, b) => (a.price || 0) - (b.price || 0));
+  if (key === "price_desc") return [...arr].sort((a, b) => (b.price || 0) - (a.price || 0));
   return [...arr].sort((a, b) => personalScore(b, recentCats) - personalScore(a, recentCats));
 };
 
@@ -103,18 +139,15 @@ const getDistanceKm = (lat1, lon1, lat2, lon2) => {
 
 const injectPromoted = (products, promoted, interval = PROMO_INTERVAL) => {
   if (!promoted.length) return products;
-
-  const result   = [];
-  let promoIdx   = 0;
-  const usedIds  = new Set(products.map((p) => p.id));
+  const result  = [];
+  let promoIdx  = 0;
+  const usedIds = new Set(products.map((p) => p?.id).filter(Boolean));
 
   for (let i = 0; i < products.length; i++) {
-    result.push(products[i]);
+    if (products[i]) result.push(products[i]);
     if ((i + 1) % interval === 0) {
-      while (promoIdx < promoted.length && usedIds.has(promoted[promoIdx].id)) {
-        promoIdx++;
-      }
-      if (promoIdx < promoted.length) {
+      while (promoIdx < promoted.length && usedIds.has(promoted[promoIdx]?.id)) promoIdx++;
+      if (promoIdx < promoted.length && promoted[promoIdx]) {
         result.push({ ...promoted[promoIdx], _injected: true });
         usedIds.add(promoted[promoIdx].id);
         promoIdx++;
@@ -142,12 +175,24 @@ const timeAgo = (dateStr) => {
   return `${Math.floor(h / 24)}d ago`;
 };
 
-const offerTypeBadge = (product) => {
-  if (product.offer_type === "free")  return { label: "FREE", cls: "badge--free" };
-  if (product.offer_type === "swap")  return { label: "SWAP", cls: "badge--swap" };
-  if (Number(product.price) === 0)    return { label: "FREE", cls: "badge--free" };
+const getOfferBadge = (product) => {
+  if (!product) return { label: null, cls: "" };
+  if (product.offer_type === "free" || product.price === 0)
+    return { label: "FREE", cls: "badge--free" };
+  if (product.offer_type === "swap")
+    return { label: "SWAP", cls: "badge--swap" };
   return { label: null, cls: "" };
 };
+
+/* ═══════════════════════════════════════════════════════════════
+   PIN ICON
+═══════════════════════════════════════════════════════════════ */
+const PinIcon = ({ size = 12 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
+    aria-hidden="true" style={{ flexShrink: 0 }}>
+    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z"/>
+  </svg>
+);
 
 /* ═══════════════════════════════════════════════════════════════
    SKELETON
@@ -155,11 +200,15 @@ const offerTypeBadge = (product) => {
 const SkeletonGrid = () => (
   <div className="p2p-grid">
     {[...Array(8)].map((_, i) => (
-      <div
-        key={i}
-        className="p2p-sk"
-        style={{ height: `${200 + (i % 3) * 60}px` }}
-      />
+      <div key={i} className="p2p-sk" style={{ height: `${200 + (i % 3) * 60}px` }} />
+    ))}
+  </div>
+);
+
+const SkeletonRow = () => (
+  <div className="p2p-row">
+    {[...Array(4)].map((_, i) => (
+      <div key={i} className="p2p-sk p2p-sk--row" />
     ))}
   </div>
 );
@@ -171,8 +220,8 @@ const SectionHead = memo(({ title, chip, sub, onSeeAll }) => (
   <div className="p2p-sec-head">
     <div className="p2p-sec-label">
       <span className="p2p-sec-title">{title}</span>
-      {chip     && <span className="p2p-sec-chip">{chip}</span>}
-      {sub      && <span className="p2p-sec-sub">{sub}</span>}
+      {chip && <span className="p2p-sec-chip">{chip}</span>}
+      {sub  && <span className="p2p-sec-sub">{sub}</span>}
     </div>
     {onSeeAll && (
       <button className="p2p-see-all" onClick={onSeeAll}>See all →</button>
@@ -181,94 +230,119 @@ const SectionHead = memo(({ title, chip, sub, onSeeAll }) => (
 ));
 
 /* ═══════════════════════════════════════════════════════════════
-   OFFER CARD
+   OFFER CARD — with online green dot
 ═══════════════════════════════════════════════════════════════ */
-const OfferCard = memo(({ product, onClick, onView, priority = false }) => {
-  const imgRef  = useRef(null);
+const OfferCard = memo(function OfferCard({ product, onClick, onView, priority = false, horizontal = false }) {
   const cardRef = useRef(null);
 
-  const imageUrl   = getImageUrl(product);
-  const badge      = offerTypeBadge(product);
-  const sellerName = product.seller_name || product.user?.name || "Seller";
-  const initials   = sellerName.slice(0, 2).toUpperCase();
-  const locCity    = product.location?.city || product.location_city || "";
-  const dist       = product.distance_km != null
-    ? (product.distance_km < 1 ? "<1 km" : `${Math.round(product.distance_km)} km`)
-    : null;
-
+  // ── View tracking ─────────────────────────────────────────
   useEffect(() => {
     if (!onView || !cardRef.current) return;
     const obs = new IntersectionObserver(
-      ([e]) => {
-        if (e.isIntersecting) { onView(product.id); obs.disconnect(); }
-      },
+      ([e]) => { if (e.isIntersecting) { onView(product.id); obs.disconnect(); } },
       { threshold: 0.3 }
     );
     obs.observe(cardRef.current);
     return () => obs.disconnect();
   }, [onView, product.id]);
 
+  if (!product) return null;
+
+  const badge      = getOfferBadge(product);
+  const imageUrl   = product.image || PH;
+  const sellerName = product.seller_name || product.user?.name || "Seller";
+  const initials   = sellerName.slice(0, 2).toUpperCase();
+  const isOnline   = product.seller_is_online || product.user?.is_online || false;
+  const locCity    = product.location_city || product.location?.city || "";
+  const dist       = product.distance_km != null
+    ? (product.distance_km < 1 ? "<1 km" : `${Math.round(product.distance_km)} km`)
+    : null;
+
   return (
     <div
       ref={cardRef}
-      className={`p2p-card${product._injected ? " p2p-card--promo" : ""}`}
+      className={`p2p-card${product._injected ? " p2p-card--promo" : ""}${horizontal ? " p2p-card--h" : ""}`}
       role="button"
       tabIndex={0}
       onClick={() => onClick(product)}
       onKeyDown={(e) => { if (e.key === "Enter") onClick(product); }}
     >
-      {/* Image */}
+      {/* ── Image ── */}
       <div className="p2p-card-img-wrap">
         <img
-          ref={imgRef}
           className="p2p-card-img"
           src={imageUrl}
-          alt={product.title}
+          alt={product.title || "Product"}
           loading={priority ? "eager" : "lazy"}
           decoding="async"
           onError={(e) => { e.currentTarget.src = PH; }}
         />
+
+        {/* Offer type badge */}
         {badge.label && (
           <span className={`p2p-badge ${badge.cls}`}>{badge.label}</span>
         )}
+
+        {/* Ad badge */}
         {product._injected && (
           <span className="p2p-badge p2p-badge--ad">Ad</span>
         )}
+
+        {/* Featured badge */}
         {product.is_promoted && !product._injected && (
           <span className="p2p-badge p2p-badge--promo">⚡ Featured</span>
         )}
       </div>
 
-      {/* Body */}
+      {/* ── Body ── */}
       <div className="p2p-card-body">
-        <div className="p2p-card-title">{product.title}</div>
+        <p className="p2p-card-title">{product.title || "Untitled"}</p>
 
+        {/* Price */}
         <div className="p2p-card-price">
-          {product.offer_type === "free" || Number(product.price) === 0
+          {product.offer_type === "free" || product.price === 0
             ? <span className="p2p-price-free">Free</span>
             : product.offer_type === "swap"
               ? <span className="p2p-price-swap">Open to offers</span>
-              : <span>{naira(product.price)}</span>
+              : <span className="p2p-price-val">{naira(product.price)}</span>
           }
         </div>
 
-        <div className="p2p-card-meta">
-          <div className="p2p-avatar">{initials}</div>
-          <span className="p2p-seller">{sellerName}</span>
-          <div className="p2p-card-loc">
-            {dist && (
-              <span className="p2p-dist">
-                <PinIcon size={11} /> {dist}
-              </span>
-            )}
-            {locCity && <span className="p2p-city">{locCity}</span>}
+        {/* Seller row with online dot */}
+        <div className="p2p-card-seller">
+          <div className="p2p-avatar-wrap">
+            {/* Avatar */}
+            <div
+              className="p2p-avatar"
+              style={{
+                background: `hsl(${sellerName.charCodeAt(0) * 7 % 360}, 55%, 50%)`,
+              }}
+            >
+              {initials}
+            </div>
+            {/* ✅ Online green dot */}
+            {isOnline && <span className="p2p-online-dot" />}
           </div>
+          <span className="p2p-seller-name">{sellerName}</span>
         </div>
 
+        {/* Location + distance */}
+        <div className="p2p-card-loc-row">
+          {dist && (
+            <span className="p2p-dist">
+              <PinIcon size={10} /> {dist}
+            </span>
+          )}
+          {locCity && (
+            <span className="p2p-city">{locCity}</span>
+          )}
+        </div>
+
+        {/* Footer */}
         <div className="p2p-card-foot">
           <span className="p2p-time">{timeAgo(product.created_at)}</span>
-          {product.views_count > 0 && (
-            <span className="p2p-views">👁 {product.views_count}</span>
+          {product.views > 0 && (
+            <span className="p2p-views">👁 {product.views}</span>
           )}
         </div>
       </div>
@@ -279,7 +353,7 @@ const OfferCard = memo(({ product, onClick, onView, priority = false }) => {
 /* ═══════════════════════════════════════════════════════════════
    POST OFFER MODAL
 ═══════════════════════════════════════════════════════════════ */
-const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
+const PostOfferModal = memo(function PostOfferModal({ open, onClose, onSubmit }) {
   const [form,   setForm]   = useState({
     title       : "",
     price       : "",
@@ -314,17 +388,10 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
       className="p2p-modal-overlay"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div
-        className="p2p-modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Post a trade offer"
-      >
+      <div className="p2p-modal" role="dialog" aria-modal="true">
         <div className="p2p-modal-head">
           <span className="p2p-modal-title">Post a Trade Offer</span>
-          <button className="p2p-modal-close" onClick={onClose} aria-label="Close">
-            ✕
-          </button>
+          <button className="p2p-modal-close" onClick={onClose} aria-label="Close">✕</button>
         </div>
 
         {/* Offer type tabs */}
@@ -354,7 +421,7 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
             {errors.title && <span className="p2p-err">{errors.title}</span>}
           </label>
 
-          {/* Price — sell only */}
+          {/* Price */}
           {form.offer_type === "sell" && (
             <label className="p2p-field">
               <span>Price (₦) *</span>
@@ -414,14 +481,8 @@ const PostOfferModal = memo(({ open, onClose, onSubmit }) => {
         </div>
 
         <div className="p2p-modal-foot">
-          <button className="p2p-modal-cancel" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="p2p-modal-submit"
-            onClick={handleSubmit}
-            disabled={busy}
-          >
+          <button className="p2p-modal-cancel" onClick={onClose}>Cancel</button>
+          <button className="p2p-modal-submit" onClick={handleSubmit} disabled={busy}>
             {busy ? "Posting…" : "Post Offer →"}
           </button>
         </div>
@@ -473,13 +534,15 @@ export default function P2P({ user }) {
     JSON.parse(localStorage.getItem("lastLocation") || "null")
   );
 
-  // ── Load P2P offers ───────────────────────────────────────
+  /* ════════════════════════════════════════════════════════════
+     LOAD OFFERS
+  ════════════════════════════════════════════════════════════ */
   const loadOffers = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     const fetchData = async (qs = "") => {
-      const res = await fetch(`${API}/homepage${qs}&p2p=1`);
+      const res = await fetch(`${API}/homepage${qs}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       return res.json();
     };
@@ -487,7 +550,6 @@ export default function P2P({ user }) {
     try {
       const data = await new Promise((resolve, reject) => {
         let done = false;
-
         const finish = (fn) => { if (done) return; done = true; fn(); };
 
         const timeout = setTimeout(() => {
@@ -508,10 +570,7 @@ export default function P2P({ user }) {
               });
             },
             () => {
-              finish(() => {
-                clearTimeout(timeout);
-                fetchData().then(resolve).catch(reject);
-              });
+              finish(() => { clearTimeout(timeout); fetchData().then(resolve).catch(reject); });
             },
             GPS_OPTIONS
           );
@@ -520,15 +579,20 @@ export default function P2P({ user }) {
         }
       });
 
-      const all = dedup([
+      // ── Collect + normalize all products ──
+      const raw = dedup([
         ...(data.products    || []),
         ...(data.recommended || []),
         ...(data.trending    || []),
         ...(data.latest      || []),
       ]);
 
-      setOffers(all);
-      setPromoted(all.filter((p) => p.is_promoted));
+      const normalized = raw
+        .map(normalizeProduct)
+        .filter(Boolean);
+
+      setOffers(normalized);
+      setPromoted(normalized.filter((p) => p.is_promoted));
       setMeta(data.meta || {});
 
     } catch (err) {
@@ -540,7 +604,7 @@ export default function P2P({ user }) {
   }, []);
 
   // ── Bootstrap ─────────────────────────────────────────────
-  useEffect(() => { loadOffers(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { loadOffers(); }, []); // eslint-disable-line
 
   // ── 30-min refresh ────────────────────────────────────────
   useEffect(() => {
@@ -551,7 +615,6 @@ export default function P2P({ user }) {
   // ── Movement-aware refresh ────────────────────────────────
   useEffect(() => {
     if (!navigator.geolocation) return;
-
     const check = () => {
       navigator.geolocation.getCurrentPosition(
         ({ coords: { latitude, longitude } }) => {
@@ -567,7 +630,6 @@ export default function P2P({ user }) {
         { enableHighAccuracy: false, maximumAge: 300_000, timeout: 5_000 }
       );
     };
-
     const id = setInterval(check, MOVE_CHECK_MS);
     return () => clearInterval(id);
   }, [loadOffers]);
@@ -579,7 +641,7 @@ export default function P2P({ user }) {
     return () => window.removeEventListener("locationChanged", h);
   }, [loadOffers]);
 
-  // ── Click + view tracking ─────────────────────────────────
+  // ── Analytics ─────────────────────────────────────────────
   const handleClick = useCallback((product) => {
     fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
     navigate(`/product/${product.slug}`);
@@ -606,13 +668,14 @@ export default function P2P({ user }) {
     if (activeLoc?.label) return activeLoc.label;
     return heroLocation(meta);
   }, [meta, activeLoc]);
+
   const cityLabel  = locLabel?.split(",")[0] || "Nigeria";
   const recentCats = useMemo(() => getRecentCategories(), []);
 
   const filtered = useMemo(() => {
     if (offerType === "all")  return offers;
     if (offerType === "free") return offers.filter(
-      (p) => p.offer_type === "free" || Number(p.price) === 0
+      (p) => p.offer_type === "free" || p.price === 0
     );
     return offers.filter((p) => p.offer_type === offerType);
   }, [offers, offerType]);
@@ -630,9 +693,9 @@ export default function P2P({ user }) {
   const typeCounts = useMemo(() => {
     const counts = { all: offers.length, sell: 0, swap: 0, free: 0 };
     offers.forEach((p) => {
-      if (p.offer_type === "swap") counts.swap++;
-      else if (p.offer_type === "free" || Number(p.price) === 0) counts.free++;
-      else counts.sell++;
+      if (p.offer_type === "swap")               counts.swap++;
+      else if (p.offer_type === "free" || p.price === 0) counts.free++;
+      else                                       counts.sell++;
     });
     return counts;
   }, [offers]);
@@ -642,7 +705,9 @@ export default function P2P({ user }) {
     [offers]
   );
 
-  // ── Render ────────────────────────────────────────────────
+  /* ════════════════════════════════════════════════════════════
+     RENDER
+  ════════════════════════════════════════════════════════════ */
   return (
     <>
       <TopNav user={user} />
@@ -686,7 +751,7 @@ export default function P2P({ user }) {
             <span className="p2p-loc-change">Change</span>
           </button>
 
-          {/* Stats row */}
+          {/* Stats */}
           <div className="p2p-hero-stats">
             <div className="p2p-hero-stat">
               <div className="p2p-stat-n">{loading ? "—" : `${offers.length}+`}</div>
@@ -706,10 +771,7 @@ export default function P2P({ user }) {
         {/* ══════════════════════════════════════════════
             SEARCH
         ══════════════════════════════════════════════ */}
-        <div
-          className="p2p-search-wrap"
-          onClick={() => navigate("/search?p2p=1")}
-        >
+        <div className="p2p-search-wrap" onClick={() => navigate("/search?p2p=1")}>
           <div className="p2p-search">
             <span className="p2p-search-ic">🔍</span>
             <span className="p2p-search-txt">Search trade offers…</span>
@@ -730,9 +792,7 @@ export default function P2P({ user }) {
           <div className="p2p-err-box">
             <div className="p2p-err-title">Offers unavailable</div>
             <div className="p2p-err-msg">{error}</div>
-            <button className="p2p-err-btn" onClick={loadOffers}>
-              Try again
-            </button>
+            <button className="p2p-err-btn" onClick={loadOffers}>Try again</button>
           </div>
         )}
 
@@ -752,11 +812,7 @@ export default function P2P({ user }) {
               chip={meta.nearbySource === "gps" ? "GPS" : undefined}
             />
             {loading ? (
-              <div className="p2p-row">
-                {[...Array(4)].map((_, i) => (
-                  <div key={i} className="p2p-sk p2p-sk--row" />
-                ))}
-              </div>
+              <SkeletonRow />
             ) : (
               <div className="p2p-row">
                 {nearbyHighlights.map((p, i) => (
@@ -766,6 +822,7 @@ export default function P2P({ user }) {
                     priority={i === 0}
                     onClick={handleClick}
                     onView={trackView}
+                    horizontal
                   />
                 ))}
               </div>
@@ -835,15 +892,17 @@ export default function P2P({ user }) {
           ) : (
             <>
               <div className="p2p-grid">
-                {withInjections.map((p, i) => (
-                  <OfferCard
-                    key={`${p.id}-${i}`}
-                    product={p}
-                    priority={i < 2}
-                    onClick={handleClick}
-                    onView={trackView}
-                  />
-                ))}
+                {withInjections.map((p, i) =>
+                  p ? (
+                    <OfferCard
+                      key={`${p.id}-${i}`}
+                      product={p}
+                      priority={i < 2}
+                      onClick={handleClick}
+                      onView={trackView}
+                    />
+                  ) : null
+                )}
               </div>
 
               {visible < sorted.length && (
@@ -859,7 +918,7 @@ export default function P2P({ user }) {
         </div>
 
         {/* ══════════════════════════════════════════════
-            INTRO CTA (no offers)
+            WELCOME (no offers)
         ══════════════════════════════════════════════ */}
         {!loading && offers.length === 0 && !error && (
           <div className="p2p-welcome">
@@ -902,15 +961,18 @@ export default function P2P({ user }) {
 
       <Footer />
       <BottomNav />
+
+      {/* ── Inject styles ── */}
+      <style>{P2P_STYLES}</style>
     </>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   STYLES (auto-injected)
+   STYLES
 ═══════════════════════════════════════════════════════════════ */
 const P2P_STYLES = `
-/* ---------- Page ---------- */
+/* ── Page ── */
 .p2p-pg {
   max-width: 960px;
   margin: 0 auto;
@@ -918,7 +980,7 @@ const P2P_STYLES = `
   font-family: 'DM Sans', system-ui, sans-serif;
 }
 
-/* ---------- Hero ---------- */
+/* ── Hero ── */
 .p2p-hero {
   background: linear-gradient(145deg, #0a0f1e 0%, #10193a 60%, #1a2a52 100%);
   border-radius: 0 0 28px 28px;
@@ -956,6 +1018,7 @@ const P2P_STYLES = `
 }
 .p2p-hero-h1 i { font-style: italic; color: #64b4ff; }
 .p2p-hero-sub  { font-size: 13px; color: rgba(255,255,255,.6); }
+
 .p2p-notify {
   background: rgba(255,255,255,.08);
   border: none;
@@ -965,7 +1028,7 @@ const P2P_STYLES = `
   font-size: 16px; cursor: pointer; flex-shrink: 0;
 }
 
-/* ---------- Location pill ---------- */
+/* ── Location pill ── */
 .p2p-hero-loc {
   display: inline-flex; align-items: center; gap: 5px;
   background: rgba(255,255,255,.1);
@@ -982,7 +1045,7 @@ const P2P_STYLES = `
 }
 .p2p-loc-change { color: #64b4ff; font-size: 11px; }
 
-/* ---------- Hero stats ---------- */
+/* ── Hero stats ── */
 .p2p-hero-stats {
   display: flex; gap: 0;
   background: rgba(255,255,255,.06);
@@ -996,7 +1059,7 @@ const P2P_STYLES = `
 .p2p-stat-n { font-size: 20px; font-weight: 800; }
 .p2p-stat-l { font-size: 10px; color: rgba(255,255,255,.5); margin-top: 2px; }
 
-/* ---------- Search ---------- */
+/* ── Search ── */
 .p2p-search-wrap { padding: 14px 16px 0; cursor: pointer; }
 .p2p-search {
   display: flex; align-items: center; gap: 10px;
@@ -1006,7 +1069,7 @@ const P2P_STYLES = `
 .p2p-search-ic  { font-size: 16px; }
 .p2p-search-txt { color: #a09890; font-size: 14px; flex: 1; }
 
-/* ---------- Match Banner ---------- */
+/* ── Match Banner ── */
 .p2p-match-banner {
   margin: 14px 16px 0;
   background: linear-gradient(120deg, #fff7eb 0%, #ffecd6 100%);
@@ -1025,9 +1088,11 @@ const P2P_STYLES = `
   border-radius: 10px; padding: 10px 16px;
   font-size: 13px; font-weight: 700; cursor: pointer;
   white-space: nowrap; flex-shrink: 0;
+  transition: opacity .15s;
 }
+.p2p-match-btn:hover { opacity: .88; }
 
-/* ---------- Error ---------- */
+/* ── Error ── */
 .p2p-err-box {
   margin: 14px 16px 0;
   background: #fff5f5; border: 1px solid #ffd5d5;
@@ -1041,7 +1106,7 @@ const P2P_STYLES = `
   font-size: 13px; cursor: pointer;
 }
 
-/* ---------- Section ---------- */
+/* ── Section ── */
 .p2p-sec { padding: 20px 16px 0; }
 .p2p-sec-head {
   display: flex; align-items: baseline; justify-content: space-between;
@@ -1060,7 +1125,7 @@ const P2P_STYLES = `
   color: #e8630a; font-size: 13px; font-weight: 600;
 }
 
-/* ---------- Horizontal row ---------- */
+/* ── Horizontal row ── */
 .p2p-row {
   display: flex; gap: 12px; overflow-x: auto;
   padding-bottom: 8px;
@@ -1068,12 +1133,14 @@ const P2P_STYLES = `
 }
 .p2p-row::-webkit-scrollbar { display: none; }
 
-/* ---------- Masonry grid ---------- */
+/* ── Masonry grid ── */
 .p2p-grid { columns: 2; column-gap: 10px; }
 @media (min-width: 600px) { .p2p-grid { columns: 3; } }
 @media (min-width: 860px) { .p2p-grid { columns: 4; } }
 
-/* ---------- Offer Card ---------- */
+/* ═══════════════════════════════════════════════
+   OFFER CARD — the main fix
+═══════════════════════════════════════════════ */
 .p2p-card {
   break-inside: avoid;
   background: #fff;
@@ -1084,73 +1151,149 @@ const P2P_STYLES = `
   cursor: pointer;
   transition: transform .15s ease, box-shadow .15s ease;
 }
-.p2p-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.08); }
-.p2p-row .p2p-card { min-width: 148px; max-width: 160px; flex-shrink: 0; }
-.p2p-card--promo { border-color: #ffd9a8; }
+.p2p-card:hover   { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+.p2p-card:active  { transform: scale(.97); }
+.p2p-card--promo  { border-color: #ffd9a8; }
 
+/* Horizontal variant (nearby row) */
+.p2p-card--h {
+  break-inside: unset;
+  min-width: 160px;
+  max-width: 175px;
+  flex-shrink: 0;
+  margin-bottom: 0;
+}
+
+/* Image */
 .p2p-card-img-wrap { position: relative; }
 .p2p-card-img {
   width: 100%; display: block;
   object-fit: cover; aspect-ratio: 4/3;
   background: #f0ece6;
+  transition: transform .3s;
 }
+.p2p-card:hover .p2p-card-img { transform: scale(1.03); }
+
+/* Badges */
 .p2p-badge {
   position: absolute; top: 8px; left: 8px;
   font-size: 9px; font-weight: 800; letter-spacing: .04em;
   padding: 3px 7px; border-radius: 6px;
 }
-.badge--free      { background: #27ae60; color: #fff; }
-.badge--swap      { background: #2980b9; color: #fff; }
+.badge--free      { background: #16a34a; color: #fff; }
+.badge--swap      { background: #2563eb; color: #fff; }
 .p2p-badge--ad    { top: 8px; left: auto; right: 8px; background: rgba(0,0,0,.5); color: #fff; }
 .p2p-badge--promo { background: #e8630a; color: #fff; }
 
-.p2p-card-body { padding: 10px 10px 8px; }
+/* Body */
+.p2p-card-body { padding: 10px 10px 10px; }
+
 .p2p-card-title {
   font-size: 13px; font-weight: 600; color: #1a1614;
   line-height: 1.35; margin-bottom: 5px;
   display: -webkit-box; -webkit-line-clamp: 2;
   -webkit-box-orient: vertical; overflow: hidden;
 }
-.p2p-card-price { font-size: 14px; font-weight: 800; color: #1a1614; margin-bottom: 8px; }
-.p2p-price-free { color: #27ae60; }
-.p2p-price-swap { color: #2980b9; font-size: 12px; }
 
-.p2p-card-meta {
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+.p2p-card-price { margin-bottom: 8px; }
+.p2p-price-val  { font-size: 15px; font-weight: 800; color: #1a1614; }
+.p2p-price-free { font-size: 14px; font-weight: 800; color: #16a34a; }
+.p2p-price-swap { font-size: 12px; font-weight: 700; color: #2563eb; }
+
+/* ── Seller row with online dot ── */
+.p2p-card-seller {
+  display: flex;
+  align-items: center;
+  gap: 7px;
   margin-bottom: 6px;
 }
-.p2p-avatar {
-  width: 22px; height: 22px; border-radius: 50%;
-  background: #e8630a; color: #fff;
-  font-size: 9px; font-weight: 800;
-  display: flex; align-items: center; justify-content: center;
+
+/* Avatar wrapper — needed for dot positioning */
+.p2p-avatar-wrap {
+  position: relative;
   flex-shrink: 0;
+  width: 24px;
+  height: 24px;
 }
-.p2p-seller {
-  font-size: 11px; color: #5a5248; font-weight: 500;
-  flex: 1; min-width: 0; overflow: hidden;
-  text-overflow: ellipsis; white-space: nowrap;
+
+.p2p-avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0;
 }
-.p2p-card-loc { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.p2p-dist { font-size: 10px; color: #e8630a; font-weight: 600; display: flex; align-items: center; gap: 2px; }
+
+/* ✅ Online green dot */
+.p2p-online-dot {
+  position: absolute;
+  bottom: -1px;
+  right: -1px;
+  width: 8px;
+  height: 8px;
+  background: #22c55e;
+  border-radius: 50%;
+  border: 1.5px solid #fff;
+  box-shadow: 0 0 0 1px rgba(34,197,94,.3);
+}
+
+.p2p-seller-name {
+  font-size: 11px;
+  color: #5a5248;
+  font-weight: 500;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Location row */
+.p2p-card-loc-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.p2p-dist {
+  font-size: 10px;
+  color: #e8630a;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
 .p2p-city { font-size: 10px; color: #a09890; }
 
-.p2p-card-foot { display: flex; justify-content: space-between; align-items: center; }
+/* Footer */
+.p2p-card-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 .p2p-time  { font-size: 10px; color: #c0b8b2; }
 .p2p-views { font-size: 10px; color: #c0b8b2; }
 
-/* ---------- Skeleton ---------- */
+/* ── Skeleton ── */
 .p2p-sk {
   background: linear-gradient(90deg, #f0ece6 25%, #e8e4de 50%, #f0ece6 75%);
   background-size: 200% 100%;
-  animation: shimmer 1.4s infinite;
+  animation: p2p-shimmer 1.4s infinite;
   border-radius: 14px;
+  margin-bottom: 10px;
 }
-.p2p-sk--row { min-width: 148px; height: 200px; flex-shrink: 0; }
-@keyframes shimmer { to { background-position: -200% 0; } }
+.p2p-sk--row { min-width: 160px; height: 220px; flex-shrink: 0; margin-bottom: 0; }
+@keyframes p2p-shimmer { to { background-position: -200% 0; } }
 
-/* ---------- Filter & Sort strips ---------- */
-.p2p-filter-strip, .p2p-sort-strip {
+/* ── Filter & sort strips ── */
+.p2p-filter-strip,
+.p2p-sort-strip {
   display: flex; gap: 8px; overflow-x: auto;
   padding-bottom: 4px; margin-bottom: 12px;
   scrollbar-width: none;
@@ -1165,22 +1308,27 @@ const P2P_STYLES = `
   font-size: 13px; font-weight: 500; cursor: pointer;
   white-space: nowrap; transition: all .15s;
 }
-.p2p-filter-chip.active { background: #1a1614; border-color: #1a1614; color: #fff; }
+.p2p-filter-chip.active {
+  background: #1a1614; border-color: #1a1614; color: #fff;
+}
 .p2p-filter-count {
   background: #e8630a; color: #fff;
   font-size: 9px; font-weight: 800;
   padding: 1px 5px; border-radius: 20px;
 }
-.p2p-filter-chip.active .p2p-filter-count { background: rgba(255,255,255,.25); }
+.p2p-filter-chip.active .p2p-filter-count {
+  background: rgba(255,255,255,.25);
+}
 
 .p2p-sort-chip {
   background: none; border: 1px solid #e8e4de;
   border-radius: 16px; padding: 5px 12px;
-  font-size: 12px; cursor: pointer; white-space: nowrap; transition: all .15s;
+  font-size: 12px; cursor: pointer;
+  white-space: nowrap; transition: all .15s;
 }
 .p2p-sort-chip.active { background: #e8630a; border-color: #e8630a; color: #fff; }
 
-/* ---------- Empty ---------- */
+/* ── Empty ── */
 .p2p-empty { text-align: center; padding: 48px 20px; }
 .p2p-empty-emoji { font-size: 40px; margin-bottom: 12px; }
 .p2p-empty-title { font-size: 17px; font-weight: 700; color: #1a1614; margin-bottom: 6px; }
@@ -1191,7 +1339,7 @@ const P2P_STYLES = `
   font-size: 14px; font-weight: 700; cursor: pointer;
 }
 
-/* ---------- Welcome ---------- */
+/* ── Welcome ── */
 .p2p-welcome {
   margin: 20px 16px;
   background: linear-gradient(135deg, #f0f7ff, #e8f0ff);
@@ -1206,16 +1354,17 @@ const P2P_STYLES = `
   font-size: 15px; font-weight: 700; cursor: pointer;
 }
 
-/* ---------- Load more ---------- */
+/* ── Load more ── */
 .p2p-load-more {
   display: block; width: 100%; margin: 16px 0;
   background: #f4f2ef; border: 1px solid #e8e4de;
   border-radius: 12px; padding: 13px;
-  font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  transition: background .15s;
 }
 .p2p-load-more:hover { background: #ede9e3; }
 
-/* ---------- FAB ---------- */
+/* ── FAB ── */
 .p2p-fab {
   position: fixed; bottom: 80px; right: 20px; z-index: 100;
   background: #e8630a; color: #fff; border: none;
@@ -1226,9 +1375,9 @@ const P2P_STYLES = `
   transition: transform .15s;
 }
 .p2p-fab:hover { transform: scale(1.04); }
-.p2p-fab-ic { font-size: 18px; }
+.p2p-fab-ic    { font-size: 18px; }
 
-/* ---------- Post Offer Modal ---------- */
+/* ── Post offer modal ── */
 .p2p-modal-overlay {
   position: fixed; inset: 0; z-index: 200;
   background: rgba(0,0,0,.5);
@@ -1245,6 +1394,7 @@ const P2P_STYLES = `
   display: flex; flex-direction: column;
 }
 @media (min-width: 600px) { .p2p-modal { border-radius: 24px; } }
+
 .p2p-modal-head {
   display: flex; align-items: center; justify-content: space-between;
   padding: 20px 20px 0;
@@ -1264,25 +1414,33 @@ const P2P_STYLES = `
   flex-shrink: 0;
   background: #f4f2ef; border: 1px solid #e8e4de;
   border-radius: 20px; padding: 7px 14px;
-  font-size: 13px; font-weight: 500; cursor: pointer; transition: all .15s;
+  font-size: 13px; font-weight: 500; cursor: pointer;
+  transition: all .15s;
 }
 .p2p-modal-tab.active { background: #1a1614; border-color: #1a1614; color: #fff; }
+
 .p2p-modal-body { padding: 0 20px; flex: 1; }
 .p2p-field  { display: flex; flex-direction: column; gap: 5px; margin-bottom: 16px; }
 .p2p-field span { font-size: 13px; font-weight: 600; color: #3a3028; }
-.p2p-input, .p2p-select, .p2p-textarea {
+
+.p2p-input,
+.p2p-select,
+.p2p-textarea {
   background: #f8f6f3;
   border: 1.5px solid #e8e4de;
   border-radius: 10px; padding: 11px 14px;
-  font-size: 14px; outline: none; transition: border-color .15s;
+  font-size: 14px; outline: none;
+  transition: border-color .15s;
   font-family: inherit;
 }
-.p2p-input:focus, .p2p-select:focus, .p2p-textarea:focus {
-  border-color: #e8630a; background: #fff;
-}
-.p2p-input.err, .p2p-select.err { border-color: #e74c3c; }
+.p2p-input:focus,
+.p2p-select:focus,
+.p2p-textarea:focus { border-color: #e8630a; background: #fff; }
+.p2p-input.err,
+.p2p-select.err { border-color: #ef4444; }
 .p2p-textarea { resize: vertical; }
-.p2p-err { font-size: 11px; color: #e74c3c; }
+.p2p-err { font-size: 11px; color: #ef4444; }
+
 .p2p-modal-foot { display: flex; gap: 10px; padding: 16px 20px 28px; }
 .p2p-modal-cancel {
   flex: 1; background: #f4f2ef; border: none;
@@ -1292,15 +1450,14 @@ const P2P_STYLES = `
 .p2p-modal-submit {
   flex: 2; background: #e8630a; color: #fff; border: none;
   border-radius: 12px; padding: 13px;
-  font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity .15s;
+  font-size: 14px; font-weight: 700; cursor: pointer;
+  transition: opacity .15s;
 }
 .p2p-modal-submit:disabled { opacity: .5; cursor: not-allowed; }
-`;
 
-/* Auto-inject styles if not already present */
-if (typeof document !== "undefined" && !document.getElementById("p2p-styles")) {
-  const tag = document.createElement("style");
-  tag.id          = "p2p-styles";
-  tag.textContent = P2P_STYLES;
-  document.head.appendChild(tag);
+/* ── Responsive ── */
+@media (max-width: 380px) {
+  .p2p-hero-h1 { font-size: 22px; }
+  .p2p-grid    { columns: 2; }
 }
+`;
