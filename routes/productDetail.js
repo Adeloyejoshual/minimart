@@ -1,11 +1,12 @@
 // routes/productDetail.js
-import express from "express";
+import express  from "express";
 import { pool } from "../config/db.js";
 
 const router = express.Router();
 
 /* ═══════════════════════════════════════════════════════════════
-   NORMALIZE — converts DB row to clean frontend object
+   NORMALIZE — converts DB row to frontend object
+   Your DB uses main_image + thumbnail_url (no product_images table)
 ═══════════════════════════════════════════════════════════════ */
 const normalizeProduct = (row) => {
   if (!row) return null;
@@ -18,8 +19,6 @@ const normalizeProduct = (row) => {
     return v;
   };
 
-  // Build images array from main_image + thumbnail_url
-  // (your DB has no product_images table — uses main_image/thumbnail_url)
   const images = [];
   if (row.main_image)    images.push(row.main_image);
   if (row.thumbnail_url && row.thumbnail_url !== row.main_image) {
@@ -48,8 +47,7 @@ const normalizeProduct = (row) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SHARED SQL FRAGMENTS
-   Uses public.products — correct schema prefix
+   SHARED COLUMNS — full product detail
 ═══════════════════════════════════════════════════════════════ */
 const PRODUCT_COLS = `
   p.id,
@@ -65,8 +63,8 @@ const PRODUCT_COLS = `
   p.seller_id,
   p.category_id,
   p.subcategory_id,
-  cat.name                AS category_name,
-  sub.name                AS subcategory_name,
+  cat.name               AS category_name,
+  sub.name               AS subcategory_name,
   p.location_state,
   p.location_city,
   p.latitude,
@@ -165,7 +163,6 @@ router.get("/id/:id", async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/product/similar
-   Params: category_id, exclude, limit
 ═══════════════════════════════════════════════════════════════ */
 router.get("/similar", async (req, res) => {
   const { category_id, exclude, limit = 10 } = req.query;
@@ -214,7 +211,6 @@ router.get("/similar", async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/product/by-seller
-   Params: seller_id, exclude, limit
 ═══════════════════════════════════════════════════════════════ */
 router.get("/by-seller", async (req, res) => {
   const { seller_id, exclude, limit = 10 } = req.query;
@@ -265,17 +261,15 @@ router.get("/by-seller", async (req, res) => {
    GET /api/product/slug/:slug/reviews
 ═══════════════════════════════════════════════════════════════ */
 router.get("/slug/:slug/reviews", async (req, res) => {
-  const { slug }  = req.params;
-  const limit     = Math.min(Number(req.query.limit) || 5, 50);
-  const page      = Math.max(Number(req.query.page)  || 1, 1);
-  const offset    = (page - 1) * limit;
+  const { slug } = req.params;
+  const limit    = Math.min(Number(req.query.limit) || 5, 50);
+  const page     = Math.max(Number(req.query.page)  || 1, 1);
+  const offset   = (page - 1) * limit;
 
   try {
-    // Get product ID from slug
     const { rows: pRows } = await pool.query(
       `SELECT id FROM public.products
-       WHERE slug = $1 AND is_active = true
-       LIMIT 1`,
+       WHERE slug = $1 AND is_active = true LIMIT 1`,
       [slug]
     );
     if (!pRows.length) {
@@ -294,14 +288,13 @@ router.get("/slug/:slug/reviews", async (req, res) => {
              r.rating,
              r.comment,
              r.created_at,
-             u.name            AS author,
-             u.profile_image   AS author_image
+             u.name          AS author,
+             u.profile_image AS author_image
            FROM   product_reviews r
            LEFT JOIN public.users u ON u.id = r.user_id
            WHERE  r.product_id = $1
            ORDER  BY r.created_at DESC
-           LIMIT  $2
-           OFFSET $3`,
+           LIMIT  $2 OFFSET $3`,
           [productId, limit, offset]
         ),
         pool.query(
@@ -321,7 +314,7 @@ router.get("/slug/:slug/reviews", async (req, res) => {
       reviews = rRows.rows;
       stats   = sRows.rows[0] || null;
     } catch (e) {
-      // product_reviews table may not exist yet — return empty
+      // product_reviews table may not exist yet
       console.warn("[productDetail] reviews table:", e.message);
     }
 
@@ -339,27 +332,20 @@ router.post("/slug/:slug/reviews", async (req, res) => {
   const { slug }                     = req.params;
   const { user_id, rating, comment } = req.body;
 
-  if (!user_id) {
-    return res.status(401).json({ message: "Login required" });
-  }
-  if (!rating || rating < 1 || rating > 5) {
+  if (!user_id)                          return res.status(401).json({ message: "Login required" });
+  if (!rating || rating < 1 || rating > 5)
     return res.status(400).json({ message: "Rating must be 1–5" });
-  }
 
   try {
     const { rows: pRows } = await pool.query(
       `SELECT id FROM public.products WHERE slug = $1 AND is_active = true LIMIT 1`,
       [slug]
     );
-    if (!pRows.length) {
-      return res.status(404).json({ message: "Product not found" });
-    }
+    if (!pRows.length) return res.status(404).json({ message: "Product not found" });
 
     const productId = pRows[0].id;
-
-    const existing = await pool.query(
-      `SELECT id FROM product_reviews
-       WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
+    const existing  = await pool.query(
+      `SELECT id FROM product_reviews WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
       [productId, user_id]
     );
     if (existing.rows.length) {
@@ -388,7 +374,7 @@ router.post("/products/:id/view", async (req, res) => {
   try {
     await pool.query(
       `UPDATE public.products
-       SET views                = COALESCE(views, 0) + 1,
+       SET views               = COALESCE(views, 0) + 1,
            last_interaction_at = NOW()
        WHERE id = $1`,
       [id]
@@ -408,8 +394,8 @@ router.post("/products/:id/click", async (req, res) => {
   try {
     await pool.query(
       `UPDATE public.products
-       SET clicks_count         = COALESCE(clicks_count, 0) + 1,
-           last_interaction_at  = NOW()
+       SET clicks_count        = COALESCE(clicks_count, 0) + 1,
+           last_interaction_at = NOW()
        WHERE id = $1`,
       [id]
     );
@@ -427,14 +413,11 @@ router.post("/products/:id/favorite", async (req, res) => {
   const { id }      = req.params;
   const { user_id } = req.body;
 
-  if (!user_id) {
-    return res.status(401).json({ message: "Login required" });
-  }
+  if (!user_id) return res.status(401).json({ message: "Login required" });
 
   try {
     const existing = await pool.query(
-      `SELECT id FROM favorites
-       WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT id FROM favorites WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
       [id, user_id]
     );
 
@@ -480,8 +463,7 @@ router.get("/products/:id/favorite", async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT id FROM favorites
-       WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT id FROM favorites WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
       [id, user_id]
     );
     return res.json({ favorited: rows.length > 0 });
@@ -517,12 +499,11 @@ router.get("/users/:userId/favorites", async (req, res) => {
          f.created_at AS favorited_at
        FROM favorites f
        JOIN public.products p ON p.id = f.product_id
-       WHERE f.user_id    = $1
-         AND p.is_active  = true
-         AND p.status     = 'active'
+       WHERE f.user_id   = $1
+         AND p.is_active = true
+         AND p.status    = 'active'
        ORDER BY f.created_at DESC
-       LIMIT  $2
-       OFFSET $3`,
+       LIMIT  $2 OFFSET $3`,
       [userId, limit, offset]
     );
     return res.json(rows.map(normalizeProduct));
