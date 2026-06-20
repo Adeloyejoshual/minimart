@@ -1,5 +1,5 @@
 // src/pages/Homepage.jsx
-import React, {
+import {
   useEffect,
   useState,
   useCallback,
@@ -13,44 +13,57 @@ import TopNav    from "../components/TopNav";
 import BottomNav from "../components/BottomNav";
 import "../styles/Homepage.css";
 
-/* ─── Config ──────────────────────────────────────────────── */
-const API        = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
-const PH         = "https://placehold.co/600x500/f0ede8/b0a89e?text=Loemart";
-const HOVER_MS   = 900;
-const STALE_MS   = 5 * 60 * 1000;
-const PAGE_SIZE  = 40;
-const GPS_OPTS   = { timeout: 5000, enableHighAccuracy: false, maximumAge: 300_000 };
+/* ═══════════════════════════════════════════════════════════════
+   ENV + API
+   Uses window.location.origin as fallback — no CORS issues
+═══════════════════════════════════════════════════════════════ */
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API      = `${BASE_URL}/api`;
+
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const PH        = "https://placehold.co/600x500/f0ede8/b0a89e?text=Loemart";
+const HOVER_MS  = 900;
+const STALE_MS  = 5 * 60 * 1_000;
+const PAGE_SIZE = 40;
+const GPS_OPTS  = { timeout: 5_000, enableHighAccuracy: false, maximumAge: 300_000 };
 
 const ALL_CAT  = { id: "all", name: "All", icon: "✦" };
 const CAT_LIST = [ALL_CAT, ...CATEGORIES];
 
 const SECTION_PILLS = [
-  { label: "🔥 Trending",    path: "/trending" },
-  { label: "💸 Deals",       path: "/deals"    },
-  { label: "🆕 New",         path: "/new"      },
-  { label: "📍 Near You",    path: "/nearby"   },
+  { label: "🔥 Trending", path: "/trending" },
+  { label: "💸 Deals",    path: "/deals"    },
+  { label: "🆕 New",      path: "/latest"   },
+  { label: "📍 Near You", path: "/nearby"   },
 ];
 
-/* ─── Helpers ─────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════ */
 const naira = (n) =>
   "₦" + Number(n || 0).toLocaleString("en-NG", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
+    minimumFractionDigits : 0,
+    maximumFractionDigits : 0,
   });
 
 const freshListing = (d) =>
   !!d && Date.now() - new Date(d).getTime() < 86_400_000;
 
 const resolveImage = (p) => {
+  if (!p) return PH;
+  if (p.image) return p.image;
   if (Array.isArray(p.images) && p.images.length > 0) {
     const first = p.images[0];
     if (typeof first === "string") return first;
-    return first.url || first.image_url || first.thumbnail_url || PH;
+    return first?.url || first?.image_url || first?.thumbnail_url || PH;
   }
-  return p.image || p.main_image || p.thumbnail_url || PH;
+  return p.main_image || p.thumbnail_url || PH;
 };
 
 const locationLabel = (p) => {
+  if (!p) return "Nationwide";
   const city  = p.location_city  || p.location?.city;
   const state = p.location_state || p.location?.state;
   if (city && state) return `${city}, ${state}`;
@@ -60,6 +73,7 @@ const locationLabel = (p) => {
 };
 
 const discountLabel = (p) => {
+  if (!p) return null;
   const orig = Number(p.attributes?.original_price || 0);
   const curr = Number(p.price || 0);
   if (orig > curr && curr > 0) {
@@ -70,20 +84,59 @@ const discountLabel = (p) => {
 };
 
 const getBadge = (p) => {
-  if (p.is_promoted)                  return { text: "Sponsored",  cls: "bd-feat"  };
-  if (p.promotion_type === "flash")   return { text: "⚡ Flash",    cls: "bd-flash" };
-  if ((p.engagement_score || 0) > 80) return { text: "Hot 🔥",     cls: "bd-hot"   };
-  if ((p.views || 0) > 500)           return { text: "Popular",    cls: "bd-trnd"  };
-  if (freshListing(p.created_at))     return { text: "New",        cls: "bd-new"   };
+  if (!p) return null;
+  if (p.is_promoted)                  return { text: "Sponsored", cls: "bd-feat"  };
+  if (p.promotion_type === "flash")   return { text: "⚡ Flash",   cls: "bd-flash" };
+  if (Number(p.engagement_score || 0) > 80)
+                                      return { text: "Hot 🔥",    cls: "bd-hot"   };
+  if (Number(p.views || 0) > 500)     return { text: "Popular",   cls: "bd-trnd"  };
+  if (freshListing(p.created_at))     return { text: "New",       cls: "bd-new"   };
   return null;
 };
 
 const dedup = (arr) => {
   const seen = new Set();
-  return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
+  return arr.filter((p) => p && !seen.has(p.id) && seen.add(p.id));
 };
 
-/* ─── Skeletons ───────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   NORMALIZE PRODUCT
+   API returns strings for numbers — convert all to real numbers.
+   Returns null for invalid items.
+═══════════════════════════════════════════════════════════════ */
+const normalizeProduct = (p) => {
+  if (!p || typeof p !== "object" || !p.id) return null;
+  return {
+    ...p,
+    price             : Number(p.price             || 0),
+    engagement_score  : Number(p.engagement_score  || 0),
+    clicks_count      : Number(p.clicks_count      || 0),
+    impression_count  : Number(p.impression_count  || 0),
+    views             : Number(p.views             || 0),
+    ctr               : Number(p.ctr               || 0),
+    promotion_priority: Number(p.promotion_priority || 0),
+    is_promoted       : !!p.is_promoted,
+
+    // Normalize image
+    image: p.image ||
+      (Array.isArray(p.images) && p.images.length > 0
+        ? (typeof p.images[0] === "string"
+            ? p.images[0]
+            : p.images[0]?.url || null)
+        : null) ||
+      p.main_image    ||
+      p.thumbnail_url ||
+      null,
+
+    // Normalize location
+    location_city  : p.location?.city  || p.location_city  || null,
+    location_state : p.location?.state || p.location_state || null,
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   SKELETONS
+═══════════════════════════════════════════════════════════════ */
 const MasonrySkeleton = memo(() => (
   <div className="hm-masonry">
     {[200, 260, 180, 240, 200, 220, 260, 190, 210, 240].map((h, i) => (
@@ -100,15 +153,20 @@ const FeaturedSkeleton = memo(() => (
   </div>
 ));
 
-/* ─── Masonry Card ────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   MASONRY CARD
+═══════════════════════════════════════════════════════════════ */
 const MasonryCard = memo(function MasonryCard({ product, priority, onView, onClick }) {
   const timerRef = useRef(null);
-  const badge    = getBadge(product);
-  const imgUrl   = resolveImage(product);
-  const loc      = locationLabel(product);
-  const disc     = discountLabel(product);
 
   useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  if (!product) return null;
+
+  const badge  = getBadge(product);
+  const imgUrl = resolveImage(product);
+  const loc    = locationLabel(product);
+  const disc   = discountLabel(product);
 
   return (
     <article
@@ -123,7 +181,6 @@ const MasonryCard = memo(function MasonryCard({ product, priority, onView, onCli
       onMouseLeave={() => clearTimeout(timerRef.current)}
       aria-label={product.title}
     >
-      {/* Badge */}
       {badge && (
         <span className={`hm-badge ${badge.cls}`}>{badge.text}</span>
       )}
@@ -131,25 +188,23 @@ const MasonryCard = memo(function MasonryCard({ product, priority, onView, onCli
         <span className="hm-badge bd-disc">{disc}</span>
       )}
 
-      {/* Image */}
       <div className="hm-card-img-wrap">
         <img
           className="hm-card-img"
           src={imgUrl}
-          alt={product.title}
+          alt={product.title || "Product"}
           loading={priority ? "eager" : "lazy"}
           decoding="async"
           onError={(e) => { e.currentTarget.src = PH; }}
         />
       </div>
 
-      {/* Body */}
       <div className="hm-card-body">
         <p className="hm-card-title">{product.title}</p>
 
         <div className="hm-card-price-row">
           <span className="hm-card-price">{naira(product.price)}</span>
-          {product.attributes?.original_price > product.price && (
+          {Number(product.attributes?.original_price || 0) > product.price && (
             <span className="hm-card-orig">
               {naira(product.attributes.original_price)}
             </span>
@@ -162,7 +217,11 @@ const MasonryCard = memo(function MasonryCard({ product, priority, onView, onCli
             <span className="hm-loc-text">{loc}</span>
           </span>
           {product.distance_km != null && (
-            <span className="hm-dist">{product.distance_km} km</span>
+            <span className="hm-dist">
+              {product.distance_km < 1
+                ? "<1 km"
+                : `${product.distance_km} km`}
+            </span>
           )}
         </div>
 
@@ -170,14 +229,14 @@ const MasonryCard = memo(function MasonryCard({ product, priority, onView, onCli
           <span className="hm-verified">✓ Verified</span>
         )}
 
-        {(product.views || 0) > 0 && (
+        {product.views > 0 && (
           <div className="hm-eng">
             <span className="hm-eng-views">
               {product.views > 999
-                ? `${(product.views / 1000).toFixed(1)}k`
+                ? `${(product.views / 1_000).toFixed(1)}k`
                 : product.views}{" "}views
             </span>
-            {(product.favorites_count || 0) > 0 && (
+            {product.favorites_count > 0 && (
               <span className="hm-eng-fav">♥ {product.favorites_count}</span>
             )}
           </div>
@@ -187,8 +246,12 @@ const MasonryCard = memo(function MasonryCard({ product, priority, onView, onCli
   );
 });
 
-/* ─── Featured Card ───────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   FEATURED CARD
+═══════════════════════════════════════════════════════════════ */
 const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
+  if (!product) return null;
+
   const imgUrl = resolveImage(product);
   const loc    = locationLabel(product);
   const disc   = discountLabel(product);
@@ -206,7 +269,7 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
         <img
           className="hm-feat-img"
           src={imgUrl}
-          alt={product.title}
+          alt={product.title || "Featured product"}
           loading="eager"
           decoding="async"
           onError={(e) => { e.currentTarget.src = PH; }}
@@ -234,8 +297,12 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
   );
 });
 
-/* ─── Deal Card ───────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   DEAL CARD
+═══════════════════════════════════════════════════════════════ */
 const DealCard = memo(function DealCard({ product, onClick }) {
+  if (!product) return null;
+
   const imgUrl = resolveImage(product);
   const disc   = discountLabel(product);
 
@@ -251,7 +318,7 @@ const DealCard = memo(function DealCard({ product, onClick }) {
       <div className="hm-deal-img-wrap">
         <img
           src={imgUrl}
-          alt={product.title}
+          alt={product.title || "Deal"}
           className="hm-deal-img"
           loading="lazy"
           onError={(e) => { e.currentTarget.src = PH; }}
@@ -266,7 +333,9 @@ const DealCard = memo(function DealCard({ product, onClick }) {
   );
 });
 
-/* ─── Category Strip ──────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   CATEGORY STRIP
+═══════════════════════════════════════════════════════════════ */
 const CategoryStrip = memo(function CategoryStrip({ current, onChange }) {
   return (
     <nav className="hm-cat-strip" aria-label="Browse by category">
@@ -285,17 +354,19 @@ const CategoryStrip = memo(function CategoryStrip({ current, onChange }) {
   );
 });
 
-/* ─── Main Homepage ───────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   HOMEPAGE
+═══════════════════════════════════════════════════════════════ */
 export default function Homepage({ user }) {
   const navigate = useNavigate();
   const {
-    products: cachedProducts,
+    products : cachedProducts,
     loaded,
     setProducts,
     setLoaded,
   } = useProductCache();
 
-  /* ── State ────────────────────────────────────────────── */
+  // ── State ─────────────────────────────────────────────────
   const [products,    setLocalProducts] = useState([]);
   const [featured,    setFeatured]      = useState([]);
   const [deals,       setDeals]         = useState([]);
@@ -308,49 +379,56 @@ export default function Homepage({ user }) {
   const [page,        setPage]          = useState(0);
   const [total,       setTotal]         = useState(0);
 
-  /* ── Refs ─────────────────────────────────────────────── */
+  // ── Refs ──────────────────────────────────────────────────
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
   const hiddenAtRef = useRef(null);
   const coordsRef   = useRef(null);
 
-  /* ── Tracking ─────────────────────────────────────────── */
+  // ── Analytics ─────────────────────────────────────────────
   const trackView = useCallback((id) => {
     fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
   }, []);
 
   const handleProductClick = useCallback((product) => {
+    if (!product?.id) return;
     fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
     navigate(`/product/${product.slug}`);
   }, [navigate]);
 
-  /* ── Apply API data ───────────────────────────────────── */
+  // ── Apply API data ────────────────────────────────────────
   const applyData = useCallback((data, append = false) => {
-    const incoming =
-      Array.isArray(data.products)        ? data.products        :
-      Array.isArray(data.data?.items)     ? data.data.items      :
-      Array.isArray(data.data)            ? data.data            : [];
+    const raw =
+      Array.isArray(data.products)    ? data.products    :
+      Array.isArray(data.data?.items) ? data.data.items  :
+      Array.isArray(data.data)        ? data.data        : [];
 
     const incomingFeat =
-      Array.isArray(data.featured)        ? data.featured        : [];
+      Array.isArray(data.featured) ? data.featured : [];
+
+    // Normalize + filter out null/invalid items
+    const normalized = dedup(raw)
+      .map(normalizeProduct)
+      .filter(Boolean);
 
     const merged = append
-      ? dedup([...productsRef.current, ...incoming])
-      : dedup(incoming);
+      ? dedup([...productsRef.current, ...normalized])
+      : normalized;
 
     productsRef.current = merged;
     setProducts(merged);
     setLoaded(true);
 
-    // Separate promoted from feed
-    const feat  = incomingFeat.length > 0
-      ? incomingFeat
+    // Separate featured
+    const feat = incomingFeat.length > 0
+      ? incomingFeat.map(normalizeProduct).filter(Boolean)
       : merged.filter((p) => p.is_promoted).slice(0, 4);
 
+    // Separate deals (discounted items)
     const cheap = merged
       .filter((p) => {
         const orig = Number(p.attributes?.original_price || 0);
-        return !p.is_promoted && orig > Number(p.price || 0);
+        return !p.is_promoted && orig > p.price;
       })
       .slice(0, 12);
 
@@ -361,10 +439,10 @@ export default function Homepage({ user }) {
     setLocalProducts(rest);
     setMeta(data.meta || {});
     setTotal(data.meta?.returned ?? merged.length);
-    setHasMore(incoming.length >= PAGE_SIZE);
+    setHasMore(raw.length >= PAGE_SIZE);
   }, [setProducts, setLoaded]);
 
-  /* ── Fetch ────────────────────────────────────────────── */
+  // ── Fetch ─────────────────────────────────────────────────
   const fetchFeed = useCallback(async ({ catId = "all", pg = 0, coords = null } = {}) => {
     const params = new URLSearchParams({ limit: PAGE_SIZE });
     if (pg > 0)          params.set("page", pg);
@@ -378,15 +456,17 @@ export default function Homepage({ user }) {
     return res.json();
   }, []);
 
-  /* ── GPS wrapper ──────────────────────────────────────── */
+  // ── GPS wrapper ───────────────────────────────────────────
   const fetchWithGPS = useCallback((catId, pg) =>
     new Promise((resolve, reject) => {
       let done = false;
       const finish = (fn) => { if (done) return; done = true; fn(); };
       const fallback = () =>
-        fetchFeed({ catId, pg, coords: coordsRef.current }).then(resolve).catch(reject);
+        fetchFeed({ catId, pg, coords: coordsRef.current })
+          .then(resolve)
+          .catch(reject);
 
-      const t = setTimeout(() => finish(fallback), 5000);
+      const t = setTimeout(() => finish(fallback), GPS_OPTS.timeout);
 
       if (!navigator.geolocation) { clearTimeout(t); finish(fallback); return; }
 
@@ -398,7 +478,7 @@ export default function Homepage({ user }) {
             coordsRef.current = c;
             fetchFeed({ catId, pg, coords: c })
               .then(resolve)
-              .catch(fallback);
+              .catch(() => fallback());
           });
         },
         () => { clearTimeout(t); finish(fallback); },
@@ -407,21 +487,24 @@ export default function Homepage({ user }) {
     }),
   [fetchFeed]);
 
-  /* ── Load feed ────────────────────────────────────────── */
+  // ── Load feed ─────────────────────────────────────────────
   const loadFeed = useCallback(async (catId = "all", force = false) => {
-    // Use cache when navigating back (same "all" tab, not forced)
+    // Use cache when navigating back
     if (!force && catId === "all" && loaded && cachedProducts.length > 0) {
-      productsRef.current = cachedProducts;
-      const feat  = cachedProducts.filter((p) => p.is_promoted).slice(0, 4);
-      const cheap = cachedProducts
+      const normalized = cachedProducts
+        .map(normalizeProduct)
+        .filter(Boolean);
+      productsRef.current = normalized;
+      const feat  = normalized.filter((p) => p.is_promoted).slice(0, 4);
+      const cheap = normalized
         .filter((p) => {
           const orig = Number(p.attributes?.original_price || 0);
-          return !p.is_promoted && orig > Number(p.price || 0);
+          return !p.is_promoted && orig > p.price;
         })
         .slice(0, 12);
       setFeatured(feat);
       setDeals(cheap);
-      setLocalProducts(cachedProducts.filter((p) => !p.is_promoted));
+      setLocalProducts(normalized.filter((p) => !p.is_promoted));
       setLoading(false);
       return;
     }
@@ -434,42 +517,43 @@ export default function Homepage({ user }) {
     try {
       const data = await fetchWithGPS(catId, 0);
       applyData(data, false);
-    } catch (e) {
-      console.error("[Homepage] loadFeed:", e);
+    } catch (err) {
+      console.error("[Homepage] loadFeed:", err);
       setError("Could not reach the marketplace. Please check your connection.");
     } finally {
       setLoading(false);
     }
   }, [loaded, cachedProducts, fetchWithGPS, applyData]);
 
-  /* ── Load more ────────────────────────────────────────── */
+  // ── Load more ─────────────────────────────────────────────
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
       const next = page + 1;
       const data = await fetchFeed({
-        catId:  category,
-        pg:     next,
-        coords: coordsRef.current,
+        catId  : category,
+        pg     : next,
+        coords : coordsRef.current,
       });
       applyData(data, true);
       setPage(next);
-    } catch (e) {
-      console.error("[Homepage] loadMore:", e);
+    } catch (err) {
+      console.error("[Homepage] loadMore:", err);
     } finally {
       setLoadingMore(false);
     }
   }, [loadingMore, hasMore, page, category, fetchFeed, applyData]);
 
-  /* ── Category switch ──────────────────────────────────── */
+  // ── Category switch ───────────────────────────────────────
   const switchCategory = useCallback((catId) => {
     if (catId === category) return;
     setCategory(catId);
     loadFeed(catId, true);
   }, [category, loadFeed]);
 
-  /* ── Effects ──────────────────────────────────────────── */
+  // ── Effects ───────────────────────────────────────────────
+
   // Initial load
   useEffect(() => { loadFeed("all", false); }, []); // eslint-disable-line
 
@@ -487,7 +571,7 @@ export default function Homepage({ user }) {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loading, category, loadFeed]);
 
-  // Infinite scroll
+  // Infinite scroll sentinel
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -499,7 +583,7 @@ export default function Homepage({ user }) {
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
-  /* ── Derived ──────────────────────────────────────────── */
+  // ── Derived ───────────────────────────────────────────────
   const heroLoc =
     meta.nearbySource === "gps"
       ? `Near you · GPS${meta.location ? ` · ${meta.location}` : ""}`
@@ -508,14 +592,18 @@ export default function Homepage({ user }) {
   const currentCatName =
     CAT_LIST.find((c) => c.id === category)?.name || "Products";
 
-  /* ── Render ───────────────────────────────────────────── */
+  /* ════════════════════════════════════════════════════════════
+     RENDER
+  ════════════════════════════════════════════════════════════ */
   return (
     <>
       <TopNav user={user} />
 
       <div className="hm-page">
 
-        {/* ══ HERO ══════════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════
+            HERO
+        ══════════════════════════════════════════════ */}
         <section className="hm-hero" aria-label="Welcome to Loemart">
           <div className="hm-hero-blob hm-hero-blob--1" aria-hidden="true" />
           <div className="hm-hero-blob hm-hero-blob--2" aria-hidden="true" />
@@ -567,7 +655,7 @@ export default function Homepage({ user }) {
               ))
             ) : (
               [
-                { val: `${Math.max(total, productsRef.current.length) + 1000}+`, label: "Listings"    },
+                { val: `${Math.max(total, productsRef.current.length) + 1_000}+`, label: "Listings"    },
                 { val: "24/7",  label: "Live market" },
                 { val: "Free",  label: "To list"     },
               ].map((s) => (
@@ -580,7 +668,9 @@ export default function Homepage({ user }) {
           </div>
         </section>
 
-        {/* ══ SEARCH ════════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════
+            SEARCH
+        ══════════════════════════════════════════════ */}
         <div className="hm-search-wrap">
           <button
             className="hm-search-bar"
@@ -601,10 +691,14 @@ export default function Homepage({ user }) {
           </button>
         </div>
 
-        {/* ══ CATEGORIES ════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════
+            CATEGORIES
+        ══════════════════════════════════════════════ */}
         <CategoryStrip current={category} onChange={switchCategory} />
 
-        {/* ══ SECTION PILLS ═════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════
+            SECTION PILLS
+        ══════════════════════════════════════════════ */}
         <div className="hm-pills" role="navigation" aria-label="Quick sections">
           {SECTION_PILLS.map((pill) => (
             <button
@@ -617,7 +711,9 @@ export default function Homepage({ user }) {
           ))}
         </div>
 
-        {/* ══ ERROR ═════════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════
+            ERROR
+        ══════════════════════════════════════════════ */}
         {error && (
           <div className="hm-error" role="alert">
             <span className="hm-error-icon" aria-hidden="true">⚡</span>
@@ -632,56 +728,54 @@ export default function Homepage({ user }) {
           </div>
         )}
 
-        {/* ══ FEATURED ══════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════
+            FEATURED
+        ══════════════════════════════════════════════ */}
         {(loading || featured.length > 0) && (
           <section className="hm-section" aria-label="Featured listings">
             <div className="hm-section-head">
               <h2 className="hm-section-title">💎 Featured</h2>
             </div>
-            {loading
-              ? <FeaturedSkeleton />
-              : (
-                <div className="hm-feat-row">
-                  {featured.map((p) => (
-                    <FeaturedCard
-                      key={p.id}
-                      product={p}
-                      onClick={handleProductClick}
-                    />
-                  ))}
-                </div>
-              )
-            }
+            {loading ? (
+              <FeaturedSkeleton />
+            ) : (
+              <div className="hm-feat-row">
+                {featured.map((p) =>
+                  p ? (
+                    <FeaturedCard key={p.id} product={p} onClick={handleProductClick} />
+                  ) : null
+                )}
+              </div>
+            )}
           </section>
         )}
 
-        {/* ══ DEALS STRIP ═══════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════
+            DEALS STRIP
+        ══════════════════════════════════════════════ */}
         {!loading && deals.length > 0 && (
           <section className="hm-section" aria-label="Cheap deals">
             <div className="hm-section-head">
               <h2 className="hm-section-title">💸 Cheap Deals</h2>
-              <button
-                className="hm-section-link"
-                onClick={() => navigate("/deals")}
-              >
+              <button className="hm-section-link" onClick={() => navigate("/deals")}>
                 See all →
               </button>
             </div>
             <div className="hm-deals-scroll">
               <div className="hm-deals-track">
-                {deals.map((p) => (
-                  <DealCard
-                    key={p.id}
-                    product={p}
-                    onClick={handleProductClick}
-                  />
-                ))}
+                {deals.map((p) =>
+                  p ? (
+                    <DealCard key={p.id} product={p} onClick={handleProductClick} />
+                  ) : null
+                )}
               </div>
             </div>
           </section>
         )}
 
-        {/* ══ MAIN FEED ═════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════
+            MAIN FEED
+        ══════════════════════════════════════════════ */}
         <section
           className="hm-section"
           aria-label={category === "all" ? "Recommended for you" : currentCatName}
@@ -707,7 +801,9 @@ export default function Homepage({ user }) {
             <div className="hm-empty" role="status">
               <span className="hm-empty-emoji" aria-hidden="true">🛍️</span>
               <h3 className="hm-empty-title">
-                {category === "all" ? "Welcome to Loemart" : `No listings in ${currentCatName}`}
+                {category === "all"
+                  ? "Welcome to Loemart"
+                  : `No listings in ${currentCatName}`}
               </h3>
               <p className="hm-empty-sub">
                 {category === "all"
@@ -727,16 +823,18 @@ export default function Homepage({ user }) {
           ) : (
             <>
               <div className="hm-masonry" role="list" aria-label="Product listings">
-                {products.map((p, i) => (
-                  <div key={p.id} role="listitem">
-                    <MasonryCard
-                      product={p}
-                      priority={i < 6}
-                      onView={trackView}
-                      onClick={handleProductClick}
-                    />
-                  </div>
-                ))}
+                {products.map((p, i) =>
+                  p ? (
+                    <div key={p.id} role="listitem">
+                      <MasonryCard
+                        product={p}
+                        priority={i < 6}
+                        onView={trackView}
+                        onClick={handleProductClick}
+                      />
+                    </div>
+                  ) : null
+                )}
               </div>
 
               <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
@@ -755,7 +853,9 @@ export default function Homepage({ user }) {
           )}
         </section>
 
-        {/* ══ SELL CTA ══════════════════════════════════════ */}
+        {/* ══════════════════════════════════════════════
+            SELL CTA BANNER
+        ══════════════════════════════════════════════ */}
         {!loading && (
           <section className="hm-sell-banner" aria-label="Start selling">
             <div className="hm-sell-banner-content">
@@ -779,7 +879,7 @@ export default function Homepage({ user }) {
 
       </div>
 
-      {/* ── FAB ─────────────────────────────────────────── */}
+      {/* ── FAB ── */}
       <button
         className="hm-fab"
         onClick={() => navigate("/minimart/add")}
