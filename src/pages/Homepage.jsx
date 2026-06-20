@@ -1,16 +1,6 @@
 /**
  * src/pages/Homepage.jsx
  * Route: /
- *
- * Production-grade marketplace UX:
- * - Smart ranking (engagement + promoted weight)
- * - Priority-ordered featured (promotion_priority)
- * - "For You" merged section (trending + recommended + session boost)
- * - Session-based personalization (recentCategories)
- * - Mid-feed promoted injection every 10 items
- * - Distance labels passed through to cards
- * - GPS + location-aware fetching
- * - 30-min + movement-aware refresh
  */
 
 import {
@@ -30,8 +20,6 @@ import "../styles/Homepage.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
-   Uses window.location.origin as fallback so it always matches
-   the current domain — no CORS issues on www vs non-www.
 ═══════════════════════════════════════════════════════════════ */
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 
@@ -42,9 +30,9 @@ const PH               = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Ima
 const RECENT_KEY       = "recentCategories";
 const ALL_PRODUCTS_LIMIT = 40;
 const PROMO_INTERVAL   = 10;
-const REFRESH_MS       = 1_800_000; // 30 minutes
-const MOVE_CHECK_MS    = 300_000;   // 5 minutes
-const MOVE_THRESHOLD   = 2;         // km
+const REFRESH_MS       = 1_800_000;
+const MOVE_CHECK_MS    = 300_000;
+const MOVE_THRESHOLD   = 2;
 const GPS_TIMEOUT_MS   = 5_000;
 const BRAND_NAME       = "Loemart";
 
@@ -85,10 +73,10 @@ const trackCategory = (categoryId) => {
 
 /* ═══════════════════════════════════════════════════════════════
    NORMALIZE PRODUCT
-   API returns numeric fields as strings e.g. price: "230000.00"
-   Also returns null for invalid items — filtered out before use.
+   ✅ Returns null for invalid items — filtered out before use
 ═══════════════════════════════════════════════════════════════ */
 const normalizeProduct = (p) => {
+  // ── Safety: reject null / non-object items ──
   if (!p || typeof p !== "object" || !p.id) return null;
 
   return {
@@ -126,10 +114,10 @@ const normalizeProduct = (p) => {
 const personalScore = (p, recentCats) => {
   if (!p) return 0;
   let score = 0;
-  score += (p.engagement_score    || 0);
-  score += (p.is_promoted ? 50    : 0);
+  score += (p.engagement_score   || 0);
+  score += (p.is_promoted ? 50   : 0);
   score += ((p.promotion_priority || 0) * 5);
-  score += ((p.ctr                || 0) * 30);
+  score += ((p.ctr               || 0) * 30);
   if (p.category_id && recentCats.includes(p.category_id)) score += 20;
   return score;
 };
@@ -205,10 +193,10 @@ const injectPromoted = (products, promoted, interval = PROMO_INTERVAL) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SPLIT PRODUCTS — full null safety
+   SPLIT PRODUCTS — with full null safety
 ═══════════════════════════════════════════════════════════════ */
 const splitProducts = (products, recentCats = []) => {
-  // Safety: filter out null/undefined/invalid items
+  // ── Safety: filter out any null/undefined items ──
   const safe = (products || []).filter(
     (p) => p && typeof p === "object" && p.id
   );
@@ -217,19 +205,19 @@ const splitProducts = (products, recentCats = []) => {
     return { featured: [], nearby: [], forYou: [], deals: [], latest: [], all: [] };
   }
 
-  // Score all products
+  // ── Score all products ────────────────────────────────────
   const scored = safe.map((p) => ({
     ...p,
     _score: personalScore(p, recentCats),
   }));
 
-  // Featured
+  // ── Featured ──────────────────────────────────────────────
   const featured = safe
     .filter((p) => p.is_promoted === true)
     .sort((a, b) => (b.promotion_priority || 0) - (a.promotion_priority || 0))
     .slice(0, 3);
 
-  // Near You
+  // ── Near You ──────────────────────────────────────────────
   const nearby = safe
     .filter((p) =>
       p.distance_km != null ||
@@ -238,29 +226,29 @@ const splitProducts = (products, recentCats = []) => {
     )
     .slice(0, 10);
 
-  // For You
+  // ── For You ───────────────────────────────────────────────
   const forYou = scored
     .filter((p) =>
       (p._score          || 0) > 0 ||
-      (p.engagement_score || 0) > 5 ||
-      (p.ctr             || 0) > 0.05
+      (p.engagement_score || 0) > 0 ||
+      (p.ctr             || 0) > 0
     )
     .sort((a, b) => (b._score || 0) - (a._score || 0))
     .slice(0, 20);
 
-  // Deals
+  // ── Deals ─────────────────────────────────────────────────
   const deals = shuffle(
     safe.filter((p) => (p.price || 0) <= 50_000)
   ).slice(0, 20);
 
-  // Latest
+  // ── Latest ───────────────────────────────────────────────
   const latest = [...safe]
     .sort((a, b) =>
       new Date(b.created_at || 0) - new Date(a.created_at || 0)
     )
     .slice(0, 20);
 
-  // All — smart rank
+  // ── All ───────────────────────────────────────────────────
   const all = [...scored]
     .sort((a, b) => (b._score || 0) - (a._score || 0));
 
@@ -438,7 +426,7 @@ export default function Homepage({ user }) {
     // Normalize + filter out null/invalid items
     const normalized = dedup(raw)
       .map(normalizeProduct)
-      .filter(Boolean);
+      .filter(Boolean); // ← removes null returns from normalizeProduct
 
     const recent = getRecentCategories();
 
@@ -488,10 +476,7 @@ export default function Homepage({ user }) {
               });
             },
             () => {
-              finish(() => {
-                clearTimeout(timeout);
-                doFetch().then(resolve).catch(reject);
-              });
+              finish(() => { clearTimeout(timeout); doFetch().then(resolve).catch(reject); });
             },
             GPS_OPTIONS
           );
@@ -719,11 +704,7 @@ export default function Homepage({ user }) {
             const cat = CATEGORY_CONFIG.find((c) => c.name === name);
             if (!cat) return null;
             return (
-              <button
-                key={name}
-                className="hero-cat-chip"
-                onClick={() => handleCategorySelect(name)}
-              >
+              <button key={name} className="hero-cat-chip" onClick={() => handleCategorySelect(name)}>
                 <span>{cat.icon}</span>
                 {name.split(" ")[0]}
               </button>
@@ -757,9 +738,7 @@ export default function Homepage({ user }) {
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════
-            CATEGORY VIEW
-        ══════════════════════════════════════════════ */}
+        {/* ── Category View ── */}
         {activeCategory !== "All" && (
           <div className="sec cat-section">
             <SectionHead
@@ -780,18 +759,12 @@ export default function Homepage({ user }) {
               </div>
             )}
             {!catLoading && catProducts?.length > 0 && (
-              <MasonryGrid
-                products={catProducts}
-                onView={trackView}
-                onClick={handleProductClick}
-              />
+              <MasonryGrid products={catProducts} onView={trackView} onClick={handleProductClick} />
             )}
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════
-            HOMEPAGE SECTIONS (All tab)
-        ══════════════════════════════════════════════ */}
+        {/* ── Homepage Sections ── */}
         {activeCategory === "All" && (
           <>
             {!loading && !error && sections.all.length === 0 && (
@@ -801,9 +774,7 @@ export default function Homepage({ user }) {
                 <div className="empty-sub">
                   Nigeria's neighbourhood marketplace — enable location for nearby deals.
                 </div>
-                <button className="empty-btn" onClick={loadHomepage}>
-                  Load Marketplace
-                </button>
+                <button className="empty-btn" onClick={loadHomepage}>Load Marketplace</button>
               </div>
             )}
 
@@ -827,12 +798,7 @@ export default function Homepage({ user }) {
             {(loading || sections.nearby.length > 0) && (
               <div className="sec sec--primary anim anim-4">
                 <SectionHead
-                  title={
-                    <>
-                      <PinIcon size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />
-                      Near You
-                    </>
-                  }
+                  title={<><PinIcon size={13} style={{ verticalAlign: "middle", marginRight: 4 }} /> Near You</>}
                   sub={locLabel ? `in ${cityLabel}` : undefined}
                   chip={meta.nearbySource === "gps" ? "GPS" : undefined}
                   onSeeAll={() => navigate("/nearby")}
@@ -882,31 +848,20 @@ export default function Homepage({ user }) {
 
             {/* 4. Cheap Deals */}
             <div className="sec">
-              <SectionHead
-                title="Cheap Deals"
-                chip="Under ₦50k"
-                onSeeAll={() => navigate("/deals")}
-              />
+              <SectionHead title="Cheap Deals" chip="Under ₦50k" onSeeAll={() => navigate("/deals")} />
               {loading ? <SkeletonMasonry /> : sections.deals.length === 0 ? (
                 <SectionEmpty
                   title="No deals right now"
                   sub="New listings under ₦50,000 appear daily — check back soon."
                 />
               ) : (
-                <MasonryGrid
-                  products={sections.deals}
-                  onView={trackView}
-                  onClick={handleProductClick}
-                />
+                <MasonryGrid products={sections.deals} onView={trackView} onClick={handleProductClick} />
               )}
             </div>
 
             {/* 5. New Arrivals */}
             <div className="sec">
-              <SectionHead
-                title="New Arrivals"
-                onSeeAll={() => navigate("/latest")}
-              />
+              <SectionHead title="New Arrivals" onSeeAll={() => navigate("/latest")} />
               {loading ? <SkeletonRow /> : sections.latest.length === 0 ? (
                 <SectionEmpty
                   title="No new listings yet"
@@ -966,11 +921,7 @@ export default function Homepage({ user }) {
       </div>
 
       {/* ── FAB ── */}
-      <button
-        className="fab"
-        onClick={() => navigate("/minimart/add")}
-        aria-label="Sell a product"
-      >
+      <button className="fab" onClick={() => navigate("/minimart/add")} aria-label="Sell a product">
         <span className="fab-ic">＋</span>
         Sell Now
       </button>
