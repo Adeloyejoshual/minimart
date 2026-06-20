@@ -89,13 +89,9 @@ setInterval(() => {
 ═══════════════════════════════════════════════════════════════ */
 const corsOptions = {
   origin(origin, cb) {
-    // No origin = mobile / curl / same-origin
     if (!origin) return cb(null, true);
-
-    // Wildcard = allow everything
     if (ALLOWED_ORIGIN === "*") return cb(null, true);
 
-    // Always allow loemart.com domains
     const alwaysAllow = [
       "https://www.loemart.com",
       "https://loemart.com",
@@ -104,7 +100,6 @@ const corsOptions = {
       "http://localhost:4173",
     ];
 
-    // Build list from env + hardcoded
     const fromEnv = ALLOWED_ORIGIN
       .split(",")
       .map((s) => s.trim())
@@ -375,7 +370,8 @@ app.use("/api/homepage", homepageRouter);
 
 /* ── Dashboard ── */
 import dashboardRoutes from "./routes/dashboard.js";
-app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/dashboard",        dashboardRoutes);
+app.use("/api/seller-dashboard", dashboardRoutes); // ← alias for SellerDashboard page
 
 /* ── Notifications ── */
 import notificationsRouter from "./routes/notifications.js";
@@ -392,6 +388,10 @@ app.use("/api/p2p", p2pRouter);
 /* ── Verification ── */
 import verificationRouter from "./routes/verification.js";
 app.use("/api/verification", verificationRouter);
+
+/* ── Coupons ✅ NEW ── */
+import couponsRouter from "./routes/coupons.js";
+app.use("/api/coupons", couponsRouter);
 
 /* ═══════════════════════════════════════════════════════════════
    HEALTH CHECK
@@ -541,6 +541,7 @@ server.listen(PORT, () => {
   console.log(`   SHOP      : /api/shop`);
   console.log(`   CART      : /api/cart`);
   console.log(`   CHECKOUT  : /api/checkout`);
+  console.log(`   COUPONS   : /api/coupons`);
   console.log(`   WEBHOOK   : https://www.loemart.com/api/webhooks/flutterwave`);
 
   startJobRunner();
