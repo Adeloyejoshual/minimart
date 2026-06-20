@@ -97,7 +97,6 @@ const getImages = (product) => {
   if (!product) return [];
   const imgs = [];
 
-  // Check images array first
   if (Array.isArray(product.images) && product.images.length) {
     product.images.forEach((img) => {
       if (!img) return;
@@ -106,7 +105,6 @@ const getImages = (product) => {
     });
   }
 
-  // Fall back to main_image / thumbnail_url
   if (!imgs.length && product.main_image)    imgs.push(product.main_image);
   if (!imgs.length && product.thumbnail_url) imgs.push(product.thumbnail_url);
   if (!imgs.length && product.image)         imgs.push(product.image);
@@ -130,10 +128,10 @@ const formatAttrKey = (k) =>
 const timeAgo = (date) => {
   if (!date) return "";
   const diff = Math.floor((Date.now() - new Date(date)) / 1_000);
-  if (diff < 60)         return "just now";
-  if (diff < 3_600)      return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86_400)     return `${Math.floor(diff / 3_600)}h ago`;
-  if (diff < 2_592_000)  return `${Math.floor(diff / 86_400)}d ago`;
+  if (diff < 60)        return "just now";
+  if (diff < 3_600)     return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86_400)    return `${Math.floor(diff / 3_600)}h ago`;
+  if (diff < 2_592_000) return `${Math.floor(diff / 86_400)}d ago`;
   return new Date(date).toLocaleDateString("en-NG", { month: "short", year: "numeric" });
 };
 
@@ -141,8 +139,8 @@ const timeAgo = (date) => {
    START CHAT
 ═══════════════════════════════════════════════════════════════ */
 const startChatThread = async ({ buyerId, sellerId, productId }) => {
-  if (!buyerId || !sellerId)  throw new Error("Missing buyer or seller ID");
-  if (buyerId === sellerId)   throw new Error("Cannot chat with yourself");
+  if (!buyerId || !sellerId) throw new Error("Missing buyer or seller ID");
+  if (buyerId === sellerId)  throw new Error("Cannot chat with yourself");
 
   const res = await fetch(`${API}/conversations`, {
     method  : "POST",
@@ -397,13 +395,15 @@ export default function ProductDetail({ user }) {
 
   useEffect(() => { fetchProduct(); }, [fetchProduct]);
 
-  // Track view
+  // ── Track view — uses /api/product/products/:id/view ──────
   useEffect(() => {
     if (!product?.id) return;
-    fetch(`${API}/product/products/${product.id}/view`, { method: "POST" }).catch(() => {});
+    fetch(`${API}/product/products/${product.id}/view`, {
+      method: "POST",
+    }).catch(() => {});
   }, [product?.id]);
 
-  // Fetch seller
+  // ── Fetch seller ──────────────────────────────────────────
   useEffect(() => {
     if (!product?.seller_id) return;
     fetch(`${API}/seller/${product.seller_id}`)
@@ -412,7 +412,7 @@ export default function ProductDetail({ user }) {
       .catch(() => {});
   }, [product?.seller_id]);
 
-  // Fetch seller's other products
+  // ── Fetch seller's other products ─────────────────────────
   useEffect(() => {
     if (!product?.seller_id || !product?.id) return;
     const qs = new URLSearchParams({
@@ -426,7 +426,7 @@ export default function ProductDetail({ user }) {
       .catch(() => {});
   }, [product?.seller_id, product?.id]);
 
-  // Fetch reviews
+  // ── Fetch reviews ─────────────────────────────────────────
   const fetchReviews = useCallback(async (page = 1) => {
     if (!slug) return;
     try {
@@ -446,7 +446,7 @@ export default function ProductDetail({ user }) {
 
   useEffect(() => { fetchReviews(1); }, [fetchReviews]);
 
-  // Fetch similar
+  // ── Fetch similar ─────────────────────────────────────────
   useEffect(() => {
     if (!product?.id || !product?.category_id) return;
     const qs = new URLSearchParams({
@@ -460,7 +460,7 @@ export default function ProductDetail({ user }) {
       .catch(() => {});
   }, [product?.id, product?.category_id]);
 
-  // Lightbox keyboard
+  // ── Lightbox keyboard ─────────────────────────────────────
   useEffect(() => {
     if (!lightbox) return;
     const h = (e) => {
@@ -498,7 +498,10 @@ export default function ProductDetail({ user }) {
 
   const openWhatsApp = useCallback(() => {
     if (!product) return;
-    fetch(`${API}/product/products/${product.id}/click`, { method: "POST" }).catch(() => {});
+    // ── Use correct route ──
+    fetch(`${API}/product/products/${product.id}/click`, {
+      method: "POST",
+    }).catch(() => {});
     const msg = encodeURIComponent(
       `Hi, I'm interested in: ${product.title} — ${window.location.href}`
     );
@@ -609,8 +612,12 @@ export default function ProductDetail({ user }) {
                   className={`pd-thumb${activeImg === i ? " active" : ""}`}
                   onClick={() => setActiveImg(i)}
                 >
-                  <img src={src} alt={`Image ${i + 1}`} loading="lazy"
-                    onError={(e) => { e.currentTarget.src = PH; }} />
+                  <img
+                    src={src}
+                    alt={`Image ${i + 1}`}
+                    loading="lazy"
+                    onError={(e) => { e.currentTarget.src = PH; }}
+                  />
                 </div>
               ))}
             </div>
@@ -782,8 +789,9 @@ export default function ProductDetail({ user }) {
                   <img
                     className="pd-seller-avatar"
                     src={seller.profile_image || seller.store_logo}
-                    alt={seller.name}
+                    alt={seller.name || "Seller"}
                     loading="lazy"
+                    onError={(e) => { e.currentTarget.style.display = "none"; }}
                   />
                 ) : (
                   <div className="pd-seller-avatar-fallback">
@@ -813,7 +821,7 @@ export default function ProductDetail({ user }) {
                       <div className="pd-trust-track">
                         <div
                           className="pd-trust-fill"
-                          style={{ width: `${seller.trust_score}%` }}
+                          style={{ width: `${Math.min(100, seller.trust_score)}%` }}
                         />
                       </div>
                       <span className="pd-trust-val">{seller.trust_score}% trust</span>
@@ -831,6 +839,7 @@ export default function ProductDetail({ user }) {
               <div className="pd-section-title">Contact Seller</div>
               <div className="pd-contact-list">
 
+                {/* Chat button */}
                 {product.seller_id && (
                   <button
                     className="pd-contact-btn pd-contact-chat"
@@ -865,6 +874,7 @@ export default function ProductDetail({ user }) {
                   </button>
                 )}
 
+                {/* WhatsApp button */}
                 {(waNumber || waLink) && (
                   <button className="pd-contact-btn pd-contact-whatsapp" onClick={openWhatsApp}>
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
@@ -875,6 +885,7 @@ export default function ProductDetail({ user }) {
                   </button>
                 )}
 
+                {/* Call button */}
                 {contactPhone && (
                   <button className="pd-contact-btn pd-contact-call" onClick={openCall}>
                     <svg width="17" height="17" viewBox="0 0 24 24"
@@ -1026,13 +1037,20 @@ export default function ProductDetail({ user }) {
       {/* ── Lightbox ── */}
       {lightbox && (
         <div className="pd-lightbox" onClick={() => setLightbox(false)}>
-          <button className="pd-lightbox-close" onClick={() => setLightbox(false)} aria-label="Close">
+          <button
+            className="pd-lightbox-close"
+            onClick={() => setLightbox(false)}
+            aria-label="Close"
+          >
             ✕
           </button>
           {images.length > 1 && (
             <button
               className="pd-lightbox-prev"
-              onClick={(e) => { e.stopPropagation(); setActiveImg((i) => (i - 1 + images.length) % images.length); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveImg((i) => (i - 1 + images.length) % images.length);
+              }}
               aria-label="Previous"
             >
               ‹
@@ -1048,7 +1066,10 @@ export default function ProductDetail({ user }) {
           {images.length > 1 && (
             <button
               className="pd-lightbox-next"
-              onClick={(e) => { e.stopPropagation(); setActiveImg((i) => (i + 1) % images.length); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveImg((i) => (i + 1) % images.length);
+              }}
               aria-label="Next"
             >
               ›
