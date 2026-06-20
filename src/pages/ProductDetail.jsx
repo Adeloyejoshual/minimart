@@ -1,17 +1,6 @@
 /**
  * src/pages/ProductDetail.jsx
  * Route: /product/:slug
- *
- * Features:
- * - Image gallery with lightbox
- * - Description expand/collapse
- * - Attributes, specifications, delivery
- * - Seller card with trust score
- * - Contact: in-app chat, WhatsApp, call
- * - Reviews with rating breakdown + form
- * - Similar products + more from seller
- * - Favourites (local + API)
- * - Safety tips
  */
 
 import {
@@ -26,7 +15,8 @@ import "../styles/ProductDetail.css";
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
 ═══════════════════════════════════════════════════════════════ */
-const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API      = `${BASE_URL}/api`;
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -106,19 +96,26 @@ const fmtViews = (n) => {
 const getImages = (product) => {
   if (!product) return [];
   const imgs = [];
+
+  // Check images array first
   if (Array.isArray(product.images) && product.images.length) {
     product.images.forEach((img) => {
+      if (!img) return;
       const url = typeof img === "string" ? img : img?.url || img?.image_url;
-      if (url) imgs.push(url);
+      if (url && !imgs.includes(url)) imgs.push(url);
     });
   }
+
+  // Fall back to main_image / thumbnail_url
   if (!imgs.length && product.main_image)    imgs.push(product.main_image);
   if (!imgs.length && product.thumbnail_url) imgs.push(product.thumbnail_url);
+  if (!imgs.length && product.image)         imgs.push(product.image);
+
   return imgs.length ? imgs : [PH];
 };
 
 const stars = (rating = 0, size = "md") => {
-  const r = Math.round(Number(rating));
+  const r = Math.min(5, Math.max(0, Math.round(Number(rating))));
   return (
     <span className={`pd-stars${size === "sm" ? " pd-star-sm" : ""}`}>
       {"★".repeat(r)}
@@ -133,15 +130,15 @@ const formatAttrKey = (k) =>
 const timeAgo = (date) => {
   if (!date) return "";
   const diff = Math.floor((Date.now() - new Date(date)) / 1_000);
-  if (diff < 60)       return "just now";
-  if (diff < 3_600)   return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86_400)  return `${Math.floor(diff / 3_600)}h ago`;
-  if (diff < 2_592_000) return `${Math.floor(diff / 86_400)}d ago`;
+  if (diff < 60)         return "just now";
+  if (diff < 3_600)      return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86_400)     return `${Math.floor(diff / 3_600)}h ago`;
+  if (diff < 2_592_000)  return `${Math.floor(diff / 86_400)}d ago`;
   return new Date(date).toLocaleDateString("en-NG", { month: "short", year: "numeric" });
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   CHAT HELPER — creates thread then returns threadId
+   START CHAT
 ═══════════════════════════════════════════════════════════════ */
 const startChatThread = async ({ buyerId, sellerId, productId }) => {
   if (!buyerId || !sellerId)  throw new Error("Missing buyer or seller ID");
@@ -158,7 +155,6 @@ const startChatThread = async ({ buyerId, sellerId, productId }) => {
 
   const threadId = data.thread_id || data.id;
   if (!threadId) throw new Error("No thread ID returned");
-
   return threadId;
 };
 
@@ -235,7 +231,7 @@ function ReviewForm({ slug, userId, onSubmitted }) {
     setSubmitting(true);
     setError(null);
     try {
-      const res  = await fetch(
+      const res = await fetch(
         `${API}/product/slug/${encodeURIComponent(slug)}/reviews`,
         {
           method  : "POST",
@@ -318,8 +314,8 @@ function SafetyTips() {
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function ProductDetail({ user }) {
-  const { slug }           = useParams();
-  const navigate           = useNavigate();
+  const { slug }             = useParams();
+  const navigate             = useNavigate();
   const { addSingleProduct } = useProductCache();
 
   // ── State ─────────────────────────────────────────────────
@@ -340,10 +336,7 @@ export default function ProductDetail({ user }) {
   const [chatLoading,    setChatLoading]    = useState(false);
 
   // ── Current user ──────────────────────────────────────────
-  const userId = useMemo(() =>
-    user?.id || readUserId(),
-    [user]
-  );
+  const userId = useMemo(() => user?.id || readUserId(), [user]);
 
   // ── Derived ───────────────────────────────────────────────
   const images = useMemo(() => getImages(product), [product]);
@@ -393,7 +386,7 @@ export default function ProductDetail({ user }) {
       if (!res.ok)            throw new Error("Could not load product");
       const data = await res.json();
       setProduct(data);
-      addSingleProduct(data);
+      addSingleProduct?.(data);
       setFav(!!loadFavs()[data.id]);
     } catch (err) {
       setError(err.message);
@@ -467,13 +460,13 @@ export default function ProductDetail({ user }) {
       .catch(() => {});
   }, [product?.id, product?.category_id]);
 
-  // Lightbox keyboard navigation
+  // Lightbox keyboard
   useEffect(() => {
     if (!lightbox) return;
     const h = (e) => {
-      if (e.key === "Escape")      setLightbox(false);
-      if (e.key === "ArrowRight")  setActiveImg((i) => (i + 1) % images.length);
-      if (e.key === "ArrowLeft")   setActiveImg((i) => (i - 1 + images.length) % images.length);
+      if (e.key === "Escape")     setLightbox(false);
+      if (e.key === "ArrowRight") setActiveImg((i) => (i + 1) % images.length);
+      if (e.key === "ArrowLeft")  setActiveImg((i) => (i - 1 + images.length) % images.length);
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
@@ -488,7 +481,7 @@ export default function ProductDetail({ user }) {
     if (next) { favs[product.id] = true; } else { delete favs[product.id]; }
     saveFavs(favs);
     if (userId) {
-      fetch(`${API}/products/${product.id}/favorite`, {
+      fetch(`${API}/product/products/${product.id}/favorite`, {
         method  : "POST",
         headers : { "Content-Type": "application/json" },
         body    : JSON.stringify({ user_id: userId }),
@@ -497,15 +490,15 @@ export default function ProductDetail({ user }) {
   }, [fav, product, userId]);
 
   // ── Contact ───────────────────────────────────────────────
-  const contactPhone = product?.phone               || product?.contact?.phone;
-  const waNumber     = product?.whatsapp            || product?.contact?.whatsapp;
-  const waLink       = product?.whatsapp_link       || product?.contact?.whatsapp_link;
+  const contactPhone = product?.phone         || product?.contact?.phone;
+  const waNumber     = product?.whatsapp      || product?.contact?.whatsapp;
+  const waLink       = product?.whatsapp_link || product?.contact?.whatsapp_link;
   const isOwnProduct = !!(userId && product?.seller_id && userId === product.seller_id);
   const hasContact   = !!(waNumber || waLink || contactPhone || product?.seller_id);
 
   const openWhatsApp = useCallback(() => {
     if (!product) return;
-    fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
+    fetch(`${API}/product/products/${product.id}/click`, { method: "POST" }).catch(() => {});
     const msg = encodeURIComponent(
       `Hi, I'm interested in: ${product.title} — ${window.location.href}`
     );
@@ -585,9 +578,7 @@ export default function ProductDetail({ user }) {
 
       <div className="pd-page">
 
-        {/* ══════════════════════════════════════════════
-            GALLERY
-        ══════════════════════════════════════════════ */}
+        {/* ── Gallery ── */}
         <div className="pd-gallery">
           <div className="pd-main-img-wrap" onClick={() => setLightbox(true)}>
             {product.is_promoted && (
@@ -601,6 +592,7 @@ export default function ProductDetail({ user }) {
               loading="eager"
               decoding="async"
               fetchPriority="high"
+              onError={(e) => { e.currentTarget.src = PH; }}
             />
             {images.length > 1 && (
               <span className="pd-img-counter">
@@ -617,7 +609,8 @@ export default function ProductDetail({ user }) {
                   className={`pd-thumb${activeImg === i ? " active" : ""}`}
                   onClick={() => setActiveImg(i)}
                 >
-                  <img src={src} alt={`Image ${i + 1}`} loading="lazy" />
+                  <img src={src} alt={`Image ${i + 1}`} loading="lazy"
+                    onError={(e) => { e.currentTarget.src = PH; }} />
                 </div>
               ))}
             </div>
@@ -626,9 +619,7 @@ export default function ProductDetail({ user }) {
 
         <div className="pd-body">
 
-          {/* ══════════════════════════════════════════════
-              TITLE BLOCK
-          ══════════════════════════════════════════════ */}
+          {/* ── Title Block ── */}
           <div className="pd-title-block">
             {product.category_name && (
               <div className="pd-category-crumb">
@@ -652,9 +643,7 @@ export default function ProductDetail({ user }) {
             </div>
           </div>
 
-          {/* ══════════════════════════════════════════════
-              DESCRIPTION
-          ══════════════════════════════════════════════ */}
+          {/* ── Description ── */}
           {product.description && (
             <div className="pd-section">
               <div className="pd-section-title">About this product</div>
@@ -665,20 +654,14 @@ export default function ProductDetail({ user }) {
                 {needsToggle && !descExpanded && (
                   <span className="pd-desc-ellipsis">
                     …
-                    <button
-                      className="pd-desc-toggle"
-                      onClick={() => setDescExpanded(true)}
-                    >
+                    <button className="pd-desc-toggle" onClick={() => setDescExpanded(true)}>
                       read more
                     </button>
                   </span>
                 )}
               </p>
               {needsToggle && descExpanded && (
-                <button
-                  className="pd-desc-toggle"
-                  onClick={() => setDescExpanded(false)}
-                >
+                <button className="pd-desc-toggle" onClick={() => setDescExpanded(false)}>
                   Show less
                 </button>
               )}
@@ -694,7 +677,7 @@ export default function ProductDetail({ user }) {
                   <div key={i} className="pd-feature-item">
                     <span className="pd-feature-check">✓</span>
                     <span className="pd-feature-text">
-                      {typeof h === "string" ? h : h.text || JSON.stringify(h)}
+                      {typeof h === "string" ? h : h?.text || JSON.stringify(h)}
                     </span>
                   </div>
                 ))}
@@ -784,9 +767,7 @@ export default function ProductDetail({ user }) {
             </div>
           )}
 
-          {/* ══════════════════════════════════════════════
-              SELLER
-          ══════════════════════════════════════════════ */}
+          {/* ── Seller ── */}
           {(seller || product.seller_id) && (
             <div className="pd-section">
               <div className="pd-section-title">Seller</div>
@@ -795,6 +776,7 @@ export default function ProductDetail({ user }) {
                 onClick={() => navigate(`/seller/${product.seller_id}`)}
                 role="button"
                 tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && navigate(`/seller/${product.seller_id}`)}
               >
                 {seller?.profile_image || seller?.store_logo ? (
                   <img
@@ -843,15 +825,12 @@ export default function ProductDetail({ user }) {
             </div>
           )}
 
-          {/* ══════════════════════════════════════════════
-              CONTACT
-          ══════════════════════════════════════════════ */}
+          {/* ── Contact ── */}
           {hasContact && !isOwnProduct && (
             <div className="pd-section">
               <div className="pd-section-title">Contact Seller</div>
               <div className="pd-contact-list">
 
-                {/* Chat — creates real thread */}
                 {product.seller_id && (
                   <button
                     className="pd-contact-btn pd-contact-chat"
@@ -887,10 +866,7 @@ export default function ProductDetail({ user }) {
                 )}
 
                 {(waNumber || waLink) && (
-                  <button
-                    className="pd-contact-btn pd-contact-whatsapp"
-                    onClick={openWhatsApp}
-                  >
+                  <button className="pd-contact-btn pd-contact-whatsapp" onClick={openWhatsApp}>
                     <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor">
                       <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/>
                       <path d="M12 0C5.373 0 0 5.373 0 12c0 2.127.558 4.126 1.533 5.857L.057 23.571l5.89-1.548A11.95 11.95 0 0012 24c6.627 0 12-5.373 12-12S18.627 0 12 0zm0 21.818a9.818 9.818 0 01-5.028-1.378l-.36-.215-3.734.98 1.001-3.654-.235-.374A9.818 9.818 0 012.182 12C2.182 6.562 6.562 2.182 12 2.182S21.818 6.562 21.818 12 17.438 21.818 12 21.818z"/>
@@ -900,19 +876,15 @@ export default function ProductDetail({ user }) {
                 )}
 
                 {contactPhone && (
-                  <button
-                    className="pd-contact-btn pd-contact-call"
-                    onClick={openCall}
-                  >
+                  <button className="pd-contact-btn pd-contact-call" onClick={openCall}>
                     <svg width="17" height="17" viewBox="0 0 24 24"
-                      fill="none" stroke="currentColor"
-                      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      fill="none" stroke="currentColor" strokeWidth="2"
+                      strokeLinecap="round" strokeLinejoin="round">
                       <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12a19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 3.59 1.2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6 6l.92-.92a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 21.73 16z"/>
                     </svg>
                     Call Seller
                   </button>
                 )}
-
               </div>
             </div>
           )}
@@ -929,9 +901,7 @@ export default function ProductDetail({ user }) {
             </div>
           )}
 
-          {/* ══════════════════════════════════════════════
-              REVIEWS
-          ══════════════════════════════════════════════ */}
+          {/* ── Reviews ── */}
           <div className="pd-section">
             <div className="pd-section-title">
               Reviews
@@ -1018,12 +988,9 @@ export default function ProductDetail({ user }) {
           </div>
 
           <SafetyTips />
-
         </div>
 
-        {/* ══════════════════════════════════════════════
-            SIMILAR PRODUCTS
-        ══════════════════════════════════════════════ */}
+        {/* ── Similar Products ── */}
         {similar.length > 0 && (
           <div className="pd-similar">
             <div className="pd-similar-title">You may also like</div>
@@ -1035,9 +1002,7 @@ export default function ProductDetail({ user }) {
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════
-            MORE FROM SELLER
-        ══════════════════════════════════════════════ */}
+        {/* ── More from Seller ── */}
         {sellerProducts.length > 0 && (
           <div className="pd-similar">
             <div className="pd-similar-title">
@@ -1056,49 +1021,34 @@ export default function ProductDetail({ user }) {
             </button>
           </div>
         )}
-
       </div>
 
-      {/* ══════════════════════════════════════════════
-          LIGHTBOX
-      ══════════════════════════════════════════════ */}
+      {/* ── Lightbox ── */}
       {lightbox && (
         <div className="pd-lightbox" onClick={() => setLightbox(false)}>
-          <button
-            className="pd-lightbox-close"
-            onClick={() => setLightbox(false)}
-            aria-label="Close"
-          >
+          <button className="pd-lightbox-close" onClick={() => setLightbox(false)} aria-label="Close">
             ✕
           </button>
-
           {images.length > 1 && (
             <button
               className="pd-lightbox-prev"
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveImg((i) => (i - 1 + images.length) % images.length);
-              }}
+              onClick={(e) => { e.stopPropagation(); setActiveImg((i) => (i - 1 + images.length) % images.length); }}
               aria-label="Previous"
             >
               ‹
             </button>
           )}
-
           <img
             className="pd-lightbox-img"
             src={images[activeImg]}
             alt={product.title}
             onClick={(e) => e.stopPropagation()}
+            onError={(e) => { e.currentTarget.src = PH; }}
           />
-
           {images.length > 1 && (
             <button
               className="pd-lightbox-next"
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveImg((i) => (i + 1) % images.length);
-              }}
+              onClick={(e) => { e.stopPropagation(); setActiveImg((i) => (i + 1) % images.length); }}
               aria-label="Next"
             >
               ›
