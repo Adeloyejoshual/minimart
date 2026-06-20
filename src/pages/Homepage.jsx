@@ -1,938 +1,798 @@
-/**
- * src/pages/Homepage.jsx
- * Route: /
- */
-
-import {
-  useEffect, useState, useCallback, useRef, memo, useMemo,
+// src/pages/Homepage.jsx
+import React, {
+  useEffect,
+  useState,
+  useCallback,
+  useRef,
+  memo,
 } from "react";
-import { useNavigate }     from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
-import TopNav        from "../components/TopNav";
-import BottomNav     from "../components/BottomNav";
-import Footer        from "../components/Footer";
-import MasonryGrid   from "../components/MasonryGrid";
-import OverlayCard   from "../components/OverlayCard";
-import LocationPicker, { getActiveLocation } from "../components/LocationPicker";
-import { PinIcon, naira, getImageUrl } from "../components/MasonryCard";
-import CATEGORY_CONFIG from "../config/categories";
+import CATEGORIES from "../config/categories";
+import TopNav    from "../components/TopNav";
+import BottomNav from "../components/BottomNav";
 import "../styles/Homepage.css";
 
-/* ═══════════════════════════════════════════════════════════════
-   ENV + API
-═══════════════════════════════════════════════════════════════ */
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+/* ─── Config ──────────────────────────────────────────────── */
+const API        = import.meta.env.VITE_API_BASE || "https://minimart-ivrm.onrender.com/api";
+const PH         = "https://placehold.co/600x500/f0ede8/b0a89e?text=Loemart";
+const HOVER_MS   = 900;
+const STALE_MS   = 5 * 60 * 1000;
+const PAGE_SIZE  = 40;
+const GPS_OPTS   = { timeout: 5000, enableHighAccuracy: false, maximumAge: 300_000 };
 
-/* ═══════════════════════════════════════════════════════════════
-   CONSTANTS
-═══════════════════════════════════════════════════════════════ */
-const PH               = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
-const RECENT_KEY       = "recentCategories";
-const ALL_PRODUCTS_LIMIT = 40;
-const PROMO_INTERVAL   = 10;
-const REFRESH_MS       = 1_800_000;
-const MOVE_CHECK_MS    = 300_000;
-const MOVE_THRESHOLD   = 2;
-const GPS_TIMEOUT_MS   = 5_000;
-const BRAND_NAME       = "Loemart";
+const ALL_CAT  = { id: "all", name: "All", icon: "✦" };
+const CAT_LIST = [ALL_CAT, ...CATEGORIES];
 
-const GPS_OPTIONS = {
-  timeout            : 5_000,
-  enableHighAccuracy : false,
-  maximumAge         : 300_000,
-};
-
-const CAT_ALL = { name: "All", icon: "✦" };
-
-const HERO_CATS = [
-  "Phones & Tablets", "Vehicles", "Fashion",
-  "Electronics", "Property", "Jobs",
+const SECTION_PILLS = [
+  { label: "🔥 Trending",    path: "/trending" },
+  { label: "💸 Deals",       path: "/deals"    },
+  { label: "🆕 New",         path: "/new"      },
+  { label: "📍 Near You",    path: "/nearby"   },
 ];
 
-const SORT_OPTS = [
-  { key: "smart",      label: "Recommended" },
-  { key: "newest",     label: "Newest"      },
-  { key: "price_asc",  label: "Price ↑"    },
-  { key: "price_desc", label: "Price ↓"    },
-];
+/* ─── Helpers ─────────────────────────────────────────────── */
+const naira = (n) =>
+  "₦" + Number(n || 0).toLocaleString("en-NG", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
 
-/* ═══════════════════════════════════════════════════════════════
-   SESSION PERSONALIZATION
-═══════════════════════════════════════════════════════════════ */
-const getRecentCategories = () => {
-  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); }
-  catch { return []; }
+const freshListing = (d) =>
+  !!d && Date.now() - new Date(d).getTime() < 86_400_000;
+
+const resolveImage = (p) => {
+  if (Array.isArray(p.images) && p.images.length > 0) {
+    const first = p.images[0];
+    if (typeof first === "string") return first;
+    return first.url || first.image_url || first.thumbnail_url || PH;
+  }
+  return p.image || p.main_image || p.thumbnail_url || PH;
 };
 
-const trackCategory = (categoryId) => {
-  if (!categoryId) return;
-  const recent  = getRecentCategories();
-  const updated = [categoryId, ...recent.filter((c) => c !== categoryId)].slice(0, 10);
-  localStorage.setItem(RECENT_KEY, JSON.stringify(updated));
+const locationLabel = (p) => {
+  const city  = p.location_city  || p.location?.city;
+  const state = p.location_state || p.location?.state;
+  if (city && state) return `${city}, ${state}`;
+  if (state)         return state;
+  if (city)          return city;
+  return "Nationwide";
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   NORMALIZE PRODUCT
-   ✅ Returns null for invalid items — filtered out before use
-═══════════════════════════════════════════════════════════════ */
-const normalizeProduct = (p) => {
-  // ── Safety: reject null / non-object items ──
-  if (!p || typeof p !== "object" || !p.id) return null;
-
-  return {
-    ...p,
-    price             : Number(p.price             || 0),
-    engagement_score  : Number(p.engagement_score  || 0),
-    clicks_count      : Number(p.clicks_count      || 0),
-    impression_count  : Number(p.impression_count  || 0),
-    views             : Number(p.views             || 0),
-    ctr               : Number(p.ctr               || 0),
-    promotion_priority: Number(p.promotion_priority || 0),
-    conversion_rate   : Number(p.conversion_rate   || 0),
-    is_promoted       : !!p.is_promoted,
-
-    // ── Normalize image ──────────────────────────────────
-    image: p.image ||
-      (Array.isArray(p.images) && p.images.length > 0
-        ? (typeof p.images[0] === "string"
-            ? p.images[0]
-            : p.images[0]?.url || null)
-        : null) ||
-      p.main_image    ||
-      p.thumbnail_url ||
-      null,
-
-    // ── Normalize location ───────────────────────────────
-    location_city  : p.location?.city  || p.location_city  || null,
-    location_state : p.location?.state || p.location_state || null,
-  };
+const discountLabel = (p) => {
+  const orig = Number(p.attributes?.original_price || 0);
+  const curr = Number(p.price || 0);
+  if (orig > curr && curr > 0) {
+    const pct = Math.round(((orig - curr) / orig) * 100);
+    return pct > 0 ? `${pct}% off` : null;
+  }
+  return null;
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   SCORING — with null safety
-═══════════════════════════════════════════════════════════════ */
-const personalScore = (p, recentCats) => {
-  if (!p) return 0;
-  let score = 0;
-  score += (p.engagement_score   || 0);
-  score += (p.is_promoted ? 50   : 0);
-  score += ((p.promotion_priority || 0) * 5);
-  score += ((p.ctr               || 0) * 30);
-  if (p.category_id && recentCats.includes(p.category_id)) score += 20;
-  return score;
+const getBadge = (p) => {
+  if (p.is_promoted)                  return { text: "Sponsored",  cls: "bd-feat"  };
+  if (p.promotion_type === "flash")   return { text: "⚡ Flash",    cls: "bd-flash" };
+  if ((p.engagement_score || 0) > 80) return { text: "Hot 🔥",     cls: "bd-hot"   };
+  if ((p.views || 0) > 500)           return { text: "Popular",    cls: "bd-trnd"  };
+  if (freshListing(p.created_at))     return { text: "New",        cls: "bd-new"   };
+  return null;
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   HELPERS
-═══════════════════════════════════════════════════════════════ */
 const dedup = (arr) => {
   const seen = new Set();
-  return arr.filter((p) => p && !seen.has(p.id) && seen.add(p.id));
+  return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
 };
 
-const formatCount = (n) => {
-  if (!n || n < 1_000)   return `${n}+`;
-  if (n >= 1_000_000)    return `+${Math.floor(n / 1_000_000)}m`;
-  const k = n / 1_000;
-  return `+${Number.isInteger(k) ? k : k.toFixed(1)}k`;
-};
-
-const shuffle = (arr) => {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
-};
-
-const getDistanceKm = (lat1, lon1, lat2, lon2) => {
-  const R    = 6_371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) ** 2;
-  return R * (2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
-};
-
-const heroLocation = (meta) => {
-  const city  = meta?.location_city  || meta?.city;
-  const state = meta?.location_state || meta?.state;
-  if (city && state) return `${city}, ${state}`;
-  return city || state || meta?.location || null;
-};
-
-const applySort = (arr, key) => {
-  if (key === "newest")     return [...arr].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
-  if (key === "price_asc")  return [...arr].sort((a, b) => (a.price || 0) - (b.price || 0));
-  if (key === "price_desc") return [...arr].sort((a, b) => (b.price || 0) - (a.price || 0));
-  return arr;
-};
-
-const injectPromoted = (products, promoted, interval = PROMO_INTERVAL) => {
-  if (!promoted.length) return products;
-  const result  = [];
-  let promoIdx  = 0;
-  const usedIds = new Set(products.map((p) => p?.id).filter(Boolean));
-
-  for (let i = 0; i < products.length; i++) {
-    if (products[i]) result.push(products[i]);
-    if ((i + 1) % interval === 0) {
-      while (promoIdx < promoted.length && usedIds.has(promoted[promoIdx]?.id)) promoIdx++;
-      if (promoIdx < promoted.length && promoted[promoIdx]) {
-        result.push({ ...promoted[promoIdx], _injected: true });
-        usedIds.add(promoted[promoIdx].id);
-        promoIdx++;
-      }
-    }
-  }
-  return result;
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   SPLIT PRODUCTS — with full null safety
-═══════════════════════════════════════════════════════════════ */
-const splitProducts = (products, recentCats = []) => {
-  // ── Safety: filter out any null/undefined items ──
-  const safe = (products || []).filter(
-    (p) => p && typeof p === "object" && p.id
-  );
-
-  if (safe.length === 0) {
-    return { featured: [], nearby: [], forYou: [], deals: [], latest: [], all: [] };
-  }
-
-  // ── Score all products ────────────────────────────────────
-  const scored = safe.map((p) => ({
-    ...p,
-    _score: personalScore(p, recentCats),
-  }));
-
-  // ── Featured ──────────────────────────────────────────────
-  const featured = safe
-    .filter((p) => p.is_promoted === true)
-    .sort((a, b) => (b.promotion_priority || 0) - (a.promotion_priority || 0))
-    .slice(0, 3);
-
-  // ── Near You ──────────────────────────────────────────────
-  const nearby = safe
-    .filter((p) =>
-      p.distance_km != null ||
-      p.location_city       ||
-      p.location?.city
-    )
-    .slice(0, 10);
-
-  // ── For You ───────────────────────────────────────────────
-  const forYou = scored
-    .filter((p) =>
-      (p._score          || 0) > 0 ||
-      (p.engagement_score || 0) > 0 ||
-      (p.ctr             || 0) > 0
-    )
-    .sort((a, b) => (b._score || 0) - (a._score || 0))
-    .slice(0, 20);
-
-  // ── Deals ─────────────────────────────────────────────────
-  const deals = shuffle(
-    safe.filter((p) => (p.price || 0) <= 50_000)
-  ).slice(0, 20);
-
-  // ── Latest ───────────────────────────────────────────────
-  const latest = [...safe]
-    .sort((a, b) =>
-      new Date(b.created_at || 0) - new Date(a.created_at || 0)
-    )
-    .slice(0, 20);
-
-  // ── All ───────────────────────────────────────────────────
-  const all = [...scored]
-    .sort((a, b) => (b._score || 0) - (a._score || 0));
-
-  return { featured, nearby, forYou, deals, latest, all };
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   SKELETONS
-═══════════════════════════════════════════════════════════════ */
-const SkeletonRow = () => (
-  <div className="row">
-    {[...Array(5)].map((_, i) => (
-      <div key={i} className="sk sk-co" />
+/* ─── Skeletons ───────────────────────────────────────────── */
+const MasonrySkeleton = memo(() => (
+  <div className="hm-masonry">
+    {[200, 260, 180, 240, 200, 220, 260, 190, 210, 240].map((h, i) => (
+      <div key={i} className="hm-sk hm-shimmer" style={{ height: h }} />
     ))}
   </div>
-);
+));
 
-const SkeletonMasonry = () => (
-  <div className="masonry">
-    {[...Array(8)].map((_, i) => (
-      <div
-        key={i}
-        className="sk sk-masonry"
-        style={{ height: `${160 + (i % 4) * 55}px` }}
-      />
+const FeaturedSkeleton = memo(() => (
+  <div className="hm-feat-row">
+    {[1, 2, 3].map((i) => (
+      <div key={i} className="hm-sk hm-sk-feat hm-shimmer" />
     ))}
   </div>
-);
+));
 
-/* ═══════════════════════════════════════════════════════════════
-   SECTION HEADER
-═══════════════════════════════════════════════════════════════ */
-const SectionHead = memo(function SectionHead({ title, chip, sub, onSeeAll }) {
+/* ─── Masonry Card ────────────────────────────────────────── */
+const MasonryCard = memo(function MasonryCard({ product, priority, onView, onClick }) {
+  const timerRef = useRef(null);
+  const badge    = getBadge(product);
+  const imgUrl   = resolveImage(product);
+  const loc      = locationLabel(product);
+  const disc     = discountLabel(product);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
   return (
-    <div className="sec-head">
-      <div className="sec-label">
-        <span className="sec-title">{title}</span>
-        {chip && <span className="sec-chip">{chip}</span>}
-        {sub  && <span className="sec-sub">{sub}</span>}
-      </div>
-      {onSeeAll && (
-        <button className="see-all" onClick={onSeeAll}>See all →</button>
-      )}
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   SECTION EMPTY
-═══════════════════════════════════════════════════════════════ */
-const SectionEmpty = ({ emoji, title, sub, cta, onCta }) => (
-  <div className="sec-empty">
-    {emoji && <span className="sec-empty-emoji">{emoji}</span>}
-    <p className="sec-empty-title">{title}</p>
-    {sub  && <p className="sec-empty-sub">{sub}</p>}
-    {cta  && onCta && (
-      <button className="sec-empty-btn" onClick={onCta}>{cta}</button>
-    )}
-  </div>
-);
-
-/* ═══════════════════════════════════════════════════════════════
-   FEATURED CARD
-═══════════════════════════════════════════════════════════════ */
-const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
-  if (!product) return null;
-  const imageUrl = product.image || getImageUrl(product) || PH;
-  return (
-    <div
-      className="feat"
+    <article
+      className="hm-card"
       role="button"
       tabIndex={0}
       onClick={() => onClick(product)}
-      onKeyDown={(e) => { if (e.key === "Enter") onClick(product); }}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
+      onMouseEnter={() => {
+        timerRef.current = setTimeout(() => onView(product.id), HOVER_MS);
+      }}
+      onMouseLeave={() => clearTimeout(timerRef.current)}
+      aria-label={product.title}
     >
-      <img
-        className="feat-img"
-        src={imageUrl}
-        alt={product.title || "Product"}
-        loading="eager"
-        decoding="async"
-        fetchPriority="high"
-        onError={(e) => { e.currentTarget.src = PH; }}
-      />
-      <div className="feat-body">
-        <div>
-          <div className="feat-tag">Sponsored</div>
-          <div className="feat-name">{product.title}</div>
+      {/* Badge */}
+      {badge && (
+        <span className={`hm-badge ${badge.cls}`}>{badge.text}</span>
+      )}
+      {disc && !badge && (
+        <span className="hm-badge bd-disc">{disc}</span>
+      )}
+
+      {/* Image */}
+      <div className="hm-card-img-wrap">
+        <img
+          className="hm-card-img"
+          src={imgUrl}
+          alt={product.title}
+          loading={priority ? "eager" : "lazy"}
+          decoding="async"
+          onError={(e) => { e.currentTarget.src = PH; }}
+        />
+      </div>
+
+      {/* Body */}
+      <div className="hm-card-body">
+        <p className="hm-card-title">{product.title}</p>
+
+        <div className="hm-card-price-row">
+          <span className="hm-card-price">{naira(product.price)}</span>
+          {product.attributes?.original_price > product.price && (
+            <span className="hm-card-orig">
+              {naira(product.attributes.original_price)}
+            </span>
+          )}
         </div>
-        <div>
-          <div className="feat-price">{naira(product.price)}</div>
-          <div className="feat-loc">
-            {product.location_city || product.location?.city || "Nationwide"}
+
+        <div className="hm-card-meta">
+          <span className="hm-loc">
+            <span className="hm-loc-pip" aria-hidden="true" />
+            <span className="hm-loc-text">{loc}</span>
+          </span>
+          {product.distance_km != null && (
+            <span className="hm-dist">{product.distance_km} km</span>
+          )}
+        </div>
+
+        {product.seller?.verified && (
+          <span className="hm-verified">✓ Verified</span>
+        )}
+
+        {(product.views || 0) > 0 && (
+          <div className="hm-eng">
+            <span className="hm-eng-views">
+              {product.views > 999
+                ? `${(product.views / 1000).toFixed(1)}k`
+                : product.views}{" "}views
+            </span>
+            {(product.favorites_count || 0) > 0 && (
+              <span className="hm-eng-fav">♥ {product.favorites_count}</span>
+            )}
           </div>
+        )}
+      </div>
+    </article>
+  );
+});
+
+/* ─── Featured Card ───────────────────────────────────────── */
+const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
+  const imgUrl = resolveImage(product);
+  const loc    = locationLabel(product);
+  const disc   = discountLabel(product);
+
+  return (
+    <article
+      className="hm-feat-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick(product)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
+      aria-label={`Sponsored: ${product.title}`}
+    >
+      <div className="hm-feat-img-wrap">
+        <img
+          className="hm-feat-img"
+          src={imgUrl}
+          alt={product.title}
+          loading="eager"
+          decoding="async"
+          onError={(e) => { e.currentTarget.src = PH; }}
+        />
+        <div className="hm-feat-overlay" aria-hidden="true" />
+      </div>
+
+      <div className="hm-feat-body">
+        <div className="hm-feat-top">
+          <span className="hm-feat-tag">
+            {product.promotion_type === "flash" ? "⚡ Flash" : "💎 Sponsored"}
+          </span>
+          {disc && <span className="hm-feat-disc">{disc}</span>}
+        </div>
+        <p className="hm-feat-title">{product.title}</p>
+        <div className="hm-feat-bottom">
+          <span className="hm-feat-price">{naira(product.price)}</span>
+          <span className="hm-feat-loc">
+            <span className="hm-loc-pip" aria-hidden="true" />
+            {loc}
+          </span>
         </div>
       </div>
-    </div>
+    </article>
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   SORT CHIPS
-═══════════════════════════════════════════════════════════════ */
-const SortChips = memo(function SortChips({ active, onChange }) {
+/* ─── Deal Card ───────────────────────────────────────────── */
+const DealCard = memo(function DealCard({ product, onClick }) {
+  const imgUrl = resolveImage(product);
+  const disc   = discountLabel(product);
+
   return (
-    <div className="sort-strip">
-      {SORT_OPTS.map((o) => (
+    <article
+      className="hm-deal-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick(product)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
+      aria-label={product.title}
+    >
+      <div className="hm-deal-img-wrap">
+        <img
+          src={imgUrl}
+          alt={product.title}
+          className="hm-deal-img"
+          loading="lazy"
+          onError={(e) => { e.currentTarget.src = PH; }}
+        />
+        {disc && <span className="hm-deal-disc">{disc}</span>}
+      </div>
+      <div className="hm-deal-body">
+        <p className="hm-deal-title">{product.title}</p>
+        <span className="hm-deal-price">{naira(product.price)}</span>
+      </div>
+    </article>
+  );
+});
+
+/* ─── Category Strip ──────────────────────────────────────── */
+const CategoryStrip = memo(function CategoryStrip({ current, onChange }) {
+  return (
+    <nav className="hm-cat-strip" aria-label="Browse by category">
+      {CAT_LIST.map((cat) => (
         <button
-          key={o.key}
-          className={`sort-chip${active === o.key ? " active" : ""}`}
-          onClick={() => onChange(o.key)}
+          key={cat.id}
+          className={`hm-cat-btn${current === cat.id ? " hm-cat-btn--active" : ""}`}
+          onClick={() => onChange(cat.id)}
+          aria-pressed={current === cat.id}
         >
-          {o.label}
+          <span className="hm-cat-icon" aria-hidden="true">{cat.icon}</span>
+          <span className="hm-cat-name">{cat.name}</span>
         </button>
       ))}
-    </div>
+    </nav>
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   HOMEPAGE
-═══════════════════════════════════════════════════════════════ */
+/* ─── Main Homepage ───────────────────────────────────────── */
 export default function Homepage({ user }) {
   const navigate = useNavigate();
   const {
-    setProducts, setLoaded,
     products: cachedProducts,
-    loaded: cacheLoaded,
+    loaded,
+    setProducts,
+    setLoaded,
   } = useProductCache();
 
-  const [allProducts, setAllProducts] = useState([]);
-  const [sections,    setSections]    = useState({
-    featured : [],
-    nearby   : [],
-    forYou   : [],
-    deals    : [],
-    latest   : [],
-    all      : [],
-  });
-  const [meta,    setMeta]    = useState({});
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
+  /* ── State ────────────────────────────────────────────── */
+  const [products,    setLocalProducts] = useState([]);
+  const [featured,    setFeatured]      = useState([]);
+  const [deals,       setDeals]         = useState([]);
+  const [meta,        setMeta]          = useState({});
+  const [loading,     setLoading]       = useState(true);
+  const [loadingMore, setLoadingMore]   = useState(false);
+  const [error,       setError]         = useState(null);
+  const [category,    setCategory]      = useState("all");
+  const [hasMore,     setHasMore]       = useState(false);
+  const [page,        setPage]          = useState(0);
+  const [total,       setTotal]         = useState(0);
 
-  // Category
-  const [activeCategory, setActiveCategory] = useState("All");
-  const [catProducts,    setCatProducts]    = useState(null);
-  const [catLoading,     setCatLoading]     = useState(false);
-  const [catError,       setCatError]       = useState(null);
+  /* ── Refs ─────────────────────────────────────────────── */
+  const productsRef = useRef([]);
+  const sentinelRef = useRef(null);
+  const hiddenAtRef = useRef(null);
+  const coordsRef   = useRef(null);
 
-  // All Products
-  const [allSort,    setAllSort]    = useState("smart");
-  const [allVisible, setAllVisible] = useState(ALL_PRODUCTS_LIMIT);
+  /* ── Tracking ─────────────────────────────────────────── */
+  const trackView = useCallback((id) => {
+    fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
+  }, []);
 
-  // Location picker
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const handleProductClick = useCallback((product) => {
+    fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
+    navigate(`/product/${product.slug}`);
+  }, [navigate]);
 
-  const productsRef     = useRef([]);
-  const catAbortRef     = useRef(null);
-  const lastLocationRef = useRef(
-    JSON.parse(localStorage.getItem("lastLocation") || "null")
-  );
+  /* ── Apply API data ───────────────────────────────────── */
+  const applyData = useCallback((data, append = false) => {
+    const incoming =
+      Array.isArray(data.products)        ? data.products        :
+      Array.isArray(data.data?.items)     ? data.data.items      :
+      Array.isArray(data.data)            ? data.data            : [];
 
-  // ── Apply fetched data ────────────────────────────────────
-  const applyData = useCallback((data) => {
-    const raw =
-      Array.isArray(data.products) && data.products.length > 0
-        ? data.products
-        : [
-            ...(data.recommended || []),
-            ...(data.cheapDeals  || []),
-            ...(data.trending    || []),
-            ...(data.latest      || []),
-          ];
+    const incomingFeat =
+      Array.isArray(data.featured)        ? data.featured        : [];
 
-    // Normalize + filter out null/invalid items
-    const normalized = dedup(raw)
-      .map(normalizeProduct)
-      .filter(Boolean); // ← removes null returns from normalizeProduct
+    const merged = append
+      ? dedup([...productsRef.current, ...incoming])
+      : dedup(incoming);
 
-    const recent = getRecentCategories();
-
-    console.log("[Homepage] products loaded:", normalized.length);
-
-    productsRef.current = normalized;
-    setAllProducts(normalized);
-    setProducts(normalized);
-    setSections(splitProducts(normalized, recent));
-    setMeta(data.meta || {});
+    productsRef.current = merged;
+    setProducts(merged);
     setLoaded(true);
+
+    // Separate promoted from feed
+    const feat  = incomingFeat.length > 0
+      ? incomingFeat
+      : merged.filter((p) => p.is_promoted).slice(0, 4);
+
+    const cheap = merged
+      .filter((p) => {
+        const orig = Number(p.attributes?.original_price || 0);
+        return !p.is_promoted && orig > Number(p.price || 0);
+      })
+      .slice(0, 12);
+
+    const rest = merged.filter((p) => !p.is_promoted);
+
+    setFeatured(feat);
+    setDeals(cheap);
+    setLocalProducts(rest);
+    setMeta(data.meta || {});
+    setTotal(data.meta?.returned ?? merged.length);
+    setHasMore(incoming.length >= PAGE_SIZE);
   }, [setProducts, setLoaded]);
 
-  // ── Fetch helper ──────────────────────────────────────────
-  const doFetch = useCallback(async (qs = "") => {
-    const res = await fetch(`${BASE_URL}/api/homepage${qs}`);
+  /* ── Fetch ────────────────────────────────────────────── */
+  const fetchFeed = useCallback(async ({ catId = "all", pg = 0, coords = null } = {}) => {
+    const params = new URLSearchParams({ limit: PAGE_SIZE });
+    if (pg > 0)          params.set("page", pg);
+    if (catId !== "all") params.set("category_id", catId);
+    if (coords) {
+      params.set("lat", coords.lat);
+      params.set("lng", coords.lng);
+    }
+    const res = await fetch(`${API}/homepage?${params}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
   }, []);
 
-  // ── Load homepage ─────────────────────────────────────────
-  const loadHomepage = useCallback(async () => {
+  /* ── GPS wrapper ──────────────────────────────────────── */
+  const fetchWithGPS = useCallback((catId, pg) =>
+    new Promise((resolve, reject) => {
+      let done = false;
+      const finish = (fn) => { if (done) return; done = true; fn(); };
+      const fallback = () =>
+        fetchFeed({ catId, pg, coords: coordsRef.current }).then(resolve).catch(reject);
+
+      const t = setTimeout(() => finish(fallback), 5000);
+
+      if (!navigator.geolocation) { clearTimeout(t); finish(fallback); return; }
+
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          clearTimeout(t);
+          finish(() => {
+            const c = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+            coordsRef.current = c;
+            fetchFeed({ catId, pg, coords: c })
+              .then(resolve)
+              .catch(fallback);
+          });
+        },
+        () => { clearTimeout(t); finish(fallback); },
+        GPS_OPTS
+      );
+    }),
+  [fetchFeed]);
+
+  /* ── Load feed ────────────────────────────────────────── */
+  const loadFeed = useCallback(async (catId = "all", force = false) => {
+    // Use cache when navigating back (same "all" tab, not forced)
+    if (!force && catId === "all" && loaded && cachedProducts.length > 0) {
+      productsRef.current = cachedProducts;
+      const feat  = cachedProducts.filter((p) => p.is_promoted).slice(0, 4);
+      const cheap = cachedProducts
+        .filter((p) => {
+          const orig = Number(p.attributes?.original_price || 0);
+          return !p.is_promoted && orig > Number(p.price || 0);
+        })
+        .slice(0, 12);
+      setFeatured(feat);
+      setDeals(cheap);
+      setLocalProducts(cachedProducts.filter((p) => !p.is_promoted));
+      setLoading(false);
+      return;
+    }
+
     setLoading(true);
     setError(null);
+    setPage(0);
     productsRef.current = [];
 
     try {
-      const data = await new Promise((resolve, reject) => {
-        let done = false;
-        const finish = (fn) => { if (done) return; done = true; fn(); };
-
-        const timeout = setTimeout(() => {
-          finish(() => doFetch().then(resolve).catch(reject));
-        }, GPS_TIMEOUT_MS);
-
-        if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(
-            (pos) => {
-              finish(() => {
-                clearTimeout(timeout);
-                const { latitude, longitude } = pos.coords;
-                lastLocationRef.current = { latitude, longitude };
-                localStorage.setItem("lastLocation", JSON.stringify({ latitude, longitude }));
-                doFetch(`?lat=${latitude}&lng=${longitude}`)
-                  .then(resolve)
-                  .catch(() => doFetch().then(resolve).catch(reject));
-              });
-            },
-            () => {
-              finish(() => { clearTimeout(timeout); doFetch().then(resolve).catch(reject); });
-            },
-            GPS_OPTIONS
-          );
-        } else {
-          finish(() => { clearTimeout(timeout); doFetch().then(resolve).catch(reject); });
-        }
-      });
-
-      applyData(data);
-
-    } catch (err) {
-      console.error("[Homepage] load error:", err);
-      setError("Could not reach the marketplace. Check your connection.");
+      const data = await fetchWithGPS(catId, 0);
+      applyData(data, false);
+    } catch (e) {
+      console.error("[Homepage] loadFeed:", e);
+      setError("Could not reach the marketplace. Please check your connection.");
     } finally {
       setLoading(false);
     }
-  }, [applyData, doFetch]);
+  }, [loaded, cachedProducts, fetchWithGPS, applyData]);
 
-  // ── Bootstrap ─────────────────────────────────────────────
-  useEffect(() => {
-    if (cacheLoaded && cachedProducts?.length > 0) {
-      const normalized = cachedProducts
-        .map(normalizeProduct)
-        .filter(Boolean);
-      const recent = getRecentCategories();
-      productsRef.current = normalized;
-      setAllProducts(normalized);
-      setSections(splitProducts(normalized, recent));
-      setLoading(false);
-    } else {
-      loadHomepage();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // ── 30-min refresh ────────────────────────────────────────
-  useEffect(() => {
-    const id = setInterval(() => loadHomepage(), REFRESH_MS);
-    return () => clearInterval(id);
-  }, [loadHomepage]);
-
-  // ── Movement-aware refresh ────────────────────────────────
-  useEffect(() => {
-    if (!navigator.geolocation) return;
-    const check = () => {
-      navigator.geolocation.getCurrentPosition(
-        ({ coords: { latitude, longitude } }) => {
-          const prev = lastLocationRef.current;
-          if (!prev) { lastLocationRef.current = { latitude, longitude }; return; }
-          const moved = getDistanceKm(prev.latitude, prev.longitude, latitude, longitude);
-          if (moved > MOVE_THRESHOLD) {
-            lastLocationRef.current = { latitude, longitude };
-            localStorage.setItem("lastLocation", JSON.stringify({ latitude, longitude }));
-            loadHomepage();
-          }
-        },
-        () => {},
-        { enableHighAccuracy: false, maximumAge: 300_000, timeout: 5_000 }
-      );
-    };
-    const id = setInterval(check, MOVE_CHECK_MS);
-    return () => clearInterval(id);
-  }, [loadHomepage]);
-
-  // ── Location changed event ────────────────────────────────
-  useEffect(() => {
-    const h = () => loadHomepage();
-    window.addEventListener("locationChanged", h);
-    return () => window.removeEventListener("locationChanged", h);
-  }, [loadHomepage]);
-
-  // ── Category filter ───────────────────────────────────────
-  const handleCategorySelect = useCallback(async (catName) => {
-    if (catName === activeCategory) return;
-    setActiveCategory(catName);
-    setCatError(null);
-    if (catName === "All") { setCatProducts(null); return; }
-
-    if (catAbortRef.current) catAbortRef.current.abort();
-    catAbortRef.current = new AbortController();
-    setCatLoading(true);
-    setCatProducts([]);
-
+  /* ── Load more ────────────────────────────────────────── */
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
     try {
-      const match = CATEGORY_CONFIG.find(
-        (c) => c.name === catName || c.name?.toLowerCase() === catName.toLowerCase()
-      );
-      if (match?.id) trackCategory(match.id);
-
-      const url = match?.id
-        ? `${BASE_URL}/api/homepage?category_id=${match.id}&page=0`
-        : `${BASE_URL}/api/homepage?page=0`;
-
-      const res  = await fetch(url, { signal: catAbortRef.current.signal });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-
-      const prods = (Array.isArray(data.products) ? data.products : [])
-        .map(normalizeProduct)
-        .filter(Boolean);
-
-      setCatProducts(shuffle(dedup(prods)));
-    } catch (err) {
-      if (err.name === "AbortError") return;
-      const fallback = allProducts.filter(
-        (p) =>
-          p?.category?.toLowerCase()      === catName.toLowerCase() ||
-          p?.category_name?.toLowerCase() === catName.toLowerCase()
-      );
-      setCatProducts(shuffle(fallback));
-      if (fallback.length === 0) setCatError(`No listings found in "${catName}"`);
+      const next = page + 1;
+      const data = await fetchFeed({
+        catId:  category,
+        pg:     next,
+        coords: coordsRef.current,
+      });
+      applyData(data, true);
+      setPage(next);
+    } catch (e) {
+      console.error("[Homepage] loadMore:", e);
     } finally {
-      setCatLoading(false);
+      setLoadingMore(false);
     }
-  }, [activeCategory, allProducts]);
+  }, [loadingMore, hasMore, page, category, fetchFeed, applyData]);
 
-  // ── Analytics ─────────────────────────────────────────────
-  const trackView = useCallback((id) => {
-    fetch(`${BASE_URL}/api/products/${id}/view`, { method: "POST" }).catch(() => {});
-  }, []);
+  /* ── Category switch ──────────────────────────────────── */
+  const switchCategory = useCallback((catId) => {
+    if (catId === category) return;
+    setCategory(catId);
+    loadFeed(catId, true);
+  }, [category, loadFeed]);
 
-  const handleProductClick = useCallback((product) => {
-    if (!product?.id) return;
-    fetch(`${BASE_URL}/api/products/${product.id}/click`, { method: "POST" }).catch(() => {});
-    if (product.category_id) trackCategory(product.category_id);
-    navigate(`/product/${product.slug}`);
-  }, [navigate]);
+  /* ── Effects ──────────────────────────────────────────── */
+  // Initial load
+  useEffect(() => { loadFeed("all", false); }, []); // eslint-disable-line
 
-  // ── Derived ───────────────────────────────────────────────
-  const activeLoc = getActiveLocation();
-  const locLabel  = useMemo(() => {
-    if (activeLoc?.label) return activeLoc.label;
-    return heroLocation(meta);
-  }, [meta, activeLoc]);
+  // Stale-tab refresh
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+      } else if (document.visibilityState === "visible") {
+        const elapsed = Date.now() - (hiddenAtRef.current || 0);
+        if (!loading && elapsed > STALE_MS) loadFeed(category, true);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [loading, category, loadFeed]);
 
-  const cityLabel    = locLabel?.split(",")[0] || "Nigeria";
-  const allCats      = [CAT_ALL, ...CATEGORY_CONFIG];
-  const activeCatObj = CATEGORY_CONFIG.find((c) => c.name === activeCategory);
+  // Infinite scroll
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const io = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) loadMore(); },
+      { threshold: 0.1 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, loadingMore, loadMore]);
 
-  const heroListingCount = useMemo(
-    () => formatCount((productsRef.current.length || 0) + 1_000),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [allProducts]
-  );
+  /* ── Derived ──────────────────────────────────────────── */
+  const heroLoc =
+    meta.nearbySource === "gps"
+      ? `Near you · GPS${meta.location ? ` · ${meta.location}` : ""}`
+      : meta.location || null;
 
-  const sortedAll = useMemo(
-    () => applySort(sections.all, allSort),
-    [sections.all, allSort]
-  );
+  const currentCatName =
+    CAT_LIST.find((c) => c.id === category)?.name || "Products";
 
-  const allWithInjections = useMemo(
-    () => injectPromoted(sortedAll.slice(0, allVisible), sections.featured),
-    [sortedAll, allVisible, sections.featured]
-  );
-
-  /* ════════════════════════════════════════════════════════════
-     RENDER
-  ════════════════════════════════════════════════════════════ */
+  /* ── Render ───────────────────────────────────────────── */
   return (
     <>
       <TopNav user={user} />
 
-      <div className="pg">
+      <div className="hm-page">
 
-        {/* ── Hero ── */}
-        <div className="hero">
-          <div className="hero-top anim">
-            <div>
-              <div className="hero-kicker">{BRAND_NAME} Marketplace</div>
-              <div className="hero-h1">
-                {locLabel
-                  ? <>Find anything in <i>{cityLabel}</i></>
-                  : <>Buy &amp; sell <i>near you</i></>
-                }
-              </div>
+        {/* ══ HERO ══════════════════════════════════════════ */}
+        <section className="hm-hero" aria-label="Welcome to Loemart">
+          <div className="hm-hero-blob hm-hero-blob--1" aria-hidden="true" />
+          <div className="hm-hero-blob hm-hero-blob--2" aria-hidden="true" />
+
+          <div className="hm-hero-top">
+            <div className="hm-hero-copy">
+              <span className="hm-hero-kicker">🛒 Loemart Marketplace</span>
+              <h1 className="hm-hero-h1">
+                Buy &amp; Sell<br />
+                <em className="hm-hero-em">Near You</em>
+              </h1>
+              <p className="hm-hero-sub">
+                Thousands of verified listings from sellers across Nigeria.
+              </p>
             </div>
+
             <button
-              className="hero-notify"
+              className="hm-notif-btn"
               aria-label="Notifications"
               onClick={() => navigate("/notifications")}
             >
-              🔔
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   strokeWidth={2} strokeLinecap="round" width={22} height={22}
+                   aria-hidden="true">
+                <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 01-3.46 0" />
+              </svg>
             </button>
           </div>
 
+          {heroLoc && (
+            <button
+              className="hm-hero-loc"
+              onClick={() => navigate("/nearby")}
+              aria-label="View nearby listings"
+            >
+              <span className="hm-loc-pip-lg" aria-hidden="true" />
+              <span>{heroLoc}</span>
+            </button>
+          )}
+
+          <div className="hm-hero-stats">
+            {loading ? (
+              [1, 2, 3].map((i) => (
+                <div key={i} className="hm-hero-stat">
+                  <div className="hm-sk hm-shimmer" style={{ width: 48, height: 22, borderRadius: 6 }} />
+                  <div className="hm-sk hm-shimmer" style={{ width: 56, height: 12, borderRadius: 4, marginTop: 4 }} />
+                </div>
+              ))
+            ) : (
+              [
+                { val: `${Math.max(total, productsRef.current.length) + 1000}+`, label: "Listings"    },
+                { val: "24/7",  label: "Live market" },
+                { val: "Free",  label: "To list"     },
+              ].map((s) => (
+                <div key={s.label} className="hm-hero-stat">
+                  <span className="hm-hero-stat-val">{s.val}</span>
+                  <span className="hm-hero-stat-label">{s.label}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        {/* ══ SEARCH ════════════════════════════════════════ */}
+        <div className="hm-search-wrap">
           <button
-            className="hero-loc anim anim-1"
-            onClick={() => setPickerOpen(true)}
-            aria-label="Change location"
+            className="hm-search-bar"
+            onClick={() => navigate("/search")}
+            aria-label="Search Loemart"
           >
-            <PinIcon size={14} />
-            <span>{locLabel || "Set your location"}</span>
-            {meta.nearbySource === "gps" && <span className="gps-chip">GPS</span>}
-            <span className="hero-loc-change">Change</span>
+            <span className="hm-search-ic" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                   strokeWidth={2.2} strokeLinecap="round" width={17} height={17}>
+                <circle cx="11" cy="11" r="8" />
+                <path d="M21 21l-4.35-4.35" />
+              </svg>
+            </span>
+            <span className="hm-search-placeholder">
+              Search products, brands, locations…
+            </span>
+            <kbd className="hm-search-kbd">⌘ K</kbd>
           </button>
-
-          <div className="hero-stats anim anim-2">
-            <div className="hero-stat">
-              <div className="hero-stat-n">{loading ? "—" : heroListingCount}</div>
-              <div className="hero-stat-l">Listings</div>
-            </div>
-            <div className="hero-stat">
-              <div className="hero-stat-n">{loading ? "—" : "24/7"}</div>
-              <div className="hero-stat-l">Live market</div>
-            </div>
-            <div className="hero-stat">
-              <div className="hero-stat-n">{loading ? "—" : "Free"}</div>
-              <div className="hero-stat-l">To list</div>
-            </div>
-          </div>
         </div>
 
-        {/* ── Search ── */}
-        <div className="search-wrap anim anim-3" onClick={() => navigate("/search")}>
-          <div className="search">
-            <span className="search-ic">🔍</span>
-            <span className="search-txt">Search products, categories…</span>
-            <span className="search-tag">⌘ K</span>
-          </div>
+        {/* ══ CATEGORIES ════════════════════════════════════ */}
+        <CategoryStrip current={category} onChange={switchCategory} />
+
+        {/* ══ SECTION PILLS ═════════════════════════════════ */}
+        <div className="hm-pills" role="navigation" aria-label="Quick sections">
+          {SECTION_PILLS.map((pill) => (
+            <button
+              key={pill.path}
+              className="hm-pill"
+              onClick={() => navigate(pill.path)}
+            >
+              {pill.label}
+            </button>
+          ))}
         </div>
 
-        {/* ── Hero quick-cat chips ── */}
-        <div className="hero-cats anim anim-3">
-          {HERO_CATS.map((name) => {
-            const cat = CATEGORY_CONFIG.find((c) => c.name === name);
-            if (!cat) return null;
-            return (
-              <button key={name} className="hero-cat-chip" onClick={() => handleCategorySelect(name)}>
-                <span>{cat.icon}</span>
-                {name.split(" ")[0]}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ── Full category strip ── */}
-        <div className="cat-strip anim anim-4">
-          {allCats.map((cat) => {
-            const isActive = activeCategory === cat.name;
-            return (
-              <button
-                key={cat.name}
-                className={`cat-btn${isActive ? " active" : ""}`}
-                onClick={() => handleCategorySelect(cat.name)}
-              >
-                <span className="cat-icon">{cat.icon}</span>
-                {cat.name}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* ── Error ── */}
+        {/* ══ ERROR ═════════════════════════════════════════ */}
         {error && (
-          <div className="err-box">
-            <div className="err-title">Marketplace unavailable</div>
-            <div className="err-msg">{error}</div>
-            <button className="err-btn" onClick={loadHomepage}>Try again</button>
+          <div className="hm-error" role="alert">
+            <span className="hm-error-icon" aria-hidden="true">⚡</span>
+            <p className="hm-error-title">Marketplace unavailable</p>
+            <p className="hm-error-msg">{error}</p>
+            <button
+              className="hm-error-btn"
+              onClick={() => loadFeed(category, true)}
+            >
+              Try again
+            </button>
           </div>
         )}
 
-        {/* ── Category View ── */}
-        {activeCategory !== "All" && (
-          <div className="sec cat-section">
-            <SectionHead
-              title={`${activeCatObj?.icon ?? ""} ${activeCategory}`}
-              sub={locLabel ? `· ${cityLabel}` : undefined}
-            />
-            {catLoading && <SkeletonMasonry />}
-            {!catLoading && (catError || catProducts?.length === 0) && (
-              <div className="empty">
-                <div className="empty-emoji">📭</div>
-                <div className="empty-title">No listings in {activeCategory} yet</div>
-                <div className="empty-sub">
-                  Be the first seller in <strong>{cityLabel}</strong> for this category!
+        {/* ══ FEATURED ══════════════════════════════════════ */}
+        {(loading || featured.length > 0) && (
+          <section className="hm-section" aria-label="Featured listings">
+            <div className="hm-section-head">
+              <h2 className="hm-section-title">💎 Featured</h2>
+            </div>
+            {loading
+              ? <FeaturedSkeleton />
+              : (
+                <div className="hm-feat-row">
+                  {featured.map((p) => (
+                    <FeaturedCard
+                      key={p.id}
+                      product={p}
+                      onClick={handleProductClick}
+                    />
+                  ))}
                 </div>
-                <button className="empty-btn" onClick={() => navigate("/minimart/add")}>
-                  Post your item →
-                </button>
-              </div>
-            )}
-            {!catLoading && catProducts?.length > 0 && (
-              <MasonryGrid products={catProducts} onView={trackView} onClick={handleProductClick} />
-            )}
-          </div>
+              )
+            }
+          </section>
         )}
 
-        {/* ── Homepage Sections ── */}
-        {activeCategory === "All" && (
-          <>
-            {!loading && !error && sections.all.length === 0 && (
-              <div className="empty">
-                <div className="empty-emoji">🛍</div>
-                <div className="empty-title">Welcome to {BRAND_NAME}</div>
-                <div className="empty-sub">
-                  Nigeria's neighbourhood marketplace — enable location for nearby deals.
-                </div>
-                <button className="empty-btn" onClick={loadHomepage}>Load Marketplace</button>
-              </div>
-            )}
-
-            {/* 1. Featured */}
-            {(loading || sections.featured.length > 0) && (
-              <div className="sec sec--primary anim anim-3">
-                <SectionHead title="Featured" />
-                {loading ? (
-                  <div className="feat-wrap"><div className="sk sk-ft" /></div>
-                ) : (
-                  <div className="feat-wrap">
-                    {sections.featured.map((p) =>
-                      p ? <FeaturedCard key={p.id} product={p} onClick={handleProductClick} /> : null
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 2. Near You */}
-            {(loading || sections.nearby.length > 0) && (
-              <div className="sec sec--primary anim anim-4">
-                <SectionHead
-                  title={<><PinIcon size={13} style={{ verticalAlign: "middle", marginRight: 4 }} /> Near You</>}
-                  sub={locLabel ? `in ${cityLabel}` : undefined}
-                  chip={meta.nearbySource === "gps" ? "GPS" : undefined}
-                  onSeeAll={() => navigate("/nearby")}
-                />
-                {loading ? <SkeletonRow /> : (
-                  <div className="row">
-                    {sections.nearby.map((p, i) =>
-                      p ? (
-                        <OverlayCard
-                          key={p.id} product={p} priority={i === 0}
-                          onView={trackView} onClick={handleProductClick}
-                        />
-                      ) : null
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 3. For You */}
-            {(loading || sections.forYou.length > 0) && (
-              <div className="sec anim anim-5">
-                <SectionHead
-                  title="For You"
-                  sub={locLabel ? `Popular in ${cityLabel}` : "Based on your activity"}
-                  onSeeAll={() => navigate("/trending")}
-                />
-                {loading ? <SkeletonRow /> : sections.forYou.length === 0 ? (
-                  <SectionEmpty
-                    title="Building your feed…"
-                    sub="Browse a few categories and we'll personalise this for you."
-                  />
-                ) : (
-                  <div className="row">
-                    {sections.forYou.map((p, i) =>
-                      p ? (
-                        <OverlayCard
-                          key={p.id} product={p} rank={i}
-                          onView={trackView} onClick={handleProductClick}
-                        />
-                      ) : null
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* 4. Cheap Deals */}
-            <div className="sec">
-              <SectionHead title="Cheap Deals" chip="Under ₦50k" onSeeAll={() => navigate("/deals")} />
-              {loading ? <SkeletonMasonry /> : sections.deals.length === 0 ? (
-                <SectionEmpty
-                  title="No deals right now"
-                  sub="New listings under ₦50,000 appear daily — check back soon."
-                />
-              ) : (
-                <MasonryGrid products={sections.deals} onView={trackView} onClick={handleProductClick} />
-              )}
+        {/* ══ DEALS STRIP ═══════════════════════════════════ */}
+        {!loading && deals.length > 0 && (
+          <section className="hm-section" aria-label="Cheap deals">
+            <div className="hm-section-head">
+              <h2 className="hm-section-title">💸 Cheap Deals</h2>
+              <button
+                className="hm-section-link"
+                onClick={() => navigate("/deals")}
+              >
+                See all →
+              </button>
             </div>
-
-            {/* 5. New Arrivals */}
-            <div className="sec">
-              <SectionHead title="New Arrivals" onSeeAll={() => navigate("/latest")} />
-              {loading ? <SkeletonRow /> : sections.latest.length === 0 ? (
-                <SectionEmpty
-                  title="No new listings yet"
-                  sub={`Be the first to sell in ${cityLabel}!`}
-                  cta="Sell Now"
-                  onCta={() => navigate("/minimart/add")}
-                />
-              ) : (
-                <div className="row">
-                  {sections.latest.map((p, i) =>
-                    p ? (
-                      <OverlayCard
-                        key={p.id} product={p} priority={i === 0}
-                        onView={trackView} onClick={handleProductClick}
-                      />
-                    ) : null
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* 6. All Products */}
-            <div className="sec">
-              <SectionHead
-                title="All Products"
-                sub={`${sections.all.length} listings`}
-                onSeeAll={() => navigate("/products")}
-              />
-              {!loading && sections.all.length > 0 && (
-                <SortChips
-                  active={allSort}
-                  onChange={(k) => { setAllSort(k); setAllVisible(ALL_PRODUCTS_LIMIT); }}
-                />
-              )}
-              {loading ? <SkeletonMasonry /> : sections.all.length === 0 ? (
-                <SectionEmpty title="No products yet" />
-              ) : (
-                <>
-                  <MasonryGrid
-                    products={allWithInjections}
-                    onView={trackView}
+            <div className="hm-deals-scroll">
+              <div className="hm-deals-track">
+                {deals.map((p) => (
+                  <DealCard
+                    key={p.id}
+                    product={p}
                     onClick={handleProductClick}
                   />
-                  {allVisible < sortedAll.length && (
-                    <button
-                      className="load-more"
-                      onClick={() => setAllVisible((v) => v + ALL_PRODUCTS_LIMIT)}
-                    >
-                      Load more ({sortedAll.length - allVisible} remaining)
-                    </button>
-                  )}
-                </>
+                ))}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ══ MAIN FEED ═════════════════════════════════════ */}
+        <section
+          className="hm-section"
+          aria-label={category === "all" ? "Recommended for you" : currentCatName}
+        >
+          <div className="hm-section-head">
+            <h2 className="hm-section-title">
+              {category === "all" ? "Recommended for You" : currentCatName}
+            </h2>
+            {category !== "all" && (
+              <button
+                className="hm-cat-clear"
+                onClick={() => switchCategory("all")}
+                aria-label="Clear category filter"
+              >
+                ✕ Clear
+              </button>
+            )}
+          </div>
+
+          {loading ? (
+            <MasonrySkeleton />
+          ) : error ? null : products.length === 0 ? (
+            <div className="hm-empty" role="status">
+              <span className="hm-empty-emoji" aria-hidden="true">🛍️</span>
+              <h3 className="hm-empty-title">
+                {category === "all" ? "Welcome to Loemart" : `No listings in ${currentCatName}`}
+              </h3>
+              <p className="hm-empty-sub">
+                {category === "all"
+                  ? "Enable location for nearby deals, or browse what's available."
+                  : "Be the first to list here, or try another category."}
+              </p>
+              {category === "all" ? (
+                <button className="hm-empty-btn" onClick={() => loadFeed("all", true)}>
+                  Reload marketplace
+                </button>
+              ) : (
+                <button className="hm-empty-btn" onClick={() => switchCategory("all")}>
+                  Browse all listings
+                </button>
               )}
             </div>
-          </>
+          ) : (
+            <>
+              <div className="hm-masonry" role="list" aria-label="Product listings">
+                {products.map((p, i) => (
+                  <div key={p.id} role="listitem">
+                    <MasonryCard
+                      product={p}
+                      priority={i < 6}
+                      onView={trackView}
+                      onClick={handleProductClick}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
+
+              {loadingMore && (
+                <p className="hm-loading-more" aria-live="polite">
+                  <span className="hm-spinner" aria-hidden="true" /> Loading more…
+                </p>
+              )}
+              {!hasMore && products.length > 0 && (
+                <p className="hm-feed-end" aria-live="polite">
+                  You've seen it all 🎉
+                </p>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* ══ SELL CTA ══════════════════════════════════════ */}
+        {!loading && (
+          <section className="hm-sell-banner" aria-label="Start selling">
+            <div className="hm-sell-banner-content">
+              <div className="hm-sell-banner-text">
+                <h2>Start Selling on Loemart</h2>
+                <p>
+                  List your products for free and reach thousands
+                  of buyers across Nigeria.
+                </p>
+              </div>
+              <button
+                className="hm-sell-banner-btn"
+                onClick={() => navigate("/minimart/add")}
+              >
+                List for Free →
+              </button>
+            </div>
+            <div className="hm-sell-banner-blob" aria-hidden="true" />
+          </section>
         )}
+
       </div>
 
-      {/* ── FAB ── */}
-      <button className="fab" onClick={() => navigate("/minimart/add")} aria-label="Sell a product">
-        <span className="fab-ic">＋</span>
+      {/* ── FAB ─────────────────────────────────────────── */}
+      <button
+        className="hm-fab"
+        onClick={() => navigate("/minimart/add")}
+        aria-label="Sell a product"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             strokeWidth={2.5} strokeLinecap="round" width={18} height={18}
+             aria-hidden="true">
+          <path d="M12 5v14M5 12h14" />
+        </svg>
         Sell Now
       </button>
 
-      <LocationPicker
-        open={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        onSelect={() => { setPickerOpen(false); loadHomepage(); }}
-      />
-
-      <Footer />
       <BottomNav />
     </>
   );
