@@ -1,16 +1,6 @@
 /**
  * src/pages/Homepage.jsx
  * Route: /
- *
- * Production-grade marketplace UX:
- * - Smart ranking (engagement + promoted weight)
- * - Priority-ordered featured (promotion_priority)
- * - "For You" merged section (trending + recommended + session boost)
- * - Session-based personalization (recentCategories)
- * - Mid-feed promoted injection every 10 items
- * - Distance labels passed through to cards
- * - GPS + location-aware fetching
- * - 30-min + movement-aware refresh
  */
 
 import {
@@ -31,7 +21,7 @@ import "../styles/Homepage.css";
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
 ═══════════════════════════════════════════════════════════════ */
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || "";
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -40,9 +30,9 @@ const PH               = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Ima
 const RECENT_KEY       = "recentCategories";
 const ALL_PRODUCTS_LIMIT = 40;
 const PROMO_INTERVAL   = 10;
-const REFRESH_MS       = 1_800_000; // 30 minutes
-const MOVE_CHECK_MS    = 300_000;   // 5 minutes
-const MOVE_THRESHOLD   = 2;         // km
+const REFRESH_MS       = 1_800_000;
+const MOVE_CHECK_MS    = 300_000;
+const MOVE_THRESHOLD   = 2;
 const GPS_TIMEOUT_MS   = 5_000;
 const BRAND_NAME       = "Loemart";
 
@@ -83,45 +73,51 @@ const trackCategory = (categoryId) => {
 
 /* ═══════════════════════════════════════════════════════════════
    NORMALIZE PRODUCT
-   API returns numeric fields as strings e.g. price: "230000.00"
-   Convert all to real numbers for sorting/filtering to work.
+   ✅ Returns null for invalid items — filtered out before use
 ═══════════════════════════════════════════════════════════════ */
-const normalizeProduct = (p) => ({
-  ...p,
-  price             : Number(p.price             || 0),
-  engagement_score  : Number(p.engagement_score  || 0),
-  clicks_count      : Number(p.clicks_count      || 0),
-  impression_count  : Number(p.impression_count  || 0),
-  views             : Number(p.views             || 0),
-  ctr               : Number(p.ctr               || 0),
-  promotion_priority: Number(p.promotion_priority || 0),
-  conversion_rate   : Number(p.conversion_rate   || 0),
+const normalizeProduct = (p) => {
+  // ── Safety: reject null / non-object items ──
+  if (!p || typeof p !== "object" || !p.id) return null;
 
-  // ── Normalize image ──────────────────────────────────────
-  image: p.image ||
-    (Array.isArray(p.images) && p.images.length > 0
-      ? (typeof p.images[0] === "string"
-          ? p.images[0]
-          : p.images[0]?.url || null)
-      : null) ||
-    p.main_image    ||
-    p.thumbnail_url ||
-    null,
+  return {
+    ...p,
+    price             : Number(p.price             || 0),
+    engagement_score  : Number(p.engagement_score  || 0),
+    clicks_count      : Number(p.clicks_count      || 0),
+    impression_count  : Number(p.impression_count  || 0),
+    views             : Number(p.views             || 0),
+    ctr               : Number(p.ctr               || 0),
+    promotion_priority: Number(p.promotion_priority || 0),
+    conversion_rate   : Number(p.conversion_rate   || 0),
+    is_promoted       : !!p.is_promoted,
 
-  // ── Normalize location ───────────────────────────────────
-  location_city  : p.location?.city  || p.location_city  || null,
-  location_state : p.location?.state || p.location_state || null,
-});
+    // ── Normalize image ──────────────────────────────────
+    image: p.image ||
+      (Array.isArray(p.images) && p.images.length > 0
+        ? (typeof p.images[0] === "string"
+            ? p.images[0]
+            : p.images[0]?.url || null)
+        : null) ||
+      p.main_image    ||
+      p.thumbnail_url ||
+      null,
+
+    // ── Normalize location ───────────────────────────────
+    location_city  : p.location?.city  || p.location_city  || null,
+    location_state : p.location?.state || p.location_state || null,
+  };
+};
 
 /* ═══════════════════════════════════════════════════════════════
-   SCORING
+   SCORING — with null safety
 ═══════════════════════════════════════════════════════════════ */
 const personalScore = (p, recentCats) => {
+  if (!p) return 0;
   let score = 0;
-  score += p.engagement_score;
-  score += (p.is_promoted ? 50 : 0);
-  score += (p.promotion_priority * 5);
-  score += (p.ctr * 30);
+  score += (p.engagement_score   || 0);
+  score += (p.is_promoted ? 50   : 0);
+  score += ((p.promotion_priority || 0) * 5);
+  score += ((p.ctr               || 0) * 30);
   if (p.category_id && recentCats.includes(p.category_id)) score += 20;
   return score;
 };
@@ -131,7 +127,7 @@ const personalScore = (p, recentCats) => {
 ═══════════════════════════════════════════════════════════════ */
 const dedup = (arr) => {
   const seen = new Set();
-  return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
+  return arr.filter((p) => p && !seen.has(p.id) && seen.add(p.id));
 };
 
 const formatCount = (n) => {
@@ -170,9 +166,9 @@ const heroLocation = (meta) => {
 };
 
 const applySort = (arr, key) => {
-  if (key === "newest")     return [...arr].sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-  if (key === "price_asc")  return [...arr].sort((a, b) => a.price - b.price);
-  if (key === "price_desc") return [...arr].sort((a, b) => b.price - a.price);
+  if (key === "newest")     return [...arr].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  if (key === "price_asc")  return [...arr].sort((a, b) => (a.price || 0) - (b.price || 0));
+  if (key === "price_desc") return [...arr].sort((a, b) => (b.price || 0) - (a.price || 0));
   return arr;
 };
 
@@ -180,13 +176,13 @@ const injectPromoted = (products, promoted, interval = PROMO_INTERVAL) => {
   if (!promoted.length) return products;
   const result  = [];
   let promoIdx  = 0;
-  const usedIds = new Set(products.map((p) => p.id));
+  const usedIds = new Set(products.map((p) => p?.id).filter(Boolean));
 
   for (let i = 0; i < products.length; i++) {
-    result.push(products[i]);
+    if (products[i]) result.push(products[i]);
     if ((i + 1) % interval === 0) {
-      while (promoIdx < promoted.length && usedIds.has(promoted[promoIdx].id)) promoIdx++;
-      if (promoIdx < promoted.length) {
+      while (promoIdx < promoted.length && usedIds.has(promoted[promoIdx]?.id)) promoIdx++;
+      if (promoIdx < promoted.length && promoted[promoIdx]) {
         result.push({ ...promoted[promoIdx], _injected: true });
         usedIds.add(promoted[promoIdx].id);
         promoIdx++;
@@ -197,18 +193,32 @@ const injectPromoted = (products, promoted, interval = PROMO_INTERVAL) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SPLIT PRODUCTS
+   SPLIT PRODUCTS — with full null safety
 ═══════════════════════════════════════════════════════════════ */
 const splitProducts = (products, recentCats = []) => {
+  // ── Safety: filter out any null/undefined items ──
+  const safe = (products || []).filter(
+    (p) => p && typeof p === "object" && p.id
+  );
+
+  if (safe.length === 0) {
+    return { featured: [], nearby: [], forYou: [], deals: [], latest: [], all: [] };
+  }
+
+  // ── Score all products ────────────────────────────────────
+  const scored = safe.map((p) => ({
+    ...p,
+    _score: personalScore(p, recentCats),
+  }));
 
   // ── Featured ──────────────────────────────────────────────
-  const featured = products
-    .filter((p) => p.is_promoted)
-    .sort((a, b) => b.promotion_priority - a.promotion_priority)
+  const featured = safe
+    .filter((p) => p.is_promoted === true)
+    .sort((a, b) => (b.promotion_priority || 0) - (a.promotion_priority || 0))
     .slice(0, 3);
 
   // ── Near You ──────────────────────────────────────────────
-  const nearby = products
+  const nearby = safe
     .filter((p) =>
       p.distance_km != null ||
       p.location_city       ||
@@ -217,32 +227,30 @@ const splitProducts = (products, recentCats = []) => {
     .slice(0, 10);
 
   // ── For You ───────────────────────────────────────────────
-  const scored = products.map((p) => ({
-    ...p,
-    _score: personalScore(p, recentCats),
-  }));
-
   const forYou = scored
     .filter((p) =>
-      p._score > 0           ||
-      p.engagement_score > 0 ||
-      p.ctr > 0
+      (p._score          || 0) > 0 ||
+      (p.engagement_score || 0) > 0 ||
+      (p.ctr             || 0) > 0
     )
-    .sort((a, b) => b._score - a._score)
+    .sort((a, b) => (b._score || 0) - (a._score || 0))
     .slice(0, 20);
 
   // ── Deals ─────────────────────────────────────────────────
   const deals = shuffle(
-    products.filter((p) => p.price <= 50_000)
+    safe.filter((p) => (p.price || 0) <= 50_000)
   ).slice(0, 20);
 
   // ── Latest ───────────────────────────────────────────────
-  const latest = [...products]
-    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+  const latest = [...safe]
+    .sort((a, b) =>
+      new Date(b.created_at || 0) - new Date(a.created_at || 0)
+    )
     .slice(0, 20);
 
   // ── All ───────────────────────────────────────────────────
-  const all = [...scored].sort((a, b) => b._score - a._score);
+  const all = [...scored]
+    .sort((a, b) => (b._score || 0) - (a._score || 0));
 
   return { featured, nearby, forYou, deals, latest, all };
 };
@@ -306,6 +314,7 @@ const SectionEmpty = ({ emoji, title, sub, cta, onCta }) => (
    FEATURED CARD
 ═══════════════════════════════════════════════════════════════ */
 const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
+  if (!product) return null;
   const imageUrl = product.image || getImageUrl(product) || PH;
   return (
     <div
@@ -318,7 +327,7 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
       <img
         className="feat-img"
         src={imageUrl}
-        alt={product.title}
+        alt={product.title || "Product"}
         loading="eager"
         decoding="async"
         fetchPriority="high"
@@ -402,16 +411,6 @@ export default function Homepage({ user }) {
     JSON.parse(localStorage.getItem("lastLocation") || "null")
   );
 
-  // ── Fetch homepage data ───────────────────────────────────
-  // Uses VITE_API_BASE_URL directly as requested
-  const fetchHomepage = useCallback(async (qs = "") => {
-    const res = await fetch(
-      `${import.meta.env.VITE_API_BASE_URL}/api/homepage${qs}`
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.json();
-  }, []);
-
   // ── Apply fetched data ────────────────────────────────────
   const applyData = useCallback((data) => {
     const raw =
@@ -424,9 +423,12 @@ export default function Homepage({ user }) {
             ...(data.latest      || []),
           ];
 
-    // Normalize string numbers → real numbers
-    const normalized = dedup(raw).map(normalizeProduct);
-    const recent     = getRecentCategories();
+    // Normalize + filter out null/invalid items
+    const normalized = dedup(raw)
+      .map(normalizeProduct)
+      .filter(Boolean); // ← removes null returns from normalizeProduct
+
+    const recent = getRecentCategories();
 
     console.log("[Homepage] products loaded:", normalized.length);
 
@@ -437,6 +439,13 @@ export default function Homepage({ user }) {
     setMeta(data.meta || {});
     setLoaded(true);
   }, [setProducts, setLoaded]);
+
+  // ── Fetch helper ──────────────────────────────────────────
+  const doFetch = useCallback(async (qs = "") => {
+    const res = await fetch(`${BASE_URL}/api/homepage${qs}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }, []);
 
   // ── Load homepage ─────────────────────────────────────────
   const loadHomepage = useCallback(async () => {
@@ -449,14 +458,8 @@ export default function Homepage({ user }) {
         let done = false;
         const finish = (fn) => { if (done) return; done = true; fn(); };
 
-        // GPS timeout — if GPS takes too long, fetch without location
         const timeout = setTimeout(() => {
-          finish(() =>
-            fetch(`${import.meta.env.VITE_API_BASE_URL}/api/homepage`)
-              .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-              .then(resolve)
-              .catch(reject)
-          );
+          finish(() => doFetch().then(resolve).catch(reject));
         }, GPS_TIMEOUT_MS);
 
         if (navigator.geolocation) {
@@ -467,41 +470,18 @@ export default function Homepage({ user }) {
                 const { latitude, longitude } = pos.coords;
                 lastLocationRef.current = { latitude, longitude };
                 localStorage.setItem("lastLocation", JSON.stringify({ latitude, longitude }));
-
-                // Fetch WITH location
-                fetch(`${import.meta.env.VITE_API_BASE_URL}/api/homepage?lat=${latitude}&lng=${longitude}`)
-                  .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
+                doFetch(`?lat=${latitude}&lng=${longitude}`)
                   .then(resolve)
-                  .catch(() =>
-                    // Fallback to no-location if GPS fetch fails
-                    fetch(`${import.meta.env.VITE_API_BASE_URL}/api/homepage`)
-                      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-                      .then(resolve)
-                      .catch(reject)
-                  );
+                  .catch(() => doFetch().then(resolve).catch(reject));
               });
             },
             () => {
-              // GPS denied — fetch without location
-              finish(() => {
-                clearTimeout(timeout);
-                fetch(`${import.meta.env.VITE_API_BASE_URL}/api/homepage`)
-                  .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-                  .then(resolve)
-                  .catch(reject);
-              });
+              finish(() => { clearTimeout(timeout); doFetch().then(resolve).catch(reject); });
             },
             GPS_OPTIONS
           );
         } else {
-          // No geolocation support
-          finish(() => {
-            clearTimeout(timeout);
-            fetch(`${import.meta.env.VITE_API_BASE_URL}/api/homepage`)
-              .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
-              .then(resolve)
-              .catch(reject);
-          });
+          finish(() => { clearTimeout(timeout); doFetch().then(resolve).catch(reject); });
         }
       });
 
@@ -513,13 +493,15 @@ export default function Homepage({ user }) {
     } finally {
       setLoading(false);
     }
-  }, [applyData]);
+  }, [applyData, doFetch]);
 
   // ── Bootstrap ─────────────────────────────────────────────
   useEffect(() => {
     if (cacheLoaded && cachedProducts?.length > 0) {
-      const normalized = cachedProducts.map(normalizeProduct);
-      const recent     = getRecentCategories();
+      const normalized = cachedProducts
+        .map(normalizeProduct)
+        .filter(Boolean);
+      const recent = getRecentCategories();
       productsRef.current = normalized;
       setAllProducts(normalized);
       setSections(splitProducts(normalized, recent));
@@ -539,7 +521,6 @@ export default function Homepage({ user }) {
   // ── Movement-aware refresh ────────────────────────────────
   useEffect(() => {
     if (!navigator.geolocation) return;
-
     const check = () => {
       navigator.geolocation.getCurrentPosition(
         ({ coords: { latitude, longitude } }) => {
@@ -556,7 +537,6 @@ export default function Homepage({ user }) {
         { enableHighAccuracy: false, maximumAge: 300_000, timeout: 5_000 }
       );
     };
-
     const id = setInterval(check, MOVE_CHECK_MS);
     return () => clearInterval(id);
   }, [loadHomepage]);
@@ -587,25 +567,24 @@ export default function Homepage({ user }) {
       if (match?.id) trackCategory(match.id);
 
       const url = match?.id
-        ? `${import.meta.env.VITE_API_BASE_URL}/api/homepage?category_id=${match.id}&page=0`
-        : `${import.meta.env.VITE_API_BASE_URL}/api/homepage?page=0`;
+        ? `${BASE_URL}/api/homepage?category_id=${match.id}&page=0`
+        : `${BASE_URL}/api/homepage?page=0`;
 
       const res  = await fetch(url, { signal: catAbortRef.current.signal });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
       const prods = (Array.isArray(data.products) ? data.products : [])
-        .map(normalizeProduct);
-      setCatProducts(shuffle(dedup(prods)));
+        .map(normalizeProduct)
+        .filter(Boolean);
 
+      setCatProducts(shuffle(dedup(prods)));
     } catch (err) {
       if (err.name === "AbortError") return;
-
-      // Fallback to local filter
       const fallback = allProducts.filter(
         (p) =>
-          p.category?.toLowerCase()      === catName.toLowerCase() ||
-          p.category_name?.toLowerCase() === catName.toLowerCase()
+          p?.category?.toLowerCase()      === catName.toLowerCase() ||
+          p?.category_name?.toLowerCase() === catName.toLowerCase()
       );
       setCatProducts(shuffle(fallback));
       if (fallback.length === 0) setCatError(`No listings found in "${catName}"`);
@@ -616,15 +595,12 @@ export default function Homepage({ user }) {
 
   // ── Analytics ─────────────────────────────────────────────
   const trackView = useCallback((id) => {
-    fetch(`${import.meta.env.VITE_API_BASE_URL}/api/products/${id}/view`, {
-      method: "POST",
-    }).catch(() => {});
+    fetch(`${BASE_URL}/api/products/${id}/view`, { method: "POST" }).catch(() => {});
   }, []);
 
   const handleProductClick = useCallback((product) => {
-    fetch(`${import.meta.env.VITE_API_BASE_URL}/api/products/${product.id}/click`, {
-      method: "POST",
-    }).catch(() => {});
+    if (!product?.id) return;
+    fetch(`${BASE_URL}/api/products/${product.id}/click`, { method: "POST" }).catch(() => {});
     if (product.category_id) trackCategory(product.category_id);
     navigate(`/product/${product.slug}`);
   }, [navigate]);
@@ -665,9 +641,7 @@ export default function Homepage({ user }) {
 
       <div className="pg">
 
-        {/* ══════════════════════════════════════════════
-            HERO
-        ══════════════════════════════════════════════ */}
+        {/* ── Hero ── */}
         <div className="hero">
           <div className="hero-top anim">
             <div>
@@ -688,7 +662,6 @@ export default function Homepage({ user }) {
             </button>
           </div>
 
-          {/* Location pill */}
           <button
             className="hero-loc anim anim-1"
             onClick={() => setPickerOpen(true)}
@@ -700,7 +673,6 @@ export default function Homepage({ user }) {
             <span className="hero-loc-change">Change</span>
           </button>
 
-          {/* Stats */}
           <div className="hero-stats anim anim-2">
             <div className="hero-stat">
               <div className="hero-stat-n">{loading ? "—" : heroListingCount}</div>
@@ -717,13 +689,8 @@ export default function Homepage({ user }) {
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════════
-            SEARCH
-        ══════════════════════════════════════════════ */}
-        <div
-          className="search-wrap anim anim-3"
-          onClick={() => navigate("/search")}
-        >
+        {/* ── Search ── */}
+        <div className="search-wrap anim anim-3" onClick={() => navigate("/search")}>
           <div className="search">
             <span className="search-ic">🔍</span>
             <span className="search-txt">Search products, categories…</span>
@@ -731,19 +698,13 @@ export default function Homepage({ user }) {
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════════
-            HERO QUICK-CAT CHIPS
-        ══════════════════════════════════════════════ */}
+        {/* ── Hero quick-cat chips ── */}
         <div className="hero-cats anim anim-3">
           {HERO_CATS.map((name) => {
             const cat = CATEGORY_CONFIG.find((c) => c.name === name);
             if (!cat) return null;
             return (
-              <button
-                key={name}
-                className="hero-cat-chip"
-                onClick={() => handleCategorySelect(name)}
-              >
+              <button key={name} className="hero-cat-chip" onClick={() => handleCategorySelect(name)}>
                 <span>{cat.icon}</span>
                 {name.split(" ")[0]}
               </button>
@@ -751,9 +712,7 @@ export default function Homepage({ user }) {
           })}
         </div>
 
-        {/* ══════════════════════════════════════════════
-            FULL CATEGORY STRIP
-        ══════════════════════════════════════════════ */}
+        {/* ── Full category strip ── */}
         <div className="cat-strip anim anim-4">
           {allCats.map((cat) => {
             const isActive = activeCategory === cat.name;
@@ -770,9 +729,7 @@ export default function Homepage({ user }) {
           })}
         </div>
 
-        {/* ══════════════════════════════════════════════
-            ERROR
-        ══════════════════════════════════════════════ */}
+        {/* ── Error ── */}
         {error && (
           <div className="err-box">
             <div className="err-title">Marketplace unavailable</div>
@@ -781,9 +738,7 @@ export default function Homepage({ user }) {
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════
-            CATEGORY VIEW
-        ══════════════════════════════════════════════ */}
+        {/* ── Category View ── */}
         {activeCategory !== "All" && (
           <div className="sec cat-section">
             <SectionHead
@@ -804,18 +759,12 @@ export default function Homepage({ user }) {
               </div>
             )}
             {!catLoading && catProducts?.length > 0 && (
-              <MasonryGrid
-                products={catProducts}
-                onView={trackView}
-                onClick={handleProductClick}
-              />
+              <MasonryGrid products={catProducts} onView={trackView} onClick={handleProductClick} />
             )}
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════
-            HOMEPAGE SECTIONS (All tab)
-        ══════════════════════════════════════════════ */}
+        {/* ── Homepage Sections ── */}
         {activeCategory === "All" && (
           <>
             {!loading && !error && sections.all.length === 0 && (
@@ -825,13 +774,11 @@ export default function Homepage({ user }) {
                 <div className="empty-sub">
                   Nigeria's neighbourhood marketplace — enable location for nearby deals.
                 </div>
-                <button className="empty-btn" onClick={loadHomepage}>
-                  Load Marketplace
-                </button>
+                <button className="empty-btn" onClick={loadHomepage}>Load Marketplace</button>
               </div>
             )}
 
-            {/* ── 1. Featured ── */}
+            {/* 1. Featured */}
             {(loading || sections.featured.length > 0) && (
               <div className="sec sec--primary anim anim-3">
                 <SectionHead title="Featured" />
@@ -839,45 +786,39 @@ export default function Homepage({ user }) {
                   <div className="feat-wrap"><div className="sk sk-ft" /></div>
                 ) : (
                   <div className="feat-wrap">
-                    {sections.featured.map((p) => (
-                      <FeaturedCard key={p.id} product={p} onClick={handleProductClick} />
-                    ))}
+                    {sections.featured.map((p) =>
+                      p ? <FeaturedCard key={p.id} product={p} onClick={handleProductClick} /> : null
+                    )}
                   </div>
                 )}
               </div>
             )}
 
-            {/* ── 2. Near You ── */}
+            {/* 2. Near You */}
             {(loading || sections.nearby.length > 0) && (
               <div className="sec sec--primary anim anim-4">
                 <SectionHead
-                  title={
-                    <>
-                      <PinIcon size={13} style={{ verticalAlign: "middle", marginRight: 4 }} />
-                      Near You
-                    </>
-                  }
+                  title={<><PinIcon size={13} style={{ verticalAlign: "middle", marginRight: 4 }} /> Near You</>}
                   sub={locLabel ? `in ${cityLabel}` : undefined}
                   chip={meta.nearbySource === "gps" ? "GPS" : undefined}
                   onSeeAll={() => navigate("/nearby")}
                 />
                 {loading ? <SkeletonRow /> : (
                   <div className="row">
-                    {sections.nearby.map((p, i) => (
-                      <OverlayCard
-                        key={p.id}
-                        product={p}
-                        priority={i === 0}
-                        onView={trackView}
-                        onClick={handleProductClick}
-                      />
-                    ))}
+                    {sections.nearby.map((p, i) =>
+                      p ? (
+                        <OverlayCard
+                          key={p.id} product={p} priority={i === 0}
+                          onView={trackView} onClick={handleProductClick}
+                        />
+                      ) : null
+                    )}
                   </div>
                 )}
               </div>
             )}
 
-            {/* ── 3. For You ── */}
+            {/* 3. For You */}
             {(loading || sections.forYou.length > 0) && (
               <div className="sec anim anim-5">
                 <SectionHead
@@ -892,47 +833,35 @@ export default function Homepage({ user }) {
                   />
                 ) : (
                   <div className="row">
-                    {sections.forYou.map((p, i) => (
-                      <OverlayCard
-                        key={p.id}
-                        product={p}
-                        rank={i}
-                        onView={trackView}
-                        onClick={handleProductClick}
-                      />
-                    ))}
+                    {sections.forYou.map((p, i) =>
+                      p ? (
+                        <OverlayCard
+                          key={p.id} product={p} rank={i}
+                          onView={trackView} onClick={handleProductClick}
+                        />
+                      ) : null
+                    )}
                   </div>
                 )}
               </div>
             )}
 
-            {/* ── 4. Cheap Deals ── */}
+            {/* 4. Cheap Deals */}
             <div className="sec">
-              <SectionHead
-                title="Cheap Deals"
-                chip="Under ₦50k"
-                onSeeAll={() => navigate("/deals")}
-              />
+              <SectionHead title="Cheap Deals" chip="Under ₦50k" onSeeAll={() => navigate("/deals")} />
               {loading ? <SkeletonMasonry /> : sections.deals.length === 0 ? (
                 <SectionEmpty
                   title="No deals right now"
                   sub="New listings under ₦50,000 appear daily — check back soon."
                 />
               ) : (
-                <MasonryGrid
-                  products={sections.deals}
-                  onView={trackView}
-                  onClick={handleProductClick}
-                />
+                <MasonryGrid products={sections.deals} onView={trackView} onClick={handleProductClick} />
               )}
             </div>
 
-            {/* ── 5. New Arrivals ── */}
+            {/* 5. New Arrivals */}
             <div className="sec">
-              <SectionHead
-                title="New Arrivals"
-                onSeeAll={() => navigate("/latest")}
-              />
+              <SectionHead title="New Arrivals" onSeeAll={() => navigate("/latest")} />
               {loading ? <SkeletonRow /> : sections.latest.length === 0 ? (
                 <SectionEmpty
                   title="No new listings yet"
@@ -942,20 +871,19 @@ export default function Homepage({ user }) {
                 />
               ) : (
                 <div className="row">
-                  {sections.latest.map((p, i) => (
-                    <OverlayCard
-                      key={p.id}
-                      product={p}
-                      priority={i === 0}
-                      onView={trackView}
-                      onClick={handleProductClick}
-                    />
-                  ))}
+                  {sections.latest.map((p, i) =>
+                    p ? (
+                      <OverlayCard
+                        key={p.id} product={p} priority={i === 0}
+                        onView={trackView} onClick={handleProductClick}
+                      />
+                    ) : null
+                  )}
                 </div>
               )}
             </div>
 
-            {/* ── 6. All Products ── */}
+            {/* 6. All Products */}
             <div className="sec">
               <SectionHead
                 title="All Products"
@@ -993,11 +921,7 @@ export default function Homepage({ user }) {
       </div>
 
       {/* ── FAB ── */}
-      <button
-        className="fab"
-        onClick={() => navigate("/minimart/add")}
-        aria-label="Sell a product"
-      >
+      <button className="fab" onClick={() => navigate("/minimart/add")} aria-label="Sell a product">
         <span className="fab-ic">＋</span>
         Sell Now
       </button>
