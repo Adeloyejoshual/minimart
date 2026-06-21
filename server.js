@@ -393,6 +393,10 @@ app.use("/api/verification", verificationRouter);
 import couponsRouter from "./routes/coupons.js";
 app.use("/api/coupons", couponsRouter);
 
+/* ── Spin Wheel ── */
+import spinwheelRouter from "./routes/spinwheel.js";
+app.use("/api/spinwheel", spinwheelRouter);
+
 /* ═══════════════════════════════════════════════════════════════
    HEALTH CHECK
 ═══════════════════════════════════════════════════════════════ */
