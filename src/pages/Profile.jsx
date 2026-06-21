@@ -7,7 +7,6 @@
  * - Recent products preview
  * - Stats (products, rating, sales, views)
  * - Become Seller modal
- * - Spin & Win promo
  * - Full menu
  */
 
@@ -19,7 +18,8 @@ import {
   FiHeadphones, FiGift, FiCreditCard,
   FiFileText, FiMoreVertical, FiLogOut, FiShield,
   FiGrid, FiTrendingUp, FiChevronRight, FiArrowLeft,
-  FiX, FiPackage, FiEye, FiHeart, FiShoppingBag, FiRotateCw,
+  FiX, FiPackage, FiEye, FiHeart, FiShoppingBag,
+  FiZap,
 } from "react-icons/fi";
 import "../style/Profile.css";
 
@@ -69,9 +69,9 @@ const timeAgo = (d) => {
 ═══════════════════════════════════════════════════════════════ */
 const MENU_ITEMS = [
   { to: "/dashboard",    icon: <FiGrid />,          label: "Dashboard",    badge: null  },
-  { to: "/spin",         icon: <FiRotateCw />,       label: "Spin & Win",   badge: "🎁" },
   { to: "/leaderboard",  icon: <FiTrendingUp />,    label: "Leaderboard",  badge: null  },
   { to: "/wallet",       icon: <FiCreditCard />,    label: "Wallet",       badge: null  },
+  { to: "/spin",         icon: <FiZap />,           label: "Spin & Win",   badge: "WIN" },
   { to: "/coupons",      icon: <FiGift />,          label: "Coupons",      badge: null  },
   { to: "/minimart/add", icon: <FiPlus />,          label: "Add Product",  badge: "NEW" },
   { to: "/verification", icon: <FiShield />,        label: "Verification", badge: null  },
@@ -488,20 +488,6 @@ export default function Profile({ onLogout }) {
         </div>
 
         {/* ══════════════════════════════════════════════
-            SPIN & WIN BANNER
-        ══════════════════════════════════════════════ */}
-        <Link to="/spin" className="prof-spin-banner">
-          <div className="prof-spin-banner__icon">🎡</div>
-          <div className="prof-spin-banner__text">
-            <p className="prof-spin-banner__title">Spin &amp; Win</p>
-            <p className="prof-spin-banner__sub">1 free spin daily — try your luck!</p>
-          </div>
-          <span className="prof-spin-banner__cta">
-            Spin Now <FiChevronRight size={14} />
-          </span>
-        </Link>
-
-        {/* ══════════════════════════════════════════════
             PRODUCT OVERVIEW CARD
         ══════════════════════════════════════════════ */}
         <div className="prof-product-card">
@@ -613,7 +599,9 @@ export default function Profile({ onLogout }) {
               <span className="menu-icon">{icon}</span>
               <span className="menu-label">{label}</span>
               {badge && (
-                <span className="menu-badge">{badge}</span>
+                <span className={`menu-badge${badge === "WIN" ? " menu-badge--win" : ""}`}>
+                  {badge}
+                </span>
               )}
               <FiChevronRight className="menu-chevron" />
             </Link>
@@ -714,59 +702,6 @@ export default function Profile({ onLogout }) {
    STYLES
 ═══════════════════════════════════════════════════════════════ */
 const PROFILE_STYLES = `
-/* ── Spin & Win banner ── */
-.prof-spin-banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 12px 16px 0;
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, #1a1614, #0a0f1e);
-  border: 1px solid rgba(232,99,10,.35);
-  text-decoration: none;
-  box-shadow: 0 4px 16px rgba(232,99,10,.18);
-  transition: transform .15s, box-shadow .15s;
-}
-.prof-spin-banner:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 6px 22px rgba(232,99,10,.26);
-}
-.prof-spin-banner:active { transform: scale(.98); }
-.prof-spin-banner__icon {
-  font-size: 26px;
-  flex-shrink: 0;
-  width: 44px;
-  height: 44px;
-  border-radius: 12px;
-  background: rgba(232,99,10,.18);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.prof-spin-banner__text { flex: 1; min-width: 0; }
-.prof-spin-banner__title {
-  font-size: 14px;
-  font-weight: 800;
-  color: #fff;
-  margin: 0 0 2px;
-}
-.prof-spin-banner__sub {
-  font-size: 11px;
-  color: rgba(255,255,255,.55);
-  margin: 0;
-}
-.prof-spin-banner__cta {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  font-size: 12px;
-  font-weight: 700;
-  color: #ff8a4a;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-
 /* ── Product overview card ── */
 .prof-product-card {
   background: #fff;
@@ -993,6 +928,7 @@ const PROFILE_STYLES = `
   white-space: nowrap;
 }
 .menu-badge--seller { background: #6366f1; }
+.menu-badge--win    { background: linear-gradient(135deg, #f59e0b, #ef4444); }
 
 /* ── Seller menu item ── */
 .menu-item--seller {
