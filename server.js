@@ -547,6 +547,7 @@ server.listen(PORT, () => {
   console.log(`   CHECKOUT  : /api/checkout`);
   console.log(`   COUPONS   : /api/coupons`);
   console.log(`   WEBHOOK   : https://www.loemart.com/api/webhooks/flutterwave`);
+  console.log(`   SPINWHEEL : /api/spinwheel`);
 
   startJobRunner();
   console.log("🧹 Background jobs started");
