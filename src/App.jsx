@@ -44,6 +44,7 @@ import Conversations     from "./pages/Conversations";
 import Chat              from "./pages/Chat";
 import Coupons           from "./pages/Profile/Coupons";
 import Dashboard         from "./pages/Profile/Dashboard";
+import SpinWheel from "./pages/Profile/SpinWheel";
 import Leaderboard       from "./pages/Profile/Leaderboard";
 import Verification      from "./pages/Profile/Verification";
 import Wallet            from "./pages/Profile/Wallet";
@@ -366,6 +367,14 @@ export default function App() {
             <Dashboard user={user} />
           </ProtectedRoute>
         } />
+        <Route
+  path="/spin"
+  element={
+    <ProtectedRoute user={user}>
+      <SpinWheel user={user} />
+    </ProtectedRoute>
+  }
+/>
         <Route path="/leaderboard" element={
           <ProtectedRoute user={user}>
             <Leaderboard user={user} />
