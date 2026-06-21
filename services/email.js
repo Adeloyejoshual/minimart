@@ -1,545 +1,453 @@
-// services/email.js
+/**
+ * services/email.js
+ *
+ * All outbound email for the verification flow.
+ * Transport: Resend SDK
+ * Fallback : console log when RESEND_API_KEY is missing (development)
+ */
 
-import nodemailer from "nodemailer";
+import { Resend } from "resend";
 
-// ═════════════════════════════════════════════════════════════
-// SINGLETON TRANSPORTER
-// ═════════════════════════════════════════════════════════════
-let _transporter = null;
+/* ─── config ──────────────────────────────────────────────────────────────── */
+const FROM      = "Loemart <no-reply@loemart.com>";
+const BRAND     = "Loemart";
+const SUPPORT   = "support@loemart.com";
+const YEAR      = new Date().getFullYear();
 
-const getTransporter = () => {
-  if (_transporter) return _transporter;
+let resend = null;
 
-  const {
-    SMTP_HOST,
-    SMTP_PORT,
-    SMTP_SECURE,
-    SMTP_USER,
-    SMTP_PASS,
-  } = process.env;
+const getResend = () => {
+  if (resend) return resend;
 
-  if (!SMTP_HOST || !SMTP_USER || !SMTP_PASS) {
+  if (!process.env.RESEND_API_KEY) {
     console.warn(
-      "[Email] SMTP not configured — emails will be logged only.\n" +
-      "  Set SMTP_HOST, SMTP_USER, SMTP_PASS in .env to enable sending."
+      "[email] RESEND_API_KEY not set — emails will be logged to console only."
     );
     return null;
   }
 
-  _transporter = nodemailer.createTransport({
-    host:           SMTP_HOST,
-    port:           Number(SMTP_PORT ?? 587),
-    secure:         SMTP_SECURE === "true",
-    auth: {
-      user: SMTP_USER,
-      pass: SMTP_PASS,
-    },
-    pool:           true,
-    maxConnections: 5,
-    maxMessages:    100,
-  });
-
-  _transporter.verify((err) => {
-    if (err) {
-      console.error("[Email] SMTP verify failed:", err.message);
-      _transporter = null;
-    } else {
-      console.log("[Email] ✅ SMTP ready:", SMTP_HOST);
-    }
-  });
-
-  return _transporter;
+  resend = new Resend(process.env.RESEND_API_KEY);
+  return resend;
 };
 
-// ── Strip HTML → plain text fallback ────────────────────────
-const stripHtml = (html = "") =>
-  html
+/* ─── send helper ─────────────────────────────────────────────────────────── */
+async function send({ to, subject, html, text }) {
+  // Validate
+  if (!to || !subject || !html) {
+    throw new Error("[email] send() missing required fields: to, subject, html");
+  }
+
+  const client = getResend();
+
+  // Development fallback — log and return a fake success
+  if (!client) {
+    console.log("─".repeat(60));
+    console.log("[email] DEV MODE — would send email:");
+    console.log(`  To      : ${to}`);
+    console.log(`  Subject : ${subject}`);
+    console.log(`  Text    :\n${text ?? "(no plain-text version)"}`);
+    console.log("─".repeat(60));
+    return { id: `dev-${Date.now()}` };
+  }
+
+  const result = await client.emails.send({
+    from    : FROM,
+    to      : Array.isArray(to) ? to : [to],
+    subject,
+    html,
+    text    : text ?? stripHtml(html),
+  });
+
+  // Resend returns { data: { id }, error: null } on success
+  if (result.error) {
+    throw new Error(`Resend error: ${result.error.message}`);
+  }
+
+  console.log(`[email] Sent "${subject}" → ${to} (id: ${result.data?.id})`);
+  return result.data;
+}
+
+/* ─── strip HTML for plain-text fallback ──────────────────────────────────── */
+function stripHtml(html) {
+  return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
     .replace(/<[^>]+>/g, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
-
-// ─────────────────────────────────────────────────────────────
-// Config
-// ─────────────────────────────────────────────────────────────
-const APP_NAME = process.env.SMTP_FROM_NAME ?? "Minimart";
-const BASE_URL = process.env.FRONTEND_URL   ?? "https://minimart.com";
-const fmt      = (n) =>
-  `₦${Number(n ?? 0).toLocaleString("en-NG")}`;
-
-// ═════════════════════════════════════════════════════════════
-// CORE SEND — never throws
-// ═════════════════════════════════════════════════════════════
-export async function sendEmail({ to, subject, html, text }) {
-  const transporter = getTransporter();
-
-  if (!transporter) {
-    // Log in dev, silently skip in prod
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[Email] 📧 SKIP (no SMTP) →", to, "|", subject);
-    }
-    return false;
-  }
-
-  if (!to || !subject || !html) {
-    console.error("[Email] Missing to/subject/html");
-    return false;
-  }
-
-  try {
-    const fromName  = process.env.SMTP_FROM_NAME  ?? "Minimart";
-    const fromEmail =
-      process.env.SMTP_FROM_EMAIL ?? process.env.SMTP_USER;
-
-    await transporter.sendMail({
-      from:  `"${fromName}" <${fromEmail}>`,
-      to,
-      subject,
-      html,
-      text:  text ?? stripHtml(html),
-    });
-
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[Email] ✅ Sent →", to, "|", subject);
-    }
-    return true;
-
-  } catch (err) {
-    console.error("[Email] ❌ Failed →", to, "|", err.message);
-    return false;
-  }
 }
 
-// ═════════════════════════════════════════════════════════════
-// sendVerificationEmail
-// Used by: routes/verification.js
-// Sends email/phone verification link or OTP
-// ═════════════════════════════════════════════════════════════
-export async function sendVerificationEmail({
-  to,
-  name,
-  verificationLink,
-  otp,
-  expiresInMinutes = 30,
-}) {
-  // ── Support both link-based and OTP-based verification ──
-  const isOtp = !!otp && !verificationLink;
+/* ─── XSS guard — never inject raw user input into HTML ──────────────────── */
+function esc(str) {
+  return String(str ?? "")
+    .replace(/&/g,  "&amp;")
+    .replace(/</g,  "&lt;")
+    .replace(/>/g,  "&gt;")
+    .replace(/"/g,  "&quot;")
+    .replace(/'/g,  "&#039;");
+}
 
-  const subject = isOtp
-    ? `${otp} — Your ${APP_NAME} Verification Code`
-    : `Verify your ${APP_NAME} account`;
-
-  const html = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width,initial-scale=1" />
-      <title>${subject}</title>
-    </head>
-    <body style="
-      margin:0;padding:0;background:#f1f5f9;
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    ">
-      <div style="max-width:520px;margin:2rem auto;padding:1rem;">
-
-        <!-- Card -->
-        <div style="
-          background:white;border-radius:20px;overflow:hidden;
-          box-shadow:0 4px 24px rgba(0,0,0,0.07);
-        ">
-          <!-- Top band -->
-          <div style="
-            height:5px;
-            background:linear-gradient(90deg,#6366f1,#8b5cf6,#06b6d4);
-          "></div>
-
-          <!-- Body -->
-          <div style="padding:2.5rem 2rem;text-align:center;">
-
-            <!-- Icon -->
-            <div style="
-              width:64px;height:64px;border-radius:18px;
-              background:linear-gradient(135deg,#eef2ff,#ede9fe);
-              display:inline-flex;align-items:center;justify-content:center;
-              font-size:2rem;margin-bottom:1.25rem;
-            ">
-              ${isOtp ? "🔐" : "✉️"}
-            </div>
-
-            <!-- Title -->
-            <h2 style="
-              color:#1f2937;font-size:1.35rem;font-weight:800;
-              margin:0 0 0.5rem;
-            ">
-              ${isOtp ? "Your Verification Code" : "Verify Your Account"}
-            </h2>
-
-            <!-- Greeting -->
-            <p style="color:#6b7280;font-size:0.9rem;
-              line-height:1.6;margin:0 0 1.5rem;">
-              Hi ${name ?? "there"}, ${
-                isOtp
-                  ? "use the code below to complete verification."
-                  : "click the button below to verify your email address."
-              }
+/* ─── base template ───────────────────────────────────────────────────────── */
+function baseHtml({ title, preheader, body }) {
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <meta name="x-apple-disable-message-reformatting"/>
+  <title>${esc(title)}</title>
+  <!--[if mso]>
+  <noscript>
+    <xml><o:OfficeDocumentSettings>
+      <o:PixelsPerInch>96</o:PixelsPerInch>
+    </o:OfficeDocumentSettings></xml>
+  </noscript>
+  <![endif]-->
+  <style>
+    body{margin:0;padding:0;background:#060b14;font-family:
+      -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;}
+    table{border-spacing:0;}
+    td{padding:0;}
+    img{border:0;display:block;}
+    .wrapper{background:#060b14;padding:40px 16px;}
+    .card{background:#0d1523;border-radius:16px;max-width:520px;
+      margin:0 auto;overflow:hidden;
+      border:1px solid rgba(255,255,255,0.07);}
+    .brand{padding:28px 32px 20px;border-bottom:1px solid rgba(255,255,255,0.07);}
+    .brand-name{font-size:22px;font-weight:800;color:#f1f5f9;letter-spacing:-0.5px;}
+    .brand-dot{color:#3b82f6;}
+    .content{padding:32px;}
+    .footer{padding:20px 32px 28px;border-top:1px solid rgba(255,255,255,0.07);
+      font-size:11px;color:#475569;text-align:center;line-height:1.6;}
+    .footer a{color:#3b82f6;text-decoration:none;}
+    h2{font-size:20px;font-weight:700;color:#f1f5f9;margin:0 0 8px;}
+    p{font-size:14px;color:#94a3b8;line-height:1.6;margin:0 0 16px;}
+    p:last-child{margin-bottom:0;}
+    .highlight{color:#f1f5f9;}
+    .btn{display:inline-block;background:#3b82f6;color:#fff !important;
+      font-size:14px;font-weight:600;padding:12px 28px;border-radius:8px;
+      text-decoration:none;margin:4px 0;}
+    .alert-box{background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);
+      border-radius:8px;padding:12px 16px;margin:16px 0;
+      font-size:13px;color:#fcd34d;line-height:1.5;}
+    @media (max-width:480px){
+      .content{padding:24px 20px;}
+      .brand{padding:20px;}
+      .footer{padding:16px 20px 24px;}
+    }
+  </style>
+</head>
+<body>
+  <!-- preview text -->
+  <div style="display:none;max-height:0;overflow:hidden;color:#060b14;">
+    ${esc(preheader)}&nbsp;
+  </div>
+  <div class="wrapper">
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+      <tr><td align="center">
+        <div class="card">
+          <!-- brand bar -->
+          <div class="brand">
+            <span class="brand-name">Loe<span class="brand-dot">mart</span></span>
+          </div>
+          <!-- body -->
+          <div class="content">
+            ${body}
+          </div>
+          <!-- footer -->
+          <div class="footer">
+            <p style="margin:0 0 4px;">
+              Need help? <a href="mailto:${SUPPORT}">${SUPPORT}</a>
             </p>
+            <p style="margin:0;">
+              &copy; ${YEAR} ${BRAND}. All rights reserved.<br/>
+              You received this because you have an account on Loemart.
+            </p>
+          </div>
+        </div>
+      </td></tr>
+    </table>
+  </div>
+</body>
+</html>`;
+}
 
-            ${isOtp ? `
-              <!-- OTP Box -->
+/* ══════════════════════════════════════════════════════════════════════════════
+   PUBLIC API
+══════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * sendVerificationEmail
+ * Sends a 6-digit OTP to verify the user's email address.
+ */
+export async function sendVerificationEmail({ to, name, otp }) {
+  if (!to || !otp) throw new Error("sendVerificationEmail: to and otp are required");
+  if (!/^\d{6}$/.test(String(otp))) throw new Error("sendVerificationEmail: otp must be 6 digits");
+
+  const safeName = esc(name || "there");
+  const safeOtp  = esc(String(otp));
+
+  const body = `
+    <h2>Verify your email</h2>
+    <p>Hi <span class="highlight">${safeName}</span>,</p>
+    <p>Use the code below to verify your Loemart account.
+       It expires in <span class="highlight">10 minutes</span>.</p>
+
+    <!-- OTP block -->
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
+           style="margin:24px 0;">
+      <tr>
+        <td align="center">
+          <div style="
+            display:inline-block;
+            background:#111c2d;
+            border:2px dashed rgba(59,130,246,0.4);
+            border-radius:12px;
+            padding:20px 40px;
+          ">
+            <span style="
+              font-size:38px;
+              font-weight:800;
+              letter-spacing:10px;
+              color:#f1f5f9;
+              font-family:monospace;
+            ">${safeOtp}</span>
+          </div>
+        </td>
+      </tr>
+    </table>
+
+    <div class="alert-box">
+      <strong>Security notice:</strong> Never share this code with anyone.
+      Loemart staff will <strong>never</strong> ask for your OTP.
+    </div>
+
+    <p style="font-size:13px;">
+      If you did not request this, you can safely ignore this email.
+    </p>
+  `;
+
+  return send({
+    to,
+    subject : `${safeOtp} is your Loemart verification code`,
+    html    : baseHtml({
+      title     : "Verify your Loemart account",
+      preheader : `Your verification code is ${safeOtp}. It expires in 10 minutes.`,
+      body,
+    }),
+    text: [
+      `Hi ${name || "there"},`,
+      ``,
+      `Your Loemart verification code is: ${otp}`,
+      ``,
+      `This code expires in 10 minutes.`,
+      ``,
+      `Never share this code with anyone. Loemart staff will never ask for it.`,
+      ``,
+      `If you did not request this, ignore this email.`,
+      ``,
+      `— ${BRAND}`,
+    ].join("\n"),
+  });
+}
+
+/**
+ * sendWelcomeEmail
+ * Sent after the user successfully verifies their email.
+ */
+export async function sendWelcomeEmail({ to, name }) {
+  if (!to) throw new Error("sendWelcomeEmail: to is required");
+
+  const safeName = esc(name || "there");
+
+  const body = `
+    <h2>Welcome to Loemart 🎉</h2>
+    <p>Hi <span class="highlight">${safeName}</span>,</p>
+    <p>
+      Your email address has been verified and your account is now active.
+      You can now browse, buy, and sell on Loemart.
+    </p>
+
+    <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
+           style="margin:24px 0 8px;">
+      <tr>
+        <td>
+          <p style="font-size:13px;font-weight:600;color:#94a3b8;margin:0 0 12px;">
+            NEXT STEPS
+          </p>
+          ${[
+            ["Complete identity verification", "Increases your trust score and unlocks seller features."],
+            ["Set up your store profile",       "Start selling to thousands of buyers on Loemart."],
+            ["Explore the marketplace",          "Discover great deals from verified sellers."],
+          ].map(([title, desc]) => `
+            <div style="
+              display:flex;gap:12px;align-items:flex-start;
+              margin-bottom:12px;
+              padding:12px 14px;
+              background:#111c2d;
+              border-radius:8px;
+              border:1px solid rgba(255,255,255,0.06);
+            ">
               <div style="
-                background:#f8fafc;border:2px dashed #e5e7eb;
-                border-radius:14px;padding:1.5rem;margin:0 0 1.5rem;
-              ">
+                width:8px;height:8px;border-radius:50%;
+                background:#3b82f6;flex-shrink:0;margin-top:4px;
+              "></div>
+              <div>
                 <p style="
-                  font-size:2.75rem;font-weight:900;letter-spacing:0.3em;
-                  color:#6366f1;margin:0;font-family:monospace;
-                ">
-                  ${otp}
+                  font-size:13px;font-weight:600;
+                  color:#f1f5f9;margin:0 0 3px;
+                ">${esc(title)}</p>
+                <p style="font-size:12px;color:#64748b;margin:0;">
+                  ${esc(desc)}
                 </p>
               </div>
-              <p style="color:#9ca3af;font-size:0.8rem;margin:0 0 1rem;">
-                This code expires in
-                <strong style="color:#374151;">${expiresInMinutes} minutes</strong>.
-                Never share it with anyone.
-              </p>
-            ` : `
-              <!-- CTA Button -->
-              <a href="${verificationLink}"
-                style="
-                  display:inline-block;padding:0.9rem 2.25rem;
-                  background:linear-gradient(135deg,#6366f1,#8b5cf6);
-                  color:white;text-decoration:none;border-radius:12px;
-                  font-weight:700;font-size:0.95rem;margin:0 0 1.25rem;
-                "
-              >
-                Verify My Account →
-              </a>
-              <p style="color:#9ca3af;font-size:0.78rem;margin:0 0 1rem;">
-                This link expires in
-                <strong style="color:#374151;">${expiresInMinutes} minutes</strong>.
-              </p>
-              <p style="color:#9ca3af;font-size:0.75rem;margin:0;">
-                Or copy this link:<br/>
-                <span style="color:#6366f1;word-break:break-all;">
-                  ${verificationLink}
-                </span>
-              </p>
-            `}
-
-          </div>
-        </div>
-
-        <!-- Footer -->
-        <p style="
-          text-align:center;color:#9ca3af;font-size:0.75rem;
-          margin:1rem 0 0;line-height:1.6;
-        ">
-          &copy; ${new Date().getFullYear()} ${APP_NAME} Technologies Ltd.
-          · If you didn't request this, ignore this email.
-        </p>
-
-      </div>
-    </body>
-    </html>
+            </div>
+          `).join("")}
+        </td>
+      </tr>
+    </table>
   `;
 
-  return sendEmail({ to, subject, html });
+  return send({
+    to,
+    subject : `Welcome to ${BRAND} — account verified`,
+    html    : baseHtml({
+      title     : `Welcome to ${BRAND}`,
+      preheader : "Your account is verified and ready. Here is what to do next.",
+      body,
+    }),
+    text: [
+      `Welcome to ${BRAND}, ${name || "there"}!`,
+      ``,
+      `Your email has been verified and your account is now active.`,
+      ``,
+      `Next steps:`,
+      `  1. Complete identity verification`,
+      `  2. Set up your store profile`,
+      `  3. Explore the marketplace`,
+      ``,
+      `— ${BRAND}`,
+    ].join("\n"),
+  });
 }
 
-// ═════════════════════════════════════════════════════════════
-// sendWelcomeEmail
-// Used by: routes/verification.js (after account verified)
-// Generic welcome — works for both buyers and sellers
-// ═════════════════════════════════════════════════════════════
-export async function sendWelcomeEmail({
-  to,
-  name,
-  role = "buyer",    // "buyer" | "seller"
-  storeName,         // only for sellers
-}) {
-  const isSeller = role === "seller";
+/**
+ * sendIdentityStatusEmail
+ * Notifies user when their ID submission is approved or rejected by admin.
+ */
+export async function sendIdentityStatusEmail({ to, name, approved, reason }) {
+  if (!to) throw new Error("sendIdentityStatusEmail: to is required");
 
-  const subject = isSeller
-    ? `🎉 Welcome to ${APP_NAME}, ${storeName ?? name}!`
-    : `👋 Welcome to ${APP_NAME}, ${name}!`;
+  const safeName = esc(name || "there");
+  const status   = approved ? "approved" : "rejected";
 
-  const html = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8" />
-      <meta name="viewport" content="width=device-width,initial-scale=1" />
-      <title>${subject}</title>
-    </head>
-    <body style="
-      margin:0;padding:0;background:#f1f5f9;
-      font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-    ">
-      <div style="max-width:520px;margin:2rem auto;padding:1rem;">
-
-        <!-- Card -->
+  const body = approved
+    ? `
+        <h2>Identity Verified ✓</h2>
+        <p>Hi <span class="highlight">${safeName}</span>,</p>
+        <p>
+          Great news — your identity has been verified. Your trust score has
+          been updated and you now have access to all seller features on Loemart.
+        </p>
+      `
+    : `
+        <h2>Identity Verification Update</h2>
+        <p>Hi <span class="highlight">${safeName}</span>,</p>
+        <p>
+          Unfortunately, we were unable to verify your identity. Here is the
+          reason provided by our review team:
+        </p>
         <div style="
-          background:white;border-radius:20px;overflow:hidden;
-          box-shadow:0 4px 24px rgba(0,0,0,0.07);
+          background:#111c2d;
+          border-left:3px solid #ef4444;
+          border-radius:0 8px 8px 0;
+          padding:12px 16px;
+          margin:16px 0;
+          font-size:13px;
+          color:#fca5a5;
+          line-height:1.5;
         ">
-          <!-- Top band -->
-          <div style="
-            height:5px;
-            background:linear-gradient(90deg,#6366f1,#8b5cf6,#06b6d4);
-          "></div>
-
-          <!-- Body -->
-          <div style="padding:2.5rem 2rem;text-align:center;">
-
-            <!-- Icon -->
-            <div style="
-              width:64px;height:64px;border-radius:18px;
-              background:linear-gradient(135deg,#6366f1,#8b5cf6);
-              display:inline-flex;align-items:center;justify-content:center;
-              font-size:2rem;margin-bottom:1.25rem;color:white;
-            ">
-              ${isSeller ? "🏪" : "🛍️"}
-            </div>
-
-            <!-- Title -->
-            <h2 style="
-              color:#1f2937;font-size:1.35rem;font-weight:800;
-              margin:0 0 0.5rem;
-            ">
-              Welcome${isSeller && storeName ? `, ${storeName}` : `, ${name}`}!
-            </h2>
-
-            <!-- Body -->
-            <p style="color:#6b7280;font-size:0.9rem;
-              line-height:1.6;margin:0 0 1.75rem;">
-              ${isSeller
-                ? `Your seller account is now active. Start listing products and earning today!`
-                : `Your ${APP_NAME} account is ready. Discover thousands of products from verified sellers.`
-              }
-            </p>
-
-            <!-- Steps -->
-            <div style="
-              background:#f8fafc;border-radius:14px;
-              padding:1.25rem;margin:0 0 1.75rem;text-align:left;
-            ">
-              ${isSeller ? `
-                <p style="font-weight:700;color:#374151;
-                  font-size:0.82rem;margin:0 0 0.75rem;
-                  text-transform:uppercase;letter-spacing:0.05em;">
-                  Get Started
-                </p>
-                ${[
-                  ["🏦", "Add your bank account for withdrawals"],
-                  ["📦", "List your first product"],
-                  ["📣", "Share your store link"],
-                  ["💸", "Receive orders and get paid"],
-                ].map(([icon, text]) => `
-                  <div style="display:flex;align-items:center;
-                    gap:0.6rem;padding:0.4rem 0;font-size:0.85rem;
-                    color:#374151;border-bottom:1px solid #f3f4f6;">
-                    <span>${icon}</span><span>${text}</span>
-                  </div>
-                `).join("")}
-              ` : `
-                <p style="font-weight:700;color:#374151;
-                  font-size:0.82rem;margin:0 0 0.75rem;
-                  text-transform:uppercase;letter-spacing:0.05em;">
-                  What you can do
-                </p>
-                ${[
-                  ["🔍", "Browse thousands of products"],
-                  ["🛒", "Add items to your cart"],
-                  ["💳", "Pay securely with Flutterwave"],
-                  ["📦", "Track your deliveries"],
-                ].map(([icon, text]) => `
-                  <div style="display:flex;align-items:center;
-                    gap:0.6rem;padding:0.4rem 0;font-size:0.85rem;
-                    color:#374151;border-bottom:1px solid #f3f4f6;">
-                    <span>${icon}</span><span>${text}</span>
-                  </div>
-                `).join("")}
-              `}
-            </div>
-
-            <!-- CTA -->
-            <a
-              href="${isSeller
-                ? `${BASE_URL}/seller/dashboard`
-                : BASE_URL
-              }"
-              style="
-                display:inline-block;padding:0.9rem 2.25rem;
-                background:linear-gradient(135deg,#6366f1,#8b5cf6);
-                color:white;text-decoration:none;border-radius:12px;
-                font-weight:700;font-size:0.95rem;
-              "
-            >
-              ${isSeller ? "Go to Dashboard →" : "Start Shopping →"}
-            </a>
-
-          </div>
+          ${esc(reason || "Your documents did not meet our verification requirements.")}
         </div>
-
-        <!-- Footer -->
-        <p style="
-          text-align:center;color:#9ca3af;font-size:0.75rem;
-          margin:1rem 0 0;line-height:1.6;
-        ">
-          &copy; ${new Date().getFullYear()} ${APP_NAME} Technologies Ltd.
-          · <a href="${BASE_URL}/unsubscribe"
-            style="color:#9ca3af;">Unsubscribe</a>
+        <p>
+          Please re-submit your identity documents from your account settings.
+          If you believe this is an error, contact our support team.
         </p>
+      `;
 
-      </div>
-    </body>
-    </html>
-  `;
-
-  return sendEmail({ to, subject, html });
-}
-
-// ═════════════════════════════════════════════════════════════
-// sendOtpEmail — alias used by some routes
-// ═════════════════════════════════════════════════════════════
-export async function sendOtpEmail({ to, name, otp, expiresInMinutes = 10 }) {
-  return sendVerificationEmail({ to, name, otp, expiresInMinutes });
-}
-
-// ═════════════════════════════════════════════════════════════
-// sendPasswordResetEmail
-// ═════════════════════════════════════════════════════════════
-export async function sendPasswordResetEmail({
-  to,
-  name,
-  resetLink,
-  expiresInMinutes = 30,
-}) {
-  return sendEmail({
+  return send({
     to,
-    subject: `Reset Your ${APP_NAME} Password`,
-    html: `
-      <!DOCTYPE html>
-      <html>
-      <body style="margin:0;padding:0;background:#f1f5f9;
-        font-family:sans-serif;">
-        <div style="max-width:480px;margin:2rem auto;padding:1rem;">
-          <div style="background:white;border-radius:20px;
-            padding:2rem;text-align:center;
-            box-shadow:0 4px 24px rgba(0,0,0,0.07);">
-
-            <div style="font-size:2.5rem;margin-bottom:1rem;">🔒</div>
-            <h2 style="color:#1f2937;margin:0 0 0.5rem;">
-              Password Reset
-            </h2>
-            <p style="color:#6b7280;font-size:0.9rem;
-              line-height:1.6;margin:0 0 1.5rem;">
-              Hi ${name ?? "there"}, click below to reset your password.
-              This link expires in <strong>${expiresInMinutes} minutes</strong>.
-            </p>
-
-            <a href="${resetLink}" style="
-              display:inline-block;padding:0.9rem 2rem;
-              background:#6366f1;color:white;
-              text-decoration:none;border-radius:12px;
-              font-weight:700;margin-bottom:1.5rem;
-            ">
-              Reset Password →
-            </a>
-
-            <p style="color:#9ca3af;font-size:0.78rem;margin:0;">
-              If you didn't request this, ignore this email.
-            </p>
-          </div>
-        </div>
-      </body>
-      </html>
-    `,
+    subject : approved
+      ? `Identity verified — ${BRAND}`
+      : `Action required: identity verification — ${BRAND}`,
+    html    : baseHtml({
+      title     : `Identity ${status} — ${BRAND}`,
+      preheader : approved
+        ? "Your identity has been successfully verified."
+        : "Your identity verification needs attention.",
+      body,
+    }),
+    text: approved
+      ? `Hi ${name},\n\nYour identity has been verified on ${BRAND}.\n\n— ${BRAND}`
+      : `Hi ${name},\n\nYour identity verification was not approved.\n\nReason: ${reason ?? "See your account for details."}\n\nPlease resubmit from your account settings.\n\n— ${BRAND}`,
   });
 }
 
-// ═════════════════════════════════════════════════════════════
-// sendOrderConfirmationEmail
-// ═════════════════════════════════════════════════════════════
-export async function sendOrderConfirmationEmail({
-  to,
-  buyerName,
-  orderId,
-  reference,
-  grandTotal,
-  paymentMethod,
-}) {
-  return sendEmail({
-    to,
-    subject: `✅ Order Confirmed — ${reference}`,
-    html: `
-      <!DOCTYPE html>
-      <html>
-      <body style="margin:0;padding:0;background:#f1f5f9;font-family:sans-serif;">
-        <div style="max-width:480px;margin:2rem auto;padding:1rem;">
-          <div style="background:white;border-radius:20px;
-            padding:2rem;text-align:center;
-            box-shadow:0 4px 24px rgba(0,0,0,0.07);">
+/**
+ * sendStoreStatusEmail
+ * Notifies user when their store submission is approved or rejected.
+ */
+export async function sendStoreStatusEmail({ to, name, storeName, approved, reason }) {
+  if (!to) throw new Error("sendStoreStatusEmail: to is required");
 
-            <div style="font-size:2.5rem;margin-bottom:1rem;">✅</div>
-            <h2 style="color:#1f2937;margin:0 0 0.5rem;">
-              Order Confirmed!
-            </h2>
-            <p style="color:#6b7280;font-size:0.9rem;
-              margin:0 0 1.5rem;">
-              Hi ${buyerName}, your order has been placed.
-            </p>
+  const safeName  = esc(name  || "there");
+  const safeStore = esc(storeName || "your store");
 
-            <div style="background:#f8fafc;border-radius:12px;
-              padding:1rem;margin-bottom:1.5rem;text-align:left;">
-              <div style="display:flex;justify-content:space-between;
-                padding:0.35rem 0;font-size:0.85rem;">
-                <span style="color:#6b7280;">Order ID</span>
-                <span style="font-weight:600;">${orderId}</span>
-              </div>
-              <div style="display:flex;justify-content:space-between;
-                padding:0.35rem 0;font-size:0.85rem;">
-                <span style="color:#6b7280;">Total</span>
-                <span style="font-weight:700;">
-                  ₦${Number(grandTotal ?? 0).toLocaleString("en-NG")}
-                </span>
-              </div>
-              <div style="display:flex;justify-content:space-between;
-                padding:0.35rem 0;font-size:0.85rem;">
-                <span style="color:#6b7280;">Payment</span>
-                <span style="font-weight:600;">
-                  ${paymentMethod === "CASH_ON_DELIVERY"
-                    ? "💵 Pay on Delivery"
-                    : "💳 Paid Online"}
-                </span>
-              </div>
-            </div>
-
-            <a href="${BASE_URL}/orders/${orderId}" style="
-              display:inline-block;padding:0.875rem 2rem;
-              background:linear-gradient(135deg,#6366f1,#8b5cf6);
-              color:white;text-decoration:none;border-radius:12px;
-              font-weight:700;
-            ">
-              Track My Order →
-            </a>
-          </div>
+  const body = approved
+    ? `
+        <h2>Store Approved ✓</h2>
+        <p>Hi <span class="highlight">${safeName}</span>,</p>
+        <p>
+          <span class="highlight">${safeStore}</span> has been approved and
+          is now live on Loemart. Buyers can find your store and purchase
+          your listings.
+        </p>
+      `
+    : `
+        <h2>Store Verification Update</h2>
+        <p>Hi <span class="highlight">${safeName}</span>,</p>
+        <p>
+          Your store <span class="highlight">${safeStore}</span> was not
+          approved. Reason:
+        </p>
+        <div style="
+          background:#111c2d;
+          border-left:3px solid #ef4444;
+          border-radius:0 8px 8px 0;
+          padding:12px 16px;
+          margin:16px 0;
+          font-size:13px;
+          color:#fca5a5;
+          line-height:1.5;
+        ">
+          ${esc(reason || "Your store profile did not meet our requirements.")}
         </div>
-      </body>
-      </html>
-    `,
+        <p>Please update your store profile and resubmit.</p>
+      `;
+
+  return send({
+    to,
+    subject : approved
+      ? `Store approved — ${BRAND}`
+      : `Action required: store verification — ${BRAND}`,
+    html    : baseHtml({
+      title     : `Store ${approved ? "approved" : "update"} — ${BRAND}`,
+      preheader : approved
+        ? `${storeName} is now live on ${BRAND}.`
+        : "Your store verification needs attention.",
+      body,
+    }),
+    text: approved
+      ? `Hi ${name},\n\n${storeName} has been approved on ${BRAND}.\n\n— ${BRAND}`
+      : `Hi ${name},\n\nYour store was not approved.\n\nReason: ${reason ?? "See your account."}\n\n— ${BRAND}`,
   });
 }
-
-// ═════════════════════════════════════════════════════════════
-// DEFAULT EXPORT — all functions as object
-// ═════════════════════════════════════════════════════════════
-export default {
-  sendEmail,
-  sendVerificationEmail,
-  sendWelcomeEmail,
-  sendOtpEmail,
-  sendPasswordResetEmail,
-  sendOrderConfirmationEmail,
-};
