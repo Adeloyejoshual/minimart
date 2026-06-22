@@ -7,7 +7,6 @@
  * Step 3 — Store profile
  *
  * Self-contained — no external hook or component imports needed.
- * All logic lives here so there are zero missing-module errors.
  */
 
 import {
@@ -17,12 +16,13 @@ import {
   useCallback,
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate }             from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import {
   Shield, Mail, CheckCircle, Store, Loader2,
   XCircle, RefreshCw, Lock, BadgeCheck,
   CreditCard, AlertTriangle, Upload,
   FileText, Camera, Image, User, X, Info,
+  ArrowLeft,
 } from "lucide-react";
 
 import "../../style/Verification.css";
@@ -34,7 +34,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 const API      = `${API_BASE}/api`;
 
 const OTP_LENGTH     = 6;
-const RESEND_SECS    = 60;   // matches production POLICY.RESEND_COOLDOWN_SECS
+const RESEND_SECS    = 60;
 const MAX_DOC_MB     = 5;
 const MAX_LOGO_MB    = 2;
 const MAX_DOC_BYTES  = MAX_DOC_MB  * 1_048_576;
@@ -225,7 +225,7 @@ function TrustRing({ score = 0, emailVerified, identityVerified, storeVerified }
             stroke={cfg.color} strokeWidth="10" strokeLinecap="round"
             strokeDasharray={C} strokeDashoffset={C}
             animate={{ strokeDashoffset: C - (score / 100) * C }}
-            transition={{ duration: 1.6, ease: [0.34,1.56,0.64,1], delay: 0.1 }}
+            transition={{ duration: 1.6, ease: [0.34, 1.56, 0.64, 1], delay: 0.1 }}
             style={{
               transformOrigin : "center",
               transform       : "rotate(-90deg)",
@@ -301,7 +301,7 @@ function StepShell({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3, ease: [0.4,0,0.2,1] }}
+            transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
             style={{ overflow: "hidden" }}
           >
             <div className="v-step__body">{children}</div>
@@ -488,7 +488,7 @@ function SelfieCapture({ file, onFile, onRemove }) {
       <div className="v-selfie__circle">
         {preview
           ? <img src={preview} alt="Selfie preview" />
-          : <div className="v-selfie__empty"><User size={36}/><span>No photo</span></div>
+          : <div className="v-selfie__empty"><User size={36} /><span>No photo</span></div>
         }
       </div>
       <p className="v-selfie__guide">
@@ -527,28 +527,22 @@ function SelfieCapture({ file, onFile, onRemove }) {
    STEP 1 — EMAIL OTP
 ══════════════════════════════════════════════════════════════ */
 function EmailStep({ status, onRefresh }) {
-  /*
-   * phase: idle | sending | otp | verifying | done
-   */
-  const [phase,       setPhase]       = useState(
+  const [phase,        setPhase]        = useState(
     status?.email_verified ? "done" : "idle"
   );
-  const [otp,         setOtp]         = useState("");
-  const [otpError,    setOtpError]    = useState(false);
-  const [errMsg,      setErrMsg]      = useState("");
-  const [canResend,   setCanResend]   = useState(false);
-  const [resendKey,   setResendKey]   = useState(0);
-  const [remaining,   setRemaining]   = useState(
-    status?.resend_remaining ?? null
-  );
-  const [maskedEmail, setMaskedEmail] = useState(status?.email ?? "");
-  const [attemptsLeft,setAttemptsLeft]= useState(null);
-  const [devOtp,      setDevOtp]      = useState("");
+  const [otp,          setOtp]          = useState("");
+  const [otpError,     setOtpError]     = useState(false);
+  const [errMsg,       setErrMsg]       = useState("");
+  const [canResend,    setCanResend]    = useState(false);
+  const [resendKey,    setResendKey]    = useState(0);
+  const [remaining,    setRemaining]    = useState(status?.resend_remaining ?? null);
+  const [maskedEmail,  setMaskedEmail]  = useState(status?.email ?? "");
+  const [attemptsLeft, setAttemptsLeft] = useState(null);
+  const [devOtp,       setDevOtp]       = useState("");
 
   const verifyingRef = useRef(false);
   const autoRef      = useRef(false);
 
-  /* sync when status loads */
   useEffect(() => {
     if (status?.email_verified) setPhase("done");
     if (status?.email)          setMaskedEmail(status.email);
@@ -557,7 +551,6 @@ function EmailStep({ status, onRefresh }) {
     }
   }, [status]);
 
-  /* send OTP */
   const sendOtp = useCallback(async () => {
     setPhase("sending");
     setErrMsg("");
@@ -575,9 +568,9 @@ function EmailStep({ status, onRefresh }) {
 
       if (res.ok && data.success) {
         setPhase("otp");
-        if (data.email)                        setMaskedEmail(data.email);
+        if (data.email)                         setMaskedEmail(data.email);
         if (typeof data.remaining === "number") setRemaining(data.remaining);
-        if (data.dev_otp)                      setDevOtp(data.dev_otp);
+        if (data.dev_otp)                       setDevOtp(data.dev_otp);
         return;
       }
 
@@ -596,7 +589,6 @@ function EmailStep({ status, onRefresh }) {
     }
   }, []);
 
-  /* verify OTP */
   const verifyOtp = useCallback(async (code) => {
     if (verifyingRef.current) return;
     verifyingRef.current = true;
@@ -632,7 +624,6 @@ function EmailStep({ status, onRefresh }) {
     }
   }, [onRefresh]);
 
-  /* auto-submit when 6 digits filled */
   useEffect(() => {
     if (
       otp.length === OTP_LENGTH &&
@@ -685,7 +676,6 @@ function EmailStep({ status, onRefresh }) {
     >
       <div className="v-otp-panel">
 
-        {/* sending */}
         {isSending && (
           <div className="v-otp-panel__status">
             <Loader2 size={15} className="v-spin" />
@@ -693,14 +683,12 @@ function EmailStep({ status, onRefresh }) {
           </div>
         )}
 
-        {/* destination */}
         {showOtp && !isSending && maskedEmail && (
           <p className="v-otp-panel__dest">
             Code sent to <strong>{maskedEmail}</strong>
           </p>
         )}
 
-        {/* dev OTP */}
         {devOtp && (
           <Alert type="warning">
             Dev mode — code:{" "}
@@ -710,7 +698,6 @@ function EmailStep({ status, onRefresh }) {
           </Alert>
         )}
 
-        {/* OTP cells */}
         {showOtp && (
           <>
             <OtpInput
@@ -725,7 +712,6 @@ function EmailStep({ status, onRefresh }) {
           </>
         )}
 
-        {/* verifying */}
         {isVerifying && (
           <div className="v-otp-panel__status">
             <Loader2 size={14} className="v-spin" />
@@ -733,7 +719,6 @@ function EmailStep({ status, onRefresh }) {
           </div>
         )}
 
-        {/* error */}
         {errMsg && (
           <Alert type="error">
             <span>{errMsg}</span>
@@ -745,7 +730,6 @@ function EmailStep({ status, onRefresh }) {
           </Alert>
         )}
 
-        {/* resend row */}
         {showOtp && (
           <div className="v-resend-row">
             <div>
@@ -851,7 +835,7 @@ function IdentityStep({ status, onRefresh }) {
       title="Identity Verification"
       subtitle={
         identityVerified ? "Verified"                   :
-        isPending        ? "Under review"                :
+        isPending        ? "Under review"               :
         isRejected       ? "Rejected — please resubmit" :
         "Government-issued ID + selfie"
       }
@@ -872,7 +856,6 @@ function IdentityStep({ status, onRefresh }) {
           </Alert>
         )}
 
-        {/* doc type picker */}
         <fieldset className="v-doc-fieldset">
           <legend className="v-field-label">Select Document Type</legend>
           <div className="v-doc-grid">
@@ -892,7 +875,6 @@ function IdentityStep({ status, onRefresh }) {
           </div>
         </fieldset>
 
-        {/* form fields */}
         <AnimatePresence>
           {selectedDoc && (
             <motion.div
@@ -937,7 +919,6 @@ function IdentityStep({ status, onRefresh }) {
                                onRemove={() => setSelfie(null)} />
               </div>
 
-              {/* checklist */}
               <div className="v-checklist">
                 {checklist.map((item) => (
                   <div key={item.label}
@@ -1160,25 +1141,45 @@ export default function Verification() {
     <div className="v-page">
       <div className="v-container">
 
-        {/* header */}
-        <motion.header className="v-page-header"
-          initial={{ opacity: 0, y: -14 }}
-          animate={{ opacity: 1, y:   0 }}
-          transition={{ duration: 0.4 }}>
-          <div className="v-page-header__icon"><Shield size={22} /></div>
-          <div>
-            <h1 className="v-page-header__title">Account Verification</h1>
-            <p className="v-page-header__sub">
-              Complete all steps to unlock full marketplace access
-            </p>
+        {/* ── top nav bar ── */}
+        <motion.div
+          className="v-topbar"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+        >
+          <button
+            className="v-back-btn"
+            onClick={() => navigate(-1)}
+            aria-label="Go back"
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div className="v-topbar__center">
+            <div className="v-topbar__shield">
+              <Shield size={16} />
+            </div>
+            <span className="v-topbar__title">Account Verification</span>
           </div>
-        </motion.header>
+          {/* spacer keeps title centred */}
+          <div className="v-topbar__spacer" aria-hidden="true" />
+        </motion.div>
+
+        {/* ── sub-heading ── */}
+        <motion.p
+          className="v-page-sub"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.35, delay: 0.08 }}
+        >
+          Complete all steps to unlock full marketplace access
+        </motion.p>
 
         {/* trust ring */}
         <motion.div className="v-card v-card--trust"
           initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y:  0 }}
-          transition={{ duration: 0.4, delay: 0.08 }}>
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.12 }}>
           <TrustRing
             score={trustScore}
             emailVerified={emailVerified}
@@ -1191,7 +1192,7 @@ export default function Verification() {
         <motion.div className="v-steps"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ duration: 0.4, delay: 0.16 }}>
+          transition={{ duration: 0.4, delay: 0.2 }}>
           <EmailStep    status={status} onRefresh={fetchStatus} />
           <IdentityStep status={status} onRefresh={fetchStatus} />
           <StoreStep    status={status} onRefresh={fetchStatus} />
@@ -1201,7 +1202,7 @@ export default function Verification() {
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          transition={{ duration: 0.4, delay: 0.24 }}>
+          transition={{ duration: 0.4, delay: 0.28 }}>
           <ProgressBar value={completed} max={3} />
         </motion.div>
 
