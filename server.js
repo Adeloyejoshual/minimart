@@ -1,4 +1,8 @@
-// server.js
+/**
+ * server.js
+ * Entry point — Express + Socket.IO + CockroachDB
+ */
+
 import express           from "express";
 import cors              from "cors";
 import path              from "path";
@@ -7,10 +11,10 @@ import dotenv            from "dotenv";
 import { fileURLToPath } from "url";
 import { Pool }          from "pg";
 
+dotenv.config();
+
 import { initSocket, getOnlineCount }    from "./socket.js";
 import { startJobRunner, stopJobRunner } from "./jobs/jobRunner.js";
-
-dotenv.config();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
@@ -54,7 +58,7 @@ const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 export const io      = initSocket(server, ALLOWED_ORIGIN);
 
 /* ═══════════════════════════════════════════════════════════════
-   IN-MEMORY CACHE (TTL-based)
+   IN-MEMORY CACHE  (TTL-based, no Redis dependency)
 ═══════════════════════════════════════════════════════════════ */
 const _cache    = new Map();
 const CACHE_TTL = 60_000;
@@ -64,7 +68,7 @@ export const setCache = (key, value, ttl = CACHE_TTL) =>
 
 export const getCache = (key) => {
   const item = _cache.get(key);
-  if (!item) return null;
+  if (!item)                     return null;
   if (Date.now() > item.expires) { _cache.delete(key); return null; }
   return item.value;
 };
@@ -76,41 +80,43 @@ export const clearCachePattern = (prefix) => {
   }
 };
 
+/* periodic eviction */
 setInterval(() => {
   const now = Date.now();
-  for (const [key, item] of _cache.entries()) {
-    if (now > item.expires) _cache.delete(key);
+  for (const [k, v] of _cache.entries()) {
+    if (now > v.expires) _cache.delete(k);
   }
 }, 60_000);
 
 /* ═══════════════════════════════════════════════════════════════
    CORS
-   ✅ Allow BOTH www and non-www — NO redirects at all
+   Allows both www and non-www — no redirects needed
 ═══════════════════════════════════════════════════════════════ */
+const HARD_ALLOWED = [
+  "https://www.loemart.com",
+  "https://loemart.com",
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://localhost:4173",
+];
+
 const corsOptions = {
   origin(origin, cb) {
-    if (!origin) return cb(null, true);
+    /* no origin = server-to-server / mobile / curl — allow */
+    if (!origin)                return cb(null, true);
     if (ALLOWED_ORIGIN === "*") return cb(null, true);
-
-    const alwaysAllow = [
-      "https://www.loemart.com",
-      "https://loemart.com",
-      "http://localhost:5173",
-      "http://localhost:3000",
-      "http://localhost:4173",
-    ];
 
     const fromEnv = ALLOWED_ORIGIN
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
 
-    const allowed = [...new Set([...fromEnv, ...alwaysAllow])];
+    const allowed = [...new Set([...fromEnv, ...HARD_ALLOWED])];
 
     if (allowed.includes(origin)) return cb(null, true);
 
-    console.warn(`[CORS] Blocked: ${origin}`);
-    return cb(new Error(`CORS blocked: ${origin}`));
+    console.warn("[CORS] blocked:", origin);
+    cb(new Error(`CORS blocked: ${origin}`));
   },
   credentials    : true,
   methods        : ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -118,16 +124,16 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-app.options("*", cors(corsOptions));
+app.options("*", cors(corsOptions));   /* handle all preflight requests */
 
 /* ═══════════════════════════════════════════════════════════════
    SECURITY HEADERS
 ═══════════════════════════════════════════════════════════════ */
 app.use((_req, res, next) => {
-  res.setHeader("X-Content-Type-Options",  "nosniff");
-  res.setHeader("X-Frame-Options",         "DENY");
-  res.setHeader("X-XSS-Protection",        "1; mode=block");
-  res.setHeader("Referrer-Policy",         "strict-origin-when-cross-origin");
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options",        "DENY");
+  res.setHeader("X-XSS-Protection",       "1; mode=block");
+  res.setHeader("Referrer-Policy",        "strict-origin-when-cross-origin");
   res.setHeader(
     "Permissions-Policy",
     "camera=(), microphone=(), geolocation=(self)"
@@ -136,7 +142,7 @@ app.use((_req, res, next) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   STATIC — uploads
+   STATIC — /uploads
 ═══════════════════════════════════════════════════════════════ */
 app.use(
   "/uploads",
@@ -145,9 +151,7 @@ app.use(
     etag        : true,
     lastModified: true,
     setHeaders(res, filePath) {
-      if (/\.html?$/.test(filePath)) {
-        res.setHeader("Content-Type", "text/plain");
-      }
+      if (/\.html?$/.test(filePath)) res.setHeader("Content-Type", "text/plain");
     },
   })
 );
@@ -163,7 +167,7 @@ const flwKeyMode = () => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   WEBHOOKS  ⚠️  MUST be before express.json()
+   WEBHOOKS  ⚠  MUST come before express.json()
 ═══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
@@ -189,7 +193,7 @@ app.use(
   flwWebhookRouter
 );
 
-/* Flutterwave payload capture */
+/* Flutterwave capture (debug) */
 app.post(
   "/api/webhooks/flw-capture",
   express.raw({ type: "*/*" }),
@@ -199,14 +203,13 @@ app.post(
       try { return JSON.parse(raw); } catch { return { raw }; }
     })();
 
-    console.log("═══════════════════════════════════════════════");
-    console.log("  FLW CAPTURE  —", new Date().toISOString());
+    console.log("═".repeat(52));
+    console.log("  FLW CAPTURE —", new Date().toISOString());
     console.log("  verif-hash  :", req.headers["verif-hash"]);
     console.log("  event       :", body?.event);
-    console.log("  amount      :", body?.data?.amount);
     console.log("  status      :", body?.data?.status);
     console.log("  FULL BODY   :", JSON.stringify(body, null, 2));
-    console.log("═══════════════════════════════════════════════");
+    console.log("═".repeat(52));
 
     try {
       await pool.query(
@@ -219,7 +222,7 @@ app.post(
           JSON.stringify(req.headers),
         ]
       );
-    } catch { /* safe */ }
+    } catch { /* non-critical */ }
 
     res.status(200).json({ captured: true, event: body?.event });
   }
@@ -233,7 +236,7 @@ app.use(
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   BODY PARSERS  ⚠️  After webhooks
+   BODY PARSERS  ⚠  After webhooks
 ═══════════════════════════════════════════════════════════════ */
 app.use(express.json({       limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -241,15 +244,34 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 /* ═══════════════════════════════════════════════════════════════
    REQUEST LOGGER
 ═══════════════════════════════════════════════════════════════ */
-if (process.env.NODE_ENV !== "test") {
-  app.use((req, _res, next) => {
+app.use((req, _res, next) => {
+  if (process.env.NODE_ENV !== "test") {
     console.log(`${new Date().toISOString()} | ${req.method} ${req.originalUrl}`);
-    next();
-  });
-}
+  }
+  next();
+});
 
 /* ═══════════════════════════════════════════════════════════════
-   RATE LIMITER
+   VERIFICATION DEBUG
+   Logs every request before auth runs so we can see exactly
+   what is hitting the route. Remove once confirmed working.
+═══════════════════════════════════════════════════════════════ */
+app.use("/api/verification", (req, _res, next) => {
+  console.log("\n" + "▶".repeat(52));
+  console.log("[verification-debug] method :", req.method);
+  console.log("[verification-debug] path   :", req.path);
+  console.log("[verification-debug] origin :", req.headers.origin ?? "none");
+  console.log("[verification-debug] auth   :", req.headers.authorization
+    ? `present …${req.headers.authorization.slice(-8)}`
+    : "❌ MISSING"
+  );
+  console.log("[verification-debug] c-type :", req.headers["content-type"] ?? "none");
+  console.log("▶".repeat(52) + "\n");
+  next();
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   RATE LIMITER  (in-memory — no Redis)
 ═══════════════════════════════════════════════════════════════ */
 const _limiter   = new Map();
 const WINDOW_MS  = 60_000;
@@ -265,11 +287,10 @@ setInterval(() => {
 
 function rateLimiter(max = MAX_REQ) {
   return (req, res, next) => {
-    const ip =
+    const ip  =
       req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
       req.socket.remoteAddress ??
       "unknown";
-
     const now = Date.now();
     const key = `${ip}:${max}`;
     let data  = _limiter.get(key);
@@ -279,7 +300,6 @@ function rateLimiter(max = MAX_REQ) {
     } else {
       data.count++;
     }
-
     _limiter.set(key, data);
 
     if (data.count > max) {
@@ -289,7 +309,6 @@ function rateLimiter(max = MAX_REQ) {
         retryAfter : Math.ceil((WINDOW_MS - (now - data.time)) / 1000),
       });
     }
-
     next();
   };
 }
@@ -371,7 +390,7 @@ app.use("/api/homepage", homepageRouter);
 /* ── Dashboard ── */
 import dashboardRoutes from "./routes/dashboard.js";
 app.use("/api/dashboard",        dashboardRoutes);
-app.use("/api/seller-dashboard", dashboardRoutes); // ← alias for SellerDashboard page
+app.use("/api/seller-dashboard", dashboardRoutes);
 
 /* ── Notifications ── */
 import notificationsRouter from "./routes/notifications.js";
@@ -389,7 +408,7 @@ app.use("/api/p2p", p2pRouter);
 import verificationRouter from "./routes/verification.js";
 app.use("/api/verification", verificationRouter);
 
-/* ── Coupons ✅ NEW ── */
+/* ── Coupons ── */
 import couponsRouter from "./routes/coupons.js";
 app.use("/api/coupons", couponsRouter);
 
@@ -414,37 +433,31 @@ app.get("/api/health", async (_req, res) => {
     dbError = err.message;
   }
 
-  const mode = flwKeyMode();
-
   return res.json({
-    success        : true,
-    status         : dbOk ? "healthy" : "degraded",
-    database       : dbOk,
-    db_latency_ms  : dbLatency,
-    db_error       : dbError ?? undefined,
-    uptime_s       : Math.floor(process.uptime()),
-    memory_mb      : Math.round(process.memoryUsage().rss / 1024 / 1024),
-    online_users   : getOnlineCount(),
-    node_version   : process.version,
-    env            : process.env.NODE_ENV || "development",
-    flw_key_set    : !!process.env.FLW_SECRET_KEY,
-    flw_hash_set   : !!process.env.FLW_SECRET_HASH,
-    flw_mode       : mode,
-    flw_key_prefix : process.env.FLW_SECRET_KEY
-      ? process.env.FLW_SECRET_KEY.slice(0, 14) + "…"
-      : null,
-    cors_allowed   : ALLOWED_ORIGIN,
-    webhook_url    : "https://www.loemart.com/api/webhooks/flutterwave",
+    success       : true,
+    status        : dbOk ? "healthy" : "degraded",
+    database      : dbOk,
+    db_latency_ms : dbLatency,
+    db_error      : dbError ?? undefined,
+    uptime_s      : Math.floor(process.uptime()),
+    memory_mb     : Math.round(process.memoryUsage().rss / 1_048_576),
+    online_users  : getOnlineCount(),
+    node_version  : process.version,
+    env           : process.env.NODE_ENV || "development",
+    flw_mode      : flwKeyMode(),
+    cors_allowed  : ALLOWED_ORIGIN,
+    webhook_url   : "https://www.loemart.com/api/webhooks/flutterwave",
   });
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   STATIC BUILD (production SPA)
+   STATIC SPA  (production only)
 ═══════════════════════════════════════════════════════════════ */
 if (process.env.NODE_ENV === "production") {
   const distPath = path.join(__dirname, "dist");
   app.use(express.static(distPath, { maxAge: "1d" }));
 
+  /* SPA fallback — must come AFTER all API routes */
   app.get("*", (req, res) => {
     if (req.path.startsWith("/api/")) {
       return res.status(404).json({
@@ -503,20 +516,20 @@ app.use((err, req, res, _next) => {
    GRACEFUL SHUTDOWN
 ═══════════════════════════════════════════════════════════════ */
 async function shutdown(signal) {
-  console.log(`\n${signal} received — shutting down gracefully…`);
+  console.log(`\n[server] ${signal} — shutting down gracefully…`);
   stopJobRunner();
   server.close(async () => {
-    console.log("HTTP server closed");
+    console.log("[server] HTTP server closed");
     try {
       await pool.end();
-      console.log("Database pool drained");
+      console.log("[server] Database pool drained");
     } catch (err) {
-      console.error("Pool drain error:", err.message);
+      console.error("[server] Pool drain error:", err.message);
     }
     process.exit(0);
   });
   setTimeout(() => {
-    console.error("Forced exit after timeout");
+    console.error("[server] Forced exit after timeout");
     process.exit(1);
   }, 10_000);
 }
@@ -533,21 +546,32 @@ server.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`   ENV       : ${process.env.NODE_ENV || "development"}`);
   console.log(`   CORS      : ${ALLOWED_ORIGIN}`);
+  console.log(`   RESEND    : ${
+    process.env.RESEND_API_KEY
+      ? `✅ SET (…${process.env.RESEND_API_KEY.slice(-4)})`
+      : "❌ NOT SET"
+  }`);
+  console.log(`   EMAIL FROM: ${
+    process.env.EMAIL_FROM || "(default) Loemart <no-reply@loemart.com>"
+  }`);
+  console.log(`   DB        : ${process.env.COCKROACH_URI ? "✅ URI set" : "❌ MISSING"}`);
+  console.log(`   JWT       : ${process.env.JWT_SECRET    ? "✅ set"     : "❌ MISSING"}`);
   console.log(`   FLW KEY   : ${
-    mode === "missing" ? "❌ MISSING"   :
-    mode === "live"    ? "✅ LIVE MODE" :
+    mode === "missing" ? "❌ MISSING"    :
+    mode === "live"    ? "✅ LIVE MODE"  :
                          "⚠️  TEST MODE"
   }`);
   console.log(`   FLW HASH  : ${
-    process.env.FLW_SECRET_HASH ? "✅ set" : "❌ MISSING — webhooks rejected"
+    process.env.FLW_SECRET_HASH ? "✅ set" : "❌ MISSING — webhooks will be rejected"
   }`);
   console.log(`   PRODUCTS  : /api/products`);
   console.log(`   SHOP      : /api/shop`);
   console.log(`   CART      : /api/cart`);
   console.log(`   CHECKOUT  : /api/checkout`);
+  console.log(`   VERIFY    : /api/verification`);
   console.log(`   COUPONS   : /api/coupons`);
-  console.log(`   WEBHOOK   : https://www.loemart.com/api/webhooks/flutterwave`);
   console.log(`   SPINWHEEL : /api/spinwheel`);
+  console.log(`   WEBHOOK   : https://www.loemart.com/api/webhooks/flutterwave`);
 
   startJobRunner();
   console.log("🧹 Background jobs started");
