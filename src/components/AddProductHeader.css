@@ -1,28 +1,18 @@
-/* ── AddProductHeader.css ────────────────────────────────
-   Sticky top header — Minimart theme
-   Orange #FF5C00 · Ink #141210 · BG #F7F4EF
-──────────────────────────────────────────────────────── */
+/* ── AddProductHeader.css ───────────────────────────────────── */
 
-/* ── Variables ──────────────────────────────────────────── */
 .aph {
-  --o:    #FF5C00;
-  --od:   #d94c00;
-  --ink:  #141210;
-  --ink2: #5A5650;
-  --bd:   #EAE6E0;
-  --font: 'Plus Jakarta Sans', system-ui, sans-serif;
-
-  /* Scroll shadow toggle — set to 1 via JS when scrollY > 4 */
+  --o:           #FF5C00;
+  --od:          #d94c00;
+  --ink:         #141210;
+  --ink2:        #5A5650;
+  --bd:          #EAE6E0;
+  --font:        'Plus Jakarta Sans', system-ui, sans-serif;
   --aph-scrolled: 0;
-}
 
-/* ── Wrapper ─────────────────────────────────────────────── */
-.aph {
   position: sticky;
   top: 0;
   z-index: var(--z-header, 200);
 
-  /* GPU layer — fixes Safari sticky + improves scroll perf */
   will-change: transform;
   transform: translateZ(0);
 
@@ -46,32 +36,24 @@
   font-family: var(--font);
 }
 
-/* Solid fallback for Firefox / no backdrop-filter support */
 @supports not (backdrop-filter: blur(1px)) {
-  .aph {
-    background: rgb(247, 244, 239);
-  }
+  .aph { background: rgb(247, 244, 239); }
 }
 
-/* ── Scroll shadow (JS-driven opacity) ──────────────────── */
+/* Scroll shadow */
 .aph::after {
   content: "";
   position: absolute;
   bottom: -10px;
-  left:   0;
-  right:  0;
+  left: 0; right: 0;
   height: 10px;
-  background: linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0.04),
-    transparent
-  );
+  background: linear-gradient(to bottom, rgba(0,0,0,0.04), transparent);
   pointer-events: none;
   opacity: var(--aph-scrolled, 0);
   transition: opacity 0.2s ease;
 }
 
-/* ── Back button ─────────────────────────────────────────── */
+/* ── Back button ── */
 .aph-back {
   display: inline-flex;
   align-items: center;
@@ -81,7 +63,6 @@
   border-radius: 10px;
   border: 1.5px solid var(--bd);
   background: #fff;
-
   color: var(--ink);
   font-size: 0.82rem;
   font-weight: 600;
@@ -97,52 +78,31 @@
     transform    0.12s ease;
 }
 
-.aph-back:hover {
-  background:   #FFF3EE;
-  border-color: var(--o);
-  color:        var(--o);
-}
+.aph-back:hover              { background: #FFF3EE; border-color: var(--o); color: var(--o); }
+.aph-back:active             { transform: scale(0.96); }
+.aph-back:focus-visible      { outline: 2px solid var(--o); outline-offset: 2px; border-color: var(--o); background: #FFF3EE; }
+.aph-back:focus:not(:focus-visible) { outline: none; }
 
-.aph-back:active {
-  transform: scale(0.96);
-}
+.aph-back-label { display: inline; }
 
-.aph-back:focus-visible {
-  outline:        2px solid var(--o);
-  outline-offset: 2px;
-  border-color:   var(--o);
-  background:     #FFF3EE;
-}
-
-.aph-back:focus:not(:focus-visible) {
-  outline: none;
-}
-
-/* ── Back label ──────────────────────────────────────────── */
-.aph-back-label {
-  display: inline;
-}
-
-/* ── Title ───────────────────────────────────────────────── */
+/* ── Title ── */
 .aph-title {
   flex: 1;
   text-align: center;
-
   font-family: 'Fraunces', serif;
   font-weight: 800;
   font-size: clamp(0.95rem, 3vw, 1.1rem);
   color: var(--ink);
   letter-spacing: -0.02em;
   line-height: 1.2;
-
-  overflow:      hidden;
+  overflow: hidden;
   text-overflow: ellipsis;
-  white-space:   nowrap;
+  white-space: nowrap;
   padding: 0 6px;
   margin: 0;
 }
 
-/* ── Right slot ──────────────────────────────────────────── */
+/* ── Right slot ── */
 .aph-right {
   display: flex;
   align-items: center;
@@ -150,7 +110,7 @@
   flex-shrink: 0;
 }
 
-/* ── Clear draft button ──────────────────────────────────── */
+/* ── Clear draft ── */
 .aph-clear {
   display: inline-flex;
   align-items: center;
@@ -160,7 +120,6 @@
   border-radius: 10px;
   border: 1.5px solid rgba(220, 38, 38, 0.25);
   background: rgba(220, 38, 38, 0.05);
-
   color: #dc2626;
   font-size: 0.8rem;
   font-weight: 600;
@@ -174,26 +133,11 @@
     transform    0.12s ease;
 }
 
-.aph-clear:hover {
-  background:   rgba(220, 38, 38, 0.1);
-  border-color: rgba(220, 38, 38, 0.5);
-}
+.aph-clear:hover              { background: rgba(220,38,38,0.1); border-color: rgba(220,38,38,0.5); }
+.aph-clear:active             { transform: scale(0.96); }
+.aph-clear:focus-visible      { outline: 2px solid #dc2626; outline-offset: 2px; border-color: rgba(220,38,38,0.7); }
+.aph-clear:focus:not(:focus-visible) { outline: none; }
 
-.aph-clear:active {
-  transform: scale(0.96);
-}
-
-.aph-clear:focus-visible {
-  outline:        2px solid #dc2626;
-  outline-offset: 2px;
-  border-color:   rgba(220, 38, 38, 0.7);
-}
-
-.aph-clear:focus:not(:focus-visible) {
-  outline: none;
-}
-
-/* Confirm state — two-tap protection */
 .aph-clear--confirm {
   background:   rgba(220, 38, 38, 0.15);
   border-color: rgba(220, 38, 38, 0.7);
@@ -203,43 +147,20 @@
 }
 
 @keyframes aph-clear-pulse {
-  from { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0.25); }
-  to   { box-shadow: 0 0 0 5px rgba(220, 38, 38, 0);    }
+  from { box-shadow: 0 0 0 0   rgba(220,38,38,0.25); }
+  to   { box-shadow: 0 0 0 5px rgba(220,38,38,0);    }
 }
 
-/* ── Responsive ──────────────────────────────────────────── */
+/* ── Responsive ── */
 @media (max-width: 400px) {
-  .aph {
-    padding:    10px 12px;
-    min-height: 52px;
-  }
-
-  .aph-back-label {
-    display: none;
-  }
-
-  .aph-back {
-    padding: 7px 9px;
-  }
-
-  .aph-clear {
-    font-size: 0.75rem;
-    padding:   7px 10px;
-  }
+  .aph            { padding: 10px 12px; min-height: 52px; }
+  .aph-back-label { display: none; }
+  .aph-back       { padding: 7px 9px; }
+  .aph-clear      { font-size: 0.75rem; padding: 7px 10px; }
 }
 
-/* ── Reduced motion ──────────────────────────────────────── */
+/* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
-  .aph-back,
-  .aph-clear,
-  .aph-title,
-  .aph::after {
-    transition: none;
-    animation:  none;
-  }
-
-  /* Keep confirm state visually distinct without animation */
-  .aph-clear--confirm {
-    outline: 2px solid rgba(220, 38, 38, 0.7);
-  }
+  .aph-back, .aph-clear, .aph-title, .aph::after { transition: none; animation: none; }
+  .aph-clear--confirm { outline: 2px solid rgba(220,38,38,0.7); animation: none; }
 }
