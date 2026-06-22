@@ -1,17 +1,7 @@
 /**
  * src/pages/AddProduct.jsx
  * Route: /minimart/add
- *
- * Multi-step product listing with:
- * - Image compression + upload
- * - Promotion plan selection
- * - Paystack payment integration
- * - GPS location detection
- * - Auto-save draft
- * - Progress overlay
- * - Field-level error scrolling
  */
-
 import {
   useEffect, useMemo, useState, useCallback, useRef,
 } from "react";
@@ -29,6 +19,7 @@ import "../styles/AddProduct.css";
 const API_BASE = `${import.meta.env.VITE_API_BASE_URL}/api`;
 
 const STORAGE_PAYMENT  = "payment_retry";
+const DRAFT_VERSION    = 2;
 const MAX_IMAGES       = 6;
 const MAX_SIZE         = 3 * 1024 * 1024;
 const COMPRESS_MAX_MB  = 1;
@@ -40,6 +31,12 @@ const GPS_TIMEOUT      = 10_000;
 const GPS_MAX_AGE      = 60_000;
 const BRAND_NAME       = "Loemart";
 const USER_AGENT       = "loemart-app/1.0";
+
+/* Allowed payment hosts — validated before window.open */
+const ALLOWED_PAYMENT_HOSTS = [
+  "checkout.paystack.com",
+  "standard.paystack.com",
+];
 
 const INITIAL_FORM = {
   title          : "",
@@ -83,28 +80,39 @@ const INITIAL_FORM = {
 };
 
 const ERROR_SELECTOR_MAP = [
-  { match: "Title required",       sel: 'input[placeholder*="HP Pavilion"], input[placeholder*="Product Title"]' },
-  { match: "Description required", sel: 'textarea[placeholder*="Describe"]'          },
-  { match: "valid price",          sel: 'input[placeholder*="Enter price"]'           },
-  { match: "Category required",    sel: ".ap-form-card:nth-of-type(2)"               },
-  { match: "valid email",          sel: 'input[type="email"]'                        },
-  { match: "Phone must be",        sel: 'input[placeholder="08012345678"]'            },
-  { match: "WhatsApp number",      sel: 'input[type="tel"]:last-of-type'             },
-  { match: "image required",       sel: ".ap-image-box"                              },
-  { match: "state and city",       sel: ".ap-detect-row"                             },
-  { match: "Terms",                sel: ".ap-terms-row"                              },
-  { match: "delivery days",        sel: 'input[type="number"]'                       },
-  { match: "Delivery end",         sel: 'input[type="number"]:last-of-type'          },
-  { match: "delivery fee",         sel: ".ap-delivery-grid"                          },
+  { match: "Title required",       sel: 'input[placeholder*="HP Pavilion"]'   },
+  { match: "Description required", sel: 'textarea[placeholder*="Describe"]'   },
+  { match: "valid price",          sel: 'input[placeholder*="Enter price"]'    },
+  { match: "Category required",    sel: ".ap-form-card:nth-of-type(2)"        },
+  { match: "valid email",          sel: 'input[type="email"]'                 },
+  { match: "Phone must be",        sel: 'input[placeholder="08012345678"]'    },
+  { match: "WhatsApp number",      sel: 'input[type="tel"]:last-of-type'      },
+  { match: "image required",       sel: ".ap-image-box"                       },
+  { match: "state and city",       sel: ".ap-detect-row"                      },
+  { match: "Terms",                sel: ".ap-terms-row"                       },
+  { match: "delivery days",        sel: 'input[type="number"]'                },
+  { match: "Delivery end",         sel: 'input[type="number"]:last-of-type'   },
+  { match: "delivery fee",         sel: ".ap-delivery-grid"                   },
 ];
 
-/* ── helpers ─────────────────────────────────────────────────── */
-const onlyNumbers  = (v = "") => v.replace(/[^0-9.]/g, "");
-const onlyDigits   = (v = "") => v.replace(/[^0-9]/g, "");
-const toArray      = (v)      => (Array.isArray(v) ? v : []);
-const getToken     = ()       =>
+/* ── Helpers ─────────────────────────────────────────────────── */
+const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
+const onlyDigits  = (v = "") => v.replace(/[^0-9]/g,  "");
+const toArray     = (v)      => (Array.isArray(v) ? v : []);
+
+const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token");
+
+const getTokenOrRedirect = (returnPath) => {
+  const token = getToken();
+  if (!token) {
+    const encoded = encodeURIComponent(returnPath ?? window.location.pathname);
+    window.location.href = `/login?redirect=${encoded}`;
+    throw new ApiError("Session expired — redirecting to login", 401);
+  }
+  return token;
+};
 
 const displayPrice = (v) => {
   const n = Number(v);
@@ -116,7 +124,56 @@ const displayPrice = (v) => {
 const formatLabel = (t) =>
   t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
-/* ── multipart POST with timeout ─────────────────────────────── */
+/* ── Payment URL safety check ────────────────────────────────── */
+const safeOpenPayment = (url, onError) => {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "https:") throw new Error("Non-HTTPS URL");
+    if (!ALLOWED_PAYMENT_HOSTS.some((h) => parsed.hostname.endsWith(h)))
+      throw new Error(`Untrusted host: ${parsed.hostname}`);
+    window.open(url, "_blank", "noopener,noreferrer");
+  } catch (err) {
+    console.error("[Payment] Blocked unsafe URL:", err.message);
+    onError?.("Payment URL invalid — please contact support");
+  }
+};
+
+/* ── Payment session validation ──────────────────────────────── */
+const isValidPaymentSession = (obj) =>
+  obj &&
+  typeof obj.reference === "string" && obj.reference.length > 0 &&
+  typeof obj.authUrl   === "string" && obj.authUrl.startsWith("https://") &&
+  typeof obj.createdAt === "number";
+
+/* ── Image magic-byte verification ──────────────────────────── */
+const verifyImageMagicBytes = (file) =>
+  new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const arr = new Uint8Array(reader.result);
+      const hex = Array.from(arr)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+      const isJpeg = hex.startsWith("ffd8ff");
+      const isPng  = hex.startsWith("89504e47");
+      const isWebP = hex.startsWith("52494646") && hex.slice(16, 24) === "57454250";
+      resolve(isJpeg || isPng || isWebP);
+    };
+    reader.onerror = () => resolve(false);
+    reader.readAsArrayBuffer(file.slice(0, 12));
+  });
+
+/* ── Idempotency key per session ─────────────────────────────── */
+const getOrCreateIdempotencyKey = (key) => {
+  const existing = sessionStorage.getItem(key);
+  if (existing) return existing;
+  const id = crypto.randomUUID();
+  sessionStorage.setItem(key, id);
+  return id;
+};
+const clearIdempotencyKey = (key) => sessionStorage.removeItem(key);
+
+/* ── Multipart POST with timeout ─────────────────────────────── */
 const multipartPost = async (url, formData, token, timeoutMs = UPLOAD_TIMEOUT) => {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -143,7 +200,7 @@ const multipartPost = async (url, formData, token, timeoutMs = UPLOAD_TIMEOUT) =
   return data;
 };
 
-/* ── scroll to error field ───────────────────────────────────── */
+/* ── Scroll to error field ───────────────────────────────────── */
 const scrollToError = (msg) => {
   if (!msg) return;
   const entry = ERROR_SELECTOR_MAP.find((e) => msg.includes(e.match));
@@ -154,7 +211,7 @@ const scrollToError = (msg) => {
       const el = document.querySelector(sel);
       if (!el) return;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      if (["INPUT","TEXTAREA","SELECT"].includes(el.tagName)) {
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) {
         setTimeout(() => el.focus({ preventScroll: true }), 350);
       }
       el.classList.add("ap-field-flash");
@@ -167,9 +224,10 @@ const scrollToError = (msg) => {
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function AddProduct({ user }) {
-  const STORAGE_DRAFT = `product_draft_${user?.id ?? "anon"}`;
+  const STORAGE_DRAFT      = `product_draft_${user?.id ?? "anon"}`;
+  const IDEMPOTENCY_STORE  = `idempotency_${user?.id ?? "anon"}`;
 
-  /* ── state ── */
+  /* ── State ── */
   const [form,              setForm]              = useState(INITIAL_FORM);
   const [categories,        setCategories]        = useState([]);
   const [promotionPlans,    setPromotionPlans]    = useState([]);
@@ -191,19 +249,19 @@ export default function AddProduct({ user }) {
   const isSubmittingRef = useRef(false);
   const imagesRef       = useRef([]);
 
-  /* ── derived ── */
+  /* ── Derived ── */
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)) ?? null,
     [categories, form.category_id]
   );
 
-  const options    = selectedCategory?.dynamicOptions ?? {};
-  const attributes = form.attributes ?? INITIAL_FORM.attributes;
-  const states     = Object.keys(locationsByState ?? {});
-  const cities     = locationState ? (locationsByState[locationState] ?? []) : [];
+  const options            = selectedCategory?.dynamicOptions ?? {};
+  const attributes         = form.attributes ?? INITIAL_FORM.attributes;
+  const states             = Object.keys(locationsByState ?? {});
+  const cities             = locationState ? (locationsByState[locationState] ?? []) : [];
   const isSelectedPlanPaid = !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
-  /* ── feedback ── */
+  /* ── Feedback ── */
   const showError = useCallback((msg) => {
     setError(msg);
     scrollToError(msg);
@@ -215,7 +273,7 @@ export default function AddProduct({ user }) {
     setTimeout(() => setSuccess(""), 5_000);
   }, []);
 
-  /* ── load categories ── */
+  /* ── Load categories ── */
   useEffect(() => {
     apiFetch(`${API_BASE}/addproduct/categories`)
       .then((data) => {
@@ -228,7 +286,7 @@ export default function AddProduct({ user }) {
       });
   }, [showError]);
 
-  /* ── load plans ── */
+  /* ── Load plans ── */
   useEffect(() => {
     setPlansLoading(true);
     apiFetch(`${API_BASE}/payment/plans`)
@@ -247,18 +305,32 @@ export default function AddProduct({ user }) {
       .finally(() => setPlansLoading(false));
   }, [showError]);
 
-  /* ── resume stale payment ── */
+  /* ── Resume stale payment ── */
   useEffect(() => {
     const check = async () => {
       try {
         const saved = localStorage.getItem(STORAGE_PAYMENT);
         if (!saved) return;
-        const session = JSON.parse(saved);
-        const ageMs   = Date.now() - (session.createdAt ?? 0);
+
+        let session;
+        try {
+          session = JSON.parse(saved);
+        } catch {
+          localStorage.removeItem(STORAGE_PAYMENT);
+          return;
+        }
+
+        if (!isValidPaymentSession(session)) {
+          console.warn("[Payment] Corrupted session — clearing");
+          localStorage.removeItem(STORAGE_PAYMENT);
+          return;
+        }
+
+        const ageMs = Date.now() - session.createdAt;
 
         if (ageMs <= PAYMENT_MAX_AGE) {
           setPaymentData(session);
-          showSuccess("💳 Incomplete payment found — tap 'Complete Payment' to finish");
+          showSuccess("Incomplete payment found — tap 'Complete Payment' to finish");
           return;
         }
 
@@ -272,9 +344,9 @@ export default function AddProduct({ user }) {
                 body    : JSON.stringify({ reference: session.reference }),
               });
               if (result.status === "success") {
-                showSuccess("✅ Your previous payment was confirmed — product is live!");
+                showSuccess("Your previous payment was confirmed — product is live!");
               } else {
-                showError(result.message ?? "Your previous payment did not complete — listing saved as draft");
+                showError(result.message ?? "Previous payment did not complete — listing saved as draft");
               }
             } catch { /* non-critical */ }
           }
@@ -287,17 +359,23 @@ export default function AddProduct({ user }) {
       }
     };
     check();
-  }, []); // eslint-disable-line
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── restore draft ── */
+  /* ── Restore draft ── */
   useEffect(() => {
     if (plansLoading) return;
     try {
       const raw = localStorage.getItem(STORAGE_DRAFT);
       if (!raw) return;
       const draft = JSON.parse(raw);
-      const f     = draft.form ?? {};
 
+      if (!draft.version || draft.version < DRAFT_VERSION) {
+        localStorage.removeItem(STORAGE_DRAFT);
+        showSuccess("Draft format updated — please re-enter your listing");
+        return;
+      }
+
+      const f = draft.form ?? {};
       setForm({
         title          : f.title          ?? "",
         description    : f.description    ?? "",
@@ -311,9 +389,12 @@ export default function AddProduct({ user }) {
         },
         delivery : {
           available : f.delivery?.available ?? false,
-          duration  : { from: f.delivery?.duration?.from ?? "", to: f.delivery?.duration?.to ?? "" },
-          fee       : f.delivery?.fee  ?? "",
-          note      : f.delivery?.note ?? "",
+          duration  : {
+            from: f.delivery?.duration?.from ?? "",
+            to:   f.delivery?.duration?.to   ?? "",
+          },
+          fee  : f.delivery?.fee  ?? "",
+          note : f.delivery?.note ?? "",
         },
         contact : {
           phone         : f.contact?.phone         ?? "",
@@ -338,13 +419,14 @@ export default function AddProduct({ user }) {
     } catch {
       showError("Draft restore failed");
     }
-  }, [plansLoading]); // eslint-disable-line
+  }, [plansLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── auto-save draft ── */
+  /* ── Auto-save draft ── */
   useEffect(() => {
     const t = setTimeout(() => {
       try {
         localStorage.setItem(STORAGE_DRAFT, JSON.stringify({
+          version      : DRAFT_VERSION,
           form,
           locationState,
           city,
@@ -356,7 +438,7 @@ export default function AddProduct({ user }) {
     return () => clearTimeout(t);
   }, [form, locationState, city, images.length, selectedPlan, STORAGE_DRAFT]);
 
-  /* ── revoke object URLs on unmount ── */
+  /* ── Revoke object URLs on unmount ── */
   useEffect(() => { imagesRef.current = images; }, [images]);
   useEffect(() => {
     return () => {
@@ -366,7 +448,7 @@ export default function AddProduct({ user }) {
     };
   }, []);
 
-  /* ── form updaters ── */
+  /* ── Form updaters ── */
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
@@ -381,17 +463,26 @@ export default function AddProduct({ user }) {
   }, []);
 
   const updateContact = useCallback((key, value) => {
-    setForm((prev) => ({ ...prev, contact: { ...prev.contact, [key]: value } }));
+    setForm((prev) => ({
+      ...prev,
+      contact: { ...prev.contact, [key]: value },
+    }));
   }, []);
 
   const updateDelivery = useCallback((key, value) => {
-    setForm((prev) => ({ ...prev, delivery: { ...prev.delivery, [key]: value } }));
+    setForm((prev) => ({
+      ...prev,
+      delivery: { ...prev.delivery, [key]: value },
+    }));
   }, []);
 
   const updateDeliveryDuration = useCallback((key, value) => {
     setForm((prev) => ({
       ...prev,
-      delivery: { ...prev.delivery, duration: { ...prev.delivery.duration, [key]: value } },
+      delivery: {
+        ...prev.delivery,
+        duration: { ...prev.delivery.duration, [key]: value },
+      },
     }));
   }, []);
 
@@ -410,11 +501,11 @@ export default function AddProduct({ user }) {
     });
   }, []);
 
-  /* ── payment helpers ── */
+  /* ── Payment helpers ── */
   const resumePayment = useCallback(() => {
     if (!paymentData?.authUrl) return;
-    window.open(paymentData.authUrl, "_blank");
-  }, [paymentData]);
+    safeOpenPayment(paymentData.authUrl, showError);
+  }, [paymentData, showError]);
 
   const cancelPendingPayment = useCallback(async () => {
     if (!paymentData?.reference) {
@@ -450,12 +541,16 @@ export default function AddProduct({ user }) {
     setAgreedToTerms(false);
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
+    clearIdempotencyKey(IDEMPOTENCY_STORE);
     showSuccess("Draft cleared");
-  }, [STORAGE_DRAFT, showSuccess]);
+  }, [STORAGE_DRAFT, IDEMPOTENCY_STORE, showSuccess]);
 
   /* ── GPS ── */
   const detectLocation = useCallback(async () => {
-    if (!navigator.geolocation) { showError("Location detection not supported"); return; }
+    if (!navigator.geolocation) {
+      showError("Location detection not supported");
+      return;
+    }
     setDetectingLocation(true);
     navigator.geolocation.getCurrentPosition(
       async ({ coords: { latitude, longitude } }) => {
@@ -471,52 +566,81 @@ export default function AddProduct({ user }) {
 
           if (rawState) {
             const matched = Object.keys(locationsByState).find(
-              (s) => s.toLowerCase().includes(rawState.toLowerCase()) ||
-                     rawState.toLowerCase().includes(s.toLowerCase())
+              (s) =>
+                s.toLowerCase().includes(rawState.toLowerCase()) ||
+                rawState.toLowerCase().includes(s.toLowerCase())
             );
             if (matched) {
               setLocationState(matched);
               const cityList    = locationsByState[matched] ?? [];
               const matchedCity = cityList.find(
-                (c) => c.toLowerCase().includes(rawCity.toLowerCase()) ||
-                       rawCity.toLowerCase().includes(c.toLowerCase())
+                (c) =>
+                  c.toLowerCase().includes(rawCity.toLowerCase()) ||
+                  rawCity.toLowerCase().includes(c.toLowerCase())
               );
               if (matchedCity) setCity(matchedCity);
             }
           }
           setDetectedCoords({ latitude, longitude });
-          showSuccess("📍 Location detected");
+          showSuccess("Location detected");
         } catch {
           setDetectedCoords({ latitude, longitude });
-          showSuccess("📍 GPS captured — fill state/city manually");
+          showSuccess("GPS captured — fill state/city manually");
         } finally {
           setDetectingLocation(false);
         }
       },
       (err) => {
         setDetectingLocation(false);
-        const msgs = { 1:"Permission denied", 2:"Location unavailable", 3:"Request timed out" };
+        const msgs = {
+          1: "Permission denied",
+          2: "Location unavailable",
+          3: "Request timed out",
+        };
         showError(msgs[err.code] ?? "Location detection failed");
       },
       { timeout: GPS_TIMEOUT, maximumAge: GPS_MAX_AGE }
     );
   }, [showError, showSuccess]);
 
-  /* ── image handling ── */
+  /* ── Image handling ── */
   const handleImages = useCallback(async (files) => {
-    if (images.length >= MAX_IMAGES) { showError("Maximum 6 images allowed"); return; }
+    if (images.length >= MAX_IMAGES) {
+      showError("Maximum 6 images allowed");
+      return;
+    }
+
     const remaining  = MAX_IMAGES - images.length;
-    const validFiles = Array.from(files)
-      .filter((f) => f.type.startsWith("image/") && f.size <= MAX_SIZE)
+    const sizeFiltered = Array.from(files)
+      .filter((f) => f.size <= MAX_SIZE)
       .slice(0, remaining);
 
-    if (!validFiles.length) { showError("Images must be under 3 MB each"); return; }
+    if (!sizeFiltered.length) {
+      showError("Images must be under 3 MB each");
+      return;
+    }
+
+    /* Verify magic bytes to prevent MIME spoofing */
+    const verified = await Promise.all(
+      sizeFiltered.map(async (f) => ({
+        file  : f,
+        valid : await verifyImageMagicBytes(f),
+      }))
+    );
+    const validFiles = verified.filter((v) => v.valid).map((v) => v.file);
+
+    if (!validFiles.length) {
+      showError("Only real JPEG, PNG, or WebP images allowed (max 3 MB)");
+      return;
+    }
 
     try {
       const compressed = await Promise.all(
         validFiles.map((f) =>
           imageCompression(f, {
-            maxSizeMB: COMPRESS_MAX_MB, maxWidthOrHeight: COMPRESS_MAX_DIM, useWebWorker: true,
+            maxSizeMB        : COMPRESS_MAX_MB,
+            maxWidthOrHeight : COMPRESS_MAX_DIM,
+            useWebWorker     : true,
           }).catch(() => f)
         )
       );
@@ -540,7 +664,7 @@ export default function AddProduct({ user }) {
     });
   }, []);
 
-  /* ── validation ── */
+  /* ── Validation ── */
   const validateForm = useCallback(() => {
     if (!form.title?.trim())                                          return "Title required";
     if (!form.description?.trim())                                    return "Description required";
@@ -556,31 +680,42 @@ export default function AddProduct({ user }) {
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
-      if (!Number.isFinite(from) || !Number.isFinite(to)) return "Enter valid delivery days";
-      if (to < from)                                       return "Delivery end must be after start";
-      if (!form.delivery.fee || Number(form.delivery.fee) <= 0) return "Enter a valid delivery fee";
+      if (!Number.isFinite(from) || from < 1) return "Enter valid delivery days";
+      if (!Number.isFinite(to)   || to   < 1) return "Enter valid delivery days";
+      if (to < from)                           return "Delivery end must be after start";
+      if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
+        return "Enter a valid delivery fee";
     }
 
     return null;
   }, [form, images.length, locationState, city, agreedToTerms]);
 
-  /* ── submit ── */
+  /* ── Submit ── */
   const handleSubmit = useCallback(async () => {
-    if (loading || isSubmittingRef.current) return;
+    if (isSubmittingRef.current) return;
+
+    if (!navigator.onLine) {
+      showError("You appear to be offline. Check your connection and try again.");
+      return;
+    }
+
     isSubmittingRef.current = true;
+    setLoading(true);
 
     const validationError = validateForm();
     if (validationError) {
       showError(validationError);
       isSubmittingRef.current = false;
+      setLoading(false);
       return;
     }
 
     setProgressVisible(true);
     setProgressStep("compressing");
-    setLoading(true);
     setError("");
-    let product = null;
+
+    let product  = null;
+    let payData  = null;
 
     try {
       const finalPlan =
@@ -590,29 +725,30 @@ export default function AddProduct({ user }) {
 
       if (!finalPlan) {
         throw new ApiError(
-          plansLoading ? "Plans are still loading — please wait" :
-          "No promotion plan available. Please select a plan.", 400
+          plansLoading
+            ? "Plans are still loading — please wait"
+            : "No promotion plan available. Please select a plan.",
+          400
         );
       }
 
       const planId     = String(finalPlan.id);
       const isFreePlan = Number(finalPlan.price) === 0;
-      const token      = getToken();
-      if (!token) throw new ApiError("Authentication required — please log in", 401);
+      const token      = getTokenOrRedirect("/minimart/add");
 
       await new Promise((r) => setTimeout(r, 400));
       setProgressStep("uploading");
 
       const fd = new FormData();
-      fd.append("title",          form.title.trim());
-      fd.append("description",    form.description.trim());
-      fd.append("price",          Number(form.price).toFixed(2));
-      fd.append("category_id",    form.category_id);
-      if (form.subcategory_id)    fd.append("subcategory_id", form.subcategory_id);
-      fd.append("location_state", locationState ?? "");
-      fd.append("location_city",  city ?? "");
-      fd.append("status",         isFreePlan ? "active" : "draft");
-      fd.append("is_active",      isFreePlan ? "true"   : "false");
+      fd.append("title",           form.title.trim());
+      fd.append("description",     form.description.trim());
+      fd.append("price",           Number(form.price).toFixed(2));
+      fd.append("category_id",     form.category_id);
+      if (form.subcategory_id)     fd.append("subcategory_id", form.subcategory_id);
+      fd.append("location_state",  locationState ?? "");
+      fd.append("location_city",   city ?? "");
+      fd.append("status",          isFreePlan ? "active" : "draft");
+      fd.append("is_active",       isFreePlan ? "true"   : "false");
 
       if (detectedCoords) {
         fd.append("latitude",  String(detectedCoords.latitude));
@@ -625,7 +761,7 @@ export default function AddProduct({ user }) {
       fd.append("phone",           form.contact.phone         ?? "");
       fd.append("whatsapp",        form.contact.whatsapp      ?? "");
       fd.append("whatsapp_link",   form.contact.whatsapp_link ?? "");
-      fd.append("idempotency_key", crypto.randomUUID());
+      fd.append("idempotency_key", getOrCreateIdempotencyKey(IDEMPOTENCY_STORE));
       fd.append("seller_name",     user?.store_name || user?.name || BRAND_NAME);
       images.forEach((img) => fd.append("images", img.file));
 
@@ -641,25 +777,32 @@ export default function AddProduct({ user }) {
           headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
           body    : JSON.stringify({ promotion_id: null }),
         });
+
         setProgressStep("finalizing");
         await new Promise((r) => setTimeout(r, 600));
         setProgressVisible(false);
+
+        clearIdempotencyKey(IDEMPOTENCY_STORE);
         clearDraft();
-        showSuccess("✅ Product live! Redirecting…");
+        showSuccess("Product live! Redirecting…");
         setTimeout(() => { window.location.href = "/"; }, 1_500);
         return;
       }
 
+      /* Paid plan — initiate payment */
       setProgressStep("payment");
       const rawPrice     = Number(finalPlan.price);
       const discount     = Number(finalPlan.discount_percent ?? 0);
       const effectiveAmt = Number((rawPrice * (1 - discount / 100)).toFixed(2));
 
-      const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
+      payData = await apiFetch(`${API_BASE}/payment/initiate`, {
         method  : "POST",
         headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body    : JSON.stringify({
-          email: form.contact.email, amount: effectiveAmt, plan_id: planId, product_id: product.id,
+          email      : form.contact.email,
+          amount     : effectiveAmt,
+          plan_id    : planId,
+          product_id : product.id,
         }),
       });
 
@@ -681,20 +824,28 @@ export default function AddProduct({ user }) {
       };
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
       setPaymentData(session);
-      showSuccess("💳 Redirecting to payment…");
-      window.open(payData.authorization_url, "_blank");
+      showSuccess("Redirecting to payment…");
+      safeOpenPayment(payData.authorization_url, showError);
 
     } catch (err) {
       console.error("[AddProduct] submit:", err);
       setProgressVisible(false);
 
-      if (product?.id) {
+      /* Only delete product if payment never initiated */
+      if (product?.id && !payData) {
         const token = getToken();
         if (token) {
           fetch(`${API_BASE}/addproduct/products/${product.id}`, {
-            method: "DELETE", headers: { Authorization: `Bearer ${token}` },
+            method  : "DELETE",
+            headers : { Authorization: `Bearer ${token}` },
           }).catch(() => {});
         }
+      } else if (product?.id && payData) {
+        showError(
+          "Payment redirect failed but your listing was saved as draft. " +
+          "Check your email or contact support."
+        );
+        return;
       }
 
       showError(err.message ?? "Submission failed — please try again");
@@ -703,20 +854,32 @@ export default function AddProduct({ user }) {
       isSubmittingRef.current = false;
     }
   }, [
-    loading, validateForm, selectedPlan, promotionPlans, plansLoading,
+    validateForm, selectedPlan, promotionPlans, plansLoading,
     form, attributes, images, locationState, city, detectedCoords,
-    clearDraft, showError, showSuccess, user,
+    clearDraft, showError, showSuccess, user, IDEMPOTENCY_STORE,
   ]);
 
-  /* ── terms checkbox ── */
+  /* ── Terms checkbox ── */
   const TermsCheckbox = (
     <div className="ap-terms-row">
       <label className="ap-terms-label">
-        <span className={`ap-terms-box ${agreedToTerms ? "ap-terms-box--on" : ""}`}
-              onClick={() => setAgreedToTerms((v) => !v)}>
+        <span
+          className={`ap-terms-box ${agreedToTerms ? "ap-terms-box--on" : ""}`}
+          onClick={() => setAgreedToTerms((v) => !v)}
+          role="checkbox"
+          aria-checked={agreedToTerms}
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              setAgreedToTerms((v) => !v);
+            }
+          }}
+        >
           {agreedToTerms && (
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                 stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                 stroke="#fff" strokeWidth="3"
+                 strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12"/>
             </svg>
           )}
@@ -725,7 +888,9 @@ export default function AddProduct({ user }) {
           type="checkbox"
           checked={agreedToTerms}
           onChange={(e) => setAgreedToTerms(e.target.checked)}
-          style={{ position:"absolute", opacity:0, pointerEvents:"none" }}
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+          aria-hidden="true"
+          tabIndex={-1}
         />
         <span className="ap-terms-text">
           I agree to the{" "}
