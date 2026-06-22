@@ -1,39 +1,45 @@
-// AddProductHeader.jsx
-import React, { useState } from "react";
-import { useNavigate }     from "react-router-dom";
+// src/components/AddProductHeader.jsx
+import React, { useState, useEffect } from "react";
+import { useNavigate }                 from "react-router-dom";
 import "./AddProductHeader.css";
 
-/* ── Error boundary for the optional rightAction slot ────────── */
+/* ── Error boundary for the rightAction slot ─────────────────── */
 class ActionBoundary extends React.Component {
   state = { failed: false };
-
-  static getDerivedStateFromError() {
-    return { failed: true };
-  }
-
+  static getDerivedStateFromError() { return { failed: true }; }
   componentDidCatch(err) {
     console.error("[AddProductHeader] rightAction crashed:", err);
   }
-
   render() {
     return this.state.failed ? null : this.props.children;
   }
 }
 
-/* ── Main component ──────────────────────────────────────────── */
+/* ── Component ───────────────────────────────────────────────── */
 export default function AddProductHeader({
   title       = "Add Product",
   rightAction = null,
   onClearDraft,
 }) {
-  const navigate     = useNavigate();
+  const navigate      = useNavigate();
   const [confirmClear, setConfirmClear] = useState(false);
 
-  /* ── safe title ── */
+  /* ── Safe title ── */
   const safeTitle =
     typeof title === "string" ? title.slice(0, 80).trim() : "Add Product";
 
-  /* ── back navigation with empty-history guard ── */
+  /* ── Scroll-driven shadow ── */
+  useEffect(() => {
+    const el = document.querySelector(".aph");
+    if (!el) return;
+    const onScroll = () => {
+      el.style.setProperty("--aph-scrolled", window.scrollY > 4 ? "1" : "0");
+    };
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  /* ── Back navigation with empty-history guard ── */
   const handleBack = () => {
     if (window.history.length > 2) {
       navigate(-1);
@@ -42,7 +48,7 @@ export default function AddProductHeader({
     }
   };
 
-  /* ── two-tap clear draft ── */
+  /* ── Two-tap clear draft ── */
   const handleClearDraft = () => {
     if (!confirmClear) {
       setConfirmClear(true);
@@ -59,7 +65,7 @@ export default function AddProductHeader({
       role="banner"
       aria-label="Add product navigation"
     >
-      {/* ── Left — back button ── */}
+      {/* Back */}
       <button
         className="aph-back"
         onClick={handleBack}
@@ -72,29 +78,21 @@ export default function AddProductHeader({
         aria-label="Go back"
         type="button"
       >
-        <svg
-          viewBox="0 0 20 20"
-          width="18"
-          height="18"
-          fill="none"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path
-            d="M13 4L7 10L13 16"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+        <svg viewBox="0 0 20 20" width="18" height="18" fill="none"
+             aria-hidden="true" focusable="false">
+          <path d="M13 4L7 10L13 16"
+                stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
         <span className="aph-back-label">Back</span>
       </button>
 
-      {/* ── Center — title ── */}
-      <h2 className="aph-title">{safeTitle}</h2>
+      {/* Title */}
+      <h2 className="aph-title" title={safeTitle}>
+        {safeTitle}
+      </h2>
 
-      {/* ── Right — optional action + clear draft ── */}
+      {/* Right slot */}
       <div className="aph-right">
         <ActionBoundary>
           {rightAction}
