@@ -1,18 +1,13 @@
-/* DropdownModal.css
-   Minimart theme — orange #FF5C00, ink #141210, bg #F7F4EF
-   Scoped under .dm
-──────────────────────────────────────────────────────────── */
+/* ── DropdownModal.css — scoped under .dm ───────────────────── */
 
-/* ── Variables ──────────────────────────────────────────── */
 .dm {
   --o:        #FF5C00;
   --od:       #d94c00;
   --ink:      #141210;
   --ink2:     #5A5650;
-  --bg:       #F7F4EF;
   --bd:       rgba(255, 92, 0, 0.2);
   --bd-focus: rgba(255, 92, 0, 0.55);
-  --shadow:   0 8px 32px rgba(0, 0, 0, 0.12);
+  --shadow:   0 8px 32px rgba(0,0,0,0.12);
   --radius:   12px;
   --font:     'Plus Jakarta Sans', system-ui, sans-serif;
 
@@ -23,7 +18,7 @@
   color: var(--ink);
 }
 
-/* ── Optional label ─────────────────────────────────────── */
+/* ── Label ── */
 .dm .dm-label {
   display: block;
   font-size: 0.82rem;
@@ -33,14 +28,13 @@
   letter-spacing: 0.01em;
 }
 
-/* ── Trigger button ─────────────────────────────────────── */
+/* ── Trigger ── */
 .dm .dm-trigger {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-
   padding: 13px 15px;
   border-radius: var(--radius);
   border: 1.5px solid var(--bd);
@@ -51,39 +45,15 @@
   font-size: inherit;
   color: var(--ink);
   min-height: 48px;
-
-  transition:
-    border-color 0.2s ease,
-    box-shadow   0.2s ease,
-    background   0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease, transform 0.12s ease;
 }
 
-.dm .dm-trigger:hover:not(:disabled) {
-  border-color: var(--bd-focus);
-  background: #fff;
-}
-
-/* Open state + keyboard focus — only when not disabled */
+.dm .dm-trigger:hover:not(:disabled)        { border-color: var(--bd-focus); background: #fff; }
 .dm.dm--open .dm-trigger,
-.dm .dm-trigger:focus-visible:not(:disabled) {
-  border-color: var(--o);
-  box-shadow:   0 0 0 3px rgba(255, 92, 0, 0.12);
-  outline:      none;
-  background:   #fff;
-}
+.dm .dm-trigger:focus-visible:not(:disabled){ border-color: var(--o); box-shadow: 0 0 0 3px rgba(255,92,0,0.12); outline: none; background: #fff; }
+.dm .dm-trigger:focus:not(:focus-visible)   { outline: none; }
+.dm .dm-trigger:disabled                    { opacity: 0.52; cursor: not-allowed; background: #f5f5f5; }
 
-/* Suppress outline on mouse click */
-.dm .dm-trigger:focus:not(:focus-visible) {
-  outline: none;
-}
-
-.dm .dm-trigger:disabled {
-  opacity: 0.52;
-  cursor: not-allowed;
-  background: #f5f5f5;
-}
-
-/* Trigger text */
 .dm .dm-trigger-text {
   flex: 1;
   overflow: hidden;
@@ -93,12 +63,8 @@
   line-height: 1.4;
 }
 
-.dm .dm-placeholder {
-  color: var(--ink2);
-  opacity: 0.7;
-}
+.dm .dm-placeholder { color: var(--ink2); opacity: 0.7; }
 
-/* Chevron */
 .dm .dm-chevron {
   flex-shrink: 0;
   color: var(--ink2);
@@ -107,227 +73,121 @@
   transition: transform 0.22s ease, color 0.2s ease;
 }
 
-.dm.dm--open .dm-chevron {
-  transform: rotate(180deg);
-  color: var(--o);
-}
+.dm.dm--open .dm-chevron { transform: rotate(180deg); color: var(--o); }
 
-/* ── Dropdown panel ─────────────────────────────────────── */
+/* ── Panel ── */
 .dm .dm-panel {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
-  right: 0;
+  left: 0; right: 0;
   z-index: var(--z-dropdown, 300);
-
   background: #fff;
   border: 1.5px solid rgba(255, 92, 0, 0.2);
   border-radius: 14px;
-
-  /* overflow on panel = visible so focus rings aren't clipped */
   overflow: visible;
-
   box-shadow: var(--shadow);
-
   display: flex;
   flex-direction: column;
-
   animation: dmPanelIn 0.18s cubic-bezier(0.34, 1.2, 0.64, 1);
 }
 
-/* ── Panel flipped upward ───────────────────────────────── */
 .dm .dm-panel--up {
   top: auto;
   bottom: calc(100% + 6px);
-  box-shadow:
-    0 -4px 20px rgba(0, 0, 0, 0.10),
-    0 -1px  4px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 -4px 20px rgba(0,0,0,0.10), 0 -1px 4px rgba(0,0,0,0.06);
   border-radius: 14px 14px 4px 14px;
   animation: dmPanelInUp 0.18s cubic-bezier(0.34, 1.2, 0.64, 1);
 }
 
-/* ── Panel animations ───────────────────────────────────── */
-@keyframes dmPanelIn {
-  from { opacity: 0; transform: translateY(-6px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0)    scale(1);    }
-}
+@keyframes dmPanelIn   { from { opacity:0; transform:translateY(-6px) scale(0.98); } to { opacity:1; transform:translateY(0) scale(1); } }
+@keyframes dmPanelInUp { from { opacity:0; transform:translateY(6px)  scale(0.98); } to { opacity:1; transform:translateY(0) scale(1); } }
 
-@keyframes dmPanelInUp {
-  from { opacity: 0; transform: translateY(6px) scale(0.98); }
-  to   { opacity: 1; transform: translateY(0)   scale(1);    }
-}
-
-/* ── Search row ─────────────────────────────────────────── */
+/* ── Search ── */
 .dm .dm-search-wrap {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 10px 12px;
-  border-bottom: 1px solid rgba(255, 92, 0, 0.1);
+  border-bottom: 1px solid rgba(255,92,0,0.1);
   background: #FDFAF8;
   flex-shrink: 0;
-  border-radius: 14px 14px 0 0;    /* rounds top so it sits inside panel */
-  overflow: hidden;                 /* clips background to rounded corners */
+  border-radius: 14px 14px 0 0;
+  overflow: hidden;
 }
 
-.dm .dm-search-icon {
-  flex-shrink: 0;
-  color: var(--ink2);
-  opacity: 0.6;
-  display: flex;
-  align-items: center;
-}
+.dm .dm-search-icon { flex-shrink:0; color:var(--ink2); opacity:0.6; display:flex; align-items:center; }
 
 .dm .dm-search {
   flex: 1;
-  border: none;
-  outline: none;
+  border: none; outline: none;
   background: transparent;
   font-family: inherit;
   font-size: 0.85rem;
   color: var(--ink);
-  padding: 0;
-  min-width: 0;
+  padding: 0; min-width: 0;
 }
-
-.dm .dm-search::placeholder {
-  color: var(--ink2);
-  opacity: 0.6;
-}
+.dm .dm-search::placeholder { color:var(--ink2); opacity:0.6; }
 
 .dm .dm-search-clear {
   flex-shrink: 0;
-  width: 20px;
-  height: 20px;
+  width: 22px; height: 22px;
   border-radius: 50%;
   border: none;
-  background: rgba(255, 92, 0, 0.12);
+  background: rgba(255,92,0,0.12);
   color: var(--o);
-  font-size: 0.78rem;
-  font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   transition: background 0.15s ease;
-  line-height: 1;
 }
+.dm .dm-search-clear:hover          { background: rgba(255,92,0,0.22); }
+.dm .dm-search-clear:focus-visible  { outline: 2px solid var(--o); outline-offset: 1px; }
 
-.dm .dm-search-clear:hover {
-  background: rgba(255, 92, 0, 0.22);
-}
-
-.dm .dm-search-clear:focus-visible {
-  outline: 2px solid var(--o);
-  outline-offset: 1px;
-}
-
-/* ── Option list ────────────────────────────────────────── */
+/* ── List ── */
 .dm .dm-list {
   overflow-y: auto;
-  max-height: inherit;      /* inherits maxHeight from panel inline style */
+  max-height: inherit;
   overscroll-behavior: contain;
-  border-radius: 0 0 14px 14px;  /* rounds bottom to match panel */
-
-  /* Firefox scrollbar */
+  border-radius: 0 0 14px 14px;
   scrollbar-width: thin;
   scrollbar-color: var(--bd-focus) transparent;
 }
-
-/* WebKit scrollbar */
 .dm .dm-list::-webkit-scrollbar       { width: 4px; }
 .dm .dm-list::-webkit-scrollbar-track { background: transparent; }
-.dm .dm-list::-webkit-scrollbar-thumb {
-  background:    rgba(255, 92, 0, 0.4);
-  border-radius: 4px;
-  min-height:    32px;
-}
-.dm .dm-list::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 92, 0, 0.65);
-}
+.dm .dm-list::-webkit-scrollbar-thumb { background: rgba(255,92,0,0.4); border-radius: 4px; min-height: 32px; }
+.dm .dm-list::-webkit-scrollbar-thumb:hover { background: rgba(255,92,0,0.65); }
 
-/* ── Single option ──────────────────────────────────────── */
+/* ── Option ── */
 .dm .dm-option {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-
   padding: 11px 14px;
   cursor: pointer;
   font-size: 0.9rem;
   color: var(--ink);
   line-height: 1.4;
   transition: background 0.14s ease, color 0.14s ease;
-  border: none;
-  outline: none;
+  border: none; outline: none;
   background: transparent;
-  border-bottom: 1px solid rgba(255, 92, 0, 0.05);
+  border-bottom: 1px solid rgba(255,92,0,0.05);
   user-select: none;
 }
-
-.dm .dm-option:last-child {
-  border-bottom: none;
-  border-radius: 0 0 14px 14px;  /* last option rounds with the list */
-}
-
-/* Hover — mouse only */
-.dm .dm-option:hover {
-  background: rgba(255, 92, 0, 0.06);
-  color: var(--o);
-}
-
-/* Focus — keyboard only, with visible ring */
-.dm .dm-option:focus-visible {
-  background: rgba(255, 92, 0, 0.10);
-  color: var(--o);
-  outline: 2px solid var(--o);
-  outline-offset: -2px;   /* inset — doesn't shift layout */
-}
-
-/* Suppress outline on mouse click */
-.dm .dm-option:focus:not(:focus-visible) {
-  outline: none;
-}
-
-/* Selected */
-.dm .dm-option.selected {
-  background: rgba(255, 92, 0, 0.08);
-  color: var(--o);
-  font-weight: 600;
-}
-
-/* Selected + interaction */
+.dm .dm-option:last-child           { border-bottom: none; border-radius: 0 0 14px 14px; }
+.dm .dm-option:hover                { background: rgba(255,92,0,0.06); color: var(--o); }
+.dm .dm-option:focus-visible        { background: rgba(255,92,0,0.10); color: var(--o); outline: 2px solid var(--o); outline-offset: -2px; }
+.dm .dm-option:focus:not(:focus-visible) { outline: none; }
+.dm .dm-option.selected             { background: rgba(255,92,0,0.08); color: var(--o); font-weight: 600; }
 .dm .dm-option.selected:hover,
-.dm .dm-option.selected:focus-visible {
-  background: rgba(255, 92, 0, 0.14);
-  color: var(--od);
-}
+.dm .dm-option.selected:focus-visible { background: rgba(255,92,0,0.14); color: var(--od); }
+.dm .dm-option.dm-option--disabled  { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
 
-/* Disabled */
-.dm .dm-option.dm-option--disabled {
-  opacity: 0.38;
-  cursor: not-allowed;
-  pointer-events: none;
-}
+.dm .dm-option-label  { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dm .dm-option-check  { flex-shrink:0; color:var(--o); display:flex; align-items:center; }
 
-/* Option label */
-.dm .dm-option-label {
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* Check icon */
-.dm .dm-option-check {
-  flex-shrink: 0;
-  color: var(--o);
-  display: flex;
-  align-items: center;
-}
-
-/* ── Empty state ────────────────────────────────────────── */
+/* ── Empty ── */
 .dm .dm-empty {
   padding: 20px 14px;
   text-align: center;
@@ -337,7 +197,7 @@
   font-style: italic;
 }
 
-/* ── Loading state ──────────────────────────────────────── */
+/* ── Loading ── */
 .dm .dm-loading {
   display: flex;
   align-items: center;
@@ -350,65 +210,31 @@
 
 .dm .dm-spinner {
   display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid rgba(255, 92, 0, 0.2);
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,92,0,0.2);
   border-top-color: var(--o);
   border-radius: 50%;
   animation: dmSpin 0.7s linear infinite;
   flex-shrink: 0;
 }
 
-@keyframes dmSpin {
-  to { transform: rotate(360deg); }
-}
+@keyframes dmSpin { to { transform: rotate(360deg); } }
 
-/* ── Disabled wrapper ───────────────────────────────────── */
-.dm.dm--disabled {
-  pointer-events: none;
-}
+/* ── Disabled wrapper ── */
+.dm.dm--disabled { pointer-events: none; }
 
-/* ── Mobile ─────────────────────────────────────────────── */
+/* ── Mobile ── */
 @media (max-width: 480px) {
-  .dm .dm-panel {
-    border-radius: 12px;
-  }
-
-  .dm .dm-panel--up {
-    border-radius: 12px 12px 4px 12px;
-  }
-
-  .dm .dm-option {
-    padding: 13px 14px;
-    font-size: 0.93rem;
-  }
-
-  .dm .dm-trigger {
-    padding: 13px 14px;
-    min-height: 50px;
-  }
-
-  .dm .dm-search-wrap {
-    border-radius: 12px 12px 0 0;
-  }
+  .dm .dm-panel        { border-radius: 12px; }
+  .dm .dm-panel--up    { border-radius: 12px 12px 4px 12px; }
+  .dm .dm-option       { padding: 13px 14px; font-size: 0.93rem; }
+  .dm .dm-trigger      { padding: 13px 14px; min-height: 50px; }
+  .dm .dm-search-wrap  { border-radius: 12px 12px 0 0; }
 }
 
-/* ── Reduced motion ─────────────────────────────────────── */
+/* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
-  .dm .dm-panel,
-  .dm .dm-panel--up {
-    animation: none;
-  }
-
-  .dm .dm-chevron,
-  .dm .dm-trigger,
-  .dm .dm-option,
-  .dm .dm-search-clear {
-    transition: none;
-  }
-
-  /* Keep spinner functional — just slower */
-  .dm .dm-spinner {
-    animation: dmSpin 1.5s linear infinite;
-  }
+  .dm .dm-panel, .dm .dm-panel--up { animation: none; }
+  .dm .dm-chevron, .dm .dm-trigger, .dm .dm-option, .dm .dm-search-clear { transition: none; }
+  .dm .dm-spinner { animation: dmSpin 1.5s linear infinite; }
 }
