@@ -25,6 +25,8 @@ import {
   FileText, Camera, Image, User, X, Info,
 } from "lucide-react";
 
+import "../../style/Verification.css";
+
 /* ══════════════════════════════════════════════════════════════
    CONFIG
 ══════════════════════════════════════════════════════════════ */
