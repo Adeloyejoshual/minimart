@@ -1,18 +1,16 @@
-// DropdownModal.jsx
+// src/components/DropdownModal.jsx
 import React, {
   useState, useRef, useEffect,
   useCallback, useMemo, useId,
 } from "react";
 import "./DropdownModal.css";
 
-/* ── Pure helpers (outside component — stable references) ─── */
+/* ── Pure helpers ─────────────────────────────────────────────── */
 const normValue = (v) =>
   v !== null && v !== undefined ? String(v).trim() : "";
 
 const getOptValue = (opt, idField) =>
-  typeof opt === "object"
-    ? normValue(opt[idField])
-    : normValue(opt);
+  typeof opt === "object" ? normValue(opt[idField]) : normValue(opt);
 
 const getOptLabel = (opt, labelField) =>
   typeof opt === "object" ? (opt[labelField] ?? "") : (opt ?? "");
@@ -20,7 +18,7 @@ const getOptLabel = (opt, labelField) =>
 const getOptDisabled = (opt) =>
   typeof opt === "object" ? !!opt.disabled : false;
 
-/* ── Component ───────────────────────────────────────────── */
+/* ── Component ────────────────────────────────────────────────── */
 export default function DropdownModal({
   label      = "",
   value      = "",
@@ -32,7 +30,7 @@ export default function DropdownModal({
   disabled   = false,
   searchable = true,
   maxHeight  = 260,
-  loading    = false,    // new — show spinner while options load
+  loading    = false,
 }) {
   const [open,         setOpen]         = useState(false);
   const [rawQuery,     setRawQuery]     = useState("");
@@ -72,7 +70,7 @@ export default function DropdownModal({
     ? `${rawQuery.slice(0, 30)}…`
     : rawQuery;
 
-  /* ── Viewport collision detection ── */
+  /* ── Viewport collision ── */
   useEffect(() => {
     if (!open || !containerRef.current) return;
     const rect       = containerRef.current.getBoundingClientRect();
@@ -129,7 +127,7 @@ export default function DropdownModal({
     };
   }, [open, closeDropdown]);
 
-  /* ── Scroll selected into view on open ── */
+  /* ── Scroll selected into view ── */
   useEffect(() => {
     if (!open || !listRef.current) return;
     const selected = listRef.current.querySelector(".dm-option.selected");
@@ -178,7 +176,6 @@ export default function DropdownModal({
       e.preventDefault();
       active?.click();
     } else if (e.key === "Tab") {
-      // Tab out closes the dropdown
       closeDropdown();
     }
   }, [closeDropdown]);
@@ -203,14 +200,12 @@ export default function DropdownModal({
       ].filter(Boolean).join(" ")}
       ref={containerRef}
     >
-      {/* Optional label */}
       {label && (
         <label className="dm-label" htmlFor={uid}>
           {label}
         </label>
       )}
 
-      {/* Trigger */}
       <button
         ref={triggerRef}
         id={uid}
@@ -227,18 +222,13 @@ export default function DropdownModal({
         </span>
         <span className="dm-chevron" aria-hidden="true">
           <svg viewBox="0 0 12 8" width="12" height="8" fill="none">
-            <path
-              d="M1 1.5L6 6.5L11 1.5"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
+            <path d="M1 1.5L6 6.5L11 1.5"
+                  stroke="currentColor" strokeWidth="1.6"
+                  strokeLinecap="round" strokeLinejoin="round"/>
           </svg>
         </span>
       </button>
 
-      {/* Panel */}
       {open && (
         <div
           className={`dm-panel${dropUp ? " dm-panel--up" : ""}`}
@@ -248,13 +238,12 @@ export default function DropdownModal({
           style={{ maxHeight }}
           onKeyDown={handleListKeyDown}
         >
-          {/* Search */}
           {showSearch && (
             <div className="dm-search-wrap">
               <span className="dm-search-icon" aria-hidden="true">
                 <svg viewBox="0 0 16 16" width="14" height="14" fill="none">
-                  <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.6" />
-                  <path d="M11 11L14 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  <circle cx="7" cy="7" r="5" stroke="currentColor" strokeWidth="1.6"/>
+                  <path d="M11 11L14 14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/>
                 </svg>
               </span>
               <input
@@ -280,17 +269,21 @@ export default function DropdownModal({
                     searchRef.current?.focus();
                   }}
                 >
-                  &#215;
+                  <svg viewBox="0 0 12 12" width="9" height="9" fill="none"
+                       stroke="currentColor" strokeWidth="2.2"
+                       strokeLinecap="round" aria-hidden="true">
+                    <line x1="1" y1="1" x2="11" y2="11"/>
+                    <line x1="11" y1="1" x2="1" y2="11"/>
+                  </svg>
                 </button>
               )}
             </div>
           )}
 
-          {/* List */}
           <div className="dm-list" ref={listRef}>
             {loading ? (
               <div className="dm-loading" aria-live="polite">
-                <span className="dm-spinner" aria-hidden="true" />
+                <span className="dm-spinner" aria-hidden="true"/>
                 Loading options…
               </div>
             ) : filteredOptions.length === 0 ? (
@@ -333,13 +326,9 @@ export default function DropdownModal({
                     {isSelected && (
                       <span className="dm-option-check" aria-hidden="true">
                         <svg viewBox="0 0 12 10" width="12" height="10" fill="none">
-                          <path
-                            d="M1 5l3.5 3.5L11 1"
-                            stroke="currentColor"
-                            strokeWidth="1.8"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
+                          <path d="M1 5l3.5 3.5L11 1"
+                                stroke="currentColor" strokeWidth="1.8"
+                                strokeLinecap="round" strokeLinejoin="round"/>
                         </svg>
                       </span>
                     )}
