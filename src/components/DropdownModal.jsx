@@ -1,125 +1,170 @@
 // DropdownModal.jsx
 import React, {
-  useState, useRef, useEffect, useCallback, useMemo, useId,
+  useState, useRef, useEffect,
+  useCallback, useMemo, useId,
 } from "react";
 import "./DropdownModal.css";
 
+/* ── Pure helpers (outside component — stable references) ─── */
+const normValue = (v) =>
+  v !== null && v !== undefined ? String(v).trim() : "";
+
+const getOptValue = (opt, idField) =>
+  typeof opt === "object"
+    ? normValue(opt[idField])
+    : normValue(opt);
+
+const getOptLabel = (opt, labelField) =>
+  typeof opt === "object" ? (opt[labelField] ?? "") : (opt ?? "");
+
+const getOptDisabled = (opt) =>
+  typeof opt === "object" ? !!opt.disabled : false;
+
+/* ── Component ───────────────────────────────────────────── */
 export default function DropdownModal({
-  label       = "",
-  value       = "",
+  label      = "",
+  value      = "",
   onChange,
-  options     = [],
-  idField     = "id",
-  labelField  = "name",
+  options    = [],
+  idField    = "id",
+  labelField = "name",
   placeholder,
-  disabled    = false,
-  searchable  = true,   // show search box when options > 6
-  maxHeight   = 260,    // px
+  disabled   = false,
+  searchable = true,
+  maxHeight  = 260,
+  loading    = false,    // new — show spinner while options load
 }) {
-  const [open,  setOpen]  = useState(false);
-  const [query, setQuery] = useState("");
+  const [open,         setOpen]         = useState(false);
+  const [rawQuery,     setRawQuery]     = useState("");
+  const [query,        setQuery]        = useState("");
+  const [dropUp,       setDropUp]       = useState(false);
+  const [focusedOptId, setFocusedOptId] = useState(null);
 
   const containerRef = useRef(null);
   const searchRef    = useRef(null);
   const listRef      = useRef(null);
-  const uid          = useId(); // unique ID for a11y
+  const triggerRef   = useRef(null);
+  const debounceRef  = useRef(null);
+  const uid          = useId();
 
-  // ── Helpers ────────────────────────────────────────────
-  const norm = (v) =>
-    v !== null && v !== undefined ? String(v).trim() : "";
-
-  const getOptValue = (opt) =>
-    typeof opt === "object" ? norm(opt[idField])   : norm(opt);
-
-  const getOptLabel = (opt) =>
-    typeof opt === "object" ? opt[labelField] ?? "" : opt ?? "";
-
-  const getOptDisabled = (opt) =>
-    typeof opt === "object" ? !!opt.disabled : false;
-
-  // ── Filtered options ───────────────────────────────────
+  /* ── Derived ── */
   const filteredOptions = useMemo(() => {
     if (!query.trim()) return options;
     const q = query.toLowerCase();
     return options.filter((opt) =>
-      getOptLabel(opt).toLowerCase().includes(q)
+      getOptLabel(opt, labelField).toLowerCase().includes(q)
     );
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [options, query]);
+  }, [options, query, labelField]);
 
-  // ── Display value ──────────────────────────────────────
   const displayValue = useMemo(() => {
     if (!value) return "";
-    const found = options.find((opt) => getOptValue(opt) === norm(value));
-    return found ? getOptLabel(found) : "";
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, options]);
+    const found = options.find(
+      (opt) => getOptValue(opt, idField) === normValue(value)
+    );
+    return found ? getOptLabel(found, labelField) : "";
+  }, [value, options, idField, labelField]);
 
   const showPlaceholder = !displayValue;
   const placeholderText = placeholder || (label ? `Select ${label}` : "Select an option");
+  const showSearch      = searchable && options.length > 6;
 
-  // ── Show search when options > 6 ───────────────────────
-  const showSearch = searchable && options.length > 6;
+  const truncatedQuery = rawQuery.length > 30
+    ? `${rawQuery.slice(0, 30)}…`
+    : rawQuery;
 
-  // ── Open / close ───────────────────────────────────────
+  /* ── Viewport collision detection ── */
+  useEffect(() => {
+    if (!open || !containerRef.current) return;
+    const rect       = containerRef.current.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+    const needed     = Math.min(maxHeight, 300);
+    setDropUp(spaceBelow < needed && spaceAbove > spaceBelow);
+  }, [open, maxHeight]);
+
+  /* ── Open / close ── */
   const openDropdown = useCallback(() => {
     if (disabled) return;
     setOpen(true);
+    setRawQuery("");
     setQuery("");
-    // Focus search input on next tick
+    setFocusedOptId(null);
     requestAnimationFrame(() => searchRef.current?.focus());
   }, [disabled]);
 
   const closeDropdown = useCallback(() => {
     setOpen(false);
+    setRawQuery("");
     setQuery("");
+    setFocusedOptId(null);
   }, []);
 
   const toggle = useCallback(() => {
     open ? closeDropdown() : openDropdown();
   }, [open, openDropdown, closeDropdown]);
 
-  // ── Close on outside click / Escape ───────────────────
+  /* ── Outside click / touch / Escape ── */
   useEffect(() => {
     if (!open) return;
 
-    const onMouseDown = (e) => {
+    const onPointerDown = (e) => {
       if (containerRef.current && !containerRef.current.contains(e.target))
         closeDropdown();
     };
     const onKeyDown = (e) => {
-      if (e.key === "Escape") closeDropdown();
+      if (e.key === "Escape") {
+        closeDropdown();
+        requestAnimationFrame(() => triggerRef.current?.focus());
+      }
     };
 
-    document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("keydown",   onKeyDown);
+    document.addEventListener("mousedown",  onPointerDown);
+    document.addEventListener("touchstart", onPointerDown, { passive: true });
+    document.addEventListener("keydown",    onKeyDown);
+
     return () => {
-      document.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("keydown",   onKeyDown);
+      document.removeEventListener("mousedown",  onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown",    onKeyDown);
     };
   }, [open, closeDropdown]);
 
-  // ── Scroll selected option into view on open ──────────
+  /* ── Scroll selected into view on open ── */
   useEffect(() => {
     if (!open || !listRef.current) return;
     const selected = listRef.current.querySelector(".dm-option.selected");
     selected?.scrollIntoView({ block: "nearest" });
   }, [open, filteredOptions]);
 
-  // ── Select ─────────────────────────────────────────────
+  /* ── Debounced search ── */
+  const handleSearchChange = useCallback((e) => {
+    const val = e.target.value;
+    setRawQuery(val);
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(
+      () => setQuery(val),
+      options.length > 100 ? 150 : 0
+    );
+  }, [options.length]);
+
+  useEffect(() => () => clearTimeout(debounceRef.current), []);
+
+  /* ── Select ── */
   const handleSelect = useCallback((opt) => {
     if (getOptDisabled(opt)) return;
-    onChange?.(getOptValue(opt));
+    onChange?.(getOptValue(opt, idField));
     closeDropdown();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onChange, closeDropdown]);
+    requestAnimationFrame(() => triggerRef.current?.focus());
+  }, [onChange, closeDropdown, idField]);
 
-  // ── Keyboard navigation inside list ───────────────────
+  /* ── Keyboard navigation ── */
   const handleListKeyDown = useCallback((e) => {
-    const items = listRef.current?.querySelectorAll(".dm-option:not(.dm-option--disabled)");
+    const items = listRef.current?.querySelectorAll(
+      ".dm-option:not(.dm-option--disabled)"
+    );
     if (!items?.length) return;
 
-    const active = listRef.current.querySelector(".dm-option:focus");
+    const active = document.activeElement;
     const idx    = Array.from(items).indexOf(active);
 
     if (e.key === "ArrowDown") {
@@ -127,24 +172,28 @@ export default function DropdownModal({
       items[Math.min(idx + 1, items.length - 1)]?.focus();
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      if (idx <= 0) { searchRef.current?.focus(); }
-      else { items[idx - 1]?.focus(); }
+      if (idx <= 0) searchRef.current?.focus();
+      else items[idx - 1]?.focus();
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       active?.click();
+    } else if (e.key === "Tab") {
+      // Tab out closes the dropdown
+      closeDropdown();
     }
-  }, []);
+  }, [closeDropdown]);
 
-  // ── Trigger keyboard navigation from search ────────────
   const handleSearchKeyDown = useCallback((e) => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      const first = listRef.current?.querySelector(".dm-option:not(.dm-option--disabled)");
+      const first = listRef.current?.querySelector(
+        ".dm-option:not(.dm-option--disabled)"
+      );
       first?.focus();
     }
   }, []);
 
-  // ── Render ─────────────────────────────────────────────
+  /* ── Render ── */
   return (
     <div
       className={[
@@ -161,13 +210,14 @@ export default function DropdownModal({
         </label>
       )}
 
-      {/* Trigger button */}
+      {/* Trigger */}
       <button
+        ref={triggerRef}
         id={uid}
         type="button"
         className="dm-trigger"
         aria-haspopup="listbox"
-        aria-expanded={open}
+        aria-expanded={open ? "true" : "false"}
         aria-disabled={disabled}
         onClick={toggle}
         disabled={disabled}
@@ -188,12 +238,13 @@ export default function DropdownModal({
         </span>
       </button>
 
-      {/* Dropdown panel */}
+      {/* Panel */}
       {open && (
         <div
-          className="dm-panel"
+          className={`dm-panel${dropUp ? " dm-panel--up" : ""}`}
           role="listbox"
-          aria-label={label || "Options"}
+          aria-label={label || placeholderText}
+          aria-activedescendant={focusedOptId ?? undefined}
           style={{ maxHeight }}
           onKeyDown={handleListKeyDown}
         >
@@ -211,17 +262,23 @@ export default function DropdownModal({
                 type="text"
                 className="dm-search"
                 placeholder="Search…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                value={rawQuery}
+                onChange={handleSearchChange}
                 onKeyDown={handleSearchKeyDown}
                 aria-label="Search options"
+                autoComplete="off"
+                spellCheck={false}
               />
-              {query && (
+              {rawQuery && (
                 <button
                   type="button"
                   className="dm-search-clear"
                   aria-label="Clear search"
-                  onClick={() => { setQuery(""); searchRef.current?.focus(); }}
+                  onClick={() => {
+                    setRawQuery("");
+                    setQuery("");
+                    searchRef.current?.focus();
+                  }}
                 >
                   &#215;
                 </button>
@@ -229,32 +286,42 @@ export default function DropdownModal({
             </div>
           )}
 
-          {/* Option list */}
+          {/* List */}
           <div className="dm-list" ref={listRef}>
-            {filteredOptions.length === 0 ? (
-              <div className="dm-empty">
-                {query ? `No results for "${query}"` : "No options available"}
+            {loading ? (
+              <div className="dm-loading" aria-live="polite">
+                <span className="dm-spinner" aria-hidden="true" />
+                Loading options…
+              </div>
+            ) : filteredOptions.length === 0 ? (
+              <div className="dm-empty" role="status" aria-live="polite">
+                {rawQuery
+                  ? `No results for "${truncatedQuery}"`
+                  : "No options available"}
               </div>
             ) : (
-              filteredOptions.map((opt) => {
-                const optVal      = getOptValue(opt);
-                const optLabel    = getOptLabel(opt);
-                const isSelected  = norm(value) === optVal;
-                const isDisabled  = getOptDisabled(opt);
+              filteredOptions.map((opt, index) => {
+                const optVal     = getOptValue(opt, idField);
+                const optLabel   = getOptLabel(opt, labelField);
+                const isSelected = normValue(value) === optVal;
+                const isDisabled = getOptDisabled(opt);
+                const optId      = `${uid}-opt-${optVal !== "" ? optVal : index}`;
 
                 return (
                   <div
-                    key={optVal || optLabel}
+                    key={optVal !== "" ? optVal : `opt-${index}`}
+                    id={optId}
                     role="option"
                     aria-selected={isSelected}
-                    aria-disabled={isDisabled}
+                    aria-disabled={isDisabled || undefined}
                     tabIndex={isDisabled ? -1 : 0}
                     className={[
                       "dm-option",
-                      isSelected ? "selected"          : "",
+                      isSelected ? "selected"            : "",
                       isDisabled ? "dm-option--disabled" : "",
                     ].filter(Boolean).join(" ")}
                     onClick={() => handleSelect(opt)}
+                    onFocus={() => setFocusedOptId(optId)}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
