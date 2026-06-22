@@ -1,30 +1,84 @@
 // AddProductHeader.jsx
-import { useNavigate } from "react-router-dom";
+import React, { useState } from "react";
+import { useNavigate }     from "react-router-dom";
 import "./AddProductHeader.css";
 
+/* ── Error boundary for the optional rightAction slot ────────── */
+class ActionBoundary extends React.Component {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(err) {
+    console.error("[AddProductHeader] rightAction crashed:", err);
+  }
+
+  render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+/* ── Main component ──────────────────────────────────────────── */
 export default function AddProductHeader({
   title       = "Add Product",
   rightAction = null,
   onClearDraft,
 }) {
-  const navigate = useNavigate();
+  const navigate     = useNavigate();
+  const [confirmClear, setConfirmClear] = useState(false);
+
+  /* ── safe title ── */
+  const safeTitle =
+    typeof title === "string" ? title.slice(0, 80).trim() : "Add Product";
+
+  /* ── back navigation with empty-history guard ── */
+  const handleBack = () => {
+    if (window.history.length > 2) {
+      navigate(-1);
+    } else {
+      navigate("/", { replace: true });
+    }
+  };
+
+  /* ── two-tap clear draft ── */
+  const handleClearDraft = () => {
+    if (!confirmClear) {
+      setConfirmClear(true);
+      setTimeout(() => setConfirmClear(false), 4_000);
+      return;
+    }
+    setConfirmClear(false);
+    onClearDraft();
+  };
 
   return (
-    <header className="aph">
-      {/* ── Left — back button ──────────────────────────── */}
+    <header
+      className="aph"
+      role="banner"
+      aria-label="Add product navigation"
+    >
+      {/* ── Left — back button ── */}
       <button
         className="aph-back"
-        onClick={() => navigate(-1)}
+        onClick={handleBack}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            handleBack();
+          }
+        }}
         aria-label="Go back"
         type="button"
       >
-        {/* SVG arrow — no emoji, no character */}
         <svg
           viewBox="0 0 20 20"
           width="18"
           height="18"
           fill="none"
           aria-hidden="true"
+          focusable="false"
         >
           <path
             d="M13 4L7 10L13 16"
@@ -37,21 +91,28 @@ export default function AddProductHeader({
         <span className="aph-back-label">Back</span>
       </button>
 
-      {/* ── Center — title ───────────────────────────────── */}
-      <h2 className="aph-title">{title}</h2>
+      {/* ── Center — title ── */}
+      <h2 className="aph-title">{safeTitle}</h2>
 
-      {/* ── Right — optional action + clear draft ────────── */}
+      {/* ── Right — optional action + clear draft ── */}
       <div className="aph-right">
-        {rightAction}
+        <ActionBoundary>
+          {rightAction}
+        </ActionBoundary>
 
         {onClearDraft && (
           <button
-            className="aph-clear"
-            onClick={onClearDraft}
-            aria-label="Clear saved draft"
+            className={`aph-clear${confirmClear ? " aph-clear--confirm" : ""}`}
+            onClick={handleClearDraft}
+            aria-label={
+              confirmClear
+                ? "Tap again to confirm clearing draft"
+                : "Clear saved draft"
+            }
+            aria-live="polite"
             type="button"
           >
-            Clear draft
+            {confirmClear ? "Sure?" : "Clear draft"}
           </button>
         )}
       </div>
