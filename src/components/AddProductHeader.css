@@ -11,14 +11,20 @@
   --ink2: #5A5650;
   --bd:   #EAE6E0;
   --font: 'Plus Jakarta Sans', system-ui, sans-serif;
+
+  /* Scroll shadow toggle — set to 1 via JS when scrollY > 4 */
+  --aph-scrolled: 0;
 }
 
-/* ── Wrapper ────────────────────────────────────────────── */
+/* ── Wrapper ─────────────────────────────────────────────── */
 .aph {
-  /* Sticky to the very top of the viewport */
   position: sticky;
   top: 0;
-  z-index: 200;
+  z-index: var(--z-header, 200);
+
+  /* GPU layer — fixes Safari sticky + improves scroll perf */
+  will-change: transform;
+  transform: translateZ(0);
 
   display: flex;
   align-items: center;
@@ -28,21 +34,44 @@
   padding: 12px 16px;
   min-height: 58px;
 
-  /* Frosted glass */
   background: rgba(247, 244, 239, 0.92);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 
-  /* Bottom border that appears as a divider */
   border-bottom: 1px solid rgba(255, 92, 0, 0.1);
   box-shadow:
     0 2px 12px rgba(0, 0, 0, 0.06),
-    0 1px 3px rgba(255, 92, 0, 0.08);
+    0 1px  3px rgba(255, 92, 0, 0.08);
 
   font-family: var(--font);
 }
 
-/* ── Back button ────────────────────────────────────────── */
+/* Solid fallback for Firefox / no backdrop-filter support */
+@supports not (backdrop-filter: blur(1px)) {
+  .aph {
+    background: rgb(247, 244, 239);
+  }
+}
+
+/* ── Scroll shadow (JS-driven opacity) ──────────────────── */
+.aph::after {
+  content: "";
+  position: absolute;
+  bottom: -10px;
+  left:   0;
+  right:  0;
+  height: 10px;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.04),
+    transparent
+  );
+  pointer-events: none;
+  opacity: var(--aph-scrolled, 0);
+  transition: opacity 0.2s ease;
+}
+
+/* ── Back button ─────────────────────────────────────────── */
 .aph-back {
   display: inline-flex;
   align-items: center;
@@ -61,25 +90,40 @@
   white-space: nowrap;
   flex-shrink: 0;
 
-  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+  transition:
+    background   0.18s ease,
+    border-color 0.18s ease,
+    color        0.18s ease,
+    transform    0.12s ease;
 }
 
 .aph-back:hover {
-  background: #FFF3EE;
+  background:   #FFF3EE;
   border-color: var(--o);
-  color: var(--o);
+  color:        var(--o);
 }
 
 .aph-back:active {
-  transform: scale(0.97);
+  transform: scale(0.96);
 }
 
+.aph-back:focus-visible {
+  outline:        2px solid var(--o);
+  outline-offset: 2px;
+  border-color:   var(--o);
+  background:     #FFF3EE;
+}
+
+.aph-back:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* ── Back label ──────────────────────────────────────────── */
 .aph-back-label {
-  /* Hide label on very small screens — keep only the arrow */
   display: inline;
 }
 
-/* ── Title ──────────────────────────────────────────────── */
+/* ── Title ───────────────────────────────────────────────── */
 .aph-title {
   flex: 1;
   text-align: center;
@@ -91,15 +135,14 @@
   letter-spacing: -0.02em;
   line-height: 1.2;
 
-  /* Prevent long titles from pushing the buttons out */
-  overflow: hidden;
+  overflow:      hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space:   nowrap;
   padding: 0 6px;
   margin: 0;
 }
 
-/* ── Right slot ─────────────────────────────────────────── */
+/* ── Right slot ──────────────────────────────────────────── */
 .aph-right {
   display: flex;
   align-items: center;
@@ -107,7 +150,7 @@
   flex-shrink: 0;
 }
 
-/* ── Clear draft button ─────────────────────────────────── */
+/* ── Clear draft button ──────────────────────────────────── */
 .aph-clear {
   display: inline-flex;
   align-items: center;
@@ -125,47 +168,52 @@
   cursor: pointer;
   white-space: nowrap;
 
-  transition: background 0.18s ease, border-color 0.18s ease;
+  transition:
+    background   0.18s ease,
+    border-color 0.18s ease,
+    transform    0.12s ease;
 }
 
 .aph-clear:hover {
-  background: rgba(220, 38, 38, 0.1);
+  background:   rgba(220, 38, 38, 0.1);
   border-color: rgba(220, 38, 38, 0.5);
 }
 
 .aph-clear:active {
-  transform: scale(0.97);
+  transform: scale(0.96);
 }
 
-/* ── Scroll shadow — appears when page is scrolled ──────────
-   Uses a pseudo-element that fades in via a CSS custom
-   property driven by a tiny IntersectionObserver sentinel
-   (see AddProductHeader.jsx sentinel pattern), or you can
-   just rely on the box-shadow on .aph which is always on.
-──────────────────────────────────────────────────────── */
-.aph::after {
-  content: "";
-  position: absolute;
-  bottom: -10px;
-  left: 0;
-  right: 0;
-  height: 10px;
-  background: linear-gradient(
-    to bottom,
-    rgba(0, 0, 0, 0.04),
-    transparent
-  );
-  pointer-events: none;
+.aph-clear:focus-visible {
+  outline:        2px solid #dc2626;
+  outline-offset: 2px;
+  border-color:   rgba(220, 38, 38, 0.7);
 }
 
-/* ── Responsive ─────────────────────────────────────────── */
+.aph-clear:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Confirm state — two-tap protection */
+.aph-clear--confirm {
+  background:   rgba(220, 38, 38, 0.15);
+  border-color: rgba(220, 38, 38, 0.7);
+  color:        #b91c1c;
+  font-weight:  700;
+  animation:    aph-clear-pulse 0.9s ease infinite alternate;
+}
+
+@keyframes aph-clear-pulse {
+  from { box-shadow: 0 0 0 0   rgba(220, 38, 38, 0.25); }
+  to   { box-shadow: 0 0 0 5px rgba(220, 38, 38, 0);    }
+}
+
+/* ── Responsive ──────────────────────────────────────────── */
 @media (max-width: 400px) {
   .aph {
-    padding: 10px 12px;
+    padding:    10px 12px;
     min-height: 52px;
   }
 
-  /* Only show the arrow, hide the "Back" label text */
   .aph-back-label {
     display: none;
   }
@@ -174,9 +222,24 @@
     padding: 7px 9px;
   }
 
-  /* Make clear button text shorter */
   .aph-clear {
     font-size: 0.75rem;
-    padding: 7px 10px;
+    padding:   7px 10px;
+  }
+}
+
+/* ── Reduced motion ──────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .aph-back,
+  .aph-clear,
+  .aph-title,
+  .aph::after {
+    transition: none;
+    animation:  none;
+  }
+
+  /* Keep confirm state visually distinct without animation */
+  .aph-clear--confirm {
+    outline: 2px solid rgba(220, 38, 38, 0.7);
   }
 }
