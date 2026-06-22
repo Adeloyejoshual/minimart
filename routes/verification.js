@@ -30,8 +30,17 @@ const router = express.Router();
 ══════════════════════════════════════════════════════════════════════════ */
 const IS_PROD = process.env.NODE_ENV === "production";
 
+/* print key env vars once at startup so logs confirm they are set */
+console.log("[verification] module loaded");
+console.log("[verification] NODE_ENV       :", process.env.NODE_ENV);
+console.log("[verification] RESEND_API_KEY :", process.env.RESEND_API_KEY
+  ? `SET …${process.env.RESEND_API_KEY.slice(-4)}`
+  : "❌ NOT SET"
+);
+console.log("[verification] EMAIL_FROM     :", process.env.EMAIL_FROM || "(default)");
+
 /* ══════════════════════════════════════════════════════════════════════════
-   POLICY  — flip one env var to switch prod vs dev limits
+   POLICY
 ══════════════════════════════════════════════════════════════════════════ */
 const POLICY = Object.freeze({
   DAILY_SEND_LIMIT     : IS_PROD ?  3  : 50,
@@ -43,22 +52,17 @@ const POLICY = Object.freeze({
   BCRYPT_ROUNDS        : 10,
 });
 
+console.log("[verification] POLICY         :", POLICY);
+
 /* ══════════════════════════════════════════════════════════════════════════
-   ALLOWED FILE TYPES
+   FILE CONFIG
 ══════════════════════════════════════════════════════════════════════════ */
 const DOC_MIME = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "application/pdf",
+  "image/jpeg", "image/png", "image/webp", "application/pdf",
 ]);
-
 const IMG_MIME = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
+  "image/jpeg", "image/png", "image/webp",
 ]);
-
 const EXT_TO_MIME = {
   ".jpg"  : "image/jpeg",
   ".jpeg" : "image/jpeg",
@@ -66,16 +70,11 @@ const EXT_TO_MIME = {
   ".webp" : "image/webp",
   ".pdf"  : "application/pdf",
 };
-
 const VALID_DOC_TYPES = new Set([
-  "nin",
-  "passport",
-  "drivers_license",
-  "voters_card",
+  "nin", "passport", "drivers_license", "voters_card",
 ]);
-
-const MAX_DOC_BYTES  = 5  * 1_048_576;   // 5 MB
-const MAX_LOGO_BYTES = 2  * 1_048_576;   // 2 MB
+const MAX_DOC_BYTES  = 5  * 1_048_576;
+const MAX_LOGO_BYTES = 2  * 1_048_576;
 
 /* ══════════════════════════════════════════════════════════════════════════
    MULTER
@@ -84,11 +83,10 @@ const memStore = multer.memoryStorage();
 
 const makeFilter = (allowed) => (_req, file, cb) => {
   if (allowed.has(file.mimetype)) return cb(null, true);
-  const err = new Error(
-    `Invalid file type "${file.mimetype}". ` +
-    `Allowed: ${[...allowed].join(", ")}.`
+  const err   = new Error(
+    `Invalid file type "${file.mimetype}". Allowed: ${[...allowed].join(", ")}.`
   );
-  err.code = "INVALID_MIME";
+  err.code    = "INVALID_MIME";
   cb(err);
 };
 
@@ -108,9 +106,8 @@ const uploadLogo = multer({
   fileFilter : makeFilter(IMG_MIME),
 }).single("store_logo");
 
-/* wrap multer so errors come back as JSON */
-const withUpload = (multerFn) => (req, res, next) =>
-  multerFn(req, res, (err) => {
+const withUpload = (fn) => (req, res, next) =>
+  fn(req, res, (err) => {
     if (!err) return next();
     const known =
       err.code === "LIMIT_FILE_SIZE"  ||
@@ -122,7 +119,7 @@ const withUpload = (multerFn) => (req, res, next) =>
   });
 
 /* ══════════════════════════════════════════════════════════════════════════
-   CLOUDINARY  (lazy — only loads if all three keys are present)
+   CLOUDINARY
 ══════════════════════════════════════════════════════════════════════════ */
 let _cld         = null;
 let _streamifier = null;
@@ -134,40 +131,34 @@ async function getCld() {
     process.env;
 
   if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
-    console.warn("[upload] Cloudinary env vars missing — using local placeholder URLs");
+    console.warn("[upload] Cloudinary env vars missing — placeholder URLs will be used");
     return null;
   }
 
   try {
     const { v2: cld } = await import("cloudinary");
     const sf           = await import("streamifier");
-
     cld.config({
       cloud_name : CLOUDINARY_CLOUD_NAME,
       api_key    : CLOUDINARY_API_KEY,
       api_secret : CLOUDINARY_API_SECRET,
       secure     : true,
     });
-
     _cld         = cld;
     _streamifier = sf.default ?? sf;
-    console.log("[upload] Cloudinary client initialised");
+    console.log("[upload] Cloudinary ready");
     return _cld;
   } catch (err) {
-    console.error("[upload] Failed to initialise Cloudinary:", err.message);
+    console.error("[upload] Cloudinary init failed:", err.message);
     return null;
   }
 }
 
 async function uploadBuffer(buffer, folder, userId) {
   const cld = await getCld();
-
   if (!cld) {
-    const url = `local://${folder}/${userId}/${Date.now()}`;
-    console.warn("[upload] placeholder URL:", url);
-    return { secure_url: url };
+    return { secure_url: `local://${folder}/${userId}/${Date.now()}` };
   }
-
   return new Promise((resolve, reject) => {
     const stream = cld.uploader.upload_stream(
       {
@@ -189,7 +180,7 @@ async function uploadBuffer(buffer, folder, userId) {
 /* ══════════════════════════════════════════════════════════════════════════
    RATE LIMITERS
 ══════════════════════════════════════════════════════════════════════════ */
-const limiter = ({ windowMin, max, message }) =>
+const makeLimiter = ({ windowMin, max, message }) =>
   rateLimit({
     windowMs        : windowMin * 60 * 1_000,
     max,
@@ -200,22 +191,22 @@ const limiter = ({ windowMin, max, message }) =>
       res.status(429).json({ success: false, message }),
   });
 
-const sendOtpLimiter = limiter({
+const sendOtpLimiter = makeLimiter({
   windowMin : 10,
   max       : IS_PROD ?  5 : 50,
   message   : "Too many send requests. Please wait and try again.",
 });
 
-const verifyOtpLimiter = limiter({
+const verifyOtpLimiter = makeLimiter({
   windowMin : 15,
   max       : IS_PROD ? 10 : 50,
   message   : "Too many verification attempts. Please wait.",
 });
 
-const submitLimiter = limiter({
+const submitLimiter = makeLimiter({
   windowMin : 60,
   max       : IS_PROD ?  3 : 20,
-  message   : "Too many submissions. Please wait before trying again.",
+  message   : "Too many submissions. Please wait.",
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -233,16 +224,14 @@ const maskEmail = (email) =>
 const getTodayUTC = () =>
   new Date().toISOString().slice(0, 10);
 
-const deviceHash = (req) =>
+const makeDeviceHash = (req) =>
   crypto
     .createHash("sha256")
-    .update(
-      [
-        req.headers["user-agent"]      ?? "",
-        req.headers["accept-language"] ?? "",
-        req.headers["sec-ch-ua"]       ?? "",
-      ].join("|")
-    )
+    .update([
+      req.headers["user-agent"]      ?? "",
+      req.headers["accept-language"] ?? "",
+      req.headers["sec-ch-ua"]       ?? "",
+    ].join("|"))
     .digest("hex");
 
 const extMatchesMime = (file) => {
@@ -293,7 +282,6 @@ const flagAccount = async (db, userId, reason, ip) => {
   });
 };
 
-/* send a consistent error shape */
 const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
@@ -305,51 +293,65 @@ router.post(
   authenticate,
   sendOtpLimiter,
   async (req, res) => {
-    const userId = req.user.id;
+    const userId = req.user?.id;
     const ip     = getIp(req);
 
-    console.log(`[send-otp] ▶  userId=${userId}  ip=${ip}  env=${process.env.NODE_ENV}`);
-    console.log(`[send-otp] RESEND_API_KEY: ${
-      process.env.RESEND_API_KEY
-        ? `SET (…${process.env.RESEND_API_KEY.slice(-4)})`
-        : "❌ NOT SET"
-    }`);
+    /* ── startup log — always visible ── */
+    console.log("\n" + "▶".repeat(60));
+    console.log("[send-otp] REQUEST RECEIVED");
+    console.log("[send-otp] userId        :", userId);
+    console.log("[send-otp] ip            :", ip);
+    console.log("[send-otp] NODE_ENV      :", process.env.NODE_ENV);
+    console.log("[send-otp] RESEND_API_KEY:", process.env.RESEND_API_KEY
+      ? `SET …${process.env.RESEND_API_KEY.slice(-4)}`
+      : "❌ NOT SET"
+    );
+    console.log("[send-otp] EMAIL_FROM    :", process.env.EMAIL_FROM || "(default)");
+
+    if (!userId) {
+      console.error("[send-otp] ✗ No userId on req.user — auth middleware issue");
+      return fail(res, 401, "Not authenticated.");
+    }
 
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
 
-      /* 1 ── fetch user ─────────────────────────────────────────────── */
+      /* 1 — fetch user */
+      console.log("[send-otp] step 1: fetching user...");
       const { rows: users } = await client.query(
         `SELECT id, email, name, email_verified, status
-         FROM   users
-         WHERE  id = $1
-         FOR    UPDATE`,
+         FROM   users WHERE id = $1 FOR UPDATE`,
         [userId]
       );
 
       if (!users.length) {
         await client.query("ROLLBACK");
+        console.warn("[send-otp] ✗ user not found");
         return fail(res, 404, "User not found.");
       }
 
       const user = users[0];
-      console.log(`[send-otp] user=${maskEmail(user.email)}  verified=${user.email_verified}  status=${user.status}`);
+      console.log("[send-otp] user:", {
+        email    : maskEmail(user.email),
+        verified : user.email_verified,
+        status   : user.status,
+      });
 
       if (user.email_verified) {
         await client.query("ROLLBACK");
         return fail(res, 400, "Email is already verified.");
       }
-
       if (user.status === "flagged" || user.status === "banned") {
         await client.query("ROLLBACK");
         return fail(res, 403, "Account restricted. Contact support.");
       }
 
-      /* 2 ── daily limit ───────────────────────────────────────────── */
+      /* 2 — daily limit */
+      console.log("[send-otp] step 2: checking daily limit...");
       const dailyCount = await getDailySendCount(client, userId);
-      console.log(`[send-otp] dailyCount=${dailyCount}  limit=${POLICY.DAILY_SEND_LIMIT}`);
+      console.log("[send-otp] dailyCount:", dailyCount, "/ limit:", POLICY.DAILY_SEND_LIMIT);
 
       if (dailyCount >= POLICY.DAILY_SEND_LIMIT) {
         await client.query("ROLLBACK");
@@ -360,21 +362,20 @@ router.post(
         );
       }
 
-      /* 3 ── cooldown ──────────────────────────────────────────────── */
+      /* 3 — cooldown */
+      console.log("[send-otp] step 3: checking cooldown...");
       const { rows: recent } = await client.query(
-        `SELECT created_at
-         FROM   email_verifications
+        `SELECT created_at FROM email_verifications
          WHERE  user_id    = $1
            AND  created_at > NOW() - ($2 || ' seconds')::INTERVAL
-         ORDER  BY created_at DESC
-         LIMIT  1`,
+         ORDER  BY created_at DESC LIMIT 1`,
         [userId, POLICY.RESEND_COOLDOWN_SECS]
       );
 
       if (recent.length) {
         const elapsed  = (Date.now() - new Date(recent[0].created_at)) / 1_000;
         const waitSecs = Math.ceil(POLICY.RESEND_COOLDOWN_SECS - elapsed);
-        console.log(`[send-otp] cooldown active — wait ${waitSecs}s`);
+        console.log("[send-otp] cooldown active, wait:", waitSecs, "s");
         await client.query("ROLLBACK");
         return fail(
           res, 429,
@@ -383,17 +384,16 @@ router.post(
         );
       }
 
-      /* 4 ── abuse detection ───────────────────────────────────────── */
+      /* 4 — abuse */
+      console.log("[send-otp] step 4: abuse check...");
       const { rows: abr } = await client.query(
-        `SELECT COUNT(*) AS cnt
-         FROM   email_verifications
+        `SELECT COUNT(*) AS cnt FROM email_verifications
          WHERE  user_id    = $1
            AND  created_at > NOW() - ($2 || ' minutes')::INTERVAL`,
         [userId, POLICY.ABUSE_WINDOW_MINUTES]
       );
-
       const abuseCount = parseInt(abr[0].cnt, 10);
-      console.log(`[send-otp] abuseCount=${abuseCount}  threshold=${POLICY.ABUSE_THRESHOLD}`);
+      console.log("[send-otp] abuseCount:", abuseCount, "/ threshold:", POLICY.ABUSE_THRESHOLD);
 
       if (abuseCount >= POLICY.ABUSE_THRESHOLD) {
         await flagAccount(client, userId, "otp_abuse", ip);
@@ -401,22 +401,24 @@ router.post(
         return fail(res, 429, "Account flagged for suspicious activity. Contact support.");
       }
 
-      /* 5 ── expire old active OTPs ────────────────────────────────── */
+      /* 5 — expire old OTPs */
+      console.log("[send-otp] step 5: expiring old OTPs...");
       await client.query(
         `UPDATE email_verifications
-         SET    status  = 'expired',
-                used_at = NOW()
-         WHERE  user_id = $1
-           AND  status  = 'active'`,
+         SET    status = 'expired', used_at = NOW()
+         WHERE  user_id = $1 AND status = 'active'`,
         [userId]
       );
 
-      /* 6 ── generate + hash OTP ───────────────────────────────────── */
+      /* 6 — generate + hash */
+      console.log("[send-otp] step 6: generating OTP...");
       const otp    = generateOtp();
       const hash   = await bcrypt.hash(otp, POLICY.BCRYPT_ROUNDS);
-      const device = deviceHash(req);
+      const device = makeDeviceHash(req);
 
-      console.log(`[send-otp] otp=${IS_PROD ? "******" : otp}`);
+      if (!IS_PROD) {
+        console.log("[send-otp] DEV otp:", otp);
+      }
 
       await client.query(
         `INSERT INTO email_verifications
@@ -429,7 +431,8 @@ router.post(
         [userId, hash, POLICY.OTP_EXPIRY_MINUTES, device, ip]
       );
 
-      /* 7 ── upsert device record ──────────────────────────────────── */
+      /* 7 — upsert device */
+      console.log("[send-otp] step 7: upserting device...");
       await client.query(
         `INSERT INTO user_devices
            (user_id, device_hash, ip_address, user_agent, last_seen)
@@ -443,8 +446,10 @@ router.post(
       await client.query("COMMIT");
       console.log("[send-otp] ✓ DB committed");
 
-      /* 8 ── send email ────────────────────────────────────────────── */
-      console.log("[send-otp] calling sendVerificationEmail...");
+      /* 8 — send email */
+      console.log("[send-otp] step 8: sending email...");
+      console.log("[send-otp] to:", user.email);
+      console.log("[send-otp] name:", user.name);
 
       try {
         const emailResult = await sendVerificationEmail({
@@ -452,25 +457,28 @@ router.post(
           name : user.name,
           otp,
         });
-        console.log("[send-otp] ✓ email sent:", emailResult?.id ?? emailResult);
+        console.log("[send-otp] ✓ email result:", JSON.stringify(emailResult));
       } catch (mailErr) {
         console.error("[send-otp] ✗ email failed:", mailErr.message);
+        console.error("[send-otp] email stack:", mailErr.stack);
 
-        /* best-effort cleanup so the user can try again immediately */
-        await pool.query(
-          `UPDATE email_verifications
-           SET    status = 'expired', used_at = NOW()
-           WHERE  user_id    = $1
-             AND  status     = 'active'
-             AND  created_at > NOW() - INTERVAL '2 minutes'`,
-          [userId]
-        ).catch((e) => console.error("[send-otp] cleanup failed:", e.message));
+        /* cleanup so user can retry immediately */
+        await pool
+          .query(
+            `UPDATE email_verifications
+             SET    status = 'expired', used_at = NOW()
+             WHERE  user_id    = $1
+               AND  status     = 'active'
+               AND  created_at > NOW() - INTERVAL '2 minutes'`,
+            [userId]
+          )
+          .catch((e) => console.error("[send-otp] cleanup err:", e.message));
 
-        return fail(res, 500, `Failed to send email. Please try again. (${mailErr.message})`);
+        return fail(res, 500, `Failed to send email: ${mailErr.message}`);
       }
 
-      const remaining    = POLICY.DAILY_SEND_LIMIT - (dailyCount + 1);
-      const devExtras    = IS_PROD ? {} : { dev_otp: otp };
+      const remaining = POLICY.DAILY_SEND_LIMIT - (dailyCount + 1);
+      const devExtras = IS_PROD ? {} : { dev_otp: otp };
 
       await writeAudit({
         actorId    : userId,
@@ -479,9 +487,10 @@ router.post(
         targetId   : userId,
         metadata   : { method: "email", remaining },
         ipAddress  : ip,
-      }).catch((e) => console.error("[send-otp] audit error:", e.message));
+      }).catch((e) => console.error("[send-otp] audit err:", e.message));
 
-      console.log(`[send-otp] ✓ done  remaining=${remaining}`);
+      console.log("[send-otp] ✓ DONE  remaining:", remaining);
+      console.log("◀".repeat(60) + "\n");
 
       return res.json({
         success   : true,
@@ -494,7 +503,7 @@ router.post(
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      console.error("[send-otp] ✗ unhandled error:", err.message);
+      console.error("[send-otp] ✗ UNHANDLED:", err.message);
       console.error(err.stack);
       return fail(res, 500, "Server error. Please try again.");
     } finally {
@@ -512,10 +521,14 @@ router.post(
   verifyOtpLimiter,
   async (req, res) => {
     const rawOtp = String(req.body?.otp ?? "").trim();
-    const userId = req.user.id;
+    const userId = req.user?.id;
     const ip     = getIp(req);
 
-    console.log(`[verify-otp] ▶  userId=${userId}  otp=${rawOtp}`);
+    console.log("\n[verify-otp] ▶ REQUEST");
+    console.log("[verify-otp] userId:", userId);
+    console.log("[verify-otp] otp   :", IS_PROD ? "******" : rawOtp);
+
+    if (!userId) return fail(res, 401, "Not authenticated.");
 
     if (!/^\d{6}$/.test(rawOtp)) {
       return fail(res, 400, "OTP must be exactly 6 digits.");
@@ -526,19 +539,18 @@ router.post(
     try {
       await client.query("BEGIN");
 
-      /* 1 ── load active, unexpired record ────────────────────────── */
+      /* 1 — find active OTP */
       const { rows } = await client.query(
         `SELECT id, otp_hash, attempts
          FROM   email_verifications
          WHERE  user_id    = $1
            AND  status     = 'active'
            AND  expires_at > NOW()
-         ORDER  BY created_at DESC
-         LIMIT  1`,
+         ORDER  BY created_at DESC LIMIT 1`,
         [userId]
       );
 
-      console.log(`[verify-otp] active records found: ${rows.length}`);
+      console.log("[verify-otp] active OTPs found:", rows.length);
 
       if (!rows.length) {
         await client.query("ROLLBACK");
@@ -546,9 +558,9 @@ router.post(
       }
 
       const rec = rows[0];
-      console.log(`[verify-otp] attempts so far: ${rec.attempts}`);
+      console.log("[verify-otp] attempts so far:", rec.attempts);
 
-      /* 2 ── attempt cap ───────────────────────────────────────────── */
+      /* 2 — attempt cap */
       if (rec.attempts >= POLICY.MAX_VERIFY_ATTEMPTS) {
         await client.query(
           `UPDATE email_verifications SET status = 'blocked' WHERE id = $1`,
@@ -559,9 +571,10 @@ router.post(
         return fail(res, 429, "Too many failed attempts. Account flagged.");
       }
 
-      /* 3 ── compare ───────────────────────────────────────────────── */
+      /* 3 — bcrypt compare */
+      console.log("[verify-otp] running bcrypt compare...");
       const valid = await bcrypt.compare(rawOtp, rec.otp_hash);
-      console.log(`[verify-otp] bcrypt compare: ${valid ? "✓ match" : "✗ no match"}`);
+      console.log("[verify-otp] match:", valid);
 
       if (!valid) {
         await client.query(
@@ -573,13 +586,11 @@ router.post(
         return fail(res, 400, "Incorrect code. Please try again.", { attemptsLeft: left });
       }
 
-      /* 4 ── atomic mark-used ──────────────────────────────────────── */
+      /* 4 — atomic mark-used */
       const { rows: marked } = await client.query(
         `UPDATE email_verifications
-         SET    status  = 'used',
-                used_at = NOW()
-         WHERE  id     = $1
-           AND  status = 'active'
+         SET    status = 'used', used_at = NOW()
+         WHERE  id = $1 AND status = 'active'
          RETURNING id`,
         [rec.id]
       );
@@ -589,13 +600,13 @@ router.post(
         return fail(res, 400, "Code was already used. Please request a new one.");
       }
 
-      /* 5 ── mark user verified ────────────────────────────────────── */
+      /* 5 — mark user verified */
       const { rows: updated } = await client.query(
         `UPDATE users
-         SET    email_verified     = true,
-                email_verified_at  = NOW(),
-                verified           = true,
-                updated_at         = NOW()
+         SET    email_verified    = true,
+                email_verified_at = NOW(),
+                verified          = true,
+                updated_at        = NOW()
          WHERE  id = $1
          RETURNING id, email_verified, identity_verified,
                    store_verified, created_at`,
@@ -610,9 +621,9 @@ router.post(
       );
 
       await client.query("COMMIT");
-      console.log(`[verify-otp] ✓ verified  trust_score=${trustScore}`);
+      console.log("[verify-otp] ✓ verified  trust_score:", trustScore);
 
-      /* 6 ── audit ─────────────────────────────────────────────────── */
+      /* 6 — audit */
       await writeAudit({
         actorId    : userId,
         action     : "email_verified",
@@ -620,18 +631,18 @@ router.post(
         targetId   : userId,
         metadata   : { trust_score: trustScore },
         ipAddress  : ip,
-      }).catch((e) => console.error("[verify-otp] audit error:", e.message));
+      }).catch((e) => console.error("[verify-otp] audit err:", e.message));
 
-      /* 7 ── welcome email — fire-and-forget ──────────────────────── */
+      /* 7 — welcome email fire-and-forget */
       pool
         .query("SELECT email, name FROM users WHERE id = $1", [userId])
         .then(({ rows: u }) => {
           if (u[0]) {
             sendWelcomeEmail({ to: u[0].email, name: u[0].name })
-              .catch((e) => console.error("[verify-otp] welcome email error:", e.message));
+              .catch((e) => console.error("[verify-otp] welcome email err:", e.message));
           }
         })
-        .catch((e) => console.error("[verify-otp] welcome query error:", e.message));
+        .catch((e) => console.error("[verify-otp] welcome query err:", e.message));
 
       return res.json({
         success     : true,
@@ -641,7 +652,7 @@ router.post(
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      console.error("[verify-otp] ✗ unhandled error:", err.message);
+      console.error("[verify-otp] ✗ UNHANDLED:", err.message);
       console.error(err.stack);
       return fail(res, 500, "Server error. Please try again.");
     } finally {
@@ -659,16 +670,17 @@ router.post(
   submitLimiter,
   withUpload(uploadDocs),
   async (req, res) => {
-    const userId = req.user.id;
+    const userId = req.user?.id;
     const ip     = getIp(req);
+
+    console.log("[submit-identity] ▶ userId:", userId);
 
     const { document_type, document_number } = req.body;
 
-    /* ── validate inputs ─────────────────────────────────────────── */
     if (!document_type || !VALID_DOC_TYPES.has(document_type)) {
       return fail(
         res, 400,
-        `Invalid document type. Choose one of: ${[...VALID_DOC_TYPES].join(", ")}.`
+        `Invalid document type. Choose: ${[...VALID_DOC_TYPES].join(", ")}.`
       );
     }
 
@@ -684,27 +696,24 @@ router.post(
     if (!backFile)   return fail(res, 400, "Back of document is required.");
     if (!selfieFile) return fail(res, 400, "Selfie photo is required.");
 
-    /* extension ↔ MIME consistency */
     for (const f of [frontFile, backFile, selfieFile]) {
       if (!extMatchesMime(f)) {
         return fail(
           res, 400,
-          `File "${f.originalname}" — extension does not match content. Do not rename files.`
+          `File "${f.originalname}" extension does not match its content.`
         );
       }
     }
 
-    /* ── guard: no duplicate pending ─────────────────────────────── */
     const { rows: pending } = await pool.query(
       `SELECT id FROM identity_verifications
        WHERE  user_id = $1 AND status = 'pending'`,
       [userId]
     );
     if (pending.length) {
-      return fail(res, 409, "You already have a pending identity review. Please wait for the result.");
+      return fail(res, 409, "You already have a pending identity review.");
     }
 
-    /* ── guard: not already verified ─────────────────────────────── */
     const { rows: uRow } = await pool.query(
       "SELECT identity_verified FROM users WHERE id = $1",
       [userId]
@@ -714,7 +723,6 @@ router.post(
     }
 
     try {
-      /* upload all three files in parallel */
       const [front, back, selfie] = await Promise.all([
         uploadBuffer(frontFile.buffer,  "id_documents", userId),
         uploadBuffer(backFile.buffer,   "id_documents", userId),
@@ -726,7 +734,8 @@ router.post(
            (user_id, document_type, document_number,
             front_image_url, back_image_url, selfie_url, status)
          VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
-        [userId, document_type, docNum, front.secure_url, back.secure_url, selfie.secure_url]
+        [userId, document_type, docNum,
+         front.secure_url, back.secure_url, selfie.secure_url]
       );
 
       await writeAudit({
@@ -736,11 +745,13 @@ router.post(
         targetId   : userId,
         metadata   : { document_type },
         ipAddress  : ip,
-      }).catch((e) => console.error("[submit-identity] audit error:", e.message));
+      }).catch((e) => console.error("[submit-identity] audit err:", e.message));
+
+      console.log("[submit-identity] ✓ submitted");
 
       return res.status(202).json({
         success : true,
-        message : "Identity documents submitted. Our team will review within 24 hours.",
+        message : "Identity submitted. Our team will review within 24 hours.",
       });
 
     } catch (err) {
@@ -759,27 +770,26 @@ router.post(
   submitLimiter,
   withUpload(uploadLogo),
   async (req, res) => {
-    const userId    = req.user.id;
+    const userId    = req.user?.id;
     const ip        = getIp(req);
     const storeName = (req.body.store_name        ?? "").trim();
     const storeDesc = (req.body.store_description ?? "").trim();
 
-    /* ── validate ─────────────────────────────────────────────────── */
+    console.log("[submit-store] ▶ userId:", userId, "storeName:", storeName);
+
     if (storeName.length < 2)   return fail(res, 400, "Store name must be at least 2 characters.");
     if (storeName.length > 60)  return fail(res, 400, "Store name must be at most 60 characters.");
     if (storeDesc.length > 300) return fail(res, 400, "Description must be at most 300 characters.");
 
-    /* ── guard: no duplicate pending ─────────────────────────────── */
     const { rows: pending } = await pool.query(
       `SELECT id FROM store_verifications
        WHERE  user_id = $1 AND status = 'pending'`,
       [userId]
     );
     if (pending.length) {
-      return fail(res, 409, "You already have a pending store review. Please wait for the result.");
+      return fail(res, 409, "You already have a pending store review.");
     }
 
-    /* ── guard: not already verified ─────────────────────────────── */
     const { rows: uRow } = await pool.query(
       "SELECT store_verified FROM users WHERE id = $1",
       [userId]
@@ -790,7 +800,6 @@ router.post(
 
     try {
       let logoUrl = null;
-
       if (req.file) {
         if (!extMatchesMime(req.file)) {
           return fail(res, 400, "Logo file extension does not match its content.");
@@ -813,7 +822,9 @@ router.post(
         targetId   : userId,
         metadata   : { store_name: storeName },
         ipAddress  : ip,
-      }).catch((e) => console.error("[submit-store] audit error:", e.message));
+      }).catch((e) => console.error("[submit-store] audit err:", e.message));
+
+      console.log("[submit-store] ✓ submitted");
 
       return res.status(202).json({
         success : true,
@@ -831,48 +842,48 @@ router.post(
    GET /api/verification/status
 ══════════════════════════════════════════════════════════════════════════ */
 router.get("/status", authenticate, async (req, res) => {
-  const userId = req.user.id;
+  const userId = req.user?.id;
+  console.log("[status] ▶ userId:", userId);
 
   try {
-    /* run all queries in parallel */
     const [userRes, idRes, storeRes] = await Promise.all([
       pool.query(
         `SELECT id, email, name, role, seller_type, status,
                 email_verified, email_verified_at,
                 identity_verified, store_verified,
                 trust_score, created_at
-         FROM   users
-         WHERE  id = $1`,
+         FROM   users WHERE id = $1`,
         [userId]
       ),
       pool.query(
         `SELECT document_type, status, rejection_reason, updated_at
          FROM   identity_verifications
          WHERE  user_id = $1
-         ORDER  BY created_at DESC
-         LIMIT  1`,
+         ORDER  BY created_at DESC LIMIT 1`,
         [userId]
       ),
       pool.query(
         `SELECT status, rejection_reason AS message, updated_at
          FROM   store_verifications
          WHERE  user_id = $1
-         ORDER  BY created_at DESC
-         LIMIT  1`,
+         ORDER  BY created_at DESC LIMIT 1`,
         [userId]
       ),
     ]);
 
-    if (!userRes.rows.length) {
-      return fail(res, 404, "User not found.");
-    }
+    if (!userRes.rows.length) return fail(res, 404, "User not found.");
 
     const user        = userRes.rows[0];
     const idReview    = idRes.rows[0]    ?? null;
     const storeReview = storeRes.rows[0] ?? null;
+    const dailyCount  = await getDailySendCount(pool, userId);
 
-    const dailyCount     = await getDailySendCount(pool, userId);
-    const resendRemaining= Math.max(0, POLICY.DAILY_SEND_LIMIT - dailyCount);
+    console.log("[status] ✓", {
+      email_verified    : user.email_verified,
+      identity_verified : user.identity_verified,
+      store_verified    : user.store_verified,
+      trust_score       : user.trust_score,
+    });
 
     return res.json({
       success           : true,
@@ -888,7 +899,7 @@ router.get("/status", authenticate, async (req, res) => {
       store_verified    : user.store_verified,
       store_review      : storeReview,
       trust_score       : user.trust_score ?? 0,
-      resend_remaining  : resendRemaining,
+      resend_remaining  : Math.max(0, POLICY.DAILY_SEND_LIMIT - dailyCount),
       resend_limit      : POLICY.DAILY_SEND_LIMIT,
     });
 
