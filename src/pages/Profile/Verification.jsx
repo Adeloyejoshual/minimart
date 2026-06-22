@@ -1,1354 +1,444 @@
 /**
- * src/pages/Profile/Verification.jsx
- *
- * 3-step account verification
- *   Step 1 — Email OTP
- *   Step 2 — Government ID + selfie
- *   Step 3 — Store profile
+ * TestOTP.jsx
+ * Dead-simple OTP test page — no dependencies except React.
+ * Visit /test-otp while logged in to diagnose the email issue.
+ * DELETE this file once email sending is confirmed working.
  */
 
-import {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useReducer,
-} from "react";
-import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate }             from "react-router-dom";
-import {
-  Shield, Mail, CheckCircle, Store, Loader2,
-  XCircle, RefreshCw, Lock, BadgeCheck,
-  CreditCard, AlertTriangle, Upload,
-  FileText, Camera, Image, User, X, Info,
-} from "lucide-react";
+import { useState } from "react";
 
-/* ══════════════════════════════════════════════════════════════════
-   CONFIG
-══════════════════════════════════════════════════════════════════ */
-const API          = import.meta.env.VITE_API_BASE_URL
+const API = import.meta.env.VITE_API_BASE_URL
   ? `${import.meta.env.VITE_API_BASE_URL}/api`
   : "/api";
 
-const OTP_LENGTH    = 6;
-const RESEND_SECS   = 30;
-const MAX_DOC_MB    = 5;
-const MAX_LOGO_MB   = 2;
-const MAX_DOC_BYTES = MAX_DOC_MB  * 1_048_576;
-const MAX_LOGO_BYTES= MAX_LOGO_MB * 1_048_576;
-
-const DOC_TYPES = [
-  {
-    value       : "nin",
-    label       : "National ID (NIN)",
-    numberLabel : "NIN Number",
-    frontLabel  : "NIN Slip — Front",
-    backLabel   : "NIN Slip — Back",
-  },
-  {
-    value       : "passport",
-    label       : "International Passport",
-    numberLabel : "Passport Number",
-    frontLabel  : "Passport Photo Page",
-    backLabel   : "Passport Data Page (Back)",
-  },
-  {
-    value       : "drivers_license",
-    label       : "Driver's License",
-    numberLabel : "License Number",
-    frontLabel  : "License — Front",
-    backLabel   : "License — Back",
-  },
-  {
-    value       : "voters_card",
-    label       : "Voter's Card",
-    numberLabel : "VIN",
-    frontLabel  : "Voter's Card — Front",
-    backLabel   : "Voter's Card — Back",
-  },
-];
-
-/* ══════════════════════════════════════════════════════════════════
-   HELPERS
-══════════════════════════════════════════════════════════════════ */
+/* Try every possible token key your app might use */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("token") ||
+  localStorage.getItem("token")             ||
+  localStorage.getItem("authToken")         ||
+  localStorage.getItem("auth_token")        ||
+  localStorage.getItem("jwt")               ||
+  localStorage.getItem("accessToken")       ||
+  localStorage.getItem("access_token")      ||
+  sessionStorage.getItem("token")           ||
+  sessionStorage.getItem("marketplace_token") ||
   "";
 
-const authJson = () => ({
-  "Content-Type" : "application/json",
-  Authorization  : `Bearer ${getToken()}`,
-});
-
-const authMultipart = () => ({
-  Authorization: `Bearer ${getToken()}`,
-});
-
-const fmtBytes = (b) =>
-  b < 1_048_576
-    ? `${(b / 1_024).toFixed(0)} KB`
-    : `${(b / 1_048_576).toFixed(1)} MB`;
-
-/* ══════════════════════════════════════════════════════════════════
-   TINY COMPONENTS
-══════════════════════════════════════════════════════════════════ */
-
-/* Status chip */
-const CHIP_CFG = {
-  complete  : { label: "Completed", cls: "chip chip--complete"  },
-  in_review : { label: "In Review", cls: "chip chip--review"    },
-  rejected  : { label: "Rejected",  cls: "chip chip--rejected"  },
-  active    : { label: "Active",    cls: "chip chip--active"    },
-  pending   : { label: "Pending",   cls: "chip chip--pending"   },
+const S = {
+  page: {
+    minHeight      : "100vh",
+    background     : "#060b14",
+    display        : "flex",
+    alignItems     : "center",
+    justifyContent : "center",
+    padding        : 24,
+    fontFamily     : "monospace",
+  },
+  card: {
+    background   : "#0d1523",
+    border       : "1px solid rgba(255,255,255,0.1)",
+    borderRadius : 16,
+    padding      : 32,
+    width        : "100%",
+    maxWidth     : 640,
+    display      : "flex",
+    flexDirection: "column",
+    gap          : 16,
+  },
+  title: {
+    fontSize   : 20,
+    fontWeight : 700,
+    color      : "#f1f5f9",
+    margin     : 0,
+  },
+  label: {
+    fontSize   : 11,
+    fontWeight : 700,
+    color      : "#64748b",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    marginBottom : 4,
+  },
+  value: {
+    fontSize     : 13,
+    color        : "#94a3b8",
+    wordBreak    : "break-all",
+    background   : "#111c2d",
+    padding      : "8px 12px",
+    borderRadius : 8,
+    border       : "1px solid rgba(255,255,255,0.06)",
+    lineHeight   : 1.5,
+  },
+  btn: (color = "#3b82f6", disabled = false) => ({
+    padding      : "12px 20px",
+    background   : disabled ? "#1f2937" : color,
+    color        : disabled ? "#4b5563" : "#fff",
+    border       : "none",
+    borderRadius : 8,
+    fontSize     : 14,
+    fontWeight   : 700,
+    cursor       : disabled ? "not-allowed" : "pointer",
+    fontFamily   : "monospace",
+    opacity      : disabled ? 0.6 : 1,
+  }),
+  input: {
+    width        : "100%",
+    padding      : "11px 14px",
+    background   : "#111c2d",
+    border       : "1.5px solid rgba(255,255,255,0.1)",
+    borderRadius : 8,
+    color        : "#f1f5f9",
+    fontSize     : 18,
+    fontFamily   : "monospace",
+    textAlign    : "center",
+    letterSpacing: 8,
+    outline      : "none",
+    boxSizing    : "border-box",
+  },
+  log: {
+    background   : "#020810",
+    border       : "1px solid rgba(255,255,255,0.06)",
+    borderRadius : 8,
+    padding      : 14,
+    fontSize     : 12,
+    color        : "#94a3b8",
+    maxHeight    : 300,
+    overflowY    : "auto",
+    lineHeight   : 1.7,
+    whiteSpace   : "pre-wrap",
+    wordBreak    : "break-all",
+  },
+  row: {
+    display : "flex",
+    gap     : 10,
+  },
+  ok  : { color: "#22c55e", fontWeight: 700 },
+  err : { color: "#ef4444", fontWeight: 700 },
+  warn: { color: "#f59e0b", fontWeight: 700 },
+  hr  : {
+    border      : "none",
+    borderTop   : "1px solid rgba(255,255,255,0.07)",
+    margin      : "4px 0",
+  },
 };
 
-function Chip({ status = "pending" }) {
-  const cfg = CHIP_CFG[status] ?? CHIP_CFG.pending;
-  return (
-    <span className={cfg.cls} role="status">
-      {cfg.label}
-    </span>
-  );
-}
+export default function TestOTP() {
+  const [logs,    setLogs]    = useState([]);
+  const [otp,     setOtp]     = useState("");
+  const [loading, setLoading] = useState("");
 
-/* Inline alert */
-function Alert({ type = "error", children }) {
-  const icons = {
-    error   : <XCircle      size={14} />,
-    success : <CheckCircle  size={14} />,
-    warning : <AlertTriangle size={14} />,
-    info    : <Info          size={14} />,
+  const token       = getToken();
+  const tokenPreview= token
+    ? `${token.slice(0, 20)}…${token.slice(-8)} (${token.length} chars)`
+    : "❌ NOT FOUND";
+
+  /* scan localStorage for all keys */
+  const allKeys = Object.keys(localStorage);
+
+  const log = (msg, type = "info") => {
+    const ts   = new Date().toISOString().slice(11, 23);
+    const mark = type === "ok" ? "✓" : type === "err" ? "✗" : type === "warn" ? "⚠" : "·";
+    setLogs((p) => [`[${ts}] ${mark} ${msg}`, ...p]);
   };
-  return (
-    <div className={`v-alert v-alert--${type}`} role="alert">
-      <span className="v-alert__icon">{icons[type]}</span>
-      <div className="v-alert__body">{children}</div>
-    </div>
-  );
-}
 
-/* Countdown timer — key prop resets it on every resend */
-function Countdown({ seconds, onDone }) {
-  const [left, setLeft]   = useState(seconds);
-  const onDoneRef         = useRef(onDone);
-  useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
+  const divider = () => setLogs((p) => ["─".repeat(50), ...p]);
 
-  useEffect(() => {
-    setLeft(seconds);
-    if (seconds <= 0) return;
-    const id = setInterval(() => {
-      setLeft((p) => {
-        if (p <= 1) { clearInterval(id); onDoneRef.current?.(); return 0; }
-        return p - 1;
+  /* ── Step 1: check status ── */
+  const checkStatus = async () => {
+    setLoading("status");
+    divider();
+    log("GET /api/verification/status");
+    log(`Token: ${tokenPreview}`);
+    log(`API: ${API}`);
+
+    try {
+      const res  = await fetch(`${API}/verification/status`, {
+        headers: {
+          "Content-Type" : "application/json",
+          "Authorization": token ? `Bearer ${token}` : "",
+        },
       });
-    }, 1_000);
-    return () => clearInterval(id);
-  }, [seconds]); // eslint-disable-line react-hooks/exhaustive-deps
+      const text = await res.text();
+      log(`HTTP ${res.status} ${res.statusText}`, res.ok ? "ok" : "err");
 
-  return (
-    <span className={`countdown ${left <= 10 ? "countdown--warn" : ""}`}>
-      {left}s
-    </span>
-  );
-}
-
-/* Progress bar */
-function ProgressBar({ value, max = 3 }) {
-  const pct = Math.round((value / max) * 100);
-  return (
-    <div className="progress" role="progressbar"
-         aria-valuenow={value} aria-valuemax={max}>
-      <div className="progress__header">
-        <span className="progress__label">Verification Progress</span>
-        <span className="progress__count">{value} / {max}</span>
-      </div>
-      <div className="progress__track">
-        <motion.div
-          className="progress__fill"
-          initial={{ width: 0 }}
-          animate={{ width: `${pct}%` }}
-          transition={{ duration: 0.5, ease: "easeOut" }}
-        />
-      </div>
-      {value === max && (
-        <motion.p
-          className="progress__complete"
-          initial={{ opacity: 0, y: 4 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
-          <CheckCircle size={13} />
-          Account fully verified
-        </motion.p>
-      )}
-    </div>
-  );
-}
-
-/* Trust ring */
-const TIERS = [
-  { min: 80, color: "#22c55e", label: "Excellent" },
-  { min: 60, color: "#3b82f6", label: "Good"      },
-  { min: 40, color: "#f59e0b", label: "Fair"      },
-  { min:  0, color: "#ef4444", label: "Low"       },
-];
-
-function ScoreRow({ label, points, done }) {
-  return (
-    <div className="score-row">
-      <div className={`score-row__dot ${done ? "score-row__dot--done" : ""}`}>
-        {done && <CheckCircle size={11} />}
-      </div>
-      <span className={`score-row__label ${done ? "score-row__label--done" : ""}`}>
-        {label}
-      </span>
-      <span className={`score-row__pts ${done ? "score-row__pts--done" : ""}`}>
-        +{points}
-      </span>
-    </div>
-  );
-}
-
-function TrustRing({ score = 0, emailVerified, identityVerified, storeVerified }) {
-  const R   = 52;
-  const C   = 2 * Math.PI * R;
-  const cfg = TIERS.find((t) => score >= t.min) ?? TIERS[TIERS.length - 1];
-
-  return (
-    <div className="trust-ring">
-      {/* ring graphic */}
-      <div className="trust-ring__graphic">
-        <svg width="140" height="140" viewBox="0 0 140 140"
-             role="img" aria-label={`Trust score ${score} out of 100`}>
-          <circle cx="70" cy="70" r={R} fill="none"
-                  stroke="#1f2937" strokeWidth="10" />
-          <motion.circle
-            cx="70" cy="70" r={R}
-            fill="none"
-            stroke={cfg.color}
-            strokeWidth="10"
-            strokeLinecap="round"
-            strokeDasharray={C}
-            strokeDashoffset={C}
-            animate={{ strokeDashoffset: C - (score / 100) * C }}
-            transition={{ duration: 1.6, ease: [0.34,1.56,0.64,1], delay: 0.1 }}
-            style={{
-              transformOrigin : "center",
-              transform       : "rotate(-90deg)",
-              filter          : `drop-shadow(0 0 6px ${cfg.color}55)`,
-            }}
-          />
-        </svg>
-        <div className="trust-ring__center">
-          <motion.span
-            key={score}
-            className="trust-ring__number"
-            style={{ color: cfg.color }}
-            initial={{ opacity: 0, scale: 0.5 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.4, delay: 0.2 }}
-          >
-            {score}
-          </motion.span>
-          <span className="trust-ring__denom">/ 100</span>
-          <span className="trust-ring__tier" style={{ color: cfg.color }}>
-            {cfg.label}
-          </span>
-        </div>
-      </div>
-
-      {/* breakdown */}
-      <div className="score-breakdown">
-        <p className="score-breakdown__title">Trust Breakdown</p>
-        <ScoreRow label="Email verified"    points={30} done={emailVerified}    />
-        <ScoreRow label="Identity verified" points={30} done={identityVerified} />
-        <ScoreRow label="Store verified"    points={20} done={storeVerified}    />
-        <ScoreRow label="Account age 30d"   points={10} done={score >= 60}      />
-        <ScoreRow label="Account age 90d"   points={10} done={score >= 70}      />
-      </div>
-    </div>
-  );
-}
-
-/* Step shell — header + animated expandable body */
-function StepShell({
-  stepNum,
-  icon,
-  title,
-  subtitle,
-  chipStatus,
-  headerBtn,
-  open      = false,
-  complete  = false,
-  children,
-}) {
-  return (
-    <motion.div
-      layout
-      className={[
-        "step",
-        complete ? "step--complete" : "",
-        open     ? "step--open"     : "",
-      ].join(" ")}
-    >
-      {/* number badge */}
-      <div className={`step__badge ${complete ? "step__badge--done" : ""}`}
-           aria-hidden="true">
-        {complete ? <CheckCircle size={12} /> : stepNum}
-      </div>
-
-      {/* header */}
-      <div className="step__header">
-        <div className={`step__icon ${complete ? "step__icon--done" : ""}`}>
-          {icon}
-        </div>
-        <div className="step__info">
-          <p className="step__title">{title}</p>
-          {subtitle && <p className="step__sub">{subtitle}</p>}
-        </div>
-        <div className="step__aside">
-          {headerBtn ?? <Chip status={chipStatus ?? (complete ? "complete" : "pending")} />}
-        </div>
-      </div>
-
-      {/* expandable body */}
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            key="body"
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.3, ease: [0.4, 0, 0.2, 1] }}
-            style={{ overflow: "hidden" }}
-          >
-            <div className="step__body">{children}</div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
-  );
-}
-
-/* OTP input — 6 individual cells */
-function OtpInput({ value, onChange, disabled, hasError }) {
-  const refs = useRef([]);
-
-  /* auto-focus first cell */
-  useEffect(() => {
-    const t = setTimeout(() => refs.current[0]?.focus(), 350);
-    return () => clearTimeout(t);
-  }, []);
-
-  /* re-focus after shake */
-  useEffect(() => {
-    if (!hasError) return;
-    const t = setTimeout(() => {
-      const idx = refs.current.findIndex((r) => !r?.value);
-      refs.current[Math.max(0, idx)]?.focus();
-    }, 700);
-    return () => clearTimeout(t);
-  }, [hasError]);
-
-  const char = (i) => value[i] ?? "";
-
-  const update = (i, ch) => {
-    const arr = Array.from({ length: OTP_LENGTH }, (_, k) => value[k] ?? "");
-    arr[i]    = ch;
-    onChange(arr.join(""));
-  };
-
-  return (
-    <div
-      className={`otp-group ${hasError ? "otp-group--error" : ""}`}
-      role="group"
-      aria-label="One-time password"
-    >
-      {Array.from({ length: OTP_LENGTH }).map((_, i) => (
-        <input
-          key={i}
-          ref={(el) => (refs.current[i] = el)}
-          type="text"
-          inputMode="numeric"
-          pattern="\d*"
-          maxLength={1}
-          value={char(i)}
-          disabled={disabled}
-          aria-label={`Digit ${i + 1} of ${OTP_LENGTH}`}
-          className={[
-            "otp-cell",
-            char(i)  ? "otp-cell--filled" : "",
-            hasError ? "otp-cell--error"  : "",
-          ].join(" ")}
-          onChange={(e) => {
-            const digit = e.target.value.replace(/\D/g, "").slice(-1);
-            update(i, digit);
-            if (digit && i < OTP_LENGTH - 1) refs.current[i + 1]?.focus();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Backspace") {
-              e.preventDefault();
-              if (char(i)) { update(i, ""); }
-              else if (i > 0) { update(i - 1, ""); refs.current[i - 1]?.focus(); }
-            } else if (e.key === "ArrowLeft"  && i > 0)              refs.current[i - 1]?.focus();
-            else if   (e.key === "ArrowRight" && i < OTP_LENGTH - 1) refs.current[i + 1]?.focus();
-          }}
-          onFocus={(e) => e.target.select()}
-          onPaste={(e) => {
-            e.preventDefault();
-            const digits = e.clipboardData
-              .getData("text")
-              .replace(/\D/g, "")
-              .slice(0, OTP_LENGTH);
-            const result = Array.from(
-              { length: OTP_LENGTH },
-              (_, k) => digits[k] ?? ""
-            ).join("");
-            onChange(result);
-            const focusIdx = Math.min(digits.length, OTP_LENGTH - 1);
-            refs.current[focusIdx]?.focus();
-          }}
-        />
-      ))}
-    </div>
-  );
-}
-
-/* File upload drop-zone */
-function FileUpload({ label, hint, accept, file, onFile, onRemove, maxBytes }) {
-  const inputRef              = useRef(null);
-  const [preview, setPreview] = useState(null);
-  const [fileErr, setFileErr] = useState("");
-  const [drag,    setDrag]    = useState(false);
-
-  useEffect(() => {
-    if (!file || !file.type.startsWith("image/")) {
-      setPreview(null);
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-
-  const pick = (picked) => {
-    if (!picked) return;
-    setFileErr("");
-    if (maxBytes && picked.size > maxBytes) {
-      setFileErr(
-        `Too large — max ${fmtBytes(maxBytes)}, yours is ${fmtBytes(picked.size)}.`
-      );
-      return;
-    }
-    onFile(picked);
-  };
-
-  if (file) {
-    return (
-      <div className="upload-card upload-card--filled">
-        <div className="upload-preview">
-          {preview
-            ? <img src={preview} alt="" className="upload-preview__img" />
-            : (
-              <div className="upload-preview__doc">
-                <FileText size={20} />
-              </div>
-            )
-          }
-          <div className="upload-preview__meta">
-            <p className="upload-preview__name">{file.name}</p>
-            <p className="upload-preview__size">{fmtBytes(file.size)}</p>
-          </div>
-          <button
-            type="button"
-            className="upload-remove"
-            onClick={onRemove}
-            aria-label="Remove file"
-          >
-            <X size={14} />
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <label
-        className={[
-          "upload-card",
-          drag    ? "upload-card--drag"  : "",
-          fileErr ? "upload-card--error" : "",
-        ].join(" ")}
-        onDragOver={(e)  => { e.preventDefault(); setDrag(true);  }}
-        onDragLeave={()  => setDrag(false)}
-        onDrop={(e)      => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files?.[0]); }}
-      >
-        <input
-          ref={inputRef}
-          type="file"
-          accept={accept}
-          className="upload-hidden"
-          onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ""; }}
-        />
-        <Upload size={22} className="upload-card__icon" />
-        <p className="upload-card__label">{drag ? "Drop to upload" : label}</p>
-        <p className="upload-card__hint">{hint}</p>
-      </label>
-      {fileErr && (
-        <p className="upload-error">
-          <AlertTriangle size={12} /> {fileErr}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/* Selfie capture — camera or gallery */
-function SelfieCapture({ file, onFile, onRemove }) {
-  const inputRef              = useRef(null);
-  const [preview, setPreview] = useState(null);
-
-  useEffect(() => {
-    if (!file) { setPreview(null); return; }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
-
-  const trigger = (capture) => {
-    if (capture) inputRef.current?.setAttribute("capture", "user");
-    else          inputRef.current?.removeAttribute("capture");
-    inputRef.current?.click();
-  };
-
-  return (
-    <div className="selfie">
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="upload-hidden"
-        onChange={(e) => {
-          if (e.target.files?.[0]) onFile(e.target.files[0]);
-          e.target.value = "";
-        }}
-      />
-      <div className="selfie__circle">
-        {preview
-          ? <img src={preview} alt="Selfie preview" />
-          : (
-            <div className="selfie__empty">
-              <User size={36} />
-              <span>No photo</span>
-            </div>
-          )
+      try {
+        const data = JSON.parse(text);
+        log(`Response: ${JSON.stringify(data, null, 2)}`);
+        if (data.email_verified !== undefined) {
+          log(`email_verified: ${data.email_verified}`, data.email_verified ? "ok" : "warn");
         }
-      </div>
-      <p className="selfie__guide">
-        Face must be clearly visible, well-lit, and match your ID.
-      </p>
-      <div className="selfie__actions">
-        {file ? (
-          <>
-            <button type="button" className="v-btn v-btn--ghost v-btn--sm"
-                    onClick={() => trigger(true)}>
-              <RefreshCw size={12} /> Retake
-            </button>
-            <button type="button" className="v-btn v-btn--ghost v-btn--sm"
-                    onClick={onRemove}>
-              <X size={12} /> Remove
-            </button>
-          </>
-        ) : (
-          <>
-            <button type="button" className="v-btn v-btn--primary v-btn--sm"
-                    onClick={() => trigger(true)}>
-              <Camera size={12} /> Camera
-            </button>
-            <button type="button" className="v-btn v-btn--ghost v-btn--sm"
-                    onClick={() => trigger(false)}>
-              <Image size={12} /> Gallery
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   STEP 1 — EMAIL
-══════════════════════════════════════════════════════════════════ */
-function EmailStep({ status, onStatusRefresh }) {
-  /*
-   * phase: "idle" | "sending" | "otp" | "verifying" | "done"
-   */
-  const [phase,      setPhase]      = useState(
-    status?.email_verified ? "done" : "idle"
-  );
-  const [otp,        setOtp]        = useState("");
-  const [otpError,   setOtpError]   = useState(false);
-  const [errMsg,     setErrMsg]     = useState("");
-  const [canResend,  setCanResend]  = useState(false);
-  const [resendKey,  setResendKey]  = useState(0);
-  const [remaining,  setRemaining]  = useState(
-    status?.resend_remaining ?? null
-  );
-  const [maskedEmail, setMaskedEmail] = useState(status?.email ?? "");
-  const [attemptsLeft, setAttemptsLeft] = useState(null);
-  const [devOtp,     setDevOtp]     = useState("");
-
-  const verifyingRef = useRef(false);
-  const autoRef      = useRef(false);
-
-  /* sync phase when status loads/changes */
-  useEffect(() => {
-    if (status?.email_verified) setPhase("done");
-    if (status?.email)          setMaskedEmail(status.email);
-    if (typeof status?.resend_remaining === "number") {
-      setRemaining(status.resend_remaining);
+      } catch {
+        log(`Raw response: ${text}`, "warn");
+      }
+    } catch (err) {
+      log(`Network error: ${err.message}`, "err");
     }
-  }, [status]);
 
-  /* ── send OTP ── */
-  const sendOtp = useCallback(async () => {
-    setPhase("sending");
-    setErrMsg("");
-    setOtp("");
-    setOtpError(false);
-    setCanResend(false);
-    setDevOtp("");
-    setResendKey((k) => k + 1);
+    setLoading("");
+  };
+
+  /* ── Step 2: send OTP ── */
+  const sendOtp = async () => {
+    setLoading("send");
+    divider();
+    log("POST /api/verification/send-email-otp");
+    log(`Token present: ${Boolean(token)}`);
+    log(`Full URL: ${API}/verification/send-email-otp`);
 
     try {
       const res  = await fetch(`${API}/verification/send-email-otp`, {
         method  : "POST",
-        headers : authJson(),
+        headers : {
+          "Content-Type" : "application/json",
+          "Authorization": token ? `Bearer ${token}` : "",
+        },
       });
-      const data = await res.json();
+      const text = await res.text();
+      log(`HTTP ${res.status} ${res.statusText}`, res.ok ? "ok" : "err");
 
-      if (res.ok && data.success) {
-        setPhase("otp");
-        if (data.email)                        setMaskedEmail(data.email);
-        if (typeof data.remaining === "number") setRemaining(data.remaining);
-        if (data.dev_otp)                      setDevOtp(data.dev_otp);
-        return;
+      try {
+        const data = JSON.parse(text);
+        log(`Response: ${JSON.stringify(data, null, 2)}`);
+
+        if (data.success) {
+          log("✓ OTP sent — check your email", "ok");
+          if (data.dev_otp) {
+            log(`DEV OTP: ${data.dev_otp}`, "warn");
+          }
+          if (data.email) {
+            log(`Sent to: ${data.email}`, "ok");
+          }
+        } else {
+          log(`Failed: ${data.message}`, "err");
+        }
+      } catch {
+        log(`Raw: ${text}`, "warn");
       }
-
-      /* rate-limited — stay on OTP screen, show error */
-      if (res.status === 429) {
-        setPhase(phase === "idle" ? "idle" : "otp");
-        setErrMsg(data.message || "Too many requests. Please wait.");
-        if (data.remaining === 0) setRemaining(0);
-        return;
-      }
-
-      setPhase("idle");
-      setErrMsg(data.message || "Failed to send code. Try again.");
-    } catch {
-      setPhase("idle");
-      setErrMsg("Network error — check your connection.");
+    } catch (err) {
+      log(`Network error: ${err.message}`, "err");
+      log("Is VITE_API_BASE_URL set correctly?", "warn");
     }
-  }, [phase]);
 
-  /* ── verify OTP ── */
-  const verifyOtp = useCallback(async (code) => {
-    if (verifyingRef.current) return;
-    verifyingRef.current = true;
-    setPhase("verifying");
-    setErrMsg("");
+    setLoading("");
+  };
+
+  /* ── Step 3: verify OTP ── */
+  const verifyOtp = async () => {
+    if (!otp || otp.length !== 6) {
+      log("Enter a 6-digit OTP first", "warn");
+      return;
+    }
+    setLoading("verify");
+    divider();
+    log(`POST /api/verification/verify-email-otp  otp=${otp}`);
 
     try {
       const res  = await fetch(`${API}/verification/verify-email-otp`, {
         method  : "POST",
-        headers : authJson(),
-        body    : JSON.stringify({ otp: code }),
+        headers : {
+          "Content-Type" : "application/json",
+          "Authorization": token ? `Bearer ${token}` : "",
+        },
+        body: JSON.stringify({ otp }),
       });
-      const data = await res.json();
+      const text = await res.text();
+      log(`HTTP ${res.status} ${res.statusText}`, res.ok ? "ok" : "err");
 
-      if (res.ok && data.success) {
-        setPhase("done");
-        setDevOtp("");
-        onStatusRefresh();
-        return;
+      try {
+        const data = JSON.parse(text);
+        log(`Response: ${JSON.stringify(data, null, 2)}`);
+        if (data.success) {
+          log("EMAIL VERIFIED! trust_score=" + data.trust_score, "ok");
+        } else {
+          log(`Failed: ${data.message}`, "err");
+        }
+      } catch {
+        log(`Raw: ${text}`, "warn");
       }
-
-      setOtpError(true);
-      setOtp("");
-      setPhase("otp");
-      setErrMsg(data.message || "Incorrect code.");
-      if (typeof data.attemptsLeft === "number") setAttemptsLeft(data.attemptsLeft);
-      setTimeout(() => setOtpError(false), 700);
-    } catch {
-      setPhase("otp");
-      setErrMsg("Network error — check your connection.");
-    } finally {
-      verifyingRef.current = false;
+    } catch (err) {
+      log(`Network error: ${err.message}`, "err");
     }
-  }, [onStatusRefresh]);
 
-  /* ── auto-submit when 6 digits filled ── */
-  useEffect(() => {
-    if (
-      otp.length === OTP_LENGTH &&
-      phase === "otp"           &&
-      !autoRef.current          &&
-      !verifyingRef.current
-    ) {
-      autoRef.current = true;
-      const t = setTimeout(async () => {
-        await verifyOtp(otp);
-        autoRef.current = false;
-      }, 180);
-      return () => { clearTimeout(t); autoRef.current = false; };
+    setLoading("");
+  };
+
+  /* ── Step 4: raw fetch test ── */
+  const rawTest = async () => {
+    setLoading("raw");
+    divider();
+    log("Raw fetch test — no auth header");
+
+    try {
+      const res = await fetch(`${API}/health`);
+      const data = await res.json();
+      log(`/api/health → ${res.status}`, res.ok ? "ok" : "err");
+      log(`DB: ${data.database ? "✓ connected" : "✗ down"}`, data.database ? "ok" : "err");
+      log(`ENV: ${data.env}`);
+      log(`Uptime: ${data.uptime_s}s`);
+    } catch (err) {
+      log(`Cannot reach ${API}/health — ${err.message}`, "err");
+      log("VITE_API_BASE_URL may be wrong", "warn");
     }
-  }, [otp, phase, verifyOtp]);
 
-  /* ── derived ── */
-  const isDone      = phase === "done";
-  const isSending   = phase === "sending";
-  const isVerifying = phase === "verifying";
-  const showOtp     = phase === "otp" || phase === "verifying";
+    setLoading("");
+  };
 
-  const verifiedAt = status?.email_verified_at
-    ? new Date(status.email_verified_at).toLocaleDateString("en-US", {
-        day: "numeric", month: "short", year: "numeric",
-      })
-    : null;
+  /* ── clear logs ── */
+  const clear = () => setLogs([]);
 
   return (
-    <StepShell
-      stepNum={1}
-      icon={isDone ? <CheckCircle size={20} /> : <Mail size={20} />}
-      title="Email Verification"
-      subtitle={
-        isDone
-          ? verifiedAt ? `Verified ${verifiedAt}` : "Verified"
-          : maskedEmail || "Verify your email address"
-      }
-      complete={isDone}
-      open={showOtp || isSending}
-      chipStatus={
-        isDone    ? "complete" :
-        showOtp   ? "active"   :
-        "pending"
-      }
-      headerBtn={
-        !isDone && phase === "idle"
-          ? (
-            <button className="v-btn v-btn--primary v-btn--sm" onClick={sendOtp}>
-              <Mail size={13} /> Verify Email
-            </button>
-          )
-          : undefined
-      }
-    >
-      <div className="otp-panel">
+    <div style={S.page}>
+      <div style={S.card}>
 
-        {/* sending */}
-        {isSending && (
-          <div className="v-row v-row--center" style={{ gap: 8, color: "var(--v-text-2)" }}>
-            <Loader2 size={15} className="v-spin" />
-            <span style={{ fontSize: 14 }}>Sending code to {maskedEmail}…</span>
-          </div>
-        )}
+        {/* title */}
+        <p style={S.title}>🔬 OTP Debug Panel</p>
+        <p style={{ fontSize: 12, color: "#64748b", margin: 0 }}>
+          Delete this page after confirming email delivery.
+        </p>
 
-        {/* destination */}
-        {showOtp && !isSending && maskedEmail && (
-          <p className="otp-dest">
-            Code sent to <strong>{maskedEmail}</strong>
-          </p>
-        )}
+        <hr style={S.hr} />
 
-        {/* dev OTP helper */}
-        {devOtp && (
-          <Alert type="warning">
-            <span>Dev mode — code: </span>
-            <strong style={{ letterSpacing: 4, fontSize: 18, fontFamily: "monospace" }}>
-              {devOtp}
-            </strong>
-          </Alert>
-        )}
+        {/* environment */}
+        <div>
+          <p style={S.label}>API Base URL</p>
+          <p style={S.value}>{API}</p>
+        </div>
 
-        {/* OTP cells */}
-        {showOtp && (
-          <>
-            <OtpInput
-              value={otp}
-              onChange={setOtp}
-              disabled={isVerifying}
-              hasError={otpError}
-            />
-            <p className="otp-hint">
-              <Lock size={11} />
-              Auto-submits when all digits are entered
-            </p>
-          </>
-        )}
-
-        {/* verifying */}
-        {isVerifying && (
-          <div className="v-row v-row--center" style={{ gap: 8, color: "var(--v-text-2)" }}>
-            <Loader2 size={14} className="v-spin" />
-            <span style={{ fontSize: 13 }}>Verifying…</span>
-          </div>
-        )}
-
-        {/* error */}
-        {errMsg && (
-          <Alert type="error">
-            <span>{errMsg}</span>
-            {attemptsLeft !== null && attemptsLeft > 0 && attemptsLeft <= 5 && (
-              <span className="v-alert__sub">
-                {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} remaining
+        <div>
+          <p style={S.label}>
+            Auth Token
+            {!token && (
+              <span style={{ color: "#ef4444", marginLeft: 8 }}>
+                ← THIS IS WHY IT FAILS
               </span>
             )}
-          </Alert>
-        )}
+          </p>
+          <p style={{ ...S.value, color: token ? "#22c55e" : "#ef4444" }}>
+            {tokenPreview}
+          </p>
+        </div>
 
-        {/* resend row */}
-        {showOtp && (
-          <div className="resend-row">
-            <div>
-              {remaining === 0 ? (
-                <span className="resend-row__limit">Daily limit reached — try tomorrow</span>
-              ) : canResend ? (
-                <button
-                  className="v-btn v-btn--link"
-                  onClick={sendOtp}
-                  disabled={isSending}
-                >
-                  <RefreshCw size={12} className={isSending ? "v-spin" : ""} />
-                  Resend code
-                  {remaining !== null && (
-                    <span className="resend-row__count">({remaining} left)</span>
-                  )}
-                </button>
-              ) : (
-                <span className="resend-row__timer">
-                  Resend in{" "}
-                  <Countdown
-                    key={resendKey}
-                    seconds={RESEND_SECS}
-                    onDone={() => setCanResend(true)}
-                  />
-                </span>
-              )}
-            </div>
-            <span className="resend-row__note">
-              <Lock size={10} /> Never share this code
-            </span>
-          </div>
-        )}
-      </div>
-    </StepShell>
-  );
-}
+        <div>
+          <p style={S.label}>All localStorage Keys ({allKeys.length})</p>
+          <p style={S.value}>
+            {allKeys.length === 0
+              ? "EMPTY — not logged in"
+              : allKeys.join("\n")}
+          </p>
+        </div>
 
-/* ══════════════════════════════════════════════════════════════════
-   STEP 2 — IDENTITY
-══════════════════════════════════════════════════════════════════ */
-function IdentityStep({ status, onStatusRefresh }) {
-  const identityVerified = status?.identity_verified ?? false;
-  const idReview         = status?.identity_review   ?? null;
-  const isPending        = idReview?.status === "pending";
-  const isRejected       = idReview?.status === "rejected";
+        <hr style={S.hr} />
 
-  const [docType,   setDocType]   = useState("");
-  const [docNumber, setDocNumber] = useState("");
-  const [docFront,  setDocFront]  = useState(null);
-  const [docBack,   setDocBack]   = useState(null);
-  const [selfie,    setSelfie]    = useState(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [msg,       setMsg]       = useState({ text: "", ok: false });
+        {/* action buttons */}
+        <div style={S.row}>
+          <button
+            style={S.btn("#475569", loading === "raw")}
+            onClick={rawTest}
+            disabled={Boolean(loading)}
+          >
+            {loading === "raw" ? "…" : "1. Ping API"}
+          </button>
 
-  const selectedDoc = DOC_TYPES.find((d) => d.value === docType);
+          <button
+            style={S.btn("#6366f1", loading === "status")}
+            onClick={checkStatus}
+            disabled={Boolean(loading)}
+          >
+            {loading === "status" ? "…" : "2. Check Status"}
+          </button>
 
-  const ready =
-    Boolean(docType)             &&
-    docNumber.trim().length >= 4 &&
-    Boolean(docFront)            &&
-    Boolean(docBack)             &&
-    Boolean(selfie);
+          <button
+            style={S.btn("#3b82f6", loading === "send")}
+            onClick={sendOtp}
+            disabled={Boolean(loading)}
+          >
+            {loading === "send" ? "Sending…" : "3. Send OTP"}
+          </button>
+        </div>
 
-  const checklist = selectedDoc
-    ? [
-        { label: selectedDoc.numberLabel, done: docNumber.trim().length >= 4 },
-        { label: "Document front",        done: Boolean(docFront)            },
-        { label: "Document back",         done: Boolean(docBack)             },
-        { label: "Selfie photo",          done: Boolean(selfie)              },
-      ]
-    : [];
-
-  const handleSubmit = async () => {
-    if (!ready || submitting) return;
-    setSubmitting(true);
-    setMsg({ text: "", ok: false });
-
-    const fd = new FormData();
-    fd.append("document_type",   docType);
-    fd.append("document_number", docNumber.trim());
-    fd.append("doc_front",       docFront);
-    fd.append("doc_back",        docBack);
-    fd.append("selfie",          selfie);
-
-    try {
-      const res  = await fetch(`${API}/verification/submit-identity`, {
-        method  : "POST",
-        headers : authMultipart(),
-        body    : fd,
-      });
-      const data = await res.json();
-      setMsg({ text: data.message || (res.ok ? "Submitted." : "Failed."), ok: res.ok });
-      if (res.ok) onStatusRefresh();
-    } catch {
-      setMsg({ text: "Network error — check your connection.", ok: false });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const chipStatus =
-    identityVerified ? "complete"  :
-    isPending        ? "in_review" :
-    isRejected       ? "rejected"  :
-    "pending";
-
-  const subtitle =
-    identityVerified ? "Verified"                    :
-    isPending        ? "Under review"                 :
-    isRejected       ? "Rejected — please resubmit"  :
-    "Government-issued ID + selfie";
-
-  return (
-    <StepShell
-      stepNum={2}
-      icon={identityVerified ? <CheckCircle size={20} /> : <CreditCard size={20} />}
-      title="Identity Verification"
-      subtitle={subtitle}
-      complete={identityVerified}
-      chipStatus={chipStatus}
-      open={!identityVerified && !isPending}
-    >
-      <div className="id-form">
-
-        {/* rejection reason */}
-        {isRejected && idReview?.rejection_reason && (
-          <Alert type="error">
-            <strong>Reason: </strong>{idReview.rejection_reason}
-          </Alert>
-        )}
-
-        {/* doc type picker */}
-        <fieldset className="doc-fieldset">
-          <legend className="v-label">Select Document Type</legend>
-          <div className="doc-grid">
-            {DOC_TYPES.map((dt) => (
-              <label
-                key={dt.value}
-                className={`doc-option ${docType === dt.value ? "doc-option--selected" : ""}`}
-              >
-                <input
-                  type="radio"
-                  name="docType"
-                  value={dt.value}
-                  checked={docType === dt.value}
-                  onChange={() => {
-                    setDocType(dt.value);
-                    setDocFront(null);
-                    setDocBack(null);
-                    setDocNumber("");
-                    setMsg({ text: "", ok: false });
-                  }}
-                />
-                <span className="doc-option__label">{dt.label}</span>
-                {docType === dt.value && (
-                  <CheckCircle size={13} className="doc-option__check" />
-                )}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-
-        {/* rest of form */}
-        <AnimatePresence>
-          {selectedDoc && (
-            <motion.div
-              key={docType}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.22 }}
-              className="id-fields"
+        {/* OTP entry + verify */}
+        <div>
+          <p style={S.label}>Enter OTP (from email or dev_otp above)</p>
+          <div style={S.row}>
+            <input
+              type="text"
+              inputMode="numeric"
+              maxLength={6}
+              placeholder="123456"
+              value={otp}
+              onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              style={S.input}
+            />
+            <button
+              style={S.btn("#22c55e", loading === "verify" || otp.length !== 6)}
+              onClick={verifyOtp}
+              disabled={loading === "verify" || otp.length !== 6}
             >
-              {/* document number */}
-              <div className="v-field">
-                <label className="v-label">{selectedDoc.numberLabel}</label>
-                <input
-                  type="text"
-                  className="v-input"
-                  value={docNumber}
-                  onChange={(e) => setDocNumber(e.target.value)}
-                  placeholder={`Enter ${selectedDoc.numberLabel}`}
-                  maxLength={30}
-                  autoCapitalize="characters"
-                />
-              </div>
-
-              {/* front */}
-              <div className="v-field">
-                <label className="v-label">{selectedDoc.frontLabel}</label>
-                <FileUpload
-                  label="Tap or drag to upload"
-                  hint={`JPG, PNG, WebP, PDF — max ${MAX_DOC_MB} MB`}
-                  accept="image/*,.pdf"
-                  file={docFront}
-                  onFile={setDocFront}
-                  onRemove={() => setDocFront(null)}
-                  maxBytes={MAX_DOC_BYTES}
-                />
-              </div>
-
-              {/* back */}
-              <div className="v-field">
-                <label className="v-label">{selectedDoc.backLabel}</label>
-                <FileUpload
-                  label="Tap or drag to upload"
-                  hint={`JPG, PNG, WebP, PDF — max ${MAX_DOC_MB} MB`}
-                  accept="image/*,.pdf"
-                  file={docBack}
-                  onFile={setDocBack}
-                  onRemove={() => setDocBack(null)}
-                  maxBytes={MAX_DOC_BYTES}
-                />
-              </div>
-
-              {/* selfie */}
-              <div className="v-field">
-                <label className="v-label">Selfie Verification</label>
-                <SelfieCapture
-                  file={selfie}
-                  onFile={setSelfie}
-                  onRemove={() => setSelfie(null)}
-                />
-              </div>
-
-              {/* checklist */}
-              <div className="checklist">
-                {checklist.map((item) => (
-                  <div
-                    key={item.label}
-                    className={`checklist__row ${item.done ? "checklist__row--done" : ""}`}
-                  >
-                    <div className="checklist__dot">
-                      {item.done && <CheckCircle size={10} />}
-                    </div>
-                    <span>{item.label}</span>
-                  </div>
-                ))}
-              </div>
-
-              {/* feedback */}
-              {msg.text && (
-                <Alert type={msg.ok ? "success" : "error"}>
-                  {msg.text}
-                </Alert>
-              )}
-
-              {/* submit */}
-              <button
-                className={`v-btn v-btn--full ${ready ? "v-btn--primary" : "v-btn--ghost"}`}
-                disabled={!ready || submitting}
-                onClick={handleSubmit}
-              >
-                {submitting
-                  ? <><Loader2 size={14} className="v-spin" /> Submitting…</>
-                  : <><BadgeCheck size={14} /> Submit Identity</>
-                }
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    </StepShell>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   STEP 3 — STORE
-══════════════════════════════════════════════════════════════════ */
-function StoreStep({ status, onStatusRefresh }) {
-  const storeVerified = status?.store_verified ?? false;
-  const storeReview   = status?.store_review   ?? null;
-  const isPending     = storeReview?.status === "pending";
-  const isRejected    = storeReview?.status === "rejected";
-
-  const [storeName,   setStoreName]   = useState("");
-  const [storeDesc,   setStoreDesc]   = useState("");
-  const [storeLogo,   setStoreLogo]   = useState(null);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [msg,         setMsg]         = useState({ text: "", ok: false });
-
-  const MAX_DESC = 300;
-  const ready    = storeName.trim().length >= 2;
-
-  const handleSubmit = async () => {
-    if (!ready || submitting) return;
-    setSubmitting(true);
-    setMsg({ text: "", ok: false });
-
-    const fd = new FormData();
-    fd.append("store_name",        storeName.trim());
-    fd.append("store_description", storeDesc.trim());
-    if (storeLogo) fd.append("store_logo", storeLogo);
-
-    try {
-      const res  = await fetch(`${API}/verification/submit-store`, {
-        method  : "POST",
-        headers : authMultipart(),
-        body    : fd,
-      });
-      const data = await res.json();
-      setMsg({ text: data.message || (res.ok ? "Submitted." : "Failed."), ok: res.ok });
-      if (res.ok) onStatusRefresh();
-    } catch {
-      setMsg({ text: "Network error — check your connection.", ok: false });
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const chipStatus =
-    storeVerified ? "complete"  :
-    isPending     ? "in_review" :
-    isRejected    ? "rejected"  :
-    "pending";
-
-  const subtitle =
-    storeVerified ? "Verified"                    :
-    isPending     ? "Under review"                :
-    isRejected    ? "Rejected — please resubmit"  :
-    "Set up your seller store profile";
-
-  return (
-    <StepShell
-      stepNum={3}
-      icon={storeVerified ? <CheckCircle size={20} /> : <Store size={20} />}
-      title="Store Profile"
-      subtitle={subtitle}
-      complete={storeVerified}
-      chipStatus={chipStatus}
-      open={!storeVerified && !isPending}
-    >
-      <div className="store-form">
-
-        {/* rejection reason */}
-        {isRejected && storeReview?.message && (
-          <Alert type="error">
-            <strong>Reason: </strong>{storeReview.message}
-          </Alert>
-        )}
-
-        {/* store name */}
-        <div className="v-field">
-          <label className="v-label">
-            Store Name <span className="v-required">*</span>
-          </label>
-          <input
-            type="text"
-            className="v-input"
-            value={storeName}
-            onChange={(e) => setStoreName(e.target.value)}
-            placeholder="e.g. Lagos Gadget Hub"
-            maxLength={60}
-          />
-        </div>
-
-        {/* description */}
-        <div className="v-field">
-          <label className="v-label">
-            Description
-            <span className="v-char-count">
-              {storeDesc.length} / {MAX_DESC}
-            </span>
-          </label>
-          <textarea
-            className="v-textarea"
-            value={storeDesc}
-            onChange={(e) => setStoreDesc(e.target.value)}
-            placeholder="What do you sell? Who are your customers?"
-            maxLength={MAX_DESC}
-            rows={3}
-          />
-        </div>
-
-        {/* logo */}
-        <div className="v-field">
-          <label className="v-label">Store Logo (optional)</label>
-          <FileUpload
-            label="Upload store logo"
-            hint={`JPG, PNG — max ${MAX_LOGO_MB} MB`}
-            accept="image/*"
-            file={storeLogo}
-            onFile={setStoreLogo}
-            onRemove={() => setStoreLogo(null)}
-            maxBytes={MAX_LOGO_BYTES}
-          />
-        </div>
-
-        {/* feedback */}
-        {msg.text && (
-          <Alert type={msg.ok ? "success" : "error"}>
-            {msg.text}
-          </Alert>
-        )}
-
-        {/* submit */}
-        <button
-          className={`v-btn v-btn--full ${ready ? "v-btn--primary" : "v-btn--ghost"}`}
-          disabled={!ready || submitting}
-          onClick={handleSubmit}
-        >
-          {submitting
-            ? <><Loader2 size={14} className="v-spin" /> Submitting…</>
-            : <><Store size={14} /> Submit Store Profile</>
-          }
-        </button>
-      </div>
-    </StepShell>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════════
-   ROOT
-══════════════════════════════════════════════════════════════════ */
-export default function Verification() {
-  const navigate = useNavigate();
-
-  const [status,      setStatus]      = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [pageError,   setPageError]   = useState("");
-
-  const fetchStatus = useCallback(async () => {
-    try {
-      const res  = await fetch(`${API}/verification/status`, {
-        headers: authJson(),
-      });
-
-      if (res.status === 401) { navigate("/auth"); return; }
-
-      const data = await res.json();
-
-      if (res.ok && data.success) {
-        setStatus(data);
-        setPageError("");
-      } else {
-        setPageError(data.message || "Failed to load verification status.");
-      }
-    } catch {
-      setPageError("Network error — check your connection.");
-    } finally {
-      setLoading(false);
-    }
-  }, [navigate]);
-
-  useEffect(() => { fetchStatus(); }, [fetchStatus]);
-
-  /* ── loading ── */
-  if (loading) {
-    return (
-      <div className="v-loading" role="status">
-        <Loader2 size={28} className="v-spin" />
-        <span>Loading…</span>
-      </div>
-    );
-  }
-
-  /* ── page-level error ── */
-  if (pageError) {
-    return (
-      <div className="v-page-error">
-        <AlertTriangle size={32} />
-        <p>{pageError}</p>
-        <button className="v-btn v-btn--primary" onClick={fetchStatus}>
-          <RefreshCw size={14} /> Retry
-        </button>
-      </div>
-    );
-  }
-
-  const emailVerified    = status?.email_verified    ?? false;
-  const identityVerified = status?.identity_verified ?? false;
-  const storeVerified    = status?.store_verified    ?? false;
-  const trustScore       = status?.trust_score       ?? 0;
-  const completed        = [emailVerified, identityVerified, storeVerified]
-    .filter(Boolean).length;
-
-  return (
-    <div className="v-page">
-      <div className="v-container">
-
-        {/* header */}
-        <motion.header
-          className="v-header"
-          initial={{ opacity: 0, y: -14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
-        >
-          <div className="v-header__icon"><Shield size={22} /></div>
-          <div>
-            <h1 className="v-header__title">Account Verification</h1>
-            <p className="v-header__sub">
-              Complete all steps to unlock full marketplace access
-            </p>
+              {loading === "verify" ? "…" : "4. Verify"}
+            </button>
           </div>
-        </motion.header>
+        </div>
 
-        {/* trust ring card */}
-        <motion.div
-          className="v-card"
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.08 }}
-        >
-          <TrustRing
-            score={trustScore}
-            emailVerified={emailVerified}
-            identityVerified={identityVerified}
-            storeVerified={storeVerified}
-          />
-        </motion.div>
+        <hr style={S.hr} />
 
-        {/* steps */}
-        <motion.div
-          className="v-steps"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.4, delay: 0.16 }}
-        >
-          <EmailStep
-            status={status}
-            onStatusRefresh={fetchStatus}
-          />
-          <IdentityStep
-            status={status}
-            onStatusRefresh={fetchStatus}
-          />
-          <StoreStep
-            status={status}
-            onStatusRefresh={fetchStatus}
-          />
-        </motion.div>
+        {/* log output */}
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <p style={S.label}>Log Output</p>
+            <button
+              onClick={clear}
+              style={{
+                background   : "none",
+                border       : "none",
+                color        : "#475569",
+                cursor       : "pointer",
+                fontSize     : 12,
+                fontFamily   : "monospace",
+              }}
+            >
+              clear
+            </button>
+          </div>
+          <div style={S.log}>
+            {logs.length === 0
+              ? "Click a button above to start testing…"
+              : logs.map((l, i) => (
+                <div
+                  key={i}
+                  style={
+                    l.includes("✓") ? S.ok   :
+                    l.includes("✗") ? S.err  :
+                    l.includes("⚠") ? S.warn :
+                    {}
+                  }
+                >
+                  {l}
+                </div>
+              ))
+            }
+          </div>
+        </div>
 
-        {/* progress bar */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.4, delay: 0.24 }}
-        >
-          <ProgressBar value={completed} max={3} />
-        </motion.div>
+        {/* instructions */}
+        <div style={{
+          background   : "rgba(59,130,246,0.06)",
+          border       : "1px solid rgba(59,130,246,0.15)",
+          borderRadius : 8,
+          padding      : "12px 14px",
+          fontSize     : 12,
+          color        : "#64748b",
+          lineHeight   : 1.7,
+        }}>
+          <strong style={{ color: "#93c5fd" }}>How to use:</strong><br />
+          1. Click <strong style={{ color: "#f1f5f9" }}>Ping API</strong> — confirms frontend can reach backend<br />
+          2. Click <strong style={{ color: "#f1f5f9" }}>Check Status</strong> — confirms auth token works<br />
+          3. Click <strong style={{ color: "#f1f5f9" }}>Send OTP</strong> — sends email (check inbox + spam)<br />
+          4. Enter the 6-digit code and click <strong style={{ color: "#f1f5f9" }}>Verify</strong><br />
+          <br />
+          <strong style={{ color: "#fcd34d" }}>If token shows NOT FOUND:</strong> you are not logged in,
+          or your app stores the token under a different localStorage key.
+          Check DevTools → Application → Local Storage.
+        </div>
 
       </div>
     </div>
