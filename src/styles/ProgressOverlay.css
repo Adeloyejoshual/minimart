@@ -1,172 +1,202 @@
-/* ── Overlay ────────────────────────────────────────────────────────── */
-.progress-overlay {
-  position:   fixed;
-  inset:      0;
-  z-index:    9999;
-  display:    flex;
-  align-items:     center;
+/* ── ProgressOverlay.css ─────────────────────────────────────
+   Scoped under .po — never leaks
+─────────────────────────────────────────────────────────────── */
+
+/* ── Overlay shell ──────────────────────────────────────────── */
+.po {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay, 400);
+  display: flex;
+  align-items: center;
   justify-content: center;
+  padding: 20px;
 }
 
-.progress-overlay-backdrop {
-  position:   absolute;
-  inset:      0;
-  background: rgba(0, 0, 0, 0.45);
+/* Backdrop */
+.po-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 18, 16, 0.55);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
 }
 
-/* ── Card ────────────────────────────────────────────────────────────── */
-.progress-overlay-card {
-  position:      relative;
-  background:    #fff;
+/* Firefox fallback */
+@supports not (backdrop-filter: blur(1px)) {
+  .po-backdrop {
+    background: rgba(20, 18, 16, 0.75);
+  }
+}
+
+/* ── Card ───────────────────────────────────────────────────── */
+.po-card {
+  position: relative;
+  z-index: 1;
+  background: #fff;
   border-radius: 20px;
-  padding:       2rem 2.5rem;
-  width:         min(90vw, 360px);
-  text-align:    center;
-  box-shadow:    0 20px 60px rgba(0, 0, 0, 0.25);
-  animation:     progressCardIn 0.35s ease-out;
+  padding: 36px 32px 28px;
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.18),
+    0  4px 16px rgba(0, 0, 0, 0.08);
+  animation: poCardIn 0.28s cubic-bezier(0.34, 1.3, 0.64, 1) both;
 }
 
-@keyframes progressCardIn {
-  from {
-    opacity:   0;
-    transform: scale(0.9) translateY(20px);
-  }
-  to {
-    opacity:   1;
-    transform: scale(1) translateY(0);
-  }
+@keyframes poCardIn {
+  from { opacity: 0; transform: scale(0.88) translateY(16px); }
+  to   { opacity: 1; transform: scale(1)    translateY(0);    }
 }
 
-/* ── Animated icon ──────────────────────────────────────────────────── */
-.progress-overlay-icon {
-  font-size:  3rem;
-  margin-bottom: 0.75rem;
-  animation:  progressIconBounce 1.2s ease-in-out infinite;
+/* ── Step icon ──────────────────────────────────────────────── */
+.po-icon {
+  width: 64px;
+  height: 64px;
+  border-radius: 18px;
+  background: rgba(255, 92, 0, 0.08);
+  color: #FF5C00;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: poIconPop 0.3s cubic-bezier(0.34, 1.4, 0.64, 1) both;
 }
 
-@keyframes progressIconBounce {
-  0%, 100% { transform: translateY(0); }
-  50%      { transform: translateY(-8px); }
+.po-icon svg {
+  width: 30px;
+  height: 30px;
 }
 
-/* ── Label ──────────────────────────────────────────────────────────── */
-.progress-overlay-label {
-  font-size:     1.05rem;
-  font-weight:   600;
-  color:         #1e293b;
-  margin:        0 0 1rem;
-  animation:     progressFadeSwap 0.4s ease;
+@keyframes poIconPop {
+  from { opacity: 0; transform: scale(0.6); }
+  to   { opacity: 1; transform: scale(1);   }
 }
 
-@keyframes progressFadeSwap {
-  from { opacity: 0; transform: translateY(6px); }
-  to   { opacity: 1; transform: translateY(0);   }
-}
-
-/* ── Progress bar track ─────────────────────────────────────────────── */
-.progress-overlay-bar-track {
-  width:         100%;
-  height:        10px;
-  background:    #e2e8f0;
-  border-radius: 99px;
-  overflow:      hidden;
-  margin-bottom: 0.5rem;
-}
-
-.progress-overlay-bar-fill {
-  height:        100%;
-  background:    linear-gradient(90deg, #4f46e5, #7c3aed, #a855f7);
-  border-radius: 99px;
-  transition:    width 0.3s ease;
-  position:      relative;
-}
-
-/* Shimmer effect on the fill */
-.progress-overlay-bar-fill::after {
-  content:    "";
-  position:   absolute;
-  inset:      0;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(255, 255, 255, 0.35) 50%,
-    transparent 100%
-  );
-  animation:  progressShimmer 1.5s ease-in-out infinite;
-}
-
-@keyframes progressShimmer {
-  from { transform: translateX(-100%); }
-  to   { transform: translateX(100%);  }
-}
-
-/* ── Percentage ─────────────────────────────────────────────────────── */
-.progress-overlay-percent {
-  font-size:   0.9rem;
+/* ── Label ──────────────────────────────────────────────────── */
+.po-label {
+  margin: 0;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-size: 1rem;
   font-weight: 700;
-  color:       #4f46e5;
-  display:     block;
-  margin-bottom: 1rem;
+  color: #141210;
+  text-align: center;
+  letter-spacing: -0.01em;
 }
 
-/* ── Step dots ──────────────────────────────────────────────────────── */
-.progress-overlay-steps {
-  display:         flex;
-  justify-content: center;
-  gap:             0.5rem;
-  margin-bottom:   1rem;
+/* ── Progress bar ───────────────────────────────────────────── */
+.po-bar-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 92, 0, 0.1);
+  border-radius: 99px;
+  overflow: hidden;
 }
 
-.progress-step-dot {
-  width:         28px;
-  height:        28px;
+.po-bar-fill {
+  height: 100%;
+  border-radius: 99px;
+  background: linear-gradient(90deg, #FF5C00, #ff8c42);
+  transition: width 0.08s linear;
+  will-change: width;
+}
+
+/* ── Percentage ─────────────────────────────────────────────── */
+.po-percent {
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #FF5C00;
+  letter-spacing: 0.02em;
+}
+
+/* ── Step dots ──────────────────────────────────────────────── */
+.po-steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.po-dot {
+  width: 26px;
+  height: 26px;
   border-radius: 50%;
-  border:        2px solid #e2e8f0;
-  display:       flex;
-  align-items:   center;
+  border: 2px solid rgba(255, 92, 0, 0.2);
+  background: #fff;
+  color: #c5bfb8;
+  display: flex;
+  align-items: center;
   justify-content: center;
-  font-size:     0.7rem;
-  font-weight:   600;
-  color:         #94a3b8;
-  background:    #f8fafc;
-  transition:    all 0.3s ease;
+  font-size: 0.7rem;
+  font-weight: 700;
+  transition:
+    background     0.22s ease,
+    border-color   0.22s ease,
+    color          0.22s ease,
+    transform      0.18s ease;
 }
 
-.progress-step-dot.active {
-  border-color: #4f46e5;
-  background:   #eef2ff;
-  color:        #4f46e5;
-  transform:    scale(1.15);
-  box-shadow:   0 0 0 4px rgba(79, 70, 229, 0.15);
-}
-
-.progress-step-dot.done {
-  border-color: #22c55e;
-  background:   #22c55e;
+.po-dot--done {
+  background:   #FF5C00;
+  border-color: #FF5C00;
   color:        #fff;
 }
 
-/* ── Hint ───────────────────────────────────────────────────────────── */
-.progress-overlay-hint {
-  font-size: 0.8rem;
-  color:     #94a3b8;
-  margin:    0;
+.po-dot--active {
+  border-color: #FF5C00;
+  color:        #FF5C00;
+  transform:    scale(1.18);
+  box-shadow:   0 0 0 4px rgba(255, 92, 0, 0.15);
 }
 
-/* ── Responsive ─────────────────────────────────────────────────────── */
+/* ── Hint ───────────────────────────────────────────────────── */
+.po-hint {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-size: 0.78rem;
+  color: #5A5650;
+  text-align: center;
+}
+
+/* ── Mobile ─────────────────────────────────────────────────── */
 @media (max-width: 400px) {
-  .progress-overlay-card {
-    padding:       1.5rem 1.25rem;
+  .po-card {
+    padding: 28px 20px 22px;
     border-radius: 16px;
+    gap: 12px;
   }
-  .progress-overlay-icon {
-    font-size: 2.5rem;
+
+  .po-icon {
+    width: 54px;
+    height: 54px;
   }
-  .progress-step-dot {
-    width:  24px;
+
+  .po-icon svg {
+    width: 24px;
     height: 24px;
-    font-size: 0.6rem;
+  }
+
+  .po-dot {
+    width: 22px;
+    height: 22px;
+  }
+}
+
+/* ── Reduced motion ─────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .po-card,
+  .po-icon {
+    animation: none;
+  }
+
+  .po-bar-fill,
+  .po-dot {
+    transition: none;
   }
 }
