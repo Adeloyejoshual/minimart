@@ -1,5 +1,5 @@
 // src/pages/product/components.jsx
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import DropdownModal    from "../../components/DropdownModal.jsx";
 import AddProductHeader from "../../components/AddProductHeader.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
@@ -90,13 +90,13 @@ function PaymentCountdown({ createdAt, maxAgeMs }) {
     Math.max(0, maxAgeMs - (Date.now() - createdAt))
   );
 
-  useMemo(() => {
+  useEffect(() => {
     if (remaining <= 0) return;
     const id = setInterval(() => {
       setRemaining((prev) => Math.max(0, prev - 1_000));
     }, 1_000);
     return () => clearInterval(id);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [remaining]);
 
   const mins = Math.floor(remaining / 60_000);
   const secs = Math.floor((remaining % 60_000) / 1_000);
@@ -135,6 +135,17 @@ export default function ProductComponents({
   displayPrice, formatLabel, onlyNumbers, onlyDigits, INITIAL_FORM,
 }) {
   const [showAllFeatures, setShowAllFeatures] = useState(false);
+
+  /* ── Release card stacking context after entry animations ── */
+  useEffect(() => {
+    const cards = document.querySelectorAll(".section, .form-card");
+    const timers = Array.from(cards).map((card, i) =>
+      setTimeout(() => {
+        card.classList.add("ap-entered");
+      }, 400 + i * 60 + 100)
+    );
+    return () => timers.forEach(clearTimeout);
+  }, []);
 
   /* ── Derived ── */
   const categoryOptions = useMemo(() => {
@@ -262,7 +273,6 @@ export default function ProductComponents({
   /* ── Render ── */
   return (
     <>
-      {/* Sticky header */}
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
       {/* Feedback banners */}
@@ -291,18 +301,10 @@ export default function ProductComponents({
             </div>
           </div>
           <div className="payment-resume-actions">
-            <button
-              type="button"
-              className="primary-btn"
-              onClick={resumePayment}
-            >
+            <button type="button" className="primary-btn" onClick={resumePayment}>
               Complete Payment
             </button>
-            <button
-              type="button"
-              className="outline-btn"
-              onClick={cancelPendingPayment}
-            >
+            <button type="button" className="outline-btn" onClick={cancelPendingPayment}>
               Cancel &amp; Save Draft
             </button>
           </div>
@@ -596,6 +598,7 @@ export default function ProductComponents({
           )}
         </div>
 
+        {/* ── UPDATED TOGGLE WITH STATUS TEXT ── */}
         <div className="form-group">
           <label htmlFor="ap-delivery-toggle">Delivery Available</label>
           <label className="toggle-switch">
@@ -606,6 +609,9 @@ export default function ProductComponents({
               onChange={(e) => updateDelivery("available", e.target.checked)}
             />
             <span className="slider" />
+            <span className={`toggle-status${form.delivery.available ? " toggle-status--on" : ""}`}>
+              {form.delivery.available ? "Yes — delivery available" : "No delivery"}
+            </span>
           </label>
         </div>
 
