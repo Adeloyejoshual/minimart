@@ -80,6 +80,17 @@ export default function DropdownModal({
     setDropUp(spaceBelow < needed && spaceAbove > spaceBelow);
   }, [open, maxHeight]);
 
+  /* ── Elevate parent card (dropdown z-index fix) ── */
+  const elevateCard = useCallback(() => {
+    const card = containerRef.current?.closest(".section, .form-card");
+    card?.classList.add("ap-dropdown-active");
+  }, []);
+
+  const deElevateCard = useCallback(() => {
+    const card = containerRef.current?.closest(".section, .form-card");
+    card?.classList.remove("ap-dropdown-active");
+  }, []);
+
   /* ── Open / close ── */
   const openDropdown = useCallback(() => {
     if (disabled) return;
@@ -87,15 +98,17 @@ export default function DropdownModal({
     setRawQuery("");
     setQuery("");
     setFocusedOptId(null);
+    elevateCard();
     requestAnimationFrame(() => searchRef.current?.focus());
-  }, [disabled]);
+  }, [disabled, elevateCard]);
 
   const closeDropdown = useCallback(() => {
     setOpen(false);
     setRawQuery("");
     setQuery("");
     setFocusedOptId(null);
-  }, []);
+    deElevateCard();
+  }, [deElevateCard]);
 
   const toggle = useCallback(() => {
     open ? closeDropdown() : openDropdown();
@@ -189,6 +202,13 @@ export default function DropdownModal({
       first?.focus();
     }
   }, []);
+
+  /* ── Cleanup on unmount ── */
+  useEffect(() => {
+    return () => {
+      deElevateCard();
+    };
+  }, [deElevateCard]);
 
   /* ── Render ── */
   return (
