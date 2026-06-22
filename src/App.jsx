@@ -29,7 +29,9 @@ import NewArrivalsPage from "./pages/Homepage/NewArrivalsPage";
 import TrendingPage    from "./pages/Homepage/TrendingPage";
 
 // ── Pages — Auth ──────────────────────────────────────────────
-import AuthPage from "./pages/AuthPage";
+import AuthPage       from "./pages/AuthPage";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword  from "./pages/ResetPassword";
 
 // ── Pages — Seller ────────────────────────────────────────────
 import BecomeSeller    from "./pages/BecomeSeller";
@@ -44,7 +46,7 @@ import Conversations     from "./pages/Conversations";
 import Chat              from "./pages/Chat";
 import Coupons           from "./pages/Profile/Coupons";
 import Dashboard         from "./pages/Profile/Dashboard";
-import SpinWheel from "./pages/Profile/SpinWheel";
+import SpinWheel         from "./pages/Profile/SpinWheel";
 import Leaderboard       from "./pages/Profile/Leaderboard";
 import Verification      from "./pages/Profile/Verification";
 import Wallet            from "./pages/Profile/Wallet";
@@ -239,8 +241,6 @@ export default function App() {
   }
 
   // ── Marketplace login handler ─────────────────────────────
-  // Called by AuthPage on success.
-  // Saves ONLY marketplace_token — never touches seller_token.
   const handleAuthSuccess = (userData, token, navigateFn, from) => {
     localStorage.setItem(TOKEN_KEYS.marketplace, token);
     resetCache();
@@ -248,7 +248,7 @@ export default function App() {
     localStorage.removeItem("active_location");
     localStorage.removeItem("cacheTime");
     setUser(userData);
-    syncCartAfterLogin(token);   // fire-and-forget
+    syncCartAfterLogin(token);
     toast.success(`Welcome back, ${userData.name}!`);
     navigateFn(from || "/", { replace: true });
   };
@@ -286,15 +286,15 @@ export default function App() {
         {/* ══════════════════════════════════════════════
             PUBLIC ROUTES
         ══════════════════════════════════════════════ */}
-        <Route path="/"            element={<Homepage key={user?.id ?? "guest"} user={user} />} />
-        <Route path="/search"      element={<SearchPage user={user} />} />
+        <Route path="/"              element={<Homepage key={user?.id ?? "guest"} user={user} />} />
+        <Route path="/search"        element={<SearchPage user={user} />} />
         <Route path="/product/:slug" element={<ProductDetail user={user} />} />
-        <Route path="/shop/:slug"  element={<MarketDetail user={user} />} />
-        <Route path="/seller/:id"  element={<SellerProfile user={user} />} />
-        <Route path="/terms"       element={<TermsAndConditions />} />
-        <Route path="/minimart"    element={<MinimartPage user={user} />} />
-        <Route path="/p2p"         element={<P2P user={user} />} />
-        <Route path="/menu"        element={<MenuPage user={user} />} />
+        <Route path="/shop/:slug"    element={<MarketDetail user={user} />} />
+        <Route path="/seller/:id"    element={<SellerProfile user={user} />} />
+        <Route path="/terms"         element={<TermsAndConditions />} />
+        <Route path="/minimart"      element={<MinimartPage user={user} />} />
+        <Route path="/p2p"           element={<P2P user={user} />} />
+        <Route path="/menu"          element={<MenuPage user={user} />} />
 
         {/* Homepage sub-pages */}
         <Route path="/nearby"   element={<NearbyPage user={user} />} />
@@ -313,6 +313,8 @@ export default function App() {
               : <AuthPage setUser={handleAuthSuccess} />
           }
         />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password"  element={<ResetPassword />} />
 
         {/* ══════════════════════════════════════════════
             SELLER ROUTES
@@ -320,8 +322,8 @@ export default function App() {
             (market.users) independently.
             Never touch marketplace_token.
         ══════════════════════════════════════════════ */}
-        <Route path="/become-seller"       element={<BecomeSeller user={user} />} />
-        <Route path="/seller/dashboard"    element={<SellerDashboard />} />
+        <Route path="/become-seller"         element={<BecomeSeller user={user} />} />
+        <Route path="/seller/dashboard"      element={<SellerDashboard />} />
         <Route path="/seller/dashboard/:tab" element={<SellerDashboard />} />
 
         {/* ══════════════════════════════════════════════
@@ -367,14 +369,11 @@ export default function App() {
             <Dashboard user={user} />
           </ProtectedRoute>
         } />
-        <Route
-  path="/spin"
-  element={
-    <ProtectedRoute user={user}>
-      <SpinWheel user={user} />
-    </ProtectedRoute>
-  }
-/>
+        <Route path="/spin" element={
+          <ProtectedRoute user={user}>
+            <SpinWheel user={user} />
+          </ProtectedRoute>
+        } />
         <Route path="/leaderboard" element={
           <ProtectedRoute user={user}>
             <Leaderboard user={user} />
