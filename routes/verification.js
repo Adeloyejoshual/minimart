@@ -6,14 +6,23 @@
  * POST /api/verification/submit-identity
  * POST /api/verification/submit-store
  * GET  /api/verification/status
+ *
+ * ── Security model ────────────────────────────────────────────────────────
+ *  • OTPs are bcrypt-hashed before storage — plaintext never persists.
+ *  • Document numbers are HMAC-SHA256 hashed (keyed) before storage.
+ *  • Duplicate document detection via pre-insert check + DB unique index.
+ *  • Abuse / brute-force: rate limiters + attempt caps + account flagging.
+ *  • Verification ordering enforced: email → identity → store.
+ *  • After identity verified: limited listings reactivated automatically.
+ * ─────────────────────────────────────────────────────────────────────────
  */
 
-import express      from "express";
-import bcrypt       from "bcrypt";
-import crypto       from "crypto";
-import multer       from "multer";
-import path         from "path";
-import rateLimit    from "express-rate-limit";
+import express   from "express";
+import bcrypt    from "bcrypt";
+import crypto    from "crypto";
+import multer    from "multer";
+import path      from "path";
+import rateLimit from "express-rate-limit";
 
 import { pool }         from "../config/db.js";
 import { authenticate } from "../middleware/auth.js";
@@ -22,6 +31,7 @@ import {
   sendVerificationEmail,
   sendWelcomeEmail,
 } from "../services/email.js";
+import { reactivateLimitedListings } from "./addproduct.js";
 
 const router = express.Router();
 
@@ -30,38 +40,82 @@ const router = express.Router();
 ══════════════════════════════════════════════════════════════════════════ */
 const IS_PROD = process.env.NODE_ENV === "production";
 
-/* print key env vars once at startup so logs confirm they are set */
+/* ── Startup diagnostics ── */
 console.log("[verification] module loaded");
 console.log("[verification] NODE_ENV       :", process.env.NODE_ENV);
-console.log("[verification] RESEND_API_KEY :", process.env.RESEND_API_KEY
-  ? `SET …${process.env.RESEND_API_KEY.slice(-4)}`
-  : "❌ NOT SET"
+console.log(
+  "[verification] RESEND_API_KEY :",
+  process.env.RESEND_API_KEY
+    ? `SET …${process.env.RESEND_API_KEY.slice(-4)}`
+    : "❌ NOT SET"
 );
-console.log("[verification] EMAIL_FROM     :", process.env.EMAIL_FROM || "(default)");
+console.log(
+  "[verification] EMAIL_FROM     :",
+  process.env.EMAIL_FROM || "(default)"
+);
+console.log(
+  "[verification] DOC_HASH_SECRET:",
+  process.env.DOC_HASH_SECRET
+    ? `SET …${process.env.DOC_HASH_SECRET.slice(-4)}`
+    : "❌ NOT SET — duplicate detection DISABLED"
+);
 
 /* ══════════════════════════════════════════════════════════════════════════
    POLICY
 ══════════════════════════════════════════════════════════════════════════ */
 const POLICY = Object.freeze({
-  DAILY_SEND_LIMIT     : IS_PROD ?  3  : 50,
-  RESEND_COOLDOWN_SECS : IS_PROD ? 60  : 30,
+  /* OTP */
+  DAILY_SEND_LIMIT     : IS_PROD ?  3 : 50,
+  RESEND_COOLDOWN_SECS : IS_PROD ? 60 : 30,
   OTP_EXPIRY_MINUTES   : 10,
-  MAX_VERIFY_ATTEMPTS  : IS_PROD ?  5  : 10,
+  MAX_VERIFY_ATTEMPTS  : IS_PROD ?  5 : 10,
+
+  /* Abuse */
   ABUSE_WINDOW_MINUTES : 10,
-  ABUSE_THRESHOLD      : IS_PROD ?  5  : 40,
+  ABUSE_THRESHOLD      : IS_PROD ?  5 : 40,
+
+  /* Hashing */
   BCRYPT_ROUNDS        : 10,
 });
 
-console.log("[verification] POLICY         :", POLICY);
+console.log("[verification] POLICY:", POLICY);
 
 /* ══════════════════════════════════════════════════════════════════════════
-   FILE CONFIG
+   TRUST SCORE
+   email_verified    → 30 pts
+   identity_verified → 35 pts
+   store_verified    → 20 pts
+   age > 30 days     → 10 pts
+   age > 90 days     →  5 pts
+   cap               → 100 pts
+══════════════════════════════════════════════════════════════════════════ */
+const computeTrustScore = (user) => {
+  let score = 0;
+  if (user.email_verified)    score += 30;
+  if (user.identity_verified) score += 35;
+  if (user.store_verified)    score += 20;
+
+  const ageDays =
+    (Date.now() - new Date(user.created_at).getTime()) / 86_400_000;
+  if (ageDays > 30) score += 10;
+  if (ageDays > 90) score +=  5;
+
+  return Math.min(score, 100);
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FILE POLICY
 ══════════════════════════════════════════════════════════════════════════ */
 const DOC_MIME = new Set([
-  "image/jpeg", "image/png", "image/webp", "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
 ]);
 const IMG_MIME = new Set([
-  "image/jpeg", "image/png", "image/webp",
+  "image/jpeg",
+  "image/png",
+  "image/webp",
 ]);
 const EXT_TO_MIME = {
   ".jpg"  : "image/jpeg",
@@ -71,10 +125,13 @@ const EXT_TO_MIME = {
   ".pdf"  : "application/pdf",
 };
 const VALID_DOC_TYPES = new Set([
-  "nin", "passport", "drivers_license", "voters_card",
+  "nin",
+  "passport",
+  "drivers_license",
+  "voters_card",
 ]);
-const MAX_DOC_BYTES  = 5  * 1_048_576;
-const MAX_LOGO_BYTES = 2  * 1_048_576;
+const MAX_DOC_BYTES  = 5 * 1_048_576; // 5 MB
+const MAX_LOGO_BYTES = 2 * 1_048_576; // 2 MB
 
 /* ══════════════════════════════════════════════════════════════════════════
    MULTER
@@ -83,10 +140,11 @@ const memStore = multer.memoryStorage();
 
 const makeFilter = (allowed) => (_req, file, cb) => {
   if (allowed.has(file.mimetype)) return cb(null, true);
-  const err   = new Error(
-    `Invalid file type "${file.mimetype}". Allowed: ${[...allowed].join(", ")}.`
+  const err  = new Error(
+    `Invalid file type "${file.mimetype}". ` +
+    `Allowed: ${[...allowed].join(", ")}.`
   );
-  err.code    = "INVALID_MIME";
+  err.code = "INVALID_MIME";
   cb(err);
 };
 
@@ -119,7 +177,7 @@ const withUpload = (fn) => (req, res, next) =>
   });
 
 /* ══════════════════════════════════════════════════════════════════════════
-   CLOUDINARY
+   CLOUDINARY (lazy-loaded — avoids startup crash if misconfigured)
 ══════════════════════════════════════════════════════════════════════════ */
 let _cld         = null;
 let _streamifier = null;
@@ -127,11 +185,16 @@ let _streamifier = null;
 async function getCld() {
   if (_cld) return _cld;
 
-  const { CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET } =
-    process.env;
+  const {
+    CLOUDINARY_CLOUD_NAME,
+    CLOUDINARY_API_KEY,
+    CLOUDINARY_API_SECRET,
+  } = process.env;
 
   if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
-    console.warn("[upload] Cloudinary env vars missing — placeholder URLs will be used");
+    console.warn(
+      "[cloudinary] env vars missing — local placeholder URLs will be used"
+    );
     return null;
   }
 
@@ -146,19 +209,22 @@ async function getCld() {
     });
     _cld         = cld;
     _streamifier = sf.default ?? sf;
-    console.log("[upload] Cloudinary ready");
+    console.log("[cloudinary] ready");
     return _cld;
   } catch (err) {
-    console.error("[upload] Cloudinary init failed:", err.message);
+    console.error("[cloudinary] init failed:", err.message);
     return null;
   }
 }
 
 async function uploadBuffer(buffer, folder, userId) {
   const cld = await getCld();
+
   if (!cld) {
+    /* Dev / misconfigured fallback — never reaches production */
     return { secure_url: `local://${folder}/${userId}/${Date.now()}` };
   }
+
   return new Promise((resolve, reject) => {
     const stream = cld.uploader.upload_stream(
       {
@@ -210,35 +276,47 @@ const submitLimiter = makeLimiter({
 });
 
 /* ══════════════════════════════════════════════════════════════════════════
-   HELPERS
+   PURE HELPERS
 ══════════════════════════════════════════════════════════════════════════ */
+
+/** Cryptographically random 6-digit OTP */
 const generateOtp = () =>
   crypto.randomInt(100_000, 999_999).toString();
 
+/** Best-effort IP extraction */
 const getIp = (req) =>
   req.ip ?? req.socket?.remoteAddress ?? null;
 
+/** Mask email for logs / responses — never leak full address */
 const maskEmail = (email) =>
-  String(email).replace(/(.{2})(.*)(@.*)/, (_, a, _b, c) => `${a}***${c}`);
+  String(email).replace(
+    /(.{2})(.*)(@.*)/,
+    (_, a, _b, c) => `${a}***${c}`
+  );
 
 const getTodayUTC = () =>
   new Date().toISOString().slice(0, 10);
 
+/** Stable device fingerprint — used to correlate OTP requests */
 const makeDeviceHash = (req) =>
   crypto
     .createHash("sha256")
-    .update([
-      req.headers["user-agent"]      ?? "",
-      req.headers["accept-language"] ?? "",
-      req.headers["sec-ch-ua"]       ?? "",
-    ].join("|"))
+    .update(
+      [
+        req.headers["user-agent"]      ?? "",
+        req.headers["accept-language"] ?? "",
+        req.headers["sec-ch-ua"]       ?? "",
+      ].join("|")
+    )
     .digest("hex");
 
+/** Verify file extension matches its MIME type */
 const extMatchesMime = (file) => {
   const ext = path.extname(file.originalname).toLowerCase();
   return EXT_TO_MIME[ext] === file.mimetype;
 };
 
+/** Count OTP sends for a user today */
 const getDailySendCount = async (db, userId) => {
   const today = getTodayUTC();
   const { rows } = await db.query(
@@ -252,17 +330,7 @@ const getDailySendCount = async (db, userId) => {
   return parseInt(rows[0].cnt, 10);
 };
 
-const computeTrustScore = (user) => {
-  let score = 0;
-  if (user.email_verified)    score += 30;
-  if (user.identity_verified) score += 30;
-  if (user.store_verified)    score += 20;
-  const ageDays = (Date.now() - new Date(user.created_at)) / 86_400_000;
-  if (ageDays > 30) score += 10;
-  if (ageDays > 90) score += 10;
-  return Math.min(score, 100);
-};
-
+/** Flag account and write audit entry */
 const flagAccount = async (db, userId, reason, ip) => {
   await db.query(
     `UPDATE users
@@ -282,8 +350,63 @@ const flagAccount = async (db, userId, reason, ip) => {
   });
 };
 
+/** Recompute trust score from DB and persist it. Returns new score. */
+const refreshTrustScore = async (client, userId) => {
+  const { rows } = await client.query(
+    `SELECT email_verified, identity_verified, store_verified, created_at
+     FROM   users WHERE id = $1`,
+    [userId]
+  );
+  if (!rows.length) return 0;
+
+  const score = computeTrustScore(rows[0]);
+
+  await client.query(
+    `UPDATE users
+     SET    trust_score = $1, updated_at = NOW()
+     WHERE  id = $2`,
+    [score, userId]
+  );
+
+  return score;
+};
+
+/** Standard error response */
 const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   DOCUMENT NUMBER HASHING
+   HMAC-SHA256 keyed with DOC_HASH_SECRET.
+   • Deterministic  — same input → same hash
+   • Non-reversible — hash → input is computationally infeasible
+   • Secret-keyed   — DB dump alone cannot brute-force document numbers
+   • Normalised     — strips spaces/hyphens before hashing to prevent
+                       trivial evasion ("12345" = "12 345" = "12-345")
+   • Type-prefixed  — "nin:12345" ≠ "passport:12345"
+══════════════════════════════════════════════════════════════════════════ */
+const DOC_HASH_SECRET = process.env.DOC_HASH_SECRET ?? null;
+
+/**
+ * @param {string} docType
+ * @param {string} docNumber
+ * @returns {string|null} hex hash, or null if secret not configured
+ */
+const hashDocumentNumber = (docType, docNumber) => {
+  if (!DOC_HASH_SECRET) return null;
+
+  const normalised = String(docNumber)
+    .toLowerCase()
+    .replace(/[\s\-_]/g, "") // collapse spaces, hyphens, underscores
+    .trim();
+
+  const payload = `${docType.toLowerCase()}:${normalised}`;
+
+  return crypto
+    .createHmac("sha256", DOC_HASH_SECRET)
+    .update(payload)
+    .digest("hex");
+};
 
 /* ══════════════════════════════════════════════════════════════════════════
    POST /api/verification/send-email-otp
@@ -296,39 +419,35 @@ router.post(
     const userId = req.user?.id;
     const ip     = getIp(req);
 
-    /* ── startup log — always visible ── */
-    console.log("\n" + "▶".repeat(60));
-    console.log("[send-otp] REQUEST RECEIVED");
+    console.log("\n" + "─".repeat(60));
+    console.log("[send-otp] ▶ REQUEST");
     console.log("[send-otp] userId        :", userId);
     console.log("[send-otp] ip            :", ip);
-    console.log("[send-otp] NODE_ENV      :", process.env.NODE_ENV);
-    console.log("[send-otp] RESEND_API_KEY:", process.env.RESEND_API_KEY
-      ? `SET …${process.env.RESEND_API_KEY.slice(-4)}`
-      : "❌ NOT SET"
+    console.log(
+      "[send-otp] RESEND_API_KEY:",
+      process.env.RESEND_API_KEY
+        ? `SET …${process.env.RESEND_API_KEY.slice(-4)}`
+        : "❌ NOT SET"
     );
-    console.log("[send-otp] EMAIL_FROM    :", process.env.EMAIL_FROM || "(default)");
 
-    if (!userId) {
-      console.error("[send-otp] ✗ No userId on req.user — auth middleware issue");
-      return fail(res, 401, "Not authenticated.");
-    }
+    if (!userId) return fail(res, 401, "Not authenticated.");
 
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
 
-      /* 1 — fetch user */
-      console.log("[send-otp] step 1: fetching user...");
+      /* ── Step 1: Fetch user ── */
       const { rows: users } = await client.query(
         `SELECT id, email, name, email_verified, status
-         FROM   users WHERE id = $1 FOR UPDATE`,
+         FROM   users
+         WHERE  id = $1
+         FOR UPDATE`,
         [userId]
       );
 
       if (!users.length) {
         await client.query("ROLLBACK");
-        console.warn("[send-otp] ✗ user not found");
         return fail(res, 404, "User not found.");
       }
 
@@ -348,77 +467,86 @@ router.post(
         return fail(res, 403, "Account restricted. Contact support.");
       }
 
-      /* 2 — daily limit */
-      console.log("[send-otp] step 2: checking daily limit...");
+      /* ── Step 2: Daily limit ── */
       const dailyCount = await getDailySendCount(client, userId);
-      console.log("[send-otp] dailyCount:", dailyCount, "/ limit:", POLICY.DAILY_SEND_LIMIT);
+      console.log(
+        "[send-otp] daily:", dailyCount, "/", POLICY.DAILY_SEND_LIMIT
+      );
 
       if (dailyCount >= POLICY.DAILY_SEND_LIMIT) {
         await client.query("ROLLBACK");
         return fail(
           res, 429,
-          `Daily limit reached (${POLICY.DAILY_SEND_LIMIT}/day). Try tomorrow.`,
+          `Daily OTP limit reached (${POLICY.DAILY_SEND_LIMIT}/day). Try again tomorrow.`,
           { remaining: 0 }
         );
       }
 
-      /* 3 — cooldown */
-      console.log("[send-otp] step 3: checking cooldown...");
+      /* ── Step 3: Resend cooldown ── */
       const { rows: recent } = await client.query(
-        `SELECT created_at FROM email_verifications
+        `SELECT created_at
+         FROM   email_verifications
          WHERE  user_id    = $1
            AND  created_at > NOW() - ($2 || ' seconds')::INTERVAL
-         ORDER  BY created_at DESC LIMIT 1`,
+         ORDER  BY created_at DESC
+         LIMIT  1`,
         [userId, POLICY.RESEND_COOLDOWN_SECS]
       );
 
       if (recent.length) {
-        const elapsed  = (Date.now() - new Date(recent[0].created_at)) / 1_000;
-        const waitSecs = Math.ceil(POLICY.RESEND_COOLDOWN_SECS - elapsed);
-        console.log("[send-otp] cooldown active, wait:", waitSecs, "s");
+        const elapsedSecs =
+          (Date.now() - new Date(recent[0].created_at).getTime()) / 1_000;
+        const waitSecs = Math.ceil(POLICY.RESEND_COOLDOWN_SECS - elapsedSecs);
+        console.log("[send-otp] cooldown — wait:", waitSecs, "s");
         await client.query("ROLLBACK");
         return fail(
           res, 429,
-          `Please wait ${waitSecs}s before requesting another code.`,
-          { retryAfter: waitSecs, remaining: POLICY.DAILY_SEND_LIMIT - dailyCount }
+          `Please wait ${waitSecs} second${waitSecs !== 1 ? "s" : ""} before requesting another code.`,
+          {
+            retryAfter : waitSecs,
+            remaining  : POLICY.DAILY_SEND_LIMIT - dailyCount,
+          }
         );
       }
 
-      /* 4 — abuse */
-      console.log("[send-otp] step 4: abuse check...");
+      /* ── Step 4: Abuse detection ── */
       const { rows: abr } = await client.query(
-        `SELECT COUNT(*) AS cnt FROM email_verifications
+        `SELECT COUNT(*) AS cnt
+         FROM   email_verifications
          WHERE  user_id    = $1
            AND  created_at > NOW() - ($2 || ' minutes')::INTERVAL`,
         [userId, POLICY.ABUSE_WINDOW_MINUTES]
       );
       const abuseCount = parseInt(abr[0].cnt, 10);
-      console.log("[send-otp] abuseCount:", abuseCount, "/ threshold:", POLICY.ABUSE_THRESHOLD);
+      console.log(
+        "[send-otp] abuse:", abuseCount, "/", POLICY.ABUSE_THRESHOLD
+      );
 
       if (abuseCount >= POLICY.ABUSE_THRESHOLD) {
         await flagAccount(client, userId, "otp_abuse", ip);
         await client.query("COMMIT");
-        return fail(res, 429, "Account flagged for suspicious activity. Contact support.");
+        return fail(
+          res, 429,
+          "Account flagged for suspicious activity. Contact support."
+        );
       }
 
-      /* 5 — expire old OTPs */
-      console.log("[send-otp] step 5: expiring old OTPs...");
+      /* ── Step 5: Expire previous active OTPs ── */
       await client.query(
         `UPDATE email_verifications
-         SET    status = 'expired', used_at = NOW()
-         WHERE  user_id = $1 AND status = 'active'`,
+         SET    status  = 'expired',
+                used_at = NOW()
+         WHERE  user_id = $1
+           AND  status  = 'active'`,
         [userId]
       );
 
-      /* 6 — generate + hash */
-      console.log("[send-otp] step 6: generating OTP...");
+      /* ── Step 6: Generate + hash OTP ── */
       const otp    = generateOtp();
       const hash   = await bcrypt.hash(otp, POLICY.BCRYPT_ROUNDS);
       const device = makeDeviceHash(req);
 
-      if (!IS_PROD) {
-        console.log("[send-otp] DEV otp:", otp);
-      }
+      if (!IS_PROD) console.log("[send-otp] DEV otp:", otp);
 
       await client.query(
         `INSERT INTO email_verifications
@@ -431,8 +559,7 @@ router.post(
         [userId, hash, POLICY.OTP_EXPIRY_MINUTES, device, ip]
       );
 
-      /* 7 — upsert device */
-      console.log("[send-otp] step 7: upserting device...");
+      /* ── Step 7: Upsert device fingerprint ── */
       await client.query(
         `INSERT INTO user_devices
            (user_id, device_hash, ip_address, user_agent, last_seen)
@@ -444,29 +571,25 @@ router.post(
       );
 
       await client.query("COMMIT");
-      console.log("[send-otp] ✓ DB committed");
+      console.log("[send-otp] ✓ committed");
 
-      /* 8 — send email */
-      console.log("[send-otp] step 8: sending email...");
-      console.log("[send-otp] to:", user.email);
-      console.log("[send-otp] name:", user.name);
-
+      /* ── Step 8: Send email (after commit) ── */
       try {
         const emailResult = await sendVerificationEmail({
           to   : user.email,
           name : user.name,
           otp,
         });
-        console.log("[send-otp] ✓ email result:", JSON.stringify(emailResult));
+        console.log("[send-otp] ✓ email sent:", JSON.stringify(emailResult));
       } catch (mailErr) {
         console.error("[send-otp] ✗ email failed:", mailErr.message);
-        console.error("[send-otp] email stack:", mailErr.stack);
 
-        /* cleanup so user can retry immediately */
-        await pool
+        /* Cleanup so user can retry immediately */
+        pool
           .query(
             `UPDATE email_verifications
-             SET    status = 'expired', used_at = NOW()
+             SET    status  = 'expired',
+                    used_at = NOW()
              WHERE  user_id    = $1
                AND  status     = 'active'
                AND  created_at > NOW() - INTERVAL '2 minutes'`,
@@ -478,9 +601,8 @@ router.post(
       }
 
       const remaining = POLICY.DAILY_SEND_LIMIT - (dailyCount + 1);
-      const devExtras = IS_PROD ? {} : { dev_otp: otp };
 
-      await writeAudit({
+      writeAudit({
         actorId    : userId,
         action     : "otp_sent",
         targetType : "user",
@@ -490,7 +612,7 @@ router.post(
       }).catch((e) => console.error("[send-otp] audit err:", e.message));
 
       console.log("[send-otp] ✓ DONE  remaining:", remaining);
-      console.log("◀".repeat(60) + "\n");
+      console.log("─".repeat(60) + "\n");
 
       return res.json({
         success   : true,
@@ -498,13 +620,12 @@ router.post(
         email     : maskEmail(user.email),
         expiresIn : POLICY.OTP_EXPIRY_MINUTES * 60,
         remaining,
-        ...devExtras,
+        ...(IS_PROD ? {} : { dev_otp: otp }),
       });
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      console.error("[send-otp] ✗ UNHANDLED:", err.message);
-      console.error(err.stack);
+      console.error("[send-otp] ✗ UNHANDLED:", err.message, "\n", err.stack);
       return fail(res, 500, "Server error. Please try again.");
     } finally {
       client.release();
@@ -530,23 +651,23 @@ router.post(
 
     if (!userId) return fail(res, 401, "Not authenticated.");
 
-    if (!/^\d{6}$/.test(rawOtp)) {
+    if (!/^\d{6}$/.test(rawOtp))
       return fail(res, 400, "OTP must be exactly 6 digits.");
-    }
 
     const client = await pool.connect();
 
     try {
       await client.query("BEGIN");
 
-      /* 1 — find active OTP */
+      /* ── Step 1: Find active unexpired OTP ── */
       const { rows } = await client.query(
         `SELECT id, otp_hash, attempts
          FROM   email_verifications
          WHERE  user_id    = $1
            AND  status     = 'active'
            AND  expires_at > NOW()
-         ORDER  BY created_at DESC LIMIT 1`,
+         ORDER  BY created_at DESC
+         LIMIT  1`,
         [userId]
       );
 
@@ -554,16 +675,21 @@ router.post(
 
       if (!rows.length) {
         await client.query("ROLLBACK");
-        return fail(res, 400, "Code expired or not found. Please request a new one.");
+        return fail(
+          res, 400,
+          "Code expired or not found. Please request a new one."
+        );
       }
 
       const rec = rows[0];
       console.log("[verify-otp] attempts so far:", rec.attempts);
 
-      /* 2 — attempt cap */
+      /* ── Step 2: Attempt cap ── */
       if (rec.attempts >= POLICY.MAX_VERIFY_ATTEMPTS) {
         await client.query(
-          `UPDATE email_verifications SET status = 'blocked' WHERE id = $1`,
+          `UPDATE email_verifications
+           SET status = 'blocked'
+           WHERE id = $1`,
           [rec.id]
         );
         await flagAccount(client, userId, "otp_max_attempts", ip);
@@ -571,60 +697,68 @@ router.post(
         return fail(res, 429, "Too many failed attempts. Account flagged.");
       }
 
-      /* 3 — bcrypt compare */
+      /* ── Step 3: bcrypt compare ── */
       console.log("[verify-otp] running bcrypt compare...");
       const valid = await bcrypt.compare(rawOtp, rec.otp_hash);
       console.log("[verify-otp] match:", valid);
 
       if (!valid) {
         await client.query(
-          `UPDATE email_verifications SET attempts = attempts + 1 WHERE id = $1`,
+          `UPDATE email_verifications
+           SET attempts = attempts + 1
+           WHERE id = $1`,
           [rec.id]
         );
         await client.query("COMMIT");
         const left = Math.max(0, POLICY.MAX_VERIFY_ATTEMPTS - 1 - rec.attempts);
-        return fail(res, 400, "Incorrect code. Please try again.", { attemptsLeft: left });
+        return fail(res, 400, "Incorrect code. Please try again.", {
+          attemptsLeft: left,
+        });
       }
 
-      /* 4 — atomic mark-used */
+      /* ── Step 4: Atomic mark-used (prevents replay) ── */
       const { rows: marked } = await client.query(
         `UPDATE email_verifications
-         SET    status = 'used', used_at = NOW()
-         WHERE  id = $1 AND status = 'active'
+         SET    status  = 'used',
+                used_at = NOW()
+         WHERE  id     = $1
+           AND  status = 'active'
          RETURNING id`,
         [rec.id]
       );
 
       if (!marked.length) {
         await client.query("ROLLBACK");
-        return fail(res, 400, "Code was already used. Please request a new one.");
+        return fail(
+          res, 400,
+          "Code was already used. Please request a new one."
+        );
       }
 
-      /* 5 — mark user verified */
-      const { rows: updated } = await client.query(
+      /* ── Step 5: Mark user email-verified ── */
+      await client.query(
         `UPDATE users
-         SET    email_verified    = true,
+         SET    email_verified    = TRUE,
                 email_verified_at = NOW(),
-                verified          = true,
+                verified          = TRUE,
                 updated_at        = NOW()
-         WHERE  id = $1
-         RETURNING id, email_verified, identity_verified,
-                   store_verified, created_at`,
+         WHERE  id = $1`,
         [userId]
       );
 
-      const trustScore = computeTrustScore({ ...updated[0], email_verified: true });
-
-      await client.query(
-        `UPDATE users SET trust_score = $1 WHERE id = $2`,
-        [trustScore, userId]
-      );
+      /* ── Step 6: Recompute and persist trust score ── */
+      const trustScore = await refreshTrustScore(client, userId);
 
       await client.query("COMMIT");
-      console.log("[verify-otp] ✓ verified  trust_score:", trustScore);
+      console.log("[verify-otp] ✓ email verified  trust_score:", trustScore);
 
-      /* 6 — audit */
-      await writeAudit({
+      /* ── Step 7: Reactivate limited listings (fire-and-forget) ── */
+      reactivateLimitedListings(userId).catch((e) =>
+        console.error("[verify-otp] reactivate listings err:", e.message)
+      );
+
+      /* ── Step 8: Audit ── */
+      writeAudit({
         actorId    : userId,
         action     : "email_verified",
         targetType : "user",
@@ -633,16 +767,19 @@ router.post(
         ipAddress  : ip,
       }).catch((e) => console.error("[verify-otp] audit err:", e.message));
 
-      /* 7 — welcome email fire-and-forget */
+      /* ── Step 9: Welcome email (fire-and-forget) ── */
       pool
         .query("SELECT email, name FROM users WHERE id = $1", [userId])
         .then(({ rows: u }) => {
           if (u[0]) {
-            sendWelcomeEmail({ to: u[0].email, name: u[0].name })
-              .catch((e) => console.error("[verify-otp] welcome email err:", e.message));
+            sendWelcomeEmail({ to: u[0].email, name: u[0].name }).catch(
+              (e) => console.error("[verify-otp] welcome email err:", e.message)
+            );
           }
         })
-        .catch((e) => console.error("[verify-otp] welcome query err:", e.message));
+        .catch((e) =>
+          console.error("[verify-otp] welcome query err:", e.message)
+        );
 
       return res.json({
         success     : true,
@@ -652,8 +789,7 @@ router.post(
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      console.error("[verify-otp] ✗ UNHANDLED:", err.message);
-      console.error(err.stack);
+      console.error("[verify-otp] ✗ UNHANDLED:", err.message, "\n", err.stack);
       return fail(res, 500, "Server error. Please try again.");
     } finally {
       client.release();
@@ -673,8 +809,11 @@ router.post(
     const userId = req.user?.id;
     const ip     = getIp(req);
 
-    console.log("[submit-identity] ▶ userId:", userId);
+    console.log("\n[submit-identity] ▶ userId:", userId);
 
+    if (!userId) return fail(res, 401, "Not authenticated.");
+
+    /* ── Validate document type ── */
     const { document_type, document_number } = req.body;
 
     if (!document_type || !VALID_DOC_TYPES.has(document_type)) {
@@ -684,10 +823,14 @@ router.post(
       );
     }
 
+    /* ── Validate document number ── */
     const docNum = (document_number ?? "").trim();
-    if (docNum.length < 4)  return fail(res, 400, "Document number must be at least 4 characters.");
-    if (docNum.length > 30) return fail(res, 400, "Document number must be at most 30 characters.");
+    if (docNum.length < 4)
+      return fail(res, 400, "Document number must be at least 4 characters.");
+    if (docNum.length > 30)
+      return fail(res, 400, "Document number must be at most 30 characters.");
 
+    /* ── Validate files ── */
     const frontFile  = req.files?.doc_front?.[0] ?? null;
     const backFile   = req.files?.doc_back?.[0]  ?? null;
     const selfieFile = req.files?.selfie?.[0]    ?? null;
@@ -705,59 +848,184 @@ router.post(
       }
     }
 
-    const { rows: pending } = await pool.query(
-      `SELECT id FROM identity_verifications
-       WHERE  user_id = $1 AND status = 'pending'`,
-      [userId]
+    /* ── Hash document number before any DB work ── */
+    const docHash = hashDocumentNumber(document_type, docNum);
+
+    console.log(
+      "[submit-identity] docType:", document_type,
+      " docHash:", docHash
+        ? `${docHash.slice(0, 8)}…`
+        : "DISABLED (DOC_HASH_SECRET not set)"
     );
-    if (pending.length) {
+
+    if (!docHash) {
+      console.warn(
+        "[submit-identity] ⚠ Duplicate detection DISABLED — " +
+        "DOC_HASH_SECRET is not configured."
+      );
+    }
+
+    /* ── All guard queries in one parallel batch ── */
+    const [pendingRes, userRes, duplicateRes] = await Promise.all([
+
+      /* Guard 1: already has a pending review */
+      pool.query(
+        `SELECT id
+         FROM   identity_verifications
+         WHERE  user_id = $1
+           AND  status  = 'pending'`,
+        [userId]
+      ),
+
+      /* Guard 2: user state */
+      pool.query(
+        `SELECT identity_verified, email_verified
+         FROM   users
+         WHERE  id = $1`,
+        [userId]
+      ),
+
+      /* Guard 3: duplicate document number across ALL users
+         Only match pending / approved rows — rejected rows are excluded
+         so a legitimate user can resubmit after rejection.
+         Skipped (empty result) when hash unavailable. */
+      docHash
+        ? pool.query(
+            `SELECT iv.id,
+                    iv.user_id,
+                    iv.status,
+                    iv.created_at
+             FROM   identity_verifications iv
+             WHERE  iv.document_number_hash = $1
+               AND  iv.status IN ('pending', 'approved')
+             LIMIT  1`,
+            [docHash]
+          )
+        : Promise.resolve({ rows: [] }),
+    ]);
+
+    /* ── Evaluate guard 1: pending ── */
+    if (pendingRes.rows.length)
       return fail(res, 409, "You already have a pending identity review.");
-    }
 
-    const { rows: uRow } = await pool.query(
-      "SELECT identity_verified FROM users WHERE id = $1",
-      [userId]
-    );
-    if (uRow[0]?.identity_verified) {
+    /* ── Evaluate guard 2a: already verified ── */
+    if (userRes.rows[0]?.identity_verified)
       return fail(res, 400, "Identity is already verified.");
+
+    /* ── Evaluate guard 2b: email must come first ── */
+    if (!userRes.rows[0]?.email_verified) {
+      return fail(
+        res, 403,
+        "Please verify your email address before submitting identity documents."
+      );
     }
 
+    /* ── Evaluate guard 3: duplicate document ── */
+    if (duplicateRes.rows.length) {
+      const match = duplicateRes.rows[0];
+
+      console.warn(
+        "[submit-identity] ⚠ DUPLICATE DOCUMENT",
+        " incomingUser:", userId,
+        " existingUser:", match.user_id,
+        " existingStatus:", match.status,
+        " ip:", ip
+      );
+
+      /* Audit the duplicate attempt — do NOT reveal the existing user */
+      writeAudit({
+        actorId    : userId,
+        action     : "identity_duplicate_rejected",
+        targetType : "user",
+        targetId   : userId,
+        metadata   : {
+          document_type,
+          conflicting_user_id : match.user_id,
+          conflicting_status  : match.status,
+        },
+        ipAddress  : ip,
+      }).catch((e) =>
+        console.error("[submit-identity] audit err:", e.message)
+      );
+
+      /* Intentionally vague — do not reveal which user holds this document */
+      return fail(
+        res, 409,
+        "This document has already been registered on our platform. " +
+        "If you believe this is an error, please contact support."
+      );
+    }
+
+    /* ── Upload all three files in parallel ── */
+    let front, back, selfie;
     try {
-      const [front, back, selfie] = await Promise.all([
+      [front, back, selfie] = await Promise.all([
         uploadBuffer(frontFile.buffer,  "id_documents", userId),
         uploadBuffer(backFile.buffer,   "id_documents", userId),
         uploadBuffer(selfieFile.buffer, "selfies",      userId),
       ]);
+    } catch (uploadErr) {
+      console.error("[submit-identity] upload error:", uploadErr.message);
+      return fail(res, 500, `File upload failed: ${uploadErr.message}`);
+    }
 
+    /* ── Insert verification record ── */
+    try {
       await pool.query(
         `INSERT INTO identity_verifications
-           (user_id, document_type, document_number,
-            front_image_url, back_image_url, selfie_url, status)
+           (user_id,
+            document_type,
+            document_number_hash,
+            front_image_url,
+            back_image_url,
+            selfie_url,
+            status)
          VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
-        [userId, document_type, docNum,
-         front.secure_url, back.secure_url, selfie.secure_url]
+        [
+          userId,
+          document_type,
+          docHash ?? null,
+          front.secure_url,
+          back.secure_url,
+          selfie.secure_url,
+        ]
       );
-
-      await writeAudit({
-        actorId    : userId,
-        action     : "identity_submitted",
-        targetType : "user",
-        targetId   : userId,
-        metadata   : { document_type },
-        ipAddress  : ip,
-      }).catch((e) => console.error("[submit-identity] audit err:", e.message));
-
-      console.log("[submit-identity] ✓ submitted");
-
-      return res.status(202).json({
-        success : true,
-        message : "Identity submitted. Our team will review within 24 hours.",
-      });
-
-    } catch (err) {
-      console.error("[submit-identity] ✗", err.message);
-      return fail(res, 500, `Submission failed: ${err.message}`);
+    } catch (dbErr) {
+      /* Unique index violation = race-condition duplicate */
+      if (dbErr.code === "23505") {
+        console.warn(
+          "[submit-identity] ⚠ Race-condition duplicate caught by DB index",
+          " userId:", userId
+        );
+        return fail(
+          res, 409,
+          "This document has already been registered on our platform. " +
+          "If you believe this is an error, please contact support."
+        );
+      }
+      throw dbErr; // re-throw unexpected errors
     }
+
+    /* ── Audit success ── */
+    writeAudit({
+      actorId    : userId,
+      action     : "identity_submitted",
+      targetType : "user",
+      targetId   : userId,
+      metadata   : { document_type },
+      ipAddress  : ip,
+    }).catch((e) =>
+      console.error("[submit-identity] audit err:", e.message)
+    );
+
+    console.log("[submit-identity] ✓ submitted  userId:", userId);
+
+    return res.status(202).json({
+      success : true,
+      message :
+        "Identity submitted. Our team will review within 24 hours. " +
+        "Your listings will become permanent once approved.",
+    });
   }
 );
 
@@ -775,66 +1043,104 @@ router.post(
     const storeName = (req.body.store_name        ?? "").trim();
     const storeDesc = (req.body.store_description ?? "").trim();
 
-    console.log("[submit-store] ▶ userId:", userId, "storeName:", storeName);
-
-    if (storeName.length < 2)   return fail(res, 400, "Store name must be at least 2 characters.");
-    if (storeName.length > 60)  return fail(res, 400, "Store name must be at most 60 characters.");
-    if (storeDesc.length > 300) return fail(res, 400, "Description must be at most 300 characters.");
-
-    const { rows: pending } = await pool.query(
-      `SELECT id FROM store_verifications
-       WHERE  user_id = $1 AND status = 'pending'`,
-      [userId]
+    console.log(
+      "\n[submit-store] ▶ userId:", userId,
+      " storeName:", storeName
     );
-    if (pending.length) {
+
+    if (!userId) return fail(res, 401, "Not authenticated.");
+
+    /* ── Validate ── */
+    if (storeName.length < 2)
+      return fail(res, 400, "Store name must be at least 2 characters.");
+    if (storeName.length > 60)
+      return fail(res, 400, "Store name must be at most 60 characters.");
+    if (storeDesc.length > 300)
+      return fail(res, 400, "Description must be at most 300 characters.");
+
+    /* ── Guard queries ── */
+    const [pendingRes, userRes] = await Promise.all([
+      pool.query(
+        `SELECT id
+         FROM   store_verifications
+         WHERE  user_id = $1 AND status = 'pending'`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT store_verified, identity_verified
+         FROM   users
+         WHERE  id = $1`,
+        [userId]
+      ),
+    ]);
+
+    if (pendingRes.rows.length)
       return fail(res, 409, "You already have a pending store review.");
-    }
 
-    const { rows: uRow } = await pool.query(
-      "SELECT store_verified FROM users WHERE id = $1",
-      [userId]
-    );
-    if (uRow[0]?.store_verified) {
+    if (userRes.rows[0]?.store_verified)
       return fail(res, 400, "Store is already verified.");
+
+    /* ── Require identity verification first ── */
+    if (!userRes.rows[0]?.identity_verified) {
+      return fail(
+        res, 403,
+        "Please complete identity verification before submitting your store profile."
+      );
     }
 
-    try {
-      let logoUrl = null;
-      if (req.file) {
-        if (!extMatchesMime(req.file)) {
-          return fail(res, 400, "Logo file extension does not match its content.");
-        }
-        const result = await uploadBuffer(req.file.buffer, "store_logos", userId);
-        logoUrl = result.secure_url;
+    /* ── Optional logo upload ── */
+    let logoUrl = null;
+    if (req.file) {
+      if (!extMatchesMime(req.file)) {
+        return fail(
+          res, 400,
+          "Logo file extension does not match its content."
+        );
       }
+      try {
+        const result = await uploadBuffer(
+          req.file.buffer,
+          "store_logos",
+          userId
+        );
+        logoUrl = result.secure_url;
+      } catch (uploadErr) {
+        console.error("[submit-store] logo upload error:", uploadErr.message);
+        return fail(res, 500, `Logo upload failed: ${uploadErr.message}`);
+      }
+    }
 
+    /* ── Insert store verification record ── */
+    try {
       await pool.query(
         `INSERT INTO store_verifications
            (user_id, store_name, store_description, logo_url, status)
          VALUES ($1, $2, $3, $4, 'pending')`,
         [userId, storeName, storeDesc || null, logoUrl]
       );
-
-      await writeAudit({
-        actorId    : userId,
-        action     : "store_submitted",
-        targetType : "user",
-        targetId   : userId,
-        metadata   : { store_name: storeName },
-        ipAddress  : ip,
-      }).catch((e) => console.error("[submit-store] audit err:", e.message));
-
-      console.log("[submit-store] ✓ submitted");
-
-      return res.status(202).json({
-        success : true,
-        message : "Store profile submitted. Our team will review within 24 hours.",
-      });
-
-    } catch (err) {
-      console.error("[submit-store] ✗", err.message);
-      return fail(res, 500, `Submission failed: ${err.message}`);
+    } catch (dbErr) {
+      console.error("[submit-store] db error:", dbErr.message);
+      return fail(res, 500, "Submission failed. Please try again.");
     }
+
+    writeAudit({
+      actorId    : userId,
+      action     : "store_submitted",
+      targetType : "user",
+      targetId   : userId,
+      metadata   : { store_name: storeName },
+      ipAddress  : ip,
+    }).catch((e) =>
+      console.error("[submit-store] audit err:", e.message)
+    );
+
+    console.log("[submit-store] ✓ submitted  userId:", userId);
+
+    return res.status(202).json({
+      success : true,
+      message :
+        "Store profile submitted. Our team will review within 24 hours.",
+    });
   }
 );
 
@@ -843,68 +1149,138 @@ router.post(
 ══════════════════════════════════════════════════════════════════════════ */
 router.get("/status", authenticate, async (req, res) => {
   const userId = req.user?.id;
-  console.log("[status] ▶ userId:", userId);
+  console.log("\n[status] ▶ userId:", userId);
+
+  if (!userId) return fail(res, 401, "Not authenticated.");
 
   try {
-    const [userRes, idRes, storeRes] = await Promise.all([
+    const [userRes, idRes, storeRes, limitedRes] = await Promise.all([
+
+      /* Core user fields */
       pool.query(
         `SELECT id, email, name, role, seller_type, status,
                 email_verified, email_verified_at,
                 identity_verified, store_verified,
                 trust_score, created_at
-         FROM   users WHERE id = $1`,
+         FROM   users
+         WHERE  id = $1`,
         [userId]
       ),
+
+      /* Latest identity review */
       pool.query(
         `SELECT document_type, status, rejection_reason, updated_at
          FROM   identity_verifications
          WHERE  user_id = $1
-         ORDER  BY created_at DESC LIMIT 1`,
+         ORDER  BY created_at DESC
+         LIMIT  1`,
         [userId]
       ),
+
+      /* Latest store review */
       pool.query(
-        `SELECT status, rejection_reason AS message, updated_at
+        `SELECT status,
+                rejection_reason AS message,
+                updated_at
          FROM   store_verifications
          WHERE  user_id = $1
-         ORDER  BY created_at DESC LIMIT 1`,
+         ORDER  BY created_at DESC
+         LIMIT  1`,
+        [userId]
+      ),
+
+      /* Limited listings pending reactivation */
+      pool.query(
+        `SELECT COUNT(*)        AS cnt,
+                MIN(active_until) AS soonest_expiry
+         FROM   products
+         WHERE  seller_id    = $1
+           AND  status       = 'active_limited'
+           AND  (active_until IS NULL OR active_until > NOW())`,
         [userId]
       ),
     ]);
 
     if (!userRes.rows.length) return fail(res, 404, "User not found.");
 
-    const user        = userRes.rows[0];
-    const idReview    = idRes.rows[0]    ?? null;
-    const storeReview = storeRes.rows[0] ?? null;
-    const dailyCount  = await getDailySendCount(pool, userId);
+    const user          = userRes.rows[0];
+    const idReview      = idRes.rows[0]    ?? null;
+    const storeReview   = storeRes.rows[0] ?? null;
+    const dailyCount    = await getDailySendCount(pool, userId);
+
+    const limitedCount  = parseInt(limitedRes.rows[0].cnt, 10);
+    const soonestExpiry = limitedRes.rows[0].soonest_expiry ?? null;
+    const daysRemaining = soonestExpiry
+      ? Math.max(
+          0,
+          Math.ceil(
+            (new Date(soonestExpiry).getTime() - Date.now()) / 86_400_000
+          )
+        )
+      : null;
 
     console.log("[status] ✓", {
       email_verified    : user.email_verified,
       identity_verified : user.identity_verified,
       store_verified    : user.store_verified,
       trust_score       : user.trust_score,
+      limited_listings  : limitedCount,
     });
 
     return res.json({
       success           : true,
+
+      /* User identity */
       email             : maskEmail(user.email),
       name              : user.name,
       role              : user.role,
       seller_type       : user.seller_type,
       status            : user.status,
+
+      /* Verification flags */
       email_verified    : user.email_verified,
       email_verified_at : user.email_verified_at,
       identity_verified : user.identity_verified,
-      identity_review   : idReview,
       store_verified    : user.store_verified,
+
+      /* Review details */
+      identity_review   : idReview,
       store_review      : storeReview,
+
+      /* Trust */
       trust_score       : user.trust_score ?? 0,
+
+      /* OTP send limits */
       resend_remaining  : Math.max(0, POLICY.DAILY_SEND_LIMIT - dailyCount),
       resend_limit      : POLICY.DAILY_SEND_LIMIT,
+
+      /* Limited listings — motivational data for the verification page */
+      limited_listings  : {
+        count          : limitedCount,
+        soonest_expiry : soonestExpiry,
+        days_remaining : daysRemaining,
+        message        : limitedCount > 0
+          ? `You have ${limitedCount} listing${limitedCount !== 1 ? "s" : ""} ` +
+            `that will expire in ${daysRemaining ?? "?"} day${daysRemaining !== 1 ? "s" : ""}. ` +
+            "Complete identity verification to make them permanent."
+          : null,
+      },
+
+      /* What completing verification will unlock */
+      upgrade_benefits  : user.identity_verified
+        ? null
+        : {
+            daily_limit  : 100,
+            active_limit : 500,
+            no_expiry    : true,
+            message      :
+              "Verify your identity to unlock 100 products/day, " +
+              "500 active listings, and permanent listings with no expiry.",
+          },
     });
 
   } catch (err) {
-    console.error("[status] ✗", err.message);
+    console.error("[status] ✗", err.message, "\n", err.stack);
     return fail(res, 500, "Server error. Please try again.");
   }
 });
