@@ -1,10 +1,34 @@
-// src/pages/product/components.jsx
-import { useMemo, useState, useEffect } from "react";
+/**
+ * src/pages/product/components.jsx
+ *
+ * Upgrades v2:
+ *  1.  Seller limits banner — shows daily/active remaining + cooldown
+ *  2.  Verification nudge banner — shown when needsVerification is true
+ *  3.  Submit button disabled + reason shown when canPost is false
+ *  4.  Cooldown countdown timer on submit button
+ *  5.  WhatsApp label changed to "optional"
+ *  6.  Character counters on title, description, delivery note
+ *  7.  Price display with formatted preview below input
+ *  8.  Image drag-and-drop support
+ *  9.  Promotion plan "Best Value" badge for highest discount
+ * 10.  Description minimum character hint (live counter)
+ * 11.  Form section completion indicators (green tick when filled)
+ * 12.  PaymentCountdown moved into its own stable component with restart
+ * 13.  All prop types documented with defaults
+ * 14.  sellerLimits + needsVerification props consumed
+ */
+
+import {
+  useMemo, useState, useEffect, useCallback, useRef,
+} from "react";
+import { Link }         from "react-router-dom";
 import DropdownModal    from "../../components/DropdownModal.jsx";
 import AddProductHeader from "../../components/AddProductHeader.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
 
-/* ── Pure helpers (outside component) ───────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   PURE HELPERS  (outside component — stable references)
+═══════════════════════════════════════════════════════════════ */
 const normValue = (v) =>
   v !== null && v !== undefined ? String(v).trim() : "";
 
@@ -28,7 +52,17 @@ function getSelectedCategory(categories, id) {
 
 const toArray = (v) => (Array.isArray(v) ? v : []);
 
-/* ── SVG Icons ───────────────────────────────────────────────── */
+const fmtSecs = (totalSecs) => {
+  const m = Math.floor(totalSecs / 60);
+  const s = totalSecs % 60;
+  return m > 0
+    ? `${m}m ${String(s).padStart(2, "0")}s`
+    : `${s}s`;
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   SVG ICONS
+═══════════════════════════════════════════════════════════════ */
 const LocationPinIcon = () => (
   <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
        stroke="currentColor" strokeWidth="1.7"
@@ -84,19 +118,61 @@ const ClockIcon = () => (
   </svg>
 );
 
-/* ── Payment countdown ───────────────────────────────────────── */
-function PaymentCountdown({ createdAt, maxAgeMs }) {
-  const [remaining, setRemaining] = useState(
-    Math.max(0, maxAgeMs - (Date.now() - createdAt))
-  );
+const ShieldIcon = () => (
+  <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
+       stroke="currentColor" strokeWidth="1.7"
+       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M10 2L4 5v5c0 4.4 2.6 8.2 6 9.6 3.4-1.4 6-5.2 6-9.6V5l-6-3z"/>
+  </svg>
+);
 
+const ImageIcon = () => (
+  <svg viewBox="0 0 20 20" width="24" height="24" fill="none"
+       stroke="currentColor" strokeWidth="1.4"
+       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="2" y="3" width="16" height="14" rx="2"/>
+    <circle cx="7" cy="8" r="1.5"/>
+    <polyline points="2 14 6 10 9 13 12 10 18 15"/>
+  </svg>
+);
+
+const CheckIcon = () => (
+  <svg viewBox="0 0 16 16" width="14" height="14" fill="none"
+       stroke="currentColor" strokeWidth="2.2"
+       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="2 8 6 12 14 4"/>
+  </svg>
+);
+
+const UpgradeIcon = () => (
+  <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
+       stroke="currentColor" strokeWidth="1.7"
+       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polygon points="10 2 12.5 7.5 18 8.3 14 12.2 15 18 10 15 5 18 6 12.2 2 8.3 7.5 7.5"/>
+  </svg>
+);
+
+/* ═══════════════════════════════════════════════════════════════
+   PAYMENT COUNTDOWN  (stable — interval restarted correctly)
+═══════════════════════════════════════════════════════════════ */
+function PaymentCountdown({ createdAt, maxAgeMs }) {
+  const computeRemaining = () =>
+    Math.max(0, maxAgeMs - (Date.now() - createdAt));
+
+  const [remaining, setRemaining] = useState(computeRemaining);
+
+  /* Restart interval when createdAt changes (new payment session) */
   useEffect(() => {
-    if (remaining <= 0) return;
+    setRemaining(computeRemaining());
     const id = setInterval(() => {
-      setRemaining((prev) => Math.max(0, prev - 1_000));
+      setRemaining((prev) => {
+        const next = Math.max(0, prev - 1_000);
+        if (next === 0) clearInterval(id);
+        return next;
+      });
     }, 1_000);
     return () => clearInterval(id);
-  }, [remaining]);
+  }, [createdAt, maxAgeMs]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const mins = Math.floor(remaining / 60_000);
   const secs = Math.floor((remaining % 60_000) / 1_000);
@@ -119,35 +195,291 @@ function PaymentCountdown({ createdAt, maxAgeMs }) {
   );
 }
 
-/* ── Main component ──────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   COOLDOWN TIMER  (counts down on submit button)
+═══════════════════════════════════════════════════════════════ */
+function CooldownTimer({ initialSecs }) {
+  const [secs, setSecs] = useState(initialSecs);
+
+  useEffect(() => {
+    setSecs(initialSecs);
+    if (initialSecs <= 0) return;
+    const id = setInterval(() => {
+      setSecs((prev) => {
+        if (prev <= 1) { clearInterval(id); return 0; }
+        return prev - 1;
+      });
+    }, 1_000);
+    return () => clearInterval(id);
+  }, [initialSecs]);
+
+  if (secs <= 0) return null;
+  return (
+    <span className="cooldown-label">
+      <ClockIcon /> Wait {fmtSecs(secs)}
+    </span>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CHARACTER COUNTER
+═══════════════════════════════════════════════════════════════ */
+function CharCounter({ value, max, min = 0 }) {
+  const len     = String(value ?? "").length;
+  const tooShort = min > 0 && len < min;
+  const nearMax  = len > max * 0.9;
+  const atMax    = len >= max;
+
+  return (
+    <span
+      className={[
+        "char-counter",
+        tooShort ? "char-counter--short" : "",
+        nearMax  ? "char-counter--warn"  : "",
+        atMax    ? "char-counter--max"   : "",
+      ].filter(Boolean).join(" ")}
+      aria-live="polite"
+    >
+      {tooShort && min > 0
+        ? `${min - len} more character${min - len !== 1 ? "s" : ""} needed`
+        : `${len}/${max}`}
+    </span>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SECTION COMPLETION DOT
+   Green = has meaningful content, grey = empty
+═══════════════════════════════════════════════════════════════ */
+function SectionDot({ filled }) {
+  return (
+    <span
+      className={`section-dot ${filled ? "section-dot--filled" : ""}`}
+      aria-hidden="true"
+    />
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SELLER LIMITS BANNER
+═══════════════════════════════════════════════════════════════ */
+function SellerLimitsBanner({
+  sellerLimits,
+  limitsLoading,
+  isVerifiedSeller,
+}) {
+  if (limitsLoading || !sellerLimits) return null;
+  if (isVerifiedSeller) return null; // verified sellers see no banner
+
+  const {
+    daily_limit,
+    daily_used,
+    daily_remaining,
+    active_limit,
+    active_count,
+    active_remaining,
+    cooldown_seconds,
+    expiry_days,
+  } = sellerLimits;
+
+  const dailyPct  = Math.min(100, Math.round((daily_used  / daily_limit)  * 100));
+  const activePct = Math.min(100, Math.round((active_count / active_limit) * 100));
+
+  return (
+    <div className="limits-banner" role="status" aria-label="Your posting limits">
+      <div className="limits-banner-header">
+        <ShieldIcon />
+        <strong>Unverified Seller Limits</strong>
+        <Link to="/verification" className="limits-upgrade-link">
+          <UpgradeIcon /> Verify to unlock more
+        </Link>
+      </div>
+
+      <div className="limits-grid">
+        {/* Daily */}
+        <div className="limit-item">
+          <div className="limit-label">
+            <span>Posts today</span>
+            <span className={daily_remaining === 0 ? "limit-value--empty" : "limit-value"}>
+              {daily_remaining} / {daily_limit} left
+            </span>
+          </div>
+          <div className="limit-bar">
+            <div
+              className={`limit-bar-fill ${dailyPct >= 100 ? "limit-bar-fill--full" : ""}`}
+              style={{ width: `${dailyPct}%` }}
+            />
+          </div>
+        </div>
+
+        {/* Active listings */}
+        <div className="limit-item">
+          <div className="limit-label">
+            <span>Active listings</span>
+            <span className={active_remaining === 0 ? "limit-value--empty" : "limit-value"}>
+              {active_count} / {active_limit}
+            </span>
+          </div>
+          <div className="limit-bar">
+            <div
+              className={`limit-bar-fill ${activePct >= 100 ? "limit-bar-fill--full" : ""}`}
+              style={{ width: `${activePct}%` }}
+            />
+          </div>
+        </div>
+      </div>
+
+      <div className="limits-meta">
+        {expiry_days > 0 && (
+          <span>
+            <ClockIcon /> Listings expire in {expiry_days} days until verified
+          </span>
+        )}
+        {cooldown_seconds > 0 && (
+          <span className="limits-cooldown">
+            <ClockIcon /> Cooldown: <CooldownTimer initialSecs={cooldown_seconds} />
+          </span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VERIFICATION NUDGE BANNER
+   Shown after a product is created with active_limited status.
+═══════════════════════════════════════════════════════════════ */
+function VerificationNudgeBanner({ verificationData }) {
+  if (!verificationData) return null;
+
+  const { daysRemaining, message } = verificationData;
+
+  return (
+    <div className="verification-nudge-banner" role="status">
+      <div className="verification-nudge-icon">
+        <ShieldIcon />
+      </div>
+      <div className="verification-nudge-content">
+        <strong>
+          Your listing is live for {daysRemaining} day{daysRemaining !== 1 ? "s" : ""}
+        </strong>
+        <p>
+          {message ??
+            "Complete identity verification to make your listings permanent " +
+            "and unlock higher posting limits."}
+        </p>
+        <Link to="/verification" className="primary-btn verification-nudge-btn">
+          Complete Verification
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════════════ */
 export default function ProductComponents({
-  form, attributes, images, state, city, categories,
-  selectedPlan, paymentData, loading, error, success,
-  states, cities, options, selectedCategory,
-  agreedToTerms, TermsCheckbox, detectedCoords, detectingLocation,
-  MAX_IMAGES      = 6,
-  promotionPlans  = [],
-  plansLoading    = false,
-  updateForm, updateAttribute, updateContact, updateDelivery,
-  updateDeliveryDuration, toggleFeature, setState, setCity,
-  setSelectedPlan, handleImages, removeImage, handleSubmit,
-  clearDraft, detectLocation, resumePayment, cancelPendingPayment,
-  displayPrice, formatLabel, onlyNumbers, onlyDigits, INITIAL_FORM,
+  /* ─ data ─ */
+  form,
+  attributes,
+  images,
+  state,
+  city,
+  categories         = [],
+  selectedPlan       = null,
+  paymentData        = null,
+  loading            = false,
+  error              = "",
+  success            = "",
+  states             = [],
+  cities             = [],
+  options            = {},
+  selectedCategory   = null,
+  detectedCoords     = null,
+  detectingLocation  = false,
+  agreedToTerms      = false,
+  TermsCheckbox,
+  INITIAL_FORM,
+  MAX_IMAGES         = 6,
+  promotionPlans     = [],
+  plansLoading       = false,
+
+  /* ─ seller limits ─ */
+  sellerLimits       = null,
+  limitsLoading      = false,
+  isVerifiedSeller   = false,
+  canPost            = true,
+  dailyRemaining     = null,
+  activeRemaining    = null,
+  cooldownSecs       = 0,
+
+  /* ─ post-creation verification ─ */
+  needsVerification  = false,
+  verificationData   = null,
+
+  /* ─ handlers ─ */
+  updateForm,
+  updateAttribute,
+  updateContact,
+  updateDelivery,
+  updateDeliveryDuration,
+  toggleFeature,
+  setState,
+  setCity,
+  setSelectedPlan,
+  handleImages,
+  removeImage,
+  handleSubmit,
+  clearDraft,
+  detectLocation,
+  resumePayment,
+  cancelPendingPayment,
+
+  /* ─ formatters ─ */
+  displayPrice,
+  formatLabel,
+  onlyNumbers,
+  onlyDigits,
 }) {
   const [showAllFeatures, setShowAllFeatures] = useState(false);
+  const [isDragging,      setIsDragging]      = useState(false);
+  const dropZoneRef                           = useRef(null);
 
   /* ── Release card stacking context after entry animations ── */
   useEffect(() => {
-    const cards = document.querySelectorAll(".section, .form-card");
+    const cards  = document.querySelectorAll(".section, .form-card");
     const timers = Array.from(cards).map((card, i) =>
-      setTimeout(() => {
-        card.classList.add("ap-entered");
-      }, 400 + i * 60 + 100)
+      setTimeout(() => card.classList.add("ap-entered"), 400 + i * 60 + 100)
     );
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  /* ── Derived ── */
+  /* ═══════════════════════════════════════════════════════════
+     DRAG AND DROP  (upgrade #8)
+  ═══════════════════════════════════════════════════════════ */
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    /* Only fire if leaving the drop zone entirely */
+    if (!dropZoneRef.current?.contains(e.relatedTarget)) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    const files = e.dataTransfer?.files;
+    if (files?.length) handleImages(files);
+  }, [handleImages]);
+
+  /* ═══════════════════════════════════════════════════════════
+     DERIVED
+  ═══════════════════════════════════════════════════════════ */
   const categoryOptions = useMemo(() => {
     if (!Array.isArray(categories)) return [];
     return categories
@@ -165,16 +497,11 @@ export default function ProductComponents({
       ? options.fields.map((f) => (typeof f === "object" ? f.name ?? f.id : f))
       : [];
     const localFields = categoryFields[activeCategory.name] ?? [];
-
-    const seen = new Set();
+    const seen        = new Set();
     return [...backendFields, ...localFields]
       .filter(Boolean)
       .filter((f) => typeof f === "string" && f.trim().length > 0)
-      .filter((f) => {
-        if (seen.has(f)) return false;
-        seen.add(f);
-        return true;
-      })
+      .filter((f) => { if (seen.has(f)) return false; seen.add(f); return true; })
       .filter((f) => f !== "brand" && f !== "model");
   }, [activeCategory, options]);
 
@@ -188,40 +515,60 @@ export default function ProductComponents({
   const isFreePlan      = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
   const currentFeatures = toArray(attributes?.features);
 
-  const visibleFeatures = useMemo(() => {
-    const all = Array.isArray(options?.features) ? options.features : [];
-    return showAllFeatures ? all : all.slice(0, 12);
-  }, [options?.features, showAllFeatures]);
-
-  const totalFeatureCount = Array.isArray(options?.features)
-    ? options.features.length
-    : 0;
+  const allFeatures = useMemo(
+    () => (Array.isArray(options?.features) ? options.features : []),
+    [options?.features]
+  );
+  const visibleFeatures = useMemo(
+    () => (showAllFeatures ? allFeatures : allFeatures.slice(0, 12)),
+    [allFeatures, showAllFeatures]
+  );
+  const totalFeatureCount = allFeatures.length;
 
   const optionsMap = useMemo(() => ({
     brand            : normalizeOptions(options?.brands),
     color            : normalizeOptions(options?.colors),
     condition        : normalizeOptions(options?.conditions),
-    used_detail      : normalizeOptions(options?.used_details    ?? options?.usedDetails    ?? []),
+    used_detail      : normalizeOptions(options?.used_details ?? options?.usedDetails ?? []),
     ram              : normalizeOptions(options?.ram),
     storage          : normalizeOptions(options?.storage),
     sim              : normalizeOptions(options?.sim),
     year             : normalizeOptions(options?.years),
-    engine           : normalizeOptions(options?.engine          ?? options?.engines        ?? []),
-    fuel_type        : normalizeOptions(options?.fuelType        ?? options?.fuel_types      ?? []),
+    engine           : normalizeOptions(options?.engine ?? options?.engines ?? []),
+    fuel_type        : normalizeOptions(options?.fuelType ?? options?.fuel_types ?? []),
     size             : normalizeOptions(options?.size),
     age_range        : normalizeOptions(options?.age_range),
     bedrooms         : normalizeOptions(options?.bedrooms),
     bathrooms        : normalizeOptions(options?.bathrooms),
     experience_level : normalizeOptions(options?.experience_level),
     skills           : normalizeOptions(options?.skills),
-    features         : Array.isArray(options?.features) ? options.features : [],
-  }), [options]);
+    features         : allFeatures,
+  }), [options, allFeatures]);
 
-  /* ── Plan price label ── */
-  const planPriceLabel = (plan) => {
+  /* ── Section completion flags (upgrade #11) ── */
+  const basicFilled    = !!(form.title?.trim() && form.description?.trim() && form.price);
+  const detailsFilled  = !!form.category_id;
+  const contactFilled  = !!(form.contact?.email && form.contact?.phone);
+  const locationFilled = !!(state && city);
+  const imagesFilled   = images.length > 0;
+
+  /* ── Promotion plan helpers ── */
+
+  /* Best value = highest effective discount (upgrade #9) */
+  const bestValuePlanId = useMemo(() => {
+    if (!promotionPlans.length) return null;
+    let best = null;
+    let bestDiscount = 0;
+    for (const p of promotionPlans) {
+      const d = Number(p.discount_percent ?? 0);
+      if (d > bestDiscount) { bestDiscount = d; best = p.id; }
+    }
+    return bestDiscount > 0 ? best : null;
+  }, [promotionPlans]);
+
+  const planPriceLabel = useCallback((plan) => {
     const price    = Number(plan.price ?? 0);
     const discount = Number(plan.discount_percent ?? 0);
-
     if (price === 0) return "Free";
 
     if (discount > 0) {
@@ -230,33 +577,29 @@ export default function ProductComponents({
       const effective     = Number.isFinite(apiEffective) && apiEffective > 0
         ? apiEffective
         : calcEffective;
-
       return (
         <>
-          <span className="plan-price-original">
-            &#8358;{displayPrice(price)}
-          </span>{" "}
-          <span className="plan-price-effective">
-            &#8358;{displayPrice(effective.toFixed(2))}
-          </span>{" "}
+          <span className="plan-price-original">&#8358;{displayPrice(price)}</span>
+          {" "}
+          <span className="plan-price-effective">&#8358;{displayPrice(effective.toFixed(2))}</span>
+          {" "}
           <span className="plan-price-badge">-{discount}%</span>
         </>
       );
     }
-
     return <>&#8358;{displayPrice(price)}</>;
-  };
+  }, [displayPrice]);
 
   /* ── Delivery day clamp ── */
-  const clampDay = (val) => {
+  const clampDay = useCallback((val) => {
     const n = parseInt(val.replace(/[^0-9]/g, ""), 10);
     if (Number.isNaN(n) || n < 1) return "";
     if (n > 30) return "30";
     return String(n);
-  };
+  }, []);
 
   /* ── WhatsApp link sanitiser ── */
-  const sanitizeWhatsAppLink = (val) => {
+  const sanitizeWhatsAppLink = useCallback((val) => {
     const trimmed = val.trim();
     if (!trimmed) return "";
     try {
@@ -268,14 +611,30 @@ export default function ProductComponents({
     } catch {
       return "";
     }
-  };
+  }, []);
 
-  /* ── Render ── */
+  /* ── Submit button state ── */
+  const submitBlocked   = loading || !agreedToTerms || plansLoading || !canPost;
+  const submitTitle     = !agreedToTerms
+    ? "Please accept the Terms & Conditions first"
+    : plansLoading
+    ? "Plans are still loading"
+    : !canPost && dailyRemaining === 0
+    ? "Daily posting limit reached"
+    : !canPost && activeRemaining === 0
+    ? "Active listing limit reached"
+    : !canPost && cooldownSecs > 0
+    ? `Please wait before posting again`
+    : undefined;
+
+  /* ═══════════════════════════════════════════════════════════
+     RENDER
+  ═══════════════════════════════════════════════════════════ */
   return (
     <>
       <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
 
-      {/* Feedback banners */}
+      {/* ── Feedback banners ── */}
       {error && (
         <div className="form-error ap-error-banner" role="alert">
           <WarningIcon /> {error}
@@ -287,7 +646,19 @@ export default function ProductComponents({
         </div>
       )}
 
-      {/* Incomplete payment banner */}
+      {/* ── Post-creation verification nudge (upgrade #2) ── */}
+      {needsVerification && verificationData && (
+        <VerificationNudgeBanner verificationData={verificationData} />
+      )}
+
+      {/* ── Seller limits banner (upgrade #1) ── */}
+      <SellerLimitsBanner
+        sellerLimits={sellerLimits}
+        limitsLoading={limitsLoading}
+        isVerifiedSeller={isVerifiedSeller}
+      />
+
+      {/* ── Incomplete payment banner ── */}
       {paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
@@ -311,10 +682,16 @@ export default function ProductComponents({
         </div>
       )}
 
-      {/* ── Basic Information ── */}
+      {/* ══════════════════════════════════════════════════════
+          BASIC INFORMATION
+      ══════════════════════════════════════════════════════ */}
       <section className="section form-card">
-        <h3 className="section-title">Basic Information</h3>
+        <h3 className="section-title">
+          Basic Information
+          <SectionDot filled={basicFilled} />
+        </h3>
 
+        {/* Title */}
         <div className="form-group">
           <label htmlFor="ap-title">Product Title *</label>
           <input
@@ -324,20 +701,30 @@ export default function ProductComponents({
             onChange={(e) => updateForm("title", e.target.value)}
             maxLength={120}
           />
+          <div className="field-footer">
+            <small className="field-hint">Be specific — good titles get more views</small>
+            <CharCounter value={form.title} max={120} />
+          </div>
         </div>
 
+        {/* Description (upgrade #10 — live counter with min hint) */}
         <div className="form-group">
           <label htmlFor="ap-desc">Description *</label>
           <textarea
             id="ap-desc"
             rows={4}
-            placeholder="Describe your product in detail"
+            placeholder="Describe your product — condition, features, reason for selling"
             value={form.description}
             onChange={(e) => updateForm("description", e.target.value)}
             maxLength={2000}
           />
+          <div className="field-footer">
+            <small className="field-hint">Minimum 10 characters</small>
+            <CharCounter value={form.description} max={2000} min={10} />
+          </div>
         </div>
 
+        {/* Price (upgrade #7 — formatted preview below input) */}
         <div className="form-group">
           <label htmlFor="ap-price">Price (&#8358;) *</label>
           <input
@@ -348,12 +735,22 @@ export default function ProductComponents({
             value={displayPrice(form.price)}
             onChange={(e) => updateForm("price", onlyNumbers(e.target.value))}
           />
+          {form.price && Number(form.price) > 0 && (
+            <small className="field-hint field-hint--price">
+              &#8358;{displayPrice(form.price)} NGN
+            </small>
+          )}
         </div>
       </section>
 
-      {/* ── Product Details ── */}
+      {/* ══════════════════════════════════════════════════════
+          PRODUCT DETAILS
+      ══════════════════════════════════════════════════════ */}
       <section className="section form-card">
-        <h3 className="section-title">Product Details</h3>
+        <h3 className="section-title">
+          Product Details
+          <SectionDot filled={detailsFilled} />
+        </h3>
 
         <div className="form-group">
           <label>Category *</label>
@@ -476,9 +873,14 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ── Contact Information ── */}
+      {/* ══════════════════════════════════════════════════════
+          CONTACT INFORMATION
+      ══════════════════════════════════════════════════════ */}
       <section className="section form-card">
-        <h3 className="section-title">Contact Information</h3>
+        <h3 className="section-title">
+          Contact Information
+          <SectionDot filled={contactFilled} />
+        </h3>
 
         <div className="form-row">
           <div className="form-group">
@@ -509,8 +911,12 @@ export default function ProductComponents({
         </div>
 
         <div className="form-row">
+          {/* Upgrade #5 — WhatsApp is now optional */}
           <div className="form-group">
-            <label htmlFor="ap-wa">WhatsApp *</label>
+            <label htmlFor="ap-wa">
+              WhatsApp
+              <span className="label-optional">(optional)</span>
+            </label>
             <input
               id="ap-wa"
               type="tel"
@@ -523,7 +929,10 @@ export default function ProductComponents({
             />
           </div>
           <div className="form-group">
-            <label htmlFor="ap-wa-link">WhatsApp Link</label>
+            <label htmlFor="ap-wa-link">
+              WhatsApp Link
+              <span className="label-optional">(optional)</span>
+            </label>
             <input
               id="ap-wa-link"
               type="url"
@@ -536,20 +945,22 @@ export default function ProductComponents({
               }}
               onBlur={(e) => {
                 const safe = sanitizeWhatsAppLink(e.target.value);
-                if (e.target.value && !safe)
-                  updateContact("whatsapp_link", "");
+                if (e.target.value && !safe) updateContact("whatsapp_link", "");
               }}
             />
-            <small className="field-hint">
-              Format: https://wa.me/2348012345678
-            </small>
+            <small className="field-hint">Format: https://wa.me/2348012345678</small>
           </div>
         </div>
       </section>
 
-      {/* ── Location & Delivery ── */}
+      {/* ══════════════════════════════════════════════════════
+          LOCATION & DELIVERY
+      ══════════════════════════════════════════════════════ */}
       <section className="section form-card">
-        <h3 className="section-title">Location &amp; Delivery</h3>
+        <h3 className="section-title">
+          Location &amp; Delivery
+          <SectionDot filled={locationFilled} />
+        </h3>
 
         {detectLocation && (
           <div className="detect-location-row">
@@ -560,18 +971,12 @@ export default function ProductComponents({
               disabled={detectingLocation}
             >
               {detectingLocation ? (
-                <>
-                  <SpinnerIcon />
-                  {" "}Detecting location&#8230;
-                </>
+                <><SpinnerIcon />{" "}Detecting location&#8230;</>
               ) : (
-                <>
-                  <LocationPinIcon />
-                  {detectedCoords ? "Location detected" : "Detect my location"}
-                </>
+                <><LocationPinIcon />{detectedCoords ? "Location detected ✓" : "Detect my location"}</>
               )}
             </button>
-            <small className="field-hint">Auto-fills your state and city</small>
+            <small className="field-hint">Auto-fills state and city</small>
           </div>
         )}
 
@@ -598,7 +1003,6 @@ export default function ProductComponents({
           )}
         </div>
 
-        {/* ── UPDATED TOGGLE WITH STATUS TEXT ── */}
         <div className="form-group">
           <label htmlFor="ap-delivery-toggle">Delivery Available</label>
           <label className="toggle-switch">
@@ -609,7 +1013,9 @@ export default function ProductComponents({
               onChange={(e) => updateDelivery("available", e.target.checked)}
             />
             <span className="slider" />
-            <span className={`toggle-status${form.delivery.available ? " toggle-status--on" : ""}`}>
+            <span
+              className={`toggle-status${form.delivery.available ? " toggle-status--on" : ""}`}
+            >
               {form.delivery.available ? "Yes — delivery available" : "No delivery"}
             </span>
           </label>
@@ -622,9 +1028,7 @@ export default function ProductComponents({
                 <label htmlFor="ap-del-from">From Day *</label>
                 <input
                   id="ap-del-from"
-                  type="number"
-                  min="1"
-                  max="30"
+                  type="number" min="1" max="30"
                   value={form.delivery.duration.from}
                   onChange={(e) =>
                     updateDeliveryDuration("from", clampDay(e.target.value))
@@ -635,9 +1039,7 @@ export default function ProductComponents({
                 <label htmlFor="ap-del-to">To Day *</label>
                 <input
                   id="ap-del-to"
-                  type="number"
-                  min="1"
-                  max="30"
+                  type="number" min="1" max="30"
                   value={form.delivery.duration.to}
                   onChange={(e) =>
                     updateDeliveryDuration("to", clampDay(e.target.value))
@@ -650,8 +1052,7 @@ export default function ProductComponents({
                 <label htmlFor="ap-del-fee">Fee (&#8358;) *</label>
                 <input
                   id="ap-del-fee"
-                  type="text"
-                  inputMode="numeric"
+                  type="text" inputMode="numeric"
                   value={displayPrice(form.delivery.fee)}
                   onChange={(e) =>
                     updateDelivery("fee", onlyNumbers(e.target.value))
@@ -659,7 +1060,11 @@ export default function ProductComponents({
                 />
               </div>
               <div className="form-group">
-                <label htmlFor="ap-del-note">Delivery Note</label>
+                <label htmlFor="ap-del-note">
+                  Delivery Note
+                  <span className="label-optional">(optional)</span>
+                </label>
+                {/* Upgrade #6 — delivery note counter */}
                 <textarea
                   id="ap-del-note"
                   rows={2}
@@ -667,20 +1072,39 @@ export default function ProductComponents({
                   onChange={(e) => updateDelivery("note", e.target.value)}
                   maxLength={200}
                 />
+                <div className="field-footer">
+                  <span />
+                  <CharCounter value={form.delivery.note} max={200} />
+                </div>
               </div>
             </div>
           </div>
         )}
       </section>
 
-      {/* ── Product Images ── */}
+      {/* ══════════════════════════════════════════════════════
+          PRODUCT IMAGES  (upgrade #8 — drag and drop)
+      ══════════════════════════════════════════════════════ */}
       <section className="section form-card">
-        <h3 className="section-title">Product Images *</h3>
+        <h3 className="section-title">
+          Product Images *
+          <SectionDot filled={imagesFilled} />
+        </h3>
         <small className="field-hint">
-          Max {MAX_IMAGES} images &middot; up to 3 MB each
+          Max {MAX_IMAGES} images &middot; up to 3 MB each &middot; JPEG, PNG, WebP
         </small>
 
-        <div className="preview-grid-modern image-upload-box ap-image-box">
+        <div
+          ref={dropZoneRef}
+          className={[
+            "preview-grid-modern image-upload-box ap-image-box",
+            isDragging ? "ap-image-box--dragging" : "",
+          ].filter(Boolean).join(" ")}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          aria-label="Image upload area — drag and drop or click to add"
+        >
           {images.map((img, index) => (
             <div key={img.id} className="preview-thumb">
               <img
@@ -698,13 +1122,21 @@ export default function ProductComponents({
                      stroke="currentColor" strokeWidth="2.2"
                      strokeLinecap="round" aria-hidden="true">
                   <line x1="1" y1="1" x2="13" y2="13"/>
-                  <line x1="13" y1="1" x2="1"  y2="13"/>
+                  <line x1="13" y1="1" x2="1" y2="13"/>
                 </svg>
               </button>
+              {index === 0 && (
+                <span className="preview-primary-badge" aria-label="Primary image">
+                  Main
+                </span>
+              )}
             </div>
           ))}
+
           {images.length < MAX_IMAGES && (
-            <label className="add-image-box add-image-btn">
+            <label
+              className={`add-image-box add-image-btn${isDragging ? " add-image-btn--dragging" : ""}`}
+            >
               <input
                 hidden
                 multiple
@@ -715,60 +1147,61 @@ export default function ProductComponents({
                   e.target.value = "";
                 }}
               />
-              <svg viewBox="0 0 20 20" width="22" height="22" fill="none"
-                   stroke="currentColor" strokeWidth="1.6"
-                   strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <line x1="10" y1="4" x2="10" y2="16"/>
-                <line x1="4"  y1="10" x2="16" y2="10"/>
-              </svg>
-              <span>Add Images</span>
+              <ImageIcon />
+              <span>{isDragging ? "Drop here" : "Add Images"}</span>
+              <small>or drag &amp; drop</small>
             </label>
           )}
         </div>
 
         {images.length > 0 && (
-          <small className="image-count">
-            {images.length}/{MAX_IMAGES} images added
-          </small>
+          <div className="image-footer">
+            <small className="image-count">
+              {images.length}/{MAX_IMAGES} images added
+            </small>
+            <small className="field-hint">
+              First image is used as the main listing photo
+            </small>
+          </div>
         )}
       </section>
 
-      {/* ── Promotion Plan ── */}
+      {/* ══════════════════════════════════════════════════════
+          PROMOTION PLAN  (upgrade #9 — Best Value badge)
+      ══════════════════════════════════════════════════════ */}
       <section className="section form-card">
         <h3 className="section-title">Promotion Plan</h3>
 
         {plansLoading && (
           <div className="plans-loading" aria-live="polite">
-            <SpinnerIcon />
-            {" "}Loading plans&#8230;
+            <SpinnerIcon />{" "}Loading plans&#8230;
           </div>
         )}
 
         {!plansLoading && promotionPlans.length === 0 && (
           <div className="form-error" role="alert">
-            <WarningIcon />
-            {" "}Could not load promotion plans. Please refresh the page.
+            <WarningIcon />{" "}Could not load promotion plans. Please refresh the page.
           </div>
         )}
 
         {!plansLoading && promotionPlans.length > 0 && (
-          <div
-            className="plans-grid"
-            role="radiogroup"
-            aria-label="Promotion plan"
-          >
+          <div className="plans-grid" role="radiogroup" aria-label="Promotion plan">
             {promotionPlans.map((plan) => {
-              const isSelected =
-                String(selectedPlan?.id) === String(plan.id);
+              const isSelected   = String(selectedPlan?.id) === String(plan.id);
+              const isBestValue  = String(plan.id) === String(bestValuePlanId);
               return (
                 <div
                   key={plan.id}
-                  className={`plan-card${isSelected ? " selected" : ""}`}
+                  className={[
+                    "plan-card",
+                    isSelected  ? "selected"          : "",
+                    isBestValue ? "plan-card--best"   : "",
+                  ].filter(Boolean).join(" ")}
                   onClick={() => setSelectedPlan(isSelected ? null : plan)}
                   role="radio"
                   tabIndex={0}
                   aria-checked={isSelected}
-                  aria-label={`${plan.name} plan`}
+                  aria-label={`${plan.name} plan${isBestValue ? " — Best Value" : ""}`}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
@@ -776,6 +1209,13 @@ export default function ProductComponents({
                     }
                   }}
                 >
+                  {/* Best Value badge (upgrade #9) */}
+                  {isBestValue && (
+                    <div className="plan-best-badge" aria-hidden="true">
+                      Best Value
+                    </div>
+                  )}
+
                   <div className="plan-header">
                     <strong>{plan.name}</strong>
                     <span className="plan-price">{planPriceLabel(plan)}</span>
@@ -786,7 +1226,9 @@ export default function ProductComponents({
                   {Array.isArray(plan.features) && plan.features.length > 0 && (
                     <ul className="plan-features">
                       {plan.features.map((f, i) => (
-                        <li key={i}>{f}</li>
+                        <li key={i}>
+                          <CheckIcon /> {f}
+                        </li>
                       ))}
                     </ul>
                   )}
@@ -795,26 +1237,35 @@ export default function ProductComponents({
             })}
           </div>
         )}
+
+        {/* Unverified seller — plan upsell note */}
+        {!isVerifiedSeller && !plansLoading && promotionPlans.length > 0 && (
+          <p className="plans-note">
+            <ShieldIcon />
+            {" "}
+            <Link to="/verification">Verify your identity</Link> to post without
+            the 7-day listing limit.
+          </p>
+        )}
       </section>
 
-      {/* ── Terms + Submit ── */}
+      {/* ══════════════════════════════════════════════════════
+          TERMS + SUBMIT  (upgrade #3 + #4)
+      ══════════════════════════════════════════════════════ */}
       <div className="button-section section form-card">
         {TermsCheckbox}
 
         <button
           type="button"
-          disabled={loading || !agreedToTerms || plansLoading}
-          className="primary-btn full-width"
+          disabled={submitBlocked}
+          className={[
+            "primary-btn full-width",
+            !canPost ? "primary-btn--blocked" : "",
+          ].filter(Boolean).join(" ")}
           onClick={handleSubmit}
           aria-busy={loading}
           aria-live="polite"
-          title={
-            !agreedToTerms
-              ? "Please accept the Terms & Conditions first"
-              : plansLoading
-              ? "Plans are still loading"
-              : undefined
-          }
+          title={submitTitle}
         >
           {loading ? (
             <>
@@ -822,12 +1273,34 @@ export default function ProductComponents({
               <span className="sr-only">Submitting, please wait…</span>
               {" "}Processing&#8230;
             </>
+          ) : !canPost && cooldownSecs > 0 ? (
+            /* Upgrade #4 — cooldown timer on button */
+            <>
+              <CooldownTimer initialSecs={cooldownSecs} />
+            </>
+          ) : !canPost && dailyRemaining === 0 ? (
+            "Daily Limit Reached"
+          ) : !canPost && activeRemaining === 0 ? (
+            "Active Limit Reached"
           ) : isFreePlan ? (
             "Post Ad"
           ) : (
             "Post Ad & Pay"
           )}
         </button>
+
+        {/* Soft quota warning below button */}
+        {!canPost && !loading && (
+          <p className="submit-limit-note">
+            <WarningIcon />
+            {dailyRemaining === 0
+              ? `You've reached your daily limit (${sellerLimits?.daily_limit}/day). `
+              : activeRemaining === 0
+              ? `You've reached your active listing limit (${sellerLimits?.active_limit}). `
+              : "Posting is on cooldown. "}
+            <Link to="/verification">Complete verification</Link> to unlock higher limits.
+          </p>
+        )}
       </div>
     </>
   );
