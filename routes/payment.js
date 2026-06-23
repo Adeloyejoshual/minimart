@@ -27,7 +27,7 @@ import rateLimit from "express-rate-limit";
 import { pool }         from "../config/db.js";
 import { authenticate } from "../middleware/auth.js";
 import { writeAudit }   from "../lib/audit.js";
-import { createNotification }        from "../services/notificationServices.js";
+import { createNotification }        from "../services/notificationService.js";
 import { reactivateLimitedListings } from "./addproduct.js";
 
 const router        = express.Router();
