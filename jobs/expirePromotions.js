@@ -3,11 +3,9 @@
  *
  * Expires promoted products whose promotion_end has passed.
  *
- * Changes v2:
- *  ─ expirePromotions is now a named export — not a self-executing module
- *  ─ Caller controls schedule (server.js or jobs/index.js)
- *  ─ Notifies seller when promotion expires
- *  ─ Returns expired rows for logging / testing
+ * Exports:
+ *   expirePromotions()          — core function, testable
+ *   scheduleExpirePromotions()  — sets up cron + runs on startup
  */
 
 import cron from "node-cron";
@@ -15,7 +13,7 @@ import { pool }               from "../config/db.js";
 import { createNotification } from "../services/notifications.js";
 
 /* ══════════════════════════════════════════════════════════════
-   CORE FUNCTION (exported — testable, callable externally)
+   CORE FUNCTION
 ══════════════════════════════════════════════════════════════ */
 export const expirePromotions = async () => {
   const client = await pool.connect();
@@ -47,21 +45,26 @@ export const expirePromotions = async () => {
 
     /* Group by seller — one notification per seller */
     const bySeller = expired.reduce((acc, p) => {
-      (acc[p.seller_id] ??= []).push(p.title);
+      const key = String(p.seller_id);
+      (acc[key] ??= []).push(p.title);
       return acc;
     }, {});
 
     for (const [sellerId, titles] of Object.entries(bySeller)) {
+      /* Build a clean preview of affected listing titles */
+      const preview = titles.slice(0, 2).join(", ") +
+        (titles.length > 2 ? ` and ${titles.length - 2} more` : "");
+
+      const listingWord = titles.length !== 1 ? "listings" : "listing";
+      const verbWord    = titles.length !== 1 ? "have"     : "has";
+
       createNotification({
         userId  : sellerId,
         type    : "promotion_expired",
         title   : "Promotion Ended",
         message :
-          `${titles.length} listing${titles.length !== 1 ? "s" : ""} ` +
-          "(\"" + titles.slice(0, 2).join('", "') +
-          (titles.length > 2 ? `" and ${titles.length - 2} more` : '"') +
-          ") promotion${titles.length !== 1 ? "s have" : " has"} ended. " +
-          "Renew to boost visibility again.",
+          `${titles.length} ${listingWord} (${preview}) ` +
+          `${verbWord} ended. Renew to boost visibility again.`,
       }).catch(() => {});
     }
 
@@ -76,24 +79,28 @@ export const expirePromotions = async () => {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   SCHEDULE (called from jobs/index.js or server.js)
+   SCHEDULE
 ══════════════════════════════════════════════════════════════ */
 export const scheduleExpirePromotions = () => {
-  const SCHEDULE = "*/10 * * * *";
   const TIMEZONE = "Africa/Lagos";
 
+  /* every 10 minutes */
   cron.schedule(
-    SCHEDULE,
-    async () => { await expirePromotions(); },
+    "0,10,20,30,40,50 * * * *",
+    async () => {
+      try {
+        await expirePromotions();
+      } catch (err) {
+        console.error("[expirePromotions] cron error:", err.message);
+      }
+    },
     { timezone: TIMEZONE }
   );
 
-  console.log(
-    `[expirePromotions] scheduled — every 10 minutes (${TIMEZONE})`
-  );
+  console.log("[expirePromotions] scheduled — every 10 minutes (Africa/Lagos)");
 
   /* Run immediately on startup */
   expirePromotions().catch((err) =>
-    console.error("[expirePromotions] startup run error:", err.message)
+    console.error("[expirePromotions] startup error:", err.message)
   );
 };
