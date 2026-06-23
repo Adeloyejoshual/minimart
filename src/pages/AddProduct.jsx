@@ -1,11 +1,17 @@
 /**
  * src/pages/AddProduct.jsx
- * Route: /minimart/add
+ * Route: /minimart/add  — v4
+ *
+ * Changes from v3:
+ *  ─ idempotency_key forwarded to /payment/initiate (fixes frontend mismatch)
+ *  ─ /verify response "pending" handled — shows user-friendly message
+ *  ─ Payment session stores enough context for recovery on any Paystack status
  */
+
 import {
   useEffect, useMemo, useState, useCallback, useRef,
 } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import ProductComponents    from "./product/components.jsx";
 import ProgressOverlay      from "../components/ProgressOverlay.jsx";
 import { locationsByState } from "../config/locationsByState.js";
@@ -31,20 +37,24 @@ const GPS_TIMEOUT      = 10_000;
 const GPS_MAX_AGE      = 60_000;
 const BRAND_NAME       = "Loemart";
 const USER_AGENT       = "loemart-app/1.0";
+const DESCRIPTION_MIN  = 10;
+const GPS_ROUND_DP     = 4;
 
-/* Allowed payment hosts — validated before window.open */
-const ALLOWED_PAYMENT_HOSTS = [
+const ALLOWED_PAYMENT_HOSTS = new Set([
   "checkout.paystack.com",
   "standard.paystack.com",
-];
+]);
 
-const INITIAL_FORM = {
+const PHONE_RE = /^\+?[0-9]{7,15}$/;
+
+/* ─── Initial form ── */
+const INITIAL_FORM = Object.freeze({
   title          : "",
   description    : "",
   price          : "",
   category_id    : "",
   subcategory_id : "",
-  attributes     : {
+  attributes     : Object.freeze({
     brand            : "",
     model            : "",
     color            : "",
@@ -56,63 +66,53 @@ const INITIAL_FORM = {
     year             : "",
     engine           : "",
     fuel_type        : "",
-    features         : [],
+    features         : Object.freeze([]),
     size             : "",
     age_range        : "",
     bedrooms         : "",
     bathrooms        : "",
     experience_level : "",
     skills           : "",
-  },
-  delivery : {
+  }),
+  delivery : Object.freeze({
     available : false,
-    duration  : { from: "", to: "" },
+    duration  : Object.freeze({ from: "", to: "" }),
     fee       : "",
     note      : "",
-  },
-  contact : {
+  }),
+  contact : Object.freeze({
     phone         : "",
     whatsapp      : "",
     whatsapp_link : "",
     email         : "",
     preferred     : "chat",
-  },
-};
+  }),
+});
 
 const ERROR_SELECTOR_MAP = [
-  { match: "Title required",       sel: 'input[placeholder*="HP Pavilion"]'   },
-  { match: "Description required", sel: 'textarea[placeholder*="Describe"]'   },
-  { match: "valid price",          sel: 'input[placeholder*="Enter price"]'    },
-  { match: "Category required",    sel: ".ap-form-card:nth-of-type(2)"        },
-  { match: "valid email",          sel: 'input[type="email"]'                 },
-  { match: "Phone must be",        sel: 'input[placeholder="08012345678"]'    },
-  { match: "WhatsApp number",      sel: 'input[type="tel"]:last-of-type'      },
-  { match: "image required",       sel: ".ap-image-box"                       },
-  { match: "state and city",       sel: ".ap-detect-row"                      },
-  { match: "Terms",                sel: ".ap-terms-row"                       },
-  { match: "delivery days",        sel: 'input[type="number"]'                },
-  { match: "Delivery end",         sel: 'input[type="number"]:last-of-type'   },
-  { match: "delivery fee",         sel: ".ap-delivery-grid"                   },
+  { match: "Title",           sel: "#ap-title"               },
+  { match: "Description",     sel: "#ap-desc"                },
+  { match: "price",           sel: "#ap-price"               },
+  { match: "Category",        sel: ".section:nth-of-type(2)" },
+  { match: "email",           sel: "#ap-email"               },
+  { match: "Phone",           sel: "#ap-phone"               },
+  { match: "WhatsApp",        sel: "#ap-wa"                  },
+  { match: "image",           sel: ".ap-image-box"           },
+  { match: "state and city",  sel: ".detect-location-row"    },
+  { match: "Terms",           sel: ".ap-terms-row"           },
+  { match: "delivery days",   sel: "#ap-del-from"            },
+  { match: "Delivery end",    sel: "#ap-del-to"              },
+  { match: "delivery fee",    sel: "#ap-del-fee"             },
 ];
 
-/* ── Helpers ─────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   PURE HELPERS
+═══════════════════════════════════════════════════════════════ */
 const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
 const onlyDigits  = (v = "") => v.replace(/[^0-9]/g,  "");
 const toArray     = (v)      => (Array.isArray(v) ? v : []);
-
-const getToken = () =>
-  localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("token");
-
-const getTokenOrRedirect = (returnPath) => {
-  const token = getToken();
-  if (!token) {
-    const encoded = encodeURIComponent(returnPath ?? window.location.pathname);
-    window.location.href = `/login?redirect=${encoded}`;
-    throw new ApiError("Session expired — redirecting to login", 401);
-  }
-  return token;
-};
+const roundGps    = (c)      =>
+  Math.round(c * 10 ** GPS_ROUND_DP) / 10 ** GPS_ROUND_DP;
 
 const displayPrice = (v) => {
   const n = Number(v);
@@ -124,12 +124,26 @@ const displayPrice = (v) => {
 const formatLabel = (t) =>
   t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
-/* ── Payment URL safety check ────────────────────────────────── */
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token");
+
+const getTokenOrRedirect = (navigate, returnPath) => {
+  const token = getToken();
+  if (!token) {
+    navigate(
+      `/login?redirect=${encodeURIComponent(returnPath ?? window.location.pathname)}`
+    );
+    throw new ApiError("Session expired — redirecting to login", 401);
+  }
+  return token;
+};
+
 const safeOpenPayment = (url, onError) => {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:") throw new Error("Non-HTTPS URL");
-    if (!ALLOWED_PAYMENT_HOSTS.some((h) => parsed.hostname.endsWith(h)))
+    if (!ALLOWED_PAYMENT_HOSTS.has(parsed.hostname))
       throw new Error(`Untrusted host: ${parsed.hostname}`);
     window.open(url, "_blank", "noopener,noreferrer");
   } catch (err) {
@@ -138,14 +152,12 @@ const safeOpenPayment = (url, onError) => {
   }
 };
 
-/* ── Payment session validation ──────────────────────────────── */
 const isValidPaymentSession = (obj) =>
   obj &&
   typeof obj.reference === "string" && obj.reference.length > 0 &&
   typeof obj.authUrl   === "string" && obj.authUrl.startsWith("https://") &&
   typeof obj.createdAt === "number";
 
-/* ── Image magic-byte verification ──────────────────────────── */
 const verifyImageMagicBytes = (file) =>
   new Promise((resolve) => {
     const reader = new FileReader();
@@ -154,31 +166,30 @@ const verifyImageMagicBytes = (file) =>
       const hex = Array.from(arr)
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
-      const isJpeg = hex.startsWith("ffd8ff");
-      const isPng  = hex.startsWith("89504e47");
-      const isWebP = hex.startsWith("52494646") && hex.slice(16, 24) === "57454250";
-      resolve(isJpeg || isPng || isWebP);
+      resolve(
+        hex.startsWith("ffd8ff")   ||
+        hex.startsWith("89504e47") ||
+        (hex.startsWith("52494646") && hex.slice(16, 24) === "57454250")
+      );
     };
     reader.onerror = () => resolve(false);
     reader.readAsArrayBuffer(file.slice(0, 12));
   });
 
-/* ── Idempotency key per session ─────────────────────────────── */
-const getOrCreateIdempotencyKey = (key) => {
-  const existing = sessionStorage.getItem(key);
+const getOrCreateIdempotencyKey = (storageKey) => {
+  const existing = sessionStorage.getItem(storageKey);
   if (existing) return existing;
   const id = crypto.randomUUID();
-  sessionStorage.setItem(key, id);
+  sessionStorage.setItem(storageKey, id);
   return id;
 };
-const clearIdempotencyKey = (key) => sessionStorage.removeItem(key);
+const clearIdempotencyKey = (storageKey) =>
+  sessionStorage.removeItem(storageKey);
 
-/* ── Multipart POST with timeout ─────────────────────────────── */
 const multipartPost = async (url, formData, token, timeoutMs = UPLOAD_TIMEOUT) => {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
   let res;
-
   try {
     res = await fetch(url, {
       method  : "POST",
@@ -193,19 +204,16 @@ const multipartPost = async (url, formData, token, timeoutMs = UPLOAD_TIMEOUT) =
   } finally {
     clearTimeout(tid);
   }
-
   const data = await res.json().catch(() => ({}));
   if (!res.ok)
     throw new ApiError(data?.message ?? `Request failed (${res.status})`, res.status);
   return data;
 };
 
-/* ── Scroll to error field ───────────────────────────────────── */
 const scrollToError = (msg) => {
   if (!msg) return;
   const entry = ERROR_SELECTOR_MAP.find((e) => msg.includes(e.match));
   const sel   = entry?.sel ?? ".ap-error-banner";
-
   requestAnimationFrame(() => {
     try {
       const el = document.querySelector(sel);
@@ -216,19 +224,27 @@ const scrollToError = (msg) => {
       }
       el.classList.add("ap-field-flash");
       setTimeout(() => el.classList.remove("ap-field-flash"), 2_000);
-    } catch { /* scroll is a nice-to-have */ }
+    } catch { /* scroll is nice-to-have */ }
   });
 };
+
+const isValidPhone = (value) => {
+  if (!value) return false;
+  return PHONE_RE.test(String(value).replace(/[\s\-().]/g, ""));
+};
+
+const freshForm = () => structuredClone(INITIAL_FORM);
 
 /* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function AddProduct({ user }) {
-  const STORAGE_DRAFT      = `product_draft_${user?.id ?? "anon"}`;
-  const IDEMPOTENCY_STORE  = `idempotency_${user?.id ?? "anon"}`;
+  const navigate          = useNavigate();
+  const STORAGE_DRAFT     = `product_draft_${user?.id ?? "anon"}`;
+  const IDEMPOTENCY_STORE = `idempotency_${user?.id ?? "anon"}`;
 
-  /* ── State ── */
-  const [form,              setForm]              = useState(INITIAL_FORM);
+  /* ─── State ── */
+  const [form,              setForm]              = useState(freshForm);
   const [categories,        setCategories]        = useState([]);
   const [promotionPlans,    setPromotionPlans]    = useState([]);
   const [plansLoading,      setPlansLoading]      = useState(true);
@@ -246,34 +262,61 @@ export default function AddProduct({ user }) {
   const [progressVisible,   setProgressVisible]   = useState(false);
   const [progressStep,      setProgressStep]      = useState("compressing");
 
+  const [sellerLimits,  setSellerLimits]  = useState(null);
+  const [limitsLoading, setLimitsLoading] = useState(true);
+
+  const [needsVerification, setNeedsVerification] = useState(false);
+  const [verificationData,  setVerificationData]  = useState(null);
+
   const isSubmittingRef = useRef(false);
   const imagesRef       = useRef([]);
 
-  /* ── Derived ── */
+  /* ─── Derived ── */
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)) ?? null,
     [categories, form.category_id]
   );
-
-  const options            = selectedCategory?.dynamicOptions ?? {};
-  const attributes         = form.attributes ?? INITIAL_FORM.attributes;
-  const states             = Object.keys(locationsByState ?? {});
-  const cities             = locationState ? (locationsByState[locationState] ?? []) : [];
+  const options    = useMemo(() => selectedCategory?.dynamicOptions ?? {}, [selectedCategory]);
+  const attributes = useMemo(() => form.attributes ?? INITIAL_FORM.attributes, [form.attributes]);
+  const states     = useMemo(() => Object.keys(locationsByState ?? {}), []);
+  const cities     = useMemo(
+    () => locationState ? (locationsByState[locationState] ?? []) : [],
+    [locationState]
+  );
   const isSelectedPlanPaid = !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
-  /* ── Feedback ── */
+  const isVerifiedSeller = sellerLimits?.seller_verified  ?? false;
+  const dailyRemaining   = sellerLimits?.daily_remaining  ?? null;
+  const activeRemaining  = sellerLimits?.active_remaining ?? null;
+  const cooldownSecs     = sellerLimits?.cooldown_seconds ?? 0;
+  const canPost          = !sellerLimits ||
+    (dailyRemaining > 0 && activeRemaining > 0 && cooldownSecs === 0);
+
+  /* ─── Feedback ── */
   const showError = useCallback((msg) => {
     setError(msg);
     scrollToError(msg);
-    setTimeout(() => setError(""), 6_000);
+    setTimeout(() => setError(""), 7_000);
   }, []);
-
   const showSuccess = useCallback((msg) => {
     setSuccess(msg);
     setTimeout(() => setSuccess(""), 5_000);
   }, []);
 
-  /* ── Load categories ── */
+  /* ─── Fetch limits ── */
+  const fetchLimits = useCallback(() => {
+    const token = getToken();
+    if (!token) { setLimitsLoading(false); return; }
+    setLimitsLoading(true);
+    apiFetch(`${API_BASE}/addproduct/seller/limits`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((d) => { if (d.success) setSellerLimits(d); })
+      .catch((err) => console.warn("[AddProduct] limits:", err.message))
+      .finally(() => setLimitsLoading(false));
+  }, []);
+
+  /* ─── Load categories ── */
   useEffect(() => {
     apiFetch(`${API_BASE}/addproduct/categories`)
       .then((data) => {
@@ -286,7 +329,17 @@ export default function AddProduct({ user }) {
       });
   }, [showError]);
 
-  /* ── Load plans ── */
+  /* ─── Load limits ── */
+  useEffect(() => { fetchLimits(); }, [fetchLimits]);
+
+  /* ─── Cooldown auto-refresh ── */
+  useEffect(() => {
+    if (!cooldownSecs || cooldownSecs <= 0) return;
+    const tid = setTimeout(fetchLimits, (cooldownSecs + 2) * 1_000);
+    return () => clearTimeout(tid);
+  }, [cooldownSecs, fetchLimits]);
+
+  /* ─── Load plans ── */
   useEffect(() => {
     setPlansLoading(true);
     apiFetch(`${API_BASE}/payment/plans`)
@@ -305,23 +358,17 @@ export default function AddProduct({ user }) {
       .finally(() => setPlansLoading(false));
   }, [showError]);
 
-  /* ── Resume stale payment ── */
+  /* ─── Resume stale payment ── */
   useEffect(() => {
     const check = async () => {
       try {
         const saved = localStorage.getItem(STORAGE_PAYMENT);
         if (!saved) return;
-
         let session;
-        try {
-          session = JSON.parse(saved);
-        } catch {
-          localStorage.removeItem(STORAGE_PAYMENT);
-          return;
-        }
+        try { session = JSON.parse(saved); }
+        catch { localStorage.removeItem(STORAGE_PAYMENT); return; }
 
         if (!isValidPaymentSession(session)) {
-          console.warn("[Payment] Corrupted session — clearing");
           localStorage.removeItem(STORAGE_PAYMENT);
           return;
         }
@@ -334,19 +381,33 @@ export default function AddProduct({ user }) {
           return;
         }
 
+        /* Try server verify on expired session */
         if (session.reference) {
           const token = getToken();
           if (token) {
             try {
               const result = await apiFetch(`${API_BASE}/payment/verify`, {
                 method  : "POST",
-                headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                headers : {
+                  "Content-Type": "application/json",
+                  Authorization : `Bearer ${token}`,
+                },
                 body    : JSON.stringify({ reference: session.reference }),
               });
+
+              if (result.status === "pending") {
+                /* Still processing — keep session alive */
+                showSuccess("Payment is still processing. Check back in a few minutes.");
+                return;
+              }
+
               if (result.status === "success") {
-                showSuccess("Your previous payment was confirmed — product is live!");
-              } else {
-                showError(result.message ?? "Previous payment did not complete — listing saved as draft");
+                if (result.needs_verification) {
+                  showSuccess("Payment confirmed. Redirecting to verification…");
+                  setTimeout(() => navigate("/verification"), 2_000);
+                } else {
+                  showSuccess("Your previous payment was confirmed — product is live!");
+                }
               }
             } catch { /* non-critical */ }
           }
@@ -361,7 +422,7 @@ export default function AddProduct({ user }) {
     check();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── Restore draft ── */
+  /* ─── Restore draft ── */
   useEffect(() => {
     if (plansLoading) return;
     try {
@@ -383,15 +444,15 @@ export default function AddProduct({ user }) {
         category_id    : f.category_id    ?? "",
         subcategory_id : f.subcategory_id ?? "",
         attributes     : {
-          ...INITIAL_FORM.attributes,
+          ...structuredClone(INITIAL_FORM.attributes),
           ...(f.attributes ?? {}),
-          features: toArray(f.attributes?.features),
+          features : toArray(f.attributes?.features),
         },
         delivery : {
           available : f.delivery?.available ?? false,
           duration  : {
-            from: f.delivery?.duration?.from ?? "",
-            to:   f.delivery?.duration?.to   ?? "",
+            from : f.delivery?.duration?.from ?? "",
+            to   : f.delivery?.duration?.to   ?? "",
           },
           fee  : f.delivery?.fee  ?? "",
           note : f.delivery?.note ?? "",
@@ -404,7 +465,6 @@ export default function AddProduct({ user }) {
           preferred     : f.contact?.preferred     ?? "chat",
         },
       });
-
       setLocationState(draft.locationState ?? "");
       setCity(draft.city ?? "");
 
@@ -414,14 +474,13 @@ export default function AddProduct({ user }) {
         );
         setSelectedPlan(matched ?? null);
       }
-
       showSuccess("Draft restored");
     } catch {
       showError("Draft restore failed");
     }
   }, [plansLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── Auto-save draft ── */
+  /* ─── Auto-save draft ── */
   useEffect(() => {
     const t = setTimeout(() => {
       try {
@@ -438,17 +497,17 @@ export default function AddProduct({ user }) {
     return () => clearTimeout(t);
   }, [form, locationState, city, images.length, selectedPlan, STORAGE_DRAFT]);
 
-  /* ── Revoke object URLs on unmount ── */
+  /* ─── Revoke object URLs ── */
   useEffect(() => { imagesRef.current = images; }, [images]);
-  useEffect(() => {
-    return () => {
-      imagesRef.current.forEach(
-        (img) => img.preview && URL.revokeObjectURL(img.preview)
-      );
-    };
+  useEffect(() => () => {
+    imagesRef.current.forEach(
+      (img) => img.preview && URL.revokeObjectURL(img.preview)
+    );
   }, []);
 
-  /* ── Form updaters ── */
+  /* ═══════════════════════════════════════════════════════════
+     FORM UPDATERS
+  ═══════════════════════════════════════════════════════════ */
   const updateForm = useCallback((key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
   }, []);
@@ -501,7 +560,9 @@ export default function AddProduct({ user }) {
     });
   }, []);
 
-  /* ── Payment helpers ── */
+  /* ═══════════════════════════════════════════════════════════
+     PAYMENT HELPERS
+  ═══════════════════════════════════════════════════════════ */
   const resumePayment = useCallback(() => {
     if (!paymentData?.authUrl) return;
     safeOpenPayment(paymentData.authUrl, showError);
@@ -518,7 +579,10 @@ export default function AddProduct({ user }) {
       if (token) {
         await apiFetch(`${API_BASE}/payment/verify`, {
           method  : "POST",
-          headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers : {
+            "Content-Type": "application/json",
+            Authorization : `Bearer ${token}`,
+          },
           body    : JSON.stringify({ reference: paymentData.reference }),
         });
       }
@@ -531,7 +595,7 @@ export default function AddProduct({ user }) {
   }, [paymentData, showSuccess]);
 
   const clearDraft = useCallback(() => {
-    setForm(INITIAL_FORM);
+    setForm(freshForm());
     setImages([]);
     setLocationState("");
     setCity("");
@@ -539,13 +603,17 @@ export default function AddProduct({ user }) {
     setPaymentData(null);
     setDetectedCoords(null);
     setAgreedToTerms(false);
+    setNeedsVerification(false);
+    setVerificationData(null);
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
     clearIdempotencyKey(IDEMPOTENCY_STORE);
     showSuccess("Draft cleared");
   }, [STORAGE_DRAFT, IDEMPOTENCY_STORE, showSuccess]);
 
-  /* ── GPS ── */
+  /* ═══════════════════════════════════════════════════════════
+     GPS
+  ═══════════════════════════════════════════════════════════ */
   const detectLocation = useCallback(async () => {
     if (!navigator.geolocation) {
       showError("Location detection not supported");
@@ -556,13 +624,15 @@ export default function AddProduct({ user }) {
       async ({ coords: { latitude, longitude } }) => {
         try {
           const res  = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
+            `https://nominatim.openstreetmap.org/reverse?format=json` +
+            `&lat=${latitude}&lon=${longitude}`,
             { headers: { "User-Agent": USER_AGENT } }
           );
-          const data = await res.json();
-          const addr = data.address ?? {};
-          const rawState = addr.state ?? addr.region ?? "";
-          const rawCity  = addr.city ?? addr.town ?? addr.village ?? addr.suburb ?? addr.county ?? "";
+          const data  = await res.json();
+          const addr  = data.address ?? {};
+          const rawState = addr.state   ?? addr.region  ?? "";
+          const rawCity  = addr.city    ?? addr.town    ??
+                           addr.village ?? addr.suburb  ?? addr.county ?? "";
 
           if (rawState) {
             const matched = Object.keys(locationsByState).find(
@@ -581,10 +651,16 @@ export default function AddProduct({ user }) {
               if (matchedCity) setCity(matchedCity);
             }
           }
-          setDetectedCoords({ latitude, longitude });
+          setDetectedCoords({
+            latitude  : roundGps(latitude),
+            longitude : roundGps(longitude),
+          });
           showSuccess("Location detected");
         } catch {
-          setDetectedCoords({ latitude, longitude });
+          setDetectedCoords({
+            latitude  : roundGps(latitude),
+            longitude : roundGps(longitude),
+          });
           showSuccess("GPS captured — fill state/city manually");
         } finally {
           setDetectingLocation(false);
@@ -592,43 +668,35 @@ export default function AddProduct({ user }) {
       },
       (err) => {
         setDetectingLocation(false);
-        const msgs = {
-          1: "Permission denied",
-          2: "Location unavailable",
-          3: "Request timed out",
-        };
+        const msgs = { 1: "Permission denied", 2: "Location unavailable", 3: "Request timed out" };
         showError(msgs[err.code] ?? "Location detection failed");
       },
       { timeout: GPS_TIMEOUT, maximumAge: GPS_MAX_AGE }
     );
   }, [showError, showSuccess]);
 
-  /* ── Image handling ── */
+  /* ═══════════════════════════════════════════════════════════
+     IMAGE HANDLING
+  ═══════════════════════════════════════════════════════════ */
   const handleImages = useCallback(async (files) => {
     if (images.length >= MAX_IMAGES) {
       showError("Maximum 6 images allowed");
       return;
     }
 
-    const remaining  = MAX_IMAGES - images.length;
-    const sizeFiltered = Array.from(files)
-      .filter((f) => f.size <= MAX_SIZE)
-      .slice(0, remaining);
-
+    const sizeFiltered = Array.from(files).filter((f) => f.size <= MAX_SIZE);
     if (!sizeFiltered.length) {
       showError("Images must be under 3 MB each");
       return;
     }
 
-    /* Verify magic bytes to prevent MIME spoofing */
-    const verified = await Promise.all(
+    const verified   = await Promise.all(
       sizeFiltered.map(async (f) => ({
         file  : f,
         valid : await verifyImageMagicBytes(f),
       }))
     );
     const validFiles = verified.filter((v) => v.valid).map((v) => v.file);
-
     if (!validFiles.length) {
       showError("Only real JPEG, PNG, or WebP images allowed (max 3 MB)");
       return;
@@ -644,13 +712,20 @@ export default function AddProduct({ user }) {
           }).catch(() => f)
         )
       );
+
       const newImages = compressed.map((file) => ({
         id      : `${Date.now()}-${Math.random().toString(36).slice(2)}`,
         file,
         preview : URL.createObjectURL(file),
       }));
-      setImages((prev) => [...prev, ...newImages]);
-      showSuccess(`${newImages.length} image(s) added`);
+
+      setImages((prev) => {
+        const remaining = MAX_IMAGES - prev.length;
+        if (remaining <= 0) return prev;
+        return [...prev, ...newImages.slice(0, remaining)];
+      });
+
+      showSuccess(`${Math.min(newImages.length, MAX_IMAGES - images.length)} image(s) added`);
     } catch {
       showError("Image processing failed");
     }
@@ -664,39 +739,109 @@ export default function AddProduct({ user }) {
     });
   }, []);
 
-  /* ── Validation ── */
+  /* ═══════════════════════════════════════════════════════════
+     VALIDATION
+  ═══════════════════════════════════════════════════════════ */
   const validateForm = useCallback(() => {
-    if (!form.title?.trim())                                          return "Title required";
-    if (!form.description?.trim())                                    return "Description required";
-    if (!form.price || Number(form.price) <= 0)                       return "Enter a valid price";
-    if (!form.category_id)                                            return "Category required";
-    if (!form.contact?.email?.includes("@"))                          return "Enter a valid email";
-    if (!form.contact?.phone || form.contact.phone.length < 10)       return "Phone must be at least 10 digits";
-    if (!form.contact?.whatsapp || form.contact.whatsapp.length < 10) return "WhatsApp number required";
-    if (!images.length)                                               return "At least one image required";
-    if (!locationState || !city)                                      return "Select your state and city";
-    if (!agreedToTerms)                                               return "Please accept the Terms & Conditions";
+    const t = form.title?.trim() ?? "";
+    if (!t)              return "Title required.";
+    if (t.length > 120)  return "Title must be at most 120 characters.";
+
+    const d = form.description?.trim() ?? "";
+    if (d.length < DESCRIPTION_MIN)
+      return `Description must be at least ${DESCRIPTION_MIN} characters.`;
+    if (d.length > 2000)
+      return "Description must be at most 2000 characters.";
+
+    if (!form.price || Number(form.price) <= 0)
+      return "Enter a valid price.";
+    if (Number(form.price) > 1_000_000_000)
+      return "Price exceeds maximum allowed value.";
+    if (!form.category_id)
+      return "Category required.";
+    if (!form.contact?.email?.includes("@"))
+      return "Enter a valid email address.";
+    if (!isValidPhone(form.contact?.phone))
+      return "Phone number must be 7–15 digits (e.g. 08012345678).";
+    if (form.contact?.whatsapp && !isValidPhone(form.contact.whatsapp))
+      return "WhatsApp number must be 7–15 digits (e.g. 08012345678).";
+    if (!images.length)
+      return "At least one image is required.";
+    if (!locationState || !city)
+      return "Select your state and city.";
+    if (!agreedToTerms)
+      return "Please accept the Terms & Conditions.";
 
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
-      if (!Number.isFinite(from) || from < 1) return "Enter valid delivery days";
-      if (!Number.isFinite(to)   || to   < 1) return "Enter valid delivery days";
-      if (to < from)                           return "Delivery end must be after start";
+      if (!Number.isFinite(from) || from < 1) return "Enter valid delivery days.";
+      if (!Number.isFinite(to)   || to   < 1) return "Enter valid delivery days.";
+      if (to < from)                           return "Delivery end must be after start.";
       if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
-        return "Enter a valid delivery fee";
+        return "Enter a valid delivery fee.";
     }
 
     return null;
   }, [form, images.length, locationState, city, agreedToTerms]);
 
-  /* ── Submit ── */
+  /* ═══════════════════════════════════════════════════════════
+     POST-SUCCESS HANDLER
+  ═══════════════════════════════════════════════════════════ */
+  const handlePostSuccess = useCallback((responseData) => {
+    clearIdempotencyKey(IDEMPOTENCY_STORE);
+
+    const verificationNeeded = responseData?.needs_verification === true;
+    const daysRemaining      = responseData?.days_remaining ?? 7;
+
+    if (verificationNeeded) {
+      setVerificationData({
+        productId     : responseData.product?.id,
+        activeUntil   : responseData.active_until,
+        daysRemaining,
+        message       : responseData.verification_message,
+        limits        : responseData.limits,
+      });
+      setNeedsVerification(true);
+      showSuccess(
+        `Listing is live for ${daysRemaining} days. Redirecting to verification…`
+      );
+      setTimeout(() => navigate("/verification"), 2_000);
+    } else {
+      showSuccess("Product live! Redirecting…");
+      setTimeout(() => navigate("/"), 1_500);
+    }
+  }, [navigate, IDEMPOTENCY_STORE, showSuccess]);
+
+  /* ═══════════════════════════════════════════════════════════
+     SUBMIT
+  ═══════════════════════════════════════════════════════════ */
   const handleSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
 
     if (!navigator.onLine) {
       showError("You appear to be offline. Check your connection and try again.");
       return;
+    }
+
+    /* Soft quota check */
+    if (sellerLimits && !canPost) {
+      if (dailyRemaining === 0)
+        return showError(
+          `Daily limit reached (${sellerLimits.daily_limit}/day). ` +
+          (isVerifiedSeller ? "Try again tomorrow." : "Complete verification to unlock 100/day.")
+        );
+      if (activeRemaining === 0)
+        return showError(
+          `Active listing limit reached (${sellerLimits.active_limit}). ` +
+          (isVerifiedSeller ? "" : "Complete verification to unlock 500.")
+        );
+      if (cooldownSecs > 0) {
+        const mins = Math.ceil(cooldownSecs / 60);
+        return showError(
+          `Please wait ${mins} minute${mins !== 1 ? "s" : ""} before posting again.`
+        );
+      }
     }
 
     isSubmittingRef.current = true;
@@ -714,8 +859,8 @@ export default function AddProduct({ user }) {
     setProgressStep("compressing");
     setError("");
 
-    let product  = null;
-    let payData  = null;
+    let product = null;
+    let payData = null;
 
     try {
       const finalPlan =
@@ -734,7 +879,7 @@ export default function AddProduct({ user }) {
 
       const planId     = String(finalPlan.id);
       const isFreePlan = Number(finalPlan.price) === 0;
-      const token      = getTokenOrRedirect("/minimart/add");
+      const token      = getTokenOrRedirect(navigate, "/minimart/add");
 
       await new Promise((r) => setTimeout(r, 400));
       setProgressStep("uploading");
@@ -755,7 +900,10 @@ export default function AddProduct({ user }) {
         fd.append("longitude", String(detectedCoords.longitude));
       }
 
-      fd.append("attributes",      JSON.stringify({ ...attributes, features: toArray(attributes.features) }));
+      fd.append("attributes",      JSON.stringify({
+        ...attributes,
+        features: toArray(attributes.features),
+      }));
       fd.append("delivery",        JSON.stringify(form.delivery));
       fd.append("contact",         JSON.stringify(form.contact));
       fd.append("phone",           form.contact.phone         ?? "");
@@ -766,43 +914,61 @@ export default function AddProduct({ user }) {
       images.forEach((img) => fd.append("images", img.file));
 
       setProgressStep("saving");
-      const data = await multipartPost(`${API_BASE}/addproduct/products`, fd, token);
+      const data = await multipartPost(
+        `${API_BASE}/addproduct/products`, fd, token
+      );
       if (!data.product?.id) throw new ApiError("Product creation failed", 500);
       product = data.product;
 
+      fetchLimits();
+
+      /* ─── Free plan ── */
       if (isFreePlan) {
         setProgressStep("activating");
-        await apiFetch(`${API_BASE}/addproduct/products/${product.id}/activate`, {
-          method  : "POST",
-          headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body    : JSON.stringify({ promotion_id: null }),
-        });
+        const activateRes = await apiFetch(
+          `${API_BASE}/addproduct/products/${product.id}/activate`,
+          {
+            method  : "POST",
+            headers : {
+              "Content-Type": "application/json",
+              Authorization : `Bearer ${token}`,
+            },
+            body    : JSON.stringify({ promotion_id: null }),
+          }
+        );
 
         setProgressStep("finalizing");
         await new Promise((r) => setTimeout(r, 600));
         setProgressVisible(false);
 
-        clearIdempotencyKey(IDEMPOTENCY_STORE);
+        handlePostSuccess({
+          ...data,
+          ...activateRes,
+          product : activateRes.product ?? data.product,
+        });
         clearDraft();
-        showSuccess("Product live! Redirecting…");
-        setTimeout(() => { window.location.href = "/"; }, 1_500);
         return;
       }
 
-      /* Paid plan — initiate payment */
+      /* ─── Paid plan ── */
       setProgressStep("payment");
       const rawPrice     = Number(finalPlan.price);
       const discount     = Number(finalPlan.discount_percent ?? 0);
       const effectiveAmt = Number((rawPrice * (1 - discount / 100)).toFixed(2));
 
+      /* FIX: idempotency_key forwarded to /initiate */
       payData = await apiFetch(`${API_BASE}/payment/initiate`, {
         method  : "POST",
-        headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers : {
+          "Content-Type": "application/json",
+          Authorization : `Bearer ${token}`,
+        },
         body    : JSON.stringify({
-          email      : form.contact.email,
-          amount     : effectiveAmt,
-          plan_id    : planId,
-          product_id : product.id,
+          email           : form.contact.email,
+          amount          : effectiveAmt,
+          plan_id         : planId,
+          product_id      : product.id,
+          idempotency_key : getOrCreateIdempotencyKey(IDEMPOTENCY_STORE),
         }),
       });
 
@@ -814,13 +980,16 @@ export default function AddProduct({ user }) {
       setProgressVisible(false);
 
       const session = {
-        reference : payData.reference,
-        authUrl   : payData.authorization_url,
+        reference        : payData.reference,
+        authUrl          : payData.authorization_url,
         planId,
-        productId : product.id,
-        email     : form.contact.email,
-        amount    : effectiveAmt,
-        createdAt : Date.now(),
+        productId        : product.id,
+        email            : form.contact.email,
+        amount           : effectiveAmt,
+        createdAt        : Date.now(),
+        needsVerification: data.needs_verification ?? false,
+        activeUntil      : data.active_until ?? null,
+        daysRemaining    : data.days_remaining ?? null,
       };
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
       setPaymentData(session);
@@ -831,7 +1000,6 @@ export default function AddProduct({ user }) {
       console.error("[AddProduct] submit:", err);
       setProgressVisible(false);
 
-      /* Only delete product if payment never initiated */
       if (product?.id && !payData) {
         const token = getToken();
         if (token) {
@@ -856,10 +1024,15 @@ export default function AddProduct({ user }) {
   }, [
     validateForm, selectedPlan, promotionPlans, plansLoading,
     form, attributes, images, locationState, city, detectedCoords,
-    clearDraft, showError, showSuccess, user, IDEMPOTENCY_STORE,
+    clearDraft, showError, showSuccess, handlePostSuccess, fetchLimits,
+    navigate, user, IDEMPOTENCY_STORE,
+    sellerLimits, canPost, dailyRemaining, activeRemaining,
+    cooldownSecs, isVerifiedSeller,
   ]);
 
-  /* ── Terms checkbox ── */
+  /* ═══════════════════════════════════════════════════════════
+     TERMS CHECKBOX
+  ═══════════════════════════════════════════════════════════ */
   const TermsCheckbox = (
     <div className="ap-terms-row">
       <label className="ap-terms-label">
@@ -877,8 +1050,8 @@ export default function AddProduct({ user }) {
           }}
         >
           {agreedToTerms && (
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                 stroke="#fff" strokeWidth="3"
+            <svg width="11" height="11" viewBox="0 0 24 24"
+                 fill="none" stroke="#fff" strokeWidth="3"
                  strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12"/>
             </svg>
@@ -902,6 +1075,9 @@ export default function AddProduct({ user }) {
     </div>
   );
 
+  /* ═══════════════════════════════════════════════════════════
+     RENDER
+  ═══════════════════════════════════════════════════════════ */
   return (
     <div className="ap-page">
       <ProgressOverlay
@@ -933,6 +1109,15 @@ export default function AddProduct({ user }) {
         promotionPlans={promotionPlans}
         plansLoading={plansLoading}
         MAX_IMAGES={MAX_IMAGES}
+        sellerLimits={sellerLimits}
+        limitsLoading={limitsLoading}
+        isVerifiedSeller={isVerifiedSeller}
+        canPost={canPost}
+        dailyRemaining={dailyRemaining}
+        activeRemaining={activeRemaining}
+        cooldownSecs={cooldownSecs}
+        needsVerification={needsVerification}
+        verificationData={verificationData}
         updateForm={updateForm}
         updateAttribute={updateAttribute}
         updateContact={updateContact}
