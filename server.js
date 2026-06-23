@@ -22,7 +22,6 @@ const IS_PROD    = process.env.NODE_ENV === "production";
 
 /* ═══════════════════════════════════════════════════════════════
    ENVIRONMENT VALIDATION
-   Fail loudly at boot — never silently limp with broken config.
 ═══════════════════════════════════════════════════════════════ */
 const REQUIRED_ENV = [
   "COCKROACH_URI",
@@ -59,6 +58,7 @@ if (missingWarn.length) {
 
 /* ═══════════════════════════════════════════════════════════════
    DATABASE
+   Exported so routes can import { pool } from "../server.js"
 ═══════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
   connectionString            : process.env.COCKROACH_URI,
@@ -72,12 +72,11 @@ export const pool = new Pool({
   application_name            : "loemart-server",
 });
 
-pool.on("error",   (err) => console.error("🔥 Pool error:",          err.message));
-pool.on("connect", ()    => console.log  ("[db] client connected"));
+pool.on("error",   (err) => console.error("🔥 Pool error:", err.message));
+pool.on("connect", ()    => console.log("[db] client connected to pool"));
 
 /* ═══════════════════════════════════════════════════════════════
    APP + HTTP SERVER
-   Created before any imports that might reference `app` or `server`
 ═══════════════════════════════════════════════════════════════ */
 const app    = express();
 const PORT   = Number(process.env.PORT) || 5000;
@@ -149,14 +148,19 @@ const corsOptions = {
   },
   credentials    : true,
   methods        : ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-  allowedHeaders : ["Content-Type", "Authorization", "x-requested-with", "x-request-id"],
+  allowedHeaders : [
+    "Content-Type",
+    "Authorization",
+    "x-requested-with",
+    "x-request-id",
+  ],
 };
 
 app.use(cors(corsOptions));
 app.options("*", cors(corsOptions));
 
 /* ═══════════════════════════════════════════════════════════════
-   HELMET + SECURITY HEADERS
+   HELMET
 ═══════════════════════════════════════════════════════════════ */
 app.use(
   helmet({
@@ -177,7 +181,7 @@ app.use(
       : false,
     crossOriginEmbedderPolicy : false,
     crossOriginOpenerPolicy   : { policy: "same-origin-allow-popups" },
-    hsts: IS_PROD
+    hsts                      : IS_PROD
       ? { maxAge: 31_536_000, includeSubDomains: true, preload: true }
       : false,
     referrerPolicy    : { policy: "strict-origin-when-cross-origin" },
@@ -204,7 +208,7 @@ app.use(
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPERS
+   HELPER
 ═══════════════════════════════════════════════════════════════ */
 const flwKeyMode = () => {
   const key = process.env.FLW_SECRET_KEY ?? "";
@@ -214,16 +218,21 @@ const flwKeyMode = () => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   ROUTE IMPORTS
-   All static — no dynamic await import() at top level.
-   This prevents circular-import hangs that block server.listen().
+   ROUTE + JOB IMPORTS
+   ALL static — zero dynamic await import() at top level.
+   This is what keeps server.listen() reachable.
 ═══════════════════════════════════════════════════════════════ */
 
-/* Payment + webhooks */
-import paymentRouter, { webhookRouter }  from "./routes/payment.js";
-import flwWebhookRouter                  from "./routes/webhooks/flutterwave.js";
-import checkoutWebhookRouter             from "./routes/checkout/webhook.js";
-import checkoutRouter                    from "./routes/checkout/index.js";
+/* Payment — exports webhookRouter + cleanupStuckPendingPayments */
+import paymentRouter, {
+  webhookRouter,
+  cleanupStuckPendingPayments,
+} from "./routes/payment.js";
+
+/* Webhooks */
+import flwWebhookRouter      from "./routes/webhooks/flutterwave.js";
+import checkoutWebhookRouter from "./routes/checkout/webhook.js";
+import checkoutRouter        from "./routes/checkout/index.js";
 
 /* Auth */
 import authRouter             from "./routes/sellerAuth.routes.js";
@@ -235,13 +244,15 @@ import sellerPayoutRoutes    from "./routes/seller/payout.js";
 import sellerDashboardRouter from "./routes/seller/dashboard.js";
 import sellerSettingsRouter  from "./routes/seller/settings.js";
 
-/* Products */
-import marketRouter       from "./routes/market/index.js";
-import marketDetailRouter from "./routes/marketDetail/index.js";
-import addproductRouter,
-  { pauseExpiredListings, cleanupStuckPendingPayments }
-                          from "./routes/addproduct.js";
+/* Products — exports pauseExpiredListings */
+import addproductRouter, {
+  pauseExpiredListings,
+} from "./routes/addproduct.js";
+
+import marketRouter        from "./routes/market/index.js";
+import marketDetailRouter  from "./routes/marketDetail/index.js";
 import productDetailRouter from "./routes/productDetail.js";
+import cartRouter          from "./routes/cart/index.js";
 
 /* Users + messaging */
 import userRouter          from "./routes/users.js";
@@ -259,13 +270,12 @@ import p2pRouter           from "./routes/p2p.js";
 import verificationRouter  from "./routes/verification.js";
 import couponsRouter       from "./routes/coupons.js";
 import spinwheelRouter     from "./routes/spinwheel.js";
-import cartRouter          from "./routes/cart/index.js";
 
 /* Jobs */
 import { startJobs } from "./jobs/index.js";
 
 /* ═══════════════════════════════════════════════════════════════
-   WEBHOOKS  ⚠  Must come before body parsers
+   WEBHOOKS  ⚠  Before body parsers
 ═══════════════════════════════════════════════════════════════ */
 
 /* Paystack */
@@ -293,7 +303,9 @@ app.post(
   express.raw({ type: "*/*" }),
   async (req, res) => {
     const raw  = req.body?.toString?.() ?? "";
-    const body = (() => { try { return JSON.parse(raw); } catch { return { raw }; } })();
+    const body = (() => {
+      try { return JSON.parse(raw); } catch { return { raw }; }
+    })();
 
     console.log("═".repeat(52));
     console.log("  FLW CAPTURE —", new Date().toISOString());
@@ -307,7 +319,11 @@ app.post(
         `INSERT INTO market.webhook_logs
            (source, event, payload, headers, created_at)
          VALUES ('flw_capture', $1, $2, $3, NOW())`,
-        [body?.event ?? "unknown", JSON.stringify(body), JSON.stringify(req.headers)]
+        [
+          body?.event ?? "unknown",
+          JSON.stringify(body),
+          JSON.stringify(req.headers),
+        ]
       );
     } catch { /* non-critical */ }
 
@@ -361,8 +377,9 @@ const globalLimiter = rateLimit({
   legacyHeaders   : false,
   keyGenerator    : (req) =>
     req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
-    req.socket.remoteAddress ?? "unknown",
-  handler         : (req, res) =>
+    req.socket.remoteAddress ??
+    "unknown",
+  handler: (req, res) =>
     res.status(429).json({
       success    : false,
       message    : "Too many requests. Please wait a moment.",
@@ -381,8 +398,9 @@ const uploadLimiter = rateLimit({
   legacyHeaders   : false,
   keyGenerator    : (req) =>
     req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
-    req.socket.remoteAddress ?? "unknown",
-  handler         : (_req, res) =>
+    req.socket.remoteAddress ??
+    "unknown",
+  handler: (_req, res) =>
     res.status(429).json({
       success : false,
       message : "Too many upload requests. Please slow down.",
@@ -417,23 +435,23 @@ app.use("/api/addproduct", addproductRouter);
 app.use("/api/product",    productDetailRouter);
 
 /* Users + messaging */
-app.use("/api/users",                userRouter);
-app.use("/api/messages/upload",      uploadLimiter);
-app.use("/api/messages",             messagesRouter);
-app.use("/api/conversations",        conversationsRouter);
+app.use("/api/users",           userRouter);
+app.use("/api/messages/upload", uploadLimiter);
+app.use("/api/messages",        messagesRouter);
+app.use("/api/conversations",   conversationsRouter);
 
 /* Platform */
-app.use("/api/admin",          adminRouter);
-app.use("/api/search",         searchRouter);
-app.use("/api/homepage",       homepageRouter);
-app.use("/api/dashboard",      dashboardRoutes);
+app.use("/api/admin",            adminRouter);
+app.use("/api/search",           searchRouter);
+app.use("/api/homepage",         homepageRouter);
+app.use("/api/dashboard",        dashboardRoutes);
 app.use("/api/seller-dashboard", dashboardRoutes);
-app.use("/api/notifications",  notificationsRouter);
-app.use("/api/v1/wallets",     walletRoutes);
-app.use("/api/p2p",            p2pRouter);
-app.use("/api/verification",   verificationRouter);
-app.use("/api/coupons",        couponsRouter);
-app.use("/api/spinwheel",      spinwheelRouter);
+app.use("/api/notifications",    notificationsRouter);
+app.use("/api/v1/wallets",       walletRoutes);
+app.use("/api/p2p",              p2pRouter);
+app.use("/api/verification",     verificationRouter);
+app.use("/api/coupons",          couponsRouter);
+app.use("/api/spinwheel",        spinwheelRouter);
 
 /* ═══════════════════════════════════════════════════════════════
    HEALTH CHECK
@@ -462,8 +480,13 @@ app.get("/api/health", async (_req, res) => {
     success   : true,
     status    : dbOk ? "healthy" : "degraded",
     timestamp : new Date().toISOString(),
-    database  : { ok: dbOk, latency_ms: dbLatency, error: dbError ?? undefined, pool: dbPool },
-    process   : {
+    database  : {
+      ok        : dbOk,
+      latency_ms: dbLatency,
+      error     : dbError ?? undefined,
+      pool      : dbPool,
+    },
+    process: {
       uptime_s  : Math.floor(process.uptime()),
       memory_mb : Math.round(process.memoryUsage().rss / 1_048_576),
       node      : process.version,
@@ -484,14 +507,14 @@ if (IS_PROD) {
   app.use(
     express.static(distPath, {
       maxAge     : "1d",
-      setHeaders (res, filePath) {
+      setHeaders(res, filePath) {
         if (/\.html?$/i.test(filePath))
           res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
       },
     })
   );
 
-  /* Reject unknown API routes before SPA fallback */
+  /* Reject unknown API paths before SPA fallback */
   app.use((req, res, next) => {
     if (req.path.startsWith("/api/"))
       return res.status(404).json({
@@ -526,6 +549,7 @@ app.use((err, req, res, _next) => {
   console.error(`🔥 [${reqId}]`, err.message ?? err);
   if (!IS_PROD) console.error(err.stack);
 
+  /* Multer */
   if (err.code === "LIMIT_FILE_SIZE")
     return res.status(400).json({ success: false, message: "File too large (max 10 MB)", reqId });
   if (err.code === "LIMIT_FILE_COUNT")
@@ -534,8 +558,12 @@ app.use((err, req, res, _next) => {
     return res.status(400).json({ success: false, message: "Unexpected file field", reqId });
   if (err.message === "Only image files are allowed")
     return res.status(400).json({ success: false, message: err.message, reqId });
+
+  /* CORS */
   if (err.message?.startsWith("CORS blocked"))
     return res.status(403).json({ success: false, message: err.message, reqId });
+
+  /* PostgreSQL */
   if (err.code === "23505")
     return res.status(409).json({ success: false, message: "Duplicate entry", reqId });
   if (err.code === "23503")
@@ -590,15 +618,18 @@ process.on("unhandledRejection", (reason) => {
   console.error("[server] Unhandled rejection:", reason);
   if (!IS_PROD) process.exit(1);
 });
-process.on("uncaughtException",  (err) => {
+process.on("uncaughtException", (err) => {
   console.error("[server] Uncaught exception:", err.message, err.stack);
   shutdown("uncaughtException");
 });
 
 /* ═══════════════════════════════════════════════════════════════
    START
+   1. Verify DB connection
+   2. Bind port
+   3. Start cron jobs INSIDE listen callback so all modules
+      are guaranteed to be fully loaded first
 ═══════════════════════════════════════════════════════════════ */
-/* Verify DB before binding the port */
 try {
   const { rows } = await pool.query("SELECT version()");
   console.log("✅ CockroachDB:", rows[0].version.split(" ")[0]);
@@ -617,20 +648,19 @@ server.listen(PORT, () => {
   console.log("─".repeat(52));
   line("ENV",        process.env.NODE_ENV || "development");
   line("DB",         "✅ connected");
-  line("JWT",        process.env.JWT_SECRET    ? "✅ set"    : "❌ MISSING");
+  line("JWT",        process.env.JWT_SECRET         ? "✅ set"    : "❌ MISSING");
   line("RESEND",     process.env.RESEND_API_KEY
     ? `✅ (…${process.env.RESEND_API_KEY.slice(-4)})`
     : "❌ NOT SET");
   line("FLW KEY",    mode === "missing" ? "❌ MISSING" : mode === "live" ? "✅ LIVE" : "⚠️  TEST");
-  line("FLW HASH",   process.env.FLW_SECRET_HASH    ? "✅ set" : "❌ MISSING");
+  line("FLW HASH",   process.env.FLW_SECRET_HASH    ? "✅ set"    : "❌ MISSING");
   line("CLOUDINARY", process.env.CLOUDINARY_CLOUD_NAME ? "✅ set" : "⚠️  not set");
-  line("DOC_HASH",   process.env.DOC_HASH_SECRET    ? "✅ set" : "⚠️  not set");
-  line("REDIS",      process.env.REDIS_URL           ? "✅ set" : "⚠️  not set");
+  line("DOC_HASH",   process.env.DOC_HASH_SECRET    ? "✅ set"    : "⚠️  not set");
+  line("REDIS",      process.env.REDIS_URL           ? "✅ set"    : "⚠️  not set");
   console.log("─".repeat(52));
   console.log("");
 
-  /* Start cron jobs INSIDE listen callback — after all modules are loaded.
-     Pass route exports directly to avoid circular import hangs.          */
+  /* Start cron jobs inside listen callback — all modules loaded */
   try {
     startJobs({
       pauseExpired : pauseExpiredListings,
@@ -638,8 +668,8 @@ server.listen(PORT, () => {
     });
     console.log("🧹 Background jobs started");
   } catch (err) {
+    /* Non-fatal — server runs without cron jobs */
     console.error("[server] Jobs failed to start:", err.message);
-    /* Non-fatal — server continues without cron jobs */
   }
 });
 
