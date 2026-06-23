@@ -3,7 +3,7 @@
 import { pool }               from "../server.js";
 import { releaseToAvailable } from "../services/walletService.js";
 import { createEntry }        from "../services/ledgerService.js";
-import { createNotification } from "../services/notifications.js";
+import { sendNotification } from "../services/notifications.js";
 
 // ═════════════════════════════════════════════════════════════
 // AUTO RELEASE BALANCE
