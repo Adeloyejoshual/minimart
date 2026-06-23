@@ -3,7 +3,7 @@
 import { pool }               from "../server.js";
 import { releaseToAvailable } from "../services/walletService.js";
 import { createEntry }        from "../services/ledgerService.js";
-import { sendNotification }   from "../services/notificationService.js";
+import { createNotification } from "../services/notifications.js";
 
 // ═════════════════════════════════════════════════════════════
 // AUTO RELEASE BALANCE
@@ -15,7 +15,7 @@ import { sendNotification }   from "../services/notificationService.js";
 // Flow:
 // order delivered → order_balance_releases created (pending)
 //                   release_after = delivered_at + 48hrs
-//                → this job runs every 15 min
+//                → this job runs every 15 minutes
 //                → finds releases where NOW > release_after
 //                → moves pending → available in wallet
 //                → creates ledger entry
@@ -23,8 +23,11 @@ import { sendNotification }   from "../services/notificationService.js";
 // ═════════════════════════════════════════════════════════════
 
 const RELEASE_HOURS = parseInt(
-  process.env.BALANCE_RELEASE_HOURS ?? "48"
+  process.env.BALANCE_RELEASE_HOURS ?? "48",
+  10
 );
+
+const BATCH_SIZE = 50;
 
 export async function autoReleaseBalance() {
   const client = await pool.connect();
@@ -32,7 +35,7 @@ export async function autoReleaseBalance() {
   try {
     await client.query("BEGIN");
 
-    // ── Find releases ready to process ──────────────────
+    /* ── Find releases ready to process ── */
     const { rows: releases } = await client.query(
       `SELECT
          obr.id,
@@ -42,85 +45,118 @@ export async function autoReleaseBalance() {
          v.store_name,
          w.available_balance
        FROM   public.order_balance_releases obr
-       JOIN   market.vendors        v  ON v.id  = obr.vendor_id
-       JOIN   market.vendor_wallets w  ON w.vendor_id = obr.vendor_id
-       WHERE  obr.status = 'pending'
+       JOIN   market.vendors        v ON v.id       = obr.vendor_id
+       JOIN   market.vendor_wallets w ON w.vendor_id = obr.vendor_id
+       WHERE  obr.status       = 'pending'
          AND  obr.release_after IS NOT NULL
          AND  obr.release_after <= NOW()
        ORDER  BY obr.release_after ASC
-       LIMIT  50
-       FOR UPDATE OF obr SKIP LOCKED`
+       LIMIT  $1
+       FOR UPDATE OF obr SKIP LOCKED`,
+      [BATCH_SIZE]
     );
 
     if (!releases.length) {
       await client.query("COMMIT");
+      console.log("[autoReleaseBalance] no pending releases");
       return { released: 0 };
     }
 
     let released = 0;
+    const errors = [];
 
     for (const rel of releases) {
-      const amount         = parseFloat(rel.amount);
-      const newAvailable   = parseFloat(rel.available_balance) + amount;
+      try {
+        const amount       = parseFloat(rel.amount);
+        const newAvailable = parseFloat(rel.available_balance) + amount;
 
-      // ── Move pending → available ──────────────────────
-      await releaseToAvailable({
-        vendorId: rel.vendor_id,
-        amount,
-        client,
-      });
-
-      // ── Mark release as done ──────────────────────────
-      await client.query(
-        `UPDATE public.order_balance_releases
-         SET    status      = 'released',
-                released_at = NOW(),
-                updated_at  = NOW()
-         WHERE  id = $1`,
-        [rel.id]
-      );
-
-      // ── Ledger entry ──────────────────────────────────
-      await createEntry({
-        userId:    rel.vendor_id,
-        vendorId:  rel.vendor_id,
-        orderId:   rel.order_id,
-        type:      "order_credit",
-        direction: "credit",
-        amount,
-        reference: `RELEASE_${rel.order_id}_${rel.vendor_id}`,
-        narration: `Balance released for order ${rel.order_id} after ${RELEASE_HOURS}hr holding period`,
-        source:    "system",
-        client,
-      });
-
-      // ── Notify vendor ─────────────────────────────────
-      await sendNotification({
-        userId:   rel.vendor_id,
-        userType: "seller",
-        type:     "balance_released",
-        title:    "💰 Balance Released!",
-        message:  `₦${amount.toLocaleString()} from order ${
-          rel.order_id
-        } is now available for withdrawal.`,
-        metadata: {
-          order_id:              rel.order_id,
+        /* ── Move pending → available ── */
+        await releaseToAvailable({
+          vendorId : rel.vendor_id,
           amount,
-          store_name:            rel.store_name,
-          newAvailableBalance:   newAvailable,
-        },
-        client,
-      });
+          client,
+        });
 
-      released++;
+        /* ── Mark release as done ── */
+        await client.query(
+          `UPDATE public.order_balance_releases
+           SET    status      = 'released',
+                  released_at = NOW(),
+                  updated_at  = NOW()
+           WHERE  id = $1`,
+          [rel.id]
+        );
+
+        /* ── Ledger entry ── */
+        await createEntry({
+          userId    : rel.vendor_id,
+          vendorId  : rel.vendor_id,
+          orderId   : rel.order_id,
+          type      : "order_credit",
+          direction : "credit",
+          amount,
+          reference : `RELEASE_${rel.order_id}_${rel.vendor_id}`,
+          narration :
+            `Balance released for order ${rel.order_id} ` +
+            `after ${RELEASE_HOURS}hr holding period`,
+          source    : "system",
+          client,
+        });
+
+        /* ── Notify vendor ── */
+        /* Fire-and-forget — notification failure must not
+           roll back the balance release                    */
+        createNotification({
+          userId  : rel.vendor_id,
+          type    : "balance_released",
+          title   : "Balance Released",
+          message :
+            `\u20a6${amount.toLocaleString()} from order ` +
+            `${rel.order_id} is now available for withdrawal.`,
+          metadata: {
+            order_id            : rel.order_id,
+            amount,
+            store_name          : rel.store_name,
+            new_available_balance: newAvailable,
+          },
+        }).catch((err) =>
+          console.error(
+            "[autoReleaseBalance] notification error:",
+            err.message
+          )
+        );
+
+        released++;
+
+        console.log(
+          `[autoReleaseBalance] released ₦${amount.toLocaleString()}` +
+          ` for vendor ${rel.vendor_id} order ${rel.order_id}`
+        );
+
+      } catch (rowErr) {
+        /* Log the error for this row but continue processing
+           the rest of the batch — one bad row should not
+           block the remaining releases                      */
+        console.error(
+          `[autoReleaseBalance] failed for release ${rel.id}:`,
+          rowErr.message
+        );
+        errors.push({ id: rel.id, error: rowErr.message });
+      }
     }
 
     await client.query("COMMIT");
 
-    return { released };
+    console.log(
+      `[autoReleaseBalance] done — released: ${released}` +
+      (errors.length ? ` errors: ${errors.length}` : "")
+    );
+
+    return { released, errors };
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
+    console.error("[autoReleaseBalance] fatal error:", err.message);
     throw err;
   } finally {
     client.release();
