@@ -23,24 +23,12 @@ const IS_PROD    = process.env.NODE_ENV === "production";
 /* ═══════════════════════════════════════════════════════════════
    ENVIRONMENT VALIDATION
 ═══════════════════════════════════════════════════════════════ */
-const REQUIRED_ENV = [
-  "COCKROACH_URI",
-  "JWT_SECRET",
-  "PAYSTACK_SECRET_KEY",
-];
-
-const WARN_ENV = [
-  "RESEND_API_KEY",
-  "EMAIL_FROM",
-  "CLIENT_ORIGIN",
-  "FLW_SECRET_KEY",
-  "FLW_SECRET_HASH",
-  "CLOUDINARY_CLOUD_NAME",
-  "CLOUDINARY_API_KEY",
-  "CLOUDINARY_API_SECRET",
-  "DOC_HASH_SECRET",
-  "SIGNED_URL_SECRET",
-  "REDIS_URL",
+const REQUIRED_ENV = ["COCKROACH_URI", "JWT_SECRET", "PAYSTACK_SECRET_KEY"];
+const WARN_ENV     = [
+  "RESEND_API_KEY", "EMAIL_FROM", "CLIENT_ORIGIN",
+  "FLW_SECRET_KEY", "FLW_SECRET_HASH",
+  "CLOUDINARY_CLOUD_NAME", "CLOUDINARY_API_KEY", "CLOUDINARY_API_SECRET",
+  "DOC_HASH_SECRET", "SIGNED_URL_SECRET", "REDIS_URL",
 ];
 
 const missingRequired = REQUIRED_ENV.filter((k) => !process.env[k]);
@@ -58,7 +46,7 @@ if (missingWarn.length) {
 
 /* ═══════════════════════════════════════════════════════════════
    DATABASE
-   Exported so routes can import { pool } from "../server.js"
+   Exported so routes can: import { pool } from "../server.js"
 ═══════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
   connectionString            : process.env.COCKROACH_URI,
@@ -149,10 +137,8 @@ const corsOptions = {
   credentials    : true,
   methods        : ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
   allowedHeaders : [
-    "Content-Type",
-    "Authorization",
-    "x-requested-with",
-    "x-request-id",
+    "Content-Type", "Authorization",
+    "x-requested-with", "x-request-id",
   ],
 };
 
@@ -167,21 +153,21 @@ app.use(
     contentSecurityPolicy: IS_PROD
       ? {
           directives: {
-            defaultSrc  : ["'self'"],
-            scriptSrc   : ["'self'"],
-            styleSrc    : ["'self'", "'unsafe-inline'"],
-            imgSrc      : ["'self'", "data:", "https://res.cloudinary.com"],
-            connectSrc  : ["'self'", "https://api.paystack.co"],
-            fontSrc     : ["'self'", "https://fonts.gstatic.com"],
-            objectSrc   : ["'none'"],
-            frameSrc    : ["'none'"],
+            defaultSrc : ["'self'"],
+            scriptSrc  : ["'self'"],
+            styleSrc   : ["'self'", "'unsafe-inline'"],
+            imgSrc     : ["'self'", "data:", "https://res.cloudinary.com"],
+            connectSrc : ["'self'", "https://api.paystack.co"],
+            fontSrc    : ["'self'", "https://fonts.gstatic.com"],
+            objectSrc  : ["'none'"],
+            frameSrc   : ["'none'"],
             upgradeInsecureRequests: [],
           },
         }
       : false,
     crossOriginEmbedderPolicy : false,
     crossOriginOpenerPolicy   : { policy: "same-origin-allow-popups" },
-    hsts                      : IS_PROD
+    hsts: IS_PROD
       ? { maxAge: 31_536_000, includeSubDomains: true, preload: true }
       : false,
     referrerPolicy    : { policy: "strict-origin-when-cross-origin" },
@@ -218,12 +204,15 @@ const flwKeyMode = () => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   ROUTE + JOB IMPORTS
-   ALL static — zero dynamic await import() at top level.
-   This is what keeps server.listen() reachable.
+   STATIC ROUTE IMPORTS
+   ─ All imports are static (no top-level await import())
+   ─ This guarantees server.listen() is always reached
+   ─ cleanupStuckPendingPayments comes from payment.js
+   ─ pauseExpiredListings comes from addproduct.js
+   ─ Both are passed to startJobs() — never imported by jobs/index.js
 ═══════════════════════════════════════════════════════════════ */
 
-/* Payment — exports webhookRouter + cleanupStuckPendingPayments */
+/* Payment */
 import paymentRouter, {
   webhookRouter,
   cleanupStuckPendingPayments,
@@ -244,7 +233,7 @@ import sellerPayoutRoutes    from "./routes/seller/payout.js";
 import sellerDashboardRouter from "./routes/seller/dashboard.js";
 import sellerSettingsRouter  from "./routes/seller/settings.js";
 
-/* Products — exports pauseExpiredListings */
+/* Products */
 import addproductRouter, {
   pauseExpiredListings,
 } from "./routes/addproduct.js";
@@ -271,21 +260,19 @@ import verificationRouter  from "./routes/verification.js";
 import couponsRouter       from "./routes/coupons.js";
 import spinwheelRouter     from "./routes/spinwheel.js";
 
-/* Jobs */
+/* Jobs — only the startJobs function, no route imports inside */
 import { startJobs } from "./jobs/index.js";
 
 /* ═══════════════════════════════════════════════════════════════
    WEBHOOKS  ⚠  Before body parsers
 ═══════════════════════════════════════════════════════════════ */
 
-/* Paystack */
 app.use(
   "/api/payment/webhook",
   express.raw({ type: "*/*" }),
   webhookRouter
 );
 
-/* Flutterwave */
 app.use(
   "/api/webhooks/flutterwave",
   express.raw({ type: "*/*" }),
@@ -297,7 +284,6 @@ app.use(
   flwWebhookRouter
 );
 
-/* Flutterwave debug capture */
 app.post(
   "/api/webhooks/flw-capture",
   express.raw({ type: "*/*" }),
@@ -331,7 +317,6 @@ app.post(
   }
 );
 
-/* Checkout */
 app.use(
   "/api/checkout/webhook/payment",
   express.raw({ type: "*/*" }),
@@ -377,8 +362,7 @@ const globalLimiter = rateLimit({
   legacyHeaders   : false,
   keyGenerator    : (req) =>
     req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
-    req.socket.remoteAddress ??
-    "unknown",
+    req.socket.remoteAddress ?? "unknown",
   handler: (req, res) =>
     res.status(429).json({
       success    : false,
@@ -398,8 +382,7 @@ const uploadLimiter = rateLimit({
   legacyHeaders   : false,
   keyGenerator    : (req) =>
     req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
-    req.socket.remoteAddress ??
-    "unknown",
+    req.socket.remoteAddress ?? "unknown",
   handler: (_req, res) =>
     res.status(429).json({
       success : false,
@@ -413,34 +396,23 @@ app.use(globalLimiter);
    ROUTES
 ═══════════════════════════════════════════════════════════════ */
 
-/* Payment + checkout */
-app.use("/api/payment",  paymentRouter);
-app.use("/api/checkout", checkoutRouter);
-
-/* Auth */
-app.use("/api/auth",              authRouter);
+app.use("/api/payment",          paymentRouter);
+app.use("/api/checkout",         checkoutRouter);
+app.use("/api/auth",             authRouter);
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
-
-/* Seller */
 app.use("/api/seller",           sellerProfileRouter);
 app.use("/api/seller/payout",    sellerPayoutRoutes);
 app.use("/api/seller-dashboard", sellerDashboardRouter);
 app.use("/api/seller/settings",  sellerSettingsRouter);
-
-/* Products */
-app.use("/api/products",   marketRouter);
-app.use("/api/shop",       marketDetailRouter);
-app.use("/api/cart",       cartRouter);
-app.use("/api/addproduct", addproductRouter);
-app.use("/api/product",    productDetailRouter);
-
-/* Users + messaging */
-app.use("/api/users",           userRouter);
-app.use("/api/messages/upload", uploadLimiter);
-app.use("/api/messages",        messagesRouter);
-app.use("/api/conversations",   conversationsRouter);
-
-/* Platform */
+app.use("/api/products",         marketRouter);
+app.use("/api/shop",             marketDetailRouter);
+app.use("/api/cart",             cartRouter);
+app.use("/api/addproduct",       addproductRouter);
+app.use("/api/product",          productDetailRouter);
+app.use("/api/users",            userRouter);
+app.use("/api/messages/upload",  uploadLimiter);
+app.use("/api/messages",         messagesRouter);
+app.use("/api/conversations",    conversationsRouter);
 app.use("/api/admin",            adminRouter);
 app.use("/api/search",           searchRouter);
 app.use("/api/homepage",         homepageRouter);
@@ -481,10 +453,10 @@ app.get("/api/health", async (_req, res) => {
     status    : dbOk ? "healthy" : "degraded",
     timestamp : new Date().toISOString(),
     database  : {
-      ok        : dbOk,
-      latency_ms: dbLatency,
-      error     : dbError ?? undefined,
-      pool      : dbPool,
+      ok         : dbOk,
+      latency_ms : dbLatency,
+      error      : dbError ?? undefined,
+      pool       : dbPool,
     },
     process: {
       uptime_s  : Math.floor(process.uptime()),
@@ -514,7 +486,6 @@ if (IS_PROD) {
     })
   );
 
-  /* Reject unknown API paths before SPA fallback */
   app.use((req, res, next) => {
     if (req.path.startsWith("/api/"))
       return res.status(404).json({
@@ -549,7 +520,6 @@ app.use((err, req, res, _next) => {
   console.error(`🔥 [${reqId}]`, err.message ?? err);
   if (!IS_PROD) console.error(err.stack);
 
-  /* Multer */
   if (err.code === "LIMIT_FILE_SIZE")
     return res.status(400).json({ success: false, message: "File too large (max 10 MB)", reqId });
   if (err.code === "LIMIT_FILE_COUNT")
@@ -558,12 +528,8 @@ app.use((err, req, res, _next) => {
     return res.status(400).json({ success: false, message: "Unexpected file field", reqId });
   if (err.message === "Only image files are allowed")
     return res.status(400).json({ success: false, message: err.message, reqId });
-
-  /* CORS */
   if (err.message?.startsWith("CORS blocked"))
     return res.status(403).json({ success: false, message: err.message, reqId });
-
-  /* PostgreSQL */
   if (err.code === "23505")
     return res.status(409).json({ success: false, message: "Duplicate entry", reqId });
   if (err.code === "23503")
@@ -625,10 +591,10 @@ process.on("uncaughtException", (err) => {
 
 /* ═══════════════════════════════════════════════════════════════
    START
-   1. Verify DB connection
-   2. Bind port
-   3. Start cron jobs INSIDE listen callback so all modules
-      are guaranteed to be fully loaded first
+   Step 1 — Verify DB
+   Step 2 — Bind port
+   Step 3 — Start jobs INSIDE listen callback
+             (all modules guaranteed loaded at this point)
 ═══════════════════════════════════════════════════════════════ */
 try {
   const { rows } = await pool.query("SELECT version()");
@@ -648,19 +614,19 @@ server.listen(PORT, () => {
   console.log("─".repeat(52));
   line("ENV",        process.env.NODE_ENV || "development");
   line("DB",         "✅ connected");
-  line("JWT",        process.env.JWT_SECRET         ? "✅ set"    : "❌ MISSING");
+  line("JWT",        process.env.JWT_SECRET            ? "✅ set"    : "❌ MISSING");
   line("RESEND",     process.env.RESEND_API_KEY
     ? `✅ (…${process.env.RESEND_API_KEY.slice(-4)})`
     : "❌ NOT SET");
   line("FLW KEY",    mode === "missing" ? "❌ MISSING" : mode === "live" ? "✅ LIVE" : "⚠️  TEST");
-  line("FLW HASH",   process.env.FLW_SECRET_HASH    ? "✅ set"    : "❌ MISSING");
-  line("CLOUDINARY", process.env.CLOUDINARY_CLOUD_NAME ? "✅ set" : "⚠️  not set");
-  line("DOC_HASH",   process.env.DOC_HASH_SECRET    ? "✅ set"    : "⚠️  not set");
-  line("REDIS",      process.env.REDIS_URL           ? "✅ set"    : "⚠️  not set");
+  line("FLW HASH",   process.env.FLW_SECRET_HASH       ? "✅ set"    : "❌ MISSING");
+  line("CLOUDINARY", process.env.CLOUDINARY_CLOUD_NAME ? "✅ set"    : "⚠️  not set");
+  line("DOC_HASH",   process.env.DOC_HASH_SECRET       ? "✅ set"    : "⚠️  not set");
+  line("REDIS",      process.env.REDIS_URL              ? "✅ set"    : "⚠️  not set");
   console.log("─".repeat(52));
   console.log("");
 
-  /* Start cron jobs inside listen callback — all modules loaded */
+  /* Start cron jobs — pass route exports to avoid circular imports */
   try {
     startJobs({
       pauseExpired : pauseExpiredListings,
@@ -668,8 +634,7 @@ server.listen(PORT, () => {
     });
     console.log("🧹 Background jobs started");
   } catch (err) {
-    /* Non-fatal — server runs without cron jobs */
-    console.error("[server] Jobs failed to start:", err.message);
+    console.error("[server] Jobs failed to start (non-fatal):", err.message);
   }
 });
 
