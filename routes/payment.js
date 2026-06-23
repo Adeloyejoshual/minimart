@@ -288,8 +288,8 @@ const activateProductForPayment = async (client, {
 
 /* ══════════════════════════════════════════════════════════════
    EXPORTED CRON UTILITY
-   FIX #3: also expires stale pending payment rows.
-   Cron: "*/15 * * * *"
+   Fix #5: cleanup stuck pending_payment products.
+   Cron schedule: every 15 minutes
 ══════════════════════════════════════════════════════════════ */
 export const cleanupStuckPendingPayments = async () => {
   const client = await pool.connect();
