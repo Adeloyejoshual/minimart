@@ -8,7 +8,7 @@ import {
 }                                 from "../utils/flutterwave.js";
 import { restoreBalance }         from "../services/walletService.js";
 import { createEntry }            from "../services/ledgerService.js";
-import { sendNotification }       from "../services/notificationService.js";
+import { sendNotification } from "../services/notifications.js";
 
 // ═════════════════════════════════════════════════════════════
 // RETRY FAILED TRANSFERS
