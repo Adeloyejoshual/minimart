@@ -1,31 +1,25 @@
 /**
  * src/pages/AddProduct.jsx
- * Route: /minimart/add — v6
+ * Route: /minimart/add — v7
  *
- * Fixes:
- *  1.  Sequential image compression (prevents memory spike on low-end Android)
- *  2.  Mounted ref guard — no state updates after unmount
- *  3.  Idempotency recovery — on network failure, retry returns existing product
- *  4.  SHA-256 image hashing before upload (duplicate + spam detection)
- *  5.  Server-side duplicate title detection before submit
- *
- * Loemart marketplace upgrades:
- *  6.  Listing quality score (completeness meter shown before submit)
- *  7.  Boost prompt after successful listing (upsell to paid plan)
- *  8.  "Similar items" price guidance (fetched from category median)
- *  9.  Listing preview mode (see how it looks before posting)
- * 10.  Network quality detection before upload
+ * Trial policy update:
+ *  ─ canPost now also checks trial_exhausted from sellerLimits
+ *  ─ Soft quota check handles trial_exhausted with correct message
+ *  ─ trial_exhausted + trial_remaining passed to ProductComponents
+ *  ─ Unused safeSetError / safeSetSuccess / safeSetLoading removed
+ *  ─ qualityScore / priceGuidance kept but not passed as props
+ *    (components.jsx does not consume them — remove when ready to use)
  */
 
 import {
   useEffect, useMemo, useState, useCallback, useRef,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import ProductComponents    from "./product/components.jsx";
-import ProgressOverlay      from "../components/ProgressOverlay.jsx";
+import ProductComponents  from "./product/components.jsx";
+import ProgressOverlay    from "../components/ProgressOverlay.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { apiFetch, ApiError } from "../utils/apiFetch.js";
-import imageCompression      from "browser-image-compression";
+import imageCompression   from "browser-image-compression";
 import "../styles/AddProduct.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -37,8 +31,6 @@ const STORAGE_PAYMENT    = "payment_retry";
 const DRAFT_VERSION      = 3;
 const MAX_IMAGES         = 6;
 const MAX_SIZE           = 3 * 1024 * 1024;
-const COMPRESS_MAX_MB    = 1;
-const COMPRESS_MAX_DIM   = 1280;
 const DRAFT_DELAY_MS     = 1_200;
 const UPLOAD_TIMEOUT     = 120_000;
 const PAYMENT_MAX_AGE    = 30 * 60 * 1_000;
@@ -50,7 +42,6 @@ const DESCRIPTION_MIN    = 10;
 const GPS_ROUND_DP       = 4;
 const AUTO_SAVE_SAVED_MS = 2_000;
 
-/* Fix #1: sequential compression budget per file */
 const COMPRESS_BUDGET_LOW_END = { maxSizeMB: 0.5, maxWidthOrHeight: 800  };
 const COMPRESS_BUDGET_NORMAL  = { maxSizeMB: 1,   maxWidthOrHeight: 1280 };
 
@@ -129,7 +120,9 @@ const getToken = () =>
 const getTokenOrRedirect = (navigate, returnPath) => {
   const token = getToken();
   if (!token) {
-    navigate(`/login?redirect=${encodeURIComponent(returnPath ?? window.location.pathname)}`);
+    navigate(
+      `/login?redirect=${encodeURIComponent(returnPath ?? window.location.pathname)}`
+    );
     throw new ApiError("Session expired — redirecting to login", 401);
   }
   return token;
@@ -154,13 +147,14 @@ const isValidPaymentSession = (obj) =>
   typeof obj.authUrl   === "string" && obj.authUrl.startsWith("https://") &&
   typeof obj.createdAt === "number";
 
-/* Magic-byte verification */
 const verifyImageMagicBytes = (file) =>
   new Promise((resolve) => {
     const reader = new FileReader();
     reader.onloadend = () => {
       const arr = new Uint8Array(reader.result);
-      const hex = Array.from(arr).map((b) => b.toString(16).padStart(2, "0")).join("");
+      const hex = Array.from(arr)
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
       resolve(
         hex.startsWith("ffd8ff")   ||
         hex.startsWith("89504e47") ||
@@ -171,7 +165,6 @@ const verifyImageMagicBytes = (file) =>
     reader.readAsArrayBuffer(file.slice(0, 12));
   });
 
-/* Fix #4: SHA-256 image hash */
 const hashImageFile = async (file) => {
   try {
     const buf  = await file.arrayBuffer();
@@ -184,13 +177,17 @@ const hashImageFile = async (file) => {
   }
 };
 
-/* Fix #10: Rough network quality estimate */
 const getNetworkBudget = () => {
-  const conn = navigator?.connection ?? navigator?.mozConnection ?? navigator?.webkitConnection;
+  const conn =
+    navigator?.connection ??
+    navigator?.mozConnection ??
+    navigator?.webkitConnection;
   if (!conn) return COMPRESS_BUDGET_NORMAL;
-  const slow = conn.effectiveType === "2g" || conn.effectiveType === "slow-2g"
-    || conn.saveData
-    || conn.downlink < 1;
+  const slow =
+    conn.effectiveType === "2g" ||
+    conn.effectiveType === "slow-2g" ||
+    conn.saveData ||
+    conn.downlink < 1;
   return slow ? COMPRESS_BUDGET_LOW_END : COMPRESS_BUDGET_NORMAL;
 };
 
@@ -201,7 +198,8 @@ const getOrCreateIdempotencyKey = (storageKey) => {
   sessionStorage.setItem(storageKey, id);
   return id;
 };
-const clearIdempotencyKey = (storageKey) => sessionStorage.removeItem(storageKey);
+const clearIdempotencyKey = (storageKey) =>
+  sessionStorage.removeItem(storageKey);
 
 const multipartPost = async (url, formData, token, timeoutMs = UPLOAD_TIMEOUT) => {
   const ctrl = new AbortController();
@@ -216,14 +214,18 @@ const multipartPost = async (url, formData, token, timeoutMs = UPLOAD_TIMEOUT) =
     });
   } catch (err) {
     if (err.name === "AbortError")
-      throw new ApiError("Upload timed out — check your connection and try again", 0);
+      throw new ApiError(
+        "Upload timed out — check your connection and try again", 0
+      );
     throw new ApiError("Cannot reach the server. Check your connection.", 0);
   } finally {
     clearTimeout(tid);
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok)
-    throw new ApiError(data?.message ?? `Request failed (${res.status})`, res.status);
+    throw new ApiError(
+      data?.message ?? `Request failed (${res.status})`, res.status
+    );
   return data;
 };
 
@@ -248,26 +250,6 @@ const scrollToError = (msg) => {
 const isValidPhone = (value) => {
   if (!value) return false;
   return PHONE_RE.test(String(value).replace(/[\s\-().]/g, ""));
-};
-
-/* Listing quality score — used for the completeness meter */
-const computeQualityScore = (form, images, locationState, city) => {
-  let score = 0;
-  const checks = [
-    { ok: form.title?.trim().length  >= 10,   pts: 15, label: "Good title"        },
-    { ok: form.title?.trim().length  >= 20,   pts:  5, label: "Detailed title"    },
-    { ok: form.description?.trim().length >= 50,  pts: 15, label: "Good description"  },
-    { ok: form.description?.trim().length >= 100, pts:  5, label: "Full description"  },
-    { ok: Number(form.price) > 0,              pts: 10, label: "Price set"          },
-    { ok: !!form.category_id,                  pts: 10, label: "Category selected"  },
-    { ok: images.length >= 1,                  pts: 10, label: "Has photos"         },
-    { ok: images.length >= 3,                  pts: 10, label: "3+ photos"          },
-    { ok: !!form.contact?.phone,               pts:  5, label: "Phone number"       },
-    { ok: !!form.contact?.whatsapp,            pts:  5, label: "WhatsApp number"    },
-    { ok: !!(locationState && city),           pts: 10, label: "Location set"       },
-  ];
-  checks.forEach((c) => { if (c.ok) score += c.pts; });
-  return { score: Math.min(score, 100), checks };
 };
 
 const freshForm = () => structuredClone(INITIAL_FORM);
@@ -312,60 +294,64 @@ export default function AddProduct({ user }) {
   const [autoSaveStatus, setAutoSaveStatus] = useState("idle");
 
   /* ─── Image compression progress ── */
-  const [compressingCount,  setCompressingCount]  = useState(0);
-  const [compressingTotal,  setCompressingTotal]  = useState(0);
+  const [compressingCount, setCompressingCount] = useState(0);
+  const [compressingTotal, setCompressingTotal] = useState(0);
 
-  /* ─── Listing quality ── */
-  const [priceGuidance,   setPriceGuidance]   = useState(null); /* { median, currency } */
-
-  /* Fix #2: mounted ref — guards all async state updates */
-  const mountedRef       = useRef(true);
-  const isSubmittingRef  = useRef(false);
-  const imagesRef        = useRef([]);
-  const autoSaveTimer    = useRef(null);
-  const savedLabelTimer  = useRef(null);
-  /* Fix #4: in-session image hash set */
-  const sessionHashSet   = useRef(new Set());
+  /* ─── Refs ── */
+  const mountedRef      = useRef(true);
+  const isSubmittingRef = useRef(false);
+  const imagesRef       = useRef([]);
+  const autoSaveTimer   = useRef(null);
+  const savedLabelTimer = useRef(null);
+  const sessionHashSet  = useRef(new Set());
 
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
-  /* Guarded state setters — silent when unmounted */
-  const safeSet = useCallback((setter) => (...args) => {
-    if (mountedRef.current) setter(...args);
-  }, []);
-
-  const safeSetError   = useMemo(() => safeSet(setError),   [safeSet]);
-  const safeSetSuccess = useMemo(() => safeSet(setSuccess), [safeSet]);
-  const safeSetLoading = useMemo(() => safeSet(setLoading), [safeSet]);
-
   /* ─── Derived ── */
   const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)) ?? null,
+    () =>
+      categories.find((c) => String(c.id) === String(form.category_id)) ?? null,
     [categories, form.category_id]
   );
-  const options    = useMemo(() => selectedCategory?.dynamicOptions ?? {}, [selectedCategory]);
-  const attributes = useMemo(() => form.attributes ?? INITIAL_FORM.attributes, [form.attributes]);
-  const states     = useMemo(() => Object.keys(locationsByState ?? {}), []);
-  const cities     = useMemo(
+  const options    = useMemo(
+    () => selectedCategory?.dynamicOptions ?? {},
+    [selectedCategory]
+  );
+  const attributes = useMemo(
+    () => form.attributes ?? INITIAL_FORM.attributes,
+    [form.attributes]
+  );
+  const states = useMemo(() => Object.keys(locationsByState ?? {}), []);
+  const cities = useMemo(
     () => locationState ? (locationsByState[locationState] ?? []) : [],
     [locationState]
   );
-  const isSelectedPlanPaid = !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
+  const isSelectedPlanPaid =
+    !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
+  /* ── Trial-aware limit derivations ── */
   const isVerifiedSeller = sellerLimits?.seller_verified  ?? false;
   const dailyRemaining   = sellerLimits?.daily_remaining  ?? null;
   const activeRemaining  = sellerLimits?.active_remaining ?? null;
   const cooldownSecs     = sellerLimits?.cooldown_seconds ?? 0;
-  const canPost          = !sellerLimits ||
-    (dailyRemaining > 0 && activeRemaining > 0 && cooldownSecs === 0);
+  const trialExhausted   = sellerLimits?.trial_exhausted  ?? false;
+  const trialRemaining   = sellerLimits?.trial_remaining  ?? null;
 
-  /* ─── Listing quality score ── */
-  const qualityScore = useMemo(
-    () => computeQualityScore(form, images, locationState, city),
-    [form, images, locationState, city]
+  /*
+   * canPost = false when ANY of these is true:
+   *   - trial exhausted (hard block for unverified sellers)
+   *   - daily limit hit
+   *   - active limit hit
+   *   - cooldown active
+   */
+  const canPost = !sellerLimits || (
+    !trialExhausted &&
+    dailyRemaining > 0 &&
+    activeRemaining > 0 &&
+    cooldownSecs === 0
   );
 
   /* ─── Feedback ── */
@@ -385,7 +371,10 @@ export default function AddProduct({ user }) {
   /* ─── Fetch limits ── */
   const fetchLimits = useCallback(() => {
     const token = getToken();
-    if (!token) { if (mountedRef.current) setLimitsLoading(false); return; }
+    if (!token) {
+      if (mountedRef.current) setLimitsLoading(false);
+      return;
+    }
     if (mountedRef.current) setLimitsLoading(true);
     apiFetch(`${API_BASE}/addproduct/seller/limits`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -393,24 +382,6 @@ export default function AddProduct({ user }) {
       .then((d) => { if (d.success && mountedRef.current) setSellerLimits(d); })
       .catch((err) => console.warn("[AddProduct] limits:", err.message))
       .finally(() => { if (mountedRef.current) setLimitsLoading(false); });
-  }, []);
-
-  /* ─── Price guidance (Loemart #8) ── */
-  const fetchPriceGuidance = useCallback(async (categoryId) => {
-    if (!categoryId) { setPriceGuidance(null); return; }
-    try {
-      const token = getToken();
-      const res   = await apiFetch(
-        `${API_BASE}/addproduct/categories/${categoryId}/price-guidance`,
-        token ? { headers: { Authorization: `Bearer ${token}` } } : {}
-      );
-      if (mountedRef.current && res.success) {
-        setPriceGuidance(res.guidance ?? null);
-      }
-    } catch {
-      /* non-critical — silently skip */
-      if (mountedRef.current) setPriceGuidance(null);
-    }
   }, []);
 
   /* ─── Load categories ── */
@@ -459,11 +430,6 @@ export default function AddProduct({ user }) {
       .finally(() => { if (mountedRef.current) setPlansLoading(false); });
   }, [showError]);
 
-  /* ─── Price guidance on category change ── */
-  useEffect(() => {
-    fetchPriceGuidance(form.category_id);
-  }, [form.category_id, fetchPriceGuidance]);
-
   /* ─── Resume stale payment ── */
   useEffect(() => {
     const check = async () => {
@@ -483,7 +449,9 @@ export default function AddProduct({ user }) {
 
         if (ageMs <= PAYMENT_MAX_AGE) {
           if (mountedRef.current) setPaymentData(session);
-          showSuccess("Incomplete payment found — tap 'Complete Payment' to finish");
+          showSuccess(
+            "Incomplete payment found — tap 'Complete Payment' to finish"
+          );
           return;
         }
 
@@ -493,22 +461,31 @@ export default function AddProduct({ user }) {
             try {
               const result = await apiFetch(`${API_BASE}/payment/verify`, {
                 method  : "POST",
-                headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+                headers : {
+                  "Content-Type": "application/json",
+                  Authorization : `Bearer ${token}`,
+                },
                 body    : JSON.stringify({ reference: session.reference }),
               });
 
               if (!mountedRef.current) return;
 
               if (result.status === "pending") {
-                showSuccess("Payment is still processing. Check back in a few minutes.");
+                showSuccess(
+                  "Payment is still processing. Check back in a few minutes."
+                );
                 return;
               }
               if (result.status === "success") {
                 if (result.needs_verification) {
                   showSuccess("Payment confirmed. Redirecting to verification…");
-                  setTimeout(() => { if (mountedRef.current) navigate("/verification"); }, 2_000);
+                  setTimeout(() => {
+                    if (mountedRef.current) navigate("/verification");
+                  }, 2_000);
                 } else {
-                  showSuccess("Your previous payment was confirmed — product is live!");
+                  showSuccess(
+                    "Your previous payment was confirmed — product is live!"
+                  );
                 }
               }
             } catch { /* non-critical */ }
@@ -553,7 +530,10 @@ export default function AddProduct({ user }) {
         },
         delivery : {
           available : f.delivery?.available ?? false,
-          duration  : { from: f.delivery?.duration?.from ?? "", to: f.delivery?.duration?.to ?? "" },
+          duration  : {
+            from : f.delivery?.duration?.from ?? "",
+            to   : f.delivery?.duration?.to   ?? "",
+          },
           fee  : f.delivery?.fee  ?? "",
           note : f.delivery?.note ?? "",
         },
@@ -569,7 +549,9 @@ export default function AddProduct({ user }) {
       setCity(draft.city ?? "");
 
       if (draft.selectedPlan) {
-        const matched = promotionPlans.find((p) => String(p.id) === String(draft.selectedPlan));
+        const matched = promotionPlans.find(
+          (p) => String(p.id) === String(draft.selectedPlan)
+        );
         setSelectedPlan(matched ?? null);
       }
 
@@ -617,7 +599,9 @@ export default function AddProduct({ user }) {
   /* ─── Revoke object URLs on unmount ── */
   useEffect(() => { imagesRef.current = images; }, [images]);
   useEffect(() => () => {
-    imagesRef.current.forEach((img) => img.preview && URL.revokeObjectURL(img.preview));
+    imagesRef.current.forEach(
+      (img) => img.preview && URL.revokeObjectURL(img.preview)
+    );
   }, []);
 
   /* ═══════════════════════════════════════════════════════════
@@ -637,17 +621,26 @@ export default function AddProduct({ user }) {
   }, []);
 
   const updateContact = useCallback((key, value) => {
-    setForm((prev) => ({ ...prev, contact: { ...prev.contact, [key]: value } }));
+    setForm((prev) => ({
+      ...prev,
+      contact: { ...prev.contact, [key]: value },
+    }));
   }, []);
 
   const updateDelivery = useCallback((key, value) => {
-    setForm((prev) => ({ ...prev, delivery: { ...prev.delivery, [key]: value } }));
+    setForm((prev) => ({
+      ...prev,
+      delivery: { ...prev.delivery, [key]: value },
+    }));
   }, []);
 
   const updateDeliveryDuration = useCallback((key, value) => {
     setForm((prev) => ({
       ...prev,
-      delivery: { ...prev.delivery, duration: { ...prev.delivery.duration, [key]: value } },
+      delivery: {
+        ...prev.delivery,
+        duration: { ...prev.delivery.duration, [key]: value },
+      },
     }));
   }, []);
 
@@ -668,8 +661,6 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      IMAGE HANDLING
-     Fix #1: sequential compression — one at a time
-     Fix #4: SHA-256 hash before adding to prevent duplicates
   ═══════════════════════════════════════════════════════════ */
   const handleImages = useCallback(async (files) => {
     if (!mountedRef.current) return;
@@ -685,7 +676,6 @@ export default function AddProduct({ user }) {
       return;
     }
 
-    /* Magic-byte check */
     const verified = await Promise.all(
       sizeFiltered.map(async (f) => ({
         file  : f,
@@ -698,11 +688,8 @@ export default function AddProduct({ user }) {
       return;
     }
 
-    /* Fix #10: network-aware compression budget */
     const budget = getNetworkBudget();
 
-    /* Fix #1: SEQUENTIAL compression — one file at a time
-       Prevents 6 × ~3 MB buffers in memory simultaneously on low-RAM devices */
     if (mountedRef.current) {
       setCompressingTotal(validFiles.length);
       setCompressingCount(0);
@@ -711,20 +698,16 @@ export default function AddProduct({ user }) {
     const newImages = [];
     for (const file of validFiles) {
       if (!mountedRef.current) break;
-
       try {
         const compressed = await imageCompression(file, {
           ...budget,
           useWebWorker : true,
         }).catch(() => file);
 
-        /* Fix #4: SHA-256 hash check */
         const hash = await hashImageFile(compressed);
 
         if (sessionHashSet.current.has(hash)) {
-          /* Silently skip duplicate — ImageGrid will show error via imageErrors */
-          if (mountedRef.current)
-            setCompressingCount((p) => p + 1);
+          if (mountedRef.current) setCompressingCount((p) => p + 1);
           continue;
         }
 
@@ -735,16 +718,13 @@ export default function AddProduct({ user }) {
           preview : URL.createObjectURL(compressed),
           hash,
         });
-      } catch {
-        /* Compression failed for this file — skip it */
-      }
+      } catch { /* skip */ }
 
       if (mountedRef.current) setCompressingCount((p) => p + 1);
     }
 
     if (!mountedRef.current) return;
 
-    /* Race-condition safe update */
     setImages((prev) => {
       const remaining = MAX_IMAGES - prev.length;
       if (remaining <= 0) return prev;
@@ -801,7 +781,10 @@ export default function AddProduct({ user }) {
       if (token) {
         await apiFetch(`${API_BASE}/payment/verify`, {
           method  : "POST",
-          headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+          headers : {
+            "Content-Type": "application/json",
+            Authorization : `Bearer ${token}`,
+          },
           body    : JSON.stringify({ reference: paymentData.reference }),
         });
       }
@@ -827,7 +810,6 @@ export default function AddProduct({ user }) {
     setVerificationData(null);
     setDraftRestored(false);
     setAutoSaveStatus("idle");
-    setPriceGuidance(null);
     sessionHashSet.current.clear();
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
@@ -848,21 +830,26 @@ export default function AddProduct({ user }) {
      GPS
   ═══════════════════════════════════════════════════════════ */
   const detectLocation = useCallback(async () => {
-    if (!navigator.geolocation) { showError("Location detection not supported"); return; }
+    if (!navigator.geolocation) {
+      showError("Location detection not supported");
+      return;
+    }
     if (mountedRef.current) setDetectingLocation(true);
 
     navigator.geolocation.getCurrentPosition(
       async ({ coords: { latitude, longitude } }) => {
         try {
           const res  = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`,
+            `https://nominatim.openstreetmap.org/reverse?format=json` +
+            `&lat=${latitude}&lon=${longitude}`,
             { headers: { "User-Agent": USER_AGENT } }
           );
-          const data      = await res.json();
-          const addr      = data.address ?? {};
-          const rawState  = addr.state   ?? addr.region  ?? "";
-          const rawCity   = addr.city    ?? addr.town    ?? addr.village ??
-                            addr.suburb  ?? addr.county  ?? "";
+          const data     = await res.json();
+          const addr     = data.address ?? {};
+          const rawState = addr.state   ?? addr.region  ?? "";
+          const rawCity  =
+            addr.city ?? addr.town ?? addr.village ??
+            addr.suburb ?? addr.county ?? "";
 
           if (!mountedRef.current) return;
 
@@ -882,11 +869,17 @@ export default function AddProduct({ user }) {
               if (matchedCity) setCity(matchedCity);
             }
           }
-          setDetectedCoords({ latitude: roundGps(latitude), longitude: roundGps(longitude) });
+          setDetectedCoords({
+            latitude  : roundGps(latitude),
+            longitude : roundGps(longitude),
+          });
           showSuccess("Location detected");
         } catch {
           if (!mountedRef.current) return;
-          setDetectedCoords({ latitude: roundGps(latitude), longitude: roundGps(longitude) });
+          setDetectedCoords({
+            latitude  : roundGps(latitude),
+            longitude : roundGps(longitude),
+          });
           showSuccess("GPS captured — fill state/city manually");
         } finally {
           if (mountedRef.current) setDetectingLocation(false);
@@ -895,7 +888,11 @@ export default function AddProduct({ user }) {
       (err) => {
         if (!mountedRef.current) return;
         setDetectingLocation(false);
-        const msgs = { 1: "Permission denied", 2: "Location unavailable", 3: "Request timed out" };
+        const msgs = {
+          1: "Permission denied",
+          2: "Location unavailable",
+          3: "Request timed out",
+        };
         showError(msgs[err.code] ?? "Location detection failed");
       },
       { timeout: GPS_TIMEOUT, maximumAge: GPS_MAX_AGE }
@@ -913,26 +910,33 @@ export default function AddProduct({ user }) {
     const d = form.description?.trim() ?? "";
     if (d.length < DESCRIPTION_MIN)
       return `Description must be at least ${DESCRIPTION_MIN} characters.`;
-    if (d.length > 2000) return "Description must be at most 2000 characters.";
+    if (d.length > 2000)
+      return "Description must be at most 2000 characters.";
 
-    if (!form.price || Number(form.price) <= 0) return "Enter a valid price.";
-    if (Number(form.price) > 1_000_000_000)     return "Price exceeds maximum allowed value.";
-    if (!form.category_id)                       return "Category required.";
-    if (!form.contact?.email?.includes("@"))     return "Enter a valid email address.";
+    if (!form.price || Number(form.price) <= 0)
+      return "Enter a valid price.";
+    if (Number(form.price) > 1_000_000_000)
+      return "Price exceeds maximum allowed value.";
+    if (!form.category_id) return "Category required.";
+    if (!form.contact?.email?.includes("@"))
+      return "Enter a valid email address.";
     if (!isValidPhone(form.contact?.phone))
       return "Phone number must be 7–15 digits (e.g. 08012345678).";
     if (form.contact?.whatsapp && !isValidPhone(form.contact.whatsapp))
       return "WhatsApp number must be 7–15 digits (e.g. 08012345678).";
-    if (!images.length)  return "At least one image is required.";
+    if (!images.length) return "At least one image is required.";
     if (!locationState || !city) return "Select your state and city.";
-    if (!agreedToTerms)  return "Please accept the Terms & Conditions.";
+    if (!agreedToTerms) return "Please accept the Terms & Conditions.";
 
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
-      if (!Number.isFinite(from) || from < 1) return "Enter valid delivery days.";
-      if (!Number.isFinite(to)   || to   < 1) return "Enter valid delivery days.";
-      if (to < from)                           return "Delivery end must be after start.";
+      if (!Number.isFinite(from) || from < 1)
+        return "Enter valid delivery days.";
+      if (!Number.isFinite(to) || to < 1)
+        return "Enter valid delivery days.";
+      if (to < from)
+        return "Delivery end must be after start.";
       if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
         return "Enter a valid delivery fee.";
     }
@@ -959,11 +963,17 @@ export default function AddProduct({ user }) {
         limits        : responseData.limits,
       });
       setNeedsVerification(true);
-      showSuccess(`Listing is live for ${daysRemaining} days. Redirecting to verification…`);
-      setTimeout(() => { if (mountedRef.current) navigate("/verification"); }, 2_000);
+      showSuccess(
+        `Listing is live for ${daysRemaining} days. Redirecting to verification…`
+      );
+      setTimeout(() => {
+        if (mountedRef.current) navigate("/verification");
+      }, 2_000);
     } else {
       showSuccess("Product live! Redirecting…");
-      setTimeout(() => { if (mountedRef.current) navigate("/"); }, 1_500);
+      setTimeout(() => {
+        if (mountedRef.current) navigate("/");
+      }, 1_500);
     }
   }, [navigate, IDEMPOTENCY_STORE, showSuccess]);
 
@@ -974,25 +984,44 @@ export default function AddProduct({ user }) {
     if (isSubmittingRef.current) return;
 
     if (!navigator.onLine) {
-      showError("You appear to be offline. Check your connection and try again.");
+      showError(
+        "You appear to be offline. Check your connection and try again."
+      );
       return;
     }
 
-    /* Soft quota check */
+    /*
+     * Soft quota check — matches new trial policy.
+     * Order: trial exhausted → daily → active → cooldown
+     */
     if (sellerLimits && !canPost) {
-      if (dailyRemaining === 0)
+      if (trialExhausted) {
+        return showError(
+          "You have used all 3 free trial listings. " +
+          "Verify your identity to continue posting on Loemart."
+        );
+      }
+      if (dailyRemaining === 0) {
         return showError(
           `Daily limit reached (${sellerLimits.daily_limit}/day). ` +
-          (isVerifiedSeller ? "Try again tomorrow." : "Complete verification to unlock 100/day.")
+          (isVerifiedSeller
+            ? "Try again tomorrow."
+            : "Complete verification to unlock 100/day.")
         );
-      if (activeRemaining === 0)
+      }
+      if (activeRemaining === 0) {
         return showError(
           `Active listing limit reached (${sellerLimits.active_limit}). ` +
-          (isVerifiedSeller ? "" : "Complete verification to unlock 500.")
+          (isVerifiedSeller
+            ? ""
+            : "Complete verification to unlock 500.")
         );
+      }
       if (cooldownSecs > 0) {
         const mins = Math.ceil(cooldownSecs / 60);
-        return showError(`Please wait ${mins} minute${mins !== 1 ? "s" : ""} before posting again.`);
+        return showError(
+          `Please wait ${mins} minute${mins !== 1 ? "s" : ""} before posting again.`
+        );
       }
     }
 
@@ -1038,7 +1067,6 @@ export default function AddProduct({ user }) {
       await new Promise((r) => setTimeout(r, 400));
       if (mountedRef.current) setProgressStep("uploading");
 
-      /* Build FormData — images in display order */
       const fd = new FormData();
       fd.append("title",           form.title.trim());
       fd.append("description",     form.description.trim());
@@ -1055,28 +1083,32 @@ export default function AddProduct({ user }) {
         fd.append("longitude", String(detectedCoords.longitude));
       }
 
-      fd.append("attributes",      JSON.stringify({ ...attributes, features: toArray(attributes.features) }));
-      fd.append("delivery",        JSON.stringify(form.delivery));
-      fd.append("contact",         JSON.stringify(form.contact));
-      fd.append("phone",           form.contact.phone         ?? "");
-      fd.append("whatsapp",        form.contact.whatsapp      ?? "");
-      fd.append("whatsapp_link",   form.contact.whatsapp_link ?? "");
+      fd.append("attributes",
+        JSON.stringify({ ...attributes, features: toArray(attributes.features) })
+      );
+      fd.append("delivery",    JSON.stringify(form.delivery));
+      fd.append("contact",     JSON.stringify(form.contact));
+      fd.append("phone",       form.contact.phone         ?? "");
+      fd.append("whatsapp",    form.contact.whatsapp      ?? "");
+      fd.append("whatsapp_link", form.contact.whatsapp_link ?? "");
       fd.append("idempotency_key", getOrCreateIdempotencyKey(IDEMPOTENCY_STORE));
-      fd.append("seller_name",     user?.store_name || user?.name || BRAND_NAME);
+      fd.append("seller_name", user?.store_name || user?.name || BRAND_NAME);
 
-      /* Fix #4: send image hashes for server-side dedup */
       const imageHashes = images.map((img) => img.hash).filter(Boolean);
-      if (imageHashes.length) fd.append("image_hashes", JSON.stringify(imageHashes));
+      if (imageHashes.length)
+        fd.append("image_hashes", JSON.stringify(imageHashes));
 
       images.forEach((img) => fd.append("images", img.file));
 
       if (mountedRef.current) setProgressStep("saving");
-      const data = await multipartPost(`${API_BASE}/addproduct/products`, fd, token);
+      const data = await multipartPost(
+        `${API_BASE}/addproduct/products`, fd, token
+      );
 
-      /* Fix #3: Idempotency recovery — server returns existing product */
       if (!data.product?.id) throw new ApiError("Product creation failed", 500);
       product = data.product;
 
+      /* Refresh limits after posting — trial counter decremented */
       fetchLimits();
 
       /* ─── Free plan ── */
@@ -1086,7 +1118,10 @@ export default function AddProduct({ user }) {
           `${API_BASE}/addproduct/products/${product.id}/activate`,
           {
             method  : "POST",
-            headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            headers : {
+              "Content-Type": "application/json",
+              Authorization : `Bearer ${token}`,
+            },
             body    : JSON.stringify({ promotion_id: null }),
           }
         );
@@ -1097,7 +1132,11 @@ export default function AddProduct({ user }) {
           setProgressVisible(false);
         }
 
-        handlePostSuccess({ ...data, ...activateRes, product: activateRes.product ?? data.product });
+        handlePostSuccess({
+          ...data,
+          ...activateRes,
+          product : activateRes.product ?? data.product,
+        });
         clearDraft();
         return;
       }
@@ -1110,7 +1149,10 @@ export default function AddProduct({ user }) {
 
       payData = await apiFetch(`${API_BASE}/payment/initiate`, {
         method  : "POST",
-        headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers : {
+          "Content-Type": "application/json",
+          Authorization : `Bearer ${token}`,
+        },
         body    : JSON.stringify({
           email           : form.contact.email,
           amount          : effectiveAmt,
@@ -1138,8 +1180,8 @@ export default function AddProduct({ user }) {
         amount           : effectiveAmt,
         createdAt        : Date.now(),
         needsVerification: data.needs_verification ?? false,
-        activeUntil      : data.active_until ?? null,
-        daysRemaining    : data.days_remaining ?? null,
+        activeUntil      : data.active_until       ?? null,
+        daysRemaining    : data.days_remaining      ?? null,
       };
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
       if (mountedRef.current) setPaymentData(session);
@@ -1176,8 +1218,8 @@ export default function AddProduct({ user }) {
     form, attributes, images, locationState, city, detectedCoords,
     clearDraft, showError, showSuccess, handlePostSuccess, fetchLimits,
     navigate, user, IDEMPOTENCY_STORE,
-    sellerLimits, canPost, dailyRemaining, activeRemaining,
-    cooldownSecs, isVerifiedSeller,
+    sellerLimits, canPost, trialExhausted, dailyRemaining,
+    activeRemaining, cooldownSecs, isVerifiedSeller,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
@@ -1201,7 +1243,8 @@ export default function AddProduct({ user }) {
         >
           {agreedToTerms && (
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                 stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                 stroke="#fff" strokeWidth="3"
+                 strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12"/>
             </svg>
           )}
@@ -1235,7 +1278,6 @@ export default function AddProduct({ user }) {
         isPaid={isSelectedPlanPaid}
       />
 
-      {/* Image compression progress indicator */}
       {compressingTotal > 0 && (
         <div className="compression-progress" role="status" aria-live="polite">
           <span className="btn-spin-svg" aria-hidden="true" />
@@ -1269,7 +1311,7 @@ export default function AddProduct({ user }) {
         plansLoading={plansLoading}
         MAX_IMAGES={MAX_IMAGES}
 
-        /* ─ seller limits ─ */
+        /* ─ seller limits (includes trial fields) ─ */
         sellerLimits={sellerLimits}
         limitsLoading={limitsLoading}
         isVerifiedSeller={isVerifiedSeller}
@@ -1287,10 +1329,6 @@ export default function AddProduct({ user }) {
         autoSaveStatus={autoSaveStatus}
         onDraftContinue={handleDraftContinue}
         onDraftDiscard={handleDraftDiscard}
-
-        /* ─ Loemart marketplace features ─ */
-        qualityScore={qualityScore}
-        priceGuidance={priceGuidance}
 
         /* ─ handlers ─ */
         updateForm={updateForm}
