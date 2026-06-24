@@ -1,25 +1,31 @@
 /**
  * src/pages/AddProduct.jsx
- * Route: /minimart/add — v7
+ * Route: /minimart/add — v8
  *
- * Trial policy update:
- *  ─ canPost now also checks trial_exhausted from sellerLimits
- *  ─ Soft quota check handles trial_exhausted with correct message
- *  ─ trial_exhausted + trial_remaining passed to ProductComponents
- *  ─ Unused safeSetError / safeSetSuccess / safeSetLoading removed
- *  ─ qualityScore / priceGuidance kept but not passed as props
- *    (components.jsx does not consume them — remove when ready to use)
+ * Changes from v7:
+ *  ─ STORAGE_DRAFT + IDEMPOTENCY_STORE memoized (stable references)
+ *  ─ canPost null-safety: null daily/active treated as "unlimited"
+ *  ─ canPost gated on limitsLoading to prevent premature submit
+ *  ─ Mount guards added after every await in handleSubmit
+ *  ─ handleSubmit decomposed: buildFormData / runActivation / runPayment
+ *  ─ trialExhausted + trialRemaining passed to ProductComponents
+ *  ─ Draft restore waits for both categories and plans (dataReady gate)
+ *  ─ handleImages uses imagesLengthRef to avoid stale-closure recreation
+ *  ─ TermsCheckbox memoized
+ *  ─ safeOpenPayment host check uses exact + subdomain boundary
+ *  ─ Contact fields sanitized before FormData append
+ *  ─ Misleading payment-redirect error message corrected
  */
 
 import {
   useEffect, useMemo, useState, useCallback, useRef,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import ProductComponents  from "./product/components.jsx";
-import ProgressOverlay    from "../components/ProgressOverlay.jsx";
+import ProductComponents from "./product/components.jsx";
+import ProgressOverlay   from "../components/ProgressOverlay.jsx";
 import { locationsByState } from "../config/locationsByState.js";
 import { apiFetch, ApiError } from "../utils/apiFetch.js";
-import imageCompression   from "browser-image-compression";
+import imageCompression  from "browser-image-compression";
 import "../styles/AddProduct.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -45,6 +51,10 @@ const AUTO_SAVE_SAVED_MS = 2_000;
 const COMPRESS_BUDGET_LOW_END = { maxSizeMB: 0.5, maxWidthOrHeight: 800  };
 const COMPRESS_BUDGET_NORMAL  = { maxSizeMB: 1,   maxWidthOrHeight: 1280 };
 
+/*
+ * Allowed payment hosts — exact match only.
+ * safeOpenPayment also accepts *.hostname via subdomain boundary check.
+ */
 const ALLOWED_PAYMENT_HOSTS = new Set([
   "checkout.paystack.com",
   "standard.paystack.com",
@@ -128,12 +138,25 @@ const getTokenOrRedirect = (navigate, returnPath) => {
   return token;
 };
 
+/**
+ * Opens a payment URL in a new tab after validating:
+ *  1. HTTPS protocol
+ *  2. Host is exactly in ALLOWED_PAYMENT_HOSTS or is a valid subdomain
+ *     (e.g. "checkout.paystack.com" ✓, "evil.checkout.paystack.com.bad.com" ✗)
+ */
 const safeOpenPayment = (url, onError) => {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:") throw new Error("Non-HTTPS URL");
-    if (!ALLOWED_PAYMENT_HOSTS.has(parsed.hostname))
+
+    const hostAllowed = [...ALLOWED_PAYMENT_HOSTS].some(
+      (host) =>
+        parsed.hostname === host ||
+        parsed.hostname.endsWith(`.${host}`)
+    );
+    if (!hostAllowed)
       throw new Error(`Untrusted host: ${parsed.hostname}`);
+
     window.open(url, "_blank", "noopener,noreferrer");
   } catch (err) {
     console.error("[Payment] Blocked unsafe URL:", err.message);
@@ -155,6 +178,13 @@ const verifyImageMagicBytes = (file) =>
       const hex = Array.from(arr)
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
+      /*
+       * Byte layout for 12-byte read (24 hex chars):
+       *   JPEG  — bytes 0-2:   FF D8 FF
+       *   PNG   — bytes 0-3:   89 50 4E 47
+       *   WebP  — bytes 0-3:   "RIFF" (52 49 46 46)
+       *           bytes 8-11:  "WEBP" (57 45 42 50)  → hex[16..24]
+       */
       resolve(
         hex.startsWith("ffd8ff")   ||
         hex.startsWith("89504e47") ||
@@ -184,9 +214,9 @@ const getNetworkBudget = () => {
     navigator?.webkitConnection;
   if (!conn) return COMPRESS_BUDGET_NORMAL;
   const slow =
-    conn.effectiveType === "2g" ||
+    conn.effectiveType === "2g"      ||
     conn.effectiveType === "slow-2g" ||
-    conn.saveData ||
+    conn.saveData                    ||
     conn.downlink < 1;
   return slow ? COMPRESS_BUDGET_LOW_END : COMPRESS_BUDGET_NORMAL;
 };
@@ -201,7 +231,9 @@ const getOrCreateIdempotencyKey = (storageKey) => {
 const clearIdempotencyKey = (storageKey) =>
   sessionStorage.removeItem(storageKey);
 
-const multipartPost = async (url, formData, token, timeoutMs = UPLOAD_TIMEOUT) => {
+const multipartPost = async (
+  url, formData, token, timeoutMs = UPLOAD_TIMEOUT
+) => {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
   let res;
@@ -252,15 +284,29 @@ const isValidPhone = (value) => {
   return PHONE_RE.test(String(value).replace(/[\s\-().]/g, ""));
 };
 
+/* Strip non-numeric characters from phone/WhatsApp before sending */
+const sanitizePhone = (v = "") => v.replace(/[\s\-().]/g, "");
+
 const freshForm = () => structuredClone(INITIAL_FORM);
 
 /* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function AddProduct({ user }) {
-  const navigate          = useNavigate();
-  const STORAGE_DRAFT     = `product_draft_v3_${user?.id ?? "anon"}`;
-  const IDEMPOTENCY_STORE = `idempotency_${user?.id ?? "anon"}`;
+  const navigate = useNavigate();
+
+  /*
+   * Memoize storage keys so useCallback deps stay stable
+   * across renders where user object reference changes.
+   */
+  const STORAGE_DRAFT = useMemo(
+    () => `product_draft_v3_${user?.id ?? "anon"}`,
+    [user?.id]
+  );
+  const IDEMPOTENCY_STORE = useMemo(
+    () => `idempotency_${user?.id ?? "anon"}`,
+    [user?.id]
+  );
 
   /* ─── Core state ── */
   const [form,              setForm]              = useState(freshForm);
@@ -301,6 +347,11 @@ export default function AddProduct({ user }) {
   const mountedRef      = useRef(true);
   const isSubmittingRef = useRef(false);
   const imagesRef       = useRef([]);
+  /*
+   * imagesLengthRef: read current image count inside handleImages without
+   * adding images.length to useCallback deps (avoids recreating on every add).
+   */
+  const imagesLengthRef = useRef(0);
   const autoSaveTimer   = useRef(null);
   const savedLabelTimer = useRef(null);
   const sessionHashSet  = useRef(new Set());
@@ -309,6 +360,11 @@ export default function AddProduct({ user }) {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  /* ─── Keep imagesLengthRef in sync ── */
+  useEffect(() => {
+    imagesLengthRef.current = images.length;
+  }, [images.length]);
 
   /* ─── Derived ── */
   const selectedCategory = useMemo(
@@ -334,25 +390,29 @@ export default function AddProduct({ user }) {
 
   /* ── Trial-aware limit derivations ── */
   const isVerifiedSeller = sellerLimits?.seller_verified  ?? false;
+  const trialExhausted   = sellerLimits?.trial_exhausted  ?? false;
+  const trialRemaining   = sellerLimits?.trial_remaining  ?? null;
   const dailyRemaining   = sellerLimits?.daily_remaining  ?? null;
   const activeRemaining  = sellerLimits?.active_remaining ?? null;
   const cooldownSecs     = sellerLimits?.cooldown_seconds ?? 0;
-  const trialExhausted   = sellerLimits?.trial_exhausted  ?? false;
-  const trialRemaining   = sellerLimits?.trial_remaining  ?? null;
 
   /*
-   * canPost = false when ANY of these is true:
-   *   - trial exhausted (hard block for unverified sellers)
-   *   - daily limit hit
-   *   - active limit hit
-   *   - cooldown active
+   * canPost logic:
+   *  - While limits are still loading → block to avoid premature submit
+   *  - null daily/active values mean "unlimited" (treat as OK)
+   *  - trial_exhausted is a hard block regardless of other counters
    */
-  const canPost = !sellerLimits || (
-    !trialExhausted &&
-    dailyRemaining > 0 &&
-    activeRemaining > 0 &&
-    cooldownSecs === 0
-  );
+  const canPost = useMemo(() => {
+    if (limitsLoading) return false;
+    if (!sellerLimits)  return true;   // unauthenticated — server will reject
+    if (trialExhausted) return false;
+    const dailyOk  = dailyRemaining  === null || dailyRemaining  > 0;
+    const activeOk = activeRemaining === null || activeRemaining > 0;
+    return dailyOk && activeOk && cooldownSecs === 0;
+  }, [
+    limitsLoading, sellerLimits, trialExhausted,
+    dailyRemaining, activeRemaining, cooldownSecs,
+  ]);
 
   /* ─── Feedback ── */
   const showError = useCallback((msg) => {
@@ -478,7 +538,9 @@ export default function AddProduct({ user }) {
               }
               if (result.status === "success") {
                 if (result.needs_verification) {
-                  showSuccess("Payment confirmed. Redirecting to verification…");
+                  showSuccess(
+                    "Payment confirmed. Redirecting to verification…"
+                  );
                   setTimeout(() => {
                     if (mountedRef.current) navigate("/verification");
                   }, 2_000);
@@ -502,8 +564,15 @@ export default function AddProduct({ user }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ─── Restore draft ── */
+  /*
+   * Gate on both plansLoading and categories being populated so that
+   * selectedPlan and category lookups resolve correctly on restore.
+   */
+  const categoriesReady = categories.length > 0;
+  const dataReady       = !plansLoading && categoriesReady;
+
   useEffect(() => {
-    if (plansLoading) return;
+    if (!dataReady) return;
     try {
       const raw = localStorage.getItem(STORAGE_DRAFT);
       if (!raw) return;
@@ -559,9 +628,13 @@ export default function AddProduct({ user }) {
     } catch (err) {
       console.warn("[AddProduct] draft restore failed:", err.message);
     }
-  }, [plansLoading]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [dataReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ─── Auto-save draft ── */
+  /*
+   * Serialization runs inside the timeout callback, not before it,
+   * so the debounce genuinely defers the CPU work.
+   */
   useEffect(() => {
     if (autoSaveTimer.current)   clearTimeout(autoSaveTimer.current);
     if (savedLabelTimer.current) clearTimeout(savedLabelTimer.current);
@@ -662,10 +735,14 @@ export default function AddProduct({ user }) {
   /* ═══════════════════════════════════════════════════════════
      IMAGE HANDLING
   ═══════════════════════════════════════════════════════════ */
+  /*
+   * imagesLengthRef prevents this callback from being recreated on every
+   * image addition (which would cascade into child re-renders).
+   */
   const handleImages = useCallback(async (files) => {
     if (!mountedRef.current) return;
 
-    if (images.length >= MAX_IMAGES) {
+    if (imagesLengthRef.current >= MAX_IMAGES) {
       showError("Maximum 6 images allowed");
       return;
     }
@@ -718,7 +795,7 @@ export default function AddProduct({ user }) {
           preview : URL.createObjectURL(compressed),
           hash,
         });
-      } catch { /* skip */ }
+      } catch { /* skip malformed file */ }
 
       if (mountedRef.current) setCompressingCount((p) => p + 1);
     }
@@ -737,7 +814,7 @@ export default function AddProduct({ user }) {
     if (newImages.length > 0) {
       showSuccess(`${newImages.length} image(s) added`);
     }
-  }, [images.length, showError, showSuccess]);
+  }, [showError, showSuccess]); // imagesLengthRef read via ref — not a dep
 
   const removeImage = useCallback((id) => {
     setImages((prev) => {
@@ -978,7 +1055,128 @@ export default function AddProduct({ user }) {
   }, [navigate, IDEMPOTENCY_STORE, showSuccess]);
 
   /* ═══════════════════════════════════════════════════════════
-     SUBMIT
+     SUBMIT — DECOMPOSED HELPERS
+  ═══════════════════════════════════════════════════════════ */
+
+  /**
+   * Assembles the multipart FormData payload from current form state.
+   * Sanitizes phone/WhatsApp before appending.
+   */
+  const buildFormData = useCallback((token, finalPlan, isFreePlan) => {
+    const fd = new FormData();
+    fd.append("title",           form.title.trim());
+    fd.append("description",     form.description.trim());
+    fd.append("price",           Number(form.price).toFixed(2));
+    fd.append("category_id",     form.category_id);
+    if (form.subcategory_id)     fd.append("subcategory_id", form.subcategory_id);
+    fd.append("location_state",  locationState ?? "");
+    fd.append("location_city",   city ?? "");
+    fd.append("status",          isFreePlan ? "active" : "draft");
+    fd.append("is_active",       isFreePlan ? "true"   : "false");
+
+    if (detectedCoords) {
+      fd.append("latitude",  String(detectedCoords.latitude));
+      fd.append("longitude", String(detectedCoords.longitude));
+    }
+
+    fd.append("attributes",
+      JSON.stringify({ ...attributes, features: toArray(attributes.features) })
+    );
+    fd.append("delivery",    JSON.stringify(form.delivery));
+    fd.append("contact",     JSON.stringify(form.contact));
+
+    /* Sanitize numeric-only fields before sending */
+    fd.append("phone",       sanitizePhone(form.contact.phone    ?? ""));
+    fd.append("whatsapp",    sanitizePhone(form.contact.whatsapp ?? ""));
+    fd.append("whatsapp_link", form.contact.whatsapp_link ?? "");
+
+    fd.append(
+      "idempotency_key",
+      getOrCreateIdempotencyKey(IDEMPOTENCY_STORE)
+    );
+    fd.append("seller_name", user?.store_name || user?.name || BRAND_NAME);
+
+    const imageHashes = images.map((img) => img.hash).filter(Boolean);
+    if (imageHashes.length)
+      fd.append("image_hashes", JSON.stringify(imageHashes));
+
+    images.forEach((img) => fd.append("images", img.file));
+    return fd;
+  }, [
+    form, attributes, images, locationState, city, detectedCoords,
+    IDEMPOTENCY_STORE, user,
+  ]);
+
+  /**
+   * Activates a free-plan product and resolves the full response.
+   */
+  const runActivation = useCallback(async (productId, uploadData, token) => {
+    const activateRes = await apiFetch(
+      `${API_BASE}/addproduct/products/${productId}/activate`,
+      {
+        method  : "POST",
+        headers : {
+          "Content-Type": "application/json",
+          Authorization : `Bearer ${token}`,
+        },
+        body    : JSON.stringify({ promotion_id: null }),
+      }
+    );
+    if (!mountedRef.current) return null;
+    return {
+      ...uploadData,
+      ...activateRes,
+      product: activateRes.product ?? uploadData.product,
+    };
+  }, []);
+
+  /**
+   * Initiates a paid-plan payment and stores the session for resumption.
+   * Returns { authUrl, session } on success.
+   */
+  const runPayment = useCallback(async (product, finalPlan, uploadData, token) => {
+    const rawPrice     = Number(finalPlan.price);
+    const discount     = Number(finalPlan.discount_percent ?? 0);
+    const effectiveAmt = Number((rawPrice * (1 - discount / 100)).toFixed(2));
+    const planId       = String(finalPlan.id);
+
+    const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
+      method  : "POST",
+      headers : {
+        "Content-Type": "application/json",
+        Authorization : `Bearer ${token}`,
+      },
+      body    : JSON.stringify({
+        email           : form.contact.email,
+        amount          : effectiveAmt,
+        plan_id         : planId,
+        product_id      : product.id,
+        idempotency_key : getOrCreateIdempotencyKey(IDEMPOTENCY_STORE),
+      }),
+    });
+
+    if (!payData.authorization_url)
+      throw new ApiError("Payment setup failed — please try again", 500);
+
+    const session = {
+      reference        : payData.reference,
+      authUrl          : payData.authorization_url,
+      planId,
+      productId        : product.id,
+      email            : form.contact.email,
+      amount           : effectiveAmt,
+      createdAt        : Date.now(),
+      needsVerification: uploadData.needs_verification ?? false,
+      activeUntil      : uploadData.active_until       ?? null,
+      daysRemaining    : uploadData.days_remaining      ?? null,
+    };
+
+    localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
+    return { authUrl: payData.authorization_url, session };
+  }, [form.contact.email, IDEMPOTENCY_STORE]);
+
+  /* ═══════════════════════════════════════════════════════════
+     SUBMIT — ORCHESTRATOR
   ═══════════════════════════════════════════════════════════ */
   const handleSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
@@ -991,8 +1189,7 @@ export default function AddProduct({ user }) {
     }
 
     /*
-     * Soft quota check — matches new trial policy.
-     * Order: trial exhausted → daily → active → cooldown
+     * Soft quota check — order: trial exhausted → daily → active → cooldown
      */
     if (sellerLimits && !canPost) {
       if (trialExhausted) {
@@ -1043,7 +1240,7 @@ export default function AddProduct({ user }) {
     }
 
     let product = null;
-    let payData = null;
+    let paymentInitiated = false;
 
     try {
       const finalPlan =
@@ -1060,139 +1257,72 @@ export default function AddProduct({ user }) {
         );
       }
 
-      const planId     = String(finalPlan.id);
       const isFreePlan = Number(finalPlan.price) === 0;
       const token      = getTokenOrRedirect(navigate, "/minimart/add");
 
       await new Promise((r) => setTimeout(r, 400));
+      if (!mountedRef.current) return;
       if (mountedRef.current) setProgressStep("uploading");
 
-      const fd = new FormData();
-      fd.append("title",           form.title.trim());
-      fd.append("description",     form.description.trim());
-      fd.append("price",           Number(form.price).toFixed(2));
-      fd.append("category_id",     form.category_id);
-      if (form.subcategory_id)     fd.append("subcategory_id", form.subcategory_id);
-      fd.append("location_state",  locationState ?? "");
-      fd.append("location_city",   city ?? "");
-      fd.append("status",          isFreePlan ? "active" : "draft");
-      fd.append("is_active",       isFreePlan ? "true"   : "false");
-
-      if (detectedCoords) {
-        fd.append("latitude",  String(detectedCoords.latitude));
-        fd.append("longitude", String(detectedCoords.longitude));
-      }
-
-      fd.append("attributes",
-        JSON.stringify({ ...attributes, features: toArray(attributes.features) })
-      );
-      fd.append("delivery",    JSON.stringify(form.delivery));
-      fd.append("contact",     JSON.stringify(form.contact));
-      fd.append("phone",       form.contact.phone         ?? "");
-      fd.append("whatsapp",    form.contact.whatsapp      ?? "");
-      fd.append("whatsapp_link", form.contact.whatsapp_link ?? "");
-      fd.append("idempotency_key", getOrCreateIdempotencyKey(IDEMPOTENCY_STORE));
-      fd.append("seller_name", user?.store_name || user?.name || BRAND_NAME);
-
-      const imageHashes = images.map((img) => img.hash).filter(Boolean);
-      if (imageHashes.length)
-        fd.append("image_hashes", JSON.stringify(imageHashes));
-
-      images.forEach((img) => fd.append("images", img.file));
-
-      if (mountedRef.current) setProgressStep("saving");
-      const data = await multipartPost(
+      const fd         = buildFormData(token, finalPlan, isFreePlan);
+      const uploadData = await multipartPost(
         `${API_BASE}/addproduct/products`, fd, token
       );
+      if (!mountedRef.current) return;
 
-      if (!data.product?.id) throw new ApiError("Product creation failed", 500);
-      product = data.product;
+      if (!uploadData.product?.id)
+        throw new ApiError("Product creation failed", 500);
+      product = uploadData.product;
 
-      /* Refresh limits after posting — trial counter decremented */
+      /* Refresh limits — trial counter may have decremented */
       fetchLimits();
 
       /* ─── Free plan ── */
       if (isFreePlan) {
         if (mountedRef.current) setProgressStep("activating");
-        const activateRes = await apiFetch(
-          `${API_BASE}/addproduct/products/${product.id}/activate`,
-          {
-            method  : "POST",
-            headers : {
-              "Content-Type": "application/json",
-              Authorization : `Bearer ${token}`,
-            },
-            body    : JSON.stringify({ promotion_id: null }),
-          }
-        );
+        const merged = await runActivation(product.id, uploadData, token);
+        if (!mountedRef.current) return;
 
         if (mountedRef.current) {
           setProgressStep("finalizing");
           await new Promise((r) => setTimeout(r, 600));
+          if (!mountedRef.current) return;
           setProgressVisible(false);
         }
 
-        handlePostSuccess({
-          ...data,
-          ...activateRes,
-          product : activateRes.product ?? data.product,
-        });
+        handlePostSuccess(merged);
         clearDraft();
         return;
       }
 
       /* ─── Paid plan ── */
       if (mountedRef.current) setProgressStep("payment");
-      const rawPrice     = Number(finalPlan.price);
-      const discount     = Number(finalPlan.discount_percent ?? 0);
-      const effectiveAmt = Number((rawPrice * (1 - discount / 100)).toFixed(2));
-
-      payData = await apiFetch(`${API_BASE}/payment/initiate`, {
-        method  : "POST",
-        headers : {
-          "Content-Type": "application/json",
-          Authorization : `Bearer ${token}`,
-        },
-        body    : JSON.stringify({
-          email           : form.contact.email,
-          amount          : effectiveAmt,
-          plan_id         : planId,
-          product_id      : product.id,
-          idempotency_key : getOrCreateIdempotencyKey(IDEMPOTENCY_STORE),
-        }),
-      });
-
-      if (!payData.authorization_url)
-        throw new ApiError("Payment setup failed — please try again", 500);
+      const { authUrl, session } = await runPayment(
+        product, finalPlan, uploadData, token
+      );
+      if (!mountedRef.current) return;
+      paymentInitiated = true;
 
       if (mountedRef.current) {
         setProgressStep("finalizing");
         await new Promise((r) => setTimeout(r, 400));
+        if (!mountedRef.current) return;
         setProgressVisible(false);
+        setPaymentData(session);
       }
 
-      const session = {
-        reference        : payData.reference,
-        authUrl          : payData.authorization_url,
-        planId,
-        productId        : product.id,
-        email            : form.contact.email,
-        amount           : effectiveAmt,
-        createdAt        : Date.now(),
-        needsVerification: data.needs_verification ?? false,
-        activeUntil      : data.active_until       ?? null,
-        daysRemaining    : data.days_remaining      ?? null,
-      };
-      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
-      if (mountedRef.current) setPaymentData(session);
       showSuccess("Redirecting to payment…");
-      safeOpenPayment(payData.authorization_url, showError);
+      safeOpenPayment(authUrl, showError);
 
     } catch (err) {
       console.error("[AddProduct] submit:", err);
       if (mountedRef.current) setProgressVisible(false);
 
-      if (product?.id && !payData) {
+      if (product?.id && !paymentInitiated) {
+        /*
+         * Product was created but payment was never initiated —
+         * roll back the orphaned product record.
+         */
         const token = getToken();
         if (token) {
           fetch(`${API_BASE}/addproduct/products/${product.id}`, {
@@ -1200,10 +1330,15 @@ export default function AddProduct({ user }) {
             headers : { Authorization: `Bearer ${token}` },
           }).catch(() => {});
         }
-      } else if (product?.id && payData) {
+      } else if (product?.id && paymentInitiated) {
+        /*
+         * Payment was initiated successfully but the redirect to Paystack
+         * failed (e.g. popup blocked). The listing exists as a draft and
+         * the user can resume via the payment banner.
+         */
         showError(
-          "Payment redirect failed but your listing was saved as draft. " +
-          "Check your email or contact support."
+          "Payment was initiated but the redirect failed. " +
+          "Use 'Complete Payment' above, or check your email for the payment link."
         );
         return;
       }
@@ -1215,17 +1350,17 @@ export default function AddProduct({ user }) {
     }
   }, [
     validateForm, selectedPlan, promotionPlans, plansLoading,
-    form, attributes, images, locationState, city, detectedCoords,
+    buildFormData, runActivation, runPayment,
     clearDraft, showError, showSuccess, handlePostSuccess, fetchLimits,
-    navigate, user, IDEMPOTENCY_STORE,
+    navigate,
     sellerLimits, canPost, trialExhausted, dailyRemaining,
     activeRemaining, cooldownSecs, isVerifiedSeller,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
-     TERMS CHECKBOX
+     TERMS CHECKBOX  (memoized — only re-renders when checked state changes)
   ═══════════════════════════════════════════════════════════ */
-  const TermsCheckbox = (
+  const TermsCheckbox = useMemo(() => (
     <div className="ap-terms-row">
       <label className="ap-terms-label">
         <span
@@ -1265,7 +1400,7 @@ export default function AddProduct({ user }) {
         </span>
       </label>
     </div>
-  );
+  ), [agreedToTerms]);
 
   /* ═══════════════════════════════════════════════════════════
      RENDER
@@ -1311,7 +1446,7 @@ export default function AddProduct({ user }) {
         plansLoading={plansLoading}
         MAX_IMAGES={MAX_IMAGES}
 
-        /* ─ seller limits (includes trial fields) ─ */
+        /* ─ seller limits ─ */
         sellerLimits={sellerLimits}
         limitsLoading={limitsLoading}
         isVerifiedSeller={isVerifiedSeller}
@@ -1319,6 +1454,8 @@ export default function AddProduct({ user }) {
         dailyRemaining={dailyRemaining}
         activeRemaining={activeRemaining}
         cooldownSecs={cooldownSecs}
+        trialExhausted={trialExhausted}
+        trialRemaining={trialRemaining}
 
         /* ─ post-creation ─ */
         needsVerification={needsVerification}
@@ -1355,7 +1492,7 @@ export default function AddProduct({ user }) {
         onlyNumbers={onlyNumbers}
         onlyDigits={onlyDigits}
 
-        /* ─ API base for check-duplicate ─ */
+        /* ─ API base ─ */
         apiBase={API_BASE}
       />
     </div>
