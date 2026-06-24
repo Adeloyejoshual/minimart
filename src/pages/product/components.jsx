@@ -1,14 +1,11 @@
 /**
  * src/pages/product/components.jsx
  *
- * v6 — clean rewrite
- *  ─ All inline <style> removed — styles live in AddProduct.css
- *  ─ "Auto-fills state and city" hint removed
- *  ─ "Format: https://wa.me/..." hint removed (shown only on blur error)
- *  ─ "Be specific — good titles get more views" hint removed
- *  ─ "Minimum 10 characters" only shown when user has typed 1-9 chars
- *  ─ "Verify your identity" upsell opens blur-backdrop modal
- *  ─ SellerLimitsBanner upgrade link also opens the modal
+ * v7 — trial policy update
+ *  ─ SellerLimitsBanner shows trial listings remaining + exhausted state
+ *  ─ Upsell modal updated with correct policy numbers (3 trial, 100 verified)
+ *  ─ Submit button shows "Trial Limit Reached" when exhausted
+ *  ─ All other v6 improvements preserved
  */
 
 import {
@@ -46,10 +43,10 @@ function getSelectedCategory(categories, id) {
 const toArray = (v) => (Array.isArray(v) ? v : []);
 const safeStr = (v) => (typeof v === "string" ? v : String(v ?? ""));
 
-const deepClone = (obj) => {
-  if (typeof structuredClone === "function") return structuredClone(obj);
-  return JSON.parse(JSON.stringify(obj));
-};
+const deepClone = (obj) =>
+  typeof structuredClone === "function"
+    ? structuredClone(obj)
+    : JSON.parse(JSON.stringify(obj));
 
 const fmtSecs = (totalSecs) => {
   const m = Math.floor(totalSecs / 60);
@@ -186,7 +183,7 @@ const ChevronRightIcon = () => (
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   PAYMENT COUNTDOWN
+   PAYMENT COUNTDOWN  (compute() every tick — no drift)
 ═══════════════════════════════════════════════════════════════ */
 function PaymentCountdown({ createdAt, maxAgeMs }) {
   const compute = useCallback(
@@ -197,13 +194,7 @@ function PaymentCountdown({ createdAt, maxAgeMs }) {
 
   useEffect(() => {
     setRemaining(compute());
-    const id = setInterval(() => {
-      setRemaining((prev) => {
-        const next = Math.max(0, prev - 1_000);
-        if (next === 0) clearInterval(id);
-        return next;
-      });
-    }, 1_000);
+    const id = setInterval(() => setRemaining(compute()), 1_000);
     return () => clearInterval(id);
   }, [compute]);
 
@@ -332,14 +323,12 @@ function DraftRecoveryBanner({ onContinue, onDiscard }) {
 
 /* ═══════════════════════════════════════════════════════════════
    VERIFICATION UPSELL MODAL
-   Opens when seller clicks "Verify your identity" prompt.
-   Background blurs — must be dismissed before continuing.
+   Updated with correct trial policy numbers.
 ═══════════════════════════════════════════════════════════════ */
-function VerificationUpsellModal({ onClose }) {
+function VerificationUpsellModal({ onClose, trialRemaining = null }) {
   useEffect(() => {
     const handler = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", handler);
-    /* Prevent body scroll while modal is open */
     document.body.style.overflow = "hidden";
     return () => {
       window.removeEventListener("keydown", handler);
@@ -355,17 +344,10 @@ function VerificationUpsellModal({ onClose }) {
       aria-label="Identity verification benefits"
       onClick={onClose}
     >
-      <div
-        className="upsell-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Close */}
-        <button
-          type="button"
-          className="upsell-close"
-          onClick={onClose}
-          aria-label="Close"
-        >
+      <div className="upsell-modal" onClick={(e) => e.stopPropagation()}>
+
+        <button type="button" className="upsell-close"
+                onClick={onClose} aria-label="Close">
           <svg viewBox="0 0 14 14" width="14" height="14" fill="none"
                stroke="currentColor" strokeWidth="2.2"
                strokeLinecap="round" aria-hidden="true">
@@ -374,7 +356,6 @@ function VerificationUpsellModal({ onClose }) {
           </svg>
         </button>
 
-        {/* Shield icon */}
         <div className="upsell-icon" aria-hidden="true">
           <svg viewBox="0 0 40 40" width="40" height="40" fill="none"
                stroke="currentColor" strokeWidth="1.8"
@@ -386,16 +367,18 @@ function VerificationUpsellModal({ onClose }) {
 
         <h2 className="upsell-title">Unlock Full Seller Access</h2>
         <p className="upsell-subtitle">
-          Verify your identity once — sell without restrictions forever.
+          {trialRemaining !== null && trialRemaining <= 0
+            ? "You have used all 3 free trial listings. Verify your identity to continue posting."
+            : "Verify your identity once — sell without restrictions forever."}
         </p>
 
         <ul className="upsell-benefits" role="list">
           {[
-            { icon: "∞", label: "Permanent listings — no 7-day expiry"      },
-            { icon: "↑", label: "100 products per day (vs 3 unverified)"    },
-            { icon: "☑", label: "500 active listings at once (vs 10)"       },
-            { icon: "⚡", label: "No cooldown between posts"                },
-            { icon: "★", label: "Higher trust score · more buyer confidence" },
+            { icon: "∞", label: "Permanent listings — your posts never expire"   },
+            { icon: "↑", label: "100 products per day (you get 3 trial listings)" },
+            { icon: "☑", label: "500 active listings at once (vs 3 trial)"       },
+            { icon: "⚡", label: "No cooldown between posts"                      },
+            { icon: "★", label: "Higher trust score · more buyer confidence"      },
           ].map(({ icon, label }) => (
             <li key={label} className="upsell-benefit">
               <span className="upsell-benefit-icon" aria-hidden="true">{icon}</span>
@@ -422,24 +405,71 @@ function VerificationUpsellModal({ onClose }) {
 
 /* ═══════════════════════════════════════════════════════════════
    SELLER LIMITS BANNER
+   Updated for trial policy:
+   ─ Shows trial listings remaining (X of 3 left)
+   ─ Shows hard block state when trial exhausted
+   ─ Red banner when trial exhausted
 ═══════════════════════════════════════════════════════════════ */
-function SellerLimitsBanner({ sellerLimits, limitsLoading, isVerifiedSeller, onUpsellClick }) {
+function SellerLimitsBanner({
+  sellerLimits,
+  limitsLoading,
+  isVerifiedSeller,
+  onUpsellClick,
+}) {
   if (limitsLoading || !sellerLimits || isVerifiedSeller) return null;
 
   const {
-    daily_limit      = 3,  daily_used       = 0,  daily_remaining  = 3,
-    active_limit     = 10, active_count     = 0,  active_remaining = 10,
-    cooldown_seconds = 0,  expiry_days      = 7,
+    daily_limit      = 3,
+    daily_used       = 0,
+    daily_remaining  = 3,
+    active_limit     = 3,
+    active_count     = 0,
+    active_remaining = 3,
+    cooldown_seconds = 0,
+    expiry_days      = 7,
+    trial_exhausted  = false,
+    trial_remaining  = 3,
+    lifetime_used    = 0,
+    lifetime_max     = 3,
   } = sellerLimits;
 
-  const dailyPct  = Math.min(100, Math.round((daily_used  / daily_limit)  * 100));
-  const activePct = Math.min(100, Math.round((active_count / active_limit) * 100));
+  const lifetimePct = Math.min(100, Math.round((lifetime_used / lifetime_max) * 100));
+  const dailyPct    = Math.min(100, Math.round((daily_used   / daily_limit)   * 100));
 
+  /* ── Trial exhausted — red hard-block banner ── */
+  if (trial_exhausted) {
+    return (
+      <div className="limits-banner limits-banner--exhausted" role="alert">
+        <div className="limits-trial-exhausted">
+          <div className="limits-trial-exhausted-icon">
+            <ShieldIcon />
+          </div>
+          <div>
+            <strong>Free trial listings used</strong>
+            <p>
+              You have posted all {lifetime_max} free trial listings.
+              Verify your identity to continue posting on Loemart.
+            </p>
+            <button
+              type="button"
+              className="primary-btn limits-verify-btn"
+              onClick={onUpsellClick}
+              aria-haspopup="dialog"
+            >
+              Verify Identity Now
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* ── Normal trial limits banner ── */
   return (
     <div className="limits-banner" role="status" aria-label="Your posting limits">
       <div className="limits-banner-header">
         <ShieldIcon />
-        <strong>Unverified Seller Limits</strong>
+        <strong>Unverified Seller</strong>
         <button
           type="button"
           className="limits-upgrade-link"
@@ -451,6 +481,29 @@ function SellerLimitsBanner({ sellerLimits, limitsLoading, isVerifiedSeller, onU
       </div>
 
       <div className="limits-grid">
+
+        {/* Trial listings remaining — most important */}
+        <div className="limit-item">
+          <div className="limit-label">
+            <span>Free trial listings</span>
+            <span className={trial_remaining <= 1 ? "limit-value--empty" : "limit-value"}>
+              {trial_remaining} of {lifetime_max} left
+            </span>
+          </div>
+          <div className="limit-bar">
+            <div
+              className={`limit-bar-fill${lifetimePct >= 100 ? " limit-bar-fill--full" : ""}`}
+              style={{ width: `${lifetimePct}%` }}
+            />
+          </div>
+          {trial_remaining === 1 && (
+            <small className="limit-warning">
+              Last trial listing — verify now to keep posting
+            </small>
+          )}
+        </div>
+
+        {/* Posts today */}
         <div className="limit-item">
           <div className="limit-label">
             <span>Posts today</span>
@@ -466,25 +519,13 @@ function SellerLimitsBanner({ sellerLimits, limitsLoading, isVerifiedSeller, onU
           </div>
         </div>
 
-        <div className="limit-item">
-          <div className="limit-label">
-            <span>Active listings</span>
-            <span className={active_remaining === 0 ? "limit-value--empty" : "limit-value"}>
-              {active_count} / {active_limit}
-            </span>
-          </div>
-          <div className="limit-bar">
-            <div
-              className={`limit-bar-fill${activePct >= 100 ? " limit-bar-fill--full" : ""}`}
-              style={{ width: `${activePct}%` }}
-            />
-          </div>
-        </div>
       </div>
 
       <div className="limits-meta">
         {expiry_days > 0 && (
-          <span><ClockIcon /> Listings expire in {expiry_days} days until verified</span>
+          <span>
+            <ClockIcon /> Each listing expires {expiry_days} days after posting
+          </span>
         )}
         {cooldown_seconds > 0 && (
           <span className="limits-cooldown">
@@ -512,7 +553,7 @@ function VerificationNudgeBanner({ verificationData }) {
         <p>
           {message ??
             "Complete identity verification to make your listings permanent " +
-            "and unlock higher posting limits."}
+            "and unlock unlimited posting."}
         </p>
         <Link to="/verification" className="primary-btn verification-nudge-btn">
           Complete Verification
@@ -557,8 +598,8 @@ function ImageGrid({
   const touchItem     = useRef(null);
   const touchCloneRef = useRef(null);
 
-  const handleSortStart = (index) => { dragItem.current = index; };
-  const handleSortEnter = (index) => { dragOver.current = index; };
+  const handleSortStart = (i) => { dragItem.current = i; };
+  const handleSortEnter = (i) => { dragOver.current = i; };
   const handleSortEnd   = () => {
     const from = dragItem.current;
     const to   = dragOver.current;
@@ -569,25 +610,15 @@ function ImageGrid({
 
   const handleTouchStart = useCallback((e, index) => {
     touchItem.current = index;
-    const thumb = e.currentTarget;
-    const rect  = thumb.getBoundingClientRect();
-    const clone = thumb.cloneNode(true);
-
+    const rect  = e.currentTarget.getBoundingClientRect();
+    const clone = e.currentTarget.cloneNode(true);
     Object.assign(clone.style, {
-      position      : "fixed",
-      top           : `${rect.top}px`,
-      left          : `${rect.left}px`,
-      width         : `${rect.width}px`,
-      height        : `${rect.height}px`,
-      opacity       : "0.85",
-      zIndex        : "9999",
-      pointerEvents : "none",
-      borderRadius  : "12px",
-      boxShadow     : "0 8px 24px rgba(0,0,0,.3)",
-      transform     : "scale(1.05)",
-      transition    : "none",
+      position: "fixed", top: `${rect.top}px`, left: `${rect.left}px`,
+      width: `${rect.width}px`, height: `${rect.height}px`,
+      opacity: "0.85", zIndex: "9999", pointerEvents: "none",
+      borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,.3)",
+      transform: "scale(1.05)", transition: "none",
     });
-
     document.body.appendChild(clone);
     touchCloneRef.current = clone;
   }, []);
@@ -596,19 +627,16 @@ function ImageGrid({
     e.preventDefault();
     if (!touchCloneRef.current) return;
     const touch = e.touches[0];
-    const clone = touchCloneRef.current;
-    const rect  = clone.getBoundingClientRect();
-    clone.style.top  = `${touch.clientY - rect.height / 2}px`;
-    clone.style.left = `${touch.clientX - rect.width  / 2}px`;
-
-    clone.style.display = "none";
+    const rect  = touchCloneRef.current.getBoundingClientRect();
+    touchCloneRef.current.style.top  = `${touch.clientY - rect.height / 2}px`;
+    touchCloneRef.current.style.left = `${touch.clientX - rect.width  / 2}px`;
+    touchCloneRef.current.style.display = "none";
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    clone.style.display = "";
-
+    touchCloneRef.current.style.display = "";
     const thumb = el?.closest("[data-image-index]");
     if (thumb) {
-      const overIndex = parseInt(thumb.dataset.imageIndex, 10);
-      if (!Number.isNaN(overIndex)) dragOver.current = overIndex;
+      const idx = parseInt(thumb.dataset.imageIndex, 10);
+      if (!Number.isNaN(idx)) dragOver.current = idx;
     }
   }, []);
 
@@ -668,8 +696,7 @@ function ImageGrid({
 
               {err && (
                 <div className="preview-error-overlay" role="alert">
-                  <WarningIcon />
-                  <span>{err}</span>
+                  <WarningIcon /><span>{err}</span>
                 </div>
               )}
 
@@ -764,7 +791,6 @@ export default function ProductComponents({
 
   needsVerification = false,
   verificationData  = null,
-
   draftRestored     = false,
   autoSaveStatus    = "idle",
 
@@ -780,22 +806,28 @@ export default function ProductComponents({
     ? `${import.meta.env.VITE_API_BASE_URL}/api`
     : "/api",
 }) {
+  /* ── Local state ── */
   const [showAllFeatures,    setShowAllFeatures]    = useState(false);
   const [isDragging,         setIsDragging]         = useState(false);
   const [waLinkError,        setWaLinkError]        = useState("");
   const [deliveryRangeError, setDeliveryRangeError] = useState("");
   const [showDraftBanner,    setShowDraftBanner]    = useState(draftRestored);
+  const [showUpsellModal,    setShowUpsellModal]    = useState(false);
   const [titleSuggestions,   setTitleSuggestions]   = useState([]);
   const [dupWarning,         setDupWarning]         = useState("");
   const [dupChecking,        setDupChecking]        = useState(false);
   const [imageErrors,        setImageErrors]        = useState({});
-  const [showUpsellModal,    setShowUpsellModal]    = useState(false);
 
   const sessionHashSet = useRef(new Set());
   const dropZoneRef    = useRef(null);
   const dragCounterRef = useRef(0);
   const cardRefs       = useRef([]);
 
+  /* ── Trial info derived from sellerLimits ── */
+  const trialExhausted = sellerLimits?.trial_exhausted ?? false;
+  const trialRemaining = sellerLimits?.trial_remaining ?? null;
+
+  /* ── Card stagger animation ── */
   let cardIndex = 0;
   const nextCardRef = () => {
     const i = cardIndex++;
@@ -812,27 +844,28 @@ export default function ProductComponents({
 
   useEffect(() => { setShowDraftBanner(draftRestored); }, [draftRestored]);
 
-  /* ── Image validation ── */
+  /* ── Image validation + hash tracking ── */
   const validateAndHashImages = useCallback(async (incomingImages) => {
     const errors = {};
     const newSet = new Set(sessionHashSet.current);
 
     for (const img of incomingImages) {
       if (!ALLOWED_TYPES.has(img.file.type)) {
-        errors[img.id] = `Wrong type (${img.file.type.split("/")[1] ?? "unknown"}) — use JPEG, PNG or WebP`;
+        errors[img.id] = `Wrong type — use JPEG, PNG or WebP`;
         continue;
       }
       if (img.file.size > MAX_BYTES) {
-        const mb = (img.file.size / 1_048_576).toFixed(1);
-        errors[img.id] = `Too large (${mb} MB) — max 3 MB`;
+        errors[img.id] = `Too large (${(img.file.size / 1_048_576).toFixed(1)} MB) — max 3 MB`;
         continue;
       }
-      const hash = await hashImageFile(img.file);
-      if (newSet.has(hash)) {
+      if (sessionHashSet.current.has(img.id)) continue;
+      const hash          = await hashImageFile(img.file);
+      const existingEntry = [...newSet.entries()].find(([id, h]) => h === hash && id !== img.id);
+      if (existingEntry) {
         errors[img.id] = "Duplicate — this photo is already added";
         continue;
       }
-      newSet.add(hash);
+      newSet.add(img.id, hash);
     }
 
     sessionHashSet.current = newSet;
@@ -856,27 +889,32 @@ export default function ProductComponents({
     if (!form.title?.trim() || !form.price || !form.category_id) return;
     setDupChecking(true);
     try {
-      const token = localStorage.getItem("marketplace_token") ||
-                    localStorage.getItem("token");
-      const hashes = await Promise.all(images.map((img) => hashImageFile(img.file)));
-      const res = await fetch(`${apiBase}/addproduct/products/check-duplicate`, {
-        method  : "POST",
-        headers : {
-          "Content-Type": "application/json",
-          Authorization : token ? `Bearer ${token}` : "",
-        },
-        body    : JSON.stringify({
-          title        : form.title.trim(),
-          price        : Number(form.price),
-          category_id  : form.category_id,
-          image_hashes : hashes,
-        }),
-      });
+      const token  = localStorage.getItem("marketplace_token") ||
+                     localStorage.getItem("token");
+      const hashes = await Promise.all(
+        images.map((img) => hashImageFile(img.file))
+      );
+      const res = await fetch(
+        `${apiBase}/addproduct/products/check-duplicate`,
+        {
+          method  : "POST",
+          headers : {
+            "Content-Type": "application/json",
+            Authorization : token ? `Bearer ${token}` : "",
+          },
+          body    : JSON.stringify({
+            title        : form.title.trim(),
+            price        : Number(form.price),
+            category_id  : form.category_id,
+            image_hashes : hashes,
+          }),
+        }
+      );
       if (!res.ok) return;
       const data = await res.json();
       setDupWarning(
         data.isDuplicate
-          ? (data.message ?? "A similar listing already exists. Please check your active listings before reposting.")
+          ? (data.message ?? "A similar listing already exists.")
           : ""
       );
     } catch { /* non-critical */ }
@@ -884,7 +922,7 @@ export default function ProductComponents({
   }, [form.title, form.price, form.category_id, images, apiBase]);
 
   useEffect(() => {
-    if (!form.title?.trim() || form.title.length < 8) return;
+    if (!form.title?.trim() || form.title.length < 8) { setDupWarning(""); return; }
     const t = setTimeout(checkServerDuplicate, 1_200);
     return () => clearTimeout(t);
   }, [form.title, form.price, form.category_id, images.length]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -894,7 +932,7 @@ export default function ProductComponents({
     const trimmed = val.trim();
     if (!trimmed) return "";
     try {
-      const url = new URL(trimmed);
+      const url     = new URL(trimmed);
       const allowed = [
         "wa.me", "web.whatsapp.com", "api.whatsapp.com",
         "chat.whatsapp.com", "business.whatsapp.com",
@@ -906,9 +944,8 @@ export default function ProductComponents({
   }, []);
 
   const handleWaLinkChange = useCallback((e) => {
-    const raw = e.target.value;
     setWaLinkError("");
-    updateContact("whatsapp_link", sanitizeWhatsAppLink(raw) || raw);
+    updateContact("whatsapp_link", sanitizeWhatsAppLink(e.target.value) || e.target.value);
   }, [sanitizeWhatsAppLink, updateContact]);
 
   const handleWaLinkBlur = useCallback((e) => {
@@ -927,18 +964,16 @@ export default function ProductComponents({
     updateDeliveryDuration(key, val);
     const from = Number(key === "from" ? val : form.delivery.duration.from);
     const to   = Number(key === "to"   ? val : form.delivery.duration.to);
-    if (from && to && to < from) {
-      setDeliveryRangeError("End day must be equal to or after start day.");
-    } else {
-      setDeliveryRangeError("");
-    }
+    setDeliveryRangeError(
+      from && to && to < from
+        ? "End day must be equal to or after start day."
+        : ""
+    );
   }, [updateDeliveryDuration, form.delivery.duration]);
 
   /* ── Drag and drop ── */
   const handleDragEnter = useCallback((e) => {
-    e.preventDefault();
-    dragCounterRef.current += 1;
-    setIsDragging(true);
+    e.preventDefault(); dragCounterRef.current += 1; setIsDragging(true);
   }, []);
   const handleDragOver  = useCallback((e) => { e.preventDefault(); }, []);
   const handleDragLeave = useCallback((e) => {
@@ -947,9 +982,7 @@ export default function ProductComponents({
     if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragging(false); }
   }, []);
   const handleDrop = useCallback((e) => {
-    e.preventDefault();
-    dragCounterRef.current = 0;
-    setIsDragging(false);
+    e.preventDefault(); dragCounterRef.current = 0; setIsDragging(false);
     const files = e.dataTransfer?.files;
     if (files?.length) handleImages(files);
   }, [handleImages]);
@@ -981,7 +1014,9 @@ export default function ProductComponents({
 
   const modelOptions = useMemo(() => {
     if (!attributes?.brand) return [];
-    return normalizeOptions(options?.models?.[String(attributes.brand).toLowerCase()] ?? []);
+    return normalizeOptions(
+      options?.models?.[String(attributes.brand).toLowerCase()] ?? []
+    );
   }, [attributes?.brand, options]);
 
   const showModelField  = !!attributes?.brand;
@@ -995,8 +1030,7 @@ export default function ProductComponents({
     () => (showAllFeatures ? allFeatures : allFeatures.slice(0, 12)),
     [allFeatures, showAllFeatures]
   );
-  const totalFeatureCount = allFeatures.length;
-
+  const totalFeatureCount   = allFeatures.length;
   const selectedFeaturesSet = useMemo(
     () => new Set(toArray(attributes?.features)),
     [attributes?.features]
@@ -1022,14 +1056,18 @@ export default function ProductComponents({
     features         : allFeatures,
   }), [options, allFeatures]);
 
+  /* ── Section completion ── */
   const basicFilled    = !!(form.title?.trim() && form.description?.trim() && form.price);
   const detailsFilled  = !!form.category_id;
   const contactFilled  = !!(form.contact?.email && form.contact?.phone);
   const locationFilled = !!(state && city);
-  const imagesFilled   = images.length > 0 && Object.keys(imageErrors).length === 0;
-  const sectionsComplete = [basicFilled, detailsFilled, contactFilled, locationFilled, imagesFilled]
-    .filter(Boolean).length;
+  const hasImageErrors = Object.keys(imageErrors).length > 0;
+  const imagesFilled   = images.length > 0 && !hasImageErrors;
+  const sectionsComplete = [
+    basicFilled, detailsFilled, contactFilled, locationFilled, imagesFilled,
+  ].filter(Boolean).length;
 
+  /* ── Best value plan ── */
   const bestValuePlanId = useMemo(() => {
     if (!promotionPlans.length) return null;
     let best = null, bestDiscount = 0;
@@ -1069,34 +1107,41 @@ export default function ProductComponents({
 
   /* ── AI title suggestion ── */
   useEffect(() => {
-    if (!form.description || form.description.length < 30 || form.title?.trim().length >= 10) {
+    if (
+      !form.description ||
+      form.description.length < 30 ||
+      form.title?.trim().length >= 10
+    ) {
       setTitleSuggestions([]);
       return;
     }
     const t = setTimeout(() => {
-      const words = form.description.split(/[\s,.\-|]+/).filter((w) => w.length > 3).slice(0, 5);
+      const words = form.description
+        .split(/[\s,.\-|]+/)
+        .filter((w) => w.length > 3)
+        .slice(0, 5);
       if (words.length >= 3) setTitleSuggestions([words.join(" ")]);
       else setTitleSuggestions([]);
     }, 600);
     return () => clearTimeout(t);
   }, [form.description, form.title]);
 
-  const hasImageErrors = Object.keys(imageErrors).length > 0;
-  const submitBlocked  =
+  /* ── Submit blocked state ── */
+  const submitBlocked =
     loading || !agreedToTerms || plansLoading || !canPost ||
     !!deliveryRangeError || hasImageErrors;
 
   const submitTitle = !agreedToTerms
     ? "Please accept the Terms & Conditions first"
-    : plansLoading             ? "Plans are still loading"
-    : !!deliveryRangeError     ? deliveryRangeError
-    : hasImageErrors           ? "Fix image errors before submitting"
-    : !canPost && dailyRemaining  === 0 ? "Daily posting limit reached"
+    : plansLoading            ? "Plans are still loading"
+    : !!deliveryRangeError    ? deliveryRangeError
+    : hasImageErrors          ? "Fix image errors before submitting"
+    : trialExhausted          ? "Verify your identity to continue posting"
+    : !canPost && dailyRemaining  === 0 ? "Daily limit reached"
     : !canPost && activeRemaining === 0 ? "Active listing limit reached"
     : !canPost && cooldownSecs    > 0   ? "Please wait before posting again"
     : undefined;
 
-  /* ── Reset card index before render ── */
   cardIndex = 0;
 
   /* ═══════════════════════════════════════════════════════════
@@ -1108,7 +1153,10 @@ export default function ProductComponents({
 
       {/* Upsell modal */}
       {showUpsellModal && (
-        <VerificationUpsellModal onClose={() => setShowUpsellModal(false)} />
+        <VerificationUpsellModal
+          onClose={() => setShowUpsellModal(false)}
+          trialRemaining={trialRemaining}
+        />
       )}
 
       {/* Top bar */}
@@ -1129,7 +1177,11 @@ export default function ProductComponents({
       {showDraftBanner && (
         <DraftRecoveryBanner
           onContinue={() => { setShowDraftBanner(false); onDraftContinue?.(); }}
-          onDiscard={() => { setShowDraftBanner(false); onDraftDiscard?.(); clearDraft(); }}
+          onDiscard={() => {
+            setShowDraftBanner(false);
+            onDraftDiscard?.();
+            clearDraft();
+          }}
         />
       )}
 
@@ -1176,6 +1228,7 @@ export default function ProductComponents({
         onUpsellClick={() => setShowUpsellModal(true)}
       />
 
+      {/* Incomplete payment */}
       {paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
@@ -1207,7 +1260,6 @@ export default function ProductComponents({
           Basic Information <SectionDot filled={basicFilled} />
         </h3>
 
-        {/* Title — no static hint */}
         <div className="form-group">
           <label htmlFor="ap-title">Product Title *</label>
           <input
@@ -1228,7 +1280,10 @@ export default function ProductComponents({
               </span>
               {titleSuggestions.map((s, i) => (
                 <button key={i} type="button" className="title-suggestion-chip"
-                        onClick={() => { updateForm("title", s); setTitleSuggestions([]); }}>
+                        onClick={() => {
+                          updateForm("title", s);
+                          setTitleSuggestions([]);
+                        }}>
                   {s}
                 </button>
               ))}
@@ -1236,7 +1291,7 @@ export default function ProductComponents({
           )}
         </div>
 
-        {/* Description — minimum hint only shown when broken */}
+        {/* Description — minimum hint only when broken */}
         <div className="form-group">
           <label htmlFor="ap-desc">Description *</label>
           <textarea
@@ -1303,7 +1358,9 @@ export default function ProductComponents({
             <label>Subcategory</label>
             <DropdownModal
               value={normValue(form.subcategory_id)}
-              options={subcategories.map((sub) => ({ id: String(sub.id), name: sub.name }))}
+              options={subcategories.map((sub) => ({
+                id: String(sub.id), name: sub.name,
+              }))}
               placeholder="Select subcategory"
               onChange={(value) => updateForm("subcategory_id", value)}
             />
@@ -1338,7 +1395,9 @@ export default function ProductComponents({
                 type="text"
                 placeholder="e.g. Pavilion 15-eg3000"
                 value={attributes?.model ?? ""}
-                onChange={(e) => updateAttribute("model", e.target.value.trimStart())}
+                onChange={(e) =>
+                  updateAttribute("model", e.target.value.trimStart())
+                }
               />
             )}
           </div>
@@ -1363,7 +1422,8 @@ export default function ProductComponents({
         {totalFeatureCount > 0 && (
           <div className="form-group">
             <label>Features</label>
-            <div className="checkbox-grid-inline" role="group" aria-label="Product features">
+            <div className="checkbox-grid-inline" role="group"
+                 aria-label="Product features">
               {visibleFeatures.map((feature) => (
                 <label key={safeStr(feature)} className="checkbox-inline">
                   <input
@@ -1407,7 +1467,9 @@ export default function ProductComponents({
             <label htmlFor="ap-phone">Phone *</label>
             <input id="ap-phone" type="tel"
                    value={form.contact.phone} placeholder="08012345678"
-                   onChange={(e) => updateContact("phone", onlyDigits(e.target.value))}
+                   onChange={(e) =>
+                     updateContact("phone", onlyDigits(e.target.value))
+                   }
                    maxLength={15} autoComplete="tel" />
           </div>
         </div>
@@ -1419,14 +1481,15 @@ export default function ProductComponents({
             </label>
             <input id="ap-wa" type="tel"
                    value={form.contact.whatsapp} placeholder="08012345678"
-                   onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
+                   onChange={(e) =>
+                     updateContact("whatsapp", onlyDigits(e.target.value))
+                   }
                    maxLength={15} />
           </div>
           <div className="form-group">
             <label htmlFor="ap-wa-link">
               WhatsApp Link <span className="label-optional">(optional)</span>
             </label>
-            {/* No static hint — only shown on blur error */}
             <input id="ap-wa-link" type="url"
                    value={form.contact.whatsapp_link}
                    placeholder="https://wa.me/2348012345678"
@@ -1449,12 +1512,16 @@ export default function ProductComponents({
 
         {detectLocation && (
           <div className="detect-location-row">
-            {/* No static hint below button */}
             <button type="button" className="detect-location-btn"
                     onClick={detectLocation} disabled={detectingLocation}>
               {detectingLocation
                 ? <><SpinnerIcon /> Detecting location&#8230;</>
-                : <><LocationPinIcon />{detectedCoords ? "Location detected ✓" : "Detect my location"}</>}
+                : (
+                    <>
+                      <LocationPinIcon />
+                      {detectedCoords ? "Location detected ✓" : "Detect my location"}
+                    </>
+                  )}
             </button>
           </div>
         )}
@@ -1462,16 +1529,20 @@ export default function ProductComponents({
         <div className="form-row">
           <div className="form-group">
             <label>State *</label>
-            <DropdownModal value={state} onChange={setState}
-                           options={states.map((s) => ({ id: s, name: s }))}
-                           placeholder="Select state" />
+            <DropdownModal
+              value={state} onChange={setState}
+              options={states.map((s) => ({ id: s, name: s }))}
+              placeholder="Select state"
+            />
           </div>
           {state && (
             <div className="form-group">
               <label>City *</label>
-              <DropdownModal value={city} onChange={setCity}
-                             options={cities.map((c) => ({ id: c, name: c }))}
-                             placeholder="Select city" />
+              <DropdownModal
+                value={city} onChange={setCity}
+                options={cities.map((c) => ({ id: c, name: c }))}
+                placeholder="Select city"
+              />
             </div>
           )}
         </div>
@@ -1496,18 +1567,23 @@ export default function ProductComponents({
                 <label htmlFor="ap-del-from">From Day *</label>
                 <input id="ap-del-from" type="number" min="1" max="30"
                        value={form.delivery.duration.from}
-                       onChange={(e) => handleDeliveryDuration("from", clampDay(e.target.value))} />
+                       onChange={(e) =>
+                         handleDeliveryDuration("from", clampDay(e.target.value))
+                       } />
               </div>
               <div className="form-group">
                 <label htmlFor="ap-del-to">To Day *</label>
                 <input id="ap-del-to" type="number" min="1" max="30"
                        value={form.delivery.duration.to}
-                       onChange={(e) => handleDeliveryDuration("to", clampDay(e.target.value))} />
+                       onChange={(e) =>
+                         handleDeliveryDuration("to", clampDay(e.target.value))
+                       } />
               </div>
             </div>
 
             {deliveryRangeError && (
-              <div className="form-error" role="alert" style={{ marginBottom: 10 }}>
+              <div className="form-error" role="alert"
+                   style={{ marginBottom: 10 }}>
                 <WarningIcon /> {deliveryRangeError}
               </div>
             )}
@@ -1517,7 +1593,9 @@ export default function ProductComponents({
                 <label htmlFor="ap-del-fee">Fee (&#8358;) *</label>
                 <input id="ap-del-fee" type="text" inputMode="numeric"
                        value={displayPrice(form.delivery.fee)}
-                       onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))} />
+                       onChange={(e) =>
+                         updateDelivery("fee", onlyNumbers(e.target.value))
+                       } />
                 {form.delivery.fee && Number(form.delivery.fee) > 0 && (
                   <small className="field-hint field-hint--price">
                     &#8358;{displayPrice(form.delivery.fee)} NGN
@@ -1554,7 +1632,8 @@ export default function ProductComponents({
           <div className="form-error" role="alert" style={{ marginBottom: 10 }}>
             <WarningIcon />{" "}
             {Object.keys(imageErrors).length} image
-            {Object.keys(imageErrors).length !== 1 ? "s have" : " has"} errors — fix before submitting
+            {Object.keys(imageErrors).length !== 1 ? "s have" : " has"} errors
+            — fix before submitting
           </div>
         )}
 
@@ -1583,8 +1662,12 @@ export default function ProductComponents({
 
         {images.length > 0 && (
           <div className="image-footer">
-            <small className="image-count">{images.length}/{MAX_IMAGES} images added</small>
-            <small className="field-hint">First image is the main photo · drag to reorder</small>
+            <small className="image-count">
+              {images.length}/{MAX_IMAGES} images added
+            </small>
+            <small className="field-hint">
+              First image is the main photo · drag to reorder
+            </small>
           </div>
         )}
       </section>
@@ -1655,20 +1738,24 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* Upsell prompt — opens blur modal instead of navigating */}
-        {!isVerifiedSeller && !plansLoading && promotionPlans.length > 0 && (
-          <>
-            <button
-              type="button"
-              className="plans-upsell-btn"
-              onClick={() => setShowUpsellModal(true)}
-              aria-haspopup="dialog"
-            >
-              <ShieldIcon />
-              <span>Verify your identity to post without the 7-day listing limit</span>
-              <ChevronRightIcon />
-            </button>
-          </>
+        {/* Upsell — opens blur modal */}
+        {!isVerifiedSeller && !limitsLoading && !plansLoading && promotionPlans.length > 0 && (
+          <button
+            type="button"
+            className="plans-upsell-btn"
+            onClick={() => setShowUpsellModal(true)}
+            aria-haspopup="dialog"
+          >
+            <ShieldIcon />
+            <span>
+              {trialExhausted
+                ? "Verify your identity to continue posting on Loemart"
+                : trialRemaining !== null && trialRemaining <= 1
+                ? `${trialRemaining} free trial listing remaining — verify to keep posting`
+                : "Unverified listings expire after 7 days — verify to post permanently"}
+            </span>
+            <ChevronRightIcon />
+          </button>
         )}
       </section>
 
@@ -1700,6 +1787,8 @@ export default function ProductComponents({
             "Fix Delivery Dates"
           ) : hasImageErrors ? (
             "Fix Image Errors"
+          ) : trialExhausted ? (
+            "Verify Identity to Continue"
           ) : !canPost && cooldownSecs > 0 ? (
             <CooldownTimer initialSecs={cooldownSecs} />
           ) : !canPost && dailyRemaining === 0 ? (
@@ -1713,10 +1802,13 @@ export default function ProductComponents({
           )}
         </button>
 
+        {/* Limit note */}
         {!canPost && !loading && (
           <p className="submit-limit-note">
             <WarningIcon />
-            {dailyRemaining === 0
+            {trialExhausted
+              ? "You have used all 3 free trial listings. "
+              : dailyRemaining === 0
               ? `You've reached your daily limit (${sellerLimits?.daily_limit}/day). `
               : activeRemaining === 0
               ? `You've reached your active listing limit (${sellerLimits?.active_limit}). `
@@ -1728,7 +1820,10 @@ export default function ProductComponents({
             >
               Complete verification
             </button>
-            {" "}to unlock higher limits.
+            {" "}to{" "}
+            {trialExhausted
+              ? "continue posting on Loemart."
+              : "unlock higher limits."}
           </p>
         )}
       </div>
