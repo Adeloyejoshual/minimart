@@ -1,15 +1,29 @@
 /**
  * src/pages/product/components.jsx
  *
- * v7 — trial policy update
- *  ─ SellerLimitsBanner shows trial listings remaining + exhausted state
- *  ─ Upsell modal updated with correct policy numbers (3 trial, 100 verified)
- *  ─ Submit button shows "Trial Limit Reached" when exhausted
- *  ─ All other v6 improvements preserved
+ * v8 — fixes from review
+ *  ─ sessionHashSet changed from Set to Map<id, hash> (duplicate detection now works)
+ *  ─ cardIndex uses a ref reset before render (safe in Strict Mode)
+ *  ─ Touch clone cleaned up in useEffect on ImageGrid unmount
+ *  ─ PaymentCountdown redundant setRemaining on mount removed
+ *  ─ CooldownTimer uses intervalRef to avoid clearInterval race
+ *  ─ checkServerDuplicate added to duplicate-check effect deps
+ *  ─ handleDeliveryDuration reads duration via ref (no stale closure)
+ *  ─ sanitizeWhatsAppLink uses exact + boundary subdomain check
+ *  ─ checkServerDuplicate validates token before fetching
+ *  ─ validateAndHashImages only processes new (unseen) image ids
+ *  ─ optionsMap split into individual useMemos (stable references)
+ *  ─ ImageGrid wrapped in React.memo
+ *  ─ Plan radio group gains arrow-key navigation
+ *  ─ VerificationUpsellModal traps focus and restores on close
+ *  ─ Progress bar percentages guard against division by zero
+ *  ─ "AI title suggestion" renamed to "Suggestion from description"
+ *  ─ trialExhausted / trialRemaining received as explicit props
+ *    (no longer derived from sellerLimits inside this file)
  */
 
 import {
-  useMemo, useState, useEffect, useCallback, useRef,
+  useMemo, useState, useEffect, useCallback, useRef, memo,
 } from "react";
 import { Link }           from "react-router-dom";
 import DropdownModal      from "../../components/DropdownModal.jsx";
@@ -53,6 +67,10 @@ const fmtSecs = (totalSecs) => {
   const s = totalSecs % 60;
   return m > 0 ? `${m}m ${String(s).padStart(2, "0")}s` : `${s}s`;
 };
+
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token");
 
 async function hashImageFile(file) {
   try {
@@ -158,14 +176,6 @@ const UpgradeIcon = () => (
   </svg>
 );
 
-const SparkleIcon = () => (
-  <svg viewBox="0 0 20 20" width="13" height="13" fill="none"
-       stroke="currentColor" strokeWidth="1.7"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M10 2v4M10 14v4M2 10h4M14 10h4M4.93 4.93l2.83 2.83M12.24 12.24l2.83 2.83M4.93 15.07l2.83-2.83M12.24 7.76l2.83-2.83"/>
-  </svg>
-);
-
 const SaveIcon = () => (
   <svg viewBox="0 0 20 20" width="12" height="12" fill="none"
        stroke="currentColor" strokeWidth="1.7"
@@ -183,17 +193,21 @@ const ChevronRightIcon = () => (
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   PAYMENT COUNTDOWN  (compute() every tick — no drift)
+   PAYMENT COUNTDOWN
+   compute() is called every tick to avoid drift — no redundant
+   setState on mount (useState lazy initializer handles first value).
 ═══════════════════════════════════════════════════════════════ */
 function PaymentCountdown({ createdAt, maxAgeMs }) {
   const compute = useCallback(
     () => Math.max(0, maxAgeMs - (Date.now() - createdAt)),
     [createdAt, maxAgeMs]
   );
+
+  /* useState lazy initializer — no extra setState on mount */
   const [remaining, setRemaining] = useState(compute);
 
   useEffect(() => {
-    setRemaining(compute());
+    /* Tick every second — compute() prevents drift */
     const id = setInterval(() => setRemaining(compute()), 1_000);
     return () => clearInterval(id);
   }, [compute]);
@@ -220,20 +234,31 @@ function PaymentCountdown({ createdAt, maxAgeMs }) {
 
 /* ═══════════════════════════════════════════════════════════════
    COOLDOWN TIMER
+   Uses intervalRef to guarantee clearInterval is called on the
+   correct id whether the cleanup or the setState branch fires first.
 ═══════════════════════════════════════════════════════════════ */
 function CooldownTimer({ initialSecs }) {
   const [secs, setSecs] = useState(initialSecs);
+
   useEffect(() => {
     setSecs(initialSecs);
     if (initialSecs <= 0) return;
-    const id = setInterval(() => {
+
+    /* Store id in a plain object so the setState closure can read it */
+    const handle = { id: null };
+    handle.id = setInterval(() => {
       setSecs((prev) => {
-        if (prev <= 1) { clearInterval(id); return 0; }
+        if (prev <= 1) {
+          clearInterval(handle.id);
+          return 0;
+        }
         return prev - 1;
       });
     }, 1_000);
-    return () => clearInterval(id);
+
+    return () => clearInterval(handle.id);
   }, [initialSecs]);
+
   if (secs <= 0) return null;
   return (
     <span className="cooldown-label">
@@ -289,7 +314,9 @@ function AutoSaveIndicator({ status }) {
       className={`autosave-indicator autosave-indicator--${status}`}
       aria-live="polite"
     >
-      {status === "saving" ? <><SpinnerIcon /> Saving…</> : <><SaveIcon /> Saved</>}
+      {status === "saving"
+        ? <><SpinnerIcon /> Saving…</>
+        : <><SaveIcon /> Saved</>}
     </span>
   );
 }
@@ -323,16 +350,52 @@ function DraftRecoveryBanner({ onContinue, onDiscard }) {
 
 /* ═══════════════════════════════════════════════════════════════
    VERIFICATION UPSELL MODAL
-   Updated with correct trial policy numbers.
+   Focus is trapped inside the modal and restored to the trigger
+   element when closed.
 ═══════════════════════════════════════════════════════════════ */
 function VerificationUpsellModal({ onClose, trialRemaining = null }) {
+  const modalRef        = useRef(null);
+  const previousFocusRef = useRef(null);
+
+  /* Trap focus + store trigger for restoration */
   useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
+    previousFocusRef.current = document.activeElement;
+
+    /* Focus the first focusable element inside the modal */
+    const focusable = modalRef.current?.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    if (focusable?.length) focusable[0].focus();
+
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") { onClose(); return; }
+      if (e.key !== "Tab" || !modalRef.current) return;
+
+      const els   = [...modalRef.current.querySelectorAll(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      )].filter((el) => !el.disabled && el.offsetParent !== null);
+      if (!els.length) return;
+
+      const first = els[0];
+      const last  = els[els.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
     document.body.style.overflow = "hidden";
+
     return () => {
-      window.removeEventListener("keydown", handler);
+      window.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "";
+      /* Restore focus to the element that opened the modal */
+      previousFocusRef.current?.focus?.();
     };
   }, [onClose]);
 
@@ -344,8 +407,11 @@ function VerificationUpsellModal({ onClose, trialRemaining = null }) {
       aria-label="Identity verification benefits"
       onClick={onClose}
     >
-      <div className="upsell-modal" onClick={(e) => e.stopPropagation()}>
-
+      <div
+        ref={modalRef}
+        className="upsell-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
         <button type="button" className="upsell-close"
                 onClick={onClose} aria-label="Close">
           <svg viewBox="0 0 14 14" width="14" height="14" fill="none"
@@ -405,10 +471,7 @@ function VerificationUpsellModal({ onClose, trialRemaining = null }) {
 
 /* ═══════════════════════════════════════════════════════════════
    SELLER LIMITS BANNER
-   Updated for trial policy:
-   ─ Shows trial listings remaining (X of 3 left)
-   ─ Shows hard block state when trial exhausted
-   ─ Red banner when trial exhausted
+   Progress bar percentages guard against division by zero.
 ═══════════════════════════════════════════════════════════════ */
 function SellerLimitsBanner({
   sellerLimits,
@@ -433,17 +496,20 @@ function SellerLimitsBanner({
     lifetime_max     = 3,
   } = sellerLimits;
 
-  const lifetimePct = Math.min(100, Math.round((lifetime_used / lifetime_max) * 100));
-  const dailyPct    = Math.min(100, Math.round((daily_used   / daily_limit)   * 100));
+  /* Guard against division by zero */
+  const lifetimePct = lifetime_max > 0
+    ? Math.min(100, Math.round((lifetime_used / lifetime_max) * 100))
+    : 0;
+  const dailyPct = daily_limit > 0
+    ? Math.min(100, Math.round((daily_used / daily_limit) * 100))
+    : 0;
 
-  /* ── Trial exhausted — red hard-block banner ── */
+  /* ── Trial exhausted — hard block ── */
   if (trial_exhausted) {
     return (
       <div className="limits-banner limits-banner--exhausted" role="alert">
         <div className="limits-trial-exhausted">
-          <div className="limits-trial-exhausted-icon">
-            <ShieldIcon />
-          </div>
+          <div className="limits-trial-exhausted-icon"><ShieldIcon /></div>
           <div>
             <strong>Free trial listings used</strong>
             <p>
@@ -464,7 +530,7 @@ function SellerLimitsBanner({
     );
   }
 
-  /* ── Normal trial limits banner ── */
+  /* ── Normal trial limits ── */
   return (
     <div className="limits-banner" role="status" aria-label="Your posting limits">
       <div className="limits-banner-header">
@@ -482,7 +548,7 @@ function SellerLimitsBanner({
 
       <div className="limits-grid">
 
-        {/* Trial listings remaining — most important */}
+        {/* Trial listings remaining */}
         <div className="limit-item">
           <div className="limit-label">
             <span>Free trial listings</span>
@@ -492,7 +558,10 @@ function SellerLimitsBanner({
           </div>
           <div className="limit-bar">
             <div
-              className={`limit-bar-fill${lifetimePct >= 100 ? " limit-bar-fill--full" : ""}`}
+              className={[
+                "limit-bar-fill",
+                lifetimePct >= 100 ? "limit-bar-fill--full" : "",
+              ].filter(Boolean).join(" ")}
               style={{ width: `${lifetimePct}%` }}
             />
           </div>
@@ -513,7 +582,10 @@ function SellerLimitsBanner({
           </div>
           <div className="limit-bar">
             <div
-              className={`limit-bar-fill${dailyPct >= 100 ? " limit-bar-fill--full" : ""}`}
+              className={[
+                "limit-bar-fill",
+                dailyPct >= 100 ? "limit-bar-fill--full" : "",
+              ].filter(Boolean).join(" ")}
               style={{ width: `${dailyPct}%` }}
             />
           </div>
@@ -587,8 +659,11 @@ function ImageUploadRules() {
 
 /* ═══════════════════════════════════════════════════════════════
    IMAGE GRID — touch + mouse reorder
+   Wrapped in React.memo so it only re-renders when its own props change.
+   Touch clone is cleaned up in a useEffect so unmounting during a
+   drag does not leave an orphaned DOM node.
 ═══════════════════════════════════════════════════════════════ */
-function ImageGrid({
+const ImageGrid = memo(function ImageGrid({
   images, imageErrors, MAX_IMAGES, isDragging, dropZoneRef,
   onDragEnter, onDragOver, onDragLeave, onDrop,
   onRemove, onMove, onAdd, canPost,
@@ -597,6 +672,16 @@ function ImageGrid({
   const dragOver      = useRef(null);
   const touchItem     = useRef(null);
   const touchCloneRef = useRef(null);
+
+  /* Clean up any orphaned DOM clone if the component unmounts mid-drag */
+  useEffect(() => {
+    return () => {
+      if (touchCloneRef.current) {
+        try { document.body.removeChild(touchCloneRef.current); } catch { /* already gone */ }
+        touchCloneRef.current = null;
+      }
+    };
+  }, []);
 
   const handleSortStart = (i) => { dragItem.current = i; };
   const handleSortEnter = (i) => { dragOver.current = i; };
@@ -613,11 +698,18 @@ function ImageGrid({
     const rect  = e.currentTarget.getBoundingClientRect();
     const clone = e.currentTarget.cloneNode(true);
     Object.assign(clone.style, {
-      position: "fixed", top: `${rect.top}px`, left: `${rect.left}px`,
-      width: `${rect.width}px`, height: `${rect.height}px`,
-      opacity: "0.85", zIndex: "9999", pointerEvents: "none",
-      borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,.3)",
-      transform: "scale(1.05)", transition: "none",
+      position     : "fixed",
+      top          : `${rect.top}px`,
+      left         : `${rect.left}px`,
+      width        : `${rect.width}px`,
+      height       : `${rect.height}px`,
+      opacity      : "0.85",
+      zIndex       : "9999",
+      pointerEvents: "none",
+      borderRadius : "12px",
+      boxShadow    : "0 8px 24px rgba(0,0,0,.3)",
+      transform    : "scale(1.05)",
+      transition   : "none",
     });
     document.body.appendChild(clone);
     touchCloneRef.current = clone;
@@ -630,9 +722,12 @@ function ImageGrid({
     const rect  = touchCloneRef.current.getBoundingClientRect();
     touchCloneRef.current.style.top  = `${touch.clientY - rect.height / 2}px`;
     touchCloneRef.current.style.left = `${touch.clientX - rect.width  / 2}px`;
+
+    /* Temporarily hide clone to allow elementFromPoint to work */
     touchCloneRef.current.style.display = "none";
     const el = document.elementFromPoint(touch.clientX, touch.clientY);
     touchCloneRef.current.style.display = "";
+
     const thumb = el?.closest("[data-image-index]");
     if (thumb) {
       const idx = parseInt(thumb.dataset.imageIndex, 10);
@@ -642,7 +737,7 @@ function ImageGrid({
 
   const handleTouchEnd = useCallback(() => {
     if (touchCloneRef.current) {
-      document.body.removeChild(touchCloneRef.current);
+      try { document.body.removeChild(touchCloneRef.current); } catch { /* already gone */ }
       touchCloneRef.current = null;
     }
     const from = touchItem.current;
@@ -728,11 +823,15 @@ function ImageGrid({
               <div className="preview-reorder">
                 {index > 0 && (
                   <button type="button" aria-label="Move left"
-                          onClick={() => onMove(index, index - 1)}>&#8592;</button>
+                          onClick={() => onMove(index, index - 1)}>
+                    &#8592;
+                  </button>
                 )}
                 {index < images.length - 1 && (
                   <button type="button" aria-label="Move right"
-                          onClick={() => onMove(index, index + 1)}>&#8594;</button>
+                          onClick={() => onMove(index, index + 1)}>
+                    &#8594;
+                  </button>
                 )}
               </div>
             </div>
@@ -740,7 +839,12 @@ function ImageGrid({
         })}
 
         {images.length < MAX_IMAGES && (
-          <label className={`add-image-box add-image-btn${isDragging ? " add-image-btn--dragging" : ""}`}>
+          <label
+            className={[
+              "add-image-box add-image-btn",
+              isDragging ? "add-image-btn--dragging" : "",
+            ].filter(Boolean).join(" ")}
+          >
             <input
               hidden multiple type="file"
               accept="image/jpeg,image/png,image/webp"
@@ -755,7 +859,7 @@ function ImageGrid({
       </div>
     </div>
   );
-}
+});
 
 /* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
@@ -789,6 +893,10 @@ export default function ProductComponents({
   activeRemaining   = null,
   cooldownSecs      = 0,
 
+  /* Trial fields — passed explicitly from AddProduct */
+  trialExhausted    = false,
+  trialRemaining    = null,
+
   needsVerification = false,
   verificationData  = null,
   draftRestored     = false,
@@ -818,22 +926,36 @@ export default function ProductComponents({
   const [dupChecking,        setDupChecking]        = useState(false);
   const [imageErrors,        setImageErrors]        = useState({});
 
-  const sessionHashSet = useRef(new Set());
+  /*
+   * sessionHashMap: Map<imageId, sha256Hash>
+   * Used to detect duplicate uploads within the session.
+   * Previously a Set — fixed to correctly store id→hash pairs.
+   */
+  const sessionHashMap = useRef(new Map());
+
+  /* Track which image ids have already been hashed to avoid rehashing */
+  const validatedIdsRef = useRef(new Set());
+
   const dropZoneRef    = useRef(null);
   const dragCounterRef = useRef(0);
-  const cardRefs       = useRef([]);
 
-  /* ── Trial info derived from sellerLimits ── */
-  const trialExhausted = sellerLimits?.trial_exhausted ?? false;
-  const trialRemaining = sellerLimits?.trial_remaining ?? null;
+  /*
+   * Card stagger animation refs.
+   * cardIndexRef is reset to 0 at the top of each render pass so that
+   * nextCardRef() always assigns the same section to the same ref slot,
+   * even if React Strict Mode double-invokes render.
+   */
+  const cardRefs    = useRef([]);
+  const cardIndexRef = useRef(0);
+  cardIndexRef.current = 0; // reset at top of every render
 
-  /* ── Card stagger animation ── */
-  let cardIndex = 0;
   const nextCardRef = () => {
-    const i = cardIndex++;
+    const i = cardIndexRef.current++;
     return (el) => { if (el) cardRefs.current[i] = el; };
   };
-  cardIndex = 0;
+
+  /* Plan item refs for arrow-key navigation */
+  const planRefs = useRef([]);
 
   useEffect(() => {
     const timers = cardRefs.current.map((card, i) =>
@@ -845,30 +967,47 @@ export default function ProductComponents({
   useEffect(() => { setShowDraftBanner(draftRestored); }, [draftRestored]);
 
   /* ── Image validation + hash tracking ── */
+  /*
+   * Only processes images that have not been validated before (by id).
+   * Stores id→hash in sessionHashMap (a Map) to correctly detect duplicates.
+   */
   const validateAndHashImages = useCallback(async (incomingImages) => {
-    const errors = {};
-    const newSet = new Set(sessionHashSet.current);
+    const errors  = {};
+    const newMap  = new Map(sessionHashMap.current);
 
     for (const img of incomingImages) {
+      /* Type check */
       if (!ALLOWED_TYPES.has(img.file.type)) {
-        errors[img.id] = `Wrong type — use JPEG, PNG or WebP`;
+        errors[img.id] = "Wrong type — use JPEG, PNG or WebP";
         continue;
       }
+      /* Size check */
       if (img.file.size > MAX_BYTES) {
         errors[img.id] = `Too large (${(img.file.size / 1_048_576).toFixed(1)} MB) — max 3 MB`;
         continue;
       }
-      if (sessionHashSet.current.has(img.id)) continue;
-      const hash          = await hashImageFile(img.file);
-      const existingEntry = [...newSet.entries()].find(([id, h]) => h === hash && id !== img.id);
-      if (existingEntry) {
+      /* Skip already-validated ids */
+      if (validatedIdsRef.current.has(img.id)) continue;
+
+      const hash = await hashImageFile(img.file);
+
+      /* Check if any existing entry has the same hash */
+      const isDuplicate = [...newMap.entries()].some(
+        ([existingId, existingHash]) =>
+          existingHash === hash && existingId !== img.id
+      );
+      if (isDuplicate) {
         errors[img.id] = "Duplicate — this photo is already added";
         continue;
       }
-      newSet.add(img.id, hash);
+
+      /* Register id → hash */
+      newMap.set(img.id, hash);
+      validatedIdsRef.current.add(img.id);
     }
 
-    sessionHashSet.current = newSet;
+    sessionHashMap.current = newMap;
+
     setImageErrors((prev) => {
       const next = { ...prev };
       incomingImages.forEach((img) => {
@@ -881,16 +1020,35 @@ export default function ProductComponents({
 
   useEffect(() => {
     if (!images.length) return;
-    validateAndHashImages(images).catch(() => {});
+    /* Only validate images that have not been seen before */
+    const newImages = images.filter(
+      (img) => !validatedIdsRef.current.has(img.id)
+    );
+    if (!newImages.length) return;
+    validateAndHashImages(newImages).catch(() => {});
   }, [images, validateAndHashImages]);
+
+  /* Remove hash map entry when an image is removed */
+  useEffect(() => {
+    const currentIds = new Set(images.map((img) => img.id));
+    for (const id of validatedIdsRef.current) {
+      if (!currentIds.has(id)) {
+        sessionHashMap.current.delete(id);
+        validatedIdsRef.current.delete(id);
+      }
+    }
+  }, [images]);
 
   /* ── Server duplicate check ── */
   const checkServerDuplicate = useCallback(async () => {
     if (!form.title?.trim() || !form.price || !form.category_id) return;
+
+    /* Validate token before sending — avoid leaking an unauthenticated request */
+    const token = getToken();
+    if (!token) return;
+
     setDupChecking(true);
     try {
-      const token  = localStorage.getItem("marketplace_token") ||
-                     localStorage.getItem("token");
       const hashes = await Promise.all(
         images.map((img) => hashImageFile(img.file))
       );
@@ -900,7 +1058,7 @@ export default function ProductComponents({
           method  : "POST",
           headers : {
             "Content-Type": "application/json",
-            Authorization : token ? `Bearer ${token}` : "",
+            Authorization : `Bearer ${token}`,
           },
           body    : JSON.stringify({
             title        : form.title.trim(),
@@ -922,30 +1080,51 @@ export default function ProductComponents({
   }, [form.title, form.price, form.category_id, images, apiBase]);
 
   useEffect(() => {
-    if (!form.title?.trim() || form.title.length < 8) { setDupWarning(""); return; }
+    if (!form.title?.trim() || form.title.length < 8) {
+      setDupWarning("");
+      return;
+    }
     const t = setTimeout(checkServerDuplicate, 1_200);
     return () => clearTimeout(t);
-  }, [form.title, form.price, form.category_id, images.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [form.title, form.price, form.category_id, images.length, checkServerDuplicate]);
 
   /* ── WhatsApp link ── */
+  const ALLOWED_WA_HOSTS = useMemo(() => [
+    "wa.me",
+    "web.whatsapp.com",
+    "api.whatsapp.com",
+    "chat.whatsapp.com",
+    "business.whatsapp.com",
+  ], []);
+
+  /*
+   * Validates WhatsApp link host using exact match OR subdomain boundary:
+   *   "wa.me"           ✓ exact
+   *   "sub.wa.me"       ✓ ends with ".wa.me"
+   *   "evil.wa.me.bad"  ✗ does not end with ".wa.me" at boundary
+   */
   const sanitizeWhatsAppLink = useCallback((val) => {
     const trimmed = val.trim();
     if (!trimmed) return "";
     try {
-      const url     = new URL(trimmed);
-      const allowed = [
-        "wa.me", "web.whatsapp.com", "api.whatsapp.com",
-        "chat.whatsapp.com", "business.whatsapp.com",
-      ];
+      const url = new URL(trimmed);
       if (url.protocol !== "https:") return "";
-      if (!allowed.some((h) => url.hostname.endsWith(h))) return "";
+      const allowed = ALLOWED_WA_HOSTS.some(
+        (host) =>
+          url.hostname === host ||
+          url.hostname.endsWith(`.${host}`)
+      );
+      if (!allowed) return "";
       return trimmed;
     } catch { return ""; }
-  }, []);
+  }, [ALLOWED_WA_HOSTS]);
 
   const handleWaLinkChange = useCallback((e) => {
     setWaLinkError("");
-    updateContact("whatsapp_link", sanitizeWhatsAppLink(e.target.value) || e.target.value);
+    updateContact(
+      "whatsapp_link",
+      sanitizeWhatsAppLink(e.target.value) || e.target.value
+    );
   }, [sanitizeWhatsAppLink, updateContact]);
 
   const handleWaLinkBlur = useCallback((e) => {
@@ -960,29 +1139,48 @@ export default function ProductComponents({
   }, [sanitizeWhatsAppLink, updateContact]);
 
   /* ── Delivery range ── */
+  /*
+   * deliveryDurationRef tracks the current delivery duration values so that
+   * handleDeliveryDuration always reads fresh data without adding
+   * form.delivery.duration to its dependency array (which would cause
+   * the callback to be recreated on every keystroke).
+   */
+  const deliveryDurationRef = useRef(form.delivery?.duration ?? { from: "", to: "" });
+  useEffect(() => {
+    deliveryDurationRef.current = form.delivery?.duration ?? { from: "", to: "" };
+  }, [form.delivery?.duration]);
+
   const handleDeliveryDuration = useCallback((key, val) => {
     updateDeliveryDuration(key, val);
-    const from = Number(key === "from" ? val : form.delivery.duration.from);
-    const to   = Number(key === "to"   ? val : form.delivery.duration.to);
+    const current = deliveryDurationRef.current;
+    const from    = Number(key === "from" ? val : current.from);
+    const to      = Number(key === "to"   ? val : current.to);
     setDeliveryRangeError(
       from && to && to < from
         ? "End day must be equal to or after start day."
         : ""
     );
-  }, [updateDeliveryDuration, form.delivery.duration]);
+  }, [updateDeliveryDuration]);
 
   /* ── Drag and drop ── */
   const handleDragEnter = useCallback((e) => {
-    e.preventDefault(); dragCounterRef.current += 1; setIsDragging(true);
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    setIsDragging(true);
   }, []);
   const handleDragOver  = useCallback((e) => { e.preventDefault(); }, []);
   const handleDragLeave = useCallback((e) => {
     e.preventDefault();
     dragCounterRef.current -= 1;
-    if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragging(false); }
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
   }, []);
   const handleDrop = useCallback((e) => {
-    e.preventDefault(); dragCounterRef.current = 0; setIsDragging(false);
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
     const files = e.dataTransfer?.files;
     if (files?.length) handleImages(files);
   }, [handleImages]);
@@ -1019,8 +1217,8 @@ export default function ProductComponents({
     );
   }, [attributes?.brand, options]);
 
-  const showModelField  = !!attributes?.brand;
-  const isFreePlan      = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
+  const showModelField = !!attributes?.brand;
+  const isFreePlan     = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
 
   const allFeatures = useMemo(
     () => (Array.isArray(options?.features) ? options.features : []),
@@ -1036,25 +1234,48 @@ export default function ProductComponents({
     [attributes?.features]
   );
 
-  const optionsMap = useMemo(() => ({
-    brand            : normalizeOptions(options?.brands),
-    color            : normalizeOptions(options?.colors),
-    condition        : normalizeOptions(options?.conditions),
-    used_detail      : normalizeOptions(options?.used_details ?? options?.usedDetails ?? []),
-    ram              : normalizeOptions(options?.ram),
-    storage          : normalizeOptions(options?.storage),
-    sim              : normalizeOptions(options?.sim),
-    year             : normalizeOptions(options?.years),
-    engine           : normalizeOptions(options?.engine ?? options?.engines ?? []),
-    fuel_type        : normalizeOptions(options?.fuelType ?? options?.fuel_types ?? []),
-    size             : normalizeOptions(options?.size),
-    age_range        : normalizeOptions(options?.age_range),
-    bedrooms         : normalizeOptions(options?.bedrooms),
-    bathrooms        : normalizeOptions(options?.bathrooms),
-    experience_level : normalizeOptions(options?.experience_level),
-    skills           : normalizeOptions(options?.skills),
+  /*
+   * Individual option list memos — each only recomputes when its specific
+   * source field changes, rather than rebuilding the whole map on any
+   * options reference change.
+   */
+  const brandOptions          = useMemo(() => normalizeOptions(options?.brands),                            [options?.brands]);
+  const colorOptions          = useMemo(() => normalizeOptions(options?.colors),                            [options?.colors]);
+  const conditionOptions      = useMemo(() => normalizeOptions(options?.conditions),                        [options?.conditions]);
+  const usedDetailOptions     = useMemo(() => normalizeOptions(options?.used_details ?? options?.usedDetails ?? []), [options?.used_details, options?.usedDetails]);
+  const ramOptions            = useMemo(() => normalizeOptions(options?.ram),                               [options?.ram]);
+  const storageOptions        = useMemo(() => normalizeOptions(options?.storage),                           [options?.storage]);
+  const simOptions            = useMemo(() => normalizeOptions(options?.sim),                               [options?.sim]);
+  const yearOptions           = useMemo(() => normalizeOptions(options?.years),                             [options?.years]);
+  const engineOptions         = useMemo(() => normalizeOptions(options?.engine ?? options?.engines ?? []),  [options?.engine, options?.engines]);
+  const fuelTypeOptions       = useMemo(() => normalizeOptions(options?.fuelType ?? options?.fuel_types ?? []), [options?.fuelType, options?.fuel_types]);
+  const sizeOptions           = useMemo(() => normalizeOptions(options?.size),                              [options?.size]);
+  const ageRangeOptions       = useMemo(() => normalizeOptions(options?.age_range),                         [options?.age_range]);
+  const bedroomOptions        = useMemo(() => normalizeOptions(options?.bedrooms),                          [options?.bedrooms]);
+  const bathroomOptions       = useMemo(() => normalizeOptions(options?.bathrooms),                         [options?.bathrooms]);
+  const expLevelOptions       = useMemo(() => normalizeOptions(options?.experience_level),                  [options?.experience_level]);
+  const skillsOptions         = useMemo(() => normalizeOptions(options?.skills),                            [options?.skills]);
+
+  /* Assembled without useMemo — individual memos above handle caching */
+  const optionsMap = {
+    brand            : brandOptions,
+    color            : colorOptions,
+    condition        : conditionOptions,
+    used_detail      : usedDetailOptions,
+    ram              : ramOptions,
+    storage          : storageOptions,
+    sim              : simOptions,
+    year             : yearOptions,
+    engine           : engineOptions,
+    fuel_type        : fuelTypeOptions,
+    size             : sizeOptions,
+    age_range        : ageRangeOptions,
+    bedrooms         : bedroomOptions,
+    bathrooms        : bathroomOptions,
+    experience_level : expLevelOptions,
+    skills           : skillsOptions,
     features         : allFeatures,
-  }), [options, allFeatures]);
+  };
 
   /* ── Section completion ── */
   const basicFilled    = !!(form.title?.trim() && form.description?.trim() && form.price);
@@ -1086,7 +1307,8 @@ export default function ProductComponents({
       const apiEffective  = Number(plan.effective_price);
       const calcEffective = price * (1 - discount / 100);
       const effective     = Number.isFinite(apiEffective) && apiEffective > 0
-        ? apiEffective : calcEffective;
+        ? apiEffective
+        : calcEffective;
       return (
         <>
           <span className="plan-price-original">&#8358;{displayPrice(price)}</span>{" "}
@@ -1105,7 +1327,7 @@ export default function ProductComponents({
     return String(n);
   }, []);
 
-  /* ── AI title suggestion ── */
+  /* ── Description → title suggestion ── */
   useEffect(() => {
     if (
       !form.description ||
@@ -1116,12 +1338,15 @@ export default function ProductComponents({
       return;
     }
     const t = setTimeout(() => {
+      /*
+       * Simple word-extraction heuristic — labeled as a suggestion,
+       * not "AI", to avoid misleading users.
+       */
       const words = form.description
         .split(/[\s,.\-|]+/)
         .filter((w) => w.length > 3)
         .slice(0, 5);
-      if (words.length >= 3) setTitleSuggestions([words.join(" ")]);
-      else setTitleSuggestions([]);
+      setTitleSuggestions(words.length >= 3 ? [words.join(" ")] : []);
     }, 600);
     return () => clearTimeout(t);
   }, [form.description, form.title]);
@@ -1133,16 +1358,14 @@ export default function ProductComponents({
 
   const submitTitle = !agreedToTerms
     ? "Please accept the Terms & Conditions first"
-    : plansLoading            ? "Plans are still loading"
-    : !!deliveryRangeError    ? deliveryRangeError
-    : hasImageErrors          ? "Fix image errors before submitting"
-    : trialExhausted          ? "Verify your identity to continue posting"
+    : plansLoading         ? "Plans are still loading"
+    : !!deliveryRangeError ? deliveryRangeError
+    : hasImageErrors       ? "Fix image errors before submitting"
+    : trialExhausted       ? "Verify your identity to continue posting"
     : !canPost && dailyRemaining  === 0 ? "Daily limit reached"
     : !canPost && activeRemaining === 0 ? "Active listing limit reached"
     : !canPost && cooldownSecs    > 0   ? "Please wait before posting again"
     : undefined;
-
-  cardIndex = 0;
 
   /* ═══════════════════════════════════════════════════════════
      RENDER
@@ -1273,10 +1496,12 @@ export default function ProductComponents({
             <span />
             <CharCounter value={form.title} max={120} />
           </div>
+
+          {/* Suggestion from description — word-extraction heuristic */}
           {titleSuggestions.length > 0 && (
             <div className="title-suggestions">
               <span className="title-suggestions-label">
-                <SparkleIcon /> Suggestion:
+                Suggestion from description:
               </span>
               {titleSuggestions.map((s, i) => (
                 <button key={i} type="button" className="title-suggestion-chip"
@@ -1291,7 +1516,6 @@ export default function ProductComponents({
           )}
         </div>
 
-        {/* Description — minimum hint only when broken */}
         <div className="form-group">
           <label htmlFor="ap-desc">Description *</label>
           <textarea
@@ -1313,7 +1537,6 @@ export default function ProductComponents({
           </div>
         </div>
 
-        {/* Price */}
         <div className="form-group">
           <label htmlFor="ap-price">Price (&#8358;) *</label>
           <input
@@ -1691,13 +1914,18 @@ export default function ProductComponents({
         )}
 
         {!plansLoading && promotionPlans.length > 0 && (
-          <div className="plans-grid" role="radiogroup" aria-label="Promotion plan">
-            {promotionPlans.map((plan) => {
+          <div
+            className="plans-grid"
+            role="radiogroup"
+            aria-label="Promotion plan"
+          >
+            {promotionPlans.map((plan, planIndex) => {
               const isSelected  = String(selectedPlan?.id) === String(plan.id);
               const isBestValue = String(plan.id) === String(bestValuePlanId);
               return (
                 <div
                   key={plan.id}
+                  ref={(el) => { if (el) planRefs.current[planIndex] = el; }}
                   className={[
                     "plan-card",
                     isSelected  ? "selected"        : "",
@@ -1705,13 +1933,28 @@ export default function ProductComponents({
                   ].filter(Boolean).join(" ")}
                   onClick={() => setSelectedPlan(isSelected ? null : plan)}
                   role="radio"
-                  tabIndex={0}
+                  tabIndex={isSelected ? 0 : -1}
                   aria-checked={isSelected}
                   aria-label={`${plan.name} plan${isBestValue ? " — Best Value" : ""}`}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       setSelectedPlan(isSelected ? null : plan);
+                      return;
+                    }
+                    /* Arrow key navigation between radio items */
+                    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                      e.preventDefault();
+                      const next = (planIndex + 1) % promotionPlans.length;
+                      setSelectedPlan(promotionPlans[next]);
+                      planRefs.current[next]?.focus();
+                    }
+                    if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                      e.preventDefault();
+                      const prev =
+                        (planIndex - 1 + promotionPlans.length) % promotionPlans.length;
+                      setSelectedPlan(promotionPlans[prev]);
+                      planRefs.current[prev]?.focus();
                     }
                   }}
                 >
@@ -1738,7 +1981,7 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* Upsell — opens blur modal */}
+        {/* Upsell */}
         {!isVerifiedSeller && !limitsLoading && !plansLoading && promotionPlans.length > 0 && (
           <button
             type="button"
