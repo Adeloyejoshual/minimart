@@ -12,7 +12,7 @@ import {
   XCircle, RefreshCw, Lock, BadgeCheck,
   CreditCard, AlertTriangle, Upload,
   FileText, Camera, Image, User, X, Info,
-  ArrowLeft, Clock, ScanFace,
+  ArrowLeft, Clock,
 } from "lucide-react";
 
 import LivenessChallenge from "../../components/LivenessChallenge.jsx";
@@ -86,14 +86,14 @@ const fmtBytes      = (b) =>
   b < 1_048_576 ? `${(b / 1024).toFixed(0)} KB` : `${(b / 1_048_576).toFixed(1)} MB`;
 
 /* ══════════════════════════════════════════════════════════════
-   DRAFT HELPERS
+   DRAFT
 ══════════════════════════════════════════════════════════════ */
 const saveDraft  = (d) => { try { localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch {} };
 const loadDraft  = ()  => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) ?? "null"); } catch { return null; } };
 const clearDraft = ()  => { try { localStorage.removeItem(DRAFT_KEY); } catch {} };
 
 /* ══════════════════════════════════════════════════════════════
-   EXIF VALIDATION (lazy-loads exifr)
+   EXIF VALIDATION
 ══════════════════════════════════════════════════════════════ */
 const validateExif = async (file) => {
   if (!file.type.startsWith("image/")) return [];
@@ -101,23 +101,21 @@ const validateExif = async (file) => {
   try { exifr = (await import("exifr")).default; } catch { return []; }
   const warnings = [];
   try {
-    const tags = await exifr.parse(file, {
-      pick: ["DateTimeOriginal", "Software", "Make", "Model"],
-    });
+    const tags = await exifr.parse(file, { pick: ["DateTimeOriginal", "Software", "Make", "Model"] });
     if (!tags) return [];
     if (tags.Software) {
       const sw = String(tags.Software).toLowerCase();
-      const hit = SUSPICIOUS_SOFTWARE.find((s) => sw.includes(s));
-      if (hit) warnings.push(`Image edited in ${tags.Software}. Upload an original photo.`);
+      if (SUSPICIOUS_SOFTWARE.some((s) => sw.includes(s)))
+        warnings.push(`Image edited in ${tags.Software}. Upload an original photo.`);
     }
     if (!tags.Make && !tags.Model && !tags.DateTimeOriginal)
-      warnings.push("May be a screenshot or scanned copy. Use a direct camera photo.");
+      warnings.push("May be a screenshot. Use a direct camera photo.");
   } catch {}
   return warnings;
 };
 
 /* ══════════════════════════════════════════════════════════════
-   IMAGE QUALITY ANALYSIS (blur / brightness / resolution)
+   IMAGE QUALITY ANALYSIS
 ══════════════════════════════════════════════════════════════ */
 const analyseImage = (file) =>
   new Promise((resolve) => {
@@ -138,12 +136,10 @@ const analyseImage = (file) =>
         ctx.drawImage(img, 0, 0, c.width, c.height);
         const { data } = ctx.getImageData(0, 0, c.width, c.height);
         const px = c.width * c.height;
-
         let br = 0;
         for (let i = 0; i < data.length; i += 4)
           br += data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114;
         if (br / px < DARK_THRESH) w.push("Image too dark. Use better lighting.");
-
         const g = new Float32Array(px);
         for (let i = 0; i < px; i++) { const p = i*4; g[i] = data[p]*0.299+data[p+1]*0.587+data[p+2]*0.114; }
         let lap = 0, lsq = 0, ln = 0;
@@ -154,7 +150,7 @@ const analyseImage = (file) =>
                       -g[(y+1)*c.width+(x-1)]-g[(y+1)*c.width+x]-g[(y+1)*c.width+(x+1)];
             lap += v; lsq += v*v; ln++;
           }
-        if ((lsq/ln - (lap/ln)**2) < BLUR_THRESH) w.push("Image appears blurry. Retake in good light.");
+        if ((lsq/ln - (lap/ln)**2) < BLUR_THRESH) w.push("Image blurry. Retake in good light.");
       } catch {}
       resolve(w);
     };
@@ -168,11 +164,11 @@ const checkImage = async (f) => {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   FACE MATCH (server-side — InsightFace / FaceNet)
+   FACE MATCH
 ══════════════════════════════════════════════════════════════ */
 const runFaceMatch = async (selfie, docFront) => {
   const fd = new FormData();
-  fd.append("selfie",    selfie);
+  fd.append("selfie", selfie);
   fd.append("doc_front", docFront);
   const r = await fetch(`${API}/verification/face-check`, {
     method: "POST", headers: authMultipart(), body: fd,
@@ -183,7 +179,7 @@ const runFaceMatch = async (selfie, docFront) => {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   SMALL SHARED COMPONENTS
+   SHARED COMPONENTS
 ══════════════════════════════════════════════════════════════ */
 function Alert({ type = "error", children }) {
   const icons = {
@@ -215,17 +211,13 @@ function FaceMatchBanner({ state }) {
   if (!state) return null;
   const map = {
     checking: { cls: "--checking", icon: <Loader2 size={14} className="v-spin" />, msg: "Comparing selfie with document…" },
-    pass:     { cls: "--pass",     icon: <ScanFace size={14} />,                    msg: "Face matched — selfie matches your ID." },
-    fail:     { cls: "--fail",     icon: <XCircle size={14} />,                     msg: "Face mismatch — selfie does not match your ID. Retake both photos." },
-    error:    { cls: "--warn",     icon: <AlertTriangle size={14} />,               msg: "Face check could not complete — you can still submit but review may take longer." },
+    pass:     { cls: "--pass",     icon: <Camera size={14} />,                      msg: "Face matched — selfie matches your ID." },
+    fail:     { cls: "--fail",     icon: <XCircle size={14} />,                     msg: "Face mismatch — retake both photos." },
+    error:    { cls: "--warn",     icon: <AlertTriangle size={14} />,               msg: "Face check unavailable — review may take longer." },
   };
   const c = map[state];
   if (!c) return null;
-  return (
-    <div className={`v-face-match v-face-match${c.cls}`}>
-      {c.icon}<span>{c.msg}</span>
-    </div>
-  );
+  return <div className={`v-face-match v-face-match${c.cls}`}>{c.icon}<span>{c.msg}</span></div>;
 }
 
 function Countdown({ seconds, tick, onDone }) {
@@ -257,17 +249,11 @@ function TrustRing({ score = 0 }) {
   return (
     <div className="v-trust-ring">
       <div className="v-trust-ring__graphic">
-        <svg width="140" height="140" viewBox="0 0 140 140"
-             role="img" aria-label={`Trust score ${score}/100`}>
+        <svg width="140" height="140" viewBox="0 0 140 140" role="img" aria-label={`Trust score ${score}/100`}>
           <circle cx="70" cy="70" r={R} fill="none" stroke="#1f2937" strokeWidth="10" />
-          <circle cx="70" cy="70" r={R} fill="none"
-            stroke={cfg.color} strokeWidth="10" strokeLinecap="round"
+          <circle cx="70" cy="70" r={R} fill="none" stroke={cfg.color} strokeWidth="10" strokeLinecap="round"
             strokeDasharray={C} strokeDashoffset={C - (score / 100) * C}
-            style={{
-              transformOrigin: "center", transform: "rotate(-90deg)",
-              filter: `drop-shadow(0 0 6px ${cfg.color}55)`,
-              transition: "stroke-dashoffset 1.2s ease",
-            }} />
+            style={{ transformOrigin: "center", transform: "rotate(-90deg)", filter: `drop-shadow(0 0 6px ${cfg.color}55)`, transition: "stroke-dashoffset 1.2s ease" }} />
         </svg>
         <div className="v-trust-ring__center">
           <span className="v-trust-ring__number" style={{ color: cfg.color }}>{score}</span>
@@ -448,8 +434,8 @@ function EmailOtpGate({ maskedEmail: initEmail, resendRemaining: initLeft, onVer
       const d = await r.json();
       if (r.ok && d.success) { setPhase("otp"); if (d.email) setEmail(d.email); if (typeof d.remaining === "number") setLeft(d.remaining); if (d.dev_otp) setDevCode(d.dev_otp); return; }
       if (r.status === 429) { setPhase("otp"); setErrMsg(d.message || "Too many requests."); if (d.remaining === 0) setLeft(0); return; }
-      setPhase("idle"); setErrMsg(d.message || "Failed.");
-    } catch { setPhase("idle"); setErrMsg("Network error."); }
+      setPhase("idle"); setErrMsg(d.message || "Failed to send.");
+    } catch (err) { setPhase("idle"); setErrMsg(`Network error: ${err.message}`); }
   }, []);
 
   const verify = useCallback(async (code) => {
@@ -458,10 +444,11 @@ function EmailOtpGate({ maskedEmail: initEmail, resendRemaining: initLeft, onVer
       const r = await fetch(`${API}/verification/verify-email-otp`, { method: "POST", headers: authJson(), body: JSON.stringify({ otp: code }) });
       const d = await r.json();
       if (r.ok && d.success) { setPhase("done"); setDevCode(""); onVerified(); return; }
-      setOtpErr(true); setOtp(""); setPhase("otp"); setErrMsg(d.message || "Incorrect.");
+      setOtpErr(true); setOtp(""); setPhase("otp");
+      setErrMsg(d.message || "Incorrect code.");
       if (typeof d.attemptsLeft === "number") setAttLeft(d.attemptsLeft);
       setTimeout(() => setOtpErr(false), 700);
-    } catch { setPhase("otp"); setErrMsg("Network error."); }
+    } catch (err) { setPhase("otp"); setErrMsg(`Network error: ${err.message}`); }
     finally { busy.current = false; }
   }, [onVerified]);
 
@@ -480,7 +467,6 @@ function EmailOtpGate({ maskedEmail: initEmail, resendRemaining: initLeft, onVer
       <div className="v-email-gate__icon"><Mail size={32} /></div>
       <h2 className="v-email-gate__title">Verify Your Email</h2>
       <p className="v-email-gate__sub">We'll send a 6-digit code to confirm your email before you can submit documents.</p>
-
       {phase === "idle" && <button className="v-btn v-btn--primary v-btn--lg" onClick={send}><Mail size={15} /> Send Verification Code</button>}
       {sending && <div className="v-otp-panel__status"><Loader2 size={15} className="v-spin" /><span>Sending to {email || "your email"}…</span></div>}
       {showOtp && !sending && email && <p className="v-otp-panel__dest">Code sent to <strong>{email}</strong></p>}
@@ -574,22 +560,20 @@ function VerificationForm({ onSubmitted }) {
 
   useEffect(() => { saveDraft({ docType, docNumber, storeName, storeDesc }); }, [docType, docNumber, storeName, storeDesc]);
 
-  /* Face match whenever both selfie + front are set */
   useEffect(() => {
     if (!selfie || !docFront) { setFaceState(null); return; }
     let cancel = false;
     setFaceState("checking");
     runFaceMatch(selfie, docFront)
-      .then((r)  => { if (!cancel) setFaceState(r.match ? "pass" : "fail"); })
-      .catch(()  => { if (!cancel) setFaceState("error"); });
+      .then((r) => { if (!cancel) setFaceState(r.match ? "pass" : r.skipped ? "error" : "fail"); })
+      .catch(() => { if (!cancel) setFaceState("error"); });
     return () => { cancel = true; };
   }, [selfie, docFront]);
 
   const idReady =
-    Boolean(docType)          && docNumValid           &&
-    docNumber.trim().length >= minLen && Boolean(docFront) &&
-    Boolean(docBack)          && Boolean(selfie)        &&
-    liveDone                  && faceState !== "fail";
+    Boolean(docType) && docNumValid && docNumber.trim().length >= minLen &&
+    Boolean(docFront) && Boolean(docBack) && Boolean(selfie) &&
+    liveDone && faceState !== "fail";
 
   const storeReady = storeName.trim().length >= 2;
   const ready      = idReady && storeReady;
@@ -602,7 +586,7 @@ function VerificationForm({ onSubmitted }) {
       { label: docCfg.frontLabel,           done: Boolean(docFront) },
       { label: docCfg.backLabel,            done: Boolean(docBack) },
       { label: "Liveness check",            done: liveDone },
-      { label: "Selfie matches ID",         done: faceState === "pass" },
+      { label: "Selfie matches ID",         done: faceState === "pass" || faceState === "error" },
       { label: "Store name (min 2 chars)",  done: storeReady },
     ];
   }, [docCfg, docRule, docType, docNumValid, docNumber, minLen, docFront, docBack, liveDone, faceState, storeReady]);
@@ -612,32 +596,30 @@ function VerificationForm({ onSubmitted }) {
     setSubmitting(true); setErrMsg("");
     try {
       const fd = new FormData();
-      fd.append("document_type",    docType);
-      fd.append("document_number",  docNumber.trim());
-      fd.append("doc_front",        docFront);
-      fd.append("doc_back",         docBack);
-      fd.append("selfie",           selfie);
-      fd.append("store_name",       storeName.trim());
-      fd.append("store_description",storeDesc.trim());
-      if (storeLogo)    fd.append("store_logo",      storeLogo);
-      if (livenessBlob) fd.append("liveness_frame",  livenessBlob, "liveness.jpg");
+      fd.append("document_type", docType);
+      fd.append("document_number", docNumber.trim());
+      fd.append("doc_front", docFront);
+      fd.append("doc_back", docBack);
+      fd.append("selfie", selfie);
+      fd.append("store_name", storeName.trim());
+      fd.append("store_description", storeDesc.trim());
+      if (storeLogo) fd.append("store_logo", storeLogo);
+      if (livenessBlob) fd.append("liveness_frame", livenessBlob, "liveness.jpg");
       fd.append("liveness_passed", String(livenessPhase === "passed"));
 
       const r = await fetch(`${API}/verification/submit`, { method: "POST", headers: authMultipart(), body: fd });
       const d = await r.json();
-      if (!r.ok) { setErrMsg(r.status === 409 ? (d.message || "Document already registered.") : (d.message || "Failed.")); return; }
+      if (!r.ok) { setErrMsg(d.message || "Submission failed."); return; }
       clearDraft(); onSubmitted();
-    } catch { setErrMsg("Network error."); }
+    } catch (err) { setErrMsg(`Network error: ${err.message}`); }
     finally { setSubmitting(false); }
   };
 
   return (
     <div className="v-form">
-
-      {/* ── Identity ── */}
+      {/* Identity */}
       <div className="v-form__section">
         <div className="v-form__section-header"><CreditCard size={18} /><h3>Government ID</h3></div>
-
         <fieldset className="v-doc-fieldset">
           <legend className="v-field-label">Document Type *</legend>
           <div className="v-doc-grid">
@@ -663,22 +645,18 @@ function VerificationForm({ onSubmitted }) {
               {docNumErr && <p className="v-field-error"><AlertTriangle size={11} /> {docNumErr}</p>}
               {!docNumErr && docNumValid && docNumber.length >= minLen && <p className="v-field-ok"><CheckCircle size={11} /> Looks good</p>}
             </div>
-
             <div className="v-field">
               <label className="v-field-label">{docCfg.frontLabel} *</label>
               <FileUpload label="Tap or drag to upload" hint={`JPG, PNG, WebP, PDF — max ${MAX_DOC_MB}MB`}
-                accept="image/*,.pdf" file={docFront}
-                onFile={(f) => { setDocFront(f); setFaceState(null); }}
+                accept="image/*,.pdf" file={docFront} onFile={(f) => { setDocFront(f); setFaceState(null); }}
                 onRemove={() => { setDocFront(null); setFrontWarns([]); setFaceState(null); }}
                 maxBytes={MAX_DOC_BYTES} compress compressOpts={COMPRESS_DOC} onWarnings={setFrontWarns} />
               <QualityWarnings warnings={frontWarns} />
             </div>
-
             <div className="v-field">
               <label className="v-field-label">{docCfg.backLabel} *</label>
               <FileUpload label="Tap or drag to upload" hint={`JPG, PNG, WebP, PDF — max ${MAX_DOC_MB}MB`}
-                accept="image/*,.pdf" file={docBack}
-                onFile={setDocBack}
+                accept="image/*,.pdf" file={docBack} onFile={setDocBack}
                 onRemove={() => { setDocBack(null); setBackWarns([]); }}
                 maxBytes={MAX_DOC_BYTES} compress compressOpts={COMPRESS_DOC} onWarnings={setBackWarns} />
               <QualityWarnings warnings={backWarns} />
@@ -687,7 +665,7 @@ function VerificationForm({ onSubmitted }) {
         )}
       </div>
 
-      {/* ── Liveness ── */}
+      {/* Liveness */}
       {docCfg && docFront && (
         <div className="v-form__section">
           <div className="v-form__section-header"><Camera size={18} /><h3>Liveness Check</h3></div>
@@ -704,37 +682,27 @@ function VerificationForm({ onSubmitted }) {
               onComplete={(blob) => {
                 setLivenessBlob(blob);
                 setLivenessPhase("passed");
-                if (!selfie) {
-                  const f = new File([blob], "liveness-selfie.jpg", { type: "image/jpeg" });
-                  setSelfie(f);
-                }
+                if (!selfie) setSelfie(new File([blob], "liveness-selfie.jpg", { type: "image/jpeg" }));
               }}
               onSkip={() => setLivenessPhase("skipped")}
             />
           )}
-          {livenessPhase === "passed" && (
-            <div className="v-face-match v-face-match--pass">
-              <CheckCircle size={14} /><span>Liveness confirmed.</span>
-            </div>
-          )}
+          {livenessPhase === "passed" && <div className="v-face-match v-face-match--pass"><CheckCircle size={14} /><span>Liveness confirmed.</span></div>}
           {livenessPhase === "skipped" && (
             <div className="v-face-match v-face-match--warn">
               <AlertTriangle size={14} />
-              <span>Skipped — manual review may take longer.{" "}
-                <button className="v-btn v-btn--link" onClick={() => setLivenessPhase("running")}>Do it now</button>
-              </span>
+              <span>Skipped — manual review may take longer. <button className="v-btn v-btn--link" onClick={() => setLivenessPhase("running")}>Do it now</button></span>
             </div>
           )}
         </div>
       )}
 
-      {/* ── Selfie (after liveness) ── */}
+      {/* Selfie */}
       {docCfg && liveDone && (
         <div className="v-form__section">
-          <div className="v-form__section-header"><ScanFace size={18} /><h3>Selfie Verification</h3></div>
+          <div className="v-form__section-header"><Camera size={18} /><h3>Selfie Verification</h3></div>
           <div className="v-field">
-            <SelfieCapture file={selfie}
-              onFile={(f) => { setSelfie(f); setFaceState(null); }}
+            <SelfieCapture file={selfie} onFile={(f) => { setSelfie(f); setFaceState(null); }}
               onRemove={() => { setSelfie(null); setSelfieWarns([]); setFaceState(null); }}
               onWarnings={setSelfieWarns} />
             <QualityWarnings warnings={selfieWarns} />
@@ -743,25 +711,21 @@ function VerificationForm({ onSubmitted }) {
         </div>
       )}
 
-      {/* ── Store ── */}
+      {/* Store */}
       <div className="v-form__section">
         <div className="v-form__section-header"><Store size={18} /><h3>Store Profile</h3></div>
         <div className="v-field">
           <label className="v-field-label">Store Name <span className="v-required">*</span></label>
-          <input type="text" className="v-input" value={storeName}
-            onChange={(e) => setStoreName(e.target.value)} placeholder="e.g. Lagos Gadget Hub" maxLength={60} />
+          <input type="text" className="v-input" value={storeName} onChange={(e) => setStoreName(e.target.value)} placeholder="e.g. Lagos Gadget Hub" maxLength={60} />
         </div>
         <div className="v-field">
           <label className="v-field-label">Description <span className="v-char-count">{storeDesc.length}/{MAX_DESC}</span></label>
-          <textarea className="v-textarea" value={storeDesc} onChange={(e) => setStoreDesc(e.target.value)}
-            placeholder="What do you sell?" maxLength={MAX_DESC} rows={3} />
+          <textarea className="v-textarea" value={storeDesc} onChange={(e) => setStoreDesc(e.target.value)} placeholder="What do you sell?" maxLength={MAX_DESC} rows={3} />
         </div>
         <div className="v-field">
           <label className="v-field-label">Store Logo (optional)</label>
-          <FileUpload label="Upload logo" hint={`JPG, PNG — max ${MAX_LOGO_MB}MB`}
-            accept="image/*" file={storeLogo} onFile={setStoreLogo}
-            onRemove={() => setStoreLogo(null)} maxBytes={MAX_LOGO_BYTES}
-            compress compressOpts={COMPRESS_LOGO} />
+          <FileUpload label="Upload logo" hint={`JPG, PNG — max ${MAX_LOGO_MB}MB`} accept="image/*" file={storeLogo}
+            onFile={setStoreLogo} onRemove={() => setStoreLogo(null)} maxBytes={MAX_LOGO_BYTES} compress compressOpts={COMPRESS_LOGO} />
         </div>
       </div>
 
@@ -795,34 +759,44 @@ function VerificationForm({ onSubmitted }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ROOT
+   ROOT — no loading state (App.jsx handles that)
 ══════════════════════════════════════════════════════════════ */
 export default function Verification() {
   const navigate = useNavigate();
   const [status,   setStatus]   = useState(null);
-  const [loading,  setLoading]  = useState(true);
   const [pageErr,  setPageErr]  = useState("");
   const [showForm, setShowForm] = useState(false);
 
   const fetchStatus = useCallback(async () => {
+    const token = getToken();
+    if (!token) { navigate("/auth"); return; }
+
     try {
       const r = await fetch(`${API}/verification/status`, { headers: authJson() });
       if (r.status === 401) { navigate("/auth"); return; }
       const d = await r.json();
       if (r.ok && d.success) { setStatus(d); setPageErr(""); }
-      else setPageErr(d.message || "Failed.");
-    } catch { setPageErr("Network error."); }
-    finally { setLoading(false); }
+      else setPageErr(d.message || "Failed to load verification status.");
+    } catch (err) {
+      setPageErr(`Network error: ${err.message}`);
+    }
   }, [navigate]);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
-  if (loading) return <div className="v-loading"><Loader2 size={28} className="v-spin" /><span>Loading…</span></div>;
-  if (pageErr) return (
-    <div className="v-page-error"><AlertTriangle size={32} /><p>{pageErr}</p>
-      <button className="v-btn v-btn--primary" onClick={fetchStatus}><RefreshCw size={14} /> Retry</button>
-    </div>
-  );
+  if (pageErr) {
+    return (
+      <div className="v-page-error">
+        <AlertTriangle size={32} />
+        <p>{pageErr}</p>
+        <button className="v-btn v-btn--primary" onClick={fetchStatus}>
+          <RefreshCw size={14} /> Retry
+        </button>
+      </div>
+    );
+  }
+
+  if (!status) return null;
 
   const emailOk    = status?.email_verified    ?? false;
   const identityOk = status?.identity_verified ?? false;
@@ -832,7 +806,9 @@ export default function Verification() {
   const reason     = idReview?.rejection_reason ?? null;
   const formVis    = emailOk && !identityOk && (revStatus === null || (revStatus === "rejected" && showForm));
 
-  useEffect(() => { if (emailOk && !identityOk && revStatus === null) setShowForm(true); }, [emailOk, identityOk, revStatus]);
+  useEffect(() => {
+    if (emailOk && !identityOk && revStatus === null) setShowForm(true);
+  }, [emailOk, identityOk, revStatus]);
 
   return (
     <div className="v-page"><div className="v-container">
@@ -841,12 +817,19 @@ export default function Verification() {
         <div className="v-topbar__center"><div className="v-topbar__shield"><Shield size={16} /></div><span className="v-topbar__title">Account Verification</span></div>
         <div className="v-topbar__spacer" />
       </div>
+
       <p className="v-page-sub">Complete verification to unlock full marketplace access</p>
+
       <div className="v-card v-card--trust"><TrustRing score={trust} /></div>
+
       {status?.limited_listings?.message && !identityOk && <Alert type="warning">{status.limited_listings.message}</Alert>}
+
       {!emailOk && <div className="v-card"><EmailOtpGate maskedEmail={status?.email} resendRemaining={status?.resend_remaining} onVerified={() => { fetchStatus(); setShowForm(true); }} /></div>}
+
       {emailOk && revStatus && revStatus !== "rejected" && <div className="v-card"><StatusCard reviewStatus={revStatus} rejectionReason={reason} onResubmit={() => setShowForm(true)} /></div>}
+
       {emailOk && revStatus === "rejected" && !showForm && <div className="v-card"><StatusCard reviewStatus="rejected" rejectionReason={reason} onResubmit={() => setShowForm(true)} /></div>}
+
       {formVis && <div className="v-card"><VerificationForm onSubmitted={() => { setShowForm(false); fetchStatus(); }} /></div>}
     </div></div>
   );
