@@ -12,7 +12,7 @@ import {
   useReducer,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import "./Verification.css";
+import "../../style/Verification.css";
 
 /* ══════════════════════════════════════════════════════════════
    TOKEN
