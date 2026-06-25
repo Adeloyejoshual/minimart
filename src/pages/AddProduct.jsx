@@ -1,16 +1,13 @@
 /**
  * src/pages/AddProduct.jsx
- * Route: /minimart/add — v9
+ * Route: /minimart/add — v10
  *
- * Changes from v8:
- *  ─ canPost no longer blocks the submit button — server enforces all limits
- *  ─ limitsLoading removed from canPost (no premature disable on page load)
- *  ─ Soft quota pre-check removed from handleSubmit — server rejects + showError fires
- *  ─ On 403 (trial exhausted) server response → fetchLimits() refreshes state
- *    → trialExhausted becomes true → upsell modal auto-opens in components.jsx
- *  ─ SellerLimitsBanner removed from props (component already returns null)
- *  ─ submit button always enabled unless: loading / terms / plans loading /
- *    delivery error / image errors
+ * Changes from v9:
+ *  ─ Draft banner removed entirely (draft still saves/restores silently)
+ *  ─ AutoSave "Saved" indicator removed from top bar
+ *  ─ Duplicate price hint (₦450,000 NGN) removed
+ *  ─ Duplicate "Minimum 10 characters" hint removed (CharCounter handles it)
+ *  ─ Terms checkbox: clicking the text now toggles the checkbox
  */
 
 import {
@@ -42,7 +39,6 @@ const BRAND_NAME         = "Loemart";
 const USER_AGENT         = "loemart-app/1.0";
 const DESCRIPTION_MIN    = 10;
 const GPS_ROUND_DP       = 4;
-const AUTO_SAVE_SAVED_MS = 2_000;
 
 const COMPRESS_BUDGET_LOW_END = { maxSizeMB: 0.5, maxWidthOrHeight: 800  };
 const COMPRESS_BUDGET_NORMAL  = { maxSizeMB: 1,   maxWidthOrHeight: 1280 };
@@ -307,10 +303,6 @@ export default function AddProduct({ user }) {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [verificationData,  setVerificationData]  = useState(null);
 
-  /* ─── Draft UX ── */
-  const [draftRestored,  setDraftRestored]  = useState(false);
-  const [autoSaveStatus, setAutoSaveStatus] = useState("idle");
-
   /* ─── Image compression progress ── */
   const [compressingCount, setCompressingCount] = useState(0);
   const [compressingTotal, setCompressingTotal] = useState(0);
@@ -321,7 +313,6 @@ export default function AddProduct({ user }) {
   const imagesRef       = useRef([]);
   const imagesLengthRef = useRef(0);
   const autoSaveTimer   = useRef(null);
-  const savedLabelTimer = useRef(null);
   const sessionHashSet  = useRef(new Set());
 
   useEffect(() => {
@@ -355,7 +346,7 @@ export default function AddProduct({ user }) {
   const isSelectedPlanPaid =
     !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
-  /* ── Limit derivations — informational only, not used to block submit ── */
+  /* ── Limit derivations — informational only ── */
   const isVerifiedSeller = sellerLimits?.seller_verified  ?? false;
   const trialExhausted   = sellerLimits?.trial_exhausted  ?? false;
   const trialRemaining   = sellerLimits?.trial_remaining  ?? null;
@@ -363,11 +354,6 @@ export default function AddProduct({ user }) {
   const activeRemaining  = sellerLimits?.active_remaining ?? null;
   const cooldownSecs     = sellerLimits?.cooldown_seconds ?? 0;
 
-  /*
-   * canPost — informational flag passed to components.jsx.
-   * Used only to trigger the upsell modal, NOT to disable the submit button.
-   * The server enforces all actual limits.
-   */
   const canPost = useMemo(() => {
     if (!sellerLimits)  return true;
     if (trialExhausted) return false;
@@ -523,7 +509,7 @@ export default function AddProduct({ user }) {
     check();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ─── Restore draft ── */
+  /* ─── Restore draft (silent — no banner) ── */
   const categoriesReady = categories.length > 0;
   const dataReady       = !plansLoading && categoriesReady;
 
@@ -579,21 +565,17 @@ export default function AddProduct({ user }) {
         );
         setSelectedPlan(matched ?? null);
       }
-
-      setDraftRestored(true);
     } catch (err) {
       console.warn("[AddProduct] draft restore failed:", err.message);
     }
   }, [dataReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ─── Auto-save draft ── */
+  /* ─── Auto-save draft (silent — no indicator) ── */
   useEffect(() => {
-    if (autoSaveTimer.current)   clearTimeout(autoSaveTimer.current);
-    if (savedLabelTimer.current) clearTimeout(savedLabelTimer.current);
+    if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
 
     autoSaveTimer.current = setTimeout(() => {
       if (!mountedRef.current) return;
-      setAutoSaveStatus("saving");
       try {
         localStorage.setItem(STORAGE_DRAFT, JSON.stringify({
           version      : DRAFT_VERSION,
@@ -603,21 +585,11 @@ export default function AddProduct({ user }) {
           imagesCount  : images.length,
           selectedPlan : selectedPlan?.id ?? null,
         }));
-        if (mountedRef.current) {
-          setAutoSaveStatus("saved");
-          savedLabelTimer.current = setTimeout(
-            () => { if (mountedRef.current) setAutoSaveStatus("idle"); },
-            AUTO_SAVE_SAVED_MS
-          );
-        }
-      } catch {
-        if (mountedRef.current) setAutoSaveStatus("idle");
-      }
+      } catch { /* non-critical */ }
     }, DRAFT_DELAY_MS);
 
     return () => {
-      if (autoSaveTimer.current)   clearTimeout(autoSaveTimer.current);
-      if (savedLabelTimer.current) clearTimeout(savedLabelTimer.current);
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
     };
   }, [form, locationState, city, images.length, selectedPlan, STORAGE_DRAFT]);
 
@@ -833,23 +805,12 @@ export default function AddProduct({ user }) {
     setAgreedToTerms(false);
     setNeedsVerification(false);
     setVerificationData(null);
-    setDraftRestored(false);
-    setAutoSaveStatus("idle");
     sessionHashSet.current.clear();
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
     clearIdempotencyKey(IDEMPOTENCY_STORE);
     showSuccess("Draft cleared");
   }, [STORAGE_DRAFT, IDEMPOTENCY_STORE, showSuccess]);
-
-  const handleDraftContinue = useCallback(() => {
-    if (mountedRef.current) setDraftRestored(false);
-  }, []);
-
-  const handleDraftDiscard = useCallback(() => {
-    if (mountedRef.current) setDraftRestored(false);
-    clearDraft();
-  }, [clearDraft]);
 
   /* ═══════════════════════════════════════════════════════════
      GPS
@@ -1108,10 +1069,6 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      SUBMIT — ORCHESTRATOR
-     No client-side quota pre-check.
-     Server enforces all limits (trial, daily, active, cooldown).
-     On 403 → fetchLimits() → trialExhausted becomes true →
-     upsell modal auto-opens in components.jsx via useEffect.
   ═══════════════════════════════════════════════════════════ */
   const handleSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
@@ -1173,7 +1130,6 @@ export default function AddProduct({ user }) {
         throw new ApiError("Product creation failed", 500);
       product = uploadData.product;
 
-      /* Refresh limits — trial counter has decremented */
       fetchLimits();
 
       /* ─── Free plan ── */
@@ -1235,12 +1191,6 @@ export default function AddProduct({ user }) {
 
       showError(err.message ?? "Submission failed — please try again");
 
-      /*
-       * If the server rejected with 403 (trial exhausted or similar),
-       * refresh limits so trialExhausted updates to true.
-       * components.jsx useEffect watches trialExhausted and auto-opens
-       * the upsell modal when it becomes true.
-       */
       if (err.status === 403 || err.statusCode === 403) {
         fetchLimits();
       }
@@ -1257,13 +1207,27 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      TERMS CHECKBOX
+     The entire label (box + text + link) is clickable.
+     Clicking the "Terms & Conditions" link opens a new tab
+     without toggling the checkbox (stopPropagation on the link).
   ═══════════════════════════════════════════════════════════ */
   const TermsCheckbox = useMemo(() => (
     <div className="ap-terms-row">
-      <label className="ap-terms-label">
+      <label
+        className="ap-terms-label"
+        onClick={(e) => {
+          /*
+           * If the user clicked the <a> link inside, do NOT toggle.
+           * The link opens in a new tab via target="_blank".
+           * For everything else (box, text), toggle the checkbox.
+           */
+          if (e.target.tagName === "A") return;
+          e.preventDefault();
+          setAgreedToTerms((v) => !v);
+        }}
+      >
         <span
           className={`ap-terms-box ${agreedToTerms ? "ap-terms-box--on" : ""}`}
-          onClick={() => setAgreedToTerms((v) => !v)}
           role="checkbox"
           aria-checked={agreedToTerms}
           tabIndex={0}
@@ -1285,14 +1249,19 @@ export default function AddProduct({ user }) {
         <input
           type="checkbox"
           checked={agreedToTerms}
-          onChange={(e) => setAgreedToTerms(e.target.checked)}
+          onChange={() => {}}
           style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
           aria-hidden="true"
           tabIndex={-1}
         />
         <span className="ap-terms-text">
           I agree to the{" "}
-          <Link to="/terms" target="_blank" rel="noopener noreferrer">
+          <Link
+            to="/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
             Terms &amp; Conditions
           </Link>
         </span>
@@ -1344,7 +1313,7 @@ export default function AddProduct({ user }) {
         plansLoading={plansLoading}
         MAX_IMAGES={MAX_IMAGES}
 
-        /* ─ seller limits (informational — not used to block submit) ─ */
+        /* ─ seller limits (informational) ─ */
         sellerLimits={sellerLimits}
         limitsLoading={limitsLoading}
         isVerifiedSeller={isVerifiedSeller}
@@ -1358,12 +1327,6 @@ export default function AddProduct({ user }) {
         /* ─ post-creation ─ */
         needsVerification={needsVerification}
         verificationData={verificationData}
-
-        /* ─ draft UX ─ */
-        draftRestored={draftRestored}
-        autoSaveStatus={autoSaveStatus}
-        onDraftContinue={handleDraftContinue}
-        onDraftDiscard={handleDraftDiscard}
 
         /* ─ handlers ─ */
         updateForm={updateForm}
