@@ -1,15 +1,17 @@
 /**
  * src/pages/product/components.jsx
  *
- * v9 — submit never disabled by limits
- *  ─ SellerLimitsBanner removed entirely (was already returning null)
- *  ─ Submit button never disabled by canPost — server enforces all limits
- *  ─ Submit button always shows "Post Ad" / "Post Ad & Pay"
- *  ─ No limit-based button text or submit-limit-note
+ * v10 — cleanup
+ *  ─ SellerLimitsBanner removed entirely
+ *  ─ DraftRecoveryBanner removed entirely
+ *  ─ AutoSaveIndicator removed from top bar
+ *  ─ Submit button never disabled by canPost — server enforces limits
  *  ─ Upsell modal auto-opens when trialExhausted becomes true
- *    (triggered by server 403 → fetchLimits → trialExhausted = true)
  *  ─ Image upload input never disabled by canPost
- *  ─ All other v8 improvements preserved
+ *  ─ Duplicate "Minimum 10 characters" hint removed (CharCounter handles it)
+ *  ─ Duplicate "₦450,000 NGN" price hint removed
+ *  ─ Delivery fee duplicate hint removed
+ *  ─ All other v9 improvements preserved
  */
 
 import {
@@ -51,12 +53,6 @@ const deepClone = (obj) =>
   typeof structuredClone === "function"
     ? structuredClone(obj)
     : JSON.parse(JSON.stringify(obj));
-
-const fmtSecs = (totalSecs) => {
-  const m = Math.floor(totalSecs / 60);
-  const s = totalSecs % 60;
-  return m > 0 ? `${m}m ${String(s).padStart(2, "0")}s` : `${s}s`;
-};
 
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
@@ -158,14 +154,6 @@ const CheckIcon = () => (
   </svg>
 );
 
-const SaveIcon = () => (
-  <svg viewBox="0 0 20 20" width="12" height="12" fill="none"
-       stroke="currentColor" strokeWidth="1.7"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M17 13v4H3v-4M10 3v10M6 7l4-4 4 4"/>
-  </svg>
-);
-
 /* ═══════════════════════════════════════════════════════════════
    PAYMENT COUNTDOWN
 ═══════════════════════════════════════════════════════════════ */
@@ -174,7 +162,6 @@ function PaymentCountdown({ createdAt, maxAgeMs }) {
     () => Math.max(0, maxAgeMs - (Date.now() - createdAt)),
     [createdAt, maxAgeMs]
   );
-
   const [remaining, setRemaining] = useState(compute);
 
   useEffect(() => {
@@ -207,7 +194,7 @@ function PaymentCountdown({ createdAt, maxAgeMs }) {
 ═══════════════════════════════════════════════════════════════ */
 function CharCounter({ value, max, min = 0 }) {
   const len      = String(value ?? "").length;
-  const tooShort = min > 0 && len < min;
+  const tooShort = min > 0 && len < min && len > 0;
   const nearMax  = len > max * 0.9;
   const atMax    = len >= max;
   return (
@@ -220,7 +207,7 @@ function CharCounter({ value, max, min = 0 }) {
       ].filter(Boolean).join(" ")}
       aria-live="polite"
     >
-      {tooShort && min > 0
+      {tooShort
         ? `${min - len} more character${min - len !== 1 ? "s" : ""} needed`
         : `${len}/${max}`}
     </span>
@@ -240,53 +227,7 @@ function SectionDot({ filled }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   AUTO-SAVE INDICATOR
-═══════════════════════════════════════════════════════════════ */
-function AutoSaveIndicator({ status }) {
-  if (!status || status === "idle") return null;
-  return (
-    <span
-      className={`autosave-indicator autosave-indicator--${status}`}
-      aria-live="polite"
-    >
-      {status === "saving"
-        ? <><SpinnerIcon /> Saving…</>
-        : <><SaveIcon /> Saved</>}
-    </span>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   DRAFT RECOVERY BANNER
-═══════════════════════════════════════════════════════════════ */
-function DraftRecoveryBanner({ onContinue, onDiscard }) {
-  return (
-    <div className="draft-recovery-banner" role="alert">
-      <div className="draft-recovery-content">
-        <CheckCircleIcon />
-        <div>
-          <strong>Draft recovered</strong>
-          <p>You have an unsaved listing from your previous session.</p>
-        </div>
-      </div>
-      <div className="draft-recovery-actions">
-        <button type="button" className="primary-btn draft-recovery-btn"
-                onClick={onContinue}>
-          Continue editing
-        </button>
-        <button type="button" className="outline-btn draft-recovery-btn"
-                onClick={onDiscard}>
-          Discard
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
    VERIFICATION UPSELL MODAL
-   Auto-opens when trialExhausted becomes true (via useEffect below).
-   Focus is trapped inside and restored on close.
 ═══════════════════════════════════════════════════════════════ */
 function VerificationUpsellModal({ onClose, trialRemaining = null }) {
   const modalRef         = useRef(null);
@@ -294,7 +235,6 @@ function VerificationUpsellModal({ onClose, trialRemaining = null }) {
 
   useEffect(() => {
     previousFocusRef.current = document.activeElement;
-
     const focusable = modalRef.current?.querySelectorAll(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
     );
@@ -303,27 +243,21 @@ function VerificationUpsellModal({ onClose, trialRemaining = null }) {
     const handleKeyDown = (e) => {
       if (e.key === "Escape") { onClose(); return; }
       if (e.key !== "Tab" || !modalRef.current) return;
-
       const els = [...modalRef.current.querySelectorAll(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
       )].filter((el) => !el.disabled && el.offsetParent !== null);
       if (!els.length) return;
-
       const first = els[0];
       const last  = els[els.length - 1];
-
       if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
+        e.preventDefault(); last.focus();
       } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
+        e.preventDefault(); first.focus();
       }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     document.body.style.overflow = "hidden";
-
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "";
@@ -332,18 +266,10 @@ function VerificationUpsellModal({ onClose, trialRemaining = null }) {
   }, [onClose]);
 
   return (
-    <div
-      className="upsell-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Identity verification benefits"
-      onClick={onClose}
-    >
-      <div
-        ref={modalRef}
-        className="upsell-modal"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <div className="upsell-overlay" role="dialog" aria-modal="true"
+         aria-label="Identity verification benefits" onClick={onClose}>
+      <div ref={modalRef} className="upsell-modal"
+           onClick={(e) => e.stopPropagation()}>
         <button type="button" className="upsell-close"
                 onClick={onClose} aria-label="Close">
           <svg viewBox="0 0 14 14" width="14" height="14" fill="none"
@@ -353,7 +279,6 @@ function VerificationUpsellModal({ onClose, trialRemaining = null }) {
             <line x1="13" y1="1" x2="1"  y2="13"/>
           </svg>
         </button>
-
         <div className="upsell-icon" aria-hidden="true">
           <svg viewBox="0 0 40 40" width="40" height="40" fill="none"
                stroke="currentColor" strokeWidth="1.8"
@@ -362,14 +287,12 @@ function VerificationUpsellModal({ onClose, trialRemaining = null }) {
             <polyline points="14 20 18 24 26 16"/>
           </svg>
         </div>
-
         <h2 className="upsell-title">Unlock Full Seller Access</h2>
         <p className="upsell-subtitle">
           {trialRemaining !== null && trialRemaining <= 0
             ? "You have used all 3 free trial listings. Verify your identity to continue posting."
             : "Verify your identity once — sell without restrictions forever."}
         </p>
-
         <ul className="upsell-benefits" role="list">
           {[
             { icon: "∞", label: "Permanent listings — your posts never expire"   },
@@ -384,15 +307,9 @@ function VerificationUpsellModal({ onClose, trialRemaining = null }) {
             </li>
           ))}
         </ul>
-
-        <Link
-          to="/verification"
-          className="primary-btn upsell-cta"
-          onClick={onClose}
-        >
+        <Link to="/verification" className="primary-btn upsell-cta" onClick={onClose}>
           Start Identity Verification
         </Link>
-
         <p className="upsell-footer">
           Free &middot; Takes about 2 minutes &middot; Reviewed within 24 hours
         </p>
@@ -462,13 +379,11 @@ const ImageGrid = memo(function ImageGrid({
   const touchItem     = useRef(null);
   const touchCloneRef = useRef(null);
 
-  useEffect(() => {
-    return () => {
-      if (touchCloneRef.current) {
-        try { document.body.removeChild(touchCloneRef.current); } catch {}
-        touchCloneRef.current = null;
-      }
-    };
+  useEffect(() => () => {
+    if (touchCloneRef.current) {
+      try { document.body.removeChild(touchCloneRef.current); } catch {}
+      touchCloneRef.current = null;
+    }
   }, []);
 
   const handleSortStart = (i) => { dragItem.current = i; };
@@ -486,18 +401,11 @@ const ImageGrid = memo(function ImageGrid({
     const rect  = e.currentTarget.getBoundingClientRect();
     const clone = e.currentTarget.cloneNode(true);
     Object.assign(clone.style, {
-      position     : "fixed",
-      top          : `${rect.top}px`,
-      left         : `${rect.left}px`,
-      width        : `${rect.width}px`,
-      height       : `${rect.height}px`,
-      opacity      : "0.85",
-      zIndex       : "9999",
-      pointerEvents: "none",
-      borderRadius : "12px",
-      boxShadow    : "0 8px 24px rgba(0,0,0,.3)",
-      transform    : "scale(1.05)",
-      transition   : "none",
+      position: "fixed", top: `${rect.top}px`, left: `${rect.left}px`,
+      width: `${rect.width}px`, height: `${rect.height}px`,
+      opacity: "0.85", zIndex: "9999", pointerEvents: "none",
+      borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,.3)",
+      transform: "scale(1.05)", transition: "none",
     });
     document.body.appendChild(clone);
     touchCloneRef.current = clone;
@@ -568,9 +476,7 @@ const ImageGrid = memo(function ImageGrid({
               <img
                 src={img.preview}
                 alt={`Product image ${index + 1}`}
-                loading="lazy"
-                decoding="async"
-                draggable={false}
+                loading="lazy" decoding="async" draggable={false}
                 style={{ opacity: err ? 0.4 : 1 }}
               />
               {err && (
@@ -673,14 +579,12 @@ export default function ProductComponents({
 
   needsVerification = false,
   verificationData  = null,
-  draftRestored     = false,
-  autoSaveStatus    = "idle",
 
   updateForm, updateAttribute, updateContact, updateDelivery,
   updateDeliveryDuration, toggleFeature, setState, setCity,
   setSelectedPlan, handleImages, removeImage, moveImage,
   handleSubmit, clearDraft, detectLocation, resumePayment,
-  cancelPendingPayment, onDraftContinue, onDraftDiscard,
+  cancelPendingPayment,
 
   displayPrice, formatLabel, onlyNumbers, onlyDigits,
 
@@ -693,7 +597,6 @@ export default function ProductComponents({
   const [isDragging,         setIsDragging]         = useState(false);
   const [waLinkError,        setWaLinkError]        = useState("");
   const [deliveryRangeError, setDeliveryRangeError] = useState("");
-  const [showDraftBanner,    setShowDraftBanner]    = useState(draftRestored);
   const [showUpsellModal,    setShowUpsellModal]    = useState(false);
   const [titleSuggestions,   setTitleSuggestions]   = useState([]);
   const [dupWarning,         setDupWarning]         = useState("");
@@ -722,20 +625,12 @@ export default function ProductComponents({
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  useEffect(() => { setShowDraftBanner(draftRestored); }, [draftRestored]);
-
-  /*
-   * Auto-open the upsell modal when trialExhausted becomes true.
-   * This happens after the server rejects a submit with 403 →
-   * AddProduct.jsx calls fetchLimits() → trialExhausted updates.
-   */
+  /* Auto-open upsell modal when trial exhausted (server 403 → fetchLimits) */
   useEffect(() => {
-    if (trialExhausted) {
-      setShowUpsellModal(true);
-    }
+    if (trialExhausted) setShowUpsellModal(true);
   }, [trialExhausted]);
 
-  /* ── Image validation + hash tracking ── */
+  /* ── Image validation ── */
   const validateAndHashImages = useCallback(async (incomingImages) => {
     const errors = {};
     const newMap = new Map(sessionHashMap.current);
@@ -777,9 +672,7 @@ export default function ProductComponents({
 
   useEffect(() => {
     if (!images.length) return;
-    const newImages = images.filter(
-      (img) => !validatedIdsRef.current.has(img.id)
-    );
+    const newImages = images.filter((img) => !validatedIdsRef.current.has(img.id));
     if (!newImages.length) return;
     validateAndHashImages(newImages).catch(() => {});
   }, [images, validateAndHashImages]);
@@ -814,10 +707,10 @@ export default function ProductComponents({
             Authorization : `Bearer ${token}`,
           },
           body    : JSON.stringify({
-            title        : form.title.trim(),
-            price        : Number(form.price),
-            category_id  : form.category_id,
-            image_hashes : hashes,
+            title       : form.title.trim(),
+            price       : Number(form.price),
+            category_id : form.category_id,
+            image_hashes: hashes,
           }),
         }
       );
@@ -834,8 +727,7 @@ export default function ProductComponents({
 
   useEffect(() => {
     if (!form.title?.trim() || form.title.length < 8) {
-      setDupWarning("");
-      return;
+      setDupWarning(""); return;
     }
     const t = setTimeout(checkServerDuplicate, 1_200);
     return () => clearTimeout(t);
@@ -856,17 +748,14 @@ export default function ProductComponents({
       const allowed = ALLOWED_WA_HOSTS.some(
         (host) => url.hostname === host || url.hostname.endsWith(`.${host}`)
       );
-      if (!allowed) return "";
-      return trimmed;
+      return allowed ? trimmed : "";
     } catch { return ""; }
   }, [ALLOWED_WA_HOSTS]);
 
   const handleWaLinkChange = useCallback((e) => {
     setWaLinkError("");
-    updateContact(
-      "whatsapp_link",
-      sanitizeWhatsAppLink(e.target.value) || e.target.value
-    );
+    updateContact("whatsapp_link",
+      sanitizeWhatsAppLink(e.target.value) || e.target.value);
   }, [sanitizeWhatsAppLink, updateContact]);
 
   const handleWaLinkBlur = useCallback((e) => {
@@ -892,9 +781,7 @@ export default function ProductComponents({
     const from    = Number(key === "from" ? val : current.from);
     const to      = Number(key === "to"   ? val : current.to);
     setDeliveryRangeError(
-      from && to && to < from
-        ? "End day must be equal to or after start day."
-        : ""
+      from && to && to < from ? "End day must be equal to or after start day." : ""
     );
   }, [updateDeliveryDuration]);
 
@@ -1041,13 +928,8 @@ export default function ProductComponents({
 
   /* ── Title suggestion ── */
   useEffect(() => {
-    if (
-      !form.description ||
-      form.description.length < 30 ||
-      form.title?.trim().length >= 10
-    ) {
-      setTitleSuggestions([]);
-      return;
+    if (!form.description || form.description.length < 30 || form.title?.trim().length >= 10) {
+      setTitleSuggestions([]); return;
     }
     const t = setTimeout(() => {
       const words = form.description
@@ -1059,11 +941,7 @@ export default function ProductComponents({
     return () => clearTimeout(t);
   }, [form.description, form.title]);
 
-  /*
-   * Submit blocked — only by form validation issues.
-   * canPost is NOT included — server enforces all limits.
-   * The button is always clickable if the form is valid.
-   */
+  /* Submit blocked — only form validation, never by canPost */
   const submitBlocked =
     loading || !agreedToTerms || plansLoading ||
     !!deliveryRangeError || hasImageErrors;
@@ -1089,8 +967,8 @@ export default function ProductComponents({
         />
       )}
 
+      {/* Top bar — progress only */}
       <div className="ap-top-bar">
-        <AutoSaveIndicator status={autoSaveStatus} />
         {sectionsComplete < 5 && (
           <div className="form-progress" aria-label="Form completion">
             <div className="form-progress-bar"
@@ -1102,17 +980,7 @@ export default function ProductComponents({
         )}
       </div>
 
-      {showDraftBanner && (
-        <DraftRecoveryBanner
-          onContinue={() => { setShowDraftBanner(false); onDraftContinue?.(); }}
-          onDiscard={() => {
-            setShowDraftBanner(false);
-            onDraftDiscard?.();
-            clearDraft();
-          }}
-        />
-      )}
-
+      {/* Duplicate warning */}
       {dupWarning && (
         <div className="duplicate-warning" role="alert">
           <WarningIcon />
@@ -1121,9 +989,7 @@ export default function ProductComponents({
             <p>{dupWarning}</p>
           </div>
           <button type="button" onClick={() => setDupWarning("")}
-                  className="duplicate-dismiss" aria-label="Dismiss">
-            &times;
-          </button>
+                  className="duplicate-dismiss" aria-label="Dismiss">&times;</button>
         </div>
       )}
       {dupChecking && (
@@ -1132,6 +998,7 @@ export default function ProductComponents({
         </div>
       )}
 
+      {/* Feedback */}
       {error && (
         <div className="form-error ap-error-banner" role="alert">
           <WarningIcon /> {error}
@@ -1147,8 +1014,7 @@ export default function ProductComponents({
         <VerificationNudgeBanner verificationData={verificationData} />
       )}
 
-      {/* SellerLimitsBanner removed — upsell modal handles all messaging */}
-
+      {/* Incomplete payment */}
       {paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
@@ -1209,6 +1075,7 @@ export default function ProductComponents({
           )}
         </div>
 
+        {/* Description — only CharCounter shows the "X more needed" hint */}
         <div className="form-group">
           <label htmlFor="ap-desc">Description *</label>
           <textarea
@@ -1219,17 +1086,12 @@ export default function ProductComponents({
             maxLength={2000}
           />
           <div className="field-footer">
-            {form.description.length > 0 && form.description.length < 10 ? (
-              <small className="field-hint field-hint--error">
-                Minimum 10 characters — {10 - form.description.length} more needed
-              </small>
-            ) : (
-              <span />
-            )}
+            <span />
             <CharCounter value={form.description} max={2000} min={10} />
           </div>
         </div>
 
+        {/* Price — no duplicate ₦X NGN hint */}
         <div className="form-group">
           <label htmlFor="ap-price">Price (&#8358;) *</label>
           <input
@@ -1238,11 +1100,6 @@ export default function ProductComponents({
             value={displayPrice(form.price)}
             onChange={(e) => updateForm("price", onlyNumbers(e.target.value))}
           />
-          {form.price && Number(form.price) > 0 && (
-            <small className="field-hint field-hint--price">
-              &#8358;{displayPrice(form.price)} NGN
-            </small>
-          )}
         </div>
       </section>
 
@@ -1379,9 +1236,7 @@ export default function ProductComponents({
             <label htmlFor="ap-phone">Phone *</label>
             <input id="ap-phone" type="tel"
                    value={form.contact.phone} placeholder="08012345678"
-                   onChange={(e) =>
-                     updateContact("phone", onlyDigits(e.target.value))
-                   }
+                   onChange={(e) => updateContact("phone", onlyDigits(e.target.value))}
                    maxLength={15} autoComplete="tel" />
           </div>
         </div>
@@ -1393,9 +1248,7 @@ export default function ProductComponents({
             </label>
             <input id="ap-wa" type="tel"
                    value={form.contact.whatsapp} placeholder="08012345678"
-                   onChange={(e) =>
-                     updateContact("whatsapp", onlyDigits(e.target.value))
-                   }
+                   onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
                    maxLength={15} />
           </div>
           <div className="form-group">
@@ -1426,12 +1279,10 @@ export default function ProductComponents({
                     onClick={detectLocation} disabled={detectingLocation}>
               {detectingLocation
                 ? <><SpinnerIcon /> Detecting location&#8230;</>
-                : (
-                    <>
-                      <LocationPinIcon />
-                      {detectedCoords ? "Location detected ✓" : "Detect my location"}
-                    </>
-                  )}
+                : <>
+                    <LocationPinIcon />
+                    {detectedCoords ? "Location detected ✓" : "Detect my location"}
+                  </>}
             </button>
           </div>
         )}
@@ -1505,11 +1356,6 @@ export default function ProductComponents({
                        onChange={(e) =>
                          updateDelivery("fee", onlyNumbers(e.target.value))
                        } />
-                {form.delivery.fee && Number(form.delivery.fee) > 0 && (
-                  <small className="field-hint field-hint--price">
-                    &#8358;{displayPrice(form.delivery.fee)} NGN
-                  </small>
-                )}
               </div>
               <div className="form-group">
                 <label htmlFor="ap-del-note">
@@ -1627,16 +1473,13 @@ export default function ProductComponents({
                     }
                     if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
                       e.preventDefault();
-                      const prev =
-                        (planIndex - 1 + promotionPlans.length) % promotionPlans.length;
+                      const prev = (planIndex - 1 + promotionPlans.length) % promotionPlans.length;
                       setSelectedPlan(promotionPlans[prev]);
                       planRefs.current[prev]?.focus();
                     }
                   }}
                 >
-                  {isBestValue && (
-                    <div className="plan-best-badge">Best Value</div>
-                  )}
+                  {isBestValue && <div className="plan-best-badge">Best Value</div>}
                   <div className="plan-header">
                     <strong>{plan.name}</strong>
                     <span className="plan-price">{planPriceLabel(plan)}</span>
