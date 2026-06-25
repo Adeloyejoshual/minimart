@@ -15,7 +15,6 @@ import {
   ArrowLeft, Clock,
 } from "lucide-react";
 
-import LivenessChallenge from "../../components/LivenessChallenge.jsx";
 import "../../style/Verification.css";
 
 /* ══════════════════════════════════════════════════════════════
@@ -35,10 +34,10 @@ const DRAFT_KEY      = "verification_draft_v1";
 const COMPRESS_DOC  = { maxSizeMB: 1.5, maxWidthOrHeight: 1600, useWebWorker: true };
 const COMPRESS_LOGO = { maxSizeMB: 0.5, maxWidthOrHeight: 800,  useWebWorker: true };
 
-const MIN_WIDTH    = 400;
-const MIN_HEIGHT   = 300;
-const BLUR_THRESH  = 80;
-const DARK_THRESH  = 60;
+const MIN_WIDTH   = 400;
+const MIN_HEIGHT  = 300;
+const BLUR_THRESH = 80;
+const DARK_THRESH = 60;
 
 const SUSPICIOUS_SOFTWARE = [
   "photoshop", "gimp", "lightroom", "illustrator",
@@ -76,7 +75,7 @@ const DOC_TYPES = [
 ];
 
 /* ══════════════════════════════════════════════════════════════
-   AUTH HELPERS
+   AUTH
 ══════════════════════════════════════════════════════════════ */
 const getToken      = () =>
   localStorage.getItem("marketplace_token") || localStorage.getItem("token") || "";
@@ -93,29 +92,29 @@ const loadDraft  = ()  => { try { return JSON.parse(localStorage.getItem(DRAFT_K
 const clearDraft = ()  => { try { localStorage.removeItem(DRAFT_KEY); } catch {} };
 
 /* ══════════════════════════════════════════════════════════════
-   EXIF VALIDATION
+   EXIF
 ══════════════════════════════════════════════════════════════ */
 const validateExif = async (file) => {
   if (!file.type.startsWith("image/")) return [];
   let exifr;
   try { exifr = (await import("exifr")).default; } catch { return []; }
-  const warnings = [];
+  const w = [];
   try {
     const tags = await exifr.parse(file, { pick: ["DateTimeOriginal", "Software", "Make", "Model"] });
     if (!tags) return [];
     if (tags.Software) {
       const sw = String(tags.Software).toLowerCase();
       if (SUSPICIOUS_SOFTWARE.some((s) => sw.includes(s)))
-        warnings.push(`Image edited in ${tags.Software}. Upload an original photo.`);
+        w.push(`Image edited in ${tags.Software}. Upload an original photo.`);
     }
     if (!tags.Make && !tags.Model && !tags.DateTimeOriginal)
-      warnings.push("May be a screenshot. Use a direct camera photo.");
+      w.push("May be a screenshot. Use a direct camera photo.");
   } catch {}
-  return warnings;
+  return w;
 };
 
 /* ══════════════════════════════════════════════════════════════
-   IMAGE QUALITY ANALYSIS
+   IMAGE QUALITY
 ══════════════════════════════════════════════════════════════ */
 const analyseImage = (file) =>
   new Promise((resolve) => {
@@ -137,8 +136,7 @@ const analyseImage = (file) =>
         const { data } = ctx.getImageData(0, 0, c.width, c.height);
         const px = c.width * c.height;
         let br = 0;
-        for (let i = 0; i < data.length; i += 4)
-          br += data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114;
+        for (let i = 0; i < data.length; i += 4) br += data[i]*0.299+data[i+1]*0.587+data[i+2]*0.114;
         if (br / px < DARK_THRESH) w.push("Image too dark. Use better lighting.");
         const g = new Float32Array(px);
         for (let i = 0; i < px; i++) { const p = i*4; g[i] = data[p]*0.299+data[p+1]*0.587+data[p+2]*0.114; }
@@ -211,9 +209,9 @@ function FaceMatchBanner({ state }) {
   if (!state) return null;
   const map = {
     checking: { cls: "--checking", icon: <Loader2 size={14} className="v-spin" />, msg: "Comparing selfie with document…" },
-    pass:     { cls: "--pass",     icon: <Camera size={14} />,                      msg: "Face matched — selfie matches your ID." },
-    fail:     { cls: "--fail",     icon: <XCircle size={14} />,                     msg: "Face mismatch — retake both photos." },
-    error:    { cls: "--warn",     icon: <AlertTriangle size={14} />,               msg: "Face check unavailable — review may take longer." },
+    pass:     { cls: "--pass",     icon: <Camera size={14} />,          msg: "Face matched — selfie matches your ID." },
+    fail:     { cls: "--fail",     icon: <XCircle size={14} />,         msg: "Face mismatch — retake both photos." },
+    error:    { cls: "--warn",     icon: <AlertTriangle size={14} />,   msg: "Face check unavailable — review may take longer." },
   };
   const c = map[state];
   if (!c) return null;
@@ -235,15 +233,13 @@ function Countdown({ seconds, tick, onDone }) {
   return <span className={`v-countdown${left <= 10 ? " v-countdown--warn" : ""}`}>{left}s</span>;
 }
 
-/* ── Trust ring ── */
-const TIERS = [
-  { min: 80, color: "#22c55e", label: "Excellent" },
-  { min: 60, color: "#3b82f6", label: "Good" },
-  { min: 40, color: "#f59e0b", label: "Fair" },
-  { min: 0,  color: "#ef4444", label: "Low" },
-];
-
 function TrustRing({ score = 0 }) {
+  const TIERS = [
+    { min: 80, color: "#22c55e", label: "Excellent" },
+    { min: 60, color: "#3b82f6", label: "Good" },
+    { min: 40, color: "#f59e0b", label: "Fair" },
+    { min: 0,  color: "#ef4444", label: "Low" },
+  ];
   const R = 52, C = 2 * Math.PI * R;
   const cfg = TIERS.find((t) => score >= t.min) ?? TIERS[3];
   return (
@@ -265,7 +261,6 @@ function TrustRing({ score = 0 }) {
   );
 }
 
-/* ── OTP input ── */
 function OtpInput({ value, onChange, disabled, hasError }) {
   const refs = useRef([]);
   useEffect(() => { setTimeout(() => refs.current[0]?.focus(), 350); }, []);
@@ -273,20 +268,13 @@ function OtpInput({ value, onChange, disabled, hasError }) {
     if (!hasError) return;
     setTimeout(() => refs.current[Math.max(0, refs.current.findIndex((r) => !r?.value))]?.focus(), 700);
   }, [hasError]);
-
   const ch = (i) => value[i] ?? "";
-  const up = (i, c) => {
-    const a = Array.from({ length: OTP_LENGTH }, (_, k) => value[k] ?? "");
-    a[i] = c; onChange(a.join(""));
-  };
-
+  const up = (i, c) => { const a = Array.from({ length: OTP_LENGTH }, (_, k) => value[k] ?? ""); a[i] = c; onChange(a.join("")); };
   return (
     <div className={`v-otp-group${hasError ? " v-otp-group--error" : ""}`} role="group" aria-label="Verification code">
       {Array.from({ length: OTP_LENGTH }).map((_, i) => (
-        <input key={i} ref={(el) => (refs.current[i] = el)}
-          type="text" inputMode="numeric" pattern="\d*" maxLength={1} value={ch(i)} disabled={disabled}
-          aria-label={`Digit ${i+1}`}
-          className={["v-otp-cell", ch(i) ? "v-otp-cell--filled" : "", hasError ? "v-otp-cell--error" : ""].join(" ")}
+        <input key={i} ref={(el) => (refs.current[i] = el)} type="text" inputMode="numeric" pattern="\d*" maxLength={1} value={ch(i)} disabled={disabled}
+          aria-label={`Digit ${i+1}`} className={["v-otp-cell", ch(i) ? "v-otp-cell--filled" : "", hasError ? "v-otp-cell--error" : ""].join(" ")}
           onChange={(e) => { const d = e.target.value.replace(/\D/g, "").slice(-1); up(i, d); if (d && i < OTP_LENGTH-1) refs.current[i+1]?.focus(); }}
           onKeyDown={(e) => {
             if (e.key === "Backspace") { e.preventDefault(); if (ch(i)) up(i, ""); else if (i > 0) { up(i-1, ""); refs.current[i-1]?.focus(); } }
@@ -294,44 +282,26 @@ function OtpInput({ value, onChange, disabled, hasError }) {
             else if (e.key === "ArrowRight" && i < OTP_LENGTH-1) refs.current[i+1]?.focus();
           }}
           onFocus={(e) => e.target.select()}
-          onPaste={(e) => {
-            e.preventDefault();
-            const d = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, OTP_LENGTH);
-            onChange(Array.from({ length: OTP_LENGTH }, (_, k) => d[k] ?? "").join(""));
-            refs.current[Math.min(d.length, OTP_LENGTH-1)]?.focus();
-          }}
+          onPaste={(e) => { e.preventDefault(); const d = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, OTP_LENGTH);
+            onChange(Array.from({ length: OTP_LENGTH }, (_, k) => d[k] ?? "").join("")); refs.current[Math.min(d.length, OTP_LENGTH-1)]?.focus(); }}
         />
       ))}
     </div>
   );
 }
 
-/* ── File upload ── */
 function FileUpload({ label, hint, accept, file, onFile, onRemove, maxBytes, compress, compressOpts = COMPRESS_DOC, onWarnings }) {
   const ref = useRef(null);
   const [preview, setPreview] = useState(null);
   const [err, setErr] = useState("");
   const [drag, setDrag] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!file || !file.type.startsWith("image/")) { setPreview(null); return; }
-    const u = URL.createObjectURL(file); setPreview(u);
-    return () => URL.revokeObjectURL(u);
-  }, [file]);
-
+  useEffect(() => { if (!file || !file.type.startsWith("image/")) { setPreview(null); return; } const u = URL.createObjectURL(file); setPreview(u); return () => URL.revokeObjectURL(u); }, [file]);
   const pick = useCallback(async (raw) => {
     if (!raw) return; setErr(""); setBusy(true);
-    try {
-      let f = raw;
-      if (compress && raw.type.startsWith("image/")) try { f = await imageCompression(raw, compressOpts); } catch {}
-      if (maxBytes && f.size > maxBytes) { setErr(`Too large — max ${fmtBytes(maxBytes)}.`); return; }
-      const w = await checkImage(f); onWarnings?.(w); onFile(f);
-    } finally { setBusy(false); }
+    try { let f = raw; if (compress && raw.type.startsWith("image/")) try { f = await imageCompression(raw, compressOpts); } catch {} if (maxBytes && f.size > maxBytes) { setErr(`Too large — max ${fmtBytes(maxBytes)}.`); return; } const w = await checkImage(f); onWarnings?.(w); onFile(f); } finally { setBusy(false); }
   }, [compress, compressOpts, maxBytes, onFile, onWarnings]);
-
   if (busy) return <div className="v-upload v-upload--processing"><Loader2 size={20} className="v-spin" /><p className="v-upload__label">Analysing…</p></div>;
-
   if (file) return (
     <div className="v-upload v-upload--filled"><div className="v-upload__preview">
       {preview ? <img src={preview} alt="" className="v-upload__thumb" /> : <div className="v-upload__doc"><FileText size={20} /></div>}
@@ -339,54 +309,26 @@ function FileUpload({ label, hint, accept, file, onFile, onRemove, maxBytes, com
       <button type="button" className="v-upload__remove" onClick={onRemove} aria-label="Remove"><X size={14} /></button>
     </div></div>
   );
-
   return (
-    <div>
-      <label className={["v-upload", drag ? "v-upload--drag" : "", err ? "v-upload--error" : ""].join(" ")}
-        onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
-        onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files?.[0]); }}>
-        <input ref={ref} type="file" accept={accept} className="v-upload__hidden"
-               onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ""; }} />
-        <Upload size={22} className="v-upload__icon" />
-        <p className="v-upload__label">{drag ? "Drop to upload" : label}</p>
-        <p className="v-upload__hint">{hint}</p>
-      </label>
-      {err && <p className="v-upload__error"><AlertTriangle size={12} /> {err}</p>}
-    </div>
+    <div><label className={["v-upload", drag ? "v-upload--drag" : "", err ? "v-upload--error" : ""].join(" ")}
+      onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)}
+      onDrop={(e) => { e.preventDefault(); setDrag(false); pick(e.dataTransfer.files?.[0]); }}>
+      <input ref={ref} type="file" accept={accept} className="v-upload__hidden" onChange={(e) => { pick(e.target.files?.[0]); e.target.value = ""; }} />
+      <Upload size={22} className="v-upload__icon" /><p className="v-upload__label">{drag ? "Drop to upload" : label}</p><p className="v-upload__hint">{hint}</p>
+    </label>{err && <p className="v-upload__error"><AlertTriangle size={12} /> {err}</p>}</div>
   );
 }
 
-/* ── Selfie capture ── */
 function SelfieCapture({ file, onFile, onRemove, onWarnings }) {
   const ref = useRef(null);
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    if (!file) { setPreview(null); return; }
-    const u = URL.createObjectURL(file); setPreview(u);
-    return () => URL.revokeObjectURL(u);
-  }, [file]);
-
-  const trigger = (cap) => {
-    if (cap) ref.current?.setAttribute("capture", "user");
-    else     ref.current?.removeAttribute("capture");
-    ref.current?.click();
-  };
-
-  const pick = async (raw) => {
-    if (!raw) return; setBusy(true);
-    try {
-      let f = raw;
-      try { f = await imageCompression(raw, COMPRESS_DOC); } catch {}
-      const w = await checkImage(f); onWarnings?.(w); onFile(f);
-    } finally { setBusy(false); }
-  };
-
+  useEffect(() => { if (!file) { setPreview(null); return; } const u = URL.createObjectURL(file); setPreview(u); return () => URL.revokeObjectURL(u); }, [file]);
+  const trigger = (cap) => { if (cap) ref.current?.setAttribute("capture", "user"); else ref.current?.removeAttribute("capture"); ref.current?.click(); };
+  const pick = async (raw) => { if (!raw) return; setBusy(true); try { let f = raw; try { f = await imageCompression(raw, COMPRESS_DOC); } catch {} const w = await checkImage(f); onWarnings?.(w); onFile(f); } finally { setBusy(false); } };
   return (
     <div className="v-selfie">
-      <input ref={ref} type="file" accept="image/*" className="v-upload__hidden"
-             onChange={(e) => { if (e.target.files?.[0]) pick(e.target.files[0]); e.target.value = ""; }} />
+      <input ref={ref} type="file" accept="image/*" className="v-upload__hidden" onChange={(e) => { if (e.target.files?.[0]) pick(e.target.files[0]); e.target.value = ""; }} />
       <div className="v-selfie__circle">
         {busy ? <div className="v-selfie__empty"><Loader2 size={28} className="v-spin" /></div>
          : preview ? <img src={preview} alt="Selfie" />
@@ -394,17 +336,13 @@ function SelfieCapture({ file, onFile, onRemove, onWarnings }) {
       </div>
       <p className="v-selfie__guide">Face clearly visible, well-lit, matching your ID.</p>
       <div className="v-selfie__actions">
-        {file ? (
-          <>
-            <button type="button" className="v-btn v-btn--ghost v-btn--sm" onClick={() => trigger(true)}><RefreshCw size={12} /> Retake</button>
-            <button type="button" className="v-btn v-btn--ghost v-btn--sm" onClick={onRemove}><X size={12} /> Remove</button>
-          </>
-        ) : (
-          <>
-            <button type="button" className="v-btn v-btn--primary v-btn--sm" onClick={() => trigger(true)}><Camera size={12} /> Camera</button>
-            <button type="button" className="v-btn v-btn--ghost v-btn--sm" onClick={() => trigger(false)}><Image size={12} /> Gallery</button>
-          </>
-        )}
+        {file ? (<>
+          <button type="button" className="v-btn v-btn--ghost v-btn--sm" onClick={() => trigger(true)}><RefreshCw size={12} /> Retake</button>
+          <button type="button" className="v-btn v-btn--ghost v-btn--sm" onClick={onRemove}><X size={12} /> Remove</button>
+        </>) : (<>
+          <button type="button" className="v-btn v-btn--primary v-btn--sm" onClick={() => trigger(true)}><Camera size={12} /> Camera</button>
+          <button type="button" className="v-btn v-btn--ghost v-btn--sm" onClick={() => trigger(false)}><Image size={12} /> Gallery</button>
+        </>)}
       </div>
     </div>
   );
@@ -414,17 +352,16 @@ function SelfieCapture({ file, onFile, onRemove, onWarnings }) {
    EMAIL OTP GATE
 ══════════════════════════════════════════════════════════════ */
 function EmailOtpGate({ maskedEmail: initEmail, resendRemaining: initLeft, onVerified }) {
-  const [phase,   setPhase]   = useState("idle");
-  const [otp,     setOtp]     = useState("");
-  const [otpErr,  setOtpErr]  = useState(false);
-  const [errMsg,  setErrMsg]  = useState("");
+  const [phase, setPhase] = useState("idle");
+  const [otp, setOtp] = useState("");
+  const [otpErr, setOtpErr] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
   const [canSend, setCanSend] = useState(false);
-  const [tick,    setTick]    = useState(0);
-  const [left,    setLeft]    = useState(initLeft ?? null);
-  const [email,   setEmail]   = useState(initEmail ?? "");
+  const [tick, setTick] = useState(0);
+  const [left, setLeft] = useState(initLeft ?? null);
+  const [email, setEmail] = useState(initEmail ?? "");
   const [attLeft, setAttLeft] = useState(null);
   const [devCode, setDevCode] = useState("");
-
   const busy = useRef(false), auto = useRef(false);
 
   const send = useCallback(async () => {
@@ -444,8 +381,7 @@ function EmailOtpGate({ maskedEmail: initEmail, resendRemaining: initLeft, onVer
       const r = await fetch(`${API}/verification/verify-email-otp`, { method: "POST", headers: authJson(), body: JSON.stringify({ otp: code }) });
       const d = await r.json();
       if (r.ok && d.success) { setPhase("done"); setDevCode(""); onVerified(); return; }
-      setOtpErr(true); setOtp(""); setPhase("otp");
-      setErrMsg(d.message || "Incorrect code.");
+      setOtpErr(true); setOtp(""); setPhase("otp"); setErrMsg(d.message || "Incorrect code.");
       if (typeof d.attemptsLeft === "number") setAttLeft(d.attemptsLeft);
       setTimeout(() => setOtpErr(false), 700);
     } catch (err) { setPhase("otp"); setErrMsg(`Network error: ${err.message}`); }
@@ -475,14 +411,11 @@ function EmailOtpGate({ maskedEmail: initEmail, resendRemaining: initLeft, onVer
       {verifying && <div className="v-otp-panel__status"><Loader2 size={14} className="v-spin" /><span>Verifying…</span></div>}
       {errMsg && <Alert type="error">{errMsg}{attLeft !== null && attLeft > 0 && attLeft <= 5 && <span style={{ display: "block", fontSize: 12, opacity: .75, marginTop: 3 }}>{attLeft} attempt{attLeft !== 1 ? "s" : ""} left</span>}</Alert>}
       {showOtp && (
-        <div className="v-resend-row">
-          <div>
-            {left === 0 ? <span className="v-resend-row__limit">Daily limit — try tomorrow</span>
-             : canSend ? <button className="v-btn v-btn--link" onClick={send} disabled={sending}><RefreshCw size={12} className={sending ? "v-spin" : ""} /> Resend{left !== null && <span className="v-resend-row__count"> ({left} left)</span>}</button>
-             : <span className="v-resend-row__timer">Resend in <Countdown seconds={RESEND_SECS} tick={tick} onDone={() => setCanSend(true)} /></span>}
-          </div>
-          <span className="v-resend-row__note"><Lock size={10} /> Never share this code</span>
-        </div>
+        <div className="v-resend-row"><div>
+          {left === 0 ? <span className="v-resend-row__limit">Daily limit — try tomorrow</span>
+           : canSend ? <button className="v-btn v-btn--link" onClick={send} disabled={sending}><RefreshCw size={12} className={sending ? "v-spin" : ""} /> Resend{left !== null && <span className="v-resend-row__count"> ({left} left)</span>}</button>
+           : <span className="v-resend-row__timer">Resend in <Countdown seconds={RESEND_SECS} tick={tick} onDone={() => setCanSend(true)} /></span>}
+        </div><span className="v-resend-row__note"><Lock size={10} /> Never share this code</span></div>
       )}
     </div>
   );
@@ -524,29 +457,27 @@ function StatusCard({ reviewStatus, rejectionReason, onResubmit }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   VERIFICATION FORM
+   VERIFICATION FORM — no liveness, just ID + selfie + store
 ══════════════════════════════════════════════════════════════ */
 function VerificationForm({ onSubmitted }) {
   const draft = useMemo(() => loadDraft() ?? {}, []);
 
-  const [docType,   setDocType]   = useState(draft.docType   ?? "");
+  const [docType, setDocType] = useState(draft.docType ?? "");
   const [docNumber, setDocNumber] = useState(draft.docNumber ?? "");
-  const [docFront,  setDocFront]  = useState(null);
-  const [docBack,   setDocBack]   = useState(null);
-  const [selfie,    setSelfie]    = useState(null);
+  const [docFront, setDocFront] = useState(null);
+  const [docBack, setDocBack] = useState(null);
+  const [selfie, setSelfie] = useState(null);
   const [storeName, setStoreName] = useState(draft.storeName ?? "");
   const [storeDesc, setStoreDesc] = useState(draft.storeDesc ?? "");
   const [storeLogo, setStoreLogo] = useState(null);
 
-  const [frontWarns,  setFrontWarns]  = useState([]);
-  const [backWarns,   setBackWarns]   = useState([]);
+  const [frontWarns, setFrontWarns] = useState([]);
+  const [backWarns, setBackWarns] = useState([]);
   const [selfieWarns, setSelfieWarns] = useState([]);
-  const [faceState,   setFaceState]   = useState(null);
-  const [livenessBlob, setLivenessBlob] = useState(null);
-  const [livenessPhase, setLivenessPhase] = useState("pending");
+  const [faceState, setFaceState] = useState(null);
 
   const [submitting, setSubmitting] = useState(false);
-  const [errMsg,     setErrMsg]     = useState("");
+  const [errMsg, setErrMsg] = useState("");
 
   const docCfg  = DOC_TYPES.find((d) => d.value === docType);
   const docRule = DOC_RULES[docType] ?? null;
@@ -556,7 +487,6 @@ function VerificationForm({ onSubmitted }) {
   const docNumErr   = docNumber.length > 0 && !docNumValid ? docRule?.label : "";
   const hasDraft    = Boolean(docType || docNumber || storeName || storeDesc);
   const hasQWarn    = frontWarns.length > 0 || backWarns.length > 0 || selfieWarns.length > 0;
-  const liveDone    = livenessPhase === "passed" || livenessPhase === "skipped";
 
   useEffect(() => { saveDraft({ docType, docNumber, storeName, storeDesc }); }, [docType, docNumber, storeName, storeDesc]);
 
@@ -570,26 +500,23 @@ function VerificationForm({ onSubmitted }) {
     return () => { cancel = true; };
   }, [selfie, docFront]);
 
-  const idReady =
-    Boolean(docType) && docNumValid && docNumber.trim().length >= minLen &&
-    Boolean(docFront) && Boolean(docBack) && Boolean(selfie) &&
-    liveDone && faceState !== "fail";
-
+  const idReady = Boolean(docType) && docNumValid && docNumber.trim().length >= minLen &&
+    Boolean(docFront) && Boolean(docBack) && Boolean(selfie) && faceState !== "fail";
   const storeReady = storeName.trim().length >= 2;
-  const ready      = idReady && storeReady;
+  const ready = idReady && storeReady;
 
   const checklist = useMemo(() => {
     if (!docCfg || !docRule) return [];
     return [
-      { label: "Document type selected",    done: Boolean(docType) },
-      { label: docRule.label,               done: docNumValid && docNumber.length >= minLen },
-      { label: docCfg.frontLabel,           done: Boolean(docFront) },
-      { label: docCfg.backLabel,            done: Boolean(docBack) },
-      { label: "Liveness check",            done: liveDone },
-      { label: "Selfie matches ID",         done: faceState === "pass" || faceState === "error" },
-      { label: "Store name (min 2 chars)",  done: storeReady },
+      { label: "Document type selected", done: Boolean(docType) },
+      { label: docRule.label, done: docNumValid && docNumber.length >= minLen },
+      { label: docCfg.frontLabel, done: Boolean(docFront) },
+      { label: docCfg.backLabel, done: Boolean(docBack) },
+      { label: "Selfie photo", done: Boolean(selfie) },
+      { label: "Face matches ID", done: faceState === "pass" || faceState === "error" },
+      { label: "Store name (min 2 chars)", done: storeReady },
     ];
-  }, [docCfg, docRule, docType, docNumValid, docNumber, minLen, docFront, docBack, liveDone, faceState, storeReady]);
+  }, [docCfg, docRule, docType, docNumValid, docNumber, minLen, docFront, docBack, selfie, faceState, storeReady]);
 
   const submit = async () => {
     if (!ready || submitting) return;
@@ -604,8 +531,7 @@ function VerificationForm({ onSubmitted }) {
       fd.append("store_name", storeName.trim());
       fd.append("store_description", storeDesc.trim());
       if (storeLogo) fd.append("store_logo", storeLogo);
-      if (livenessBlob) fd.append("liveness_frame", livenessBlob, "liveness.jpg");
-      fd.append("liveness_passed", String(livenessPhase === "passed"));
+      fd.append("liveness_passed", "false");
 
       const r = await fetch(`${API}/verification/submit`, { method: "POST", headers: authMultipart(), body: fd });
       const d = await r.json();
@@ -665,40 +591,8 @@ function VerificationForm({ onSubmitted }) {
         )}
       </div>
 
-      {/* Liveness */}
-      {docCfg && docFront && (
-        <div className="v-form__section">
-          <div className="v-form__section-header"><Camera size={18} /><h3>Liveness Check</h3></div>
-          {livenessPhase === "pending" && (
-            <div className="lv-section-idle">
-              <p className="lv-section-desc">Complete a 15-second face challenge to prove you're present.</p>
-              <button className="v-btn v-btn--primary" onClick={() => setLivenessPhase("running")}>
-                <Camera size={13} /> Start Liveness Check
-              </button>
-            </div>
-          )}
-          {livenessPhase === "running" && (
-            <LivenessChallenge
-              onComplete={(blob) => {
-                setLivenessBlob(blob);
-                setLivenessPhase("passed");
-                if (!selfie) setSelfie(new File([blob], "liveness-selfie.jpg", { type: "image/jpeg" }));
-              }}
-              onSkip={() => setLivenessPhase("skipped")}
-            />
-          )}
-          {livenessPhase === "passed" && <div className="v-face-match v-face-match--pass"><CheckCircle size={14} /><span>Liveness confirmed.</span></div>}
-          {livenessPhase === "skipped" && (
-            <div className="v-face-match v-face-match--warn">
-              <AlertTriangle size={14} />
-              <span>Skipped — manual review may take longer. <button className="v-btn v-btn--link" onClick={() => setLivenessPhase("running")}>Do it now</button></span>
-            </div>
-          )}
-        </div>
-      )}
-
       {/* Selfie */}
-      {docCfg && liveDone && (
+      {docCfg && (
         <div className="v-form__section">
           <div className="v-form__section-header"><Camera size={18} /><h3>Selfie Verification</h3></div>
           <div className="v-field">
@@ -759,42 +653,34 @@ function VerificationForm({ onSubmitted }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ROOT — no loading state (App.jsx handles that)
+   ROOT
 ══════════════════════════════════════════════════════════════ */
 export default function Verification() {
   const navigate = useNavigate();
-  const [status,   setStatus]   = useState(null);
-  const [pageErr,  setPageErr]  = useState("");
+  const [status, setStatus] = useState(null);
+  const [pageErr, setPageErr] = useState("");
   const [showForm, setShowForm] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     const token = getToken();
     if (!token) { navigate("/auth"); return; }
-
     try {
       const r = await fetch(`${API}/verification/status`, { headers: authJson() });
       if (r.status === 401) { navigate("/auth"); return; }
       const d = await r.json();
       if (r.ok && d.success) { setStatus(d); setPageErr(""); }
       else setPageErr(d.message || "Failed to load verification status.");
-    } catch (err) {
-      setPageErr(`Network error: ${err.message}`);
-    }
+    } catch (err) { setPageErr(`Network error: ${err.message}`); }
   }, [navigate]);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
-  if (pageErr) {
-    return (
-      <div className="v-page-error">
-        <AlertTriangle size={32} />
-        <p>{pageErr}</p>
-        <button className="v-btn v-btn--primary" onClick={fetchStatus}>
-          <RefreshCw size={14} /> Retry
-        </button>
-      </div>
-    );
-  }
+  if (pageErr) return (
+    <div className="v-page-error">
+      <AlertTriangle size={32} /><p>{pageErr}</p>
+      <button className="v-btn v-btn--primary" onClick={fetchStatus}><RefreshCw size={14} /> Retry</button>
+    </div>
+  );
 
   if (!status) return null;
 
@@ -817,19 +703,12 @@ export default function Verification() {
         <div className="v-topbar__center"><div className="v-topbar__shield"><Shield size={16} /></div><span className="v-topbar__title">Account Verification</span></div>
         <div className="v-topbar__spacer" />
       </div>
-
       <p className="v-page-sub">Complete verification to unlock full marketplace access</p>
-
       <div className="v-card v-card--trust"><TrustRing score={trust} /></div>
-
       {status?.limited_listings?.message && !identityOk && <Alert type="warning">{status.limited_listings.message}</Alert>}
-
       {!emailOk && <div className="v-card"><EmailOtpGate maskedEmail={status?.email} resendRemaining={status?.resend_remaining} onVerified={() => { fetchStatus(); setShowForm(true); }} /></div>}
-
       {emailOk && revStatus && revStatus !== "rejected" && <div className="v-card"><StatusCard reviewStatus={revStatus} rejectionReason={reason} onResubmit={() => setShowForm(true)} /></div>}
-
       {emailOk && revStatus === "rejected" && !showForm && <div className="v-card"><StatusCard reviewStatus="rejected" rejectionReason={reason} onResubmit={() => setShowForm(true)} /></div>}
-
       {formVis && <div className="v-card"><VerificationForm onSubmitted={() => { setShowForm(false); fetchStatus(); }} /></div>}
     </div></div>
   );
