@@ -1895,7 +1895,7 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ══════════════════════════════════════════════════════
+            {/* ══════════════════════════════════════════════════════
           PROMOTION PLAN
       ══════════════════════════════════════════════════════ */}
       <section ref={nextCardRef()} className="section form-card">
@@ -1942,7 +1942,6 @@ export default function ProductComponents({
                       setSelectedPlan(isSelected ? null : plan);
                       return;
                     }
-                    /* Arrow key navigation between radio items */
                     if (e.key === "ArrowRight" || e.key === "ArrowDown") {
                       e.preventDefault();
                       const next = (planIndex + 1) % promotionPlans.length;
@@ -1979,26 +1978,6 @@ export default function ProductComponents({
               );
             })}
           </div>
-        )}
-
-        {/* Upsell */}
-        {!isVerifiedSeller && !limitsLoading && !plansLoading && promotionPlans.length > 0 && (
-          <button
-            type="button"
-            className="plans-upsell-btn"
-            onClick={() => setShowUpsellModal(true)}
-            aria-haspopup="dialog"
-          >
-            <ShieldIcon />
-            <span>
-              {trialExhausted
-                ? "Verify your identity to continue posting on Loemart"
-                : trialRemaining !== null && trialRemaining <= 1
-                ? `${trialRemaining} free trial listing remaining — verify to keep posting`
-                : "Unverified listings expire after 7 days — verify to post permanently"}
-            </span>
-            <ChevronRightIcon />
-          </button>
         )}
       </section>
 
