@@ -1,20 +1,16 @@
 /**
  * src/pages/AddProduct.jsx
- * Route: /minimart/add — v8
+ * Route: /minimart/add — v9
  *
- * Changes from v7:
- *  ─ STORAGE_DRAFT + IDEMPOTENCY_STORE memoized (stable references)
- *  ─ canPost null-safety: null daily/active treated as "unlimited"
- *  ─ canPost gated on limitsLoading to prevent premature submit
- *  ─ Mount guards added after every await in handleSubmit
- *  ─ handleSubmit decomposed: buildFormData / runActivation / runPayment
- *  ─ trialExhausted + trialRemaining passed to ProductComponents
- *  ─ Draft restore waits for both categories and plans (dataReady gate)
- *  ─ handleImages uses imagesLengthRef to avoid stale-closure recreation
- *  ─ TermsCheckbox memoized
- *  ─ safeOpenPayment host check uses exact + subdomain boundary
- *  ─ Contact fields sanitized before FormData append
- *  ─ Misleading payment-redirect error message corrected
+ * Changes from v8:
+ *  ─ canPost no longer blocks the submit button — server enforces all limits
+ *  ─ limitsLoading removed from canPost (no premature disable on page load)
+ *  ─ Soft quota pre-check removed from handleSubmit — server rejects + showError fires
+ *  ─ On 403 (trial exhausted) server response → fetchLimits() refreshes state
+ *    → trialExhausted becomes true → upsell modal auto-opens in components.jsx
+ *  ─ SellerLimitsBanner removed from props (component already returns null)
+ *  ─ submit button always enabled unless: loading / terms / plans loading /
+ *    delivery error / image errors
  */
 
 import {
@@ -51,10 +47,6 @@ const AUTO_SAVE_SAVED_MS = 2_000;
 const COMPRESS_BUDGET_LOW_END = { maxSizeMB: 0.5, maxWidthOrHeight: 800  };
 const COMPRESS_BUDGET_NORMAL  = { maxSizeMB: 1,   maxWidthOrHeight: 1280 };
 
-/*
- * Allowed payment hosts — exact match only.
- * safeOpenPayment also accepts *.hostname via subdomain boundary check.
- */
 const ALLOWED_PAYMENT_HOSTS = new Set([
   "checkout.paystack.com",
   "standard.paystack.com",
@@ -138,25 +130,16 @@ const getTokenOrRedirect = (navigate, returnPath) => {
   return token;
 };
 
-/**
- * Opens a payment URL in a new tab after validating:
- *  1. HTTPS protocol
- *  2. Host is exactly in ALLOWED_PAYMENT_HOSTS or is a valid subdomain
- *     (e.g. "checkout.paystack.com" ✓, "evil.checkout.paystack.com.bad.com" ✗)
- */
 const safeOpenPayment = (url, onError) => {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:") throw new Error("Non-HTTPS URL");
-
     const hostAllowed = [...ALLOWED_PAYMENT_HOSTS].some(
       (host) =>
         parsed.hostname === host ||
         parsed.hostname.endsWith(`.${host}`)
     );
-    if (!hostAllowed)
-      throw new Error(`Untrusted host: ${parsed.hostname}`);
-
+    if (!hostAllowed) throw new Error(`Untrusted host: ${parsed.hostname}`);
     window.open(url, "_blank", "noopener,noreferrer");
   } catch (err) {
     console.error("[Payment] Blocked unsafe URL:", err.message);
@@ -178,13 +161,6 @@ const verifyImageMagicBytes = (file) =>
       const hex = Array.from(arr)
         .map((b) => b.toString(16).padStart(2, "0"))
         .join("");
-      /*
-       * Byte layout for 12-byte read (24 hex chars):
-       *   JPEG  — bytes 0-2:   FF D8 FF
-       *   PNG   — bytes 0-3:   89 50 4E 47
-       *   WebP  — bytes 0-3:   "RIFF" (52 49 46 46)
-       *           bytes 8-11:  "WEBP" (57 45 42 50)  → hex[16..24]
-       */
       resolve(
         hex.startsWith("ffd8ff")   ||
         hex.startsWith("89504e47") ||
@@ -228,6 +204,7 @@ const getOrCreateIdempotencyKey = (storageKey) => {
   sessionStorage.setItem(storageKey, id);
   return id;
 };
+
 const clearIdempotencyKey = (storageKey) =>
   sessionStorage.removeItem(storageKey);
 
@@ -284,7 +261,6 @@ const isValidPhone = (value) => {
   return PHONE_RE.test(String(value).replace(/[\s\-().]/g, ""));
 };
 
-/* Strip non-numeric characters from phone/WhatsApp before sending */
 const sanitizePhone = (v = "") => v.replace(/[\s\-().]/g, "");
 
 const freshForm = () => structuredClone(INITIAL_FORM);
@@ -295,10 +271,6 @@ const freshForm = () => structuredClone(INITIAL_FORM);
 export default function AddProduct({ user }) {
   const navigate = useNavigate();
 
-  /*
-   * Memoize storage keys so useCallback deps stay stable
-   * across renders where user object reference changes.
-   */
   const STORAGE_DRAFT = useMemo(
     () => `product_draft_v3_${user?.id ?? "anon"}`,
     [user?.id]
@@ -347,10 +319,6 @@ export default function AddProduct({ user }) {
   const mountedRef      = useRef(true);
   const isSubmittingRef = useRef(false);
   const imagesRef       = useRef([]);
-  /*
-   * imagesLengthRef: read current image count inside handleImages without
-   * adding images.length to useCallback deps (avoids recreating on every add).
-   */
   const imagesLengthRef = useRef(0);
   const autoSaveTimer   = useRef(null);
   const savedLabelTimer = useRef(null);
@@ -361,7 +329,6 @@ export default function AddProduct({ user }) {
     return () => { mountedRef.current = false; };
   }, []);
 
-  /* ─── Keep imagesLengthRef in sync ── */
   useEffect(() => {
     imagesLengthRef.current = images.length;
   }, [images.length]);
@@ -372,7 +339,7 @@ export default function AddProduct({ user }) {
       categories.find((c) => String(c.id) === String(form.category_id)) ?? null,
     [categories, form.category_id]
   );
-  const options    = useMemo(
+  const options = useMemo(
     () => selectedCategory?.dynamicOptions ?? {},
     [selectedCategory]
   );
@@ -388,7 +355,7 @@ export default function AddProduct({ user }) {
   const isSelectedPlanPaid =
     !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
-  /* ── Trial-aware limit derivations ── */
+  /* ── Limit derivations — informational only, not used to block submit ── */
   const isVerifiedSeller = sellerLimits?.seller_verified  ?? false;
   const trialExhausted   = sellerLimits?.trial_exhausted  ?? false;
   const trialRemaining   = sellerLimits?.trial_remaining  ?? null;
@@ -397,22 +364,17 @@ export default function AddProduct({ user }) {
   const cooldownSecs     = sellerLimits?.cooldown_seconds ?? 0;
 
   /*
-   * canPost logic:
-   *  - While limits are still loading → block to avoid premature submit
-   *  - null daily/active values mean "unlimited" (treat as OK)
-   *  - trial_exhausted is a hard block regardless of other counters
+   * canPost — informational flag passed to components.jsx.
+   * Used only to trigger the upsell modal, NOT to disable the submit button.
+   * The server enforces all actual limits.
    */
   const canPost = useMemo(() => {
-    if (limitsLoading) return false;
-    if (!sellerLimits)  return true;   // unauthenticated — server will reject
+    if (!sellerLimits)  return true;
     if (trialExhausted) return false;
     const dailyOk  = dailyRemaining  === null || dailyRemaining  > 0;
     const activeOk = activeRemaining === null || activeRemaining > 0;
     return dailyOk && activeOk && cooldownSecs === 0;
-  }, [
-    limitsLoading, sellerLimits, trialExhausted,
-    dailyRemaining, activeRemaining, cooldownSecs,
-  ]);
+  }, [sellerLimits, trialExhausted, dailyRemaining, activeRemaining, cooldownSecs]);
 
   /* ─── Feedback ── */
   const showError = useCallback((msg) => {
@@ -538,9 +500,7 @@ export default function AddProduct({ user }) {
               }
               if (result.status === "success") {
                 if (result.needs_verification) {
-                  showSuccess(
-                    "Payment confirmed. Redirecting to verification…"
-                  );
+                  showSuccess("Payment confirmed. Redirecting to verification…");
                   setTimeout(() => {
                     if (mountedRef.current) navigate("/verification");
                   }, 2_000);
@@ -564,10 +524,6 @@ export default function AddProduct({ user }) {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ─── Restore draft ── */
-  /*
-   * Gate on both plansLoading and categories being populated so that
-   * selectedPlan and category lookups resolve correctly on restore.
-   */
   const categoriesReady = categories.length > 0;
   const dataReady       = !plansLoading && categoriesReady;
 
@@ -631,10 +587,6 @@ export default function AddProduct({ user }) {
   }, [dataReady]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ─── Auto-save draft ── */
-  /*
-   * Serialization runs inside the timeout callback, not before it,
-   * so the debounce genuinely defers the CPU work.
-   */
   useEffect(() => {
     if (autoSaveTimer.current)   clearTimeout(autoSaveTimer.current);
     if (savedLabelTimer.current) clearTimeout(savedLabelTimer.current);
@@ -735,10 +687,6 @@ export default function AddProduct({ user }) {
   /* ═══════════════════════════════════════════════════════════
      IMAGE HANDLING
   ═══════════════════════════════════════════════════════════ */
-  /*
-   * imagesLengthRef prevents this callback from being recreated on every
-   * image addition (which would cascade into child re-renders).
-   */
   const handleImages = useCallback(async (files) => {
     if (!mountedRef.current) return;
 
@@ -814,7 +762,7 @@ export default function AddProduct({ user }) {
     if (newImages.length > 0) {
       showSuccess(`${newImages.length} image(s) added`);
     }
-  }, [showError, showSuccess]); // imagesLengthRef read via ref — not a dep
+  }, [showError, showSuccess]);
 
   const removeImage = useCallback((id) => {
     setImages((prev) => {
@@ -981,8 +929,8 @@ export default function AddProduct({ user }) {
   ═══════════════════════════════════════════════════════════ */
   const validateForm = useCallback(() => {
     const t = form.title?.trim() ?? "";
-    if (!t)              return "Title required.";
-    if (t.length > 120)  return "Title must be at most 120 characters.";
+    if (!t)             return "Title required.";
+    if (t.length > 120) return "Title must be at most 120 characters.";
 
     const d = form.description?.trim() ?? "";
     if (d.length < DESCRIPTION_MIN)
@@ -994,26 +942,27 @@ export default function AddProduct({ user }) {
       return "Enter a valid price.";
     if (Number(form.price) > 1_000_000_000)
       return "Price exceeds maximum allowed value.";
-    if (!form.category_id) return "Category required.";
+    if (!form.category_id)
+      return "Category required.";
     if (!form.contact?.email?.includes("@"))
       return "Enter a valid email address.";
     if (!isValidPhone(form.contact?.phone))
       return "Phone number must be 7–15 digits (e.g. 08012345678).";
     if (form.contact?.whatsapp && !isValidPhone(form.contact.whatsapp))
       return "WhatsApp number must be 7–15 digits (e.g. 08012345678).";
-    if (!images.length) return "At least one image is required.";
-    if (!locationState || !city) return "Select your state and city.";
-    if (!agreedToTerms) return "Please accept the Terms & Conditions.";
+    if (!images.length)
+      return "At least one image is required.";
+    if (!locationState || !city)
+      return "Select your state and city.";
+    if (!agreedToTerms)
+      return "Please accept the Terms & Conditions.";
 
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
-      if (!Number.isFinite(from) || from < 1)
-        return "Enter valid delivery days.";
-      if (!Number.isFinite(to) || to < 1)
-        return "Enter valid delivery days.";
-      if (to < from)
-        return "Delivery end must be after start.";
+      if (!Number.isFinite(from) || from < 1) return "Enter valid delivery days.";
+      if (!Number.isFinite(to)   || to   < 1) return "Enter valid delivery days.";
+      if (to < from)                           return "Delivery end must be after start.";
       if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
         return "Enter a valid delivery fee.";
     }
@@ -1055,13 +1004,8 @@ export default function AddProduct({ user }) {
   }, [navigate, IDEMPOTENCY_STORE, showSuccess]);
 
   /* ═══════════════════════════════════════════════════════════
-     SUBMIT — DECOMPOSED HELPERS
+     SUBMIT HELPERS
   ═══════════════════════════════════════════════════════════ */
-
-  /**
-   * Assembles the multipart FormData payload from current form state.
-   * Sanitizes phone/WhatsApp before appending.
-   */
   const buildFormData = useCallback((token, finalPlan, isFreePlan) => {
     const fd = new FormData();
     fd.append("title",           form.title.trim());
@@ -1082,19 +1026,13 @@ export default function AddProduct({ user }) {
     fd.append("attributes",
       JSON.stringify({ ...attributes, features: toArray(attributes.features) })
     );
-    fd.append("delivery",    JSON.stringify(form.delivery));
-    fd.append("contact",     JSON.stringify(form.contact));
-
-    /* Sanitize numeric-only fields before sending */
-    fd.append("phone",       sanitizePhone(form.contact.phone    ?? ""));
-    fd.append("whatsapp",    sanitizePhone(form.contact.whatsapp ?? ""));
+    fd.append("delivery",      JSON.stringify(form.delivery));
+    fd.append("contact",       JSON.stringify(form.contact));
+    fd.append("phone",         sanitizePhone(form.contact.phone    ?? ""));
+    fd.append("whatsapp",      sanitizePhone(form.contact.whatsapp ?? ""));
     fd.append("whatsapp_link", form.contact.whatsapp_link ?? "");
-
-    fd.append(
-      "idempotency_key",
-      getOrCreateIdempotencyKey(IDEMPOTENCY_STORE)
-    );
-    fd.append("seller_name", user?.store_name || user?.name || BRAND_NAME);
+    fd.append("idempotency_key", getOrCreateIdempotencyKey(IDEMPOTENCY_STORE));
+    fd.append("seller_name",   user?.store_name || user?.name || BRAND_NAME);
 
     const imageHashes = images.map((img) => img.hash).filter(Boolean);
     if (imageHashes.length)
@@ -1107,9 +1045,6 @@ export default function AddProduct({ user }) {
     IDEMPOTENCY_STORE, user,
   ]);
 
-  /**
-   * Activates a free-plan product and resolves the full response.
-   */
   const runActivation = useCallback(async (productId, uploadData, token) => {
     const activateRes = await apiFetch(
       `${API_BASE}/addproduct/products/${productId}/activate`,
@@ -1130,10 +1065,6 @@ export default function AddProduct({ user }) {
     };
   }, []);
 
-  /**
-   * Initiates a paid-plan payment and stores the session for resumption.
-   * Returns { authUrl, session } on success.
-   */
   const runPayment = useCallback(async (product, finalPlan, uploadData, token) => {
     const rawPrice     = Number(finalPlan.price);
     const discount     = Number(finalPlan.discount_percent ?? 0);
@@ -1159,16 +1090,16 @@ export default function AddProduct({ user }) {
       throw new ApiError("Payment setup failed — please try again", 500);
 
     const session = {
-      reference        : payData.reference,
-      authUrl          : payData.authorization_url,
+      reference         : payData.reference,
+      authUrl           : payData.authorization_url,
       planId,
-      productId        : product.id,
-      email            : form.contact.email,
-      amount           : effectiveAmt,
-      createdAt        : Date.now(),
-      needsVerification: uploadData.needs_verification ?? false,
-      activeUntil      : uploadData.active_until       ?? null,
-      daysRemaining    : uploadData.days_remaining      ?? null,
+      productId         : product.id,
+      email             : form.contact.email,
+      amount            : effectiveAmt,
+      createdAt         : Date.now(),
+      needsVerification : uploadData.needs_verification ?? false,
+      activeUntil       : uploadData.active_until       ?? null,
+      daysRemaining     : uploadData.days_remaining      ?? null,
     };
 
     localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
@@ -1177,49 +1108,17 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      SUBMIT — ORCHESTRATOR
+     No client-side quota pre-check.
+     Server enforces all limits (trial, daily, active, cooldown).
+     On 403 → fetchLimits() → trialExhausted becomes true →
+     upsell modal auto-opens in components.jsx via useEffect.
   ═══════════════════════════════════════════════════════════ */
   const handleSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
 
     if (!navigator.onLine) {
-      showError(
-        "You appear to be offline. Check your connection and try again."
-      );
+      showError("You appear to be offline. Check your connection and try again.");
       return;
-    }
-
-    /*
-     * Soft quota check — order: trial exhausted → daily → active → cooldown
-     */
-    if (sellerLimits && !canPost) {
-      if (trialExhausted) {
-        return showError(
-          "You have used all 3 free trial listings. " +
-          "Verify your identity to continue posting on Loemart."
-        );
-      }
-      if (dailyRemaining === 0) {
-        return showError(
-          `Daily limit reached (${sellerLimits.daily_limit}/day). ` +
-          (isVerifiedSeller
-            ? "Try again tomorrow."
-            : "Complete verification to unlock 100/day.")
-        );
-      }
-      if (activeRemaining === 0) {
-        return showError(
-          `Active listing limit reached (${sellerLimits.active_limit}). ` +
-          (isVerifiedSeller
-            ? ""
-            : "Complete verification to unlock 500.")
-        );
-      }
-      if (cooldownSecs > 0) {
-        const mins = Math.ceil(cooldownSecs / 60);
-        return showError(
-          `Please wait ${mins} minute${mins !== 1 ? "s" : ""} before posting again.`
-        );
-      }
     }
 
     isSubmittingRef.current = true;
@@ -1239,7 +1138,7 @@ export default function AddProduct({ user }) {
       setError("");
     }
 
-    let product = null;
+    let product          = null;
     let paymentInitiated = false;
 
     try {
@@ -1274,7 +1173,7 @@ export default function AddProduct({ user }) {
         throw new ApiError("Product creation failed", 500);
       product = uploadData.product;
 
-      /* Refresh limits — trial counter may have decremented */
+      /* Refresh limits — trial counter has decremented */
       fetchLimits();
 
       /* ─── Free plan ── */
@@ -1319,10 +1218,6 @@ export default function AddProduct({ user }) {
       if (mountedRef.current) setProgressVisible(false);
 
       if (product?.id && !paymentInitiated) {
-        /*
-         * Product was created but payment was never initiated —
-         * roll back the orphaned product record.
-         */
         const token = getToken();
         if (token) {
           fetch(`${API_BASE}/addproduct/products/${product.id}`, {
@@ -1331,11 +1226,6 @@ export default function AddProduct({ user }) {
           }).catch(() => {});
         }
       } else if (product?.id && paymentInitiated) {
-        /*
-         * Payment was initiated successfully but the redirect to Paystack
-         * failed (e.g. popup blocked). The listing exists as a draft and
-         * the user can resume via the payment banner.
-         */
         showError(
           "Payment was initiated but the redirect failed. " +
           "Use 'Complete Payment' above, or check your email for the payment link."
@@ -1344,6 +1234,16 @@ export default function AddProduct({ user }) {
       }
 
       showError(err.message ?? "Submission failed — please try again");
+
+      /*
+       * If the server rejected with 403 (trial exhausted or similar),
+       * refresh limits so trialExhausted updates to true.
+       * components.jsx useEffect watches trialExhausted and auto-opens
+       * the upsell modal when it becomes true.
+       */
+      if (err.status === 403 || err.statusCode === 403) {
+        fetchLimits();
+      }
     } finally {
       if (mountedRef.current) setLoading(false);
       isSubmittingRef.current = false;
@@ -1353,12 +1253,10 @@ export default function AddProduct({ user }) {
     buildFormData, runActivation, runPayment,
     clearDraft, showError, showSuccess, handlePostSuccess, fetchLimits,
     navigate,
-    sellerLimits, canPost, trialExhausted, dailyRemaining,
-    activeRemaining, cooldownSecs, isVerifiedSeller,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
-     TERMS CHECKBOX  (memoized — only re-renders when checked state changes)
+     TERMS CHECKBOX
   ═══════════════════════════════════════════════════════════ */
   const TermsCheckbox = useMemo(() => (
     <div className="ap-terms-row">
@@ -1446,7 +1344,7 @@ export default function AddProduct({ user }) {
         plansLoading={plansLoading}
         MAX_IMAGES={MAX_IMAGES}
 
-        /* ─ seller limits ─ */
+        /* ─ seller limits (informational — not used to block submit) ─ */
         sellerLimits={sellerLimits}
         limitsLoading={limitsLoading}
         isVerifiedSeller={isVerifiedSeller}
