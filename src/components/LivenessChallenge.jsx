@@ -1,14 +1,102 @@
 // ════════════════════════════════════════════════════════════
 // FILE: src/components/LivenessChallenge.jsx
+//
+// Real-time liveness detection using device camera.
+// Challenges (2 of 3 picked randomly):
+//   1. Blink detection (eye aspect ratio)
+//   2. Head turn (nose tip horizontal shift)
+//   3. Smile detection (mouth corner ratio)
+//
+// Uses MediaPipe FaceMesh (CDN loaded once, cached on window).
+// Falls back gracefully if camera / MediaPipe unavailable.
+// No lucide-react icons that might not exist in older versions.
 // ════════════════════════════════════════════════════════════
 
-import {
-  useState, useEffect, useRef, useCallback,
-} from "react";
-import {
-  Camera, CheckCircle, AlertTriangle, RefreshCw,
-  Eye, Smile, ArrowLeftRight, Loader2, X,
-} from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+
+/* ══════════════════════════════════════════════════════════════
+   INLINE SVG ICONS — no external dependency risk
+══════════════════════════════════════════════════════════════ */
+const Icon = ({ children, size = 20, className = "" }) => (
+  <svg
+    width={size} height={size} viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2"
+    strokeLinecap="round" strokeLinejoin="round"
+    className={className} aria-hidden="true"
+  >
+    {children}
+  </svg>
+);
+
+const CameraIcon = ({ size = 20, className = "" }) => (
+  <Icon size={size} className={className}>
+    <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+    <circle cx="12" cy="13" r="4" />
+  </Icon>
+);
+
+const CheckIcon = ({ size = 20, className = "" }) => (
+  <Icon size={size} className={className}>
+    <polyline points="20 6 9 17 4 12" />
+  </Icon>
+);
+
+const AlertIcon = ({ size = 20, className = "" }) => (
+  <Icon size={size} className={className}>
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+    <line x1="12" y1="9" x2="12" y2="13" />
+    <line x1="12" y1="17" x2="12.01" y2="17" />
+  </Icon>
+);
+
+const RetryIcon = ({ size = 20, className = "" }) => (
+  <Icon size={size} className={className}>
+    <polyline points="23 4 23 10 17 10" />
+    <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+  </Icon>
+);
+
+const EyeIcon = ({ size = 20, className = "" }) => (
+  <Icon size={size} className={className}>
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </Icon>
+);
+
+const SmileIcon = ({ size = 20, className = "" }) => (
+  <Icon size={size} className={className}>
+    <circle cx="12" cy="12" r="10" />
+    <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+    <line x1="9" y1="9" x2="9.01" y2="9" />
+    <line x1="15" y1="9" x2="15.01" y2="9" />
+  </Icon>
+);
+
+const ArrowsIcon = ({ size = 20, className = "" }) => (
+  <Icon size={size} className={className}>
+    <path d="M21 12H3M3 12l4-4M3 12l4 4M21 12l-4-4M21 12l-4 4" />
+  </Icon>
+);
+
+const SpinnerIcon = ({ size = 20, className = "" }) => (
+  <svg
+    width={size} height={size} viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2.5"
+    strokeLinecap="round"
+    className={`v-spin ${className}`}
+    aria-hidden="true"
+  >
+    <circle cx="12" cy="12" r="10" strokeOpacity="0.25" />
+    <path d="M12 2a10 10 0 0 1 10 10" />
+  </svg>
+);
+
+const XIcon = ({ size = 20, className = "" }) => (
+  <Icon size={size} className={className}>
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </Icon>
+);
 
 /* ══════════════════════════════════════════════════════════════
    MEDIAPIPE LOADER — CDN, cached on window
@@ -22,10 +110,10 @@ const loadMediaPipe = (() => {
     if (p) return p;
     p = new Promise((ok, no) => {
       if (window.__mpFM) { ok(window.__mpFM); return; }
-      const s     = document.createElement("script");
-      s.src       = `${MP_BASE}/face_mesh.js`;
-      s.async     = true;
-      s.onload    = () => {
+      const s   = document.createElement("script");
+      s.src     = `${MP_BASE}/face_mesh.js`;
+      s.async   = true;
+      s.onload  = () => {
         try {
           const fm = new window.FaceMesh({
             locateFile: (f) => `${MP_BASE}/${f}`,
@@ -78,7 +166,7 @@ const getSmile = (lm) => {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   THRESHOLDS
+   BRIGHTNESS PRE-CHECK
 ══════════════════════════════════════════════════════════════ */
 const CAM_BRIGHT_THRESH = 50;
 
@@ -99,12 +187,14 @@ const measureBrightness = (video) => {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   CHALLENGES (2 of 3 picked randomly per session)
+   CHALLENGES (2 of 3 picked randomly)
 ══════════════════════════════════════════════════════════════ */
 const ALL_CHALLENGES = [
   {
-    id: "blink", icon: <Eye size={22} />,
-    title: "Blink twice", hint: "Slowly close and open your eyes twice",
+    id: "blink",
+    icon: <EyeIcon size={22} />,
+    title: "Blink twice",
+    hint: "Slowly close and open your eyes twice",
     detect: (rd) => {
       const v = rd.filter((r) => !r.multi);
       let blinks = 0, open = true;
@@ -117,23 +207,27 @@ const ALL_CHALLENGES = [
     },
   },
   {
-    id: "turn", icon: <ArrowLeftRight size={22} />,
-    title: "Turn head left then right", hint: "Slowly turn left, then right, then forward",
+    id: "turn",
+    icon: <ArrowsIcon size={22} />,
+    title: "Turn head left then right",
+    hint: "Slowly turn left, then right, then forward",
     detect: (rd, bl) => {
       const v = rd.filter((r) => !r.multi);
       let l = false, r = false;
       for (const x of v) {
         const t = x.turn - bl.turn;
         if (t < -0.06) l = true;
-        if (t > 0.06)  r = true;
+        if (t > 0.06) r = true;
         if (l && r) return true;
       }
       return false;
     },
   },
   {
-    id: "smile", icon: <Smile size={22} />,
-    title: "Smile!", hint: "Give us a big smile",
+    id: "smile",
+    icon: <SmileIcon size={22} />,
+    title: "Smile!",
+    hint: "Give us a big smile",
     detect: (rd, bl) => {
       const v = rd.filter((r) => !r.multi);
       return v.some((r) => r.smile - bl.smile > 0.08);
@@ -159,24 +253,24 @@ const captureFrame = (v, q = 0.88) =>
    COMPONENT
 ══════════════════════════════════════════════════════════════ */
 export default function LivenessChallenge({ onComplete, onSkip }) {
-  const [phase,     setPhase]     = useState("idle");
-  const [challs,    setChalls]    = useState([]);
-  const [idx,       setIdx]       = useState(0);
-  const [done,      setDone]      = useState(0);
-  const [secs,      setSecs]      = useState(5);
-  const [face,      setFace]      = useState(false);
-  const [errMsg,    setErrMsg]    = useState("");
-  const [loadMsg,   setLoadMsg]   = useState("");
+  const [phase,   setPhase]   = useState("idle");
+  const [challs,  setChalls]  = useState([]);
+  const [idx,     setIdx]     = useState(0);
+  const [done,    setDone]    = useState(0);
+  const [secs,    setSecs]    = useState(5);
+  const [face,    setFace]    = useState(false);
+  const [errMsg,  setErrMsg]  = useState("");
+  const [loadMsg, setLoadMsg] = useState("");
 
-  const vidRef   = useRef(null);
-  const strRef   = useRef(null);
-  const fmRef    = useRef(null);
-  const blRef    = useRef(null);
-  const rdRef    = useRef([]);
-  const tmrRef   = useRef(null);
-  const rafRef   = useRef(null);
-  const mtRef    = useRef(true);
-  const phRef    = useRef("idle");
+  const vidRef  = useRef(null);
+  const strRef  = useRef(null);
+  const fmRef   = useRef(null);
+  const blRef   = useRef(null);
+  const rdRef   = useRef([]);
+  const tmrRef  = useRef(null);
+  const rafRef  = useRef(null);
+  const mtRef   = useRef(true);
+  const phRef   = useRef("idle");
 
   useEffect(() => {
     mtRef.current = true;
@@ -216,6 +310,7 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
       if (!mtRef.current) return;
       const faces = res.multiFaceLandmarks ?? [];
 
+      /* Reject 0 or multiple faces */
       if (faces.length !== 1) {
         safe(() => setFace(false));
         if (faces.length > 1 && phRef.current === "challenge")
@@ -225,7 +320,7 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
 
       safe(() => setFace(true));
       const lm = faces[0];
-      const r  = {
+      const r = {
         lEAR  : getEAR(lm, LM.L_TOP, LM.L_BOT, LM.L_L, LM.L_R),
         rEAR  : getEAR(lm, LM.R_TOP, LM.R_BOT, LM.R_L, LM.R_R),
         turn  : getHeadTurn(lm),
@@ -266,11 +361,11 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
 
     const ok = await startCam();
     if (!ok) {
-      safe(() => { setPhase("error"); setErrMsg("Camera access denied. Allow camera access and try again."); });
+      safe(() => { setPhase("error"); setErrMsg("Camera access denied. Allow camera and try again."); });
       return;
     }
 
-    /* Brightness pre-check — wait for auto-exposure */
+    /* Brightness pre-check */
     await new Promise((r) => setTimeout(r, 500));
     if (vidRef.current) {
       const br = measureBrightness(vidRef.current);
@@ -288,7 +383,11 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
 
     let fm;
     try { fm = await loadMediaPipe(); fmRef.current = fm; }
-    catch { stopCam(); safe(() => { setPhase("error"); setErrMsg("Face detection failed to load."); }); return; }
+    catch {
+      stopCam();
+      safe(() => { setPhase("error"); setErrMsg("Face detection failed to load."); });
+      return;
+    }
 
     const c = pick2();
     rdRef.current = [];
@@ -357,23 +456,25 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
      RENDER
   ════════════════════════════════════════════════════════ */
 
+  /* ── Idle ── */
   if (phase === "idle") {
     return (
       <div className="lv-shell">
         <div className="lv-intro">
-          <div className="lv-intro__icon"><Camera size={32} /></div>
+          <div className="lv-intro__icon"><CameraIcon size={32} /></div>
           <h3 className="lv-intro__title">Liveness Check</h3>
           <p className="lv-intro__body">
-            Complete 2 short face challenges with your front camera. Takes about 15 seconds.
+            Complete 2 short face challenges with your front camera.
+            Takes about 15 seconds.
           </p>
           <ul className="lv-intro__list">
-            <li><Eye size={13} /> Blink detection</li>
-            <li><ArrowLeftRight size={13} /> Head movement</li>
-            <li><Smile size={13} /> Smile challenge</li>
+            <li><EyeIcon size={13} /> Blink detection</li>
+            <li><ArrowsIcon size={13} /> Head movement</li>
+            <li><SmileIcon size={13} /> Smile challenge</li>
           </ul>
           <div className="lv-intro__actions">
             <button className="v-btn v-btn--primary v-btn--lg" onClick={startFlow}>
-              <Camera size={15} /> Start Liveness Check
+              <CameraIcon size={15} /> Start Liveness Check
             </button>
             {onSkip && (
               <button className="v-btn v-btn--ghost v-btn--sm" onClick={onSkip}>
@@ -386,29 +487,33 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
     );
   }
 
+  /* ── Loading ── */
   if (phase === "loading") {
     return (
       <div className="lv-shell">
         <div className="lv-center">
-          <Loader2 size={32} className="v-spin" />
+          <SpinnerIcon size={32} />
           <p className="lv-status">{loadMsg}</p>
         </div>
       </div>
     );
   }
 
+  /* ── Error ── */
   if (phase === "error") {
     return (
       <div className="lv-shell">
         <div className="lv-center">
-          <AlertTriangle size={32} className="lv-icon--warn" />
+          <AlertIcon size={32} className="lv-icon--warn" />
           <p className="lv-status lv-status--error">{errMsg}</p>
           <div className="lv-actions">
             <button className="v-btn v-btn--primary" onClick={startFlow}>
-              <RefreshCw size={13} /> Try Again
+              <RetryIcon size={13} /> Try Again
             </button>
             {onSkip && (
-              <button className="v-btn v-btn--ghost v-btn--sm" onClick={onSkip}>Skip</button>
+              <button className="v-btn v-btn--ghost v-btn--sm" onClick={onSkip}>
+                Skip
+              </button>
             )}
           </div>
         </div>
@@ -416,11 +521,12 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
     );
   }
 
+  /* ── Passed ── */
   if (phase === "passed") {
     return (
       <div className="lv-shell">
         <div className="lv-center">
-          <div className="lv-success-ring"><CheckCircle size={36} /></div>
+          <div className="lv-success-ring"><CheckIcon size={36} /></div>
           <p className="lv-status lv-status--pass">Liveness confirmed!</p>
           <p className="lv-hint">All challenges completed successfully.</p>
         </div>
@@ -428,11 +534,12 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
     );
   }
 
+  /* ── Failed ── */
   if (phase === "failed") {
     return (
       <div className="lv-shell">
         <div className="lv-center">
-          <AlertTriangle size={32} className="lv-icon--warn" />
+          <AlertIcon size={32} className="lv-icon--warn" />
           <p className="lv-status lv-status--error">Challenge failed</p>
           <p className="lv-hint">
             Could not detect the required movement in time.
@@ -440,10 +547,12 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
           </p>
           <div className="lv-actions">
             <button className="v-btn v-btn--primary" onClick={retry}>
-              <RefreshCw size={13} /> Try Again
+              <RetryIcon size={13} /> Try Again
             </button>
             {onSkip && (
-              <button className="v-btn v-btn--ghost v-btn--sm" onClick={onSkip}>Skip</button>
+              <button className="v-btn v-btn--ghost v-btn--sm" onClick={onSkip}>
+                Skip
+              </button>
             )}
           </div>
         </div>
@@ -460,37 +569,42 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
     <div className="lv-shell">
 
       <div className={`lv-camera-wrap${!face && !isBaseline ? " lv-camera-wrap--noface" : ""}`}>
-        <video ref={vidRef} className="lv-video" autoPlay playsInline muted
-               aria-label="Camera feed for liveness detection" />
+        <video
+          ref={vidRef} className="lv-video"
+          autoPlay playsInline muted
+          aria-label="Camera feed for liveness detection"
+        />
         <div className="lv-guide-oval" aria-hidden="true" />
 
         {!face && !isBaseline && (
           <div className="lv-noface-banner" role="alert">
-            <AlertTriangle size={12} />
-            {!face ? "Only one face allowed — or position your face in the oval" : ""}
+            <AlertIcon size={12} /> Position your face in the oval
           </div>
         )}
 
         {isBaseline && (
           <div className="lv-baseline-banner">
-            <Loader2 size={12} className="v-spin" /> Calibrating…
+            <SpinnerIcon size={12} /> Calibrating…
           </div>
         )}
 
         {isCapture && (
-          <div className="lv-capture-flash" aria-live="polite">Capturing…</div>
+          <div className="lv-capture-flash" aria-live="polite">
+            Capturing…
+          </div>
         )}
       </div>
 
       {!isBaseline && !isCapture && ch && (
         <div className="lv-challenge">
 
-          <div className="lv-progress-dots" aria-label={`Challenge ${idx + 1} of ${challs.length}`}>
+          <div className="lv-progress-dots"
+               aria-label={`Challenge ${idx + 1} of ${challs.length}`}>
             {challs.map((c, i) => (
               <span key={c.id} className={[
                 "lv-dot",
-                i < idx  ? "lv-dot--done"   : "",
-                i === idx ? "lv-dot--active" : "",
+                i < idx   ? "lv-dot--done"   : "",
+                i === idx ? "lv-dot--active"  : "",
               ].join(" ")} />
             ))}
           </div>
@@ -510,9 +624,11 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
                         strokeDasharray={`${2 * Math.PI * 20}`}
                         strokeDashoffset={`${2 * Math.PI * 20 * (1 - secs / 5)}`}
                         style={{
-                          transformOrigin: "center", transform: "rotate(-90deg)",
+                          transformOrigin: "center",
+                          transform: "rotate(-90deg)",
                           transition: "stroke-dashoffset 1s linear",
-                        }} />
+                        }}
+                />
               </svg>
               <span className="lv-countdown__num">{secs}</span>
             </div>
@@ -521,7 +637,7 @@ export default function LivenessChallenge({ onComplete, onSkip }) {
       )}
 
       <button className="lv-cancel" onClick={retry} aria-label="Cancel">
-        <X size={14} /> Cancel
+        <XIcon size={14} /> Cancel
       </button>
 
     </div>
