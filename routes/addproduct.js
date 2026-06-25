@@ -1,5 +1,5 @@
 /**
- * routes/addproduct.js — v9
+ * routes/addproduct.js — v10
  *
  * POST   /api/addproduct/products                    — Create product
  * POST   /api/addproduct/products/:id/activate       — Activate (free or post-payment)
@@ -10,14 +10,13 @@
  * GET    /api/addproduct/categories/:id/price-guidance
  * POST   /api/addproduct/products/check-duplicate
  *
- * ── Changes from v8 ─────────────────────────────────────────────────────
- *  ─ Pre-upload policy check (fast-path) added before Cloudinary call
- *    Catches trial_exhausted / daily_limit / cooldown before wasting
- *    storage quota. A second locked check inside the TX still runs
- *    to handle concurrent race conditions.
- *  ─ Slug generation replaced: crypto.randomUUID().slice(0,8) guarantees
- *    uniqueness without retry loops. MAX_SLUG_RETRIES removed.
- *  ─ DB schema documented at bottom of file.
+ * ── Changes from v9 ─────────────────────────────────────────────────────
+ *  ─ Category validated BEFORE image upload (saves Cloudinary bandwidth)
+ *  ─ Redis trending keys now use a rolling 24-hour sorted set with TTL:
+ *      • zAdd with score = current Unix timestamp
+ *      • zRemRangeByScore removes entries older than 24h
+ *      • EXPIRE refreshes the key TTL to 25h on every write
+ *    This gives true rolling-window trending instead of lifetime accumulation.
  */
 
 import express     from "express";
@@ -76,6 +75,15 @@ const ALLOWED_WA_HOSTS = [
   "business.whatsapp.com",
 ];
 
+/*
+ * TRENDING_TTL_SECS — how long a trending key lives after its last write.
+ * Set slightly longer than the window (25h) so the key is not evicted
+ * mid-window due to clock drift.
+ */
+const TRENDING_WINDOW_SECS = 24 * 60 * 60;       /* 24 hours in seconds  */
+const TRENDING_TTL_SECS    = TRENDING_WINDOW_SECS + 3_600; /* 25 hours        */
+const TRENDING_KEY         = "trending:24h";
+
 /* ═══════════════════════════════════════════════════════════════
    REDIS
 ═══════════════════════════════════════════════════════════════ */
@@ -98,6 +106,37 @@ let redis = null;
     redis = null;
   }
 })();
+
+/*
+ * trackTrending — rolling 24-hour sorted set.
+ *
+ * Strategy: score = Unix timestamp (seconds).
+ * On every call:
+ *   1. ZADD  — add/update the product with score = now
+ *   2. ZREMRANGEBYSCORE — prune entries older than 24h
+ *   3. EXPIRE — keep the key alive for 25h after last write
+ *
+ * To read trending products elsewhere:
+ *   ZREVRANGEBYSCORE trending:24h +inf <cutoff> LIMIT 0 20
+ * where cutoff = Date.now()/1000 - 86400
+ *
+ * This gives true rolling-window trending — a product that was
+ * hot 25 hours ago but has had no activity since will drop off.
+ */
+const trackTrending = async (productId) => {
+  if (!redis) return;
+  try {
+    const nowSecs  = Math.floor(Date.now() / 1_000);
+    const cutoff   = nowSecs - TRENDING_WINDOW_SECS;
+    const pipeline = redis.multi();
+    pipeline.zAdd(TRENDING_KEY, { score: nowSecs, value: productId });
+    pipeline.zRemRangeByScore(TRENDING_KEY, "-inf", cutoff);
+    pipeline.expire(TRENDING_KEY, TRENDING_TTL_SECS);
+    await pipeline.exec();
+  } catch (e) {
+    console.warn("[addproduct] trackTrending error:", e.message);
+  }
+};
 
 /* ═══════════════════════════════════════════════════════════════
    MULTER
@@ -285,27 +324,63 @@ const slugify = (text = "") =>
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
 
-/**
- * Build a guaranteed-unique slug using crypto.randomUUID().
- *
- * v8 used a retry loop (MAX_SLUG_RETRIES = 10) with a random 4-digit
- * suffix. Under heavy DB load those retries could still exhaust.
- *
- * v9 approach:
- *   <base-slug>-<8 chars from UUID>
- *
- * UUID v4 has 122 bits of randomness. Even taking 8 hex chars (32 bits)
- * the collision probability for any single seller is negligible, and the
- * slug column has a UNIQUE constraint as a hard backstop.
- * The single catch below handles the astronomically unlikely collision
- * by appending the full timestamp.
+/*
+ * buildSlug — appends 8 hex chars from crypto.randomUUID().
+ * 32 bits of randomness makes collision probability negligible.
+ * UNIQUE constraint on slug column is the hard backstop.
  */
 const buildSlug = (base) =>
   `${base}-${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
 
 /* ═══════════════════════════════════════════════════════════════
    CATEGORY VALIDATION
+   Two variants:
+     validateCategoryEarly  — uses pool directly (no TX), called
+                              before image upload to save bandwidth.
+     validateCategoryRelationship — uses a TX client, called inside
+                              the locked transaction as a second check.
 ═══════════════════════════════════════════════════════════════ */
+
+/*
+ * Early (pre-upload) category check — no transaction needed.
+ * Only validates existence and parent relationship; does not lock rows.
+ * Purpose: fail fast before spending Cloudinary quota on invalid input.
+ */
+const validateCategoryEarly = async (categoryId, subcategoryId) => {
+  const { rows: catRows } = await pool.query(
+    "SELECT id FROM categories WHERE id = $1 AND is_active = TRUE",
+    [categoryId]
+  );
+  if (!catRows.length)
+    return {
+      valid   : false,
+      message : "Selected category does not exist or is inactive.",
+    };
+
+  if (subcategoryId) {
+    const { rows: subRows } = await pool.query(
+      `SELECT id FROM categories
+       WHERE  id        = $1
+         AND  parent_id = $2
+         AND  is_active = TRUE`,
+      [subcategoryId, categoryId]
+    );
+    if (!subRows.length)
+      return {
+        valid   : false,
+        message : "Selected subcategory does not belong to the chosen category.",
+      };
+  }
+
+  return { valid: true };
+};
+
+/*
+ * In-transaction category check — uses the TX client.
+ * Runs inside BEGIN/COMMIT to confirm category is still valid
+ * at the moment of insert (guards against category being
+ * deactivated between the early check and the insert).
+ */
 const validateCategoryRelationship = async (
   client,
   categoryId,
@@ -343,9 +418,10 @@ const validateCategoryRelationship = async (
    SELLER CONTEXT
 ═══════════════════════════════════════════════════════════════ */
 
-/**
- * Shared aggregation query used by both context functions.
- * Returns raw stat rows — caller decides what to do with them.
+/*
+ * Shared aggregation query.
+ * Lifetime count has NO status filter — deleted products still count.
+ * A scammer cannot delete their 3 trial listings to reset the counter.
  */
 const fetchSellerStats = (client, sellerId) => {
   const today = getTodayUTC();
@@ -362,7 +438,6 @@ const fetchSellerStats = (client, sellerId) => {
            AND status IN ('active', 'active_limited')
        )::int                                                 AS active_count,
 
-       /* ALL rows, including deleted — anti-scam lifetime counter */
        COUNT(*)::int                                          AS lifetime_count,
 
        MAX(created_at) FILTER (WHERE status <> 'deleted')     AS last_submit_at
@@ -413,10 +488,7 @@ const buildContext = (isVerified, stats) => {
   };
 };
 
-/**
- * WRITE context — acquires FOR UPDATE on the user row to serialise
- * concurrent posts at the DB level.
- */
+/* WRITE context — FOR UPDATE lock serialises concurrent posts */
 const getSellerContext = async (client, sellerId) => {
   const { rows: userRows } = await client.query(
     "SELECT identity_verified FROM public.users WHERE id = $1 FOR UPDATE",
@@ -429,10 +501,7 @@ const getSellerContext = async (client, sellerId) => {
   return buildContext(isVerified, stats[0]);
 };
 
-/**
- * READ-ONLY context for GET /seller/limits.
- * No FOR UPDATE — avoids contention with concurrent writes.
- */
+/* READ-ONLY context — no lock, used for GET /seller/limits */
 const getSellerContextReadOnly = async (client, sellerId) => {
   const { rows: userRows } = await client.query(
     "SELECT identity_verified FROM public.users WHERE id = $1",
@@ -445,13 +514,7 @@ const getSellerContextReadOnly = async (client, sellerId) => {
   return buildContext(isVerified, stats[0]);
 };
 
-/**
- * PRE-UPLOAD context — lightweight check without FOR UPDATE.
- * Used to reject obvious policy violations BEFORE wasting Cloudinary quota.
- *
- * A second locked check still runs inside the TX to handle races.
- * This is an optimistic fast-path, not a security gate.
- */
+/* PRE-UPLOAD context — optimistic fast-path, no TX, no lock */
 const getSellerContextPreUpload = async (sellerId) => {
   const { rows: userRows } = await pool.query(
     "SELECT identity_verified FROM public.users WHERE id = $1",
@@ -460,25 +523,15 @@ const getSellerContextPreUpload = async (sellerId) => {
   if (!userRows.length) throw new Error("Seller account not found.");
 
   const isVerified      = Boolean(userRows[0].identity_verified);
-  const client          = { query: (...a) => pool.query(...a) }; // no TX
+  const client          = { query: (...a) => pool.query(...a) };
   const { rows: stats } = await fetchSellerStats(client, sellerId);
   return buildContext(isVerified, stats[0]);
 };
 
 /* ═══════════════════════════════════════════════════════════════
    POLICY ENFORCEMENT
+   Order: trial exhausted → daily → active → cooldown
 ═══════════════════════════════════════════════════════════════ */
-
-/**
- * Enforce all policy limits.
- * Returns { status, message, extra } or null if clear.
- *
- * Order:
- *   1. Trial exhausted (hard block)
- *   2. Daily limit
- *   3. Active listing limit
- *   4. Cooldown
- */
 const enforcePolicyLimits = ({
   isVerified,
   policy,
@@ -621,7 +674,6 @@ const buildTrialInfo = (ctx) => {
 /* ═══════════════════════════════════════════════════════════════
    EXPORTED CRON UTILITIES
 ═══════════════════════════════════════════════════════════════ */
-
 export const reactivateLimitedListings = async (sellerId) => {
   const client = await pool.connect();
   try {
@@ -652,9 +704,9 @@ export const reactivateLimitedListings = async (sellerId) => {
       }).catch(() => {});
 
       if (redis) {
-        rows.forEach((r) =>
-          redis.zIncrBy("trending:24h", 5, r.id).catch(() => {})
-        );
+        for (const r of rows) {
+          trackTrending(r.id).catch(() => {});
+        }
       }
     }
 
@@ -847,6 +899,8 @@ router.get(
 
 /* ═══════════════════════════════════════════════════════════════
    GET /seller/limits
+   upgrade_message omitted — upsell modal in components.jsx
+   handles all verification messaging. The banner is silenced.
 ═══════════════════════════════════════════════════════════════ */
 router.get(
   "/seller/limits",
@@ -889,13 +943,12 @@ router.get(
           ? null
           : POLICY.unverified.totalLifetimeMax,
 
-        upgrade_message  : ctx.isVerified
-          ? null
-          : ctx.trialExhausted
-          ? "You have used all 3 free trial listings. " +
-            "Verify your identity to continue posting on Loemart."
-          : `You have ${ctx.trialRemaining} free trial listing(s) remaining. ` +
-            "Verify your identity for unlimited posting.",
+        /*
+         * upgrade_message intentionally omitted.
+         * The upsell modal in components.jsx handles all messaging.
+         * Sending it here caused the SellerLimitsBanner to appear
+         * on every unverified account even before any listing was posted.
+         */
       });
     } catch (err) {
       console.error("[addproduct] LIMITS ERROR:", err.message);
@@ -992,7 +1045,7 @@ router.get(
 
       if (!rows.length) return fail(res, 404, "Product not found.");
 
-      const p = rows[0];
+      const p         = rows[0];
       const isLimited = p.status === "active_limited";
       const isExpired =
         isLimited &&
@@ -1030,19 +1083,21 @@ router.get(
 /* ═══════════════════════════════════════════════════════════════
    POST /products — Create product
 
-   Two-phase policy check:
+   Request flow (v10):
 
-   PHASE 1 — Pre-upload (optimistic, no lock):
-     Catches obvious violations (trial exhausted, daily limit,
-     cooldown) BEFORE uploading to Cloudinary.
-     This eliminates wasted storage for the most common block cases.
-
-   PHASE 2 — Inside TX (locked, authoritative):
-     Re-runs the same checks with FOR UPDATE on the user row.
-     This is the security gate that handles concurrent races.
-
-   If Phase 2 rejects what Phase 1 allowed (race window), the
-   already-uploaded images are cleaned up via destroyCloudinaryAssets.
+     1. Parse + validate text fields
+     2. Idempotency guard
+     3. Spam check
+     4. PHASE 1: Pre-upload policy check (optimistic, no lock)
+     5. Early category validation  ← NEW (saves Cloudinary on bad input)
+     6. Upload images to Cloudinary
+     7. PHASE 2: Locked TX
+        a. getSellerContext (FOR UPDATE)
+        b. In-TX category re-validation (guards deactivated-between-checks)
+        c. Policy enforcement (authoritative)
+        d. Insert product + images
+        e. COMMIT
+     8. Fire-and-forget: hashes, audit, trust, trending
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/products",
@@ -1140,7 +1195,7 @@ router.post(
 
     /* ── Spam check ── */
     const spamResult = await detectSpamListing({
-      seller_id: sellerId,
+      seller_id   : sellerId,
       title,
       description,
       price,
@@ -1153,35 +1208,16 @@ router.post(
       });
     }
 
-    /* ── PHASE 1: Pre-upload policy check (optimistic, no lock) ──────
-     *
-     * Only runs for active submissions — drafts skip policy entirely.
-     *
-     * Catches the most common hard-block cases before we spend
-     * Cloudinary quota:
-     *   • trial_exhausted  → 403, no upload
-     *   • daily limit      → 429, no upload
-     *   • cooldown         → 429, no upload
-     *
-     * Does NOT check active listing limit here because that requires
-     * knowing the current active count at lock time (race-sensitive).
-     *
-     * Phase 2 (inside TX, FOR UPDATE) is the authoritative gate and
-     * runs regardless of what Phase 1 returns.
-     * ──────────────────────────────────────────────────────────────── */
+    /* ── PHASE 1: Pre-upload policy check (optimistic, no lock) ── */
     if (requestedStatus === "active") {
       try {
-        const preCtx = await getSellerContextPreUpload(sellerId);
+        const preCtx   = await getSellerContextPreUpload(sellerId);
         const earlyErr = enforcePolicyLimits({
           ...preCtx,
-          /* Skip active-count check here — race-sensitive, handled in TX */
-          activeCount: 0,
+          activeCount: 0, /* skip active-count — race-sensitive, handled in TX */
         });
         if (earlyErr) {
-          console.log(
-            "[addproduct] pre-upload block:",
-            earlyErr.message
-          );
+          console.log("[addproduct] pre-upload block:", earlyErr.message);
           return fail(
             res,
             earlyErr.status,
@@ -1190,7 +1226,7 @@ router.post(
           );
         }
       } catch (preErr) {
-        /* Non-critical — proceed to upload and let TX check catch it */
+        /* Non-critical — proceed, TX check will catch it */
         console.warn(
           "[addproduct] pre-upload check failed (non-fatal):",
           preErr.message
@@ -1198,7 +1234,25 @@ router.post(
       }
     }
 
-    /* ── Upload images (after Phase 1 clears, before TX) ── */
+    /* ── Early category validation (BEFORE Cloudinary upload) ──────
+     *
+     * Validates category and subcategory existence using pool directly
+     * (no transaction needed at this point). If the category is invalid
+     * we return immediately without spending any Cloudinary quota.
+     *
+     * A second in-TX validation still runs inside the transaction to
+     * guard against the category being deactivated in the small window
+     * between this check and the INSERT.
+     * ──────────────────────────────────────────────────────────── */
+    const earlyCategory = await validateCategoryEarly(
+      categoryId,
+      subcategoryId
+    );
+    if (!earlyCategory.valid) {
+      return fail(res, 400, earlyCategory.message);
+    }
+
+    /* ── Upload images (after policy + category checks clear) ── */
     console.log("[addproduct] uploading", files.length, "image(s)...");
     let uploaded;
     try {
@@ -1222,7 +1276,7 @@ router.post(
     const thumbnail = uploaded[0]?.url ?? null;
     const publicIds = uploaded.map((u) => u.publicId);
 
-    /* ── PHASE 2: Locked TX — authoritative policy check ── */
+    /* ── PHASE 2: Locked TX — authoritative checks ── */
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -1238,6 +1292,11 @@ router.post(
         trialRemaining : ctx.trialRemaining,
       });
 
+      /*
+       * In-TX category re-validation.
+       * Catches the rare case where a category is deactivated between
+       * the early check above and this INSERT.
+       */
       const catCheck = await validateCategoryRelationship(
         client,
         categoryId,
@@ -1274,18 +1333,7 @@ router.post(
         activeUntil = computeActiveUntil(false);
       }
 
-      /* ── Insert product — UUID-based slug, single attempt ──────────
-       *
-       * v8 used a while loop with MAX_SLUG_RETRIES = 10 and a random
-       * 4-digit suffix. Under heavy load those retries could exhaust.
-       *
-       * v9: buildSlug() appends 8 hex chars from crypto.randomUUID().
-       * 8 hex chars = 32 bits of randomness per slug. The probability
-       * of a collision for any single title is ~1 in 4 billion.
-       * The UNIQUE constraint on slug is still the hard backstop.
-       * One catch handles the astronomically unlikely collision by
-       * falling back to a full-timestamp suffix.
-       * ──────────────────────────────────────────────────────────── */
+      /* Insert product — UUID slug, timestamp fallback on collision */
       const baseSlug = slugify(title).slice(0, 60);
       let product;
 
@@ -1327,11 +1375,11 @@ router.post(
             idempotencyKey ?? null,
             locationState,
             locationCity,
-            latitude ?? null,
+            latitude  ?? null,
             longitude ?? null,
             sellerName,
             phone,
-            whatsapp ?? null,
+            whatsapp     ?? null,
             whatsappLink,
             JSON.stringify(attributes),
             JSON.stringify(delivery),
@@ -1348,7 +1396,6 @@ router.post(
           firstErr.code === "23505" &&
           firstErr.constraint?.includes("slug")
         ) {
-          /* Extremely unlikely collision — fallback to timestamp suffix */
           console.warn(
             "[addproduct] slug collision (UUID), falling back to timestamp"
           );
@@ -1422,7 +1469,9 @@ router.post(
       updateSellerTrust(sellerId).catch((e) =>
         console.warn("[addproduct] updateSellerTrust:", e.message)
       );
-      redis?.zIncrBy("trending:24h", 5, product.id).catch(() => {});
+
+      /* Rolling 24-hour trending — score = unix timestamp */
+      trackTrending(product.id).catch(() => {});
 
       const needsVerification = finalStatus === "active_limited";
       const trialInfo         = buildTrialInfo(ctx);
@@ -1622,10 +1671,10 @@ router.post(
         ipAddress  : ip,
       }).catch(() => {});
 
-      redis?.zIncrBy("trending:24h", 10, productId).catch(() => {});
+      trackTrending(productId).catch(() => {});
 
       const needsVerification = finalStatus === "active_limited";
-      const daysRemaining =
+      const daysRemaining     =
         needsVerification && activeUntil
           ? Math.max(
               0,
@@ -1668,6 +1717,10 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE /products/:id — SOFT DELETE
+   Sets status = 'deleted' — row stays in the lifetime counter.
+   A scammer cannot delete to reset their trial count.
+   Deletable: draft, paused, pending_payment, active_limited.
+   Fully active (verified) listings must be paused first.
 ═══════════════════════════════════════════════════════════════ */
 router.delete("/products/:id", authenticate, async (req, res) => {
   const sellerId  = req.user?.id;
@@ -1728,4 +1781,3 @@ router.delete("/products/:id", authenticate, async (req, res) => {
 });
 
 export default router;
-
