@@ -1,21 +1,24 @@
-/**
- * routes/verification.js
- *
- * POST /api/verification/send-email-otp
- * POST /api/verification/verify-email-otp
- * POST /api/verification/submit-identity
- * POST /api/verification/submit-store
- * GET  /api/verification/status
- *
- * ── Security model ────────────────────────────────────────────────────────
- *  • OTPs are bcrypt-hashed before storage — plaintext never persists.
- *  • Document numbers are HMAC-SHA256 hashed (keyed) before storage.
- *  • Duplicate document detection via pre-insert check + DB unique index.
- *  • Abuse / brute-force: rate limiters + attempt caps + account flagging.
- *  • Verification ordering enforced: email → identity → store.
- *  • After identity verified: limited listings reactivated automatically.
- * ─────────────────────────────────────────────────────────────────────────
- */
+// ════════════════════════════════════════════════════════════
+// FILE: routes/verification.js — v3
+//
+// POST /api/verification/send-email-otp
+// POST /api/verification/verify-email-otp
+// POST /api/verification/face-check
+// POST /api/verification/submit
+// GET  /api/verification/status
+//
+// ── Security layers ──────────────────────────────────────────
+//  Layer 1  Application-level duplicate check (SELECT before INSERT)
+//  Layer 2  DB unique partial index on document_number_hash
+//  Layer 3  23505 handler converts constraint violation → 409
+//  Layer 4  OTPs bcrypt-hashed — plaintext never stored
+//  Layer 5  Document numbers HMAC-SHA256 hashed (keyed, normalised)
+//  Layer 6  Rate limiters + attempt caps + account flagging
+//  Layer 7  Email verified before identity submission allowed
+//  Layer 8  Server-side face match (InsightFace / FaceNet)
+//  Layer 9  Hard block on definitive face mismatch
+//  Layer 10 Atomic transaction — identity + store or nothing
+// ─────────────────────────────────────────────────────────────
 
 import express   from "express";
 import bcrypt    from "bcrypt";
@@ -33,16 +36,13 @@ import {
 } from "../services/email.js";
 import { reactivateLimitedListings } from "./addproduct.js";
 
-const router = express.Router();
-
-/* ══════════════════════════════════════════════════════════════════════════
-   ENVIRONMENT
-══════════════════════════════════════════════════════════════════════════ */
+const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
 
-/* ── Startup diagnostics ── */
-console.log("[verification] module loaded");
-console.log("[verification] NODE_ENV       :", process.env.NODE_ENV);
+/* ══════════════════════════════════════════════════════════════
+   STARTUP DIAGNOSTICS
+══════════════════════════════════════════════════════════════ */
+console.log("[verification] module loaded  NODE_ENV:", process.env.NODE_ENV);
 console.log(
   "[verification] RESEND_API_KEY :",
   process.env.RESEND_API_KEY
@@ -50,202 +50,276 @@ console.log(
     : "❌ NOT SET"
 );
 console.log(
-  "[verification] EMAIL_FROM     :",
-  process.env.EMAIL_FROM || "(default)"
-);
-console.log(
   "[verification] DOC_HASH_SECRET:",
   process.env.DOC_HASH_SECRET
     ? `SET …${process.env.DOC_HASH_SECRET.slice(-4)}`
     : "❌ NOT SET — duplicate detection DISABLED"
 );
+console.log(
+  "[verification] FACE_SERVICE   :",
+  process.env.FACE_SERVICE_URL || "❌ NOT SET — face-check skipped"
+);
 
-/* ══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    POLICY
-══════════════════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const POLICY = Object.freeze({
-  /* OTP */
   DAILY_SEND_LIMIT     : IS_PROD ?  3 : 50,
   RESEND_COOLDOWN_SECS : IS_PROD ? 60 : 30,
   OTP_EXPIRY_MINUTES   : 10,
   MAX_VERIFY_ATTEMPTS  : IS_PROD ?  5 : 10,
-
-  /* Abuse */
   ABUSE_WINDOW_MINUTES : 10,
   ABUSE_THRESHOLD      : IS_PROD ?  5 : 40,
-
-  /* Hashing */
   BCRYPT_ROUNDS        : 10,
 });
 
-console.log("[verification] POLICY:", POLICY);
-
-/* ══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    TRUST SCORE
    email_verified    → 30 pts
    identity_verified → 35 pts
    store_verified    → 20 pts
-   age > 30 days     → 10 pts
-   age > 90 days     →  5 pts
+   account > 30 days → 10 pts
+   account > 90 days →  5 pts
    cap               → 100 pts
-══════════════════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const computeTrustScore = (user) => {
-  let score = 0;
-  if (user.email_verified)    score += 30;
-  if (user.identity_verified) score += 35;
-  if (user.store_verified)    score += 20;
-
-  const ageDays =
-    (Date.now() - new Date(user.created_at).getTime()) / 86_400_000;
-  if (ageDays > 30) score += 10;
-  if (ageDays > 90) score +=  5;
-
-  return Math.min(score, 100);
+  let s = 0;
+  if (user.email_verified)    s += 30;
+  if (user.identity_verified) s += 35;
+  if (user.store_verified)    s += 20;
+  const age = (Date.now() - new Date(user.created_at).getTime()) / 86_400_000;
+  if (age > 30) s += 10;
+  if (age > 90) s +=  5;
+  return Math.min(s, 100);
 };
 
-/* ══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    FILE POLICY
-══════════════════════════════════════════════════════════════════════════ */
-const DOC_MIME = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-  "application/pdf",
-]);
-const IMG_MIME = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/webp",
-]);
-const EXT_TO_MIME = {
+══════════════════════════════════════════════════════════════ */
+const DOC_MIME  = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
+const IMG_MIME  = new Set(["image/jpeg", "image/png", "image/webp"]);
+const EXT_MIME  = {
   ".jpg"  : "image/jpeg",
   ".jpeg" : "image/jpeg",
   ".png"  : "image/png",
   ".webp" : "image/webp",
   ".pdf"  : "application/pdf",
 };
+
+const MAX_DOC_BYTES  = 5 * 1_048_576;   /* 5 MB */
+const MAX_LOGO_BYTES = 2 * 1_048_576;   /* 2 MB */
+const MAX_LV_BYTES   = 3 * 1_048_576;   /* 3 MB */
+
 const VALID_DOC_TYPES = new Set([
   "nin",
   "passport",
   "drivers_license",
   "voters_card",
 ]);
-const MAX_DOC_BYTES  = 5 * 1_048_576; // 5 MB
-const MAX_LOGO_BYTES = 2 * 1_048_576; // 2 MB
 
-/* ══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
+   DOCUMENT NUMBER VALIDATORS
+   Server-side regex mirrors frontend DOC_RULES.
+   Server is the authority — frontend rules are UX hints only.
+══════════════════════════════════════════════════════════════ */
+const DOC_VALIDATORS = {
+  nin             : (v) => /^\d{11}$/.test(v.replace(/\s/g, "")),
+  passport        : (v) => /^[A-Za-z]\d{8}$/.test(v.replace(/\s/g, "")),
+  drivers_license : (v) => /^[A-Za-z]{3}\d{6}[A-Za-z]{2}$/.test(v.replace(/[\s-]/g, "")),
+  voters_card     : (v) => /^[A-Za-z0-9]{19}$/.test(v.replace(/\s/g, "")),
+};
+
+/* ══════════════════════════════════════════════════════════════
    MULTER
-══════════════════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const memStore = multer.memoryStorage();
 
 const makeFilter = (allowed) => (_req, file, cb) => {
   if (allowed.has(file.mimetype)) return cb(null, true);
-  const err  = new Error(
-    `Invalid file type "${file.mimetype}". ` +
-    `Allowed: ${[...allowed].join(", ")}.`
+  const err = new Error(
+    `Invalid file type "${file.mimetype}". Allowed: ${[...allowed].join(", ")}.`
   );
   err.code = "INVALID_MIME";
   cb(err);
 };
 
-const uploadDocs = multer({
+/*
+ * uploadSubmit — handles all 5 possible files in POST /submit:
+ *   doc_front, doc_back, selfie, store_logo, liveness_frame
+ */
+const uploadSubmit = multer({
   storage    : memStore,
-  limits     : { fileSize: MAX_DOC_BYTES, files: 3 },
-  fileFilter : makeFilter(DOC_MIME),
+  limits     : { fileSize: MAX_DOC_BYTES, files: 5 },
+  fileFilter : (_req, file, cb) => {
+    const all = new Set([...DOC_MIME, ...IMG_MIME]);
+    if (all.has(file.mimetype)) return cb(null, true);
+    const err = new Error(`Invalid file type "${file.mimetype}".`);
+    err.code  = "INVALID_MIME";
+    cb(err);
+  },
 }).fields([
-  { name: "doc_front", maxCount: 1 },
-  { name: "doc_back",  maxCount: 1 },
-  { name: "selfie",    maxCount: 1 },
+  { name: "doc_front",      maxCount: 1 },
+  { name: "doc_back",       maxCount: 1 },
+  { name: "selfie",         maxCount: 1 },
+  { name: "store_logo",     maxCount: 1 },
+  { name: "liveness_frame", maxCount: 1 },
 ]);
 
-const uploadLogo = multer({
+const uploadFaceCheck = multer({
   storage    : memStore,
-  limits     : { fileSize: MAX_LOGO_BYTES, files: 1 },
+  limits     : { fileSize: MAX_DOC_BYTES, files: 2 },
   fileFilter : makeFilter(IMG_MIME),
-}).single("store_logo");
+}).fields([
+  { name: "selfie",    maxCount: 1 },
+  { name: "doc_front", maxCount: 1 },
+]);
 
-const withUpload = (fn) => (req, res, next) =>
-  fn(req, res, (err) => {
+const withUpload = (handler) => (req, res, next) =>
+  handler(req, res, (err) => {
     if (!err) return next();
-    const known =
-      err.code === "LIMIT_FILE_SIZE"  ||
-      err.code === "LIMIT_FILE_COUNT" ||
-      err.code === "INVALID_MIME";
+    const known = [
+      "LIMIT_FILE_SIZE",
+      "LIMIT_FILE_COUNT",
+      "INVALID_MIME",
+    ].includes(err.code);
     return known
       ? res.status(400).json({ success: false, message: err.message })
       : next(err);
   });
 
-/* ══════════════════════════════════════════════════════════════════════════
-   CLOUDINARY (lazy-loaded — avoids startup crash if misconfigured)
-══════════════════════════════════════════════════════════════════════════ */
-let _cld         = null;
-let _streamifier = null;
+/* ══════════════════════════════════════════════════════════════
+   CLOUDINARY — lazy-loaded, cached
+══════════════════════════════════════════════════════════════ */
+let _cld = null;
+let _sf  = null;
 
 async function getCld() {
   if (_cld) return _cld;
-
   const {
-    CLOUDINARY_CLOUD_NAME,
-    CLOUDINARY_API_KEY,
-    CLOUDINARY_API_SECRET,
+    CLOUDINARY_CLOUD_NAME : cn,
+    CLOUDINARY_API_KEY    : ak,
+    CLOUDINARY_API_SECRET : as,
   } = process.env;
 
-  if (!CLOUDINARY_CLOUD_NAME || !CLOUDINARY_API_KEY || !CLOUDINARY_API_SECRET) {
-    console.warn(
-      "[cloudinary] env vars missing — local placeholder URLs will be used"
-    );
+  if (!cn || !ak || !as) {
+    console.warn("[cloudinary] not configured — placeholder URLs in use");
     return null;
   }
 
   try {
     const { v2: cld } = await import("cloudinary");
     const sf           = await import("streamifier");
-    cld.config({
-      cloud_name : CLOUDINARY_CLOUD_NAME,
-      api_key    : CLOUDINARY_API_KEY,
-      api_secret : CLOUDINARY_API_SECRET,
-      secure     : true,
-    });
-    _cld         = cld;
-    _streamifier = sf.default ?? sf;
+    cld.config({ cloud_name: cn, api_key: ak, api_secret: as, secure: true });
+    _cld = cld;
+    _sf  = sf.default ?? sf;
     console.log("[cloudinary] ready");
     return _cld;
-  } catch (err) {
-    console.error("[cloudinary] init failed:", err.message);
+  } catch (e) {
+    console.error("[cloudinary] init failed:", e.message);
     return null;
   }
 }
 
-async function uploadBuffer(buffer, folder, userId) {
+const uploadBuffer = async (buffer, folder, userId, opts = {}) => {
   const cld = await getCld();
-
   if (!cld) {
-    /* Dev / misconfigured fallback — never reaches production */
     return { secure_url: `local://${folder}/${userId}/${Date.now()}` };
   }
-
-  return new Promise((resolve, reject) => {
-    const stream = cld.uploader.upload_stream(
+  return new Promise((ok, no) => {
+    const s = cld.uploader.upload_stream(
       {
         folder          : `loemart/verification/${folder}/${userId}`,
         resource_type   : "auto",
         allowed_formats : ["jpg", "jpeg", "png", "webp", "pdf"],
         overwrite       : false,
         unique_filename : true,
+        ...opts,
       },
-      (err, result) => {
-        if (err) return reject(new Error(`Cloudinary: ${err.message}`));
-        resolve(result);
-      }
+      (e, r) => (e ? no(new Error(`Cloudinary: ${e.message}`)) : ok(r))
     );
-    _streamifier.createReadStream(buffer).pipe(stream);
+    _sf.createReadStream(buffer).pipe(s);
   });
-}
+};
 
-/* ══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
+   FACE MATCH SERVICE
+   Calls FACE_SERVICE_URL/compare — expects JSON response:
+     { match: bool, confidence: 0-1, message: string }
+
+   If FACE_SERVICE_URL is not set, returns skipped:true so the
+   submission still proceeds but is flagged for manual review.
+
+   ── Example InsightFace Python micro-service (FastAPI) ──────
+   from fastapi import FastAPI, File, UploadFile
+   from insightface.app import FaceAnalysis
+   from scipy.spatial.distance import cosine
+   import numpy as np, cv2
+
+   app  = FastAPI()
+   fa   = FaceAnalysis(providers=["CPUExecutionProvider"])
+   fa.prepare(ctx_id=0)
+
+   @app.post("/compare")
+   async def compare(selfie: UploadFile, doc_front: UploadFile):
+       def embed(b):
+           a = np.frombuffer(b, np.uint8)
+           faces = fa.get(cv2.imdecode(a, cv2.IMREAD_COLOR))
+           return faces[0].embedding if faces else None
+
+       e1, e2 = embed(await selfie.read()), embed(await doc_front.read())
+       if e1 is None or e2 is None:
+           return {"match": False, "confidence": 0, "message": "No face detected"}
+       sim = float(1 - cosine(e1, e2))
+       return {"match": sim > 0.40, "confidence": round(sim, 3), "message": "OK"}
+   ─────────────────────────────────────────────────────────────
+══════════════════════════════════════════════════════════════ */
+const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL ?? null;
+
+const compareFaces = async (selfieBuffer, docFrontBuffer) => {
+  if (!FACE_SERVICE_URL) {
+    console.warn("[face-check] FACE_SERVICE_URL not set — skipping");
+    return {
+      match      : null,
+      confidence : null,
+      skipped    : true,
+      message    : "Face service not configured",
+    };
+  }
+
+  try {
+    const fd = new FormData();
+    fd.append("selfie",    new Blob([selfieBuffer]),   "selfie.jpg");
+    fd.append("doc_front", new Blob([docFrontBuffer]), "doc_front.jpg");
+
+    const r = await fetch(`${FACE_SERVICE_URL}/compare`, {
+      method : "POST",
+      body   : fd,
+      signal : AbortSignal.timeout(15_000),
+    });
+
+    if (!r.ok) throw new Error(`Face service ${r.status}`);
+    const d = await r.json();
+
+    return {
+      match      : Boolean(d.match),
+      confidence : d.confidence ?? null,
+      skipped    : false,
+      message    : d.message ?? "OK",
+    };
+  } catch (e) {
+    console.error("[face-check] service error:", e.message);
+    return {
+      match      : null,
+      confidence : null,
+      skipped    : true,
+      message    : e.message,
+    };
+  }
+};
+
+/* ══════════════════════════════════════════════════════════════
    RATE LIMITERS
-══════════════════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const makeLimiter = ({ windowMin, max, message }) =>
   rateLimit({
     windowMs        : windowMin * 60 * 1_000,
@@ -260,44 +334,38 @@ const makeLimiter = ({ windowMin, max, message }) =>
 const sendOtpLimiter = makeLimiter({
   windowMin : 10,
   max       : IS_PROD ?  5 : 50,
-  message   : "Too many send requests. Please wait and try again.",
+  message   : "Too many send requests. Please wait.",
 });
 
 const verifyOtpLimiter = makeLimiter({
   windowMin : 15,
   max       : IS_PROD ? 10 : 50,
-  message   : "Too many verification attempts. Please wait.",
+  message   : "Too many verification attempts.",
 });
 
 const submitLimiter = makeLimiter({
   windowMin : 60,
-  max       : IS_PROD ?  3 : 20,
+  max       : IS_PROD ?  5 : 30,
   message   : "Too many submissions. Please wait.",
 });
 
-/* ══════════════════════════════════════════════════════════════════════════
+const faceCheckLimiter = makeLimiter({
+  windowMin : 15,
+  max       : IS_PROD ? 20 : 100,
+  message   : "Too many face checks. Please wait.",
+});
+
+/* ══════════════════════════════════════════════════════════════
    PURE HELPERS
-══════════════════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
+const generateOtp = () => crypto.randomInt(100_000, 999_999).toString();
+const getIp       = (req) => req.ip ?? req.socket?.remoteAddress ?? null;
+const maskEmail   = (e) =>
+  String(e).replace(/(.{2})(.*)(@.*)/, (_, a, _b, c) => `${a}***${c}`);
+const getTodayUTC = () => new Date().toISOString().slice(0, 10);
+const fail        = (res, status, message, extra = {}) =>
+  res.status(status).json({ success: false, message, ...extra });
 
-/** Cryptographically random 6-digit OTP */
-const generateOtp = () =>
-  crypto.randomInt(100_000, 999_999).toString();
-
-/** Best-effort IP extraction */
-const getIp = (req) =>
-  req.ip ?? req.socket?.remoteAddress ?? null;
-
-/** Mask email for logs / responses — never leak full address */
-const maskEmail = (email) =>
-  String(email).replace(
-    /(.{2})(.*)(@.*)/,
-    (_, a, _b, c) => `${a}***${c}`
-  );
-
-const getTodayUTC = () =>
-  new Date().toISOString().slice(0, 10);
-
-/** Stable device fingerprint — used to correlate OTP requests */
 const makeDeviceHash = (req) =>
   crypto
     .createHash("sha256")
@@ -310,16 +378,14 @@ const makeDeviceHash = (req) =>
     )
     .digest("hex");
 
-/** Verify file extension matches its MIME type */
 const extMatchesMime = (file) => {
   const ext = path.extname(file.originalname).toLowerCase();
-  return EXT_TO_MIME[ext] === file.mimetype;
+  return EXT_MIME[ext] === file.mimetype;
 };
 
-/** Count OTP sends for a user today */
 const getDailySendCount = async (db, userId) => {
-  const today = getTodayUTC();
-  const { rows } = await db.query(
+  const today     = getTodayUTC();
+  const { rows }  = await db.query(
     `SELECT COUNT(*) AS cnt
      FROM   email_verifications
      WHERE  user_id    = $1
@@ -330,7 +396,6 @@ const getDailySendCount = async (db, userId) => {
   return parseInt(rows[0].cnt, 10);
 };
 
-/** Flag account and write audit entry */
 const flagAccount = async (db, userId, reason, ip) => {
   await db.query(
     `UPDATE users
@@ -340,17 +405,16 @@ const flagAccount = async (db, userId, reason, ip) => {
      WHERE  id = $1`,
     [userId]
   );
-  await writeAudit({
+  writeAudit({
     actorId    : userId,
     action     : "user_flagged",
     targetType : "user",
     targetId   : userId,
     metadata   : { reason },
     ipAddress  : ip,
-  });
+  }).catch(() => {});
 };
 
-/** Recompute trust score from DB and persist it. Returns new score. */
 const refreshTrustScore = async (client, userId) => {
   const { rows } = await client.query(
     `SELECT email_verified, identity_verified, store_verified, created_at
@@ -358,59 +422,48 @@ const refreshTrustScore = async (client, userId) => {
     [userId]
   );
   if (!rows.length) return 0;
-
   const score = computeTrustScore(rows[0]);
-
   await client.query(
-    `UPDATE users
-     SET    trust_score = $1, updated_at = NOW()
-     WHERE  id = $2`,
+    "UPDATE users SET trust_score = $1, updated_at = NOW() WHERE id = $2",
     [score, userId]
   );
-
   return score;
 };
 
-/** Standard error response */
-const fail = (res, status, message, extra = {}) =>
-  res.status(status).json({ success: false, message, ...extra });
-
-/* ══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    DOCUMENT NUMBER HASHING
-   HMAC-SHA256 keyed with DOC_HASH_SECRET.
-   • Deterministic  — same input → same hash
-   • Non-reversible — hash → input is computationally infeasible
-   • Secret-keyed   — DB dump alone cannot brute-force document numbers
-   • Normalised     — strips spaces/hyphens before hashing to prevent
-                       trivial evasion ("12345" = "12 345" = "12-345")
-   • Type-prefixed  — "nin:12345" ≠ "passport:12345"
-══════════════════════════════════════════════════════════════════════════ */
+   HMAC-SHA256, keyed with DOC_HASH_SECRET, normalised, type-prefixed.
+
+   Properties:
+   ─ Deterministic  : same input → same hash always
+   ─ Non-reversible : hash → input is infeasible
+   ─ Secret-keyed   : DB dump alone cannot brute-force numbers
+   ─ Normalised     : "12345" == "12 345" == "12-345"
+   ─ Type-prefixed  : "nin:123" ≠ "passport:123"
+
+   Defence in depth:
+   ─ Layer 1 (application): SELECT before INSERT catches common case
+   ─ Layer 2 (database):    UNIQUE partial index catches race condition
+   ─ Layer 3 (handler):     23505 → clean 409 response
+══════════════════════════════════════════════════════════════ */
 const DOC_HASH_SECRET = process.env.DOC_HASH_SECRET ?? null;
 
-/**
- * @param {string} docType
- * @param {string} docNumber
- * @returns {string|null} hex hash, or null if secret not configured
- */
-const hashDocumentNumber = (docType, docNumber) => {
+const hashDocNumber = (docType, docNumber) => {
   if (!DOC_HASH_SECRET) return null;
-
-  const normalised = String(docNumber)
+  const norm    = String(docNumber)
     .toLowerCase()
-    .replace(/[\s\-_]/g, "") // collapse spaces, hyphens, underscores
+    .replace(/[\s\-_]/g, "")
     .trim();
-
-  const payload = `${docType.toLowerCase()}:${normalised}`;
-
+  const payload = `${docType.toLowerCase()}:${norm}`;
   return crypto
     .createHmac("sha256", DOC_HASH_SECRET)
     .update(payload)
     .digest("hex");
 };
 
-/* ══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    POST /api/verification/send-email-otp
-══════════════════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 router.post(
   "/send-email-otp",
   authenticate,
@@ -419,25 +472,13 @@ router.post(
     const userId = req.user?.id;
     const ip     = getIp(req);
 
-    console.log("\n" + "─".repeat(60));
-    console.log("[send-otp] ▶ REQUEST");
-    console.log("[send-otp] userId        :", userId);
-    console.log("[send-otp] ip            :", ip);
-    console.log(
-      "[send-otp] RESEND_API_KEY:",
-      process.env.RESEND_API_KEY
-        ? `SET …${process.env.RESEND_API_KEY.slice(-4)}`
-        : "❌ NOT SET"
-    );
-
     if (!userId) return fail(res, 401, "Not authenticated.");
 
     const client = await pool.connect();
-
     try {
       await client.query("BEGIN");
 
-      /* ── Step 1: Fetch user ── */
+      /* ── Fetch and lock user row ── */
       const { rows: users } = await client.query(
         `SELECT id, email, name, email_verified, status
          FROM   users
@@ -445,44 +486,34 @@ router.post(
          FOR UPDATE`,
         [userId]
       );
-
       if (!users.length) {
         await client.query("ROLLBACK");
         return fail(res, 404, "User not found.");
       }
 
       const user = users[0];
-      console.log("[send-otp] user:", {
-        email    : maskEmail(user.email),
-        verified : user.email_verified,
-        status   : user.status,
-      });
 
       if (user.email_verified) {
         await client.query("ROLLBACK");
-        return fail(res, 400, "Email is already verified.");
+        return fail(res, 400, "Email already verified.");
       }
       if (user.status === "flagged" || user.status === "banned") {
         await client.query("ROLLBACK");
         return fail(res, 403, "Account restricted. Contact support.");
       }
 
-      /* ── Step 2: Daily limit ── */
+      /* ── Daily send limit ── */
       const dailyCount = await getDailySendCount(client, userId);
-      console.log(
-        "[send-otp] daily:", dailyCount, "/", POLICY.DAILY_SEND_LIMIT
-      );
-
       if (dailyCount >= POLICY.DAILY_SEND_LIMIT) {
         await client.query("ROLLBACK");
         return fail(
           res, 429,
-          `Daily OTP limit reached (${POLICY.DAILY_SEND_LIMIT}/day). Try again tomorrow.`,
+          `Daily limit (${POLICY.DAILY_SEND_LIMIT}/day). Try tomorrow.`,
           { remaining: 0 }
         );
       }
 
-      /* ── Step 3: Resend cooldown ── */
+      /* ── Resend cooldown ── */
       const { rows: recent } = await client.query(
         `SELECT created_at
          FROM   email_verifications
@@ -492,24 +523,20 @@ router.post(
          LIMIT  1`,
         [userId, POLICY.RESEND_COOLDOWN_SECS]
       );
-
       if (recent.length) {
-        const elapsedSecs =
-          (Date.now() - new Date(recent[0].created_at).getTime()) / 1_000;
-        const waitSecs = Math.ceil(POLICY.RESEND_COOLDOWN_SECS - elapsedSecs);
-        console.log("[send-otp] cooldown — wait:", waitSecs, "s");
+        const wait = Math.ceil(
+          POLICY.RESEND_COOLDOWN_SECS -
+          (Date.now() - new Date(recent[0].created_at).getTime()) / 1_000
+        );
         await client.query("ROLLBACK");
         return fail(
           res, 429,
-          `Please wait ${waitSecs} second${waitSecs !== 1 ? "s" : ""} before requesting another code.`,
-          {
-            retryAfter : waitSecs,
-            remaining  : POLICY.DAILY_SEND_LIMIT - dailyCount,
-          }
+          `Wait ${wait}s before requesting another code.`,
+          { retryAfter: wait, remaining: POLICY.DAILY_SEND_LIMIT - dailyCount }
         );
       }
 
-      /* ── Step 4: Abuse detection ── */
+      /* ── Abuse detection ── */
       const { rows: abr } = await client.query(
         `SELECT COUNT(*) AS cnt
          FROM   email_verifications
@@ -517,21 +544,13 @@ router.post(
            AND  created_at > NOW() - ($2 || ' minutes')::INTERVAL`,
         [userId, POLICY.ABUSE_WINDOW_MINUTES]
       );
-      const abuseCount = parseInt(abr[0].cnt, 10);
-      console.log(
-        "[send-otp] abuse:", abuseCount, "/", POLICY.ABUSE_THRESHOLD
-      );
-
-      if (abuseCount >= POLICY.ABUSE_THRESHOLD) {
+      if (parseInt(abr[0].cnt, 10) >= POLICY.ABUSE_THRESHOLD) {
         await flagAccount(client, userId, "otp_abuse", ip);
         await client.query("COMMIT");
-        return fail(
-          res, 429,
-          "Account flagged for suspicious activity. Contact support."
-        );
+        return fail(res, 429, "Account flagged for suspicious activity.");
       }
 
-      /* ── Step 5: Expire previous active OTPs ── */
+      /* ── Expire previous active OTPs ── */
       await client.query(
         `UPDATE email_verifications
          SET    status  = 'expired',
@@ -541,63 +560,44 @@ router.post(
         [userId]
       );
 
-      /* ── Step 6: Generate + hash OTP ── */
+      /* ── Generate, hash, insert ── */
       const otp    = generateOtp();
       const hash   = await bcrypt.hash(otp, POLICY.BCRYPT_ROUNDS);
       const device = makeDeviceHash(req);
 
-      if (!IS_PROD) console.log("[send-otp] DEV otp:", otp);
-
       await client.query(
         `INSERT INTO email_verifications
            (user_id, otp_hash, expires_at, status, device_hash, ip_address)
-         VALUES (
-           $1, $2,
-           NOW() + ($3 || ' minutes')::INTERVAL,
-           'active', $4, $5
-         )`,
+         VALUES ($1, $2, NOW() + ($3 || ' minutes')::INTERVAL, 'active', $4, $5)`,
         [userId, hash, POLICY.OTP_EXPIRY_MINUTES, device, ip]
       );
 
-      /* ── Step 7: Upsert device fingerprint ── */
+      /* ── Upsert device fingerprint ── */
       await client.query(
         `INSERT INTO user_devices
            (user_id, device_hash, ip_address, user_agent, last_seen)
-         VALUES ($1, $2, $3, $4, NOW())
+         VALUES ($1,$2,$3,$4,NOW())
          ON CONFLICT (user_id, device_hash) DO UPDATE
-           SET last_seen  = NOW(),
-               ip_address = EXCLUDED.ip_address`,
+           SET last_seen = NOW(), ip_address = EXCLUDED.ip_address`,
         [userId, device, ip, req.headers["user-agent"] ?? null]
       );
 
       await client.query("COMMIT");
-      console.log("[send-otp] ✓ committed");
 
-      /* ── Step 8: Send email (after commit) ── */
+      /* ── Send email (after commit so OTP exists if email fails slowly) ── */
       try {
-        const emailResult = await sendVerificationEmail({
-          to   : user.email,
-          name : user.name,
-          otp,
-        });
-        console.log("[send-otp] ✓ email sent:", JSON.stringify(emailResult));
+        await sendVerificationEmail({ to: user.email, name: user.name, otp });
       } catch (mailErr) {
-        console.error("[send-otp] ✗ email failed:", mailErr.message);
-
-        /* Cleanup so user can retry immediately */
-        pool
-          .query(
-            `UPDATE email_verifications
-             SET    status  = 'expired',
-                    used_at = NOW()
-             WHERE  user_id    = $1
-               AND  status     = 'active'
-               AND  created_at > NOW() - INTERVAL '2 minutes'`,
-            [userId]
-          )
-          .catch((e) => console.error("[send-otp] cleanup err:", e.message));
-
-        return fail(res, 500, `Failed to send email: ${mailErr.message}`);
+        /* Roll back the OTP record so user can retry immediately */
+        pool.query(
+          `UPDATE email_verifications
+           SET    status = 'expired', used_at = NOW()
+           WHERE  user_id    = $1
+             AND  status     = 'active'
+             AND  created_at > NOW() - INTERVAL '2 minutes'`,
+          [userId]
+        ).catch(() => {});
+        return fail(res, 500, `Email failed: ${mailErr.message}`);
       }
 
       const remaining = POLICY.DAILY_SEND_LIMIT - (dailyCount + 1);
@@ -607,16 +607,13 @@ router.post(
         action     : "otp_sent",
         targetType : "user",
         targetId   : userId,
-        metadata   : { method: "email", remaining },
+        metadata   : { remaining },
         ipAddress  : ip,
-      }).catch((e) => console.error("[send-otp] audit err:", e.message));
-
-      console.log("[send-otp] ✓ DONE  remaining:", remaining);
-      console.log("─".repeat(60) + "\n");
+      }).catch(() => {});
 
       return res.json({
         success   : true,
-        message   : "Verification code sent to your email.",
+        message   : "Verification code sent.",
         email     : maskEmail(user.email),
         expiresIn : POLICY.OTP_EXPIRY_MINUTES * 60,
         remaining,
@@ -625,7 +622,7 @@ router.post(
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      console.error("[send-otp] ✗ UNHANDLED:", err.message, "\n", err.stack);
+      console.error("[send-otp] error:", err.message);
       return fail(res, 500, "Server error. Please try again.");
     } finally {
       client.release();
@@ -633,9 +630,9 @@ router.post(
   }
 );
 
-/* ══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    POST /api/verification/verify-email-otp
-══════════════════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 router.post(
   "/verify-email-otp",
   authenticate,
@@ -645,21 +642,13 @@ router.post(
     const userId = req.user?.id;
     const ip     = getIp(req);
 
-    console.log("\n[verify-otp] ▶ REQUEST");
-    console.log("[verify-otp] userId:", userId);
-    console.log("[verify-otp] otp   :", IS_PROD ? "******" : rawOtp);
-
-    if (!userId) return fail(res, 401, "Not authenticated.");
-
-    if (!/^\d{6}$/.test(rawOtp))
-      return fail(res, 400, "OTP must be exactly 6 digits.");
+    if (!userId)                 return fail(res, 401, "Not authenticated.");
+    if (!/^\d{6}$/.test(rawOtp)) return fail(res, 400, "OTP must be exactly 6 digits.");
 
     const client = await pool.connect();
-
     try {
       await client.query("BEGIN");
 
-      /* ── Step 1: Find active unexpired OTP ── */
       const { rows } = await client.query(
         `SELECT id, otp_hash, attempts
          FROM   email_verifications
@@ -671,25 +660,17 @@ router.post(
         [userId]
       );
 
-      console.log("[verify-otp] active OTPs found:", rows.length);
-
       if (!rows.length) {
         await client.query("ROLLBACK");
-        return fail(
-          res, 400,
-          "Code expired or not found. Please request a new one."
-        );
+        return fail(res, 400, "Code expired or not found. Request a new one.");
       }
 
       const rec = rows[0];
-      console.log("[verify-otp] attempts so far:", rec.attempts);
 
-      /* ── Step 2: Attempt cap ── */
+      /* Attempt cap */
       if (rec.attempts >= POLICY.MAX_VERIFY_ATTEMPTS) {
         await client.query(
-          `UPDATE email_verifications
-           SET status = 'blocked'
-           WHERE id = $1`,
+          "UPDATE email_verifications SET status = 'blocked' WHERE id = $1",
           [rec.id]
         );
         await flagAccount(client, userId, "otp_max_attempts", ip);
@@ -697,45 +678,33 @@ router.post(
         return fail(res, 429, "Too many failed attempts. Account flagged.");
       }
 
-      /* ── Step 3: bcrypt compare ── */
-      console.log("[verify-otp] running bcrypt compare...");
       const valid = await bcrypt.compare(rawOtp, rec.otp_hash);
-      console.log("[verify-otp] match:", valid);
 
       if (!valid) {
         await client.query(
-          `UPDATE email_verifications
-           SET attempts = attempts + 1
-           WHERE id = $1`,
+          "UPDATE email_verifications SET attempts = attempts + 1 WHERE id = $1",
           [rec.id]
         );
         await client.query("COMMIT");
         const left = Math.max(0, POLICY.MAX_VERIFY_ATTEMPTS - 1 - rec.attempts);
-        return fail(res, 400, "Incorrect code. Please try again.", {
-          attemptsLeft: left,
-        });
+        return fail(res, 400, "Incorrect code.", { attemptsLeft: left });
       }
 
-      /* ── Step 4: Atomic mark-used (prevents replay) ── */
+      /* Atomic mark-used — prevents replay between concurrent requests */
       const { rows: marked } = await client.query(
         `UPDATE email_verifications
-         SET    status  = 'used',
-                used_at = NOW()
+         SET    status = 'used', used_at = NOW()
          WHERE  id     = $1
            AND  status = 'active'
          RETURNING id`,
         [rec.id]
       );
-
       if (!marked.length) {
         await client.query("ROLLBACK");
-        return fail(
-          res, 400,
-          "Code was already used. Please request a new one."
-        );
+        return fail(res, 400, "Code already used. Request a new one.");
       }
 
-      /* ── Step 5: Mark user email-verified ── */
+      /* Mark user email verified */
       await client.query(
         `UPDATE users
          SET    email_verified    = TRUE,
@@ -746,18 +715,14 @@ router.post(
         [userId]
       );
 
-      /* ── Step 6: Recompute and persist trust score ── */
       const trustScore = await refreshTrustScore(client, userId);
-
       await client.query("COMMIT");
-      console.log("[verify-otp] ✓ email verified  trust_score:", trustScore);
 
-      /* ── Step 7: Reactivate limited listings (fire-and-forget) ── */
+      /* Fire-and-forget post-verification tasks */
       reactivateLimitedListings(userId).catch((e) =>
-        console.error("[verify-otp] reactivate listings err:", e.message)
+        console.error("[verify-otp] reactivate:", e.message)
       );
 
-      /* ── Step 8: Audit ── */
       writeAudit({
         actorId    : userId,
         action     : "email_verified",
@@ -765,21 +730,14 @@ router.post(
         targetId   : userId,
         metadata   : { trust_score: trustScore },
         ipAddress  : ip,
-      }).catch((e) => console.error("[verify-otp] audit err:", e.message));
+      }).catch(() => {});
 
-      /* ── Step 9: Welcome email (fire-and-forget) ── */
       pool
         .query("SELECT email, name FROM users WHERE id = $1", [userId])
         .then(({ rows: u }) => {
-          if (u[0]) {
-            sendWelcomeEmail({ to: u[0].email, name: u[0].name }).catch(
-              (e) => console.error("[verify-otp] welcome email err:", e.message)
-            );
-          }
+          if (u[0]) sendWelcomeEmail({ to: u[0].email, name: u[0].name }).catch(() => {});
         })
-        .catch((e) =>
-          console.error("[verify-otp] welcome query err:", e.message)
-        );
+        .catch(() => {});
 
       return res.json({
         success     : true,
@@ -789,7 +747,7 @@ router.post(
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      console.error("[verify-otp] ✗ UNHANDLED:", err.message, "\n", err.stack);
+      console.error("[verify-otp] error:", err.message);
       return fail(res, 500, "Server error. Please try again.");
     } finally {
       client.release();
@@ -797,48 +755,122 @@ router.post(
   }
 );
 
-/* ══════════════════════════════════════════════════════════════════════════
-   POST /api/verification/submit-identity
-══════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   POST /api/verification/face-check
+   Standalone pre-check — frontend calls whenever selfie + doc
+   front are both ready, before the main submit.
+   Result is advisory only at this point; the definitive check
+   runs again server-side inside POST /submit.
+══════════════════════════════════════════════════════════════ */
 router.post(
-  "/submit-identity",
+  "/face-check",
+  authenticate,
+  faceCheckLimiter,
+  withUpload(uploadFaceCheck),
+  async (req, res) => {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, 401, "Not authenticated.");
+
+    const selfieFile   = req.files?.selfie?.[0]    ?? null;
+    const docFrontFile = req.files?.doc_front?.[0] ?? null;
+
+    if (!selfieFile)   return fail(res, 400, "Selfie required.");
+    if (!docFrontFile) return fail(res, 400, "Document front required.");
+
+    try {
+      const result = await compareFaces(selfieFile.buffer, docFrontFile.buffer);
+      return res.json({
+        success    : true,
+        match      : result.match,
+        confidence : result.confidence,
+        skipped    : result.skipped ?? false,
+        message    : result.message,
+      });
+    } catch (err) {
+      console.error("[face-check] error:", err.message);
+      /*
+       * Never block the frontend on a face-check failure.
+       * The definitive check is inside POST /submit.
+       */
+      return res.json({
+        success : true,
+        match   : null,
+        skipped : true,
+        message : "Face check unavailable.",
+      });
+    }
+  }
+);
+
+/* ══════════════════════════════════════════════════════════════
+   POST /api/verification/submit
+   Atomic: identity + store inserted in a single DB transaction.
+   Either both succeed or nothing is persisted.
+
+   Three-layer duplicate document defence:
+     Layer 1 — SELECT before INSERT (application check)
+     Layer 2 — UNIQUE partial index on document_number_hash
+               catches the race condition Layer 1 misses
+     Layer 3 — 23505 error code handler → clean 409 response
+
+   Server-side face match runs here (authoritative).
+   If the face service is unavailable (skipped), submission
+   proceeds but is flagged for manual face review.
+   If the face service returns match=false, submission is blocked.
+══════════════════════════════════════════════════════════════ */
+router.post(
+  "/submit",
   authenticate,
   submitLimiter,
-  withUpload(uploadDocs),
+  withUpload(uploadSubmit),
   async (req, res) => {
     const userId = req.user?.id;
     const ip     = getIp(req);
 
-    console.log("\n[submit-identity] ▶ userId:", userId);
-
+    console.log("\n[submit] ▶ userId:", userId);
     if (!userId) return fail(res, 401, "Not authenticated.");
 
-    /* ── Validate document type ── */
-    const { document_type, document_number } = req.body;
+    /* ── Parse body ── */
+    const docType       = (req.body.document_type     ?? "").trim();
+    const docNumber     = (req.body.document_number   ?? "").trim();
+    const storeName     = (req.body.store_name        ?? "").trim();
+    const storeDesc     = (req.body.store_description ?? "").trim();
+    const livenessPassed = req.body.liveness_passed   === "true";
 
-    if (!document_type || !VALID_DOC_TYPES.has(document_type)) {
+    /* ── Validate document type ── */
+    if (!VALID_DOC_TYPES.has(docType)) {
       return fail(
         res, 400,
-        `Invalid document type. Choose: ${[...VALID_DOC_TYPES].join(", ")}.`
+        `Invalid document type. Allowed: ${[...VALID_DOC_TYPES].join(", ")}.`
       );
     }
 
-    /* ── Validate document number ── */
-    const docNum = (document_number ?? "").trim();
-    if (docNum.length < 4)
-      return fail(res, 400, "Document number must be at least 4 characters.");
-    if (docNum.length > 30)
-      return fail(res, 400, "Document number must be at most 30 characters.");
+    /* ── Validate document number — server is the authority ── */
+    const validateNum = DOC_VALIDATORS[docType];
+    if (!validateNum || !validateNum(docNumber)) {
+      return fail(
+        res, 400,
+        `Invalid ${docType.replace(/_/g, " ")} number format.`
+      );
+    }
 
-    /* ── Validate files ── */
-    const frontFile  = req.files?.doc_front?.[0] ?? null;
-    const backFile   = req.files?.doc_back?.[0]  ?? null;
-    const selfieFile = req.files?.selfie?.[0]    ?? null;
+    /* ── Validate store fields ── */
+    if (storeName.length < 2)   return fail(res, 400, "Store name too short (min 2).");
+    if (storeName.length > 60)  return fail(res, 400, "Store name too long (max 60).");
+    if (storeDesc.length > 300) return fail(res, 400, "Description too long (max 300).");
 
-    if (!frontFile)  return fail(res, 400, "Front of document is required.");
-    if (!backFile)   return fail(res, 400, "Back of document is required.");
-    if (!selfieFile) return fail(res, 400, "Selfie photo is required.");
+    /* ── Validate required files ── */
+    const frontFile  = req.files?.doc_front?.[0]      ?? null;
+    const backFile   = req.files?.doc_back?.[0]       ?? null;
+    const selfieFile = req.files?.selfie?.[0]          ?? null;
+    const logoFile   = req.files?.store_logo?.[0]      ?? null;
+    const lvFile     = req.files?.liveness_frame?.[0]  ?? null;
 
+    if (!frontFile)  return fail(res, 400, "Document front required.");
+    if (!backFile)   return fail(res, 400, "Document back required.");
+    if (!selfieFile) return fail(res, 400, "Selfie required.");
+
+    /* ── Extension ↔ MIME validation ── */
     for (const f of [frontFile, backFile, selfieFile]) {
       if (!extMatchesMime(f)) {
         return fail(
@@ -848,130 +880,161 @@ router.post(
       }
     }
 
-    /* ── Hash document number before any DB work ── */
-    const docHash = hashDocumentNumber(document_type, docNum);
-
-    console.log(
-      "[submit-identity] docType:", document_type,
-      " docHash:", docHash
-        ? `${docHash.slice(0, 8)}…`
-        : "DISABLED (DOC_HASH_SECRET not set)"
-    );
-
+    /* ── Hash document number ── */
+    const docHash = hashDocNumber(docType, docNumber);
     if (!docHash) {
-      console.warn(
-        "[submit-identity] ⚠ Duplicate detection DISABLED — " +
-        "DOC_HASH_SECRET is not configured."
-      );
+      console.warn("[submit] DOC_HASH_SECRET missing — duplicate detection disabled");
     }
 
-    /* ── All guard queries in one parallel batch ── */
-    const [pendingRes, userRes, duplicateRes] = await Promise.all([
-
-      /* Guard 1: already has a pending review */
+    /* ── Guard queries — run in parallel for speed ── */
+    const [userRes, pendingIdRes, pendingStRes, dupRes] = await Promise.all([
       pool.query(
-        `SELECT id
+        `SELECT email_verified, identity_verified, store_verified, status
+         FROM   users WHERE id = $1`,
+        [userId]
+      ),
+
+      /* Layer 1a: existing identity review */
+      pool.query(
+        `SELECT id, status
          FROM   identity_verifications
          WHERE  user_id = $1
-           AND  status  = 'pending'`,
+           AND  status  IN ('pending', 'approved')
+         LIMIT  1`,
         [userId]
       ),
 
-      /* Guard 2: user state */
+      /* Layer 1b: existing store review */
       pool.query(
-        `SELECT identity_verified, email_verified
-         FROM   users
-         WHERE  id = $1`,
+        `SELECT id, status
+         FROM   store_verifications
+         WHERE  user_id = $1
+           AND  status  IN ('pending', 'approved')
+         LIMIT  1`,
         [userId]
       ),
 
-      /* Guard 3: duplicate document number across ALL users
-         Only match pending / approved rows — rejected rows are excluded
-         so a legitimate user can resubmit after rejection.
-         Skipped (empty result) when hash unavailable. */
+      /*
+       * Layer 1 — duplicate document check (application-level).
+       * Skipped when hash unavailable (DOC_HASH_SECRET not set).
+       * Layer 2 (DB unique index) still protects even if this is skipped.
+       */
       docHash
         ? pool.query(
-            `SELECT iv.id,
-                    iv.user_id,
-                    iv.status,
-                    iv.created_at
-             FROM   identity_verifications iv
-             WHERE  iv.document_number_hash = $1
-               AND  iv.status IN ('pending', 'approved')
+            `SELECT id
+             FROM   identity_verifications
+             WHERE  document_number_hash = $1
+               AND  status IN ('pending', 'approved')
              LIMIT  1`,
             [docHash]
           )
         : Promise.resolve({ rows: [] }),
     ]);
 
-    /* ── Evaluate guard 1: pending ── */
-    if (pendingRes.rows.length)
-      return fail(res, 409, "You already have a pending identity review.");
+    /* ── Evaluate guards ── */
+    const user = userRes.rows[0];
+    if (!user) return fail(res, 404, "User not found.");
 
-    /* ── Evaluate guard 2a: already verified ── */
-    if (userRes.rows[0]?.identity_verified)
-      return fail(res, 400, "Identity is already verified.");
+    if (user.status === "flagged" || user.status === "banned")
+      return fail(res, 403, "Account restricted. Contact support.");
 
-    /* ── Evaluate guard 2b: email must come first ── */
-    if (!userRes.rows[0]?.email_verified) {
+    if (!user.email_verified)
+      return fail(res, 403, "Verify your email address before submitting documents.");
+
+    if (user.identity_verified)
+      return fail(res, 400, "Identity already verified.");
+
+    if (pendingIdRes.rows.length) {
       return fail(
-        res, 403,
-        "Please verify your email address before submitting identity documents."
+        res, 409,
+        pendingIdRes.rows[0].status === "approved"
+          ? "Identity already verified."
+          : "You already have a pending identity review."
       );
     }
 
-    /* ── Evaluate guard 3: duplicate document ── */
-    if (duplicateRes.rows.length) {
-      const match = duplicateRes.rows[0];
-
-      console.warn(
-        "[submit-identity] ⚠ DUPLICATE DOCUMENT",
-        " incomingUser:", userId,
-        " existingUser:", match.user_id,
-        " existingStatus:", match.status,
-        " ip:", ip
+    if (pendingStRes.rows.length) {
+      return fail(
+        res, 409,
+        pendingStRes.rows[0].status === "approved"
+          ? "Store already verified."
+          : "You already have a pending store review."
       );
+    }
 
-      /* Audit the duplicate attempt — do NOT reveal the existing user */
+    if (dupRes.rows.length) {
+      /* Audit the duplicate attempt before rejecting */
       writeAudit({
         actorId    : userId,
         action     : "identity_duplicate_rejected",
         targetType : "user",
         targetId   : userId,
-        metadata   : {
-          document_type,
-          conflicting_user_id : match.user_id,
-          conflicting_status  : match.status,
-        },
+        metadata   : { document_type: docType },
         ipAddress  : ip,
-      }).catch((e) =>
-        console.error("[submit-identity] audit err:", e.message)
-      );
+      }).catch(() => {});
 
-      /* Intentionally vague — do not reveal which user holds this document */
       return fail(
         res, 409,
-        "This document has already been registered on our platform. " +
-        "If you believe this is an error, please contact support."
+        "This document is already registered on our platform. " +
+        "If you believe this is an error, contact support."
       );
     }
 
-    /* ── Upload all three files in parallel ── */
-    let front, back, selfie;
+    /* ── Server-side face match (authoritative) ── */
+    const faceResult = await compareFaces(selfieFile.buffer, frontFile.buffer);
+    console.log("[submit] face match result:", {
+      match      : faceResult.match,
+      confidence : faceResult.confidence,
+      skipped    : faceResult.skipped,
+    });
+
+    /*
+     * Hard block on definitive mismatch.
+     * If the service is unavailable (skipped), allow submission
+     * but flag it for manual face review via face_skipped column.
+     */
+    if (!faceResult.skipped && faceResult.match === false) {
+      writeAudit({
+        actorId    : userId,
+        action     : "verification_face_mismatch",
+        targetType : "user",
+        targetId   : userId,
+        metadata   : { confidence: faceResult.confidence },
+        ipAddress  : ip,
+      }).catch(() => {});
+
+      return fail(
+        res, 422,
+        "Selfie does not match the document photo. " +
+        "Please retake both photos in good lighting and try again."
+      );
+    }
+
+    /* ── Upload all files in parallel ── */
+    let front, back, selfie, logo, liveness;
     try {
-      [front, back, selfie] = await Promise.all([
-        uploadBuffer(frontFile.buffer,  "id_documents", userId),
-        uploadBuffer(backFile.buffer,   "id_documents", userId),
-        uploadBuffer(selfieFile.buffer, "selfies",      userId),
+      [front, back, selfie, logo, liveness] = await Promise.all([
+        uploadBuffer(frontFile.buffer,  "id_documents",  userId),
+        uploadBuffer(backFile.buffer,   "id_documents",  userId),
+        uploadBuffer(selfieFile.buffer, "selfies",       userId),
+        logoFile
+          ? uploadBuffer(logoFile.buffer, "store_logos",    userId)
+          : Promise.resolve(null),
+        lvFile
+          ? uploadBuffer(lvFile.buffer,  "liveness_frames", userId)
+          : Promise.resolve(null),
       ]);
     } catch (uploadErr) {
-      console.error("[submit-identity] upload error:", uploadErr.message);
+      console.error("[submit] upload error:", uploadErr.message);
       return fail(res, 500, `File upload failed: ${uploadErr.message}`);
     }
 
-    /* ── Insert verification record ── */
+    /* ── Atomic DB transaction — identity + store ── */
+    const client = await pool.connect();
     try {
-      await pool.query(
+      await client.query("BEGIN");
+
+      await client.query(
         `INSERT INTO identity_verifications
            (user_id,
             document_type,
@@ -979,184 +1042,98 @@ router.post(
             front_image_url,
             back_image_url,
             selfie_url,
+            liveness_frame_url,
+            liveness_passed,
+            face_match,
+            face_confidence,
+            face_skipped,
             status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'pending')`,
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending')`,
         [
           userId,
-          document_type,
+          docType,
           docHash ?? null,
           front.secure_url,
           back.secure_url,
           selfie.secure_url,
+          liveness?.secure_url ?? null,
+          livenessPassed,
+          faceResult.match,
+          faceResult.confidence,
+          faceResult.skipped,
         ]
       );
-    } catch (dbErr) {
-      /* Unique index violation = race-condition duplicate */
-      if (dbErr.code === "23505") {
-        console.warn(
-          "[submit-identity] ⚠ Race-condition duplicate caught by DB index",
-          " userId:", userId
-        );
-        return fail(
-          res, 409,
-          "This document has already been registered on our platform. " +
-          "If you believe this is an error, please contact support."
-        );
-      }
-      throw dbErr; // re-throw unexpected errors
-    }
 
-    /* ── Audit success ── */
-    writeAudit({
-      actorId    : userId,
-      action     : "identity_submitted",
-      targetType : "user",
-      targetId   : userId,
-      metadata   : { document_type },
-      ipAddress  : ip,
-    }).catch((e) =>
-      console.error("[submit-identity] audit err:", e.message)
-    );
-
-    console.log("[submit-identity] ✓ submitted  userId:", userId);
-
-    return res.status(202).json({
-      success : true,
-      message :
-        "Identity submitted. Our team will review within 24 hours. " +
-        "Your listings will become permanent once approved.",
-    });
-  }
-);
-
-/* ══════════════════════════════════════════════════════════════════════════
-   POST /api/verification/submit-store
-══════════════════════════════════════════════════════════════════════════ */
-router.post(
-  "/submit-store",
-  authenticate,
-  submitLimiter,
-  withUpload(uploadLogo),
-  async (req, res) => {
-    const userId    = req.user?.id;
-    const ip        = getIp(req);
-    const storeName = (req.body.store_name        ?? "").trim();
-    const storeDesc = (req.body.store_description ?? "").trim();
-
-    console.log(
-      "\n[submit-store] ▶ userId:", userId,
-      " storeName:", storeName
-    );
-
-    if (!userId) return fail(res, 401, "Not authenticated.");
-
-    /* ── Validate ── */
-    if (storeName.length < 2)
-      return fail(res, 400, "Store name must be at least 2 characters.");
-    if (storeName.length > 60)
-      return fail(res, 400, "Store name must be at most 60 characters.");
-    if (storeDesc.length > 300)
-      return fail(res, 400, "Description must be at most 300 characters.");
-
-    /* ── Guard queries ── */
-    const [pendingRes, userRes] = await Promise.all([
-      pool.query(
-        `SELECT id
-         FROM   store_verifications
-         WHERE  user_id = $1 AND status = 'pending'`,
-        [userId]
-      ),
-      pool.query(
-        `SELECT store_verified, identity_verified
-         FROM   users
-         WHERE  id = $1`,
-        [userId]
-      ),
-    ]);
-
-    if (pendingRes.rows.length)
-      return fail(res, 409, "You already have a pending store review.");
-
-    if (userRes.rows[0]?.store_verified)
-      return fail(res, 400, "Store is already verified.");
-
-    /* ── Require identity verification first ── */
-    if (!userRes.rows[0]?.identity_verified) {
-      return fail(
-        res, 403,
-        "Please complete identity verification before submitting your store profile."
-      );
-    }
-
-    /* ── Optional logo upload ── */
-    let logoUrl = null;
-    if (req.file) {
-      if (!extMatchesMime(req.file)) {
-        return fail(
-          res, 400,
-          "Logo file extension does not match its content."
-        );
-      }
-      try {
-        const result = await uploadBuffer(
-          req.file.buffer,
-          "store_logos",
-          userId
-        );
-        logoUrl = result.secure_url;
-      } catch (uploadErr) {
-        console.error("[submit-store] logo upload error:", uploadErr.message);
-        return fail(res, 500, `Logo upload failed: ${uploadErr.message}`);
-      }
-    }
-
-    /* ── Insert store verification record ── */
-    try {
-      await pool.query(
+      await client.query(
         `INSERT INTO store_verifications
            (user_id, store_name, store_description, logo_url, status)
-         VALUES ($1, $2, $3, $4, 'pending')`,
-        [userId, storeName, storeDesc || null, logoUrl]
+         VALUES ($1,$2,$3,$4,'pending')`,
+        [userId, storeName, storeDesc || null, logo?.secure_url ?? null]
       );
+
+      await client.query("COMMIT");
+      console.log("[submit] ✓ committed  userId:", userId);
+
     } catch (dbErr) {
-      console.error("[submit-store] db error:", dbErr.message);
+      await client.query("ROLLBACK").catch(() => {});
+
+      /*
+       * Layer 3 — unique index violation.
+       * Two concurrent requests with the same document both passed
+       * the Layer 1 SELECT (neither row existed yet), but only one
+       * INSERT won. The second hits the unique index (23505).
+       */
+      if (dbErr.code === "23505") {
+        return fail(
+          res, 409,
+          "This document is already registered on our platform. " +
+          "If you believe this is an error, contact support."
+        );
+      }
+
+      console.error("[submit] db error:", dbErr.message, dbErr.stack);
       return fail(res, 500, "Submission failed. Please try again.");
+
+    } finally {
+      client.release();
     }
 
+    /* ── Audit ── */
     writeAudit({
       actorId    : userId,
-      action     : "store_submitted",
+      action     : "verification_submitted",
       targetType : "user",
       targetId   : userId,
-      metadata   : { store_name: storeName },
+      metadata   : {
+        document_type   : docType,
+        store_name      : storeName,
+        liveness_passed : livenessPassed,
+        face_match      : faceResult.match,
+        face_confidence : faceResult.confidence,
+        face_skipped    : faceResult.skipped,
+      },
       ipAddress  : ip,
-    }).catch((e) =>
-      console.error("[submit-store] audit err:", e.message)
-    );
-
-    console.log("[submit-store] ✓ submitted  userId:", userId);
+    }).catch(() => {});
 
     return res.status(202).json({
       success : true,
       message :
-        "Store profile submitted. Our team will review within 24 hours.",
+        "Documents submitted. Our team will review within 24 hours. " +
+        "You'll be notified when your account is verified.",
     });
   }
 );
 
-/* ══════════════════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    GET /api/verification/status
-══════════════════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 router.get("/status", authenticate, async (req, res) => {
   const userId = req.user?.id;
-  console.log("\n[status] ▶ userId:", userId);
-
   if (!userId) return fail(res, 401, "Not authenticated.");
 
   try {
     const [userRes, idRes, storeRes, limitedRes] = await Promise.all([
 
-      /* Core user fields */
       pool.query(
         `SELECT id, email, name, role, seller_type, status,
                 email_verified, email_verified_at,
@@ -1167,9 +1144,16 @@ router.get("/status", authenticate, async (req, res) => {
         [userId]
       ),
 
-      /* Latest identity review */
+      /* Latest identity review — includes face match metadata */
       pool.query(
-        `SELECT document_type, status, rejection_reason, updated_at
+        `SELECT document_type,
+                status,
+                rejection_reason,
+                face_match,
+                face_confidence,
+                face_skipped,
+                liveness_passed,
+                updated_at
          FROM   identity_verifications
          WHERE  user_id = $1
          ORDER  BY created_at DESC
@@ -1189,10 +1173,10 @@ router.get("/status", authenticate, async (req, res) => {
         [userId]
       ),
 
-      /* Limited listings pending reactivation */
+      /* Limited listings — nudge user to verify */
       pool.query(
-        `SELECT COUNT(*)        AS cnt,
-                MIN(active_until) AS soonest_expiry
+        `SELECT COUNT(*)          AS cnt,
+                MIN(active_until) AS soonest
          FROM   products
          WHERE  seller_id    = $1
            AND  status       = 'active_limited'
@@ -1203,34 +1187,23 @@ router.get("/status", authenticate, async (req, res) => {
 
     if (!userRes.rows.length) return fail(res, 404, "User not found.");
 
-    const user          = userRes.rows[0];
-    const idReview      = idRes.rows[0]    ?? null;
-    const storeReview   = storeRes.rows[0] ?? null;
-    const dailyCount    = await getDailySendCount(pool, userId);
-
-    const limitedCount  = parseInt(limitedRes.rows[0].cnt, 10);
-    const soonestExpiry = limitedRes.rows[0].soonest_expiry ?? null;
-    const daysRemaining = soonestExpiry
+    const user         = userRes.rows[0];
+    const idReview     = idRes.rows[0]    ?? null;
+    const storeReview  = storeRes.rows[0] ?? null;
+    const dailyCount   = await getDailySendCount(pool, userId);
+    const limitedCount = parseInt(limitedRes.rows[0].cnt, 10);
+    const soonest      = limitedRes.rows[0].soonest ?? null;
+    const daysLeft     = soonest
       ? Math.max(
           0,
-          Math.ceil(
-            (new Date(soonestExpiry).getTime() - Date.now()) / 86_400_000
-          )
+          Math.ceil((new Date(soonest).getTime() - Date.now()) / 86_400_000)
         )
       : null;
-
-    console.log("[status] ✓", {
-      email_verified    : user.email_verified,
-      identity_verified : user.identity_verified,
-      store_verified    : user.store_verified,
-      trust_score       : user.trust_score,
-      limited_listings  : limitedCount,
-    });
 
     return res.json({
       success           : true,
 
-      /* User identity */
+      /* Identity */
       email             : maskEmail(user.email),
       name              : user.name,
       role              : user.role,
@@ -1250,23 +1223,23 @@ router.get("/status", authenticate, async (req, res) => {
       /* Trust */
       trust_score       : user.trust_score ?? 0,
 
-      /* OTP send limits */
+      /* OTP limits */
       resend_remaining  : Math.max(0, POLICY.DAILY_SEND_LIMIT - dailyCount),
       resend_limit      : POLICY.DAILY_SEND_LIMIT,
 
-      /* Limited listings — motivational data for the verification page */
+      /* Motivational nudge — limited listings near expiry */
       limited_listings  : {
         count          : limitedCount,
-        soonest_expiry : soonestExpiry,
-        days_remaining : daysRemaining,
+        soonest_expiry : soonest,
+        days_remaining : daysLeft,
         message        : limitedCount > 0
-          ? `You have ${limitedCount} listing${limitedCount !== 1 ? "s" : ""} ` +
-            `that will expire in ${daysRemaining ?? "?"} day${daysRemaining !== 1 ? "s" : ""}. ` +
+          ? `${limitedCount} listing${limitedCount !== 1 ? "s" : ""} will expire ` +
+            `in ${daysLeft ?? "?"} day${daysLeft !== 1 ? "s" : ""}. ` +
             "Complete identity verification to make them permanent."
           : null,
       },
 
-      /* What completing verification will unlock */
+      /* What verification unlocks */
       upgrade_benefits  : user.identity_verified
         ? null
         : {
@@ -1280,7 +1253,7 @@ router.get("/status", authenticate, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[status] ✗", err.message, "\n", err.stack);
+    console.error("[status] error:", err.message);
     return fail(res, 500, "Server error. Please try again.");
   }
 });
