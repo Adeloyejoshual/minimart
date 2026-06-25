@@ -1,8 +1,13 @@
 // src/components/DropdownModal.jsx
 import React, {
-  useState, useRef, useEffect,
-  useCallback, useMemo, useId,
+  useState,
+  useRef,
+  useEffect,
+  useCallback,
+  useMemo,
+  useId,
 } from "react";
+import { createPortal } from "react-dom";
 import "./DropdownModal.css";
 
 /* ── Pure helpers ─────────────────────────────────────────────── */
@@ -13,7 +18,7 @@ const getOptValue = (opt, idField) =>
   typeof opt === "object" ? normValue(opt[idField]) : normValue(opt);
 
 const getOptLabel = (opt, labelField) =>
-  typeof opt === "object" ? (opt[labelField] ?? "") : (opt ?? "");
+  typeof opt === "object" ? String(opt[labelField] ?? "") : String(opt ?? "");
 
 const getOptDisabled = (opt) =>
   typeof opt === "object" ? !!opt.disabled : false;
@@ -37,13 +42,18 @@ export default function DropdownModal({
   const [query,        setQuery]        = useState("");
   const [dropUp,       setDropUp]       = useState(false);
   const [focusedOptId, setFocusedOptId] = useState(null);
+  const [panelStyle,   setPanelStyle]   = useState(null);
 
-  const containerRef = useRef(null);
+  const rootRef      = useRef(null);
+  const triggerRef   = useRef(null);
+  const panelRef     = useRef(null);
   const searchRef    = useRef(null);
   const listRef      = useRef(null);
-  const triggerRef   = useRef(null);
   const debounceRef  = useRef(null);
-  const uid          = useId();
+  const rafRef       = useRef(null);
+
+  const uid      = useId();
+  const panelId  = `${uid}-panel`;
 
   /* ── Derived ── */
   const filteredOptions = useMemo(() => {
@@ -63,65 +73,133 @@ export default function DropdownModal({
   }, [value, options, idField, labelField]);
 
   const showPlaceholder = !displayValue;
-  const placeholderText = placeholder || (label ? `Select ${label}` : "Select an option");
-  const showSearch      = searchable && options.length > 6;
+  const placeholderText =
+    placeholder || (label ? `Select ${label}` : "Select an option");
+  const showSearch = searchable && options.length > 6;
 
   const truncatedQuery = rawQuery.length > 30
     ? `${rawQuery.slice(0, 30)}…`
     : rawQuery;
 
-  /* ── Viewport collision ── */
-  useEffect(() => {
-    if (!open || !containerRef.current) return;
-    const rect       = containerRef.current.getBoundingClientRect();
-    const spaceBelow = window.innerHeight - rect.bottom;
-    const spaceAbove = rect.top;
-    const needed     = Math.min(maxHeight, 300);
-    setDropUp(spaceBelow < needed && spaceAbove > spaceBelow);
-  }, [open, maxHeight]);
+  /* ── Positioning (portal panel) ── */
+  const updatePanelPosition = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (!trigger) return;
 
-  /* ── Elevate parent card (dropdown z-index fix) ── */
-  const elevateCard = useCallback(() => {
-    const card = containerRef.current?.closest(".section, .form-card");
-    card?.classList.add("ap-dropdown-active");
-  }, []);
+    const rect = trigger.getBoundingClientRect();
+    const gap = 8;
+    const viewportPad = 8;
+    const desiredHeight = Math.min(maxHeight, 320);
 
-  const deElevateCard = useCallback(() => {
-    const card = containerRef.current?.closest(".section, .form-card");
-    card?.classList.remove("ap-dropdown-active");
-  }, []);
+    const spaceBelow = window.innerHeight - rect.bottom - gap - viewportPad;
+    const spaceAbove = rect.top - gap - viewportPad;
+
+    const shouldDropUp =
+      spaceBelow < desiredHeight && spaceAbove > spaceBelow;
+
+    const availableHeight = shouldDropUp
+      ? Math.max(140, spaceAbove)
+      : Math.max(140, spaceBelow);
+
+    const panelHeight = Math.min(desiredHeight, availableHeight);
+
+    const width = Math.max(rect.width, 180);
+    const left = Math.min(
+      Math.max(viewportPad, rect.left),
+      window.innerWidth - width - viewportPad
+    );
+
+    const top = shouldDropUp
+      ? Math.max(viewportPad, rect.top - panelHeight - gap)
+      : Math.min(
+          window.innerHeight - panelHeight - viewportPad,
+          rect.bottom + gap
+        );
+
+    setDropUp(shouldDropUp);
+    setPanelStyle({
+      position  : "fixed",
+      top       : `${top}px`,
+      left      : `${left}px`,
+      width     : `${width}px`,
+      maxHeight : `${panelHeight}px`,
+      zIndex    : 10000,
+    });
+  }, [maxHeight]);
 
   /* ── Open / close ── */
+  const closeDropdown = useCallback(() => {
+    setOpen(false);
+    setRawQuery("");
+    setQuery("");
+    setFocusedOptId(null);
+    setPanelStyle(null);
+    cancelAnimationFrame(rafRef.current);
+  }, []);
+
   const openDropdown = useCallback(() => {
     if (disabled) return;
     setOpen(true);
     setRawQuery("");
     setQuery("");
     setFocusedOptId(null);
-    elevateCard();
-    requestAnimationFrame(() => searchRef.current?.focus());
-  }, [disabled, elevateCard]);
-
-  const closeDropdown = useCallback(() => {
-    setOpen(false);
-    setRawQuery("");
-    setQuery("");
-    setFocusedOptId(null);
-    deElevateCard();
-  }, [deElevateCard]);
+  }, [disabled]);
 
   const toggle = useCallback(() => {
     open ? closeDropdown() : openDropdown();
   }, [open, openDropdown, closeDropdown]);
+
+  /* ── Reposition while open ── */
+  useEffect(() => {
+    if (!open) return;
+
+    const run = () => {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = requestAnimationFrame(updatePanelPosition);
+    };
+
+    run();
+
+    window.addEventListener("resize", run);
+    window.addEventListener("scroll", run, true);
+
+    return () => {
+      cancelAnimationFrame(rafRef.current);
+      window.removeEventListener("resize", run);
+      window.removeEventListener("scroll", run, true);
+    };
+  }, [open, updatePanelPosition]);
+
+  /* ── Focus on open ── */
+  useEffect(() => {
+    if (!open) return;
+
+    const tid = setTimeout(() => {
+      if (showSearch) {
+        searchRef.current?.focus();
+      } else {
+        const selected =
+          listRef.current?.querySelector(".dm-option.selected") ||
+          listRef.current?.querySelector(".dm-option:not(.dm-option--disabled)");
+        selected?.focus();
+      }
+    }, 0);
+
+    return () => clearTimeout(tid);
+  }, [open, showSearch, filteredOptions.length]);
 
   /* ── Outside click / touch / Escape ── */
   useEffect(() => {
     if (!open) return;
 
     const onPointerDown = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target))
+      const insideRoot  = rootRef.current?.contains(e.target);
+      const insidePanel = panelRef.current?.contains(e.target);
+      if (!insideRoot && !insidePanel) {
         closeDropdown();
+      }
     };
+
     const onKeyDown = (e) => {
       if (e.key === "Escape") {
         closeDropdown();
@@ -129,14 +207,14 @@ export default function DropdownModal({
       }
     };
 
-    document.addEventListener("mousedown",  onPointerDown);
+    document.addEventListener("mousedown", onPointerDown);
     document.addEventListener("touchstart", onPointerDown, { passive: true });
-    document.addEventListener("keydown",    onKeyDown);
+    document.addEventListener("keydown", onKeyDown);
 
     return () => {
-      document.removeEventListener("mousedown",  onPointerDown);
+      document.removeEventListener("mousedown", onPointerDown);
       document.removeEventListener("touchstart", onPointerDown);
-      document.removeEventListener("keydown",    onKeyDown);
+      document.removeEventListener("keydown", onKeyDown);
     };
   }, [open, closeDropdown]);
 
@@ -169,93 +247,69 @@ export default function DropdownModal({
   }, [onChange, closeDropdown, idField]);
 
   /* ── Keyboard navigation ── */
+  const focusFirstEnabled = useCallback(() => {
+    const first = listRef.current?.querySelector(
+      ".dm-option:not(.dm-option--disabled)"
+    );
+    first?.focus();
+  }, []);
+
+  const handleSearchKeyDown = useCallback((e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      focusFirstEnabled();
+    }
+  }, [focusFirstEnabled]);
+
   const handleListKeyDown = useCallback((e) => {
     const items = listRef.current?.querySelectorAll(
       ".dm-option:not(.dm-option--disabled)"
     );
     if (!items?.length) return;
 
+    const list = Array.from(items);
     const active = document.activeElement;
-    const idx    = Array.from(items).indexOf(active);
+    const idx = list.indexOf(active);
 
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      items[Math.min(idx + 1, items.length - 1)]?.focus();
+      if (idx < 0) list[0]?.focus();
+      else list[Math.min(idx + 1, list.length - 1)]?.focus();
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
-      if (idx <= 0) searchRef.current?.focus();
-      else items[idx - 1]?.focus();
+      if (idx <= 0) {
+        if (showSearch) searchRef.current?.focus();
+        else triggerRef.current?.focus();
+      } else {
+        list[idx - 1]?.focus();
+      }
     } else if (e.key === "Enter" || e.key === " ") {
       e.preventDefault();
       active?.click();
     } else if (e.key === "Tab") {
       closeDropdown();
     }
-  }, [closeDropdown]);
-
-  const handleSearchKeyDown = useCallback((e) => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      const first = listRef.current?.querySelector(
-        ".dm-option:not(.dm-option--disabled)"
-      );
-      first?.focus();
-    }
-  }, []);
+  }, [closeDropdown, showSearch]);
 
   /* ── Cleanup on unmount ── */
   useEffect(() => {
     return () => {
-      deElevateCard();
+      clearTimeout(debounceRef.current);
+      cancelAnimationFrame(rafRef.current);
     };
-  }, [deElevateCard]);
+  }, []);
 
-  /* ── Render ── */
-  return (
-    <div
-      className={[
-        "dm",
-        open     ? "dm--open"     : "",
-        disabled ? "dm--disabled" : "",
-      ].filter(Boolean).join(" ")}
-      ref={containerRef}
-    >
-      {label && (
-        <label className="dm-label" htmlFor={uid}>
-          {label}
-        </label>
-      )}
-
-      <button
-        ref={triggerRef}
-        id={uid}
-        type="button"
-        className="dm-trigger"
-        aria-haspopup="listbox"
-        aria-expanded={open ? "true" : "false"}
-        aria-disabled={disabled}
-        onClick={toggle}
-        disabled={disabled}
-      >
-        <span className={`dm-trigger-text ${showPlaceholder ? "dm-placeholder" : ""}`}>
-          {showPlaceholder ? placeholderText : displayValue}
-        </span>
-        <span className="dm-chevron" aria-hidden="true">
-          <svg viewBox="0 0 12 8" width="12" height="8" fill="none">
-            <path d="M1 1.5L6 6.5L11 1.5"
-                  stroke="currentColor" strokeWidth="1.6"
-                  strokeLinecap="round" strokeLinejoin="round"/>
-          </svg>
-        </span>
-      </button>
-
-      {open && (
+  /* ── Panel (rendered in portal) ── */
+  const panel = open && typeof document !== "undefined" && panelStyle
+    ? createPortal(
         <div
+          ref={panelRef}
+          id={panelId}
           className={`dm-panel${dropUp ? " dm-panel--up" : ""}`}
           role="listbox"
           aria-label={label || placeholderText}
           aria-activedescendant={focusedOptId ?? undefined}
-          style={{ maxHeight }}
+          style={panelStyle}
           onKeyDown={handleListKeyDown}
         >
           {showSearch && (
@@ -303,7 +357,7 @@ export default function DropdownModal({
           <div className="dm-list" ref={listRef}>
             {loading ? (
               <div className="dm-loading" aria-live="polite">
-                <span className="dm-spinner" aria-hidden="true"/>
+                <span className="dm-spinner" aria-hidden="true" />
                 Loading options…
               </div>
             ) : filteredOptions.length === 0 ? (
@@ -330,7 +384,7 @@ export default function DropdownModal({
                     tabIndex={isDisabled ? -1 : 0}
                     className={[
                       "dm-option",
-                      isSelected ? "selected"            : "",
+                      isSelected ? "selected" : "",
                       isDisabled ? "dm-option--disabled" : "",
                     ].filter(Boolean).join(" ")}
                     onClick={() => handleSelect(opt)}
@@ -357,8 +411,65 @@ export default function DropdownModal({
               })
             )}
           </div>
-        </div>
-      )}
-    </div>
+        </div>,
+        document.body
+      )
+    : null;
+
+  /* ── Render ── */
+  return (
+    <>
+      <div
+        className={[
+          "dm",
+          open     ? "dm--open"     : "",
+          disabled ? "dm--disabled" : "",
+        ].filter(Boolean).join(" ")}
+        ref={rootRef}
+      >
+        {label && (
+          <label className="dm-label" htmlFor={uid}>
+            {label}
+          </label>
+        )}
+
+        <button
+          ref={triggerRef}
+          id={uid}
+          type="button"
+          className="dm-trigger"
+          aria-haspopup="listbox"
+          aria-controls={open ? panelId : undefined}
+          aria-expanded={open ? "true" : "false"}
+          aria-disabled={disabled}
+          onClick={toggle}
+          onKeyDown={(e) => {
+            if (disabled) return;
+            if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              if (!open) openDropdown();
+            }
+          }}
+          disabled={disabled}
+        >
+          <span className={`dm-trigger-text ${showPlaceholder ? "dm-placeholder" : ""}`}>
+            {showPlaceholder ? placeholderText : displayValue}
+          </span>
+          <span className="dm-chevron" aria-hidden="true">
+            <svg viewBox="0 0 12 8" width="12" height="8" fill="none">
+              <path
+                d="M1 1.5L6 6.5L11 1.5"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </span>
+        </button>
+      </div>
+
+      {panel}
+    </>
   );
 }
