@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════
-// FILE: routes/verification.js — v3
+// FILE: routes/verification.js — v4
 //
 // POST /api/verification/send-email-otp
 // POST /api/verification/verify-email-otp
@@ -7,17 +7,24 @@
 // POST /api/verification/submit
 // GET  /api/verification/status
 //
+// ── CockroachDB fixes (v4) ───────────────────────────────────
+//  ─ All ($N || ' unit')::INTERVAL replaced with
+//    INTERVAL '1 unit' * $N (CockroachDB compatible)
+//  ─ FOR UPDATE removed from SELECT queries — CockroachDB
+//    serialises at the transaction level automatically
+//  ─ All catch blocks log full stack + return real message in dev
+//
 // ── Security layers ──────────────────────────────────────────
-//  Layer 1  Application-level duplicate check (SELECT before INSERT)
-//  Layer 2  DB unique partial index on document_number_hash
-//  Layer 3  23505 handler converts constraint violation → 409
-//  Layer 4  OTPs bcrypt-hashed — plaintext never stored
-//  Layer 5  Document numbers HMAC-SHA256 hashed (keyed, normalised)
-//  Layer 6  Rate limiters + attempt caps + account flagging
-//  Layer 7  Email verified before identity submission allowed
-//  Layer 8  Server-side face match (InsightFace / FaceNet)
-//  Layer 9  Hard block on definitive face mismatch
-//  Layer 10 Atomic transaction — identity + store or nothing
+//  1  Application-level duplicate check (SELECT before INSERT)
+//  2  DB unique partial index on document_number_hash
+//  3  23505 handler → clean 409 response
+//  4  OTPs bcrypt-hashed — plaintext never stored
+//  5  Document numbers HMAC-SHA256 hashed (keyed, normalised)
+//  6  Rate limiters + attempt caps + account flagging
+//  7  Email verified before identity submission allowed
+//  8  Server-side face match (InsightFace / FaceNet)
+//  9  Hard block on definitive face mismatch
+//  10 Atomic transaction — identity + store or nothing
 // ─────────────────────────────────────────────────────────────
 
 import express   from "express";
@@ -87,18 +94,23 @@ const computeTrustScore = (user) => {
   if (user.email_verified)    s += 30;
   if (user.identity_verified) s += 35;
   if (user.store_verified)    s += 20;
-  const age = (Date.now() - new Date(user.created_at).getTime()) / 86_400_000;
-  if (age > 30) s += 10;
-  if (age > 90) s +=  5;
+  const ageDays =
+    (Date.now() - new Date(user.created_at).getTime()) / 86_400_000;
+  if (ageDays > 30) s += 10;
+  if (ageDays > 90) s +=  5;
   return Math.min(s, 100);
 };
 
 /* ══════════════════════════════════════════════════════════════
    FILE POLICY
 ══════════════════════════════════════════════════════════════ */
-const DOC_MIME  = new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]);
-const IMG_MIME  = new Set(["image/jpeg", "image/png", "image/webp"]);
-const EXT_MIME  = {
+const DOC_MIME = new Set([
+  "image/jpeg", "image/png", "image/webp", "application/pdf",
+]);
+const IMG_MIME = new Set([
+  "image/jpeg", "image/png", "image/webp",
+]);
+const EXT_MIME = {
   ".jpg"  : "image/jpeg",
   ".jpeg" : "image/jpeg",
   ".png"  : "image/png",
@@ -108,19 +120,15 @@ const EXT_MIME  = {
 
 const MAX_DOC_BYTES  = 5 * 1_048_576;   /* 5 MB */
 const MAX_LOGO_BYTES = 2 * 1_048_576;   /* 2 MB */
-const MAX_LV_BYTES   = 3 * 1_048_576;   /* 3 MB */
 
 const VALID_DOC_TYPES = new Set([
-  "nin",
-  "passport",
-  "drivers_license",
-  "voters_card",
+  "nin", "passport", "drivers_license", "voters_card",
 ]);
 
 /* ══════════════════════════════════════════════════════════════
    DOCUMENT NUMBER VALIDATORS
-   Server-side regex mirrors frontend DOC_RULES.
-   Server is the authority — frontend rules are UX hints only.
+   Server-side regex — mirrors frontend DOC_RULES.
+   Server is the authority; frontend validation is UX only.
 ══════════════════════════════════════════════════════════════ */
 const DOC_VALIDATORS = {
   nin             : (v) => /^\d{11}$/.test(v.replace(/\s/g, "")),
@@ -200,12 +208,10 @@ async function getCld() {
     CLOUDINARY_API_KEY    : ak,
     CLOUDINARY_API_SECRET : as,
   } = process.env;
-
   if (!cn || !ak || !as) {
     console.warn("[cloudinary] not configured — placeholder URLs in use");
     return null;
   }
-
   try {
     const { v2: cld } = await import("cloudinary");
     const sf           = await import("streamifier");
@@ -220,7 +226,7 @@ async function getCld() {
   }
 }
 
-const uploadBuffer = async (buffer, folder, userId, opts = {}) => {
+const uploadBuffer = async (buffer, folder, userId) => {
   const cld = await getCld();
   if (!cld) {
     return { secure_url: `local://${folder}/${userId}/${Date.now()}` };
@@ -233,7 +239,6 @@ const uploadBuffer = async (buffer, folder, userId, opts = {}) => {
         allowed_formats : ["jpg", "jpeg", "png", "webp", "pdf"],
         overwrite       : false,
         unique_filename : true,
-        ...opts,
       },
       (e, r) => (e ? no(new Error(`Cloudinary: ${e.message}`)) : ok(r))
     );
@@ -243,11 +248,11 @@ const uploadBuffer = async (buffer, folder, userId, opts = {}) => {
 
 /* ══════════════════════════════════════════════════════════════
    FACE MATCH SERVICE
-   Calls FACE_SERVICE_URL/compare — expects JSON response:
-     { match: bool, confidence: 0-1, message: string }
+   Calls FACE_SERVICE_URL/compare.
+   Expected response: { match: bool, confidence: 0-1, message: string }
 
-   If FACE_SERVICE_URL is not set, returns skipped:true so the
-   submission still proceeds but is flagged for manual review.
+   If FACE_SERVICE_URL is not set, returns skipped:true so
+   submission proceeds but is flagged for manual face review.
 
    ── Example InsightFace Python micro-service (FastAPI) ──────
    from fastapi import FastAPI, File, UploadFile
@@ -255,8 +260,8 @@ const uploadBuffer = async (buffer, folder, userId, opts = {}) => {
    from scipy.spatial.distance import cosine
    import numpy as np, cv2
 
-   app  = FastAPI()
-   fa   = FaceAnalysis(providers=["CPUExecutionProvider"])
+   app = FastAPI()
+   fa  = FaceAnalysis(providers=["CPUExecutionProvider"])
    fa.prepare(ctx_id=0)
 
    @app.post("/compare")
@@ -265,10 +270,10 @@ const uploadBuffer = async (buffer, folder, userId, opts = {}) => {
            a = np.frombuffer(b, np.uint8)
            faces = fa.get(cv2.imdecode(a, cv2.IMREAD_COLOR))
            return faces[0].embedding if faces else None
-
-       e1, e2 = embed(await selfie.read()), embed(await doc_front.read())
+       e1 = embed(await selfie.read())
+       e2 = embed(await doc_front.read())
        if e1 is None or e2 is None:
-           return {"match": False, "confidence": 0, "message": "No face detected"}
+           return {"match": False, "confidence": 0, "message": "No face"}
        sim = float(1 - cosine(e1, e2))
        return {"match": sim > 0.40, "confidence": round(sim, 3), "message": "OK"}
    ─────────────────────────────────────────────────────────────
@@ -278,28 +283,19 @@ const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL ?? null;
 const compareFaces = async (selfieBuffer, docFrontBuffer) => {
   if (!FACE_SERVICE_URL) {
     console.warn("[face-check] FACE_SERVICE_URL not set — skipping");
-    return {
-      match      : null,
-      confidence : null,
-      skipped    : true,
-      message    : "Face service not configured",
-    };
+    return { match: null, confidence: null, skipped: true, message: "Face service not configured" };
   }
-
   try {
     const fd = new FormData();
     fd.append("selfie",    new Blob([selfieBuffer]),   "selfie.jpg");
     fd.append("doc_front", new Blob([docFrontBuffer]), "doc_front.jpg");
-
     const r = await fetch(`${FACE_SERVICE_URL}/compare`, {
       method : "POST",
       body   : fd,
       signal : AbortSignal.timeout(15_000),
     });
-
-    if (!r.ok) throw new Error(`Face service ${r.status}`);
+    if (!r.ok) throw new Error(`Face service returned ${r.status}`);
     const d = await r.json();
-
     return {
       match      : Boolean(d.match),
       confidence : d.confidence ?? null,
@@ -308,12 +304,7 @@ const compareFaces = async (selfieBuffer, docFrontBuffer) => {
     };
   } catch (e) {
     console.error("[face-check] service error:", e.message);
-    return {
-      match      : null,
-      confidence : null,
-      skipped    : true,
-      message    : e.message,
-    };
+    return { match: null, confidence: null, skipped: true, message: e.message };
   }
 };
 
@@ -336,19 +327,16 @@ const sendOtpLimiter = makeLimiter({
   max       : IS_PROD ?  5 : 50,
   message   : "Too many send requests. Please wait.",
 });
-
 const verifyOtpLimiter = makeLimiter({
   windowMin : 15,
   max       : IS_PROD ? 10 : 50,
   message   : "Too many verification attempts.",
 });
-
 const submitLimiter = makeLimiter({
   windowMin : 60,
   max       : IS_PROD ?  5 : 30,
   message   : "Too many submissions. Please wait.",
 });
-
 const faceCheckLimiter = makeLimiter({
   windowMin : 15,
   max       : IS_PROD ? 20 : 100,
@@ -384,8 +372,8 @@ const extMatchesMime = (file) => {
 };
 
 const getDailySendCount = async (db, userId) => {
-  const today     = getTodayUTC();
-  const { rows }  = await db.query(
+  const today    = getTodayUTC();
+  const { rows } = await db.query(
     `SELECT COUNT(*) AS cnt
      FROM   email_verifications
      WHERE  user_id    = $1
@@ -432,19 +420,19 @@ const refreshTrustScore = async (client, userId) => {
 
 /* ══════════════════════════════════════════════════════════════
    DOCUMENT NUMBER HASHING
-   HMAC-SHA256, keyed with DOC_HASH_SECRET, normalised, type-prefixed.
+   HMAC-SHA256, keyed, normalised, type-prefixed.
 
    Properties:
-   ─ Deterministic  : same input → same hash always
-   ─ Non-reversible : hash → input is infeasible
-   ─ Secret-keyed   : DB dump alone cannot brute-force numbers
-   ─ Normalised     : "12345" == "12 345" == "12-345"
-   ─ Type-prefixed  : "nin:123" ≠ "passport:123"
+     Deterministic  — same input → same hash always
+     Non-reversible — hash → input is computationally infeasible
+     Secret-keyed   — DB dump alone cannot brute-force numbers
+     Normalised     — "12345" == "12 345" == "12-345"
+     Type-prefixed  — "nin:123" ≠ "passport:123"
 
-   Defence in depth:
-   ─ Layer 1 (application): SELECT before INSERT catches common case
-   ─ Layer 2 (database):    UNIQUE partial index catches race condition
-   ─ Layer 3 (handler):     23505 → clean 409 response
+   Three-layer duplicate defence:
+     Layer 1 — Application SELECT before INSERT
+     Layer 2 — UNIQUE partial index (idx_iv_doc_hash_active)
+     Layer 3 — 23505 handler → clean 409 response
 ══════════════════════════════════════════════════════════════ */
 const DOC_HASH_SECRET = process.env.DOC_HASH_SECRET ?? null;
 
@@ -478,12 +466,16 @@ router.post(
     try {
       await client.query("BEGIN");
 
-      /* ── Fetch and lock user row ── */
+      /*
+       * No FOR UPDATE — CockroachDB serialises transactions
+       * automatically at the SERIALIZABLE isolation level.
+       * FOR UPDATE can cause "cannot execute in a read-only
+       * transaction" errors on some CockroachDB configurations.
+       */
       const { rows: users } = await client.query(
         `SELECT id, email, name, email_verified, status
          FROM   users
-         WHERE  id = $1
-         FOR UPDATE`,
+         WHERE  id = $1`,
         [userId]
       );
       if (!users.length) {
@@ -513,21 +505,23 @@ router.post(
         );
       }
 
-      /* ── Resend cooldown ── */
+      /*
+       * ── Resend cooldown ──
+       * FIX: Use INTERVAL '1 second' * $2 instead of
+       *      ($2 || ' seconds')::INTERVAL — CockroachDB compatible.
+       */
       const { rows: recent } = await client.query(
         `SELECT created_at
          FROM   email_verifications
          WHERE  user_id    = $1
-           AND  created_at > NOW() - ($2 || ' seconds')::INTERVAL
+           AND  created_at > NOW() - INTERVAL '1 second' * $2
          ORDER  BY created_at DESC
          LIMIT  1`,
         [userId, POLICY.RESEND_COOLDOWN_SECS]
       );
       if (recent.length) {
-        const wait = Math.ceil(
-          POLICY.RESEND_COOLDOWN_SECS -
-          (Date.now() - new Date(recent[0].created_at).getTime()) / 1_000
-        );
+        const elapsed = (Date.now() - new Date(recent[0].created_at).getTime()) / 1_000;
+        const wait    = Math.ceil(POLICY.RESEND_COOLDOWN_SECS - elapsed);
         await client.query("ROLLBACK");
         return fail(
           res, 429,
@@ -536,12 +530,15 @@ router.post(
         );
       }
 
-      /* ── Abuse detection ── */
+      /*
+       * ── Abuse detection ──
+       * FIX: INTERVAL '1 minute' * $2
+       */
       const { rows: abr } = await client.query(
         `SELECT COUNT(*) AS cnt
          FROM   email_verifications
          WHERE  user_id    = $1
-           AND  created_at > NOW() - ($2 || ' minutes')::INTERVAL`,
+           AND  created_at > NOW() - INTERVAL '1 minute' * $2`,
         [userId, POLICY.ABUSE_WINDOW_MINUTES]
       );
       if (parseInt(abr[0].cnt, 10) >= POLICY.ABUSE_THRESHOLD) {
@@ -560,15 +557,19 @@ router.post(
         [userId]
       );
 
-      /* ── Generate, hash, insert ── */
+      /* ── Generate + hash OTP ── */
       const otp    = generateOtp();
       const hash   = await bcrypt.hash(otp, POLICY.BCRYPT_ROUNDS);
       const device = makeDeviceHash(req);
 
+      /*
+       * ── Insert OTP record ──
+       * FIX: INTERVAL '1 minute' * $3
+       */
       await client.query(
         `INSERT INTO email_verifications
            (user_id, otp_hash, expires_at, status, device_hash, ip_address)
-         VALUES ($1, $2, NOW() + ($3 || ' minutes')::INTERVAL, 'active', $4, $5)`,
+         VALUES ($1, $2, NOW() + INTERVAL '1 minute' * $3, 'active', $4, $5)`,
         [userId, hash, POLICY.OTP_EXPIRY_MINUTES, device, ip]
       );
 
@@ -576,28 +577,30 @@ router.post(
       await client.query(
         `INSERT INTO user_devices
            (user_id, device_hash, ip_address, user_agent, last_seen)
-         VALUES ($1,$2,$3,$4,NOW())
+         VALUES ($1, $2, $3, $4, NOW())
          ON CONFLICT (user_id, device_hash) DO UPDATE
-           SET last_seen = NOW(), ip_address = EXCLUDED.ip_address`,
+           SET last_seen  = NOW(),
+               ip_address = EXCLUDED.ip_address`,
         [userId, device, ip, req.headers["user-agent"] ?? null]
       );
 
       await client.query("COMMIT");
 
-      /* ── Send email (after commit so OTP exists if email fails slowly) ── */
+      /* ── Send email (after commit so OTP row exists if email is slow) ── */
       try {
         await sendVerificationEmail({ to: user.email, name: user.name, otp });
       } catch (mailErr) {
-        /* Roll back the OTP record so user can retry immediately */
+        /* Roll back the OTP so user can retry immediately */
         pool.query(
           `UPDATE email_verifications
-           SET    status = 'expired', used_at = NOW()
+           SET    status  = 'expired',
+                  used_at = NOW()
            WHERE  user_id    = $1
              AND  status     = 'active'
              AND  created_at > NOW() - INTERVAL '2 minutes'`,
           [userId]
         ).catch(() => {});
-        return fail(res, 500, `Email failed: ${mailErr.message}`);
+        return fail(res, 500, `Email delivery failed: ${mailErr.message}`);
       }
 
       const remaining = POLICY.DAILY_SEND_LIMIT - (dailyCount + 1);
@@ -622,8 +625,11 @@ router.post(
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      console.error("[send-otp] error:", err.message);
-      return fail(res, 500, "Server error. Please try again.");
+      console.error("[send-otp] error:", err.message, "\n", err.stack);
+      return fail(
+        res, 500,
+        IS_PROD ? "Server error. Please try again." : err.message
+      );
     } finally {
       client.release();
     }
@@ -649,6 +655,7 @@ router.post(
     try {
       await client.query("BEGIN");
 
+      /* No FOR UPDATE — CockroachDB serialises at TX level */
       const { rows } = await client.query(
         `SELECT id, otp_hash, attempts
          FROM   email_verifications
@@ -667,7 +674,7 @@ router.post(
 
       const rec = rows[0];
 
-      /* Attempt cap */
+      /* ── Attempt cap ── */
       if (rec.attempts >= POLICY.MAX_VERIFY_ATTEMPTS) {
         await client.query(
           "UPDATE email_verifications SET status = 'blocked' WHERE id = $1",
@@ -675,9 +682,10 @@ router.post(
         );
         await flagAccount(client, userId, "otp_max_attempts", ip);
         await client.query("COMMIT");
-        return fail(res, 429, "Too many failed attempts. Account flagged.");
+        return fail(res, 429, "Too many failed attempts.");
       }
 
+      /* ── bcrypt compare ── */
       const valid = await bcrypt.compare(rawOtp, rec.otp_hash);
 
       if (!valid) {
@@ -690,10 +698,15 @@ router.post(
         return fail(res, 400, "Incorrect code.", { attemptsLeft: left });
       }
 
-      /* Atomic mark-used — prevents replay between concurrent requests */
+      /*
+       * ── Atomic mark-used ──
+       * Prevents replay if two concurrent requests both pass bcrypt.
+       * Only the first UPDATE that matches status='active' wins.
+       */
       const { rows: marked } = await client.query(
         `UPDATE email_verifications
-         SET    status = 'used', used_at = NOW()
+         SET    status  = 'used',
+                used_at = NOW()
          WHERE  id     = $1
            AND  status = 'active'
          RETURNING id`,
@@ -704,7 +717,7 @@ router.post(
         return fail(res, 400, "Code already used. Request a new one.");
       }
 
-      /* Mark user email verified */
+      /* ── Mark user email verified ── */
       await client.query(
         `UPDATE users
          SET    email_verified    = TRUE,
@@ -720,7 +733,7 @@ router.post(
 
       /* Fire-and-forget post-verification tasks */
       reactivateLimitedListings(userId).catch((e) =>
-        console.error("[verify-otp] reactivate:", e.message)
+        console.error("[verify-otp] reactivate listings:", e.message)
       );
 
       writeAudit({
@@ -735,7 +748,9 @@ router.post(
       pool
         .query("SELECT email, name FROM users WHERE id = $1", [userId])
         .then(({ rows: u }) => {
-          if (u[0]) sendWelcomeEmail({ to: u[0].email, name: u[0].name }).catch(() => {});
+          if (u[0]) {
+            sendWelcomeEmail({ to: u[0].email, name: u[0].name }).catch(() => {});
+          }
         })
         .catch(() => {});
 
@@ -747,8 +762,11 @@ router.post(
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      console.error("[verify-otp] error:", err.message);
-      return fail(res, 500, "Server error. Please try again.");
+      console.error("[verify-otp] error:", err.message, "\n", err.stack);
+      return fail(
+        res, 500,
+        IS_PROD ? "Server error. Please try again." : err.message
+      );
     } finally {
       client.release();
     }
@@ -758,9 +776,8 @@ router.post(
 /* ══════════════════════════════════════════════════════════════
    POST /api/verification/face-check
    Standalone pre-check — frontend calls whenever selfie + doc
-   front are both ready, before the main submit.
-   Result is advisory only at this point; the definitive check
-   runs again server-side inside POST /submit.
+   front are both ready. Advisory only at this stage.
+   The authoritative check runs again inside POST /submit.
 ══════════════════════════════════════════════════════════════ */
 router.post(
   "/face-check",
@@ -787,9 +804,9 @@ router.post(
         message    : result.message,
       });
     } catch (err) {
-      console.error("[face-check] error:", err.message);
+      console.error("[face-check] error:", err.message, "\n", err.stack);
       /*
-       * Never block the frontend on a face-check failure.
+       * Never block the frontend on a pre-check failure.
        * The definitive check is inside POST /submit.
        */
       return res.json({
@@ -805,18 +822,16 @@ router.post(
 /* ══════════════════════════════════════════════════════════════
    POST /api/verification/submit
    Atomic: identity + store inserted in a single DB transaction.
-   Either both succeed or nothing is persisted.
 
    Three-layer duplicate document defence:
      Layer 1 — SELECT before INSERT (application check)
-     Layer 2 — UNIQUE partial index on document_number_hash
+     Layer 2 — UNIQUE partial index idx_iv_doc_hash_active
                catches the race condition Layer 1 misses
-     Layer 3 — 23505 error code handler → clean 409 response
+     Layer 3 — 23505 error code → clean 409 response
 
    Server-side face match runs here (authoritative).
-   If the face service is unavailable (skipped), submission
-   proceeds but is flagged for manual face review.
-   If the face service returns match=false, submission is blocked.
+   Skipped service → flagged for manual review (face_skipped=true).
+   Definitive mismatch → 422 hard block.
 ══════════════════════════════════════════════════════════════ */
 router.post(
   "/submit",
@@ -831,11 +846,11 @@ router.post(
     if (!userId) return fail(res, 401, "Not authenticated.");
 
     /* ── Parse body ── */
-    const docType       = (req.body.document_type     ?? "").trim();
-    const docNumber     = (req.body.document_number   ?? "").trim();
-    const storeName     = (req.body.store_name        ?? "").trim();
-    const storeDesc     = (req.body.store_description ?? "").trim();
-    const livenessPassed = req.body.liveness_passed   === "true";
+    const docType        = (req.body.document_type     ?? "").trim();
+    const docNumber      = (req.body.document_number   ?? "").trim();
+    const storeName      = (req.body.store_name        ?? "").trim();
+    const storeDesc      = (req.body.store_description ?? "").trim();
+    const livenessPassed = req.body.liveness_passed    === "true";
 
     /* ── Validate document type ── */
     if (!VALID_DOC_TYPES.has(docType)) {
@@ -845,7 +860,7 @@ router.post(
       );
     }
 
-    /* ── Validate document number — server is the authority ── */
+    /* ── Validate document number (server is the authority) ── */
     const validateNum = DOC_VALIDATORS[docType];
     if (!validateNum || !validateNum(docNumber)) {
       return fail(
@@ -855,9 +870,9 @@ router.post(
     }
 
     /* ── Validate store fields ── */
-    if (storeName.length < 2)   return fail(res, 400, "Store name too short (min 2).");
-    if (storeName.length > 60)  return fail(res, 400, "Store name too long (max 60).");
-    if (storeDesc.length > 300) return fail(res, 400, "Description too long (max 300).");
+    if (storeName.length < 2)   return fail(res, 400, "Store name too short (min 2 chars).");
+    if (storeName.length > 60)  return fail(res, 400, "Store name too long (max 60 chars).");
+    if (storeDesc.length > 300) return fail(res, 400, "Description too long (max 300 chars).");
 
     /* ── Validate required files ── */
     const frontFile  = req.files?.doc_front?.[0]      ?? null;
@@ -866,16 +881,16 @@ router.post(
     const logoFile   = req.files?.store_logo?.[0]      ?? null;
     const lvFile     = req.files?.liveness_frame?.[0]  ?? null;
 
-    if (!frontFile)  return fail(res, 400, "Document front required.");
-    if (!backFile)   return fail(res, 400, "Document back required.");
-    if (!selfieFile) return fail(res, 400, "Selfie required.");
+    if (!frontFile)  return fail(res, 400, "Document front is required.");
+    if (!backFile)   return fail(res, 400, "Document back is required.");
+    if (!selfieFile) return fail(res, 400, "Selfie is required.");
 
     /* ── Extension ↔ MIME validation ── */
     for (const f of [frontFile, backFile, selfieFile]) {
       if (!extMatchesMime(f)) {
         return fail(
           res, 400,
-          `File "${f.originalname}" extension does not match its content.`
+          `File "${f.originalname}" extension does not match its content type.`
         );
       }
     }
@@ -883,18 +898,19 @@ router.post(
     /* ── Hash document number ── */
     const docHash = hashDocNumber(docType, docNumber);
     if (!docHash) {
-      console.warn("[submit] DOC_HASH_SECRET missing — duplicate detection disabled");
+      console.warn("[submit] DOC_HASH_SECRET not set — duplicate detection disabled");
     }
 
-    /* ── Guard queries — run in parallel for speed ── */
+    /* ── Guard queries — run in parallel ── */
     const [userRes, pendingIdRes, pendingStRes, dupRes] = await Promise.all([
       pool.query(
         `SELECT email_verified, identity_verified, store_verified, status
-         FROM   users WHERE id = $1`,
+         FROM   users
+         WHERE  id = $1`,
         [userId]
       ),
 
-      /* Layer 1a: existing identity review */
+      /* Layer 1a — existing identity review */
       pool.query(
         `SELECT id, status
          FROM   identity_verifications
@@ -904,7 +920,7 @@ router.post(
         [userId]
       ),
 
-      /* Layer 1b: existing store review */
+      /* Layer 1b — existing store review */
       pool.query(
         `SELECT id, status
          FROM   store_verifications
@@ -915,9 +931,9 @@ router.post(
       ),
 
       /*
-       * Layer 1 — duplicate document check (application-level).
-       * Skipped when hash unavailable (DOC_HASH_SECRET not set).
-       * Layer 2 (DB unique index) still protects even if this is skipped.
+       * Layer 1 — duplicate document check.
+       * Skipped when DOC_HASH_SECRET not set.
+       * Layer 2 (DB index) still protects even if this is skipped.
        */
       docHash
         ? pool.query(
@@ -939,7 +955,7 @@ router.post(
       return fail(res, 403, "Account restricted. Contact support.");
 
     if (!user.email_verified)
-      return fail(res, 403, "Verify your email address before submitting documents.");
+      return fail(res, 403, "Please verify your email address before submitting documents.");
 
     if (user.identity_verified)
       return fail(res, 400, "Identity already verified.");
@@ -963,7 +979,6 @@ router.post(
     }
 
     if (dupRes.rows.length) {
-      /* Audit the duplicate attempt before rejecting */
       writeAudit({
         actorId    : userId,
         action     : "identity_duplicate_rejected",
@@ -972,17 +987,16 @@ router.post(
         metadata   : { document_type: docType },
         ipAddress  : ip,
       }).catch(() => {});
-
       return fail(
         res, 409,
         "This document is already registered on our platform. " +
-        "If you believe this is an error, contact support."
+        "If you believe this is an error, please contact support."
       );
     }
 
     /* ── Server-side face match (authoritative) ── */
     const faceResult = await compareFaces(selfieFile.buffer, frontFile.buffer);
-    console.log("[submit] face match result:", {
+    console.log("[submit] face match:", {
       match      : faceResult.match,
       confidence : faceResult.confidence,
       skipped    : faceResult.skipped,
@@ -990,8 +1004,8 @@ router.post(
 
     /*
      * Hard block on definitive mismatch.
-     * If the service is unavailable (skipped), allow submission
-     * but flag it for manual face review via face_skipped column.
+     * skipped=true means the service was unavailable — allow through,
+     * flag face_skipped=true for manual admin review.
      */
     if (!faceResult.skipped && faceResult.match === false) {
       writeAudit({
@@ -1002,7 +1016,6 @@ router.post(
         metadata   : { confidence: faceResult.confidence },
         ipAddress  : ip,
       }).catch(() => {});
-
       return fail(
         res, 422,
         "Selfie does not match the document photo. " +
@@ -1029,7 +1042,7 @@ router.post(
       return fail(res, 500, `File upload failed: ${uploadErr.message}`);
     }
 
-    /* ── Atomic DB transaction — identity + store ── */
+    /* ── Atomic DB transaction ── */
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -1067,7 +1080,7 @@ router.post(
       await client.query(
         `INSERT INTO store_verifications
            (user_id, store_name, store_description, logo_url, status)
-         VALUES ($1,$2,$3,$4,'pending')`,
+         VALUES ($1, $2, $3, $4, 'pending')`,
         [userId, storeName, storeDesc || null, logo?.secure_url ?? null]
       );
 
@@ -1079,21 +1092,22 @@ router.post(
 
       /*
        * Layer 3 — unique index violation.
-       * Two concurrent requests with the same document both passed
-       * the Layer 1 SELECT (neither row existed yet), but only one
-       * INSERT won. The second hits the unique index (23505).
+       * Two concurrent requests both passed the Layer 1 SELECT,
+       * but only one INSERT won. The second hits the unique index.
        */
       if (dbErr.code === "23505") {
         return fail(
           res, 409,
           "This document is already registered on our platform. " +
-          "If you believe this is an error, contact support."
+          "If you believe this is an error, please contact support."
         );
       }
 
-      console.error("[submit] db error:", dbErr.message, dbErr.stack);
-      return fail(res, 500, "Submission failed. Please try again.");
-
+      console.error("[submit] db error:", dbErr.message, "\n", dbErr.stack);
+      return fail(
+        res, 500,
+        IS_PROD ? "Submission failed. Please try again." : dbErr.message
+      );
     } finally {
       client.release();
     }
@@ -1119,7 +1133,7 @@ router.post(
       success : true,
       message :
         "Documents submitted. Our team will review within 24 hours. " +
-        "You'll be notified when your account is verified.",
+        "You will be notified once your account is verified.",
     });
   }
 );
@@ -1216,7 +1230,7 @@ router.get("/status", authenticate, async (req, res) => {
       identity_verified : user.identity_verified,
       store_verified    : user.store_verified,
 
-      /* Review details */
+      /* Review details (includes face_match for admin transparency) */
       identity_review   : idReview,
       store_review      : storeReview,
 
@@ -1227,7 +1241,7 @@ router.get("/status", authenticate, async (req, res) => {
       resend_remaining  : Math.max(0, POLICY.DAILY_SEND_LIMIT - dailyCount),
       resend_limit      : POLICY.DAILY_SEND_LIMIT,
 
-      /* Motivational nudge — limited listings near expiry */
+      /* Motivational nudge */
       limited_listings  : {
         count          : limitedCount,
         soonest_expiry : soonest,
@@ -1253,8 +1267,11 @@ router.get("/status", authenticate, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[status] error:", err.message);
-    return fail(res, 500, "Server error. Please try again.");
+    console.error("[status] error:", err.message, "\n", err.stack);
+    return fail(
+      res, 500,
+      IS_PROD ? "Server error. Please try again." : err.message
+    );
   }
 });
 
