@@ -1,168 +1,30 @@
-# ═══════════════════════════════════════════════════════════════
-# Loemart — robots.txt
-# https://loemart.com
-#
-# Controls which pages search engines can crawl and index.
-# Updated: 2025-01-01
-# ═══════════════════════════════════════════════════════════════
+# ════════════════════════════════════════════════════════════
+# FILE: public/robots.txt
+# ════════════════════════════════════════════════════════════
 
-
-# ── Apply to ALL search engine bots ────────────────────────────
 User-agent: *
-
-# ── Allow public pages ─────────────────────────────────────────
 Allow: /
-Allow: /minimart
-Allow: /search
-Allow: /deals
-Allow: /trending
-Allow: /latest
-Allow: /nearby
-Allow: /p2p
-Allow: /product/
-Allow: /shop/
-Allow: /seller/
-Allow: /become-seller
-Allow: /menu
-Allow: /auth
-Allow: /terms
-Allow: /faq
-Allow: /support
-Allow: /sitemap.xml
-Allow: /sitemap-products.xml
 
-# ── Block private / user pages ─────────────────────────────────
-Disallow: /profile
-Disallow: /wallet
-Disallow: /settings
-Disallow: /notifications
-Disallow: /conversations
-Disallow: /chat/
-Disallow: /dashboard
-Disallow: /leaderboard
-Disallow: /coupons
-Disallow: /verification
-Disallow: /invitation
-Disallow: /complain
-
-# ── Block checkout / payment flow ──────────────────────────────
+# Auth & transactional — no indexable content
+Disallow: /auth
+Disallow: /login
+Disallow: /register
 Disallow: /shop/cart
-Disallow: /shop/checkout
-Disallow: /shop/orders
-Disallow: /shop/orders/
-Disallow: /payment/
-Disallow: /order-success/
-Disallow: /payment-failed/
-
-# ── Block admin panel ───────────────────────────────────────────
-Disallow: /admin
-Disallow: /admin/
-Disallow: /admin/login
-Disallow: /admin/dashboard
-
-# ── Block seller dashboard ──────────────────────────────────────
-Disallow: /seller/dashboard
-Disallow: /seller/dashboard/
-
-# ── Block API routes ────────────────────────────────────────────
-Disallow: /api/
-Disallow: /api/admin/
-Disallow: /api/users/
-Disallow: /api/payment/
-Disallow: /api/checkout/
-
-# ── Block add product / post ads ────────────────────────────────
+Disallow: /checkout
 Disallow: /minimart/add
-Disallow: /minimart/post-ad
+Disallow: /verification
 
-
-# ═══════════════════════════════════════════════════════════════
-# Google specifically
-# ═══════════════════════════════════════════════════════════════
-User-agent: Googlebot
-
-Allow: /
-Allow: /product/
-Allow: /seller/
-Allow: /minimart
-Allow: /search
-Allow: /deals
-Allow: /trending
-Allow: /latest
-Allow: /nearby
-
-Disallow: /admin/
-Disallow: /api/
-Disallow: /shop/checkout
-Disallow: /shop/orders/
-Disallow: /chat/
+# Account pages — private
 Disallow: /profile
-Disallow: /wallet
+Disallow: /settings
+Disallow: /dashboard
+Disallow: /notifications
+Disallow: /messages
 
-
-# ═══════════════════════════════════════════════════════════════
-# Googlebot Images — allow product images
-# ═══════════════════════════════════════════════════════════════
-User-agent: Googlebot-Image
-
-Allow: /
-Allow: /uploads/
-Allow: /og-image.jpg
-Allow: /icon-512.png
-Allow: /apple-touch-icon.png
-
-
-# ═══════════════════════════════════════════════════════════════
-# Bing
-# ═══════════════════════════════════════════════════════════════
-User-agent: Bingbot
-
-Allow: /
-Allow: /product/
-Allow: /seller/
-Allow: /minimart
-Allow: /search
-
-Disallow: /admin/
+# API — never index
 Disallow: /api/
-Disallow: /shop/checkout
-Disallow: /chat/
-Disallow: /profile
 
+# Search with query params — avoid duplicate content
+Disallow: /search?*
 
-# ═══════════════════════════════════════════════════════════════
-# Block bad / aggressive bots
-# ═══════════════════════════════════════════════════════════════
-User-agent: AhrefsBot
-Disallow: /
-
-User-agent: SemrushBot
-Disallow: /
-
-User-agent: DotBot
-Disallow: /
-
-User-agent: MJ12bot
-Disallow: /
-
-User-agent: BLEXBot
-Disallow: /
-
-User-agent: PetalBot
-Disallow: /
-
-User-agent: DataForSeoBot
-Disallow: /
-
-
-# ═══════════════════════════════════════════════════════════════
-# Sitemap locations
-# ═══════════════════════════════════════════════════════════════
-Sitemap: https://loemart.com/sitemap.xml
-Sitemap: https://loemart.com/sitemap-products.xml
-
-
-# ═══════════════════════════════════════════════════════════════
-# Crawl delay (be kind to your server)
-# ═══════════════════════════════════════════════════════════════
-Crawl-delay: 10
+Sitemap: https://www.loemart.com/sitemap-index.xml
