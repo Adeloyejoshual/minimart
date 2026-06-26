@@ -1,7 +1,8 @@
 // ════════════════════════════════════════════════════════════
-// FILE: Verification.jsx — v5
-// Auth: reads "marketplace_token" from localStorage
-// Matches: routes/verification.js v5 + Verification.css v2
+// FILE: Verification.jsx — v6
+// Auth  : reads "marketplace_token" from localStorage
+// Schema: store_verifications has no store_name/store_description
+//         columns — only documents_url (jsonb)
 // ════════════════════════════════════════════════════════════
 
 import {
@@ -13,7 +14,6 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import "../../style/Verification.css";
-
 /* ══════════════════════════════════════════════════════════════
    TOKEN
 ══════════════════════════════════════════════════════════════ */
@@ -38,9 +38,9 @@ const apiFetch = async (path, options = {}) => {
   return { ok: res.ok, status: res.status, data };
 };
 
+// ⚠️ No Content-Type header — browser sets multipart boundary automatically
 const apiUpload = async (path, formData) => {
   const token = getToken();
-  // ⚠️ No Content-Type — browser sets multipart/form-data boundary automatically
   const res = await fetch(`${API_BASE}${path}`, {
     method: "POST",
     body: formData,
@@ -58,10 +58,10 @@ const apiUpload = async (path, formData) => {
 const OTP_LEN = 6;
 
 const VALID_DOC_TYPES = [
-  { value: "nin",             label: "National ID (NIN)"       },
-  { value: "passport",        label: "International Passport"  },
-  { value: "drivers_license", label: "Driver's License"        },
-  { value: "voters_card",     label: "Voter's Card"            },
+  { value: "nin",             label: "National ID (NIN)"      },
+  { value: "passport",        label: "International Passport" },
+  { value: "drivers_license", label: "Driver's License"       },
+  { value: "voters_card",     label: "Voter's Card"           },
 ];
 
 const DOC_VALIDATORS = {
@@ -78,15 +78,15 @@ const DOC_HINTS = {
   voters_card:     "19 alphanumeric characters",
 };
 
-const ACCEPT_DOC  = ".jpg,.jpeg,.png,.webp,.pdf";
-const ACCEPT_IMG  = ".jpg,.jpeg,.png,.webp";
-const MAX_DOC_MB  = 5;
-const MAX_LOGO_MB = 2;
+const ACCEPT_DOC = ".jpg,.jpeg,.png,.webp,.pdf";
+const ACCEPT_IMG = ".jpg,.jpeg,.png,.webp";
+const MAX_DOC_MB = 5;
+const MAX_IMG_MB = 2;
 
-const ALLOWED_DOC_MIME  = new Set([
+const ALLOWED_DOC_MIME = new Set([
   "image/jpeg", "image/png", "image/webp", "application/pdf",
 ]);
-const ALLOWED_IMG_MIME  = new Set([
+const ALLOWED_IMG_MIME = new Set([
   "image/jpeg", "image/png", "image/webp",
 ]);
 
@@ -94,8 +94,8 @@ const ALLOWED_IMG_MIME  = new Set([
    UTILS
 ══════════════════════════════════════════════════════════════ */
 const fmtBytes = (b) => {
-  if (b < 1024)      return `${b} B`;
-  if (b < 1_048_576) return `${(b / 1024).toFixed(1)} KB`;
+  if (b < 1024)       return `${b} B`;
+  if (b < 1_048_576)  return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / 1_048_576).toFixed(1)} MB`;
 };
 
@@ -216,27 +216,31 @@ const Ic = {
    TRUST RING
 ══════════════════════════════════════════════════════════════ */
 const TIERS = [[80,"Elite"],[60,"Trusted"],[35,"Growing"],[0,"Starter"]];
-const getTier = (s) => TIERS.find(([min]) => s >= min)[1];
+const getTier = (score) => TIERS.find(([min]) => score >= min)[1];
 
 function TrustRing({ score }) {
-  const R = 54;
-  const C = 2 * Math.PI * R;
+  const R      = 54;
+  const C      = 2 * Math.PI * R;
   const offset = C - (score / 100) * C;
+
   return (
     <div className="v-trust-ring">
       <div className="v-trust-ring__graphic">
         <svg width="140" height="140" viewBox="0 0 140 140">
-          <circle cx="70" cy="70" r={R} fill="none"
-            stroke="var(--v-border)" strokeWidth="10"/>
-          <circle cx="70" cy="70" r={R} fill="none"
-            stroke="var(--v-orange)" strokeWidth="10"
+          <circle
+            cx="70" cy="70" r={R}
+            fill="none" stroke="var(--v-border)" strokeWidth="10"
+          />
+          <circle
+            cx="70" cy="70" r={R}
+            fill="none" stroke="var(--v-orange)" strokeWidth="10"
             strokeDasharray={C}
             strokeDashoffset={offset}
             strokeLinecap="round"
             style={{
-              transform: "rotate(-90deg)",
-              transformOrigin: "center",
-              transition: "stroke-dashoffset .6s ease",
+              transform       : "rotate(-90deg)",
+              transformOrigin : "center",
+              transition      : "stroke-dashoffset .6s ease",
             }}
           />
         </svg>
@@ -255,10 +259,10 @@ function TrustRing({ score }) {
 ══════════════════════════════════════════════════════════════ */
 function Alert({ type = "info", children }) {
   const icons = {
-    error:   <Ic.AlertCircle s={15} />,
-    success: <Ic.Check s={15} />,
-    warning: <Ic.AlertCircle s={15} />,
-    info:    <Ic.Info s={15} />,
+    error   : <Ic.AlertCircle s={15} />,
+    success : <Ic.Check       s={15} />,
+    warning : <Ic.AlertCircle s={15} />,
+    info    : <Ic.Info        s={15} />,
   };
   return (
     <div className={`v-alert v-alert--${type}`}>
@@ -311,6 +315,7 @@ function Countdown({ seconds, onExpire }) {
 
   const m = String(Math.floor(left / 60)).padStart(2, "0");
   const s = String(left % 60).padStart(2, "0");
+
   return (
     <span className={`v-countdown${left < 30 ? " v-countdown--warn" : ""}`}>
       {m}:{s}
@@ -327,7 +332,6 @@ function OtpInput({ value, onChange, disabled, hasError }) {
 
   const focusCell = (i) => cells.current[i]?.focus();
 
-  // Auto-focus first cell on mount
   useEffect(() => {
     const t = setTimeout(() => cells.current[0]?.focus(), 200);
     return () => clearTimeout(t);
@@ -340,8 +344,8 @@ function OtpInput({ value, onChange, disabled, hasError }) {
       } else if (i > 0) {
         focusCell(i - 1);
       }
-    } else if (e.key === "ArrowLeft"  && i > 0)            focusCell(i - 1);
-    else if   (e.key === "ArrowRight" && i < OTP_LEN - 1)  focusCell(i + 1);
+    } else if (e.key === "ArrowLeft"  && i > 0)           focusCell(i - 1);
+    else if   (e.key === "ArrowRight" && i < OTP_LEN - 1) focusCell(i + 1);
   };
 
   const handleChange = (i, raw) => {
@@ -375,8 +379,8 @@ function OtpInput({ value, onChange, disabled, hasError }) {
           maxLength={1}
           className={[
             "v-otp-cell",
-            digits[i]  ? "v-otp-cell--filled" : "",
-            hasError   ? "v-otp-cell--error"  : "",
+            digits[i] ? "v-otp-cell--filled" : "",
+            hasError  ? "v-otp-cell--error"  : "",
           ].filter(Boolean).join(" ")}
           value={digits[i] ?? ""}
           disabled={disabled}
@@ -396,8 +400,13 @@ function OtpInput({ value, onChange, disabled, hasError }) {
    FILE UPLOAD
 ══════════════════════════════════════════════════════════════ */
 function FileUpload({
-  label, accept, maxMB, required = false,
-  value, onChange, error,
+  label,
+  accept,
+  maxMB,
+  required = false,
+  value,
+  onChange,
+  error,
 }) {
   const [drag, setDrag] = useState(false);
   const inputRef        = useRef(null);
@@ -490,7 +499,8 @@ function FileUpload({
             {drag ? "Drop here" : "Click or drag to upload"}
           </span>
           <span className="v-upload__hint">
-            {accept.replace(/\./g, "").toUpperCase().split(",").join(", ")} · max {maxMB} MB
+            {accept.replace(/\./g, "").toUpperCase().split(",").join(", ")}
+            {" "}· max {maxMB} MB
           </span>
         </div>
       )}
@@ -533,7 +543,7 @@ function SelfieCapture({ value, onChange, error }) {
       </div>
 
       <p className="v-selfie__guide">
-        Face forward in good lighting. Remove glasses, hats, and masks.
+        Face forward in good lighting. Remove glasses, hats and masks.
       </p>
 
       <div className="v-selfie__actions">
@@ -612,14 +622,15 @@ function EmailGate({ status, onVerified }) {
   const verifyingRef = useRef(false);
   const autoRef      = useRef(false);
 
-  /* ── send ── */
+  /* ── send OTP ── */
   const sendOtp = async () => {
     setPhase("sending"); setMsg(null);
     const { ok, data } = await apiFetch("/send-email-otp", { method: "POST" });
+
     if (ok) {
       setPhase("sent");
       setRemaining(data.remaining ?? 0);
-      setCooldown(data.expiresIn ? 60 : 60);
+      setCooldown(60);
       setExpiresIn(data.expiresIn ?? 600);
       if (data.dev_otp) setDevOtp(data.dev_otp);
       setMsg({ type: "success", text: `Code sent to ${data.email}.` });
@@ -630,15 +641,15 @@ function EmailGate({ status, onVerified }) {
     }
   };
 
-  /* ── verify ── */
+  /* ── verify OTP ── */
   const verifyOtp = useCallback(async (code) => {
     if (verifyingRef.current) return;
     verifyingRef.current = true;
     setPhase("verifying"); setMsg(null);
 
     const { ok, data } = await apiFetch("/verify-email-otp", {
-      method: "POST",
-      body: JSON.stringify({ otp: code }),
+      method : "POST",
+      body   : JSON.stringify({ otp: code }),
     });
 
     if (ok) {
@@ -656,12 +667,12 @@ function EmailGate({ status, onVerified }) {
     verifyingRef.current = false;
   }, [onVerified]);
 
-  /* ── auto-submit when 6 digits entered ── */
+  /* ── auto-submit when all digits entered ── */
   useEffect(() => {
     if (
       otp.length === OTP_LEN &&
-      phase === "sent"       &&
-      !autoRef.current       &&
+      phase === "sent"        &&
+      !autoRef.current        &&
       !verifyingRef.current
     ) {
       autoRef.current = true;
@@ -673,8 +684,6 @@ function EmailGate({ status, onVerified }) {
     }
   }, [otp, phase, verifyOtp]);
 
-  const busy = phase === "sending" || phase === "verifying" || phase === "done";
-
   return (
     <div className="v-email-gate">
       <div className="v-email-gate__icon">
@@ -684,26 +693,32 @@ function EmailGate({ status, onVerified }) {
       <h2 className="v-email-gate__title">Verify Your Email</h2>
 
       <p className="v-email-gate__sub">
-        Confirm your email address before submitting identity documents.
+        Confirm your email before submitting identity documents.
         {status.email && (
-          <> Your address: <strong style={{ color: "var(--v-orange)" }}>{status.email}</strong></>
+          <>
+            {" "}Your address:{" "}
+            <strong style={{ color: "var(--v-orange)" }}>{status.email}</strong>
+          </>
         )}
       </p>
 
       {msg && <Alert type={msg.type}>{msg.text}</Alert>}
 
-      {/* Dev OTP helper */}
+      {/* Dev OTP badge */}
       {devOtp && (
         <div style={{
-          padding: "8px 14px", background: "var(--v-amber-dim)",
-          borderRadius: "var(--v-r-sm)", fontSize: 13,
-          color: "var(--v-amber)", fontWeight: 600,
+          padding      : "8px 14px",
+          background   : "var(--v-amber-dim)",
+          borderRadius : "var(--v-r-sm)",
+          fontSize     : 13,
+          color        : "var(--v-amber)",
+          fontWeight   : 600,
         }}>
           Dev mode — code: <strong>{devOtp}</strong>
         </div>
       )}
 
-      {/* ── idle: show send button ── */}
+      {/* idle */}
       {phase === "idle" && (
         <button
           className="v-btn v-btn--primary v-btn--lg"
@@ -714,14 +729,14 @@ function EmailGate({ status, onVerified }) {
         </button>
       )}
 
-      {/* ── sending spinner ── */}
+      {/* sending */}
       {phase === "sending" && (
         <div className="v-otp-panel__status">
           <Ic.Loader s={16}/> Sending…
         </div>
       )}
 
-      {/* ── sent / verifying: show OTP input ── */}
+      {/* sent / verifying */}
       {(phase === "sent" || phase === "verifying") && (
         <div className="v-otp-panel">
           <p className="v-otp-panel__dest">
@@ -738,7 +753,8 @@ function EmailGate({ status, onVerified }) {
           {expiresIn > 0 && (
             <div className="v-otp-panel__hint">
               <Ic.Clock s={12}/>&nbsp;
-              Expires in <Countdown seconds={expiresIn} onExpire={() => setExpiresIn(0)}/>
+              Expires in{" "}
+              <Countdown seconds={expiresIn} onExpire={() => setExpiresIn(0)}/>
             </div>
           )}
 
@@ -763,7 +779,8 @@ function EmailGate({ status, onVerified }) {
             {cooldown > 0 ? (
               <div className="v-resend-row__timer">
                 <Ic.Clock s={12}/>&nbsp;
-                Resend in <Countdown seconds={cooldown} onExpire={() => setCooldown(0)}/>
+                Resend in{" "}
+                <Countdown seconds={cooldown} onExpire={() => setCooldown(0)}/>
               </div>
             ) : remaining > 0 ? (
               <button className="v-btn v-btn--link v-btn--sm" onClick={sendOtp}>
@@ -778,7 +795,7 @@ function EmailGate({ status, onVerified }) {
         </div>
       )}
 
-      {/* ── done ── */}
+      {/* done */}
       {phase === "done" && (
         <div className="v-otp-panel__status">
           <Ic.Check s={16}/> Redirecting…
@@ -796,28 +813,28 @@ function StatusCard({ identityReview, storeReview, onResubmit }) {
   const storeStatus = storeReview?.status    ?? null;
 
   const combined =
-    idStatus === "approved" && storeStatus === "approved" ? "approved"
+      idStatus === "approved" && storeStatus === "approved" ? "approved"
     : idStatus === "rejected" || storeStatus === "rejected" ? "rejected"
     : "pending";
 
   const ICON = {
-    pending:  <Ic.Clock   s={32}/>,
-    approved: <Ic.Check   s={32}/>,
-    rejected: <Ic.X       s={32}/>,
+    pending  : <Ic.Clock s={32}/>,
+    approved : <Ic.Check s={32}/>,
+    rejected : <Ic.X     s={32}/>,
   };
 
   const TITLE = {
-    pending:  "Under Review",
-    approved: "Fully Verified!",
-    rejected: "Verification Failed",
+    pending  : "Under Review",
+    approved : "Fully Verified!",
+    rejected : "Verification Failed",
   };
 
   const BODY = {
-    pending:  "Our team is reviewing your documents. This usually takes up to 24 hours.",
-    approved: "Your identity and store are verified. You now have full seller access.",
-    rejected: identityReview?.rejection_reason
-              ?? storeReview?.message
-              ?? "Please check the reason below and resubmit.",
+    pending  : "Our team is reviewing your documents. This usually takes up to 24 hours.",
+    approved : "Your identity and store are verified. You now have full seller access.",
+    rejected : identityReview?.rejection_reason
+               ?? storeReview?.rejection_reason
+               ?? "Please check the reason and resubmit.",
   };
 
   return (
@@ -862,22 +879,30 @@ function StatusCard({ identityReview, storeReview, onResubmit }) {
 
 /* ══════════════════════════════════════════════════════════════
    FORM STATE
+   store_verifications has no store_name / store_description —
+   only documents_url (jsonb), so we collect logo only.
 ══════════════════════════════════════════════════════════════ */
 const INIT_FORM = {
-  docType: "", docNumber: "",
-  storeName: "", storeDesc: "",
-  front: null, back: null, selfie: null, logo: null,
+  docType   : "",
+  docNumber : "",
+  front     : null,
+  back      : null,
+  selfie    : null,
+  logo      : null,   // stored as documents_url jsonb on backend
 };
 
 const INIT_ERRS = {
-  docType: "", docNumber: "", storeName: "", storeDesc: "",
-  front: "", back: "", selfie: "",
+  docType   : "",
+  docNumber : "",
+  front     : "",
+  back      : "",
+  selfie    : "",
 };
 
-function formReducer(state, action) {
-  switch (action.type) {
-    case "FIELD": return { ...state, [action.k]: action.v };
-    case "FILE":  return { ...state, [action.k]: action.v };
+function formReducer(state, { type, k, v }) {
+  switch (type) {
+    case "FIELD": return { ...state, [k]: v };
+    case "FILE":  return { ...state, [k]: v };
     case "RESET": return INIT_FORM;
     default:      return state;
   }
@@ -887,26 +912,34 @@ function formReducer(state, action) {
    VERIFICATION FORM
 ══════════════════════════════════════════════════════════════ */
 function VerificationForm({ onSuccess }) {
-  const [form,       dispatchForm] = useReducer(formReducer, INIT_FORM);
-  const [errs,       setErrs]      = useState(INIT_ERRS);
-  const [fileErrs,   setFileErrs]  = useState({});
-  const [submitting, setSubmitting] = useState(false);
-  const [globalMsg,  setGlobalMsg]  = useState(null);
-  const [faceResult, setFaceResult] = useState(null);
-  const [faceLoading,setFaceLoading]= useState(false);
+  const [form,        dispatchForm]  = useReducer(formReducer, INIT_FORM);
+  const [errs,        setErrs]       = useState(INIT_ERRS);
+  const [fileErrs,    setFileErrs]   = useState({});
+  const [submitting,  setSubmitting] = useState(false);
+  const [globalMsg,   setGlobalMsg]  = useState(null);
+  const [faceResult,  setFaceResult] = useState(null);
+  const [faceLoading, setFaceLoading]= useState(false);
+
+  const setField = (k, v) => dispatchForm({ type: "FIELD", k, v });
+  const setFile  = (k, v) => dispatchForm({ type: "FILE",  k, v });
 
   /* ── checklist ── */
   const checklist = [
-    { label: "Document type selected",   done: !!form.docType },
-    { label: "Document number valid",    done: !!(form.docNumber && DOC_VALIDATORS[form.docType]?.(form.docNumber)) },
-    { label: "Front image uploaded",     done: !!form.front   },
-    { label: "Back image uploaded",      done: !!form.back    },
-    { label: "Selfie uploaded",          done: !!form.selfie  },
-    { label: "Store name entered",       done: form.storeName.trim().length >= 2 },
+    {
+      label : "Document type selected",
+      done  : !!form.docType,
+    },
+    {
+      label : "Document number valid",
+      done  : !!(form.docNumber && DOC_VALIDATORS[form.docType]?.(form.docNumber)),
+    },
+    { label: "Front image uploaded", done: !!form.front  },
+    { label: "Back image uploaded",  done: !!form.back   },
+    { label: "Selfie uploaded",      done: !!form.selfie },
   ];
   const allDone = checklist.every((c) => c.done);
 
-  /* ── auto face-check when selfie + front are both present ── */
+  /* ── auto face-check when selfie + front both present ── */
   const faceKey = useRef(null);
   useEffect(() => {
     if (!form.selfie || !form.front) { setFaceResult(null); return; }
@@ -925,7 +958,7 @@ function VerificationForm({ onSuccess }) {
     })();
   }, [form.selfie, form.front]);
 
-  /* ── validation ── */
+  /* ── client-side validation ── */
   const validate = () => {
     const e = { ...INIT_ERRS };
     let ok = true;
@@ -941,15 +974,6 @@ function VerificationForm({ onSuccess }) {
     if (!form.front)  { e.front  = "Document front is required."; ok = false; }
     if (!form.back)   { e.back   = "Document back is required.";  ok = false; }
     if (!form.selfie) { e.selfie = "Selfie is required.";         ok = false; }
-    if (form.storeName.trim().length < 2) {
-      e.storeName = "Store name must be at least 2 characters."; ok = false;
-    }
-    if (form.storeName.trim().length > 60) {
-      e.storeName = "Store name must be 60 characters or fewer."; ok = false;
-    }
-    if (form.storeDesc.length > 300) {
-      e.storeDesc = "Description must be 300 characters or fewer."; ok = false;
-    }
 
     setErrs(e);
     return ok;
@@ -960,11 +984,10 @@ function VerificationForm({ onSuccess }) {
     e.preventDefault();
     if (!validate()) return;
 
-    // Block if face service confirmed mismatch
     if (faceResult && !faceResult.skipped && faceResult.match === false) {
       setGlobalMsg({
-        type: "error",
-        text: "Selfie does not match document. Retake both photos.",
+        type : "error",
+        text : "Selfie does not match document. Retake both photos.",
       });
       return;
     }
@@ -972,14 +995,13 @@ function VerificationForm({ onSuccess }) {
     setSubmitting(true); setGlobalMsg(null);
 
     const fd = new FormData();
-    fd.append("document_type",     form.docType);
-    fd.append("document_number",   form.docNumber);
-    fd.append("store_name",        form.storeName.trim());
-    fd.append("store_description", form.storeDesc.trim());
-    fd.append("liveness_passed",   "false");
-    fd.append("doc_front",         form.front);
-    fd.append("doc_back",          form.back);
-    fd.append("selfie",            form.selfie);
+    fd.append("document_type",   form.docType);
+    fd.append("document_number", form.docNumber);
+    fd.append("liveness_passed", "false");
+    fd.append("doc_front",       form.front);
+    fd.append("doc_back",        form.back);
+    fd.append("selfie",          form.selfie);
+    // logo → stored as documents_url jsonb on backend
     if (form.logo) fd.append("store_logo", form.logo);
 
     const { ok, status, data } = await apiUpload("/submit", fd);
@@ -989,23 +1011,21 @@ function VerificationForm({ onSuccess }) {
       onSuccess();
     } else {
       setGlobalMsg({
-        type: "error",
-        text: data.message ?? "Submission failed. Please try again.",
+        type : "error",
+        text : data.message ?? "Submission failed. Please try again.",
       });
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };
-
-  /* ── setField helpers ── */
-  const setField = (k, v) => dispatchForm({ type: "FIELD", k, v });
-  const setFile  = (k, v) => dispatchForm({ type: "FILE",  k, v });
 
   return (
     <form className="v-form" onSubmit={handleSubmit} noValidate>
 
       {globalMsg && <Alert type={globalMsg.type}>{globalMsg.text}</Alert>}
 
-      {/* ════ Identity section ════ */}
+      {/* ════════════════════════════════════════════
+          IDENTITY SECTION
+      ════════════════════════════════════════════ */}
       <div className="v-form__section">
         <div className="v-form__section-header">
           <Ic.User s={18}/>
@@ -1022,7 +1042,9 @@ function VerificationForm({ onSuccess }) {
               {VALID_DOC_TYPES.map(({ value, label }) => (
                 <label
                   key={value}
-                  className={`v-doc-option${form.docType === value ? " v-doc-option--selected" : ""}`}
+                  className={`v-doc-option${
+                    form.docType === value ? " v-doc-option--selected" : ""
+                  }`}
                 >
                   <input
                     type="radio"
@@ -1037,7 +1059,9 @@ function VerificationForm({ onSuccess }) {
                   />
                   <span className="v-doc-option__label">{label}</span>
                   {form.docType === value && (
-                    <span className="v-doc-option__check"><Ic.Check s={15}/></span>
+                    <span className="v-doc-option__check">
+                      <Ic.Check s={15}/>
+                    </span>
                   )}
                 </label>
               ))}
@@ -1046,7 +1070,7 @@ function VerificationForm({ onSuccess }) {
           {errs.docType && <Alert type="error">{errs.docType}</Alert>}
         </div>
 
-        {/* Document number */}
+        {/* Document number — shown only after type selected */}
         {form.docType && (
           <div className="v-field">
             <label className="v-field-label" htmlFor="docNumber">
@@ -1114,17 +1138,22 @@ function VerificationForm({ onSuccess }) {
           />
         </div>
 
-        {/* Face check result */}
+        {/* Face check feedback */}
         {faceLoading && (
           <Alert type="info">
-            <span style={{ display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <Ic.Loader s={14}/> Checking face match…
             </span>
           </Alert>
         )}
+
         {faceResult && !faceLoading && (
           faceResult.skipped
-            ? <Alert type="info">Face match skipped — will be manually reviewed.</Alert>
+            ? (
+              <Alert type="info">
+                Face match skipped — submission will be manually reviewed.
+              </Alert>
+            )
             : faceResult.match
               ? (
                 <Alert type="success">
@@ -1140,63 +1169,30 @@ function VerificationForm({ onSuccess }) {
               )
         )}
 
-        {/* Checklist — identity rows only */}
-        <Checklist items={checklist.slice(0, 5)}/>
+        {/* Checklist */}
+        <Checklist items={checklist}/>
       </div>
 
-      {/* ════ Store section ════ */}
+      {/* ════════════════════════════════════════════
+          STORE DOCUMENTS SECTION
+          store_verifications stores data as
+          documents_url jsonb — no name/desc columns
+      ════════════════════════════════════════════ */}
       <div className="v-form__section">
         <div className="v-form__section-header">
           <Ic.Store s={18}/>
-          <h3>Store Information</h3>
+          <h3>Store Documents</h3>
         </div>
 
-        {/* Store name */}
-        <div className="v-field">
-          <label className="v-field-label" htmlFor="storeName">
-            Store Name <span className="v-required">*</span>
-            <span className="v-char-count">{form.storeName.length}/60</span>
-          </label>
-          <input
-            id="storeName"
-            type="text"
-            className="v-input"
-            placeholder="Your store name"
-            maxLength={60}
-            value={form.storeName}
-            onChange={(e) => {
-              setField("storeName", e.target.value);
-              setErrs((p) => ({ ...p, storeName: "" }));
-            }}
-          />
-          {errs.storeName && <Alert type="error">{errs.storeName}</Alert>}
-        </div>
+        <Alert type="info">
+          Optionally upload a store logo or supporting business document.
+          It will be stored securely for admin review.
+        </Alert>
 
-        {/* Store description */}
-        <div className="v-field">
-          <label className="v-field-label" htmlFor="storeDesc">
-            Store Description
-            <span className="v-char-count">{form.storeDesc.length}/300</span>
-          </label>
-          <textarea
-            id="storeDesc"
-            className="v-textarea"
-            placeholder="Briefly describe what your store sells (optional)"
-            maxLength={300}
-            value={form.storeDesc}
-            onChange={(e) => {
-              setField("storeDesc", e.target.value);
-              setErrs((p) => ({ ...p, storeDesc: "" }));
-            }}
-          />
-          {errs.storeDesc && <Alert type="error">{errs.storeDesc}</Alert>}
-        </div>
-
-        {/* Store logo */}
         <FileUpload
-          label="Store Logo"
+          label="Store Logo / Business Document"
           accept={ACCEPT_IMG}
-          maxMB={MAX_LOGO_MB}
+          maxMB={MAX_IMG_MB}
           value={form.logo}
           error={fileErrs.logo}
           onChange={(f, err) => {
@@ -1204,12 +1200,11 @@ function VerificationForm({ onSuccess }) {
             setFileErrs((p) => ({ ...p, logo: err ?? "" }));
           }}
         />
-
-        {/* Checklist — store row */}
-        <Checklist items={[checklist[5]]}/>
       </div>
 
-      {/* ════ Submit ════ */}
+      {/* ════════════════════════════════════════════
+          SUBMIT
+      ════════════════════════════════════════════ */}
       <button
         type="submit"
         className="v-btn v-btn--primary v-btn--lg v-btn--full"
@@ -1231,20 +1226,20 @@ function VerificationForm({ onSuccess }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   CHIP
+   STATUS CHIP
 ══════════════════════════════════════════════════════════════ */
 function StatusChip({ status }) {
   const { identity_verified, store_verified, identity_review, email_verified } = status;
 
   const cls =
-    identity_verified && store_verified           ? "chip--complete"
+      identity_verified && store_verified         ? "chip--complete"
     : identity_review?.status === "pending"       ? "chip--review"
     : identity_review?.status === "rejected"      ? "chip--rejected"
     : email_verified                              ? "chip--active"
     : "chip--pending";
 
   const label =
-    identity_verified && store_verified           ? "✓ Fully Verified"
+      identity_verified && store_verified         ? "✓ Fully Verified"
     : identity_review?.status === "pending"       ? "⏳ Under Review"
     : identity_review?.status === "rejected"      ? "✗ Rejected"
     : email_verified                              ? "Email Verified"
@@ -1258,7 +1253,7 @@ function StatusChip({ status }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ROOT
+   ROOT COMPONENT
 ══════════════════════════════════════════════════════════════ */
 export default function Verification() {
   const navigate = useNavigate();
@@ -1270,37 +1265,48 @@ export default function Verification() {
   // view: "loading" | "no-token" | "email-gate" | "form" | "status-card" | "submitted"
   const [view, setView] = useState("loading");
 
-  /* ── resolve which view to show from /status response ── */
+  /* ── decide which view to show ── */
   const resolveView = useCallback((data) => {
-    if (!data.email_verified) { setView("email-gate"); return; }
+    // Step 1 — email must be verified first
+    if (!data.email_verified) {
+      setView("email-gate");
+      return;
+    }
 
     const idStatus    = data.identity_review?.status;
     const storeStatus = data.store_review?.status;
 
-    // Fully verified
+    // Step 2 — fully verified
     if (data.identity_verified && data.store_verified) {
-      setView("status-card"); return;
+      setView("status-card");
+      return;
     }
-    // Pending or approved review exists
+
+    // Step 3 — review in progress or approved one side
     if (
       idStatus    === "pending"  || idStatus    === "approved" ||
       storeStatus === "pending"  || storeStatus === "approved"
     ) {
-      setView("status-card"); return;
-    }
-    // Rejected — let user resubmit
-    if (idStatus === "rejected" || storeStatus === "rejected") {
-      setView("status-card"); return;
+      setView("status-card");
+      return;
     }
 
+    // Step 4 — rejected → allow resubmit via status card
+    if (idStatus === "rejected" || storeStatus === "rejected") {
+      setView("status-card");
+      return;
+    }
+
+    // Step 5 — nothing submitted yet
     setView("form");
   }, []);
 
   /* ── fetch /status ── */
   const fetchStatus = useCallback(async () => {
-    setLoading(true); setPageError(null);
+    setLoading(true);
+    setPageError(null);
 
-    // Guard: no token → send to login
+    // No token → redirect to login immediately
     if (!getToken()) {
       setLoading(false);
       setView("no-token");
@@ -1310,11 +1316,15 @@ export default function Verification() {
     const { ok, status: httpStatus, data } = await apiFetch("/status");
     setLoading(false);
 
+    // Token expired / invalid
     if (httpStatus === 401) {
-      // Token expired or invalid
-      navigate("/auth", { replace: true, state: { from: { pathname: "/verification" } } });
+      navigate("/auth", {
+        replace : true,
+        state   : { from: { pathname: "/verification" } },
+      });
       return;
     }
+
     if (!ok) {
       setPageError(data.message ?? "Failed to load verification status.");
       return;
@@ -1326,20 +1336,20 @@ export default function Verification() {
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
 
-  /* ── progress steps ── */
+  /* ── progress steps count ── */
   const progressDone = status
     ? [
         status.email_verified,
         !!(status.identity_review),
-        status.identity_verified && status.store_verified,
+        !!(status.identity_verified && status.store_verified),
       ].filter(Boolean).length
     : 0;
 
   /* ════════════════════════════════════════════════════════════
-     RENDER
+     RENDER STATES
   ════════════════════════════════════════════════════════════ */
 
-  // Full-page loading
+  // Full-page loading spinner
   if (loading) {
     return (
       <div className="v-page">
@@ -1350,7 +1360,7 @@ export default function Verification() {
     );
   }
 
-  // No token at all
+  // No token — friendly gate
   if (view === "no-token") {
     return (
       <div className="v-page">
@@ -1359,7 +1369,12 @@ export default function Verification() {
           <p>You must be logged in to access verification.</p>
           <button
             className="v-btn v-btn--primary"
-            onClick={() => navigate("/auth", { replace: true })}
+            onClick={() =>
+              navigate("/auth", {
+                replace : true,
+                state   : { from: { pathname: "/verification" } },
+              })
+            }
           >
             Go to Login
           </button>
@@ -1383,6 +1398,7 @@ export default function Verification() {
     );
   }
 
+  /* ── main layout ── */
   return (
     <div className="v-page">
       <div className="v-container">
@@ -1396,10 +1412,14 @@ export default function Verification() {
           >
             <Ic.ArrowLeft s={18}/>
           </button>
+
           <div className="v-topbar__center">
-            <div className="v-topbar__shield"><Ic.Shield s={16}/></div>
+            <div className="v-topbar__shield">
+              <Ic.Shield s={16}/>
+            </div>
             <span className="v-topbar__title">Identity Verification</span>
           </div>
+
           <div className="v-topbar__spacer" aria-hidden="true"/>
         </div>
 
@@ -1414,7 +1434,7 @@ export default function Verification() {
           </div>
         )}
 
-        {/* ── Progress ── */}
+        {/* ── Progress bar ── */}
         {status && <ProgressBar steps={3} done={progressDone}/>}
 
         {/* ── Limited listings warning ── */}
@@ -1441,8 +1461,8 @@ export default function Verification() {
               onVerified={(newScore) => {
                 setStatus((p) => ({
                   ...p,
-                  email_verified: true,
-                  trust_score: newScore,
+                  email_verified : true,
+                  trust_score    : newScore,
                 }));
                 setView("form");
               }}
@@ -1453,6 +1473,7 @@ export default function Verification() {
             <VerificationForm
               onSuccess={() => {
                 setView("submitted");
+                // Refresh status in background so chip + progress update
                 fetchStatus();
               }}
             />
@@ -1460,7 +1481,9 @@ export default function Verification() {
 
           {view === "submitted" && (
             <div className="v-status-card v-status-card--pending">
-              <div className="v-status-card__icon"><Ic.Clock s={32}/></div>
+              <div className="v-status-card__icon">
+                <Ic.Clock s={32}/>
+              </div>
               <h2 className="v-status-card__title">Documents Submitted</h2>
               <p className="v-status-card__body">
                 Our team will review your documents within 24 hours.
@@ -1479,7 +1502,7 @@ export default function Verification() {
 
         </div>
 
-        {/* ── Account chip ── */}
+        {/* ── Status chip ── */}
         {status && <StatusChip status={status}/>}
 
       </div>
