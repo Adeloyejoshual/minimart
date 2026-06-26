@@ -1,21 +1,30 @@
 /**
- * src/page/admin/SuperAdmin/Verification.jsx
+ * src/page/admin/SuperAdmin/Verification.jsx — v2
  *
- * Upgrades:
- *  1.  Notes history panel in drawers (read-only + add note)
- *  2.  Risk score + risk flags display in identity drawer
- *  3.  Trust score recalculate button
- *  4.  Assigned admin display + self-assign button
- *  5.  Limited listings count in stats row
- *  6.  Overdue badge on pending items older than 24h
- *  7.  Bulk approve/reject for identity (checkbox + toolbar)
- *  8.  Toast notifications after actions
- *  9.  Document number hidden — shows hash indicator instead
- * 10.  StatusBadge null-safe fix (was crashing on null status)
- * 11.  Keyboard support: Escape closes drawers/modals
- * 12.  Empty state illustrations improved
- * 13.  Responsive drawer (full-width on mobile)
- * 14.  Pagination support (load more button)
+ * Single unified approval flow:
+ *   Admin reviews submitted documents once →
+ *   clicks "Approve" → identity + store approved in one request
+ *   POST /api/admin/verification/:userId/approve
+ *   POST /api/admin/verification/:userId/reject
+ *   POST /api/admin/verification/:userId/reset
+ *
+ * Removed:
+ *  - Separate identity / store tabs
+ *  - Granular /identity/:id and /store/:id endpoints
+ *  - Step-by-step flow
+ *  - store_name / logo_url / store_description (not in schema)
+ *
+ * Kept:
+ *  - Notes history + add note (uses /identity/:id/note)
+ *  - Risk score + flags display
+ *  - Trust score recalculate
+ *  - Assigned admin display + self-assign
+ *  - Stats row
+ *  - Overdue badge
+ *  - Bulk approve / reject
+ *  - Toast notifications
+ *  - Keyboard Escape closes drawers
+ *  - Pagination
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
@@ -28,19 +37,12 @@ import { Pill, Card, Rfr } from "../adminlayout/atoms";
 ═══════════════════════════════════════════════════════════════ */
 const PAGE_SIZE = 50;
 
-const IDENTITY_TABS = [
+/* Single queue tabs — pending submissions only */
+const QUEUE_TABS = [
   { key: "pending",  label: "Pending"  },
   { key: "approved", label: "Approved" },
   { key: "rejected", label: "Rejected" },
   { key: "flagged",  label: "Flagged"  },
-  { key: "reset",    label: "Reset"    },
-  { key: "all",      label: "All"      },
-];
-
-const STORE_TABS = [
-  { key: "pending",  label: "Pending"  },
-  { key: "approved", label: "Approved" },
-  { key: "rejected", label: "Rejected" },
   { key: "reset",    label: "Reset"    },
   { key: "all",      label: "All"      },
 ];
@@ -58,6 +60,7 @@ const STATUS_COLOR = {
   rejected: "#dc2626",
   flagged:  "#9333ea",
   reset:    "#6b7280",
+  unknown:  "#6b7280",
 };
 
 const RISK_SEVERITY_COLOR = {
@@ -106,13 +109,27 @@ const S = {
     background: "#fafaf8", border: "1.5px solid #f0eeea",
     borderRadius: 12, padding: "14px 16px",
   },
+  approveBtn: {
+    flex: 1, height: 48, fontSize: 15, fontWeight: 800,
+    background: "linear-gradient(135deg,#16a34a,#15803d)",
+    color: "#fff", border: "none", borderRadius: 10, cursor: "pointer",
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+  },
+  rejectBtn: {
+    flex: 1, height: 48, fontSize: 15, fontWeight: 700,
+    background: "#fff", color: "#dc2626",
+    border: "2px solid #dc2626", borderRadius: 10, cursor: "pointer",
+  },
+  resetBtn: {
+    width: "100%", height: 40, fontSize: 13, fontWeight: 600,
+    background: "#fffbeb", color: "#d97706",
+    border: "1.5px solid #fde68a", borderRadius: 10, cursor: "pointer",
+  },
 };
 
 /* ═══════════════════════════════════════════════════════════════
    SMALL COMPONENTS
 ═══════════════════════════════════════════════════════════════ */
-
-/* Fix #10: null-safe StatusBadge */
 function StatusBadge({ status }) {
   const s     = status ?? "unknown";
   const color = STATUS_COLOR[s] ?? "#6b7280";
@@ -129,11 +146,7 @@ function OverdueBadge({ createdAt }) {
   if (hours < 24) return null;
   const days = Math.floor(hours / 24);
   return (
-    <span style={{
-      ...S.badge("#dc2626"),
-      fontSize: 10,
-      marginLeft: 4,
-    }}>
+    <span style={{ ...S.badge("#dc2626"), fontSize: 10, marginLeft: 4 }}>
       {days}d overdue
     </span>
   );
@@ -145,11 +158,7 @@ function RiskBadge({ score }) {
     : score >= 50 ? "#ea580c"
     : score >= 20 ? "#d97706"
     : "#6b7280";
-  return (
-    <span style={S.badge(color)}>
-      Risk: {score}
-    </span>
-  );
+  return <span style={S.badge(color)}>Risk: {score}</span>;
 }
 
 function ImageViewer({ url, label }) {
@@ -243,7 +252,7 @@ function NotesPanel({ verificationId, verificationType }) {
       <div style={S.sectionLabel}>Review Notes</div>
 
       {loading ? (
-        <div style={{ fontSize: 12, color: "#aaa" }}>Loading notes...</div>
+        <div style={{ fontSize: 12, color: "#aaa" }}>Loading notes…</div>
       ) : notes.length === 0 ? (
         <div style={{ fontSize: 12, color: "#aaa", marginBottom: 8 }}>
           No notes yet.
@@ -259,8 +268,7 @@ function NotesPanel({ verificationId, verificationType }) {
               border: "1px solid #f0eeea", borderRadius: 8, fontSize: 12,
             }}>
               <div style={{
-                display: "flex", justifyContent: "space-between",
-                marginBottom: 3,
+                display: "flex", justifyContent: "space-between", marginBottom: 3,
               }}>
                 <span style={{ fontWeight: 700, color: "#555" }}>
                   {n.admin_name}
@@ -278,20 +286,18 @@ function NotesPanel({ verificationId, verificationType }) {
         </div>
       )}
 
-      {/* Add note input */}
       <div style={{ display: "flex", gap: 8 }}>
         <input
           value={newNote}
           onChange={(e) => setNewNote(e.target.value)}
-          placeholder="Add a note..."
+          placeholder="Add a note…"
           style={{
             flex: 1, padding: "8px 12px", border: "1.5px solid #e8e6e0",
             borderRadius: 8, fontSize: 12, outline: "none",
           }}
           onKeyDown={(e) => {
             if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              addNote();
+              e.preventDefault(); addNote();
             }
           }}
         />
@@ -301,7 +307,7 @@ function NotesPanel({ verificationId, verificationType }) {
           onClick={addNote}
           style={{ fontSize: 11, padding: "6px 12px" }}
         >
-          {saving ? "..." : "Add"}
+          {saving ? "…" : "Add"}
         </button>
       </div>
     </div>
@@ -335,10 +341,7 @@ function RiskFlagsPanel({ riskScore, riskFlags }) {
       {flags.length > 0 && (
         <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
           {flags.map((f, i) => (
-            <div key={i} style={{
-              display: "flex", alignItems: "center", gap: 6,
-              fontSize: 12,
-            }}>
+            <div key={i} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
               <span style={{
                 width: 6, height: 6, borderRadius: "50%",
                 background: RISK_SEVERITY_COLOR[f.severity] ?? "#6b7280",
@@ -359,15 +362,14 @@ function RiskFlagsPanel({ riskScore, riskFlags }) {
 /* ═══════════════════════════════════════════════════════════════
    MODALS
 ═══════════════════════════════════════════════════════════════ */
-
 function RejectModal({ title, onSubmit, onClose }) {
   const [reason, setReason] = useState("");
   const [busy,   setBusy]   = useState(false);
 
   useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
   }, [onClose]);
 
   const submit = async () => {
@@ -388,15 +390,16 @@ function RejectModal({ title, onSubmit, onClose }) {
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
-          placeholder='e.g. "Documents unclear"'
+          placeholder='e.g. "Documents are unclear or unreadable"'
           style={S.textarea}
           autoFocus
         />
         <div className="modal-btns" style={{ marginTop: 14 }}>
           <button className="btn b-ghost" onClick={onClose}>Cancel</button>
-          <button className="btn b-red" disabled={!reason.trim() || busy}
-                  onClick={submit}>
-            {busy ? "Submitting..." : "Confirm Reject"}
+          <button className="btn b-red"
+            disabled={!reason.trim() || busy}
+            onClick={submit}>
+            {busy ? "Submitting…" : "Confirm Reject"}
           </button>
         </div>
       </div>
@@ -409,9 +412,9 @@ function ResetModal({ title, onSubmit, onClose }) {
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
   }, [onClose]);
 
   const submit = async () => {
@@ -427,9 +430,10 @@ function ResetModal({ title, onSubmit, onClose }) {
            style={{ maxWidth: 460 }}>
         <div className="modal-title">{title}</div>
         <p style={{ fontSize: ".82rem", color: "#888", marginBottom: 12 }}>
-          The user will be allowed to resubmit. Their verified status will be cleared.
+          The user's verified status will be cleared and they will be asked to
+          resubmit their documents.
         </p>
-        <label style={S.label}>Note (optional)</label>
+        <label style={S.label}>Note to user (optional)</label>
         <textarea
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -441,7 +445,7 @@ function ResetModal({ title, onSubmit, onClose }) {
         <div className="modal-btns" style={{ marginTop: 14 }}>
           <button className="btn b-ghost" onClick={onClose}>Cancel</button>
           <button className="btn b-solid" disabled={busy} onClick={submit}>
-            {busy ? "Resetting..." : "Reset & Allow Resubmit"}
+            {busy ? "Resetting…" : "Reset & Allow Resubmit"}
           </button>
         </div>
       </div>
@@ -450,25 +454,34 @@ function ResetModal({ title, onSubmit, onClose }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DRAWERS
+   UNIFIED DRAWER
+   Shows identity docs + store docs_url + user info all at once.
+   Admin clicks ONE approve button → both approved via /:userId/approve
 ═══════════════════════════════════════════════════════════════ */
-
-function IdentityDrawer({ record, onClose, onApprove, onReject, onReset, busy, onToast }) {
+function VerificationDrawer({
+  record,
+  onClose,
+  onApprove,
+  onReject,
+  onReset,
+  busy,
+  onToast,
+}) {
   if (!record) return null;
 
-  /* Escape key closes drawer */
+  /* Escape closes */
   useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    const h = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
   }, [onClose]);
 
   const handleAssign = async () => {
     try {
-      await adminApi.post(`/verification/identity/${record.id}/assign`);
+      await adminApi.post(`/verification/identity/${record.identity_id}/assign`);
       onToast?.("Assigned to you");
     } catch (err) {
-      onToast?.("Assignment failed: " + err.message, "error");
+      onToast?.("Assignment failed: " + (err.response?.data?.error ?? err.message), "error");
     }
   };
 
@@ -478,29 +491,43 @@ function IdentityDrawer({ record, onClose, onApprove, onReject, onReset, busy, o
         `/verification/trust/${record.user_id}/recalculate`
       );
       onToast?.(`Trust score updated to ${data.trust_score}`);
-    } catch (err) {
+    } catch {
       onToast?.("Trust recalculation failed", "error");
     }
   };
 
+  const isBusy   = busy === `approve-${record.user_id}`;
+  const isPending = record.identity_status === "pending" ||
+                    record.store_status    === "pending";
+
+  /* Extract logo_url from documents_url jsonb if present */
+  const logoUrl = record.store_documents?.logo_url ?? null;
+
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 600, display: "flex" }}>
-      <div style={{ flex: 1, background: "rgba(0,0,0,.45)", cursor: "pointer" }}
-           onClick={onClose} />
+      {/* Backdrop */}
+      <div
+        style={{ flex: 1, background: "rgba(0,0,0,.45)", cursor: "pointer" }}
+        onClick={onClose}
+      />
+
+      {/* Panel */}
       <div style={{
-        width: "min(560px, 100%)", background: "#fff",
+        width: "min(580px, 100%)", background: "#fff",
         overflowY: "auto", display: "flex", flexDirection: "column",
         boxShadow: "-8px 0 32px rgba(0,0,0,.15)",
       }}>
-        {/* Header */}
+        {/* Sticky header */}
         <div style={{
           padding: "16px 20px", borderBottom: "1px solid #f0eeea",
           display: "flex", alignItems: "center",
-          justifyContent: "space-between", position: "sticky",
-          top: 0, background: "#fff", zIndex: 1,
+          justifyContent: "space-between",
+          position: "sticky", top: 0, background: "#fff", zIndex: 1,
         }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15 }}>Identity Review</div>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>
+              Verification Review
+            </div>
             <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
               {record.user_name} &middot; {record.user_email}
             </div>
@@ -509,31 +536,36 @@ function IdentityDrawer({ record, onClose, onApprove, onReject, onReset, busy, o
         </div>
 
         <div style={{ padding: 20 }}>
-          {/* Status + badges */}
+
+          {/* ── Status badges ── */}
           <div style={{
-            marginBottom: 16, display: "flex", gap: 8,
-            alignItems: "center", flexWrap: "wrap",
+            display: "flex", gap: 8, flexWrap: "wrap",
+            alignItems: "center", marginBottom: 16,
           }}>
-            <StatusBadge status={record.status} />
-            {record.identity_verified && (
-              <span style={S.badge("#16a34a")}>Verified</span>
-            )}
-            <RiskBadge score={record.risk_score} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#888" }}>
+              Identity:
+            </span>
+            <StatusBadge status={record.identity_status} />
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#888", marginLeft: 8 }}>
+              Store:
+            </span>
+            <StatusBadge status={record.store_status} />
             {record.flagged_for_review && (
               <span style={S.badge("#9333ea")}>Flagged</span>
             )}
-            {record.status === "pending" && (
-              <OverdueBadge createdAt={record.created_at} />
+            <RiskBadge score={record.risk_score} />
+            {isPending && (
+              <OverdueBadge createdAt={record.submitted_at} />
             )}
           </div>
 
-          {/* Risk flags panel */}
+          {/* ── Risk flags ── */}
           <RiskFlagsPanel
             riskScore={record.risk_score}
             riskFlags={record.risk_flags}
           />
 
-          {/* Rejection banner */}
+          {/* ── Rejection reason ── */}
           {record.rejection_reason && (
             <div style={{
               background: "#fff5f5", border: "1px solid #fecaca",
@@ -544,8 +576,9 @@ function IdentityDrawer({ record, onClose, onApprove, onReject, onReset, busy, o
             </div>
           )}
 
-          {/* Document info */}
+          {/* ── Submission info ── */}
           <div style={S.infoBox}>
+            <div style={S.sectionLabel}>Submission Details</div>
             <div style={{ display: "grid", gap: 6 }}>
               <div>
                 <span style={{ color: "#888" }}>Document type: </span>
@@ -555,11 +588,11 @@ function IdentityDrawer({ record, onClose, onApprove, onReject, onReset, busy, o
               </div>
               <div>
                 <span style={{ color: "#888" }}>Submitted: </span>
-                <strong>{fmtDate(record.created_at)}</strong>
+                <strong>{fmtDate(record.submitted_at)}</strong>
               </div>
               {record.reviewed_at && (
                 <div>
-                  <span style={{ color: "#888" }}>Reviewed: </span>
+                  <span style={{ color: "#888" }}>Last reviewed: </span>
                   <strong>{fmtDate(record.reviewed_at)}</strong>
                 </div>
               )}
@@ -572,12 +605,23 @@ function IdentityDrawer({ record, onClose, onApprove, onReject, onReset, busy, o
             </div>
           </div>
 
-          {/* Images */}
+          {/* ── Identity documents ── */}
+          <div style={S.sectionLabel}>Identity Documents</div>
           <ImageViewer url={record.front_image_url} label="Document Front" />
           <ImageViewer url={record.back_image_url}  label="Document Back" />
           <ImageViewer url={record.selfie_url}       label="Selfie" />
 
-          {/* User info */}
+          {/* ── Store document (logo from documents_url jsonb) ── */}
+          {logoUrl && (
+            <>
+              <div style={{ ...S.sectionLabel, marginTop: 8 }}>
+                Store Document
+              </div>
+              <ImageViewer url={logoUrl} label="Store Logo / Business Document" />
+            </>
+          )}
+
+          {/* ── User info ── */}
           <div style={{ ...S.infoBox, marginBottom: 16, fontSize: 12 }}>
             <div style={S.sectionLabel}>User Info</div>
             <div style={{ display: "grid", gap: 5 }}>
@@ -595,6 +639,10 @@ function IdentityDrawer({ record, onClose, onApprove, onReject, onReset, busy, o
                   <strong>{record.user_phone}</strong>
                 </div>
               )}
+              <div>
+                <span style={{ color: "#888" }}>Email verified: </span>
+                <strong>{record.email_verified ? "Yes" : "No"}</strong>
+              </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <span style={{ color: "#888" }}>Trust score: </span>
                 <strong>{record.trust_score ?? 0}</strong>
@@ -607,233 +655,85 @@ function IdentityDrawer({ record, onClose, onApprove, onReject, onReset, busy, o
                 </button>
               </div>
               <div>
-                <span style={{ color: "#888" }}>Status: </span>
+                <span style={{ color: "#888" }}>Account status: </span>
                 <Pill s={record.user_status} />
               </div>
             </div>
           </div>
 
-          {/* Notes panel */}
-          <NotesPanel
-            verificationId={record.id}
-            verificationType="identity"
-          />
+          {/* ── Notes ── */}
+          {record.identity_id && (
+            <NotesPanel
+              verificationId={record.identity_id}
+              verificationType="identity"
+            />
+          )}
 
-          {/* Quick actions bar */}
-          <div style={{
-            display: "flex", gap: 6, marginBottom: 12, flexWrap: "wrap",
-          }}>
-            {!record.assigned_admin_id && record.status === "pending" && (
-              <button className="btn b-ghost" onClick={handleAssign}
-                      style={{ fontSize: 11, padding: "4px 12px", height: 28 }}>
+          {/* ── Quick assign ── */}
+          {!record.assigned_admin_id && isPending && (
+            <div style={{ marginBottom: 12 }}>
+              <button
+                className="btn b-ghost"
+                onClick={handleAssign}
+                style={{ fontSize: 11, padding: "4px 12px", height: 28 }}
+              >
                 Assign to me
               </button>
-            )}
-          </div>
-
-          {/* Main actions */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {record.status === "pending" && (
-              <div style={{ display: "flex", gap: 10 }}>
-                <button className="btn b-solid"
-                  disabled={busy === `id-approve-${record.id}`}
-                  onClick={() => onApprove(record.id)}
-                  style={{ flex: 1, height: 44, fontSize: 14 }}>
-                  {busy === `id-approve-${record.id}` ? "Approving..." : "Approve"}
-                </button>
-                <button className="btn b-red"
-                  onClick={() => onReject(record)}
-                  style={{ flex: 1, height: 44, fontSize: 14 }}>
-                  Reject
-                </button>
-              </div>
-            )}
-
-            {(record.status === "approved" || record.status === "flagged") && (
-              <button className="btn b-ghost" onClick={() => onReset(record)}
-                style={{
-                  width: "100%", height: 40, fontSize: 13,
-                  color: "#d97706", borderColor: "#fde68a",
-                }}>
-                Revoke &amp; Request Resubmission
-              </button>
-            )}
-
-            {record.status === "rejected" && (
-              <>
-                <button className="btn b-solid"
-                  disabled={busy === `id-approve-${record.id}`}
-                  onClick={() => onApprove(record.id)}
-                  style={{ width: "100%", height: 44, fontSize: 14 }}>
-                  {busy === `id-approve-${record.id}` ? "Approving..." : "Approve Anyway"}
-                </button>
-                <button className="btn b-ghost" onClick={() => onReset(record)}
-                  style={{ width: "100%", height: 40, fontSize: 13 }}>
-                  Allow Resubmission
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StoreDrawer({ record, onClose, onApprove, onReject, onReset, busy, onToast }) {
-  if (!record) return null;
-
-  useEffect(() => {
-    const handler = (e) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  const handleRecalcTrust = async () => {
-    try {
-      const { data } = await adminApi.post(
-        `/verification/trust/${record.user_id}/recalculate`
-      );
-      onToast?.(`Trust score updated to ${data.trust_score}`);
-    } catch {
-      onToast?.("Trust recalculation failed", "error");
-    }
-  };
-
-  return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 600, display: "flex" }}>
-      <div style={{ flex: 1, background: "rgba(0,0,0,.45)", cursor: "pointer" }}
-           onClick={onClose} />
-      <div style={{
-        width: "min(560px, 100%)", background: "#fff",
-        overflowY: "auto", display: "flex", flexDirection: "column",
-        boxShadow: "-8px 0 32px rgba(0,0,0,.15)",
-      }}>
-        <div style={{
-          padding: "16px 20px", borderBottom: "1px solid #f0eeea",
-          display: "flex", alignItems: "center",
-          justifyContent: "space-between", position: "sticky",
-          top: 0, background: "#fff", zIndex: 1,
-        }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 15 }}>Store Review</div>
-            <div style={{ fontSize: 12, color: "#888", marginTop: 2 }}>
-              {record.user_name} &middot; {record.user_email}
-            </div>
-          </div>
-          <button onClick={onClose} style={S.closeBtn}>&times;</button>
-        </div>
-
-        <div style={{ padding: 20 }}>
-          <div style={{
-            marginBottom: 16, display: "flex", gap: 8,
-            alignItems: "center", flexWrap: "wrap",
-          }}>
-            <StatusBadge status={record.status} />
-            {record.store_verified && (
-              <span style={S.badge("#16a34a")}>Store Verified</span>
-            )}
-          </div>
-
-          {record.rejection_reason && (
-            <div style={{
-              background: "#fff5f5", border: "1px solid #fecaca",
-              borderRadius: 10, padding: "10px 14px", fontSize: 12,
-              color: "#991b1b", marginBottom: 16,
-            }}>
-              <strong>Rejection reason:</strong> {record.rejection_reason}
             </div>
           )}
 
-          <div style={S.infoBox}>
-            <div style={{ display: "grid", gap: 6 }}>
-              <div>
-                <span style={{ color: "#888" }}>Store name: </span>
-                <strong>{record.store_name}</strong>
-              </div>
-              {record.store_description && (
-                <div>
-                  <span style={{ color: "#888" }}>Description: </span>
-                  <span>{record.store_description}</span>
-                </div>
-              )}
-              <div>
-                <span style={{ color: "#888" }}>Submitted: </span>
-                <strong>{fmtDate(record.created_at)}</strong>
-              </div>
-            </div>
-          </div>
+          {/* ══════════════════════════════════════════════════════
+              SINGLE ACTION BLOCK
+              Admin presses one button — done.
+          ══════════════════════════════════════════════════════ */}
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
 
-          <ImageViewer url={record.logo_url} label="Store Logo" />
-
-          <div style={{ ...S.infoBox, marginBottom: 16, fontSize: 12 }}>
-            <div style={S.sectionLabel}>User Info</div>
-            <div style={{ display: "grid", gap: 5 }}>
-              <div>
-                <span style={{ color: "#888" }}>Name: </span>
-                <strong>{record.user_name}</strong>
-              </div>
-              <div>
-                <span style={{ color: "#888" }}>Email: </span>
-                <strong>{record.user_email}</strong>
-              </div>
-              <div>
-                <span style={{ color: "#888" }}>Identity: </span>
-                <strong>{record.identity_verified ? "Verified" : "Not verified"}</strong>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ color: "#888" }}>Trust: </span>
-                <strong>{record.trust_score ?? 0}</strong>
-                <button className="btn b-ghost" onClick={handleRecalcTrust}
-                  style={{ fontSize: 10, padding: "2px 8px", height: 22 }}>
-                  Recalculate
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <NotesPanel
-            verificationId={record.id}
-            verificationType="store"
-          />
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {record.status === "pending" && (
+            {/* APPROVE + REJECT — shown when pending */}
+            {isPending && (
               <div style={{ display: "flex", gap: 10 }}>
-                <button className="btn b-solid"
-                  disabled={busy === `store-approve-${record.id}`}
-                  onClick={() => onApprove(record.id)}
-                  style={{ flex: 1, height: 44, fontSize: 14 }}>
-                  {busy === `store-approve-${record.id}` ? "Approving..." : "Approve Store"}
+                <button
+                  style={{
+                    ...S.approveBtn,
+                    opacity: isBusy ? .6 : 1,
+                    cursor: isBusy ? "not-allowed" : "pointer",
+                  }}
+                  disabled={isBusy}
+                  onClick={() => onApprove(record.user_id)}
+                >
+                  {isBusy ? "Approving…" : "✓  Approve — Identity & Store"}
                 </button>
-                <button className="btn b-red"
+                <button
+                  style={S.rejectBtn}
                   onClick={() => onReject(record)}
-                  style={{ flex: 1, height: 44, fontSize: 14 }}>
+                >
                   Reject
                 </button>
               </div>
             )}
 
-            {record.status === "approved" && (
-              <button className="btn b-ghost" onClick={() => onReset(record)}
-                style={{
-                  width: "100%", height: 40, fontSize: 13,
-                  color: "#d97706", borderColor: "#fde68a",
-                }}>
+            {/* RESET — shown when approved or flagged */}
+            {(record.identity_status === "approved" ||
+              record.identity_status === "flagged") && (
+              <button style={S.resetBtn} onClick={() => onReset(record)}>
                 Revoke &amp; Request Resubmission
               </button>
             )}
 
-            {record.status === "rejected" && (
+            {/* APPROVE ANYWAY + RESET — shown when rejected */}
+            {record.identity_status === "rejected" && (
               <>
-                <button className="btn b-solid"
-                  disabled={busy === `store-approve-${record.id}`}
-                  onClick={() => onApprove(record.id)}
-                  style={{ width: "100%", height: 44, fontSize: 14 }}>
-                  Approve Anyway
+                <button
+                  style={{
+                    ...S.approveBtn,
+                    opacity: isBusy ? .6 : 1,
+                    cursor: isBusy ? "not-allowed" : "pointer",
+                  }}
+                  disabled={isBusy}
+                  onClick={() => onApprove(record.user_id)}
+                >
+                  {isBusy ? "Approving…" : "✓  Approve Anyway"}
                 </button>
-                <button className="btn b-ghost" onClick={() => onReset(record)}
-                  style={{ width: "100%", height: 40, fontSize: 13 }}>
+                <button style={S.resetBtn} onClick={() => onReset(record)}>
                   Allow Resubmission
                 </button>
               </>
@@ -849,25 +749,19 @@ function StoreDrawer({ record, onClose, onApprove, onReject, onReset, busy, onTo
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function Verification({ confirm, onMutation }) {
-  const [section,       setSection]       = useState("identity");
-  const [identityTab,   setIdentityTab]   = useState("pending");
-  const [storeTab,      setStoreTab]      = useState("pending");
-  const [identityList,  setIdentityList]  = useState([]);
-  const [storeList,     setStoreList]     = useState([]);
-  const [stats,         setStats]         = useState(null);
-  const [loading,       setLoading]       = useState(true);
-  const [busy,          setBusy]          = useState(null);
-  const [idDrawer,      setIdDrawer]      = useState(null);
-  const [storeDrawer,   setStoreDrawer]   = useState(null);
-  const [rejectModal,   setRejectModal]   = useState(null);
-  const [resetModal,    setResetModal]    = useState(null);
-  const [q,             setQ]             = useState("");
-  const [toast,         setToast]         = useState(null);
-  const [hasMore,       setHasMore]       = useState(false);
-  const [offset,        setOffset]        = useState(0);
-
-  /* Bulk selection (identity only) */
-  const [selected,      setSelected]      = useState(new Set());
+  const [activeTab,   setActiveTab]   = useState("pending");
+  const [list,        setList]        = useState([]);   // merged queue
+  const [stats,       setStats]       = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  const [busy,        setBusy]        = useState(null);
+  const [drawer,      setDrawer]      = useState(null); // single drawer
+  const [rejectModal, setRejectModal] = useState(null);
+  const [resetModal,  setResetModal]  = useState(null);
+  const [q,           setQ]           = useState("");
+  const [toast,       setToast]       = useState(null);
+  const [hasMore,     setHasMore]     = useState(false);
+  const [offset,      setOffset]      = useState(0);
+  const [selected,    setSelected]    = useState(new Set());
 
   const showToast = useCallback((message, type = "success") => {
     setToast({ message, type });
@@ -883,208 +777,213 @@ export default function Verification({ confirm, onMutation }) {
     }
   }, []);
 
-  /* ── Load identity ── */
-  const loadIdentity = useCallback(async (append = false) => {
-    if (!append) { setLoading(true); setOffset(0); }
+  /* ── Load unified queue ──
+     We load identity verifications and join with store data client-side.
+     The queue is identity-driven because that's the primary record.
+  ── */
+  const loadQueue = useCallback(async (append = false) => {
+    if (!append) { setLoading(true); setOffset(0); setSelected(new Set()); }
     const o = append ? offset : 0;
     try {
-      const { data } = await adminApi.get(
-        `/verification/identity?status=${identityTab}&limit=${PAGE_SIZE}&offset=${o}`
+      /* Fetch identity queue */
+      const { data: idData } = await adminApi.get(
+        `/verification/identity?status=${activeTab}&limit=${PAGE_SIZE}&offset=${o}`
       );
-      const items = data.verifications ?? [];
-      if (append) {
-        setIdentityList((prev) => [...prev, ...items]);
-      } else {
-        setIdentityList(items);
-      }
-      setHasMore(items.length === PAGE_SIZE);
-      setOffset(o + items.length);
-    } catch (err) {
-      console.error("[identity]", err.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [identityTab, offset]);
+      const idList = idData.verifications ?? [];
 
-  /* ── Load store ── */
-  const loadStore = useCallback(async (append = false) => {
-    if (!append) { setLoading(true); setOffset(0); }
-    const o = append ? offset : 0;
-    try {
-      const { data } = await adminApi.get(
-        `/verification/store?status=${storeTab}&limit=${PAGE_SIZE}&offset=${o}`
-      );
-      const items = data.verifications ?? [];
-      if (append) {
-        setStoreList((prev) => [...prev, ...items]);
-      } else {
-        setStoreList(items);
+      /* For each identity record try to find the matching store record.
+         We fetch store list for the same user in batch. */
+      const userIds   = [...new Set(idList.map((r) => r.user_id))];
+      let storeMap    = {};
+
+      if (userIds.length > 0) {
+        try {
+          const { data: stData } = await adminApi.get(
+            `/verification/store?status=all&limit=200&offset=0`
+          );
+          const stList = stData.verifications ?? [];
+          stList.forEach((s) => {
+            if (!storeMap[s.user_id]) storeMap[s.user_id] = s;
+          });
+        } catch { /* store queue may be empty */ }
       }
-      setHasMore(items.length === PAGE_SIZE);
-      setOffset(o + items.length);
+
+      /* Merge into unified rows */
+      const merged = idList.map((id) => {
+        const st = storeMap[id.user_id] ?? {};
+        return {
+          /* identity fields */
+          identity_id      : id.id,
+          identity_status  : id.status,
+          document_type    : id.document_type,
+          risk_score       : id.risk_score,
+          risk_flags       : id.risk_flags,
+          flagged_for_review: id.flagged_for_review,
+          rejection_reason : id.rejection_reason,
+          reviewed_at      : id.reviewed_at,
+          assigned_admin_id  : id.assigned_admin_id,
+          assigned_admin_name: id.assigned_admin_name,
+          front_image_url  : id.front_image_url,
+          back_image_url   : id.back_image_url,
+          selfie_url       : id.selfie_url,
+          submitted_at     : id.created_at,
+          /* store fields */
+          store_id         : st.id         ?? null,
+          store_status     : st.status     ?? null,
+          store_documents  : st.documents_url ?? null,
+          /* user fields (from identity join) */
+          user_id          : id.user_id,
+          user_name        : id.user_name,
+          user_email       : id.user_email,
+          user_phone       : id.user_phone,
+          user_status      : id.user_status,
+          email_verified   : id.email_verified,
+          identity_verified: id.identity_verified,
+          store_verified   : st.store_verified ?? false,
+          trust_score      : id.trust_score,
+        };
+      });
+
+      if (append) {
+        setList((prev) => [...prev, ...merged]);
+      } else {
+        setList(merged);
+      }
+
+      setHasMore(idList.length === PAGE_SIZE);
+      setOffset(o + idList.length);
     } catch (err) {
-      console.error("[store]", err.message);
+      console.error("[queue]", err.message);
     } finally {
       setLoading(false);
     }
-  }, [storeTab, offset]);
+  }, [activeTab, offset]);
 
   useEffect(() => { loadStats(); }, [loadStats]);
 
   useEffect(() => {
-    setSelected(new Set());
-    if (section === "identity") loadIdentity();
-    else loadStore();
-  }, [section, identityTab, storeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+    loadQueue();
+  }, [activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const afterMutation = useCallback(async () => {
     setSelected(new Set());
-    if (section === "identity") await loadIdentity();
-    else await loadStore();
+    setDrawer(null);
+    await loadQueue();
     await loadStats();
     onMutation?.();
-  }, [section, loadIdentity, loadStore, loadStats, onMutation]);
+  }, [loadQueue, loadStats, onMutation]);
 
-  /* ── Identity actions ── */
-  const handleIdApprove = useCallback(async (id) => {
-    setBusy(`id-approve-${id}`);
+  /* ═══════════════════════════════════════════════════════════
+     ACTIONS — all hit /:userId/approve|reject|reset
+  ═══════════════════════════════════════════════════════════ */
+
+  /* Approve — identity + store in one request */
+  const handleApprove = useCallback(async (userId) => {
+    setBusy(`approve-${userId}`);
     try {
-      await adminApi.post(`/verification/identity/${id}/approve`, { note: "Approved via admin panel." });
-      showToast("Identity approved");
+      await adminApi.post(`/verification/${userId}/approve`, {
+        note: "Approved via admin panel.",
+      });
+      showToast("Verified — identity and store approved");
       await afterMutation();
-      setIdDrawer(null);
     } catch (err) {
-      showToast(err.response?.data?.error ?? err.message, "error");
-    } finally { setBusy(null); }
+      const msg = err.response?.data?.error ?? err.message;
+      showToast(msg, "error");
+    } finally {
+      setBusy(null);
+    }
   }, [afterMutation, showToast]);
 
-  const handleIdReject = useCallback(async (id, reason) => {
-    setBusy(`id-reject-${id}`);
+  /* Reject — identity + store rejected */
+  const handleReject = useCallback(async (userId, reason) => {
+    setBusy(`reject-${userId}`);
     try {
-      await adminApi.post(`/verification/identity/${id}/reject`, { reason });
-      showToast("Identity rejected");
+      await adminApi.post(`/verification/${userId}/reject`, { reason });
+      showToast("Verification rejected — user notified by email");
       await afterMutation();
-      setIdDrawer(null);
     } catch (err) {
       showToast(err.response?.data?.error ?? err.message, "error");
-    } finally { setBusy(null); }
+    } finally {
+      setBusy(null);
+    }
   }, [afterMutation, showToast]);
 
-  const handleIdReset = useCallback(async (id, note) => {
-    setBusy(`id-reset-${id}`);
+  /* Reset — ask user to resubmit */
+  const handleReset = useCallback(async (userId, note) => {
+    setBusy(`reset-${userId}`);
     try {
-      await adminApi.post(`/verification/identity/${id}/reset`, { note });
-      showToast("Identity reset — user can resubmit");
+      await adminApi.post(`/verification/${userId}/reset`, { note });
+      showToast("Reset — user can now resubmit documents");
       await afterMutation();
-      setIdDrawer(null);
     } catch (err) {
       showToast(err.response?.data?.error ?? err.message, "error");
-    } finally { setBusy(null); }
+    } finally {
+      setBusy(null);
+    }
   }, [afterMutation, showToast]);
 
-  /* ── Bulk identity actions ── */
+  /* Bulk approve */
   const handleBulkApprove = useCallback(async () => {
     if (selected.size === 0) return;
     setBusy("bulk-approve");
-    try {
-      const { data } = await adminApi.post("/verification/identity/bulk-approve", {
-        ids  : [...selected],
-        note : "Bulk approved via admin panel.",
-      });
-      showToast(`Approved ${data.results?.approved?.length ?? 0} identities`);
-      await afterMutation();
-    } catch (err) {
-      showToast(err.response?.data?.error ?? err.message, "error");
-    } finally { setBusy(null); }
+    let approved = 0;
+    for (const userId of selected) {
+      try {
+        await adminApi.post(`/verification/${userId}/approve`, {
+          note: "Bulk approved via admin panel.",
+        });
+        approved++;
+      } catch { /* continue */ }
+    }
+    showToast(`Approved ${approved} of ${selected.size} submissions`);
+    await afterMutation();
+    setBusy(null);
   }, [selected, afterMutation, showToast]);
 
+  /* Bulk reject */
   const handleBulkReject = useCallback(async (reason) => {
     if (selected.size === 0) return;
     setBusy("bulk-reject");
-    try {
-      const { data } = await adminApi.post("/verification/identity/bulk-reject", {
-        ids : [...selected],
-        reason,
-      });
-      showToast(`Rejected ${data.results?.rejected?.length ?? 0} identities`);
-      await afterMutation();
-    } catch (err) {
-      showToast(err.response?.data?.error ?? err.message, "error");
-    } finally { setBusy(null); }
+    let rejected = 0;
+    for (const userId of selected) {
+      try {
+        await adminApi.post(`/verification/${userId}/reject`, { reason });
+        rejected++;
+      } catch { /* continue */ }
+    }
+    showToast(`Rejected ${rejected} of ${selected.size} submissions`);
+    await afterMutation();
+    setBusy(null);
   }, [selected, afterMutation, showToast]);
 
-  /* ── Store actions ── */
-  const handleStoreApprove = useCallback(async (id) => {
-    setBusy(`store-approve-${id}`);
-    try {
-      await adminApi.post(`/verification/store/${id}/approve`, { note: "Approved via admin panel." });
-      showToast("Store approved");
-      await afterMutation();
-      setStoreDrawer(null);
-    } catch (err) {
-      showToast(err.response?.data?.error ?? err.message, "error");
-    } finally { setBusy(null); }
-  }, [afterMutation, showToast]);
-
-  const handleStoreReject = useCallback(async (id, reason) => {
-    setBusy(`store-reject-${id}`);
-    try {
-      await adminApi.post(`/verification/store/${id}/reject`, { reason });
-      showToast("Store rejected");
-      await afterMutation();
-      setStoreDrawer(null);
-    } catch (err) {
-      showToast(err.response?.data?.error ?? err.message, "error");
-    } finally { setBusy(null); }
-  }, [afterMutation, showToast]);
-
-  const handleStoreReset = useCallback(async (id, note) => {
-    setBusy(`store-reset-${id}`);
-    try {
-      await adminApi.post(`/verification/store/${id}/reset`, { note });
-      showToast("Store reset — user can resubmit");
-      await afterMutation();
-      setStoreDrawer(null);
-    } catch (err) {
-      showToast(err.response?.data?.error ?? err.message, "error");
-    } finally { setBusy(null); }
-  }, [afterMutation, showToast]);
-
   /* ── Selection helpers ── */
-  const toggleSelect = useCallback((id) => {
+  const toggleSelect = useCallback((userId) => {
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
       return next;
     });
   }, []);
 
   const toggleSelectAll = useCallback(() => {
-    if (selected.size === displayed.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(displayed.map((r) => r.id)));
-    }
-  }, [selected.size]); // eslint-disable-line react-hooks/exhaustive-deps
+    setSelected((prev) =>
+      prev.size === displayed.length
+        ? new Set()
+        : new Set(displayed.map((r) => r.user_id))
+    );
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Filter ── */
   const displayed = useMemo(() => {
-    const list = section === "identity" ? identityList : storeList;
-    const lq   = q.toLowerCase();
+    const lq = q.toLowerCase();
     if (!lq) return list;
     return list.filter((r) =>
       (r.user_name  ?? "").toLowerCase().includes(lq) ||
       (r.user_email ?? "").toLowerCase().includes(lq) ||
-      (section === "identity"
-        ? (r.document_type ?? "").toLowerCase().includes(lq)
-        : (r.store_name ?? "").toLowerCase().includes(lq))
+      (r.document_type ?? "").toLowerCase().includes(lq)
     );
-  }, [section, identityList, storeList, q]);
-
-  const tabs       = section === "identity" ? IDENTITY_TABS : STORE_TABS;
-  const activeTab  = section === "identity" ? identityTab   : storeTab;
-  const setActiveTab = section === "identity" ? setIdentityTab : setStoreTab;
+  }, [list, q]);
 
   /* ═══════════════════════════════════════════════════════════
      RENDER
@@ -1108,17 +1007,13 @@ export default function Verification({ confirm, onMutation }) {
       }}>
         <div>
           <h2 style={{ margin: 0, fontSize: 20, fontWeight: 800 }}>
-            Verification
+            Verification Queue
           </h2>
           <p style={{ margin: "4px 0 0", fontSize: 13, color: "#888" }}>
-            Review identity documents and store applications
+            Review and approve submitted documents in one click
           </p>
         </div>
-        <Rfr onClick={() => {
-          if (section === "identity") loadIdentity();
-          else loadStore();
-          loadStats();
-        }} />
+        <Rfr onClick={() => { loadQueue(); loadStats(); }} />
       </div>
 
       {/* Stats */}
@@ -1129,19 +1024,18 @@ export default function Verification({ confirm, onMutation }) {
           gap: 10, marginBottom: 20,
         }}>
           {[
-            { label: "ID Pending",       value: stats.identity?.pending   ?? 0, color: "#d97706" },
-            { label: "ID Approved",       value: stats.identity?.approved  ?? 0, color: "#16a34a" },
-            { label: "ID Overdue",        value: stats.identity?.overdue   ?? 0, color: "#dc2626" },
-            { label: "Store Pending",     value: stats.store?.pending      ?? 0, color: "#d97706" },
-            { label: "Store Approved",    value: stats.store?.approved     ?? 0, color: "#16a34a" },
-            { label: "Email Verified",    value: stats.users?.email_verified ?? 0, color: "#0369a1" },
-            { label: "Limited Listings",  value: stats.limited_listings?.total ?? 0, color: "#9333ea" },
+            { label: "Pending",         value: stats.identity?.pending   ?? 0, color: "#d97706" },
+            { label: "Approved",         value: stats.identity?.approved  ?? 0, color: "#16a34a" },
+            { label: "Overdue (>24h)",   value: stats.identity?.overdue   ?? 0, color: "#dc2626" },
+            { label: "Flagged",          value: stats.identity?.flagged   ?? 0, color: "#9333ea" },
+            { label: "Email Verified",   value: stats.users?.email_verified ?? 0, color: "#0369a1" },
+            { label: "Fully Verified",   value: stats.users?.identity_verified ?? 0, color: "#15803d" },
+            { label: "Limited Listings", value: stats.limited_listings?.total ?? 0, color: "#9333ea" },
           ].map((s) => (
             <div key={s.label} style={S.statCard}>
               <div style={{
                 fontSize: 10, fontWeight: 700, color: "#aaa",
-                textTransform: "uppercase", letterSpacing: ".4px",
-                marginBottom: 4,
+                textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 4,
               }}>
                 {s.label}
               </div>
@@ -1153,45 +1047,14 @@ export default function Verification({ confirm, onMutation }) {
         </div>
       )}
 
-      {/* Section toggle */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
-        {[
-          { key: "identity", label: "Identity", count: stats?.identity?.pending ?? 0 },
-          { key: "store",    label: "Store",    count: stats?.store?.pending    ?? 0 },
-        ].map((s) => {
-          const active = section === s.key;
-          return (
-            <button key={s.key} onClick={() => setSection(s.key)} style={{
-              padding: "8px 18px", borderRadius: 10,
-              border:     active ? "none" : "1.5px solid #e8e6e0",
-              background: active ? "#ff5722" : "#fafaf8",
-              color:      active ? "#fff"    : "#555",
-              fontWeight: 700, fontSize: 13, cursor: "pointer",
-              display: "flex", alignItems: "center", gap: 6,
-            }}>
-              {s.label}
-              {s.count > 0 && (
-                <span style={{
-                  background: active ? "rgba(255,255,255,.3)" : "#ff5722",
-                  color: "#fff", borderRadius: 999,
-                  fontSize: 10, fontWeight: 800, padding: "1px 6px",
-                }}>
-                  {s.count}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
-
       {/* Status tabs */}
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 14 }}>
-        {tabs.map((t) => {
-          const cnt   = stats?.[section]?.[t.key] ?? 0;
+        {QUEUE_TABS.map((t) => {
+          const cnt   = stats?.identity?.[t.key] ?? 0;
           const isAct = activeTab === t.key;
           return (
             <button key={t.key} onClick={() => setActiveTab(t.key)} style={{
-              padding: "6px 14px", borderRadius: 999, cursor: "pointer",
+              padding: "6px 16px", borderRadius: 999, cursor: "pointer",
               border:     isAct ? "none" : "1.5px solid #e8e6e0",
               background: isAct ? "#1a1a1a" : "#fafaf8",
               color:      isAct ? "#fff"    : "#555",
@@ -1213,7 +1076,7 @@ export default function Verification({ confirm, onMutation }) {
         })}
       </div>
 
-      {/* Bulk toolbar + search */}
+      {/* Search + bulk toolbar */}
       <div style={{
         display: "flex", gap: 10, marginBottom: 16,
         alignItems: "center", flexWrap: "wrap",
@@ -1221,19 +1084,17 @@ export default function Verification({ confirm, onMutation }) {
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder={section === "identity"
-            ? "Search by name, email or document type..."
-            : "Search by name, email or store name..."}
+          placeholder="Search by name, email or document type…"
           style={{
             flex: 1, minWidth: 220, maxWidth: 420, padding: "9px 14px",
             border: "1.5px solid #e8e6e0", borderRadius: 10,
             fontSize: 13, fontFamily: "inherit", outline: "none",
-            boxSizing: "border-box", background: "#fafaf8",
+            background: "#fafaf8", boxSizing: "border-box",
           }}
         />
 
-        {/* Bulk actions — identity pending only */}
-        {section === "identity" && identityTab === "pending" && selected.size > 0 && (
+        {/* Bulk actions — pending only */}
+        {activeTab === "pending" && selected.size > 0 && (
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
             <span style={{ fontSize: 12, fontWeight: 700, color: "#555" }}>
               {selected.size} selected
@@ -1241,16 +1102,16 @@ export default function Verification({ confirm, onMutation }) {
             <button className="btn b-solid"
               disabled={busy === "bulk-approve"}
               onClick={() => confirm({
-                title   : `Bulk approve ${selected.size} identities?`,
-                body    : "This will approve all selected pending records.",
-                confirm : "Approve All",
-                action  : handleBulkApprove,
+                title:   `Bulk approve ${selected.size} submissions?`,
+                body:    "Identity and store will be approved for all selected users.",
+                confirm: "Approve All",
+                action:  handleBulkApprove,
               })}
               style={{ fontSize: 11, padding: "4px 12px", height: 28 }}>
-              {busy === "bulk-approve" ? "..." : "Approve All"}
+              {busy === "bulk-approve" ? "…" : "Approve All"}
             </button>
             <button className="btn b-red"
-              onClick={() => setRejectModal({ type: "bulk-identity" })}
+              onClick={() => setRejectModal({ type: "bulk" })}
               style={{ fontSize: 11, padding: "4px 12px", height: 28 }}>
               Reject All
             </button>
@@ -1266,7 +1127,7 @@ export default function Verification({ confirm, onMutation }) {
       {/* Table */}
       {loading ? (
         <div style={{ textAlign: "center", padding: 60, color: "#aaa" }}>
-          Loading...
+          Loading…
         </div>
       ) : displayed.length === 0 ? (
         <div style={{
@@ -1279,7 +1140,7 @@ export default function Verification({ confirm, onMutation }) {
             Nothing here
           </div>
           <div style={{ fontSize: 13 }}>
-            No {activeTab} {section} verifications found.
+            No {activeTab} verifications found.
           </div>
         </div>
       ) : (
@@ -1291,21 +1152,24 @@ export default function Verification({ confirm, onMutation }) {
             }}>
               <thead>
                 <tr style={{ borderBottom: "2px solid #f0eeea" }}>
-                  {/* Checkbox column for identity pending */}
-                  {section === "identity" && identityTab === "pending" && (
+                  {/* Checkbox — pending only */}
+                  {activeTab === "pending" && (
                     <th style={{ padding: "10px 6px", width: 32 }}>
                       <input
                         type="checkbox"
-                        checked={selected.size === displayed.length && displayed.length > 0}
+                        checked={
+                          selected.size === displayed.length &&
+                          displayed.length > 0
+                        }
                         onChange={toggleSelectAll}
                         style={{ cursor: "pointer" }}
                       />
                     </th>
                   )}
-                  {(section === "identity"
-                    ? ["User", "Document", "Risk", "Trust", "Status", "Submitted", "Actions"]
-                    : ["User", "Store Name", "Logo", "Trust", "Status", "Submitted", "Actions"]
-                  ).map((h) => (
+                  {[
+                    "User", "Document", "Identity", "Store",
+                    "Risk", "Trust", "Submitted", "Actions",
+                  ].map((h) => (
                     <th key={h} style={{
                       padding: "10px 10px", textAlign: "left",
                       fontSize: 11, fontWeight: 700, color: "#aaa",
@@ -1318,160 +1182,137 @@ export default function Verification({ confirm, onMutation }) {
                 </tr>
               </thead>
               <tbody>
-                {displayed.map((r) => (
-                  <tr key={r.id}
-                    style={{
-                      borderBottom: "1px solid #f5f4f0",
-                      cursor: "pointer", transition: "background .12s",
-                      background: selected.has(r.id) ? "#fff7ed" : "transparent",
-                    }}
-                    onMouseEnter={(e) => {
-                      if (!selected.has(r.id))
-                        e.currentTarget.style.background = "#fafaf8";
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background =
-                        selected.has(r.id) ? "#fff7ed" : "transparent";
-                    }}
-                    onClick={() => section === "identity"
-                      ? setIdDrawer(r) : setStoreDrawer(r)
-                    }
-                  >
-                    {/* Checkbox */}
-                    {section === "identity" && identityTab === "pending" && (
-                      <td style={{ padding: "10px 6px" }}
-                          onClick={(e) => e.stopPropagation()}>
-                        <input
-                          type="checkbox"
-                          checked={selected.has(r.id)}
-                          onChange={() => toggleSelect(r.id)}
-                          style={{ cursor: "pointer" }}
-                        />
+                {displayed.map((r) => {
+                  const isBusy = busy === `approve-${r.user_id}`;
+                  const isSelected = selected.has(r.user_id);
+                  return (
+                    <tr
+                      key={r.identity_id}
+                      style={{
+                        borderBottom: "1px solid #f5f4f0",
+                        cursor: "pointer",
+                        background: isSelected ? "#fff7ed" : "transparent",
+                        transition: "background .12s",
+                      }}
+                      onMouseEnter={(e) => {
+                        if (!isSelected)
+                          e.currentTarget.style.background = "#fafaf8";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background =
+                          isSelected ? "#fff7ed" : "transparent";
+                      }}
+                      onClick={() => setDrawer(r)}
+                    >
+                      {/* Checkbox */}
+                      {activeTab === "pending" && (
+                        <td style={{ padding: "10px 6px" }}
+                            onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleSelect(r.user_id)}
+                            style={{ cursor: "pointer" }}
+                          />
+                        </td>
+                      )}
+
+                      {/* User */}
+                      <td style={{ padding: "10px 10px" }}>
+                        <div style={{ fontWeight: 700 }}>{r.user_name}</div>
+                        <div style={{ fontSize: 11, color: "#888" }}>
+                          {r.user_email}
+                        </div>
                       </td>
-                    )}
 
-                    {/* User */}
-                    <td style={{ padding: "10px 10px" }}>
-                      <div style={{ fontWeight: 700 }}>{r.user_name}</div>
-                      <div style={{ fontSize: 11, color: "#888" }}>
-                        {r.user_email}
-                      </div>
-                    </td>
+                      {/* Document type */}
+                      <td style={{ padding: "10px 10px" }}>
+                        <span style={S.badge("#6b7280")}>
+                          {DOC_LABELS[r.document_type] ?? r.document_type}
+                        </span>
+                      </td>
 
-                    {section === "identity" ? (
-                      <>
-                        <td style={{ padding: "10px 10px" }}>
-                          <span style={S.badge("#6b7280")}>
-                            {DOC_LABELS[r.document_type] ?? r.document_type}
-                          </span>
-                        </td>
-                        <td style={{ padding: "10px 10px" }}>
-                          <RiskBadge score={r.risk_score} />
-                        </td>
-                      </>
-                    ) : (
-                      <>
-                        <td style={{ padding: "10px 10px", fontWeight: 600 }}>
-                          {r.store_name}
-                        </td>
-                        <td style={{ padding: "10px 10px" }}>
-                          {r.logo_url ? (
-                            <img src={r.logo_url} alt=""
-                              style={{
-                                width: 36, height: 36, objectFit: "cover",
-                                borderRadius: 8, border: "1.5px solid #f0eeea",
-                              }} />
-                          ) : (
-                            <div style={{
-                              width: 36, height: 36, borderRadius: 8,
-                              background: "#f0eeea",
-                            }} />
+                      {/* Identity status */}
+                      <td style={{ padding: "10px 10px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <StatusBadge status={r.identity_status} />
+                          {r.identity_status === "pending" && (
+                            <OverdueBadge createdAt={r.submitted_at} />
                           )}
-                        </td>
-                      </>
-                    )}
+                        </div>
+                      </td>
 
-                    <td style={{ padding: "10px 10px" }}>
-                      <span style={{
-                        fontWeight: 700,
-                        color: (r.trust_score ?? 0) >= 60 ? "#16a34a"
-                          : (r.trust_score ?? 0) >= 30 ? "#d97706"
-                          : "#dc2626",
-                      }}>
-                        {r.trust_score ?? 0}
-                      </span>
-                    </td>
+                      {/* Store status */}
+                      <td style={{ padding: "10px 10px" }}>
+                        <StatusBadge status={r.store_status ?? "pending"} />
+                      </td>
 
-                    <td style={{ padding: "10px 10px" }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                        <StatusBadge status={r.status} />
-                        {r.status === "pending" && (
-                          <OverdueBadge createdAt={r.created_at} />
-                        )}
-                      </div>
-                    </td>
+                      {/* Risk */}
+                      <td style={{ padding: "10px 10px" }}>
+                        <RiskBadge score={r.risk_score} />
+                      </td>
 
-                    <td style={{
-                      padding: "10px 10px", color: "#888",
-                      whiteSpace: "nowrap",
-                    }}>
-                      {fmtDateS(r.created_at)}
-                    </td>
+                      {/* Trust */}
+                      <td style={{ padding: "10px 10px" }}>
+                        <span style={{
+                          fontWeight: 700,
+                          color: (r.trust_score ?? 0) >= 60 ? "#16a34a"
+                            : (r.trust_score ?? 0) >= 30 ? "#d97706"
+                            : "#dc2626",
+                        }}>
+                          {r.trust_score ?? 0}
+                        </span>
+                      </td>
 
-                    <td style={{ padding: "10px 10px" }}
-                        onClick={(e) => e.stopPropagation()}>
-                      <div style={{ display: "flex", gap: 6 }}>
-                        {r.status === "pending" && section === "identity" && (
-                          <>
-                            <button className="btn b-solid"
-                              disabled={busy === `id-approve-${r.id}`}
-                              onClick={() => confirm({
-                                title:   "Approve identity?",
-                                body:    `Approve ${r.user_name}'s identity?`,
-                                confirm: "Approve",
-                                action:  () => handleIdApprove(r.id),
-                              })}
-                              style={{ fontSize: 11, padding: "4px 10px", height: 28 }}>
-                              {busy === `id-approve-${r.id}` ? "..." : "Approve"}
-                            </button>
-                            <button className="btn b-red"
-                              onClick={() => setRejectModal({ type: "identity", record: r })}
-                              style={{ fontSize: 11, padding: "4px 10px", height: 28 }}>
-                              Reject
-                            </button>
-                          </>
-                        )}
-                        {r.status === "pending" && section === "store" && (
-                          <>
-                            <button className="btn b-solid"
-                              disabled={busy === `store-approve-${r.id}`}
-                              onClick={() => confirm({
-                                title:   "Approve store?",
-                                body:    `Approve "${r.store_name}"?`,
-                                confirm: "Approve",
-                                action:  () => handleStoreApprove(r.id),
-                              })}
-                              style={{ fontSize: 11, padding: "4px 10px", height: 28 }}>
-                              {busy === `store-approve-${r.id}` ? "..." : "Approve"}
-                            </button>
-                            <button className="btn b-red"
-                              onClick={() => setRejectModal({ type: "store", record: r })}
-                              style={{ fontSize: 11, padding: "4px 10px", height: 28 }}>
-                              Reject
-                            </button>
-                          </>
-                        )}
-                        <button className="btn b-ghost"
-                          onClick={() => section === "identity"
-                            ? setIdDrawer(r) : setStoreDrawer(r)
-                          }
-                          style={{ fontSize: 11, padding: "4px 10px", height: 28 }}>
-                          View
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      {/* Submitted */}
+                      <td style={{ padding: "10px 10px", color: "#888", whiteSpace: "nowrap" }}>
+                        {fmtDateS(r.submitted_at)}
+                      </td>
+
+                      {/* Actions */}
+                      <td style={{ padding: "10px 10px" }}
+                          onClick={(e) => e.stopPropagation()}>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          {r.identity_status === "pending" && (
+                            <>
+                              <button
+                                className="btn b-solid"
+                                disabled={isBusy}
+                                onClick={() => confirm({
+                                  title:   "Approve submission?",
+                                  body:    `Approve ${r.user_name}'s identity and store together?`,
+                                  confirm: "Approve",
+                                  action:  () => handleApprove(r.user_id),
+                                })}
+                                style={{ fontSize: 11, padding: "4px 10px", height: 28 }}
+                              >
+                                {isBusy ? "…" : "Approve"}
+                              </button>
+                              <button
+                                className="btn b-red"
+                                onClick={() => setRejectModal({
+                                  type   : "single",
+                                  userId : r.user_id,
+                                  name   : r.user_name,
+                                })}
+                                style={{ fontSize: 11, padding: "4px 10px", height: 28 }}
+                              >
+                                Reject
+                              </button>
+                            </>
+                          )}
+                          <button
+                            className="btn b-ghost"
+                            onClick={() => setDrawer(r)}
+                            style={{ fontSize: 11, padding: "4px 10px", height: 28 }}
+                          >
+                            View
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -1479,10 +1320,11 @@ export default function Verification({ confirm, onMutation }) {
           {/* Load more */}
           {hasMore && (
             <div style={{ textAlign: "center", marginTop: 16 }}>
-              <button className="btn b-ghost" onClick={() => {
-                if (section === "identity") loadIdentity(true);
-                else loadStore(true);
-              }} style={{ fontSize: 13, padding: "8px 24px" }}>
+              <button
+                className="btn b-ghost"
+                onClick={() => loadQueue(true)}
+                style={{ fontSize: 13, padding: "8px 24px" }}
+              >
                 Load more
               </button>
             </div>
@@ -1490,36 +1332,26 @@ export default function Verification({ confirm, onMutation }) {
         </>
       )}
 
-      {/* Drawers */}
-      {idDrawer && (
-        <IdentityDrawer
-          record={idDrawer}
-          onClose={() => setIdDrawer(null)}
-          onApprove={(id) => confirm({
-            title:   "Approve identity?",
-            body:    `Approve ${idDrawer.user_name}'s documents?`,
+      {/* Unified drawer */}
+      {drawer && (
+        <VerificationDrawer
+          record={drawer}
+          onClose={() => setDrawer(null)}
+          onApprove={(userId) => confirm({
+            title:   "Approve submission?",
+            body:    `Approve ${drawer.user_name}'s identity and store in one action?`,
             confirm: "Approve",
-            action:  () => handleIdApprove(id),
+            action:  () => handleApprove(userId),
           })}
-          onReject={(r) => setRejectModal({ type: "identity", record: r })}
-          onReset={(r)  => setResetModal({ type: "identity", record: r })}
-          busy={busy}
-          onToast={showToast}
-        />
-      )}
-
-      {storeDrawer && (
-        <StoreDrawer
-          record={storeDrawer}
-          onClose={() => setStoreDrawer(null)}
-          onApprove={(id) => confirm({
-            title:   "Approve store?",
-            body:    `Approve "${storeDrawer.store_name}"?`,
-            confirm: "Approve",
-            action:  () => handleStoreApprove(id),
+          onReject={(r) => setRejectModal({
+            type   : "single",
+            userId : r.user_id,
+            name   : r.user_name,
           })}
-          onReject={(r) => setRejectModal({ type: "store", record: r })}
-          onReset={(r)  => setResetModal({ type: "store", record: r })}
+          onReset={(r) => setResetModal({
+            userId : r.user_id,
+            name   : r.user_name,
+          })}
           busy={busy}
           onToast={showToast}
         />
@@ -1529,18 +1361,15 @@ export default function Verification({ confirm, onMutation }) {
       {rejectModal && (
         <RejectModal
           title={
-            rejectModal.type === "bulk-identity"
-              ? `Bulk Reject ${selected.size} Identities`
-              : `Reject ${rejectModal.type === "identity" ? "Identity" : "Store"}`
+            rejectModal.type === "bulk"
+              ? `Bulk Reject ${selected.size} Submissions`
+              : `Reject Verification — ${rejectModal.name}`
           }
-          onSubmit={(reason) => {
-            if (rejectModal.type === "bulk-identity") {
-              return handleBulkReject(reason);
-            }
-            return rejectModal.type === "identity"
-              ? handleIdReject(rejectModal.record.id, reason)
-              : handleStoreReject(rejectModal.record.id, reason);
-          }}
+          onSubmit={(reason) =>
+            rejectModal.type === "bulk"
+              ? handleBulkReject(reason)
+              : handleReject(rejectModal.userId, reason)
+          }
           onClose={() => setRejectModal(null)}
         />
       )}
@@ -1548,17 +1377,12 @@ export default function Verification({ confirm, onMutation }) {
       {/* Reset modal */}
       {resetModal && (
         <ResetModal
-          title={`Reset ${resetModal.type === "identity" ? "Identity" : "Store"} Verification`}
-          onSubmit={(note) =>
-            resetModal.type === "identity"
-              ? handleIdReset(resetModal.record.id, note)
-              : handleStoreReset(resetModal.record.id, note)
-          }
+          title={`Reset Verification — ${resetModal.name}`}
+          onSubmit={(note) => handleReset(resetModal.userId, note)}
           onClose={() => setResetModal(null)}
         />
       )}
 
-      {/* Slide-up animation for toast */}
       <style>{`
         @keyframes slideUp {
           from { opacity: 0; transform: translateY(20px); }
