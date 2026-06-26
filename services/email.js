@@ -17,14 +17,11 @@ let _resend = null;
 
 function getClient() {
   if (_resend) return _resend;
-
   const key = process.env.RESEND_API_KEY;
-
   if (!key) {
     console.warn("[email] ⚠  RESEND_API_KEY not set — dev console fallback active");
     return null;
   }
-
   try {
     _resend = new Resend(key);
     console.log("[email] ✓ Resend client ready");
@@ -35,7 +32,6 @@ function getClient() {
   }
 }
 
-/* ── initialise eagerly at import time ──────────────────────────────────── */
 getClient();
 
 /* ── helpers ────────────────────────────────────────────────────────────── */
@@ -94,25 +90,66 @@ function shell({ title, preheader, body }) {
     p:last-child{margin-bottom:0;}
     strong{color:#f1f5f9;}
     .hi{color:#f1f5f9;font-weight:600;}
+    /* OTP */
     .otp-wrap{text-align:center;margin:28px 0;}
     .otp-box{
-      display:inline-block;
-      background:#111c2d;
+      display:inline-block;background:#111c2d;
       border:2px dashed rgba(59,130,246,0.5);
-      border-radius:14px;
-      padding:24px 48px;
+      border-radius:14px;padding:24px 48px;
     }
     .otp-code{
       font-size:42px;font-weight:800;
       letter-spacing:14px;color:#f1f5f9;
       font-family:'Courier New',Courier,monospace;
     }
-    .warning{
-      background:rgba(245,158,11,0.08);
-      border:1px solid rgba(245,158,11,0.25);
-      border-radius:9px;padding:13px 16px;margin:18px 0;
-      font-size:13px;color:#fcd34d;line-height:1.55;
+    /* status banners */
+    .banner-green{
+      background:rgba(22,163,74,0.10);
+      border:1px solid rgba(22,163,74,0.30);
+      border-radius:12px;padding:20px 24px;
+      margin:20px 0;text-align:center;
     }
+    .banner-green .icon{font-size:36px;margin-bottom:8px;}
+    .banner-green .headline{
+      font-size:18px;font-weight:800;color:#4ade80;margin-bottom:6px;
+    }
+    .banner-green .sub{font-size:13px;color:#86efac;line-height:1.6;}
+    .banner-red{
+      background:rgba(220,38,38,0.10);
+      border:1px solid rgba(220,38,38,0.30);
+      border-radius:12px;padding:20px 24px;
+      margin:20px 0;text-align:center;
+    }
+    .banner-red .icon{font-size:36px;margin-bottom:8px;}
+    .banner-red .headline{
+      font-size:18px;font-weight:800;color:#f87171;margin-bottom:6px;
+    }
+    .banner-red .sub{font-size:13px;color:#fca5a5;line-height:1.6;}
+    .banner-amber{
+      background:rgba(217,119,6,0.10);
+      border:1px solid rgba(217,119,6,0.30);
+      border-radius:12px;padding:20px 24px;
+      margin:20px 0;text-align:center;
+    }
+    .banner-amber .icon{font-size:36px;margin-bottom:8px;}
+    .banner-amber .headline{
+      font-size:18px;font-weight:800;color:#fbbf24;margin-bottom:6px;
+    }
+    .banner-amber .sub{font-size:13px;color:#fde68a;line-height:1.6;}
+    /* benefit list */
+    .benefit-list{
+      background:#111c2d;border-radius:10px;
+      padding:16px 20px;margin:16px 0;
+      list-style:none;
+    }
+    .benefit-list li{
+      font-size:13px;color:#94a3b8;
+      padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);
+      display:flex;align-items:center;gap:10px;
+    }
+    .benefit-list li:last-child{border-bottom:none;}
+    .benefit-list li span.tick{color:#4ade80;font-weight:700;font-size:15px;}
+    /* info box */
     .info-box{
       background:#111c2d;
       border-left:3px solid #ef4444;
@@ -120,6 +157,21 @@ function shell({ title, preheader, body }) {
       padding:13px 16px;margin:16px 0;
       font-size:13px;color:#fca5a5;line-height:1.55;
     }
+    /* warning */
+    .warning{
+      background:rgba(245,158,11,0.08);
+      border:1px solid rgba(245,158,11,0.25);
+      border-radius:9px;padding:13px 16px;margin:18px 0;
+      font-size:13px;color:#fcd34d;line-height:1.55;
+    }
+    /* cta button */
+    .cta{
+      display:inline-block;margin:18px 0 4px;
+      padding:13px 32px;border-radius:10px;
+      background:#3b82f6;color:#fff;
+      font-size:14px;font-weight:700;text-decoration:none;
+    }
+    /* footer */
     .footer{
       padding:18px 32px 26px;
       border-top:1px solid rgba(255,255,255,0.07);
@@ -164,7 +216,6 @@ function shell({ title, preheader, body }) {
 
 /* ── core sender ────────────────────────────────────────────────────────── */
 async function send({ to, subject, html, text }) {
-  /* guard */
   if (!to)      throw new Error("[email] `to` is required");
   if (!subject) throw new Error("[email] `subject` is required");
   if (!html)    throw new Error("[email] `html` is required");
@@ -172,7 +223,6 @@ async function send({ to, subject, html, text }) {
   const toArr  = Array.isArray(to) ? to : [to];
   const client = getClient();
 
-  /* ── dev / no-key fallback ── */
   if (!client) {
     console.log("\n" + "═".repeat(64));
     console.log("[email] 📧  DEV — email NOT sent (RESEND_API_KEY missing)");
@@ -187,7 +237,6 @@ async function send({ to, subject, html, text }) {
     return { id: `dev-${Date.now()}` };
   }
 
-  /* ── live send ── */
   console.log(`[email] sending "${subject}" → ${toArr.join(", ")}`);
 
   let result;
@@ -200,14 +249,12 @@ async function send({ to, subject, html, text }) {
       text    : text ?? toText(html),
     });
   } catch (sdkErr) {
-    /* SDK itself threw (network, bad key, etc.) */
     console.error("[email] SDK threw:", sdkErr.message);
     throw new Error(`Email SDK error: ${sdkErr.message}`);
   }
 
   console.log("[email] raw result:", JSON.stringify(result));
 
-  /* Resend v4 returns { data: { id }, error: null } on success */
   if (result?.error) {
     console.error("[email] Resend API error:", result.error);
     throw new Error(`Resend API error: ${result.error.message}`);
@@ -219,12 +266,12 @@ async function send({ to, subject, html, text }) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   EXPORTS
+   EXISTING EXPORTS (unchanged)
 ════════════════════════════════════════════════════════════════════════════ */
 
 export async function sendVerificationEmail({ to, name, otp }) {
   console.log("[email] sendVerificationEmail called", {
-    to   : to ?? "MISSING",
+    to   : to   ?? "MISSING",
     name : name ?? "MISSING",
     otp  : IS_PROD ? "******" : (otp ?? "MISSING"),
   });
@@ -233,11 +280,8 @@ export async function sendVerificationEmail({ to, name, otp }) {
   if (!otp) throw new Error("sendVerificationEmail: `otp` is required");
 
   const otpStr = String(otp).trim();
-  if (!/^\d{6}$/.test(otpStr)) {
-    throw new Error(
-      `sendVerificationEmail: otp must be 6 digits — received "${otpStr}"`
-    );
-  }
+  if (!/^\d{6}$/.test(otpStr))
+    throw new Error(`sendVerificationEmail: otp must be 6 digits — received "${otpStr}"`);
 
   const safeName = esc(name || "there");
   const safeOtp  = esc(otpStr);
@@ -249,19 +293,16 @@ export async function sendVerificationEmail({ to, name, otp }) {
       Use the code below to verify your <strong>${esc(BRAND)}</strong> account.
       It expires in <strong>10&nbsp;minutes</strong>.
     </p>
-
     <div class="otp-wrap">
       <div class="otp-box">
         <div class="otp-code">${safeOtp}</div>
       </div>
     </div>
-
     <div class="warning">
       <strong>Security notice:</strong>
       Never share this code with anyone.
       ${esc(BRAND)} staff will <strong>never</strong> ask for it.
     </div>
-
     <p style="font-size:13px;color:#64748b;">
       If you did not request this, you can safely ignore this email.
     </p>
@@ -294,7 +335,6 @@ export async function sendVerificationEmail({ to, name, otp }) {
 
 export async function sendWelcomeEmail({ to, name }) {
   console.log("[email] sendWelcomeEmail called", { to });
-
   if (!to) throw new Error("sendWelcomeEmail: `to` is required");
 
   const safeName = esc(name || "there");
@@ -425,12 +465,12 @@ export async function sendStoreStatusEmail({
     html    : shell({
       title     : `Store ${approved ? "approved" : "update"} — ${BRAND}`,
       preheader : approved
-        ? `${storeName} is now live.`
+        ? `${storeName || "Your store"} is now live.`
         : "Store verification needs attention.",
       body,
     }),
     text: approved
-      ? `Hi ${name || "there"},\n\n${storeName} is approved.\n\n— ${BRAND}`
+      ? `Hi ${name || "there"},\n\n${storeName || "Your store"} is approved.\n\n— ${BRAND}`
       : [
           `Hi ${name || "there"},`,
           ``,
@@ -440,5 +480,235 @@ export async function sendStoreStatusEmail({
           ``,
           `— ${BRAND}`,
         ].join("\n"),
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   NEW EXPORTS
+   Used by routes/admin/verification.js unified /:userId/approve|reject|reset
+════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * sendVerificationApprovedEmail
+ * Sent when admin approves identity + store in one action.
+ * Shows a clear "Fully Verified" confirmation with benefit list.
+ */
+export async function sendVerificationApprovedEmail({ to, name }) {
+  if (!to) throw new Error("sendVerificationApprovedEmail: `to` is required");
+
+  const safeName = esc(name || "there");
+
+  const body = `
+    <h2>You're fully verified 🎉</h2>
+    <p>Hi <span class="hi">${safeName}</span>,</p>
+    <p>
+      Great news — your identity and store have been reviewed and
+      <strong>approved</strong> by our team. Your account is now fully
+      verified on ${esc(BRAND)}.
+    </p>
+
+    <div class="banner-green">
+      <div class="icon">✅</div>
+      <div class="headline">Account Fully Verified</div>
+      <div class="sub">
+        Identity confirmed &nbsp;·&nbsp; Store approved &nbsp;·&nbsp; Trust score updated
+      </div>
+    </div>
+
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:8px;">
+      You now have access to:
+    </p>
+    <ul class="benefit-list">
+      <li><span class="tick">✓</span> Up to 100 product listings per day</li>
+      <li><span class="tick">✓</span> Up to 500 active listings at once</li>
+      <li><span class="tick">✓</span> Listings never expire</li>
+      <li><span class="tick">✓</span> Verified seller badge on your profile</li>
+      <li><span class="tick">✓</span> Higher trust score — more buyer confidence</li>
+    </ul>
+
+    <p>
+      Log in to your account to start listing.
+    </p>
+
+    <p style="font-size:13px;color:#64748b;margin-top:8px;">
+      Questions?
+      <a href="mailto:${SUPPORT}" style="color:#3b82f6;">${SUPPORT}</a>
+    </p>
+  `;
+
+  return send({
+    to,
+    subject : `You're verified — ${BRAND}`,
+    html    : shell({
+      title     : `Account verified — ${BRAND}`,
+      preheader : "Your identity and store have been approved. You're fully verified!",
+      body,
+    }),
+    text: [
+      `Hi ${name || "there"},`,
+      ``,
+      `Great news — your identity and store have been approved!`,
+      ``,
+      `Your account is now fully verified on ${BRAND}.`,
+      ``,
+      `You now have access to:`,
+      `  ✓ Up to 100 product listings per day`,
+      `  ✓ Up to 500 active listings at once`,
+      `  ✓ Listings never expire`,
+      `  ✓ Verified seller badge`,
+      `  ✓ Higher trust score`,
+      ``,
+      `Log in to start listing.`,
+      ``,
+      `Questions? ${SUPPORT}`,
+      ``,
+      `— ${BRAND}`,
+    ].join("\n"),
+  });
+}
+
+/**
+ * sendVerificationRejectedEmail
+ * Sent when admin rejects identity + store in one action.
+ * Shows the rejection reason clearly and prompts resubmission.
+ */
+export async function sendVerificationRejectedEmail({ to, name, reason }) {
+  if (!to) throw new Error("sendVerificationRejectedEmail: `to` is required");
+
+  const safeName   = esc(name   || "there");
+  const safeReason = esc(reason || "Your documents did not meet our requirements.");
+
+  const body = `
+    <h2>Verification Not Approved</h2>
+    <p>Hi <span class="hi">${safeName}</span>,</p>
+    <p>
+      After reviewing your submitted documents, we were unable to approve
+      your verification at this time.
+    </p>
+
+    <div class="banner-red">
+      <div class="icon">❌</div>
+      <div class="headline">Verification Rejected</div>
+      <div class="sub">Please review the reason below and resubmit.</div>
+    </div>
+
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:4px;">
+      <strong style="color:#f1f5f9;">Reason from our team:</strong>
+    </p>
+    <div class="info-box">${safeReason}</div>
+
+    <p>
+      You can log in and resubmit your documents at any time.
+      Make sure your photos are clear, unobstructed, and match the
+      document type you selected.
+    </p>
+
+    <p>
+      If you believe this is a mistake or need help, contact us at
+      <a href="mailto:${SUPPORT}" style="color:#3b82f6;">${SUPPORT}</a>.
+    </p>
+  `;
+
+  return send({
+    to,
+    subject : `Action required: verification rejected — ${BRAND}`,
+    html    : shell({
+      title     : `Verification rejected — ${BRAND}`,
+      preheader : "Your verification was not approved. Please resubmit your documents.",
+      body,
+    }),
+    text: [
+      `Hi ${name || "there"},`,
+      ``,
+      `Your verification was not approved.`,
+      ``,
+      `Reason: ${reason || "Documents did not meet our requirements."}`,
+      ``,
+      `Please log in and resubmit your documents.`,
+      ``,
+      `Need help? ${SUPPORT}`,
+      ``,
+      `— ${BRAND}`,
+    ].join("\n"),
+  });
+}
+
+/**
+ * sendVerificationResetEmail
+ * Sent when admin resets verification and asks the user to resubmit.
+ * Includes the admin's note if provided.
+ */
+export async function sendVerificationResetEmail({ to, name, note }) {
+  if (!to) throw new Error("sendVerificationResetEmail: `to` is required");
+
+  const safeName = esc(name || "there");
+  const safeNote = esc(
+    note || "Please resubmit your documents with clearer, higher-quality photos."
+  );
+
+  const body = `
+    <h2>Please Resubmit Your Documents</h2>
+    <p>Hi <span class="hi">${safeName}</span>,</p>
+    <p>
+      Our team has reviewed your verification submission and is requesting
+      that you resubmit your documents.
+    </p>
+
+    <div class="banner-amber">
+      <div class="icon">🔄</div>
+      <div class="headline">Resubmission Required</div>
+      <div class="sub">
+        Your verified status has been temporarily cleared.
+        Please upload new documents to continue.
+      </div>
+    </div>
+
+    <p style="font-size:13px;color:#94a3b8;margin-bottom:4px;">
+      <strong style="color:#f1f5f9;">Note from our reviewer:</strong>
+    </p>
+    <div class="warning">${safeNote}</div>
+
+    <p>
+      Please log in and resubmit your identity documents and any store
+      materials. Make sure everything is:
+    </p>
+    <ul class="benefit-list">
+      <li><span class="tick">→</span> Clear and fully visible (no blurring or cut-off edges)</li>
+      <li><span class="tick">→</span> Unedited originals — no filters or cropping</li>
+      <li><span class="tick">→</span> Selfie matches the face on your document</li>
+      <li><span class="tick">→</span> Document is valid and not expired</li>
+    </ul>
+
+    <p>
+      Questions?
+      <a href="mailto:${SUPPORT}" style="color:#3b82f6;">${SUPPORT}</a>
+    </p>
+  `;
+
+  return send({
+    to,
+    subject : `Action required: resubmit your documents — ${BRAND}`,
+    html    : shell({
+      title     : `Resubmit documents — ${BRAND}`,
+      preheader : "Our team needs you to resubmit your verification documents.",
+      body,
+    }),
+    text: [
+      `Hi ${name || "there"},`,
+      ``,
+      `Please resubmit your verification documents.`,
+      ``,
+      `Note from our team: ${note || "Resubmit with clearer photos."}`,
+      ``,
+      `Tips:`,
+      `  → Clear and fully visible documents`,
+      `  → No filters or cropping`,
+      `  → Selfie matches your document`,
+      `  → Document is not expired`,
+      ``,
+      `Questions? ${SUPPORT}`,
+      ``,
+      `— ${BRAND}`,
+    ].join("\n"),
   });
 }
