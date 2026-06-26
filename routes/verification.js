@@ -1,20 +1,14 @@
 // ════════════════════════════════════════════════════════════
-// FILE: routes/verification.js — v6
+// FILE: routes/verification.js — v7
+//
+// Fix: CockroachDB does not support INTERVAL '1 unit' * $param
+//      All parameterised intervals replaced with make_interval()
 //
 // POST /api/verification/send-email-otp
 // POST /api/verification/verify-email-otp
 // POST /api/verification/face-check
 // POST /api/verification/submit
 // GET  /api/verification/status
-//
-// Changes from v5:
-//  ─ store_verifications schema has no store_name /
-//    store_description / logo_url columns.
-//    Only columns used: user_id, documents_url (jsonb), status.
-//  ─ storeName / storeDesc body parsing removed.
-//  ─ store_name / store_description validations removed.
-//  ─ Store insert now writes documents_url jsonb only.
-//  ─ Audit metadata updated accordingly.
 // ════════════════════════════════════════════════════════════
 
 import express   from "express";
@@ -55,7 +49,7 @@ console.log(
 console.log(
   "[verification] FACE_SERVICE   :",
   process.env.FACE_SERVICE_URL ||
-    "not configured (face-check skipped — submissions flagged for manual review)"
+    "not configured (face-check skipped — manual review)"
 );
 
 /* ══════════════════════════════════════════════════════════════
@@ -97,14 +91,14 @@ const EXT_MIME = {
   ".webp" : "image/webp",
   ".pdf"  : "application/pdf",
 };
-const MAX_DOC_BYTES   = 5 * 1_048_576;   // 5 MB
-const MAX_LOGO_BYTES  = 2 * 1_048_576;   // 2 MB
+const MAX_DOC_BYTES  = 5 * 1_048_576;
+const MAX_LOGO_BYTES = 2 * 1_048_576;
 const VALID_DOC_TYPES = new Set([
   "nin", "passport", "drivers_license", "voters_card",
 ]);
 
 /* ══════════════════════════════════════════════════════════════
-   DOCUMENT VALIDATORS  (server-side authority)
+   DOCUMENT VALIDATORS
 ══════════════════════════════════════════════════════════════ */
 const DOC_VALIDATORS = {
   nin             : (v) => /^\d{11}$/.test(v.replace(/\s/g, "")),
@@ -121,12 +115,11 @@ const memStore = multer.memoryStorage();
 
 const makeFilter = (allowed) => (_req, file, cb) => {
   if (allowed.has(file.mimetype)) return cb(null, true);
-  const err  = new Error(`Invalid file type "${file.mimetype}".`);
-  err.code   = "INVALID_MIME";
+  const err = new Error(`Invalid file type "${file.mimetype}".`);
+  err.code  = "INVALID_MIME";
   cb(err);
 };
 
-// Submit: accepts doc images/pdf + selfie + optional store logo + liveness frame
 const uploadSubmit = multer({
   storage    : memStore,
   limits     : { fileSize: MAX_DOC_BYTES, files: 5 },
@@ -145,7 +138,6 @@ const uploadSubmit = multer({
   { name: "liveness_frame", maxCount: 1 },
 ]);
 
-// Face-check: selfie + doc front only
 const uploadFaceCheck = multer({
   storage    : memStore,
   limits     : { fileSize: MAX_DOC_BYTES, files: 2 },
@@ -155,7 +147,6 @@ const uploadFaceCheck = multer({
   { name: "doc_front", maxCount: 1 },
 ]);
 
-// Wraps multer so upload errors return 400 instead of 500
 const withUpload = (handler) => (req, res, next) =>
   handler(req, res, (err) => {
     if (!err) return next();
@@ -194,17 +185,16 @@ async function getCld() {
 const uploadBuffer = async (buffer, folder, userId) => {
   const cld = await getCld();
   if (!cld) {
-    // No Cloudinary credentials — return a placeholder URL
     return { secure_url: `local://${folder}/${userId}/${Date.now()}` };
   }
   return new Promise((ok, no) => {
     const s = cld.uploader.upload_stream(
       {
-        folder           : `loemart/verification/${folder}/${userId}`,
-        resource_type    : "auto",
-        allowed_formats  : ["jpg", "jpeg", "png", "webp", "pdf"],
-        overwrite        : false,
-        unique_filename  : true,
+        folder          : `loemart/verification/${folder}/${userId}`,
+        resource_type   : "auto",
+        allowed_formats : ["jpg", "jpeg", "png", "webp", "pdf"],
+        overwrite       : false,
+        unique_filename : true,
       },
       (e, r) => (e ? no(new Error(`Cloudinary: ${e.message}`)) : ok(r))
     );
@@ -213,31 +203,24 @@ const uploadBuffer = async (buffer, folder, userId) => {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   FACE MATCH SERVICE — gracefully skipped when not configured
+   FACE MATCH SERVICE
 ══════════════════════════════════════════════════════════════ */
 const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL ?? null;
 
 const compareFaces = async (selfieBuffer, docFrontBuffer) => {
   if (!FACE_SERVICE_URL) {
-    return {
-      match      : null,
-      confidence : null,
-      skipped    : true,
-      message    : "Face service not configured",
-    };
+    return { match: null, confidence: null, skipped: true, message: "Face service not configured" };
   }
   try {
     const fd = new FormData();
     fd.append("selfie",    new Blob([selfieBuffer]),   "selfie.jpg");
     fd.append("doc_front", new Blob([docFrontBuffer]), "doc_front.jpg");
-
     const r = await fetch(`${FACE_SERVICE_URL}/compare`, {
       method : "POST",
       body   : fd,
       signal : AbortSignal.timeout(15_000),
     });
     if (!r.ok) throw new Error(`Face service ${r.status}`);
-
     const d = await r.json();
     return {
       match      : Boolean(d.match),
@@ -286,9 +269,9 @@ const makeDeviceHash = (req) =>
     .createHash("sha256")
     .update(
       [
-        req.headers["user-agent"]        ?? "",
-        req.headers["accept-language"]   ?? "",
-        req.headers["sec-ch-ua"]         ?? "",
+        req.headers["user-agent"]      ?? "",
+        req.headers["accept-language"] ?? "",
+        req.headers["sec-ch-ua"]       ?? "",
       ].join("|")
     )
     .digest("hex");
@@ -296,6 +279,8 @@ const makeDeviceHash = (req) =>
 const extMatchesMime = (file) =>
   EXT_MIME[path.extname(file.originalname).toLowerCase()] === file.mimetype;
 
+/* ── Daily send count ──
+   Uses date casting — no interval multiplication — safe in CockroachDB. */
 const getDailySendCount = async (db, userId) => {
   const today = getTodayUTC();
   const { rows } = await db.query(
@@ -401,11 +386,12 @@ router.post(
         );
       }
 
-      // ── cooldown ──
+      // ── cooldown check ──
+      // ✅ FIX: make_interval(secs => $2) replaces INTERVAL '1 second' * $2
       const { rows: recent } = await client.query(
         `SELECT created_at FROM email_verifications
-         WHERE user_id   = $1
-           AND created_at > NOW() - INTERVAL '1 second' * $2
+         WHERE user_id    = $1
+           AND created_at > NOW() - make_interval(secs => $2)
          ORDER BY created_at DESC LIMIT 1`,
         [userId, POLICY.RESEND_COOLDOWN_SECS]
       );
@@ -423,10 +409,11 @@ router.post(
       }
 
       // ── abuse check ──
+      // ✅ FIX: make_interval(mins => $2) replaces INTERVAL '1 minute' * $2
       const { rows: abr } = await client.query(
         `SELECT COUNT(*) AS cnt FROM email_verifications
-         WHERE user_id   = $1
-           AND created_at > NOW() - INTERVAL '1 minute' * $2`,
+         WHERE user_id    = $1
+           AND created_at > NOW() - make_interval(mins => $2)`,
         [userId, POLICY.ABUSE_WINDOW_MINUTES]
       );
       if (parseInt(abr[0].cnt, 10) >= POLICY.ABUSE_THRESHOLD) {
@@ -448,10 +435,11 @@ router.post(
       const hash   = await bcrypt.hash(otp, POLICY.BCRYPT_ROUNDS);
       const device = makeDeviceHash(req);
 
+      // ✅ FIX: make_interval(mins => $3) replaces INTERVAL '1 minute' * $3
       await client.query(
         `INSERT INTO email_verifications
            (user_id, otp_hash, expires_at, status, device_hash, ip_address)
-         VALUES ($1, $2, NOW() + INTERVAL '1 minute' * $3, 'active', $4, $5)`,
+         VALUES ($1, $2, NOW() + make_interval(mins => $3), 'active', $4, $5)`,
         [userId, hash, POLICY.OTP_EXPIRY_MINUTES, device, ip]
       );
 
@@ -471,20 +459,20 @@ router.post(
       try {
         await sendVerificationEmail({ to: user.email, name: user.name, otp });
       } catch (mailErr) {
-        pool
-          .query(
-            `UPDATE email_verifications
-             SET status = 'expired', used_at = NOW()
-             WHERE user_id   = $1
-               AND status    = 'active'
-               AND created_at > NOW() - INTERVAL '2 minutes'`,
-            [userId]
-          )
-          .catch(() => {});
+        // ✅ FIX: literal INTERVAL '2 minutes' is fine (no param multiplication)
+        pool.query(
+          `UPDATE email_verifications
+           SET status = 'expired', used_at = NOW()
+           WHERE user_id    = $1
+             AND status     = 'active'
+             AND created_at > NOW() - INTERVAL '2 minutes'`,
+          [userId]
+        ).catch(() => {});
         return fail(res, 500, `Email delivery failed: ${mailErr.message}`);
       }
 
       const remaining = POLICY.DAILY_SEND_LIMIT - (dailyCount + 1);
+
       writeAudit({
         actorId    : userId,
         action     : "otp_sent",
@@ -525,8 +513,8 @@ router.post(
     const userId = req.user?.id;
     const ip     = getIp(req);
 
-    if (!userId)                  return fail(res, 401, "Not authenticated.");
-    if (!/^\d{6}$/.test(rawOtp))  return fail(res, 400, "OTP must be 6 digits.");
+    if (!userId)                 return fail(res, 401, "Not authenticated.");
+    if (!/^\d{6}$/.test(rawOtp)) return fail(res, 400, "OTP must be 6 digits.");
 
     const client = await pool.connect();
     try {
@@ -535,8 +523,8 @@ router.post(
       const { rows } = await client.query(
         `SELECT id, otp_hash, attempts
          FROM email_verifications
-         WHERE user_id   = $1
-           AND status    = 'active'
+         WHERE user_id    = $1
+           AND status     = 'active'
            AND expires_at > NOW()
          ORDER BY created_at DESC LIMIT 1`,
         [userId]
@@ -548,7 +536,6 @@ router.post(
 
       const rec = rows[0];
 
-      // ── too many attempts ──
       if (rec.attempts >= POLICY.MAX_VERIFY_ATTEMPTS) {
         await client.query(
           "UPDATE email_verifications SET status = 'blocked' WHERE id = $1",
@@ -559,7 +546,6 @@ router.post(
         return fail(res, 429, "Too many failed attempts.");
       }
 
-      // ── compare ──
       const valid = await bcrypt.compare(rawOtp, rec.otp_hash);
       if (!valid) {
         await client.query(
@@ -572,7 +558,6 @@ router.post(
         });
       }
 
-      // ── mark used ──
       const { rows: marked } = await client.query(
         `UPDATE email_verifications
          SET status = 'used', used_at = NOW()
@@ -585,7 +570,6 @@ router.post(
         return fail(res, 400, "Code already used.");
       }
 
-      // ── verify user ──
       await client.query(
         `UPDATE users
          SET email_verified    = TRUE,
@@ -654,10 +638,7 @@ router.post(
     if (!docFrontFile) return fail(res, 400, "Document front required.");
 
     try {
-      const result = await compareFaces(
-        selfieFile.buffer,
-        docFrontFile.buffer
-      );
+      const result = await compareFaces(selfieFile.buffer, docFrontFile.buffer);
       return res.json({
         success    : true,
         match      : result.match,
@@ -667,24 +648,17 @@ router.post(
       });
     } catch (err) {
       console.error("[face-check] ERROR:", err.message, "\n", err.stack);
-      // Always succeed from the client perspective — flag as skipped
-      return res.json({
-        success : true,
-        match   : null,
-        skipped : true,
-        message : err.message,
-      });
+      return res.json({ success: true, match: null, skipped: true, message: err.message });
     }
   }
 );
 
 /* ══════════════════════════════════════════════════════════════
    POST /submit
-   store_verifications schema:
+   store_verifications schema (actual columns only):
      id, user_id, documents_url (jsonb), status,
      reviewed_by, reviewed_at, rejection_reason,
      created_at, updated_at, assigned_admin_id, assigned_at
-   — no store_name, store_description, or logo_url columns.
 ══════════════════════════════════════════════════════════════ */
 router.post(
   "/submit",
@@ -697,12 +671,10 @@ router.post(
     console.log("\n[submit] ▶ userId:", userId);
     if (!userId) return fail(res, 401, "Not authenticated.");
 
-    // ── body fields ──
     const docType        = (req.body.document_type   ?? "").trim();
     const docNumber      = (req.body.document_number ?? "").trim();
     const livenessPassed = req.body.liveness_passed  === "true";
 
-    // ── document type + number validation ──
     if (!VALID_DOC_TYPES.has(docType))
       return fail(res, 400, "Invalid document type.");
 
@@ -710,7 +682,6 @@ router.post(
     if (!validateDoc || !validateDoc(docNumber))
       return fail(res, 400, `Invalid ${docType.replace(/_/g, " ")} number.`);
 
-    // ── file presence ──
     const frontFile  = req.files?.doc_front?.[0]     ?? null;
     const backFile   = req.files?.doc_back?.[0]      ?? null;
     const selfieFile = req.files?.selfie?.[0]         ?? null;
@@ -721,19 +692,16 @@ router.post(
     if (!backFile)   return fail(res, 400, "Document back required.");
     if (!selfieFile) return fail(res, 400, "Selfie required.");
 
-    // ── extension / mime consistency ──
     for (const f of [frontFile, backFile, selfieFile]) {
       if (!extMatchesMime(f))
         return fail(res, 400, `File "${f.originalname}" extension mismatch.`);
     }
 
-    // ── logo size guard (separate limit) ──
     if (logoFile && logoFile.size > MAX_LOGO_BYTES)
       return fail(res, 400, "Store logo must be 2 MB or smaller.");
 
     const docHash = hashDocNumber(docType, docNumber);
 
-    // ── parallel pre-checks ──
     const [userRes, pendingIdRes, pendingStRes, dupRes] = await Promise.all([
       pool.query(
         `SELECT email_verified, identity_verified, store_verified, status
@@ -761,18 +729,12 @@ router.post(
     ]);
 
     const user = userRes.rows[0];
-    if (!user)
-      return fail(res, 404, "User not found.");
-    if (user.status === "flagged" || user.status === "banned")
-      return fail(res, 403, "Account restricted.");
-    if (!user.email_verified)
-      return fail(res, 403, "Verify email first.");
-    if (user.identity_verified)
-      return fail(res, 400, "Already verified.");
-    if (pendingIdRes.rows.length)
-      return fail(res, 409, "Identity review already pending.");
-    if (pendingStRes.rows.length)
-      return fail(res, 409, "Store review already pending.");
+    if (!user)                                                 return fail(res, 404, "User not found.");
+    if (user.status === "flagged" || user.status === "banned") return fail(res, 403, "Account restricted.");
+    if (!user.email_verified)                                  return fail(res, 403, "Verify email first.");
+    if (user.identity_verified)                                return fail(res, 400, "Already verified.");
+    if (pendingIdRes.rows.length)                              return fail(res, 409, "Identity review already pending.");
+    if (pendingStRes.rows.length)                              return fail(res, 409, "Store review already pending.");
     if (dupRes.rows.length) {
       writeAudit({
         actorId    : userId,
@@ -782,13 +744,9 @@ router.post(
         metadata   : { document_type: docType },
         ipAddress  : ip,
       }).catch(() => {});
-      return fail(
-        res, 409,
-        "This document is already registered. Contact support if this is an error."
-      );
+      return fail(res, 409, "This document is already registered. Contact support if this is an error.");
     }
 
-    // ── face check ──
     const faceResult = await compareFaces(selfieFile.buffer, frontFile.buffer);
     console.log("[submit] face:", faceResult);
 
@@ -804,37 +762,28 @@ router.post(
       return fail(res, 422, "Selfie does not match document. Retake both photos.");
     }
 
-    // ── upload to Cloudinary ──
     let front, back, selfie, logo, liveness;
     try {
       [front, back, selfie, logo, liveness] = await Promise.all([
-        uploadBuffer(frontFile.buffer,  "id_documents",   userId),
-        uploadBuffer(backFile.buffer,   "id_documents",   userId),
-        uploadBuffer(selfieFile.buffer, "selfies",         userId),
-        logoFile
-          ? uploadBuffer(logoFile.buffer, "store_logos",   userId)
-          : Promise.resolve(null),
-        lvFile
-          ? uploadBuffer(lvFile.buffer,  "liveness_frames",userId)
-          : Promise.resolve(null),
+        uploadBuffer(frontFile.buffer,  "id_documents",    userId),
+        uploadBuffer(backFile.buffer,   "id_documents",    userId),
+        uploadBuffer(selfieFile.buffer, "selfies",          userId),
+        logoFile ? uploadBuffer(logoFile.buffer, "store_logos",    userId) : Promise.resolve(null),
+        lvFile   ? uploadBuffer(lvFile.buffer,  "liveness_frames", userId) : Promise.resolve(null),
       ]);
     } catch (uploadErr) {
       console.error("[submit] upload:", uploadErr.message);
       return fail(res, 500, `Upload failed: ${uploadErr.message}`);
     }
 
-    // ── build store documents_url jsonb ──
-    // Only store what actually exists — no store_name / store_description
     const storeDocuments = {
       ...(logo?.secure_url ? { logo_url: logo.secure_url } : {}),
     };
 
-    // ── DB transaction ──
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
-      // identity_verifications
       await client.query(
         `INSERT INTO identity_verifications
            (user_id, document_type, document_number_hash,
@@ -858,7 +807,6 @@ router.post(
         ]
       );
 
-      // store_verifications — only columns that actually exist in schema
       await client.query(
         `INSERT INTO store_verifications
            (user_id, documents_url, status)
@@ -879,7 +827,6 @@ router.post(
       client.release();
     }
 
-    // ── audit ──
     writeAudit({
       actorId    : userId,
       action     : "verification_submitted",
@@ -929,7 +876,6 @@ router.get("/status", authenticate, async (req, res) => {
          ORDER BY created_at DESC LIMIT 1`,
         [userId]
       ),
-      // store_verifications: only select columns that exist in schema
       pool.query(
         `SELECT status, rejection_reason, updated_at
          FROM store_verifications
@@ -957,12 +903,7 @@ router.get("/status", authenticate, async (req, res) => {
     const limitedCount = parseInt(limitedRes.rows[0].cnt, 10);
     const soonest      = limitedRes.rows[0].soonest ?? null;
     const daysLeft     = soonest
-      ? Math.max(
-          0,
-          Math.ceil(
-            (new Date(soonest).getTime() - Date.now()) / 86_400_000
-          )
-        )
+      ? Math.max(0, Math.ceil((new Date(soonest).getTime() - Date.now()) / 86_400_000))
       : null;
 
     return res.json({
@@ -989,7 +930,7 @@ router.get("/status", authenticate, async (req, res) => {
           ? `${limitedCount} listing${limitedCount !== 1 ? "s" : ""} will expire in ${daysLeft ?? "?"} day${daysLeft !== 1 ? "s" : ""}. Verify to make them permanent.`
           : null,
       },
-      upgrade_benefits  : user.identity_verified
+      upgrade_benefits : user.identity_verified
         ? null
         : {
             daily_limit  : 100,
