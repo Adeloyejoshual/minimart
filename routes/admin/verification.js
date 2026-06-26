@@ -1,15 +1,15 @@
 // ════════════════════════════════════════════════════════════
-// FILE: routes/admin/verification.js — v3
+// FILE: routes/admin/verification.js — v4
 //
-// Single unified endpoint:
+// Unified single-action endpoints:
 //   POST /api/admin/verification/:userId/approve
 //   POST /api/admin/verification/:userId/reject
 //   POST /api/admin/verification/:userId/reset
 //
-// Plus all original granular routes kept for edge cases.
+// Plus granular edge-case routes kept.
 // All admin actions send email + in-app notifications.
 //
-// store_verifications schema (actual columns only):
+// store_verifications actual schema:
 //   id, user_id, documents_url (jsonb), status,
 //   reviewed_by, reviewed_at, rejection_reason,
 //   created_at, updated_at, assigned_admin_id, assigned_at
@@ -37,10 +37,10 @@ router.use(verifyAdmin);
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
 ══════════════════════════════════════════════════════════════ */
-const MAX_LIMIT          = 200;
-const BULK_MAX           = 50;
-const NOTE_MAX_LEN       = 1_000;
-const REASON_MAX_LEN     = 500;
+const MAX_LIMIT           = 200;
+const BULK_MAX            = 50;
+const NOTE_MAX_LEN        = 1_000;
+const REASON_MAX_LEN      = 500;
 const SIGNED_URL_TTL_SECS = 60 * 15; // 15 min
 
 const VALID_ID_STATUSES = new Set([
@@ -51,7 +51,7 @@ const VALID_STORE_STATUSES = new Set([
 ]);
 
 /* ══════════════════════════════════════════════════════════════
-   TRUST SCORE  — must mirror verification.js exactly
+   TRUST SCORE  (mirrors verification.js exactly)
    email_verified    → 30
    identity_verified → 35
    store_verified    → 20
@@ -143,7 +143,7 @@ const getNotes = async (db, verificationId, verificationType) => {
   return rows;
 };
 
-/* ── Dual audit trail ── */
+/* ── Dual audit trail (admin_logs + writeAudit) ── */
 const log = async ({
   adminId, action, targetId,
   details, meta = null, userId = null, ip = null,
@@ -168,66 +168,7 @@ const log = async ({
   );
 };
 
-/* ── Risk flags ── */
-const computeRiskFlags = async (
-  client,
-  { userId, documentHash }
-) => {
-  const flags = [];
-  let riskScore = 0;
-
-  if (documentHash) {
-    const { rows: dupRows } = await client.query(
-      `SELECT iv.user_id, iv.status, u.email
-       FROM   identity_verifications iv
-       JOIN   public.users u ON u.id = iv.user_id
-       WHERE  iv.document_number_hash = $1
-         AND  iv.user_id             <> $2
-         AND  iv.status IN ('pending', 'approved')
-       LIMIT  5`,
-      [documentHash, userId]
-    );
-    if (dupRows.length) {
-      flags.push({
-        type     : "duplicate_document",
-        severity : "critical",
-        detail   : `Document hash matches ${dupRows.length} other account(s)`,
-        accounts : dupRows.map((r) => ({ user_id: r.user_id, status: r.status })),
-      });
-      riskScore += 80;
-    }
-  }
-
-  const { rows: userRows } = await client.query(
-    `SELECT created_at, total_reports, status
-     FROM   public.users WHERE id = $1`,
-    [userId]
-  );
-
-  if (userRows.length) {
-    const u       = userRows[0];
-    const ageDays = (Date.now() - new Date(u.created_at).getTime()) / 86_400_000;
-    if (ageDays < 1) {
-      flags.push({ type: "very_new_account", severity: "medium",
-        detail: `Account created ${Math.round(ageDays * 24)} hours ago` });
-      riskScore += 20;
-    }
-    if (u.total_reports > 0) {
-      flags.push({ type: "prior_reports", severity: "high",
-        detail: `User has ${u.total_reports} prior report(s)` });
-      riskScore += u.total_reports * 15;
-    }
-    if (u.status === "flagged") {
-      flags.push({ type: "account_flagged", severity: "critical",
-        detail: "User account is currently flagged" });
-      riskScore += 60;
-    }
-  }
-
-  return { flags, riskScore: Math.min(riskScore, 100) };
-};
-
-/* ── Signed URL helpers ── */
+/* ── Signed URL generator ── */
 const generateSignedUrl = (verificationId, field, adminId) => {
   const expires   = Math.floor(Date.now() / 1_000) + SIGNED_URL_TTL_SECS;
   const secret    = process.env.SIGNED_URL_SECRET ?? "dev-secret";
@@ -238,21 +179,15 @@ const generateSignedUrl = (verificationId, field, adminId) => {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   EMAIL HELPERS
-   Thin wrappers that always fire both email + in-app notification
-   and never throw (errors are logged, not propagated).
+   EMAIL + NOTIFICATION HELPERS
+   All fire both email and in-app notification.
+   All errors are logged — never thrown (fire-and-forget).
 ══════════════════════════════════════════════════════════════ */
 
-/* ── Full approval (identity + store in one go) ── */
+/* ── Full approval (identity + store approved together) ── */
 const notifyApproved = ({ userId, email, name }) =>
   Promise.all([
-    sendIdentityStatusEmail({ to: email, name, approved: true }),
-    sendStoreStatusEmail({
-      to        : email,
-      name,
-      storeName : name,   // no store_name column — use seller name
-      approved  : true,
-    }),
+    sendVerificationApprovedEmail({ to: email, name }),
     createNotification({
       userId,
       type    : "verification_approved",
@@ -261,42 +196,31 @@ const notifyApproved = ({ userId, email, name }) =>
         "Your identity and store have been verified. " +
         "Your listings are now permanent and your account is fully upgraded.",
     }),
-  ]).catch((e) =>
-    console.error("[admin notify] approve:", e.message)
-  );
+  ]).catch((e) => console.error("[admin notify] approve:", e.message));
 
-/* ── Full rejection ── */
+/* ── Full rejection (identity + store rejected together) ── */
 const notifyRejected = ({ userId, email, name, reason }) =>
   Promise.all([
-    sendIdentityStatusEmail({ to: email, name, approved: false, reason }),
+    sendVerificationRejectedEmail({ to: email, name, reason }),
     createNotification({
       userId,
       type    : "verification_rejected",
       title   : "Verification Not Approved",
       message : `Your verification was not approved. Reason: ${reason}`,
     }),
-  ]).catch((e) =>
-    console.error("[admin notify] reject:", e.message)
-  );
+  ]).catch((e) => console.error("[admin notify] reject:", e.message));
 
-/* ── Reset (resubmit request) ── */
+/* ── Reset — ask user to resubmit ── */
 const notifyReset = ({ userId, email, name, note }) =>
   Promise.all([
-    sendIdentityStatusEmail({
-      to      : email,
-      name,
-      approved: false,
-      reason  : `Please resubmit your documents. Note from reviewer: ${note}`,
-    }),
+    sendVerificationResetEmail({ to: email, name, note }),
     createNotification({
       userId,
       type    : "verification_reset",
       title   : "Resubmit Verification Documents",
       message : `Please resubmit your documents. Note: ${note}`,
     }),
-  ]).catch((e) =>
-    console.error("[admin notify] reset:", e.message)
-  );
+  ]).catch((e) => console.error("[admin notify] reset:", e.message));
 
 /* ── Identity-only approved ── */
 const notifyIdentityApproved = ({ userId, email, name }) =>
@@ -310,9 +234,7 @@ const notifyIdentityApproved = ({ userId, email, name }) =>
         "Your identity has been verified. Your listings are now permanent " +
         "and your account has been upgraded.",
     }),
-  ]).catch((e) =>
-    console.error("[admin notify] identity approve:", e.message)
-  );
+  ]).catch((e) => console.error("[admin notify] identity approve:", e.message));
 
 /* ── Identity-only rejected ── */
 const notifyIdentityRejected = ({ userId, email, name, reason }) =>
@@ -324,654 +246,31 @@ const notifyIdentityRejected = ({ userId, email, name, reason }) =>
       title   : "Identity Verification Update",
       message : `Your identity verification was not approved. Reason: ${reason}`,
     }),
-  ]).catch((e) =>
-    console.error("[admin notify] identity reject:", e.message)
-  );
+  ]).catch((e) => console.error("[admin notify] identity reject:", e.message));
 
 /* ── Store-only approved ── */
 const notifyStoreApproved = ({ userId, email, name }) =>
   Promise.all([
-    sendStoreStatusEmail({
-      to: email, name, storeName: name, approved: true,
-    }),
+    sendStoreStatusEmail({ to: email, name, storeName: name, approved: true }),
     createNotification({
       userId,
       type    : "store_approved",
       title   : "Store Approved ✓",
       message : "Your store has been approved and is now live on the platform.",
     }),
-  ]).catch((e) =>
-    console.error("[admin notify] store approve:", e.message)
-  );
+  ]).catch((e) => console.error("[admin notify] store approve:", e.message));
 
 /* ── Store-only rejected ── */
 const notifyStoreRejected = ({ userId, email, name, reason }) =>
   Promise.all([
-    sendStoreStatusEmail({
-      to: email, name, storeName: name, approved: false, reason,
-    }),
+    sendStoreStatusEmail({ to: email, name, storeName: name, approved: false, reason }),
     createNotification({
       userId,
       type    : "store_rejected",
       title   : "Store Verification Update",
       message : `Your store verification was not approved. Reason: ${reason}`,
     }),
-  ]).catch((e) =>
-    console.error("[admin notify] store reject:", e.message)
-  );
-
-/* ══════════════════════════════════════════════════════════════
-   ██████████████████████████████████████████████████████████
-   UNIFIED SINGLE-ACTION ENDPOINTS
-   POST /api/admin/verification/:userId/approve
-   POST /api/admin/verification/:userId/reject
-   POST /api/admin/verification/:userId/reset
-   ██████████████████████████████████████████████████████████
-══════════════════════════════════════════════════════════════ */
-
-/* ══════════════════════════════════════════════════════════════
-   POST /:userId/approve
-   Approves identity + store in ONE transaction.
-   Admin reviews the submitted documents and clicks Approve.
-   Everything is done at once — one email, one notification.
-══════════════════════════════════════════════════════════════ */
-router.post("/:userId/approve", async (req, res) => {
-  const adminId = req.admin.id;
-  const ip      = getIp(req);
-  const userId  = req.params.userId;
-  const note    = (req.body.note ?? "Approved.").trim();
-
-  if (!note)
-    return fail(res, 400, "A note is required.");
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    /* ── Fetch + lock user ── */
-    const { rows: userRows } = await client.query(
-      `SELECT
-         id, email, name,
-         email_verified,
-         identity_verified,
-         store_verified,
-         status,
-         created_at
-       FROM public.users
-       WHERE id = $1
-       FOR UPDATE`,
-      [userId]
-    );
-
-    if (!userRows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404, "User not found.");
-    }
-
-    const user = userRows[0];
-
-    if (user.status === "flagged" || user.status === "banned") {
-      await client.query("ROLLBACK");
-      return fail(res, 403, "Account is restricted.");
-    }
-
-    if (!user.email_verified) {
-      await client.query("ROLLBACK");
-      return fail(res, 422, "User email is not verified yet.");
-    }
-
-    if (user.identity_verified && user.store_verified) {
-      await client.query("ROLLBACK");
-      return res.json({
-        success : true,
-        message : "User is already fully verified.",
-      });
-    }
-
-    /* ── Fetch pending identity verification ── */
-    const { rows: idRows } = await client.query(
-      `SELECT id, document_number_hash, status
-       FROM identity_verifications
-       WHERE user_id = $1
-         AND status IN ('pending', 'flagged')
-       ORDER BY created_at DESC
-       LIMIT 1
-       FOR UPDATE`,
-      [userId]
-    );
-
-    if (!idRows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404,
-        "No pending identity verification found for this user."
-      );
-    }
-
-    const idRec = idRows[0];
-
-    /* ── Duplicate document guard ── */
-    if (idRec.document_number_hash) {
-      const { rows: dupRows } = await client.query(
-        `SELECT id FROM identity_verifications
-         WHERE  document_number_hash = $1
-           AND  user_id             <> $2
-           AND  status               = 'approved'
-         LIMIT  3`,
-        [idRec.document_number_hash, userId]
-      );
-
-      if (dupRows.length) {
-        await client.query(
-          `UPDATE identity_verifications
-           SET    status             = 'flagged',
-                  flagged_for_review = TRUE,
-                  risk_score        = GREATEST(COALESCE(risk_score, 0), 90),
-                  updated_at        = NOW()
-           WHERE  id = $1`,
-          [idRec.id]
-        );
-
-        await addNote(client, {
-          verificationId  : idRec.id,
-          verificationType: "identity",
-          adminId,
-          action          : "flagged",
-          note            :
-            `Blocked: document hash matches ${dupRows.length} ` +
-            `already-approved account(s). Manual review required.`,
-        });
-
-        await client.query("COMMIT");
-
-        log({
-          adminId,
-          action   : "flag_identity_duplicate",
-          targetId : idRec.id,
-          details  : `Duplicate document for user ${userId}`,
-          meta     : { duplicate_count: dupRows.length, risk_score: 90 },
-          userId,
-          ip,
-        });
-
-        return fail(
-          res, 409,
-          `Duplicate document detected across ${dupRows.length} approved ` +
-          `account(s). Verification flagged for manual review.`,
-          { flagged: true }
-        );
-      }
-    }
-
-    /* ── Fetch pending store verification ── */
-    const { rows: storeRows } = await client.query(
-      `SELECT id, status
-       FROM store_verifications
-       WHERE user_id = $1
-         AND status IN ('pending', 'reset')
-       ORDER BY created_at DESC
-       LIMIT 1
-       FOR UPDATE`,
-      [userId]
-    );
-
-    if (!storeRows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404,
-        "No pending store verification found for this user."
-      );
-    }
-
-    const storeRec = storeRows[0];
-
-    /* ── Approve identity ── */
-    await client.query(
-      `UPDATE identity_verifications
-       SET    status             = 'approved',
-              flagged_for_review = FALSE,
-              reviewed_by        = $2,
-              reviewed_at        = NOW(),
-              updated_at         = NOW()
-       WHERE  id = $1`,
-      [idRec.id, adminId]
-    );
-
-    /* ── Approve store ── */
-    await client.query(
-      `UPDATE store_verifications
-       SET    status      = 'approved',
-              reviewed_by = $2,
-              reviewed_at = NOW(),
-              updated_at  = NOW()
-       WHERE  id = $1`,
-      [storeRec.id, adminId]
-    );
-
-    /* ── Set user verified flags ── */
-    await client.query(
-      `UPDATE public.users
-       SET    identity_verified    = TRUE,
-              identity_verified_at = NOW(),
-              store_verified       = TRUE,
-              store_verified_at    = NOW(),
-              updated_at           = NOW()
-       WHERE  id = $1`,
-      [userId]
-    );
-
-    /* ── Recompute trust score ── */
-    const trustScore = await refreshAndPersistTrust(client, userId);
-
-    /* ── Save notes on both records ── */
-    await Promise.all([
-      addNote(client, {
-        verificationId  : idRec.id,
-        verificationType: "identity",
-        adminId,
-        action          : "approved",
-        note,
-      }),
-      addNote(client, {
-        verificationId  : storeRec.id,
-        verificationType: "store",
-        adminId,
-        action          : "approved",
-        note,
-      }),
-    ]);
-
-    await client.query("COMMIT");
-
-    console.log(
-      "[admin] ✓ approve-all userId:", userId,
-      " trust_score:", trustScore
-    );
-
-    /* ── Post-commit side effects ── */
-    reactivateLimitedListings(userId).catch((e) =>
-      console.error("[admin approve-all] reactivate:", e.message)
-    );
-
-    /* ── Email + in-app notification (single combined message) ── */
-    notifyApproved({ userId, email: user.email, name: user.name });
-
-    log({
-      adminId,
-      action   : "approve_all",
-      targetId : userId,
-      details  : `Approved identity + store for user ${userId}`,
-      meta     : {
-        identity_verification_id : idRec.id,
-        store_verification_id    : storeRec.id,
-        trust_score              : trustScore,
-        note,
-      },
-      userId,
-      ip,
-    });
-
-    return res.json({
-      success     : true,
-      trust_score : trustScore,
-      approved    : {
-        identity : idRec.id,
-        store    : storeRec.id,
-      },
-      message :
-        "Identity and store approved. " +
-        "User notified by email. Listings reactivated.",
-    });
-
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("[admin /:userId/approve]", err.message, err.stack);
-    return fail(res, 500, err.message);
-  } finally {
-    client.release();
-  }
-});
-
-/* ══════════════════════════════════════════════════════════════
-   POST /:userId/reject
-   Rejects identity + store in ONE transaction.
-   Downgrades active listings to active_limited.
-   Sends one rejection email.
-══════════════════════════════════════════════════════════════ */
-router.post("/:userId/reject", async (req, res) => {
-  const adminId = req.admin.id;
-  const ip      = getIp(req);
-  const userId  = req.params.userId;
-  const reason  = (req.body.reason ?? "").trim();
-
-  if (!reason)
-    return fail(res, 400, "Rejection reason is required.");
-  if (reason.length > REASON_MAX_LEN)
-    return fail(res, 400, `Reason must be at most ${REASON_MAX_LEN} characters.`);
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    /* ── Fetch + lock user ── */
-    const { rows: userRows } = await client.query(
-      `SELECT id, email, name, status
-       FROM public.users
-       WHERE id = $1
-       FOR UPDATE`,
-      [userId]
-    );
-
-    if (!userRows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404, "User not found.");
-    }
-
-    const user = userRows[0];
-
-    /* ── Fetch pending identity ── */
-    const { rows: idRows } = await client.query(
-      `SELECT id, status FROM identity_verifications
-       WHERE user_id = $1
-         AND status IN ('pending', 'flagged')
-       ORDER BY created_at DESC LIMIT 1
-       FOR UPDATE`,
-      [userId]
-    );
-
-    /* ── Fetch pending store ── */
-    const { rows: storeRows } = await client.query(
-      `SELECT id, status FROM store_verifications
-       WHERE user_id = $1
-         AND status IN ('pending', 'reset')
-       ORDER BY created_at DESC LIMIT 1
-       FOR UPDATE`,
-      [userId]
-    );
-
-    if (!idRows.length && !storeRows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404,
-        "No pending verifications found for this user."
-      );
-    }
-
-    /* ── Reject identity ── */
-    if (idRows.length) {
-      await client.query(
-        `UPDATE identity_verifications
-         SET    status           = 'rejected',
-                rejection_reason = $2,
-                reviewed_by      = $3,
-                reviewed_at      = NOW(),
-                updated_at       = NOW()
-         WHERE  id = $1`,
-        [idRows[0].id, reason, adminId]
-      );
-
-      /* Downgrade active listings */
-      await client.query(
-        `UPDATE products
-         SET    status = 'active_limited', updated_at = NOW()
-         WHERE  seller_id      = $1
-           AND  status         = 'active'
-           AND  is_first_product = TRUE`,
-        [userId]
-      );
-
-      await addNote(client, {
-        verificationId  : idRows[0].id,
-        verificationType: "identity",
-        adminId,
-        action          : "rejected",
-        note            : reason,
-      });
-    }
-
-    /* ── Reject store ── */
-    if (storeRows.length) {
-      await client.query(
-        `UPDATE store_verifications
-         SET    status           = 'rejected',
-                rejection_reason = $2,
-                reviewed_by      = $3,
-                reviewed_at      = NOW(),
-                updated_at       = NOW()
-         WHERE  id = $1`,
-        [storeRows[0].id, reason, adminId]
-      );
-
-      await addNote(client, {
-        verificationId  : storeRows[0].id,
-        verificationType: "store",
-        adminId,
-        action          : "rejected",
-        note            : reason,
-      });
-    }
-
-    /* ── Clear user verification flags ── */
-    await client.query(
-      `UPDATE public.users
-       SET    identity_verified = FALSE,
-              store_verified    = FALSE,
-              updated_at        = NOW()
-       WHERE  id = $1`,
-      [userId]
-    );
-
-    const trustScore = await refreshAndPersistTrust(client, userId);
-
-    await client.query("COMMIT");
-
-    console.log(
-      "[admin] ✓ reject-all userId:", userId,
-      " trust_score:", trustScore
-    );
-
-    /* ── Email + in-app notification ── */
-    notifyRejected({
-      userId,
-      email  : user.email,
-      name   : user.name,
-      reason,
-    });
-
-    log({
-      adminId,
-      action   : "reject_all",
-      targetId : userId,
-      details  : `Rejected identity + store for user ${userId}: ${reason}`,
-      meta     : {
-        identity_verification_id : idRows[0]?.id    ?? null,
-        store_verification_id    : storeRows[0]?.id ?? null,
-        reason,
-        trust_score              : trustScore,
-      },
-      userId,
-      ip,
-    });
-
-    return res.json({
-      success     : true,
-      trust_score : trustScore,
-      rejected    : {
-        identity : idRows[0]?.id    ?? null,
-        store    : storeRows[0]?.id ?? null,
-      },
-      message :
-        "Verification rejected. User notified by email.",
-    });
-
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("[admin /:userId/reject]", err.message, err.stack);
-    return fail(res, 500, err.message);
-  } finally {
-    client.release();
-  }
-});
-
-/* ══════════════════════════════════════════════════════════════
-   POST /:userId/reset
-   Resets identity + store so user can resubmit.
-   Sends a "please resubmit" email with admin note.
-══════════════════════════════════════════════════════════════ */
-router.post("/:userId/reset", async (req, res) => {
-  const adminId = req.admin.id;
-  const ip      = getIp(req);
-  const userId  = req.params.userId;
-  const note    =
-    (req.body.note ?? "").trim() || "Resubmission requested by admin.";
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    /* ── Fetch + lock user ── */
-    const { rows: userRows } = await client.query(
-      `SELECT id, email, name
-       FROM public.users
-       WHERE id = $1
-       FOR UPDATE`,
-      [userId]
-    );
-
-    if (!userRows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404, "User not found.");
-    }
-
-    const user = userRows[0];
-
-    /* ── Fetch latest identity ── */
-    const { rows: idRows } = await client.query(
-      `SELECT id FROM identity_verifications
-       WHERE user_id = $1
-       ORDER BY created_at DESC LIMIT 1
-       FOR UPDATE`,
-      [userId]
-    );
-
-    /* ── Fetch latest store ── */
-    const { rows: storeRows } = await client.query(
-      `SELECT id FROM store_verifications
-       WHERE user_id = $1
-       ORDER BY created_at DESC LIMIT 1
-       FOR UPDATE`,
-      [userId]
-    );
-
-    if (!idRows.length && !storeRows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404,
-        "No verification records found for this user."
-      );
-    }
-
-    /* ── Reset identity ── */
-    if (idRows.length) {
-      await client.query(
-        `UPDATE identity_verifications
-         SET    status           = 'reset',
-                rejection_reason = $2,
-                reviewed_by      = $3,
-                reviewed_at      = NOW(),
-                updated_at       = NOW()
-         WHERE  id = $1`,
-        [idRows[0].id, note, adminId]
-      );
-
-      await addNote(client, {
-        verificationId  : idRows[0].id,
-        verificationType: "identity",
-        adminId,
-        action          : "reset",
-        note,
-      });
-    }
-
-    /* ── Reset store ── */
-    if (storeRows.length) {
-      await client.query(
-        `UPDATE store_verifications
-         SET    status           = 'reset',
-                rejection_reason = $2,
-                reviewed_by      = $3,
-                reviewed_at      = NOW(),
-                updated_at       = NOW()
-         WHERE  id = $1`,
-        [storeRows[0].id, note, adminId]
-      );
-
-      await addNote(client, {
-        verificationId  : storeRows[0].id,
-        verificationType: "store",
-        adminId,
-        action          : "reset",
-        note,
-      });
-    }
-
-    /* ── Clear user flags ── */
-    await client.query(
-      `UPDATE public.users
-       SET    identity_verified = FALSE,
-              store_verified    = FALSE,
-              updated_at        = NOW()
-       WHERE  id = $1`,
-      [userId]
-    );
-
-    const trustScore = await refreshAndPersistTrust(client, userId);
-
-    await client.query("COMMIT");
-
-    console.log(
-      "[admin] ✓ reset-all userId:", userId,
-      " trust_score:", trustScore
-    );
-
-    /* ── Email + in-app notification ── */
-    notifyReset({
-      userId,
-      email : user.email,
-      name  : user.name,
-      note,
-    });
-
-    log({
-      adminId,
-      action   : "reset_all",
-      targetId : userId,
-      details  : `Reset identity + store for user ${userId}`,
-      meta     : {
-        identity_verification_id : idRows[0]?.id    ?? null,
-        store_verification_id    : storeRows[0]?.id ?? null,
-        note,
-        trust_score              : trustScore,
-      },
-      userId,
-      ip,
-    });
-
-    return res.json({
-      success     : true,
-      trust_score : trustScore,
-      reset       : {
-        identity : idRows[0]?.id    ?? null,
-        store    : storeRows[0]?.id ?? null,
-      },
-      message :
-        "Verification reset. User notified by email to resubmit.",
-    });
-
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("[admin /:userId/reset]", err.message, err.stack);
-    return fail(res, 500, err.message);
-  } finally {
-    client.release();
-  }
-});
+  ]).catch((e) => console.error("[admin notify] store reject:", e.message));
 
 /* ══════════════════════════════════════════════════════════════
    GET /stats
@@ -1062,6 +361,581 @@ router.get("/stats", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
+   ████████████████████████████████████████████████████████████
+   UNIFIED ENDPOINTS
+   POST /:userId/approve  — approve identity + store at once
+   POST /:userId/reject   — reject  identity + store at once
+   POST /:userId/reset    — reset   identity + store at once
+   ████████████████████████████████████████████████████████████
+══════════════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════════════
+   POST /:userId/approve
+══════════════════════════════════════════════════════════════ */
+router.post("/:userId/approve", async (req, res) => {
+  const adminId = req.admin.id;
+  const ip      = getIp(req);
+  const userId  = req.params.userId;
+  const note    = (req.body.note ?? "Approved.").trim();
+
+  if (!note) return fail(res, 400, "A note is required.");
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    /* ── Lock + fetch user ── */
+    const { rows: userRows } = await client.query(
+      `SELECT
+         id, email, name,
+         email_verified, identity_verified, store_verified,
+         status, created_at
+       FROM public.users
+       WHERE id = $1
+       FOR UPDATE`,
+      [userId]
+    );
+
+    if (!userRows.length) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "User not found.");
+    }
+
+    const user = userRows[0];
+
+    if (user.status === "flagged" || user.status === "banned") {
+      await client.query("ROLLBACK");
+      return fail(res, 403, "Account is restricted.");
+    }
+
+    if (!user.email_verified) {
+      await client.query("ROLLBACK");
+      return fail(res, 422, "User email is not verified yet.");
+    }
+
+    if (user.identity_verified && user.store_verified) {
+      await client.query("ROLLBACK");
+      return res.json({ success: true, message: "User is already fully verified." });
+    }
+
+    /* ── Lock pending identity verification ── */
+    const { rows: idRows } = await client.query(
+      `SELECT id, document_number_hash, status
+       FROM identity_verifications
+       WHERE user_id = $1
+         AND status IN ('pending', 'flagged')
+       ORDER BY created_at DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [userId]
+    );
+
+    if (!idRows.length) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "No pending identity verification found for this user.");
+    }
+
+    const idRec = idRows[0];
+
+    /* ── Duplicate document guard ── */
+    if (idRec.document_number_hash) {
+      const { rows: dupRows } = await client.query(
+        `SELECT id FROM identity_verifications
+         WHERE  document_number_hash = $1
+           AND  user_id             <> $2
+           AND  status               = 'approved'
+         LIMIT  3`,
+        [idRec.document_number_hash, userId]
+      );
+
+      if (dupRows.length) {
+        await client.query(
+          `UPDATE identity_verifications
+           SET    status             = 'flagged',
+                  flagged_for_review = TRUE,
+                  risk_score        = GREATEST(COALESCE(risk_score, 0), 90),
+                  updated_at        = NOW()
+           WHERE  id = $1`,
+          [idRec.id]
+        );
+
+        await addNote(client, {
+          verificationId  : idRec.id,
+          verificationType: "identity",
+          adminId,
+          action          : "flagged",
+          note            :
+            `Blocked: document hash matches ${dupRows.length} ` +
+            `already-approved account(s). Manual review required.`,
+        });
+
+        await client.query("COMMIT");
+
+        log({
+          adminId,
+          action   : "flag_identity_duplicate",
+          targetId : idRec.id,
+          details  : `Duplicate document for user ${userId}`,
+          meta     : { duplicate_count: dupRows.length, risk_score: 90 },
+          userId,
+          ip,
+        });
+
+        return fail(
+          res, 409,
+          `Duplicate document detected across ${dupRows.length} approved account(s). ` +
+          `Verification flagged for manual review.`,
+          { flagged: true }
+        );
+      }
+    }
+
+    /* ── Lock pending store verification ── */
+    const { rows: storeRows } = await client.query(
+      `SELECT id, status
+       FROM store_verifications
+       WHERE user_id = $1
+         AND status IN ('pending', 'reset')
+       ORDER BY created_at DESC
+       LIMIT 1
+       FOR UPDATE`,
+      [userId]
+    );
+
+    if (!storeRows.length) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "No pending store verification found for this user.");
+    }
+
+    const storeRec = storeRows[0];
+
+    /* ── Approve identity ── */
+    await client.query(
+      `UPDATE identity_verifications
+       SET    status             = 'approved',
+              flagged_for_review = FALSE,
+              reviewed_by        = $2,
+              reviewed_at        = NOW(),
+              updated_at         = NOW()
+       WHERE  id = $1`,
+      [idRec.id, adminId]
+    );
+
+    /* ── Approve store ── */
+    await client.query(
+      `UPDATE store_verifications
+       SET    status      = 'approved',
+              reviewed_by = $2,
+              reviewed_at = NOW(),
+              updated_at  = NOW()
+       WHERE  id = $1`,
+      [storeRec.id, adminId]
+    );
+
+    /* ── Set user verified flags ── */
+    await client.query(
+      `UPDATE public.users
+       SET    identity_verified    = TRUE,
+              identity_verified_at = NOW(),
+              store_verified       = TRUE,
+              store_verified_at    = NOW(),
+              updated_at           = NOW()
+       WHERE  id = $1`,
+      [userId]
+    );
+
+    /* ── Recompute trust score ── */
+    const trustScore = await refreshAndPersistTrust(client, userId);
+
+    /* ── Notes on both records ── */
+    await Promise.all([
+      addNote(client, {
+        verificationId  : idRec.id,
+        verificationType: "identity",
+        adminId,
+        action          : "approved",
+        note,
+      }),
+      addNote(client, {
+        verificationId  : storeRec.id,
+        verificationType: "store",
+        adminId,
+        action          : "approved",
+        note,
+      }),
+    ]);
+
+    await client.query("COMMIT");
+
+    console.log(
+      "[admin] ✓ approve-all  userId:", userId,
+      " trust_score:", trustScore
+    );
+
+    /* ── Post-commit side effects ── */
+    reactivateLimitedListings(userId).catch((e) =>
+      console.error("[admin approve-all] reactivate:", e.message)
+    );
+
+    /* ── Send approval email + in-app notification ── */
+    notifyApproved({ userId, email: user.email, name: user.name });
+
+    log({
+      adminId,
+      action   : "approve_all",
+      targetId : userId,
+      details  : `Approved identity + store for user ${userId}`,
+      meta     : {
+        identity_verification_id : idRec.id,
+        store_verification_id    : storeRec.id,
+        trust_score              : trustScore,
+        note,
+      },
+      userId,
+      ip,
+    });
+
+    return res.json({
+      success     : true,
+      trust_score : trustScore,
+      approved    : { identity: idRec.id, store: storeRec.id },
+      message     :
+        "Identity and store approved. " +
+        "Approval email sent to user. Listings reactivated.",
+    });
+
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[admin /:userId/approve]", err.message, err.stack);
+    return fail(res, 500, err.message);
+  } finally {
+    client.release();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   POST /:userId/reject
+══════════════════════════════════════════════════════════════ */
+router.post("/:userId/reject", async (req, res) => {
+  const adminId = req.admin.id;
+  const ip      = getIp(req);
+  const userId  = req.params.userId;
+  const reason  = (req.body.reason ?? "").trim();
+
+  if (!reason)
+    return fail(res, 400, "Rejection reason is required.");
+  if (reason.length > REASON_MAX_LEN)
+    return fail(res, 400, `Reason must be at most ${REASON_MAX_LEN} characters.`);
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    /* ── Lock + fetch user ── */
+    const { rows: userRows } = await client.query(
+      `SELECT id, email, name, status
+       FROM public.users
+       WHERE id = $1
+       FOR UPDATE`,
+      [userId]
+    );
+
+    if (!userRows.length) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "User not found.");
+    }
+
+    const user = userRows[0];
+
+    /* ── Lock pending identity ── */
+    const { rows: idRows } = await client.query(
+      `SELECT id, status FROM identity_verifications
+       WHERE user_id = $1
+         AND status IN ('pending', 'flagged')
+       ORDER BY created_at DESC LIMIT 1
+       FOR UPDATE`,
+      [userId]
+    );
+
+    /* ── Lock pending store ── */
+    const { rows: storeRows } = await client.query(
+      `SELECT id, status FROM store_verifications
+       WHERE user_id = $1
+         AND status IN ('pending', 'reset')
+       ORDER BY created_at DESC LIMIT 1
+       FOR UPDATE`,
+      [userId]
+    );
+
+    if (!idRows.length && !storeRows.length) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "No pending verifications found for this user.");
+    }
+
+    /* ── Reject identity ── */
+    if (idRows.length) {
+      await client.query(
+        `UPDATE identity_verifications
+         SET    status           = 'rejected',
+                rejection_reason = $2,
+                reviewed_by      = $3,
+                reviewed_at      = NOW(),
+                updated_at       = NOW()
+         WHERE  id = $1`,
+        [idRows[0].id, reason, adminId]
+      );
+
+      /* Downgrade active listings → active_limited */
+      await client.query(
+        `UPDATE products
+         SET    status = 'active_limited', updated_at = NOW()
+         WHERE  seller_id        = $1
+           AND  status           = 'active'
+           AND  is_first_product = TRUE`,
+        [userId]
+      );
+
+      await addNote(client, {
+        verificationId  : idRows[0].id,
+        verificationType: "identity",
+        adminId,
+        action          : "rejected",
+        note            : reason,
+      });
+    }
+
+    /* ── Reject store ── */
+    if (storeRows.length) {
+      await client.query(
+        `UPDATE store_verifications
+         SET    status           = 'rejected',
+                rejection_reason = $2,
+                reviewed_by      = $3,
+                reviewed_at      = NOW(),
+                updated_at       = NOW()
+         WHERE  id = $1`,
+        [storeRows[0].id, reason, adminId]
+      );
+
+      await addNote(client, {
+        verificationId  : storeRows[0].id,
+        verificationType: "store",
+        adminId,
+        action          : "rejected",
+        note            : reason,
+      });
+    }
+
+    /* ── Clear user verification flags ── */
+    await client.query(
+      `UPDATE public.users
+       SET    identity_verified = FALSE,
+              store_verified    = FALSE,
+              updated_at        = NOW()
+       WHERE  id = $1`,
+      [userId]
+    );
+
+    const trustScore = await refreshAndPersistTrust(client, userId);
+
+    await client.query("COMMIT");
+
+    console.log(
+      "[admin] ✓ reject-all  userId:", userId,
+      " trust_score:", trustScore
+    );
+
+    /* ── Send rejection email + in-app notification ── */
+    notifyRejected({ userId, email: user.email, name: user.name, reason });
+
+    log({
+      adminId,
+      action   : "reject_all",
+      targetId : userId,
+      details  : `Rejected identity + store for user ${userId}: ${reason}`,
+      meta     : {
+        identity_verification_id : idRows[0]?.id    ?? null,
+        store_verification_id    : storeRows[0]?.id ?? null,
+        reason,
+        trust_score              : trustScore,
+      },
+      userId,
+      ip,
+    });
+
+    return res.json({
+      success     : true,
+      trust_score : trustScore,
+      rejected    : {
+        identity : idRows[0]?.id    ?? null,
+        store    : storeRows[0]?.id ?? null,
+      },
+      message : "Verification rejected. Rejection email sent to user.",
+    });
+
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[admin /:userId/reject]", err.message, err.stack);
+    return fail(res, 500, err.message);
+  } finally {
+    client.release();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   POST /:userId/reset
+══════════════════════════════════════════════════════════════ */
+router.post("/:userId/reset", async (req, res) => {
+  const adminId = req.admin.id;
+  const ip      = getIp(req);
+  const userId  = req.params.userId;
+  const note    =
+    (req.body.note ?? "").trim() || "Resubmission requested by admin.";
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    /* ── Lock + fetch user ── */
+    const { rows: userRows } = await client.query(
+      `SELECT id, email, name
+       FROM public.users
+       WHERE id = $1
+       FOR UPDATE`,
+      [userId]
+    );
+
+    if (!userRows.length) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "User not found.");
+    }
+
+    const user = userRows[0];
+
+    /* ── Lock latest identity ── */
+    const { rows: idRows } = await client.query(
+      `SELECT id FROM identity_verifications
+       WHERE user_id = $1
+       ORDER BY created_at DESC LIMIT 1
+       FOR UPDATE`,
+      [userId]
+    );
+
+    /* ── Lock latest store ── */
+    const { rows: storeRows } = await client.query(
+      `SELECT id FROM store_verifications
+       WHERE user_id = $1
+       ORDER BY created_at DESC LIMIT 1
+       FOR UPDATE`,
+      [userId]
+    );
+
+    if (!idRows.length && !storeRows.length) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "No verification records found for this user.");
+    }
+
+    /* ── Reset identity ── */
+    if (idRows.length) {
+      await client.query(
+        `UPDATE identity_verifications
+         SET    status           = 'reset',
+                rejection_reason = $2,
+                reviewed_by      = $3,
+                reviewed_at      = NOW(),
+                updated_at       = NOW()
+         WHERE  id = $1`,
+        [idRows[0].id, note, adminId]
+      );
+
+      await addNote(client, {
+        verificationId  : idRows[0].id,
+        verificationType: "identity",
+        adminId,
+        action          : "reset",
+        note,
+      });
+    }
+
+    /* ── Reset store ── */
+    if (storeRows.length) {
+      await client.query(
+        `UPDATE store_verifications
+         SET    status           = 'reset',
+                rejection_reason = $2,
+                reviewed_by      = $3,
+                reviewed_at      = NOW(),
+                updated_at       = NOW()
+         WHERE  id = $1`,
+        [storeRows[0].id, note, adminId]
+      );
+
+      await addNote(client, {
+        verificationId  : storeRows[0].id,
+        verificationType: "store",
+        adminId,
+        action          : "reset",
+        note,
+      });
+    }
+
+    /* ── Clear user flags ── */
+    await client.query(
+      `UPDATE public.users
+       SET    identity_verified = FALSE,
+              store_verified    = FALSE,
+              updated_at        = NOW()
+       WHERE  id = $1`,
+      [userId]
+    );
+
+    const trustScore = await refreshAndPersistTrust(client, userId);
+
+    await client.query("COMMIT");
+
+    console.log(
+      "[admin] ✓ reset-all  userId:", userId,
+      " trust_score:", trustScore
+    );
+
+    /* ── Send resubmit email + in-app notification ── */
+    notifyReset({ userId, email: user.email, name: user.name, note });
+
+    log({
+      adminId,
+      action   : "reset_all",
+      targetId : userId,
+      details  : `Reset identity + store for user ${userId}`,
+      meta     : {
+        identity_verification_id : idRows[0]?.id    ?? null,
+        store_verification_id    : storeRows[0]?.id ?? null,
+        note,
+        trust_score              : trustScore,
+      },
+      userId,
+      ip,
+    });
+
+    return res.json({
+      success     : true,
+      trust_score : trustScore,
+      reset       : {
+        identity : idRows[0]?.id    ?? null,
+        store    : storeRows[0]?.id ?? null,
+      },
+      message : "Verification reset. Resubmission email sent to user.",
+    });
+
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[admin /:userId/reset]", err.message, err.stack);
+    return fail(res, 500, err.message);
+  } finally {
+    client.release();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
    IDENTITY — LIST
 ══════════════════════════════════════════════════════════════ */
 router.get("/identity", async (req, res) => {
@@ -1100,6 +974,7 @@ router.get("/identity", async (req, res) => {
          iv.rejection_reason, iv.reviewed_by, iv.reviewed_at,
          iv.assigned_admin_id, iv.assigned_at,
          iv.created_at, iv.updated_at,
+         iv.front_image_url, iv.back_image_url, iv.selfie_url,
          u.id           AS user_id,
          u.name         AS user_name,
          u.email        AS user_email,
@@ -1113,7 +988,7 @@ router.get("/identity", async (req, res) => {
        JOIN public.users u   ON u.id  = iv.user_id
        LEFT JOIN public.users aa ON aa.id = iv.assigned_admin_id
        ${where}
-       ORDER BY iv.risk_score DESC, iv.created_at ASC
+       ORDER BY iv.risk_score DESC NULLS LAST, iv.created_at ASC
        LIMIT  $${listParams.length - 1}
        OFFSET $${listParams.length}`,
       listParams
@@ -1218,8 +1093,8 @@ router.get("/identity/:id/files/:field", async (req, res) => {
     if (parseInt(expires, 10) < Math.floor(Date.now() / 1_000))
       return fail(res, 401, "Token expired. Request a new document link.");
 
-    const adminId = req.admin.id;
-    const payload = `${id}:${field}:${adminId}:${expires}`;
+    const adminId  = req.admin.id;
+    const payload  = `${id}:${field}:${adminId}:${expires}`;
     const expected = crypto
       .createHmac("sha256", process.env.SIGNED_URL_SECRET ?? "dev-secret")
       .update(payload)
@@ -1241,8 +1116,7 @@ router.get("/identity/:id/files/:field", async (req, res) => {
       selfie : "selfie_url",
     };
     const { rows } = await pool.query(
-      `SELECT ${colMap[field]} AS url
-       FROM identity_verifications WHERE id = $1`,
+      `SELECT ${colMap[field]} AS url FROM identity_verifications WHERE id = $1`,
       [id]
     );
     if (!rows.length || !rows[0].url)
@@ -1308,7 +1182,7 @@ router.post("/identity/:id/approve", async (req, res) => {
         await client.query(
           `UPDATE identity_verifications
            SET    status = 'flagged', flagged_for_review = TRUE,
-                  risk_score = GREATEST(COALESCE(risk_score,0), 90),
+                  risk_score = GREATEST(COALESCE(risk_score, 0), 90),
                   updated_at = NOW()
            WHERE  id = $1`,
           [req.params.id]
@@ -1322,10 +1196,7 @@ router.post("/identity/:id/approve", async (req, res) => {
             `Blocked: document matches ${dupRows.length} approved account(s).`,
         });
         await client.query("COMMIT");
-        return fail(res, 409,
-          `Duplicate document. Verification flagged.`,
-          { flagged: true }
-        );
+        return fail(res, 409, "Duplicate document. Verification flagged.", { flagged: true });
       }
     }
 
@@ -1350,35 +1221,25 @@ router.post("/identity/:id/approve", async (req, res) => {
     await addNote(client, {
       verificationId  : req.params.id,
       verificationType: "identity",
-      adminId,
-      action          : "approved",
-      note,
+      adminId, action: "approved", note,
     });
 
     await client.query("COMMIT");
 
     reactivateLimitedListings(rec.user_id).catch(() => {});
-
-    notifyIdentityApproved({
-      userId : rec.user_id,
-      email  : rec.email,
-      name   : rec.name,
-    });
+    notifyIdentityApproved({ userId: rec.user_id, email: rec.email, name: rec.name });
 
     log({
-      adminId,
-      action   : "approve_identity",
-      targetId : req.params.id,
-      details  : `Approved identity for user ${rec.user_id}`,
-      meta     : { trust_score: trustScore, note },
-      userId   : rec.user_id,
-      ip,
+      adminId, action: "approve_identity", targetId: req.params.id,
+      details : `Approved identity for user ${rec.user_id}`,
+      meta    : { trust_score: trustScore, note },
+      userId  : rec.user_id, ip,
     });
 
     return res.json({
       success     : true,
       trust_score : trustScore,
-      message     : "Identity approved. User notified by email.",
+      message     : "Identity approved. Approval email sent to user.",
     });
 
   } catch (err) {
@@ -1468,7 +1329,11 @@ router.post("/identity/:id/reject", async (req, res) => {
       userId  : user_id, ip,
     });
 
-    return res.json({ success: true, trust_score: trustScore });
+    return res.json({
+      success     : true,
+      trust_score : trustScore,
+      message     : "Identity rejected. Rejection email sent to user.",
+    });
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -1480,7 +1345,7 @@ router.post("/identity/:id/reject", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   IDENTITY — RESET
+   IDENTITY — GRANULAR RESET
 ══════════════════════════════════════════════════════════════ */
 router.post("/identity/:id/reset", async (req, res) => {
   const adminId = req.admin.id;
@@ -1544,7 +1409,7 @@ router.post("/identity/:id/reset", async (req, res) => {
     return res.json({
       success     : true,
       trust_score : trustScore,
-      message     : "User notified by email to resubmit.",
+      message     : "Identity reset. Resubmission email sent to user.",
     });
 
   } catch (err) {
@@ -1682,11 +1547,7 @@ router.post("/identity/bulk-approve", async (req, res) => {
       await client.query("COMMIT");
 
       reactivateLimitedListings(rec.user_id).catch(() => {});
-      notifyIdentityApproved({
-        userId : rec.user_id,
-        email  : rec.email,
-        name   : rec.name,
-      });
+      notifyIdentityApproved({ userId: rec.user_id, email: rec.email, name: rec.name });
 
       results.approved.push({ id, user_id: rec.user_id, trust_score: trustScore });
 
@@ -1792,7 +1653,7 @@ router.post("/identity/bulk-reject", async (req, res) => {
 
 /* ══════════════════════════════════════════════════════════════
    STORE — LIST
-   Only real columns selected — no store_name / logo_url / review_action
+   Only real columns — no store_name / logo_url / review_action
 ══════════════════════════════════════════════════════════════ */
 router.get("/store", async (req, res) => {
   const rawStatus = req.query.status ?? "pending";
@@ -1839,8 +1700,7 @@ router.get("/store", async (req, res) => {
     );
 
     const { rows: cr } = await pool.query(
-      `SELECT COUNT(*)::INT AS total
-       FROM store_verifications sv ${where}`,
+      `SELECT COUNT(*)::INT AS total FROM store_verifications sv ${where}`,
       params
     );
 
@@ -1904,7 +1764,7 @@ router.get("/store/:id", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   STORE — GRANULAR APPROVE (edge case)
+   STORE — GRANULAR APPROVE (edge case: store only)
 ══════════════════════════════════════════════════════════════ */
 router.post("/store/:id/approve", async (req, res) => {
   const adminId = req.admin.id;
@@ -1969,11 +1829,7 @@ router.post("/store/:id/approve", async (req, res) => {
 
     await client.query("COMMIT");
 
-    notifyStoreApproved({
-      userId : rec.user_id,
-      email  : rec.email,
-      name   : rec.name,
-    });
+    notifyStoreApproved({ userId: rec.user_id, email: rec.email, name: rec.name });
 
     log({
       adminId, action: "approve_store", targetId: req.params.id,
@@ -1982,7 +1838,11 @@ router.post("/store/:id/approve", async (req, res) => {
       userId  : rec.user_id, ip,
     });
 
-    return res.json({ success: true, trust_score: trustScore });
+    return res.json({
+      success     : true,
+      trust_score : trustScore,
+      message     : "Store approved. Approval email sent to user.",
+    });
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -2064,7 +1924,11 @@ router.post("/store/:id/reject", async (req, res) => {
       userId  : user_id, ip,
     });
 
-    return res.json({ success: true, trust_score: trustScore });
+    return res.json({
+      success     : true,
+      trust_score : trustScore,
+      message     : "Store rejected. Rejection email sent to user.",
+    });
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -2076,7 +1940,7 @@ router.post("/store/:id/reject", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   STORE — RESET
+   STORE — GRANULAR RESET
 ══════════════════════════════════════════════════════════════ */
 router.post("/store/:id/reset", async (req, res) => {
   const adminId = req.admin.id;
@@ -2140,7 +2004,7 @@ router.post("/store/:id/reset", async (req, res) => {
     return res.json({
       success     : true,
       trust_score : trustScore,
-      message     : "User notified by email to resubmit.",
+      message     : "Store reset. Resubmission email sent to user.",
     });
 
   } catch (err) {
@@ -2153,7 +2017,7 @@ router.post("/store/:id/reset", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   STORE — ASSIGN + NOTE
+   STORE — ASSIGN
 ══════════════════════════════════════════════════════════════ */
 router.post("/store/:id/assign", async (req, res) => {
   const adminId         = req.admin.id;
@@ -2177,6 +2041,9 @@ router.post("/store/:id/assign", async (req, res) => {
   }
 });
 
+/* ══════════════════════════════════════════════════════════════
+   STORE — ADD NOTE
+══════════════════════════════════════════════════════════════ */
 router.post("/store/:id/note", async (req, res) => {
   const adminId = req.admin.id;
   const note    = (req.body.note ?? "").trim();
@@ -2249,14 +2116,12 @@ router.post("/email/:userId/force-verify", requireSuperAdmin, async (req, res) =
 
     reactivateLimitedListings(userId).catch(() => {});
 
-    Promise.all([
-      createNotification({
-        userId,
-        type    : "email_verified",
-        title   : "Email Verified",
-        message : "Your email address has been verified by an administrator.",
-      }),
-    ]).catch(() => {});
+    createNotification({
+      userId,
+      type    : "email_verified",
+      title   : "Email Verified",
+      message : "Your email address has been verified by an administrator.",
+    }).catch(() => {});
 
     log({
       adminId, action: "force_email_verify", targetId: userId,
