@@ -1,8 +1,11 @@
 // ════════════════════════════════════════════════════════════
-// FILE: routes/verification.js — v7
+// FILE: routes/verification.js — v8
 //
-// Fix: CockroachDB does not support INTERVAL '1 unit' * $param
-//      All parameterised intervals replaced with make_interval()
+// Fix: CockroachDB does NOT support:
+//        - INTERVAL '1 unit' * $param   (interval * interval error)
+//        - make_interval(mins => $1)    (=> syntax error)
+//      Correct form is: ($param * INTERVAL '1 unit')
+//      where integer * interval is supported.
 //
 // POST /api/verification/send-email-otp
 // POST /api/verification/verify-email-otp
@@ -91,8 +94,8 @@ const EXT_MIME = {
   ".webp" : "image/webp",
   ".pdf"  : "application/pdf",
 };
-const MAX_DOC_BYTES  = 5 * 1_048_576;
-const MAX_LOGO_BYTES = 2 * 1_048_576;
+const MAX_DOC_BYTES   = 5 * 1_048_576;
+const MAX_LOGO_BYTES  = 2 * 1_048_576;
 const VALID_DOC_TYPES = new Set([
   "nin", "passport", "drivers_license", "voters_card",
 ]);
@@ -209,7 +212,12 @@ const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL ?? null;
 
 const compareFaces = async (selfieBuffer, docFrontBuffer) => {
   if (!FACE_SERVICE_URL) {
-    return { match: null, confidence: null, skipped: true, message: "Face service not configured" };
+    return {
+      match      : null,
+      confidence : null,
+      skipped    : true,
+      message    : "Face service not configured",
+    };
   }
   try {
     const fd = new FormData();
@@ -280,7 +288,7 @@ const extMatchesMime = (file) =>
   EXT_MIME[path.extname(file.originalname).toLowerCase()] === file.mimetype;
 
 /* ── Daily send count ──
-   Uses date casting — no interval multiplication — safe in CockroachDB. */
+   Literal interval only — no $param multiplication — safe. */
 const getDailySendCount = async (db, userId) => {
   const today = getTodayUTC();
   const { rows } = await db.query(
@@ -387,11 +395,11 @@ router.post(
       }
 
       // ── cooldown check ──
-      // ✅ FIX: make_interval(secs => $2) replaces INTERVAL '1 second' * $2
+      // ✅ CockroachDB safe: ($2 * INTERVAL '1 second')  (integer * interval)
       const { rows: recent } = await client.query(
         `SELECT created_at FROM email_verifications
          WHERE user_id    = $1
-           AND created_at > NOW() - make_interval(secs => $2)
+           AND created_at > NOW() - ($2 * INTERVAL '1 second')
          ORDER BY created_at DESC LIMIT 1`,
         [userId, POLICY.RESEND_COOLDOWN_SECS]
       );
@@ -409,11 +417,11 @@ router.post(
       }
 
       // ── abuse check ──
-      // ✅ FIX: make_interval(mins => $2) replaces INTERVAL '1 minute' * $2
+      // ✅ CockroachDB safe: ($2 * INTERVAL '1 minute')
       const { rows: abr } = await client.query(
         `SELECT COUNT(*) AS cnt FROM email_verifications
          WHERE user_id    = $1
-           AND created_at > NOW() - make_interval(mins => $2)`,
+           AND created_at > NOW() - ($2 * INTERVAL '1 minute')`,
         [userId, POLICY.ABUSE_WINDOW_MINUTES]
       );
       if (parseInt(abr[0].cnt, 10) >= POLICY.ABUSE_THRESHOLD) {
@@ -435,11 +443,11 @@ router.post(
       const hash   = await bcrypt.hash(otp, POLICY.BCRYPT_ROUNDS);
       const device = makeDeviceHash(req);
 
-      // ✅ FIX: make_interval(mins => $3) replaces INTERVAL '1 minute' * $3
+      // ✅ CockroachDB safe: NOW() + ($3 * INTERVAL '1 minute')
       await client.query(
         `INSERT INTO email_verifications
            (user_id, otp_hash, expires_at, status, device_hash, ip_address)
-         VALUES ($1, $2, NOW() + make_interval(mins => $3), 'active', $4, $5)`,
+         VALUES ($1, $2, NOW() + ($3 * INTERVAL '1 minute'), 'active', $4, $5)`,
         [userId, hash, POLICY.OTP_EXPIRY_MINUTES, device, ip]
       );
 
@@ -459,7 +467,7 @@ router.post(
       try {
         await sendVerificationEmail({ to: user.email, name: user.name, otp });
       } catch (mailErr) {
-        // ✅ FIX: literal INTERVAL '2 minutes' is fine (no param multiplication)
+        // literal interval — safe
         pool.query(
           `UPDATE email_verifications
            SET status = 'expired', used_at = NOW()
