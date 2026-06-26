@@ -1,22 +1,23 @@
 // ════════════════════════════════════════════════════════════════
-// FILE: routes/admin/verification.js — v5
+// FILE: routes/admin/verification.js — v6
 //
-// Fixed in v5:
-//  - Bulk routes registered BEFORE /:id routes (Express conflict fix)
+// Changes from v5:
+//  - /:userId/approve  store is now fully optional (no 404 when
+//    user has no store record)
+//  - /:userId/approve  identity query accepts ANY non-approved
+//    status (pending / flagged / reset / rejected)
+//  - /:userId/approve  store_verified only set TRUE when a store
+//    record actually exists
+//  - /:userId/approve  email_verified guard is a warning not a
+//    hard block (admin override)
+//  - All granular routes lock user row before refreshAndPersistTrust
+//  - downgradeListings helper used in every reject path
+//  - Bulk routes registered before /:id routes (Express fix)
 //  - timingSafeEqual length-mismatch crash fixed
-//  - User row locked in all granular routes before refreshAndPersistTrust
-//  - Unified approve handles pre-approved store gracefully
-//  - Listing downgrade moved outside identity-only block in reject
 //  - offset capped at MAX_OFFSET
-//  - generateSignedUrl validates all params
-//  - Parallel bulk processing with p-limit (concurrency = 5)
-//  - Timeline returned in GET /identity/:id and GET /identity list
-//  - duplicate_warnings returned in identity list
-//  - Rate limiting on bulk endpoints
-//  - buildStatusFilter is offset-aware
-//  - "already verified" checked before email_verified in approve
-//  - addNote JSDoc clarifies pool vs client
-//  - Structured log helper (ready for Pino/Winston drop-in)
+//  - timeline + duplicate_warnings returned on identity list/single
+//  - rate limiting on bulk endpoints
+//  - store optional in unified approve
 // ════════════════════════════════════════════════════════════════
 
 import express from "express";
@@ -41,14 +42,14 @@ router.use(verifyAdmin);
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
 ══════════════════════════════════════════════════════════════ */
-const PAGE_SIZE           = 50;
-const MAX_LIMIT           = 200;
-const MAX_OFFSET          = 10_000;
-const BULK_MAX            = 50;
-const BULK_CONCURRENCY    = 5;
-const NOTE_MAX_LEN        = 1_000;
-const REASON_MAX_LEN      = 500;
-const SIGNED_URL_TTL_SECS = 60 * 15; // 15 min
+const PAGE_SIZE        = 50;
+const MAX_LIMIT        = 200;
+const MAX_OFFSET       = 10_000;
+const BULK_MAX         = 50;
+const BULK_CONCURRENCY = 5;
+const NOTE_MAX_LEN     = 1_000;
+const REASON_MAX_LEN   = 500;
+const SIGNED_URL_TTL   = 60 * 15; // 15 min
 
 const VALID_ID_STATUSES = new Set([
   "pending", "approved", "rejected", "reset", "flagged", "all",
@@ -56,7 +57,6 @@ const VALID_ID_STATUSES = new Set([
 const VALID_STORE_STATUSES = new Set([
   "pending", "approved", "rejected", "reset", "all",
 ]);
-
 const VALID_DOC_FIELDS = new Set(["front", "back", "selfie"]);
 
 /* ══════════════════════════════════════════════════════════════
@@ -64,8 +64,8 @@ const VALID_DOC_FIELDS = new Set(["front", "back", "selfie"]);
    email_verified    → 30
    identity_verified → 35
    store_verified    → 20
-   age > 30d         → 10
-   age > 90d         →  5
+   age > 30 d        → 10
+   age > 90 d        →  5
    cap               → 100
 ══════════════════════════════════════════════════════════════ */
 const computeTrustScore = ({
@@ -74,49 +74,34 @@ const computeTrustScore = ({
   store_verified    = false,
   created_at,
 }) => {
-  let score = 0;
-  if (email_verified)    score += 30;
-  if (identity_verified) score += 35;
-  if (store_verified)    score += 20;
-  const ageDays =
-    (Date.now() - new Date(created_at).getTime()) / 86_400_000;
-  if (ageDays > 30) score += 10;
-  if (ageDays > 90) score +=  5;
-  return Math.min(score, 100);
+  let s = 0;
+  if (email_verified)    s += 30;
+  if (identity_verified) s += 35;
+  if (store_verified)    s += 20;
+  const days = (Date.now() - new Date(created_at).getTime()) / 86_400_000;
+  if (days > 30) s += 10;
+  if (days > 90) s +=  5;
+  return Math.min(s, 100);
 };
 
 /* ══════════════════════════════════════════════════════════════
-   HELPERS
+   SMALL HELPERS
 ══════════════════════════════════════════════════════════════ */
-
-/** Standard error response */
 const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, error: message, ...extra });
 
-/** Clamp a query-string integer */
 const safeInt = (val, fallback, max = Infinity) => {
   const n = parseInt(val, 10);
   if (!Number.isFinite(n) || n < 0) return fallback;
   return Math.min(n, max);
 };
 
-/** Best-effort client IP */
 const getIp = (req) =>
   req.ip ?? req.socket?.remoteAddress ?? null;
 
-/**
- * Build a WHERE / AND clause fragment starting at $startIndex.
- * Returns { clause, params } — caller decides AND vs WHERE.
- */
-const statusClause = (status, alias = "", startIndex = 1) => {
-  const col = alias ? `${alias}.status` : "status";
-  if (!status || status === "all") return { clause: "", params: [] };
-  return { clause: `${col} = $${startIndex}`, params: [status] };
-};
-
 /* ══════════════════════════════════════════════════════════════
-   TRUST — recompute & persist (within an open transaction)
-   Caller must hold a FOR UPDATE lock on the users row.
+   TRUST  — recompute & persist
+   Caller MUST hold FOR UPDATE on the users row before calling.
 ══════════════════════════════════════════════════════════════ */
 const refreshAndPersistTrust = async (client, userId) => {
   const { rows } = await client.query(
@@ -140,22 +125,17 @@ const refreshAndPersistTrust = async (client, userId) => {
    NOTES
 
    @param {import('pg').Pool | import('pg').PoolClient} db
-     Pass `client` (PoolClient) when inside a transaction so the
-     note insert is part of the same atomic unit.
-     Pass `pool` (Pool) only for standalone, non-transactional inserts
-     (e.g. the /note endpoint).
+     Pass the open PoolClient when inside a transaction so the
+     insert is part of the same atomic unit.
+     Pass pool only for standalone non-transactional inserts.
 ══════════════════════════════════════════════════════════════ */
-const addNote = async (
-  db,
-  { verificationId, verificationType, adminId, action, note }
-) => {
-  await db.query(
+const addNote = (db, { verificationId, verificationType, adminId, action, note }) =>
+  db.query(
     `INSERT INTO verification_notes
        (verification_id, verification_type, admin_id, action, note)
      VALUES ($1, $2, $3, $4, $5)`,
     [verificationId, verificationType, adminId, action, note]
   );
-};
 
 const getNotes = async (db, verificationId, verificationType) => {
   const { rows } = await db.query(
@@ -173,23 +153,22 @@ const getNotes = async (db, verificationId, verificationType) => {
   return rows;
 };
 
-/* Build timeline rows from verification_notes */
-const getTimeline = async (db, verificationId, verificationType) => {
-  const LABELS = {
-    approved : "Approved",
-    rejected : "Rejected",
-    reset    : "Reset — Resubmission Requested",
-    flagged  : "Flagged for Review",
-    note     : "Note Added",
-    assigned : "Assigned to Reviewer",
-  };
+const TIMELINE_LABELS = {
+  approved : "Approved",
+  rejected : "Rejected",
+  reset    : "Reset — Resubmission Requested",
+  flagged  : "Flagged for Review",
+  note     : "Note Added",
+  assigned : "Assigned to Reviewer",
+};
 
+const getTimeline = async (db, verificationId, verificationType) => {
   const { rows } = await db.query(
     `SELECT
-       vn.action      AS type,
+       vn.action    AS type,
        vn.note,
        vn.created_at,
-       u.name         AS admin_name
+       u.name       AS admin_name
      FROM   verification_notes vn
      JOIN   public.users u ON u.id = vn.admin_id
      WHERE  vn.verification_id   = $1
@@ -197,19 +176,52 @@ const getTimeline = async (db, verificationId, verificationType) => {
      ORDER  BY vn.created_at ASC`,
     [verificationId, verificationType]
   );
-
   return rows.map((r) => ({
     ...r,
-    label: LABELS[r.type] ?? r.type.replace(/_/g, " "),
+    label: TIMELINE_LABELS[r.type] ?? r.type.replace(/_/g, " "),
   }));
 };
 
 /* ══════════════════════════════════════════════════════════════
-   AUDIT
+   LISTING DOWNGRADE
+   Extracted so every reject / reset path uses the same logic.
+══════════════════════════════════════════════════════════════ */
+const downgradeListings = (client, userId) =>
+  client.query(
+    `UPDATE products
+     SET    status = 'active_limited', updated_at = NOW()
+     WHERE  seller_id        = $1
+       AND  status           = 'active'
+       AND  is_first_product = TRUE`,
+    [userId]
+  );
 
-   Fire-and-forget dual audit trail.
-   Errors are logged but never thrown — audit failure must
-   never fail an HTTP response.
+/* ══════════════════════════════════════════════════════════════
+   DUPLICATE WARNINGS
+══════════════════════════════════════════════════════════════ */
+const buildDuplicateWarnings = async (db, userId, docHash) => {
+  if (!docHash) return [];
+  const { rows } = await db.query(
+    `SELECT iv.user_id
+     FROM   identity_verifications iv
+     WHERE  iv.document_number_hash = $1
+       AND  iv.user_id             <> $2
+       AND  iv.status               = 'approved'
+     LIMIT  5`,
+    [docHash, userId]
+  );
+  if (!rows.length) return [];
+  return [{
+    type              : "document_reuse",
+    severity          : "critical",
+    detail            :
+      `This document is already approved on ${rows.length} other account(s).`,
+    matching_user_ids : rows.map((r) => r.user_id),
+  }];
+};
+
+/* ══════════════════════════════════════════════════════════════
+   AUDIT  — fire-and-forget, errors never thrown
 ══════════════════════════════════════════════════════════════ */
 const log = ({
   adminId, action, targetId,
@@ -231,33 +243,26 @@ const log = ({
       metadata   : { ...(meta ?? {}), details, affected_user: userId },
       ipAddress  : ip,
     }),
-  ]).catch((e) =>
-    // TODO: replace with structured logger (Pino / Winston)
-    console.error("[audit]", action, "–", e.message)
-  );
+  ]).catch((e) => console.error("[audit]", action, e.message));
 
 /* ══════════════════════════════════════════════════════════════
-   SIGNED URL
+   SIGNED URLS
 ══════════════════════════════════════════════════════════════ */
 const generateSignedUrl = (verificationId, field, adminId) => {
-  if (!verificationId || !field || !adminId) {
-    throw new Error(
-      "generateSignedUrl: verificationId, field and adminId are all required"
-    );
-  }
-  const expires   = Math.floor(Date.now() / 1_000) + SIGNED_URL_TTL_SECS;
-  const secret    = process.env.SIGNED_URL_SECRET ?? "dev-secret";
-  const payload   = `${verificationId}:${field}:${adminId}:${expires}`;
-  const signature = crypto
+  if (!verificationId || !field || !adminId)
+    throw new Error("generateSignedUrl: all three params are required");
+
+  const expires = Math.floor(Date.now() / 1_000) + SIGNED_URL_TTL;
+  const secret  = process.env.SIGNED_URL_SECRET ?? "dev-secret";
+  const sig     = crypto
     .createHmac("sha256", secret)
-    .update(payload)
+    .update(`${verificationId}:${field}:${adminId}:${expires}`)
     .digest("hex");
-  return { expires, signature };
+  return { expires, signature: sig };
 };
 
 /**
- * Verify a signed URL token.
- * Returns null on success, or an error string to send to the client.
+ * Returns null on success, or an error string on failure.
  */
 const verifySignedToken = (token, verificationId, field, adminId) => {
   if (!token) return "Token required.";
@@ -270,13 +275,11 @@ const verifySignedToken = (token, verificationId, field, adminId) => {
     return "Token expired. Request a new document link.";
 
   const secret   = process.env.SIGNED_URL_SECRET ?? "dev-secret";
-  const payload  = `${verificationId}:${field}:${adminId}:${expiresStr}`;
   const expected = crypto
     .createHmac("sha256", secret)
-    .update(payload)
+    .update(`${verificationId}:${field}:${adminId}:${expiresStr}`)
     .digest("hex");
 
-  // Guard against length-mismatch crash in timingSafeEqual
   let sigBuf, expBuf;
   try {
     sigBuf = Buffer.from(signature, "hex");
@@ -285,104 +288,63 @@ const verifySignedToken = (token, verificationId, field, adminId) => {
     return "Invalid token encoding.";
   }
 
-  if (
-    sigBuf.length !== expBuf.length ||
-    !crypto.timingSafeEqual(sigBuf, expBuf)
-  ) return "Invalid token signature.";
+  if (sigBuf.length !== expBuf.length ||
+      !crypto.timingSafeEqual(sigBuf, expBuf))
+    return "Invalid token signature.";
 
-  return null; // OK
+  return null;
 };
 
 /* ══════════════════════════════════════════════════════════════
-   RATE LIMITERS
+   RATE LIMITER  — graceful degradation if package absent
 ══════════════════════════════════════════════════════════════ */
-// Dynamic import so the file still loads in envs without express-rate-limit.
-// Replace with a direct import if you always have the package installed.
-let _rateLimit = null;
-const getBulkRateLimiter = async () => {
-  if (_rateLimit) return _rateLimit;
-  try {
-    const { rateLimit } = await import("express-rate-limit");
-    _rateLimit = rateLimit({
-      windowMs     : 60_000,
-      max          : 5,
-      keyGenerator : (req) => `bulk:${req.admin?.id ?? "anon"}`,
-      standardHeaders: true,
-      legacyHeaders  : false,
-      message      : { success: false, error: "Too many bulk operations. Please wait 60 seconds." },
-    });
-  } catch {
-    // express-rate-limit not installed — no-op middleware
-    _rateLimit = (_req, _res, next) => next();
-  }
-  return _rateLimit;
-};
-
-/* Inline rate-limit middleware factory for route registration */
+let _bulkLimiter = null;
 const bulkRateLimit = async (req, res, next) => {
-  const limiter = await getBulkRateLimiter();
-  return limiter(req, res, next);
-};
-
-/* ══════════════════════════════════════════════════════════════
-   PARALLEL BULK HELPER
-   Runs `fn` for every id with at most BULK_CONCURRENCY in-flight.
-══════════════════════════════════════════════════════════════ */
-const runParallel = async (ids, fn) => {
-  const results   = [];
-  const executing = [];
-
-  for (const id of ids) {
-    const p = Promise.resolve().then(() => fn(id));
-    results.push(p);
-
-    if (BULK_CONCURRENCY <= ids.length) {
-      const e = p.then(() => executing.splice(executing.indexOf(e), 1));
-      executing.push(e);
-      if (executing.length >= BULK_CONCURRENCY) {
-        await Promise.race(executing);
-      }
+  if (!_bulkLimiter) {
+    try {
+      const { rateLimit } = await import("express-rate-limit");
+      _bulkLimiter = rateLimit({
+        windowMs       : 60_000,
+        max            : 5,
+        keyGenerator   : (r) => `bulk:${r.admin?.id ?? "anon"}`,
+        standardHeaders: true,
+        legacyHeaders  : false,
+        message        : {
+          success: false,
+          error  : "Too many bulk operations. Please wait 60 seconds.",
+        },
+      });
+    } catch {
+      _bulkLimiter = (_q, _r, n) => n(); // no-op if not installed
     }
   }
-
-  return Promise.allSettled(results);
+  return _bulkLimiter(req, res, next);
 };
 
 /* ══════════════════════════════════════════════════════════════
-   DUPLICATE WARNING BUILDER
-   Returns structured warnings for the frontend DuplicateWarnings panel.
+   PARALLEL BULK RUNNER
+   Runs fn(id) for every id with at most BULK_CONCURRENCY
+   in-flight at once.
 ══════════════════════════════════════════════════════════════ */
-const buildDuplicateWarnings = async (db, verificationId, userId, docHash) => {
-  const warnings = [];
-  if (!docHash) return warnings;
-
-  const { rows } = await db.query(
-    `SELECT iv.id, iv.user_id, u.email
-     FROM   identity_verifications iv
-     JOIN   public.users u ON u.id = iv.user_id
-     WHERE  iv.document_number_hash = $1
-       AND  iv.user_id             <> $2
-       AND  iv.status               = 'approved'
-     LIMIT  5`,
-    [docHash, userId]
-  );
-
-  if (rows.length) {
-    warnings.push({
-      type              : "document_reuse",
-      severity          : "critical",
-      detail            :
-        `This document is already approved on ${rows.length} other account(s).`,
-      matching_user_ids : rows.map((r) => r.user_id),
-    });
-  }
-
-  return warnings;
+const runParallel = (ids, fn) => {
+  const executing = [];
+  const all = ids.map((id) => {
+    const p = Promise.resolve().then(() => fn(id));
+    if (ids.length > BULK_CONCURRENCY) {
+      const e = p.finally(() =>
+        executing.splice(executing.indexOf(e), 1)
+      );
+      executing.push(e);
+      if (executing.length >= BULK_CONCURRENCY)
+        return Promise.race(executing).then(() => p);
+    }
+    return p;
+  });
+  return Promise.allSettled(all);
 };
 
 /* ══════════════════════════════════════════════════════════════
-   EMAIL + IN-APP NOTIFICATIONS
-   All fire-and-forget. Errors logged, never thrown.
+   NOTIFICATIONS  — fire-and-forget
 ══════════════════════════════════════════════════════════════ */
 const notifyApproved = ({ userId, email, name }) =>
   Promise.all([
@@ -415,7 +377,8 @@ const notifyReset = ({ userId, email, name, note }) =>
       userId,
       type    : "verification_reset",
       title   : "Resubmit Verification Documents",
-      message : `Please resubmit your documents.${note ? ` Note: ${note}` : ""}`,
+      message :
+        `Please resubmit your documents.${note ? ` Note: ${note}` : ""}`,
     }),
   ]).catch((e) => console.error("[notify] reset:", e.message));
 
@@ -451,7 +414,8 @@ const notifyStoreApproved = ({ userId, email, name }) =>
       userId,
       type    : "store_approved",
       title   : "Store Approved ✓",
-      message : "Your store has been approved and is now live on the platform.",
+      message :
+        "Your store has been approved and is now live on the platform.",
     }),
   ]).catch((e) => console.error("[notify] store approve:", e.message));
 
@@ -470,113 +434,102 @@ const notifyStoreRejected = ({ userId, email, name, reason }) =>
   ]).catch((e) => console.error("[notify] store reject:", e.message));
 
 /* ══════════════════════════════════════════════════════════════
-   LISTING DOWNGRADE HELPER
-   Downgrades active → active_limited for unverified sellers.
-   Extracted so it can be used in any reject/reset path.
-══════════════════════════════════════════════════════════════ */
-const downgradeListings = (client, userId) =>
-  client.query(
-    `UPDATE products
-     SET    status = 'active_limited', updated_at = NOW()
-     WHERE  seller_id        = $1
-       AND  status           = 'active'
-       AND  is_first_product = TRUE`,
-    [userId]
-  );
-
-/* ══════════════════════════════════════════════════════════════
    ████████████████████████████████████████████████████████████
 
-   ROUTE REGISTRATION ORDER (important for Express param matching):
-
-   1. Static-path routes  (/stats, /identity/bulk-*, /store)
-   2. Parameterised routes (/identity/:id/*, /store/:id/*)
-   3. Unified user routes  (/:userId/approve|reject|reset)
+   ROUTE ORDER (critical for Express param matching):
+     1. /stats
+     2. /identity          (GET list)
+     3. /identity/bulk-*   (POST — must come before /:id)
+     4. /identity/:id/*    (GET|POST single)
+     5. /store             (GET list)
+     6. /store/:id/*       (GET|POST single)
+     7. /email/:userId/*   (super-admin)
+     8. /trust/:userId/*
+     9. /:userId/*         (unified — catch-all, registered last)
 
    ████████████████████████████████████████████████████████████
 ══════════════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════════════
-   GET /stats
+   1.  GET /stats
 ══════════════════════════════════════════════════════════════ */
 router.get("/stats", async (req, res) => {
   try {
-    const [idStats, storeStats, userStats, limitedStats, noteStats] =
-      await Promise.all([
+    const [idQ, stQ, usQ, liQ, noQ] = await Promise.all([
 
-        pool.query(`
-          SELECT
-            COUNT(*)                                               ::INT AS total,
-            COUNT(*) FILTER (WHERE status = 'pending')            ::INT AS pending,
-            COUNT(*) FILTER (WHERE status = 'approved')           ::INT AS approved,
-            COUNT(*) FILTER (WHERE status = 'rejected')           ::INT AS rejected,
-            COUNT(*) FILTER (WHERE status = 'reset')              ::INT AS reset,
-            COUNT(*) FILTER (WHERE status = 'flagged')            ::INT AS flagged,
-            COUNT(*) FILTER (WHERE status = 'all')                ::INT AS all,
-            COUNT(*) FILTER (
-              WHERE status = 'pending'
-                AND created_at < NOW() - INTERVAL '24 hours'
-            )                                                      ::INT AS overdue,
-            COUNT(*) FILTER (
-              WHERE assigned_admin_id IS NULL AND status = 'pending'
-            )                                                      ::INT AS unassigned
-          FROM identity_verifications
-        `),
+      pool.query(`
+        SELECT
+          COUNT(*)                                               ::INT AS total,
+          COUNT(*) FILTER (WHERE status = 'pending')            ::INT AS pending,
+          COUNT(*) FILTER (WHERE status = 'approved')           ::INT AS approved,
+          COUNT(*) FILTER (WHERE status = 'rejected')           ::INT AS rejected,
+          COUNT(*) FILTER (WHERE status = 'reset')              ::INT AS reset,
+          COUNT(*) FILTER (WHERE status = 'flagged')            ::INT AS flagged,
+          COUNT(*) FILTER (WHERE status = 'all')                ::INT AS all,
+          COUNT(*) FILTER (
+            WHERE status = 'pending'
+              AND created_at < NOW() - INTERVAL '24 hours'
+          )                                                      ::INT AS overdue,
+          COUNT(*) FILTER (
+            WHERE assigned_admin_id IS NULL AND status = 'pending'
+          )                                                      ::INT AS unassigned
+        FROM identity_verifications
+      `),
 
-        pool.query(`
-          SELECT
-            COUNT(*)                                               ::INT AS total,
-            COUNT(*) FILTER (WHERE status = 'pending')            ::INT AS pending,
-            COUNT(*) FILTER (WHERE status = 'approved')           ::INT AS approved,
-            COUNT(*) FILTER (WHERE status = 'rejected')           ::INT AS rejected,
-            COUNT(*) FILTER (WHERE status = 'reset')              ::INT AS reset,
-            COUNT(*) FILTER (
-              WHERE status = 'pending'
-                AND created_at < NOW() - INTERVAL '24 hours'
-            )                                                      ::INT AS overdue,
-            COUNT(*) FILTER (
-              WHERE assigned_admin_id IS NULL AND status = 'pending'
-            )                                                      ::INT AS unassigned
-          FROM store_verifications
-        `),
+      pool.query(`
+        SELECT
+          COUNT(*)                                               ::INT AS total,
+          COUNT(*) FILTER (WHERE status = 'pending')            ::INT AS pending,
+          COUNT(*) FILTER (WHERE status = 'approved')           ::INT AS approved,
+          COUNT(*) FILTER (WHERE status = 'rejected')           ::INT AS rejected,
+          COUNT(*) FILTER (WHERE status = 'reset')              ::INT AS reset,
+          COUNT(*) FILTER (
+            WHERE status = 'pending'
+              AND created_at < NOW() - INTERVAL '24 hours'
+          )                                                      ::INT AS overdue,
+          COUNT(*) FILTER (
+            WHERE assigned_admin_id IS NULL AND status = 'pending'
+          )                                                      ::INT AS unassigned
+        FROM store_verifications
+      `),
 
-        pool.query(`
-          SELECT
-            COUNT(*)                                                ::INT  AS total,
-            COUNT(*) FILTER (WHERE email_verified    = TRUE)       ::INT  AS email_verified,
-            COUNT(*) FILTER (WHERE identity_verified = TRUE)       ::INT  AS identity_verified,
-            COUNT(*) FILTER (WHERE store_verified    = TRUE)       ::INT  AS store_verified,
-            COUNT(*) FILTER (WHERE status = 'flagged')             ::INT  AS flagged,
-            COUNT(*) FILTER (WHERE status = 'banned')              ::INT  AS banned,
-            COALESCE(AVG(trust_score)::NUMERIC(5,2), 0)                   AS avg_trust_score
-          FROM public.users
-        `),
+      pool.query(`
+        SELECT
+          COUNT(*)                                               ::INT  AS total,
+          COUNT(*) FILTER (WHERE email_verified    = TRUE)      ::INT  AS email_verified,
+          COUNT(*) FILTER (WHERE identity_verified = TRUE)      ::INT  AS identity_verified,
+          COUNT(*) FILTER (WHERE store_verified    = TRUE)      ::INT  AS store_verified,
+          COUNT(*) FILTER (WHERE status = 'flagged')            ::INT  AS flagged,
+          COUNT(*) FILTER (WHERE status = 'banned')             ::INT  AS banned,
+          COALESCE(AVG(trust_score)::NUMERIC(5,2), 0)                  AS avg_trust_score
+        FROM public.users
+      `),
 
-        pool.query(`
-          SELECT
-            COUNT(*)                                               ::INT AS total,
-            COUNT(*) FILTER (WHERE active_until < NOW())          ::INT AS expired,
-            COUNT(*) FILTER (
-              WHERE active_until >= NOW() OR active_until IS NULL
-            )                                                      ::INT AS live
-          FROM products
-          WHERE status = 'active_limited'
-        `),
+      pool.query(`
+        SELECT
+          COUNT(*)                                               ::INT AS total,
+          COUNT(*) FILTER (WHERE active_until < NOW())          ::INT AS expired,
+          COUNT(*) FILTER (
+            WHERE active_until >= NOW() OR active_until IS NULL
+          )                                                      ::INT AS live
+        FROM products
+        WHERE status = 'active_limited'
+      `),
 
-        pool.query(`
-          SELECT COUNT(*)::INT AS total
-          FROM   verification_notes
-          WHERE  created_at > NOW() - INTERVAL '7 days'
-        `),
-      ]);
+      pool.query(`
+        SELECT COUNT(*)::INT AS total
+        FROM   verification_notes
+        WHERE  created_at > NOW() - INTERVAL '7 days'
+      `),
+    ]);
 
     return res.json({
       success          : true,
-      identity         : idStats.rows[0],
-      store            : storeStats.rows[0],
-      users            : userStats.rows[0],
-      limited_listings : limitedStats.rows[0],
-      notes_last_7d    : noteStats.rows[0].total,
+      identity         : idQ.rows[0],
+      store            : stQ.rows[0],
+      users            : usQ.rows[0],
+      limited_listings : liQ.rows[0],
+      notes_last_7d    : noQ.rows[0].total,
     });
 
   } catch (err) {
@@ -586,18 +539,17 @@ router.get("/stats", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ IDENTITY — LIST
-     Registered before /:id routes so /identity is unambiguous.
+   2.  GET /identity  — list
 ══════════════════════════════════════════════════════════════ */
 router.get("/identity", async (req, res) => {
   const rawStatus = req.query.status ?? "pending";
   if (!VALID_ID_STATUSES.has(rawStatus))
     return fail(res, 400,
-      `Invalid status. Use: ${[...VALID_ID_STATUSES].join(", ")}.`
+      `Invalid status. Valid values: ${[...VALID_ID_STATUSES].join(", ")}.`
     );
 
   const limit      = safeInt(req.query.limit,  PAGE_SIZE, MAX_LIMIT);
-  const offset     = safeInt(req.query.offset, 0, MAX_OFFSET);
+  const offset     = safeInt(req.query.offset, 0,         MAX_OFFSET);
   const assignedTo = req.query.assigned_to ?? null;
 
   try {
@@ -623,10 +575,6 @@ router.get("/identity", async (req, res) => {
          iv.id,
          iv.document_type,
          iv.status,
-         iv.risk_score,
-         iv.risk_flags,
-         iv.flagged_for_review,
-         iv.document_number_hash,
          iv.rejection_reason,
          iv.reviewed_by,
          iv.reviewed_at,
@@ -637,12 +585,16 @@ router.get("/identity", async (req, res) => {
          iv.front_image_url,
          iv.back_image_url,
          iv.selfie_url,
+         iv.document_number_hash,
+         COALESCE(iv.risk_score,         0)            AS risk_score,
+         COALESCE(iv.risk_flags,         '[]'::jsonb)  AS risk_flags,
+         COALESCE(iv.flagged_for_review, FALSE)         AS flagged_for_review,
+         COALESCE(iv.duplicate_warnings, '[]'::jsonb)  AS duplicate_warnings,
+         COALESCE(iv.face_skipped,       FALSE)         AS face_skipped,
          iv.liveness_frame_url,
          iv.liveness_passed,
          iv.face_match,
          iv.face_confidence,
-         iv.face_skipped,
-         COALESCE(iv.duplicate_warnings, '[]'::jsonb)  AS duplicate_warnings,
          u.id            AS user_id,
          u.name          AS user_name,
          u.email         AS user_email,
@@ -654,19 +606,17 @@ router.get("/identity", async (req, res) => {
          aa.name         AS assigned_admin_name
        FROM  identity_verifications iv
        JOIN  public.users  u  ON u.id  = iv.user_id
-       LEFT JOIN public.users aa ON aa.id = iv.assigned_admin_id
+       LEFT  JOIN public.users aa ON aa.id = iv.assigned_admin_id
        ${where}
-       ORDER BY iv.risk_score DESC NULLS LAST, iv.created_at ASC
+       ORDER BY COALESCE(iv.risk_score, 0) DESC, iv.created_at ASC
        LIMIT  $${listParams.length - 1}
        OFFSET $${listParams.length}`,
       listParams
     );
 
-    /* Count (reuse same WHERE / params) */
     const { rows: cr } = await pool.query(
       `SELECT COUNT(*)::INT AS total
-       FROM   identity_verifications iv
-       ${where}`,
+       FROM   identity_verifications iv ${where}`,
       params
     );
 
@@ -679,14 +629,25 @@ router.get("/identity", async (req, res) => {
     });
 
   } catch (err) {
+    if (err.code === "42703") {
+      console.error(
+        "[GET /identity] Missing column —",
+        "run migrations/add_verification_risk_columns.sql\n",
+        err.message
+      );
+      return fail(res, 503,
+        "Database schema is out of date. " +
+        "Run the latest migration and restart the server."
+      );
+    }
     console.error("[GET /identity]", err.message);
     return fail(res, 500, err.message);
   }
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ IDENTITY — BULK APPROVE
-     Must be registered BEFORE /identity/:id routes.
+   3a. POST /identity/bulk-approve
+       MUST be before /identity/:id routes.
 ══════════════════════════════════════════════════════════════ */
 router.post("/identity/bulk-approve", bulkRateLimit, async (req, res) => {
   const adminId = req.admin.id;
@@ -694,14 +655,13 @@ router.post("/identity/bulk-approve", bulkRateLimit, async (req, res) => {
   const ids     = Array.isArray(req.body.ids) ? req.body.ids : [];
   const note    = (req.body.note ?? "Bulk approved.").trim();
 
-  if (!ids.length)
-    return fail(res, 400, "ids array is required.");
+  if (!ids.length)       return fail(res, 400, "ids array is required.");
   if (ids.length > BULK_MAX)
     return fail(res, 400, `Maximum ${BULK_MAX} records per bulk action.`);
 
   const results = { approved: [], skipped: [], failed: [] };
 
-  const processOne = async (id) => {
+  await runParallel(ids, async (id) => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -723,7 +683,6 @@ router.post("/identity/bulk-approve", bulkRateLimit, async (req, res) => {
 
       const rec = rows[0];
 
-      /* Lock user row before trust update */
       await client.query(
         "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
         [rec.user_id]
@@ -765,7 +724,9 @@ router.post("/identity/bulk-approve", bulkRateLimit, async (req, res) => {
         userId: rec.user_id, email: rec.email, name: rec.name,
       });
 
-      results.approved.push({ id, user_id: rec.user_id, trust_score: trustScore });
+      results.approved.push({
+        id, user_id: rec.user_id, trust_score: trustScore,
+      });
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
@@ -773,15 +734,14 @@ router.post("/identity/bulk-approve", bulkRateLimit, async (req, res) => {
     } finally {
       client.release();
     }
-  };
-
-  await runParallel(ids, processOne);
+  });
 
   log({
     adminId,
     action   : "bulk_approve_identity",
     targetId : "bulk",
-    details  : `Bulk approved ${results.approved.length} of ${ids.length} identities`,
+    details  :
+      `Bulk approved ${results.approved.length} of ${ids.length} identities`,
     meta     : results,
     ip,
   });
@@ -790,8 +750,8 @@ router.post("/identity/bulk-approve", bulkRateLimit, async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ IDENTITY — BULK REJECT
-     Must be registered BEFORE /identity/:id routes.
+   3b. POST /identity/bulk-reject
+       MUST be before /identity/:id routes.
 ══════════════════════════════════════════════════════════════ */
 router.post("/identity/bulk-reject", bulkRateLimit, async (req, res) => {
   const adminId = req.admin.id;
@@ -808,7 +768,7 @@ router.post("/identity/bulk-reject", bulkRateLimit, async (req, res) => {
 
   const results = { rejected: [], skipped: [], failed: [] };
 
-  const processOne = async (id) => {
+  await runParallel(ids, async (id) => {
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -830,7 +790,6 @@ router.post("/identity/bulk-reject", bulkRateLimit, async (req, res) => {
 
       const { user_id, email, name } = rows[0];
 
-      /* Lock user row before trust update */
       await client.query(
         "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
         [user_id]
@@ -878,15 +837,14 @@ router.post("/identity/bulk-reject", bulkRateLimit, async (req, res) => {
     } finally {
       client.release();
     }
-  };
-
-  await runParallel(ids, processOne);
+  });
 
   log({
     adminId,
     action   : "bulk_reject_identity",
     targetId : "bulk",
-    details  : `Bulk rejected ${results.rejected.length} of ${ids.length} identities`,
+    details  :
+      `Bulk rejected ${results.rejected.length} of ${ids.length} identities`,
     meta     : results,
     ip,
   });
@@ -895,7 +853,7 @@ router.post("/identity/bulk-reject", bulkRateLimit, async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ IDENTITY — SINGLE
+   4a. GET /identity/:id  — single
 ══════════════════════════════════════════════════════════════ */
 router.get("/identity/:id", async (req, res) => {
   try {
@@ -903,15 +861,20 @@ router.get("/identity/:id", async (req, res) => {
       pool.query(
         `SELECT
            iv.id, iv.document_type, iv.status,
-           iv.risk_score, iv.risk_flags, iv.flagged_for_review,
-           iv.document_number_hash,
            iv.rejection_reason, iv.reviewed_by, iv.reviewed_at,
            iv.assigned_admin_id, iv.assigned_at,
            iv.created_at, iv.updated_at,
            iv.front_image_url, iv.back_image_url, iv.selfie_url,
-           iv.liveness_frame_url, iv.liveness_passed,
-           iv.face_match, iv.face_confidence, iv.face_skipped,
-           COALESCE(iv.duplicate_warnings, '[]'::jsonb) AS duplicate_warnings,
+           iv.document_number_hash,
+           COALESCE(iv.risk_score,         0)            AS risk_score,
+           COALESCE(iv.risk_flags,         '[]'::jsonb)  AS risk_flags,
+           COALESCE(iv.flagged_for_review, FALSE)         AS flagged_for_review,
+           COALESCE(iv.duplicate_warnings, '[]'::jsonb)  AS duplicate_warnings,
+           COALESCE(iv.face_skipped,       FALSE)         AS face_skipped,
+           iv.liveness_frame_url,
+           iv.liveness_passed,
+           iv.face_match,
+           iv.face_confidence,
            u.id            AS user_id,
            u.name          AS user_name,
            u.email         AS user_email,
@@ -936,18 +899,14 @@ router.get("/identity/:id", async (req, res) => {
 
     const rec = verRes.rows[0];
 
-    /* Build duplicate warnings if not already stored on the row */
+    /* Compute duplicate warnings if not already stored */
     const duplicateWarnings =
       rec.duplicate_warnings?.length
         ? rec.duplicate_warnings
         : await buildDuplicateWarnings(
-            pool,
-            req.params.id,
-            rec.user_id,
-            rec.document_number_hash
+            pool, rec.user_id, rec.document_number_hash
           );
 
-    /* Signed document URL token */
     const { expires, signature } = generateSignedUrl(
       req.params.id, "front", req.admin.id
     );
@@ -963,7 +922,7 @@ router.get("/identity/:id", async (req, res) => {
           back   : `/api/admin/verification/identity/${req.params.id}/files/back`,
           selfie : `/api/admin/verification/identity/${req.params.id}/files/selfie`,
           token  : `${expires}:${signature}`,
-          ttl    : SIGNED_URL_TTL_SECS,
+          ttl    : SIGNED_URL_TTL,
         },
       },
       notes,
@@ -976,17 +935,18 @@ router.get("/identity/:id", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ IDENTITY — SIGNED DOCUMENT FILE
+   4b. GET /identity/:id/files/:field  — signed document redirect
 ══════════════════════════════════════════════════════════════ */
 router.get("/identity/:id/files/:field", async (req, res) => {
   const { id, field } = req.params;
-  const { token }     = req.query;
 
   if (!VALID_DOC_FIELDS.has(field))
     return fail(res, 400, "Invalid field. Use: front, back, selfie.");
 
-  const tokenError = verifySignedToken(token, id, field, req.admin.id);
-  if (tokenError) return fail(res, 401, tokenError);
+  const tokenErr = verifySignedToken(
+    req.query.token, id, field, req.admin.id
+  );
+  if (tokenErr) return fail(res, 401, tokenErr);
 
   try {
     const colMap = {
@@ -996,8 +956,7 @@ router.get("/identity/:id/files/:field", async (req, res) => {
     };
     const { rows } = await pool.query(
       `SELECT ${colMap[field]} AS url
-       FROM   identity_verifications
-       WHERE  id = $1`,
+       FROM   identity_verifications WHERE id = $1`,
       [id]
     );
     if (!rows.length || !rows[0].url)
@@ -1010,13 +969,12 @@ router.get("/identity/:id/files/:field", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ IDENTITY — GRANULAR APPROVE
+   4c. POST /identity/:id/approve  — granular (identity only)
 ══════════════════════════════════════════════════════════════ */
 router.post("/identity/:id/approve", async (req, res) => {
   const adminId = req.admin.id;
   const ip      = getIp(req);
   const note    = (req.body.note ?? "Approved.").trim();
-
   if (!note) return fail(res, 400, "A note is required.");
 
   const client = await pool.connect();
@@ -1024,14 +982,11 @@ router.post("/identity/:id/approve", async (req, res) => {
     await client.query("BEGIN");
 
     const { rows } = await client.query(
-      `SELECT
-         iv.id, iv.user_id,
-         iv.status AS current_status,
-         iv.document_number_hash,
-         u.email, u.name
-       FROM identity_verifications iv
-       JOIN public.users u ON u.id = iv.user_id
-       WHERE iv.id = $1
+      `SELECT iv.id, iv.user_id, iv.status AS current_status,
+              iv.document_number_hash, u.email, u.name
+       FROM   identity_verifications iv
+       JOIN   public.users u ON u.id = iv.user_id
+       WHERE  iv.id = $1
        FOR UPDATE OF iv`,
       [req.params.id]
     );
@@ -1048,24 +1003,22 @@ router.post("/identity/:id/approve", async (req, res) => {
       return res.json({ success: true, message: "Already approved." });
     }
 
-    /* Duplicate document guard */
+    /* Duplicate guard */
     if (rec.document_number_hash) {
-      const { rows: dupRows } = await client.query(
+      const { rows: dup } = await client.query(
         `SELECT id FROM identity_verifications
          WHERE  document_number_hash = $1
            AND  user_id             <> $2
            AND  status               = 'approved'
-         LIMIT  3`,
+         LIMIT 3`,
         [rec.document_number_hash, rec.user_id]
       );
-
-      if (dupRows.length) {
+      if (dup.length) {
         await client.query(
           `UPDATE identity_verifications
-           SET    status             = 'flagged',
-                  flagged_for_review = TRUE,
-                  risk_score        = GREATEST(COALESCE(risk_score, 0), 90),
-                  updated_at        = NOW()
+           SET    status = 'flagged', flagged_for_review = TRUE,
+                  risk_score = GREATEST(COALESCE(risk_score,0), 90),
+                  updated_at = NOW()
            WHERE  id = $1`,
           [req.params.id]
         );
@@ -1074,17 +1027,16 @@ router.post("/identity/:id/approve", async (req, res) => {
           verificationType: "identity",
           adminId,
           action          : "flagged",
-          note            :
-            `Blocked: document matches ${dupRows.length} approved account(s).`,
+          note            : `Blocked: document matches ${dup.length} approved account(s).`,
         });
         await client.query("COMMIT");
-        return fail(res, 409, "Duplicate document. Verification flagged.", {
-          flagged: true,
-        });
+        return fail(res, 409,
+          "Duplicate document. Verification flagged.", { flagged: true }
+        );
       }
     }
 
-    /* Lock user row before any user UPDATE */
+    /* Lock user row */
     await client.query(
       "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
       [rec.user_id]
@@ -1092,20 +1044,16 @@ router.post("/identity/:id/approve", async (req, res) => {
 
     await client.query(
       `UPDATE identity_verifications
-       SET    status             = 'approved',
-              flagged_for_review = FALSE,
-              reviewed_by        = $2,
-              reviewed_at        = NOW(),
-              updated_at         = NOW()
+       SET    status = 'approved', flagged_for_review = FALSE,
+              reviewed_by = $2, reviewed_at = NOW(), updated_at = NOW()
        WHERE  id = $1`,
       [req.params.id, adminId]
     );
 
     await client.query(
       `UPDATE public.users
-       SET    identity_verified    = TRUE,
-              identity_verified_at = NOW(),
-              updated_at           = NOW()
+       SET    identity_verified = TRUE, identity_verified_at = NOW(),
+              updated_at = NOW()
        WHERE  id = $1`,
       [rec.user_id]
     );
@@ -1115,9 +1063,7 @@ router.post("/identity/:id/approve", async (req, res) => {
     await addNote(client, {
       verificationId  : req.params.id,
       verificationType: "identity",
-      adminId,
-      action          : "approved",
-      note,
+      adminId, action: "approved", note,
     });
 
     await client.query("COMMIT");
@@ -1128,19 +1074,16 @@ router.post("/identity/:id/approve", async (req, res) => {
     });
 
     log({
-      adminId,
-      action   : "approve_identity",
-      targetId : req.params.id,
-      details  : `Approved identity for user ${rec.user_id}`,
-      meta     : { trust_score: trustScore, note },
-      userId   : rec.user_id,
-      ip,
+      adminId, action: "approve_identity", targetId: req.params.id,
+      details : `Approved identity for user ${rec.user_id}`,
+      meta    : { trust_score: trustScore, note },
+      userId  : rec.user_id, ip,
     });
 
     return res.json({
       success     : true,
       trust_score : trustScore,
-      message     : "Identity approved. Approval email sent to user.",
+      message     : "Identity approved. Approval email sent.",
     });
 
   } catch (err) {
@@ -1153,7 +1096,7 @@ router.post("/identity/:id/approve", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ IDENTITY — GRANULAR REJECT
+   4d. POST /identity/:id/reject
 ══════════════════════════════════════════════════════════════ */
 router.post("/identity/:id/reject", async (req, res) => {
   const adminId = req.admin.id;
@@ -1190,7 +1133,6 @@ router.post("/identity/:id/reject", async (req, res) => {
       return res.json({ success: true, message: "Already rejected." });
     }
 
-    /* Lock user row */
     await client.query(
       "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
       [user_id]
@@ -1198,11 +1140,8 @@ router.post("/identity/:id/reject", async (req, res) => {
 
     await client.query(
       `UPDATE identity_verifications
-       SET    status           = 'rejected',
-              rejection_reason = $2,
-              reviewed_by      = $3,
-              reviewed_at      = NOW(),
-              updated_at       = NOW()
+       SET    status = 'rejected', rejection_reason = $2,
+              reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
        WHERE  id = $1`,
       [req.params.id, reason, adminId]
     );
@@ -1221,9 +1160,7 @@ router.post("/identity/:id/reject", async (req, res) => {
     await addNote(client, {
       verificationId  : req.params.id,
       verificationType: "identity",
-      adminId,
-      action          : "rejected",
-      note            : reason,
+      adminId, action: "rejected", note: reason,
     });
 
     await client.query("COMMIT");
@@ -1231,19 +1168,16 @@ router.post("/identity/:id/reject", async (req, res) => {
     notifyIdentityRejected({ userId: user_id, email, name, reason });
 
     log({
-      adminId,
-      action   : "reject_identity",
-      targetId : req.params.id,
-      details  : `Rejected identity for user ${user_id}: ${reason}`,
-      meta     : { reason, trust_score: trustScore },
-      userId   : user_id,
-      ip,
+      adminId, action: "reject_identity", targetId: req.params.id,
+      details : `Rejected identity for user ${user_id}: ${reason}`,
+      meta    : { reason, trust_score: trustScore },
+      userId  : user_id, ip,
     });
 
     return res.json({
       success     : true,
       trust_score : trustScore,
-      message     : "Identity rejected. Rejection email sent to user.",
+      message     : "Identity rejected. Rejection email sent.",
     });
 
   } catch (err) {
@@ -1256,7 +1190,7 @@ router.post("/identity/:id/reject", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ IDENTITY — GRANULAR RESET
+   4e. POST /identity/:id/reset
 ══════════════════════════════════════════════════════════════ */
 router.post("/identity/:id/reset", async (req, res) => {
   const adminId = req.admin.id;
@@ -1284,7 +1218,6 @@ router.post("/identity/:id/reset", async (req, res) => {
 
     const { user_id, email, name } = rows[0];
 
-    /* Lock user row */
     await client.query(
       "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
       [user_id]
@@ -1292,11 +1225,8 @@ router.post("/identity/:id/reset", async (req, res) => {
 
     await client.query(
       `UPDATE identity_verifications
-       SET    status           = 'reset',
-              rejection_reason = $2,
-              reviewed_by      = $3,
-              reviewed_at      = NOW(),
-              updated_at       = NOW()
+       SET    status = 'reset', rejection_reason = $2,
+              reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
        WHERE  id = $1`,
       [req.params.id, note, adminId]
     );
@@ -1313,9 +1243,7 @@ router.post("/identity/:id/reset", async (req, res) => {
     await addNote(client, {
       verificationId  : req.params.id,
       verificationType: "identity",
-      adminId,
-      action          : "reset",
-      note,
+      adminId, action: "reset", note,
     });
 
     await client.query("COMMIT");
@@ -1323,19 +1251,16 @@ router.post("/identity/:id/reset", async (req, res) => {
     notifyReset({ userId: user_id, email, name, note });
 
     log({
-      adminId,
-      action   : "reset_identity",
-      targetId : req.params.id,
-      details  : `Reset identity for user ${user_id}`,
-      meta     : { note, trust_score: trustScore },
-      userId   : user_id,
-      ip,
+      adminId, action: "reset_identity", targetId: req.params.id,
+      details : `Reset identity for user ${user_id}`,
+      meta    : { note, trust_score: trustScore },
+      userId  : user_id, ip,
     });
 
     return res.json({
       success     : true,
       trust_score : trustScore,
-      message     : "Identity reset. Resubmission email sent to user.",
+      message     : "Identity reset. Resubmission email sent.",
     });
 
   } catch (err) {
@@ -1348,7 +1273,7 @@ router.post("/identity/:id/reset", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ IDENTITY — ASSIGN
+   4f. POST /identity/:id/assign
 ══════════════════════════════════════════════════════════════ */
 router.post("/identity/:id/assign", async (req, res) => {
   const adminId         = req.admin.id;
@@ -1358,9 +1283,7 @@ router.post("/identity/:id/assign", async (req, res) => {
   try {
     const { rows } = await pool.query(
       `UPDATE identity_verifications
-       SET    assigned_admin_id = $2,
-              assigned_at       = NOW(),
-              updated_at        = NOW()
+       SET    assigned_admin_id = $2, assigned_at = NOW(), updated_at = NOW()
        WHERE  id = $1 AND status = 'pending'
        RETURNING id, user_id`,
       [req.params.id, assignedAdminId]
@@ -1370,13 +1293,10 @@ router.post("/identity/:id/assign", async (req, res) => {
       return fail(res, 404, "Verification not found or not in pending state.");
 
     log({
-      adminId,
-      action   : "assign_identity",
-      targetId : req.params.id,
-      details  : `Assigned to admin ${assignedAdminId}`,
-      meta     : { assigned_to: assignedAdminId },
-      userId   : rows[0].user_id,
-      ip,
+      adminId, action: "assign_identity", targetId: req.params.id,
+      details : `Assigned to admin ${assignedAdminId}`,
+      meta    : { assigned_to: assignedAdminId },
+      userId  : rows[0].user_id, ip,
     });
 
     return res.json({ success: true, assigned_to: assignedAdminId });
@@ -1386,7 +1306,7 @@ router.post("/identity/:id/assign", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ IDENTITY — ADD NOTE
+   4g. POST /identity/:id/note
 ══════════════════════════════════════════════════════════════ */
 router.post("/identity/:id/note", async (req, res) => {
   const adminId = req.admin.id;
@@ -1403,13 +1323,10 @@ router.post("/identity/:id/note", async (req, res) => {
     );
     if (!rows.length) return fail(res, 404, "Verification not found.");
 
-    /* Standalone note — pool is correct here (no outer transaction) */
     await addNote(pool, {
       verificationId  : req.params.id,
       verificationType: "identity",
-      adminId,
-      action          : "note",
-      note,
+      adminId, action: "note", note,
     });
 
     return res.json({ success: true });
@@ -1419,17 +1336,17 @@ router.post("/identity/:id/note", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ STORE — LIST
+   5.  GET /store  — list
 ══════════════════════════════════════════════════════════════ */
 router.get("/store", async (req, res) => {
   const rawStatus = req.query.status ?? "pending";
   if (!VALID_STORE_STATUSES.has(rawStatus))
     return fail(res, 400,
-      `Invalid status. Use: ${[...VALID_STORE_STATUSES].join(", ")}.`
+      `Invalid status. Valid values: ${[...VALID_STORE_STATUSES].join(", ")}.`
     );
 
   const limit  = safeInt(req.query.limit,  PAGE_SIZE, MAX_LIMIT);
-  const offset = safeInt(req.query.offset, 0, MAX_OFFSET);
+  const offset = safeInt(req.query.offset, 0,         MAX_OFFSET);
 
   try {
     const params     = [];
@@ -1447,16 +1364,10 @@ router.get("/store", async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT
-         sv.id,
-         sv.documents_url,
-         sv.status,
-         sv.rejection_reason,
-         sv.reviewed_by,
-         sv.reviewed_at,
-         sv.assigned_admin_id,
-         sv.assigned_at,
-         sv.created_at,
-         sv.updated_at,
+         sv.id, sv.documents_url, sv.status,
+         sv.rejection_reason, sv.reviewed_by, sv.reviewed_at,
+         sv.assigned_admin_id, sv.assigned_at,
+         sv.created_at, sv.updated_at,
          u.id            AS user_id,
          u.name          AS user_name,
          u.email         AS user_email,
@@ -1496,7 +1407,7 @@ router.get("/store", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ STORE — SINGLE
+   6a. GET /store/:id  — single
 ══════════════════════════════════════════════════════════════ */
 router.get("/store/:id", async (req, res) => {
   try {
@@ -1531,10 +1442,7 @@ router.get("/store/:id", async (req, res) => {
 
     return res.json({
       success      : true,
-      verification : {
-        ...verRes.rows[0],
-        timeline,
-      },
+      verification : { ...verRes.rows[0], timeline },
       notes,
     });
 
@@ -1545,7 +1453,7 @@ router.get("/store/:id", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ STORE — GRANULAR APPROVE
+   6b. POST /store/:id/approve
 ══════════════════════════════════════════════════════════════ */
 router.post("/store/:id/approve", async (req, res) => {
   const adminId = req.admin.id;
@@ -1580,13 +1488,11 @@ router.post("/store/:id/approve", async (req, res) => {
 
     if (!rec.identity_verified) {
       await client.query("ROLLBACK");
-      return fail(
-        res, 422,
+      return fail(res, 422,
         "Cannot approve store — seller has not completed identity verification."
       );
     }
 
-    /* Lock user row */
     await client.query(
       "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
       [rec.user_id]
@@ -1594,19 +1500,16 @@ router.post("/store/:id/approve", async (req, res) => {
 
     await client.query(
       `UPDATE store_verifications
-       SET    status      = 'approved',
-              reviewed_by = $2,
-              reviewed_at = NOW(),
-              updated_at  = NOW()
+       SET    status = 'approved', reviewed_by = $2,
+              reviewed_at = NOW(), updated_at = NOW()
        WHERE  id = $1`,
       [req.params.id, adminId]
     );
 
     await client.query(
       `UPDATE public.users
-       SET    store_verified    = TRUE,
-              store_verified_at = NOW(),
-              updated_at        = NOW()
+       SET    store_verified = TRUE, store_verified_at = NOW(),
+              updated_at = NOW()
        WHERE  id = $1`,
       [rec.user_id]
     );
@@ -1616,9 +1519,7 @@ router.post("/store/:id/approve", async (req, res) => {
     await addNote(client, {
       verificationId  : req.params.id,
       verificationType: "store",
-      adminId,
-      action          : "approved",
-      note,
+      adminId, action: "approved", note,
     });
 
     await client.query("COMMIT");
@@ -1628,19 +1529,16 @@ router.post("/store/:id/approve", async (req, res) => {
     });
 
     log({
-      adminId,
-      action   : "approve_store",
-      targetId : req.params.id,
-      details  : `Approved store for user ${rec.user_id}`,
-      meta     : { trust_score: trustScore, note },
-      userId   : rec.user_id,
-      ip,
+      adminId, action: "approve_store", targetId: req.params.id,
+      details : `Approved store for user ${rec.user_id}`,
+      meta    : { trust_score: trustScore, note },
+      userId  : rec.user_id, ip,
     });
 
     return res.json({
       success     : true,
       trust_score : trustScore,
-      message     : "Store approved. Approval email sent to user.",
+      message     : "Store approved. Approval email sent.",
     });
 
   } catch (err) {
@@ -1653,7 +1551,7 @@ router.post("/store/:id/approve", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ STORE — GRANULAR REJECT
+   6c. POST /store/:id/reject
 ══════════════════════════════════════════════════════════════ */
 router.post("/store/:id/reject", async (req, res) => {
   const adminId = req.admin.id;
@@ -1690,7 +1588,6 @@ router.post("/store/:id/reject", async (req, res) => {
       return res.json({ success: true, message: "Already rejected." });
     }
 
-    /* Lock user row */
     await client.query(
       "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
       [user_id]
@@ -1698,11 +1595,8 @@ router.post("/store/:id/reject", async (req, res) => {
 
     await client.query(
       `UPDATE store_verifications
-       SET    status           = 'rejected',
-              rejection_reason = $2,
-              reviewed_by      = $3,
-              reviewed_at      = NOW(),
-              updated_at       = NOW()
+       SET    status = 'rejected', rejection_reason = $2,
+              reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
        WHERE  id = $1`,
       [req.params.id, reason, adminId]
     );
@@ -1719,9 +1613,7 @@ router.post("/store/:id/reject", async (req, res) => {
     await addNote(client, {
       verificationId  : req.params.id,
       verificationType: "store",
-      adminId,
-      action          : "rejected",
-      note            : reason,
+      adminId, action: "rejected", note: reason,
     });
 
     await client.query("COMMIT");
@@ -1729,19 +1621,16 @@ router.post("/store/:id/reject", async (req, res) => {
     notifyStoreRejected({ userId: user_id, email, name, reason });
 
     log({
-      adminId,
-      action   : "reject_store",
-      targetId : req.params.id,
-      details  : `Rejected store for user ${user_id}: ${reason}`,
-      meta     : { reason, trust_score: trustScore },
-      userId   : user_id,
-      ip,
+      adminId, action: "reject_store", targetId: req.params.id,
+      details : `Rejected store for user ${user_id}: ${reason}`,
+      meta    : { reason, trust_score: trustScore },
+      userId  : user_id, ip,
     });
 
     return res.json({
       success     : true,
       trust_score : trustScore,
-      message     : "Store rejected. Rejection email sent to user.",
+      message     : "Store rejected. Rejection email sent.",
     });
 
   } catch (err) {
@@ -1754,7 +1643,7 @@ router.post("/store/:id/reject", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ STORE — GRANULAR RESET
+   6d. POST /store/:id/reset
 ══════════════════════════════════════════════════════════════ */
 router.post("/store/:id/reset", async (req, res) => {
   const adminId = req.admin.id;
@@ -1782,7 +1671,6 @@ router.post("/store/:id/reset", async (req, res) => {
 
     const { user_id, email, name } = rows[0];
 
-    /* Lock user row */
     await client.query(
       "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
       [user_id]
@@ -1790,11 +1678,8 @@ router.post("/store/:id/reset", async (req, res) => {
 
     await client.query(
       `UPDATE store_verifications
-       SET    status           = 'reset',
-              rejection_reason = $2,
-              reviewed_by      = $3,
-              reviewed_at      = NOW(),
-              updated_at       = NOW()
+       SET    status = 'reset', rejection_reason = $2,
+              reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
        WHERE  id = $1`,
       [req.params.id, note, adminId]
     );
@@ -1811,9 +1696,7 @@ router.post("/store/:id/reset", async (req, res) => {
     await addNote(client, {
       verificationId  : req.params.id,
       verificationType: "store",
-      adminId,
-      action          : "reset",
-      note,
+      adminId, action: "reset", note,
     });
 
     await client.query("COMMIT");
@@ -1821,19 +1704,16 @@ router.post("/store/:id/reset", async (req, res) => {
     notifyReset({ userId: user_id, email, name, note });
 
     log({
-      adminId,
-      action   : "reset_store",
-      targetId : req.params.id,
-      details  : `Reset store for user ${user_id}`,
-      meta     : { note, trust_score: trustScore },
-      userId   : user_id,
-      ip,
+      adminId, action: "reset_store", targetId: req.params.id,
+      details : `Reset store for user ${user_id}`,
+      meta    : { note, trust_score: trustScore },
+      userId  : user_id, ip,
     });
 
     return res.json({
       success     : true,
       trust_score : trustScore,
-      message     : "Store reset. Resubmission email sent to user.",
+      message     : "Store reset. Resubmission email sent.",
     });
 
   } catch (err) {
@@ -1846,7 +1726,7 @@ router.post("/store/:id/reset", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ STORE — ASSIGN
+   6e. POST /store/:id/assign
 ══════════════════════════════════════════════════════════════ */
 router.post("/store/:id/assign", async (req, res) => {
   const adminId         = req.admin.id;
@@ -1856,9 +1736,7 @@ router.post("/store/:id/assign", async (req, res) => {
   try {
     const { rows } = await pool.query(
       `UPDATE store_verifications
-       SET    assigned_admin_id = $2,
-              assigned_at       = NOW(),
-              updated_at        = NOW()
+       SET    assigned_admin_id = $2, assigned_at = NOW(), updated_at = NOW()
        WHERE  id = $1 AND status = 'pending'
        RETURNING id, user_id`,
       [req.params.id, assignedAdminId]
@@ -1868,13 +1746,10 @@ router.post("/store/:id/assign", async (req, res) => {
       return fail(res, 404, "Verification not found or not pending.");
 
     log({
-      adminId,
-      action   : "assign_store",
-      targetId : req.params.id,
-      details  : `Assigned store to admin ${assignedAdminId}`,
-      meta     : { assigned_to: assignedAdminId },
-      userId   : rows[0].user_id,
-      ip,
+      adminId, action: "assign_store", targetId: req.params.id,
+      details : `Assigned store to admin ${assignedAdminId}`,
+      meta    : { assigned_to: assignedAdminId },
+      userId  : rows[0].user_id, ip,
     });
 
     return res.json({ success: true, assigned_to: assignedAdminId });
@@ -1884,7 +1759,7 @@ router.post("/store/:id/assign", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ▸ STORE — ADD NOTE
+   6f. POST /store/:id/note
 ══════════════════════════════════════════════════════════════ */
 router.post("/store/:id/note", async (req, res) => {
   const adminId = req.admin.id;
@@ -1901,13 +1776,10 @@ router.post("/store/:id/note", async (req, res) => {
     );
     if (!rows.length) return fail(res, 404, "Verification not found.");
 
-    /* Standalone note — pool is correct here */
     await addNote(pool, {
       verificationId  : req.params.id,
       verificationType: "store",
-      adminId,
-      action          : "note",
-      note,
+      adminId, action: "note", note,
     });
 
     return res.json({ success: true });
@@ -1917,19 +1789,209 @@ router.post("/store/:id/note", async (req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ████████████████████████████████████████████████████████████
-   UNIFIED ENDPOINTS
-   POST /:userId/approve  — approve identity + store at once
-   POST /:userId/reject   — reject  identity + store at once
-   POST /:userId/reset    — reset   identity + store at once
+   7a. POST /email/:userId/force-verify  (super-admin)
+══════════════════════════════════════════════════════════════ */
+router.post(
+  "/email/:userId/force-verify",
+  requireSuperAdmin,
+  async (req, res) => {
+    const adminId = req.admin.id;
+    const ip      = getIp(req);
+    const userId  = req.params.userId;
 
-   Registered LAST so /identity/*, /store/*, /stats, /trust/*
-   and /email/* all match before the catch-all /:userId param.
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const { rows } = await client.query(
+        "SELECT id, email, name FROM public.users WHERE id = $1 FOR UPDATE",
+        [userId]
+      );
+      if (!rows.length) {
+        await client.query("ROLLBACK");
+        return fail(res, 404, "User not found.");
+      }
+
+      const user = rows[0];
+
+      await client.query(
+        `UPDATE public.users
+         SET    email_verified = TRUE, email_verified_at = NOW(),
+                verified = TRUE, updated_at = NOW()
+         WHERE  id = $1`,
+        [userId]
+      );
+
+      const trustScore = await refreshAndPersistTrust(client, userId);
+
+      await addNote(client, {
+        verificationId  : userId,
+        verificationType: "email",
+        adminId,
+        action          : "force_verified",
+        note            : "Email force-verified by super-admin.",
+      });
+
+      await client.query("COMMIT");
+
+      reactivateLimitedListings(userId).catch(() => {});
+
+      createNotification({
+        userId,
+        type    : "email_verified",
+        title   : "Email Verified",
+        message : "Your email address has been verified by an administrator.",
+      }).catch(() => {});
+
+      log({
+        adminId, action: "force_email_verify", targetId: userId,
+        details : `Force-verified email for user ${userId}`,
+        meta    : { trust_score: trustScore },
+        userId, ip,
+      });
+
+      return res.json({ success: true, trust_score: trustScore });
+
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      return fail(res, 500, err.message);
+    } finally {
+      client.release();
+    }
+  }
+);
+
+/* ══════════════════════════════════════════════════════════════
+   7b. POST /email/:userId/revoke  (super-admin)
+══════════════════════════════════════════════════════════════ */
+router.post(
+  "/email/:userId/revoke",
+  requireSuperAdmin,
+  async (req, res) => {
+    const adminId = req.admin.id;
+    const ip      = getIp(req);
+    const userId  = req.params.userId;
+    const reason  =
+      (req.body.reason ?? "Revoked by super-admin.").trim();
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const { rows } = await client.query(
+        "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
+        [userId]
+      );
+      if (!rows.length) {
+        await client.query("ROLLBACK");
+        return fail(res, 404, "User not found.");
+      }
+
+      await client.query(
+        `UPDATE public.users
+         SET    email_verified = FALSE, email_verified_at = NULL,
+                verified = FALSE, updated_at = NOW()
+         WHERE  id = $1`,
+        [userId]
+      );
+
+      await client.query(
+        `UPDATE email_verifications
+         SET    status = 'expired', used_at = NOW()
+         WHERE  user_id = $1 AND status = 'active'`,
+        [userId]
+      );
+
+      const trustScore = await refreshAndPersistTrust(client, userId);
+
+      await addNote(client, {
+        verificationId  : userId,
+        verificationType: "email",
+        adminId, action: "revoked", note: reason,
+      });
+
+      await client.query("COMMIT");
+
+      createNotification({
+        userId,
+        type    : "email_revoked",
+        title   : "Email Verification Revoked",
+        message :
+          `Your email verification has been revoked. Reason: ${reason}`,
+      }).catch(() => {});
+
+      log({
+        adminId, action: "revoke_email_verify", targetId: userId,
+        details : `Revoked email for user ${userId}: ${reason}`,
+        meta    : { reason, trust_score: trustScore },
+        userId, ip,
+      });
+
+      return res.json({ success: true, trust_score: trustScore });
+
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      return fail(res, 500, err.message);
+    } finally {
+      client.release();
+    }
+  }
+);
+
+/* ══════════════════════════════════════════════════════════════
+   8.  POST /trust/:userId/recalculate
+══════════════════════════════════════════════════════════════ */
+router.post("/trust/:userId/recalculate", async (req, res) => {
+  const adminId = req.admin.id;
+  const ip      = getIp(req);
+  const userId  = req.params.userId;
+
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const { rows } = await client.query(
+      "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
+      [userId]
+    );
+    if (!rows.length) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "User not found.");
+    }
+
+    const trustScore = await refreshAndPersistTrust(client, userId);
+    await client.query("COMMIT");
+
+    log({
+      adminId, action: "recalculate_trust", targetId: userId,
+      details : `Recalculated trust for user ${userId} → ${trustScore}`,
+      meta    : { trust_score: trustScore },
+      userId, ip,
+    });
+
+    return res.json({ success: true, trust_score: trustScore });
+
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    return fail(res, 500, err.message);
+  } finally {
+    client.release();
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   ████████████████████████████████████████████████████████████
+   9.  UNIFIED ENDPOINTS  —  /:userId/approve|reject|reset
+       Registered LAST so all static-prefix routes above
+       match first.
    ████████████████████████████████████████████████████████████
 ══════════════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════════════
    POST /:userId/approve
+   • store record is fully optional
+   • accepts any non-approved identity status
+   • email_verified is a warning, not a hard block
 ══════════════════════════════════════════════════════════════ */
 router.post("/:userId/approve", async (req, res) => {
   const adminId = req.admin.id;
@@ -1943,7 +2005,7 @@ router.post("/:userId/approve", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* Lock + fetch user (holds lock for entire transaction) */
+    /* ── Lock + fetch user ── */
     const { rows: userRows } = await client.query(
       `SELECT
          id, email, name,
@@ -1962,7 +2024,7 @@ router.post("/:userId/approve", async (req, res) => {
 
     const user = userRows[0];
 
-    /* Already fully verified — return early, no error */
+    /* Already fully verified — nothing to do */
     if (user.identity_verified && user.store_verified) {
       await client.query("ROLLBACK");
       return res.json({
@@ -1971,39 +2033,61 @@ router.post("/:userId/approve", async (req, res) => {
       });
     }
 
-    /* Email must be verified before identity/store */
-    if (!user.email_verified) {
-      await client.query("ROLLBACK");
-      return fail(res, 422, "User email is not verified yet.");
-    }
-
+    /* Restricted account */
     if (user.status === "flagged" || user.status === "banned") {
       await client.query("ROLLBACK");
       return fail(res, 403, "Account is restricted and cannot be approved.");
     }
 
-    /* Lock pending identity */
+    /* Email warning — log but do not block */
+    if (!user.email_verified) {
+      console.warn(
+        "[approve-all] approving user with unverified email:", userId
+      );
+    }
+
+    /* ── Lock latest identity — any non-approved status ── */
     const { rows: idRows } = await client.query(
       `SELECT id, document_number_hash, status
-       FROM identity_verifications
-       WHERE user_id = $1
-         AND status IN ('pending', 'flagged')
-       ORDER BY created_at DESC
-       LIMIT 1
+       FROM   identity_verifications
+       WHERE  user_id = $1
+         AND  status != 'approved'
+       ORDER  BY created_at DESC
+       LIMIT  1
        FOR UPDATE`,
       [userId]
     );
 
     if (!idRows.length) {
       await client.query("ROLLBACK");
-      return fail(res, 404, "No pending identity verification found for this user.");
+
+      /* Precise error: distinguish "never submitted" from "already approved" */
+      const { rows: any } = await client.query(
+        `SELECT status FROM identity_verifications
+         WHERE  user_id = $1
+         ORDER  BY created_at DESC LIMIT 1`,
+        [userId]
+      );
+
+      if (!any.length)
+        return fail(res, 404,
+          "No identity verification found. " +
+          "The user has not submitted documents yet."
+        );
+
+      return res.json({
+        success : true,
+        message :
+          `Identity is already approved (status: ${any[0].status}). ` +
+          "Nothing to do.",
+      });
     }
 
     const idRec = idRows[0];
 
-    /* Duplicate document guard */
+    /* ── Duplicate document guard ── */
     if (idRec.document_number_hash) {
-      const { rows: dupRows } = await client.query(
+      const { rows: dup } = await client.query(
         `SELECT id FROM identity_verifications
          WHERE  document_number_hash = $1
            AND  user_id             <> $2
@@ -2012,12 +2096,12 @@ router.post("/:userId/approve", async (req, res) => {
         [idRec.document_number_hash, userId]
       );
 
-      if (dupRows.length) {
+      if (dup.length) {
         await client.query(
           `UPDATE identity_verifications
            SET    status             = 'flagged',
                   flagged_for_review = TRUE,
-                  risk_score        = GREATEST(COALESCE(risk_score, 0), 90),
+                  risk_score        = GREATEST(COALESCE(risk_score,0), 90),
                   updated_at        = NOW()
            WHERE  id = $1`,
           [idRec.id]
@@ -2028,7 +2112,7 @@ router.post("/:userId/approve", async (req, res) => {
           adminId,
           action          : "flagged",
           note            :
-            `Blocked: document hash matches ${dupRows.length} ` +
+            `Blocked: document hash matches ${dup.length} ` +
             `already-approved account(s). Manual review required.`,
         });
         await client.query("COMMIT");
@@ -2037,38 +2121,34 @@ router.post("/:userId/approve", async (req, res) => {
           action   : "flag_identity_duplicate",
           targetId : idRec.id,
           details  : `Duplicate document for user ${userId}`,
-          meta     : { duplicate_count: dupRows.length, risk_score: 90 },
-          userId,
-          ip,
+          meta     : { duplicate_count: dup.length, risk_score: 90 },
+          userId, ip,
         });
         return fail(
           res, 409,
-          `Duplicate document detected across ${dupRows.length} approved account(s). ` +
+          `Duplicate document detected across ${dup.length} approved account(s). ` +
           `Verification flagged for manual review.`,
           { flagged: true }
         );
       }
     }
 
-    /* Lock store record — accept pending, reset, OR already approved */
+    /* ── Store record — optional ── */
     const { rows: storeRows } = await client.query(
       `SELECT id, status
-       FROM store_verifications
-       WHERE user_id = $1
-       ORDER BY created_at DESC
-       LIMIT 1
+       FROM   store_verifications
+       WHERE  user_id = $1
+       ORDER  BY created_at DESC
+       LIMIT  1
        FOR UPDATE`,
       [userId]
     );
 
-    if (!storeRows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404, "No store verification record found for this user.");
-    }
+    const storeRec         = storeRows[0] ?? null;
+    const hasStore         = storeRec !== null;
+    const storeNeedsUpdate = hasStore && storeRec.status !== "approved";
 
-    const storeRec = storeRows[0];
-
-    /* Approve identity */
+    /* ── Approve identity ── */
     await client.query(
       `UPDATE identity_verifications
        SET    status             = 'approved',
@@ -2080,8 +2160,8 @@ router.post("/:userId/approve", async (req, res) => {
       [idRec.id, adminId]
     );
 
-    /* Approve store only if not already approved */
-    if (storeRec.status !== "approved") {
+    /* ── Approve store if it exists and is not already approved ── */
+    if (storeNeedsUpdate) {
       await client.query(
         `UPDATE store_verifications
          SET    status      = 'approved',
@@ -2093,49 +2173,53 @@ router.post("/:userId/approve", async (req, res) => {
       );
     }
 
-    /* Set user verified flags */
+    /* ── Update user flags ── */
     await client.query(
       `UPDATE public.users
        SET    identity_verified    = TRUE,
               identity_verified_at = NOW(),
-              store_verified       = TRUE,
-              store_verified_at    = NOW(),
+              store_verified       = CASE WHEN $2 THEN TRUE
+                                         ELSE store_verified END,
+              store_verified_at    = CASE WHEN $2 THEN NOW()
+                                         ELSE store_verified_at END,
               updated_at           = NOW()
        WHERE  id = $1`,
-      [userId]
+      [userId, hasStore]
     );
 
-    /* Trust score — user row already locked above */
+    /* ── Trust score (user row already locked) ── */
     const trustScore = await refreshAndPersistTrust(client, userId);
 
-    /* Notes on both records */
-    await Promise.all([
+    /* ── Notes ── */
+    const noteOps = [
       addNote(client, {
         verificationId  : idRec.id,
         verificationType: "identity",
-        adminId,
-        action          : "approved",
-        note,
+        adminId, action: "approved", note,
       }),
-      storeRec.status !== "approved"
-        ? addNote(client, {
-            verificationId  : storeRec.id,
-            verificationType: "store",
-            adminId,
-            action          : "approved",
-            note,
-          })
-        : Promise.resolve(),
-    ]);
+    ];
+    if (storeNeedsUpdate) {
+      noteOps.push(
+        addNote(client, {
+          verificationId  : storeRec.id,
+          verificationType: "store",
+          adminId, action: "approved", note,
+        })
+      );
+    }
+    await Promise.all(noteOps);
 
     await client.query("COMMIT");
 
     console.log(
-      "[admin] ✓ approve-all  userId:", userId,
-      " trust_score:", trustScore
+      "[admin] ✓ approve-all",
+      "userId:", userId,
+      "| idStatus:", idRec.status,
+      "| storeStatus:", storeRec?.status ?? "none",
+      "| trust:", trustScore
     );
 
-    /* Post-commit side effects */
+    /* ── Post-commit side effects ── */
     reactivateLimitedListings(userId).catch((e) =>
       console.error("[approve-all] reactivate:", e.message)
     );
@@ -2145,16 +2229,19 @@ router.post("/:userId/approve", async (req, res) => {
       adminId,
       action   : "approve_all",
       targetId : userId,
-      details  : `Approved identity + store for user ${userId}`,
-      meta     : {
+      details  :
+        `Approved identity${hasStore ? " + store" : ""} for user ${userId}`,
+      meta : {
         identity_verification_id : idRec.id,
-        store_verification_id    : storeRec.id,
-        store_was_pre_approved   : storeRec.status === "approved",
+        identity_previous_status : idRec.status,
+        store_verification_id    : storeRec?.id     ?? null,
+        store_previous_status    : storeRec?.status ?? "none",
+        store_was_pre_approved   : hasStore && !storeNeedsUpdate,
+        has_store                : hasStore,
         trust_score              : trustScore,
         note,
       },
-      userId,
-      ip,
+      userId, ip,
     });
 
     return res.json({
@@ -2162,11 +2249,11 @@ router.post("/:userId/approve", async (req, res) => {
       trust_score : trustScore,
       approved    : {
         identity : idRec.id,
-        store    : storeRec.id,
+        store    : storeRec?.id ?? null,
       },
       message :
-        "Identity and store approved. " +
-        "Approval email sent to user. Listings reactivated.",
+        `Identity${hasStore ? " and store" : ""} approved. ` +
+        "Approval email sent. Listings reactivated.",
     });
 
   } catch (err) {
@@ -2196,11 +2283,9 @@ router.post("/:userId/reject", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* Lock + fetch user */
     const { rows: userRows } = await client.query(
       `SELECT id, email, name, status
-       FROM public.users
-       WHERE id = $1
+       FROM public.users WHERE id = $1
        FOR UPDATE`,
       [userId]
     );
@@ -2216,7 +2301,7 @@ router.post("/:userId/reject", async (req, res) => {
     const { rows: idRows } = await client.query(
       `SELECT id, status FROM identity_verifications
        WHERE user_id = $1
-         AND status IN ('pending', 'flagged')
+         AND status IN ('pending','flagged')
        ORDER BY created_at DESC LIMIT 1
        FOR UPDATE`,
       [userId]
@@ -2226,7 +2311,7 @@ router.post("/:userId/reject", async (req, res) => {
     const { rows: storeRows } = await client.query(
       `SELECT id, status FROM store_verifications
        WHERE user_id = $1
-         AND status IN ('pending', 'reset')
+         AND status IN ('pending','reset')
        ORDER BY created_at DESC LIMIT 1
        FOR UPDATE`,
       [userId]
@@ -2234,52 +2319,41 @@ router.post("/:userId/reject", async (req, res) => {
 
     if (!idRows.length && !storeRows.length) {
       await client.query("ROLLBACK");
-      return fail(res, 404, "No pending verifications found for this user.");
+      return fail(res, 404,
+        "No pending verifications found for this user."
+      );
     }
 
-    /* Reject identity */
     if (idRows.length) {
       await client.query(
         `UPDATE identity_verifications
-         SET    status           = 'rejected',
-                rejection_reason = $2,
-                reviewed_by      = $3,
-                reviewed_at      = NOW(),
-                updated_at       = NOW()
+         SET    status = 'rejected', rejection_reason = $2,
+                reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
          WHERE  id = $1`,
         [idRows[0].id, reason, adminId]
       );
       await addNote(client, {
         verificationId  : idRows[0].id,
         verificationType: "identity",
-        adminId,
-        action          : "rejected",
-        note            : reason,
+        adminId, action: "rejected", note: reason,
       });
     }
 
-    /* Reject store */
     if (storeRows.length) {
       await client.query(
         `UPDATE store_verifications
-         SET    status           = 'rejected',
-                rejection_reason = $2,
-                reviewed_by      = $3,
-                reviewed_at      = NOW(),
-                updated_at       = NOW()
+         SET    status = 'rejected', rejection_reason = $2,
+                reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
          WHERE  id = $1`,
         [storeRows[0].id, reason, adminId]
       );
       await addNote(client, {
         verificationId  : storeRows[0].id,
         verificationType: "store",
-        adminId,
-        action          : "rejected",
-        note            : reason,
+        adminId, action: "rejected", note: reason,
       });
     }
 
-    /* Clear user flags */
     await client.query(
       `UPDATE public.users
        SET    identity_verified = FALSE,
@@ -2289,10 +2363,7 @@ router.post("/:userId/reject", async (req, res) => {
       [userId]
     );
 
-    /*
-     * Always downgrade listings on rejection regardless of whether
-     * identity or store (or both) records were found.
-     */
+    /* Always downgrade listings on any rejection */
     await downgradeListings(client, userId);
 
     const trustScore = await refreshAndPersistTrust(client, userId);
@@ -2300,11 +2371,13 @@ router.post("/:userId/reject", async (req, res) => {
     await client.query("COMMIT");
 
     console.log(
-      "[admin] ✓ reject-all  userId:", userId,
-      " trust_score:", trustScore
+      "[admin] ✓ reject-all",
+      "userId:", userId, "| trust:", trustScore
     );
 
-    notifyRejected({ userId, email: user.email, name: user.name, reason });
+    notifyRejected({
+      userId, email: user.email, name: user.name, reason,
+    });
 
     log({
       adminId,
@@ -2317,8 +2390,7 @@ router.post("/:userId/reject", async (req, res) => {
         reason,
         trust_score              : trustScore,
       },
-      userId,
-      ip,
+      userId, ip,
     });
 
     return res.json({
@@ -2328,7 +2400,7 @@ router.post("/:userId/reject", async (req, res) => {
         identity : idRows[0]?.id    ?? null,
         store    : storeRows[0]?.id ?? null,
       },
-      message : "Verification rejected. Rejection email sent to user.",
+      message : "Verification rejected. Rejection email sent.",
     });
 
   } catch (err) {
@@ -2354,12 +2426,8 @@ router.post("/:userId/reset", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* Lock + fetch user */
     const { rows: userRows } = await client.query(
-      `SELECT id, email, name
-       FROM public.users
-       WHERE id = $1
-       FOR UPDATE`,
+      `SELECT id, email, name FROM public.users WHERE id = $1 FOR UPDATE`,
       [userId]
     );
 
@@ -2370,7 +2438,6 @@ router.post("/:userId/reset", async (req, res) => {
 
     const user = userRows[0];
 
-    /* Lock latest identity */
     const { rows: idRows } = await client.query(
       `SELECT id FROM identity_verifications
        WHERE user_id = $1
@@ -2379,7 +2446,6 @@ router.post("/:userId/reset", async (req, res) => {
       [userId]
     );
 
-    /* Lock latest store */
     const { rows: storeRows } = await client.query(
       `SELECT id FROM store_verifications
        WHERE user_id = $1
@@ -2393,49 +2459,36 @@ router.post("/:userId/reset", async (req, res) => {
       return fail(res, 404, "No verification records found for this user.");
     }
 
-    /* Reset identity */
     if (idRows.length) {
       await client.query(
         `UPDATE identity_verifications
-         SET    status           = 'reset',
-                rejection_reason = $2,
-                reviewed_by      = $3,
-                reviewed_at      = NOW(),
-                updated_at       = NOW()
+         SET    status = 'reset', rejection_reason = $2,
+                reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
          WHERE  id = $1`,
         [idRows[0].id, note, adminId]
       );
       await addNote(client, {
         verificationId  : idRows[0].id,
         verificationType: "identity",
-        adminId,
-        action          : "reset",
-        note,
+        adminId, action: "reset", note,
       });
     }
 
-    /* Reset store */
     if (storeRows.length) {
       await client.query(
         `UPDATE store_verifications
-         SET    status           = 'reset',
-                rejection_reason = $2,
-                reviewed_by      = $3,
-                reviewed_at      = NOW(),
-                updated_at       = NOW()
+         SET    status = 'reset', rejection_reason = $2,
+                reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
          WHERE  id = $1`,
         [storeRows[0].id, note, adminId]
       );
       await addNote(client, {
         verificationId  : storeRows[0].id,
         verificationType: "store",
-        adminId,
-        action          : "reset",
-        note,
+        adminId, action: "reset", note,
       });
     }
 
-    /* Clear user flags */
     await client.query(
       `UPDATE public.users
        SET    identity_verified = FALSE,
@@ -2450,8 +2503,8 @@ router.post("/:userId/reset", async (req, res) => {
     await client.query("COMMIT");
 
     console.log(
-      "[admin] ✓ reset-all  userId:", userId,
-      " trust_score:", trustScore
+      "[admin] ✓ reset-all",
+      "userId:", userId, "| trust:", trustScore
     );
 
     notifyReset({ userId, email: user.email, name: user.name, note });
@@ -2467,8 +2520,7 @@ router.post("/:userId/reset", async (req, res) => {
         note,
         trust_score              : trustScore,
       },
-      userId,
-      ip,
+      userId, ip,
     });
 
     return res.json({
@@ -2478,208 +2530,12 @@ router.post("/:userId/reset", async (req, res) => {
         identity : idRows[0]?.id    ?? null,
         store    : storeRows[0]?.id ?? null,
       },
-      message : "Verification reset. Resubmission email sent to user.",
+      message : "Verification reset. Resubmission email sent.",
     });
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     console.error("[POST /:userId/reset]", err.message, err.stack);
-    return fail(res, 500, err.message);
-  } finally {
-    client.release();
-  }
-});
-
-/* ══════════════════════════════════════════════════════════════
-   EMAIL — FORCE VERIFY (super-admin only)
-══════════════════════════════════════════════════════════════ */
-router.post("/email/:userId/force-verify", requireSuperAdmin, async (req, res) => {
-  const adminId = req.admin.id;
-  const ip      = getIp(req);
-  const userId  = req.params.userId;
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    const { rows } = await client.query(
-      "SELECT id, email, name FROM public.users WHERE id = $1 FOR UPDATE",
-      [userId]
-    );
-    if (!rows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404, "User not found.");
-    }
-
-    const user = rows[0];
-
-    await client.query(
-      `UPDATE public.users
-       SET    email_verified    = TRUE,
-              email_verified_at = NOW(),
-              verified          = TRUE,
-              updated_at        = NOW()
-       WHERE  id = $1`,
-      [userId]
-    );
-
-    const trustScore = await refreshAndPersistTrust(client, userId);
-
-    await addNote(client, {
-      verificationId  : userId,
-      verificationType: "email",
-      adminId,
-      action          : "force_verified",
-      note            : "Email force-verified by super-admin.",
-    });
-
-    await client.query("COMMIT");
-
-    reactivateLimitedListings(userId).catch(() => {});
-
-    createNotification({
-      userId,
-      type    : "email_verified",
-      title   : "Email Verified",
-      message : "Your email address has been verified by an administrator.",
-    }).catch(() => {});
-
-    log({
-      adminId,
-      action   : "force_email_verify",
-      targetId : userId,
-      details  : `Force-verified email for user ${userId}`,
-      meta     : { trust_score: trustScore },
-      userId,
-      ip,
-    });
-
-    return res.json({ success: true, trust_score: trustScore });
-
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    return fail(res, 500, err.message);
-  } finally {
-    client.release();
-  }
-});
-
-/* ══════════════════════════════════════════════════════════════
-   EMAIL — REVOKE (super-admin only)
-══════════════════════════════════════════════════════════════ */
-router.post("/email/:userId/revoke", requireSuperAdmin, async (req, res) => {
-  const adminId = req.admin.id;
-  const ip      = getIp(req);
-  const userId  = req.params.userId;
-  const reason  = (req.body.reason ?? "Revoked by super-admin.").trim();
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    const { rows } = await client.query(
-      "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
-      [userId]
-    );
-    if (!rows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404, "User not found.");
-    }
-
-    await client.query(
-      `UPDATE public.users
-       SET    email_verified    = FALSE,
-              email_verified_at = NULL,
-              verified          = FALSE,
-              updated_at        = NOW()
-       WHERE  id = $1`,
-      [userId]
-    );
-
-    await client.query(
-      `UPDATE email_verifications
-       SET    status = 'expired', used_at = NOW()
-       WHERE  user_id = $1 AND status = 'active'`,
-      [userId]
-    );
-
-    const trustScore = await refreshAndPersistTrust(client, userId);
-
-    await addNote(client, {
-      verificationId  : userId,
-      verificationType: "email",
-      adminId,
-      action          : "revoked",
-      note            : reason,
-    });
-
-    await client.query("COMMIT");
-
-    createNotification({
-      userId,
-      type    : "email_revoked",
-      title   : "Email Verification Revoked",
-      message : `Your email verification has been revoked. Reason: ${reason}`,
-    }).catch(() => {});
-
-    log({
-      adminId,
-      action   : "revoke_email_verify",
-      targetId : userId,
-      details  : `Revoked email for user ${userId}: ${reason}`,
-      meta     : { reason, trust_score: trustScore },
-      userId,
-      ip,
-    });
-
-    return res.json({ success: true, trust_score: trustScore });
-
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    return fail(res, 500, err.message);
-  } finally {
-    client.release();
-  }
-});
-
-/* ══════════════════════════════════════════════════════════════
-   TRUST SCORE — manual recalculate
-══════════════════════════════════════════════════════════════ */
-router.post("/trust/:userId/recalculate", async (req, res) => {
-  const adminId = req.admin.id;
-  const ip      = getIp(req);
-  const userId  = req.params.userId;
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    const { rows } = await client.query(
-      "SELECT id FROM public.users WHERE id = $1 FOR UPDATE",
-      [userId]
-    );
-    if (!rows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404, "User not found.");
-    }
-
-    const trustScore = await refreshAndPersistTrust(client, userId);
-    await client.query("COMMIT");
-
-    log({
-      adminId,
-      action   : "recalculate_trust",
-      targetId : userId,
-      details  : `Recalculated trust for user ${userId} → ${trustScore}`,
-      meta     : { trust_score: trustScore },
-      userId,
-      ip,
-    });
-
-    return res.json({ success: true, trust_score: trustScore });
-
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
     return fail(res, 500, err.message);
   } finally {
     client.release();
