@@ -83,7 +83,7 @@ function shell({ title, preheader, body }) {
       font-size:22px;font-weight:800;
       color:#f1f5f9;letter-spacing:-0.5px;
     }
-    .brand-dot{color:#3b82f6;}
+    .brand-dot{color:#FF5C00;}
     .body{padding:32px;}
     h2{font-size:20px;font-weight:700;color:#f1f5f9;margin:0 0 12px;}
     p{font-size:14px;color:#94a3b8;line-height:1.7;margin:0 0 14px;}
@@ -164,12 +164,38 @@ function shell({ title, preheader, body }) {
       border-radius:9px;padding:13px 16px;margin:18px 0;
       font-size:13px;color:#fcd34d;line-height:1.55;
     }
-    /* cta button */
+    /* cta button — orange for password reset, blue elsewhere */
     .cta{
       display:inline-block;margin:18px 0 4px;
       padding:13px 32px;border-radius:10px;
-      background:#3b82f6;color:#fff;
       font-size:14px;font-weight:700;text-decoration:none;
+    }
+    .cta-orange{background:#FF5C00;color:#fff;}
+    .cta-blue  {background:#3b82f6;color:#fff;}
+    /* reset-specific */
+    .reset-banner{
+      background:rgba(255,92,0,0.08);
+      border:1px solid rgba(255,92,0,0.25);
+      border-radius:12px;padding:20px 24px;
+      margin:20px 0;text-align:center;
+    }
+    .reset-banner .icon   {font-size:36px;margin-bottom:8px;}
+    .reset-banner .headline{
+      font-size:18px;font-weight:800;color:#FF8040;margin-bottom:6px;
+    }
+    .reset-banner .sub    {font-size:13px;color:#FFAA80;line-height:1.6;}
+    .reset-fallback{
+      margin-top:18px;padding:13px 16px;
+      background:#111c2d;border-radius:9px;
+      font-size:11px;color:#64748b;line-height:1.6;
+      word-break:break-all;
+    }
+    .reset-fallback a{color:#FF8040;text-decoration:none;}
+    .reset-security{
+      background:rgba(245,158,11,0.08);
+      border:1px solid rgba(245,158,11,0.22);
+      border-radius:9px;padding:12px 16px;
+      margin:18px 0;font-size:12px;color:#fcd34d;line-height:1.55;
     }
     /* footer */
     .footer{
@@ -178,7 +204,7 @@ function shell({ title, preheader, body }) {
       font-size:11px;color:#475569;
       text-align:center;line-height:1.7;
     }
-    .footer a{color:#3b82f6;text-decoration:none;}
+    .footer a{color:#FF5C00;text-decoration:none;}
     @media(max-width:480px){
       .body{padding:24px 18px;}
       .brand-bar{padding:20px 18px;}
@@ -266,6 +292,105 @@ async function send({ to, subject, html, text }) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
+   PASSWORD RESET  ← new export consumed by routes/auth.routes.js
+════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * sendPasswordResetEmail
+ *
+ * Called by:
+ *   routes/auth.routes.js  POST /api/auth/forgot-password
+ *
+ * @param {{ to: string, name: string, resetUrl: string }} opts
+ */
+export async function sendPasswordResetEmail({ to, name, resetUrl }) {
+  console.log("[email] sendPasswordResetEmail called", {
+    to      : to       ?? "MISSING",
+    name    : name     ?? "MISSING",
+    resetUrl: IS_PROD  ? "[hidden]" : (resetUrl ?? "MISSING"),
+  });
+
+  if (!to)       throw new Error("sendPasswordResetEmail: `to` is required");
+  if (!resetUrl) throw new Error("sendPasswordResetEmail: `resetUrl` is required");
+
+  const safeName = esc(name || "there");
+  const safeUrl  = esc(resetUrl);          // shown in fallback text only
+  const EXPIRY   = 30;                     // keep in sync with auth.routes.js
+
+  const body = `
+    <h2>Reset your password</h2>
+    <p>Hi <span class="hi">${safeName}</span>,</p>
+    <p>
+      We received a request to reset the password for your
+      <strong>${esc(BRAND)}</strong> account.
+      Click the button below — this link expires in
+      <strong>${EXPIRY}&nbsp;minutes</strong>.
+    </p>
+
+    <div class="reset-banner">
+      <div class="icon">🔑</div>
+      <div class="headline">Password Reset Request</div>
+      <div class="sub">
+        Link expires in ${EXPIRY} minutes &nbsp;·&nbsp; One-time use only
+      </div>
+    </div>
+
+    <p style="text-align:center;">
+      <a href="${resetUrl}" class="cta cta-orange">
+        Reset my password →
+      </a>
+    </p>
+
+    <div class="reset-security">
+      <strong style="color:#f1f5f9;">Security notice:</strong>
+      Never share this link with anyone.
+      ${esc(BRAND)} staff will <strong>never</strong> ask for it.
+      This link can only be used <strong>once</strong>.
+    </div>
+
+    <p>
+      If you didn't request a password reset, you can safely ignore this email —
+      your password will <strong>not</strong> change.
+    </p>
+
+    <div class="reset-fallback">
+      Button not working? Copy this link into your browser:<br/>
+      <a href="${resetUrl}">${safeUrl}</a>
+    </div>
+  `;
+
+  return send({
+    to,
+    subject : `Reset your ${BRAND} password`,
+    html    : shell({
+      title     : `Reset your ${BRAND} password`,
+      preheader : `Reset link inside — expires in ${EXPIRY} minutes. Ignore if you didn't request this.`,
+      body,
+    }),
+    text: [
+      `Hi ${name || "there"},`,
+      ``,
+      `We received a request to reset your ${BRAND} password.`,
+      ``,
+      `Click the link below to choose a new password`,
+      `(expires in ${EXPIRY} minutes, one-time use):`,
+      ``,
+      `  ${resetUrl}`,
+      ``,
+      `Security notice:`,
+      `  • Never share this link with anyone`,
+      `  • ${BRAND} staff will never ask for it`,
+      `  • This link can only be used once`,
+      ``,
+      `If you didn't request this, ignore this email.`,
+      `Your password will not change.`,
+      ``,
+      `— ${BRAND}`,
+    ].join("\n"),
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
    EXISTING EXPORTS (unchanged)
 ════════════════════════════════════════════════════════════════════════════ */
 
@@ -348,7 +473,7 @@ export async function sendWelcomeEmail({ to, name }) {
     </p>
     <p style="font-size:13px;color:#64748b;margin-top:20px;">
       Questions?
-      <a href="mailto:${SUPPORT}" style="color:#3b82f6;">${SUPPORT}</a>
+      <a href="mailto:${SUPPORT}" style="color:#FF5C00;">${SUPPORT}</a>
     </p>
   `;
 
@@ -395,7 +520,7 @@ export async function sendIdentityStatusEmail({ to, name, approved, reason }) {
         </div>
         <p>
           Please log in and resubmit. Questions?
-          <a href="mailto:${SUPPORT}" style="color:#3b82f6;">${SUPPORT}</a>
+          <a href="mailto:${SUPPORT}" style="color:#FF5C00;">${SUPPORT}</a>
         </p>
       `;
 
@@ -453,7 +578,7 @@ export async function sendStoreStatusEmail({
         </div>
         <p>
           Please update and resubmit. Questions?
-          <a href="mailto:${SUPPORT}" style="color:#3b82f6;">${SUPPORT}</a>
+          <a href="mailto:${SUPPORT}" style="color:#FF5C00;">${SUPPORT}</a>
         </p>
       `;
 
@@ -484,15 +609,9 @@ export async function sendStoreStatusEmail({
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   NEW EXPORTS
-   Used by routes/admin/verification.js unified /:userId/approve|reject|reset
+   ADMIN VERIFICATION EMAILS
 ════════════════════════════════════════════════════════════════════════════ */
 
-/**
- * sendVerificationApprovedEmail
- * Sent when admin approves identity + store in one action.
- * Shows a clear "Fully Verified" confirmation with benefit list.
- */
 export async function sendVerificationApprovedEmail({ to, name }) {
   if (!to) throw new Error("sendVerificationApprovedEmail: `to` is required");
 
@@ -526,13 +645,11 @@ export async function sendVerificationApprovedEmail({ to, name }) {
       <li><span class="tick">✓</span> Higher trust score — more buyer confidence</li>
     </ul>
 
-    <p>
-      Log in to your account to start listing.
-    </p>
+    <p>Log in to your account to start listing.</p>
 
     <p style="font-size:13px;color:#64748b;margin-top:8px;">
       Questions?
-      <a href="mailto:${SUPPORT}" style="color:#3b82f6;">${SUPPORT}</a>
+      <a href="mailto:${SUPPORT}" style="color:#FF5C00;">${SUPPORT}</a>
     </p>
   `;
 
@@ -567,11 +684,6 @@ export async function sendVerificationApprovedEmail({ to, name }) {
   });
 }
 
-/**
- * sendVerificationRejectedEmail
- * Sent when admin rejects identity + store in one action.
- * Shows the rejection reason clearly and prompts resubmission.
- */
 export async function sendVerificationRejectedEmail({ to, name, reason }) {
   if (!to) throw new Error("sendVerificationRejectedEmail: `to` is required");
 
@@ -605,7 +717,7 @@ export async function sendVerificationRejectedEmail({ to, name, reason }) {
 
     <p>
       If you believe this is a mistake or need help, contact us at
-      <a href="mailto:${SUPPORT}" style="color:#3b82f6;">${SUPPORT}</a>.
+      <a href="mailto:${SUPPORT}" style="color:#FF5C00;">${SUPPORT}</a>.
     </p>
   `;
 
@@ -633,11 +745,6 @@ export async function sendVerificationRejectedEmail({ to, name, reason }) {
   });
 }
 
-/**
- * sendVerificationResetEmail
- * Sent when admin resets verification and asks the user to resubmit.
- * Includes the admin's note if provided.
- */
 export async function sendVerificationResetEmail({ to, name, note }) {
   if (!to) throw new Error("sendVerificationResetEmail: `to` is required");
 
@@ -681,7 +788,7 @@ export async function sendVerificationResetEmail({ to, name, note }) {
 
     <p>
       Questions?
-      <a href="mailto:${SUPPORT}" style="color:#3b82f6;">${SUPPORT}</a>
+      <a href="mailto:${SUPPORT}" style="color:#FF5C00;">${SUPPORT}</a>
     </p>
   `;
 
