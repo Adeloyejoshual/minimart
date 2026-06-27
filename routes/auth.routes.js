@@ -4,29 +4,29 @@
  * POST /api/auth/register
  * POST /api/auth/login
  * POST /api/auth/forgot-password
+ * GET  /api/auth/reset-password/:token   (validate — optional, kept for safety)
  * POST /api/auth/reset-password
- * GET  /api/auth/reset-password/:token  (validate token)
  */
 
-import express     from "express";
-import bcrypt      from "bcryptjs";
-import crypto      from "crypto";
-import jwt         from "jsonwebtoken";
-import rateLimit   from "express-rate-limit";
+import express   from "express";
+import bcrypt    from "bcryptjs";
+import crypto    from "crypto";
+import jwt       from "jsonwebtoken";
+import rateLimit from "express-rate-limit";
 
-import { pool }                    from "../config/db.js";
-import { sendPasswordResetEmail }  from "../services/email.js";
-import { writeAudit }              from "../lib/audit.js";
+import { pool }                   from "../config/db.js";
+import { sendPasswordResetEmail } from "../services/email.js";
+import { writeAudit }             from "../lib/audit.js";
 
 const router = express.Router();
 
 /* ── helpers ─────────────────────────────────────────────────── */
-const getIp  = (req) => req.ip ?? req.socket?.remoteAddress ?? null;
-const fail   = (res, status, message, extra = {}) =>
+const getIp = (req) => req.ip ?? req.socket?.remoteAddress ?? null;
+const fail  = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
-const HASH_ROUNDS = 12;
-const TOKEN_BYTES = 32;               // 32 random bytes = 64 hex chars
+const HASH_ROUNDS          = 12;
+const TOKEN_BYTES          = 32;    // 64 hex chars
 const RESET_EXPIRY_MINUTES = 30;
 
 /* ── rate limiters ───────────────────────────────────────────── */
@@ -37,7 +37,7 @@ const authLimiter = rateLimit({
 });
 
 const forgotLimiter = rateLimit({
-  windowMs : 60 * 60 * 1_000,   // 1 hour
+  windowMs : 60 * 60 * 1_000,
   max      : 5,
   message  : { success: false, message: "Too many reset requests. Try again in an hour." },
 });
@@ -57,12 +57,10 @@ router.post("/register", authLimiter, async (req, res, next) => {
     phone_number, country, state, city,
   } = req.body;
 
-  if (!name || !email || !password) {
+  if (!name || !email || !password)
     return fail(res, 400, "Name, email and password are required.");
-  }
-  if (password.length < 8) {
+  if (password.length < 8)
     return fail(res, 400, "Password must be at least 8 characters.");
-  }
 
   const client = await pool.connect();
   try {
@@ -91,9 +89,9 @@ router.post("/register", authLimiter, async (req, res, next) => {
         email.toLowerCase().trim(),
         password_hash,
         phone_number?.trim() ?? null,
-        country              ?? null,
-        state                ?? null,
-        city                 ?? null,
+        country ?? null,
+        state   ?? null,
+        city    ?? null,
       ]
     );
 
@@ -105,7 +103,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
       { expiresIn: process.env.JWT_EXPIRES_IN ?? "7d" }
     );
 
-    await writeAudit({
+    writeAudit({
       actorId    : user.id,
       action     : "user_registered",
       targetType : "user",
@@ -139,9 +137,8 @@ router.post("/register", authLimiter, async (req, res, next) => {
 router.post("/login", authLimiter, async (req, res, next) => {
   const { email, password } = req.body;
 
-  if (!email || !password) {
+  if (!email || !password)
     return fail(res, 400, "Email and password are required.");
-  }
 
   try {
     const { rows } = await pool.query(
@@ -151,9 +148,8 @@ router.post("/login", authLimiter, async (req, res, next) => {
       [email.toLowerCase().trim()]
     );
 
-    if (!rows.length) {
+    if (!rows.length)
       return fail(res, 401, "Invalid email or password.");
-    }
 
     const user = rows[0];
 
@@ -164,9 +160,8 @@ router.post("/login", authLimiter, async (req, res, next) => {
     }
 
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) {
+    if (!valid)
       return fail(res, 401, "Invalid email or password.");
-    }
 
     const token = jwt.sign(
       { id: user.id, email: user.email, role: user.role },
@@ -174,7 +169,7 @@ router.post("/login", authLimiter, async (req, res, next) => {
       { expiresIn: process.env.JWT_EXPIRES_IN ?? "7d" }
     );
 
-    await writeAudit({
+    writeAudit({
       actorId    : user.id,
       action     : "user_login",
       targetType : "user",
@@ -201,17 +196,16 @@ router.post("/login", authLimiter, async (req, res, next) => {
 
 /* ════════════════════════════════════════════════════════════════
    POST /api/auth/forgot-password
-   Always returns 200 — never reveal whether email exists
+   Always returns 200 — never reveals whether email exists
 ════════════════════════════════════════════════════════════════ */
 router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
   const { email } = req.body;
   const ip        = getIp(req);
 
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     return fail(res, 400, "A valid email address is required.");
-  }
 
-  /* Always respond the same — no email enumeration */
+  /* Always the same response — prevents email enumeration */
   const SAFE_RESPONSE = {
     success : true,
     message : "If an account exists for that email, a reset link has been sent.",
@@ -223,12 +217,11 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
       [email.toLowerCase().trim()]
     );
 
-    /* No account — return safe response, do nothing else */
     if (!rows.length) return res.json(SAFE_RESPONSE);
 
     const user = rows[0];
 
-    /* Invalidate any existing unused tokens */
+    /* Invalidate any existing unused tokens for this user */
     await pool.query(
       `UPDATE password_reset_tokens
        SET    used = true
@@ -236,12 +229,9 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
       [user.id]
     );
 
-    /* Generate secure random token */
+    /* Generate a secure random token */
     const rawToken  = crypto.randomBytes(TOKEN_BYTES).toString("hex");
-    const tokenHash = crypto
-      .createHash("sha256")
-      .update(rawToken)
-      .digest("hex");
+    const tokenHash = crypto.createHash("sha256").update(rawToken).digest("hex");
 
     await pool.query(
       `INSERT INTO password_reset_tokens
@@ -254,31 +244,33 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
       [user.id, tokenHash, RESET_EXPIRY_MINUTES, ip]
     );
 
-    /* Build reset URL */
+    /*
+     * ✅ FIXED: reset link now points to /auth?token=
+     * so AuthPage.jsx ResetPanel picks it up via ?token= param
+     * (was incorrectly /reset-password?token= pointing to a
+     *  non-existent separate page)
+     */
     const CLIENT_URL = process.env.CLIENT_URL || "https://www.loemart.com";
-    const resetUrl   = `${CLIENT_URL}/reset-password?token=${rawToken}`;
+    const resetUrl   = `${CLIENT_URL}/auth?token=${rawToken}`;
 
-    /* Send email */
     try {
       await sendPasswordResetEmail({
         to       : user.email,
         name     : user.name,
         resetUrl,
       });
-      console.log(`[forgot-password] reset email sent to ${user.email}`);
+      console.log(`[forgot-password] ✓ reset email sent → ${user.email}`);
     } catch (mailErr) {
-      console.error("[forgot-password] email failed:", mailErr.message);
-      /* Cleanup token so user can try again */
+      console.error("[forgot-password] email send failed:", mailErr.message);
+      /* Invalidate the token so the user can try again cleanly */
       await pool.query(
-        `UPDATE password_reset_tokens
-         SET used = true
-         WHERE token_hash = $1`,
+        `UPDATE password_reset_tokens SET used = true WHERE token_hash = $1`,
         [tokenHash]
       ).catch(() => {});
       return fail(res, 500, "Failed to send reset email. Please try again.");
     }
 
-    await writeAudit({
+    writeAudit({
       actorId    : user.id,
       action     : "password_reset_requested",
       targetType : "user",
@@ -295,23 +287,19 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
 
 /* ════════════════════════════════════════════════════════════════
    GET /api/auth/reset-password/:token
-   Validate token before showing the reset form
+   Called by ResetPanel on mount to validate before showing form
 ════════════════════════════════════════════════════════════════ */
 router.get("/reset-password/:token", async (req, res, next) => {
   const { token } = req.params;
 
-  if (!token || token.length !== TOKEN_BYTES * 2) {
+  if (!token || token.length !== TOKEN_BYTES * 2)
     return fail(res, 400, "Invalid reset token.");
-  }
 
   try {
-    const tokenHash = crypto
-      .createHash("sha256")
-      .update(token)
-      .digest("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
     const { rows } = await pool.query(
-      `SELECT prt.id, prt.user_id, prt.expires_at, u.email
+      `SELECT prt.id, prt.expires_at, u.email
        FROM   password_reset_tokens prt
        JOIN   users u ON u.id = prt.user_id
        WHERE  prt.token_hash = $1
@@ -326,16 +314,16 @@ router.get("/reset-password/:token", async (req, res, next) => {
       });
     }
 
-    const rec       = rows[0];
     const expiresIn = Math.round(
-      (new Date(rec.expires_at) - Date.now()) / 60_000
+      (new Date(rows[0].expires_at) - Date.now()) / 60_000
     );
 
     return res.json({
-      success    : true,
-      valid      : true,
-      email      : rec.email.replace(/(.{2})(.*)(@.*)/, "$1***$3"),
-      expiresIn,             // minutes remaining
+      success   : true,
+      valid     : true,
+      /* mask email — show enough for user to recognise their account */
+      email     : rows[0].email.replace(/(.{2})(.*)(@.*)/, "$1***$3"),
+      expiresIn,    // minutes remaining
     });
 
   } catch (err) {
@@ -345,34 +333,26 @@ router.get("/reset-password/:token", async (req, res, next) => {
 
 /* ════════════════════════════════════════════════════════════════
    POST /api/auth/reset-password
-   Actually change the password
+   Actually updates the password
 ════════════════════════════════════════════════════════════════ */
 router.post("/reset-password", resetLimiter, async (req, res, next) => {
   const { token, password } = req.body;
   const ip                  = getIp(req);
 
-  if (!token || !password) {
+  if (!token || !password)
     return fail(res, 400, "Token and new password are required.");
-  }
-
-  if (token.length !== TOKEN_BYTES * 2) {
+  if (token.length !== TOKEN_BYTES * 2)
     return fail(res, 400, "Invalid reset token.");
-  }
-
-  if (password.length < 8) {
+  if (password.length < 8)
     return fail(res, 400, "Password must be at least 8 characters.");
-  }
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    const tokenHash = crypto
-      .createHash("sha256")
-      .update(token)
-      .digest("hex");
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
 
-    /* Lock and fetch token record */
+    /* Lock the token row to prevent concurrent reuse */
     const { rows } = await client.query(
       `SELECT prt.id, prt.user_id, u.email, u.name
        FROM   password_reset_tokens prt
@@ -393,7 +373,6 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
 
     const rec = rows[0];
 
-    /* Hash new password */
     const password_hash = await bcrypt.hash(password, HASH_ROUNDS);
 
     /* Update password */
@@ -405,25 +384,24 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
       [password_hash, rec.user_id]
     );
 
-    /* Mark token used — atomic, prevents reuse */
+    /* Mark token used — one-time use enforced atomically */
     const { rows: marked } = await client.query(
       `UPDATE password_reset_tokens
        SET    used = true
-       WHERE  id   = $1
-         AND  used = false
+       WHERE  id   = $1 AND used = false
        RETURNING id`,
       [rec.id]
     );
 
     if (!marked.length) {
-      /* Token was already used between SELECT and UPDATE */
+      /* Another request consumed this token between our SELECT and UPDATE */
       await client.query("ROLLBACK");
       return fail(res, 400, "This reset link has already been used.", {
         code: "TOKEN_USED",
       });
     }
 
-    /* Invalidate all other tokens for this user */
+    /* Invalidate any other tokens for this user (cleanup) */
     await client.query(
       `UPDATE password_reset_tokens
        SET    used = true
@@ -433,7 +411,7 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
 
     await client.query("COMMIT");
 
-    await writeAudit({
+    writeAudit({
       actorId    : rec.user_id,
       action     : "password_reset_completed",
       targetType : "user",
@@ -441,7 +419,7 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
       ipAddress  : ip,
     }).catch(console.error);
 
-    console.log(`[reset-password] password changed for user ${rec.user_id}`);
+    console.log(`[reset-password] ✓ password updated — user: ${rec.user_id}`);
 
     return res.json({
       success : true,
