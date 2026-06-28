@@ -9,7 +9,7 @@
  */
 
 import express   from "express";
-import bcrypt    from "bcryptjs";
+import bcrypt    from "bcrypt";
 import crypto    from "crypto";
 import jwt       from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
