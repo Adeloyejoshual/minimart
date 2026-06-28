@@ -37,7 +37,6 @@ const getIp = (req) =>
   req.socket?.remoteAddress ??
   null;
 
-const ok   = (res, data = {})          => res.json({ success: true,  ...data });
 const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
@@ -63,12 +62,55 @@ const makeJwt = (user) =>
   );
 
 /* ═══════════════════════════════════════════════════════════════
+   AUTO-MIGRATION
+   Creates password_reset_tokens if it doesn't exist yet.
+   Runs once at startup — safe to leave in production.
+═══════════════════════════════════════════════════════════════ */
+async function ensureResetTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS password_reset_tokens (
+        id         UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id    UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash TEXT        NOT NULL,
+        expires_at TIMESTAMPTZ NOT NULL,
+        ip_address TEXT,
+        used       BOOLEAN     NOT NULL DEFAULT false,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+
+    /* indexes — CREATE INDEX IF NOT EXISTS is idempotent */
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_prt_token_hash
+        ON password_reset_tokens (token_hash)
+        WHERE used = false
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_prt_user_id
+        ON password_reset_tokens (user_id)
+        WHERE used = false
+    `);
+
+    console.log("[auth] ✓ password_reset_tokens table ready");
+  } catch (err) {
+    /* Non-fatal — log and continue.
+       If the table truly doesn't exist, routes will fail with
+       a clear DB error rather than a silent crash. */
+    console.error("[auth] ensureResetTable failed:", err.message);
+  }
+}
+
+/* fire-and-forget — don't block route registration */
+ensureResetTable();
+
+/* ═══════════════════════════════════════════════════════════════
    RATE LIMITERS
 ═══════════════════════════════════════════════════════════════ */
 const mkLimiter = ({ windowMin, max, message }) =>
   rateLimit({
     windowMs        : windowMin * 60 * 1_000,
-    max             : IS_PROD ? max : max * 50,
+    max             : IS_PROD ? max : max * 50,   // relaxed in dev
     standardHeaders : true,
     legacyHeaders   : false,
     keyGenerator    : (req) => String(req.user?.id ?? req.ip),
@@ -76,9 +118,21 @@ const mkLimiter = ({ windowMin, max, message }) =>
       res.status(429).json({ success: false, message }),
   });
 
-const authLimiter   = mkLimiter({ windowMin: 15, max: 10,  message: "Too many attempts. Try again later."              });
-const forgotLimiter = mkLimiter({ windowMin: 60, max: 5,   message: "Too many reset requests. Try again in an hour."   });
-const resetLimiter  = mkLimiter({ windowMin: 15, max: 10,  message: "Too many reset attempts. Try again later."        });
+const authLimiter   = mkLimiter({
+  windowMin : 15,
+  max       : 10,
+  message   : "Too many attempts. Please try again later.",
+});
+const forgotLimiter = mkLimiter({
+  windowMin : 60,
+  max       : 5,
+  message   : "Too many reset requests. Please try again in an hour.",
+});
+const resetLimiter  = mkLimiter({
+  windowMin : 15,
+  max       : 10,
+  message   : "Too many reset attempts. Please try again later.",
+});
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/auth/register
@@ -161,12 +215,15 @@ router.post("/register", authLimiter, async (req, res, next) => {
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
 
-    /* unique constraint on phone */
     if (err.code === "23505") {
       const detail = (err.detail ?? "").toLowerCase();
       if (detail.includes("phone"))
-        return fail(res, 409, "Phone number already registered.", { code: "PHONE_TAKEN" });
-      return fail(res, 409, "An account with this email already exists.", { code: "EMAIL_TAKEN" });
+        return fail(res, 409, "Phone number already registered.", {
+          code: "PHONE_TAKEN",
+        });
+      return fail(res, 409, "An account with this email already exists.", {
+        code: "EMAIL_TAKEN",
+      });
     }
 
     console.error("[auth] register error:", err.message);
@@ -195,7 +252,7 @@ router.post("/login", authLimiter, async (req, res, next) => {
       [cleanEmail]
     );
 
-    /* same message for missing user and wrong password — no enumeration */
+    /* identical message for no-user and wrong-password — prevents enumeration */
     if (!rows.length)
       return fail(res, 401, "Invalid email or password.");
 
@@ -211,13 +268,12 @@ router.post("/login", authLimiter, async (req, res, next) => {
     if (!valid)
       return fail(res, 401, "Invalid email or password.");
 
-    /* fire-and-forget last_login */
+    /* fire-and-forget — don't block the response */
     pool.query(
       "UPDATE users SET last_login = NOW(), is_online = true WHERE id = $1",
       [row.id]
     ).catch((e) => console.error("[auth] last_login update failed:", e.message));
 
-    /* strip password_hash before sending */
     const { password_hash, ...user } = row;
     const token = makeJwt(user);
 
@@ -252,11 +308,10 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
   const { email } = req.body;
   const ip        = getIp(req);
 
-  /* basic format check — still 400 for garbage input */
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
     return fail(res, 400, "A valid email address is required.");
 
-  /* universal safe response — same text whether or not email exists */
+  /* universal response — prevents email enumeration */
   const SAFE_RESPONSE = {
     success : true,
     message : "If an account exists for that email, a reset link has been sent.",
@@ -265,32 +320,34 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
   try {
     const cleanEmail = email.trim().toLowerCase();
 
+    console.log(`[auth] forgot-password request  email=${cleanEmail}`);
+
     const { rows } = await pool.query(
       `SELECT id, name, email FROM users WHERE email = $1`,
       [cleanEmail]
     );
 
-    /* no user — return safe response, do nothing else */
     if (!rows.length) {
-      console.log(`[auth] forgot-password: no account for ${cleanEmail}`);
+      console.log(`[auth] forgot-password: no account → ${cleanEmail}`);
       return res.json(SAFE_RESPONSE);
     }
 
     const user = rows[0];
 
-    /* invalidate any existing unused tokens for this user */
-    await pool.query(
+    /* invalidate any existing unused tokens */
+    const { rowCount: invalidated } = await pool.query(
       `UPDATE password_reset_tokens
        SET    used = true
        WHERE  user_id = $1 AND used = false`,
       [user.id]
     );
+    if (invalidated > 0)
+      console.log(`[auth] forgot-password: invalidated ${invalidated} old token(s)`);
 
-    /* generate a cryptographically secure raw token */
-    const rawToken  = crypto.randomBytes(TOKEN_BYTES).toString("hex"); // 64 hex chars
+    /* generate secure raw token — hashed copy stored in DB */
+    const rawToken  = crypto.randomBytes(TOKEN_BYTES).toString("hex");
     const tokenHash = hashToken(rawToken);
 
-    /* store hashed token — raw token is ONLY sent in the email */
     await pool.query(
       `INSERT INTO password_reset_tokens
          (user_id, token_hash, expires_at, ip_address)
@@ -302,14 +359,15 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
       [user.id, tokenHash, String(RESET_EXPIRY_MINUTES), ip]
     );
 
-    /*
-     * Reset URL: frontend reads ?token= and shows ResetPanel.
-     * Uses /auth?token= — NOT /reset-password?token=
-     */
+    console.log(`[auth] forgot-password: token stored  user=${user.id}`);
+
+    /* build reset URL — frontend reads ?token= and shows ResetPanel */
     const CLIENT_URL = process.env.CLIENT_URL || "https://www.loemart.com";
     const resetUrl   = `${CLIENT_URL}/auth?token=${rawToken}`;
 
-    /* send email — on failure, invalidate token and surface the error */
+    console.log(`[auth] forgot-password: sending email → ${user.email}`);
+    console.log(`[auth] forgot-password: resetUrl = ${IS_PROD ? "[hidden in prod]" : resetUrl}`);
+
     try {
       await sendPasswordResetEmail({
         to      : user.email,
@@ -320,7 +378,7 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
     } catch (mailErr) {
       console.error("[auth] forgot-password email failed:", mailErr.message);
 
-      /* invalidate so the user can cleanly retry */
+      /* invalidate token so the user can cleanly retry */
       await pool.query(
         `UPDATE password_reset_tokens SET used = true WHERE token_hash = $1`,
         [tokenHash]
@@ -341,6 +399,7 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
 
   } catch (err) {
     console.error("[auth] forgot-password error:", err.message);
+    console.error("[auth] forgot-password stack:", err.stack);
     next(err);
   }
 });
@@ -348,17 +407,22 @@ router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
 /* ═══════════════════════════════════════════════════════════════
    GET /api/auth/reset-password/:token
    Called by ResetPanel on mount to validate before showing form.
-   Returns masked email + minutes remaining so UI can show context.
+   Returns masked email + minutes remaining.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/reset-password/:token", async (req, res, next) => {
   const { token } = req.params;
 
-  /* token must be exactly 64 hex chars */
-  if (!token || token.length !== TOKEN_BYTES * 2)
+  console.log(`[auth] validate-token called  length=${token?.length}`);
+
+  if (!token || token.length !== TOKEN_BYTES * 2) {
+    console.warn(`[auth] validate-token: bad length ${token?.length} (expected ${TOKEN_BYTES * 2})`);
     return fail(res, 400, "Invalid reset token.", { code: "TOKEN_INVALID" });
+  }
 
   try {
     const tokenHash = hashToken(token);
+
+    console.log("[auth] validate-token: querying DB…");
 
     const { rows } = await pool.query(
       `SELECT prt.id, prt.expires_at, u.email
@@ -369,6 +433,8 @@ router.get("/reset-password/:token", async (req, res, next) => {
          AND  prt.expires_at > NOW()`,
       [tokenHash]
     );
+
+    console.log(`[auth] validate-token: rows=${rows.length}`);
 
     if (!rows.length) {
       return fail(res, 400, "This reset link is invalid or has expired.", {
@@ -382,16 +448,18 @@ router.get("/reset-password/:token", async (req, res, next) => {
       Math.round((new Date(rec.expires_at) - Date.now()) / 60_000)
     );
 
+    console.log(`[auth] ✓ validate-token OK  expires_in=${expiresIn}min`);
+
     return res.json({
       success   : true,
       valid     : true,
-      /* mask email — show just enough for the user to recognise their account */
       email     : rec.email.replace(/(.{2})(.*)(@.*)/, "$1***$3"),
-      expiresIn,   // minutes remaining
+      expiresIn,
     });
 
   } catch (err) {
-    console.error("[auth] validate-token error:", err.message);
+    console.error("[auth] validate-token ERROR:", err.message);
+    console.error("[auth] validate-token STACK:", err.stack);
     next(err);
   }
 });
@@ -404,7 +472,9 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
   const { token, password } = req.body;
   const ip                  = getIp(req);
 
-  /* ── input validation ── */
+  console.log(`[auth] reset-password called  token_length=${token?.length}`);
+
+  /* ── validation ── */
   if (!token || !password)
     return fail(res, 400, "Token and new password are required.");
   if (token.length !== TOKEN_BYTES * 2)
@@ -422,7 +492,9 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
 
     const tokenHash = hashToken(token);
 
-    /* lock the token row — prevents concurrent reuse */
+    console.log("[auth] reset-password: querying token…");
+
+    /* lock row — prevents concurrent reuse */
     const { rows } = await client.query(
       `SELECT prt.id, prt.user_id, prt.expires_at, u.email, u.name
        FROM   password_reset_tokens prt
@@ -434,6 +506,8 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
       [tokenHash]
     );
 
+    console.log(`[auth] reset-password: rows=${rows.length}`);
+
     if (!rows.length) {
       await client.query("ROLLBACK");
       return fail(res, 400, "This reset link is invalid or has expired.", {
@@ -443,7 +517,7 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
 
     const rec = rows[0];
 
-    /* double-check expiry after lock */
+    /* double-check expiry after acquiring lock */
     if (new Date(rec.expires_at) < new Date()) {
       await client.query("ROLLBACK");
       return fail(
@@ -454,7 +528,6 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
       );
     }
 
-    /* hash new password — same rounds as register */
     const password_hash = await bcrypt.hash(password, HASH_ROUNDS);
 
     /* update password */
@@ -476,7 +549,7 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
       [rec.id]
     );
 
-    /* guard: if another request consumed the token between our SELECT and UPDATE */
+    /* race-condition guard */
     if (!marked.length) {
       await client.query("ROLLBACK");
       return fail(res, 400, "This reset link has already been used.", {
@@ -484,7 +557,7 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
       });
     }
 
-    /* invalidate any remaining tokens for this user (cleanup) */
+    /* clean up any other tokens for this user */
     await client.query(
       `UPDATE password_reset_tokens
        SET    used = true
@@ -502,7 +575,7 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
       ipAddress  : ip,
     }).catch(console.error);
 
-    console.log(`[auth] ✓ password reset  user=${rec.user_id}`);
+    console.log(`[auth] ✓ password reset complete  user=${rec.user_id}`);
 
     return res.json({
       success : true,
@@ -511,7 +584,8 @@ router.post("/reset-password", resetLimiter, async (req, res, next) => {
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error("[auth] reset-password error:", err.message);
+    console.error("[auth] reset-password ERROR:", err.message);
+    console.error("[auth] reset-password STACK:", err.stack);
     next(err);
   } finally {
     client.release();
