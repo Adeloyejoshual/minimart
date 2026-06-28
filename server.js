@@ -101,7 +101,7 @@ app.use(cors({
 }));
 app.options("*", cors({ origin: true, credentials: true }));
 
-/* ── Helmet — CSP disabled to avoid blocking Vite SPA scripts ── */
+/* ── Helmet ── */
 app.use(helmet({
   contentSecurityPolicy     : false,
   crossOriginEmbedderPolicy : false,
@@ -142,12 +142,17 @@ const uploadLimiter = rateLimit({
     res.status(429).json({ success: false, message: "Too many upload requests." }),
 });
 
-/* ── Route imports ── */
+/* ══════════════════════════════════════════════════════════════
+   ROUTE IMPORTS
+══════════════════════════════════════════════════════════════ */
 import paymentRouter, { webhookRouter }  from "./routes/payment.js";
 import flwWebhookRouter                  from "./routes/webhooks/flutterwave.js";
 import checkoutWebhookRouter             from "./routes/checkout/webhook.js";
 import checkoutRouter                    from "./routes/checkout/index.js";
-import authRouter                        from "./routes/sellerAuth.routes.js";
+
+/* ── Auth — NEW unified auth router (register · login · forgot · reset) ── */
+import authRouter                        from "./routes/auth.routes.js";
+
 import sellerOnboardingRouter            from "./routes/sellerOnboarding.routes.js";
 import sellerProfileRouter               from "./routes/sellerprofile.js";
 import sellerPayoutRoutes                from "./routes/seller/payout.js";
@@ -172,9 +177,14 @@ import verificationRouter                from "./routes/verification.js";
 import couponsRouter                     from "./routes/coupons.js";
 import spinwheelRouter                   from "./routes/spinwheel.js";
 
-/* ── Webhooks — BEFORE body parsers ── */
+/* ══════════════════════════════════════════════════════════════
+   WEBHOOKS  — must be registered BEFORE body parsers
+   (need raw body for signature verification)
+══════════════════════════════════════════════════════════════ */
 app.use("/api/payment/webhook",
-  express.raw({ type: "*/*" }), webhookRouter);
+  express.raw({ type: "*/*" }),
+  webhookRouter
+);
 
 app.use("/api/webhooks/flutterwave",
   express.raw({ type: "*/*" }),
@@ -191,11 +201,11 @@ app.post("/api/webhooks/flw-capture",
   async (req, res) => {
     const raw  = req.body?.toString?.() ?? "";
     const body = (() => { try { return JSON.parse(raw); } catch { return { raw }; } })();
-    console.log("FLW CAPTURE", body?.event);
+    console.log("[webhook] FLW CAPTURE:", body?.event);
     try {
       await pool.query(
-        `INSERT INTO market.webhook_logs (source,event,payload,headers,created_at)
-         VALUES ('flw_capture',$1,$2,$3,NOW())`,
+        `INSERT INTO market.webhook_logs (source, event, payload, headers, created_at)
+         VALUES ('flw_capture', $1, $2, $3, NOW())`,
         [body?.event ?? "unknown", JSON.stringify(body), JSON.stringify(req.headers)]
       );
     } catch { /* non-critical */ }
@@ -204,9 +214,13 @@ app.post("/api/webhooks/flw-capture",
 );
 
 app.use("/api/checkout/webhook/payment",
-  express.raw({ type: "*/*" }), checkoutWebhookRouter);
+  express.raw({ type: "*/*" }),
+  checkoutWebhookRouter
+);
 
-/* ── Body parsers — AFTER webhooks ── */
+/* ══════════════════════════════════════════════════════════════
+   BODY PARSERS  — after webhooks
+══════════════════════════════════════════════════════════════ */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
@@ -218,7 +232,7 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ── Logger ── */
+/* ── Request logger ── */
 app.use((req, _res, next) => {
   if (process.env.NODE_ENV !== "test")
     console.log(`${new Date().toISOString()} | ${req.method} ${req.originalUrl}`);
@@ -228,24 +242,40 @@ app.use((req, _res, next) => {
 /* ── Global rate limit ── */
 app.use(globalLimiter);
 
-/* ── Routes ── */
+/* ══════════════════════════════════════════════════════════════
+   ROUTES
+══════════════════════════════════════════════════════════════ */
+
+/* payments */
 app.use("/api/payment",           paymentRouter);
 app.use("/api/checkout",          checkoutRouter);
+
+/* ── auth — unified: register · login · forgot-password · reset-password ── */
 app.use("/api/auth",              authRouter);
+
+/* ── users — profile read/update, /me, etc. ── */
+app.use("/api/users",             userRouter);
+
+/* seller */
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
 app.use("/api/seller",            sellerProfileRouter);
 app.use("/api/seller/payout",     sellerPayoutRoutes);
 app.use("/api/seller-dashboard",  sellerDashboardRouter);
 app.use("/api/seller/settings",   sellerSettingsRouter);
+
+/* products + marketplace */
 app.use("/api/products",          marketRouter);
 app.use("/api/shop",              marketDetailRouter);
 app.use("/api/cart",              cartRouter);
 app.use("/api/addproduct",        addproductRouter);
 app.use("/api/product",           productDetailRouter);
-app.use("/api/users",             userRouter);
+
+/* messaging */
 app.use("/api/messages/upload",   uploadLimiter);
 app.use("/api/messages",          messagesRouter);
 app.use("/api/conversations",     conversationsRouter);
+
+/* platform */
 app.use("/api/admin",             adminRouter);
 app.use("/api/search",            searchRouter);
 app.use("/api/homepage",          homepageRouter);
@@ -257,7 +287,9 @@ app.use("/api/verification",      verificationRouter);
 app.use("/api/coupons",           couponsRouter);
 app.use("/api/spinwheel",         spinwheelRouter);
 
-/* ── Sitemap + robots — served from public/ ── */
+/* ══════════════════════════════════════════════════════════════
+   STATIC — sitemap + robots
+══════════════════════════════════════════════════════════════ */
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 app.get("/sitemap-index.xml", (_req, res) =>
@@ -269,15 +301,16 @@ app.get("/sitemap.xml", (_req, res) =>
 app.get("/sitemaps/:file", (req, res) => {
   const safe = path.basename(req.params.file);
   res.sendFile(path.join(PUBLIC_DIR, "sitemaps", safe), (err) => {
-    if (err)
-      res.status(404).json({ success: false, message: "Sitemap not found" });
+    if (err) res.status(404).json({ success: false, message: "Sitemap not found" });
   });
 });
 app.get("/robots.txt", (_req, res) =>
   res.sendFile(path.join(PUBLIC_DIR, "robots.txt"))
 );
 
-/* ── Health ── */
+/* ══════════════════════════════════════════════════════════════
+   HEALTH
+══════════════════════════════════════════════════════════════ */
 app.get("/api/health", async (_req, res) => {
   let dbOk = false, dbLatency = null, dbError = null;
   try {
@@ -285,7 +318,9 @@ app.get("/api/health", async (_req, res) => {
     const { rows } = await pool.query("SELECT 1 AS ok");
     dbLatency      = Date.now() - t0;
     dbOk           = rows[0]?.ok == 1;
-  } catch (err) { dbError = err.message; }
+  } catch (err) {
+    dbError = err.message;
+  }
 
   return res.status(dbOk ? 200 : 503).json({
     success   : true,
@@ -302,7 +337,9 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
-/* ── SPA (production) ── */
+/* ══════════════════════════════════════════════════════════════
+   SPA FALLBACK  — production only
+══════════════════════════════════════════════════════════════ */
 if (IS_PROD) {
   const dist = path.join(__dirname, "dist");
   app.use(express.static(dist, {
@@ -312,60 +349,98 @@ if (IS_PROD) {
         res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
     },
   }));
+
+  /* API 404 — must come before the SPA catch-all */
   app.use((req, res, next) => {
     if (req.path.startsWith("/api/"))
-      return res.status(404).json({ success: false, message: `Not found: ${req.method} ${req.path}` });
+      return res.status(404).json({
+        success : false,
+        message : `Not found: ${req.method} ${req.path}`,
+      });
     next();
   });
-  app.get("*", (_req, res) => res.sendFile(path.join(dist, "index.html")));
+
+  /* SPA catch-all */
+  app.get("*", (_req, res) =>
+    res.sendFile(path.join(dist, "index.html"))
+  );
 }
 
-/* ── 404 ── */
+/* ══════════════════════════════════════════════════════════════
+   404  — development (production handled above via SPA fallback)
+══════════════════════════════════════════════════════════════ */
 app.use((req, res) =>
-  res.status(404).json({ success: false, message: `Cannot ${req.method} ${req.originalUrl}` })
+  res.status(404).json({
+    success : false,
+    message : `Cannot ${req.method} ${req.originalUrl}`,
+  })
 );
 
-/* ── Error handler ── */
+/* ══════════════════════════════════════════════════════════════
+   GLOBAL ERROR HANDLER
+══════════════════════════════════════════════════════════════ */
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   const reqId = req.requestId ?? "unknown";
-  console.error(`🔥 [${reqId}]`, err.message);
+  console.error(`🔥 [${reqId}] ${err.message}`);
+  if (!IS_PROD) console.error(err.stack);
 
-  if (err.code === "LIMIT_FILE_SIZE")       return res.status(400).json({ success: false, message: "File too large", reqId });
-  if (err.code === "LIMIT_FILE_COUNT")      return res.status(400).json({ success: false, message: "Too many files", reqId });
-  if (err.code === "LIMIT_UNEXPECTED_FILE") return res.status(400).json({ success: false, message: "Unexpected file field", reqId });
-  if (err.message?.startsWith("CORS"))      return res.status(403).json({ success: false, message: err.message, reqId });
-  if (err.code === "23505")                 return res.status(409).json({ success: false, message: "Duplicate entry", reqId });
-  if (err.code === "23503")                 return res.status(400).json({ success: false, message: "Referenced record not found", reqId });
-  if (err.code === "23514")                 return res.status(400).json({ success: false, message: "Database constraint violated", reqId });
-  if (err.code === "22P02")                 return res.status(400).json({ success: false, message: "Invalid input format", reqId });
+  /* well-known error codes */
+  if (err.code === "LIMIT_FILE_SIZE")
+    return res.status(400).json({ success: false, message: "File too large",              reqId });
+  if (err.code === "LIMIT_FILE_COUNT")
+    return res.status(400).json({ success: false, message: "Too many files",              reqId });
+  if (err.code === "LIMIT_UNEXPECTED_FILE")
+    return res.status(400).json({ success: false, message: "Unexpected file field",       reqId });
+  if (err.message?.startsWith("CORS"))
+    return res.status(403).json({ success: false, message: err.message,                   reqId });
+  if (err.code === "23505")
+    return res.status(409).json({ success: false, message: "Duplicate entry",             reqId });
+  if (err.code === "23503")
+    return res.status(400).json({ success: false, message: "Referenced record not found", reqId });
+  if (err.code === "23514")
+    return res.status(400).json({ success: false, message: "Constraint violated",         reqId });
+  if (err.code === "22P02")
+    return res.status(400).json({ success: false, message: "Invalid input format",        reqId });
 
   const status  = err.status ?? err.statusCode ?? 500;
-  const message = IS_PROD && status === 500 ? "Internal server error" : (err.message ?? "Internal server error");
+  const message = IS_PROD && status === 500
+    ? "Internal server error"
+    : (err.message ?? "Internal server error");
+
   return res.status(status).json({ success: false, message, reqId });
 });
 
-/* ── Shutdown ── */
+/* ══════════════════════════════════════════════════════════════
+   GRACEFUL SHUTDOWN
+══════════════════════════════════════════════════════════════ */
 let isShuttingDown = false;
+
 async function shutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
-  console.log(`\n[server] ${signal} — shutting down…`);
+  console.log(`\n[server] ${signal} received — shutting down gracefully…`);
   clearInterval(_ev);
-  const t = setTimeout(() => process.exit(1), 15_000);
-  t.unref();
+
+  const forceExit = setTimeout(() => {
+    console.error("[server] forced exit after 15 s");
+    process.exit(1);
+  }, 15_000);
+  forceExit.unref();
+
   server.close(async () => {
-    try { io.close();    } catch { /* ignore */ }
+    try { io.close();       } catch { /* ignore */ }
     try { await pool.end(); } catch { /* ignore */ }
-    clearTimeout(t);
+    clearTimeout(forceExit);
+    console.log("[server] clean exit");
     process.exit(0);
   });
 }
 
 process.on("SIGTERM",            () => shutdown("SIGTERM"));
 process.on("SIGINT",             () => shutdown("SIGINT"));
-process.on("unhandledRejection", (r) => {
-  console.error("[server] Unhandled rejection:", r);
+process.on("unhandledRejection", (reason) => {
+  console.error("[server] Unhandled rejection:", reason);
   if (!IS_PROD) process.exit(1);
 });
 process.on("uncaughtException",  (err) => {
@@ -373,7 +448,9 @@ process.on("uncaughtException",  (err) => {
   shutdown("uncaughtException");
 });
 
-/* ── Start ── */
+/* ══════════════════════════════════════════════════════════════
+   START
+══════════════════════════════════════════════════════════════ */
 try {
   const { rows } = await pool.query("SELECT version()");
   console.log("✅ CockroachDB:", rows[0].version.split(" ")[0]);
@@ -383,7 +460,9 @@ try {
 }
 
 server.listen(PORT, () => {
-  console.log(`\n🚀 Loemart on port ${PORT} | ${process.env.NODE_ENV || "development"}\n`);
+  console.log(`\n🚀 Loemart on port ${PORT} | ${process.env.NODE_ENV || "development"}`);
+  console.log(`   Auth  → /api/auth  (register · login · forgot-password · reset-password)`);
+  console.log(`   Users → /api/users (me · profile update)\n`);
 });
 
 export default app;
