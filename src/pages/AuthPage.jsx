@@ -1,13 +1,12 @@
 /**
  * src/pages/AuthPage.jsx
- * Route: /auth  and  /auth?token=RESET_TOKEN
+ * Route: /auth
  *
  * Modes:
  *   login    — email + password
  *   register — full registration form
  *   otp      — 6-digit email OTP after registration
- *   forgot   — request password-reset link
- *   reset    — set new password (auto-detected from ?token= in URL)
+ *   forgot   — 3-step password reset (email → OTP → new password)
  */
 
 import {
@@ -196,7 +195,7 @@ function ParticleCanvas() {
     let w, h;
 
     const resize = () => {
-      const r  = canvas.getBoundingClientRect();
+      const r = canvas.getBoundingClientRect();
       w = r.width; h = r.height;
       canvas.width  = w * dpr;
       canvas.height = h * dpr;
@@ -245,7 +244,7 @@ function ParticleCanvas() {
       raf.current = requestAnimationFrame(draw);
     };
 
-    const onMove  = (e) => {
+    const onMove = (e) => {
       const r = canvas.getBoundingClientRect();
       mx.current = { x: e.clientX - r.left, y: e.clientY - r.top };
     };
@@ -273,15 +272,16 @@ function ParticleCanvas() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   OTP CELLS
+   OTP CELLS  (reused for both email-verify and reset-code)
 ═══════════════════════════════════════════════════════════════ */
-function OtpCells({ value, onChange, disabled, hasError }) {
+function OtpCells({ value, onChange, disabled, hasError, autoFocusFirst = true }) {
   const refs = useRef([]);
 
   useEffect(() => {
+    if (!autoFocusFirst) return;
     const t = setTimeout(() => refs.current[0]?.focus(), 300);
     return () => clearTimeout(t);
-  }, []);
+  }, [autoFocusFirst]);
 
   const char   = (i) => value[i] ?? "";
   const update = (i, ch) => {
@@ -294,7 +294,7 @@ function OtpCells({ value, onChange, disabled, hasError }) {
     <div
       className={`ap-otp-group${hasError ? " ap-otp-group--error" : ""}`}
       role="group"
-      aria-label="Verification code"
+      aria-label="Code input"
     >
       {Array.from({ length: OTP_LENGTH }).map((_, i) => (
         <input
@@ -390,7 +390,7 @@ function Spinner({ c = "#fff" }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PASSWORD STRENGTH FIELD
+   PASSWORD FIELD WITH STRENGTH METER
 ═══════════════════════════════════════════════════════════════ */
 function PwField({
   label        = "Password",
@@ -525,7 +525,7 @@ function Badges() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SHELL  (right panel wrapper)
+   SHELL
 ═══════════════════════════════════════════════════════════════ */
 function Shell({ children }) {
   return (
@@ -543,16 +543,42 @@ function Shell({ children }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   FORGOT PANEL
+   FORGOT PANEL  — 3-step OTP reset flow
+   step: "email" → "otp" → "password" → "done"
 ═══════════════════════════════════════════════════════════════ */
 function ForgotPanel({ onBack }) {
-  const [email,   setEmail]   = useState("");
-  const [loading, setLoading] = useState(false);
-  const [sent,    setSent]    = useState(false);
-  const [error,   setError]   = useState("");
+  const [step,        setStep]        = useState("email");
+  const [email,       setEmail]       = useState("");
+  const [otp,         setOtp]         = useState("");
+  const [otpHasError, setOtpHasError] = useState(false);
+  const [pw,          setPw]          = useState("");
+  const [pw2,         setPw2]         = useState("");
+  const [showPw,      setShowPw]      = useState(false);
+  const [showPw2,     setShowPw2]     = useState(false);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState("");
+  const [resetToken,  setResetToken]  = useState("");
+  const [devOtp,      setDevOtp]      = useState("");
+  const [resendKey,   setResendKey]   = useState(0);
+  const [canResend,   setCanResend]   = useState(false);
+  const [attemptsLeft,setAttemptsLeft]= useState(null);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const strength = useMemo(() => getStrength(pw),  [pw]);
+  const match    = pw2 ? pw === pw2 : null;
+
+  /* ── auto-submit OTP when 6 digits filled ── */
+  const verifyingRef = useRef(false);
+  useEffect(() => {
+    if (otp.length === OTP_LENGTH && step === "otp" && !verifyingRef.current) {
+      handleVerifyOtp(otp);
+    }
+  }, [otp, step]); // eslint-disable-line
+
+  /* ────────────────────────────────────────────
+     STEP 1 — send OTP to email
+  ──────────────────────────────────────────── */
+  const handleSendOtp = async (e) => {
+    e?.preventDefault();
     setError("");
     const trimmed = email.trim().toLowerCase();
     if (!trimmed)                       return setError("Please enter your email address.");
@@ -560,8 +586,20 @@ function ForgotPanel({ onBack }) {
 
     setLoading(true);
     try {
-      await axios.post(`${API}/forgot-password`, { email: trimmed });
-      setSent(true);
+      const { data } = await axios.post(`${API}/forgot-password`, { email: trimmed });
+
+      /* dev: backend returns OTP directly when email fails */
+      if (data.dev_otp) {
+        setDevOtp(String(data.dev_otp));
+        toast(`Dev OTP: ${data.dev_otp}`, { icon: "🔑", duration: 30_000 });
+      }
+
+      setStep("otp");
+      setCanResend(false);
+      setResendKey((k) => k + 1);
+      setOtp("");
+      setOtpHasError(false);
+      setAttemptsLeft(null);
     } catch (err) {
       setError(err.response?.data?.message || "Something went wrong. Please try again.");
     } finally {
@@ -569,44 +607,291 @@ function ForgotPanel({ onBack }) {
     }
   };
 
-  if (sent) {
+  /* ────────────────────────────────────────────
+     STEP 2 — verify OTP
+  ──────────────────────────────────────────── */
+  const handleVerifyOtp = async (code) => {
+    if (verifyingRef.current) return;
+    verifyingRef.current = true;
+    setError("");
+
+    try {
+      const { data } = await axios.post(`${API}/forgot-password/verify`, {
+        email : email.trim().toLowerCase(),
+        otp   : code,
+      });
+      setResetToken(data.reset_token);
+      setStep("password");
+    } catch (err) {
+      const msg  = err.response?.data?.message || "Incorrect code. Please try again.";
+      const left = err.response?.data?.attemptsLeft;
+      const code_ = err.response?.data?.code;
+
+      setOtpHasError(true);
+      setError(msg);
+      setOtp("");
+      if (typeof left === "number") setAttemptsLeft(left);
+
+      setTimeout(() => setOtpHasError(false), 700);
+
+      if (code_ === "OTP_LOCKED") {
+        /* too many attempts — go back to email step */
+        setTimeout(() => {
+          setStep("email");
+          setError("Too many incorrect attempts. Please request a new code.");
+          setDevOtp("");
+        }, 1_000);
+      }
+    } finally {
+      verifyingRef.current = false;
+    }
+  };
+
+  /* ────────────────────────────────────────────
+     STEP 3 — set new password
+  ──────────────────────────────────────────── */
+  const handleResetPassword = async (e) => {
+    e.preventDefault();
+    setError("");
+
+    if (!pw)                return setError("Please enter a new password.");
+    if (strength.score < 2) return setError("Password is too weak. Please choose a stronger one.");
+    if (pw !== pw2)         return setError("Passwords do not match.");
+
+    setLoading(true);
+    try {
+      await axios.post(`${API}/reset-password`, {
+        reset_token : resetToken,
+        password    : pw,
+      });
+      setStep("done");
+      toast.success("Password reset successfully!");
+    } catch (err) {
+      setError(err.response?.data?.message || "Reset failed. Please start over.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ────────────────────────────────────────────
+     RESEND
+  ──────────────────────────────────────────── */
+  const handleResend = async () => {
+    setCanResend(false);
+    setResendKey((k) => k + 1);
+    setOtp("");
+    setOtpHasError(false);
+    setError("");
+    setDevOtp("");
+    setAttemptsLeft(null);
+
+    setLoading(true);
+    try {
+      const { data } = await axios.post(`${API}/forgot-password`, {
+        email: email.trim().toLowerCase(),
+      });
+      if (data.dev_otp) {
+        setDevOtp(String(data.dev_otp));
+        toast(`Dev OTP: ${data.dev_otp}`, { icon: "🔑", duration: 30_000 });
+      }
+      toast.success("New code sent!");
+    } catch (err) {
+      setError(err.response?.data?.message || "Failed to resend. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ── DONE ── */
+  if (step === "done") {
     return (
       <>
         <div className="ap-otp-header">
           <div className="ap-otp-icon-wrap"
                style={{ background: "linear-gradient(135deg,#15803D,#22C55E)" }}>
-            <Ic.MailCheck s={28} c="#fff" />
+            <Ic.Check s={30} c="#fff" />
           </div>
-          <h3 className="ap-otp-title">Check your inbox</h3>
+          <h3 className="ap-otp-title">Password updated!</h3>
           <p className="ap-otp-sub">
-            If <strong>{email.trim().toLowerCase()}</strong> is registered,
-            a reset link has been sent. It expires in <strong>30 minutes</strong>.
+            Your password has been reset successfully. You can now log in
+            with your new password.
           </p>
         </div>
 
-        <div className="ap-fp-info">
-          <Ic.Shield s={13} c="var(--ap-orange)" />
-          <span>Didn't receive it? Check your spam folder, or try a different email.</span>
-        </div>
-
-        <button
-          type="button"
-          className="ap-submit"
-          style={{ marginTop: 16 }}
-          onClick={() => { setSent(false); setEmail(""); }}
-        >
-          Try a different email
+        <button type="button" className="ap-submit"
+                style={{ marginTop: 16 }} onClick={onBack}>
+          Back to login <Ic.Arrow s={17} />
         </button>
-
-        <p className="ap-switch" style={{ marginTop: 14 }}>
-          <a onClick={onBack}>← Back to login</a>
-        </p>
 
         <Badges />
       </>
     );
   }
 
+  /* ── STEP 3 — new password ── */
+  if (step === "password") {
+    return (
+      <>
+        <div className="ap-heading">
+          <div className="ap-otp-icon-wrap"
+               style={{ width: 54, height: 54, borderRadius: 15, marginBottom: 14 }}>
+            <Ic.Key s={24} c="#fff" />
+          </div>
+          <h3>Set a new password</h3>
+          <p>Choose a strong password for your Loemart account.</p>
+        </div>
+
+        {error && <div className="ap-fp-error">{error}</div>}
+
+        <form onSubmit={handleResetPassword}>
+          <div className="ap-form">
+
+            <PwField
+              label="New password"
+              name="password"
+              value={pw}
+              onChange={(e) => setPw(e.target.value)}
+              showPw={showPw}
+              onToggle={() => setShowPw((v) => !v)}
+              showStrength
+              autoComplete="new-password"
+              placeholder="New password"
+            />
+
+            <div className="ap-field">
+              <label className="ap-label">Confirm new password</label>
+              <div className={`ap-iw${match === false ? " ap-iw--error" : ""}`}>
+                <span className="ap-icon"><Ic.Lock /></span>
+                <input
+                  name="password2"
+                  type={showPw2 ? "text" : "password"}
+                  value={pw2}
+                  onChange={(e) => setPw2(e.target.value)}
+                  placeholder="Repeat new password"
+                  autoComplete="new-password"
+                />
+                <button type="button" className="ap-eye"
+                        onClick={() => setShowPw2((v) => !v)} tabIndex={-1}>
+                  {showPw2 ? <Ic.EyeOff /> : <Ic.Eye />}
+                </button>
+              </div>
+              {match === true  && (
+                <p className="ap-fp-match-ok">
+                  <Ic.Check s={12} c="#15803D" /> Passwords match
+                </p>
+              )}
+              {match === false && (
+                <p className="ap-fp-match-error">Passwords do not match</p>
+              )}
+            </div>
+
+            <button
+              type="submit"
+              className="ap-submit"
+              disabled={loading || !pw || !pw2}
+            >
+              {loading
+                ? <><Spinner /> Updating…</>
+                : <>Update password <Ic.Arrow s={17} /></>
+              }
+            </button>
+
+          </div>
+        </form>
+
+        <Badges />
+      </>
+    );
+  }
+
+  /* ── STEP 2 — OTP entry ── */
+  if (step === "otp") {
+    return (
+      <>
+        <div className="ap-otp-header">
+          <div className="ap-otp-icon-wrap">
+            <Ic.Mail s={28} c="#fff" />
+          </div>
+          <h3 className="ap-otp-title">Enter reset code</h3>
+          <p className="ap-otp-sub">
+            We sent a 6-digit code to{" "}
+            <strong>{email.trim().toLowerCase()}</strong>.
+            Enter it below to continue.
+          </p>
+        </div>
+
+        {devOtp && (
+          <div className="ap-dev-otp">
+            Dev mode — code: <strong>{devOtp}</strong>
+          </div>
+        )}
+
+        <OtpCells
+          value={otp}
+          onChange={setOtp}
+          disabled={loading}
+          hasError={otpHasError}
+        />
+
+        <p className="ap-otp-hint">Auto-submits when all 6 digits are entered</p>
+
+        {error && (
+          <div className="ap-otp-error">
+            {error}
+            {attemptsLeft !== null && attemptsLeft > 0 && attemptsLeft <= 4 && (
+              <span className="ap-otp-error__sub">
+                {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} remaining
+              </span>
+            )}
+          </div>
+        )}
+
+        {loading && (
+          <p style={{ textAlign: "center", color: "var(--ap-text-3)", fontSize: 13, marginBottom: 8 }}>
+            Verifying…
+          </p>
+        )}
+
+        <div className="ap-otp-resend">
+          <div>
+            {canResend ? (
+              <button type="button" className="ap-otp-resend__btn"
+                      onClick={handleResend} disabled={loading}>
+                <Ic.Refresh s={13} /> Resend code
+              </button>
+            ) : (
+              <span className="ap-otp-resend__timer">
+                Resend in{" "}
+                <Countdown
+                  key={resendKey}
+                  seconds={RESEND_SECS}
+                  resendKey={resendKey}
+                  onDone={() => setCanResend(true)}
+                />
+              </span>
+            )}
+          </div>
+          <button
+            type="button"
+            className="ap-back-btn"
+            onClick={() => {
+              setStep("email");
+              setOtp("");
+              setOtpHasError(false);
+              setError("");
+              setDevOtp("");
+            }}
+          >
+            <Ic.ArrowLeft s={14} /> Change email
+          </button>
+        </div>
+
+        <Badges />
+      </>
+    );
+  }
+
+  /* ── STEP 1 — email entry ── */
   return (
     <>
       <div className="ap-heading">
@@ -614,12 +899,15 @@ function ForgotPanel({ onBack }) {
           <Ic.ArrowLeft s={15} /> Back to login
         </button>
         <h3 style={{ marginTop: 14 }}>Forgot your password?</h3>
-        <p>Enter your account email and we'll send you a secure reset link.</p>
+        <p>
+          Enter your account email and we'll send you a
+          <strong> 6-digit reset code</strong>.
+        </p>
       </div>
 
       {error && <div className="ap-fp-error">{error}</div>}
 
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSendOtp}>
         <div className="ap-form">
           <div className="ap-field">
             <label className="ap-label">Email address</label>
@@ -642,8 +930,8 @@ function ForgotPanel({ onBack }) {
             disabled={loading || !email.trim()}
           >
             {loading
-              ? <><Spinner /> Sending…</>
-              : <>Send reset link <Ic.Arrow s={17} /></>
+              ? <><Spinner /> Sending code…</>
+              : <>Send reset code <Ic.Arrow s={17} /></>
             }
           </button>
         </div>
@@ -655,242 +943,7 @@ function ForgotPanel({ onBack }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   RESET PANEL
-   ─────────────────────────────────────────────────────────────
-   KEY FIX: token is read directly from the URL inside this
-   component using useLocation() so it always gets the live
-   value — even if the parent initialised mode="login" first.
-═══════════════════════════════════════════════════════════════ */
-function ResetPanel({ onBack }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-
-  /* read token fresh from URL every render */
-  const token = useMemo(() => {
-    const p = new URLSearchParams(location.search);
-    return (p.get("token") || "").trim();
-  }, [location.search]);
-
-  const [pw,       setPw]       = useState("");
-  const [pw2,      setPw2]      = useState("");
-  const [showPw,   setShowPw]   = useState(false);
-  const [showPw2,  setShowPw2]  = useState(false);
-  const [loading,  setLoading]  = useState(false);
-  const [checking, setChecking] = useState(true);
-  const [done,     setDone]     = useState(false);
-  const [error,    setError]    = useState("");
-  const [info,     setInfo]     = useState(null); // { email, expiresIn }
-
-  const strength = useMemo(() => getStrength(pw), [pw]);
-  const match    = pw2 ? pw === pw2 : null;
-
-  /* ── validate token on mount ── */
-  useEffect(() => {
-    if (!token) {
-      setError("No reset token found. Please use the link from your email.");
-      setChecking(false);
-      return;
-    }
-
-    console.log("[ResetPanel] validating token — length:", token.length);
-
-    axios
-      .get(`${API}/reset-password/${token}`)
-      .then(({ data }) => {
-        console.log("[ResetPanel] ✓ token valid:", data);
-        setInfo({ email: data.email, expiresIn: data.expiresIn });
-        setChecking(false);
-      })
-      .catch((err) => {
-        const status = err.response?.status;
-        const msg    = err.response?.data?.message;
-        console.error("[ResetPanel] token validation failed:", status, msg);
-        setError(
-          msg ||
-          (status === 500
-            ? "Server error. Please request a new reset link."
-            : "This reset link is invalid or has expired. Please request a new one.")
-        );
-        setChecking(false);
-      });
-  }, [token]); // eslint-disable-line
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setError("");
-
-    if (!pw)                return setError("Please enter a new password.");
-    if (strength.score < 2) return setError("Password is too weak. Please choose a stronger one.");
-    if (pw !== pw2)         return setError("Passwords do not match.");
-
-    setLoading(true);
-    try {
-      await axios.post(`${API}/reset-password`, { token, password: pw });
-      setDone(true);
-      toast.success("Password reset! Please log in with your new password.");
-      /* clean the ?token= from the URL then redirect */
-      setTimeout(() => navigate("/auth", { replace: true }), 2_200);
-    } catch (err) {
-      console.error("[ResetPanel] reset failed:", err.response?.data ?? err.message);
-      setError(
-        err.response?.data?.message ||
-        "Reset failed. The link may have expired. Please request a new one."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /* ── validating ── */
-  if (checking) {
-    return (
-      <div className="ap-otp-header">
-        <div className="ap-otp-icon-wrap">
-          <Spinner c="#fff" />
-        </div>
-        <h3 className="ap-otp-title">Validating link…</h3>
-        <p className="ap-otp-sub">Just a moment while we verify your reset link.</p>
-      </div>
-    );
-  }
-
-  /* ── invalid / expired ── */
-  if (error && !pw && !done) {
-    return (
-      <>
-        <div className="ap-otp-header">
-          <div
-            className="ap-otp-icon-wrap"
-            style={{ background: "linear-gradient(135deg,#DC2626,#EF4444)" }}
-          >
-            <Ic.AlertCircle s={28} c="#fff" />
-          </div>
-          <h3 className="ap-otp-title">Link expired</h3>
-          <p className="ap-otp-sub">{error}</p>
-        </div>
-
-        <button
-          type="button"
-          className="ap-submit"
-          onClick={onBack}
-          style={{ marginTop: 8 }}
-        >
-          Request a new link <Ic.Arrow s={17} />
-        </button>
-
-        <Badges />
-      </>
-    );
-  }
-
-  /* ── success ── */
-  if (done) {
-    return (
-      <div className="ap-otp-header">
-        <div
-          className="ap-otp-icon-wrap"
-          style={{ background: "linear-gradient(135deg,#15803D,#22C55E)" }}
-        >
-          <Ic.Check s={30} c="#fff" />
-        </div>
-        <h3 className="ap-otp-title">Password updated!</h3>
-        <p className="ap-otp-sub">
-          Your password has been reset. Redirecting to login…
-        </p>
-      </div>
-    );
-  }
-
-  /* ── form ── */
-  return (
-    <>
-      <div className="ap-heading">
-        <div
-          className="ap-otp-icon-wrap"
-          style={{ width: 54, height: 54, borderRadius: 15, marginBottom: 14 }}
-        >
-          <Ic.Key s={24} c="#fff" />
-        </div>
-        <h3>Set a new password</h3>
-        <p>
-          {info?.email && <>Resetting for <strong>{info.email}</strong>. </>}
-          {info?.expiresIn > 0 && <>Expires in <strong>{info.expiresIn} min</strong>.</>}
-        </p>
-      </div>
-
-      {error && <div className="ap-fp-error">{error}</div>}
-
-      <form onSubmit={handleSubmit}>
-        <div className="ap-form">
-
-          <PwField
-            label="New password"
-            name="password"
-            value={pw}
-            onChange={(e) => setPw(e.target.value)}
-            showPw={showPw}
-            onToggle={() => setShowPw((v) => !v)}
-            showStrength
-            autoComplete="new-password"
-            placeholder="New password"
-          />
-
-          <div className="ap-field">
-            <label className="ap-label">Confirm new password</label>
-            <div className={`ap-iw${match === false ? " ap-iw--error" : ""}`}>
-              <span className="ap-icon"><Ic.Lock /></span>
-              <input
-                name="password2"
-                type={showPw2 ? "text" : "password"}
-                value={pw2}
-                onChange={(e) => setPw2(e.target.value)}
-                placeholder="Repeat new password"
-                autoComplete="new-password"
-              />
-              <button
-                type="button"
-                className="ap-eye"
-                onClick={() => setShowPw2((v) => !v)}
-                tabIndex={-1}
-              >
-                {showPw2 ? <Ic.EyeOff /> : <Ic.Eye />}
-              </button>
-            </div>
-            {match === true  && (
-              <p className="ap-fp-match-ok">
-                <Ic.Check s={12} c="#15803D" /> Passwords match
-              </p>
-            )}
-            {match === false && (
-              <p className="ap-fp-match-error">Passwords do not match</p>
-            )}
-          </div>
-
-          <button
-            type="submit"
-            className="ap-submit"
-            disabled={loading || !pw || !pw2}
-          >
-            {loading
-              ? <><Spinner /> Updating…</>
-              : <>Update password <Ic.Arrow s={17} /></>
-            }
-          </button>
-
-          <button type="button" className="ap-back-btn" onClick={onBack}>
-            <Ic.ArrowLeft s={15} /> Back to login
-          </button>
-
-        </div>
-      </form>
-
-      <Badges />
-    </>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   OTP PANEL
+   REGISTRATION OTP PANEL
 ═══════════════════════════════════════════════════════════════ */
 function OtpPanel({
   otp, setOtp,
@@ -989,33 +1042,11 @@ export default function AuthPage({ setUser }) {
   const location = useLocation();
   const from     = location.state?.from?.pathname || "/";
 
-  /*
-   * KEY FIX — derive initial mode from URL.
-   * If ?token= is present the user arrived from a reset email link.
-   * useMemo re-runs whenever location.search changes (e.g. browser
-   * back/forward) so the mode always stays in sync with the URL.
-   */
-  const resetToken = useMemo(() => {
-    const p = new URLSearchParams(location.search);
-    return (p.get("token") || "").trim();
-  }, [location.search]);
-
-  /* ── mode — initialised from URL, never stale ── */
-  const [mode,     setMode]     = useState(() => resetToken ? "reset" : "login");
+  /* ── mode ── */
+  const [mode,     setMode]     = useState("login");
   const [showPw,   setShowPw]   = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading,  setLoading]  = useState(false);
-
-  /*
-   * If the user lands directly on /auth?token=... (e.g. clicking
-   * the email link when the tab was already open on /auth in login
-   * mode) we need to switch to reset mode reactively.
-   */
-  useEffect(() => {
-    if (resetToken && mode !== "reset") {
-      setMode("reset");
-    }
-  }, [resetToken]); // eslint-disable-line
 
   /* ── login/register form ── */
   const [form, setForm] = useState({
@@ -1023,7 +1054,7 @@ export default function AuthPage({ setUser }) {
     phone_number: "", country: "", state: "", city: "",
   });
 
-  /* ── otp state ── */
+  /* ── registration OTP state ── */
   const [otp,          setOtp]          = useState("");
   const [otpError,     setOtpError]     = useState(false);
   const [otpErrMsg,    setOtpErrMsg]    = useState("");
@@ -1057,14 +1088,7 @@ export default function AuthPage({ setUser }) {
     setOtpErrMsg("");
   }, []);
 
-  const goBack = useCallback(() => {
-    /*
-     * When coming from reset mode, strip ?token= from the URL
-     * so the browser history is clean and mode goes back to login.
-     */
-    navigate("/auth", { replace: true });
-    switchMode("login");
-  }, [navigate, switchMode]);
+  const goBack = useCallback(() => switchMode("login"), [switchMode]);
 
   const isNigeria     = form.country === "Nigeria";
   const nigeriaStates = useMemo(() => Object.keys(locationsByState).sort(), []);
@@ -1077,7 +1101,7 @@ export default function AuthPage({ setUser }) {
   const pw = useMemo(() => getStrength(form.password), [form.password]);
 
   /* ════════════════════════════════════════════════════════════
-     SEND OTP
+     SEND REGISTRATION OTP
   ════════════════════════════════════════════════════════════ */
   const sendOtp = useCallback(async (token) => {
     const tok = token || authToken;
@@ -1157,7 +1181,7 @@ export default function AuthPage({ setUser }) {
   };
 
   /* ════════════════════════════════════════════════════════════
-     VERIFY OTP
+     VERIFY REGISTRATION OTP
   ════════════════════════════════════════════════════════════ */
   const verifyOtp = useCallback(async (code) => {
     if (verifyingRef.current) return;
@@ -1187,7 +1211,7 @@ export default function AuthPage({ setUser }) {
     }
   }, [authToken, navigate]);
 
-  /* auto-submit OTP */
+  /* auto-submit registration OTP */
   useEffect(() => {
     if (
       otp.length === OTP_LENGTH &&
@@ -1222,7 +1246,7 @@ export default function AuthPage({ setUser }) {
   };
 
   /* ════════════════════════════════════════════════════════════
-     FORGOT
+     FORGOT MODE
   ════════════════════════════════════════════════════════════ */
   if (mode === "forgot") {
     return (
@@ -1233,19 +1257,7 @@ export default function AuthPage({ setUser }) {
   }
 
   /* ════════════════════════════════════════════════════════════
-     RESET
-     ResetPanel reads ?token= from the URL itself — no prop needed
-  ════════════════════════════════════════════════════════════ */
-  if (mode === "reset") {
-    return (
-      <Shell>
-        <ResetPanel onBack={goBack} />
-      </Shell>
-    );
-  }
-
-  /* ════════════════════════════════════════════════════════════
-     OTP
+     REGISTRATION OTP MODE
   ════════════════════════════════════════════════════════════ */
   if (mode === "otp") {
     return (
