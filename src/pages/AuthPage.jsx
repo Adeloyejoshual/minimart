@@ -6,7 +6,10 @@
  *   login    — email + password
  *   register — full registration form
  *   otp      — 6-digit email OTP after registration
- *   forgot   — 3-step password reset (email → OTP → new password)
+ *
+ * Password reset lives at:
+ *   /forgot-password  (ForgotPassword.jsx)
+ *   /reset-password   (ResetPassword.jsx)
  */
 
 import {
@@ -37,10 +40,10 @@ const STRENGTH_LEVELS = [
 ];
 
 const TRUST_ITEMS = [
-  { icon: "Shield",      label: "Secure Payments", sub: "SSL encrypted"  },
-  { icon: "Truck",       label: "Fast Delivery",   sub: "To your door"   },
-  { icon: "CheckCircle", label: "Verified Sellers",sub: "Quality assured" },
-  { icon: "Headphones",  label: "24/7 Support",    sub: "Always here"    },
+  { icon: "Shield",      label: "Secure Payments", sub: "SSL encrypted"   },
+  { icon: "Truck",       label: "Fast Delivery",   sub: "To your door"    },
+  { icon: "CheckCircle", label: "Verified Sellers", sub: "Quality assured" },
+  { icon: "Headphones",  label: "24/7 Support",    sub: "Always here"     },
 ];
 
 const FEATURES = [
@@ -56,10 +59,10 @@ const FEATURES = [
 const getStrength = (pw) => {
   if (!pw) return { ...STRENGTH_LEVELS[0], checks: [] };
   const checks = [
-    { label: "8+ chars",  met: pw.length >= 8         },
-    { label: "Uppercase", met: /[A-Z]/.test(pw)        },
-    { label: "Number",    met: /[0-9]/.test(pw)        },
-    { label: "Symbol",    met: /[^A-Za-z0-9]/.test(pw) },
+    { label: "8+ chars",  met: pw.length >= 8          },
+    { label: "Uppercase", met: /[A-Z]/.test(pw)         },
+    { label: "Number",    met: /[0-9]/.test(pw)         },
+    { label: "Symbol",    met: /[^A-Za-z0-9]/.test(pw)  },
   ];
   return { ...STRENGTH_LEVELS[checks.filter((c) => c.met).length], checks };
 };
@@ -69,103 +72,115 @@ const getStrength = (pw) => {
 ═══════════════════════════════════════════════════════════════ */
 const Ic = {
   User: ({ s = 17 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+      <circle cx="12" cy="7" r="4"/>
     </svg>
   ),
   Mail: ({ s = 17, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+      <polyline points="22,6 12,13 2,6"/>
     </svg>
   ),
   Lock: ({ s = 17, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+      <path d="M7 11V7a5 5 0 0110 0v4"/>
     </svg>
   ),
   Phone: ({ s = 17 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 015.19 12 19.79 19.79 0 012.12 3.33A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
     </svg>
   ),
   Globe: ({ s = 17 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <line x1="2" y1="12" x2="22" y2="12"/>
+      <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
     </svg>
   ),
   Pin: ({ s = 17 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
+      <circle cx="12" cy="10" r="3"/>
     </svg>
   ),
   Eye: ({ s = 17 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+      <circle cx="12" cy="12" r="3"/>
     </svg>
   ),
   EyeOff: ({ s = 17 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+      <line x1="1" y1="1" x2="23" y2="23"/>
     </svg>
   ),
   Check: ({ s = 14, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12"/>
     </svg>
   ),
   Shield: ({ s = 15, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
     </svg>
   ),
   Truck: ({ s = 15, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="3" width="15" height="13"/>
+      <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>
+      <circle cx="5.5" cy="18.5" r="2.5"/>
+      <circle cx="18.5" cy="18.5" r="2.5"/>
     </svg>
   ),
   Zap: ({ s = 15, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
     </svg>
   ),
   Arrow: ({ s = 18 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
-    </svg>
-  ),
-  ArrowLeft: ({ s = 16 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="5" y1="12" x2="19" y2="12"/>
+      <polyline points="12 5 19 12 12 19"/>
     </svg>
   ),
   CheckCircle: ({ s = 15, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+      <polyline points="22 4 12 14.01 9 11.01"/>
     </svg>
   ),
   Headphones: ({ s = 15, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M3 18v-6a9 9 0 0118 0v6"/><path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3z"/><path d="M3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 18v-6a9 9 0 0118 0v6"/>
+      <path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3z"/>
+      <path d="M3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z"/>
     </svg>
   ),
   Refresh: ({ s = 14 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
-    </svg>
-  ),
-  Key: ({ s = 26, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="7.5" cy="15.5" r="5.5"/><path d="M21 2l-9.6 9.6"/><path d="M15.5 7.5l3 3L22 7l-3-3"/>
-    </svg>
-  ),
-  MailCheck: ({ s = 26, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 13V6a2 2 0 00-2-2H4a2 2 0 00-2 2v12a2 2 0 002 2h9"/><path d="M22 6l-10 7L2 6"/><path d="M16 19l2 2 4-4"/>
-    </svg>
-  ),
-  AlertCircle: ({ s = 26, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 4 23 10 17 10"/>
+      <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
     </svg>
   ),
 };
@@ -217,6 +232,7 @@ function ParticleCanvas() {
       ctx.clearRect(0, 0, w, h);
       const p = pts.current;
       const { x: ox, y: oy } = mx.current;
+
       for (const q of p) {
         q.x += q.vx; q.y += q.vy;
         if (q.x < -4) q.x = w + 4; if (q.x > w + 4) q.x = -4;
@@ -228,6 +244,7 @@ function ParticleCanvas() {
         ctx.fillStyle = `rgba(180,80,0,${q.o})`;
         ctx.fill();
       }
+
       for (let i = 0; i < p.length; i++) {
         for (let j = i + 1; j < p.length; j++) {
           const d = Math.hypot(p[i].x - p[j].x, p[i].y - p[j].y);
@@ -236,15 +253,16 @@ function ParticleCanvas() {
             ctx.moveTo(p[i].x, p[i].y);
             ctx.lineTo(p[j].x, p[j].y);
             ctx.strokeStyle = `rgba(180,80,0,${0.025 * (1 - d / 70)})`;
-            ctx.lineWidth = 0.5;
+            ctx.lineWidth   = 0.5;
             ctx.stroke();
           }
         }
       }
+
       raf.current = requestAnimationFrame(draw);
     };
 
-    const onMove = (e) => {
+    const onMove  = (e) => {
       const r = canvas.getBoundingClientRect();
       mx.current = { x: e.clientX - r.left, y: e.clientY - r.top };
     };
@@ -254,6 +272,7 @@ function ParticleCanvas() {
     window.addEventListener("resize", resize);
     canvas.addEventListener("mousemove",  onMove);
     canvas.addEventListener("mouseleave", onLeave);
+
     return () => {
       cancelAnimationFrame(raf.current);
       window.removeEventListener("resize", resize);
@@ -263,25 +282,31 @@ function ParticleCanvas() {
   }, []);
 
   return (
-    <canvas ref={ref} style={{
-      position: "absolute", inset: 0,
-      width: "100%", height: "100%",
-      pointerEvents: "all", zIndex: 0, opacity: 0.45,
-    }} />
+    <canvas
+      ref={ref}
+      style={{
+        position      : "absolute",
+        inset         : 0,
+        width         : "100%",
+        height        : "100%",
+        pointerEvents : "all",
+        zIndex        : 0,
+        opacity       : 0.45,
+      }}
+    />
   );
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   OTP CELLS  (reused for both email-verify and reset-code)
+   OTP CELLS
 ═══════════════════════════════════════════════════════════════ */
-function OtpCells({ value, onChange, disabled, hasError, autoFocusFirst = true }) {
+function OtpCells({ value, onChange, disabled, hasError }) {
   const refs = useRef([]);
 
   useEffect(() => {
-    if (!autoFocusFirst) return;
     const t = setTimeout(() => refs.current[0]?.focus(), 300);
     return () => clearTimeout(t);
-  }, [autoFocusFirst]);
+  }, []);
 
   const char   = (i) => value[i] ?? "";
   const update = (i, ch) => {
@@ -321,15 +346,24 @@ function OtpCells({ value, onChange, disabled, hasError, autoFocusFirst = true }
             if (e.key === "Backspace") {
               e.preventDefault();
               if (char(i)) update(i, "");
-              else if (i > 0) { update(i - 1, ""); refs.current[i - 1]?.focus(); }
+              else if (i > 0) {
+                update(i - 1, "");
+                refs.current[i - 1]?.focus();
+              }
             } else if (e.key === "ArrowLeft"  && i > 0)              refs.current[i - 1]?.focus();
             else if   (e.key === "ArrowRight" && i < OTP_LENGTH - 1) refs.current[i + 1]?.focus();
           }}
           onFocus={(e) => e.target.select()}
           onPaste={(e) => {
             e.preventDefault();
-            const digits = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, OTP_LENGTH);
-            const result = Array.from({ length: OTP_LENGTH }, (_, k) => digits[k] ?? "").join("");
+            const digits = e.clipboardData
+              .getData("text")
+              .replace(/\D/g, "")
+              .slice(0, OTP_LENGTH);
+            const result = Array.from(
+              { length: OTP_LENGTH },
+              (_, k) => digits[k] ?? ""
+            ).join("");
             onChange(result);
             refs.current[Math.min(digits.length, OTP_LENGTH - 1)]?.focus();
           }}
@@ -390,62 +424,14 @@ function Spinner({ c = "#fff" }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PASSWORD FIELD WITH STRENGTH METER
+   BADGES
 ═══════════════════════════════════════════════════════════════ */
-function PwField({
-  label        = "Password",
-  name         = "password",
-  value,
-  onChange,
-  showPw,
-  onToggle,
-  showStrength = false,
-  autoComplete = "current-password",
-  placeholder  = "Password",
-}) {
-  const pw = useMemo(() => getStrength(value), [value]);
+function Badges() {
   return (
-    <div className="ap-field">
-      <label className="ap-label">{label}</label>
-      <div className="ap-iw">
-        <span className="ap-icon"><Ic.Lock /></span>
-        <input
-          name={name}
-          type={showPw ? "text" : "password"}
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          autoComplete={autoComplete}
-        />
-        <button type="button" className="ap-eye" onClick={onToggle} tabIndex={-1}>
-          {showPw ? <Ic.EyeOff /> : <Ic.Eye />}
-        </button>
-      </div>
-      {showStrength && value && (
-        <div className="ap-pw">
-          <div className="ap-pw-bars">
-            {[1, 2, 3, 4].map((v) => (
-              <div
-                key={v}
-                className={`ap-pw-bar${pw.score >= v ? " ap-pw-bar--on" : ""}`}
-                style={pw.score >= v ? { background: pw.color } : {}}
-              />
-            ))}
-          </div>
-          <div className="ap-pw-label" style={{ color: pw.color }}>{pw.label}</div>
-          <div className="ap-pw-checks">
-            {pw.checks.map((c, i) => (
-              <span key={i} className={`ap-pw-check ${c.met ? "ap-pw-check--met" : "ap-pw-check--no"}`}>
-                {c.met
-                  ? <Ic.Check s={9} c="#15803D" />
-                  : <span style={{ width: 9, height: 9, display: "inline-block", borderRadius: "50%", border: "1.5px solid #B0AAA3" }} />
-                }
-                {c.label}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+    <div className="ap-badges">
+      <span className="ap-badge"><Ic.Shield s={11} c="#6B6560" /> SSL Secured</span>
+      <span className="ap-badge"><Ic.Lock   s={11} c="#6B6560" /> Encrypted</span>
+      <span className="ap-badge"><Ic.Check  s={11} c="#6B6560" /> GDPR</span>
     </div>
   );
 }
@@ -461,7 +447,7 @@ function LeftPanel() {
       <ParticleCanvas />
       <div className="ap-left-inner">
 
-        {/* logo */}
+        {/* Logo */}
         <div className="ap-logo">
           <div className="ap-logo-icon">
             <div className="ap-logo-ring" />
@@ -472,7 +458,7 @@ function LeftPanel() {
           <span className="ap-logo-name">Loe<b>mart</b></span>
         </div>
 
-        {/* hero */}
+        {/* Hero */}
         <div className="ap-hero">
           <div className="ap-hero-tag">Your everyday marketplace</div>
           <h2>Shop Smarter,<br /><em>Live Better.</em></h2>
@@ -493,7 +479,7 @@ function LeftPanel() {
           </div>
         </div>
 
-        {/* trust grid */}
+        {/* Trust grid */}
         <div className="ap-trust-grid">
           {TRUST_ITEMS.map((t) => (
             <div className="ap-trust-item" key={t.label}>
@@ -512,444 +498,14 @@ function LeftPanel() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   BADGES
-═══════════════════════════════════════════════════════════════ */
-function Badges() {
-  return (
-    <div className="ap-badges">
-      <span className="ap-badge"><Ic.Shield s={11} c="#6B6560" /> SSL Secured</span>
-      <span className="ap-badge"><Ic.Lock   s={11} c="#6B6560" /> Encrypted</span>
-      <span className="ap-badge"><Ic.Check  s={11} c="#6B6560" /> GDPR</span>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   SHELL
-═══════════════════════════════════════════════════════════════ */
-function Shell({ children }) {
-  return (
-    <div className="ap">
-      <LeftPanel />
-      <div className="ap-right">
-        <div className="ap-right-scroll">
-          <div className="ap-box">
-            {children}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   FORGOT PANEL  — 3-step OTP reset flow
-   step: "email" → "otp" → "password" → "done"
-═══════════════════════════════════════════════════════════════ */
-function ForgotPanel({ onBack }) {
-  const [step,        setStep]        = useState("email");
-  const [email,       setEmail]       = useState("");
-  const [otp,         setOtp]         = useState("");
-  const [otpHasError, setOtpHasError] = useState(false);
-  const [pw,          setPw]          = useState("");
-  const [pw2,         setPw2]         = useState("");
-  const [showPw,      setShowPw]      = useState(false);
-  const [showPw2,     setShowPw2]     = useState(false);
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState("");
-  const [resetToken,  setResetToken]  = useState("");
-  const [devOtp,      setDevOtp]      = useState("");
-  const [resendKey,   setResendKey]   = useState(0);
-  const [canResend,   setCanResend]   = useState(false);
-  const [attemptsLeft,setAttemptsLeft]= useState(null);
-
-  const strength = useMemo(() => getStrength(pw),  [pw]);
-  const match    = pw2 ? pw === pw2 : null;
-
-  /* ── auto-submit OTP when 6 digits filled ── */
-  const verifyingRef = useRef(false);
-  useEffect(() => {
-    if (otp.length === OTP_LENGTH && step === "otp" && !verifyingRef.current) {
-      handleVerifyOtp(otp);
-    }
-  }, [otp, step]); // eslint-disable-line
-
-  /* ────────────────────────────────────────────
-     STEP 1 — send OTP to email
-  ──────────────────────────────────────────── */
-  const handleSendOtp = async (e) => {
-    e?.preventDefault();
-    setError("");
-    const trimmed = email.trim().toLowerCase();
-    if (!trimmed)                       return setError("Please enter your email address.");
-    if (!/\S+@\S+\.\S+/.test(trimmed)) return setError("Please enter a valid email address.");
-
-    setLoading(true);
-    try {
-      const { data } = await axios.post(`${API}/forgot-password`, { email: trimmed });
-
-      /* dev: backend returns OTP directly when email fails */
-      if (data.dev_otp) {
-        setDevOtp(String(data.dev_otp));
-        toast(`Dev OTP: ${data.dev_otp}`, { icon: "🔑", duration: 30_000 });
-      }
-
-      setStep("otp");
-      setCanResend(false);
-      setResendKey((k) => k + 1);
-      setOtp("");
-      setOtpHasError(false);
-      setAttemptsLeft(null);
-    } catch (err) {
-      setError(err.response?.data?.message || "Something went wrong. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /* ────────────────────────────────────────────
-     STEP 2 — verify OTP
-  ──────────────────────────────────────────── */
-  const handleVerifyOtp = async (code) => {
-    if (verifyingRef.current) return;
-    verifyingRef.current = true;
-    setError("");
-
-    try {
-      const { data } = await axios.post(`${API}/forgot-password/verify`, {
-        email : email.trim().toLowerCase(),
-        otp   : code,
-      });
-      setResetToken(data.reset_token);
-      setStep("password");
-    } catch (err) {
-      const msg  = err.response?.data?.message || "Incorrect code. Please try again.";
-      const left = err.response?.data?.attemptsLeft;
-      const code_ = err.response?.data?.code;
-
-      setOtpHasError(true);
-      setError(msg);
-      setOtp("");
-      if (typeof left === "number") setAttemptsLeft(left);
-
-      setTimeout(() => setOtpHasError(false), 700);
-
-      if (code_ === "OTP_LOCKED") {
-        /* too many attempts — go back to email step */
-        setTimeout(() => {
-          setStep("email");
-          setError("Too many incorrect attempts. Please request a new code.");
-          setDevOtp("");
-        }, 1_000);
-      }
-    } finally {
-      verifyingRef.current = false;
-    }
-  };
-
-  /* ────────────────────────────────────────────
-     STEP 3 — set new password
-  ──────────────────────────────────────────── */
-  const handleResetPassword = async (e) => {
-    e.preventDefault();
-    setError("");
-
-    if (!pw)                return setError("Please enter a new password.");
-    if (strength.score < 2) return setError("Password is too weak. Please choose a stronger one.");
-    if (pw !== pw2)         return setError("Passwords do not match.");
-
-    setLoading(true);
-    try {
-      await axios.post(`${API}/reset-password`, {
-        reset_token : resetToken,
-        password    : pw,
-      });
-      setStep("done");
-      toast.success("Password reset successfully!");
-    } catch (err) {
-      setError(err.response?.data?.message || "Reset failed. Please start over.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /* ────────────────────────────────────────────
-     RESEND
-  ──────────────────────────────────────────── */
-  const handleResend = async () => {
-    setCanResend(false);
-    setResendKey((k) => k + 1);
-    setOtp("");
-    setOtpHasError(false);
-    setError("");
-    setDevOtp("");
-    setAttemptsLeft(null);
-
-    setLoading(true);
-    try {
-      const { data } = await axios.post(`${API}/forgot-password`, {
-        email: email.trim().toLowerCase(),
-      });
-      if (data.dev_otp) {
-        setDevOtp(String(data.dev_otp));
-        toast(`Dev OTP: ${data.dev_otp}`, { icon: "🔑", duration: 30_000 });
-      }
-      toast.success("New code sent!");
-    } catch (err) {
-      setError(err.response?.data?.message || "Failed to resend. Please try again.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  /* ── DONE ── */
-  if (step === "done") {
-    return (
-      <>
-        <div className="ap-otp-header">
-          <div className="ap-otp-icon-wrap"
-               style={{ background: "linear-gradient(135deg,#15803D,#22C55E)" }}>
-            <Ic.Check s={30} c="#fff" />
-          </div>
-          <h3 className="ap-otp-title">Password updated!</h3>
-          <p className="ap-otp-sub">
-            Your password has been reset successfully. You can now log in
-            with your new password.
-          </p>
-        </div>
-
-        <button type="button" className="ap-submit"
-                style={{ marginTop: 16 }} onClick={onBack}>
-          Back to login <Ic.Arrow s={17} />
-        </button>
-
-        <Badges />
-      </>
-    );
-  }
-
-  /* ── STEP 3 — new password ── */
-  if (step === "password") {
-    return (
-      <>
-        <div className="ap-heading">
-          <div className="ap-otp-icon-wrap"
-               style={{ width: 54, height: 54, borderRadius: 15, marginBottom: 14 }}>
-            <Ic.Key s={24} c="#fff" />
-          </div>
-          <h3>Set a new password</h3>
-          <p>Choose a strong password for your Loemart account.</p>
-        </div>
-
-        {error && <div className="ap-fp-error">{error}</div>}
-
-        <form onSubmit={handleResetPassword}>
-          <div className="ap-form">
-
-            <PwField
-              label="New password"
-              name="password"
-              value={pw}
-              onChange={(e) => setPw(e.target.value)}
-              showPw={showPw}
-              onToggle={() => setShowPw((v) => !v)}
-              showStrength
-              autoComplete="new-password"
-              placeholder="New password"
-            />
-
-            <div className="ap-field">
-              <label className="ap-label">Confirm new password</label>
-              <div className={`ap-iw${match === false ? " ap-iw--error" : ""}`}>
-                <span className="ap-icon"><Ic.Lock /></span>
-                <input
-                  name="password2"
-                  type={showPw2 ? "text" : "password"}
-                  value={pw2}
-                  onChange={(e) => setPw2(e.target.value)}
-                  placeholder="Repeat new password"
-                  autoComplete="new-password"
-                />
-                <button type="button" className="ap-eye"
-                        onClick={() => setShowPw2((v) => !v)} tabIndex={-1}>
-                  {showPw2 ? <Ic.EyeOff /> : <Ic.Eye />}
-                </button>
-              </div>
-              {match === true  && (
-                <p className="ap-fp-match-ok">
-                  <Ic.Check s={12} c="#15803D" /> Passwords match
-                </p>
-              )}
-              {match === false && (
-                <p className="ap-fp-match-error">Passwords do not match</p>
-              )}
-            </div>
-
-            <button
-              type="submit"
-              className="ap-submit"
-              disabled={loading || !pw || !pw2}
-            >
-              {loading
-                ? <><Spinner /> Updating…</>
-                : <>Update password <Ic.Arrow s={17} /></>
-              }
-            </button>
-
-          </div>
-        </form>
-
-        <Badges />
-      </>
-    );
-  }
-
-  /* ── STEP 2 — OTP entry ── */
-  if (step === "otp") {
-    return (
-      <>
-        <div className="ap-otp-header">
-          <div className="ap-otp-icon-wrap">
-            <Ic.Mail s={28} c="#fff" />
-          </div>
-          <h3 className="ap-otp-title">Enter reset code</h3>
-          <p className="ap-otp-sub">
-            We sent a 6-digit code to{" "}
-            <strong>{email.trim().toLowerCase()}</strong>.
-            Enter it below to continue.
-          </p>
-        </div>
-
-        {devOtp && (
-          <div className="ap-dev-otp">
-            Dev mode — code: <strong>{devOtp}</strong>
-          </div>
-        )}
-
-        <OtpCells
-          value={otp}
-          onChange={setOtp}
-          disabled={loading}
-          hasError={otpHasError}
-        />
-
-        <p className="ap-otp-hint">Auto-submits when all 6 digits are entered</p>
-
-        {error && (
-          <div className="ap-otp-error">
-            {error}
-            {attemptsLeft !== null && attemptsLeft > 0 && attemptsLeft <= 4 && (
-              <span className="ap-otp-error__sub">
-                {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} remaining
-              </span>
-            )}
-          </div>
-        )}
-
-        {loading && (
-          <p style={{ textAlign: "center", color: "var(--ap-text-3)", fontSize: 13, marginBottom: 8 }}>
-            Verifying…
-          </p>
-        )}
-
-        <div className="ap-otp-resend">
-          <div>
-            {canResend ? (
-              <button type="button" className="ap-otp-resend__btn"
-                      onClick={handleResend} disabled={loading}>
-                <Ic.Refresh s={13} /> Resend code
-              </button>
-            ) : (
-              <span className="ap-otp-resend__timer">
-                Resend in{" "}
-                <Countdown
-                  key={resendKey}
-                  seconds={RESEND_SECS}
-                  resendKey={resendKey}
-                  onDone={() => setCanResend(true)}
-                />
-              </span>
-            )}
-          </div>
-          <button
-            type="button"
-            className="ap-back-btn"
-            onClick={() => {
-              setStep("email");
-              setOtp("");
-              setOtpHasError(false);
-              setError("");
-              setDevOtp("");
-            }}
-          >
-            <Ic.ArrowLeft s={14} /> Change email
-          </button>
-        </div>
-
-        <Badges />
-      </>
-    );
-  }
-
-  /* ── STEP 1 — email entry ── */
-  return (
-    <>
-      <div className="ap-heading">
-        <button type="button" className="ap-back-btn" onClick={onBack}>
-          <Ic.ArrowLeft s={15} /> Back to login
-        </button>
-        <h3 style={{ marginTop: 14 }}>Forgot your password?</h3>
-        <p>
-          Enter your account email and we'll send you a
-          <strong> 6-digit reset code</strong>.
-        </p>
-      </div>
-
-      {error && <div className="ap-fp-error">{error}</div>}
-
-      <form onSubmit={handleSendOtp}>
-        <div className="ap-form">
-          <div className="ap-field">
-            <label className="ap-label">Email address</label>
-            <div className="ap-iw">
-              <span className="ap-icon"><Ic.Mail /></span>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="your@email.com"
-                autoComplete="email"
-                autoFocus
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            className="ap-submit"
-            disabled={loading || !email.trim()}
-          >
-            {loading
-              ? <><Spinner /> Sending code…</>
-              : <>Send reset code <Ic.Arrow s={17} /></>
-            }
-          </button>
-        </div>
-      </form>
-
-      <Badges />
-    </>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
    REGISTRATION OTP PANEL
 ═══════════════════════════════════════════════════════════════ */
 function OtpPanel({
   otp, setOtp,
   otpError, otpErrMsg,
   attemptsLeft,
-  canResend, resendKey, resendLeft,
+  canResend, resendKey,
+  resendLeft,
   devOtp, maskedEmail,
   verifyingRef,
   onResend,
@@ -964,7 +520,10 @@ function OtpPanel({
         <h3 className="ap-otp-title">Check your email</h3>
         <p className="ap-otp-sub">
           We sent a 6-digit code to{" "}
-          {maskedEmail ? <strong>{maskedEmail}</strong> : "your email address"}.
+          {maskedEmail
+            ? <strong>{maskedEmail}</strong>
+            : "your email address"
+          }.
           Enter it below to verify your account.
         </p>
       </div>
@@ -987,7 +546,9 @@ function OtpPanel({
       {otpErrMsg && (
         <div className="ap-otp-error">
           {otpErrMsg}
-          {attemptsLeft !== null && attemptsLeft > 0 && attemptsLeft <= 4 && (
+          {attemptsLeft !== null &&
+           attemptsLeft > 0      &&
+           attemptsLeft <= 4     && (
             <span className="ap-otp-error__sub">
               {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} remaining
             </span>
@@ -998,9 +559,15 @@ function OtpPanel({
       <div className="ap-otp-resend">
         <div>
           {resendLeft === 0 ? (
-            <span className="ap-otp-resend__limit">Daily limit reached — try tomorrow</span>
+            <span className="ap-otp-resend__limit">
+              Daily limit reached — try tomorrow
+            </span>
           ) : canResend ? (
-            <button type="button" className="ap-otp-resend__btn" onClick={onResend}>
+            <button
+              type="button"
+              className="ap-otp-resend__btn"
+              onClick={onResend}
+            >
               <Ic.Refresh s={13} /> Resend code
               {resendLeft !== null && (
                 <span className="ap-otp-resend__count">({resendLeft} left)</span>
@@ -1042,16 +609,21 @@ export default function AuthPage({ setUser }) {
   const location = useLocation();
   const from     = location.state?.from?.pathname || "/";
 
-  /* ── mode ── */
+  /* ── mode: "login" | "register" | "otp" ── */
   const [mode,     setMode]     = useState("login");
   const [showPw,   setShowPw]   = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading,  setLoading]  = useState(false);
 
-  /* ── login/register form ── */
+  /* ── login / register form ── */
   const [form, setForm] = useState({
-    name: "", email: "", password: "",
-    phone_number: "", country: "", state: "", city: "",
+    name         : "",
+    email        : "",
+    password     : "",
+    phone_number : "",
+    country      : "",
+    state        : "",
+    city         : "",
   });
 
   /* ── registration OTP state ── */
@@ -1088,8 +660,6 @@ export default function AuthPage({ setUser }) {
     setOtpErrMsg("");
   }, []);
 
-  const goBack = useCallback(() => switchMode("login"), [switchMode]);
-
   const isNigeria     = form.country === "Nigeria";
   const nigeriaStates = useMemo(() => Object.keys(locationsByState).sort(), []);
   const cities        = useMemo(() => {
@@ -1107,7 +677,8 @@ export default function AuthPage({ setUser }) {
     const tok = token || authToken;
     try {
       const { data } = await axios.post(
-        `${VAPI}/send-email-otp`, {},
+        `${VAPI}/send-email-otp`,
+        {},
         { headers: { Authorization: `Bearer ${tok}` } }
       );
       if (data.email)                         setMaskedEmail(data.email);
@@ -1211,7 +782,7 @@ export default function AuthPage({ setUser }) {
     }
   }, [authToken, navigate]);
 
-  /* auto-submit registration OTP */
+  /* ── auto-submit registration OTP ── */
   useEffect(() => {
     if (
       otp.length === OTP_LENGTH &&
@@ -1246,41 +817,37 @@ export default function AuthPage({ setUser }) {
   };
 
   /* ════════════════════════════════════════════════════════════
-     FORGOT MODE
-  ════════════════════════════════════════════════════════════ */
-  if (mode === "forgot") {
-    return (
-      <Shell>
-        <ForgotPanel onBack={goBack} />
-      </Shell>
-    );
-  }
-
-  /* ════════════════════════════════════════════════════════════
      REGISTRATION OTP MODE
   ════════════════════════════════════════════════════════════ */
   if (mode === "otp") {
     return (
-      <Shell>
-        <OtpPanel
-          otp={otp}
-          setOtp={setOtp}
-          otpError={otpError}
-          otpErrMsg={otpErrMsg}
-          attemptsLeft={attemptsLeft}
-          canResend={canResend}
-          resendKey={resendKey}
-          resendLeft={resendLeft}
-          devOtp={devOtp}
-          maskedEmail={maskedEmail}
-          verifyingRef={verifyingRef}
-          onResend={handleResend}
-          onSkip={() => {
-            toast("You can verify your email later from Account Settings.");
-            navigate("/");
-          }}
-        />
-      </Shell>
+      <div className="ap">
+        <LeftPanel />
+        <div className="ap-right">
+          <div className="ap-right-scroll">
+            <div className="ap-box">
+              <OtpPanel
+                otp={otp}
+                setOtp={setOtp}
+                otpError={otpError}
+                otpErrMsg={otpErrMsg}
+                attemptsLeft={attemptsLeft}
+                canResend={canResend}
+                resendKey={resendKey}
+                resendLeft={resendLeft}
+                devOtp={devOtp}
+                maskedEmail={maskedEmail}
+                verifyingRef={verifyingRef}
+                onResend={handleResend}
+                onSkip={() => {
+                  toast("You can verify your email later from Account Settings.");
+                  navigate("/");
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
     );
   }
 
@@ -1294,7 +861,7 @@ export default function AuthPage({ setUser }) {
         <div className="ap-right-scroll">
           <div className="ap-box">
 
-            {/* tabs */}
+            {/* Tabs */}
             <div className="ap-tabs">
               <button
                 type="button"
@@ -1312,9 +879,11 @@ export default function AuthPage({ setUser }) {
               </button>
             </div>
 
-            {/* heading */}
+            {/* Heading */}
             <div className="ap-heading">
-              <h3>{mode === "login" ? "Welcome back" : "Create your account"}</h3>
+              <h3>
+                {mode === "login" ? "Welcome back" : "Create your account"}
+              </h3>
               <p>
                 {mode === "login"
                   ? "Enter your credentials to continue"
@@ -1323,11 +892,11 @@ export default function AuthPage({ setUser }) {
               </p>
             </div>
 
-            {/* form */}
+            {/* Form */}
             <form onSubmit={onSubmit}>
               <div className="ap-form">
 
-                {/* name — register only */}
+                {/* Name — register only */}
                 {mode === "register" && (
                   <div className="ap-field">
                     <label className="ap-label">Full Name</label>
@@ -1344,7 +913,7 @@ export default function AuthPage({ setUser }) {
                   </div>
                 )}
 
-                {/* email */}
+                {/* Email */}
                 <div className="ap-field">
                   <label className="ap-label">Email</label>
                   <div className="ap-iw">
@@ -1360,15 +929,16 @@ export default function AuthPage({ setUser }) {
                   </div>
                 </div>
 
-                {/* password */}
+                {/* Password */}
                 <div className="ap-field">
                   <label className="ap-label">
                     Password
+                    {/* ✅ navigates to /forgot-password instead of switchMode("forgot") */}
                     {mode === "login" && (
                       <button
                         type="button"
                         className="ap-forgot"
-                        onClick={() => switchMode("forgot")}
+                        onClick={() => navigate("/forgot-password")}
                       >
                         Forgot?
                       </button>
@@ -1382,7 +952,9 @@ export default function AuthPage({ setUser }) {
                       value={form.password}
                       onChange={handleChange}
                       placeholder="Password"
-                      autoComplete={mode === "login" ? "current-password" : "new-password"}
+                      autoComplete={
+                        mode === "login" ? "current-password" : "new-password"
+                      }
                     />
                     <button
                       type="button"
@@ -1394,7 +966,7 @@ export default function AuthPage({ setUser }) {
                     </button>
                   </div>
 
-                  {/* strength meter — register only */}
+                  {/* Strength meter — register only */}
                   {mode === "register" && form.password && (
                     <div className="ap-pw">
                       <div className="ap-pw-bars">
@@ -1406,7 +978,9 @@ export default function AuthPage({ setUser }) {
                           />
                         ))}
                       </div>
-                      <div className="ap-pw-label" style={{ color: pw.color }}>{pw.label}</div>
+                      <div className="ap-pw-label" style={{ color: pw.color }}>
+                        {pw.label}
+                      </div>
                       <div className="ap-pw-checks">
                         {pw.checks.map((c, i) => (
                           <span
@@ -1415,7 +989,13 @@ export default function AuthPage({ setUser }) {
                           >
                             {c.met
                               ? <Ic.Check s={9} c="#15803D" />
-                              : <span style={{ width: 9, height: 9, display: "inline-block", borderRadius: "50%", border: "1.5px solid #B0AAA3" }} />
+                              : <span style={{
+                                  width        : 9,
+                                  height       : 9,
+                                  display      : "inline-block",
+                                  borderRadius : "50%",
+                                  border       : "1.5px solid #B0AAA3",
+                                }} />
                             }
                             {c.label}
                           </span>
@@ -1425,7 +1005,7 @@ export default function AuthPage({ setUser }) {
                   )}
                 </div>
 
-                {/* register extras */}
+                {/* Register extras */}
                 {mode === "register" && (
                   <>
                     <div className="ap-field">
@@ -1524,7 +1104,11 @@ export default function AuthPage({ setUser }) {
                               name="city"
                               value={form.city}
                               onChange={handleChange}
-                              placeholder={isNigeria && !form.state ? "Select state first" : "City"}
+                              placeholder={
+                                isNigeria && !form.state
+                                  ? "Select state first"
+                                  : "City"
+                              }
                             />
                           )}
                         </div>
@@ -1533,12 +1117,15 @@ export default function AuthPage({ setUser }) {
                   </>
                 )}
 
-                {/* remember me — login only */}
+                {/* Remember me — login only */}
                 {mode === "login" && (
                   <div className="ap-opts">
                     <label
                       className="ap-remember"
-                      onClick={(e) => { e.preventDefault(); setRemember((v) => !v); }}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setRemember((v) => !v);
+                      }}
                     >
                       <span className={`ap-checkbox${remember ? " ap-checkbox--on" : ""}`}>
                         {remember && <Ic.Check s={10} c="#fff" />}
@@ -1548,7 +1135,11 @@ export default function AuthPage({ setUser }) {
                   </div>
                 )}
 
-                <button type="submit" className="ap-submit" disabled={loading}>
+                <button
+                  type="submit"
+                  className="ap-submit"
+                  disabled={loading}
+                >
                   {loading ? (
                     <><Spinner /> Please wait…</>
                   ) : mode === "login" ? (
@@ -1562,7 +1153,10 @@ export default function AuthPage({ setUser }) {
             </form>
 
             <p className="ap-switch">
-              {mode === "login" ? "Don't have an account? " : "Already have an account? "}
+              {mode === "login"
+                ? "Don't have an account? "
+                : "Already have an account? "
+              }
               <a onClick={() => switchMode(mode === "login" ? "register" : "login")}>
                 {mode === "login" ? "Register" : "Login"}
               </a>
@@ -1570,9 +1164,13 @@ export default function AuthPage({ setUser }) {
 
             <p className="ap-terms">
               By continuing you agree to our{" "}
-              <a href="/terms"   target="_blank" rel="noreferrer">Terms of Service</a>
+              <a href="/terms" target="_blank" rel="noreferrer">
+                Terms of Service
+              </a>
               {" "}and{" "}
-              <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>
+              <a href="/privacy" target="_blank" rel="noreferrer">
+                Privacy Policy
+              </a>
             </p>
 
             <Badges />
