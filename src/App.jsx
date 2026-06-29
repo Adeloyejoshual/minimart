@@ -34,14 +34,18 @@ import TrendingPage    from "./pages/Homepage/TrendingPage";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — AUTH
-   NOTE:
-   • AuthPage  → handles login, register, OTP verify + built-in
-                 OTP-based forgot-password flow (mode="forgot")
-   • ResetPassword → handles email-link reset (/reset-password?token=)
-   • /forgot-password redirects to /auth (forgot flow lives inside AuthPage)
+   ──────────────────────────────────────────────────────────────
+   AuthPage handles ALL auth flows in one place:
+     • mode="login"    → email + password login
+     • mode="register" → registration form
+     • mode="otp"      → email OTP verification after register
+     • mode="forgot"   → OTP-based password reset
+                         (email → 6-digit OTP → new password)
+
+   NO separate ForgotPassword or ResetPassword pages needed.
+   All password reset is OTP-based inside AuthPage.
 ═══════════════════════════════════════════════════════════════ */
-import AuthPage      from "./pages/AuthPage";
-import ResetPassword from "./pages/ResetPassword";
+import AuthPage from "./pages/AuthPage";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — SELLER
@@ -276,9 +280,8 @@ export default function App() {
 
   /* ── Marketplace login handler ──────────────────────────── */
   /*
-   * Called by AuthPage as: setUser(data.user, data.token, navigate, from)
-   * Matches the AuthPage signature exactly:
-   *   handleLogin  → setUser(data.user, data.token, navigate, from)
+   * Called by AuthPage as:
+   *   setUser(data.user, data.token, navigate, from)
    */
   const handleAuthSuccess = (userData, token, navigateFn, from) => {
     localStorage.setItem(TOKEN_KEYS.marketplace, token);
@@ -335,20 +338,20 @@ export default function App() {
 
         {/* ══════════════════════════════════════════════════
             AUTH ROUTES
+            ──────────────────────────────────────────────
+            ALL auth flows live inside AuthPage:
+              /auth → login | register | otp | forgot
 
-            /auth            → AuthPage
-                               Handles: login | register | otp | forgot
-                               AuthPage has a built-in OTP-based forgot
-                               password flow (mode="forgot" → ForgotPanel)
-                               so no separate /forgot-password page needed.
+            /forgot-password  ──► redirect to /auth
+            /reset-password   ──► redirect to /auth
+            (old links / bookmarks still work)
 
-            /forgot-password → Redirects to /auth
-                               Keeps old links/bookmarks working.
-                               User can use "Forgot?" button inside /auth.
-
-            /reset-password  → Standalone page for email-link reset
-                               (?token=xxx sent via email by backend).
-                               Separate from the OTP flow in AuthPage.
+            Password reset flow inside AuthPage:
+              1. Click "Forgot?" on login
+              2. Enter email  → POST /api/auth/forgot-password
+              3. Enter 6-digit OTP sent to email
+              4. Set new password → POST /api/auth/reset-password
+              5. Auto back to login ✅
         ══════════════════════════════════════════════════ */}
         <Route
           path="/auth"
@@ -359,29 +362,9 @@ export default function App() {
           }
         />
 
-        {/*
-         * /forgot-password → redirect to /auth
-         * AuthPage's built-in ForgotPanel (mode="forgot") handles
-         * the complete OTP-based reset flow internally.
-         */}
-        <Route
-          path="/forgot-password"
-          element={<Navigate to="/auth" replace />}
-        />
-
-        {/*
-         * /reset-password?token=xxx
-         * Used when backend sends an email reset link (token-based).
-         * Only accessible when logged out.
-         */}
-        <Route
-          path="/reset-password"
-          element={
-            user
-              ? <Navigate to="/" replace />
-              : <ResetPassword />
-          }
-        />
+        {/* Redirect legacy routes → /auth */}
+        <Route path="/forgot-password" element={<Navigate to="/auth" replace />} />
+        <Route path="/reset-password"  element={<Navigate to="/auth" replace />} />
 
         {/* ══════════════════════════════════════════════════
             SELLER ROUTES
@@ -503,7 +486,7 @@ export default function App() {
             /shop/cart    → open (guest browsing allowed)
             /checkout + orders → require login
         ══════════════════════════════════════════════════ */}
-        <Route path="/shop/cart"       element={<CartPage    />} />
+        <Route path="/shop/cart"       element={<CartPage      />} />
         <Route path="/payment/success" element={<PaymentSuccess />} />
 
         <Route path="/shop/checkout" element={
