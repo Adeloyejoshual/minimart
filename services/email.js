@@ -102,6 +102,17 @@ function shell({ title, preheader, body }) {
       letter-spacing:14px;color:#f1f5f9;
       font-family:'Courier New',Courier,monospace;
     }
+    /* OTP — orange variant (password reset) */
+    .otp-box-orange{
+      display:inline-block;background:#111c2d;
+      border:2px dashed rgba(255,92,0,0.5);
+      border-radius:14px;padding:24px 48px;
+    }
+    .otp-code-orange{
+      font-size:42px;font-weight:800;
+      letter-spacing:14px;color:#FF8040;
+      font-family:'Courier New',Courier,monospace;
+    }
     /* status banners */
     .banner-green{
       background:rgba(22,163,74,0.10);
@@ -164,7 +175,7 @@ function shell({ title, preheader, body }) {
       border-radius:9px;padding:13px 16px;margin:18px 0;
       font-size:13px;color:#fcd34d;line-height:1.55;
     }
-    /* cta button — orange for password reset, blue elsewhere */
+    /* cta button */
     .cta{
       display:inline-block;margin:18px 0 4px;
       padding:13px 32px;border-radius:10px;
@@ -179,18 +190,11 @@ function shell({ title, preheader, body }) {
       border-radius:12px;padding:20px 24px;
       margin:20px 0;text-align:center;
     }
-    .reset-banner .icon   {font-size:36px;margin-bottom:8px;}
+    .reset-banner .icon    {font-size:36px;margin-bottom:8px;}
     .reset-banner .headline{
       font-size:18px;font-weight:800;color:#FF8040;margin-bottom:6px;
     }
-    .reset-banner .sub    {font-size:13px;color:#FFAA80;line-height:1.6;}
-    .reset-fallback{
-      margin-top:18px;padding:13px 16px;
-      background:#111c2d;border-radius:9px;
-      font-size:11px;color:#64748b;line-height:1.6;
-      word-break:break-all;
-    }
-    .reset-fallback a{color:#FF8040;text-decoration:none;}
+    .reset-banner .sub     {font-size:13px;color:#FFAA80;line-height:1.6;}
     .reset-security{
       background:rgba(245,158,11,0.08);
       border:1px solid rgba(245,158,11,0.22);
@@ -208,8 +212,8 @@ function shell({ title, preheader, body }) {
     @media(max-width:480px){
       .body{padding:24px 18px;}
       .brand-bar{padding:20px 18px;}
-      .otp-code{font-size:32px;letter-spacing:8px;}
-      .otp-box{padding:18px 24px;}
+      .otp-code,.otp-code-orange{font-size:32px;letter-spacing:8px;}
+      .otp-box,.otp-box-orange{padding:18px 24px;}
     }
   </style>
 </head>
@@ -292,30 +296,38 @@ async function send({ to, subject, html, text }) {
 }
 
 /* ════════════════════════════════════════════════════════════════════════════
-   PASSWORD RESET  ← new export consumed by routes/auth.routes.js
+   PASSWORD RESET OTP
+   Called by: routes/forgotPassword.js
+   POST /api/auth/forgot-password
+
+   Sends a 6-digit OTP code (not a link).
+   Replaces the old resetUrl-based version.
 ════════════════════════════════════════════════════════════════════════════ */
 
 /**
  * sendPasswordResetEmail
  *
- * Called by:
- *   routes/auth.routes.js  POST /api/auth/forgot-password
- *
- * @param {{ to: string, name: string, resetUrl: string }} opts
+ * @param {{ to: string, name: string, otp: string, expiry: number }} opts
  */
-export async function sendPasswordResetEmail({ to, name, resetUrl }) {
+export async function sendPasswordResetEmail({ to, name, otp, expiry = 15 }) {
   console.log("[email] sendPasswordResetEmail called", {
-    to      : to       ?? "MISSING",
-    name    : name     ?? "MISSING",
-    resetUrl: IS_PROD  ? "[hidden]" : (resetUrl ?? "MISSING"),
+    to     : to   ?? "MISSING",
+    name   : name ?? "MISSING",
+    otp    : IS_PROD ? "******" : (otp ?? "MISSING"),
+    expiry,
   });
 
-  if (!to)       throw new Error("sendPasswordResetEmail: `to` is required");
-  if (!resetUrl) throw new Error("sendPasswordResetEmail: `resetUrl` is required");
+  if (!to)  throw new Error("sendPasswordResetEmail: `to` is required");
+  if (!otp) throw new Error("sendPasswordResetEmail: `otp` is required");
+
+  const otpStr = String(otp).trim();
+  if (!/^\d{6}$/.test(otpStr))
+    throw new Error(
+      `sendPasswordResetEmail: otp must be 6 digits — received "${otpStr}"`
+    );
 
   const safeName = esc(name || "there");
-  const safeUrl  = esc(resetUrl);          // shown in fallback text only
-  const EXPIRY   = 30;                     // keep in sync with auth.routes.js
+  const safeOtp  = esc(otpStr);
 
   const body = `
     <h2>Reset your password</h2>
@@ -323,67 +335,144 @@ export async function sendPasswordResetEmail({ to, name, resetUrl }) {
     <p>
       We received a request to reset the password for your
       <strong>${esc(BRAND)}</strong> account.
-      Click the button below — this link expires in
-      <strong>${EXPIRY}&nbsp;minutes</strong>.
+      Use the code below — it expires in
+      <strong>${expiry}&nbsp;minutes</strong>.
     </p>
 
     <div class="reset-banner">
       <div class="icon">🔑</div>
-      <div class="headline">Password Reset Request</div>
+      <div class="headline">Password Reset Code</div>
       <div class="sub">
-        Link expires in ${EXPIRY} minutes &nbsp;·&nbsp; One-time use only
+        Expires in ${expiry} minutes &nbsp;·&nbsp; One-time use only
       </div>
     </div>
 
-    <p style="text-align:center;">
-      <a href="${resetUrl}" class="cta cta-orange">
-        Reset my password →
-      </a>
-    </p>
+    <div class="otp-wrap">
+      <div class="otp-box-orange">
+        <div class="otp-code-orange">${safeOtp}</div>
+      </div>
+    </div>
 
     <div class="reset-security">
       <strong style="color:#f1f5f9;">Security notice:</strong>
-      Never share this link with anyone.
+      Never share this code with anyone.
       ${esc(BRAND)} staff will <strong>never</strong> ask for it.
-      This link can only be used <strong>once</strong>.
+      This code can only be used <strong>once</strong>.
     </div>
 
     <p>
-      If you didn't request a password reset, you can safely ignore this email —
-      your password will <strong>not</strong> change.
+      If you didn't request a password reset, you can safely ignore
+      this email — your password will <strong>not</strong> change.
     </p>
-
-    <div class="reset-fallback">
-      Button not working? Copy this link into your browser:<br/>
-      <a href="${resetUrl}">${safeUrl}</a>
-    </div>
   `;
 
   return send({
     to,
-    subject : `Reset your ${BRAND} password`,
+    subject : `${safeOtp} — your ${esc(BRAND)} password reset code`,
     html    : shell({
       title     : `Reset your ${BRAND} password`,
-      preheader : `Reset link inside — expires in ${EXPIRY} minutes. Ignore if you didn't request this.`,
+      preheader : `Your password reset code is ${safeOtp}. Expires in ${expiry} minutes.`,
       body,
     }),
     text: [
       `Hi ${name || "there"},`,
       ``,
-      `We received a request to reset your ${BRAND} password.`,
+      `Your ${BRAND} password reset code is:`,
       ``,
-      `Click the link below to choose a new password`,
-      `(expires in ${EXPIRY} minutes, one-time use):`,
+      `    ${otpStr}`,
       ``,
-      `  ${resetUrl}`,
+      `This code expires in ${expiry} minutes.`,
+      `It can only be used once.`,
       ``,
       `Security notice:`,
-      `  • Never share this link with anyone`,
+      `  • Never share this code with anyone`,
       `  • ${BRAND} staff will never ask for it`,
-      `  • This link can only be used once`,
       ``,
       `If you didn't request this, ignore this email.`,
       `Your password will not change.`,
+      ``,
+      `— ${BRAND}`,
+    ].join("\n"),
+  });
+}
+
+/* ════════════════════════════════════════════════════════════════════════════
+   EMAIL VERIFICATION OTP  (sent after registration)
+   Called by: routes/auth.routes.js  POST /api/auth/register
+════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * sendEmailVerificationOtp
+ *
+ * @param {{ to: string, name: string, otp: string, expiry: number }} opts
+ */
+export async function sendEmailVerificationOtp({ to, name, otp, expiry = 15 }) {
+  console.log("[email] sendEmailVerificationOtp called", {
+    to     : to   ?? "MISSING",
+    name   : name ?? "MISSING",
+    otp    : IS_PROD ? "******" : (otp ?? "MISSING"),
+    expiry,
+  });
+
+  if (!to)  throw new Error("sendEmailVerificationOtp: `to` is required");
+  if (!otp) throw new Error("sendEmailVerificationOtp: `otp` is required");
+
+  const otpStr = String(otp).trim();
+  if (!/^\d{6}$/.test(otpStr))
+    throw new Error(
+      `sendEmailVerificationOtp: otp must be 6 digits — received "${otpStr}"`
+    );
+
+  const safeName = esc(name || "there");
+  const safeOtp  = esc(otpStr);
+
+  const body = `
+    <h2>Verify your email address</h2>
+    <p>Hi <span class="hi">${safeName}</span>,</p>
+    <p>
+      Welcome to <strong>${esc(BRAND)}</strong>! Use the code below
+      to verify your email address. It expires in
+      <strong>${expiry}&nbsp;minutes</strong>.
+    </p>
+
+    <div class="otp-wrap">
+      <div class="otp-box">
+        <div class="otp-code">${safeOtp}</div>
+      </div>
+    </div>
+
+    <div class="warning">
+      <strong>Security notice:</strong>
+      Never share this code with anyone.
+      ${esc(BRAND)} staff will <strong>never</strong> ask for it.
+    </div>
+
+    <p style="font-size:13px;color:#64748b;">
+      If you did not create an account, you can safely ignore this email.
+    </p>
+  `;
+
+  return send({
+    to,
+    subject : `${safeOtp} — verify your ${esc(BRAND)} account`,
+    html    : shell({
+      title     : `Verify your ${BRAND} account`,
+      preheader : `Your verification code is ${safeOtp}. Expires in ${expiry} minutes.`,
+      body,
+    }),
+    text: [
+      `Hi ${name || "there"},`,
+      ``,
+      `Welcome to ${BRAND}!`,
+      ``,
+      `Your email verification code is:`,
+      ``,
+      `    ${otpStr}`,
+      ``,
+      `This code expires in ${expiry} minutes.`,
+      `Never share it — ${BRAND} staff will never ask for it.`,
+      ``,
+      `If you did not create an account, ignore this email.`,
       ``,
       `— ${BRAND}`,
     ].join("\n"),
