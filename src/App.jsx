@@ -34,10 +34,14 @@ import TrendingPage    from "./pages/Homepage/TrendingPage";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — AUTH
+   NOTE:
+   • AuthPage  → handles login, register, OTP verify + built-in
+                 OTP-based forgot-password flow (mode="forgot")
+   • ResetPassword → handles email-link reset (/reset-password?token=)
+   • /forgot-password redirects to /auth (forgot flow lives inside AuthPage)
 ═══════════════════════════════════════════════════════════════ */
-import AuthPage       from "./pages/AuthPage";
-import ForgotPassword from "./pages/ForgotPassword";
-import ResetPassword  from "./pages/ResetPassword";
+import AuthPage      from "./pages/AuthPage";
+import ResetPassword from "./pages/ResetPassword";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — SELLER
@@ -105,6 +109,21 @@ export const TOKEN_KEYS = {
   marketplace : "marketplace_token",
   seller      : "seller_token",
   admin       : "admin_token",
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   TOASTER CONFIG
+═══════════════════════════════════════════════════════════════ */
+const TOASTER_OPTIONS = {
+  duration : 3_500,
+  style    : {
+    padding      : "10px 14px",
+    borderRadius : 8,
+    color        : "#fff",
+    fontSize     : "0.9rem",
+  },
+  success : { style: { background: "#16a34a" } },
+  error   : { style: { background: "#dc2626" } },
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -178,21 +197,6 @@ function AdminProtectedRoute({ admin, children }) {
   if (!admin) return <Navigate to="/admin/login" replace />;
   return children;
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   TOASTER CONFIG
-═══════════════════════════════════════════════════════════════ */
-const TOASTER_OPTIONS = {
-  duration : 3_500,
-  style    : {
-    padding      : "10px 14px",
-    borderRadius : 8,
-    color        : "#fff",
-    fontSize     : "0.9rem",
-  },
-  success : { style: { background: "#16a34a" } },
-  error   : { style: { background: "#dc2626" } },
-};
 
 /* ═══════════════════════════════════════════════════════════════
    APP
@@ -271,6 +275,11 @@ export default function App() {
   }
 
   /* ── Marketplace login handler ──────────────────────────── */
+  /*
+   * Called by AuthPage as: setUser(data.user, data.token, navigate, from)
+   * Matches the AuthPage signature exactly:
+   *   handleLogin  → setUser(data.user, data.token, navigate, from)
+   */
   const handleAuthSuccess = (userData, token, navigateFn, from) => {
     localStorage.setItem(TOKEN_KEYS.marketplace, token);
     resetCache();
@@ -326,6 +335,20 @@ export default function App() {
 
         {/* ══════════════════════════════════════════════════
             AUTH ROUTES
+
+            /auth            → AuthPage
+                               Handles: login | register | otp | forgot
+                               AuthPage has a built-in OTP-based forgot
+                               password flow (mode="forgot" → ForgotPanel)
+                               so no separate /forgot-password page needed.
+
+            /forgot-password → Redirects to /auth
+                               Keeps old links/bookmarks working.
+                               User can use "Forgot?" button inside /auth.
+
+            /reset-password  → Standalone page for email-link reset
+                               (?token=xxx sent via email by backend).
+                               Separate from the OTP flow in AuthPage.
         ══════════════════════════════════════════════════ */}
         <Route
           path="/auth"
@@ -335,14 +358,22 @@ export default function App() {
               : <AuthPage setUser={handleAuthSuccess} />
           }
         />
+
+        {/*
+         * /forgot-password → redirect to /auth
+         * AuthPage's built-in ForgotPanel (mode="forgot") handles
+         * the complete OTP-based reset flow internally.
+         */}
         <Route
           path="/forgot-password"
-          element={
-            user
-              ? <Navigate to="/" replace />
-              : <ForgotPassword />
-          }
+          element={<Navigate to="/auth" replace />}
         />
+
+        {/*
+         * /reset-password?token=xxx
+         * Used when backend sends an email reset link (token-based).
+         * Only accessible when logged out.
+         */}
         <Route
           path="/reset-password"
           element={
@@ -469,10 +500,10 @@ export default function App() {
 
         {/* ══════════════════════════════════════════════════
             CART / CHECKOUT / ORDERS
-            /shop/cart  → open (guest browsing allowed)
+            /shop/cart    → open (guest browsing allowed)
             /checkout + orders → require login
         ══════════════════════════════════════════════════ */}
-        <Route path="/shop/cart"     element={<CartPage />} />
+        <Route path="/shop/cart"       element={<CartPage    />} />
         <Route path="/payment/success" element={<PaymentSuccess />} />
 
         <Route path="/shop/checkout" element={
