@@ -150,8 +150,16 @@ import flwWebhookRouter                  from "./routes/webhooks/flutterwave.js"
 import checkoutWebhookRouter             from "./routes/checkout/webhook.js";
 import checkoutRouter                    from "./routes/checkout/index.js";
 
-/* ── Auth — NEW unified auth router (register · login · forgot · reset) ── */
-import authRouter                        from "./routes/auth.routes.js";
+/* ── Auth ─────────────────────────────────────────────────────
+   auth.routes.js   → POST /api/auth/register
+                    → POST /api/auth/login
+   forgotPassword.js → POST /api/auth/forgot-password
+                     → POST /api/auth/forgot-password/verify
+   resetPassword.js  → POST /api/auth/reset-password
+──────────────────────────────────────────────────────────────*/
+import authRouter           from "./routes/auth.routes.js";
+import forgotPasswordRouter from "./routes/forgotPassword.js";   // ✅
+import resetPasswordRouter  from "./routes/resetPassword.js";    // ✅
 
 import sellerOnboardingRouter            from "./routes/sellerOnboarding.routes.js";
 import sellerProfileRouter               from "./routes/sellerprofile.js";
@@ -247,14 +255,24 @@ app.use(globalLimiter);
 ══════════════════════════════════════════════════════════════ */
 
 /* payments */
-app.use("/api/payment",           paymentRouter);
-app.use("/api/checkout",          checkoutRouter);
+app.use("/api/payment",  paymentRouter);
+app.use("/api/checkout", checkoutRouter);
 
-/* ── auth — unified: register · login · forgot-password · reset-password ── */
-app.use("/api/auth",              authRouter);
+/* ── auth ─────────────────────────────────────────────────────
+   All three routers mount on /api/auth.
+   Express matches routes in order so there is no conflict:
+     /register                → auth.routes.js
+     /login                   → auth.routes.js
+     /forgot-password         → forgotPassword.js
+     /forgot-password/verify  → forgotPassword.js
+     /reset-password          → resetPassword.js
+──────────────────────────────────────────────────────────────*/
+app.use("/api/auth", authRouter);           // register · login        ✅
+app.use("/api/auth", forgotPasswordRouter); // forgot-password · verify ✅
+app.use("/api/auth", resetPasswordRouter);  // reset-password           ✅
 
-/* ── users — profile read/update, /me, etc. ── */
-app.use("/api/users",             userRouter);
+/* ── users ── */
+app.use("/api/users", userRouter);
 
 /* seller */
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
@@ -264,28 +282,28 @@ app.use("/api/seller-dashboard",  sellerDashboardRouter);
 app.use("/api/seller/settings",   sellerSettingsRouter);
 
 /* products + marketplace */
-app.use("/api/products",          marketRouter);
-app.use("/api/shop",              marketDetailRouter);
-app.use("/api/cart",              cartRouter);
-app.use("/api/addproduct",        addproductRouter);
-app.use("/api/product",           productDetailRouter);
+app.use("/api/products",   marketRouter);
+app.use("/api/shop",       marketDetailRouter);
+app.use("/api/cart",       cartRouter);
+app.use("/api/addproduct", addproductRouter);
+app.use("/api/product",    productDetailRouter);
 
 /* messaging */
-app.use("/api/messages/upload",   uploadLimiter);
-app.use("/api/messages",          messagesRouter);
-app.use("/api/conversations",     conversationsRouter);
+app.use("/api/messages/upload", uploadLimiter);
+app.use("/api/messages",        messagesRouter);
+app.use("/api/conversations",   conversationsRouter);
 
 /* platform */
-app.use("/api/admin",             adminRouter);
-app.use("/api/search",            searchRouter);
-app.use("/api/homepage",          homepageRouter);
-app.use("/api/dashboard",         dashboardRoutes);
-app.use("/api/notifications",     notificationsRouter);
-app.use("/api/v1/wallets",        walletRoutes);
-app.use("/api/p2p",               p2pRouter);
-app.use("/api/verification",      verificationRouter);
-app.use("/api/coupons",           couponsRouter);
-app.use("/api/spinwheel",         spinwheelRouter);
+app.use("/api/admin",         adminRouter);
+app.use("/api/search",        searchRouter);
+app.use("/api/homepage",      homepageRouter);
+app.use("/api/dashboard",     dashboardRoutes);
+app.use("/api/notifications", notificationsRouter);
+app.use("/api/v1/wallets",    walletRoutes);
+app.use("/api/p2p",           p2pRouter);
+app.use("/api/verification",  verificationRouter);
+app.use("/api/coupons",       couponsRouter);
+app.use("/api/spinwheel",     spinwheelRouter);
 
 /* ══════════════════════════════════════════════════════════════
    STATIC — sitemap + robots
@@ -385,7 +403,6 @@ app.use((err, req, res, _next) => {
   console.error(`🔥 [${reqId}] ${err.message}`);
   if (!IS_PROD) console.error(err.stack);
 
-  /* well-known error codes */
   if (err.code === "LIMIT_FILE_SIZE")
     return res.status(400).json({ success: false, message: "File too large",              reqId });
   if (err.code === "LIMIT_FILE_COUNT")
@@ -461,7 +478,12 @@ try {
 
 server.listen(PORT, () => {
   console.log(`\n🚀 Loemart on port ${PORT} | ${process.env.NODE_ENV || "development"}`);
-  console.log(`   Auth  → /api/auth  (register · login · forgot-password · reset-password)`);
+  console.log(`   Auth  → /api/auth`);
+  console.log(`           POST /register`);
+  console.log(`           POST /login`);
+  console.log(`           POST /forgot-password`);
+  console.log(`           POST /forgot-password/verify`);
+  console.log(`           POST /reset-password`);
   console.log(`   Users → /api/users (me · profile update)\n`);
 });
 
