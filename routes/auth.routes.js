@@ -10,8 +10,9 @@ import bcrypt    from "bcrypt";
 import jwt       from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
 
-import { pool }      from "../config/db.js";
-import { writeAudit } from "../lib/audit.js";
+import { pool }                        from "../config/db.js";
+import { writeAudit }                  from "../lib/audit.js";
+import { sendEmailVerificationOtp }    from "../services/email.js";
 
 const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -19,7 +20,8 @@ const IS_PROD = process.env.NODE_ENV === "production";
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const HASH_ROUNDS = 12;
+const HASH_ROUNDS        = 12;
+const OTP_EXPIRY_MINUTES = 15;
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
@@ -57,6 +59,17 @@ const makeJwt = (user) =>
     process.env.JWT_SECRET,
     { expiresIn: process.env.JWT_EXPIRES_IN ?? "7d" }
   );
+
+/** 6-digit numeric OTP */
+const generateOtp = () => {
+  const array = new Uint32Array(1);
+  crypto.getRandomValues(array);
+  return String(100_000 + (array[0] % 900_000));
+};
+
+/** SHA-256 hash OTP before storing — never store raw */
+const hashOtp = (raw) =>
+  crypto.createHash("sha256").update(String(raw)).digest("hex");
 
 /* ═══════════════════════════════════════════════════════════════
    RATE LIMITERS
@@ -144,7 +157,45 @@ router.post("/register", authLimiter, async (req, res, next) => {
 
     await client.query("COMMIT");
 
+    /* ── Generate JWT ── */
     const token = makeJwt(user);
+
+    /* ── Generate + store email verification OTP ── */
+    const rawOtp  = generateOtp();
+    const otpHash = hashOtp(rawOtp);
+
+    await pool.query(
+      `INSERT INTO email_verification_otps
+         (user_id, otp_hash, expires_at)
+       VALUES
+         ($1, $2, NOW() + ($3 || ' minutes')::INTERVAL)`,
+      [user.id, otpHash, String(OTP_EXPIRY_MINUTES)]
+    );
+
+    /* ── Send verification email ── */
+    let emailSent = true;
+    try {
+      await sendEmailVerificationOtp({
+        to     : user.email,
+        name   : user.name,
+        otp    : rawOtp,
+        expiry : OTP_EXPIRY_MINUTES,
+      });
+      console.log(`[auth] ✓ verification OTP email sent → ${user.email}`);
+    } catch (mailErr) {
+      emailSent = false;
+      console.error("[auth] verification email send failed:", mailErr.message);
+    }
+
+    /* ── Always print OTP in dev console ── */
+    if (!IS_PROD) {
+      console.log("\n" + "═".repeat(60));
+      console.log("[auth] 🔑  EMAIL VERIFICATION OTP (dev mode)");
+      console.log(`   Email : ${user.email}`);
+      console.log(`   OTP   : ${rawOtp}`);
+      console.log(`   Exp   : ${OTP_EXPIRY_MINUTES} minutes`);
+      console.log("═".repeat(60) + "\n");
+    }
 
     writeAudit({
       actorId    : user.id,
@@ -156,12 +207,21 @@ router.post("/register", authLimiter, async (req, res, next) => {
 
     console.log(`[auth] ✓ register  user=${user.id}  email=${cleanEmail}`);
 
-    return res.status(201).json({
+    /* ── Response ── */
+    const response = {
       success : true,
       message : "Account created successfully.",
       token,
       user,
-    });
+    };
+
+    /* Dev only — expose OTP in response if email failed */
+    if (!IS_PROD && !emailSent) {
+      response.dev_otp  = rawOtp;
+      response.dev_hint = "Email failed in dev — use the OTP printed in your server console.";
+    }
+
+    return res.status(201).json(response);
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
