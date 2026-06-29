@@ -35,17 +35,13 @@ import TrendingPage    from "./pages/Homepage/TrendingPage";
 /* ═══════════════════════════════════════════════════════════════
    PAGES — AUTH
    ──────────────────────────────────────────────────────────────
-   AuthPage handles ALL auth flows in one place:
-     • mode="login"    → email + password login
-     • mode="register" → registration form
-     • mode="otp"      → email OTP verification after register
-     • mode="forgot"   → OTP-based password reset
-                         (email → 6-digit OTP → new password)
-
-   NO separate ForgotPassword or ResetPassword pages needed.
-   All password reset is OTP-based inside AuthPage.
+   AuthPage  → /auth      (login + register + email OTP verify)
+   ForgotPassword → /forgot-password  (email → OTP verify)
+   ResetPassword  → /reset-password   (new password + auto-login)
 ═══════════════════════════════════════════════════════════════ */
-import AuthPage from "./pages/AuthPage";
+import AuthPage        from "./pages/AuthPage";
+import ForgotPassword  from "./pages/ForgotPassword";
+import ResetPassword   from "./pages/ResetPassword";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — SELLER
@@ -280,7 +276,7 @@ export default function App() {
 
   /* ── Marketplace login handler ──────────────────────────── */
   /*
-   * Called by AuthPage as:
+   * Called by AuthPage + ResetPassword as:
    *   setUser(data.user, data.token, navigate, from)
    */
   const handleAuthSuccess = (userData, token, navigateFn, from) => {
@@ -339,19 +335,12 @@ export default function App() {
         {/* ══════════════════════════════════════════════════
             AUTH ROUTES
             ──────────────────────────────────────────────
-            ALL auth flows live inside AuthPage:
-              /auth → login | register | otp | forgot
+            /auth              → login + register + email OTP
+            /forgot-password   → enter email + verify OTP
+            /reset-password    → set new password + auto-login
 
-            /forgot-password  ──► redirect to /auth
-            /reset-password   ──► redirect to /auth
-            (old links / bookmarks still work)
-
-            Password reset flow inside AuthPage:
-              1. Click "Forgot?" on login
-              2. Enter email  → POST /api/auth/forgot-password
-              3. Enter 6-digit OTP sent to email
-              4. Set new password → POST /api/auth/reset-password
-              5. Auto back to login ✅
+            All three redirect to "/" if user is already
+            logged in — no reason to visit auth pages.
         ══════════════════════════════════════════════════ */}
         <Route
           path="/auth"
@@ -362,9 +351,23 @@ export default function App() {
           }
         />
 
-        {/* Redirect legacy routes → /auth */}
-        <Route path="/forgot-password" element={<Navigate to="/auth" replace />} />
-        <Route path="/reset-password"  element={<Navigate to="/auth" replace />} />
+        <Route
+          path="/forgot-password"
+          element={
+            user
+              ? <Navigate to="/" replace />
+              : <ForgotPassword />
+          }
+        />
+
+        <Route
+          path="/reset-password"
+          element={
+            user
+              ? <Navigate to="/" replace />
+              : <ResetPassword setUser={handleAuthSuccess} />
+          }
+        />
 
         {/* ══════════════════════════════════════════════════
             SELLER ROUTES
