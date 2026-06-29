@@ -1,132 +1,211 @@
 /**
- * server/controllers/resetPassword.js
+ * routes/resetPassword.js
  *
- * Handles the final step of password reset:
+ * POST /api/auth/reset-password
  *
- *   POST /api/auth/reset-password
- *   Body: { reset_token, password }
+ * Mounted in server.js as:
+ *   app.use("/api/auth", resetPasswordRouter)
  *
- * On success:
- *   - New password is hashed and saved
- *   - Reset token is invalidated
- *   - All other reset tokens for user are cleared
- *   - Fresh JWT is returned for auto-login
+ * Flow:
+ *   1. Validate password strength
+ *   2. Verify JWT reset_token (issued by forgotPassword.js → verifyForgotOtp)
+ *   3. Confirm OTP record still valid (verified=true, used=false, not expired)
+ *   4. Block reuse of same password
+ *   5. Hash + save new password
+ *   6. Mark OTP as used — one-time only
+ *   7. Clean up all other OTPs for this user
+ *   8. Return fresh JWT + user → ResetPassword.jsx auto-login
  */
 
-const bcrypt   = require("bcryptjs");
-const jwt      = require("jsonwebtoken");
-const { pool } = require("../config/db");
+import express     from "express";
+import bcrypt      from "bcrypt";
+import jwt         from "jsonwebtoken";
+import rateLimit   from "express-rate-limit";
+import { pool }    from "../config/db.js";
+import { writeAudit } from "../lib/audit.js";
+
+const router  = express.Router();
+const IS_PROD = process.env.NODE_ENV === "production";
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
 ═══════════════════════════════════════════════════════════════ */
+const HASH_ROUNDS    = 12;
 const JWT_SECRET     = process.env.JWT_SECRET;
-const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
-const SALT_ROUNDS    = 12;
+const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN ?? "7d";
 
 /* ═══════════════════════════════════════════════════════════════
-   PASSWORD STRENGTH CHECK
-   Mirror of frontend logic — always validate server-side too
+   HELPERS
 ═══════════════════════════════════════════════════════════════ */
-const isStrongPassword = (pw) => {
+const getIp = (req) =>
+  req.ip ??
+  req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
+  req.socket?.remoteAddress ??
+  null;
+
+const fail = (res, status, message, extra = {}) =>
+  res.status(status).json({ success: false, message, ...extra });
+
+/**
+ * Safe user fields returned to frontend.
+ * Matches SAFE_FIELDS in auth.routes.js exactly —
+ * never exposes password_hash.
+ */
+const SAFE_FIELDS = `
+  id, name, email, phone_number,
+  country, state, city,
+  profile_image, store_name, store_description, store_logo,
+  store_verified, status, last_login,
+  rating, trust_score, verified, products_count,
+  total_sales, total_purchases, created_at,
+  "role", is_online, email_verified, identity_verified, seller_type
+`;
+
+/**
+ * Password strength check.
+ * Mirrors ResetPassword.jsx getStrength() — score >= 2 (Fair):
+ *   ✅ 8+ chars
+ *   ✅ uppercase
+ *   ✅ number
+ */
+const isStrongEnough = (pw) => {
   if (!pw || typeof pw !== "string") return false;
   if (pw.length < 8)                 return false;
   if (!/[A-Z]/.test(pw))            return false;
   if (!/[0-9]/.test(pw))            return false;
-  if (!/[^A-Za-z0-9]/.test(pw))    return false;
   return true;
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /api/auth/reset-password
-   Body: { reset_token, password }
+   RATE LIMITER
 ═══════════════════════════════════════════════════════════════ */
-const resetPassword = async (req, res) => {
+const resetLimiter = rateLimit({
+  windowMs        : 15 * 60 * 1_000,       // 15 minutes
+  max             : IS_PROD ? 10 : 500,     // relaxed in dev
+  standardHeaders : true,
+  legacyHeaders   : false,
+  keyGenerator    : (req) =>
+    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
+    req.socket?.remoteAddress ??
+    "unknown",
+  handler: (_req, res) =>
+    res.status(429).json({
+      success : false,
+      message : "Too many reset attempts. Please try again later.",
+    }),
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/auth/reset-password
+═══════════════════════════════════════════════════════════════ */
+router.post("/reset-password", resetLimiter, async (req, res, next) => {
+  const { reset_token, password } = req.body;
+  const ip                        = getIp(req);
+
+  /* ── 1. Basic presence ── */
+  if (!reset_token || !password) {
+    return fail(res, 400, "Reset token and new password are required.");
+  }
+
+  /* ── 2. Password strength ──
+     Mirrors ResetPassword.jsx:
+       if (strength.score < 2) → "Password is too weak"
+     score 2 = Fair = needs 8+ chars + uppercase + number
+  ── */
+  if (!isStrongEnough(password)) {
+    return fail(res, 400,
+      "Password must be at least 8 characters and include " +
+      "an uppercase letter and a number."
+    );
+  }
+
+  /* ── 3. Verify JWT reset_token ──
+     Issued in forgotPassword.js → verifyForgotOtp
+     Payload: { sub: userId, otp_id, purpose: "password_reset" }
+  ── */
+  let payload;
   try {
-    const { reset_token, password } = req.body;
+    payload = jwt.verify(reset_token, JWT_SECRET);
+  } catch (jwtErr) {
+    const isExpired = jwtErr.name === "TokenExpiredError";
+    return fail(res, 400,
+      isExpired
+        ? "Your reset session has expired. Please start over."
+        : "Invalid reset token. Please start over.",
+      { code: "RESET_TOKEN_INVALID" }
+    );
+  }
 
-    /* ── basic validation ── */
-    if (!reset_token || !password) {
-      return res.status(400).json({
-        message: "Reset token and new password are required.",
-      });
-    }
+  if (payload.purpose !== "password_reset") {
+    return fail(res, 400, "Invalid reset token.", {
+      code: "RESET_TOKEN_INVALID",
+    });
+  }
 
-    if (!isStrongPassword(password)) {
-      return res.status(400).json({
-        message:
-          "Password must be at least 8 characters and include " +
-          "an uppercase letter, a number, and a symbol.",
-      });
-    }
+  const { sub: userId, otp_id } = payload;
 
-    /* ── find all valid (unused, unexpired) reset tokens ── */
-    const { rows: tokenRows } = await pool.query(
-      `SELECT *
-       FROM   password_reset_tokens
-       WHERE  used       = FALSE
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    /* ── 4. Confirm OTP record is still valid ──
+       - verified = true  → step 2 (OTP verify) was completed
+       - used     = false → not already consumed by a reset
+       - expires_at > NOW() → within 15-minute window
+       FOR UPDATE locks the row to prevent race conditions
+    ── */
+    const { rows: otpRows } = await client.query(
+      `SELECT id
+       FROM   password_reset_otps
+       WHERE  id         = $1
+         AND  user_id    = $2
+         AND  verified   = true
+         AND  used       = false
          AND  expires_at > NOW()
-       ORDER  BY created_at DESC`,
-      []
+       FOR UPDATE`,
+      [otp_id, userId]
     );
 
-    if (tokenRows.length === 0) {
-      return res.status(400).json({
-        message : "Reset link has expired or already been used. Please start over.",
-        code    : "TOKEN_INVALID",
-      });
+    if (!otpRows.length) {
+      await client.query("ROLLBACK");
+      return fail(res, 400,
+        "This reset session is invalid or has already been used. Please start over.",
+        { code: "RESET_SESSION_INVALID" }
+      );
     }
 
-    /* ── find the matching token by bcrypt compare ──
-       We loop because we store only hashes.
-       In practice there is at most 1–2 rows per user. ── */
-    let matchedToken = null;
-
-    for (const row of tokenRows) {
-      const isMatch = await bcrypt.compare(reset_token, row.token_hash);
-      if (isMatch) {
-        matchedToken = row;
-        break;
-      }
-    }
-
-    if (!matchedToken) {
-      return res.status(400).json({
-        message : "Invalid reset token. Please start over.",
-        code    : "TOKEN_INVALID",
-      });
-    }
-
-    const userId = matchedToken.user_id;
-
-    /* ── fetch user ── */
-    const { rows: users } = await pool.query(
-      `SELECT id, name, email, role, is_verified
+    /* ── 5. Fetch user ── */
+    const { rows: userRows } = await client.query(
+      `SELECT ${SAFE_FIELDS}, password_hash
        FROM   users
        WHERE  id = $1
        LIMIT  1`,
       [userId]
     );
 
-    if (users.length === 0) {
-      return res.status(404).json({ message: "User not found." });
+    if (!userRows.length) {
+      await client.query("ROLLBACK");
+      return fail(res, 404, "User not found.");
     }
 
-    const user = users[0];
+    const user = userRows[0];
 
-    /* ── prevent reuse of same password ── */
-    const isSamePassword = await bcrypt.compare(password, user.password_hash ?? "");
-    if (isSamePassword) {
-      return res.status(400).json({
-        message: "New password must be different from your current password.",
-      });
+    /* ── 6. Block reuse of same password ── */
+    if (user.password_hash) {
+      const isSame = await bcrypt.compare(password, user.password_hash);
+      if (isSame) {
+        await client.query("ROLLBACK");
+        return fail(res, 400,
+          "New password must be different from your current password."
+        );
+      }
     }
 
-    /* ── hash new password ── */
-    const newHash = await bcrypt.hash(password, SALT_ROUNDS);
+    /* ── 7. Hash new password ── */
+    const newHash = await bcrypt.hash(password, HASH_ROUNDS);
 
-    /* ── update password in DB ── */
-    await pool.query(
+    /* ── 8. Save new password ── */
+    await client.query(
       `UPDATE users
        SET    password_hash = $1,
               updated_at    = NOW()
@@ -134,62 +213,74 @@ const resetPassword = async (req, res) => {
       [newHash, userId]
     );
 
-    /* ── invalidate ALL reset tokens for this user ── */
-    await pool.query(
-      `UPDATE password_reset_tokens
-       SET    used = TRUE
-       WHERE  user_id = $1`,
-      [userId]
-    );
-
-    /* ── invalidate ALL OTPs for this user too ── */
-    await pool.query(
+    /* ── 9. Mark THIS OTP as used — one-time only ── */
+    await client.query(
       `UPDATE password_reset_otps
-       SET    used = TRUE
-       WHERE  user_id = $1`,
+       SET    used = true
+       WHERE  id = $1`,
+      [otp_id]
+    );
+
+    /* ── 10. Clean up ALL other OTPs for this user ── */
+    await client.query(
+      `UPDATE password_reset_otps
+       SET    used = true
+       WHERE  user_id = $1
+         AND  used    = false`,
       [userId]
     );
 
-    /* ── generate fresh JWT for auto-login ── */
+    await client.query("COMMIT");
+
+    /* ── 11. Issue fresh JWT for auto-login ──
+       ResetPassword.jsx:
+         startLoginCountdown(data.user, data.token)
+         → setUser(user, token, navigate, from)
+         → logs user in + redirects to "/"
+    ── */
+    const { password_hash, ...safeUser } = user;
+
     const token = jwt.sign(
       {
-        id    : user.id,
-        email : user.email,
-        role  : user.role,
+        id    : safeUser.id,
+        email : safeUser.email,
+        role  : safeUser.role ?? null,
       },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES_IN }
     );
 
-    /* ── optional: log password reset event ── */
-    try {
-      await pool.query(
-        `INSERT INTO security_logs
-           (user_id, event, ip_address, created_at)
-         VALUES
-           ($1, 'password_reset', $2, NOW())`,
-        [userId, req.ip || null]
-      );
-    } catch {
-      // Non-critical — don't fail the request
-    }
+    /* ── 12. Audit log (fire-and-forget) ── */
+    writeAudit({
+      actorId    : userId,
+      action     : "password_reset_completed",
+      targetType : "user",
+      targetId   : userId,
+      ipAddress  : ip,
+    }).catch(console.error);
 
+    console.log(`[resetPassword] ✓ complete  user=${userId}  ip=${ip}`);
+
+    /* ── 13. Response ──
+       ResetPassword.jsx destructures:
+         const { data } = await axios.post(...)
+         startLoginCountdown(data.user, data.token)
+    ── */
     return res.status(200).json({
+      success : true,
       message : "Password reset successfully.",
       token,
-      user    : {
-        id          : user.id,
-        name        : user.name,
-        email       : user.email,
-        role        : user.role,
-        is_verified : user.is_verified,
-      },
+      user    : safeUser,
     });
 
   } catch (err) {
-    console.error("[ResetPassword] error:", err);
-    return res.status(500).json({ message: "Server error. Please try again." });
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[resetPassword] error:", err.message);
+    console.error("[resetPassword] stack:", err.stack);
+    next(err);
+  } finally {
+    client.release();
   }
-};
+});
 
-module.exports = { resetPassword };
+export default router;
