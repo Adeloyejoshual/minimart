@@ -1,247 +1,370 @@
-/**
- * src/pages/Homepage/NearbyPage.jsx
- * Route: /nearby
- *
- * Tries /api/homepage?section=nearby first.
- * If that fails or returns empty, silently falls back
- * to /api/homepage (no section).
- */
+// src/pages/Homepage/NearbyPage.jsx
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useNavigate }          from "react-router-dom";
+import TopNav                   from "../../components/TopNav";
+import BottomNav                from "../../components/BottomNav";
+import Footer                   from "../../components/Footer";
+import NearbyHeader             from "../../components/nearby/NearbyHeader";
+import NearbyLocationBanner     from "../../components/nearby/NearbyLocationBanner";
+import NearbyGpsPrompt          from "../../components/nearby/NearbyGpsPrompt";
+import NearbySkeleton           from "../../components/nearby/NearbySkeleton";
+import NearbyCard               from "../../components/nearby/NearbyCard";
+import {
+  useNearbyQuery,
+  dedup,
+  normalizeProduct,
+}                               from "../../hooks/useNearbyQuery";
+import "../../styles/NearbyPage.css";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import TopNav      from "../../components/TopNav";
-import BottomNav   from "../../components/BottomNav";
-import MasonryGrid from "../../components/MasonryGrid";
-import { normalizeProduct } from "../../utils/normalizeProduct";
+/* ── API ─────────────────────────────────────────────────────── */
+const BASE_URL = import.meta.env.VITE_API_BASE_URL
+  || window.location.origin;
+const API = `${BASE_URL}/api`;
 
-/* ═══════════════════════════════════════════════════════════════
-   ENV + API
-═══════════════════════════════════════════════════════════════ */
-const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
-
-/* ═══════════════════════════════════════════════════════════════
-   CONSTANTS
-═══════════════════════════════════════════════════════════════ */
-const GPS_OPTIONS = {
-  timeout            : 6_000,
-  enableHighAccuracy : false,
-  maximumAge         : 300_000,
+/* ── GPS options ─────────────────────────────────────────────── */
+const GPS_OPTS = {
+  timeout           : 6_000,
+  enableHighAccuracy: false,
+  maximumAge        : 300_000,
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   HELPERS
-═══════════════════════════════════════════════════════════════ */
-const dedup = (arr) => {
-  const seen = new Set();
-  return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
-};
+/* ── GPS cache ───────────────────────────────────────────────── */
+const GPS_KEY = "loemart_gps";
+const GPS_TTL = 10 * 60_000;
 
-const fetchWithFallback = async (primaryUrl, fallbackUrl) => {
+function readCachedGps() {
   try {
-    const res = await fetch(primaryUrl);
-    if (res.ok) {
-      const data = await res.json();
-      if (Array.isArray(data.products) && data.products.length > 0) return data;
-    }
-  } catch { /* swallow — try fallback */ }
+    const raw = sessionStorage.getItem(GPS_KEY);
+    if (!raw) return null;
+    const { coords, ts } = JSON.parse(raw);
+    if (Date.now() - ts < GPS_TTL) return coords;
+  } catch {}
+  return null;
+}
 
-  const res = await fetch(fallbackUrl);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-};
+function writeCachedGps(coords) {
+  try {
+    sessionStorage.setItem(
+      GPS_KEY,
+      JSON.stringify({ coords, ts: Date.now() })
+    );
+  } catch {}
+}
 
-const buildUrl = (page, section = null) => {
-  const base = `${API}/homepage?page=${page}`;
-  return section ? `${base}&section=${section}` : base;
-};
+/* ── Scroll-to-top ───────────────────────────────────────────── */
+function ScrollTopBtn() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const fn = () => setVisible(window.scrollY > 320);
+    window.addEventListener("scroll", fn, { passive: true });
+    return () => window.removeEventListener("scroll", fn);
+  }, []);
+  return (
+    <button
+      className={`nb-scroll-top${visible ? " visible" : ""}`}
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      aria-label="Scroll to top"
+    >
+      <svg width="16" height="16" viewBox="0 0 24 24"
+           fill="none" stroke="currentColor"
+           strokeWidth="2.5" strokeLinecap="round"
+           aria-hidden="true">
+        <path d="M18 15l-6-6-6 6" />
+      </svg>
+    </button>
+  );
+}
 
-/* ═══════════════════════════════════════════════════════════════
-   SKELETON
-═══════════════════════════════════════════════════════════════ */
-const SkeletonMasonry = () => (
-  <div className="masonry">
-    {[...Array(10)].map((_, i) => (
-      <div
-        key={i}
-        className="sk sk-masonry"
-        style={{ height: `${160 + (i % 4) * 55}px` }}
-      />
-    ))}
-  </div>
-);
+/* ── Empty state ─────────────────────────────────────────────── */
+function EmptyState({ gpsStatus, onBrowseAll }) {
+  return (
+    <div className="nb-empty" role="status">
+      <span className="nb-empty-emoji" aria-hidden="true">
+        {gpsStatus === "denied" ? "🗺️" : "📍"}
+      </span>
+      <h3 className="nb-empty-title">
+        {gpsStatus === "denied"
+          ? "Location access denied"
+          : "No nearby listings found"}
+      </h3>
+      <p className="nb-empty-sub">
+        {gpsStatus === "denied"
+          ? "We couldn't detect your location. Showing listings from across Nigeria."
+          : "There are no listings in your immediate area yet. More sellers are joining daily!"}
+      </p>
+      <button className="nb-empty-btn" onClick={onBrowseAll}>
+        Browse All Listings
+      </button>
+    </div>
+  );
+}
 
-/* ═══════════════════════════════════════════════════════════════
-   COMPONENT
-═══════════════════════════════════════════════════════════════ */
+/* ── Error banner ────────────────────────────────────────────── */
+function ErrorBanner({ message, onRetry }) {
+  return (
+    <div className="nb-err" role="alert">
+      <span className="nb-err-icon" aria-hidden="true">⚡</span>
+      <p className="nb-err-title">Could not load listings</p>
+      <p className="nb-err-msg">{message}</p>
+      <button className="nb-err-btn" onClick={onRetry}>
+        Try again
+      </button>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+   ══════════════════════════════════════════════════════════════ */
 export default function NearbyPage({ user }) {
   const navigate = useNavigate();
 
-  const [products,    setProducts]    = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error,       setError]       = useState(null);
-  const [hasMore,     setHasMore]     = useState(false);
-  const [page,        setPage]        = useState(0);
-  const [locLabel,    setLocLabel]    = useState(null);
-  const [gpsStatus,   setGpsStatus]   = useState("pending");
+  /* ── GPS state ───────────────────────────────────────────── */
+  const [coords,    setCoords]    = useState(() => readCachedGps());
+  const [gpsStatus, setGpsStatus] = useState(
+    () => readCachedGps() ? "gps" : "pending"
+  );
+  const [showPrompt, setShowPrompt] = useState(false);
+  const gpsAttempted = useRef(false);
 
-  const productsRef = useRef([]);
-  const sentinelRef = useRef(null);
-
-  // ── Apply fetched data ────────────────────────────────────
-  const applyData = useCallback((data, append) => {
-    // ── Normalize string numbers to real numbers ──
-    const incoming = (Array.isArray(data.products) ? data.products : [])
-      .map(normalizeProduct);
-
-    const merged = append
-      ? dedup([...productsRef.current, ...incoming])
-      : dedup(incoming);
-
-    productsRef.current = merged;
-    setProducts(merged);
-    setHasMore(!!data.hasMore);
-
-    if (!append) {
-      const loc = data.meta?.location;
-      if (loc) {
-        setLocLabel(loc);
-      } else if (merged[0]) {
-        const p = merged[0];
-        const c = p.location_city  || p.location?.city;
-        const s = p.location_state || p.location?.state;
-        if (c || s) setLocLabel([c, s].filter(Boolean).join(", "));
-      }
+  /* ── Request GPS ─────────────────────────────────────────── */
+  const requestGps = useCallback(() => {
+    if (!navigator.geolocation) {
+      setGpsStatus("denied");
+      return;
     }
+    setGpsStatus("pending");
+    setShowPrompt(false);
+
+    navigator.geolocation.getCurrentPosition(
+      ({ coords: c }) => {
+        const result = { lat: c.latitude, lng: c.longitude };
+        writeCachedGps(result);
+        setCoords(result);
+        setGpsStatus("gps");
+      },
+      () => setGpsStatus("denied"),
+      GPS_OPTS
+    );
   }, []);
 
-  // ── Fetch nearby (with fallback) ──────────────────────────
-  const fetchNearby = useCallback(async (pageNum, append = false) => {
-    const primary  = buildUrl(pageNum, "nearby");
-    const fallback = buildUrl(pageNum);
-    const data     = await fetchWithFallback(primary, fallback);
-    applyData(data, append);
-  }, [applyData]);
-
-  // ── Bootstrap ─────────────────────────────────────────────
+  /* ── Auto GPS on mount ───────────────────────────────────── */
   useEffect(() => {
-    fetchNearby(0)
-      .catch(() => setError("Could not connect. Check your internet."))
-      .finally(() => setLoading(false));
+    if (gpsAttempted.current || coords) return;
+    gpsAttempted.current = true;
 
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        ()  => setGpsStatus("gps"),
-        ()  => setGpsStatus("denied"),
-        GPS_OPTIONS
-      );
-    } else {
+    if (!navigator.geolocation) {
       setGpsStatus("denied");
+      setShowPrompt(false);
+      return;
     }
-  }, [fetchNearby]);
 
-  // ── Load more ─────────────────────────────────────────────
-  const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    const next = page + 1;
-    try {
-      await fetchNearby(next, true);
-      setPage(next);
-    } catch (err) {
-      console.error("[NearbyPage] loadMore:", err);
-    } finally {
-      setLoadingMore(false);
+    /* Show prompt briefly, then auto-request */
+    setShowPrompt(true);
+    const t = setTimeout(() => {
+      requestGps();
+    }, 800);
+
+    return () => clearTimeout(t);
+  }, [coords, requestGps]);
+
+  /* ── Data ────────────────────────────────────────────────── */
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+  } = useNearbyQuery(coords);
+
+  /* ── Flatten products ────────────────────────────────────── */
+  const products = useMemo(() => {
+    if (!data?.pages) return [];
+    const raw = data.pages.flatMap((pg) =>
+      Array.isArray(pg.products) ? pg.products : []
+    );
+    return dedup(raw).map(normalizeProduct).filter(Boolean);
+  }, [data]);
+
+  /* ── Location label ──────────────────────────────────────── */
+  const locLabel = useMemo(() => {
+    const meta = data?.pages?.[0]?.meta;
+    if (meta?.location) return meta.location;
+    if (products[0]) {
+      const p = products[0];
+      const c = p.location_city  || p.location?.city;
+      const s = p.location_state || p.location?.state;
+      return [c, s].filter(Boolean).join(", ") || null;
     }
-  }, [loadingMore, hasMore, page, fetchNearby]);
+    return null;
+  }, [data, products]);
 
-  // ── Infinite scroll ───────────────────────────────────────
+  const total = data?.pages?.[0]?.meta?.total ?? products.length;
+
+  /* ── Infinite scroll ─────────────────────────────────────── */
+  const sentinelRef = useRef(null);
+
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasMore) return;
+    if (!el || !hasNextPage) return;
     const io = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) loadMore(); },
+      ([entry]) => {
+        if (entry.isIntersecting && !isFetchingNextPage)
+          fetchNextPage();
+      },
       { threshold: 0.1 }
     );
     io.observe(el);
     return () => io.disconnect();
-  }, [loadMore, hasMore]);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // ── Analytics ─────────────────────────────────────────────
+  /* ── Analytics ───────────────────────────────────────────── */
   const trackView = useCallback((id) => {
-    fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
+    fetch(`${API}/products/${id}/view`, {
+      method   : "POST",
+      keepalive: true,
+    }).catch(() => {});
   }, []);
 
   const handleClick = useCallback((product) => {
-    fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
+    if (!product?.id) return;
+    fetch(`${API}/products/${product.id}/click`, {
+      method   : "POST",
+      keepalive: true,
+    }).catch(() => {});
     navigate(`/product/${product.slug}`);
   }, [navigate]);
 
-  // ── Retry ─────────────────────────────────────────────────
-  const handleRetry = useCallback(() => {
-    setError(null);
-    setLoading(true);
-    productsRef.current = [];
-    setProducts([]);
-    setPage(0);
-    fetchNearby(0)
-      .catch(() => setError("Still no connection. Try again later."))
-      .finally(() => setLoading(false));
-  }, [fetchNearby]);
-
-  // ── Render ────────────────────────────────────────────────
+  /* ── Render ──────────────────────────────────────────────── */
   return (
-    <>
+    <div className="nb-root">
+
+      {/* ══════════════════════════════════════════════
+          TOP NAV
+      ══════════════════════════════════════════════ */}
       <TopNav user={user} />
-      <div className="pg">
 
-        <div className="page-header">
-          <button className="back-btn" onClick={() => navigate(-1)} aria-label="Go back">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-            </svg>
-          </button>
-          <div className="page-title-wrap">
-            <h1 className="page-title">Near You</h1>
-            {gpsStatus === "gps" && <span className="sec-chip gn">GPS</span>}
-          </div>
-        </div>
+      {/* ══════════════════════════════════════════════
+          MAIN
+      ══════════════════════════════════════════════ */}
+      <main className="nb-page" id="nb-main">
 
-        {locLabel && !loading && (
-          <div className="nearby-loc-banner">
-            Showing listings near <strong>{locLabel}</strong>
-          </div>
+        {/* Header */}
+        <NearbyHeader
+          gpsStatus={gpsStatus}
+          onBack={() => navigate(-1)}
+          onRequestGps={requestGps}
+        />
+
+        {/* GPS prompt */}
+        {showPrompt && gpsStatus === "pending" && (
+          <NearbyGpsPrompt
+            onAllow={() => { setShowPrompt(false); requestGps(); }}
+            onDismiss={() => {
+              setShowPrompt(false);
+              setGpsStatus("denied");
+            }}
+          />
         )}
 
-        {error && !loading && products.length === 0 && (
-          <div className="err-box">
-            <div className="err-title">No connection</div>
-            <div className="err-msg">{error}</div>
-            <button className="err-btn" onClick={handleRetry}>Try again</button>
-          </div>
+        {/* Location banner */}
+        {!isLoading && locLabel && (
+          <NearbyLocationBanner
+            label={locLabel}
+            gpsStatus={gpsStatus}
+            count={total}
+          />
         )}
 
-        {loading && <SkeletonMasonry />}
-
-        {!loading && !error && products.length === 0 && (
-          <div className="empty">
-            <div className="empty-emoji">📍</div>
-            <div className="empty-title">No listings found</div>
-            <div className="empty-sub">Browse all available listings across Nigeria.</div>
-            <button className="empty-btn" onClick={() => navigate("/")}>Browse All</button>
-          </div>
+        {/* Error */}
+        {isError && (
+          <ErrorBanner
+            message={error?.message ?? "Something went wrong."}
+            onRetry={refetch}
+          />
         )}
 
-        {!loading && products.length > 0 && (
+        {/* Skeleton */}
+        {isLoading && <NearbySkeleton />}
+
+        {/* Empty */}
+        {!isLoading && !isError && products.length === 0 && (
+          <EmptyState
+            gpsStatus={gpsStatus}
+            onBrowseAll={() => navigate("/")}
+          />
+        )}
+
+        {/* Grid */}
+        {!isLoading && products.length > 0 && (
           <>
-            <MasonryGrid products={products} onView={trackView} onClick={handleClick} />
-            <div ref={sentinelRef} style={{ height: 1 }} />
-            {loadingMore && <p className="loading-more">Loading more…</p>}
+            <div
+              className="nb-masonry"
+              role="list"
+              aria-label="Nearby listings"
+            >
+              {products.map((p, i) => (
+                <div key={p.id} role="listitem">
+                  <NearbyCard
+                    product={p}
+                    priority={i < 6}
+                    onView={trackView}
+                    onClick={handleClick}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Sentinel */}
+            <div
+              ref={sentinelRef}
+              aria-hidden="true"
+              style={{ height: 1 }}
+            />
+
+            {/* Loading more */}
+            {isFetchingNextPage && (
+              <p className="nb-loading-more" aria-live="polite">
+                <span className="nb-spinner" aria-hidden="true" />
+                Loading more…
+              </p>
+            )}
+
+            {/* End of feed */}
+            {!hasNextPage && products.length > 0 && (
+              <div className="nb-feed-end-wrap">
+                <p className="nb-feed-end" aria-live="polite">
+                  You've seen all nearby listings 🎉
+                </p>
+                <button
+                  className="nb-feed-end-btn"
+                  onClick={() => navigate("/")}
+                >
+                  Browse all listings →
+                </button>
+              </div>
+            )}
           </>
         )}
 
-      </div>
+        {/* Footer */}
+        {!isLoading && <Footer />}
+
+      </main>
+
+      {/* Fixed */}
+      <ScrollTopBtn />
       <BottomNav />
-    </>
+
+    </div>
   );
 }
