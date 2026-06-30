@@ -27,21 +27,17 @@ import MenuPage           from "./pages/MenuPage";
 /* ═══════════════════════════════════════════════════════════════
    PAGES — HOMEPAGE SUB-PAGES
 ═══════════════════════════════════════════════════════════════ */
-import NearbyPage      from "./pages/Homepage/NearbyPage";
-import DealsPage       from "./pages/Homepage/DealsPage";
-import NewArrivalsPage from "./pages/Homepage/NewArrivalsPage";
-import TrendingPage    from "./pages/Homepage/TrendingPage";
+import NearbyPage   from "./pages/Homepage/NearbyPage";
+import DealsPage    from "./pages/Homepage/DealsPage";
+import LatestPage   from "./pages/Homepage/LatestPage";   // ← renamed
+import TrendingPage from "./pages/Homepage/TrendingPage";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — AUTH
-   ──────────────────────────────────────────────────────────────
-   AuthPage  → /auth      (login + register + email OTP verify)
-   ForgotPassword → /forgot-password  (email → OTP verify)
-   ResetPassword  → /reset-password   (new password + auto-login)
 ═══════════════════════════════════════════════════════════════ */
-import AuthPage        from "./pages/AuthPage";
-import ForgotPassword  from "./pages/ForgotPassword";
-import ResetPassword   from "./pages/ResetPassword";
+import AuthPage       from "./pages/AuthPage";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword  from "./pages/ResetPassword";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — SELLER
@@ -101,9 +97,6 @@ const CART_API  = `${BASE_URL}/api/cart`;
 
 /* ═══════════════════════════════════════════════════════════════
    TOKEN KEYS — single source of truth
-   marketplace_token → public.users  (marketplace buyers)
-   seller_token      → market.users  (seller accounts)
-   admin_token       → admins
 ═══════════════════════════════════════════════════════════════ */
 export const TOKEN_KEYS = {
   marketplace : "marketplace_token",
@@ -128,8 +121,6 @@ const TOASTER_OPTIONS = {
 
 /* ═══════════════════════════════════════════════════════════════
    CART SYNC
-   Merges guest localStorage cart into server cart after login.
-   Fire-and-forget — individual item failures are swallowed.
 ═══════════════════════════════════════════════════════════════ */
 async function syncCartAfterLogin(token) {
   try {
@@ -275,10 +266,6 @@ export default function App() {
   }
 
   /* ── Marketplace login handler ──────────────────────────── */
-  /*
-   * Called by AuthPage + ResetPassword as:
-   *   setUser(data.user, data.token, navigate, from)
-   */
   const handleAuthSuccess = (userData, token, navigateFn, from) => {
     localStorage.setItem(TOKEN_KEYS.marketplace, token);
     resetCache();
@@ -326,21 +313,14 @@ export default function App() {
         <Route path="/p2p"           element={<P2P                user={user} />} />
         <Route path="/menu"          element={<MenuPage           user={user} />} />
 
-        {/* Homepage sub-pages */}
-        <Route path="/nearby"   element={<NearbyPage      user={user} />} />
-        <Route path="/deals"    element={<DealsPage        user={user} />} />
-        <Route path="/latest"   element={<NewArrivalsPage  user={user} />} />
-        <Route path="/trending" element={<TrendingPage     user={user} />} />
+        {/* ── Homepage sub-pages ── */}
+        <Route path="/nearby"   element={<NearbyPage   user={user} />} />
+        <Route path="/deals"    element={<DealsPage    user={user} />} />
+        <Route path="/latest"   element={<LatestPage   user={user} />} /> {/* ← was NewArrivalsPage */}
+        <Route path="/trending" element={<TrendingPage user={user} />} />
 
         {/* ══════════════════════════════════════════════════
             AUTH ROUTES
-            ──────────────────────────────────────────────
-            /auth              → login + register + email OTP
-            /forgot-password   → enter email + verify OTP
-            /reset-password    → set new password + auto-login
-
-            All three redirect to "/" if user is already
-            logged in — no reason to visit auth pages.
         ══════════════════════════════════════════════════ */}
         <Route
           path="/auth"
@@ -371,9 +351,6 @@ export default function App() {
 
         {/* ══════════════════════════════════════════════════
             SELLER ROUTES
-            Self-contained — reads/writes seller_token
-            (market.users) independently.
-            Never touches marketplace_token.
         ══════════════════════════════════════════════════ */}
         <Route path="/become-seller"         element={<BecomeSeller    user={user} />} />
         <Route path="/seller/dashboard"      element={<SellerDashboard             />} />
@@ -486,11 +463,9 @@ export default function App() {
 
         {/* ══════════════════════════════════════════════════
             CART / CHECKOUT / ORDERS
-            /shop/cart    → open (guest browsing allowed)
-            /checkout + orders → require login
         ══════════════════════════════════════════════════ */}
-        <Route path="/shop/cart"       element={<CartPage      />} />
-        <Route path="/payment/success" element={<PaymentSuccess />} />
+        <Route path="/shop/cart"       element={<CartPage       />} />
+        <Route path="/payment/success" element={<PaymentSuccess  />} />
 
         <Route path="/shop/checkout" element={
           <ProtectedRoute user={user}>
