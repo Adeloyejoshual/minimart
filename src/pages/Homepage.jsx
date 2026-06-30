@@ -20,15 +20,12 @@ import MasonryCard, {
   formatCity,
   PinIcon,
 }                          from "../components/MasonryCard";
-
-/* Alias to avoid clash with react-router useLocation */
 import {
   useLocation      as useStoredLocation,
   formatLocationLabel,
   readCachedGps,
   writeCachedGps,
 }                          from "../hooks/useLocation";
-
 import "../styles/Homepage.css";
 
 /* ══════════════════════════════════════════════════════════════
@@ -43,11 +40,39 @@ const STALE_MS  = 5 * 60_000;
 const ALL_CAT  = { id: "all", name: "All", icon: "✦" };
 const CAT_LIST = [ALL_CAT, ...CATEGORIES];
 
-const SECTION_PILLS = [
-  { label: "🔥 Trending", path: "/trending" },
-  { label: "💸 Deals",    path: "/deals"    },
-  { label: "🆕 New",      path: "/latest"   },
-  { label: "📍 Near You", path: "/nearby"   },
+const SECTION_CARDS = [
+  {
+    label : "Trending",
+    sub   : "Most popular",
+    icon  : "🔥",
+    path  : "/trending",
+    grad  : "linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%)",
+    shadow: "rgba(255, 65, 108, 0.4)",
+  },
+  {
+    label : "Deals",
+    sub   : "Under ₦50k",
+    icon  : "💸",
+    path  : "/deals",
+    grad  : "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)",
+    shadow: "rgba(17, 153, 142, 0.4)",
+  },
+  {
+    label : "New",
+    sub   : "Just listed",
+    icon  : "🆕",
+    path  : "/latest",
+    grad  : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
+    shadow: "rgba(102, 126, 234, 0.4)",
+  },
+  {
+    label : "Near You",
+    sub   : "Closest first",
+    icon  : "📍",
+    path  : "/nearby",
+    grad  : "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
+    shadow: "rgba(240, 147, 251, 0.4)",
+  },
 ];
 
 const GPS_OPTS = {
@@ -97,10 +122,28 @@ const discountLabel = (p) => {
   const orig = Number(p.attributes?.original_price || 0);
   const curr = Number(p.price || 0);
   if (orig > curr && curr > 0) {
-    const pct = Math.round(((orig - curr) / orig) * 100);
-    return pct > 0 ? `${pct}% off` : null;
+    return `${Math.round(((orig - curr) / orig) * 100)}% off`;
   }
   return null;
+};
+
+/**
+ * Compact number formatter
+ * 0       → "0"
+ * 150     → "150+"
+ * 1200    → "1.2k+"
+ * 45000   → "45k+"
+ * 1500000 → "1.5M+"
+ * 10000000→ "10M+"
+ */
+const fmtCount = (n) => {
+  const num = Number(n || 0);
+  if (num <= 0)           return "0";
+  if (num < 1_000)        return `${num}+`;
+  if (num < 10_000)       return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}k+`;
+  if (num < 1_000_000)    return `${Math.round(num / 1_000)}k+`;
+  if (num < 10_000_000)   return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M+`;
+  return `${Math.round(num / 1_000_000)}M+`;
 };
 
 /* ══════════════════════════════════════════════════════════════
@@ -109,7 +152,7 @@ const discountLabel = (p) => {
 const MasonrySkeleton = memo(function MasonrySkeleton() {
   return (
     <div className="hm-masonry" aria-busy="true">
-      {[200,260,180,240,200,220,260,190,210,240].map((h, i) => (
+      {[180,220,160,200,180,190,220,170,200,180].map((h, i) => (
         <div key={i} className="hm-sk hm-shimmer"
              style={{ height: h }} aria-hidden="true" />
       ))}
@@ -133,13 +176,11 @@ const FeaturedSkeleton = memo(function FeaturedSkeleton() {
    ══════════════════════════════════════════════════════════════ */
 const LocationBar = memo(function LocationBar({ location, onOpen, onClear }) {
   const label = formatLocationLabel(location);
-
   return (
     <div className="hm-loc-bar">
       <button
         className={`hm-loc-bar-btn${label ? " hm-loc-bar-btn--active" : ""}`}
         onClick={onOpen}
-        aria-label={label ? `Showing in ${label}. Tap to change` : "Set location"}
       >
         <span className="hm-loc-bar-pin" aria-hidden="true">
           <PinIcon size={13} />
@@ -155,14 +196,7 @@ const LocationBar = memo(function LocationBar({ location, onOpen, onClear }) {
       </button>
       {label && (
         <button className="hm-loc-bar-clear" onClick={onClear}
-                aria-label="Clear location">
-          <svg width="10" height="10" viewBox="0 0 24 24"
-               fill="currentColor" aria-hidden="true">
-            <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41
-                     10.59 12 5 17.59 6.41 19 12 13.41 17.59
-                     19 19 17.59 13.41 12z" />
-          </svg>
-        </button>
+                aria-label="Clear location">✕</button>
       )}
     </div>
   );
@@ -190,32 +224,56 @@ const CategoryStrip = memo(function CategoryStrip({ current, onChange }) {
 });
 
 /* ══════════════════════════════════════════════════════════════
+   3D SECTION CARDS
+   ══════════════════════════════════════════════════════════════ */
+const SectionCards = memo(function SectionCards({ onNavigate }) {
+  return (
+    <div className="hm-section-cards">
+      {SECTION_CARDS.map((card) => (
+        <button
+          key={card.path}
+          className="hm-sc"
+          onClick={() => onNavigate(card.path)}
+          style={{
+            "--sc-grad"  : card.grad,
+            "--sc-shadow": card.shadow,
+          }}
+        >
+          <div className="hm-sc-bg" aria-hidden="true" />
+          <div className="hm-sc-content">
+            <span className="hm-sc-icon">{card.icon}</span>
+            <div className="hm-sc-text">
+              <span className="hm-sc-label">{card.label}</span>
+              <span className="hm-sc-sub">{card.sub}</span>
+            </div>
+          </div>
+          <svg className="hm-sc-arrow" width="14" height="14"
+               viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+          </svg>
+        </button>
+      ))}
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════
    FEATURED CARD
    ══════════════════════════════════════════════════════════════ */
 const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
   if (!product) return null;
-
   const imgUrl = getImageUrl(product);
   const loc    = formatCity(product);
   const disc   = discountLabel(product);
 
   return (
-    <article
-      className="hm-feat-card"
-      role="button"
-      tabIndex={0}
-      onClick={() => onClick(product)}
-      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
-      aria-label={`Sponsored: ${product.title}`}
-    >
+    <article className="hm-feat-card" role="button" tabIndex={0}
+             onClick={() => onClick(product)}
+             onKeyDown={(e) => e.key === "Enter" && onClick(product)}>
       <div className="hm-feat-img-wrap">
-        <img
-          className="hm-feat-img"
-          src={imgUrl}
-          alt={product.title || "Featured"}
-          loading="eager"
-          onError={(e) => { e.currentTarget.src = PH; }}
-        />
+        <img className="hm-feat-img" src={imgUrl}
+             alt={product.title || "Featured"} loading="eager"
+             onError={(e) => { e.currentTarget.src = PH; }} />
         <div className="hm-feat-overlay" aria-hidden="true" />
       </div>
       <div className="hm-feat-body">
@@ -228,10 +286,7 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
         <p className="hm-feat-title">{product.title}</p>
         <div className="hm-feat-bottom">
           <span className="hm-feat-price">{naira(product.price)}</span>
-          <span className="hm-feat-loc">
-            <PinIcon size={10} />
-            {loc}
-          </span>
+          <span className="hm-feat-loc"><PinIcon size={10} /> {loc}</span>
         </div>
       </div>
     </article>
@@ -239,31 +294,21 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   DEAL CARD (horizontal strip)
+   DEAL CARD
    ══════════════════════════════════════════════════════════════ */
 const DealCard = memo(function DealCard({ product, onClick }) {
   if (!product) return null;
-
   const imgUrl = getImageUrl(product);
   const disc   = discountLabel(product);
 
   return (
-    <article
-      className="hm-deal-card"
-      role="button"
-      tabIndex={0}
-      onClick={() => onClick(product)}
-      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
-      aria-label={product.title}
-    >
+    <article className="hm-deal-card" role="button" tabIndex={0}
+             onClick={() => onClick(product)}
+             onKeyDown={(e) => e.key === "Enter" && onClick(product)}>
       <div className="hm-deal-img-wrap">
-        <img
-          src={imgUrl}
-          alt={product.title || "Deal"}
-          className="hm-deal-img"
-          loading="lazy"
-          onError={(e) => { e.currentTarget.src = PH; }}
-        />
+        <img src={imgUrl} alt={product.title || "Deal"}
+             className="hm-deal-img" loading="lazy"
+             onError={(e) => { e.currentTarget.src = PH; }} />
         {disc && <span className="hm-deal-disc">{disc}</span>}
       </div>
       <div className="hm-deal-body">
@@ -285,11 +330,9 @@ function ScrollTopBtn() {
     return () => window.removeEventListener("scroll", fn);
   }, []);
   return (
-    <button
-      className={`hm-scroll-top${visible ? " visible" : ""}`}
-      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-      aria-label="Scroll to top"
-    >
+    <button className={`hm-scroll-top${visible ? " visible" : ""}`}
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+            aria-label="Scroll to top">
       <svg width="16" height="16" viewBox="0 0 24 24"
            fill="none" stroke="currentColor"
            strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
@@ -305,21 +348,19 @@ function ScrollTopBtn() {
 export default function Homepage({ user }) {
   const navigate = useNavigate();
 
-  /* ── Product cache context ── */
   let cacheCtx = { setProducts: () => {}, setLoaded: () => {} };
   try { cacheCtx = useProductCache(); } catch {}
   const { setProducts: setCachedProducts, setLoaded: setCacheLoaded } = cacheCtx;
 
-  /* ── Location ── */
   const {
-    location      : savedLocation,
-    save          : saveLocation,
-    clear         : clearLocation,
+    location : savedLocation,
+    save     : saveLocation,
+    clear    : clearLocation,
   } = useStoredLocation();
 
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  /* ── GPS (silent) ── */
+  /* GPS */
   const [gpsCoords, setGpsCoords] = useState(() => {
     try { return readCachedGps(); } catch { return null; }
   });
@@ -330,19 +371,18 @@ export default function Homepage({ user }) {
     if (gpsAttempted.current || gpsCoords) return;
     gpsAttempted.current = true;
     if (!navigator.geolocation) return;
-
     navigator.geolocation.getCurrentPosition(
       ({ coords: c }) => {
         const result = { lat: c.latitude, lng: c.longitude };
         try { writeCachedGps(result); } catch {}
         setGpsCoords(result);
       },
-      () => {}, // silent fail
+      () => {},
       GPS_OPTS
     );
   }, [savedLocation, gpsCoords]);
 
-  /* ── State ── */
+  /* State */
   const [products,    setProducts]    = useState([]);
   const [featured,    setFeatured]    = useState([]);
   const [deals,       setDeals]       = useState([]);
@@ -359,50 +399,34 @@ export default function Homepage({ user }) {
   const sentinelRef = useRef(null);
   const hiddenAtRef = useRef(null);
 
-  /* ── Build fetch URL ── */
   const buildUrl = useCallback((pg = 0, catId = "all") => {
     const params = new URLSearchParams({ limit: PAGE_SIZE, page: pg });
-
     if (catId !== "all") params.set("category_id", catId);
-
-    /* GPS coords */
     const coords = savedLocation?.coords || gpsCoords;
     if (coords?.lat && coords?.lng) {
       params.set("lat", coords.lat);
       params.set("lng", coords.lng);
     }
-
-    /* Manual location from picker */
     if (savedLocation?.state) params.set("state", savedLocation.state);
     if (savedLocation?.city)  params.set("city",  savedLocation.city);
-
     return `${API}/homepage?${params}`;
   }, [savedLocation, gpsCoords]);
 
-  /* ── Apply API data ── */
   const applyData = useCallback((data, append = false) => {
     const raw = Array.isArray(data.products) ? data.products : [];
     const normalized = dedup(raw).map(normalizeProduct).filter(Boolean);
-
     const merged = append
       ? dedup([...productsRef.current, ...normalized])
       : normalized;
 
     productsRef.current = merged;
+    try { setCachedProducts(merged); setCacheLoaded(true); } catch {}
 
-    /* Sync to cache context for TopNav search */
-    try {
-      setCachedProducts(merged);
-      setCacheLoaded(true);
-    } catch {}
-
-    /* Featured */
     const incomingFeat = Array.isArray(data.featured) ? data.featured : [];
     const feat = incomingFeat.length > 0
       ? incomingFeat.map(normalizeProduct).filter(Boolean)
       : merged.filter((p) => p.is_promoted).slice(0, 4);
 
-    /* Deals */
     const cheap = merged
       .filter((p) => {
         const orig = Number(p.attributes?.original_price || 0);
@@ -410,47 +434,39 @@ export default function Homepage({ user }) {
       })
       .slice(0, 12);
 
-    const rest = merged.filter((p) => !p.is_promoted);
-
     setFeatured(feat);
     setDeals(cheap);
-    setProducts(rest);
+    setProducts(merged.filter((p) => !p.is_promoted));
     setMeta(data.meta || {});
     setTotal(data.meta?.total ?? merged.length);
     setHasMore(data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE);
   }, [setCachedProducts, setCacheLoaded]);
 
-  /* ── Load feed ── */
-  const loadFeed = useCallback(async (catId = "all", force = false) => {
+  const loadFeed = useCallback(async (catId = "all") => {
     setLoading(true);
     setError(null);
     setPage(0);
     productsRef.current = [];
-
     try {
       const res = await fetch(buildUrl(0, catId));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      applyData(data, false);
+      applyData(await res.json(), false);
     } catch (err) {
-      console.error("[Homepage] loadFeed:", err);
-      setError("Could not load listings. Check your connection.");
+      console.error("[Homepage]", err);
+      setError("Could not load listings.");
     } finally {
       setLoading(false);
     }
   }, [buildUrl, applyData]);
 
-  /* ── Load more ── */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-
     try {
       const next = page + 1;
       const res  = await fetch(buildUrl(next, category));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      applyData(data, true);
+      applyData(await res.json(), true);
       setPage(next);
     } catch (err) {
       console.error("[Homepage] loadMore:", err);
@@ -459,49 +475,40 @@ export default function Homepage({ user }) {
     }
   }, [loadingMore, hasMore, page, category, buildUrl, applyData]);
 
-  /* ── Category switch ── */
   const switchCategory = useCallback((catId) => {
     if (catId === category) return;
     setCategory(catId);
-    loadFeed(catId, true);
+    loadFeed(catId);
   }, [category, loadFeed]);
 
-  /* ── Initial load ── */
-  useEffect(() => {
-    loadFeed("all", false);
-  }, []); // eslint-disable-line
+  useEffect(() => { loadFeed("all"); }, []); // eslint-disable-line
 
-  /* ── Reload when location changes ── */
   const locationKey = savedLocation
-    ? `${savedLocation.city}-${savedLocation.state}`
-    : "none";
+    ? `${savedLocation.city}-${savedLocation.state}` : "none";
 
   useEffect(() => {
-    if (!loading) loadFeed(category, true);
+    if (!loading) loadFeed(category);
   }, [locationKey]); // eslint-disable-line
 
-  /* ── Listen for locationChanged event ── */
   useEffect(() => {
-    const handler = () => loadFeed(category, true);
-    window.addEventListener("locationChanged", handler);
-    return () => window.removeEventListener("locationChanged", handler);
+    const h = () => loadFeed(category);
+    window.addEventListener("locationChanged", h);
+    return () => window.removeEventListener("locationChanged", h);
   }, [category, loadFeed]);
 
-  /* ── Stale-tab refresh ── */
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "hidden") {
         hiddenAtRef.current = Date.now();
-      } else if (document.visibilityState === "visible") {
+      } else {
         const elapsed = Date.now() - (hiddenAtRef.current || 0);
-        if (!loading && elapsed > STALE_MS) loadFeed(category, true);
+        if (!loading && elapsed > STALE_MS) loadFeed(category);
       }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loading, category, loadFeed]);
 
-  /* ── Infinite scroll ── */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -513,7 +520,6 @@ export default function Homepage({ user }) {
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
-  /* ── Analytics ── */
   const trackView = useCallback((id) => {
     if (!id) return;
     fetch(`${API}/products/${id}/view`, {
@@ -529,12 +535,11 @@ export default function Homepage({ user }) {
     navigate(`/product/${product.slug || product.id}`);
   }, [navigate]);
 
-  /* ── Derived ── */
   const heroLoc = useMemo(() => {
     const manual = formatLocationLabel(savedLocation);
     if (manual) return `📍 ${manual}`;
     if (meta?.nearbySource === "gps")
-      return `Near you · GPS${meta.location ? ` · ${meta.location}` : ""}`;
+      return `Near you${meta.location ? ` · ${meta.location}` : ""}`;
     return meta?.location || null;
   }, [savedLocation, meta]);
 
@@ -572,11 +577,8 @@ export default function Homepage({ user }) {
                 Thousands of verified listings from sellers across Nigeria.
               </p>
             </div>
-            <button
-              className="hm-notif-btn"
-              aria-label="Notifications"
-              onClick={() => navigate("/notifications")}
-            >
+            <button className="hm-notif-btn" aria-label="Notifications"
+                    onClick={() => navigate("/notifications")}>
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                    strokeWidth={2} strokeLinecap="round" width={22} height={22}>
                 <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
@@ -585,13 +587,21 @@ export default function Homepage({ user }) {
             </button>
           </div>
 
+          {/* ✅ Navigates to /nearby */}
           {heroLoc && (
-            <button className="hm-hero-loc" onClick={() => navigate("/nearby")}>
+            <button className="hm-hero-loc"
+                    onClick={() => navigate("/nearby")}>
               <span className="hm-loc-pip-lg" aria-hidden="true" />
               <span>{heroLoc}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24"
+                   fill="currentColor" aria-hidden="true"
+                   style={{ opacity: 0.6, marginLeft: 2 }}>
+                <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+              </svg>
             </button>
           )}
 
+          {/* ✅ Real count with compact format */}
           <div className="hm-hero-stats">
             {loading ? (
               [1, 2, 3].map((i) => (
@@ -604,9 +614,9 @@ export default function Homepage({ user }) {
               ))
             ) : (
               [
-                { val: `${(total + 1_000).toLocaleString()}+`, label: "Listings"    },
-                { val: "24/7",  label: "Live market" },
-                { val: "Free",  label: "To list"     },
+                { val: fmtCount(total), label: "Listings" },
+                { val: "24/7",          label: "Live"     },
+                { val: "Free",          label: "To list"  },
               ].map((s) => (
                 <div key={s.label} className="hm-hero-stat">
                   <span className="hm-hero-stat-val">{s.val}</span>
@@ -619,8 +629,7 @@ export default function Homepage({ user }) {
 
         {/* ── SEARCH ── */}
         <div className="hm-search-wrap">
-          <button className="hm-search-bar" onClick={() => navigate("/search")}
-                  aria-label="Search Loemart">
+          <button className="hm-search-bar" onClick={() => navigate("/search")}>
             <span className="hm-search-ic" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
                    strokeWidth={2.2} strokeLinecap="round" width={17} height={17}>
@@ -631,7 +640,6 @@ export default function Homepage({ user }) {
             <span className="hm-search-placeholder">
               Search products, brands, locations…
             </span>
-            <kbd className="hm-search-kbd">⌘ K</kbd>
           </button>
         </div>
 
@@ -645,24 +653,16 @@ export default function Homepage({ user }) {
         {/* ── CATEGORIES ── */}
         <CategoryStrip current={category} onChange={switchCategory} />
 
-        {/* ── SECTION PILLS ── */}
-        <div className="hm-pills" role="navigation" aria-label="Quick sections">
-          {SECTION_PILLS.map((pill) => (
-            <button key={pill.path} className="hm-pill"
-                    onClick={() => navigate(pill.path)}>
-              {pill.label}
-            </button>
-          ))}
-        </div>
+        {/* ── 3D SECTION CARDS ── */}
+        <SectionCards onNavigate={navigate} />
 
         {/* ── ERROR ── */}
         {error && (
           <div className="hm-error" role="alert">
-            <span className="hm-error-icon" aria-hidden="true">⚡</span>
+            <span className="hm-error-icon">⚡</span>
             <p className="hm-error-title">Marketplace unavailable</p>
             <p className="hm-error-msg">{error}</p>
-            <button className="hm-error-btn"
-                    onClick={() => loadFeed(category, true)}>
+            <button className="hm-error-btn" onClick={() => loadFeed(category)}>
               Try again
             </button>
           </div>
@@ -670,7 +670,7 @@ export default function Homepage({ user }) {
 
         {/* ── FEATURED ── */}
         {(loading || featured.length > 0) && (
-          <section className="hm-section" aria-label="Featured">
+          <section className="hm-section">
             <div className="hm-section-head">
               <h2 className="hm-section-title">💎 Featured</h2>
             </div>
@@ -687,13 +687,11 @@ export default function Homepage({ user }) {
 
         {/* ── DEALS ── */}
         {!loading && deals.length > 0 && (
-          <section className="hm-section" aria-label="Deals">
+          <section className="hm-section">
             <div className="hm-section-head">
               <h2 className="hm-section-title">💸 Cheap Deals</h2>
               <button className="hm-section-link"
-                      onClick={() => navigate("/deals")}>
-                See all →
-              </button>
+                      onClick={() => navigate("/deals")}>See all →</button>
             </div>
             <div className="hm-deals-scroll">
               <div className="hm-deals-track">
@@ -707,48 +705,41 @@ export default function Homepage({ user }) {
         )}
 
         {/* ── MAIN FEED ── */}
-        <section className="hm-section"
-                 aria-label={feedTitle}>
+        <section className="hm-section">
           <div className="hm-section-head">
             <h2 className="hm-section-title">{feedTitle}</h2>
             {category !== "all" && (
               <button className="hm-cat-clear"
-                      onClick={() => switchCategory("all")}
-                      aria-label="Clear filter">
-                ✕ Clear
-              </button>
+                      onClick={() => switchCategory("all")}>✕ Clear</button>
             )}
           </div>
 
           {loading ? (
             <MasonrySkeleton />
           ) : error ? null : products.length === 0 ? (
-            <div className="hm-empty" role="status">
-              <span className="hm-empty-emoji" aria-hidden="true">🛍️</span>
+            <div className="hm-empty">
+              <span className="hm-empty-emoji">🛍️</span>
               <h3 className="hm-empty-title">
                 {category === "all"
                   ? formatLocationLabel(savedLocation)
-                    ? "No listings found near you"
+                    ? "No listings near you"
                     : "Welcome to Loemart"
                   : `No listings in ${currentCatName}`}
               </h3>
               <p className="hm-empty-sub">
                 {category === "all"
-                  ? "Enable location or browse all listings."
+                  ? "Try changing your location."
                   : "Try another category."}
               </p>
               <button className="hm-empty-btn"
                       onClick={() => category === "all"
-                        ? loadFeed("all", true)
-                        : switchCategory("all")
-                      }>
+                        ? loadFeed("all") : switchCategory("all")}>
                 {category === "all" ? "Reload" : "Browse all"}
               </button>
             </div>
           ) : (
             <>
-              <div className="hm-masonry" role="list"
-                   aria-label="Product listings">
+              <div className="hm-masonry" role="list">
                 {products.map((p, i) => p && (
                   <div key={p.id} role="listitem">
                     <MasonryCard
@@ -761,13 +752,11 @@ export default function Homepage({ user }) {
                 ))}
               </div>
 
-              <div ref={sentinelRef} aria-hidden="true"
-                   style={{ height: 1 }} />
+              <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
 
               {loadingMore && (
-                <p className="hm-loading-more" aria-live="polite">
-                  <span className="hm-spinner" aria-hidden="true" />
-                  Loading more…
+                <p className="hm-loading-more">
+                  <span className="hm-spinner" /> Loading more…
                 </p>
               )}
 
@@ -775,9 +764,7 @@ export default function Homepage({ user }) {
                 <div className="hm-feed-end-wrap">
                   <p className="hm-feed-end">You've seen it all 🎉</p>
                   <button className="hm-feed-end-btn"
-                          onClick={() => window.scrollTo({
-                            top: 0, behavior: "smooth"
-                          })}>
+                          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
                     Back to top ↑
                   </button>
                 </div>
@@ -788,7 +775,7 @@ export default function Homepage({ user }) {
 
         {/* ── SELL BANNER ── */}
         {!loading && (
-          <section className="hm-sell-banner" aria-label="Start selling">
+          <section className="hm-sell-banner">
             <div className="hm-sell-banner-blob" aria-hidden="true" />
             <div className="hm-sell-banner-content">
               <div className="hm-sell-banner-text">
@@ -803,17 +790,12 @@ export default function Homepage({ user }) {
           </section>
         )}
 
-        {/* ── FOOTER ── */}
         {!loading && <Footer />}
-
       </main>
 
-      {/* ── FAB ── */}
-      <button className="hm-fab" onClick={() => navigate("/minimart/add")}
-              aria-label="Sell a product">
+      <button className="hm-fab" onClick={() => navigate("/minimart/add")}>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-             strokeWidth={2.5} strokeLinecap="round" width={18} height={18}
-             aria-hidden="true">
+             strokeWidth={2.5} strokeLinecap="round" width={18} height={18}>
           <path d="M12 5v14M5 12h14" />
         </svg>
         Sell Now
@@ -822,14 +804,10 @@ export default function Homepage({ user }) {
       <ScrollTopBtn />
       <BottomNav />
 
-      {/* ── LOCATION PICKER ── */}
       <LocationPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={(loc) => {
-          saveLocation(loc);
-          setPickerOpen(false);
-        }}
+        onSelect={(loc) => { saveLocation(loc); setPickerOpen(false); }}
       />
     </div>
   );
