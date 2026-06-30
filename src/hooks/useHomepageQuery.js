@@ -6,7 +6,9 @@ const BASE_URL  = import.meta.env.VITE_API_BASE_URL
 const API       = `${BASE_URL}/api`;
 const PAGE_SIZE = 40;
 
-/* ── Normalize ───────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   NORMALIZE
+   ══════════════════════════════════════════════════════════════ */
 export const normalizeProduct = (p) => {
   if (!p || typeof p !== "object" || !p.id) return null;
   return {
@@ -37,13 +39,17 @@ export const normalizeProduct = (p) => {
   };
 };
 
-/* ── Dedup ───────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   DEDUP
+   ══════════════════════════════════════════════════════════════ */
 export const dedup = (arr) => {
   const seen = new Set();
   return arr.filter((p) => p && !seen.has(p.id) && seen.add(p.id));
 };
 
-/* ── GPS cache ───────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   GPS CACHE
+   ══════════════════════════════════════════════════════════════ */
 const GPS_KEY = "loemart_gps";
 const GPS_TTL = 10 * 60_000;
 
@@ -66,54 +72,110 @@ export const writeCachedGps = (coords) => {
   } catch {}
 };
 
-/* ── Fetch one page ──────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   FETCHER
+   ══════════════════════════════════════════════════════════════ */
 const fetchHomepage = async ({
-  pageParam = 0,
+  pageParam      = 0,
   category,
   coords,
+  locationParams = {},
 }) => {
   const params = new URLSearchParams({
     limit: PAGE_SIZE,
     page : pageParam,
   });
 
+  /* Category */
   if (category && category !== "all")
     params.set("category_id", category);
 
-  if (coords) {
+  /* GPS coords */
+  if (coords?.lat != null && coords?.lng != null) {
     params.set("lat", coords.lat);
     params.set("lng", coords.lng);
   }
 
+  /* Manual location from picker */
+  if (locationParams?.state)
+    params.set("state", locationParams.state);
+  if (locationParams?.city)
+    params.set("city", locationParams.city);
+
   const res = await fetch(`${API}/homepage?${params}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+
+  /* Return empty page on error instead of throwing
+     so the UI shows empty state instead of crashing */
+  if (!res.ok) {
+    console.warn(`[useHomepageQuery] HTTP ${res.status}`);
+    return { products: [], featured: [], meta: {}, hasMore: false };
+  }
+
+  const json = await res.json();
+
+  /* Normalise varying response shapes */
+  return {
+    products : Array.isArray(json.products)    ? json.products    :
+               Array.isArray(json.data?.items) ? json.data.items  :
+               Array.isArray(json.data)        ? json.data        : [],
+    featured : Array.isArray(json.featured)    ? json.featured    : [],
+    meta     : json.meta                       || {},
+    hasMore  : json.hasMore                    ?? json.meta?.has_more ?? false,
+  };
 };
 
-/* ── Hook ────────────────────────────────────────────────────── */
-export function useHomepageQuery({ category, coords } = {}) {
+/* ══════════════════════════════════════════════════════════════
+   HOOK
+   ══════════════════════════════════════════════════════════════ */
+export function useHomepageQuery({
+  category,
+  coords,
+  locationParams = {},
+} = {}) {
   return useInfiniteQuery({
-    queryKey : ["homepage", category, coords?.lat, coords?.lng],
+    /* ── Query key — changes trigger a fresh fetch ── */
+    queryKey: [
+      "homepage",
+      category       || "all",
+      coords?.lat    ?? null,
+      coords?.lng    ?? null,
+      locationParams?.state ?? null,
+      locationParams?.city  ?? null,
+    ],
 
-    queryFn  : ({ pageParam }) =>
-      fetchHomepage({ pageParam, category, coords }),
+    /* ── Fetcher ── */
+    queryFn: ({ pageParam }) =>
+      fetchHomepage({ pageParam, category, coords, locationParams }),
 
+    /* ── Required by React Query v5 ── */
+    initialPageParam: 0,
+
+    /* ── Pagination ── */
     getNextPageParam: (lastPage, allPages) => {
-      const raw      = Array.isArray(lastPage.products)
+      const products = Array.isArray(lastPage?.products)
         ? lastPage.products : [];
-      const hasMore  =
-        lastPage.meta?.has_more ??
-        lastPage.hasMore        ??
-        raw.length >= PAGE_SIZE;
+
+      const hasMore =
+        lastPage?.meta?.has_more ??
+        lastPage?.hasMore        ??
+        products.length >= PAGE_SIZE;
+
       return hasMore ? allPages.length : undefined;
     },
 
-    staleTime  : 5 * 60_000,   // 5 min
+    /* ── Cache ── */
+    staleTime  : 5 * 60_000,
     gcTime     : 15 * 60_000,
-    retry      : 3,
-    retryDelay : (n) => Math.min(1_000 * 2 ** n, 30_000),
 
+    /* ── Retry — 3 attempts with backoff ── */
+    retry      : 3,
+    retryDelay : (attempt) => Math.min(1_000 * 2 ** attempt, 30_000),
+
+    /* ── Refetch behaviour ── */
     refetchOnWindowFocus: true,
     refetchOnMount      : false,
+
+    /* ── Never throw — return empty page instead ── */
+    throwOnError: false,
   });
 }
