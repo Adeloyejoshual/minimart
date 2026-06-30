@@ -1,0 +1,191 @@
+/* ══════════════════════════════════════════════════════════════
+   ROOT LAYOUT
+   Keeps TopNav sticky, Footer always at the bottom,
+   and BottomNav always floating.
+   ══════════════════════════════════════════════════════════════ */
+.deals-root {
+  display        : flex;
+  flex-direction : column;
+  min-height     : 100dvh;
+  background     : var(--deals-bg);
+}
+
+.deals-page {
+  flex    : 1;
+  display : flex;
+  flex-direction: column;
+
+  /* ── Breathing room above BottomNav ── */
+  padding-bottom: calc(72px + env(safe-area-inset-bottom) + 24px);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RESULT COUNT BADGE
+   ══════════════════════════════════════════════════════════════ */
+.deals-result-count {
+  display      : flex;
+  align-items  : center;
+  gap          : 5px;
+  padding      : var(--sp-sm, 8px) var(--sp-lg, 20px);
+  font-size    : 0.8rem;
+  color        : var(--text-muted);
+  font-weight  : 450;
+  line-height  : var(--lh-normal, 1.55);
+  letter-spacing: var(--ls-normal, -0.01em);
+}
+
+.deals-result-count-num {
+  font-size  : 0.88rem;
+  font-weight: 700;
+  color      : var(--accent, #c9a96e);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   FEED END — improved
+   ══════════════════════════════════════════════════════════════ */
+.deals-feed-end-wrap {
+  display        : flex;
+  flex-direction : column;
+  align-items    : center;
+  gap            : var(--sp-md, 14px);
+  padding        : var(--sp-xl, 28px) var(--sp-lg, 20px);
+  margin         : 0 var(--sp-lg, 20px);
+  background     : var(--glass-bg, rgba(255,255,255,0.55));
+  backdrop-filter : blur(var(--glass-blur, 18px));
+  -webkit-backdrop-filter: blur(var(--glass-blur, 18px));
+  border         : 1px solid var(--glass-border, rgba(255,255,255,0.45));
+  border-radius  : var(--r-lg, 20px);
+  box-shadow     : var(--glass-shadow);
+  text-align     : center;
+}
+
+.deals-feed-end {
+  font-size      : 0.88rem;
+  color          : var(--text-muted, #9e9e9e);
+  font-weight    : 500;
+  letter-spacing : var(--ls-normal, -0.01em);
+  line-height    : var(--lh-normal, 1.55);
+  margin         : 0;
+  padding        : 0;
+}
+
+.deals-feed-end-btn {
+  padding        : 11px 28px;
+  border         : 1.5px solid var(--glass-border, rgba(255,255,255,0.45));
+  border-radius  : var(--r-pill, 99px);
+  background     : var(--glass-bg, rgba(255,255,255,0.55));
+  backdrop-filter : blur(8px);
+  font-size      : 0.82rem;
+  font-weight    : 600;
+  font-family    : var(--font);
+  color          : var(--accent, #c9a96e);
+  cursor         : pointer;
+  letter-spacing : var(--ls-normal, -0.01em);
+  line-height    : 1.5;
+  transition     : all 0.2s ease;
+}
+
+.deals-feed-end-btn:hover {
+  background   : var(--accent-soft, rgba(201,169,110,0.12));
+  border-color : var(--accent, #c9a96e);
+  transform    : translateY(-1px);
+}
+
+.deals-feed-end-btn:active {
+  transform: scale(0.97);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   FOOTER SEPARATION
+   Give the footer some breathing room from the grid
+   ══════════════════════════════════════════════════════════════ */
+.deals-page .footer {
+  margin-top : var(--sp-2xl, 40px);
+
+  /* Slightly different glass tint inside the page */
+  background : rgba(255, 255, 255, 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+  .deals-page .footer {
+    background: rgba(20, 20, 20, 0.45);
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SCROLL TO TOP — updated position to sit above BottomNav
+   ══════════════════════════════════════════════════════════════ */
+.deals-scroll-top {
+  bottom: calc(
+    72px
+    + env(safe-area-inset-bottom)
+    + var(--sp-lg, 20px)
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SKIP LINK (accessibility)
+   ══════════════════════════════════════════════════════════════ */
+.deals-skip-link {
+  position        : absolute;
+  top             : -999px;
+  left            : var(--sp-md, 14px);
+  z-index         : 9999;
+  padding         : var(--sp-sm, 8px) var(--sp-md, 14px);
+  background      : var(--accent, #c9a96e);
+  color           : #fff;
+  font-size       : 0.82rem;
+  font-weight     : 700;
+  border-radius   : var(--r-sm, 10px);
+  text-decoration : none;
+  transition      : top 0.1s;
+}
+
+.deals-skip-link:focus {
+  top: var(--sp-md, 14px);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   TOPNAV OFFSET
+   Prevents content jumping under sticky nav
+   ══════════════════════════════════════════════════════════════ */
+#main-content {
+  scroll-margin-top: var(--tn-height, 112px);
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE OVERRIDES FOR INTEGRATED LAYOUT
+   ══════════════════════════════════════════════════════════════ */
+@media (min-width: 768px) {
+  .deals-result-count {
+    padding: var(--sp-md, 14px) var(--sp-xl, 28px);
+    font-size: 0.85rem;
+  }
+
+  .deals-feed-end-wrap {
+    margin: 0 var(--sp-xl, 28px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .deals-result-count {
+    padding: var(--sp-md, 14px) var(--sp-2xl, 40px);
+  }
+
+  .deals-feed-end-wrap {
+    margin       : 0 var(--sp-2xl, 40px);
+    flex-direction: row;
+    justify-content: space-between;
+    text-align   : left;
+  }
+
+  .deals-feed-end-btn {
+    flex-shrink: 0;
+  }
+
+  /* On desktop, BottomNav is hidden — 
+     remove extra bottom padding */
+  .deals-page {
+    padding-bottom: var(--sp-xl, 28px);
+  }
+}
