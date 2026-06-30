@@ -1,241 +1,204 @@
-/**
- * src/pages/Homepage/DealsPage.jsx
- * Route: /deals
- *
- * Backend: GET /api/homepage?section=deals&page=N
- * section=deals → WHERE price <= 50000, ORDER BY price ASC
- * page is 0-based (offset = page * 40)
- */
-
-import { useCallback, useEffect, useRef, useState } from "react";
+// src/pages/Homepage/DealsPage.jsx
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
-import TopNav      from "../../components/TopNav";
-import BottomNav   from "../../components/BottomNav";
-import MasonryGrid from "../../components/MasonryGrid";
+import TopNav          from "../../components/TopNav";
+import BottomNav       from "../../components/BottomNav";
+import DealsHeader     from "../../components/deals/DealsHeader";
+import DealsFilterBar  from "../../components/deals/DealsFilterBar";
+import DealsSkeleton   from "../../components/deals/DealsSkeleton";
+import DealCard        from "../../components/deals/DealCard";
+import { useDealsQuery, dedup, normalizeProduct } from "../../hooks/useDealsQuery";
+import "../../styles/DealsPage.css";
 
-/* ═══════════════════════════════════════════════════════════════
-   ENV + API
-═══════════════════════════════════════════════════════════════ */
-const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+/* ─── Analytics queue (reuse from Homepage) ──────────────────── */
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API      = `${BASE_URL}/api`;
 
-/* ═══════════════════════════════════════════════════════════════
-   NORMALIZE PRODUCT
-   API returns numbers as strings e.g. price: "5000.00"
-   Convert all numeric fields to real numbers.
-═══════════════════════════════════════════════════════════════ */
-const normalizeProduct = (p) => ({
-  ...p,
-  price             : Number(p.price             || 0),
-  engagement_score  : Number(p.engagement_score  || 0),
-  clicks_count      : Number(p.clicks_count      || 0),
-  impression_count  : Number(p.impression_count  || 0),
-  views             : Number(p.views             || 0),
-  ctr               : Number(p.ctr               || 0),
-  promotion_priority: Number(p.promotion_priority || 0),
+/* ─── Empty State ─────────────────────────────────────────────── */
+function EmptyState({ onBack }) {
+  return (
+    <div className="deals-empty" role="status">
+      <span className="deals-empty-emoji" aria-hidden="true">🏷️</span>
+      <h3 className="deals-empty-title">No deals right now</h3>
+      <p className="deals-empty-sub">
+        New listings under ₦50,000 appear daily.
+        <br />Check back soon!
+      </p>
+      <button className="deals-empty-btn" onClick={onBack}>
+        Browse All Listings
+      </button>
+    </div>
+  );
+}
 
-  // ── Normalize image ──
-  image: p.image ||
-    (Array.isArray(p.images) && p.images.length > 0
-      ? (typeof p.images[0] === "string"
-          ? p.images[0]
-          : p.images[0]?.url || null)
-      : null),
+/* ─── Error Banner ────────────────────────────────────────────── */
+function ErrorBanner({ message, onRetry }) {
+  return (
+    <div className="deals-err" role="alert">
+      <span className="deals-err-icon" aria-hidden="true">⚡</span>
+      <p className="deals-err-title">Could not load deals</p>
+      <p className="deals-err-msg">{message}</p>
+      <button className="deals-err-btn" onClick={onRetry}>
+        Try again
+      </button>
+    </div>
+  );
+}
 
-  // ── Normalize location ──
-  location_city  : p.location?.city  || p.location_city  || null,
-  location_state : p.location?.state || p.location_state || null,
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   HELPERS
-═══════════════════════════════════════════════════════════════ */
-
-/** Remove duplicate products by id */
-const dedup = (arr) => {
-  const seen = new Set();
-  return arr.filter((p) => !seen.has(p.id) && seen.add(p.id));
-};
-
-/** Build paginated deals URL */
-const buildUrl = (page) =>
-  `${API}/homepage?section=deals&page=${page}`;
-
-/* ═══════════════════════════════════════════════════════════════
-   SKELETON
-═══════════════════════════════════════════════════════════════ */
-const SkeletonMasonry = () => (
-  <div className="masonry">
-    {[...Array(10)].map((_, i) => (
-      <div
-        key={i}
-        className="sk sk-masonry"
-        style={{ height: `${160 + (i % 4) * 55}px` }}
-      />
-    ))}
-  </div>
-);
-
-/* ═══════════════════════════════════════════════════════════════
-   COMPONENT
-═══════════════════════════════════════════════════════════════ */
+/* ─── Main Component ──────────────────────────────────────────── */
 export default function DealsPage({ user }) {
   const navigate = useNavigate();
 
-  const [products,    setProducts]    = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [error,       setError]       = useState(null);
-  const [hasMore,     setHasMore]     = useState(false);
-  const [page,        setPage]        = useState(0); // 0-based
+  // ── Filters ───────────────────────────────────────────────
+  const [maxPrice, setMaxPrice] = useState("");
+  const [sortBy,   setSortBy]   = useState("price_asc");
+  const [category, setCategory] = useState("all");
 
-  const productsRef = useRef([]);
+  // ── Data ──────────────────────────────────────────────────
+  const {
+    data,
+    isLoading,
+    isError,
+    error,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    refetch,
+  } = useDealsQuery({ maxPrice, sortBy, category });
+
+  // ── Flatten pages → products ──────────────────────────────
+  const products = useMemo(() => {
+    if (!data?.pages) return [];
+    const raw = data.pages.flatMap((pg) =>
+      Array.isArray(pg.products) ? pg.products : []
+    );
+    return dedup(raw).map(normalizeProduct).filter(Boolean);
+  }, [data]);
+
+  // ── Total count ───────────────────────────────────────────
+  const total = data?.pages?.[0]?.meta?.total ?? products.length;
+
+  // ── Infinite scroll sentinel ──────────────────────────────
   const sentinelRef = useRef(null);
 
-  // ── Fetch deals ───────────────────────────────────────────
-  const fetchDeals = useCallback(async (pageNum, append = false) => {
-    const res = await fetch(buildUrl(pageNum));
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-    const data     = await res.json();
-
-    // ── Normalize string numbers to real numbers ──
-    const incoming = (Array.isArray(data.products) ? data.products : [])
-      .map(normalizeProduct);
-
-    const merged = append
-      ? dedup([...productsRef.current, ...incoming])
-      : dedup(incoming);
-
-    productsRef.current = merged;
-    setProducts(merged);
-    setHasMore(!!data.hasMore);
-  }, []);
-
-  // ── Bootstrap ─────────────────────────────────────────────
-  useEffect(() => {
-    fetchDeals(0)
-      .catch(() => setError("Could not load listings."))
-      .finally(() => setLoading(false));
-  }, [fetchDeals]);
-
-  // ── Load more ─────────────────────────────────────────────
-  const loadMore = useCallback(async () => {
-    if (loadingMore || !hasMore) return;
-
-    setLoadingMore(true);
-    const next = page + 1;
-
-    try {
-      await fetchDeals(next, true);
-      setPage(next);
-    } catch (err) {
-      console.error("[DealsPage] loadMore:", err);
-    } finally {
-      setLoadingMore(false);
-    }
-  }, [loadingMore, hasMore, page, fetchDeals]);
-
-  // ── Infinite scroll ───────────────────────────────────────
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasMore) return;
+    if (!el || !hasNextPage) return;
 
     const io = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) loadMore(); },
+      ([entry]) => {
+        if (entry.isIntersecting && !isFetchingNextPage) {
+          fetchNextPage();
+        }
+      },
       { threshold: 0.1 }
     );
 
     io.observe(el);
     return () => io.disconnect();
-  }, [loadMore, hasMore]);
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
-  // ── Track view ────────────────────────────────────────────
+  // ── Analytics ─────────────────────────────────────────────
   const trackView = useCallback((id) => {
-    fetch(`${API}/products/${id}/view`, { method: "POST" }).catch(() => {});
+    fetch(`${API}/products/${id}/view`, {
+      method    : "POST",
+      keepalive : true,
+    }).catch(() => {});
   }, []);
 
-  // ── Handle click ──────────────────────────────────────────
   const handleClick = useCallback((product) => {
-    fetch(`${API}/products/${product.id}/click`, { method: "POST" }).catch(() => {});
+    if (!product?.id) return;
+    fetch(`${API}/products/${product.id}/click`, {
+      method    : "POST",
+      keepalive : true,
+    }).catch(() => {});
     navigate(`/product/${product.slug}`);
   }, [navigate]);
-
-  // ── Retry ─────────────────────────────────────────────────
-  const retry = useCallback(() => {
-    setError(null);
-    setLoading(true);
-    setPage(0);
-    productsRef.current = [];
-    setProducts([]);
-
-    fetchDeals(0)
-      .catch(() => setError("Still failing. Check your connection."))
-      .finally(() => setLoading(false));
-  }, [fetchDeals]);
 
   // ── Render ────────────────────────────────────────────────
   return (
     <>
       <TopNav user={user} />
 
-      <div className="pg">
+      <div className="deals-page">
 
-        {/* ── Page Header ── */}
-        <div className="page-header">
-          <button
-            className="back-btn"
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-          >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-            </svg>
-          </button>
-          <div className="page-title-wrap">
-            <h1 className="page-title">Cheap Deals</h1>
-            <span className="sec-chip">Under ₦50k</span>
-          </div>
-        </div>
+        {/* Header */}
+        <DealsHeader onBack={() => navigate(-1)} />
 
-        {/* ── Error ── */}
-        {error && (
-          <div className="err-box">
-            <div className="err-title">Could not load listings</div>
-            <div className="err-msg">{error}</div>
-            <button className="err-btn" onClick={retry}>Try again</button>
-          </div>
+        {/* Filter Bar */}
+        <DealsFilterBar
+          maxPrice={maxPrice}
+          sortBy={sortBy}
+          total={total}
+          onMaxPriceChange={setMaxPrice}
+          onSortChange={setSortBy}
+        />
+
+        {/* Error */}
+        {isError && (
+          <ErrorBanner
+            message={error?.message ?? "Something went wrong."}
+            onRetry={refetch}
+          />
         )}
 
-        {/* ── Skeleton ── */}
-        {loading && <SkeletonMasonry />}
+        {/* Loading skeleton */}
+        {isLoading && <DealsSkeleton />}
 
-        {/* ── Empty State ── */}
-        {!loading && !error && products.length === 0 && (
-          <div className="empty">
-            <div className="empty-emoji">🏷</div>
-            <div className="empty-title">No deals right now</div>
-            <div className="empty-sub">
-              Check back soon — new listings under ₦50,000 appear daily.
-            </div>
-            <button className="empty-btn" onClick={() => navigate("/")}>
-              Browse All
-            </button>
-          </div>
+        {/* Empty state */}
+        {!isLoading && !isError && products.length === 0 && (
+          <EmptyState onBack={() => navigate("/")} />
         )}
 
-        {/* ── Products ── */}
-        {!loading && products.length > 0 && (
+        {/* Product grid */}
+        {!isLoading && products.length > 0 && (
           <>
-            <MasonryGrid
-              products={products}
-              onView={trackView}
-              onClick={handleClick}
+            <div
+              className="deals-masonry"
+              role="list"
+              aria-label="Deal listings"
+            >
+              {products.map((p, i) => (
+                <div key={p.id} role="listitem">
+                  <DealCard
+                    product={p}
+                    priority={i < 6}
+                    onView={trackView}
+                    onClick={handleClick}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Infinite scroll trigger */}
+            <div
+              ref={sentinelRef}
+              aria-hidden="true"
+              style={{ height: 1 }}
             />
-            <div ref={sentinelRef} style={{ height: 1 }} />
-            {loadingMore && <p className="loading-more">Loading more…</p>}
+
+            {/* Loading more indicator */}
+            {isFetchingNextPage && (
+              <p className="deals-loading-more" aria-live="polite">
+                <span className="deals-spinner" aria-hidden="true" />
+                Loading more deals…
+              </p>
+            )}
+
+            {/* End of feed */}
+            {!hasNextPage && products.length > 0 && (
+              <p className="deals-feed-end" aria-live="polite">
+                You've seen all the deals 🎉
+              </p>
+            )}
           </>
         )}
-
       </div>
 
       <BottomNav />
