@@ -21,7 +21,8 @@ import { useNavigate } from "react-router-dom";
 import TopNav          from "../components/TopNav";
 import BottomNav       from "../components/BottomNav";
 import Footer          from "../components/Footer";
-import LocationPicker, { getActiveLocation } from "../components/LocationPicker";
+import LocationPicker    from "../components/LocationPicker";
+import { getActiveLocation } from "../hooks/useLocation";
 import CATEGORY_CONFIG from "../config/categories";
 
 /* ═══════════════════════════════════════════════════════════════
