@@ -7,487 +7,820 @@
  *
  * Steps:
  *   password — enter + confirm new password
- *   done     — success + auto-login countdown
+ *   done     — success screen + auto-login countdown
  */
 
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
-import { useNavigate, useLocation, Link }                    from "react-router-dom";
-import axios                                                  from "axios";
-import toast                                                  from "react-hot-toast";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
+import { useNavigate, useLocation, Link } from "react-router-dom";
+import axios from "axios";
+import toast from "react-hot-toast";
 import "../styles/ResetPassword.css";
 
-/* ═══════════════════════════════════════════════════════════════
-   CONFIG
-═══════════════════════════════════════════════════════════════ */
+/* ── Config ─────────────────────────────────────────────────── */
 const API = `${import.meta.env.VITE_API_BASE_URL}/api/auth`;
+const AUTO_LOGIN_SECONDS = 3;
+const MIN_STRENGTH_SCORE = 3;
 
+/* ── Utility: mask email for display ────────────────────────── */
+function maskEmail(email) {
+  if (!email || !email.includes("@")) return email;
+
+  const [local, domain] = email.split("@");
+
+  if (local.length <= 2) {
+    return `${local[0]}${"•".repeat(Math.max(local.length - 1, 1))}@${domain}`;
+  }
+
+  const first = local[0];
+  const last = local[local.length - 1];
+  const masked = "•".repeat(Math.min(local.length - 2, 5));
+
+  return `${first}${masked}${last}@${domain}`;
+}
+
+/* ── Password Strength ──────────────────────────────────────── */
 const STRENGTH_LEVELS = [
-  { score: 0, label: "",       color: "transparent" },
-  { score: 1, label: "Weak",   color: "#EF4444"     },
-  { score: 2, label: "Fair",   color: "#F59E0B"     },
-  { score: 3, label: "Good",   color: "#FF8040"     },
-  { score: 4, label: "Strong", color: "#15803D"     },
+  { score: 0, label: "",        color: "transparent" },
+  { score: 1, label: "Weak",    color: "#EF4444"     },
+  { score: 2, label: "Fair",    color: "#F59E0B"     },
+  { score: 3, label: "Good",    color: "#FF8040"     },
+  { score: 4, label: "Strong",  color: "#15803D"     },
 ];
 
-const getStrength = (pw) => {
-  if (!pw) return { ...STRENGTH_LEVELS[0], checks: [] };
-  const checks = [
-    { label: "8+ chars",  met: pw.length >= 8          },
-    { label: "Uppercase", met: /[A-Z]/.test(pw)         },
-    { label: "Number",    met: /[0-9]/.test(pw)         },
-    { label: "Symbol",    met: /[^A-Za-z0-9]/.test(pw)  },
-  ];
-  return {
-    ...STRENGTH_LEVELS[checks.filter((c) => c.met).length],
-    checks,
-  };
+const PASSWORD_CHECKS = [
+  { label: "8+ characters", test: (pw) => pw.length >= 8         },
+  { label: "Uppercase",     test: (pw) => /[A-Z]/.test(pw)       },
+  { label: "Number",        test: (pw) => /[0-9]/.test(pw)       },
+  { label: "Symbol",        test: (pw) => /[^A-Za-z0-9]/.test(pw) },
+];
+
+function getStrength(password) {
+  if (!password) return { ...STRENGTH_LEVELS[0], checks: [] };
+
+  const checks = PASSWORD_CHECKS.map((c) => ({
+    label: c.label,
+    met: c.test(password),
+  }));
+
+  const score = checks.filter((c) => c.met).length;
+  return { ...STRENGTH_LEVELS[score], checks };
+}
+
+/* ── Icons ──────────────────────────────────────────────────── */
+const Icons = {
+  Lock: ({ size = 17, color = "currentColor" }) => (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0110 0v4" />
+    </svg>
+  ),
+
+  Eye: ({ size = 17 }) => (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
+
+  EyeOff: ({ size = 17 }) => (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
+      <line x1="1" y1="1" x2="23" y2="23" />
+    </svg>
+  ),
+
+  Check: ({ size = 14, color = "currentColor" }) => (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
+  ),
+
+  ArrowRight: ({ size = 17 }) => (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="5" y1="12" x2="19" y2="12" />
+      <polyline points="12 5 19 12 12 19" />
+    </svg>
+  ),
+
+  ArrowLeft: ({ size = 16 }) => (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="19" y1="12" x2="5" y2="12" />
+      <polyline points="12 19 5 12 12 5" />
+    </svg>
+  ),
+
+  Key: ({ size = 26, color = "currentColor" }) => (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="7.5" cy="15.5" r="5.5" />
+      <path d="M21 2l-9.6 9.6" />
+      <path d="M15.5 7.5l3 3L22 7l-3-3" />
+    </svg>
+  ),
+
+  Shield: ({ size = 12, color = "currentColor" }) => (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    </svg>
+  ),
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   ICONS
-═══════════════════════════════════════════════════════════════ */
-const Ic = {
-  Lock: ({ s = 17, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-      <path d="M7 11V7a5 5 0 0110 0v4"/>
-    </svg>
-  ),
-  Eye: ({ s = 17 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-      <circle cx="12" cy="12" r="3"/>
-    </svg>
-  ),
-  EyeOff: ({ s = 17 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
-      <line x1="1" y1="1" x2="23" y2="23"/>
-    </svg>
-  ),
-  Check: ({ s = 14, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12"/>
-    </svg>
-  ),
-  Arrow: ({ s = 17 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="5" y1="12" x2="19" y2="12"/>
-      <polyline points="12 5 19 12 12 19"/>
-    </svg>
-  ),
-  ArrowLeft: ({ s = 16 }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="19" y1="12" x2="5" y2="12"/>
-      <polyline points="12 19 5 12 12 5"/>
-    </svg>
-  ),
-  Key: ({ s = 26, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="7.5" cy="15.5" r="5.5"/>
-      <path d="M21 2l-9.6 9.6"/>
-      <path d="M15.5 7.5l3 3L22 7l-3-3"/>
-    </svg>
-  ),
-  Shield: ({ s = 11, c = "currentColor" }) => (
-    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-    </svg>
-  ),
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   SPINNER
-═══════════════════════════════════════════════════════════════ */
-function Spinner({ c = "#fff" }) {
+/* ── Spinner ────────────────────────────────────────────────── */
+function Spinner({ color = "#fff" }) {
   return (
-    <svg className="rp-spinner" width="18" height="18" viewBox="0 0 24 24"
-         fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round">
-      <path d="M21 12a9 9 0 11-6.219-8.56"/>
+    <svg
+      className="rp-spinner"
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={color}
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      role="status"
+      aria-label="Loading"
+    >
+      <path d="M21 12a9 9 0 11-6.219-8.56" />
     </svg>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   BADGES
-═══════════════════════════════════════════════════════════════ */
-function Badges() {
+/* ── Security Badges ────────────────────────────────────────── */
+function SecurityBadges() {
+  const badges = [
+    { icon: <Icons.Shield size={12} color="#7a756f" />, label: "SSL Secured" },
+    { icon: <Icons.Lock   size={12} color="#7a756f" />, label: "Encrypted"   },
+    { icon: <Icons.Check  size={12} color="#7a756f" />, label: "GDPR"        },
+  ];
+
   return (
-    <div className="rp-badges">
-      <span className="rp-badge"><Ic.Shield s={11} c="#6B6560" /> SSL Secured</span>
-      <span className="rp-badge"><Ic.Lock   s={11} c="#6B6560" /> Encrypted</span>
-      <span className="rp-badge"><Ic.Check  s={11} c="#6B6560" /> GDPR</span>
+    <div className="rp-badges" aria-label="Security certifications">
+      {badges.map((badge) => (
+        <span key={badge.label} className="rp-badge">
+          {badge.icon}
+          {badge.label}
+        </span>
+      ))}
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   PASSWORD FIELD
-═══════════════════════════════════════════════════════════════ */
-function PwField({
+/* ── Strength Meter ─────────────────────────────────────────── */
+function StrengthMeter({ password }) {
+  const strength = useMemo(() => getStrength(password), [password]);
+
+  return (
+    <div className="rp-strength" role="status" aria-live="polite">
+      {/* Bar track */}
+      <div className="rp-strength__bars" aria-hidden="true">
+        {[1, 2, 3, 4].map((level) => (
+          <div
+            key={level}
+            className={`rp-strength__bar ${
+              strength.score >= level ? "rp-strength__bar--active" : ""
+            }`}
+            style={
+              strength.score >= level
+                ? { backgroundColor: strength.color }
+                : {}
+            }
+          />
+        ))}
+      </div>
+
+      {/* Label — only show when actively typing */}
+      {password && (
+        <span
+          className="rp-strength__label"
+          style={{ color: strength.color }}
+          aria-label={`Password strength: ${strength.label}`}
+        >
+          {strength.label}
+        </span>
+      )}
+
+      {/* Checklist — always visible, items animate as met */}
+      <div className="rp-strength__checks" role="list">
+        {strength.checks.length > 0
+          ? strength.checks.map((check) => (
+              <span
+                key={check.label}
+                role="listitem"
+                className={`rp-strength__check ${
+                  check.met
+                    ? "rp-strength__check--met"
+                    : "rp-strength__check--unmet"
+                }`}
+                aria-label={`${check.label}: ${check.met ? "passed" : "not yet"}`}
+              >
+                {check.met ? (
+                  <Icons.Check size={9} color="#15803D" />
+                ) : (
+                  <span className="rp-strength__dot" aria-hidden="true" />
+                )}
+                {check.label}
+              </span>
+            ))
+          : PASSWORD_CHECKS.map((c) => (
+              <span
+                key={c.label}
+                role="listitem"
+                className="rp-strength__check rp-strength__check--unmet"
+                aria-label={`${c.label}: not yet`}
+              >
+                <span className="rp-strength__dot" aria-hidden="true" />
+                {c.label}
+              </span>
+            ))}
+      </div>
+    </div>
+  );
+}
+
+/* ── Password Field ─────────────────────────────────────────── */
+function PasswordField({
+  id,
   label,
   value,
   onChange,
-  showPw,
-  onToggle,
+  visible,
+  onToggleVisible,
   showStrength = false,
   autoComplete = "new-password",
   placeholder  = "Password",
   matchState   = null,   // true | false | null
+  describedBy,
+  inputRef,
+  onSubmit,
 }) {
-  const pw = useMemo(() => getStrength(value), [value]);
+  const hasError = matchState === false;
+
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && onSubmit) {
+      e.preventDefault();
+      onSubmit();
+    }
+  };
 
   return (
     <div className="rp-field">
-      <label className="rp-label">{label}</label>
-      <div className={`rp-iw${matchState === false ? " rp-iw--error" : ""}`}>
-        <span className="rp-icon"><Ic.Lock /></span>
+      <label className="rp-field__label" htmlFor={id}>
+        {label}
+      </label>
+
+      <div className={`rp-field__wrap ${hasError ? "rp-field__wrap--error" : ""}`}>
+        <span className="rp-field__icon">
+          <Icons.Lock />
+        </span>
+
         <input
-          type={showPw ? "text" : "password"}
+          id={id}
+          ref={inputRef}
+          type={visible ? "text" : "password"}
           value={value}
           onChange={onChange}
+          onKeyDown={handleKeyDown}
           placeholder={placeholder}
           autoComplete={autoComplete}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          aria-invalid={hasError || undefined}
+          aria-describedby={describedBy}
+          className="rp-field__input"
         />
+
         <button
           type="button"
-          className="rp-eye"
-          onClick={onToggle}
-          tabIndex={-1}
+          className="rp-field__toggle"
+          onClick={onToggleVisible}
+          aria-label={visible ? "Hide password" : "Show password"}
+          title={visible ? "Hide password" : "Show password"}
         >
-          {showPw ? <Ic.EyeOff /> : <Ic.Eye />}
+          {visible ? <Icons.EyeOff /> : <Icons.Eye />}
         </button>
       </div>
 
-      {/* match feedback */}
+      {/* Match feedback */}
       {matchState === true && (
-        <p className="rp-match-ok">
-          <Ic.Check s={12} c="#15803D" /> Passwords match
+        <p className="rp-field__match rp-field__match--ok" role="status">
+          <Icons.Check size={12} color="#15803D" />
+          Passwords match
         </p>
       )}
       {matchState === false && (
-        <p className="rp-match-error">Passwords do not match</p>
+        <p
+          className="rp-field__match rp-field__match--error"
+          role="alert"
+          id={describedBy}
+        >
+          Passwords do not match
+        </p>
       )}
 
-      {/* strength meter */}
-      {showStrength && value && (
-        <div className="rp-pw">
-          <div className="rp-pw-bars">
-            {[1, 2, 3, 4].map((v) => (
-              <div
-                key={v}
-                className={`rp-pw-bar${pw.score >= v ? " rp-pw-bar--on" : ""}`}
-                style={pw.score >= v ? { background: pw.color } : {}}
-              />
-            ))}
-          </div>
-          <div className="rp-pw-label" style={{ color: pw.color }}>
-            {pw.label}
-          </div>
-          <div className="rp-pw-checks">
-            {pw.checks.map((c, i) => (
-              <span
-                key={i}
-                className={`rp-pw-check ${c.met ? "rp-pw-check--met" : "rp-pw-check--no"}`}
-              >
-                {c.met
-                  ? <Ic.Check s={9} c="#15803D" />
-                  : <span className="rp-pw-dot" />
-                }
-                {c.label}
-              </span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Strength meter — always shows checklist when this is the new-pw field */}
+      {showStrength && <StrengthMeter password={value} />}
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   LEFT PANEL
-═══════════════════════════════════════════════════════════════ */
+/* ── Left Panel ─────────────────────────────────────────────── */
 function LeftPanel() {
-  return (
-    <div className="rp-left">
-      <div className="rp-blob rp-blob1" />
-      <div className="rp-blob rp-blob2" />
-      <div className="rp-left-inner">
+  const passwordTips = [
+    "Use at least 8 characters",
+    "Mix uppercase and lowercase",
+    "Add numbers and symbols",
+    "Avoid common words or phrases",
+  ];
 
-        <Link to="/auth" className="rp-logo">
-          <div className="rp-logo-icon">
-            <div className="rp-logo-ring" />
-            <div className="rp-logo-bag">
-              <div className="rp-logo-pin" />
+  return (
+    <div className="rp-left" aria-hidden="true">
+      <div className="rp-blob rp-blob--1" />
+      <div className="rp-blob rp-blob--2" />
+
+      <div className="rp-left__inner">
+        {/* Logo */}
+        <Link to="/auth" className="rp-logo" tabIndex={-1}>
+          <div className="rp-logo__icon">
+            <div className="rp-logo__ring" />
+            <div className="rp-logo__bag">
+              <div className="rp-logo__pin" />
             </div>
           </div>
-          <span className="rp-logo-name">Loe<b>mart</b></span>
+          <span className="rp-logo__name">
+            Loe<b>mart</b>
+          </span>
         </Link>
 
+        {/* Illustration */}
         <div className="rp-illustration">
-          <div className="rp-ill-circle">
-            <Ic.Key s={80} c="#FF5C00" />
+          <div className="rp-illustration__circle">
+            <Icons.Key size={80} color="#FF5C00" />
           </div>
-          <h2>Almost<br /><em>there!</em></h2>
-          <p>
+          <h2 className="rp-illustration__title">
+            Almost
+            <br />
+            <em>there!</em>
+          </h2>
+          <p className="rp-illustration__text">
             Create a strong new password to secure your Loemart account.
             You'll be logged in automatically when you're done.
           </p>
         </div>
 
-        {/* Tips */}
+        {/* Password Tips */}
         <div className="rp-tips">
-          <p className="rp-tips-title">Password tips</p>
-          {[
-            "Use at least 8 characters",
-            "Mix uppercase and lowercase",
-            "Add numbers and symbols",
-            "Avoid common words",
-          ].map((tip) => (
-            <div className="rp-tip" key={tip}>
-              <Ic.Check s={12} c="#FF5C00" />
-              <span>{tip}</span>
-            </div>
-          ))}
+          <p className="rp-tips__heading">Password tips</p>
+          <ul className="rp-tips__list">
+            {passwordTips.map((tip) => (
+              <li key={tip} className="rp-tips__item">
+                <Icons.Check size={12} color="#FF5C00" />
+                <span>{tip}</span>
+              </li>
+            ))}
+          </ul>
         </div>
-
       </div>
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ── Error Message ──────────────────────────────────────────── */
+function ErrorMessage({ message, children }) {
+  if (!message && !children) return null;
+  return (
+    <div className="rp-error" role="alert" aria-live="assertive">
+      {message && <span className="rp-error__text">{message}</span>}
+      {children}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
    MAIN COMPONENT
-═══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 export default function ResetPassword({ setUser }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const from     = location.state?.from?.pathname || "/";
 
-  /* ── get token + email passed from ForgotPassword ── */
+  /* ── Route state ──────────────────────────────────────────── */
   const resetToken  = location.state?.reset_token ?? "";
   const emailFromFP = location.state?.email       ?? "";
+  const redirectTo  = location.state?.from?.pathname ?? "/";
+  const maskedEmail = maskEmail(emailFromFP);
 
-  const [step,    setStep]    = useState("password");
-  const [pw,      setPw]      = useState("");
-  const [pw2,     setPw2]     = useState("");
-  const [showPw,  setShowPw]  = useState(false);
-  const [showPw2, setShowPw2] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [error,   setError]   = useState("");
+  /* ── Local state ──────────────────────────────────────────── */
+  const [step,            setStep]            = useState("password");
+  const [password,        setPassword]        = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword,    setShowPassword]    = useState(false);
+  const [showConfirm,     setShowConfirm]     = useState(false);
+  const [loading,         setLoading]         = useState(false);
+  const [error,           setError]           = useState("");
+  const [loginCountdown,  setLoginCountdown]  = useState(AUTO_LOGIN_SECONDS);
 
-  /* auto-login countdown */
-  const [loginCountdown, setLoginCountdown] = useState(3);
-  const countdownRef                        = useRef(null);
+  /* Stores user + token after successful reset for skip & countdown */
+  const [authResult, setAuthResult] = useState(null);
 
-  /* ── guard: if no token, redirect to forgot-password ── */
+  /* ── Refs ─────────────────────────────────────────────────── */
+  const countdownRef   = useRef(null);
+  const confirmRef     = useRef(null);
+  const allMetPrevRef  = useRef(false);
+
+  /* ── Derived ──────────────────────────────────────────────── */
+  const strength = useMemo(() => getStrength(password), [password]);
+  const matchState = confirmPassword
+    ? password === confirmPassword
+    : null;
+  const allChecksMet = strength.checks.length > 0
+    && strength.checks.every((c) => c.met);
+
+  /* ── Guard: redirect if no token ─────────────────────────── */
   useEffect(() => {
     if (!resetToken) {
       toast.error("Invalid or expired reset link.");
       navigate("/forgot-password", { replace: true });
     }
-  }, []); // eslint-disable-line
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── cleanup countdown on unmount ── */
+  /* ── Cleanup countdown on unmount ────────────────────────── */
   useEffect(() => {
     return () => {
-      if (countdownRef.current) clearInterval(countdownRef.current);
+      if (countdownRef.current) {
+        clearInterval(countdownRef.current);
+        countdownRef.current = null;
+      }
     };
   }, []);
 
-  const strength = useMemo(() => getStrength(pw),  [pw]);
-  const match    = pw2 ? pw === pw2 : null;
+  /* ── Auto-focus confirm field when all checks met ────────── */
+  useEffect(() => {
+    if (allChecksMet && !allMetPrevRef.current) {
+      confirmRef.current?.focus();
+    }
+    allMetPrevRef.current = allChecksMet;
+  }, [allChecksMet]);
 
-  /* ─────────────────────────────────────────────
-     AUTO-LOGIN COUNTDOWN
-  ───────────────────────────────────────────── */
-  const startLoginCountdown = useCallback((user, token) => {
-    setLoginCountdown(3);
+  /* ── Auto-login countdown ─────────────────────────────────── */
+  const startLoginCountdown = useCallback(
+    (user, token) => {
+      setAuthResult({ user, token });
+      setLoginCountdown(AUTO_LOGIN_SECONDS);
 
-    countdownRef.current = setInterval(() => {
-      setLoginCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(countdownRef.current);
-          setUser(user, token, navigate, from); // ✅ login + redirect
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  }, [setUser, navigate, from]);
+      countdownRef.current = setInterval(() => {
+        setLoginCountdown((prev) => {
+          if (prev <= 1) {
+            clearInterval(countdownRef.current);
+            countdownRef.current = null;
+            setUser(user, token, navigate, redirectTo);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    },
+    [setUser, navigate, redirectTo]
+  );
 
-  /* ─────────────────────────────────────────────
-     RESET PASSWORD
-  ───────────────────────────────────────────── */
-  const handleResetPassword = async (e) => {
-    e.preventDefault();
+  /* ── Skip countdown — immediately authenticate ───────────── */
+  const handleSkipCountdown = useCallback(() => {
+    if (countdownRef.current) {
+      clearInterval(countdownRef.current);
+      countdownRef.current = null;
+    }
+
+    if (authResult) {
+      setUser(authResult.user, authResult.token, navigate, redirectTo);
+    } else {
+      navigate(redirectTo, { replace: true });
+    }
+  }, [authResult, setUser, navigate, redirectTo]);
+
+  /* ── Submit ───────────────────────────────────────────────── */
+  const handleSubmit = useCallback(async () => {
     setError("");
 
-    if (!pw)
-      return setError("Please enter a new password.");
-    if (strength.score < 2)
-      return setError("Password is too weak. Choose a stronger one.");
-    if (!pw2)
-      return setError("Please confirm your new password.");
-    if (pw !== pw2)
-      return setError("Passwords do not match.");
+    if (!password) {
+      setError("Please enter a new password.");
+      return;
+    }
+    if (strength.score < MIN_STRENGTH_SCORE) {
+      setError("Password is too weak. Please meet all requirements.");
+      return;
+    }
+    if (!confirmPassword) {
+      setError("Please confirm your new password.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
 
     setLoading(true);
 
     try {
       const { data } = await axios.post(`${API}/reset-password`, {
-        reset_token : resetToken,
-        password    : pw,
+        reset_token: resetToken,
+        password,
       });
 
       toast.success("Password reset! Logging you in…");
       setStep("done");
-      startLoginCountdown(data.user, data.token); // ✅ auto-login
+      startLoginCountdown(data.user, data.token);
     } catch (err) {
       if (err.response?.status === 400) {
         setError("Reset link has expired. Please request a new one.");
       } else {
-        setError(err.response?.data?.message || "Reset failed. Please try again.");
+        setError(
+          err.response?.data?.message || "Reset failed. Please try again."
+        );
       }
     } finally {
       setLoading(false);
     }
+  }, [
+    password,
+    confirmPassword,
+    strength.score,
+    resetToken,
+    startLoginCountdown,
+  ]);
+
+  const handleFormSubmit = (e) => {
+    e.preventDefault();
+    handleSubmit();
   };
 
-  /* ═══════════════════════════════════════════
-     RENDER — DONE SCREEN
-  ═══════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════════════
+     RENDER — DONE STEP
+  ═══════════════════════════════════════════════════════════ */
   if (step === "done") {
+    const progress =
+      ((AUTO_LOGIN_SECONDS - loginCountdown) / AUTO_LOGIN_SECONDS) * 100;
+
     return (
       <div className="rp">
         <LeftPanel />
-        <div className="rp-right">
-          <div className="rp-right-scroll">
-            <div className="rp-box">
 
-              <div className="rp-done-header">
-                <div className="rp-done-icon">
-                  <Ic.Check s={36} c="#fff" />
+        <main className="rp-right">
+          <div className="rp-right__scroll">
+            <div className="rp-card">
+
+              {/* Success Header */}
+              <header className="rp-done__header">
+                <div className="rp-done__icon" aria-hidden="true">
+                  <Icons.Check size={36} color="#fff" />
                 </div>
-                <h3 className="rp-done-title">Password updated!</h3>
-                <p className="rp-done-sub">
-                  Your password has been reset successfully.
-                  Logging you in in{" "}
-                  <strong>{loginCountdown}s</strong>…
-                </p>
-              </div>
 
-              {/* progress bar */}
-              <div className="rp-autologin-bar">
+                <h1 className="rp-done__title">Password updated!</h1>
+
+                <p className="rp-done__subtitle">
+                  Your password has been reset successfully.
+                  <br />
+                  Logging you in in{" "}
+                  <strong aria-live="polite">{loginCountdown}s</strong>…
+                </p>
+              </header>
+
+              {/* Auto-login progress bar */}
+              <div
+                className="rp-progress-bar"
+                role="progressbar"
+                aria-valuenow={Math.round(progress)}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-label="Auto-login countdown"
+              >
                 <div
-                  className="rp-autologin-bar__fill"
+                  className="rp-progress-bar__fill"
                   style={{
-                    width      : `${((3 - loginCountdown) / 3) * 100}%`,
-                    transition : "width 1s linear",
+                    width:      `${progress}%`,
+                    transition: "width 1s linear",
                   }}
                 />
               </div>
 
-              {/* skip countdown */}
+              {/* Skip button — now properly authenticates */}
               <button
                 type="button"
                 className="rp-submit"
-                style={{ marginTop: 24 }}
-                onClick={() => {
-                  clearInterval(countdownRef.current);
-                  navigate(from, { replace: true });
-                }}
+                onClick={handleSkipCountdown}
               >
-                Continue to Loemart <Ic.Arrow s={17} />
+                Continue to Loemart
+                <Icons.ArrowRight size={17} />
               </button>
 
-              {/* manual fallback */}
-              <p className="rp-switch" style={{ marginTop: 14 }}>
+              {/* Manual fallback */}
+              <p className="rp-done__fallback">
                 <Link to="/auth">Or log in manually</Link>
               </p>
 
-              <Badges />
+              <SecurityBadges />
             </div>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
 
-  /* ═══════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════════
      RENDER — PASSWORD STEP
-  ═══════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════════ */
+  const isTokenExpiredError =
+    error.toLowerCase().includes("expired") ||
+    error.toLowerCase().includes("invalid");
+
   return (
     <div className="rp">
       <LeftPanel />
-      <div className="rp-right">
-        <div className="rp-right-scroll">
-          <div className="rp-box">
 
-            <div className="rp-heading">
+      <main className="rp-right">
+        <div className="rp-right__scroll">
+          <div className="rp-card">
+
+            {/* Header */}
+            <header className="rp-header">
               <Link to="/forgot-password" className="rp-back-btn">
-                <Ic.ArrowLeft s={15} /> Back
+                <Icons.ArrowLeft size={15} />
+                Back
               </Link>
-              <div className="rp-heading-icon">
-                <Ic.Key s={26} c="#fff" />
+
+              <div className="rp-header__icon" aria-hidden="true">
+                <Icons.Key size={26} color="#fff" />
               </div>
-              <h3>Set a new password</h3>
+
+              <h1 className="rp-header__title">Set a new password</h1>
+
               {emailFromFP && (
-                <p>Setting a new password for <strong>{emailFromFP}</strong></p>
+                <p className="rp-header__subtitle">
+                  Setting a new password for{" "}
+                  <strong
+                    className="rp-header__email"
+                    title="Masked for privacy"
+                  >
+                    {maskedEmail}
+                  </strong>
+                </p>
               )}
-            </div>
+            </header>
 
-            {error && <div className="rp-error">{error}</div>}
+            {/* Error with optional CTA */}
+            {error && (
+              <ErrorMessage>
+                <span className="rp-error__text">{error}</span>
+                {isTokenExpiredError && (
+                  <Link
+                    to="/forgot-password"
+                    className="rp-error__cta"
+                  >
+                    Request another reset code
+                    <Icons.ArrowRight size={13} />
+                  </Link>
+                )}
+              </ErrorMessage>
+            )}
 
-            <form onSubmit={handleResetPassword}>
-              <div className="rp-form">
+            {/* Form */}
+            <form
+              onSubmit={handleFormSubmit}
+              className="rp-form"
+              noValidate
+            >
+              <PasswordField
+                id="rp-new-password"
+                label="New password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                visible={showPassword}
+                onToggleVisible={() => setShowPassword((v) => !v)}
+                showStrength
+                placeholder="Enter new password"
+                onSubmit={handleSubmit}
+              />
 
-                <PwField
-                  label="New password"
-                  value={pw}
-                  onChange={(e) => setPw(e.target.value)}
-                  showPw={showPw}
-                  onToggle={() => setShowPw((v) => !v)}
-                  showStrength
-                  placeholder="New password"
-                />
+              <PasswordField
+                id="rp-confirm-password"
+                label="Confirm new password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                visible={showConfirm}
+                onToggleVisible={() => setShowConfirm((v) => !v)}
+                placeholder="Repeat new password"
+                matchState={matchState}
+                describedBy="rp-confirm-error"
+                inputRef={confirmRef}
+                onSubmit={handleSubmit}
+              />
 
-                <PwField
-                  label="Confirm new password"
-                  value={pw2}
-                  onChange={(e) => setPw2(e.target.value)}
-                  showPw={showPw2}
-                  onToggle={() => setShowPw2((v) => !v)}
-                  placeholder="Repeat new password"
-                  matchState={match}
-                />
-
-                <button
-                  type="submit"
-                  className="rp-submit"
-                  disabled={loading || !pw || !pw2}
-                >
-                  {loading
-                    ? <><Spinner /> Updating…</>
-                    : <>Update password <Ic.Arrow s={17} /></>
-                  }
-                </button>
-
-              </div>
+              <button
+                type="submit"
+                className="rp-submit"
+                disabled={loading || !password || !confirmPassword}
+              >
+                {loading ? (
+                  <>
+                    <Spinner />
+                    Updating password…
+                  </>
+                ) : (
+                  <>
+                    Update password
+                    <Icons.ArrowRight size={17} />
+                  </>
+                )}
+              </button>
             </form>
 
-            <Badges />
+            <SecurityBadges />
           </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }
