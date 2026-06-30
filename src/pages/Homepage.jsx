@@ -7,30 +7,37 @@ import {
   useState,
   memo,
 } from "react";
-import { useNavigate }         from "react-router-dom";
-import { useProductCache }     from "../context/ProductCacheContext";
-import CATEGORIES              from "../config/categories";
-import TopNav                  from "../components/TopNav";
-import BottomNav               from "../components/BottomNav";
-import Footer                  from "../components/Footer";
-import HeroSection             from "../components/homepage/HeroSection";
-import MasonryCard             from "../components/homepage/MasonryCard";
-import FeaturedCard            from "../components/homepage/FeaturedCard";
-import DealCard                from "../components/homepage/DealCard";
-import SellBanner              from "../components/homepage/SellBanner";
+import { useNavigate }        from "react-router-dom";
+import { useProductCache }    from "../context/ProductCacheContext";
+import CATEGORIES             from "../config/categories";
+import TopNav                 from "../components/TopNav";
+import BottomNav              from "../components/BottomNav";
+import Footer                 from "../components/Footer";
+import LocationPicker         from "../components/LocationPicker";
+import HeroSection            from "../components/homepage/HeroSection";
+import MasonryCard            from "../components/homepage/MasonryCard";
+import FeaturedCard           from "../components/homepage/FeaturedCard";
+import DealCard               from "../components/homepage/DealCard";
+import SellBanner             from "../components/homepage/SellBanner";
 import {
   useHomepageQuery,
   normalizeProduct,
   dedup,
   readCachedGps,
   writeCachedGps,
-}                              from "../hooks/useHomepageQuery";
+}                             from "../hooks/useHomepageQuery";
+import {
+  useLocation,
+  formatLocationLabel,
+}                             from "../hooks/useLocation";
 import "../styles/Homepage.css";
 
-/* ── Constants ───────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   CONSTANTS
+   ══════════════════════════════════════════════════════════════ */
 const BASE_URL = import.meta.env.VITE_API_BASE_URL
   || window.location.origin;
-const API      = `${BASE_URL}/api`;
+const API = `${BASE_URL}/api`;
 
 const ALL_CAT  = { id: "all", name: "All", icon: "✦" };
 const CAT_LIST = [ALL_CAT, ...CATEGORIES];
@@ -48,26 +55,121 @@ const GPS_OPTS = {
   maximumAge        : 300_000,
 };
 
-/* ── Skeletons ───────────────────────────────────────────────── */
-const MasonrySkeleton = memo(() => (
-  <div className="hm-masonry">
-    {[200,260,180,240,200,220,260,190,210,240].map((h,i) => (
-      <div key={i} className="hm-sk hm-shimmer" style={{ height: h }} />
-    ))}
-  </div>
-));
+/* ══════════════════════════════════════════════════════════════
+   SKELETONS
+   ══════════════════════════════════════════════════════════════ */
+const MasonrySkeleton = memo(function MasonrySkeleton() {
+  return (
+    <div className="hm-masonry" aria-busy="true">
+      {[200,260,180,240,200,220,260,190,210,240].map((h, i) => (
+        <div
+          key={i}
+          className="hm-sk hm-shimmer"
+          style={{ height: h }}
+          aria-hidden="true"
+        />
+      ))}
+    </div>
+  );
+});
 
-const FeaturedSkeleton = memo(() => (
-  <div className="hm-feat-row">
-    {[1,2,3].map((i) => (
-      <div key={i} className="hm-sk hm-sk-feat hm-shimmer" />
-    ))}
-  </div>
-));
+const FeaturedSkeleton = memo(function FeaturedSkeleton() {
+  return (
+    <div className="hm-feat-row" aria-busy="true">
+      {[1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="hm-sk hm-sk-feat hm-shimmer"
+          aria-hidden="true"
+        />
+      ))}
+    </div>
+  );
+});
 
-/* ── Category strip ──────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   LOCATION BAR
+   ══════════════════════════════════════════════════════════════ */
+const LocationBar = memo(function LocationBar({
+  location,
+  onOpen,
+  onClear,
+}) {
+  const label = formatLocationLabel(location);
+
+  return (
+    <div className="hm-loc-bar">
+      <button
+        className={`hm-loc-bar-btn${label ? " hm-loc-bar-btn--active" : ""}`}
+        onClick={onOpen}
+        aria-label={
+          label
+            ? `Showing results in ${label}. Tap to change location`
+            : "Tap to set your location"
+        }
+      >
+        {/* Pin icon */}
+        <span className="hm-loc-bar-pin" aria-hidden="true">
+          <svg
+            width="13" height="13" viewBox="0 0 24 24"
+            fill="currentColor"
+          >
+            <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7
+                     13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0
+                     9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5
+                     2.5-2.5 2.5 1.12 2.5 2.5-1.12
+                     2.5-2.5 2.5z" />
+          </svg>
+        </span>
+
+        {/* Label / placeholder */}
+        {label ? (
+          <span className="hm-loc-bar-label">{label}</span>
+        ) : (
+          <span className="hm-loc-bar-placeholder">
+            Set your location
+          </span>
+        )}
+
+        {/* Chevron */}
+        <svg
+          className="hm-loc-bar-chevron"
+          width="13" height="13" viewBox="0 0 24 24"
+          fill="currentColor" aria-hidden="true"
+        >
+          <path d="M7.41 8.59L12 13.17l4.59-4.58L18
+                   10l-6 6-6-6 1.41-1.41z" />
+        </svg>
+      </button>
+
+      {/* Clear pill — only when location is saved */}
+      {label && (
+        <button
+          className="hm-loc-bar-clear"
+          onClick={onClear}
+          aria-label="Clear location filter"
+        >
+          <svg
+            width="10" height="10" viewBox="0 0 24 24"
+            fill="currentColor" aria-hidden="true"
+          >
+            <path d="M19 6.41L17.59 5 12 10.59 6.41
+                     5 5 6.41 10.59 12 5 17.59 6.41
+                     19 12 13.41 17.59 19 19 17.59
+                     13.41 12z" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════
+   CATEGORY STRIP
+   ══════════════════════════════════════════════════════════════ */
 const CategoryStrip = memo(function CategoryStrip({
-  current, onChange,
+  current,
+  onChange,
 }) {
   return (
     <nav className="hm-cat-strip" aria-label="Browse by category">
@@ -90,31 +192,62 @@ const CategoryStrip = memo(function CategoryStrip({
   );
 });
 
-/* ── Scroll to top ───────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   SECTION PILLS
+   ══════════════════════════════════════════════════════════════ */
+const SectionPills = memo(function SectionPills({ onNavigate }) {
+  return (
+    <div
+      className="hm-pills"
+      role="navigation"
+      aria-label="Quick sections"
+    >
+      {SECTION_PILLS.map((pill) => (
+        <button
+          key={pill.path}
+          className="hm-pill"
+          onClick={() => onNavigate(pill.path)}
+        >
+          {pill.label}
+        </button>
+      ))}
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════
+   SCROLL TO TOP
+   ══════════════════════════════════════════════════════════════ */
 function ScrollTopBtn() {
   const [visible, setVisible] = useState(false);
+
   useEffect(() => {
     const fn = () => setVisible(window.scrollY > 400);
     window.addEventListener("scroll", fn, { passive: true });
     return () => window.removeEventListener("scroll", fn);
   }, []);
+
   return (
     <button
       className={`hm-scroll-top${visible ? " visible" : ""}`}
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
       aria-label="Scroll to top"
     >
-      <svg width="16" height="16" viewBox="0 0 24 24"
-           fill="none" stroke="currentColor"
-           strokeWidth="2.5" strokeLinecap="round"
-           aria-hidden="true">
+      <svg
+        width="16" height="16" viewBox="0 0 24 24"
+        fill="none" stroke="currentColor"
+        strokeWidth="2.5" strokeLinecap="round"
+        aria-hidden="true"
+      >
         <path d="M18 15l-6-6-6 6" />
       </svg>
     </button>
   );
 }
 
-/* ── Error banner ────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   ERROR BANNER
+   ══════════════════════════════════════════════════════════════ */
 function ErrorBanner({ message, onRetry }) {
   return (
     <div className="hm-error" role="alert">
@@ -129,32 +262,100 @@ function ErrorBanner({ message, onRetry }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   MAIN COMPONENT
+   EMPTY STATE
+   ══════════════════════════════════════════════════════════════ */
+function EmptyState({ category, catName, location, onReload, onClearCat }) {
+  const hasLocation = !!formatLocationLabel(location);
+
+  return (
+    <div className="hm-empty" role="status">
+      <span className="hm-empty-emoji" aria-hidden="true">🛍️</span>
+
+      <h3 className="hm-empty-title">
+        {category !== "all"
+          ? `No listings in ${catName}`
+          : hasLocation
+            ? `No listings found near you`
+            : "Welcome to Loemart"}
+      </h3>
+
+      <p className="hm-empty-sub">
+        {category !== "all"
+          ? "Be the first to list here, or try another category."
+          : hasLocation
+            ? "Try expanding your search or clearing the location filter."
+            : "Enable location for nearby deals, or browse what's available."}
+      </p>
+
+      <div className="hm-empty-actions">
+        {category !== "all" ? (
+          <button className="hm-empty-btn" onClick={onClearCat}>
+            Browse all listings
+          </button>
+        ) : (
+          <button className="hm-empty-btn" onClick={onReload}>
+            Reload marketplace
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   HOMEPAGE — MAIN COMPONENT
    ══════════════════════════════════════════════════════════════ */
 export default function Homepage({ user }) {
   const navigate = useNavigate();
   const { setProducts, setLoaded } = useProductCache();
 
-  /* ── GPS ─────────────────────────────────────────────────── */
-  const [coords, setCoords] = useState(() => readCachedGps());
+  /* ── Location (localStorage + event bus) ─────────────────── */
+  const {
+    location,
+    save  : saveLocation,
+    clear : clearLocation,
+  } = useLocation();
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  /* ── GPS (silent — only for feed coords, not for picker) ─── */
+  const [gpsCoords,   setGpsCoords]  = useState(() => readCachedGps());
   const gpsAttempted = useRef(false);
 
   useEffect(() => {
-    if (gpsAttempted.current || coords) return;
+    /* If user already chose a manual location, skip GPS */
+    if (location?.source === "manual") return;
+    if (gpsAttempted.current || gpsCoords) return;
     gpsAttempted.current = true;
-
     if (!navigator.geolocation) return;
 
     navigator.geolocation.getCurrentPosition(
       ({ coords: c }) => {
         const result = { lat: c.latitude, lng: c.longitude };
         writeCachedGps(result);
-        setCoords(result);
+        setGpsCoords(result);
       },
-      () => {},
+      () => {}, // ← silent fail
       GPS_OPTS
     );
-  }, [coords]);
+  }, [location, gpsCoords]);
+
+  /* ── Resolve coords to send to API ──────────────────────── */
+  const apiCoords = useMemo(() => {
+    /* Manual location takes priority */
+    if (location?.coords) return location.coords;
+    /* Fallback to GPS */
+    return gpsCoords ?? null;
+  }, [location, gpsCoords]);
+
+  /* ── Resolve location params for API ────────────────────── */
+  const locationParams = useMemo(() => {
+    if (!location) return {};
+    return {
+      ...(location.city  ? { city  : location.city  } : {}),
+      ...(location.state ? { state : location.state } : {}),
+    };
+  }, [location]);
 
   /* ── Filters ─────────────────────────────────────────────── */
   const [category, setCategory] = useState("all");
@@ -169,22 +370,26 @@ export default function Homepage({ user }) {
     hasNextPage,
     isFetchingNextPage,
     refetch,
-  } = useHomepageQuery({ category, coords });
+  } = useHomepageQuery({
+    category,
+    coords         : apiCoords,
+    locationParams,          // pass city/state to backend
+  });
 
-  /* ── Flatten all pages → products ───────────────────────── */
+  /* ── Flatten pages ───────────────────────────────────────── */
   const allProducts = useMemo(() => {
     if (!data?.pages) return [];
     const raw = data.pages.flatMap((pg) => {
       const items =
-        Array.isArray(pg.products)    ? pg.products    :
-        Array.isArray(pg.data?.items) ? pg.data.items  :
+        Array.isArray(pg.products)    ? pg.products   :
+        Array.isArray(pg.data?.items) ? pg.data.items :
         Array.isArray(pg.data)        ? pg.data        : [];
       return items;
     });
     return dedup(raw).map(normalizeProduct).filter(Boolean);
   }, [data]);
 
-  /* ── Sync to product cache (feeds TopNav search) ─────────── */
+  /* ── Sync to product cache (feeds TopNav live search) ────── */
   useEffect(() => {
     if (allProducts.length > 0) {
       setProducts(allProducts);
@@ -216,14 +421,26 @@ export default function Homepage({ user }) {
   const meta  = data?.pages?.[0]?.meta ?? {};
   const total = meta.total ?? allProducts.length;
 
+  /* ── Hero location label ─────────────────────────────────── */
   const heroLoc = useMemo(() => {
+    /* Manual location takes priority */
+    const manualLabel = formatLocationLabel(location);
+    if (manualLabel) return `📍 ${manualLabel}`;
+
+    /* GPS from API response */
     if (meta.nearbySource === "gps")
       return `Near you · GPS${meta.location ? ` · ${meta.location}` : ""}`;
+
     return meta.location || null;
-  }, [meta]);
+  }, [location, meta]);
 
   const currentCatName =
     CAT_LIST.find((c) => c.id === category)?.name || "Products";
+
+  /* ── Refetch when location changes ──────────────────────── */
+  useEffect(() => {
+    refetch();
+  }, [location, refetch]);
 
   /* ── Infinite scroll ─────────────────────────────────────── */
   const sentinelRef = useRef(null);
@@ -231,6 +448,7 @@ export default function Homepage({ user }) {
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasNextPage) return;
+
     const io = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting && !isFetchingNextPage)
@@ -238,6 +456,7 @@ export default function Homepage({ user }) {
       },
       { threshold: 0.1 }
     );
+
     io.observe(el);
     return () => io.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
@@ -264,12 +483,25 @@ export default function Homepage({ user }) {
     setCategory(catId);
   }, []);
 
-  /* ── Render ──────────────────────────────────────────────── */
+  /* ── Location handlers ───────────────────────────────────── */
+  const handleLocationSelect = useCallback((loc) => {
+    saveLocation(loc);
+    /* refetch triggered by the useEffect above */
+  }, [saveLocation]);
+
+  const handleLocationClear = useCallback(() => {
+    clearLocation();
+    /* refetch triggered by the useEffect above */
+  }, [clearLocation]);
+
+  /* ══════════════════════════════════════════════════════════
+     RENDER
+  ══════════════════════════════════════════════════════════ */
   return (
     <div className="hm-root">
 
       {/* ══════════════════════════════════════════════
-          TOP NAV — has live search built-in
+          TOP NAV — live search wired to product cache
       ══════════════════════════════════════════════ */}
       <TopNav user={user} />
 
@@ -286,7 +518,6 @@ export default function Homepage({ user }) {
 
         {/* ══════════════════════════════════════════════
             SEARCH BAR (decorative — opens /search)
-            TopNav already has live search above
         ══════════════════════════════════════════════ */}
         <div className="hm-search-wrap">
           <button
@@ -312,6 +543,15 @@ export default function Homepage({ user }) {
         </div>
 
         {/* ══════════════════════════════════════════════
+            LOCATION BAR
+        ══════════════════════════════════════════════ */}
+        <LocationBar
+          location={location}
+          onOpen={() => setPickerOpen(true)}
+          onClear={handleLocationClear}
+        />
+
+        {/* ══════════════════════════════════════════════
             CATEGORIES
         ══════════════════════════════════════════════ */}
         <CategoryStrip
@@ -322,21 +562,7 @@ export default function Homepage({ user }) {
         {/* ══════════════════════════════════════════════
             SECTION PILLS
         ══════════════════════════════════════════════ */}
-        <div
-          className="hm-pills"
-          role="navigation"
-          aria-label="Quick sections"
-        >
-          {SECTION_PILLS.map((pill) => (
-            <button
-              key={pill.path}
-              className="hm-pill"
-              onClick={() => navigate(pill.path)}
-            >
-              {pill.label}
-            </button>
-          ))}
-        </div>
+        <SectionPills onNavigate={navigate} />
 
         {/* ══════════════════════════════════════════════
             ERROR
@@ -352,10 +578,7 @@ export default function Homepage({ user }) {
             FEATURED
         ══════════════════════════════════════════════ */}
         {(isLoading || featured.length > 0) && (
-          <section
-            className="hm-section"
-            aria-label="Featured listings"
-          >
+          <section className="hm-section" aria-label="Featured listings">
             <div className="hm-section-head">
               <h2 className="hm-section-title">💎 Featured</h2>
             </div>
@@ -379,10 +602,7 @@ export default function Homepage({ user }) {
             DEALS STRIP
         ══════════════════════════════════════════════ */}
         {!isLoading && deals.length > 0 && (
-          <section
-            className="hm-section"
-            aria-label="Cheap deals"
-          >
+          <section className="hm-section" aria-label="Cheap deals">
             <div className="hm-section-head">
               <h2 className="hm-section-title">💸 Cheap Deals</h2>
               <button
@@ -420,7 +640,9 @@ export default function Homepage({ user }) {
           <div className="hm-section-head">
             <h2 className="hm-section-title">
               {category === "all"
-                ? "Recommended for You"
+                ? formatLocationLabel(location)
+                  ? `Near ${formatLocationLabel(location)}`
+                  : "Recommended for You"
                 : currentCatName}
             </h2>
             {category !== "all" && (
@@ -438,33 +660,13 @@ export default function Homepage({ user }) {
             <MasonrySkeleton />
           ) : isError ? null
             : products.length === 0 ? (
-            <div className="hm-empty" role="status">
-              <span className="hm-empty-emoji" aria-hidden="true">
-                🛍️
-              </span>
-              <h3 className="hm-empty-title">
-                {category === "all"
-                  ? "Welcome to Loemart"
-                  : `No listings in ${currentCatName}`}
-              </h3>
-              <p className="hm-empty-sub">
-                {category === "all"
-                  ? "Enable location for nearby deals, or browse what's available."
-                  : "Be the first to list here, or try another category."}
-              </p>
-              <button
-                className="hm-empty-btn"
-                onClick={() =>
-                  category === "all"
-                    ? refetch()
-                    : switchCategory("all")
-                }
-              >
-                {category === "all"
-                  ? "Reload marketplace"
-                  : "Browse all listings"}
-              </button>
-            </div>
+            <EmptyState
+              category={category}
+              catName={currentCatName}
+              location={location}
+              onReload={refetch}
+              onClearCat={() => switchCategory("all")}
+            />
           ) : (
             <>
               <div
@@ -505,9 +707,9 @@ export default function Homepage({ user }) {
                   </p>
                   <button
                     className="hm-feed-end-btn"
-                    onClick={() => window.scrollTo({
-                      top: 0, behavior: "smooth"
-                    })}
+                    onClick={() =>
+                      window.scrollTo({ top: 0, behavior: "smooth" })
+                    }
                   >
                     Back to top ↑
                   </button>
@@ -548,6 +750,15 @@ export default function Homepage({ user }) {
 
       <ScrollTopBtn />
       <BottomNav />
+
+      {/* ══════════════════════════════════════════════
+          LOCATION PICKER SHEET
+      ══════════════════════════════════════════════ */}
+      <LocationPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={handleLocationSelect}
+      />
 
     </div>
   );
