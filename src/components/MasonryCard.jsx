@@ -1,5 +1,6 @@
 // src/components/MasonryCard.jsx
 import { useRef, memo, useEffect } from "react";
+import "../styles/MasonryCard.css";
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -161,12 +162,10 @@ const MasonryCard = memo(function MasonryCard({
           onError={(e) => { e.currentTarget.src = PH; }}
         />
 
-        {/* Badge — top left */}
         {badge && (
           <span className={`bd ${badge.cls}`}>{badge.text}</span>
         )}
 
-        {/* Discount — top right */}
         {discount && !badge && (
           <span className="masonry-disc">{discount.pct}% off</span>
         )}
@@ -175,12 +174,10 @@ const MasonryCard = memo(function MasonryCard({
       {/* ── Body ── */}
       <div className="masonry-body">
 
-        {/* Title */}
         <p className="masonry-name">
           {product.title || "Untitled"}
         </p>
 
-        {/* Price row */}
         <div className="masonry-price-row">
           <span className="masonry-price">
             {naira(product.price)}
@@ -192,7 +189,6 @@ const MasonryCard = memo(function MasonryCard({
           )}
         </div>
 
-        {/* Location + distance */}
         <div className="masonry-loc">
           <PinIcon size={10} />
           <span className="masonry-loc-txt">{cityLabel}</span>
@@ -205,7 +201,6 @@ const MasonryCard = memo(function MasonryCard({
           )}
         </div>
 
-        {/* Verified seller */}
         {product.seller?.verified && (
           <div className="vfd">✓ Verified Seller</div>
         )}
