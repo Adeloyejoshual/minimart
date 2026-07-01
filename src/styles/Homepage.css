@@ -16,6 +16,11 @@
   --hm-orange-hover  : #e64a19;
   --hm-orange-glow   : rgba(255, 107, 53, 0.35);
 
+  /* ✅ Green — price + verified + positive value */
+  --hm-green         : #16a34a;
+  --hm-green-soft    : rgba(22, 163, 74, 0.1);
+  --hm-green-glow    : rgba(22, 163, 74, 0.25);
+
   /* Glass surfaces */
   --hm-glass         : rgba(255, 255, 255, 0.55);
   --hm-glass-strong  : rgba(255, 255, 255, 0.72);
@@ -40,8 +45,6 @@
   --hm-text-white-50 : rgba(255, 255, 255, 0.50);
 
   /* Status */
-  --hm-green         : #2e7d32;
-  --hm-green-soft    : rgba(46, 125, 50, 0.1);
   --hm-red           : #c62828;
   --hm-red-soft      : rgba(198, 40, 40, 0.08);
   --hm-red-border    : rgba(198, 40, 40, 0.18);
@@ -90,6 +93,8 @@
     --hm-text-2       : #a0a0c0;
     --hm-text-muted   : #6a6a8a;
     --hm-text-faint   : #44445a;
+    --hm-green        : #22c55e;
+    --hm-green-soft   : rgba(34, 197, 94, 0.12);
   }
 }
 
@@ -276,7 +281,6 @@
 
 .hm-notif-btn:active { transform: scale(0.94); }
 
-/* GPS location pill */
 .hm-hero-loc {
   display        : inline-flex;
   align-items    : center;
@@ -323,7 +327,6 @@
   animation     : hm-pulse 2s ease-in-out infinite;
 }
 
-/* Stats row */
 .hm-hero-stats {
   display        : flex;
   align-items    : center;
@@ -589,7 +592,7 @@
 }
 
 /* ══════════════════════════════════════════════════════════════
-   3D SECTION CARDS  (replaces flat pills)
+   3D SECTION CARDS
    ══════════════════════════════════════════════════════════════ */
 .hm-section-cards {
   display               : grid;
@@ -619,25 +622,19 @@
   color           : #fff;
   text-align      : left;
   font-family     : var(--hm-font);
-
-  /* 3D gradient from JS vars */
   background      : var(--sc-grad);
-
-  /* Layered shadows for depth */
   box-shadow      :
-    0 1px 0 rgba(255,255,255,0.25) inset,  /* top shine */
-    0 -2px 0 rgba(0,0,0,0.15) inset,       /* bottom depth */
-    0 8px 24px var(--sc-shadow),           /* ambient glow */
-    0 2px 6px rgba(0,0,0,0.12);            /* base shadow */
-
+    0 1px 0 rgba(255,255,255,0.25) inset,
+    0 -2px 0 rgba(0,0,0,0.15) inset,
+    0 8px 24px var(--sc-shadow),
+    0 2px 6px rgba(0,0,0,0.12);
   transform       : perspective(600px) rotateX(0deg);
   transition      :
-    transform   0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94),
-    box-shadow  0.28s ease;
+    transform  0.28s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    box-shadow 0.28s ease;
   will-change     : transform;
 }
 
-/* 3D tilt on hover */
 .hm-sc:hover {
   transform  : perspective(600px) rotateX(6deg) translateY(-4px);
   box-shadow :
@@ -648,10 +645,9 @@
 }
 
 .hm-sc:active {
-  transform : perspective(600px) rotateX(2deg) scale(0.97);
+  transform: perspective(600px) rotateX(2deg) scale(0.97);
 }
 
-/* Frosted glass top-shine overlay */
 .hm-sc-bg {
   position      : absolute;
   inset         : 0;
@@ -659,13 +655,12 @@
     175deg,
     rgba(255,255,255,0.22) 0%,
     rgba(255,255,255,0.06) 45%,
-    rgba(0,0,0,0.04)      100%
+    rgba(0,0,0,0.04)       100%
   );
   border-radius : 16px;
   pointer-events: none;
 }
 
-/* Highlight line across top */
 .hm-sc::before {
   content       : "";
   position      : absolute;
@@ -683,7 +678,6 @@
   pointer-events: none;
 }
 
-/* Bottom edge depth line */
 .hm-sc::after {
   content       : "";
   position      : absolute;
@@ -1040,10 +1034,11 @@
   line-height  : var(--lh-snug);
 }
 
+/* ✅ Green deal price */
 .hm-deal-price {
   font-size      : 0.84rem;
   font-weight    : 800;
-  color          : var(--hm-orange);
+  color          : var(--hm-green);
   letter-spacing : var(--ls-tight);
 }
 
@@ -1064,140 +1059,37 @@
 @media (min-width: 1200px){ .hm-masonry { columns: 6; } }
 
 /* ══════════════════════════════════════════════════════════════
-   MASONRY CARD  (shared MasonryCard component styles)
+   MASONRY CARD OVERRIDES
+   MasonryCard.css handles the base styles.
+   These overrides only adjust what's specific to the homepage
+   masonry context (break-inside, margin, colour sync).
    ══════════════════════════════════════════════════════════════ */
 .hm-masonry .masonry-card {
-  break-inside  : avoid;
-  display       : flex;
-  flex-direction: column;
-  background    : var(--hm-glass-strong);
-  backdrop-filter: blur(var(--hm-blur));
-  border        : 1px solid var(--hm-glass-border);
-  border-radius : var(--r-lg);
-  overflow      : hidden;
-  margin-bottom : 8px;
-  cursor        : pointer;
-  position      : relative;
-  box-shadow    : var(--hm-shadow);
-  transition    : transform 0.22s cubic-bezier(0.25,0.46,0.45,0.94),
-                   box-shadow 0.22s ease,
-                   border-color 0.22s ease;
-  user-select   : none;
+  break-inside : avoid;
+  margin-bottom: 8px;
 }
 
-.hm-masonry .masonry-card:hover {
-  transform    : translateY(-3px);
-  box-shadow   : var(--hm-shadow-lifted);
-  border-color : rgba(255,255,255,0.55);
-}
-
-.hm-masonry .masonry-card:active {
-  transform: translateY(-1px) scale(0.985);
-}
-
-.hm-masonry .masonry-card:focus-visible {
-  outline   : none;
-  box-shadow: 0 0 0 3px var(--hm-orange-soft), var(--hm-shadow);
-}
-
-/* ✅ Full natural image — masonry style */
-.hm-masonry .masonry-img {
-  width      : 100%;
-  height     : auto;
-  display    : block;
-  object-fit : cover;
-  background : rgba(0,0,0,0.04);
-  transition : transform 0.35s cubic-bezier(0.25,0.46,0.45,0.94);
-  will-change: transform;
-}
-
-.hm-masonry .masonry-card:hover .masonry-img {
-  transform: scale(1.04);
-}
-
-/* Card body */
-.hm-masonry .masonry-body {
-  padding : 9px 11px 11px;
-  display : flex;
-  flex-direction: column;
-  gap     : 4px;
-}
-
-.hm-masonry .masonry-name {
-  font-size          : 0.8rem;
-  font-weight        : 620;
-  color              : var(--hm-text);
-  margin             : 0;
-  line-height        : var(--lh-snug);
-  letter-spacing     : var(--ls-normal);
-  display            : -webkit-box;
-  -webkit-line-clamp : 2;
-  -webkit-box-orient : vertical;
-  overflow           : hidden;
-  word-break         : break-word;
-}
-
+/* ✅ Green price — matches MasonryCard.css */
 .hm-masonry .masonry-price {
-  font-size      : 0.92rem;
-  font-weight    : 800;
-  color          : var(--hm-navy);
-  letter-spacing : var(--ls-tight);
-  line-height    : var(--lh-tight);
-  margin         : 2px 0 0;
+  color: var(--hm-green);
 }
 
-@media (prefers-color-scheme: dark) {
-  .hm-masonry .masonry-price { color: #e8e8f4; }
-}
-
-.hm-masonry .masonry-loc {
-  display    : flex;
-  align-items: center;
-  gap        : 3px;
-  font-size  : 0.7rem;
-  color      : var(--hm-text-muted);
-  font-weight: 450;
-  line-height: var(--lh-normal);
-  flex-wrap  : wrap;
-}
-
-.hm-masonry .masonry-loc .dist {
-  color      : var(--hm-orange);
-  font-weight: 600;
-}
-
+/* ✅ Green verified — matches MasonryCard.css */
 .hm-masonry .vfd {
-  font-size      : 0.66rem;
-  color          : var(--hm-blue);
-  font-weight    : 700;
-  line-height    : var(--lh-normal);
-  letter-spacing : 0.01em;
+  color: var(--hm-green);
 }
 
-/* Badge override for MasonryCard */
-.hm-masonry .bd {
-  position       : absolute;
-  top            : 7px;
-  left           : 7px;
-  z-index        : 2;
-  padding        : 3px 8px;
-  border-radius  : var(--r-xs);
-  font-size      : 0.6rem;
-  font-weight    : 700;
-  text-transform : uppercase;
-  letter-spacing : var(--ls-wide);
-  backdrop-filter : blur(8px);
-  border         : 1px solid rgba(255,255,255,0.15);
-  line-height    : var(--lh-normal);
+/* Focus ring using green */
+.hm-masonry .masonry-card:focus-visible {
+  box-shadow: 0 0 0 3px var(--hm-green-soft), var(--hm-shadow);
 }
 
-/* Badge colors — keep existing */
-.bd-feat  { background: rgba(21,101,192,0.85);  color: #fff; }
-.bd-hot   { background: rgba(198,40,40,0.85);   color: #fff; }
-.bd-trnd  { background: rgba(230,74,25,0.85);   color: #fff; }
-.bd-new   { background: rgba(0,180,120,0.85);   color: #fff; }
-.bd-flash { background: rgba(249,168,37,0.92);  color: #1a1a2e; }
-.bd-disc  { background: rgba(198,40,40,0.85);   color: #fff; }
+/* Badges — keep full set for completeness */
+.bd-feat  { background: rgba(21,  101, 192, 0.88); color: #fff; }
+.bd-flash { background: rgba(234, 88,  12,  0.92); color: #fff; }
+.bd-hot   { background: rgba(220, 38,  38,  0.88); color: #fff; }
+.bd-trnd  { background: rgba(234, 88,  12,  0.88); color: #fff; }
+.bd-new   { background: rgba(22,  163, 74,  0.88); color: #fff; }
 
 /* ══════════════════════════════════════════════════════════════
    ERROR BANNER
@@ -1250,8 +1142,8 @@
 }
 
 .hm-error-btn:hover {
-  background : #b71c1c;
-  transform  : translateY(-1px);
+  background: #b71c1c;
+  transform : translateY(-1px);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1293,6 +1185,13 @@
   margin     : 0 auto var(--sp-lg);
 }
 
+.hm-empty-actions {
+  display        : flex;
+  gap            : 10px;
+  flex-wrap      : wrap;
+  justify-content: center;
+}
+
 .hm-empty-btn {
   padding      : 12px 28px;
   background   : var(--hm-navy);
@@ -1308,9 +1207,9 @@
 }
 
 .hm-empty-btn:hover {
-  background : #2d2d4e;
-  transform  : translateY(-2px);
-  box-shadow : 0 6px 20px rgba(26,26,46,0.28);
+  background: #2d2d4e;
+  transform : translateY(-2px);
+  box-shadow: 0 6px 20px rgba(26,26,46,0.28);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1348,7 +1247,6 @@
 
 @keyframes hm-spin { to { transform: rotate(360deg); } }
 
-/* ── Feed end ── */
 .hm-feed-end-wrap {
   display        : flex;
   flex-direction : column;
@@ -1533,10 +1431,10 @@
 }
 
 .hm-scroll-top:hover {
-  background : var(--hm-orange-soft);
-  color      : var(--hm-orange);
-  transform  : translateY(-2px) scale(1.06);
-  border-color: var(--hm-orange);
+  background   : var(--hm-green-soft);
+  color        : var(--hm-green);
+  transform    : translateY(-2px) scale(1.06);
+  border-color : var(--hm-green);
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1616,14 +1514,14 @@
     animation-iteration-count: 1 !important;
     transition-duration      : 0.01ms !important;
   }
-  .hm-sc:hover            { transform: none; }
-  .hm-sc:hover .hm-sc-icon{ transform: none; }
+  .hm-sc:hover             { transform: none; }
+  .hm-sc:hover .hm-sc-icon { transform: none; }
   .hm-masonry .masonry-card:hover { transform: none; }
   .hm-masonry .masonry-card:hover .masonry-img { transform: none; }
-  .hm-feat-card:hover     { transform: none; }
+  .hm-feat-card:hover      { transform: none; }
   .hm-feat-card:hover .hm-feat-img { transform: none; }
-  .hm-fab:hover           { transform: none; }
-  .hm-scroll-top.visible  { transform: none; }
+  .hm-fab:hover            { transform: none; }
+  .hm-scroll-top.visible   { transform: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -1633,9 +1531,9 @@
   .hm-sc,
   .hm-masonry .masonry-card,
   .hm-feat-card,
-  .hm-deal-card    { border: 2px solid ButtonText; }
+  .hm-deal-card  { border: 2px solid ButtonText; }
   .hm-fab,
   .hm-empty-btn,
-  .hm-error-btn    { border: 2px solid ButtonText; }
+  .hm-error-btn  { border: 2px solid ButtonText; }
   .hm-cat-btn--active { border: 2px solid Highlight; }
 }
