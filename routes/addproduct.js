@@ -1,21 +1,10 @@
 // ════════════════════════════════════════════════════════════════
-// FILE: routes/addproduct.js — v11
+// FILE: routes/addproduct.js — v12
 //
-// Fix from v10:
-//  ─ fetchSellerStats: replaced ($2::date + INTERVAL '1 day')
-//    with JS-computed tomorrow string passed as $3::timestamptz
-//    CockroachDB does not support integer * interval when the
-//    param is inferred as interval. Passing two plain date strings
-//    avoids all interval arithmetic entirely.
-//
-// POST   /api/addproduct/products
-// POST   /api/addproduct/products/:id/activate
-// DELETE /api/addproduct/products/:id
-// GET    /api/addproduct/products/:id/status
-// GET    /api/addproduct/seller/limits
-// GET    /api/addproduct/categories
-// GET    /api/addproduct/categories/:id/price-guidance
-// POST   /api/addproduct/products/check-duplicate
+// Changes from v11:
+//  ─ Removed local `slugify` and `buildSlug` helper functions
+//  ─ Imported `generateBaseSlug` and `generateSlugWithId` from
+//    utils/slug.js and used them in product creation flow
 // ════════════════════════════════════════════════════════════════
 
 import express     from "express";
@@ -34,6 +23,10 @@ import {
 } from "../utils/listingUtils.js";
 import { createNotification }   from "../services/notifications.js";
 import { getCategoriesHandler } from "../controllers/category.controller.js";
+import {
+  generateBaseSlug,
+  generateSlugWithId,
+} from "../utils/slug.js";                          // ← NEW
 
 const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -238,10 +231,7 @@ const safeParse = (v, fallback) => {
 const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
-/* ── Date helpers — NO interval arithmetic in SQL ──
-   All date window boundaries are computed in JS and passed
-   as plain ISO strings so CockroachDB never needs to multiply
-   an integer by an interval.                                   */
+/* ── Date helpers ── */
 const getTodayUTC = () => new Date().toISOString().slice(0, 10);
 
 const getTomorrowUTC = () => {
@@ -284,16 +274,7 @@ const validateImageHashes = (raw) => {
     .slice(0, MAX_IMAGES);
 };
 
-const slugify = (text = "") =>
-  text
-    .toLowerCase().trim()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "");
-
-const buildSlug = (base) =>
-  `${base}-${crypto.randomUUID().replace(/-/g, "").slice(0, 8)}`;
+// ✅ REMOVED: local `slugify` and `buildSlug` — now using utils/slug.js
 
 /* ═══════════════════════════════════════════════════════════════
    CATEGORY VALIDATION
@@ -340,15 +321,10 @@ const validateCategoryRelationship = async (client, categoryId, subcategoryId) =
 
 /* ═══════════════════════════════════════════════════════════════
    SELLER CONTEXT
-   ✅ FIX: fetchSellerStats now uses $2 (today) and $3 (tomorrow)
-   as plain date strings — no SQL interval arithmetic needed.
-   CockroachDB can compare timestamptz columns against date
-   strings directly without any multiplication.
 ═══════════════════════════════════════════════════════════════ */
 const fetchSellerStats = (client, sellerId) => {
-  /* Compute both boundaries in JavaScript — zero SQL interval math */
-  const today    = getTodayUTC();    // "2026-06-26"
-  const tomorrow = getTomorrowUTC(); // "2026-06-27"
+  const today    = getTodayUTC();
+  const tomorrow = getTomorrowUTC();
 
   return client.query(
     `SELECT
@@ -410,7 +386,6 @@ const buildContext = (isVerified, stats) => {
   };
 };
 
-/* WRITE context — FOR UPDATE serialises concurrent posts */
 const getSellerContext = async (client, sellerId) => {
   const { rows: userRows } = await client.query(
     "SELECT identity_verified FROM public.users WHERE id = $1 FOR UPDATE",
@@ -422,7 +397,6 @@ const getSellerContext = async (client, sellerId) => {
   return buildContext(isVerified, stats[0]);
 };
 
-/* READ-ONLY context — no lock, used for GET /seller/limits */
 const getSellerContextReadOnly = async (client, sellerId) => {
   const { rows: userRows } = await client.query(
     "SELECT identity_verified FROM public.users WHERE id = $1",
@@ -434,7 +408,6 @@ const getSellerContextReadOnly = async (client, sellerId) => {
   return buildContext(isVerified, stats[0]);
 };
 
-/* PRE-UPLOAD context — optimistic fast-path, no TX, no lock */
 const getSellerContextPreUpload = async (sellerId) => {
   const { rows: userRows } = await pool.query(
     "SELECT identity_verified FROM public.users WHERE id = $1",
@@ -672,7 +645,6 @@ export const pauseExpiredListings = async () => {
 export const cleanupStuckPendingPayments = async () => {
   const client = await pool.connect();
   try {
-    /* ✅ SAFE: literal interval — no $param multiplication */
     const { rows, rowCount } = await client.query(
       `UPDATE products
        SET    status     = 'draft',
@@ -821,7 +793,6 @@ router.post(
 
     const client = await pool.connect();
     try {
-      /* ✅ SAFE: literal interval '7 days' — no $param multiplication */
       const { rows: titleMatches } = await client.query(
         `SELECT id FROM products
          WHERE  seller_id  = $1
@@ -1077,7 +1048,16 @@ router.post(
         activeUntil = computeActiveUntil(false);
       }
 
-      const baseSlug = slugify(title).slice(0, 60);
+      /* ── Slug generation via utils/slug.js ──
+         1. generateBaseSlug(title)  — clean, lowercase, max-70 slug
+         2. generateSlugWithId(title, shortId) — appends a short UUID
+            segment to guarantee uniqueness, just like the old buildSlug.
+         The collision retry path appends Date.now() instead as a fallback.
+      ── */
+      const baseSlug  = generateBaseSlug(title).slice(0, 60); // ← NEW
+      const shortId   = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+      const firstSlug = generateSlugWithId(title, shortId);   // ← NEW
+
       let product;
 
       const insertProduct = async (slug) => {
@@ -1120,11 +1100,11 @@ router.post(
       };
 
       try {
-        product = await insertProduct(buildSlug(baseSlug));
+        product = await insertProduct(firstSlug);             // ← uses NEW slug
       } catch (firstErr) {
         if (firstErr.code === "23505" && firstErr.constraint?.includes("slug")) {
           console.warn("[addproduct] slug collision, falling back to timestamp");
-          product = await insertProduct(`${baseSlug}-${Date.now()}`);
+          product = await insertProduct(`${baseSlug}-${Date.now()}`); // ← fallback
         } else {
           throw firstErr;
         }
