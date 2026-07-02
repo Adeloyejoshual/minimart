@@ -1,366 +1,413 @@
+// routes/search.js
 import express from "express";
-import { pool } from "../server.js";
+import { pool } from "../config/db.js";
+import { cacheGet, cacheSet } from "../lib/redis.js";
 
 const router = express.Router();
 
+/* ══════════════════════════════════════════════════════════════
+   CONSTANTS
+   ══════════════════════════════════════════════════════════════ */
+const CACHE_TTL      = 60;   // 1 min
+const MAX_LIMIT      = 40;
+const MAX_RELATED    = 8;
+
+/* ══════════════════════════════════════════════════════════════
+   SHAPE PRODUCT — reusable helper (mirrors homepage.js)
+   ══════════════════════════════════════════════════════════════ */
+function shapeProduct(p) {
+  let image = p.main_image || p.thumbnail_url || null;
+
+  if (!image && Array.isArray(p.images) && p.images.length > 0) {
+    const first = p.images[0];
+    if (typeof first === "string") image = first;
+    else if (first?.url)           image = first.url;
+  }
+
+  let imagesArr = [];
+  if (Array.isArray(p.images) && p.images.length > 0) {
+    imagesArr = p.images
+      .map((img) => (typeof img === "string" ? img : img?.url || null))
+      .filter(Boolean);
+  } else if (image) {
+    imagesArr = [image];
+  }
+
+  const impressions = Number(p.impression_count || 0);
+  const clicks      = Number(p.clicks_count     || 0);
+  const vw          = Number(p.views            || 0);
+  const ctr = impressions > 0
+    ? clicks / impressions
+    : vw > 0 ? clicks / vw : 0;
+
+  const origPrice  = Number(p.attributes?.original_price || 0);
+  const currPrice  = Number(p.price || 0);
+  const discountPct =
+    origPrice > currPrice && currPrice > 0
+      ? Math.round(((origPrice - currPrice) / origPrice) * 100)
+      : 0;
+
+  return {
+    id               : p.id,
+    title            : p.title,
+    description      : p.description,
+    price            : currPrice,
+    slug             : p.slug,
+    image,
+    images           : imagesArr,
+    video_url        : p.video_url    || null,
+    attributes       : p.attributes  || {},
+    brand            : p.brand       || null,
+    model            : p.model       || null,
+    condition        : p.condition   || null,
+    negotiable       : p.negotiable  || false,
+    views            : vw,
+    clicks_count     : clicks,
+    impression_count : impressions,
+    engagement_score : Number(p.engagement_score  || 0),
+    is_promoted      : !!p.is_promoted,
+    is_featured      : !!p.is_featured,
+    favorites_count  : Number(p.favorites_count   || 0),
+    average_rating   : Number(p.average_rating    || 0),
+    reviews_count    : Number(p.reviews_count     || 0),
+    offer_type       : p.offer_type  || null,
+    delivery         : p.delivery    || null,
+    whatsapp         : p.whatsapp    || null,
+    phone            : p.phone       || null,
+    created_at       : p.created_at,
+    category_id      : p.category_id     || null,
+    category_name    : p.category_name   || null,
+    subcategory_id   : p.subcategory_id  || null,
+    seller_id        : p.seller_id   || null,
+    seller_name      : p.seller_name || null,
+    stock_status     : p.stock_status || null,
+    ctr,
+    discount_pct     : discountPct,
+    location_city    : p.location_city  || null,
+    location_state   : p.location_state || null,
+    location: {
+      city  : p.location_city  || null,
+      state : p.location_state || null,
+      label : [p.location_city, p.location_state]
+                .filter(Boolean).join(", ") || null,
+    },
+    seller: {
+      id       : p.seller_id   || null,
+      name     : p.seller_name || null,
+    },
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SHARED SELECT COLUMNS
+   ══════════════════════════════════════════════════════════════ */
+const PRODUCT_COLS = `
+  p.id, p.title, p.description, p.price, p.slug,
+  p.main_image, p.thumbnail_url, p.images, p.video_url,
+  p.attributes, p.brand, p.model, p.condition, p.negotiable,
+  p.views, p.clicks_count, p.impression_count,
+  p.engagement_score, p.is_promoted, p.is_featured,
+  p.favorites_count, p.average_rating, p.reviews_count,
+  p.offer_type, p.delivery, p.whatsapp, p.phone,
+  p.created_at, p.category_id, p.subcategory_id,
+  p.seller_id, p.seller_name,
+  p.stock_status, p.location_city, p.location_state,
+  p.negotiable,
+  c.name AS category_name
+`;
+
+const PRODUCT_JOIN = `
+  FROM public.products p
+  LEFT JOIN public.categories c ON c.id = p.category_id
+`;
+
+const ACTIVE_GUARD = `
+  p.is_active  = true
+  AND p.status     = 'active'
+  AND p.is_deleted = false
+`;
+
+/* ══════════════════════════════════════════════════════════════
+   GET /api/search?q=...&page=0&limit=20&sort=&category_id=...
+         &min_price=&max_price=&condition=&state=&city=
+   ══════════════════════════════════════════════════════════════ */
 router.get("/", async (req, res) => {
   const {
-    q         = "",
-    category,
-    price_min,
-    price_max,
+    q           = "",
+    page        = 0,
+    limit       = 20,
+    sort        = "relevance",
+    category_id,
+    min_price,
+    max_price,
     condition,
-    location,
     state,
-    sort      = "relevance",
-    page      = "1",
-    limit     = "24",
-    promoted,
+    city,
   } = req.query;
 
-  const query       = String(q || "").trim().toLowerCase().slice(0, 200);
-  const locFilter   = String(location || state || "").trim().slice(0, 100);
-  const currentPage = Math.max(1, parseInt(page, 10) || 1);
-  const perPage     = Math.min(80, Math.max(1, parseInt(limit, 10) || 24));
-  const offset      = (currentPage - 1) * perPage;
+  const clean = q.trim();
+
+  if (!clean || clean.length < 2) {
+    return res.status(400).json({ error: "Query too short (min 2 chars)" });
+  }
+
+  /* ── Cache key ── */
+  const cacheKey = [
+    "search",
+    encodeURIComponent(clean.toLowerCase().slice(0, 40)),
+    `p${page}`,
+    `l${limit}`,
+    sort,
+    category_id ? `c${category_id.slice(0, 8)}` : "",
+    min_price   ? `mn${min_price}`   : "",
+    max_price   ? `mx${max_price}`   : "",
+    condition   ? `cd${condition}`   : "",
+    state       ? `st${state.toLowerCase().replace(/\s/g, "_")}` : "",
+    city        ? `cy${city.toLowerCase().replace(/\s/g, "_")}`  : "",
+  ].filter(Boolean).join(":");
+
+  const cached = await cacheGet(cacheKey);
+  if (cached) {
+    res.set("X-Cache", "HIT");
+    return res.json(cached);
+  }
+  res.set("X-Cache", "MISS");
 
   try {
-    /* ── Step 1: Discover columns ── */
-    const { rows: colRows } = await pool.query(`
-      SELECT column_name
-      FROM information_schema.columns
-      WHERE table_name   = 'products'
-        AND table_schema = 'public'
-    `);
-    const cols = new Set(colRows.map((r) => r.column_name));
+    const realLimit = Math.min(Number(limit) || 20, MAX_LIMIT);
+    const offset    = Number(page) * realLimit;
+    const values    = [];
+    const push      = (v) => { values.push(v); return `$${values.length}`; };
 
-    /* ── Step 2: Check related tables ── */
-    const { rows: tableRows } = await pool.query(`
-      SELECT table_name
-      FROM information_schema.tables
-      WHERE table_schema = 'public'
-        AND table_name IN ('categories', 'sellers', 'product_images')
-    `);
-    const tables    = new Set(tableRows.map((r) => r.table_name));
-    const hasCats   = tables.has("categories");
-    const hasSellers= tables.has("sellers");
-    const hasPI     = tables.has("product_images");
+    /* ── Base WHERE ── */
+    const where = [ACTIVE_GUARD];
 
-    const col = (name) => cols.has(name);
+    /* ── Full-text search (ts_rank) + ILIKE fallback ── */
+    /*
+       Strategy:
+       1. ts_vector on title + brand + model + category_name
+       2. ILIKE as secondary fallback so partial words still match
+    */
+    const qParam = push(`%${clean}%`);
+    const tsParam = push(clean.split(/\s+/).filter(Boolean).map(w => `${w}:*`).join(" & "));
 
-    /* ── Step 3: SELECT columns ── */
-    const selectCols = [
-      "p.id",
-      "p.title",
-      "p.price",
-      "p.slug",
-      col("description")        ? "p.description"                    : "NULL AS description",
-      col("main_image")         ? "p.main_image"                     : "NULL AS main_image",
-      col("thumbnail_url")      ? "p.thumbnail_url"                  : "NULL AS thumbnail_url",
-      col("views")              ? "p.views"                          : "0 AS views",
-      col("clicks_count")       ? "p.clicks_count"                   : "0 AS clicks_count",
-      col("impression_count")   ? "p.impression_count"               : "0 AS impression_count",
-      col("engagement_score")   ? "p.engagement_score"               : "0 AS engagement_score",
-      col("promotion_priority") ? "p.promotion_priority"             : "0 AS promotion_priority",
-      col("promotion_type")     ? "p.promotion_type"                 : "NULL AS promotion_type",
-      col("is_promoted")        ? "p.is_promoted"                    : "false AS is_promoted",
-      col("is_featured")        ? "p.is_featured"                    : "false AS is_featured",
-      col("favorites_count")    ? "p.favorites_count"                : "0 AS favorites_count",
-      col("average_rating")     ? "p.average_rating"                 : "0 AS average_rating",
-      col("reviews_count")      ? "p.reviews_count"                  : "0 AS reviews_count",
-      col("offer_type")         ? "p.offer_type"                     : "NULL AS offer_type",
-      // ✅ Fix Bug 5 — alias as is_negotiable so frontend badge works
-      col("is_negotiable")      ? "p.is_negotiable"                  :
-      col("negotiable")         ? "p.negotiable AS is_negotiable"    : "false AS is_negotiable",
-      col("condition")          ? "p.condition"                      : "NULL AS condition",
-      col("brand")              ? "p.brand"                          : "NULL AS brand",
-      col("model")              ? "p.model"                          : "NULL AS model",
-      col("seller_name")        ? "p.seller_name"                    : "NULL AS seller_name",
-      col("seller_id")          ? "p.seller_id"                      : "NULL AS seller_id",
-      col("category_id")        ? "p.category_id"                    : "NULL AS category_id",
-      col("location_city")      ? "p.location_city"                  : "NULL AS location_city",
-      col("location_state")     ? "p.location_state"                 : "NULL AS location_state",
-      col("attributes")         ? "p.attributes"                     : "'{}'::json AS attributes",
-      col("original_price")     ? "p.original_price"                 : "NULL AS original_price",
-      "p.created_at",
-    ];
+    where.push(`(
+      p.title        ILIKE ${qParam}
+      OR p.brand     ILIKE ${qParam}
+      OR p.model     ILIKE ${qParam}
+      OR p.description ILIKE ${qParam}
+      OR c.name      ILIKE ${qParam}
+      OR to_tsvector('english', COALESCE(p.title,'') || ' ' ||
+                                COALESCE(p.brand,'') || ' ' ||
+                                COALESCE(p.model,'') || ' ' ||
+                                COALESCE(p.description,''))
+         @@ to_tsquery('english', ${tsParam})
+    )`);
 
-    if (hasCats && col("category_id")) {
-      selectCols.push("c.name AS category_name");
-    } else {
-      selectCols.push("NULL AS category_name");
+    /* ── Optional filters ── */
+    if (category_id) {
+      where.push(`p.category_id = ${push(category_id)}::uuid`);
+    }
+    if (condition) {
+      where.push(`LOWER(p.condition) = LOWER(${push(condition)})`);
+    }
+    if (state) {
+      where.push(`LOWER(p.location_state) = LOWER(${push(state)})`);
+    }
+    if (city) {
+      where.push(`LOWER(p.location_city) = LOWER(${push(city)})`);
+    }
+    if (min_price) {
+      where.push(`p.price >= ${push(Number(min_price))}`);
+    }
+    if (max_price) {
+      where.push(`p.price <= ${push(Number(max_price))}`);
     }
 
-    if (hasSellers && col("seller_id")) {
-      selectCols.push("COALESCE(s.is_verified, false) AS seller_verified");
-    } else {
-      selectCols.push("false AS seller_verified");
+    /* ── Sort ── */
+    const relevanceExpr = `
+      ts_rank(
+        to_tsvector('english',
+          COALESCE(p.title,'') || ' ' ||
+          COALESCE(p.brand,'') || ' ' ||
+          COALESCE(p.model,'')),
+        to_tsquery('english', $2)
+      ) +
+      CASE WHEN LOWER(p.title) LIKE $1 THEN 0.5 ELSE 0 END +
+      (p.engagement_score * 0.01)
+    `;
+
+    let orderBy;
+    switch (sort) {
+      case "price_asc":    orderBy = `p.price ASC,  p.engagement_score DESC`; break;
+      case "price_desc":   orderBy = `p.price DESC, p.engagement_score DESC`; break;
+      case "newest":       orderBy = `p.created_at DESC`;                     break;
+      case "rating":       orderBy = `p.average_rating DESC, p.reviews_count DESC`; break;
+      default:             orderBy = `${relevanceExpr} DESC, p.is_promoted DESC, p.created_at DESC`;
     }
 
-    /* Images */
-    const mainImgExpr = col("main_image") ? "p.main_image" : "NULL";
-    if (hasPI) {
-      selectCols.push(`
-        COALESCE(
-          (SELECT json_agg(pi.image_url ORDER BY pi.position)
-           FROM product_images pi
-           WHERE pi.product_id = p.id AND pi.image_url IS NOT NULL),
-          CASE WHEN ${mainImgExpr} IS NOT NULL
-            THEN json_build_array(${mainImgExpr})
-            ELSE '[]'::json
-          END
-        ) AS images
-      `.trim());
-    } else if (col("main_image")) {
-      selectCols.push(`
-        CASE WHEN p.main_image IS NOT NULL
-          THEN json_build_array(p.main_image)
-          ELSE '[]'::json
-        END AS images
-      `.trim());
-    } else {
-      selectCols.push("'[]'::json AS images");
-    }
+    const whereClause = where.join(" AND ");
 
-    /* ── Step 4: FROM + JOINs ── */
-    let fromClause = "FROM public.products p";
-    if (hasCats && col("category_id")) {
-      fromClause += "\nLEFT JOIN public.categories c ON c.id = p.category_id";
-    }
-    if (hasSellers && col("seller_id")) {
-      fromClause += "\nLEFT JOIN public.sellers s ON s.id = p.seller_id";
-    }
-
-    /* ── Step 5: WHERE ── */
-    const values = [];
-    const where  = [];
-    const push   = (v) => { values.push(v); return `$${values.length}`; };
-
-    /* Status filters */
-    const statusFilters = [];
-    if (col("is_active"))  statusFilters.push("p.is_active = true");
-    if (col("status"))     statusFilters.push("p.status = 'active'");
-    if (col("is_deleted")) statusFilters.push("p.is_deleted = false");
-
-    // ✅ Always have at least one WHERE condition
-    if (statusFilters.length > 0) {
-      where.push(...statusFilters);
-    } else {
-      where.push("true");
-    }
-
-    /* Text search */
-    if (query.length >= 1) {
-      const likeVal    = push(`%${query}%`);
-      const searchParts = [`LOWER(p.title) LIKE ${likeVal}`];
-
-      if (col("description"))   searchParts.push(`LOWER(COALESCE(p.description,   '')) LIKE ${likeVal}`);
-      if (col("brand"))         searchParts.push(`LOWER(COALESCE(p.brand,          '')) LIKE ${likeVal}`);
-      if (col("seller_name"))   searchParts.push(`LOWER(COALESCE(p.seller_name,    '')) LIKE ${likeVal}`);
-      if (col("location_city")) searchParts.push(`LOWER(COALESCE(p.location_city,  '')) LIKE ${likeVal}`);
-      if (col("location_state"))searchParts.push(`LOWER(COALESCE(p.location_state, '')) LIKE ${likeVal}`);
-
-      // ✅ All fields share the same $N — no extra pushes needed
-      where.push(`(${searchParts.join(" OR ")})`);
-    }
-
-    /* Category */
-    if (category?.trim()) {
-      const catVal = category.trim();
-      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(catVal);
-      if (isUuid && col("category_id")) {
-        where.push(`p.category_id = ${push(catVal)}::uuid`);
-      } else if (hasCats) {
-        where.push(`LOWER(COALESCE(c.name, '')) = LOWER(${push(catVal)})`);
-      }
-    }
-
-    /* Price */
-    const priceMinN = parseFloat(price_min);
-    const priceMaxN = parseFloat(price_max);
-    if (!isNaN(priceMinN) && priceMinN >= 0) where.push(`p.price >= ${push(priceMinN)}`);
-    if (!isNaN(priceMaxN) && priceMaxN >  0) where.push(`p.price <= ${push(priceMaxN)}`);
-
-    /* Condition */
-    if (condition?.trim() && col("condition")) {
-      where.push(`LOWER(COALESCE(p.condition, '')) = LOWER(${push(condition.trim())})`);
-    }
-
-    /* ✅ Fix Bug 2 — location uses ONE push, shared across both columns */
-    if (locFilter) {
-      const locVal   = push(`%${locFilter}%`);  // single $N
-      const locParts = [];
-      if (col("location_city"))  locParts.push(`LOWER(COALESCE(p.location_city,  '')) LIKE LOWER(${locVal})`);
-      if (col("location_state")) locParts.push(`LOWER(COALESCE(p.location_state, '')) LIKE LOWER(${locVal})`);
-      if (locParts.length > 0)   where.push(`(${locParts.join(" OR ")})`);
-    }
-
-    /* Promoted */
-    if (promoted === "true" && col("is_promoted")) {
-      where.push("p.is_promoted = true");
-    }
-
-    const whereClause = `WHERE ${where.join(" AND ")}`;
-
-    /* ── Step 6: ORDER BY ── */
-    // ✅ Fix Bug 4 — build order parts as array, join cleanly
-    const buildOrder = (extra = []) => {
-      const parts = [];
-      if (col("is_promoted") && col("promotion_priority")) {
-        parts.push("p.is_promoted DESC", "p.promotion_priority DESC NULLS LAST");
-      }
-      parts.push(...extra);
-      return parts.join(", ");
-    };
-
-    const SORT_MAP = {
-      relevance : buildOrder([
-        ...(col("engagement_score") ? ["p.engagement_score DESC"] : []),
-        ...(col("views")            ? ["p.views DESC"]            : []),
-        "p.created_at DESC",
-      ]),
-      newest    : buildOrder(["p.created_at DESC"]),
-      price_low : buildOrder(["p.price ASC",  "p.created_at DESC"]),
-      price_high: buildOrder(["p.price DESC", "p.created_at DESC"]),
-      popular   : buildOrder([
-        ...(col("views") ? ["p.views DESC NULLS LAST"] : []),
-        "p.created_at DESC",
-      ]),
-    };
-
-    const orderBy = SORT_MAP[sort] || SORT_MAP.relevance;
-
-    /* ── Step 7: Snapshot param count before adding pagination ── */
-    // ✅ Fix Bug 3 — snapshot BEFORE pushing pagination params
-    const countValues = [...values];
-
-    values.push(perPage + 1);
+    /* ── Pagination params ── */
+    values.push(realLimit + 1);
     const limitP  = `$${values.length}`;
     values.push(offset);
     const offsetP = `$${values.length}`;
 
-    /* ── Step 8: SQL strings ── */
-    const mainSQL = `
-      SELECT ${selectCols.join(",\n       ")}
-      ${fromClause}
-      ${whereClause}
+    /* ── Count values (same filters, no pagination) ── */
+    const countValues = values.slice(0, values.length - 2);
+
+    const mainSql = `
+      SELECT ${PRODUCT_COLS}
+      ${PRODUCT_JOIN}
+      WHERE ${whereClause}
       ORDER BY ${orderBy}
-      LIMIT  ${limitP}
-      OFFSET ${offsetP}
+      LIMIT ${limitP} OFFSET ${offsetP}
     `;
 
-    const countSQL = `
+    const countSql = `
       SELECT COUNT(*)::int AS total
-      FROM public.products p
-      ${hasCats && col("category_id")
-        ? "LEFT JOIN public.categories c ON c.id = p.category_id"
-        : ""}
-      ${whereClause}
+      ${PRODUCT_JOIN}
+      WHERE ${whereClause}
     `;
 
-    /* ✅ Fix Bug 1 — suggestion WHERE built safely */
-    const suggestionConditions = ["LOWER(p.title) LIKE $1"];
-    if (col("is_active")) suggestionConditions.push("p.is_active = true");
-    if (col("status"))    suggestionConditions.push("p.status = 'active'");
-    if (col("is_deleted"))suggestionConditions.push("p.is_deleted = false");
-
-    const suggestionSQL = `
-      SELECT DISTINCT LEFT(p.title, 60) AS title
-      FROM public.products p
-      WHERE ${suggestionConditions.join(" AND ")}
-      ORDER BY 1
-      LIMIT 8
-    `;
-
-    console.log("[search] mainSQL:", mainSQL);
-    console.log("[search] values:", values);
-
-    /* ── Step 9: Execute ── */
-    const [mainResult, countResult, suggestionResult] = await Promise.all([
-      pool.query(mainSQL, values),
-      pool.query(countSQL, countValues),
-      query.length >= 2
-        ? pool.query(suggestionSQL, [`%${query}%`])
-        : Promise.resolve({ rows: [] }),
+    const [mainResult, countResult] = await Promise.all([
+      pool.query(mainSql, values),
+      pool.query(countSql, countValues),
     ]);
 
-    /* ── Step 10: Shape response ── */
-    const rows    = mainResult.rows;
-    const hasMore = rows.length > perPage;
-    const records = hasMore ? rows.slice(0, perPage) : rows;
-    const total   = countResult.rows[0]?.total ?? 0;
+    const { rows } = mainResult;
+    const total    = countResult.rows[0]?.total || 0;
+    const hasMore  = rows.length > realLimit;
+    const records  = hasMore ? rows.slice(0, realLimit) : rows;
+    const products = records.map(shapeProduct);
 
-    const products = records.map((p) => {
-      const image = p.main_image || p.thumbnail_url || null;
-      const imgs  = Array.isArray(p.images) ? p.images.filter(Boolean) : [];
+    /* ── Aggregations for filter sidebar ── */
+    const aggSql = `
+      SELECT
+        MIN(p.price)::int                          AS min_price,
+        MAX(p.price)::int                          AS max_price,
+        COUNT(DISTINCT p.condition)::int           AS condition_count,
+        COUNT(DISTINCT p.location_state)::int      AS state_count,
+        json_agg(DISTINCT p.condition)
+          FILTER (WHERE p.condition IS NOT NULL)   AS conditions,
+        json_agg(DISTINCT p.location_state)
+          FILTER (WHERE p.location_state IS NOT NULL) AS states,
+        json_agg(DISTINCT jsonb_build_object(
+          'id', p.category_id::text,
+          'name', c.name
+        )) FILTER (WHERE p.category_id IS NOT NULL) AS categories
+      ${PRODUCT_JOIN}
+      WHERE ${whereClause}
+    `;
 
-      return {
-        id              : p.id,
-        title           : p.title,
-        description     : p.description     || null,
-        price           : Number(p.price    || 0),
-        original_price  : p.original_price  ? Number(p.original_price) : null,
-        slug            : p.slug,
-        image           : image || imgs[0]  || null,
-        images          : imgs.length > 0   ? imgs : image ? [image] : [],
-        views           : Number(p.views            || 0),
-        clicks_count    : Number(p.clicks_count     || 0),
-        engagement_score: Number(p.engagement_score || 0),
-        promotion_priority: Number(p.promotion_priority || 0),
-        is_promoted     : !!p.is_promoted,
-        is_featured     : !!p.is_featured,
-        favorites_count : Number(p.favorites_count  || 0),
-        average_rating  : Number(p.average_rating   || 0),
-        reviews_count   : Number(p.reviews_count    || 0),
-        offer_type      : p.offer_type      || null,
-        is_negotiable   : !!p.is_negotiable,   // ✅ consistent key
-        condition       : p.condition       || null,
-        brand           : p.brand           || null,
-        model           : p.model           || null,
-        seller_name     : p.seller_name     || null,
-        seller_id       : p.seller_id       || null,
-        category_id     : p.category_id     || null,
-        category_name   : p.category_name   || null,
-        location_city   : p.location_city   || null,
-        location_state  : p.location_state  || null,
-        attributes      : p.attributes      || {},
-        created_at      : p.created_at,
-        location: {
-          city : p.location_city  || null,
-          state: p.location_state || null,
-        },
-        seller: {
-          id      : p.seller_id   || null,
-          name    : p.seller_name || null,
-          verified: !!p.seller_verified,
-        },
-      };
-    });
+    const aggResult  = await pool.query(aggSql, countValues);
+    const agg        = aggResult.rows[0] || {};
 
-    return res.json({
-      query,
-      total,
-      page      : currentPage,
-      perPage,
-      totalPages: Math.ceil(total / perPage),
-      has_more  : hasMore,
+    const payload = {
       products,
-      suggestions: suggestionResult.rows.map((r) => r.title),
-    });
+      hasMore,
+      meta: {
+        query    : clean,
+        page     : Number(page),
+        limit    : realLimit,
+        returned : products.length,
+        total,
+        has_more : hasMore,
+        sort,
+        filters: { category_id, min_price, max_price, condition, state, city },
+      },
+      aggregations: {
+        price     : { min: agg.min_price || 0, max: agg.max_price || 0 },
+        conditions: Array.isArray(agg.conditions) ? agg.conditions.filter(Boolean) : [],
+        states    : Array.isArray(agg.states)     ? agg.states.filter(Boolean)     : [],
+        categories: Array.isArray(agg.categories)
+          ? agg.categories.filter(
+              (v, i, a) => v?.id && a.findIndex((x) => x?.id === v.id) === i
+            )
+          : [],
+      },
+    };
+
+    await cacheSet(cacheKey, payload, CACHE_TTL);
+    return res.json(payload);
 
   } catch (err) {
     console.error("[search] ERROR:", err.message);
-    console.error("[search] STACK:", err.stack);
+    return res.status(500).json({ error: "Search failed", message: err.message });
+  }
+});
 
-    return res.status(500).json({
-      products   : [],
-      total      : 0,
-      suggestions: [],
-      message    : "Search failed",
-      debug      : process.env.NODE_ENV !== "production"
-        ? err.message
-        : undefined,
-    });
+/* ══════════════════════════════════════════════════════════════
+   GET /api/search/related?slug=...&category_id=...&limit=8
+   — used by SearchPage to show "More like this"
+   ══════════════════════════════════════════════════════════════ */
+router.get("/related", async (req, res) => {
+  const {
+    slug,
+    id,
+    category_id,
+    limit = MAX_RELATED,
+  } = req.query;
+
+  if (!slug && !id && !category_id) {
+    return res.status(400).json({ error: "slug, id or category_id required" });
+  }
+
+  const cacheKey = `related:${slug || id || ""}:${category_id || ""}:l${limit}`;
+  const cached   = await cacheGet(cacheKey);
+  if (cached) {
+    res.set("X-Cache", "HIT");
+    return res.json(cached);
+  }
+
+  try {
+    const values   = [];
+    const push     = (v) => { values.push(v); return `$${values.length}`; };
+    const excludes = [];
+
+    if (slug) excludes.push(`p.slug  != ${push(slug)}`);
+    if (id)   excludes.push(`p.id   != ${push(id)}::uuid`);
+
+    /* Resolve category_id if not given but id/slug provided */
+    let catId = category_id;
+    if (!catId && (slug || id)) {
+      const col   = slug ? "slug" : "id";
+      const cast  = slug ? "" : "::uuid";
+      const r = await pool.query(
+        `SELECT category_id FROM public.products
+         WHERE ${col} = $1${cast}
+           AND is_active = true AND is_deleted = false
+         LIMIT 1`,
+        [slug || id]
+      );
+      catId = r.rows[0]?.category_id || null;
+    }
+
+    const where = [ACTIVE_GUARD, ...excludes];
+    if (catId) where.push(`p.category_id = ${push(catId)}::uuid`);
+
+    const realLimit = Math.min(Number(limit), MAX_RELATED);
+    values.push(realLimit);
+
+    const sql = `
+      SELECT ${PRODUCT_COLS}
+      ${PRODUCT_JOIN}
+      WHERE ${where.join(" AND ")}
+      ORDER BY p.is_promoted DESC, p.engagement_score DESC, p.created_at DESC
+      LIMIT $${values.length}
+    `;
+
+    const { rows } = await pool.query(sql, values);
+    const related  = rows.map(shapeProduct);
+
+    const payload = { related, total: related.length };
+    await cacheSet(cacheKey, payload, 90);
+    return res.json(payload);
+
+  } catch (err) {
+    console.error("[search/related] ERROR:", err.message);
+    return res.status(500).json({ error: "Related fetch failed" });
   }
 });
 
