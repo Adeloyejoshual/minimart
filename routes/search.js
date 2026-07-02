@@ -10,10 +10,9 @@ const MAX_LIMIT   = 40;
 const MAX_RELATED = 8;
 
 /* ══════════════════════════════════════════════════════════════
-   SHAPE PRODUCT — uses only real columns + joined category
+   SHAPE PRODUCT
    ══════════════════════════════════════════════════════════════ */
 function shapeProduct(p) {
-  /* ── image ── */
   let image = p.main_image || p.thumbnail_url || null;
   if (!image && Array.isArray(p.images) && p.images.length > 0) {
     const first = p.images[0];
@@ -29,22 +28,20 @@ function shapeProduct(p) {
     imagesArr = [image];
   }
 
-  /* ── stats ── */
   const impressions = Number(p.impression_count || 0);
   const clicks      = Number(p.clicks_count     || 0);
   const vw          = Number(p.views            || 0);
   const ctr = impressions > 0 ? clicks / impressions : vw > 0 ? clicks / vw : 0;
 
-  const origPrice  = Number(p.attributes?.original_price || 0);
-  const currPrice  = Number(p.price || 0);
+  const origPrice = Number(p.attributes?.original_price || 0);
+  const currPrice = Number(p.price || 0);
   const discountPct =
     origPrice > currPrice && currPrice > 0
       ? Math.round(((origPrice - currPrice) / origPrice) * 100)
       : 0;
 
-  /* ── location ── */
-  const locCity  = p.location_city  || p.location?.city  || null;
-  const locState = p.location_state || p.location?.state || null;
+  const locCity  = p.location_city  || (p.location && p.location.city)  || null;
+  const locState = p.location_state || (p.location && p.location.state) || null;
 
   return {
     id               : p.id,
@@ -75,7 +72,7 @@ function shapeProduct(p) {
     phone            : p.phone            || null,
     created_at       : p.created_at,
     category_id      : p.category_id      || null,
-    category_name    : p.category_name    || null,   /* from LEFT JOIN */
+    category_name    : p.category_name    || null,
     subcategory_id   : p.subcategory_id   || null,
     seller_id        : p.seller_id        || null,
     seller_name      : p.seller_name      || null,
@@ -98,8 +95,7 @@ function shapeProduct(p) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   SAFE TS-QUERY BUILDER
-   "iPhone 14 Pro" → "iphone:* & 14:* & pro:*"
+   TS-QUERY BUILDER
    ══════════════════════════════════════════════════════════════ */
 function buildTsQuery(raw) {
   const words = raw
@@ -112,7 +108,7 @@ function buildTsQuery(raw) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   SHARED SELECT — only real product columns + joined cat name
+   SELECT COLUMNS — only real columns + joined cat name
    ══════════════════════════════════════════════════════════════ */
 const SEL = `
   p.id,
@@ -155,15 +151,19 @@ const SEL = `
   COALESCE(c.name, '') AS category_name
 `;
 
-/* active guard */
 const GUARD = `
   p.is_active  = true
   AND p.status     = 'active'
   AND p.is_deleted = false
 `;
 
+const FROM = `
+  FROM public.products p
+  LEFT JOIN public.categories c ON c.id = p.category_id
+`;
+
 /* ══════════════════════════════════════════════════════════════
-   GET /api/search?q=...
+   GET /api/search
    ══════════════════════════════════════════════════════════════ */
 router.get("/", async (req, res) => {
   const {
@@ -210,25 +210,18 @@ router.get("/", async (req, res) => {
     const values = [];
     const push   = (v) => { values.push(v); return `$${values.length}`; };
 
-    /* $1 = ilike pattern,  $2 = tsquery string (may stay null) */
-    const ilikePat = push(`%${clean}%`);           // $1
+    /* $1 = ilike pattern */
+    const ilikePat = push(`%${clean}%`);
+    /* $2 = tsquery (optional) */
     const tsQuery  = buildTsQuery(clean);
-    const tsParam  = tsQuery ? push(tsQuery) : null; // $2 or null
+    const tsParam  = tsQuery ? push(tsQuery) : null;
 
     /* ── WHERE ── */
     const where = [GUARD];
 
     const tsClause = tsParam
-      ? `OR to_tsvector('english',
-             COALESCE(p.title,'')       || ' ' ||
-             COALESCE(p.brand,'')       || ' ' ||
-             COALESCE(p.model,'')       || ' ' ||
-             COALESCE(p.description,'')
-           ) @@ to_tsquery('english', ${tsParam})`
+      ? `OR p.search_vector @@ to_tsquery('english', ${tsParam})`
       : "";
-
-    /* Use search_vector column if you want (it's in your schema):
-       OR p.search_vector @@ to_tsquery('english', ${tsParam})   */
 
     where.push(`(
         p.title       ILIKE ${ilikePat}
@@ -239,7 +232,6 @@ router.get("/", async (req, res) => {
      ${tsClause}
     )`);
 
-    /* ── optional filters ── */
     if (category_id) where.push(`p.category_id = ${push(category_id)}::uuid`);
     if (condition)   where.push(`LOWER(p.condition) = LOWER(${push(condition)})`);
     if (state)       where.push(`LOWER(p.location_state) = LOWER(${push(state)})`);
@@ -249,52 +241,60 @@ router.get("/", async (req, res) => {
 
     const whereClause = where.join(" AND ");
 
-    /* ── ORDER BY — reuses $1 / $2, never pushes new params ── */
+    /* ══════════════════════════════════════════════
+       ORDER BY
+       Key fix: cast EVERYTHING to float8 before adding
+       so no type mismatch between float4/float8/numeric
+    ══════════════════════════════════════════════ */
     let orderBy;
+
     if (sort === "price_asc") {
       orderBy = `p.price ASC, p.engagement_score DESC`;
+
     } else if (sort === "price_desc") {
       orderBy = `p.price DESC, p.engagement_score DESC`;
+
     } else if (sort === "newest") {
       orderBy = `p.created_at DESC`;
+
     } else if (sort === "rating") {
       orderBy = `p.average_rating DESC, p.reviews_count DESC`;
+
     } else {
-      /* relevance — inline expressions that reuse $1 / $2 */
-      const titleBoost = `CASE WHEN LOWER(p.title) LIKE ${ilikePat} THEN 0.5 ELSE 0 END`;
-      const rankExpr   = tsParam
-        ? `ts_rank(
-             to_tsvector('english',
-               COALESCE(p.title,'') || ' ' ||
-               COALESCE(p.brand,'') || ' ' ||
-               COALESCE(p.model,'')
-             ),
-             to_tsquery('english', ${tsParam})
-           )`
-        : "0::float";
+      /* ── relevance ──
+         Cast every operand to float8 (double precision) explicitly.
+         ts_rank returns float4, engagement_score is numeric/decimal,
+         the CASE returns integer — all need the same type.
+      */
+      const titleBoost = `
+        CAST(
+          CASE WHEN LOWER(p.title) LIKE ${ilikePat} THEN 1 ELSE 0 END
+        AS float8)
+      `;
+
+      const engBoost = `
+        CAST(COALESCE(p.engagement_score, 0) AS float8) * 0.01::float8
+      `;
+
+      const rankExpr = tsParam
+        ? `CAST(
+             ts_rank(p.search_vector, to_tsquery('english', ${tsParam}))
+           AS float8)`
+        : `0.0::float8`;
 
       orderBy = `
-        (${rankExpr} + ${titleBoost} + (p.engagement_score * 0.01)) DESC,
+        (${rankExpr} + ${titleBoost} + ${engBoost}) DESC,
         p.is_promoted DESC,
         p.created_at  DESC
       `;
     }
 
-    /* ── pagination params ── */
+    /* ── pagination ── */
     const limitParam  = push(realLimit + 1);
     const offsetParam = push(offset);
-
-    /* count uses same filters, no pagination */
     const countValues = values.slice(0, values.length - 2);
 
-    /* ══════════════════════════════════════════════
-       QUERIES — LEFT JOIN categories
-    ══════════════════════════════════════════════ */
-    const FROM = `
-      FROM public.products p
-      LEFT JOIN public.categories c ON c.id = p.category_id
-    `;
-
+    /* ── queries ── */
     const mainSql = `
       SELECT ${SEL}
       ${FROM}
@@ -321,9 +321,7 @@ router.get("/", async (req, res) => {
     const records  = hasMore ? rows.slice(0, realLimit) : rows;
     const products = records.map(shapeProduct);
 
-    /* ══════════════════════════════════════════════
-       AGGREGATIONS — for filter sidebar
-    ══════════════════════════════════════════════ */
+    /* ── aggregations ── */
     const aggSql = `
       SELECT
         MIN(p.price)::int AS min_price,
@@ -357,11 +355,14 @@ router.get("/", async (req, res) => {
     const aggRes = await pool.query(aggSql, countValues);
     const agg    = aggRes.rows[0] || {};
 
-    /* dedupe categories */
     const seenCats = new Set();
     const cleanCats = (Array.isArray(agg.categories) ? agg.categories : [])
       .filter((c) => c?.id && c?.name)
-      .filter((c) => { if (seenCats.has(c.id)) return false; seenCats.add(c.id); return true; });
+      .filter((c) => {
+        if (seenCats.has(c.id)) return false;
+        seenCats.add(c.id);
+        return true;
+      });
 
     const payload = {
       products,
@@ -416,14 +417,16 @@ router.get("/related", async (req, res) => {
     if (slug) where.push(`p.slug != ${push(slug)}`);
     if (id)   where.push(`p.id   != ${push(id)}::uuid`);
 
-    /* resolve category if needed */
+    /* resolve category */
     let catId = category_id || null;
     if (!catId && (slug || id)) {
       const col  = slug ? "slug" : "id";
       const cast = slug ? "" : "::uuid";
       const r    = await pool.query(
         `SELECT category_id FROM public.products
-         WHERE ${col} = $1${cast} AND is_active = true AND is_deleted = false LIMIT 1`,
+         WHERE ${col} = $1${cast}
+           AND is_active = true AND is_deleted = false
+         LIMIT 1`,
         [slug || id]
       );
       catId = r.rows[0]?.category_id || null;
@@ -435,10 +438,12 @@ router.get("/related", async (req, res) => {
 
     const sql = `
       SELECT ${SEL}
-      FROM public.products p
-      LEFT JOIN public.categories c ON c.id = p.category_id
+      ${FROM}
       WHERE ${where.join(" AND ")}
-      ORDER BY p.is_promoted DESC, p.engagement_score DESC, p.created_at DESC
+      ORDER BY
+        p.is_promoted DESC,
+        CAST(COALESCE(p.engagement_score, 0) AS float8) DESC,
+        p.created_at DESC
       LIMIT ${limitParam}
     `;
 
