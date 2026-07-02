@@ -9,6 +9,12 @@ import {
 } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
+import MasonryCard, {
+  naira,
+  getImageUrl,
+  formatCity,
+  PinIcon,
+} from "../components/MasonryCard";
 import "../styles/SearchPage.css";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
@@ -18,12 +24,6 @@ const PAGE_SIZE = 20;
 /* ══════════════════════════════════════════════════════════════
    HELPERS
    ══════════════════════════════════════════════════════════════ */
-const naira = (n) =>
-  "₦" + Number(n || 0).toLocaleString("en-NG", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  });
-
 const timeAgo = (iso) => {
   if (!iso) return "";
   const s = Math.floor((Date.now() - new Date(iso)) / 1000);
@@ -40,30 +40,6 @@ const PRICE_PRESETS = [
   { label: "₦50k–100k",  min: "50000",  max: "100000" },
   { label: "₦100k+",     min: "100000", max: ""       },
 ];
-
-/* ══════════════════════════════════════════════════════════════
-   HIGHLIGHT
-   ══════════════════════════════════════════════════════════════ */
-const HighlightMatch = memo(function HighlightMatch({ text = "", query = "" }) {
-  if (!text || !query) return <>{text}</>;
-  const idx = text.toLowerCase().indexOf(query.toLowerCase());
-  if (idx === -1) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, idx)}
-      <mark style={{
-        background  : "rgba(255,107,53,0.18)",
-        color       : "var(--sp-orange)",
-        borderRadius: "2px",
-        padding     : "0 1px",
-        fontWeight  : 700,
-      }}>
-        {text.slice(idx, idx + query.length)}
-      </mark>
-      {text.slice(idx + query.length)}
-    </>
-  );
-});
 
 /* ══════════════════════════════════════════════════════════════
    ICONS
@@ -111,23 +87,6 @@ const IconList = () => (
   </svg>
 );
 
-const IconPin = () => (
-  <svg width="9" height="9" viewBox="0 0 24 24"
-       fill="none" stroke="currentColor" strokeWidth="2.5">
-    <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z" />
-    <circle cx="12" cy="9" r="2.5" />
-  </svg>
-);
-
-const IconPhoto = () => (
-  <svg width="9" height="9" viewBox="0 0 24 24"
-       fill="none" stroke="currentColor" strokeWidth="2.5">
-    <rect x="3" y="3" width="18" height="18" rx="2" />
-    <circle cx="8.5" cy="8.5" r="1.5" />
-    <path d="m21 15-5-5L5 21" />
-  </svg>
-);
-
 /* ══════════════════════════════════════════════════════════════
    SKELETON CARD
    ══════════════════════════════════════════════════════════════ */
@@ -146,127 +105,6 @@ const SkeletonCard = memo(function SkeletonCard({ view, index }) {
         <div className="sp-sk-line sp-sk-meta"  />
       </div>
     </div>
-  );
-});
-
-/* ══════════════════════════════════════════════════════════════
-   PRODUCT CARD
-   ══════════════════════════════════════════════════════════════ */
-const ProductCard = memo(function ProductCard({ product, query, view, animDelay }) {
-  const navigate              = useNavigate();
-  const [imgErr, setImgErr]   = useState(false);
-  const isGrid                = view !== "list";
-  const cardClass             = isGrid ? "sp-card--grid" : "sp-card--list";
-
-  const city     = product.location?.city  || product.location_city  || null;
-  const locState = product.location?.state || product.location_state || null;
-  const locStr   = [city, locState].filter(Boolean).join(", ");
-  const imgCount = Array.isArray(product.images) ? product.images.length : 0;
-
-  const handleClick = useCallback(() => {
-    fetch(`${API}/homepage/products/${product.id}/click`, { method: "POST" })
-      .catch(() => {});
-    navigate(`/product/${product.slug || product.id}`);
-  }, [product, navigate]);
-
-  let badge = null;
-  if (product.is_featured)            badge = { cls: "bd-feat",  label: "Featured" };
-  else if (product.is_promoted)       badge = { cls: "bd-flash", label: "Promoted" };
-  else if (product.discount_pct > 0)  badge = { cls: "bd-disc",  label: `-${product.discount_pct}%` };
-  else if (product.engagement_score > 70) badge = { cls: "bd-hot", label: "🔥 Hot" };
-
-  return (
-    <article
-      className={cardClass}
-      style={{ animationDelay: animDelay }}
-      onClick={handleClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && handleClick()}
-      aria-label={product.title}
-    >
-      {/* Image */}
-      <div className="sp-card-img-wrap">
-        {product.image && !imgErr ? (
-          <img
-            src={product.image}
-            alt={product.title}
-            className="sp-card-img"
-            loading="lazy"
-            onError={() => setImgErr(true)}
-          />
-        ) : (
-          <div style={{
-            width: "100%", height: "100%",
-            display: "flex", alignItems: "center",
-            justifyContent: "center", fontSize: "2.2rem",
-            background: "var(--sp-glass)",
-          }}>
-            📦
-          </div>
-        )}
-
-        {badge && (
-          <span className={`sp-badge ${badge.cls}`}>{badge.label}</span>
-        )}
-
-        {imgCount > 1 && (
-          <span className="sp-img-count">
-            <IconPhoto />
-            {imgCount}
-          </span>
-        )}
-      </div>
-
-      {/* Body */}
-      <div className="sp-card-body">
-        <p className="sp-card-title">
-          <HighlightMatch text={product.title || "Untitled"} query={query} />
-        </p>
-
-        {!isGrid && product.description && (
-          <p className="sp-card-desc">{product.description}</p>
-        )}
-
-        <div className="sp-card-price-row">
-          <span className="sp-card-price">{naira(product.price)}</span>
-          {product.discount_pct > 0 && product.attributes?.original_price && (
-            <span className="sp-card-orig">
-              {naira(product.attributes.original_price)}
-            </span>
-          )}
-        </div>
-
-        {(product.brand || product.condition) && (
-          <span style={{
-            fontSize: "0.71rem", color: "var(--sp-text-muted)", fontWeight: 500,
-          }}>
-            {[product.brand, product.condition].filter(Boolean).join(" · ")}
-          </span>
-        )}
-
-        <div className="sp-card-foot">
-          {locStr ? (
-            <span className="sp-card-loc"><IconPin />{locStr}</span>
-          ) : (
-            <span />
-          )}
-          <span className="sp-card-time">{timeAgo(product.created_at)}</span>
-        </div>
-
-        {product.category_name && (
-          <span style={{
-            display: "inline-block", fontSize: "0.66rem", fontWeight: 600,
-            color: "var(--sp-text-muted)", background: "var(--sp-glass)",
-            border: "1px solid var(--sp-glass-border)",
-            borderRadius: "var(--sp-r-pill)", padding: "2px 8px",
-            marginTop: "3px", alignSelf: "flex-start",
-          }}>
-            {product.category_name}
-          </span>
-        )}
-      </div>
-    </article>
   );
 });
 
@@ -308,10 +146,14 @@ const FilterSidebar = memo(function FilterSidebar({
         aria-label="Search filters"
         aria-hidden={!open}
       >
-        {/* Head */}
         <div className="sp-filters-head">
           <h2 className="sp-filters-title">Filters</h2>
-          <button className="sp-filters-close" onClick={onClose} aria-label="Close filters" type="button">
+          <button
+            className="sp-filters-close"
+            onClick={onClose}
+            aria-label="Close filters"
+            type="button"
+          >
             <IconClose />
           </button>
         </div>
@@ -323,8 +165,14 @@ const FilterSidebar = memo(function FilterSidebar({
             {categories.map((cat) => {
               const active = draft.category_id === cat.id;
               return (
-                <label key={cat.id} className={`sp-filter-opt${active ? " sp-filter-opt--active" : ""}`}>
-                  <input type="radio" name="sp-category" value={cat.id}
+                <label
+                  key={cat.id}
+                  className={`sp-filter-opt${active ? " sp-filter-opt--active" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="sp-category"
+                    value={cat.id}
                     checked={active}
                     onChange={() => onDraftChange("category_id", active ? "" : cat.id)}
                   />
@@ -341,14 +189,18 @@ const FilterSidebar = memo(function FilterSidebar({
           <p className="sp-filter-h">Price Range</p>
           <div className="sp-price-row">
             <input
-              className="sp-price-input" type="number" min={0}
+              className="sp-price-input"
+              type="number"
+              min={0}
               placeholder={price.min ? `Min ₦${Number(price.min).toLocaleString()}` : "Min"}
               value={draft.min_price || ""}
               onChange={(e) => onDraftChange("min_price", e.target.value)}
             />
             <span className="sp-price-dash">–</span>
             <input
-              className="sp-price-input" type="number" min={0}
+              className="sp-price-input"
+              type="number"
+              min={0}
               placeholder={price.max ? `Max ₦${Number(price.max).toLocaleString()}` : "Max"}
               value={draft.max_price || ""}
               onChange={(e) => onDraftChange("max_price", e.target.value)}
@@ -375,8 +227,14 @@ const FilterSidebar = memo(function FilterSidebar({
             {conditions.map((c) => {
               const active = draft.condition === c;
               return (
-                <label key={c} className={`sp-filter-opt${active ? " sp-filter-opt--active" : ""}`}>
-                  <input type="radio" name="sp-condition" value={c}
+                <label
+                  key={c}
+                  className={`sp-filter-opt${active ? " sp-filter-opt--active" : ""}`}
+                >
+                  <input
+                    type="radio"
+                    name="sp-condition"
+                    value={c}
                     checked={active}
                     onChange={() => onDraftChange("condition", active ? "" : c)}
                   />
@@ -403,7 +261,6 @@ const FilterSidebar = memo(function FilterSidebar({
           </div>
         )}
 
-        {/* Footer */}
         <div className="sp-filter-foot">
           <button className="sp-filter-apply" onClick={onApply} type="button">
             Apply Filters
@@ -418,12 +275,11 @@ const FilterSidebar = memo(function FilterSidebar({
 });
 
 /* ══════════════════════════════════════════════════════════════
-   RELATED STRIP
+   RELATED STRIP — uses MasonryCard
    ══════════════════════════════════════════════════════════════ */
 function RelatedStrip({ categoryId }) {
   const [related, setRelated] = useState([]);
   const [loading, setLoading] = useState(true);
-  const navigate = useNavigate();
 
   useEffect(() => {
     if (!categoryId) { setLoading(false); return; }
@@ -439,13 +295,15 @@ function RelatedStrip({ categoryId }) {
 
   return (
     <section style={{
-      padding: "28px 16px 16px",
+      padding  : "28px 16px 16px",
       borderTop: "1px solid var(--sp-glass-border)",
       marginTop: "8px",
     }}>
       <h2 style={{
-        fontSize: "1rem", fontWeight: 750,
-        color: "var(--sp-text)", margin: "0 0 14px",
+        fontSize     : "1rem",
+        fontWeight   : 750,
+        color        : "var(--sp-text)",
+        margin       : "0 0 14px",
         letterSpacing: "-0.02em",
       }}>
         You may also like
@@ -456,43 +314,9 @@ function RelatedStrip({ categoryId }) {
           ? Array.from({ length: 4 }, (_, i) => (
               <SkeletonCard key={i} view="grid" index={i} />
             ))
-          : related.map((p) => {
-              const rCity = p.location?.city || p.location_city || null;
-              return (
-                <article
-                  key={p.id}
-                  className="sp-card--grid"
-                  onClick={() => navigate(`/product/${p.slug || p.id}`)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => e.key === "Enter" && navigate(`/product/${p.slug || p.id}`)}
-                >
-                  <div className="sp-card-img-wrap">
-                    {p.image ? (
-                      <img src={p.image} alt={p.title} className="sp-card-img" loading="lazy" />
-                    ) : (
-                      <div style={{
-                        width: "100%", height: "100%",
-                        display: "flex", alignItems: "center",
-                        justifyContent: "center", fontSize: "2rem",
-                      }}>📦</div>
-                    )}
-                    {p.is_promoted && <span className="sp-badge bd-flash">Promoted</span>}
-                  </div>
-                  <div className="sp-card-body">
-                    <p className="sp-card-title">{p.title}</p>
-                    <div className="sp-card-price-row">
-                      <span className="sp-card-price">{naira(p.price)}</span>
-                    </div>
-                    {rCity && (
-                      <div className="sp-card-foot" style={{ marginTop: 4 }}>
-                        <span className="sp-card-loc"><IconPin />{rCity}</span>
-                      </div>
-                    )}
-                  </div>
-                </article>
-              );
-            })
+          : related.map((p, i) => (
+              <MasonryCard key={p.id} product={p} index={i} />
+            ))
         }
       </div>
     </section>
@@ -571,8 +395,11 @@ export default function SearchPage({ user }) {
   /* ── Fetch ── */
   const fetchResults = useCallback(async () => {
     if (!query || query.length < 2) {
-      setProducts([]); setMeta(null); return;
+      setProducts([]);
+      setMeta(null);
+      return;
     }
+
     abortRef.current?.abort();
     abortRef.current = new AbortController();
     setLoading(true);
@@ -588,7 +415,9 @@ export default function SearchPage({ user }) {
     if (city)        params.set("city",        city);
 
     try {
-      const res = await fetch(`${API}/search?${params}`, { signal: abortRef.current.signal });
+      const res = await fetch(`${API}/search?${params}`, {
+        signal: abortRef.current.signal,
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message || `HTTP ${res.status}`);
@@ -600,7 +429,10 @@ export default function SearchPage({ user }) {
         price: { min: 0, max: 0 }, conditions: [], states: [], categories: [],
       });
     } catch (err) {
-      if (err.name !== "AbortError") { setError(err.message); setProducts([]); }
+      if (err.name !== "AbortError") {
+        setError(err.message);
+        setProducts([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -620,7 +452,7 @@ export default function SearchPage({ user }) {
   const handleApply = useCallback(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      const set = (k, v) => (v ? next.set(k, v) : next.delete(k));
+      const set  = (k, v) => (v ? next.set(k, v) : next.delete(k));
       set("sort",        draft.sort !== "relevance" ? draft.sort : "");
       set("category_id", draft.category_id);
       set("min_price",   draft.min_price);
@@ -679,6 +511,7 @@ export default function SearchPage({ user }) {
       newest: "Newest", price_asc: "Price ↑",
       price_desc: "Price ↓", rating: "Top Rated",
     };
+
     if (sort && sort !== "relevance")
       chips.push({ key: "sort", label: SORT_LABELS[sort] || sort, remove: () => removeFilter("sort") });
     if (condition)
@@ -690,7 +523,9 @@ export default function SearchPage({ user }) {
     if (min_price || max_price) {
       const label = min_price && max_price
         ? `${naira(min_price)}–${naira(max_price)}`
-        : min_price ? `From ${naira(min_price)}` : `Up to ${naira(max_price)}`;
+        : min_price
+          ? `From ${naira(min_price)}`
+          : `Up to ${naira(max_price)}`;
       chips.push({ key: "price", label, remove: () => removeFilter("min_price", "max_price") });
     }
     if (category_id) {
@@ -724,7 +559,7 @@ export default function SearchPage({ user }) {
       <header className="sp-header">
         <div className="sp-header-top">
 
-          {/* Left */}
+          {/* Left — breadcrumb + title */}
           <div style={{ minWidth: 0, flex: 1 }}>
             <nav className="sp-crumb" aria-label="Breadcrumb">
               <button className="sp-crumb-home" onClick={() => navigate("/")} type="button">
@@ -763,7 +598,7 @@ export default function SearchPage({ user }) {
             </h1>
           </div>
 
-          {/* Right */}
+          {/* Right — controls */}
           <div className="sp-controls">
             <div className="sp-sort-wrap">
               <select
@@ -817,13 +652,13 @@ export default function SearchPage({ user }) {
           </div>
         </div>
 
-        {/* Filter chips */}
+        {/* Active filter chips */}
         {activeChips.length > 0 && (
           <div className="sp-active-filters" role="list" aria-label="Active filters">
             {activeChips.map((chip) => (
               <span key={chip.key} className="sp-filter-tag" role="listitem">
                 {chip.label}
-                <button type="button" onClick={chip.remove} aria-label={`Remove ${chip.label} filter`}>
+                <button type="button" onClick={chip.remove} aria-label={`Remove ${chip.label}`}>
                   ×
                 </button>
               </span>
@@ -838,6 +673,7 @@ export default function SearchPage({ user }) {
       {/* ── BODY ── */}
       <div className="sp-body">
 
+        {/* Sidebar */}
         <FilterSidebar
           open={filterOpen}
           onClose={() => setFilterOpen(false)}
@@ -848,6 +684,7 @@ export default function SearchPage({ user }) {
           onReset={handleReset}
         />
 
+        {/* Main content */}
         <main className="sp-main" aria-live="polite" aria-busy={loading} aria-label="Search results">
           <div className="sp-results">
 
@@ -880,18 +717,12 @@ export default function SearchPage({ user }) {
               </div>
             )}
 
-            {/* Results */}
+            {/* ── Results — uses MasonryCard ── */}
             {!loading && !error && products.length > 0 && (
               <>
                 <div className={view === "list" ? "sp-grid--list" : "sp-grid--grid"}>
                   {products.map((p, i) => (
-                    <ProductCard
-                      key={p.id}
-                      product={p}
-                      query={query}
-                      view={view}
-                      animDelay={`${i * 0.03}s`}
-                    />
+                    <MasonryCard key={p.id} product={p} index={i} />
                   ))}
                 </div>
 
@@ -910,7 +741,9 @@ export default function SearchPage({ user }) {
                   >
                     ← Prev
                   </button>
-                  <span style={{ fontSize: "0.8rem", color: "var(--sp-text-muted)", fontWeight: 500 }}>
+                  <span style={{
+                    fontSize: "0.8rem", color: "var(--sp-text-muted)", fontWeight: 500,
+                  }}>
                     Page {page + 1}{totalPages ? ` of ${totalPages}` : ""}
                   </span>
                   <button
@@ -944,7 +777,7 @@ export default function SearchPage({ user }) {
             )}
           </div>
 
-          {/* Related */}
+          {/* Related — also uses MasonryCard */}
           {!loading && products.length > 0 && dominantCategory && (
             <RelatedStrip categoryId={dominantCategory} />
           )}
