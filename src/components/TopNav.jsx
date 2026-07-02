@@ -1,42 +1,35 @@
-/**
- * src/components/TopNav.jsx
- *
- * Top navigation bar with:
- * - Brand logo / home link
- * - Hamburger menu
- * - Live search with trigram scoring
- * - Instant results from cache + API fallback
- * - Search dropdown with product previews
- */
-
+// src/components/TopNav.jsx
 import {
-  useState, useEffect, useMemo,
-  useCallback, useRef,
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+  memo,
 } from "react";
-import { useNavigate }      from "react-router-dom";
-import { useProductCache }  from "../context/ProductCacheContext";
-import HamburgerMenu        from "./HamburgerMenu";
+import { useNavigate }     from "react-router-dom";
+import { useProductCache } from "../context/ProductCacheContext";
+import HamburgerMenu       from "./HamburgerMenu";
 import "../styles/TopNav.css";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    ENV + API
-═══════════════════════════════════════════════════════════════ */
-const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+   ══════════════════════════════════════════════════════════════ */
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API      = `${BASE_URL}/api`;
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    CONSTANTS
-═══════════════════════════════════════════════════════════════ */
-const PH              = "https://placehold.co/88x88/eae6e0/a8a39d?text=?";
-const DEBOUNCE_MS     = 250;
+   ══════════════════════════════════════════════════════════════ */
+const DEBOUNCE_MS     = 220;
 const MIN_QUERY_LEN   = 2;
-const MAX_RESULTS     = 6;
-const CACHE_THRESHOLD = 3; // use API only if cache has < N hits
-const TRIGRAM_MIN     = 0.2;
+const MAX_RESULTS     = 8;
+const CACHE_THRESHOLD = 3;
+const TRIGRAM_MIN     = 0.18;
 
-/* ═══════════════════════════════════════════════════════════════
-   SEARCH SCORING — trigram overlap
-   Far better than character-by-character comparison.
-═══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   TRIGRAM SCORING
+   ══════════════════════════════════════════════════════════════ */
 const norm = (s = "") => s.toLowerCase().trim();
 
 const trigrams = (s) => {
@@ -51,7 +44,6 @@ const trigramScore = (query, target) => {
   const q = trigrams(query);
   const t = trigrams(target);
   if (!q.size || !t.size) return 0;
-
   let matches = 0;
   q.forEach((g) => { if (t.has(g)) matches++; });
   return matches / Math.max(q.size, t.size);
@@ -60,41 +52,106 @@ const trigramScore = (query, target) => {
 const scoreProduct = (query, product) => {
   const q     = norm(query);
   const title = norm(product.title || "");
+  if (!title) return 0;
 
-  // Exact prefix match → top priority
   if (title.startsWith(q))
     return 1 + trigramScore(q, title);
-
-  // Word boundary match
   if (title.split(" ").some((w) => w.startsWith(q)))
     return 0.8 + trigramScore(q, title);
-
-  // Contains match
   if (title.includes(q))
     return 0.6 + trigramScore(q, title);
 
-  // Trigram fallback
   const ts = trigramScore(q, title);
   return ts > TRIGRAM_MIN ? ts : 0;
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    HELPERS
-═══════════════════════════════════════════════════════════════ */
-const getImg = (p) => {
-  const f = Array.isArray(p?.images) ? p.images[0] : null;
-  if (!f) return PH;
-  return typeof f === "string" ? f : (f.url || f.thumbnail_url || PH);
-};
+   ══════════════════════════════════════════════════════════════ */
+const naira = (n) =>
+  "₦" + Number(n || 0).toLocaleString("en-NG", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
 
-const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
+const getCity = (p) =>
+  p?.location?.city || p?.location_city || null;
 
-/* ═══════════════════════════════════════════════════════════════
-   COMPONENT
-═══════════════════════════════════════════════════════════════ */
+/* Highlight the matched query inside a string */
+function highlight(text, query) {
+  if (!text || !query) return text;
+  const idx = norm(text).indexOf(norm(query));
+  if (idx === -1) return text;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="tn-highlight">{text.slice(idx, idx + query.length)}</mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RESULT ITEM — text only, no image
+   ══════════════════════════════════════════════════════════════ */
+const ResultItem = memo(function ResultItem({
+  product, index, query, onClick,
+}) {
+  const city = getCity(product);
+
+  return (
+    <div
+      className="tn-result"
+      role="option"
+      tabIndex={0}
+      onClick={() => onClick(product)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
+      aria-label={`${product.title} — ${naira(product.price)}`}
+    >
+      {/* Search icon prefix */}
+      <span className="tn-result-icon" aria-hidden="true">
+        <svg width="13" height="13" viewBox="0 0 24 24"
+             fill="none" stroke="currentColor"
+             strokeWidth="2.5" strokeLinecap="round">
+          <circle cx="11" cy="11" r="8"/>
+          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+      </span>
+
+      {/* Text content */}
+      <div className="tn-result-body">
+        <p className="tn-result-title">
+          {highlight(product.title || "Untitled", query)}
+        </p>
+        <div className="tn-result-meta">
+          <span className="tn-result-price">
+            {naira(product.price)}
+          </span>
+          {city && (
+            <span className="tn-result-loc">
+              · {city}
+            </span>
+          )}
+          {product.category_name && (
+            <span className="tn-result-cat">
+              · {product.category_name}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Arrow */}
+      <span className="tn-result-arrow" aria-hidden="true">›</span>
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════
+   TOPNAV
+   ══════════════════════════════════════════════════════════════ */
 export default function TopNav({ user }) {
-  const navigate         = useNavigate();
-  const { products }     = useProductCache();
+  const navigate     = useNavigate();
+  const { products } = useProductCache();
 
   const [query,     setQuery]     = useState("");
   const [debounced, setDebounced] = useState("");
@@ -103,18 +160,22 @@ export default function TopNav({ user }) {
   const [fetching,  setFetching]  = useState(false);
   const [menuOpen,  setMenuOpen]  = useState(false);
 
-  const inputRef = useRef(null);
+  const inputRef    = useRef(null);
+  const dropdownRef = useRef(null);
+  const abortRef    = useRef(null);
 
-  // ── Debounce query ────────────────────────────────────────
+  /* ── Debounce ── */
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(query.trim()), DEBOUNCE_MS);
+    const t = setTimeout(
+      () => setDebounced(query.trim()),
+      DEBOUNCE_MS
+    );
     return () => clearTimeout(t);
   }, [query]);
 
-  // ── Instant results from product cache ────────────────────
+  /* ── Cache results ── */
   const cacheResults = useMemo(() => {
     if (!debounced || debounced.length < MIN_QUERY_LEN) return [];
-
     return products
       .map((p) => ({ ...p, _score: scoreProduct(debounced, p) }))
       .filter((p) => p._score > 0)
@@ -122,7 +183,7 @@ export default function TopNav({ user }) {
       .slice(0, MAX_RESULTS);
   }, [debounced, products]);
 
-  // ── Network search (only when cache has < threshold hits) ─
+  /* ── API fallback ── */
   useEffect(() => {
     if (!debounced || debounced.length < MIN_QUERY_LEN) {
       setApiHits([]);
@@ -133,31 +194,59 @@ export default function TopNav({ user }) {
       return;
     }
 
-    let cancelled = false;
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
     setFetching(true);
 
-    fetch(`${API}/search?q=${encodeURIComponent(debounced)}`)
-      .then((r) => r.ok ? r.json() : [])
+    fetch(
+      `${API}/search?q=${encodeURIComponent(debounced)}&limit=8`,
+      { signal: abortRef.current.signal }
+    )
+      .then((r) => (r.ok ? r.json() : { products: [] }))
       .then((data) => {
-        if (!cancelled) {
-          const hits = Array.isArray(data) ? data : (data.products || []);
-          setApiHits(hits.slice(0, MAX_RESULTS));
-        }
+        const hits = Array.isArray(data)
+          ? data
+          : Array.isArray(data.products)
+            ? data.products
+            : [];
+        setApiHits(hits.slice(0, MAX_RESULTS));
       })
       .catch(() => {})
-      .finally(() => { if (!cancelled) setFetching(false); });
+      .finally(() => setFetching(false));
 
-    return () => { cancelled = true; };
+    return () => abortRef.current?.abort();
   }, [debounced, cacheResults.length]);
 
-  // ── Merged results (cache + API, deduped) ─────────────────
+  /* ── Merged results ── */
   const results = useMemo(() => {
     const seen  = new Set(cacheResults.map((p) => p.id));
-    const extra = apiHits.filter((p) => !seen.has(p.id));
+    const extra = apiHits.filter((p) => p?.id && !seen.has(p.id));
     return [...cacheResults, ...extra].slice(0, MAX_RESULTS);
   }, [cacheResults, apiHits]);
 
-  // ── Actions ───────────────────────────────────────────────
+  /* ── Click outside to close ── */
+  useEffect(() => {
+    const handle = (e) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target) &&
+        !inputRef.current?.contains(e.target)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handle);
+    return () => document.removeEventListener("mousedown", handle);
+  }, []);
+
+  /* ── ESC key ── */
+  useEffect(() => {
+    const handle = (e) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", handle);
+    return () => window.removeEventListener("keydown", handle);
+  }, []);
+
+  /* ── Actions ── */
   const goSearch = useCallback((text) => {
     const q = (text || query).trim();
     if (!q) return;
@@ -167,25 +256,33 @@ export default function TopNav({ user }) {
   }, [query, navigate]);
 
   const goProduct = useCallback((p) => {
+    if (!p?.id) return;
     setOpen(false);
     setQuery("");
     navigate(`/product/${p.slug || p.id}`);
   }, [navigate]);
 
-  const close = useCallback(() => setOpen(false), []);
+  const handleInputChange = useCallback((e) => {
+    setQuery(e.target.value);
+    setOpen(true);
+  }, []);
+
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === "Enter")  goSearch();
+    if (e.key === "Escape") setOpen(false);
+  }, [goSearch]);
 
   const showDropdown = open && debounced.length >= MIN_QUERY_LEN;
 
-  // ── Render ────────────────────────────────────────────────
+  /* ════════════════════════════════════════════════════════════
+     RENDER
+  ════════════════════════════════════════════════════════════ */
   return (
     <>
       <div className="tn-wrap">
 
-        {/* ══════════════════════════════════════════════
-            BRAND ROW
-        ══════════════════════════════════════════════ */}
+        {/* ── Brand row ── */}
         <div className="tn-header">
-          {/* Hamburger — left side */}
           <button
             className="tn-hamburger"
             onClick={() => setMenuOpen(true)}
@@ -197,119 +294,153 @@ export default function TopNav({ user }) {
             <span className="tn-ham-line" />
           </button>
 
-          {/* Brand */}
-          <div className="tn-brand" onClick={() => navigate("/")}>
+          <button
+            className="tn-brand"
+            onClick={() => navigate("/")}
+            aria-label="Loemart home"
+          >
             🛒 Loe<span>mart</span>
-          </div>
+          </button>
         </div>
 
-        {/* ══════════════════════════════════════════════
-            SEARCH ROW
-        ══════════════════════════════════════════════ */}
+        {/* ── Search row ── */}
         <div className="tn-search-row">
           <div className="tn-search-box">
+            <span className="tn-search-icon" aria-hidden="true">
+              <svg width="15" height="15" viewBox="0 0 24 24"
+                   fill="none" stroke="currentColor"
+                   strokeWidth="2.5" strokeLinecap="round">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </span>
+
             <input
               ref={inputRef}
               className="tn-input"
+              type="search"
               value={query}
-              placeholder="Search products, categories…"
-              onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+              placeholder="Search products, brands…"
+              onChange={handleInputChange}
               onFocus={() => setOpen(true)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter")  goSearch();
-                if (e.key === "Escape") close();
-              }}
+              onKeyDown={handleKeyDown}
               autoComplete="off"
               spellCheck="false"
+              aria-label="Search Loemart"
+              aria-autocomplete="list"
+              aria-expanded={showDropdown}
+              aria-controls={showDropdown ? "tn-dropdown" : undefined}
             />
+
+            {query && (
+              <button
+                className="tn-clear-btn"
+                onClick={() => {
+                  setQuery("");
+                  setApiHits([]);
+                  inputRef.current?.focus();
+                }}
+                aria-label="Clear search"
+                tabIndex={-1}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24"
+                     fill="currentColor" aria-hidden="true">
+                  <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+                </svg>
+              </button>
+            )}
+
             <button
               className="tn-search-btn"
               onClick={() => goSearch()}
               aria-label="Search"
             >
-              <svg
-                width="17" height="17" viewBox="0 0 24 24"
-                fill="none" stroke="currentColor"
-                strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8" />
-                <line x1="21" y1="21" x2="16.65" y2="16.65" />
+              <svg width="15" height="15" viewBox="0 0 24 24"
+                   fill="none" stroke="currentColor"
+                   strokeWidth="2.5" strokeLinecap="round"
+                   aria-hidden="true">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
             </button>
           </div>
 
-          {/* ══════════════════════════════════════════════
-              SEARCH DROPDOWN
-          ══════════════════════════════════════════════ */}
+          {/* ── Dropdown ── */}
           {showDropdown && (
             <>
-              <div className="tn-overlay" onClick={close} />
+              <div
+                className="tn-overlay"
+                onClick={() => setOpen(false)}
+                aria-hidden="true"
+              />
 
-              <div className="tn-dropdown">
-                {/* Dropdown header */}
+              <div
+                id="tn-dropdown"
+                ref={dropdownRef}
+                className="tn-dropdown"
+                role="listbox"
+                aria-label="Search suggestions"
+              >
+                {/* Header */}
                 <div className="tn-drop-header">
                   <span className="tn-drop-count">
-                    {fetching
-                      ? "Searching…"
-                      : results.length
-                        ? `${results.length} result${results.length !== 1 ? "s" : ""}`
-                        : "No results"
-                    }
+                    {fetching ? (
+                      <>
+                        <span className="tn-drop-spinner" aria-hidden="true" />
+                        Searching…
+                      </>
+                    ) : results.length > 0 ? (
+                      `${results.length} suggestion${results.length !== 1 ? "s" : ""}`
+                    ) : (
+                      "No results"
+                    )}
                   </span>
-                  <button className="tn-drop-close" onClick={close}>
-                    ✕ Close
+                  <button
+                    className="tn-drop-close"
+                    onClick={() => setOpen(false)}
+                    aria-label="Close"
+                  >
+                    ✕
                   </button>
                 </div>
 
+                {/* Results */}
                 {results.length > 0 ? (
                   <>
-                    {results.map((p, i) => (
-                      <div
+                    {results.map((p) => (
+                      <ResultItem
                         key={p.id}
-                        className="tn-result"
-                        onClick={() => goProduct(p)}
-                        role="button"
-                        tabIndex={0}
-                        onKeyDown={(e) => e.key === "Enter" && goProduct(p)}
-                      >
-                        <img
-                          className="tn-result-img"
-                          src={getImg(p)}
-                          alt={p.title}
-                          loading="lazy"
-                        />
-                        <div className="tn-result-body">
-                          <div className="tn-result-title">{p.title}</div>
-                          <div className="tn-result-meta">
-                            <span className="tn-result-price">
-                              {naira(p.price)}
-                            </span>
-                            {(p.location?.city || p.location_city) && (
-                              <span className="tn-result-loc">
-                                · 📍 {p.location?.city || p.location_city}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <span className="tn-result-rank">#{i + 1}</span>
-                      </div>
+                        product={p}
+                        query={debounced}
+                        onClick={goProduct}
+                      />
                     ))}
 
+                    {/* See all */}
                     <div className="tn-see-all-row">
                       <button
                         className="tn-see-all-btn"
                         onClick={() => goSearch(debounced)}
                       >
-                        See all results for "{debounced}" →
+                        <svg width="13" height="13" viewBox="0 0 24 24"
+                             fill="none" stroke="currentColor"
+                             strokeWidth="2.5" strokeLinecap="round"
+                             aria-hidden="true">
+                          <circle cx="11" cy="11" r="8"/>
+                          <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                        </svg>
+                        Search all results for "{debounced}"
                       </button>
                     </div>
                   </>
                 ) : !fetching ? (
                   <div className="tn-no-results">
-                    <div className="tn-no-results-emoji">🔍</div>
-                    <div className="tn-no-results-text">
+                    <span className="tn-no-results-emoji" aria-hidden="true">
+                      🔍
+                    </span>
+                    <p className="tn-no-results-text">
                       No products found for "{debounced}"
-                    </div>
+                    </p>
                     <button
                       className="tn-no-results-btn"
                       onClick={() => goSearch(debounced)}
@@ -325,7 +456,6 @@ export default function TopNav({ user }) {
 
       </div>
 
-      {/* Hamburger menu — outside tn-wrap so it overlays everything */}
       <HamburgerMenu
         open={menuOpen}
         onClose={() => setMenuOpen(false)}
