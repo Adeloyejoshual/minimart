@@ -147,7 +147,7 @@ export default function HamburgerMenu({ open, onClose }) {
         {/* ── FOOTER ── */}
         <div className="hm-foot">
           <p className="hm-foot-copy">
-            &copy; {new Date().getFullYear()} Minimart Technologies Ltd.
+            &copy; {new Date().getFullYear()} Loemart Technologies Ltd.
           </p>
           <p className="hm-foot-sub">Nigeria's neighbourhood marketplace</p>
         </div>
