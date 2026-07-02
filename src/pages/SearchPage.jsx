@@ -1,655 +1,663 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Search API Tester</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
+// src/pages/SearchPage.jsx
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  memo,
+} from "react";
+import { useSearchParams, useNavigate, Link } from "react-router-dom";
+import "../styles/SearchPage.css";
 
-    body {
-      font-family: system-ui, sans-serif;
-      background: #f5f5f5;
-      padding: 24px;
-      color: #333;
-    }
+/* ══════════════════════════════════════════════════════════════
+   ENV
+   ══════════════════════════════════════════════════════════════ */
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API      = `${BASE_URL}/api`;
 
-    h1 {
-      font-size: 20px;
-      margin-bottom: 20px;
-      color: #111;
-    }
+/* ══════════════════════════════════════════════════════════════
+   CONSTANTS
+   ══════════════════════════════════════════════════════════════ */
+const PAGE_SIZE = 20;
 
-    .card {
-      background: #fff;
-      border-radius: 10px;
-      padding: 20px;
-      margin-bottom: 20px;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-    }
+/* ══════════════════════════════════════════════════════════════
+   HELPERS
+   ══════════════════════════════════════════════════════════════ */
+const naira = (n) =>
+  "₦" + Number(n || 0).toLocaleString("en-NG", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
 
-    .row {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
-    }
+const timeAgo = (iso) => {
+  if (!iso) return "";
+  const s   = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (s < 60)   return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
+  return `${Math.floor(s / 86400)}d ago`;
+};
 
-    input, select {
-      padding: 9px 12px;
-      border: 1px solid #ddd;
-      border-radius: 7px;
-      font-size: 14px;
-      flex: 1;
-      min-width: 140px;
-      outline: none;
-    }
+/* ══════════════════════════════════════════════════════════════
+   HIGHLIGHT — bold matched text
+   ══════════════════════════════════════════════════════════════ */
+const HighlightMatch = memo(function HighlightMatch({ text = "", query = "" }) {
+  if (!text || !query) return <>{text}</>;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="sp-hl">{text.slice(idx, idx + query.length)}</mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+});
 
-    input:focus, select:focus {
-      border-color: #4f46e5;
-    }
+/* ══════════════════════════════════════════════════════════════
+   PRODUCT CARD
+   ══════════════════════════════════════════════════════════════ */
+const ProductCard = memo(function ProductCard({ product, query }) {
+  const navigate  = useNavigate();
+  const [imgErr, setImgErr] = useState(false);
 
-    button {
-      padding: 9px 20px;
-      border: none;
-      border-radius: 7px;
-      font-size: 14px;
-      cursor: pointer;
-      font-weight: 600;
-    }
+  const handleClick = useCallback(() => {
+    /* fire-and-forget click analytics */
+    fetch(`${API}/homepage/products/${product.id}/click`, {
+      method: "POST",
+    }).catch(() => {});
+    navigate(`/product/${product.slug || product.id}`);
+  }, [product, navigate]);
 
-    .btn-primary {
-      background: #4f46e5;
-      color: #fff;
-    }
+  const city   = product.location?.city  || product.location_city  || null;
+  const state  = product.location?.state || product.location_state || null;
+  const locStr = [city, state].filter(Boolean).join(", ");
 
-    .btn-primary:hover { background: #4338ca; }
+  return (
+    <article
+      className="sp-card"
+      onClick={handleClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && handleClick()}
+      aria-label={product.title}
+    >
+      {/* Image */}
+      <div className="sp-card-img-wrap">
+        {product.image && !imgErr ? (
+          <img
+            src={product.image}
+            alt={product.title}
+            className="sp-card-img"
+            loading="lazy"
+            onError={() => setImgErr(true)}
+          />
+        ) : (
+          <div className="sp-card-img-placeholder" aria-hidden="true">
+            📦
+          </div>
+        )}
 
-    .btn-secondary {
-      background: #e5e7eb;
-      color: #333;
-    }
+        {product.is_promoted && (
+          <span className="sp-badge sp-badge--promoted">Featured</span>
+        )}
+        {product.discount_pct > 0 && (
+          <span className="sp-badge sp-badge--discount">
+            -{product.discount_pct}%
+          </span>
+        )}
+        {product.condition && (
+          <span className="sp-badge sp-badge--condition">
+            {product.condition}
+          </span>
+        )}
+      </div>
 
-    .btn-secondary:hover { background: #d1d5db; }
+      {/* Body */}
+      <div className="sp-card-body">
+        <p className="sp-card-title">
+          <HighlightMatch text={product.title} query={query} />
+        </p>
 
-    .btn-danger {
-      background: #ef4444;
-      color: #fff;
-    }
+        <p className="sp-card-price">{naira(product.price)}</p>
 
-    /* Status badges */
-    .badge {
-      display: inline-block;
-      padding: 3px 10px;
-      border-radius: 20px;
-      font-size: 12px;
-      font-weight: 600;
-    }
+        {product.brand && (
+          <p className="sp-card-brand">{product.brand}</p>
+        )}
 
-    .badge-green  { background: #d1fae5; color: #065f46; }
-    .badge-red    { background: #fee2e2; color: #991b1b; }
-    .badge-yellow { background: #fef9c3; color: #854d0e; }
-    .badge-blue   { background: #dbeafe; color: #1e40af; }
+        <div className="sp-card-meta">
+          {locStr && (
+            <span className="sp-card-loc">
+              <svg width="10" height="10" viewBox="0 0 24 24"
+                   fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7z"/>
+                <circle cx="12" cy="9" r="2.5"/>
+              </svg>
+              {locStr}
+            </span>
+          )}
+          <span className="sp-card-time">{timeAgo(product.created_at)}</span>
+        </div>
 
-    /* Stats row */
-    .stats {
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-      margin-bottom: 16px;
-    }
+        {product.category_name && (
+          <span className="sp-card-cat">{product.category_name}</span>
+        )}
+      </div>
+    </article>
+  );
+});
 
-    .stat {
-      background: #f9fafb;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      padding: 10px 16px;
-      text-align: center;
-      min-width: 100px;
-    }
-
-    .stat-value {
-      font-size: 22px;
-      font-weight: 700;
-      color: #4f46e5;
-    }
-
-    .stat-label {
-      font-size: 11px;
-      color: #6b7280;
-      margin-top: 2px;
-    }
-
-    /* Product grid */
-    .products-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 14px;
-    }
-
-    .product-card {
-      background: #fff;
-      border: 1px solid #e5e7eb;
-      border-radius: 8px;
-      overflow: hidden;
-      transition: box-shadow 0.2s;
-    }
-
-    .product-card:hover {
-      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-    }
-
-    .product-img {
-      width: 100%;
-      height: 130px;
-      object-fit: cover;
-      background: #f3f4f6;
-      display: block;
-    }
-
-    .product-img-placeholder {
-      width: 100%;
-      height: 130px;
-      background: linear-gradient(135deg, #e5e7eb, #f3f4f6);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 28px;
-    }
-
-    .product-body {
-      padding: 10px;
-    }
-
-    .product-title {
-      font-size: 13px;
-      font-weight: 600;
-      margin-bottom: 4px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .product-price {
-      font-size: 14px;
-      font-weight: 700;
-      color: #4f46e5;
-      margin-bottom: 4px;
-    }
-
-    .product-meta {
-      font-size: 11px;
-      color: #6b7280;
-    }
-
-    /* Raw JSON */
-    pre {
-      background: #1e1e2e;
-      color: #cdd6f4;
-      border-radius: 8px;
-      padding: 16px;
-      font-size: 12px;
-      overflow-x: auto;
-      max-height: 400px;
-      overflow-y: auto;
-      white-space: pre-wrap;
-      word-break: break-all;
-    }
-
-    /* Log */
-    .log-entry {
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      margin-bottom: 6px;
-      font-family: monospace;
-      border-left: 3px solid transparent;
-    }
-
-    .log-info    { background: #eff6ff; border-color: #3b82f6; color: #1e40af; }
-    .log-success { background: #f0fdf4; border-color: #22c55e; color: #15803d; }
-    .log-error   { background: #fef2f2; border-color: #ef4444; color: #b91c1c; }
-    .log-warn    { background: #fffbeb; border-color: #f59e0b; color: #92400e; }
-
-    /* URL display */
-    .url-display {
-      background: #f3f4f6;
-      border: 1px solid #e5e7eb;
-      border-radius: 6px;
-      padding: 8px 12px;
-      font-family: monospace;
-      font-size: 12px;
-      word-break: break-all;
-      margin-bottom: 12px;
-      color: #374151;
-    }
-
-    /* Tabs */
-    .tabs {
-      display: flex;
-      gap: 4px;
-      margin-bottom: 16px;
-      border-bottom: 2px solid #e5e7eb;
-      padding-bottom: 0;
-    }
-
-    .tab {
-      padding: 8px 16px;
-      border: none;
-      background: none;
-      font-size: 14px;
-      font-weight: 500;
-      color: #6b7280;
-      cursor: pointer;
-      border-bottom: 2px solid transparent;
-      margin-bottom: -2px;
-      border-radius: 0;
-    }
-
-    .tab.active {
-      color: #4f46e5;
-      border-bottom-color: #4f46e5;
-    }
-
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
-
-    /* Spinner */
-    .spinner {
-      display: inline-block;
-      width: 16px;
-      height: 16px;
-      border: 2px solid #fff;
-      border-top-color: transparent;
-      border-radius: 50%;
-      animation: spin 0.6s linear infinite;
-      vertical-align: middle;
-      margin-right: 6px;
-    }
-
-    @keyframes spin { to { transform: rotate(360deg); } }
-
-    label {
-      font-size: 12px;
-      font-weight: 600;
-      color: #374151;
-      display: block;
-      margin-bottom: 4px;
-    }
-
-    .field { margin-bottom: 12px; }
-
-    .section-title {
-      font-size: 13px;
-      font-weight: 700;
-      color: #374151;
-      margin-bottom: 10px;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-    }
-
-    .empty {
-      text-align: center;
-      padding: 40px;
-      color: #9ca3af;
-      font-size: 14px;
-    }
-
-    .empty-icon { font-size: 40px; margin-bottom: 8px; }
-  </style>
-</head>
-<body>
-
-<h1>🔍 Search API Tester</h1>
-
-<!-- Controls -->
-<div class="card">
-  <div class="section-title">Query Parameters</div>
-
-  <div class="row">
-    <div class="field" style="flex:2; min-width:200px;">
-      <label>Search Query (q)</label>
-      <input id="inp-q" type="text" placeholder="e.g. iPhone, laptop..." value="phone" />
+/* ══════════════════════════════════════════════════════════════
+   SKELETON CARD
+   ══════════════════════════════════════════════════════════════ */
+const SkeletonCard = memo(function SkeletonCard({ index }) {
+  return (
+    <div
+      className="sp-skeleton-card"
+      aria-hidden="true"
+      style={{ animationDelay: `${index * 0.05}s` }}
+    >
+      <div className="sp-sk-img"  />
+      <div className="sp-sk-body">
+        <div className="sp-sk-line sp-sk-title" />
+        <div className="sp-sk-line sp-sk-price" />
+        <div className="sp-sk-line sp-sk-meta"  />
+      </div>
     </div>
-    <div class="field" style="flex:1; min-width:140px;">
-      <label>Sort</label>
-      <select id="inp-sort">
-        <option value="relevance">Relevance</option>
-        <option value="newest">Newest</option>
-        <option value="price_low">Price Low→High</option>
-        <option value="price_high">Price High→Low</option>
-        <option value="popular">Popular</option>
-      </select>
-    </div>
-    <div class="field" style="flex:1; min-width:100px;">
-      <label>Page</label>
-      <input id="inp-page" type="number" value="1" min="1" />
-    </div>
-    <div class="field" style="flex:1; min-width:100px;">
-      <label>Limit</label>
-      <input id="inp-limit" type="number" value="12" min="1" max="80" />
-    </div>
-  </div>
+  );
+});
 
-  <div class="row">
-    <div class="field" style="flex:1; min-width:140px;">
-      <label>Category</label>
-      <input id="inp-category" type="text" placeholder="Electronics..." />
-    </div>
-    <div class="field" style="flex:1; min-width:140px;">
-      <label>Condition</label>
-      <select id="inp-condition">
-        <option value="">Any</option>
-        <option value="New">New</option>
-        <option value="Used - Like New">Used - Like New</option>
-        <option value="Used - Good">Used - Good</option>
-        <option value="Used - Fair">Used - Fair</option>
-      </select>
-    </div>
-    <div class="field" style="flex:1; min-width:120px;">
-      <label>Min Price (₦)</label>
-      <input id="inp-price-min" type="number" placeholder="0" />
-    </div>
-    <div class="field" style="flex:1; min-width:120px;">
-      <label>Max Price (₦)</label>
-      <input id="inp-price-max" type="number" placeholder="∞" />
-    </div>
-    <div class="field" style="flex:1; min-width:140px;">
-      <label>Location</label>
-      <input id="inp-location" type="text" placeholder="Lagos..." />
-    </div>
-  </div>
+/* ══════════════════════════════════════════════════════════════
+   FILTER SIDEBAR
+   ══════════════════════════════════════════════════════════════ */
+const FilterSidebar = memo(function FilterSidebar({
+  aggregations,
+  filters,
+  onChange,
+  onReset,
+}) {
+  const { price, conditions = [], states = [], categories = [] } = aggregations;
+  const activeCount = Object.values(filters).filter(Boolean).length;
 
-  <div class="row">
-    <div class="field" style="flex:1; min-width:200px;">
-      <label>Base URL</label>
-      <input id="inp-baseurl" type="text" value="/api/search" />
-    </div>
-  </div>
+  return (
+    <aside className="sp-sidebar" aria-label="Search filters">
+      <div className="sp-sidebar-head">
+        <h3 className="sp-sidebar-title">Filters</h3>
+        {activeCount > 0 && (
+          <button className="sp-filter-reset" onClick={onReset}>
+            Clear ({activeCount})
+          </button>
+        )}
+      </div>
 
-  <div class="row">
-    <button class="btn-primary" onclick="runSearch()" id="search-btn">
-      🔍 Search
-    </button>
-    <button class="btn-secondary" onclick="clearAll()">🗑 Clear</button>
-    <button class="btn-secondary" onclick="testEmpty()">Test Empty Query</button>
-    <button class="btn-secondary" onclick="testBadUrl()">Test Bad URL</button>
-  </div>
+      {/* Sort */}
+      <div className="sp-filter-group">
+        <label className="sp-filter-label" htmlFor="sp-sort">Sort by</label>
+        <select
+          id="sp-sort"
+          className="sp-filter-select"
+          value={filters.sort || "relevance"}
+          onChange={(e) => onChange("sort", e.target.value)}
+        >
+          <option value="relevance">Best Match</option>
+          <option value="newest">Newest First</option>
+          <option value="price_asc">Price: Low → High</option>
+          <option value="price_desc">Price: High → Low</option>
+          <option value="rating">Top Rated</option>
+        </select>
+      </div>
 
-  <!-- Live URL preview -->
-  <div class="url-display" id="url-preview">/api/search?q=phone&page=1&limit=12&sort=relevance</div>
-</div>
+      {/* Price range */}
+      {price && price.max > 0 && (
+        <div className="sp-filter-group">
+          <p className="sp-filter-label">Price Range</p>
+          <div className="sp-price-row">
+            <input
+              type="number"
+              className="sp-price-input"
+              placeholder="Min"
+              min={0}
+              max={price.max}
+              value={filters.min_price || ""}
+              onChange={(e) => onChange("min_price", e.target.value)}
+            />
+            <span className="sp-price-sep">–</span>
+            <input
+              type="number"
+              className="sp-price-input"
+              placeholder="Max"
+              min={0}
+              max={price.max}
+              value={filters.max_price || ""}
+              onChange={(e) => onChange("max_price", e.target.value)}
+            />
+          </div>
+        </div>
+      )}
 
-<!-- Results -->
-<div class="card">
-  <!-- Tabs -->
-  <div class="tabs">
-    <button class="tab active" onclick="switchTab('results')">📦 Results</button>
-    <button class="tab" onclick="switchTab('raw')">📄 Raw JSON</button>
-    <button class="tab" onclick="switchTab('log')">📋 Log</button>
-  </div>
+      {/* Condition */}
+      {conditions.length > 0 && (
+        <div className="sp-filter-group">
+          <p className="sp-filter-label">Condition</p>
+          {conditions.map((c) => (
+            <label key={c} className="sp-filter-check">
+              <input
+                type="radio"
+                name="condition"
+                value={c}
+                checked={filters.condition === c}
+                onChange={() =>
+                  onChange("condition", filters.condition === c ? "" : c)
+                }
+              />
+              <span>{c}</span>
+            </label>
+          ))}
+        </div>
+      )}
 
-  <!-- Stats -->
-  <div class="stats" id="stats" style="display:none;">
-    <div class="stat">
-      <div class="stat-value" id="stat-status">—</div>
-      <div class="stat-label">HTTP Status</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value" id="stat-total">—</div>
-      <div class="stat-label">Total Found</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value" id="stat-returned">—</div>
-      <div class="stat-label">Returned</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value" id="stat-pages">—</div>
-      <div class="stat-label">Total Pages</div>
-    </div>
-    <div class="stat">
-      <div class="stat-value" id="stat-time">—</div>
-      <div class="stat-label">Time (ms)</div>
-    </div>
-  </div>
+      {/* Category */}
+      {categories.length > 1 && (
+        <div className="sp-filter-group">
+          <p className="sp-filter-label">Category</p>
+          {categories.map((cat) => (
+            <label key={cat.id} className="sp-filter-check">
+              <input
+                type="radio"
+                name="category"
+                value={cat.id}
+                checked={filters.category_id === cat.id}
+                onChange={() =>
+                  onChange(
+                    "category_id",
+                    filters.category_id === cat.id ? "" : cat.id
+                  )
+                }
+              />
+              <span>{cat.name}</span>
+            </label>
+          ))}
+        </div>
+      )}
 
-  <!-- Tab Panels -->
-  <div class="tab-panel active" id="panel-results">
-    <div class="empty" id="empty-msg">
-      <div class="empty-icon">🔍</div>
-      <div>Hit Search to see results</div>
+      {/* Location */}
+      {states.length > 0 && (
+        <div className="sp-filter-group">
+          <p className="sp-filter-label">State</p>
+          <select
+            className="sp-filter-select"
+            value={filters.state || ""}
+            onChange={(e) => onChange("state", e.target.value)}
+          >
+            <option value="">All states</option>
+            {states.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+      )}
+    </aside>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════
+   RELATED PRODUCTS STRIP
+   ══════════════════════════════════════════════════════════════ */
+function RelatedStrip({ query, categoryId }) {
+  const [related,  setRelated]  = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!categoryId && !query) return;
+    setLoading(true);
+
+    const params = new URLSearchParams({ limit: 8 });
+    if (categoryId) params.set("category_id", categoryId);
+    if (query)      params.set("q",           query);
+
+    fetch(`${API}/search/related?${params}`)
+      .then((r) => r.ok ? r.json() : { related: [] })
+      .then((d) => setRelated(d.related || []))
+      .catch(() => setRelated([]))
+      .finally(() => setLoading(false));
+  }, [query, categoryId]);
+
+  if (!loading && related.length === 0) return null;
+
+  return (
+    <section className="sp-related" aria-label="Related products">
+      <h2 className="sp-related-title">Related Products</h2>
+
+      <div className="sp-related-grid">
+        {loading
+          ? Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} index={i} />)
+          : related.map((p) => (
+              <article
+                key={p.id}
+                className="sp-card sp-card--related"
+                onClick={() => navigate(`/product/${p.slug || p.id}`)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) =>
+                  e.key === "Enter" && navigate(`/product/${p.slug || p.id}`)
+                }
+              >
+                <div className="sp-card-img-wrap">
+                  {p.image
+                    ? <img src={p.image} alt={p.title} className="sp-card-img" loading="lazy" />
+                    : <div className="sp-card-img-placeholder">📦</div>
+                  }
+                  {p.is_promoted && (
+                    <span className="sp-badge sp-badge--promoted">Featured</span>
+                  )}
+                </div>
+                <div className="sp-card-body">
+                  <p className="sp-card-title">{p.title}</p>
+                  <p className="sp-card-price">{naira(p.price)}</p>
+                  {p.location?.city && (
+                    <p className="sp-card-loc-plain">{p.location.city}</p>
+                  )}
+                </div>
+              </article>
+            ))
+        }
+      </div>
+    </section>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   EMPTY STATE
+   ══════════════════════════════════════════════════════════════ */
+function EmptyState({ query, onReset }) {
+  return (
+    <div className="sp-empty">
+      <span className="sp-empty-emoji" aria-hidden="true">🔍</span>
+      <h2 className="sp-empty-title">No results for "{query}"</h2>
+      <p  className="sp-empty-sub">
+        Try different keywords, remove filters, or browse our categories.
+      </p>
+      <button className="sp-empty-btn" onClick={onReset}>
+        Clear filters
+      </button>
     </div>
-    <div class="products-grid" id="products-grid"></div>
-  </div>
+  );
+}
 
-  <div class="tab-panel" id="panel-raw">
-    <pre id="raw-json">// JSON response will appear here</pre>
-  </div>
+/* ══════════════════════════════════════════════════════════════
+   MAIN SEARCH PAGE
+   ══════════════════════════════════════════════════════════════ */
+export default function SearchPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navigate = useNavigate();
 
-  <div class="tab-panel" id="panel-log">
-    <div id="log-container">
-      <div class="log-entry log-info">Ready — fill in the fields and click Search.</div>
-    </div>
-  </div>
-</div>
+  /* ── Derive filters from URL ── */
+  const query       = searchParams.get("q")           || "";
+  const sort        = searchParams.get("sort")        || "relevance";
+  const category_id = searchParams.get("category_id") || "";
+  const min_price   = searchParams.get("min_price")   || "";
+  const max_price   = searchParams.get("max_price")   || "";
+  const condition   = searchParams.get("condition")   || "";
+  const state       = searchParams.get("state")       || "";
+  const city        = searchParams.get("city")        || "";
+  const page        = Number(searchParams.get("page") || 0);
 
-<script>
-  /* ── Tab switching ── */
-  function switchTab(name) {
-    document.querySelectorAll(".tab").forEach((t, i) => {
-      const panels = ["results", "raw", "log"];
-      t.classList.toggle("active", panels[i] === name);
+  const filters = useMemo(
+    () => ({ sort, category_id, min_price, max_price, condition, state, city }),
+    [sort, category_id, min_price, max_price, condition, state, city]
+  );
+
+  /* ── State ── */
+  const [products,     setProducts]     = useState([]);
+  const [aggregations, setAggregations] = useState({
+    price: { min: 0, max: 0 },
+    conditions: [],
+    states: [],
+    categories: [],
+  });
+  const [meta,         setMeta]         = useState(null);
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState(null);
+  const [sidebarOpen,  setSidebarOpen]  = useState(false);
+
+  const abortRef = useRef(null);
+
+  /* ── Fetch ── */
+  const fetchResults = useCallback(async () => {
+    if (!query || query.length < 2) return;
+
+    abortRef.current?.abort();
+    abortRef.current = new AbortController();
+
+    setLoading(true);
+    setError(null);
+
+    const params = new URLSearchParams({
+      q    : query,
+      page,
+      limit: PAGE_SIZE,
+      ...(sort        && { sort }),
+      ...(category_id && { category_id }),
+      ...(min_price   && { min_price }),
+      ...(max_price   && { max_price }),
+      ...(condition   && { condition }),
+      ...(state       && { state }),
+      ...(city        && { city }),
     });
-    document.querySelectorAll(".tab-panel").forEach((p) => {
-      p.classList.toggle("active", p.id === `panel-${name}`);
-    });
-  }
-
-  /* ── Log ── */
-  function log(msg, type = "info") {
-    const el = document.createElement("div");
-    el.className = `log-entry log-${type}`;
-    el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    document.getElementById("log-container").prepend(el);
-  }
-
-  /* ── Build URL from inputs ── */
-  function buildUrl() {
-    const base     = document.getElementById("inp-baseurl").value.trim() || "/api/search";
-    const q        = document.getElementById("inp-q").value.trim();
-    const sort     = document.getElementById("inp-sort").value;
-    const page     = document.getElementById("inp-page").value;
-    const limit    = document.getElementById("inp-limit").value;
-    const category = document.getElementById("inp-category").value.trim();
-    const condition= document.getElementById("inp-condition").value;
-    const priceMin = document.getElementById("inp-price-min").value.trim();
-    const priceMax = document.getElementById("inp-price-max").value.trim();
-    const location = document.getElementById("inp-location").value.trim();
-
-    const params = new URLSearchParams();
-    if (q)         params.set("q",         q);
-    if (sort)      params.set("sort",      sort);
-    if (page)      params.set("page",      page);
-    if (limit)     params.set("limit",     limit);
-    if (category)  params.set("category",  category);
-    if (condition) params.set("condition", condition);
-    if (priceMin)  params.set("price_min", priceMin);
-    if (priceMax)  params.set("price_max", priceMax);
-    if (location)  params.set("location",  location);
-
-    return `${base}?${params.toString()}`;
-  }
-
-  /* ── Live URL preview ── */
-  ["inp-q","inp-sort","inp-page","inp-limit","inp-category",
-   "inp-condition","inp-price-min","inp-price-max","inp-location","inp-baseurl"]
-    .forEach((id) => {
-      document.getElementById(id)
-        ?.addEventListener("input", () => {
-          document.getElementById("url-preview").textContent = buildUrl();
-        });
-    });
-
-  /* ── Helpers ── */
-  function naira(n) {
-    return "₦" + Number(n || 0).toLocaleString("en-NG");
-  }
-
-  function testEmpty() {
-    document.getElementById("inp-q").value = "";
-    runSearch();
-  }
-
-  function testBadUrl() {
-    document.getElementById("inp-baseurl").value = "/api/search-broken";
-    runSearch();
-  }
-
-  function clearAll() {
-    document.getElementById("products-grid").innerHTML = "";
-    document.getElementById("raw-json").textContent = "// cleared";
-    document.getElementById("empty-msg").style.display = "block";
-    document.getElementById("stats").style.display = "none";
-    log("Cleared", "info");
-  }
-
-  /* ── Main search ── */
-  async function runSearch() {
-    const url = buildUrl();
-    const btn = document.getElementById("search-btn");
-
-    btn.innerHTML = '<span class="spinner"></span>Searching…';
-    btn.disabled  = true;
-    document.getElementById("url-preview").textContent = url;
-    document.getElementById("empty-msg").style.display  = "none";
-    document.getElementById("products-grid").innerHTML  = "";
-
-    log(`GET ${url}`, "info");
-    const t0 = Date.now();
 
     try {
-      const res  = await fetch(url);
-      const ms   = Date.now() - t0;
-      const text = await res.text();
-
-      /* HTTP status */
-      const statusBadge = res.ok ? "✅" : "❌";
-      log(`${statusBadge} ${res.status} ${res.statusText} — ${ms}ms`, res.ok ? "success" : "error");
-
-      /* Try parse JSON */
-      let data;
-      try {
-        data = JSON.parse(text);
-      } catch {
-        log("❌ Response is not valid JSON!", "error");
-        log(`Raw: ${text.slice(0, 300)}`, "warn");
-        document.getElementById("raw-json").textContent = text;
-        switchTab("raw");
-        return;
-      }
-
-      /* Raw JSON tab */
-      document.getElementById("raw-json").textContent =
-        JSON.stringify(data, null, 2);
-
-      /* Stats */
-      const products = Array.isArray(data.products) ? data.products : [];
-      document.getElementById("stat-status").textContent   = res.status;
-      document.getElementById("stat-total").textContent    = data.total ?? "?";
-      document.getElementById("stat-returned").textContent = products.length;
-      document.getElementById("stat-pages").textContent    = data.totalPages ?? "?";
-      document.getElementById("stat-time").textContent     = ms;
-      document.getElementById("stats").style.display       = "flex";
-
-      /* Diagnose */
-      if (!res.ok) {
-        log(`Server error: ${data.message || "unknown"}`, "error");
-        if (data.debug) log(`Debug: ${data.debug}`, "warn");
-      }
-
-      if (!Array.isArray(data.products)) {
-        log('⚠️ Response missing "products" array!', "warn");
-        log(`Keys received: ${Object.keys(data).join(", ")}`, "warn");
-      }
-
-      if (products.length === 0 && res.ok) {
-        log("⚠️ Got 0 products — check your DB or query", "warn");
-        document.getElementById("empty-msg").style.display = "block";
-        document.getElementById("empty-msg").innerHTML =
-          `<div class="empty-icon">📭</div>
-           <div>0 products returned</div>
-           <div style="font-size:11px;margin-top:6px;color:#6b7280;">
-             total=${data.total} • query="${data.query}"
-           </div>`;
-      }
-
-      /* Suggestions */
-      if (data.suggestions?.length > 0) {
-        log(`Suggestions: ${data.suggestions.join(", ")}`, "info");
-      }
-
-      /* Render cards */
-      const grid = document.getElementById("products-grid");
-      products.forEach((p, i) => {
-        const card = document.createElement("div");
-        card.className = "product-card";
-
-        const img   = (p.images?.[0]) || p.image || p.main_image || null;
-        const city  = p.location_city || p.location?.city || "";
-        const price = naira(p.price);
-
-        card.innerHTML = `
-          ${img
-            ? `<img class="product-img" src="${img}"
-                    alt="${p.title}"
-                    onerror="this.style.display='none';this.nextElementSibling.style.display='flex'"
-               />
-               <div class="product-img-placeholder" style="display:none">📦</div>`
-            : `<div class="product-img-placeholder">📦</div>`
-          }
-          <div class="product-body">
-            <div class="product-title" title="${p.title || ''}">${p.title || "Untitled"}</div>
-            <div class="product-price">${price}</div>
-            <div class="product-meta">
-              ${p.condition  ? `<span class="badge badge-blue">${p.condition}</span> ` : ""}
-              ${p.is_promoted ? `<span class="badge badge-yellow">⭐ Featured</span> ` : ""}
-              ${city         ? `📍 ${city}` : ""}
-            </div>
-            <div class="product-meta" style="margin-top:4px;color:#9ca3af;">
-              ID: ${p.id} &nbsp;|&nbsp; #${i + 1}
-            </div>
-          </div>
-        `;
-        grid.appendChild(card);
+      const res  = await fetch(`${API}/search?${params}`, {
+        signal: abortRef.current.signal,
       });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
 
-      if (products.length > 0) {
-        log(`✅ Rendered ${products.length} product(s)`, "success");
-      }
-
+      setProducts(data.products     || []);
+      setMeta(data.meta             || null);
+      setAggregations(data.aggregations || {
+        price: { min: 0, max: 0 },
+        conditions: [],
+        states: [],
+        categories: [],
+      });
     } catch (err) {
-      const ms = Date.now() - t0;
-      log(`❌ Fetch failed after ${ms}ms: ${err.message}`, "error");
-      log("Is your server running? Check the Base URL.", "warn");
-      document.getElementById("empty-msg").style.display = "block";
-      document.getElementById("empty-msg").innerHTML =
-        `<div class="empty-icon">🚫</div>
-         <div>Network Error</div>
-         <div style="font-size:11px;margin-top:6px;color:#ef4444;">${err.message}</div>`;
+      if (err.name !== "AbortError") {
+        setError(err.message);
+        setProducts([]);
+      }
     } finally {
-      btn.innerHTML = "🔍 Search";
-      btn.disabled  = false;
+      setLoading(false);
     }
-  }
+  }, [query, page, sort, category_id, min_price, max_price, condition, state, city]);
 
-  /* ── Enter key on query input ── */
-  document.getElementById("inp-q")
-    .addEventListener("keydown", (e) => {
-      if (e.key === "Enter") runSearch();
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    fetchResults();
+    return () => abortRef.current?.abort();
+  }, [fetchResults]);
+
+  /* ── Update a single filter (resets to page 0) ── */
+  const handleFilterChange = useCallback((key, value) => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (value) next.set(key, value);
+      else       next.delete(key);
+      next.delete("page");   // reset pagination
+      return next;
     });
+  }, [setSearchParams]);
 
-  /* ── Init URL preview ── */
-  document.getElementById("url-preview").textContent = buildUrl();
-</script>
-</body>
-</html>
+  /* ── Reset all filters ── */
+  const handleReset = useCallback(() => {
+    setSearchParams({ q: query });
+  }, [query, setSearchParams]);
+
+  /* ── Page change ── */
+  const handlePage = useCallback((dir) => {
+    setSearchParams((prev) => {
+      const next    = new URLSearchParams(prev);
+      const newPage = Math.max(0, page + dir);
+      if (newPage === 0) next.delete("page");
+      else               next.set("page", newPage);
+      return next;
+    });
+  }, [page, setSearchParams]);
+
+  /* ── Dominant category for related strip ── */
+  const dominantCategory = useMemo(() => {
+    if (category_id) return category_id;
+    const freq = {};
+    for (const p of products) {
+      if (p.category_id) freq[p.category_id] = (freq[p.category_id] || 0) + 1;
+    }
+    return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+  }, [products, category_id]);
+
+  /* ══════════════════════════════════════════════════════════
+     RENDER
+  ══════════════════════════════════════════════════════════ */
+  return (
+    <div className="sp-root">
+
+      {/* ── Breadcrumb ── */}
+      <nav className="sp-breadcrumb" aria-label="breadcrumb">
+        <Link to="/" className="sp-bc-link">Home</Link>
+        <span className="sp-bc-sep" aria-hidden="true">›</span>
+        <span className="sp-bc-current">
+          {query ? `Search: "${query}"` : "Search"}
+        </span>
+      </nav>
+
+      {/* ── Page header ── */}
+      <header className="sp-header">
+        <div className="sp-header-text">
+          <h1 className="sp-title">
+            {query
+              ? <>Results for <em>"{query}"</em></>
+              : "Search Results"}
+          </h1>
+          {meta && !loading && (
+            <p className="sp-subtitle">
+              {meta.total > 0
+                ? `${meta.total.toLocaleString()} product${meta.total !== 1 ? "s" : ""} found`
+                : "No products found"}
+              {meta.filters?.state && ` in ${meta.filters.state}`}
+            </p>
+          )}
+        </div>
+
+        {/* Mobile filter toggle */}
+        <button
+          className="sp-filter-toggle"
+          onClick={() => setSidebarOpen((v) => !v)}
+          aria-expanded={sidebarOpen}
+          aria-label="Toggle filters"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" strokeWidth="2.5">
+            <line x1="4"  y1="6"  x2="20" y2="6"/>
+            <line x1="8"  y1="12" x2="20" y2="12"/>
+            <line x1="12" y1="18" x2="20" y2="18"/>
+          </svg>
+          Filters
+          {Object.values(filters).filter(Boolean).length > 0 && (
+            <span className="sp-filter-badge">
+              {Object.values(filters).filter(Boolean).length}
+            </span>
+          )}
+        </button>
+      </header>
+
+      {/* ── Layout ── */}
+      <div className="sp-layout">
+
+        {/* Sidebar overlay (mobile) */}
+        {sidebarOpen && (
+          <div
+            className="sp-sidebar-overlay"
+            onClick={() => setSidebarOpen(false)}
+            aria-hidden="true"
+          />
+        )}
+
+        {/* Sidebar */}
+        <div className={`sp-sidebar-wrap ${sidebarOpen ? "sp-sidebar-wrap--open" : ""}`}>
+          <FilterSidebar
+            aggregations={aggregations}
+            filters={filters}
+            onChange={handleFilterChange}
+            onReset={handleReset}
+          />
+        </div>
+
+        {/* Main content */}
+        <main className="sp-main" aria-live="polite" aria-busy={loading}>
+
+          {/* Error */}
+          {error && !loading && (
+            <div className="sp-error" role="alert">
+              <p>Something went wrong: {error}</p>
+              <button onClick={fetchResults}>Retry</button>
+            </div>
+          )}
+
+          {/* Loading skeleton */}
+          {loading && (
+            <div className="sp-grid">
+              {Array.from({ length: PAGE_SIZE }, (_, i) => (
+                <SkeletonCard key={i} index={i} />
+              ))}
+            </div>
+          )}
+
+          {/* Results */}
+          {!loading && !error && products.length > 0 && (
+            <>
+              <div className="sp-grid">
+                {products.map((p) => (
+                  <ProductCard key={p.id} product={p} query={query} />
+                ))}
+              </div>
+
+              {/* Pagination */}
+              <div className="sp-pagination">
+                <button
+                  className="sp-page-btn"
+                  onClick={() => handlePage(-1)}
+                  disabled={page === 0}
+                  aria-label="Previous page"
+                >
+                  ← Prev
+                </button>
+                <span className="sp-page-info">Page {page + 1}</span>
+                <button
+                  className="sp-page-btn"
+                  onClick={() => handlePage(1)}
+                  disabled={!meta?.has_more}
+                  aria-label="Next page"
+                >
+                  Next →
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Empty */}
+          {!loading && !error && products.length === 0 && query && (
+            <EmptyState query={query} onReset={handleReset} />
+          )}
+        </main>
+      </div>
+
+      {/* ── Related Products ── */}
+      {!loading && (
+        <RelatedStrip
+          query={query}
+          categoryId={dominantCategory}
+        />
+      )}
+    </div>
+  );
+}
