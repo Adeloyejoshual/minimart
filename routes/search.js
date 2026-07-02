@@ -8,12 +8,12 @@ const router = express.Router();
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
    ══════════════════════════════════════════════════════════════ */
-const CACHE_TTL      = 60;   // 1 min
-const MAX_LIMIT      = 40;
-const MAX_RELATED    = 8;
+const CACHE_TTL   = 60;
+const MAX_LIMIT   = 40;
+const MAX_RELATED = 8;
 
 /* ══════════════════════════════════════════════════════════════
-   SHAPE PRODUCT — reusable helper (mirrors homepage.js)
+   SHAPE PRODUCT
    ══════════════════════════════════════════════════════════════ */
 function shapeProduct(p) {
   let image = p.main_image || p.thumbnail_url || null;
@@ -40,8 +40,8 @@ function shapeProduct(p) {
     ? clicks / impressions
     : vw > 0 ? clicks / vw : 0;
 
-  const origPrice  = Number(p.attributes?.original_price || 0);
-  const currPrice  = Number(p.price || 0);
+  const origPrice = Number(p.attributes?.original_price || 0);
+  const currPrice = Number(p.price || 0);
   const discountPct =
     origPrice > currPrice && currPrice > 0
       ? Math.round(((origPrice - currPrice) / origPrice) * 100)
@@ -75,9 +75,9 @@ function shapeProduct(p) {
     whatsapp         : p.whatsapp    || null,
     phone            : p.phone       || null,
     created_at       : p.created_at,
-    category_id      : p.category_id     || null,
-    category_name    : p.category_name   || null,
-    subcategory_id   : p.subcategory_id  || null,
+    category_id      : p.category_id    || null,
+    category_name    : p.category_name  || null,
+    subcategory_id   : p.subcategory_id || null,
     seller_id        : p.seller_id   || null,
     seller_name      : p.seller_name || null,
     stock_status     : p.stock_status || null,
@@ -92,44 +92,30 @@ function shapeProduct(p) {
                 .filter(Boolean).join(", ") || null,
     },
     seller: {
-      id       : p.seller_id   || null,
-      name     : p.seller_name || null,
+      id   : p.seller_id   || null,
+      name : p.seller_name || null,
     },
   };
 }
 
 /* ══════════════════════════════════════════════════════════════
-   SHARED SELECT COLUMNS
+   SAFE TS-QUERY BUILDER
+   Converts "iphone 14 pro" → "iphone:* & 14:* & pro:*"
+   Strips characters that break to_tsquery
    ══════════════════════════════════════════════════════════════ */
-const PRODUCT_COLS = `
-  p.id, p.title, p.description, p.price, p.slug,
-  p.main_image, p.thumbnail_url, p.images, p.video_url,
-  p.attributes, p.brand, p.model, p.condition, p.negotiable,
-  p.views, p.clicks_count, p.impression_count,
-  p.engagement_score, p.is_promoted, p.is_featured,
-  p.favorites_count, p.average_rating, p.reviews_count,
-  p.offer_type, p.delivery, p.whatsapp, p.phone,
-  p.created_at, p.category_id, p.subcategory_id,
-  p.seller_id, p.seller_name,
-  p.stock_status, p.location_city, p.location_state,
-  p.negotiable,
-  c.name AS category_name
-`;
+function buildTsQuery(raw) {
+  const words = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")   // remove punctuation
+    .split(/\s+/)
+    .filter((w) => w.length > 0);
 
-const PRODUCT_JOIN = `
-  FROM public.products p
-  LEFT JOIN public.categories c ON c.id = p.category_id
-`;
-
-const ACTIVE_GUARD = `
-  p.is_active  = true
-  AND p.status     = 'active'
-  AND p.is_deleted = false
-`;
+  if (words.length === 0) return null;
+  return words.map((w) => `${w}:*`).join(" & ");
+}
 
 /* ══════════════════════════════════════════════════════════════
-   GET /api/search?q=...&page=0&limit=20&sort=&category_id=...
-         &min_price=&max_price=&condition=&state=&city=
+   GET /api/search
    ══════════════════════════════════════════════════════════════ */
 router.get("/", async (req, res) => {
   const {
@@ -146,7 +132,6 @@ router.get("/", async (req, res) => {
   } = req.query;
 
   const clean = q.trim();
-
   if (!clean || clean.length < 2) {
     return res.status(400).json({ error: "Query too short (min 2 chars)" });
   }
@@ -162,8 +147,8 @@ router.get("/", async (req, res) => {
     min_price   ? `mn${min_price}`   : "",
     max_price   ? `mx${max_price}`   : "",
     condition   ? `cd${condition}`   : "",
-    state       ? `st${state.toLowerCase().replace(/\s/g, "_")}` : "",
-    city        ? `cy${city.toLowerCase().replace(/\s/g, "_")}`  : "",
+    state ? `st${state.toLowerCase().replace(/\s/g, "_")}` : "",
+    city  ? `cy${city.toLowerCase().replace(/\s/g, "_")}`  : "",
   ].filter(Boolean).join(":");
 
   const cached = await cacheGet(cacheKey);
@@ -176,32 +161,40 @@ router.get("/", async (req, res) => {
   try {
     const realLimit = Math.min(Number(limit) || 20, MAX_LIMIT);
     const offset    = Number(page) * realLimit;
-    const values    = [];
-    const push      = (v) => { values.push(v); return `$${values.length}`; };
 
-    /* ── Base WHERE ── */
-    const where = [ACTIVE_GUARD];
+    /* ── Parameter array ── */
+    const values = [];
+    const push   = (v) => { values.push(v); return `$${values.length}`; };
 
-    /* ── Full-text search (ts_rank) + ILIKE fallback ── */
-    /*
-       Strategy:
-       1. ts_vector on title + brand + model + category_name
-       2. ILIKE as secondary fallback so partial words still match
-    */
-    const qParam = push(`%${clean}%`);
-    const tsParam = push(clean.split(/\s+/).filter(Boolean).map(w => `${w}:*`).join(" & "));
+    /* ── $1 = ILIKE pattern  $2 = tsquery string ── */
+    const ilikePat = push(`%${clean}%`);          // $1
+    const tsQuery  = buildTsQuery(clean);
+    const tsParam  = tsQuery ? push(tsQuery) : null; // $2  (may be null)
+
+    /* ── Base active guard ── */
+    const where = [
+      `p.is_active  = true`,
+      `p.status     = 'active'`,
+      `p.is_deleted = false`,
+    ];
+
+    /* ── Full-text / ILIKE search clause ── */
+    const tsClause = tsParam
+      ? `OR  to_tsvector('english',
+               COALESCE(p.title,'')       || ' ' ||
+               COALESCE(p.brand,'')       || ' ' ||
+               COALESCE(p.model,'')       || ' ' ||
+               COALESCE(p.description,'')
+             ) @@ to_tsquery('english', ${tsParam})`
+      : "";
 
     where.push(`(
-      p.title        ILIKE ${qParam}
-      OR p.brand     ILIKE ${qParam}
-      OR p.model     ILIKE ${qParam}
-      OR p.description ILIKE ${qParam}
-      OR c.name      ILIKE ${qParam}
-      OR to_tsvector('english', COALESCE(p.title,'') || ' ' ||
-                                COALESCE(p.brand,'') || ' ' ||
-                                COALESCE(p.model,'') || ' ' ||
-                                COALESCE(p.description,''))
-         @@ to_tsquery('english', ${tsParam})
+        p.title         ILIKE ${ilikePat}
+     OR p.brand         ILIKE ${ilikePat}
+     OR p.model         ILIKE ${ilikePat}
+     OR p.description   ILIKE ${ilikePat}
+     OR p.category_name ILIKE ${ilikePat}
+     ${tsClause}
     )`);
 
     /* ── Optional filters ── */
@@ -224,85 +217,142 @@ router.get("/", async (req, res) => {
       where.push(`p.price <= ${push(Number(max_price))}`);
     }
 
-    /* ── Sort ── */
-    const relevanceExpr = `
-      ts_rank(
-        to_tsvector('english',
-          COALESCE(p.title,'') || ' ' ||
-          COALESCE(p.brand,'') || ' ' ||
-          COALESCE(p.model,'')),
-        to_tsquery('english', $2)
-      ) +
-      CASE WHEN LOWER(p.title) LIKE $1 THEN 0.5 ELSE 0 END +
-      (p.engagement_score * 0.01)
-    `;
-
-    let orderBy;
-    switch (sort) {
-      case "price_asc":    orderBy = `p.price ASC,  p.engagement_score DESC`; break;
-      case "price_desc":   orderBy = `p.price DESC, p.engagement_score DESC`; break;
-      case "newest":       orderBy = `p.created_at DESC`;                     break;
-      case "rating":       orderBy = `p.average_rating DESC, p.reviews_count DESC`; break;
-      default:             orderBy = `${relevanceExpr} DESC, p.is_promoted DESC, p.created_at DESC`;
-    }
-
     const whereClause = where.join(" AND ");
 
-    /* ── Pagination params ── */
-    values.push(realLimit + 1);
-    const limitP  = `$${values.length}`;
-    values.push(offset);
-    const offsetP = `$${values.length}`;
+    /* ── ORDER BY ── */
+    /*
+       For relevance we inline the ts_rank using the SAME param indices
+       ($1 for ilike, $2 for tsquery) — they are already in values[].
+       We must NOT push new values for the ORDER BY expression.
+    */
+    let orderBy;
+    if (sort === "price_asc") {
+      orderBy = `p.price ASC, p.engagement_score DESC`;
+    } else if (sort === "price_desc") {
+      orderBy = `p.price DESC, p.engagement_score DESC`;
+    } else if (sort === "newest") {
+      orderBy = `p.created_at DESC`;
+    } else if (sort === "rating") {
+      orderBy = `p.average_rating DESC, p.reviews_count DESC`;
+    } else {
+      /* relevance — reuse $1 and $2 already in the param list */
+      const titleBoost = `CASE WHEN LOWER(p.title) LIKE ${ilikePat} THEN 0.5 ELSE 0 END`;
+      const rankExpr   = tsParam
+        ? `ts_rank(
+             to_tsvector('english',
+               COALESCE(p.title,'') || ' ' ||
+               COALESCE(p.brand,'') || ' ' ||
+               COALESCE(p.model,'')
+             ),
+             to_tsquery('english', ${tsParam})
+           )`
+        : "0";
 
-    /* ── Count values (same filters, no pagination) ── */
+      orderBy = `
+        (${rankExpr} + ${titleBoost} + (p.engagement_score * 0.01)) DESC,
+        p.is_promoted DESC,
+        p.created_at  DESC
+      `;
+    }
+
+    /* ── Pagination params ── */
+    const limitParam  = push(realLimit + 1);
+    const offsetParam = push(offset);
+
+    /* Count uses same values minus last two (limit/offset) */
     const countValues = values.slice(0, values.length - 2);
 
+    /* ── Queries ── */
+    /*
+       NOTE: We use p.category_name directly (denormalised column from
+       homepage.js schema). If you have a categories JOIN instead,
+       swap the SELECT col and add the JOIN back.
+    */
     const mainSql = `
-      SELECT ${PRODUCT_COLS}
-      ${PRODUCT_JOIN}
+      SELECT
+        p.id, p.title, p.description, p.price, p.slug,
+        p.main_image, p.thumbnail_url, p.images, p.video_url,
+        p.attributes, p.brand, p.model, p.condition, p.negotiable,
+        p.views, p.clicks_count, p.impression_count,
+        p.engagement_score, p.is_promoted, p.is_featured,
+        p.favorites_count, p.average_rating, p.reviews_count,
+        p.offer_type, p.delivery, p.whatsapp, p.phone,
+        p.created_at, p.category_id, p.subcategory_id,
+        p.seller_id, p.seller_name,
+        p.stock_status, p.location_city, p.location_state,
+        p.category_name
+      FROM public.products p
       WHERE ${whereClause}
       ORDER BY ${orderBy}
-      LIMIT ${limitP} OFFSET ${offsetP}
+      LIMIT  ${limitParam}
+      OFFSET ${offsetParam}
     `;
 
     const countSql = `
       SELECT COUNT(*)::int AS total
-      ${PRODUCT_JOIN}
+      FROM public.products p
       WHERE ${whereClause}
     `;
 
-    const [mainResult, countResult] = await Promise.all([
+    /* ── Run in parallel ── */
+    const [mainRes, countRes] = await Promise.all([
       pool.query(mainSql, values),
       pool.query(countSql, countValues),
     ]);
 
-    const { rows } = mainResult;
-    const total    = countResult.rows[0]?.total || 0;
+    const { rows } = mainRes;
+    const total    = countRes.rows[0]?.total || 0;
     const hasMore  = rows.length > realLimit;
     const records  = hasMore ? rows.slice(0, realLimit) : rows;
     const products = records.map(shapeProduct);
 
-    /* ── Aggregations for filter sidebar ── */
+    /* ── Aggregations (reuse same WHERE, no pagination) ── */
     const aggSql = `
       SELECT
-        MIN(p.price)::int                          AS min_price,
-        MAX(p.price)::int                          AS max_price,
-        COUNT(DISTINCT p.condition)::int           AS condition_count,
-        COUNT(DISTINCT p.location_state)::int      AS state_count,
-        json_agg(DISTINCT p.condition)
-          FILTER (WHERE p.condition IS NOT NULL)   AS conditions,
-        json_agg(DISTINCT p.location_state)
-          FILTER (WHERE p.location_state IS NOT NULL) AS states,
-        json_agg(DISTINCT jsonb_build_object(
-          'id', p.category_id::text,
-          'name', c.name
-        )) FILTER (WHERE p.category_id IS NOT NULL) AS categories
-      ${PRODUCT_JOIN}
+        MIN(p.price)::int  AS min_price,
+        MAX(p.price)::int  AS max_price,
+
+        /* distinct non-null conditions as JSON array */
+        COALESCE(
+          json_agg(DISTINCT p.condition)
+            FILTER (WHERE p.condition IS NOT NULL),
+          '[]'
+        ) AS conditions,
+
+        /* distinct non-null states */
+        COALESCE(
+          json_agg(DISTINCT p.location_state)
+            FILTER (WHERE p.location_state IS NOT NULL),
+          '[]'
+        ) AS states,
+
+        /* distinct categories as {id, name} objects */
+        COALESCE(
+          json_agg(
+            DISTINCT jsonb_build_object(
+              'id',   p.category_id::text,
+              'name', p.category_name
+            )
+          ) FILTER (WHERE p.category_id IS NOT NULL),
+          '[]'
+        ) AS categories
+      FROM public.products p
       WHERE ${whereClause}
     `;
 
-    const aggResult  = await pool.query(aggSql, countValues);
-    const agg        = aggResult.rows[0] || {};
+    const aggRes = await pool.query(aggSql, countValues);
+    const agg    = aggRes.rows[0] || {};
+
+    /* Deduplicate categories (json_agg DISTINCT on jsonb sometimes
+       returns dupes when the object keys differ in ordering) */
+    const seenCats = new Set();
+    const cleanCats = (Array.isArray(agg.categories) ? agg.categories : [])
+      .filter((c) => c?.id && c?.name)
+      .filter((c) => {
+        if (seenCats.has(c.id)) return false;
+        seenCats.add(c.id);
+        return true;
+      });
 
     const payload = {
       products,
@@ -315,17 +365,13 @@ router.get("/", async (req, res) => {
         total,
         has_more : hasMore,
         sort,
-        filters: { category_id, min_price, max_price, condition, state, city },
+        filters  : { category_id, min_price, max_price, condition, state, city },
       },
       aggregations: {
-        price     : { min: agg.min_price || 0, max: agg.max_price || 0 },
-        conditions: Array.isArray(agg.conditions) ? agg.conditions.filter(Boolean) : [],
-        states    : Array.isArray(agg.states)     ? agg.states.filter(Boolean)     : [],
-        categories: Array.isArray(agg.categories)
-          ? agg.categories.filter(
-              (v, i, a) => v?.id && a.findIndex((x) => x?.id === v.id) === i
-            )
-          : [],
+        price      : { min: agg.min_price || 0, max: agg.max_price || 0 },
+        conditions : Array.isArray(agg.conditions) ? agg.conditions.filter(Boolean) : [],
+        states     : Array.isArray(agg.states)     ? agg.states.filter(Boolean)     : [],
+        categories : cleanCats,
       },
     };
 
@@ -333,14 +379,16 @@ router.get("/", async (req, res) => {
     return res.json(payload);
 
   } catch (err) {
-    console.error("[search] ERROR:", err.message);
-    return res.status(500).json({ error: "Search failed", message: err.message });
+    console.error("[search] ERROR:", err.message, err.stack);
+    return res.status(500).json({
+      error   : "Search failed",
+      message : err.message,
+    });
   }
 });
 
 /* ══════════════════════════════════════════════════════════════
-   GET /api/search/related?slug=...&category_id=...&limit=8
-   — used by SearchPage to show "More like this"
+   GET /api/search/related
    ══════════════════════════════════════════════════════════════ */
 router.get("/related", async (req, res) => {
   const {
@@ -362,40 +410,64 @@ router.get("/related", async (req, res) => {
   }
 
   try {
-    const values   = [];
-    const push     = (v) => { values.push(v); return `$${values.length}`; };
-    const excludes = [];
+    const values = [];
+    const push   = (v) => { values.push(v); return `$${values.length}`; };
 
-    if (slug) excludes.push(`p.slug  != ${push(slug)}`);
-    if (id)   excludes.push(`p.id   != ${push(id)}::uuid`);
+    const where = [
+      `p.is_active  = true`,
+      `p.status     = 'active'`,
+      `p.is_deleted = false`,
+    ];
 
-    /* Resolve category_id if not given but id/slug provided */
-    let catId = category_id;
+    /* Exclude current product */
+    if (slug) where.push(`p.slug != ${push(slug)}`);
+    if (id)   where.push(`p.id   != ${push(id)}::uuid`);
+
+    /* Resolve category if not supplied */
+    let catId = category_id || null;
     if (!catId && (slug || id)) {
-      const col   = slug ? "slug" : "id";
-      const cast  = slug ? "" : "::uuid";
-      const r = await pool.query(
-        `SELECT category_id FROM public.products
+      const col  = slug ? "slug" : "id";
+      const cast = slug ? "" : "::uuid";
+      const r    = await pool.query(
+        `SELECT category_id
+         FROM public.products
          WHERE ${col} = $1${cast}
-           AND is_active = true AND is_deleted = false
+           AND is_active  = true
+           AND is_deleted = false
          LIMIT 1`,
         [slug || id]
       );
       catId = r.rows[0]?.category_id || null;
     }
 
-    const where = [ACTIVE_GUARD, ...excludes];
-    if (catId) where.push(`p.category_id = ${push(catId)}::uuid`);
+    if (catId) {
+      where.push(`p.category_id = ${push(catId)}::uuid`);
+    }
 
     const realLimit = Math.min(Number(limit), MAX_RELATED);
     values.push(realLimit);
+    const limitParam = `$${values.length}`;
 
     const sql = `
-      SELECT ${PRODUCT_COLS}
-      ${PRODUCT_JOIN}
+      SELECT
+        p.id, p.title, p.price, p.slug,
+        p.main_image, p.thumbnail_url, p.images,
+        p.brand, p.condition, p.is_promoted,
+        p.engagement_score, p.created_at,
+        p.location_city, p.location_state,
+        p.category_id, p.category_name,
+        p.seller_id, p.seller_name,
+        p.attributes, p.views, p.clicks_count,
+        p.impression_count, p.favorites_count,
+        p.average_rating, p.reviews_count,
+        p.offer_type, p.delivery, p.whatsapp,
+        p.phone, p.stock_status, p.subcategory_id,
+        p.is_featured, p.negotiable,
+        p.video_url, p.model
+      FROM public.products p
       WHERE ${where.join(" AND ")}
       ORDER BY p.is_promoted DESC, p.engagement_score DESC, p.created_at DESC
-      LIMIT $${values.length}
+      LIMIT ${limitParam}
     `;
 
     const { rows } = await pool.query(sql, values);
@@ -406,8 +478,8 @@ router.get("/related", async (req, res) => {
     return res.json(payload);
 
   } catch (err) {
-    console.error("[search/related] ERROR:", err.message);
-    return res.status(500).json({ error: "Related fetch failed" });
+    console.error("[search/related] ERROR:", err.message, err.stack);
+    return res.status(500).json({ error: "Related fetch failed", message: err.message });
   }
 });
 
