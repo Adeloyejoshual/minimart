@@ -175,6 +175,10 @@
   padding: 10px 0 4px;
 }
 
+.hm-section + .hm-section {
+  border-top: 1px solid #161616;
+}
+
 .hm-section-label {
   font-size: 10px;
   font-weight: 700;
@@ -208,6 +212,18 @@
   background: #161616;
 }
 
+/* active left accent bar */
+.hm-item--active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20%;
+  height: 60%;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: #e8523a;
+}
+
 .hm-item-icon {
   font-size: 14px;
   color: #555;
@@ -236,6 +252,10 @@
 
 .hm-item:hover .hm-item-label {
   color: #fff;
+}
+
+.hm-item:hover .hm-item-icon {
+  color: #e8523a;
 }
 
 .hm-item-dot {
