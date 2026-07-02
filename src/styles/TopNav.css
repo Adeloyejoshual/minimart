@@ -47,7 +47,8 @@
 .tn-wrap {
   position               : sticky;
   top                    : 0;
-  z-index                : 100;
+  /* high enough to sit above page content but overlay is lower */
+  z-index                : 1300;
   background             : var(--tn-glass-strong);
   backdrop-filter         : blur(var(--tn-blur));
   -webkit-backdrop-filter : blur(var(--tn-blur));
@@ -86,16 +87,16 @@
   border         : 1.5px solid var(--tn-glass-border);
   border-radius  : var(--tn-r-sm);
   background     : var(--tn-glass);
-  backdrop-filter : blur(8px);
+  backdrop-filter: blur(8px);
   cursor         : pointer;
   flex-shrink    : 0;
   transition     : all 0.18s ease;
 }
 
 .tn-hamburger:hover {
-  background   : rgba(255,255,255,0.75);
-  border-color : rgba(255,255,255,0.6);
-  transform    : scale(1.04);
+  background  : rgba(255,255,255,0.75);
+  border-color: rgba(255,255,255,0.6);
+  transform   : scale(1.04);
 }
 
 .tn-hamburger:active { transform: scale(0.95); }
@@ -138,29 +139,36 @@
 
 /* ══════════════════════════════════════════════════════════════
    SEARCH ROW
+   — sits above the overlay so the input stays interactive
    ══════════════════════════════════════════════════════════════ */
 .tn-search-row {
   position      : relative;
   padding-bottom: 10px;
+  /* must be above .tn-overlay (1200) so input is always clickable */
+  z-index       : 1302;
 }
 
 .tn-search-box {
-  display       : flex;
-  align-items   : center;
-  gap           : 6px;
-  background    : var(--tn-glass);
+  display        : flex;
+  align-items    : center;
+  gap            : 6px;
+  background     : var(--tn-glass);
   backdrop-filter: blur(12px);
-  border        : 1.5px solid var(--tn-glass-border);
-  border-radius : var(--tn-r-md);
-  padding       : 0 6px 0 10px;
-  height        : 42px;
-  transition    : border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+  border         : 1.5px solid var(--tn-glass-border);
+  border-radius  : var(--tn-r-md);
+  padding        : 0 6px 0 10px;
+  height         : 42px;
+  position       : relative;
+  /* above the overlay */
+  z-index        : 1303;
+  transition     : border-color 0.2s ease, box-shadow 0.2s ease,
+                   background 0.2s ease;
 }
 
 .tn-search-box:focus-within {
-  border-color : var(--tn-orange);
-  box-shadow   : 0 0 0 3px var(--tn-orange-soft);
-  background   : var(--tn-glass-strong);
+  border-color: var(--tn-orange);
+  box-shadow  : 0 0 0 3px var(--tn-orange-soft);
+  background  : var(--tn-glass-strong);
 }
 
 .tn-search-icon {
@@ -196,19 +204,19 @@
 .tn-input::-webkit-search-decoration { display: none; }
 
 .tn-clear-btn {
-  display         : flex;
-  align-items     : center;
-  justify-content : center;
-  width           : 20px;
-  height          : 20px;
-  border          : none;
-  border-radius   : 50%;
-  background      : rgba(0,0,0,0.07);
-  color           : var(--tn-text-muted);
-  cursor          : pointer;
-  flex-shrink     : 0;
-  transition      : all 0.15s ease;
-  padding         : 0;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  width          : 20px;
+  height         : 20px;
+  border         : none;
+  border-radius  : 50%;
+  background     : rgba(0,0,0,0.07);
+  color          : var(--tn-text-muted);
+  cursor         : pointer;
+  flex-shrink    : 0;
+  transition     : all 0.15s ease;
+  padding        : 0;
 }
 
 .tn-clear-btn:hover {
@@ -217,47 +225,59 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .tn-clear-btn       { background: rgba(255,255,255,0.1); }
+  .tn-clear-btn       { background: rgba(255,255,255,0.1);  }
   .tn-clear-btn:hover { background: rgba(255,255,255,0.18); }
 }
 
 .tn-search-btn {
-  display         : flex;
-  align-items     : center;
-  justify-content : center;
-  width           : 34px;
-  height          : 34px;
-  border          : none;
-  border-radius   : var(--tn-r-sm);
-  background      : var(--tn-orange);
-  color           : #fff;
-  cursor          : pointer;
-  flex-shrink     : 0;
-  transition      : background 0.18s ease, transform 0.12s ease;
-  box-shadow      : 0 2px 8px rgba(255,107,53,0.25);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  width          : 34px;
+  height         : 34px;
+  border         : none;
+  border-radius  : var(--tn-r-sm);
+  background     : var(--tn-orange);
+  color          : #fff;
+  cursor         : pointer;
+  flex-shrink    : 0;
+  transition     : background 0.18s ease, transform 0.12s ease;
+  box-shadow     : 0 2px 8px rgba(255,107,53,0.25);
 }
 
 .tn-search-btn:hover  { background: var(--tn-orange-hover); transform: scale(1.05); }
 .tn-search-btn:active { transform: scale(0.95); }
 
 /* ══════════════════════════════════════════════════════════════
-   DROPDOWN
+   OVERLAY
+   — starts BELOW the nav bar so it never blocks the search box
    ══════════════════════════════════════════════════════════════ */
 .tn-overlay {
-  position      : fixed;
-  inset         : 0;
-  background    : rgba(0,0,0,0.15);
+  position  : fixed;
+  /* `top` is set inline via JS (overlayTop) — falls back to 0 */
+  top       : 0;
+  left      : 0;
+  right     : 0;
+  bottom    : 0;
+  background: rgba(0,0,0,0.15);
   backdrop-filter: blur(1px);
-  z-index       : 99;
-  animation     : tn-fade-in 0.15s ease;
+  -webkit-backdrop-filter: blur(1px);
+  /* below search-row (1302) but above normal page content */
+  z-index   : 1200;
+  animation : tn-fade-in 0.15s ease;
+  /* pointer-events still work — clicking it closes the dropdown */
 }
 
+/* ══════════════════════════════════════════════════════════════
+   DROPDOWN
+   ══════════════════════════════════════════════════════════════ */
 .tn-dropdown {
   position               : absolute;
   top                    : calc(100% + 5px);
   left                   : 0;
   right                  : 0;
-  z-index                : 100;
+  /* above overlay, below search-box */
+  z-index                : 1301;
   background             : var(--tn-glass-strong);
   backdrop-filter         : blur(28px);
   -webkit-backdrop-filter : blur(28px);
@@ -265,7 +285,7 @@
   border-radius          : var(--tn-r-md);
   box-shadow             :
     0 16px 48px rgba(0,0,0,0.12),
-    0 2px  8px  rgba(0,0,0,0.05);
+    0  2px  8px rgba(0,0,0,0.05);
   overflow               : hidden;
   animation              : tn-slide-up 0.2s cubic-bezier(0.16,1,0.3,1);
 }
@@ -275,12 +295,12 @@
 
 /* ── Drop header ── */
 .tn-drop-header {
-  display         : flex;
-  align-items     : center;
-  justify-content : space-between;
-  padding         : 8px 14px;
-  border-bottom   : 1px solid var(--tn-glass-border);
-  background      : rgba(0,0,0,0.015);
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  padding        : 8px 14px;
+  border-bottom  : 1px solid var(--tn-glass-border);
+  background     : rgba(0,0,0,0.015);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -298,14 +318,14 @@
 }
 
 .tn-drop-spinner {
-  display         : inline-block;
-  width           : 11px;
-  height          : 11px;
-  border          : 2px solid var(--tn-glass-border);
-  border-top-color: var(--tn-orange);
-  border-radius   : 50%;
-  animation       : tn-spin 0.7s linear infinite;
-  flex-shrink     : 0;
+  display          : inline-block;
+  width            : 11px;
+  height           : 11px;
+  border           : 2px solid var(--tn-glass-border);
+  border-top-color : var(--tn-orange);
+  border-radius    : 50%;
+  animation        : tn-spin 0.7s linear infinite;
+  flex-shrink      : 0;
 }
 
 .tn-drop-close {
@@ -331,19 +351,19 @@
    RECENT SEARCHES
    ══════════════════════════════════════════════════════════════ */
 .tn-section-head {
-  display         : flex;
-  align-items     : center;
-  justify-content : space-between;
-  padding         : 8px 14px 4px;
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  padding        : 8px 14px 4px;
 }
 
 .tn-section-label {
-  font-size  : 0.68rem;
-  font-weight: 700;
-  color      : var(--tn-text-muted);
+  font-size     : 0.68rem;
+  font-weight   : 700;
+  color         : var(--tn-text-muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  line-height: 1.4;
+  line-height   : 1.4;
 }
 
 .tn-section-clear {
@@ -361,7 +381,6 @@
 
 .tn-section-clear:hover { opacity: 0.72; }
 
-/* Recent item */
 .tn-recent-item {
   display    : flex;
   align-items: center;
@@ -386,13 +405,11 @@
   min-width  : 0;
 }
 
-.tn-recent-main:hover {
-  background: rgba(255,107,53,0.05);
-}
+.tn-recent-main:hover { background: rgba(255,107,53,0.05); }
 
 .tn-recent-main:focus-visible {
-  background : var(--tn-orange-soft);
-  box-shadow : inset 3px 0 0 var(--tn-orange);
+  background: var(--tn-orange-soft);
+  box-shadow: inset 3px 0 0 var(--tn-orange);
 }
 
 .tn-recent-icon {
@@ -404,31 +421,31 @@
 }
 
 .tn-recent-text {
-  font-size  : 0.84rem;
-  font-weight: 500;
-  color      : var(--tn-text);
-  white-space: nowrap;
-  overflow   : hidden;
+  font-size    : 0.84rem;
+  font-weight  : 500;
+  color        : var(--tn-text);
+  white-space  : nowrap;
+  overflow     : hidden;
   text-overflow: ellipsis;
-  line-height: 1.35;
+  line-height  : 1.35;
 }
 
 .tn-recent-remove {
-  display         : flex;
-  align-items     : center;
-  justify-content : center;
-  width           : 30px;
-  height          : 30px;
-  border          : none;
-  background      : transparent;
-  color           : var(--tn-text-faint);
-  font-size       : 1rem;
-  cursor          : pointer;
-  flex-shrink     : 0;
-  margin-right    : 8px;
-  border-radius   : var(--tn-r-sm);
-  transition      : all 0.15s ease;
-  line-height     : 1;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  width          : 30px;
+  height         : 30px;
+  border         : none;
+  background     : transparent;
+  color          : var(--tn-text-faint);
+  font-size      : 1rem;
+  cursor         : pointer;
+  flex-shrink    : 0;
+  margin-right   : 8px;
+  border-radius  : var(--tn-r-sm);
+  transition     : all 0.15s ease;
+  line-height    : 1;
 }
 
 .tn-recent-remove:hover {
@@ -439,9 +456,7 @@
 /* ══════════════════════════════════════════════════════════════
    SKELETON ROWS
    ══════════════════════════════════════════════════════════════ */
-.tn-skeletons {
-  padding: 4px 0;
-}
+.tn-skeletons { padding: 4px 0; }
 
 .tn-skeleton-row {
   display    : flex;
@@ -460,10 +475,10 @@
 }
 
 .tn-sk-body {
-  flex   : 1;
-  display: flex;
+  flex          : 1;
+  display       : flex;
   flex-direction: column;
-  gap    : 5px;
+  gap           : 5px;
 }
 
 .tn-sk-line {
@@ -481,17 +496,17 @@
 .tn-skeleton-row:nth-child(3) .tn-sk-line { animation-delay: 0.14s; }
 
 /* ══════════════════════════════════════════════════════════════
-   RESULT ITEM — text only
+   RESULT ITEM
    ══════════════════════════════════════════════════════════════ */
 .tn-result {
-  display    : flex;
-  align-items: center;
-  gap        : 10px;
-  padding    : 10px 14px;
-  cursor     : pointer;
-  transition : background 0.12s ease;
+  display      : flex;
+  align-items  : center;
+  gap          : 10px;
+  padding      : 10px 14px;
+  cursor       : pointer;
+  transition   : background 0.12s ease;
   border-bottom: 1px solid rgba(0,0,0,0.03);
-  outline    : none;
+  outline      : none;
 }
 
 .tn-result:last-of-type { border-bottom: none; }
@@ -501,19 +516,14 @@
 }
 
 .tn-result:hover,
-.tn-result-active .tn-result {
-  background: rgba(255,107,53,0.06);
-}
+.tn-result-active .tn-result { background: rgba(255,107,53,0.06); }
 
 .tn-result:focus-visible {
-  background : var(--tn-orange-soft);
-  box-shadow : inset 3px 0 0 var(--tn-orange);
+  background: var(--tn-orange-soft);
+  box-shadow: inset 3px 0 0 var(--tn-orange);
 }
 
-/* Keyboard-active highlight */
-.tn-result-active > .tn-result {
-  background: rgba(255,107,53,0.08);
-}
+.tn-result-active > .tn-result { background: rgba(255,107,53,0.08); }
 
 .tn-result-icon {
   display    : flex;
@@ -524,11 +534,11 @@
 }
 
 .tn-result-body {
-  flex     : 1;
-  min-width: 0;
-  display  : flex;
+  flex          : 1;
+  min-width     : 0;
+  display       : flex;
   flex-direction: column;
-  gap      : 2px;
+  gap           : 2px;
 }
 
 .tn-result-title {
@@ -543,7 +553,6 @@
   text-overflow: ellipsis;
 }
 
-/* Highlight match */
 .tn-hl {
   background   : rgba(255,107,53,0.15);
   color        : var(--tn-orange);
@@ -559,13 +568,12 @@
   flex-wrap  : wrap;
 }
 
-/* ✅ Green price */
 .tn-result-price {
-  font-size  : 0.76rem;
-  font-weight: 750;
-  color      : var(--tn-green);
+  font-size     : 0.76rem;
+  font-weight   : 750;
+  color         : var(--tn-green);
   letter-spacing: -0.015em;
-  line-height: 1.3;
+  line-height   : 1.3;
 }
 
 .tn-result-loc,
@@ -620,20 +628,20 @@
 }
 
 .tn-see-all-btn:hover {
-  background   : var(--tn-orange-soft);
-  border-color : var(--tn-orange);
+  background  : var(--tn-orange-soft);
+  border-color: var(--tn-orange);
 }
 
 /* ══════════════════════════════════════════════════════════════
    NO RESULTS
    ══════════════════════════════════════════════════════════════ */
 .tn-no-results {
-  display        : flex;
-  flex-direction : column;
-  align-items    : center;
-  padding        : 22px 16px;
-  text-align     : center;
-  gap            : 7px;
+  display       : flex;
+  flex-direction: column;
+  align-items   : center;
+  padding       : 22px 16px;
+  text-align    : center;
+  gap           : 7px;
 }
 
 .tn-no-results-emoji { font-size: 1.8rem; line-height: 1; }
@@ -661,20 +669,20 @@
 }
 
 .tn-no-results-btn:hover {
-  background   : var(--tn-orange-soft);
-  border-color : var(--tn-orange);
+  background  : var(--tn-orange-soft);
+  border-color: var(--tn-orange);
 }
 
 /* ══════════════════════════════════════════════════════════════
    RESPONSIVE
    ══════════════════════════════════════════════════════════════ */
 @media (max-width: 360px) {
-  .tn-brand        { font-size: 1rem; }
-  .tn-search-box   { height: 38px; padding: 0 5px 0 8px; }
-  .tn-search-btn   { width: 30px; height: 30px; }
-  .tn-ham-line     { width: 14px; }
-  .tn-ham-line--mid{ width: 10px; }
-  .tn-result       { padding: 9px 12px; }
+  .tn-brand         { font-size: 1rem; }
+  .tn-search-box    { height: 38px; padding: 0 5px 0 8px; }
+  .tn-search-btn    { width: 30px; height: 30px; }
+  .tn-ham-line      { width: 14px; }
+  .tn-ham-line--mid { width: 10px; }
+  .tn-result        { padding: 9px 12px; }
 }
 
 @media (min-width: 768px) {
@@ -687,18 +695,23 @@
 /* ══════════════════════════════════════════════════════════════
    KEYFRAMES
    ══════════════════════════════════════════════════════════════ */
-@keyframes tn-fade-in  { from{opacity:0} to{opacity:1} }
-
-@keyframes tn-slide-up {
-  from { opacity:0; transform:translateY(6px) scale(0.99); }
-  to   { opacity:1; transform:translateY(0)   scale(1);    }
+@keyframes tn-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
 
-@keyframes tn-spin { to { transform: rotate(360deg); } }
+@keyframes tn-slide-up {
+  from { opacity: 0; transform: translateY(6px) scale(0.99); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+@keyframes tn-spin {
+  to { transform: rotate(360deg); }
+}
 
 @keyframes tn-sk-pulse {
   0%, 100% { opacity: 0.5; }
-  50%      { opacity: 1;   }
+  50%       { opacity: 1;   }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -721,9 +734,9 @@
    HIGH CONTRAST
    ══════════════════════════════════════════════════════════════ */
 @media (forced-colors: active) {
-  .tn-wrap      { border-bottom: 2px solid ButtonText; }
-  .tn-search-box{ border: 2px solid ButtonText; }
-  .tn-search-btn{ border: 2px solid ButtonText; }
+  .tn-wrap       { border-bottom: 2px solid ButtonText; }
+  .tn-search-box { border: 2px solid ButtonText; }
+  .tn-search-btn { border: 2px solid ButtonText; }
 
   .tn-result:focus-visible,
   .tn-recent-main:focus-visible { outline: 2px solid Highlight; }
