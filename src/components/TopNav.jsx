@@ -12,114 +12,69 @@ import { useProductCache }          from "../context/ProductCacheContext";
 import HamburgerMenu                from "./HamburgerMenu";
 import "../styles/TopNav.css";
 
-/* ══════════════════════════════════════════════════════════════
-   ENV
-   ══════════════════════════════════════════════════════════════ */
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api`;
 
-/* ══════════════════════════════════════════════════════════════
-   CONSTANTS
-   ══════════════════════════════════════════════════════════════ */
-const DEBOUNCE_MS      = 200;
-const MIN_QUERY_LEN    = 2;
-const MAX_RESULTS      = 8;
-const MAX_RECENT       = 6;
-const CACHE_THRESHOLD  = 3;
-const TRIGRAM_MIN      = 0.18;
-const RECENT_KEY       = "loemart_recent_searches";
+const DEBOUNCE_MS     = 200;
+const MIN_QUERY_LEN   = 2;
+const MAX_RESULTS     = 8;
+const MAX_RECENT      = 6;
+const CACHE_THRESHOLD = 3;
+const TRIGRAM_MIN     = 0.18;
+const RECENT_KEY      = "loemart_recent_searches";
 
-/* ══════════════════════════════════════════════════════════════
-   RECENT SEARCHES — localStorage helpers
-   ══════════════════════════════════════════════════════════════ */
+/* ── localStorage ── */
 const readRecent = () => {
-  try {
-    return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]");
-  } catch {
-    return [];
-  }
+  try { return JSON.parse(localStorage.getItem(RECENT_KEY) || "[]"); }
+  catch { return []; }
 };
-
 const saveRecent = (q) => {
   try {
     const prev = readRecent().filter((s) => s !== q);
-    localStorage.setItem(
-      RECENT_KEY,
-      JSON.stringify([q, ...prev].slice(0, MAX_RECENT))
-    );
+    localStorage.setItem(RECENT_KEY, JSON.stringify([q, ...prev].slice(0, MAX_RECENT)));
   } catch {}
 };
-
 const clearRecent = () => {
   try { localStorage.removeItem(RECENT_KEY); } catch {}
 };
 
-/* ══════════════════════════════════════════════════════════════
-   TRIGRAM SCORING
-   ══════════════════════════════════════════════════════════════ */
+/* ── Trigram ── */
 const norm = (s = "") => s.toLowerCase().trim();
-
 const trigrams = (s) => {
-  const t = new Set();
-  const n = norm(s);
+  const t = new Set(), n = norm(s);
   for (let i = 0; i < n.length - 2; i++) t.add(n.slice(i, i + 3));
   return t;
 };
-
 const trigramScore = (query, target) => {
   if (!query || !target) return 0;
-  const q = trigrams(query);
-  const t = trigrams(target);
+  const q = trigrams(query), t = trigrams(target);
   if (!q.size || !t.size) return 0;
   let m = 0;
   q.forEach((g) => { if (t.has(g)) m++; });
   return m / Math.max(q.size, t.size);
 };
-
-/** Score against title + brand + category combined */
 const scoreProduct = (query, product) => {
   const q = norm(query);
   if (!q) return 0;
-
-  /* Build searchable string */
   const searchable = norm([
-    product.title        || "",
-    product.brand        || "",
-    product.model        || "",
-    product.category_name|| "",
-    product.condition    || "",
+    product.title || "", product.brand || "",
+    product.model || "", product.category_name || "",
+    product.condition || "",
   ].join(" "));
-
   const title = norm(product.title || "");
-
-  if (title.startsWith(q))
-    return 1.2 + trigramScore(q, title);
-  if (title.split(" ").some((w) => w.startsWith(q)))
-    return 1.0 + trigramScore(q, title);
-  if (title.includes(q))
-    return 0.8 + trigramScore(q, title);
-  if (searchable.includes(q))
-    return 0.5 + trigramScore(q, searchable);
-
+  if (title.startsWith(q))                              return 1.2 + trigramScore(q, title);
+  if (title.split(" ").some((w) => w.startsWith(q)))   return 1.0 + trigramScore(q, title);
+  if (title.includes(q))                                return 0.8 + trigramScore(q, title);
+  if (searchable.includes(q))                           return 0.5 + trigramScore(q, searchable);
   const ts = trigramScore(q, searchable);
   return ts > TRIGRAM_MIN ? ts : 0;
 };
 
-/* ══════════════════════════════════════════════════════════════
-   HELPERS
-   ══════════════════════════════════════════════════════════════ */
 const naira = (n) =>
-  "₦" + Number(n || 0).toLocaleString("en-NG", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  });
+  "₦" + Number(n || 0).toLocaleString("en-NG", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const getCity = (p) => p?.location?.city || p?.location_city || null;
 
-const getCity = (p) =>
-  p?.location?.city || p?.location_city || null;
-
-/* ══════════════════════════════════════════════════════════════
-   HIGHLIGHT MATCH — memoized
-   ══════════════════════════════════════════════════════════════ */
+/* ── HighlightMatch ── */
 const HighlightMatch = memo(function HighlightMatch({ text, query }) {
   if (!text || !query) return <>{text}</>;
   const idx = norm(text).indexOf(norm(query));
@@ -127,24 +82,17 @@ const HighlightMatch = memo(function HighlightMatch({ text, query }) {
   return (
     <>
       {text.slice(0, idx)}
-      <mark className="tn-hl">
-        {text.slice(idx, idx + query.length)}
-      </mark>
+      <mark className="tn-hl">{text.slice(idx, idx + query.length)}</mark>
       {text.slice(idx + query.length)}
     </>
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
-   SKELETON ROW
-   ══════════════════════════════════════════════════════════════ */
+/* ── SkeletonRow ── */
 const SkeletonRow = memo(function SkeletonRow({ index }) {
   return (
-    <div
-      className="tn-skeleton-row"
-      aria-hidden="true"
-      style={{ animationDelay: `${index * 0.07}s` }}
-    >
+    <div className="tn-skeleton-row" aria-hidden="true"
+         style={{ animationDelay: `${index * 0.07}s` }}>
       <span className="tn-sk-icon" />
       <div className="tn-sk-body">
         <span className="tn-sk-line tn-sk-title" />
@@ -154,14 +102,9 @@ const SkeletonRow = memo(function SkeletonRow({ index }) {
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
-   RESULT ITEM — always navigates to SearchPage
-   ══════════════════════════════════════════════════════════════ */
-const ResultItem = memo(function ResultItem({
-  product, query, onSearch,
-}) {
+/* ── ResultItem ── */
+const ResultItem = memo(function ResultItem({ product, query, onSearch }) {
   const city = getCity(product);
-
   return (
     <div
       className="tn-result"
@@ -173,13 +116,11 @@ const ResultItem = memo(function ResultItem({
     >
       <span className="tn-result-icon" aria-hidden="true">
         <svg width="13" height="13" viewBox="0 0 24 24"
-             fill="none" stroke="currentColor"
-             strokeWidth="2.5" strokeLinecap="round">
+             fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
           <circle cx="11" cy="11" r="8"/>
           <line x1="21" y1="21" x2="16.65" y2="16.65"/>
         </svg>
       </span>
-
       <div className="tn-result-body">
         <p className="tn-result-title">
           <HighlightMatch text={product.title || "Untitled"} query={query} />
@@ -188,21 +129,16 @@ const ResultItem = memo(function ResultItem({
           <span className="tn-result-price">{naira(product.price)}</span>
           {city && <span className="tn-result-loc">· {city}</span>}
           {product.category_name && (
-            <span className="tn-result-cat">
-              · {product.category_name}
-            </span>
+            <span className="tn-result-cat">· {product.category_name}</span>
           )}
         </div>
       </div>
-
       <span className="tn-result-arrow" aria-hidden="true">›</span>
     </div>
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
-   RECENT SEARCH ITEM
-   ══════════════════════════════════════════════════════════════ */
+/* ── RecentItem ── */
 const RecentItem = memo(function RecentItem({ text, onSearch, onRemove }) {
   return (
     <div className="tn-recent-item">
@@ -216,8 +152,7 @@ const RecentItem = memo(function RecentItem({ text, onSearch, onRemove }) {
       >
         <span className="tn-recent-icon" aria-hidden="true">
           <svg width="12" height="12" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor"
-               strokeWidth="2.5" strokeLinecap="round">
+               fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
             <circle cx="12" cy="12" r="10"/>
             <path d="M12 6v6l4 2"/>
           </svg>
@@ -229,23 +164,26 @@ const RecentItem = memo(function RecentItem({ text, onSearch, onRemove }) {
         onClick={(e) => { e.stopPropagation(); onRemove(text); }}
         aria-label={`Remove ${text}`}
         tabIndex={-1}
-      >
-        ×
-      </button>
+      >×</button>
     </div>
   );
 });
 
 /* ══════════════════════════════════════════════════════════════
-   TOPNAV — main component
+   TOPNAV
    ══════════════════════════════════════════════════════════════ */
 export default function TopNav({ user }) {
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  const { products } = useProductCache();
+  const navigate       = useNavigate();
+  const location       = useLocation();
+  const { products }   = useProductCache();
 
-  /* ── State ── */
-  const [query,       setQuery]       = useState("");
+  /* Sync input with URL ?q= so back-nav restores the query */
+  const urlQuery = useMemo(() => {
+    if (location.pathname !== "/search") return "";
+    return new URLSearchParams(location.search).get("q") || "";
+  }, [location]);
+
+  const [query,       setQuery]       = useState(urlQuery);
   const [debounced,   setDebounced]   = useState("");
   const [apiHits,     setApiHits]     = useState([]);
   const [open,        setOpen]        = useState(false);
@@ -254,24 +192,26 @@ export default function TopNav({ user }) {
   const [activeIndex, setActiveIndex] = useState(-1);
   const [recent,      setRecent]      = useState(() => readRecent());
 
-  /* ── Refs ── */
   const inputRef    = useRef(null);
   const dropdownRef = useRef(null);
   const abortRef    = useRef(null);
-
-  /* ── API-level search cache (in-memory) ── */
   const searchCache = useRef(new Map());
 
-  /* ── Debounce ── */
+  /* Sync input when URL changes (back / forward / TopNav link) */
+  useEffect(() => {
+    setQuery(urlQuery);
+    setOpen(false);
+  }, [urlQuery]);
+
+  /* Debounce */
   useEffect(() => {
     const t = setTimeout(() => setDebounced(query.trim()), DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [query]);
 
-  /* ── Reset active index when results change ── */
   useEffect(() => { setActiveIndex(-1); }, [debounced]);
 
-  /* ── Cache scoring ── */
+  /* Cache scoring */
   const cacheResults = useMemo(() => {
     if (!debounced || debounced.length < MIN_QUERY_LEN) return [];
     return products
@@ -281,34 +221,22 @@ export default function TopNav({ user }) {
       .slice(0, MAX_RESULTS);
   }, [debounced, products]);
 
-  /* ── API fallback with in-memory cache ── */
+  /* API fallback */
   useEffect(() => {
-    if (!debounced || debounced.length < MIN_QUERY_LEN) {
-      setApiHits([]);
-      return;
-    }
-    if (cacheResults.length >= CACHE_THRESHOLD) {
-      setApiHits([]);
-      return;
-    }
-
-    /* Return cached API result instantly */
+    if (!debounced || debounced.length < MIN_QUERY_LEN) { setApiHits([]); return; }
+    if (cacheResults.length >= CACHE_THRESHOLD)          { setApiHits([]); return; }
     if (searchCache.current.has(debounced)) {
       setApiHits(searchCache.current.get(debounced));
       return;
     }
-
-    /* Cancel previous request, reset state immediately */
     abortRef.current?.abort();
-    setFetching(false);
     abortRef.current = new AbortController();
     setFetching(true);
 
-    fetch(
-      `${API}/search?q=${encodeURIComponent(debounced)}&limit=8`,
-      { signal: abortRef.current.signal }
-    )
-      .then((r) => (r.ok ? r.json() : { products: [] }))
+    fetch(`${API}/search?q=${encodeURIComponent(debounced)}&limit=8`, {
+      signal: abortRef.current.signal,
+    })
+      .then((r) => r.ok ? r.json() : { products: [] })
       .then((data) => {
         const hits = Array.isArray(data)
           ? data
@@ -323,48 +251,42 @@ export default function TopNav({ user }) {
     return () => abortRef.current?.abort();
   }, [debounced, cacheResults.length]);
 
-  /* ── Merge results, dedup by slug OR id ── */
+  /* Merge results */
   const results = useMemo(() => {
     const seen  = new Set(cacheResults.map((p) => p.slug || p.id));
-    const extra = apiHits.filter(
-      (p) => p?.id && !seen.has(p.slug || p.id)
-    );
+    const extra = apiHits.filter((p) => p?.id && !seen.has(p.slug || p.id));
     return [...cacheResults, ...extra].slice(0, MAX_RESULTS);
   }, [cacheResults, apiHits]);
 
-  /* ── Click outside ── */
+  /* Click outside */
   useEffect(() => {
     const handle = (e) => {
       if (
         dropdownRef.current &&
         !dropdownRef.current.contains(e.target) &&
         !inputRef.current?.contains(e.target)
-      ) {
-        setOpen(false);
-      }
+      ) setOpen(false);
     };
     document.addEventListener("mousedown", handle);
     return () => document.removeEventListener("mousedown", handle);
   }, []);
 
-  /* ── ESC key ── */
+  /* ESC */
   useEffect(() => {
     const handle = (e) => { if (e.key === "Escape") setOpen(false); };
     window.addEventListener("keydown", handle);
     return () => window.removeEventListener("keydown", handle);
   }, []);
 
-  /* ── Navigate to SearchPage — deduplicate same URL ── */
+  /* Navigate to search */
   const goSearch = useCallback((text) => {
     const q = String(text || query || "").trim();
     if (!q) return;
 
-    const url = `/search?q=${encodeURIComponent(q)}`;
-
-    /* Already on this exact search — just close */
+    /* Already on exact same search URL — just close dropdown */
     if (
       location.pathname === "/search" &&
-      location.search   === `?q=${encodeURIComponent(q)}`
+      new URLSearchParams(location.search).get("q") === q
     ) {
       setOpen(false);
       return;
@@ -372,47 +294,37 @@ export default function TopNav({ user }) {
 
     saveRecent(q);
     setRecent(readRecent());
-    setQuery("");
     setOpen(false);
-    navigate(url);
+    /* Keep the query in the input so SearchPage input stays filled */
+    setQuery(q);
+    navigate(`/search?q=${encodeURIComponent(q)}`);
   }, [query, navigate, location]);
 
-  /* ── Keyboard navigation inside dropdown ── */
+  /* Keyboard nav */
   const handleKeyDown = useCallback((e) => {
     if (!open) {
       if (e.key === "Enter") { goSearch(); return; }
       return;
     }
-
-    const items = results.length > 0 ? results : [];
-    const count = items.length;
-
+    const count = results.length;
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
-        setActiveIndex((prev) => (prev + 1) % count);
+        setActiveIndex((p) => (p + 1) % count);
         break;
-
       case "ArrowUp":
         e.preventDefault();
-        setActiveIndex((prev) => (prev <= 0 ? count - 1 : prev - 1));
+        setActiveIndex((p) => (p <= 0 ? count - 1 : p - 1));
         break;
-
       case "Enter":
         e.preventDefault();
-        if (activeIndex >= 0 && items[activeIndex]) {
-          goSearch(items[activeIndex].title);
-        } else {
-          goSearch();
-        }
+        if (activeIndex >= 0 && results[activeIndex]) goSearch(results[activeIndex].title);
+        else goSearch();
         break;
-
       case "Escape":
         setOpen(false);
         break;
-
-      default:
-        break;
+      default: break;
     }
   }, [open, results, activeIndex, goSearch]);
 
@@ -422,16 +334,12 @@ export default function TopNav({ user }) {
     setActiveIndex(-1);
   }, []);
 
-  /* ── Remove a single recent search ── */
   const removeRecent = useCallback((text) => {
     const next = readRecent().filter((s) => s !== text);
-    try {
-      localStorage.setItem(RECENT_KEY, JSON.stringify(next));
-    } catch {}
+    try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch {}
     setRecent(next);
   }, []);
 
-  /* ── Clear all recent searches ── */
   const handleClearAllRecent = useCallback(() => {
     clearRecent();
     setRecent([]);
@@ -441,18 +349,14 @@ export default function TopNav({ user }) {
     debounced.length >= MIN_QUERY_LEN ||
     (debounced.length === 0 && recent.length > 0)
   );
-
   const showRecent  = debounced.length < MIN_QUERY_LEN && recent.length > 0;
   const showResults = debounced.length >= MIN_QUERY_LEN;
 
-  /* ════════════════════════════════════════════════════════════
-     RENDER
-  ════════════════════════════════════════════════════════════ */
   return (
     <>
       <nav className="tn-wrap" aria-label="Top navigation">
 
-        {/* ── Brand row ── */}
+        {/* Brand row */}
         <div className="tn-header">
           <button
             className="tn-hamburger"
@@ -474,13 +378,12 @@ export default function TopNav({ user }) {
           </button>
         </div>
 
-        {/* ── Search row ── */}
+        {/* Search row */}
         <div className="tn-search-row">
           <div className="tn-search-box">
             <span className="tn-search-icon" aria-hidden="true">
               <svg width="15" height="15" viewBox="0 0 24 24"
-                   fill="none" stroke="currentColor"
-                   strokeWidth="2.5" strokeLinecap="round">
+                   fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
                 <circle cx="11" cy="11" r="8"/>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"/>
               </svg>
@@ -501,9 +404,7 @@ export default function TopNav({ user }) {
               aria-autocomplete="list"
               aria-expanded={showDropdown}
               aria-controls={showDropdown ? "tn-dropdown" : undefined}
-              aria-activedescendant={
-                activeIndex >= 0 ? `tn-result-${activeIndex}` : undefined
-              }
+              aria-activedescendant={activeIndex >= 0 ? `tn-result-${activeIndex}` : undefined}
             />
 
             {query && (
@@ -514,6 +415,8 @@ export default function TopNav({ user }) {
                   setApiHits([]);
                   setActiveIndex(-1);
                   inputRef.current?.focus();
+                  /* If on search page, clear results too */
+                  if (location.pathname === "/search") navigate("/search");
                 }}
                 aria-label="Clear search"
                 tabIndex={-1}
@@ -531,8 +434,7 @@ export default function TopNav({ user }) {
               aria-label="Search"
             >
               <svg width="15" height="15" viewBox="0 0 24 24"
-                   fill="none" stroke="currentColor"
-                   strokeWidth="2.5" strokeLinecap="round"
+                   fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
                    aria-hidden="true">
                 <circle cx="11" cy="11" r="8"/>
                 <line x1="21" y1="21" x2="16.65" y2="16.65"/>
@@ -540,16 +442,10 @@ export default function TopNav({ user }) {
             </button>
           </div>
 
-          {/* ══════════════════════════════════════════════
-              DROPDOWN
-          ══════════════════════════════════════════════ */}
+          {/* Dropdown */}
           {showDropdown && (
             <>
-              <div
-                className="tn-overlay"
-                onClick={() => setOpen(false)}
-                aria-hidden="true"
-              />
+              <div className="tn-overlay" onClick={() => setOpen(false)} aria-hidden="true" />
 
               <div
                 id="tn-dropdown"
@@ -558,66 +454,42 @@ export default function TopNav({ user }) {
                 role="listbox"
                 aria-label="Search suggestions"
               >
-
-                {/* ── RECENT SEARCHES ── */}
+                {/* Recent */}
                 {showRecent && (
                   <>
                     <div className="tn-section-head">
                       <span className="tn-section-label">Recent Searches</span>
-                      <button
-                        className="tn-section-clear"
-                        onClick={handleClearAllRecent}
-                      >
+                      <button className="tn-section-clear" onClick={handleClearAllRecent}>
                         Clear all
                       </button>
                     </div>
                     {recent.map((r) => (
-                      <RecentItem
-                        key={r}
-                        text={r}
-                        onSearch={goSearch}
-                        onRemove={removeRecent}
-                      />
+                      <RecentItem key={r} text={r} onSearch={goSearch} onRemove={removeRecent} />
                     ))}
                   </>
                 )}
 
-                {/* ── SEARCH RESULTS ── */}
+                {/* Results */}
                 {showResults && (
                   <>
-                    {/* Header */}
                     <div className="tn-drop-header">
                       <span className="tn-drop-count">
                         {fetching ? (
-                          <>
-                            <span className="tn-drop-spinner" aria-hidden="true" />
-                            Searching…
-                          </>
-                        ) : results.length > 0 ? (
-                          `${results.length} suggestion${results.length !== 1 ? "s" : ""}`
-                        ) : (
-                          "No results"
-                        )}
+                          <><span className="tn-drop-spinner" aria-hidden="true" />Searching…</>
+                        ) : results.length > 0
+                          ? `${results.length} suggestion${results.length !== 1 ? "s" : ""}`
+                          : "No results"
+                        }
                       </span>
-                      <button
-                        className="tn-drop-close"
-                        onClick={() => setOpen(false)}
-                        aria-label="Close"
-                      >
-                        ✕
-                      </button>
+                      <button className="tn-drop-close" onClick={() => setOpen(false)} aria-label="Close">✕</button>
                     </div>
 
-                    {/* Skeleton while fetching */}
                     {fetching && results.length === 0 && (
                       <div className="tn-skeletons" aria-hidden="true">
-                        {[0, 1, 2].map((i) => (
-                          <SkeletonRow key={i} index={i} />
-                        ))}
+                        {[0, 1, 2].map((i) => <SkeletonRow key={i} index={i} />)}
                       </div>
                     )}
 
-                    {/* Results */}
                     {results.length > 0 && (
                       <>
                         {results.map((p, i) => (
@@ -627,23 +499,14 @@ export default function TopNav({ user }) {
                             className={activeIndex === i ? "tn-result-active" : ""}
                             onMouseEnter={() => setActiveIndex(i)}
                           >
-                            <ResultItem
-                              product={p}
-                              query={debounced}
-                              onSearch={goSearch}
-                            />
+                            <ResultItem product={p} query={debounced} onSearch={goSearch} />
                           </div>
                         ))}
-
                         <div className="tn-see-all-row">
-                          <button
-                            className="tn-see-all-btn"
-                            onClick={() => goSearch(debounced)}
-                          >
+                          <button className="tn-see-all-btn" onClick={() => goSearch(debounced)}>
                             <svg width="13" height="13" viewBox="0 0 24 24"
-                                 fill="none" stroke="currentColor"
-                                 strokeWidth="2.5" strokeLinecap="round"
-                                 aria-hidden="true">
+                                 fill="none" stroke="currentColor" strokeWidth="2.5"
+                                 strokeLinecap="round" aria-hidden="true">
                               <circle cx="11" cy="11" r="8"/>
                               <line x1="21" y1="21" x2="16.65" y2="16.65"/>
                             </svg>
@@ -653,37 +516,24 @@ export default function TopNav({ user }) {
                       </>
                     )}
 
-                    {/* No results (not loading) */}
                     {!fetching && results.length === 0 && (
                       <div className="tn-no-results">
-                        <span className="tn-no-results-emoji" aria-hidden="true">
-                          🔍
-                        </span>
-                        <p className="tn-no-results-text">
-                          No products found for "{debounced}"
-                        </p>
-                        <button
-                          className="tn-no-results-btn"
-                          onClick={() => goSearch(debounced)}
-                        >
+                        <span className="tn-no-results-emoji" aria-hidden="true">🔍</span>
+                        <p className="tn-no-results-text">No products found for "{debounced}"</p>
+                        <button className="tn-no-results-btn" onClick={() => goSearch(debounced)}>
                           Search anyway →
                         </button>
                       </div>
                     )}
                   </>
                 )}
-
               </div>
             </>
           )}
         </div>
       </nav>
 
-      <HamburgerMenu
-        open={menuOpen}
-        onClose={() => setMenuOpen(false)}
-        user={user}
-      />
+      <HamburgerMenu open={menuOpen} onClose={() => setMenuOpen(false)} user={user} />
     </>
   );
 }
