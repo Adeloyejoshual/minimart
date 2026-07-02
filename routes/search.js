@@ -5,23 +5,19 @@ import { cacheGet, cacheSet } from "../lib/redis.js";
 
 const router = express.Router();
 
-/* ══════════════════════════════════════════════════════════════
-   CONSTANTS
-   ══════════════════════════════════════════════════════════════ */
 const CACHE_TTL   = 60;
 const MAX_LIMIT   = 40;
 const MAX_RELATED = 8;
 
 /* ══════════════════════════════════════════════════════════════
-   SHAPE PRODUCT
+   SHAPE PRODUCT — uses only real columns + joined category
    ══════════════════════════════════════════════════════════════ */
 function shapeProduct(p) {
+  /* ── image ── */
   let image = p.main_image || p.thumbnail_url || null;
-
   if (!image && Array.isArray(p.images) && p.images.length > 0) {
     const first = p.images[0];
-    if (typeof first === "string") image = first;
-    else if (first?.url)           image = first.url;
+    image = typeof first === "string" ? first : (first?.url || null);
   }
 
   let imagesArr = [];
@@ -33,34 +29,37 @@ function shapeProduct(p) {
     imagesArr = [image];
   }
 
+  /* ── stats ── */
   const impressions = Number(p.impression_count || 0);
   const clicks      = Number(p.clicks_count     || 0);
   const vw          = Number(p.views            || 0);
-  const ctr = impressions > 0
-    ? clicks / impressions
-    : vw > 0 ? clicks / vw : 0;
+  const ctr = impressions > 0 ? clicks / impressions : vw > 0 ? clicks / vw : 0;
 
-  const origPrice = Number(p.attributes?.original_price || 0);
-  const currPrice = Number(p.price || 0);
+  const origPrice  = Number(p.attributes?.original_price || 0);
+  const currPrice  = Number(p.price || 0);
   const discountPct =
     origPrice > currPrice && currPrice > 0
       ? Math.round(((origPrice - currPrice) / origPrice) * 100)
       : 0;
 
+  /* ── location ── */
+  const locCity  = p.location_city  || p.location?.city  || null;
+  const locState = p.location_state || p.location?.state || null;
+
   return {
     id               : p.id,
     title            : p.title,
-    description      : p.description,
+    description      : p.description      || null,
     price            : currPrice,
-    slug             : p.slug,
+    slug             : p.slug             || null,
     image,
     images           : imagesArr,
-    video_url        : p.video_url    || null,
-    attributes       : p.attributes  || {},
-    brand            : p.brand       || null,
-    model            : p.model       || null,
-    condition        : p.condition   || null,
-    negotiable       : p.negotiable  || false,
+    video_url        : p.video_url        || null,
+    attributes       : p.attributes      || {},
+    brand            : p.brand            || null,
+    model            : p.model            || null,
+    condition        : p.condition        || null,
+    negotiable       : p.negotiable       || false,
     views            : vw,
     clicks_count     : clicks,
     impression_count : impressions,
@@ -70,26 +69,26 @@ function shapeProduct(p) {
     favorites_count  : Number(p.favorites_count   || 0),
     average_rating   : Number(p.average_rating    || 0),
     reviews_count    : Number(p.reviews_count     || 0),
-    offer_type       : p.offer_type  || null,
-    delivery         : p.delivery    || null,
-    whatsapp         : p.whatsapp    || null,
-    phone            : p.phone       || null,
+    offer_type       : p.offer_type       || null,
+    delivery         : p.delivery         || null,
+    whatsapp         : p.whatsapp         || null,
+    phone            : p.phone            || null,
     created_at       : p.created_at,
-    category_id      : p.category_id    || null,
-    category_name    : p.category_name  || null,
-    subcategory_id   : p.subcategory_id || null,
-    seller_id        : p.seller_id   || null,
-    seller_name      : p.seller_name || null,
-    stock_status     : p.stock_status || null,
+    category_id      : p.category_id      || null,
+    category_name    : p.category_name    || null,   /* from LEFT JOIN */
+    subcategory_id   : p.subcategory_id   || null,
+    seller_id        : p.seller_id        || null,
+    seller_name      : p.seller_name      || null,
+    stock_status     : p.stock_status     || null,
+    stock_quantity   : p.stock_quantity   ?? null,
     ctr,
     discount_pct     : discountPct,
-    location_city    : p.location_city  || null,
-    location_state   : p.location_state || null,
+    location_city    : locCity,
+    location_state   : locState,
     location: {
-      city  : p.location_city  || null,
-      state : p.location_state || null,
-      label : [p.location_city, p.location_state]
-                .filter(Boolean).join(", ") || null,
+      city  : locCity,
+      state : locState,
+      label : [locCity, locState].filter(Boolean).join(", ") || null,
     },
     seller: {
       id   : p.seller_id   || null,
@@ -100,22 +99,71 @@ function shapeProduct(p) {
 
 /* ══════════════════════════════════════════════════════════════
    SAFE TS-QUERY BUILDER
-   Converts "iphone 14 pro" → "iphone:* & 14:* & pro:*"
-   Strips characters that break to_tsquery
+   "iPhone 14 Pro" → "iphone:* & 14:* & pro:*"
    ══════════════════════════════════════════════════════════════ */
 function buildTsQuery(raw) {
   const words = raw
     .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")   // remove punctuation
+    .replace(/[^a-z0-9\s]/g, " ")
     .split(/\s+/)
     .filter((w) => w.length > 0);
-
   if (words.length === 0) return null;
   return words.map((w) => `${w}:*`).join(" & ");
 }
 
 /* ══════════════════════════════════════════════════════════════
-   GET /api/search
+   SHARED SELECT — only real product columns + joined cat name
+   ══════════════════════════════════════════════════════════════ */
+const SEL = `
+  p.id,
+  p.title,
+  p.description,
+  p.price,
+  p.slug,
+  p.main_image,
+  p.thumbnail_url,
+  p.images,
+  p.video_url,
+  p.attributes,
+  p.brand,
+  p.model,
+  p.condition,
+  p.negotiable,
+  p.views,
+  p.clicks_count,
+  p.impression_count,
+  p.engagement_score,
+  p.is_promoted,
+  p.is_featured,
+  p.favorites_count,
+  p.average_rating,
+  p.reviews_count,
+  p.offer_type,
+  p.delivery,
+  p.whatsapp,
+  p.phone,
+  p.created_at,
+  p.category_id,
+  p.subcategory_id,
+  p.seller_id,
+  p.seller_name,
+  p.stock_status,
+  p.stock_quantity,
+  p.location_city,
+  p.location_state,
+  p.location,
+  COALESCE(c.name, '') AS category_name
+`;
+
+/* active guard */
+const GUARD = `
+  p.is_active  = true
+  AND p.status     = 'active'
+  AND p.is_deleted = false
+`;
+
+/* ══════════════════════════════════════════════════════════════
+   GET /api/search?q=...
    ══════════════════════════════════════════════════════════════ */
 router.get("/", async (req, res) => {
   const {
@@ -136,7 +184,7 @@ router.get("/", async (req, res) => {
     return res.status(400).json({ error: "Query too short (min 2 chars)" });
   }
 
-  /* ── Cache key ── */
+  /* ── cache key ── */
   const cacheKey = [
     "search",
     encodeURIComponent(clean.toLowerCase().slice(0, 40)),
@@ -152,79 +200,56 @@ router.get("/", async (req, res) => {
   ].filter(Boolean).join(":");
 
   const cached = await cacheGet(cacheKey);
-  if (cached) {
-    res.set("X-Cache", "HIT");
-    return res.json(cached);
-  }
+  if (cached) { res.set("X-Cache", "HIT"); return res.json(cached); }
   res.set("X-Cache", "MISS");
 
   try {
     const realLimit = Math.min(Number(limit) || 20, MAX_LIMIT);
     const offset    = Number(page) * realLimit;
 
-    /* ── Parameter array ── */
     const values = [];
     const push   = (v) => { values.push(v); return `$${values.length}`; };
 
-    /* ── $1 = ILIKE pattern  $2 = tsquery string ── */
-    const ilikePat = push(`%${clean}%`);          // $1
+    /* $1 = ilike pattern,  $2 = tsquery string (may stay null) */
+    const ilikePat = push(`%${clean}%`);           // $1
     const tsQuery  = buildTsQuery(clean);
-    const tsParam  = tsQuery ? push(tsQuery) : null; // $2  (may be null)
+    const tsParam  = tsQuery ? push(tsQuery) : null; // $2 or null
 
-    /* ── Base active guard ── */
-    const where = [
-      `p.is_active  = true`,
-      `p.status     = 'active'`,
-      `p.is_deleted = false`,
-    ];
+    /* ── WHERE ── */
+    const where = [GUARD];
 
-    /* ── Full-text / ILIKE search clause ── */
     const tsClause = tsParam
-      ? `OR  to_tsvector('english',
-               COALESCE(p.title,'')       || ' ' ||
-               COALESCE(p.brand,'')       || ' ' ||
-               COALESCE(p.model,'')       || ' ' ||
-               COALESCE(p.description,'')
-             ) @@ to_tsquery('english', ${tsParam})`
+      ? `OR to_tsvector('english',
+             COALESCE(p.title,'')       || ' ' ||
+             COALESCE(p.brand,'')       || ' ' ||
+             COALESCE(p.model,'')       || ' ' ||
+             COALESCE(p.description,'')
+           ) @@ to_tsquery('english', ${tsParam})`
       : "";
 
+    /* Use search_vector column if you want (it's in your schema):
+       OR p.search_vector @@ to_tsquery('english', ${tsParam})   */
+
     where.push(`(
-        p.title         ILIKE ${ilikePat}
-     OR p.brand         ILIKE ${ilikePat}
-     OR p.model         ILIKE ${ilikePat}
-     OR p.description   ILIKE ${ilikePat}
-     OR p.category_name ILIKE ${ilikePat}
+        p.title       ILIKE ${ilikePat}
+     OR p.brand       ILIKE ${ilikePat}
+     OR p.model       ILIKE ${ilikePat}
+     OR p.description ILIKE ${ilikePat}
+     OR c.name        ILIKE ${ilikePat}
      ${tsClause}
     )`);
 
-    /* ── Optional filters ── */
-    if (category_id) {
-      where.push(`p.category_id = ${push(category_id)}::uuid`);
-    }
-    if (condition) {
-      where.push(`LOWER(p.condition) = LOWER(${push(condition)})`);
-    }
-    if (state) {
-      where.push(`LOWER(p.location_state) = LOWER(${push(state)})`);
-    }
-    if (city) {
-      where.push(`LOWER(p.location_city) = LOWER(${push(city)})`);
-    }
-    if (min_price) {
-      where.push(`p.price >= ${push(Number(min_price))}`);
-    }
-    if (max_price) {
-      where.push(`p.price <= ${push(Number(max_price))}`);
-    }
+    /* ── optional filters ── */
+    if (category_id) where.push(`p.category_id = ${push(category_id)}::uuid`);
+    if (condition)   where.push(`LOWER(p.condition) = LOWER(${push(condition)})`);
+    if (state)       where.push(`LOWER(p.location_state) = LOWER(${push(state)})`);
+    if (city)        where.push(`LOWER(p.location_city)  = LOWER(${push(city)})`);
+    if (min_price)   where.push(`p.price >= ${push(Number(min_price))}`);
+    if (max_price)   where.push(`p.price <= ${push(Number(max_price))}`);
 
     const whereClause = where.join(" AND ");
 
-    /* ── ORDER BY ── */
-    /*
-       For relevance we inline the ts_rank using the SAME param indices
-       ($1 for ilike, $2 for tsquery) — they are already in values[].
-       We must NOT push new values for the ORDER BY expression.
-    */
+    /* ── ORDER BY — reuses $1 / $2, never pushes new params ── */
     let orderBy;
     if (sort === "price_asc") {
       orderBy = `p.price ASC, p.engagement_score DESC`;
@@ -235,7 +260,7 @@ router.get("/", async (req, res) => {
     } else if (sort === "rating") {
       orderBy = `p.average_rating DESC, p.reviews_count DESC`;
     } else {
-      /* relevance — reuse $1 and $2 already in the param list */
+      /* relevance — inline expressions that reuse $1 / $2 */
       const titleBoost = `CASE WHEN LOWER(p.title) LIKE ${ilikePat} THEN 0.5 ELSE 0 END`;
       const rankExpr   = tsParam
         ? `ts_rank(
@@ -246,7 +271,7 @@ router.get("/", async (req, res) => {
              ),
              to_tsquery('english', ${tsParam})
            )`
-        : "0";
+        : "0::float";
 
       orderBy = `
         (${rankExpr} + ${titleBoost} + (p.engagement_score * 0.01)) DESC,
@@ -255,33 +280,24 @@ router.get("/", async (req, res) => {
       `;
     }
 
-    /* ── Pagination params ── */
+    /* ── pagination params ── */
     const limitParam  = push(realLimit + 1);
     const offsetParam = push(offset);
 
-    /* Count uses same values minus last two (limit/offset) */
+    /* count uses same filters, no pagination */
     const countValues = values.slice(0, values.length - 2);
 
-    /* ── Queries ── */
-    /*
-       NOTE: We use p.category_name directly (denormalised column from
-       homepage.js schema). If you have a categories JOIN instead,
-       swap the SELECT col and add the JOIN back.
-    */
-    const mainSql = `
-      SELECT
-        p.id, p.title, p.description, p.price, p.slug,
-        p.main_image, p.thumbnail_url, p.images, p.video_url,
-        p.attributes, p.brand, p.model, p.condition, p.negotiable,
-        p.views, p.clicks_count, p.impression_count,
-        p.engagement_score, p.is_promoted, p.is_featured,
-        p.favorites_count, p.average_rating, p.reviews_count,
-        p.offer_type, p.delivery, p.whatsapp, p.phone,
-        p.created_at, p.category_id, p.subcategory_id,
-        p.seller_id, p.seller_name,
-        p.stock_status, p.location_city, p.location_state,
-        p.category_name
+    /* ══════════════════════════════════════════════
+       QUERIES — LEFT JOIN categories
+    ══════════════════════════════════════════════ */
+    const FROM = `
       FROM public.products p
+      LEFT JOIN public.categories c ON c.id = p.category_id
+    `;
+
+    const mainSql = `
+      SELECT ${SEL}
+      ${FROM}
       WHERE ${whereClause}
       ORDER BY ${orderBy}
       LIMIT  ${limitParam}
@@ -290,11 +306,10 @@ router.get("/", async (req, res) => {
 
     const countSql = `
       SELECT COUNT(*)::int AS total
-      FROM public.products p
+      ${FROM}
       WHERE ${whereClause}
     `;
 
-    /* ── Run in parallel ── */
     const [mainRes, countRes] = await Promise.all([
       pool.query(mainSql, values),
       pool.query(countSql, countValues),
@@ -306,53 +321,47 @@ router.get("/", async (req, res) => {
     const records  = hasMore ? rows.slice(0, realLimit) : rows;
     const products = records.map(shapeProduct);
 
-    /* ── Aggregations (reuse same WHERE, no pagination) ── */
+    /* ══════════════════════════════════════════════
+       AGGREGATIONS — for filter sidebar
+    ══════════════════════════════════════════════ */
     const aggSql = `
       SELECT
-        MIN(p.price)::int  AS min_price,
-        MAX(p.price)::int  AS max_price,
+        MIN(p.price)::int AS min_price,
+        MAX(p.price)::int AS max_price,
 
-        /* distinct non-null conditions as JSON array */
         COALESCE(
           json_agg(DISTINCT p.condition)
-            FILTER (WHERE p.condition IS NOT NULL),
+            FILTER (WHERE p.condition IS NOT NULL AND p.condition <> ''),
           '[]'
         ) AS conditions,
 
-        /* distinct non-null states */
         COALESCE(
           json_agg(DISTINCT p.location_state)
-            FILTER (WHERE p.location_state IS NOT NULL),
+            FILTER (WHERE p.location_state IS NOT NULL AND p.location_state <> ''),
           '[]'
         ) AS states,
 
-        /* distinct categories as {id, name} objects */
         COALESCE(
           json_agg(
             DISTINCT jsonb_build_object(
               'id',   p.category_id::text,
-              'name', p.category_name
+              'name', COALESCE(c.name, '')
             )
           ) FILTER (WHERE p.category_id IS NOT NULL),
           '[]'
         ) AS categories
-      FROM public.products p
+      ${FROM}
       WHERE ${whereClause}
     `;
 
     const aggRes = await pool.query(aggSql, countValues);
     const agg    = aggRes.rows[0] || {};
 
-    /* Deduplicate categories (json_agg DISTINCT on jsonb sometimes
-       returns dupes when the object keys differ in ordering) */
+    /* dedupe categories */
     const seenCats = new Set();
     const cleanCats = (Array.isArray(agg.categories) ? agg.categories : [])
       .filter((c) => c?.id && c?.name)
-      .filter((c) => {
-        if (seenCats.has(c.id)) return false;
-        seenCats.add(c.id);
-        return true;
-      });
+      .filter((c) => { if (seenCats.has(c.id)) return false; seenCats.add(c.id); return true; });
 
     const payload = {
       products,
@@ -379,11 +388,9 @@ router.get("/", async (req, res) => {
     return res.json(payload);
 
   } catch (err) {
-    console.error("[search] ERROR:", err.message, err.stack);
-    return res.status(500).json({
-      error   : "Search failed",
-      message : err.message,
-    });
+    console.error("[search] ERROR:", err.message);
+    console.error(err.stack);
+    return res.status(500).json({ error: "Search failed", message: err.message });
   }
 });
 
@@ -391,12 +398,7 @@ router.get("/", async (req, res) => {
    GET /api/search/related
    ══════════════════════════════════════════════════════════════ */
 router.get("/related", async (req, res) => {
-  const {
-    slug,
-    id,
-    category_id,
-    limit = MAX_RELATED,
-  } = req.query;
+  const { slug, id, category_id, limit = MAX_RELATED } = req.query;
 
   if (!slug && !id && !category_id) {
     return res.status(400).json({ error: "slug, id or category_id required" });
@@ -404,67 +406,37 @@ router.get("/related", async (req, res) => {
 
   const cacheKey = `related:${slug || id || ""}:${category_id || ""}:l${limit}`;
   const cached   = await cacheGet(cacheKey);
-  if (cached) {
-    res.set("X-Cache", "HIT");
-    return res.json(cached);
-  }
+  if (cached) { res.set("X-Cache", "HIT"); return res.json(cached); }
 
   try {
     const values = [];
     const push   = (v) => { values.push(v); return `$${values.length}`; };
 
-    const where = [
-      `p.is_active  = true`,
-      `p.status     = 'active'`,
-      `p.is_deleted = false`,
-    ];
-
-    /* Exclude current product */
+    const where = [GUARD];
     if (slug) where.push(`p.slug != ${push(slug)}`);
     if (id)   where.push(`p.id   != ${push(id)}::uuid`);
 
-    /* Resolve category if not supplied */
+    /* resolve category if needed */
     let catId = category_id || null;
     if (!catId && (slug || id)) {
       const col  = slug ? "slug" : "id";
       const cast = slug ? "" : "::uuid";
       const r    = await pool.query(
-        `SELECT category_id
-         FROM public.products
-         WHERE ${col} = $1${cast}
-           AND is_active  = true
-           AND is_deleted = false
-         LIMIT 1`,
+        `SELECT category_id FROM public.products
+         WHERE ${col} = $1${cast} AND is_active = true AND is_deleted = false LIMIT 1`,
         [slug || id]
       );
       catId = r.rows[0]?.category_id || null;
     }
+    if (catId) where.push(`p.category_id = ${push(catId)}::uuid`);
 
-    if (catId) {
-      where.push(`p.category_id = ${push(catId)}::uuid`);
-    }
-
-    const realLimit = Math.min(Number(limit), MAX_RELATED);
-    values.push(realLimit);
-    const limitParam = `$${values.length}`;
+    const realLimit  = Math.min(Number(limit), MAX_RELATED);
+    const limitParam = push(realLimit);
 
     const sql = `
-      SELECT
-        p.id, p.title, p.price, p.slug,
-        p.main_image, p.thumbnail_url, p.images,
-        p.brand, p.condition, p.is_promoted,
-        p.engagement_score, p.created_at,
-        p.location_city, p.location_state,
-        p.category_id, p.category_name,
-        p.seller_id, p.seller_name,
-        p.attributes, p.views, p.clicks_count,
-        p.impression_count, p.favorites_count,
-        p.average_rating, p.reviews_count,
-        p.offer_type, p.delivery, p.whatsapp,
-        p.phone, p.stock_status, p.subcategory_id,
-        p.is_featured, p.negotiable,
-        p.video_url, p.model
+      SELECT ${SEL}
       FROM public.products p
+      LEFT JOIN public.categories c ON c.id = p.category_id
       WHERE ${where.join(" AND ")}
       ORDER BY p.is_promoted DESC, p.engagement_score DESC, p.created_at DESC
       LIMIT ${limitParam}
@@ -478,7 +450,8 @@ router.get("/related", async (req, res) => {
     return res.json(payload);
 
   } catch (err) {
-    console.error("[search/related] ERROR:", err.message, err.stack);
+    console.error("[search/related] ERROR:", err.message);
+    console.error(err.stack);
     return res.status(500).json({ error: "Related fetch failed", message: err.message });
   }
 });
