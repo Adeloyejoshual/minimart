@@ -7,12 +7,12 @@ const NAV_SECTIONS = [
   {
     label: "Explore",
     items: [
-      { icon: "◈", label: "Home",         path: "/"         },
-      { icon: "◎", label: "Search",       path: "/search"   },
-      { icon: "◉", label: "Near You",     path: "/nearby"   },
-      { icon: "◇", label: "Trending",     path: "/trending" },
-      { icon: "◆", label: "Cheap Deals",  path: "/deals"    },
-      { icon: "◈", label: "New Arrivals", path: "/latest"   },
+      { icon: "◈", label: "Home",        path: "/"         },
+      { icon: "◎", label: "Search",      path: "/search"   },
+      { icon: "◉", label: "Near You",    path: "/nearby"   },
+      { icon: "◇", label: "Trending",    path: "/trending" },
+      { icon: "◆", label: "Cheap Deals", path: "/deals"    },
+      { icon: "◈", label: "Latest",      path: "/latest"   },
     ],
   },
   {
@@ -20,7 +20,6 @@ const NAV_SECTIONS = [
     items: [
       { icon: "▣", label: "Profile",      path: "/profile"       },
       { icon: "▤", label: "Dashboard",    path: "/dashboard"     },
-      { icon: "▥", label: "Wallet",       path: "/wallet"        },
       { icon: "▦", label: "Messages",     path: "/conversations" },
       { icon: "▧", label: "Coupons",      path: "/coupons"       },
       { icon: "▨", label: "Leaderboard",  path: "/leaderboard"   },
@@ -31,17 +30,16 @@ const NAV_SECTIONS = [
   {
     label: "Sellers",
     items: [
-      { icon: "◐", label: "Sell Now",      path: "/minimart/add"  },
-      { icon: "◑", label: "Become a Seller", path: "/become-seller" },
-      { icon: "◒", label: "Invite Friends", path: "/invitation"   },
+      { icon: "◐", label: "Sell Now",      path: "/minimart/add" },
+      { icon: "◒", label: "Invite Friends", path: "/invitation"  },
     ],
   },
   {
     label: "Support",
     items: [
-      { icon: "○", label: "Help & FAQ",    path: "/faq"      },
-      { icon: "◌", label: "Contact Us",    path: "/support"  },
-      { icon: "◍", label: "Complaints",    path: "/complain" },
+      { icon: "○", label: "Help & FAQ",  path: "/faq"      },
+      { icon: "◌", label: "Contact Us",  path: "/support"  },
+      { icon: "◍", label: "Complaints",  path: "/complain" },
     ],
   },
   {
@@ -54,16 +52,12 @@ const NAV_SECTIONS = [
 ];
 
 export default function HamburgerMenu({ open, onClose }) {
-  const navigate  = useNavigate();
-  const location  = useLocation();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   /* lock body scroll when open */
   useEffect(() => {
-    if (open) {
-      document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
-    }
+    document.body.style.overflow = open ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [open]);
 
@@ -134,12 +128,15 @@ export default function HamburgerMenu({ open, onClose }) {
                     key={item.path}
                     className={`hm-item${active ? " hm-item--active" : ""}`}
                     onClick={() => go(item.path)}
+                    aria-current={active ? "page" : undefined}
                   >
                     <span className="hm-item-icon" aria-hidden="true">
                       {item.icon}
                     </span>
                     <span className="hm-item-label">{item.label}</span>
-                    {active && <span className="hm-item-dot" aria-hidden="true" />}
+                    {active && (
+                      <span className="hm-item-dot" aria-hidden="true" />
+                    )}
                   </button>
                 );
               })}
