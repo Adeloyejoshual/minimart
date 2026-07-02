@@ -7,23 +7,18 @@ import {
   useMemo,
   memo,
 } from "react";
-import { useSearchParams, useNavigate, Link } from "react-router-dom";
+import {
+  useSearchParams,
+  useNavigate,
+  Link,
+} from "react-router-dom";
 import "../styles/SearchPage.css";
 
-/* ══════════════════════════════════════════════════════════════
-   ENV
-   ══════════════════════════════════════════════════════════════ */
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api`;
-
-/* ══════════════════════════════════════════════════════════════
-   CONSTANTS
-   ══════════════════════════════════════════════════════════════ */
 const PAGE_SIZE = 20;
 
-/* ══════════════════════════════════════════════════════════════
-   HELPERS
-   ══════════════════════════════════════════════════════════════ */
+/* ── Helpers ── */
 const naira = (n) =>
   "₦" + Number(n || 0).toLocaleString("en-NG", {
     minimumFractionDigits: 0,
@@ -32,16 +27,14 @@ const naira = (n) =>
 
 const timeAgo = (iso) => {
   if (!iso) return "";
-  const s   = Math.floor((Date.now() - new Date(iso)) / 1000);
-  if (s < 60)   return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
+  const s = Math.floor((Date.now() - new Date(iso)) / 1000);
+  if (s < 60)    return "just now";
+  if (s < 3600)  return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
 };
 
-/* ══════════════════════════════════════════════════════════════
-   HIGHLIGHT — bold matched text
-   ══════════════════════════════════════════════════════════════ */
+/* ── Highlight ── */
 const HighlightMatch = memo(function HighlightMatch({ text = "", query = "" }) {
   if (!text || !query) return <>{text}</>;
   const idx = text.toLowerCase().indexOf(query.toLowerCase());
@@ -55,24 +48,34 @@ const HighlightMatch = memo(function HighlightMatch({ text = "", query = "" }) {
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
-   PRODUCT CARD
-   ══════════════════════════════════════════════════════════════ */
+/* ── Skeleton Card ── */
+const SkeletonCard = memo(function SkeletonCard({ index }) {
+  return (
+    <div className="sp-skeleton-card" aria-hidden="true"
+         style={{ animationDelay: `${index * 0.05}s` }}>
+      <div className="sp-sk-img" />
+      <div className="sp-sk-body">
+        <div className="sp-sk-line sp-sk-title" />
+        <div className="sp-sk-line sp-sk-price" />
+        <div className="sp-sk-line sp-sk-meta"  />
+      </div>
+    </div>
+  );
+});
+
+/* ── Product Card ── */
 const ProductCard = memo(function ProductCard({ product, query }) {
-  const navigate  = useNavigate();
+  const navigate       = useNavigate();
   const [imgErr, setImgErr] = useState(false);
 
   const handleClick = useCallback(() => {
-    /* fire-and-forget click analytics */
-    fetch(`${API}/homepage/products/${product.id}/click`, {
-      method: "POST",
-    }).catch(() => {});
+    fetch(`${API}/homepage/products/${product.id}/click`, { method: "POST" }).catch(() => {});
     navigate(`/product/${product.slug || product.id}`);
   }, [product, navigate]);
 
-  const city   = product.location?.city  || product.location_city  || null;
-  const state  = product.location?.state || product.location_state || null;
-  const locStr = [city, state].filter(Boolean).join(", ");
+  const city    = product.location?.city  || product.location_city  || null;
+  const state   = product.location?.state || product.location_state || null;
+  const locStr  = [city, state].filter(Boolean).join(", ");
 
   return (
     <article
@@ -83,7 +86,6 @@ const ProductCard = memo(function ProductCard({ product, query }) {
       onKeyDown={(e) => e.key === "Enter" && handleClick()}
       aria-label={product.title}
     >
-      {/* Image */}
       <div className="sp-card-img-wrap">
         {product.image && !imgErr ? (
           <img
@@ -94,38 +96,25 @@ const ProductCard = memo(function ProductCard({ product, query }) {
             onError={() => setImgErr(true)}
           />
         ) : (
-          <div className="sp-card-img-placeholder" aria-hidden="true">
-            📦
-          </div>
+          <div className="sp-card-img-placeholder" aria-hidden="true">📦</div>
         )}
-
         {product.is_promoted && (
           <span className="sp-badge sp-badge--promoted">Featured</span>
         )}
         {product.discount_pct > 0 && (
-          <span className="sp-badge sp-badge--discount">
-            -{product.discount_pct}%
-          </span>
+          <span className="sp-badge sp-badge--discount">-{product.discount_pct}%</span>
         )}
         {product.condition && (
-          <span className="sp-badge sp-badge--condition">
-            {product.condition}
-          </span>
+          <span className="sp-badge sp-badge--condition">{product.condition}</span>
         )}
       </div>
 
-      {/* Body */}
       <div className="sp-card-body">
         <p className="sp-card-title">
           <HighlightMatch text={product.title} query={query} />
         </p>
-
         <p className="sp-card-price">{naira(product.price)}</p>
-
-        {product.brand && (
-          <p className="sp-card-brand">{product.brand}</p>
-        )}
-
+        {product.brand && <p className="sp-card-brand">{product.brand}</p>}
         <div className="sp-card-meta">
           {locStr && (
             <span className="sp-card-loc">
@@ -139,7 +128,6 @@ const ProductCard = memo(function ProductCard({ product, query }) {
           )}
           <span className="sp-card-time">{timeAgo(product.created_at)}</span>
         </div>
-
         {product.category_name && (
           <span className="sp-card-cat">{product.category_name}</span>
         )}
@@ -148,36 +136,11 @@ const ProductCard = memo(function ProductCard({ product, query }) {
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
-   SKELETON CARD
-   ══════════════════════════════════════════════════════════════ */
-const SkeletonCard = memo(function SkeletonCard({ index }) {
-  return (
-    <div
-      className="sp-skeleton-card"
-      aria-hidden="true"
-      style={{ animationDelay: `${index * 0.05}s` }}
-    >
-      <div className="sp-sk-img"  />
-      <div className="sp-sk-body">
-        <div className="sp-sk-line sp-sk-title" />
-        <div className="sp-sk-line sp-sk-price" />
-        <div className="sp-sk-line sp-sk-meta"  />
-      </div>
-    </div>
-  );
-});
-
-/* ══════════════════════════════════════════════════════════════
-   FILTER SIDEBAR
-   ══════════════════════════════════════════════════════════════ */
+/* ── Filter Sidebar ── */
 const FilterSidebar = memo(function FilterSidebar({
-  aggregations,
-  filters,
-  onChange,
-  onReset,
+  aggregations, filters, onChange, onReset,
 }) {
-  const { price, conditions = [], states = [], categories = [] } = aggregations;
+  const { price = {}, conditions = [], states = [], categories = [] } = aggregations;
   const activeCount = Object.values(filters).filter(Boolean).length;
 
   return (
@@ -208,8 +171,8 @@ const FilterSidebar = memo(function FilterSidebar({
         </select>
       </div>
 
-      {/* Price range */}
-      {price && price.max > 0 && (
+      {/* Price */}
+      {price.max > 0 && (
         <div className="sp-filter-group">
           <p className="sp-filter-label">Price Range</p>
           <div className="sp-price-row">
@@ -218,7 +181,6 @@ const FilterSidebar = memo(function FilterSidebar({
               className="sp-price-input"
               placeholder="Min"
               min={0}
-              max={price.max}
               value={filters.min_price || ""}
               onChange={(e) => onChange("min_price", e.target.value)}
             />
@@ -228,7 +190,6 @@ const FilterSidebar = memo(function FilterSidebar({
               className="sp-price-input"
               placeholder="Max"
               min={0}
-              max={price.max}
               value={filters.max_price || ""}
               onChange={(e) => onChange("max_price", e.target.value)}
             />
@@ -245,11 +206,8 @@ const FilterSidebar = memo(function FilterSidebar({
               <input
                 type="radio"
                 name="condition"
-                value={c}
                 checked={filters.condition === c}
-                onChange={() =>
-                  onChange("condition", filters.condition === c ? "" : c)
-                }
+                onChange={() => onChange("condition", filters.condition === c ? "" : c)}
               />
               <span>{c}</span>
             </label>
@@ -266,13 +224,9 @@ const FilterSidebar = memo(function FilterSidebar({
               <input
                 type="radio"
                 name="category"
-                value={cat.id}
                 checked={filters.category_id === cat.id}
                 onChange={() =>
-                  onChange(
-                    "category_id",
-                    filters.category_id === cat.id ? "" : cat.id
-                  )
+                  onChange("category_id", filters.category_id === cat.id ? "" : cat.id)
                 }
               />
               <span>{cat.name}</span>
@@ -281,7 +235,7 @@ const FilterSidebar = memo(function FilterSidebar({
         </div>
       )}
 
-      {/* Location */}
+      {/* State */}
       {states.length > 0 && (
         <div className="sp-filter-group">
           <p className="sp-filter-label">State</p>
@@ -301,35 +255,27 @@ const FilterSidebar = memo(function FilterSidebar({
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
-   RELATED PRODUCTS STRIP
-   ══════════════════════════════════════════════════════════════ */
-function RelatedStrip({ query, categoryId }) {
+/* ── Related Strip ── */
+function RelatedStrip({ categoryId }) {
   const [related,  setRelated]  = useState([]);
   const [loading,  setLoading]  = useState(true);
   const navigate = useNavigate();
 
   useEffect(() => {
-    if (!categoryId && !query) return;
+    if (!categoryId) { setLoading(false); return; }
     setLoading(true);
-
-    const params = new URLSearchParams({ limit: 8 });
-    if (categoryId) params.set("category_id", categoryId);
-    if (query)      params.set("q",           query);
-
-    fetch(`${API}/search/related?${params}`)
+    fetch(`${API}/search/related?category_id=${encodeURIComponent(categoryId)}&limit=8`)
       .then((r) => r.ok ? r.json() : { related: [] })
       .then((d) => setRelated(d.related || []))
       .catch(() => setRelated([]))
       .finally(() => setLoading(false));
-  }, [query, categoryId]);
+  }, [categoryId]);
 
   if (!loading && related.length === 0) return null;
 
   return (
     <section className="sp-related" aria-label="Related products">
-      <h2 className="sp-related-title">Related Products</h2>
-
+      <h2 className="sp-related-title">You may also like</h2>
       <div className="sp-related-grid">
         {loading
           ? Array.from({ length: 4 }, (_, i) => <SkeletonCard key={i} index={i} />)
@@ -349,16 +295,12 @@ function RelatedStrip({ query, categoryId }) {
                     ? <img src={p.image} alt={p.title} className="sp-card-img" loading="lazy" />
                     : <div className="sp-card-img-placeholder">📦</div>
                   }
-                  {p.is_promoted && (
-                    <span className="sp-badge sp-badge--promoted">Featured</span>
-                  )}
+                  {p.is_promoted && <span className="sp-badge sp-badge--promoted">Featured</span>}
                 </div>
                 <div className="sp-card-body">
                   <p className="sp-card-title">{p.title}</p>
                   <p className="sp-card-price">{naira(p.price)}</p>
-                  {p.location?.city && (
-                    <p className="sp-card-loc-plain">{p.location.city}</p>
-                  )}
+                  {p.location?.city && <p className="sp-card-loc-plain">{p.location.city}</p>}
                 </div>
               </article>
             ))
@@ -368,9 +310,7 @@ function RelatedStrip({ query, categoryId }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════════════
-   EMPTY STATE
-   ══════════════════════════════════════════════════════════════ */
+/* ── Empty State ── */
 function EmptyState({ query, onReset }) {
   return (
     <div className="sp-empty">
@@ -379,21 +319,19 @@ function EmptyState({ query, onReset }) {
       <p  className="sp-empty-sub">
         Try different keywords, remove filters, or browse our categories.
       </p>
-      <button className="sp-empty-btn" onClick={onReset}>
-        Clear filters
-      </button>
+      <button className="sp-empty-btn" onClick={onReset}>Clear filters</button>
     </div>
   );
 }
 
 /* ══════════════════════════════════════════════════════════════
-   MAIN SEARCH PAGE
+   MAIN
    ══════════════════════════════════════════════════════════════ */
 export default function SearchPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  /* ── Derive filters from URL ── */
+  /* ── URL-derived state ── */
   const query       = searchParams.get("q")           || "";
   const sort        = searchParams.get("sort")        || "relevance";
   const category_id = searchParams.get("category_id") || "";
@@ -409,13 +347,11 @@ export default function SearchPage() {
     [sort, category_id, min_price, max_price, condition, state, city]
   );
 
-  /* ── State ── */
+  /* ── Data state ── */
   const [products,     setProducts]     = useState([]);
   const [aggregations, setAggregations] = useState({
     price: { min: 0, max: 0 },
-    conditions: [],
-    states: [],
-    categories: [],
+    conditions: [], states: [], categories: [],
   });
   const [meta,         setMeta]         = useState(null);
   const [loading,      setLoading]      = useState(false);
@@ -426,41 +362,40 @@ export default function SearchPage() {
 
   /* ── Fetch ── */
   const fetchResults = useCallback(async () => {
-    if (!query || query.length < 2) return;
+    if (!query || query.length < 2) {
+      setProducts([]);
+      setMeta(null);
+      return;
+    }
 
     abortRef.current?.abort();
     abortRef.current = new AbortController();
-
     setLoading(true);
     setError(null);
 
-    const params = new URLSearchParams({
-      q    : query,
-      page,
-      limit: PAGE_SIZE,
-      ...(sort        && { sort }),
-      ...(category_id && { category_id }),
-      ...(min_price   && { min_price }),
-      ...(max_price   && { max_price }),
-      ...(condition   && { condition }),
-      ...(state       && { state }),
-      ...(city        && { city }),
-    });
+    const params = new URLSearchParams({ q: query, page, limit: PAGE_SIZE });
+    if (sort)        params.set("sort",        sort);
+    if (category_id) params.set("category_id", category_id);
+    if (min_price)   params.set("min_price",   min_price);
+    if (max_price)   params.set("max_price",   max_price);
+    if (condition)   params.set("condition",   condition);
+    if (state)       params.set("state",       state);
+    if (city)        params.set("city",        city);
 
     try {
-      const res  = await fetch(`${API}/search?${params}`, {
+      const res = await fetch(`${API}/search?${params}`, {
         signal: abortRef.current.signal,
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `HTTP ${res.status}`);
+      }
       const data = await res.json();
-
-      setProducts(data.products     || []);
-      setMeta(data.meta             || null);
+      setProducts(data.products || []);
+      setMeta(data.meta || null);
       setAggregations(data.aggregations || {
         price: { min: 0, max: 0 },
-        conditions: [],
-        states: [],
-        categories: [],
+        conditions: [], states: [], categories: [],
       });
     } catch (err) {
       if (err.name !== "AbortError") {
@@ -478,34 +413,32 @@ export default function SearchPage() {
     return () => abortRef.current?.abort();
   }, [fetchResults]);
 
-  /* ── Update a single filter (resets to page 0) ── */
+  /* ── Filter helpers ── */
   const handleFilterChange = useCallback((key, value) => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
       if (value) next.set(key, value);
       else       next.delete(key);
-      next.delete("page");   // reset pagination
+      next.delete("page");
       return next;
     });
   }, [setSearchParams]);
 
-  /* ── Reset all filters ── */
   const handleReset = useCallback(() => {
     setSearchParams({ q: query });
   }, [query, setSearchParams]);
 
-  /* ── Page change ── */
   const handlePage = useCallback((dir) => {
     setSearchParams((prev) => {
       const next    = new URLSearchParams(prev);
       const newPage = Math.max(0, page + dir);
       if (newPage === 0) next.delete("page");
-      else               next.set("page", newPage);
+      else               next.set("page", String(newPage));
       return next;
     });
   }, [page, setSearchParams]);
 
-  /* ── Dominant category for related strip ── */
+  /* ── Dominant category for related ── */
   const dominantCategory = useMemo(() => {
     if (category_id) return category_id;
     const freq = {};
@@ -515,65 +448,66 @@ export default function SearchPage() {
     return Object.entries(freq).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
   }, [products, category_id]);
 
+  const activeFilterCount = Object.values(filters).filter(Boolean).length;
+
   /* ══════════════════════════════════════════════════════════
      RENDER
   ══════════════════════════════════════════════════════════ */
   return (
     <div className="sp-root">
 
-      {/* ── Breadcrumb ── */}
+      {/* Breadcrumb */}
       <nav className="sp-breadcrumb" aria-label="breadcrumb">
         <Link to="/" className="sp-bc-link">Home</Link>
         <span className="sp-bc-sep" aria-hidden="true">›</span>
         <span className="sp-bc-current">
-          {query ? `Search: "${query}"` : "Search"}
+          {query ? `"${query}"` : "Search"}
         </span>
       </nav>
 
-      {/* ── Page header ── */}
+      {/* Header */}
       <header className="sp-header">
         <div className="sp-header-text">
           <h1 className="sp-title">
             {query
               ? <>Results for <em>"{query}"</em></>
-              : "Search Results"}
+              : "Search Results"
+            }
           </h1>
           {meta && !loading && (
             <p className="sp-subtitle">
               {meta.total > 0
                 ? `${meta.total.toLocaleString()} product${meta.total !== 1 ? "s" : ""} found`
-                : "No products found"}
-              {meta.filters?.state && ` in ${meta.filters.state}`}
+                : "No products found"
+              }
+              {state && ` · ${state}`}
             </p>
           )}
         </div>
 
-        {/* Mobile filter toggle */}
         <button
           className="sp-filter-toggle"
           onClick={() => setSidebarOpen((v) => !v)}
           aria-expanded={sidebarOpen}
           aria-label="Toggle filters"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24"
+          <svg width="15" height="15" viewBox="0 0 24 24"
                fill="none" stroke="currentColor" strokeWidth="2.5">
             <line x1="4"  y1="6"  x2="20" y2="6"/>
             <line x1="8"  y1="12" x2="20" y2="12"/>
             <line x1="12" y1="18" x2="20" y2="18"/>
           </svg>
           Filters
-          {Object.values(filters).filter(Boolean).length > 0 && (
-            <span className="sp-filter-badge">
-              {Object.values(filters).filter(Boolean).length}
-            </span>
+          {activeFilterCount > 0 && (
+            <span className="sp-filter-badge">{activeFilterCount}</span>
           )}
         </button>
       </header>
 
-      {/* ── Layout ── */}
+      {/* Layout */}
       <div className="sp-layout">
 
-        {/* Sidebar overlay (mobile) */}
+        {/* Mobile overlay */}
         {sidebarOpen && (
           <div
             className="sp-sidebar-overlay"
@@ -583,7 +517,7 @@ export default function SearchPage() {
         )}
 
         {/* Sidebar */}
-        <div className={`sp-sidebar-wrap ${sidebarOpen ? "sp-sidebar-wrap--open" : ""}`}>
+        <div className={`sp-sidebar-wrap${sidebarOpen ? " sp-sidebar-wrap--open" : ""}`}>
           <FilterSidebar
             aggregations={aggregations}
             filters={filters}
@@ -592,18 +526,33 @@ export default function SearchPage() {
           />
         </div>
 
-        {/* Main content */}
+        {/* Main */}
         <main className="sp-main" aria-live="polite" aria-busy={loading}>
 
           {/* Error */}
           {error && !loading && (
             <div className="sp-error" role="alert">
-              <p>Something went wrong: {error}</p>
-              <button onClick={fetchResults}>Retry</button>
+              <span className="sp-error-icon" aria-hidden="true">⚠️</span>
+              <div>
+                <p className="sp-error-title">Something went wrong</p>
+                <p className="sp-error-msg">{error}</p>
+              </div>
+              <button className="sp-error-btn" onClick={fetchResults}>
+                Try again
+              </button>
             </div>
           )}
 
-          {/* Loading skeleton */}
+          {/* No query */}
+          {!query && !loading && (
+            <div className="sp-empty">
+              <span className="sp-empty-emoji">🔍</span>
+              <h2 className="sp-empty-title">What are you looking for?</h2>
+              <p className="sp-empty-sub">Use the search bar above to find products.</p>
+            </div>
+          )}
+
+          {/* Skeletons */}
           {loading && (
             <div className="sp-grid">
               {Array.from({ length: PAGE_SIZE }, (_, i) => (
@@ -615,6 +564,51 @@ export default function SearchPage() {
           {/* Results */}
           {!loading && !error && products.length > 0 && (
             <>
+              {/* Active filter chips */}
+              {activeFilterCount > 0 && (
+                <div className="sp-chips">
+                  {sort && sort !== "relevance" && (
+                    <span className="sp-chip">
+                      Sort: {sort}
+                      <button onClick={() => handleFilterChange("sort", "")}>×</button>
+                    </span>
+                  )}
+                  {condition && (
+                    <span className="sp-chip">
+                      {condition}
+                      <button onClick={() => handleFilterChange("condition", "")}>×</button>
+                    </span>
+                  )}
+                  {min_price && (
+                    <span className="sp-chip">
+                      Min: {naira(min_price)}
+                      <button onClick={() => handleFilterChange("min_price", "")}>×</button>
+                    </span>
+                  )}
+                  {max_price && (
+                    <span className="sp-chip">
+                      Max: {naira(max_price)}
+                      <button onClick={() => handleFilterChange("max_price", "")}>×</button>
+                    </span>
+                  )}
+                  {state && (
+                    <span className="sp-chip">
+                      {state}
+                      <button onClick={() => handleFilterChange("state", "")}>×</button>
+                    </span>
+                  )}
+                  {category_id && aggregations.categories?.length > 0 && (
+                    <span className="sp-chip">
+                      {aggregations.categories.find((c) => c.id === category_id)?.name || "Category"}
+                      <button onClick={() => handleFilterChange("category_id", "")}>×</button>
+                    </span>
+                  )}
+                  <button className="sp-chips-clear" onClick={handleReset}>
+                    Clear all
+                  </button>
+                </div>
+              )}
+
               <div className="sp-grid">
                 {products.map((p) => (
                   <ProductCard key={p.id} product={p} query={query} />
@@ -631,7 +625,13 @@ export default function SearchPage() {
                 >
                   ← Prev
                 </button>
-                <span className="sp-page-info">Page {page + 1}</span>
+                <span className="sp-page-info">
+                  Page {page + 1}
+                  {meta?.total
+                    ? ` of ${Math.ceil(meta.total / PAGE_SIZE)}`
+                    : ""
+                  }
+                </span>
                 <button
                   className="sp-page-btn"
                   onClick={() => handlePage(1)}
@@ -645,18 +645,15 @@ export default function SearchPage() {
           )}
 
           {/* Empty */}
-          {!loading && !error && products.length === 0 && query && (
+          {!loading && !error && query && products.length === 0 && (
             <EmptyState query={query} onReset={handleReset} />
           )}
         </main>
       </div>
 
-      {/* ── Related Products ── */}
-      {!loading && (
-        <RelatedStrip
-          query={query}
-          categoryId={dominantCategory}
-        />
+      {/* Related */}
+      {!loading && products.length > 0 && dominantCategory && (
+        <RelatedStrip categoryId={dominantCategory} />
       )}
     </div>
   );
