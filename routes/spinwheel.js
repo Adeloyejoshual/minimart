@@ -1,14 +1,21 @@
-// routes/spinwheel.js
+// ════════════════════════════════════════════════════════════
+// FILE: routes/spinwheel.js — v2 (Referral Bonus Spins)
+// Base: /api/spinwheel
+// ════════════════════════════════════════════════════════════
+
 import express      from "express";
+import rateLimit    from "express-rate-limit";
 import { pool }     from "../config/db.js";
-import authenticate from "../middleware/auth.js";
+import { authenticate } from "../middleware/auth.js";
+import { writeAudit }   from "../lib/audit.js";
 
-const router = express.Router();
+const router  = express.Router();
+const IS_PROD = process.env.NODE_ENV === "production";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    WHEEL SEGMENTS
-   Probabilities must add up to 100
-═══════════════════════════════════════════════════════════════ */
+   Probabilities add up to 100 — NEVER exposed to frontend
+══════════════════════════════════════════════════════════════ */
 const WHEEL_SEGMENTS = [
   {
     id          : 1,
@@ -18,8 +25,8 @@ const WHEEL_SEGMENTS = [
     color       : "#6b7280",
     bg          : "#f3f4f6",
     emoji       : "😅",
-    probability : 35, // 35% chance
-    coupon_code : null,
+    probability : 35,
+    is_big_win  : false,
   },
   {
     id          : 2,
@@ -29,8 +36,8 @@ const WHEEL_SEGMENTS = [
     color       : "#e8630a",
     bg          : "#fff0e6",
     emoji       : "🎟️",
-    probability : 25, // 25% chance
-    coupon_code : null, // generated dynamically
+    probability : 25,
+    is_big_win  : false,
   },
   {
     id          : 3,
@@ -40,8 +47,8 @@ const WHEEL_SEGMENTS = [
     color       : "#6366f1",
     bg          : "#eef2ff",
     emoji       : "%",
-    probability : 15, // 15% chance
-    coupon_code : null,
+    probability : 15,
+    is_big_win  : false,
   },
   {
     id          : 4,
@@ -51,8 +58,8 @@ const WHEEL_SEGMENTS = [
     color       : "#16a34a",
     bg          : "#f0fdf4",
     emoji       : "💰",
-    probability : 10, // 10% chance
-    coupon_code : null,
+    probability : 10,
+    is_big_win  : false,
   },
   {
     id          : 5,
@@ -62,8 +69,8 @@ const WHEEL_SEGMENTS = [
     color       : "#0891b2",
     bg          : "#f0f9ff",
     emoji       : "📱",
-    probability : 7,  // 7% chance
-    coupon_code : null,
+    probability : 7,
+    is_big_win  : false,
   },
   {
     id          : 6,
@@ -73,8 +80,8 @@ const WHEEL_SEGMENTS = [
     color       : "#d97706",
     bg          : "#fffbeb",
     emoji       : "🚚",
-    probability : 5,  // 5% chance
-    coupon_code : null,
+    probability : 5,
+    is_big_win  : true,
   },
   {
     id          : 7,
@@ -84,14 +91,103 @@ const WHEEL_SEGMENTS = [
     color       : "#dc2626",
     bg          : "#fef2f2",
     emoji       : "🔥",
-    probability : 3,  // 3% chance
-    coupon_code : null,
+    probability : 3,
+    is_big_win  : true,
   },
 ];
 
-/* ═══════════════════════════════════════════════════════════════
-   ENSURE TABLES EXIST
-═══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   CONSTANTS
+══════════════════════════════════════════════════════════════ */
+const MAX_FREE_DAILY     = 1;
+const MAX_BONUS_STACKED  = 10;
+const COUPON_EXPIRY_DAYS = 30;
+
+/* ══════════════════════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════════════════════ */
+const fail  = (res, status, message, extra = {}) =>
+  res.status(status).json({ success: false, message, ...extra });
+
+const getIp = (req) =>
+  req.ip ??
+  req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
+  req.socket?.remoteAddress ??
+  null;
+
+/** Weighted random spin — server-side only */
+function spinWheel() {
+  const rand  = Math.random() * 100;
+  let   cumul = 0;
+
+  for (const seg of WHEEL_SEGMENTS) {
+    cumul += seg.probability;
+    if (rand < cumul) return seg;
+  }
+
+  return WHEEL_SEGMENTS[0]; // fallback: "Try Again"
+}
+
+/** Generate unique coupon code */
+function generateCouponCode(prefix = "SPIN") {
+  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+  let   code  = `${prefix}-`;
+  for (let i = 0; i < 8; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return code;
+}
+
+/** Calculate time until midnight */
+function timeUntilMidnight() {
+  const now  = new Date();
+  const next = new Date();
+  next.setHours(24, 0, 0, 0);
+  const ms   = next - now;
+  const hrs  = Math.floor(ms / 3_600_000);
+  const mins = Math.floor((ms % 3_600_000) / 60_000);
+  const secs = Math.floor(ms / 1_000);
+  return {
+    label   : `${hrs}h ${mins}m`,
+    iso     : next.toISOString(),
+    seconds : secs,
+  };
+}
+
+/** Strip probabilities from segments (frontend-safe) */
+function safeSegments() {
+  return WHEEL_SEGMENTS.map((s) => ({
+    id    : s.id,
+    label : s.label,
+    type  : s.type,
+    value : s.value,
+    color : s.color,
+    bg    : s.bg,
+    emoji : s.emoji,
+  }));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   RATE LIMITERS
+══════════════════════════════════════════════════════════════ */
+const makeLimiter = ({ windowMin, max, message }) =>
+  rateLimit({
+    windowMs        : windowMin * 60_000,
+    max             : IS_PROD ? max : max * 20,
+    standardHeaders : true,
+    legacyHeaders   : false,
+    keyGenerator    : (req) => String(req.user?.id ?? req.ip),
+    handler         : (_req, res) =>
+      res.status(429).json({ success: false, message }),
+  });
+
+const configLimiter  = makeLimiter({ windowMin: 1,  max: 30,  message: "Too many requests." });
+const spinLimiter    = makeLimiter({ windowMin: 1,  max: 5,   message: "Slow down." });
+const historyLimiter = makeLimiter({ windowMin: 1,  max: 20,  message: "Too many requests." });
+
+/* ══════════════════════════════════════════════════════════════
+   ENSURE TABLES
+══════════════════════════════════════════════════════════════ */
 async function ensureTables() {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.spin_history (
@@ -101,12 +197,14 @@ async function ensureTables() {
       label       STRING    NOT NULL,
       type        STRING    NOT NULL,
       value       DECIMAL   NOT NULL DEFAULT 0,
+      is_win      BOOL      NOT NULL DEFAULT FALSE,
+      spin_type   STRING    NOT NULL DEFAULT 'free',
       coupon_id   UUID      NULL,
       coupon_code STRING    NULL,
       spun_at     TIMESTAMP NOT NULL DEFAULT now(),
-      CONSTRAINT spin_history_pkey PRIMARY KEY (id ASC),
-      INDEX idx_spin_user   (user_id ASC),
-      INDEX idx_spin_spun_at (spun_at DESC)
+      CONSTRAINT  spin_history_pkey PRIMARY KEY (id ASC),
+      INDEX       idx_spin_user    (user_id ASC),
+      INDEX       idx_spin_spun_at (user_id, spun_at DESC)
     )
   `);
 
@@ -117,8 +215,11 @@ async function ensureTables() {
       spins_today   INT8      NOT NULL DEFAULT 0,
       last_spin_at  TIMESTAMP NULL,
       total_spins   INT8      NOT NULL DEFAULT 0,
-      CONSTRAINT spin_config_pkey PRIMARY KEY (id ASC),
-      UNIQUE INDEX unique_spin_config_user (user_id ASC)
+      total_wins    INT8      NOT NULL DEFAULT 0,
+      streak        INT8      NOT NULL DEFAULT 0,
+      last_streak_date DATE   NULL,
+      CONSTRAINT    spin_config_pkey PRIMARY KEY (id ASC),
+      UNIQUE INDEX  unique_spin_config_user (user_id ASC)
     )
   `);
 }
@@ -127,276 +228,536 @@ ensureTables().catch((err) =>
   console.warn("[spinwheel] table init:", err.message)
 );
 
-/* ═══════════════════════════════════════════════════════════════
-   SPIN ALGORITHM
-   Weighted random selection
-═══════════════════════════════════════════════════════════════ */
-function spinWheel() {
-  const rand  = Math.random() * 100;
-  let   cumul = 0;
+/* ══════════════════════════════════════════════════════════════
+   GET SPIN STATUS
+   Reads spin_config + users.bonus_spins to determine:
+   - can_spin (free spin available?)
+   - bonus_spins_remaining
+   - total available spins
+══════════════════════════════════════════════════════════════ */
+async function getSpinStatus(userId) {
+  /* ── Get or upsert spin config ── */
+  const { rows: [config] } = await pool.query(
+    `INSERT INTO public.spin_config
+       (user_id, spins_today, last_spin_at, total_spins, total_wins, streak, last_streak_date)
+     VALUES ($1, 0, NULL, 0, 0, 0, NULL)
+     ON CONFLICT (user_id) DO UPDATE
+       SET spins_today = CASE
+         WHEN DATE(spin_config.last_spin_at) < CURRENT_DATE THEN 0
+         ELSE spin_config.spins_today
+       END
+     RETURNING *`,
+    [userId]
+  );
 
-  for (const seg of WHEEL_SEGMENTS) {
-    cumul += seg.probability;
-    if (rand < cumul) return seg;
+  /* ── Get bonus spins from users table ── */
+  const { rows: [user] } = await pool.query(
+    `SELECT bonus_spins, referral_code FROM users WHERE id = $1`,
+    [userId]
+  );
+
+  const bonusSpins = Math.min(user?.bonus_spins ?? 0, MAX_BONUS_STACKED);
+  const lastSpinAt = config.last_spin_at ? new Date(config.last_spin_at) : null;
+  const today      = new Date();
+  const isNewDay   = !lastSpinAt || lastSpinAt.toDateString() !== today.toDateString();
+  const spinsToday = isNewDay ? 0 : Number(config.spins_today || 0);
+  const canFreeSpin = spinsToday < MAX_FREE_DAILY;
+  const canSpin     = canFreeSpin || bonusSpins > 0;
+
+  const midnight = timeUntilMidnight();
+
+  /* ── Streak calculation ── */
+  let streak = Number(config.streak || 0);
+  const lastStreakDate = config.last_streak_date
+    ? new Date(config.last_streak_date).toDateString()
+    : null;
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  if (lastStreakDate === today.toDateString()) {
+    // already counted today
+  } else if (lastStreakDate === yesterday.toDateString()) {
+    // streak continues (will update on spin)
+  } else {
+    // streak broken
+    streak = 0;
   }
 
-  // Fallback — return "Try Again"
-  return WHEEL_SEGMENTS[0];
+  return {
+    config,
+    bonusSpins,
+    canFreeSpin,
+    canSpin,
+    spinsToday,
+    streak,
+    midnight,
+    referralCode: user?.referral_code ?? null,
+
+    /* Pre-built status object for API response */
+    status: {
+      can_spin                : canSpin,
+      can_free_spin           : canFreeSpin,
+      spins_today             : spinsToday,
+      max_daily               : MAX_FREE_DAILY,
+      total_spins             : Number(config.total_spins || 0),
+      total_wins              : Number(config.total_wins  || 0),
+      bonus_spins_remaining   : bonusSpins,
+      streak                  : streak,
+      next_spin_in            : canFreeSpin ? null : midnight.label,
+      next_spin_at            : canFreeSpin ? null : midnight.iso,
+      next_spin_seconds       : canFreeSpin ? null : midnight.seconds,
+      latest_referral_name    : null, // filled below if needed
+    },
+  };
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   GENERATE UNIQUE COUPON CODE
-═══════════════════════════════════════════════════════════════ */
-function generateCode(prefix = "SPIN") {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-  let   code  = `${prefix}-`;
-  for (let i = 0; i < 8; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
-  }
-  return code;
-}
-
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    GET /api/spinwheel/config
-   Returns wheel segments + user's spin status
-═══════════════════════════════════════════════════════════════ */
-router.get("/config", authenticate, async (req, res) => {
+   Wheel segments + user's spin status
+══════════════════════════════════════════════════════════════ */
+router.get("/config", authenticate, configLimiter, async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) return fail(res, 401, "Not authenticated.");
+
   try {
-    const userId = req.user.id;
+    const { status } = await getSpinStatus(userId);
 
-    /* Get or create spin config for user */
-    const { rows } = await pool.query(
-      `INSERT INTO public.spin_config (user_id, spins_today, last_spin_at, total_spins)
-       VALUES ($1, 0, NULL, 0)
-       ON CONFLICT (user_id) DO UPDATE
-         SET spins_today = CASE
-           WHEN DATE(spin_config.last_spin_at) < CURRENT_DATE THEN 0
-           ELSE spin_config.spins_today
-         END
-       RETURNING *`,
-      [userId]
-    );
-
-    const config      = rows[0];
-    const lastSpinAt  = config.last_spin_at ? new Date(config.last_spin_at) : null;
-    const today       = new Date();
-    const isNewDay    = !lastSpinAt || lastSpinAt.toDateString() !== today.toDateString();
-    const spinsToday  = isNewDay ? 0 : Number(config.spins_today || 0);
-    const MAX_DAILY   = 1; // 1 free spin per day
-    const canSpin     = spinsToday < MAX_DAILY;
-
-    /* Next spin time — midnight tonight */
-    const nextSpin = new Date();
-    nextSpin.setHours(24, 0, 0, 0);
-    const msUntilNext = nextSpin - today;
-    const hrsUntil    = Math.floor(msUntilNext / 3_600_000);
-    const minsUntil   = Math.floor((msUntilNext % 3_600_000) / 60_000);
+    /* ── Get latest referral name for bonus toast ── */
+    try {
+      const { rows: [latest] } = await pool.query(
+        `SELECT
+           COALESCE(
+             NULLIF(TRIM(u.first_name || ' ' || COALESCE(u.last_name, '')), ''),
+             u.name,
+             u.username,
+             'Someone'
+           ) AS name
+         FROM  referrals r
+         JOIN  users     u ON r.referee_id = u.id
+         WHERE r.inviter_id = $1
+           AND r.status     = 'rewarded'
+         ORDER BY r.reward_given_at DESC
+         LIMIT 1`,
+        [userId]
+      );
+      if (latest) status.latest_referral_name = latest.name;
+    } catch (_) { /* non-critical */ }
 
     return res.json({
       success     : true,
-      segments    : WHEEL_SEGMENTS.map((s) => ({
-        id    : s.id,
-        label : s.label,
-        type  : s.type,
-        value : s.value,
-        color : s.color,
-        bg    : s.bg,
-        emoji : s.emoji,
-        // Don't expose probabilities to frontend
-      })),
-      spin_status : {
-        can_spin      : canSpin,
-        spins_today   : spinsToday,
-        max_daily     : MAX_DAILY,
-        total_spins   : Number(config.total_spins || 0),
-        next_spin_in  : canSpin ? null : `${hrsUntil}h ${minsUntil}m`,
-        next_spin_at  : canSpin ? null : nextSpin.toISOString(),
-      },
+      segments    : safeSegments(),
+      spin_status : status,
     });
 
   } catch (err) {
     console.error("[spinwheel] GET /config:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return fail(res, 500, "Server error.");
   }
 });
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    POST /api/spinwheel/spin
-   Execute a spin — server-side result
-═══════════════════════════════════════════════════════════════ */
-router.post("/spin", authenticate, async (req, res) => {
-  const userId = req.user.id;
+   Execute a spin.
+   Body: { spin_type: "free" | "bonus" }
+══════════════════════════════════════════════════════════════ */
+router.post("/spin", authenticate, spinLimiter, async (req, res) => {
+  const userId    = req.user?.id;
+  const ip        = getIp(req);
+  const spinType  = req.body?.spin_type || "free";
 
+  if (!userId) return fail(res, 401, "Not authenticated.");
+
+  if (!["free", "bonus"].includes(spinType)) {
+    return fail(res, 400, "spin_type must be 'free' or 'bonus'.");
+  }
+
+  const client = await pool.connect();
   try {
-    /* ── Check if user can spin ── */
-    const { rows: configRows } = await pool.query(
-      `SELECT * FROM public.spin_config WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
+    await client.query("BEGIN");
 
-    const config     = configRows[0];
-    const today      = new Date();
-    const lastSpinAt = config?.last_spin_at ? new Date(config.last_spin_at) : null;
-    const isNewDay   = !lastSpinAt || lastSpinAt.toDateString() !== today.toDateString();
-    const spinsToday = isNewDay ? 0 : Number(config?.spins_today || 0);
-    const MAX_DAILY  = 1;
+    /* ── 1. Check status ── */
+    const spinData = await getSpinStatus(userId);
+    const { canFreeSpin, bonusSpins, streak } = spinData;
 
-    if (spinsToday >= MAX_DAILY) {
-      const nextSpin = new Date();
-      nextSpin.setHours(24, 0, 0, 0);
-      const msLeft   = nextSpin - today;
-      const hrsLeft  = Math.floor(msLeft / 3_600_000);
-      const minsLeft = Math.floor((msLeft % 3_600_000) / 60_000);
+    /* ── 2. Determine which type to use ── */
+    let actualType = spinType;
 
-      return res.status(429).json({
-        success : false,
-        message : `You've used your free spin today! Come back in ${hrsLeft}h ${minsLeft}m`,
-        next_spin_at : nextSpin.toISOString(),
-      });
+    if (actualType === "free" && !canFreeSpin) {
+      // Tried free but already used → try bonus
+      if (bonusSpins > 0) {
+        actualType = "bonus";
+      } else {
+        await client.query("ROLLBACK");
+        const midnight = timeUntilMidnight();
+        return fail(res, 429,
+          `No spins available. Come back in ${midnight.label}.`,
+          { next_spin_at: midnight.iso }
+        );
+      }
     }
 
-    /* ── Execute spin ── */
-    const result = spinWheel();
+    if (actualType === "bonus" && bonusSpins <= 0) {
+      // Tried bonus but none left → try free
+      if (canFreeSpin) {
+        actualType = "free";
+      } else {
+        await client.query("ROLLBACK");
+        return fail(res, 429,
+          "No bonus spins remaining. Invite friends to earn more!",
+          { bonus_spins_remaining: 0 }
+        );
+      }
+    }
 
-    /* ── Process reward ── */
+    /* ── 3. Double-check in DB (prevents race conditions) ── */
+    if (actualType === "free") {
+      const { rows: [check] } = await client.query(
+        `SELECT spins_today, last_spin_at
+         FROM   spin_config
+         WHERE  user_id = $1`,
+        [userId]
+      );
+      const lastDate = check?.last_spin_at
+        ? new Date(check.last_spin_at).toDateString()
+        : null;
+      const todayStr = new Date().toDateString();
+      const dbSpins  = (lastDate === todayStr) ? Number(check.spins_today || 0) : 0;
+
+      if (dbSpins >= MAX_FREE_DAILY) {
+        await client.query("ROLLBACK");
+        return fail(res, 429, "Free spin already used today.");
+      }
+    }
+
+    if (actualType === "bonus") {
+      const { rows: [check] } = await client.query(
+        `SELECT bonus_spins FROM users WHERE id = $1`,
+        [userId]
+      );
+      if (!check || check.bonus_spins <= 0) {
+        await client.query("ROLLBACK");
+        return fail(res, 429, "No bonus spins remaining.");
+      }
+    }
+
+    /* ── 4. Execute spin ── */
+    const result = spinWheel();
+    const isWin  = result.type !== "none";
+
+    /* ── 5. Create coupon if applicable ── */
     let couponId   = null;
     let couponCode = null;
 
-    if (result.type !== "none" && result.type !== "airtime") {
-      /* Create a coupon in the DB */
-      couponCode = generateCode("SPIN");
-
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 30); // expires in 30 days
+    if (isWin && result.type !== "airtime") {
+      couponCode   = generateCouponCode("SPIN");
+      const expiry = new Date();
+      expiry.setDate(expiry.getDate() + COUPON_EXPIRY_DAYS);
 
       try {
-        const { rows: couponRows } = await pool.query(
+        const { rows: [coupon] } = await client.query(
           `INSERT INTO public.coupons
-             (code, type, value, min_purchase, max_discount, usage_limit, expires_at, description, created_by)
+             (code, type, value, min_purchase, max_discount,
+              usage_limit, expires_at, description, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING id`,
           [
             couponCode,
             result.type,
             result.value,
-            0,                          // no minimum purchase
-            result.type === "percentage" && result.value >= 10 ? 5000 : null, // cap big discounts
-            1,                          // one use
-            expiresAt,
+            0,
+            result.type === "percentage" && result.value >= 10 ? 5000 : null,
+            1,
+            expiry,
             `🎡 Spin & Win — ${result.label}`,
             userId,
           ]
         );
-        couponId = couponRows[0]?.id || null;
+        couponId = coupon?.id ?? null;
       } catch (e) {
         console.warn("[spinwheel] coupon insert:", e.message);
-        /* Table may not exist yet — still record the spin */
+        couponCode = null;
       }
     }
 
-    /* ── Record spin in history ── */
-    await pool.query(
+    /* ── 6. Record spin in history ── */
+    await client.query(
       `INSERT INTO public.spin_history
-         (user_id, segment_id, label, type, value, coupon_id, coupon_code)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         (user_id, segment_id, label, type, value,
+          is_win, spin_type, coupon_id, coupon_code)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
-        userId,
-        result.id,
-        result.label,
-        result.type,
-        result.value,
-        couponId,
-        couponCode,
+        userId, result.id, result.label,
+        result.type, result.value,
+        isWin, actualType,
+        couponId, couponCode,
       ]
     );
 
-    /* ── Update spin config ── */
-    await pool.query(
-      `INSERT INTO public.spin_config (user_id, spins_today, last_spin_at, total_spins)
-       VALUES ($1, 1, NOW(), 1)
+    /* ── 7. Update spin_config ── */
+    const today      = new Date();
+    const todayDate  = today.toISOString().slice(0, 10);
+    const yesterday  = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yestDate   = yesterday.toISOString().slice(0, 10);
+
+    await client.query(
+      `INSERT INTO public.spin_config
+         (user_id, spins_today, last_spin_at, total_spins, total_wins,
+          streak, last_streak_date)
+       VALUES ($1, $2, NOW(), 1, $3, 1, $4)
        ON CONFLICT (user_id) DO UPDATE
-         SET spins_today  = CASE
-           WHEN DATE(spin_config.last_spin_at) < CURRENT_DATE THEN 1
-           ELSE spin_config.spins_today + 1
-         END,
-             last_spin_at = NOW(),
-             total_spins  = spin_config.total_spins + 1`,
+         SET spins_today = CASE
+               WHEN DATE(spin_config.last_spin_at) < CURRENT_DATE
+                 THEN $2
+               ELSE spin_config.spins_today + $2
+             END,
+             last_spin_at     = NOW(),
+             total_spins      = spin_config.total_spins + 1,
+             total_wins       = spin_config.total_wins + $3,
+             streak           = CASE
+               WHEN spin_config.last_streak_date = $5
+                 THEN spin_config.streak
+               WHEN spin_config.last_streak_date = $6
+                 THEN spin_config.streak + 1
+               ELSE 1
+             END,
+             last_streak_date = $4`,
+      [
+        userId,
+        actualType === "free" ? 1 : 0,   // only count free spins toward daily limit
+        isWin ? 1 : 0,
+        todayDate,                        // last_streak_date
+        todayDate,                        // for "already today" check
+        yestDate,                         // for "yesterday" check (streak continues)
+      ]
+    );
+
+    /* ── 8. Deduct bonus spin if used ── */
+    if (actualType === "bonus") {
+      await client.query(
+        `UPDATE users
+         SET    bonus_spins = GREATEST(bonus_spins - 1, 0)
+         WHERE  id = $1`,
+        [userId]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    /* ── 9. Get remaining bonus spins ── */
+    const { rows: [afterUser] } = await pool.query(
+      `SELECT bonus_spins FROM users WHERE id = $1`,
       [userId]
     );
 
-    /* ── Build response ── */
-    const isWin = result.type !== "none";
+    const spinsRemaining = afterUser?.bonus_spins ?? 0;
 
+    /* ── 10. Audit ── */
+    writeAudit({
+      actorId    : userId,
+      action     : "spinwheel_spin",
+      targetType : "user",
+      targetId   : userId,
+      metadata   : {
+        spin_type    : actualType,
+        segment_id   : result.id,
+        label        : result.label,
+        is_win       : isWin,
+        coupon_code  : couponCode,
+        is_big_win   : result.is_big_win,
+      },
+      ipAddress  : ip,
+    }).catch(() => {});
+
+    /* ── 11. Response ── */
     return res.json({
       success    : true,
       segment_id : result.id,
       result     : {
-        id         : result.id,
-        label      : result.label,
-        type       : result.type,
-        value      : result.value,
-        emoji      : result.emoji,
-        color      : result.color,
-        is_win     : isWin,
-        coupon_code: couponCode,
-        coupon_id  : couponId,
-        message    : isWin
+        id              : result.id,
+        label           : result.label,
+        type            : result.type,
+        value           : result.value,
+        emoji           : result.emoji,
+        color           : result.color,
+        is_win          : isWin,
+        is_big_win      : result.is_big_win,
+        spin_type       : actualType,
+        coupon_code     : couponCode,
+        coupon_id       : couponId,
+        spins_remaining : spinsRemaining,
+        message         : isWin
           ? result.type === "airtime"
             ? `🎉 You won ₦${result.value} airtime! We'll credit it shortly.`
             : couponCode
               ? `🎉 You won ${result.label}! Use code ${couponCode} at checkout.`
               : `🎉 You won ${result.label}!`
           : "😅 Better luck next time! Come back tomorrow for another spin.",
-        expires_in : isWin && couponCode ? "30 days" : null,
+        expires_in      : isWin && couponCode ? `${COUPON_EXPIRY_DAYS} days` : null,
       },
     });
 
   } catch (err) {
-    console.error("[spinwheel] POST /spin:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[spinwheel] POST /spin:", err.message, "\n", err.stack);
+    return fail(res, 500, "Server error.");
+  } finally {
+    client.release();
   }
 });
 
-/* ═══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
    GET /api/spinwheel/history
-   User's spin history
-═══════════════════════════════════════════════════════════════ */
-router.get("/history", authenticate, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const limit  = Math.min(Number(req.query.limit) || 10, 50);
+   User's spin history + stats
+══════════════════════════════════════════════════════════════ */
+router.get("/history", authenticate, historyLimiter, async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) return fail(res, 401, "Not authenticated.");
 
+  const page   = Math.max(1, parseInt(req.query.page   ?? "1",  10));
+  const limit  = Math.min(50, parseInt(req.query.limit  ?? "20", 10));
+  const offset = (page - 1) * limit;
+
+  try {
+    /* ── History ── */
     const { rows } = await pool.query(
       `SELECT
          id, segment_id, label, type, value,
+         is_win, spin_type,
          coupon_code, spun_at
-       FROM public.spin_history
+       FROM  public.spin_history
        WHERE user_id = $1
        ORDER BY spun_at DESC
-       LIMIT $2`,
-      [userId, limit]
+       LIMIT  $2
+       OFFSET $3`,
+      [userId, limit, offset]
     );
 
-    const wins  = rows.filter((r) => r.type !== "none");
-    const total = rows.length;
+    /* ── Total count ── */
+    const { rows: [countRow] } = await pool.query(
+      `SELECT COUNT(*)::INT AS total FROM public.spin_history WHERE user_id = $1`,
+      [userId]
+    );
+
+    /* ── Stats from spin_config ── */
+    const { rows: [config] } = await pool.query(
+      `SELECT total_spins, total_wins, streak
+       FROM   public.spin_config
+       WHERE  user_id = $1`,
+      [userId]
+    );
+
+    /* ── Bonus spins used count ── */
+    const { rows: [bonusCount] } = await pool.query(
+      `SELECT COUNT(*)::INT AS cnt
+       FROM   public.spin_history
+       WHERE  user_id   = $1
+         AND  spin_type = 'bonus'`,
+      [userId]
+    );
+
+    const totalSpins = Number(config?.total_spins || 0);
+    const totalWins  = Number(config?.total_wins  || 0);
 
     return res.json({
       success : true,
+      page,
+      limit,
+      total   : countRow?.total ?? 0,
       history : rows.map((r) => ({
-        ...r,
-        value  : Number(r.value || 0),
-        is_win : r.type !== "none",
+        id          : r.id,
+        segment_id  : r.segment_id,
+        label       : r.label,
+        type        : r.type,
+        value       : Number(r.value || 0),
+        is_win      : r.is_win ?? r.type !== "none",
+        spin_type   : r.spin_type || "free",
+        coupon_code : r.coupon_code,
+        spun_at     : r.spun_at,
       })),
       stats : {
-        total_spins : total,
-        total_wins  : wins.length,
-        win_rate    : total > 0 ? Math.round((wins.length / total) * 100) : 0,
+        total_spins      : totalSpins,
+        total_wins       : totalWins,
+        win_rate         : totalSpins > 0
+          ? Math.round((totalWins / totalSpins) * 100)
+          : 0,
+        bonus_spins_used : bonusCount?.cnt ?? 0,
+        streak           : Number(config?.streak || 0),
       },
     });
 
   } catch (err) {
     console.error("[spinwheel] GET /history:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return fail(res, 500, "Server error.");
+  }
+});
+
+/* ══════════════════════════════════════════════════════════════
+   GET /api/spinwheel/referral-spins
+   Shows which referrals earned the user bonus spins
+══════════════════════════════════════════════════════════════ */
+router.get("/referral-spins", authenticate, historyLimiter, async (req, res) => {
+  const userId = req.user?.id;
+  if (!userId) return fail(res, 401, "Not authenticated.");
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         r.id,
+         r.reward_value  AS spins_awarded,
+         r.reward_given_at AS created_at,
+         r.status,
+         COALESCE(
+           NULLIF(TRIM(u.first_name || ' ' || COALESCE(u.last_name, '')), ''),
+           u.name,
+           u.username,
+           'Unknown'
+         )                         AS referred_name,
+         u.profile_image           AS avatar_url
+       FROM  referrals r
+       JOIN  users     u ON r.referee_id = u.id
+       WHERE r.inviter_id = $1
+         AND r.status     = 'rewarded'
+       ORDER BY r.reward_given_at DESC
+       LIMIT 50`,
+      [userId]
+    );
+
+    /* Add initials + color for avatar */
+    const COLORS = [
+      "#2563eb","#10b981","#f59e0b","#8b5cf6",
+      "#ef4444","#0891b2","#e8630a","#059669",
+    ];
+
+    const referralSpins = rows.map((r) => {
+      const name     = r.referred_name || "?";
+      const initials = name.split(" ").slice(0, 2)
+                           .map((w) => w[0]?.toUpperCase() || "")
+                           .join("");
+      const color    = COLORS[
+        [...name].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length
+      ];
+
+      return {
+        id             : r.id,
+        referred_name  : name,
+        initials,
+        color,
+        avatar_url     : r.avatar_url || null,
+        spins_awarded  : Number(r.spins_awarded || 0),
+        created_at     : r.created_at,
+        status         : r.status,
+      };
+    });
+
+    return res.json({
+      success        : true,
+      referral_spins : referralSpins,
+    });
+
+  } catch (err) {
+    console.error("[spinwheel] GET /referral-spins:", err.message);
+    return fail(res, 500, "Server error.");
   }
 });
 
