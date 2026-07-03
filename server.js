@@ -184,6 +184,7 @@ import p2pRouter                         from "./routes/p2p.js";
 import verificationRouter                from "./routes/verification.js";
 import couponsRouter                     from "./routes/coupons.js";
 import spinwheelRouter                   from "./routes/spinwheel.js";
+import editProfileRouter from "./routes/editProfile.js";
 
 /* ══════════════════════════════════════════════════════════════
    WEBHOOKS  — must be registered BEFORE body parsers
