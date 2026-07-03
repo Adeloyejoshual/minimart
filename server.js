@@ -185,6 +185,7 @@ import verificationRouter                from "./routes/verification.js";
 import couponsRouter                     from "./routes/coupons.js";
 import spinwheelRouter                   from "./routes/spinwheel.js";
 import editProfileRouter from "./routes/editProfile.js";
+import referralRoutes from "./routes/referrals.js";
 
 /* ══════════════════════════════════════════════════════════════
    WEBHOOKS  — must be registered BEFORE body parsers
@@ -305,6 +306,7 @@ app.use("/api/p2p",           p2pRouter);
 app.use("/api/verification",  verificationRouter);
 app.use("/api/coupons",       couponsRouter);
 app.use("/api/spinwheel",     spinwheelRouter);
+app.use("/api/referrals", referralRoutes);
 
 /* ══════════════════════════════════════════════════════════════
    STATIC — sitemap + robots
