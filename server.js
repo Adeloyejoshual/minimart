@@ -274,7 +274,7 @@ app.use("/api/auth", resetPasswordRouter);  // reset-password           ✅
 
 /* ── users ── */
 app.use("/api/users", userRouter);
-
+app.use("/api/edit-profile", editProfileRouter);
 /* seller */
 app.use("/api/seller-onboarding", sellerOnboardingRouter);
 app.use("/api/seller",            sellerProfileRouter);
