@@ -1,21 +1,9 @@
-/**
- * src/pages/AuthPage.jsx
- * Route: /auth
- *
- * Modes:
- *   login    — email + password
- *   register — full registration form
- *   otp      — 6-digit email OTP after registration
- *
- * Password reset lives at:
- *   /forgot-password  (ForgotPassword.jsx)
- *   /reset-password   (ResetPassword.jsx)
- */
+// src/pages/AuthPage.jsx
 
 import {
   useState, useEffect, useRef, useCallback, useMemo,
 } from "react";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 import { locationsByState } from "../config/locationsByState";
@@ -25,8 +13,10 @@ import "../styles/AuthPage.css";
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
 ═══════════════════════════════════════════════════════════════ */
-const API  = `${import.meta.env.VITE_API_BASE_URL}/api/auth`;
-const VAPI = `${import.meta.env.VITE_API_BASE_URL}/api/verification`;
+const BASE = import.meta.env.VITE_API_BASE_URL;
+const API  = `${BASE}/api/auth`;
+const VAPI = `${BASE}/api/verification`;
+const RAPI = `${BASE}/api/referrals`;
 
 const OTP_LENGTH  = 6;
 const RESEND_SECS = 60;
@@ -127,6 +117,16 @@ const Ic = {
       <line x1="1" y1="1" x2="23" y2="23"/>
     </svg>
   ),
+  Gift: ({ s = 17, c = "currentColor" }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 12 20 22 4 22 4 12"/>
+      <rect x="2" y="7" width="20" height="5"/>
+      <line x1="12" y1="22" x2="12" y2="7"/>
+      <path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z"/>
+      <path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
+    </svg>
+  ),
   Check: ({ s = 14, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
          stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -181,6 +181,13 @@ const Ic = {
          stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="23 4 23 10 17 10"/>
       <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
+    </svg>
+  ),
+  X: ({ s = 14, c = "currentColor" }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
+         stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6" x2="6" y2="18"/>
+      <line x1="6" y1="6" x2="18" y2="18"/>
     </svg>
   ),
 };
@@ -391,7 +398,7 @@ function Countdown({ seconds, resendKey, onDone }) {
       });
     }, 1_000);
     return () => clearInterval(id);
-  }, [seconds, resendKey]); // eslint-disable-line
+  }, [seconds, resendKey]);
 
   return (
     <span className={`ap-countdown${left <= 10 ? " ap-countdown--warn" : ""}`}>
@@ -423,9 +430,6 @@ function Spinner({ c = "#fff" }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   BADGES
-═══════════════════════════════════════════════════════════════ */
 function Badges() {
   return (
     <div className="ap-badges">
@@ -434,6 +438,69 @@ function Badges() {
       <span className="ap-badge"><Ic.Check  s={11} c="#6B6560" /> GDPR</span>
     </div>
   );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   INVITE CODE PREVIEW
+═══════════════════════════════════════════════════════════════ */
+function InviteCodePreview({ status, preview, onClear }) {
+  if (!status) return null;
+
+  if (status === "checking") {
+    return (
+      <div className="ap-invite-status ap-invite-status--checking">
+        <Spinner c="#6B7280" />
+        <span>Checking invite code…</span>
+      </div>
+    );
+  }
+
+  if (status === "valid" && preview) {
+    return (
+      <div className="ap-invite-status ap-invite-status--valid">
+        {preview.avatar_url ? (
+          <img
+            src={preview.avatar_url}
+            alt={preview.display_name}
+            className="ap-invite-avatar"
+          />
+        ) : (
+          <div className="ap-invite-avatar ap-invite-avatar--letter">
+            {preview.display_name?.[0]?.toUpperCase() || "?"}
+          </div>
+        )}
+        <div className="ap-invite-info">
+          <span className="ap-invite-valid-label">
+            <Ic.CheckCircle s={12} c="#15803D" /> Valid invite code
+          </span>
+          <span className="ap-invite-inviter">
+            Invited by <strong>{preview.display_name}</strong>
+          </span>
+        </div>
+        {onClear && (
+          <button
+            type="button"
+            className="ap-invite-clear"
+            onClick={onClear}
+            aria-label="Clear invite code"
+          >
+            <Ic.X s={12} c="#9CA3AF" />
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (status === "invalid") {
+    return (
+      <div className="ap-invite-status ap-invite-status--invalid">
+        <Ic.X s={12} c="#DC2626" />
+        <span>Invalid invite code — it won't be applied</span>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -446,8 +513,6 @@ function LeftPanel() {
       <div className="ap-blob ap-blob2" />
       <ParticleCanvas />
       <div className="ap-left-inner">
-
-        {/* Logo */}
         <div className="ap-logo">
           <div className="ap-logo-icon">
             <div className="ap-logo-ring" />
@@ -457,8 +522,6 @@ function LeftPanel() {
           </div>
           <span className="ap-logo-name">Loe<b>mart</b></span>
         </div>
-
-        {/* Hero */}
         <div className="ap-hero">
           <div className="ap-hero-tag">Your everyday marketplace</div>
           <h2>Shop Smarter,<br /><em>Live Better.</em></h2>
@@ -478,8 +541,6 @@ function LeftPanel() {
             ))}
           </div>
         </div>
-
-        {/* Trust grid */}
         <div className="ap-trust-grid">
           {TRUST_ITEMS.map((t) => (
             <div className="ap-trust-item" key={t.label}>
@@ -491,14 +552,13 @@ function LeftPanel() {
             </div>
           ))}
         </div>
-
       </div>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   REGISTRATION OTP PANEL
+   OTP PANEL
 ═══════════════════════════════════════════════════════════════ */
 function OtpPanel({
   otp, setOtp,
@@ -508,8 +568,7 @@ function OtpPanel({
   resendLeft,
   devOtp, maskedEmail,
   verifyingRef,
-  onResend,
-  onSkip,
+  onResend, onSkip,
 }) {
   return (
     <>
@@ -520,10 +579,7 @@ function OtpPanel({
         <h3 className="ap-otp-title">Check your email</h3>
         <p className="ap-otp-sub">
           We sent a 6-digit code to{" "}
-          {maskedEmail
-            ? <strong>{maskedEmail}</strong>
-            : "your email address"
-          }.
+          {maskedEmail ? <strong>{maskedEmail}</strong> : "your email address"}.
           Enter it below to verify your account.
         </p>
       </div>
@@ -546,9 +602,7 @@ function OtpPanel({
       {otpErrMsg && (
         <div className="ap-otp-error">
           {otpErrMsg}
-          {attemptsLeft !== null &&
-           attemptsLeft > 0      &&
-           attemptsLeft <= 4     && (
+          {attemptsLeft !== null && attemptsLeft > 0 && attemptsLeft <= 4 && (
             <span className="ap-otp-error__sub">
               {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} remaining
             </span>
@@ -559,15 +613,9 @@ function OtpPanel({
       <div className="ap-otp-resend">
         <div>
           {resendLeft === 0 ? (
-            <span className="ap-otp-resend__limit">
-              Daily limit reached — try tomorrow
-            </span>
+            <span className="ap-otp-resend__limit">Daily limit reached — try tomorrow</span>
           ) : canResend ? (
-            <button
-              type="button"
-              className="ap-otp-resend__btn"
-              onClick={onResend}
-            >
+            <button type="button" className="ap-otp-resend__btn" onClick={onResend}>
               <Ic.Refresh s={13} /> Resend code
               {resendLeft !== null && (
                 <span className="ap-otp-resend__count">({resendLeft} left)</span>
@@ -585,9 +633,7 @@ function OtpPanel({
             </span>
           )}
         </div>
-        <span className="ap-otp-resend__note">
-          <Ic.Lock s={11} /> Never share this
-        </span>
+        <span className="ap-otp-resend__note"><Ic.Lock s={11} /> Never share this</span>
       </div>
 
       <div className="ap-otp-skip">
@@ -605,17 +651,18 @@ function OtpPanel({
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function AuthPage({ setUser }) {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const from     = location.state?.from?.pathname || "/";
+  const navigate     = useNavigate();
+  const location     = useLocation();
+  const [params]     = useSearchParams();
+  const from         = location.state?.from?.pathname || "/";
 
-  /* ── mode: "login" | "register" | "otp" ── */
+  /* ── mode ── */
   const [mode,     setMode]     = useState("login");
   const [showPw,   setShowPw]   = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading,  setLoading]  = useState(false);
 
-  /* ── login / register form ── */
+  /* ── form ── */
   const [form, setForm] = useState({
     name         : "",
     email        : "",
@@ -624,9 +671,15 @@ export default function AuthPage({ setUser }) {
     country      : "",
     state        : "",
     city         : "",
+    invite_code  : "",
   });
 
-  /* ── registration OTP state ── */
+  /* ── invite code validation ── */
+  const [inviteStatus,  setInviteStatus]  = useState(null);
+  const [invitePreview, setInvitePreview] = useState(null);
+  const inviteDebounce                    = useRef(null);
+
+  /* ── OTP ── */
   const [otp,          setOtp]          = useState("");
   const [otpError,     setOtpError]     = useState(false);
   const [otpErrMsg,    setOtpErrMsg]    = useState("");
@@ -641,7 +694,69 @@ export default function AuthPage({ setUser }) {
   const autoRef      = useRef(false);
   const verifyingRef = useRef(false);
 
-  /* ── form helpers ── */
+  /* ═══════════════════════════════════════════════════════════
+     AUTO-FILL INVITE CODE FROM URL
+     Supports:
+       /auth?ref=JOSHUA247
+       /auth?code=JOSHUA247
+       /auth?invite=JOSHUA247
+       /invite/JOSHUA247 (via redirect)
+  ═══════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    const refCode = (
+      params.get("ref")    ||
+      params.get("code")   ||
+      params.get("invite") ||
+      ""
+    ).trim().toUpperCase();
+
+    if (refCode && refCode.length >= 4) {
+      setForm((f) => ({ ...f, invite_code: refCode }));
+      validateInviteCode(refCode);
+      /* Auto-switch to register if user arrived via invite link */
+      setMode("register");
+    }
+  }, [params]);
+
+  /* ═══════════════════════════════════════════════════════════
+     VALIDATE INVITE CODE
+  ═══════════════════════════════════════════════════════════ */
+  const validateInviteCode = useCallback(async (code) => {
+    const clean = (code || "").trim().toUpperCase();
+    if (!clean || clean.length < 4) {
+      setInviteStatus(null);
+      setInvitePreview(null);
+      return;
+    }
+
+    setInviteStatus("checking");
+    try {
+      const { data } = await axios.get(
+        `${RAPI}/validate/${encodeURIComponent(clean)}`
+      );
+      if (data.valid) {
+        setInviteStatus("valid");
+        setInvitePreview({
+          display_name : data.display_name,
+          avatar_url   : data.avatar_url,
+        });
+      } else {
+        setInviteStatus("invalid");
+        setInvitePreview(null);
+      }
+    } catch (err) {
+      if (err.response?.status === 404) {
+        setInviteStatus("invalid");
+      } else {
+        setInviteStatus(null);
+      }
+      setInvitePreview(null);
+    }
+  }, []);
+
+  /* ═══════════════════════════════════════════════════════════
+     FORM HANDLERS
+  ═══════════════════════════════════════════════════════════ */
   const handleChange = useCallback((e) => {
     const { name, value } = e.target;
     setForm((prev) => {
@@ -650,6 +765,27 @@ export default function AuthPage({ setUser }) {
       if (name === "state")   { next.city  = ""; }
       return next;
     });
+  }, []);
+
+  const handleInviteChange = useCallback((e) => {
+    const raw   = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20);
+    setForm((f) => ({ ...f, invite_code: raw }));
+
+    clearTimeout(inviteDebounce.current);
+    if (!raw || raw.length < 4) {
+      setInviteStatus(null);
+      setInvitePreview(null);
+      return;
+    }
+    inviteDebounce.current = setTimeout(() => {
+      validateInviteCode(raw);
+    }, 600);
+  }, [validateInviteCode]);
+
+  const clearInviteCode = useCallback(() => {
+    setForm((f) => ({ ...f, invite_code: "" }));
+    setInviteStatus(null);
+    setInvitePreview(null);
   }, []);
 
   const switchMode = useCallback((m) => {
@@ -670,9 +806,9 @@ export default function AuthPage({ setUser }) {
 
   const pw = useMemo(() => getStrength(form.password), [form.password]);
 
-  /* ════════════════════════════════════════════════════════════
-     SEND REGISTRATION OTP
-  ════════════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════════════
+     SEND OTP
+  ═══════════════════════════════════════════════════════════ */
   const sendOtp = useCallback(async (token) => {
     const tok = token || authToken;
     try {
@@ -689,9 +825,9 @@ export default function AuthPage({ setUser }) {
     }
   }, [authToken]);
 
-  /* ════════════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════════
      LOGIN
-  ════════════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════════ */
   const handleLogin = async () => {
     if (!form.email || !form.password)
       return toast.error("Please enter your email and password.");
@@ -710,16 +846,17 @@ export default function AuthPage({ setUser }) {
     }
   };
 
-  /* ════════════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════════
      REGISTER
-  ════════════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════════ */
   const handleRegister = async () => {
     if (!form.name || !form.email || !form.password)
       return toast.error("Please fill in the required fields.");
 
     setLoading(true);
     try {
-      const { data } = await axios.post(`${API}/register`, {
+      /* Build payload — only include invite_code if valid */
+      const payload = {
         name         : form.name.trim(),
         email        : form.email.trim().toLowerCase(),
         password     : form.password,
@@ -727,7 +864,13 @@ export default function AuthPage({ setUser }) {
         country      : form.country      || null,
         state        : form.state        || null,
         city         : form.city         || null,
-      });
+      };
+
+      if (inviteStatus === "valid" && form.invite_code) {
+        payload.invite_code = form.invite_code;
+      }
+
+      const { data } = await axios.post(`${API}/register`, payload);
 
       const token = data.token;
       setAuthToken(token);
@@ -751,9 +894,9 @@ export default function AuthPage({ setUser }) {
     }
   };
 
-  /* ════════════════════════════════════════════════════════════
-     VERIFY REGISTRATION OTP
-  ════════════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════════════
+     VERIFY OTP
+  ═══════════════════════════════════════════════════════════ */
   const verifyOtp = useCallback(async (code) => {
     if (verifyingRef.current) return;
     verifyingRef.current = true;
@@ -782,7 +925,6 @@ export default function AuthPage({ setUser }) {
     }
   }, [authToken, navigate]);
 
-  /* ── auto-submit registration OTP ── */
   useEffect(() => {
     if (
       otp.length === OTP_LENGTH &&
@@ -816,9 +958,9 @@ export default function AuthPage({ setUser }) {
     if (mode === "register") handleRegister();
   };
 
-  /* ════════════════════════════════════════════════════════════
-     REGISTRATION OTP MODE
-  ════════════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════════════
+     OTP MODE
+  ═══════════════════════════════════════════════════════════ */
   if (mode === "otp") {
     return (
       <div className="ap">
@@ -851,9 +993,9 @@ export default function AuthPage({ setUser }) {
     );
   }
 
-  /* ════════════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════════
      LOGIN / REGISTER
-  ════════════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════════ */
   return (
     <div className="ap">
       <LeftPanel />
@@ -892,11 +1034,25 @@ export default function AuthPage({ setUser }) {
               </p>
             </div>
 
+            {/* ── Invite Code Banner (show when valid code from URL) ── */}
+            {mode === "register" && inviteStatus === "valid" && invitePreview && (
+              <div className="ap-invite-banner">
+                <Ic.Gift s={18} c="#15803D" />
+                <div>
+                  <strong>{invitePreview.display_name}</strong> invited you to join Loemart!
+                  <br />
+                  <span style={{ fontSize: 12, opacity: 0.7 }}>
+                    You'll both earn rewards when you sign up
+                  </span>
+                </div>
+              </div>
+            )}
+
             {/* Form */}
             <form onSubmit={onSubmit}>
               <div className="ap-form">
 
-                {/* Name — register only */}
+                {/* Name */}
                 {mode === "register" && (
                   <div className="ap-field">
                     <label className="ap-label">Full Name</label>
@@ -933,7 +1089,6 @@ export default function AuthPage({ setUser }) {
                 <div className="ap-field">
                   <label className="ap-label">
                     Password
-                    {/* ✅ navigates to /forgot-password instead of switchMode("forgot") */}
                     {mode === "login" && (
                       <button
                         type="button"
@@ -966,7 +1121,6 @@ export default function AuthPage({ setUser }) {
                     </button>
                   </div>
 
-                  {/* Strength meter — register only */}
                   {mode === "register" && form.password && (
                     <div className="ap-pw">
                       <div className="ap-pw-bars">
@@ -990,11 +1144,8 @@ export default function AuthPage({ setUser }) {
                             {c.met
                               ? <Ic.Check s={9} c="#15803D" />
                               : <span style={{
-                                  width        : 9,
-                                  height       : 9,
-                                  display      : "inline-block",
-                                  borderRadius : "50%",
-                                  border       : "1.5px solid #B0AAA3",
+                                  width: 9, height: 9, display: "inline-block",
+                                  borderRadius: "50%", border: "1.5px solid #B0AAA3",
                                 }} />
                             }
                             {c.label}
@@ -1004,6 +1155,62 @@ export default function AuthPage({ setUser }) {
                     </div>
                   )}
                 </div>
+
+                {/* ══════════════════════════════════════════
+                    INVITE CODE FIELD — Register only
+                ══════════════════════════════════════════ */}
+                {mode === "register" && (
+                  <div className="ap-field">
+                    <label className="ap-label">
+                      Invite Code
+                      <span className="ap-label-opt">Optional</span>
+                    </label>
+                    <div className="ap-iw" style={{
+                      borderColor:
+                        inviteStatus === "valid"   ? "#22C55E" :
+                        inviteStatus === "invalid" ? "#EF4444" : undefined,
+                    }}>
+                      <span className="ap-icon">
+                        <Ic.Gift s={17} c={
+                          inviteStatus === "valid"   ? "#15803D" :
+                          inviteStatus === "invalid" ? "#DC2626" : "currentColor"
+                        } />
+                      </span>
+                      <input
+                        name="invite_code"
+                        value={form.invite_code}
+                        onChange={handleInviteChange}
+                        placeholder="e.g. JOSHUA247"
+                        maxLength={20}
+                        autoComplete="off"
+                        spellCheck={false}
+                        style={{
+                          textTransform : "uppercase",
+                          letterSpacing : form.invite_code ? "1.5px" : undefined,
+                          fontWeight    : form.invite_code ? 700 : undefined,
+                        }}
+                      />
+                      {form.invite_code && inviteStatus !== "checking" && (
+                        <button
+                          type="button"
+                          className="ap-eye"
+                          onClick={clearInviteCode}
+                          aria-label="Clear invite code"
+                          style={{ padding: 4 }}
+                        >
+                          <Ic.X s={14} c="#9CA3AF" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Invite code status preview */}
+                    <InviteCodePreview
+                      status={inviteStatus}
+                      preview={invitePreview}
+                      onClear={clearInviteCode}
+                    />
+                  </div>
+                )}
 
                 {/* Register extras */}
                 {mode === "register" && (
@@ -1105,9 +1312,7 @@ export default function AuthPage({ setUser }) {
                               value={form.city}
                               onChange={handleChange}
                               placeholder={
-                                isNigeria && !form.state
-                                  ? "Select state first"
-                                  : "City"
+                                isNigeria && !form.state ? "Select state first" : "City"
                               }
                             />
                           )}
@@ -1117,7 +1322,7 @@ export default function AuthPage({ setUser }) {
                   </>
                 )}
 
-                {/* Remember me — login only */}
+                {/* Remember me */}
                 {mode === "login" && (
                   <div className="ap-opts">
                     <label
@@ -1135,17 +1340,13 @@ export default function AuthPage({ setUser }) {
                   </div>
                 )}
 
-                <button
-                  type="submit"
-                  className="ap-submit"
-                  disabled={loading}
-                >
+                <button type="submit" className="ap-submit" disabled={loading}>
                   {loading ? (
                     <><Spinner /> Please wait…</>
                   ) : mode === "login" ? (
                     <>Login <Ic.Arrow s={17} /></>
                   ) : (
-                    <>Create Account &amp; Verify Email <Ic.Arrow s={17} /></>
+                    <>Create Account & Verify Email <Ic.Arrow s={17} /></>
                   )}
                 </button>
 
@@ -1164,13 +1365,9 @@ export default function AuthPage({ setUser }) {
 
             <p className="ap-terms">
               By continuing you agree to our{" "}
-              <a href="/terms" target="_blank" rel="noreferrer">
-                Terms of Service
-              </a>
+              <a href="/terms" target="_blank" rel="noreferrer">Terms of Service</a>
               {" "}and{" "}
-              <a href="/privacy" target="_blank" rel="noreferrer">
-                Privacy Policy
-              </a>
+              <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>
             </p>
 
             <Badges />
