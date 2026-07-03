@@ -1,5 +1,5 @@
 // ════════════════════════════════════════════════════════════
-// FILE: routes/verification.js — v9 (CockroachDB Optimized)
+// FILE: routes/verification.js — v10 (CockroachDB + Referrals)
 // ════════════════════════════════════════════════════════════
 
 import express   from "express";
@@ -80,8 +80,8 @@ const memStore = multer.memoryStorage();
 
 const makeFilter = (allowed) => (_req, file, cb) => {
   if (allowed.has(file.mimetype)) return cb(null, true);
-  const err = new Error(`Invalid file type "${file.mimetype}".`);
-  err.code  = "INVALID_MIME";
+  const err  = new Error(`Invalid file type "${file.mimetype}".`);
+  err.code   = "INVALID_MIME";
   cb(err);
 };
 
@@ -174,7 +174,12 @@ const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL ?? null;
 
 const compareFaces = async (selfieBuffer, docFrontBuffer) => {
   if (!FACE_SERVICE_URL) {
-    return { match: null, confidence: null, skipped: true, message: "Face service not configured" };
+    return {
+      match      : null,
+      confidence : null,
+      skipped    : true,
+      message    : "Face service not configured",
+    };
   }
   try {
     const fd = new FormData();
@@ -209,7 +214,8 @@ const makeLimiter = ({ windowMin, max, message }) =>
     standardHeaders: true,
     legacyHeaders  : false,
     keyGenerator   : (req) => String(req.user?.id ?? req.ip),
-    handler        : (_req, res) => res.status(429).json({ success: false, message }),
+    handler        : (_req, res) =>
+      res.status(429).json({ success: false, message }),
   });
 
 const sendOtpLimiter   = makeLimiter({ windowMin: 10, max: IS_PROD ?  5 : 50,  message: "Too many send requests."   });
@@ -224,7 +230,8 @@ const generateOtp = () => crypto.randomInt(100_000, 999_999).toString();
 const getIp       = (req) => req.ip ?? req.socket?.remoteAddress ?? null;
 const maskEmail   = (e) => String(e).replace(/(.{2})(.*)(@.*)/, (_, a, _b, c) => `${a}***${c}`);
 const getTodayUTC = () => new Date().toISOString().slice(0, 10);
-const fail        = (res, status, message, extra = {}) => res.status(status).json({ success: false, message, ...extra });
+const fail        = (res, status, message, extra = {}) =>
+  res.status(status).json({ success: false, message, ...extra });
 
 const makeDeviceHash = (req) =>
   crypto
@@ -236,9 +243,9 @@ const makeDeviceHash = (req) =>
     ].join("|"))
     .digest("hex");
 
-const extMatchesMime = (file) => EXT_MIME[path.extname(file.originalname).toLowerCase()] === file.mimetype;
+const extMatchesMime = (file) =>
+  EXT_MIME[path.extname(file.originalname).toLowerCase()] === file.mimetype;
 
-/* ── Daily send count ── */
 const getDailySendCount = async (db, userId) => {
   const today = getTodayUTC();
   const { rows } = await db.query(
@@ -254,7 +261,9 @@ const getDailySendCount = async (db, userId) => {
 
 const flagAccount = async (db, userId, reason, ip) => {
   await db.query(
-    `UPDATE users SET status = 'flagged', total_reports = COALESCE(total_reports, 0) + 1, updated_at = NOW() WHERE id = $1`,
+    `UPDATE users
+     SET status = 'flagged', total_reports = COALESCE(total_reports, 0) + 1, updated_at = NOW()
+     WHERE id = $1`,
     [userId]
   );
   writeAudit({
@@ -269,21 +278,123 @@ const flagAccount = async (db, userId, reason, ip) => {
 
 const refreshTrustScore = async (client, userId) => {
   const { rows } = await client.query(
-    `SELECT email_verified, identity_verified, store_verified, created_at FROM users WHERE id = $1`,
+    `SELECT email_verified, identity_verified, store_verified, created_at
+     FROM users WHERE id = $1`,
     [userId]
   );
   if (!rows.length) return 0;
   const score = computeTrustScore(rows[0]);
-  await client.query("UPDATE users SET trust_score = $1, updated_at = NOW() WHERE id = $2", [score, userId]);
+  await client.query(
+    "UPDATE users SET trust_score = $1, updated_at = NOW() WHERE id = $2",
+    [score, userId]
+  );
   return score;
 };
 
 const DOC_HASH_SECRET = process.env.DOC_HASH_SECRET ?? null;
-const hashDocNumber = (docType, docNumber) => {
+const hashDocNumber   = (docType, docNumber) => {
   if (!DOC_HASH_SECRET) return null;
   const norm = String(docNumber).toLowerCase().replace(/[\s\-_]/g, "").trim();
-  return crypto.createHmac("sha256", DOC_HASH_SECRET).update(`${docType.toLowerCase()}:${norm}`).digest("hex");
+  return crypto
+    .createHmac("sha256", DOC_HASH_SECRET)
+    .update(`${docType.toLowerCase()}:${norm}`)
+    .digest("hex");
 };
+
+/* ══════════════════════════════════════════════════════════════
+   REFERRAL REWARD HELPER
+   Called after email is verified.
+   Never throws — referral failure must NOT break verification.
+══════════════════════════════════════════════════════════════ */
+async function grantReferralRewardOnVerify(verifiedUserId, ip) {
+  if (!verifiedUserId) return;
+
+  try {
+    /* ── Find pending referral for this user ── */
+    const { rows: [referral] } = await pool.query(
+      `SELECT id, inviter_id
+       FROM   referrals
+       WHERE  referee_id = $1
+         AND  status     = 'pending'
+       LIMIT  1`,
+      [verifiedUserId]
+    );
+
+    if (!referral) {
+      /* User was not referred — perfectly normal, nothing to do */
+      return;
+    }
+
+    /* ── Mark referral as verified ── */
+    await pool.query(
+      `UPDATE referrals
+       SET    status      = 'verified',
+              verified_at = NOW()
+       WHERE  id = $1
+         AND  status = 'pending'`,
+      [referral.id]
+    );
+
+    /* ── Log email_verified event ── */
+    await pool.query(
+      `INSERT INTO referral_events
+         (referral_id, event_type, description, metadata)
+       VALUES
+         ($1, 'email_verified',
+          'Referee verified their email address',
+          $2::JSONB)`,
+      [
+        referral.id,
+        JSON.stringify({
+          referee_id : verifiedUserId,
+          inviter_id : referral.inviter_id,
+        }),
+      ]
+    );
+
+    /* ── Grant reward via DB function ── */
+    const { rows: [result] } = await pool.query(
+      `SELECT grant_referral_reward($1) AS result`,
+      [referral.id]
+    );
+
+    const reward = result?.result;
+
+    if (reward?.success) {
+      console.log(
+        `[referral] ✓ reward granted` +
+        `  inviter=${reward.inviter_id}` +
+        `  referee=${verifiedUserId}` +
+        `  +${reward.reward_value} spin`
+      );
+
+      /* ── Audit log ── */
+      writeAudit({
+        actorId    : verifiedUserId,
+        action     : "referral_reward_granted",
+        targetType : "user",
+        targetId   : referral.inviter_id,
+        metadata   : {
+          referral_id  : referral.id,
+          reward_value : reward.reward_value,
+          referee_id   : verifiedUserId,
+        },
+        ipAddress  : ip,
+      }).catch(() => {});
+
+    } else {
+      console.warn(
+        `[referral] reward not granted` +
+        `  reason=${reward?.reason ?? "unknown"}` +
+        `  referral=${referral.id}`
+      );
+    }
+
+  } catch (err) {
+    /* NEVER crash email verification because of referral error */
+    console.error("[referral] grantReferralRewardOnVerify error (non-fatal):", err.message);
+  }
+}
 
 /* ══════════════════════════════════════════════════════════════
    POST /send-email-otp
@@ -321,19 +432,21 @@ router.post(
         return fail(res, 403, "Account restricted.");
       }
 
-      // ── daily limit check ──
+      /* ── daily limit ── */
       const dailyCount = await getDailySendCount(client, userId);
       if (dailyCount >= POLICY.DAILY_SEND_LIMIT) {
         await client.query("ROLLBACK");
-        return fail(res, 429, `Daily limit (${POLICY.DAILY_SEND_LIMIT}/day) reached.`, { remaining: 0 });
+        return fail(res, 429, `Daily limit (${POLICY.DAILY_SEND_LIMIT}/day) reached.`, {
+          remaining: 0,
+        });
       }
 
-      // ── PREcalculate time thresholds in JavaScript (CockroachDB safe) ──
-      const cooldownCutoff = new Date(Date.now() - POLICY.RESEND_COOLDOWN_SECS * 1000);
-      const abuseCutoff    = new Date(Date.now() - POLICY.ABUSE_WINDOW_MINUTES * 60 * 1000);
-      const expiresAt      = new Date(Date.now() + POLICY.OTP_EXPIRY_MINUTES * 60 * 1000);
+      /* ── pre-calculate thresholds in JS (CockroachDB safe) ── */
+      const cooldownCutoff = new Date(Date.now() - POLICY.RESEND_COOLDOWN_SECS * 1_000);
+      const abuseCutoff    = new Date(Date.now() - POLICY.ABUSE_WINDOW_MINUTES * 60 * 1_000);
+      const expiresAt      = new Date(Date.now() + POLICY.OTP_EXPIRY_MINUTES * 60 * 1_000);
 
-      // ── cooldown check ──
+      /* ── cooldown ── */
       const { rows: recent } = await client.query(
         `SELECT created_at FROM email_verifications
          WHERE user_id    = $1
@@ -343,18 +456,20 @@ router.post(
       );
       if (recent.length) {
         const wait = Math.ceil(
-          POLICY.RESEND_COOLDOWN_SECS - (Date.now() - new Date(recent[0].created_at).getTime()) / 1000
+          POLICY.RESEND_COOLDOWN_SECS -
+          (Date.now() - new Date(recent[0].created_at).getTime()) / 1_000
         );
         await client.query("ROLLBACK");
         return fail(res, 429, `Wait ${wait}s before requesting another code.`, {
-          retryAfter: wait,
-          remaining: POLICY.DAILY_SEND_LIMIT - dailyCount,
+          retryAfter : wait,
+          remaining  : POLICY.DAILY_SEND_LIMIT - dailyCount,
         });
       }
 
-      // ── abuse check ──
+      /* ── abuse check ── */
       const { rows: abr } = await client.query(
-        `SELECT COUNT(*) AS cnt FROM email_verifications WHERE user_id = $1 AND created_at > $2`,
+        `SELECT COUNT(*) AS cnt FROM email_verifications
+         WHERE user_id = $1 AND created_at > $2`,
         [userId, abuseCutoff]
       );
       if (parseInt(abr[0].cnt, 10) >= POLICY.ABUSE_THRESHOLD) {
@@ -363,25 +478,29 @@ router.post(
         return fail(res, 429, "Account flagged for suspicious activity.");
       }
 
-      // ── expire old active OTPs ──
+      /* ── expire old OTPs ── */
       await client.query(
-        "UPDATE email_verifications SET status = 'expired', used_at = NOW() WHERE user_id = $1 AND status = 'active'",
+        `UPDATE email_verifications
+         SET status = 'expired', used_at = NOW()
+         WHERE user_id = $1 AND status = 'active'`,
         [userId]
       );
 
-      // ── create new OTP ──
+      /* ── create new OTP ── */
       const otp    = generateOtp();
       const hash   = await bcrypt.hash(otp, POLICY.BCRYPT_ROUNDS);
       const device = makeDeviceHash(req);
 
       await client.query(
-        `INSERT INTO email_verifications (user_id, otp_hash, expires_at, status, device_hash, ip_address)
+        `INSERT INTO email_verifications
+           (user_id, otp_hash, expires_at, status, device_hash, ip_address)
          VALUES ($1, $2, $3, 'active', $4, $5)`,
         [userId, hash, expiresAt, device, ip]
       );
 
       await client.query(
-        `INSERT INTO user_devices (user_id, device_hash, ip_address, user_agent, last_seen)
+        `INSERT INTO user_devices
+           (user_id, device_hash, ip_address, user_agent, last_seen)
          VALUES ($1, $2, $3, $4, NOW())
          ON CONFLICT (user_id, device_hash)
          DO UPDATE SET last_seen = NOW(), ip_address = EXCLUDED.ip_address`,
@@ -390,13 +509,14 @@ router.post(
 
       await client.query("COMMIT");
 
-      // ── send email ──
+      /* ── send email ── */
       try {
         await sendVerificationEmail({ to: user.email, name: user.name, otp });
       } catch (mailErr) {
-        // Fallback cleanup on mailer failure
         pool.query(
-          "UPDATE email_verifications SET status = 'expired', used_at = NOW() WHERE user_id = $1 AND status = 'active'",
+          `UPDATE email_verifications
+           SET status = 'expired', used_at = NOW()
+           WHERE user_id = $1 AND status = 'active'`,
           [userId]
         ).catch(() => {});
         return fail(res, 500, `Email delivery failed: ${mailErr.message}`);
@@ -434,6 +554,7 @@ router.post(
 
 /* ══════════════════════════════════════════════════════════════
    POST /verify-email-otp
+   ↳ Grants referral reward after successful verification
 ══════════════════════════════════════════════════════════════ */
 router.post(
   "/verify-email-otp",
@@ -444,13 +565,14 @@ router.post(
     const userId = req.user?.id;
     const ip     = getIp(req);
 
-    if (!userId)                 return fail(res, 401, "Not authenticated.");
-    if (!/^\d{6}$/.test(rawOtp)) return fail(res, 400, "OTP must be 6 digits.");
+    if (!userId)                  return fail(res, 401, "Not authenticated.");
+    if (!/^\d{6}$/.test(rawOtp))  return fail(res, 400, "OTP must be 6 digits.");
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
+      /* ── Find active OTP ── */
       const { rows } = await client.query(
         `SELECT id, otp_hash, attempts FROM email_verifications
          WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
@@ -464,24 +586,36 @@ router.post(
 
       const rec = rows[0];
 
+      /* ── Max attempts ── */
       if (rec.attempts >= POLICY.MAX_VERIFY_ATTEMPTS) {
-        await client.query("UPDATE email_verifications SET status = 'blocked' WHERE id = $1", [rec.id]);
+        await client.query(
+          "UPDATE email_verifications SET status = 'blocked' WHERE id = $1",
+          [rec.id]
+        );
         await flagAccount(client, userId, "otp_max_attempts", ip);
         await client.query("COMMIT");
         return fail(res, 429, "Too many failed attempts. Account flagged.");
       }
 
+      /* ── Verify OTP ── */
       const valid = await bcrypt.compare(rawOtp, rec.otp_hash);
       if (!valid) {
-        await client.query("UPDATE email_verifications SET attempts = attempts + 1 WHERE id = $1", [rec.id]);
+        await client.query(
+          "UPDATE email_verifications SET attempts = attempts + 1 WHERE id = $1",
+          [rec.id]
+        );
         await client.query("COMMIT");
         return fail(res, 400, "Incorrect code.", {
           attemptsLeft: Math.max(0, POLICY.MAX_VERIFY_ATTEMPTS - 1 - rec.attempts),
         });
       }
 
+      /* ── Mark OTP used ── */
       const { rows: marked } = await client.query(
-        "UPDATE email_verifications SET status = 'used', used_at = NOW() WHERE id = $1 AND status = 'active' RETURNING id",
+        `UPDATE email_verifications
+         SET status = 'used', used_at = NOW()
+         WHERE id = $1 AND status = 'active'
+         RETURNING id`,
         [rec.id]
       );
       if (!marked.length) {
@@ -489,16 +623,37 @@ router.post(
         return fail(res, 400, "Code already used.");
       }
 
+      /* ── Mark user email verified ── */
       await client.query(
-        "UPDATE users SET email_verified = TRUE, email_verified_at = NOW(), verified = TRUE, updated_at = NOW() WHERE id = $1",
+        `UPDATE users
+         SET email_verified     = TRUE,
+             email_verified_at  = NOW(),
+             verified           = TRUE,
+             updated_at         = NOW()
+         WHERE id = $1`,
         [userId]
       );
 
+      /* ── Refresh trust score ── */
       const trustScore = await refreshTrustScore(client, userId);
+
       await client.query("COMMIT");
 
-      reactivateLimitedListings(userId).catch((e) => console.error("[verify-otp] reactivate failed:", e.message));
+      /* ══════════════════════════════════════════════════════
+         REFERRAL REWARD
+         Fire-and-forget after transaction commits.
+         grantReferralRewardOnVerify() never throws.
+      ══════════════════════════════════════════════════════ */
+      grantReferralRewardOnVerify(userId, ip).catch((err) =>
+        console.error("[verify-otp] referral reward (non-fatal):", err.message)
+      );
 
+      /* ── Reactivate limited listings ── */
+      reactivateLimitedListings(userId).catch((e) =>
+        console.error("[verify-otp] reactivate failed:", e.message)
+      );
+
+      /* ── Audit ── */
       writeAudit({
         actorId    : userId,
         action     : "email_verified",
@@ -508,6 +663,7 @@ router.post(
         ipAddress  : ip,
       }).catch(() => {});
 
+      /* ── Welcome email ── */
       pool.query("SELECT email, name FROM users WHERE id = $1", [userId])
         .then(({ rows: u }) => {
           if (u[0]) sendWelcomeEmail({ to: u[0].email, name: u[0].name }).catch(() => {});
@@ -609,24 +765,41 @@ router.post(
     const docHash = hashDocNumber(docType, docNumber);
 
     const [userRes, pendingIdRes, pendingStRes, dupRes] = await Promise.all([
-      pool.query("SELECT email_verified, identity_verified, store_verified, status FROM users WHERE id = $1", [userId]),
-      pool.query("SELECT id FROM identity_verifications WHERE user_id = $1 AND status IN ('pending','approved') LIMIT 1", [userId]),
-      pool.query("SELECT id FROM store_verifications WHERE user_id = $1 AND status IN ('pending','approved') LIMIT 1", [userId]),
+      pool.query(
+        "SELECT email_verified, identity_verified, store_verified, status FROM users WHERE id = $1",
+        [userId]
+      ),
+      pool.query(
+        "SELECT id FROM identity_verifications WHERE user_id = $1 AND status IN ('pending','approved') LIMIT 1",
+        [userId]
+      ),
+      pool.query(
+        "SELECT id FROM store_verifications WHERE user_id = $1 AND status IN ('pending','approved') LIMIT 1",
+        [userId]
+      ),
       docHash
-        ? pool.query("SELECT id FROM identity_verifications WHERE document_number_hash = $1 AND status IN ('pending','approved') LIMIT 1", [docHash])
+        ? pool.query(
+            "SELECT id FROM identity_verifications WHERE document_number_hash = $1 AND status IN ('pending','approved') LIMIT 1",
+            [docHash]
+          )
         : Promise.resolve({ rows: [] }),
     ]);
 
     const user = userRes.rows[0];
-    if (!user)                                                 return fail(res, 404, "User account not found.");
-    if (user.status === "flagged" || user.status === "banned") return fail(res, 403, "Account restricted.");
-    if (!user.email_verified)                                  return fail(res, 403, "Verify email address first.");
-    if (user.identity_verified)                                return fail(res, 400, "Identity already verified.");
-    if (pendingIdRes.rows.length)                              return fail(res, 409, "Identity review is already pending.");
-    if (pendingStRes.rows.length)                              return fail(res, 409, "Store review is already pending.");
+    if (!user)                                                  return fail(res, 404, "User account not found.");
+    if (user.status === "flagged" || user.status === "banned")  return fail(res, 403, "Account restricted.");
+    if (!user.email_verified)                                   return fail(res, 403, "Verify email address first.");
+    if (user.identity_verified)                                 return fail(res, 400, "Identity already verified.");
+    if (pendingIdRes.rows.length)                               return fail(res, 409, "Identity review is already pending.");
+    if (pendingStRes.rows.length)                               return fail(res, 409, "Store review is already pending.");
     if (dupRes.rows.length) {
       writeAudit({
-        actorId: userId, action: "identity_duplicate_rejected", targetType: "user", targetId: userId, metadata: { document_type: docType }, ipAddress: ip
+        actorId    : userId,
+        action     : "identity_duplicate_rejected",
+        targetType : "user",
+        targetId   : userId,
+        metadata   : { document_type: docType },
+        ipAddress  : ip,
       }).catch(() => {});
       return fail(res, 409, "This document number is already registered.");
     }
@@ -635,7 +808,12 @@ router.post(
 
     if (!faceResult.skipped && faceResult.match === false) {
       writeAudit({
-        actorId: userId, action: "verification_face_mismatch", targetType: "user", targetId: userId, metadata: { confidence: faceResult.confidence }, ipAddress: ip
+        actorId    : userId,
+        action     : "verification_face_mismatch",
+        targetType : "user",
+        targetId   : userId,
+        metadata   : { confidence: faceResult.confidence },
+        ipAddress  : ip,
       }).catch(() => {});
       return fail(res, 422, "Selfie face does not match document photo.");
     }
@@ -646,8 +824,8 @@ router.post(
         uploadBuffer(frontFile.buffer,  "id_documents",    userId),
         uploadBuffer(backFile.buffer,   "id_documents",    userId),
         uploadBuffer(selfieFile.buffer, "selfies",          userId),
-        logoFile ? uploadBuffer(logoFile.buffer, "store_logos",    userId) : Promise.resolve(null),
-        lvFile   ? uploadBuffer(lvFile.buffer,  "liveness_frames", userId) : Promise.resolve(null),
+        logoFile ? uploadBuffer(logoFile.buffer, "store_logos",     userId) : Promise.resolve(null),
+        lvFile   ? uploadBuffer(lvFile.buffer,  "liveness_frames",  userId) : Promise.resolve(null),
       ]);
     } catch (uploadErr) {
       console.error("[submit] upload error:", uploadErr.message);
@@ -664,13 +842,22 @@ router.post(
 
       await client.query(
         `INSERT INTO identity_verifications
-           (user_id, document_type, document_number_hash, front_image_url, back_image_url, selfie_url, liveness_frame_url, liveness_passed, face_match, face_confidence, face_skipped, status)
+           (user_id, document_type, document_number_hash,
+            front_image_url, back_image_url, selfie_url,
+            liveness_frame_url, liveness_passed,
+            face_match, face_confidence, face_skipped, status)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'pending')`,
-        [userId, docType, docHash ?? null, front.secure_url, back.secure_url, selfie.secure_url, liveness?.secure_url ?? null, livenessPassed, faceResult.match, faceResult.confidence, faceResult.skipped]
+        [
+          userId, docType, docHash ?? null,
+          front.secure_url, back.secure_url, selfie.secure_url,
+          liveness?.secure_url ?? null, livenessPassed,
+          faceResult.match, faceResult.confidence, faceResult.skipped,
+        ]
       );
 
       await client.query(
-        "INSERT INTO store_verifications (user_id, documents_url, status) VALUES ($1, $2, 'pending')",
+        `INSERT INTO store_verifications (user_id, documents_url, status)
+         VALUES ($1, $2, 'pending')`,
         [userId, JSON.stringify(storeDocuments)]
       );
 
@@ -716,10 +903,37 @@ router.get("/status", authenticate, async (req, res) => {
 
   try {
     const [userRes, idRes, storeRes, limitedRes] = await Promise.all([
-      pool.query("SELECT id, email, name, role, seller_type, status, email_verified, email_verified_at, identity_verified, store_verified, trust_score, created_at FROM users WHERE id = $1", [userId]),
-      pool.query("SELECT document_type, status, rejection_reason, face_match, face_confidence, face_skipped, liveness_passed, updated_at FROM identity_verifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1", [userId]),
-      pool.query("SELECT status, rejection_reason, updated_at FROM store_verifications WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1", [userId]),
-      pool.query("SELECT COUNT(*) AS cnt, MIN(active_until) AS soonest FROM products WHERE seller_id = $1 AND status = 'active_limited' AND (active_until IS NULL OR active_until > NOW())", [userId]),
+      pool.query(
+        `SELECT id, email, name, role, seller_type, status,
+                email_verified, email_verified_at,
+                identity_verified, store_verified,
+                trust_score, created_at,
+                referral_code, bonus_spins, total_referrals
+         FROM users WHERE id = $1`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT document_type, status, rejection_reason,
+                face_match, face_confidence, face_skipped,
+                liveness_passed, updated_at
+         FROM identity_verifications
+         WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT status, rejection_reason, updated_at
+         FROM store_verifications
+         WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+        [userId]
+      ),
+      pool.query(
+        `SELECT COUNT(*) AS cnt, MIN(active_until) AS soonest
+         FROM products
+         WHERE seller_id = $1
+           AND status = 'active_limited'
+           AND (active_until IS NULL OR active_until > NOW())`,
+        [userId]
+      ),
     ]);
 
     if (!userRes.rows.length) return fail(res, 404, "User not found.");
@@ -751,6 +965,12 @@ router.get("/status", authenticate, async (req, res) => {
       trust_score       : user.trust_score ?? 0,
       resend_remaining  : Math.max(0, POLICY.DAILY_SEND_LIMIT - dailyCount),
       resend_limit      : POLICY.DAILY_SEND_LIMIT,
+      /* ── Referral info added to status ── */
+      referral          : {
+        code             : user.referral_code   ?? null,
+        bonus_spins      : user.bonus_spins      ?? 0,
+        total_referrals  : user.total_referrals  ?? 0,
+      },
       limited_listings  : {
         count          : limitedCount,
         soonest_expiry : soonest,
