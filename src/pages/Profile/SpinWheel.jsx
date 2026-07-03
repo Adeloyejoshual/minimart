@@ -1,17 +1,9 @@
-/**
- * src/pages/Profile/SpinWheel.jsx
- * Route: /spin  (add to your router)
- *
- * Animated Spin & Win wheel with:
- * - 7 segments with weighted probabilities (server-side)
- * - 1 free spin per day
- * - Win animation + confetti
- * - Coupon code reveal
- * - History tab
- */
+// src/pages/Profile/SpinWheel.jsx
+// Route: /spin
 
-import { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useNavigate, Link }                                  from "react-router-dom";
+import "../../styles/SpinWheel.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
@@ -45,21 +37,92 @@ const timeAgo = (d) => {
   return `${Math.floor(s / 86_400)}d ago`;
 };
 
+/* Format seconds → HH:MM:SS */
+const fmtCountdown = (secs) => {
+  if (!secs || secs <= 0) return "00:00:00";
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  return [h, m, s].map((v) => String(v).padStart(2, "0")).join(":");
+};
+
+/* Is this a "big" win? (triggers extra celebration) */
+const isBigWin = (result) => {
+  if (!result?.is_win) return false;
+  if (result.type === "fixed"      && Number(result.value) >= 2000) return true;
+  if (result.type === "percentage" && Number(result.value) >= 20)   return true;
+  if (result.type === "free_shipping") return true;
+  return false;
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   SOUND MANAGER
+   — tiny Web Audio wrapper; silently no-ops if unsupported
+═══════════════════════════════════════════════════════════════ */
+class SoundMgr {
+  constructor() {
+    try { this._ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (_) { this._ctx = null; }
+    this.muted = false;
+  }
+
+  _beep(freq, dur, vol = 0.15, type = "sine") {
+    if (this.muted || !this._ctx) return;
+    try {
+      const osc  = this._ctx.createOscillator();
+      const gain = this._ctx.createGain();
+      osc.connect(gain);
+      gain.connect(this._ctx.destination);
+      osc.frequency.value = freq;
+      osc.type            = type;
+      gain.gain.setValueAtTime(vol, this._ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, this._ctx.currentTime + dur);
+      osc.start();
+      osc.stop(this._ctx.currentTime + dur);
+    } catch (_) {}
+  }
+
+  /* Click-click while spinning */
+  tick() { this._beep(320, 0.04, 0.12, "square"); }
+
+  /* Win fanfare */
+  win() {
+    [523, 659, 784, 1047].forEach((f, i) =>
+      setTimeout(() => this._beep(f, 0.18, 0.2, "sine"), i * 120)
+    );
+  }
+
+  /* Lose */
+  lose() {
+    this._beep(200, 0.3, 0.12, "sawtooth");
+    setTimeout(() => this._beep(150, 0.4, 0.1, "sawtooth"), 250);
+  }
+
+  /* Spin start */
+  spinStart() { this._beep(440, 0.08, 0.1, "sine"); }
+
+  /* Resume context on first user gesture */
+  resume() { this._ctx?.state === "suspended" && this._ctx.resume(); }
+}
+
+const sound = new SoundMgr();
+
 /* ═══════════════════════════════════════════════════════════════
    CONFETTI
 ═══════════════════════════════════════════════════════════════ */
-function fireConfetti() {
+function fireConfetti(big = false) {
   const container = document.createElement("div");
   container.style.cssText =
     "position:fixed;inset:0;pointer-events:none;z-index:9999;overflow:hidden";
   document.body.appendChild(container);
 
-  const colors = ["#e8630a", "#6366f1", "#16a34a", "#f59e0b", "#ec4899", "#0891b2"];
+  const colors  = ["#e8630a","#6366f1","#16a34a","#f59e0b","#ec4899","#0891b2"];
+  const count   = big ? 160 : 100;
 
-  for (let i = 0; i < 80; i++) {
+  for (let i = 0; i < count; i++) {
     const el    = document.createElement("div");
     const color = colors[Math.floor(Math.random() * colors.length)];
-    const size  = Math.random() * 8 + 5;
+    const size  = Math.random() * (big ? 12 : 8) + 5;
     el.style.cssText = `
       position:absolute;top:-10px;
       left:${Math.random() * 100}%;
@@ -67,7 +130,7 @@ function fireConfetti() {
       background:${color};
       border-radius:${Math.random() > .5 ? "50%" : "2px"};
       animation:sw-confetti ${Math.random() * 1500 + 1500}ms
-        ${Math.random() * 800}ms ease-in forwards;
+      ${Math.random() * 800}ms ease-in forwards;
     `;
     container.appendChild(el);
   }
@@ -78,16 +141,164 @@ function fireConfetti() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   WHEEL CANVAS
+   SPIN COUNTER BADGE
 ═══════════════════════════════════════════════════════════════ */
-function WheelCanvas({ segments, targetSegmentId, spinning, onSpinEnd }) {
+function SpinCounterBadge({ spinStatus }) {
+  if (!spinStatus) return null;
+  const freeLeft  = spinStatus.can_spin ? 1 : 0;
+  const bonusLeft = spinStatus.bonus_spins_remaining || 0;
+  const total     = freeLeft + bonusLeft;
+
+  return (
+    <div className="sw-counter-wrap">
+      <div className={`sw-counter-pill ${total > 0 ? "has-spins" : "no-spins"}`}
+           aria-label={`${total} spin${total !== 1 ? "s" : ""} remaining`}>
+        <span className="sw-counter-num">{total}</span>
+        <span className="sw-counter-label">spin{total !== 1 ? "s" : ""} left</span>
+      </div>
+
+      <div className="sw-counter-breakdown" role="list" aria-label="Spin breakdown">
+        <div className="sw-counter-dot-wrap" role="listitem">
+          <div className={`sw-counter-dot ${freeLeft > 0 ? "dot-free" : "dot-used"}`}
+               aria-hidden="true" />
+          <span>Free</span>
+        </div>
+        {Array.from({ length: Math.min(bonusLeft, 10) }).map((_, i) => (
+          <div key={i} className="sw-counter-dot-wrap" role="listitem">
+            <div className="sw-counter-dot dot-bonus" aria-hidden="true" />
+            {i === 0 && <span>Bonus</span>}
+          </div>
+        ))}
+        {bonusLeft > 10 && (
+          <span className="sw-counter-overflow">+{bonusLeft - 10} more</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COUNTDOWN TIMER
+═══════════════════════════════════════════════════════════════ */
+function CountdownTimer({ secondsLeft }) {
+  const [secs, setSecs] = useState(secondsLeft || 0);
+
+  useEffect(() => {
+    setSecs(secondsLeft || 0);
+    if (!secondsLeft || secondsLeft <= 0) return;
+    const t = setInterval(() => setSecs((s) => Math.max(0, s - 1)), 1_000);
+    return () => clearInterval(t);
+  }, [secondsLeft]);
+
+  if (secs <= 0) return null;
+
+  return (
+    <div className="sw-countdown" aria-live="polite" aria-label="Time until next free spin">
+      <span>⏱</span>
+      <span>Next free spin in</span>
+      <span className="sw-countdown-time">{fmtCountdown(secs)}</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BONUS TOAST
+═══════════════════════════════════════════════════════════════ */
+function BonusSpinToast({ bonus, onClose }) {
+  useEffect(() => {
+    if (!bonus) return;
+    const t = setTimeout(onClose, 4_000);
+    return () => clearTimeout(t);
+  }, [bonus, onClose]);
+
+  if (!bonus) return null;
+
+  return (
+    <div className="sw-bonus-toast" role="alert" aria-live="assertive">
+      <span className="sw-bonus-toast-icon" aria-hidden="true">🎁</span>
+      <div>
+        <p className="sw-bonus-toast-title">
+          +{bonus.spins_awarded} Bonus Spin{bonus.spins_awarded > 1 ? "s" : ""} Earned!
+        </p>
+        <p className="sw-bonus-toast-msg">
+          {bonus.referred_user} joined using your invite code
+        </p>
+      </div>
+      <button
+        className="sw-bonus-toast-close"
+        onClick={onClose}
+        aria-label="Dismiss bonus spin notification"
+      >✕</button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REFERRAL SPINS PANEL
+═══════════════════════════════════════════════════════════════ */
+function ReferralSpinsPanel({ referralSpins }) {
+  if (!referralSpins?.length) return null;
+
+  return (
+    <div className="sw-ref-panel">
+      <div className="sw-ref-panel-header">
+        <span className="sw-ref-panel-icon" aria-hidden="true">🎁</span>
+        <div>
+          <h3 className="sw-ref-panel-title">Bonus Spins from Referrals</h3>
+          <p className="sw-ref-panel-sub">
+            Earn 1 bonus spin each time someone signs up with your invite code
+          </p>
+        </div>
+      </div>
+
+      <div className="sw-ref-list" role="list">
+        {referralSpins.map((ref) => (
+          <div key={ref.id} className="sw-ref-item" role="listitem">
+            <div
+              className="sw-ref-avatar"
+              style={{ backgroundColor: ref.color || "#e8630a" }}
+              aria-hidden="true"
+            >
+              {ref.initials}
+            </div>
+            <div className="sw-ref-info">
+              <p className="sw-ref-name">{ref.referred_name}</p>
+              <p className="sw-ref-time">Signed up {timeAgo(ref.created_at)}</p>
+            </div>
+            <div className="sw-ref-badge">
+              <span aria-hidden="true">🎡</span>
+              <span>+{ref.spins_awarded} spin{ref.spins_awarded > 1 ? "s" : ""}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="sw-ref-tip">
+        💡 Share your invite code in the{" "}
+        <Link to="/invite" className="sw-ref-tip-link">Invite Friends</Link>{" "}
+        page to earn more bonus spins!
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   WHEEL CANVAS  — responsive size
+═══════════════════════════════════════════════════════════════ */
+function WheelCanvas({ segments, targetSegmentId, spinning, onSpinEnd, onTick }) {
   const canvasRef   = useRef(null);
   const rafRef      = useRef(null);
-  const angleRef    = useRef(0);      // current rotation in degrees
-  const speedRef    = useRef(0);
+  const angleRef    = useRef(0);
   const targetAngle = useRef(null);
+  const lastTickSeg = useRef(-1);
 
-  /* ── Draw the wheel ── */
+  /* Responsive size */
+  const size = useMemo(
+    () => Math.min(typeof window !== "undefined" ? window.innerWidth - 48 : 320, 320),
+    []
+  );
+
+  /* ── Draw ── */
   const draw = useCallback((angle) => {
     const canvas = canvasRef.current;
     if (!canvas || !segments.length) return;
@@ -117,31 +328,29 @@ function WheelCanvas({ segments, targetSegmentId, spinning, onSpinEnd }) {
       const startAngle = arc * i + (angle * Math.PI) / 180 - Math.PI / 2;
       const endAngle   = startAngle + arc;
 
-      /* Slice */
       ctx.beginPath();
       ctx.moveTo(cx, cy);
       ctx.arc(cx, cy, radius, startAngle, endAngle);
       ctx.closePath();
-      ctx.fillStyle = i % 2 === 0 ? seg.color : seg.color + "cc";
+      ctx.fillStyle   = i % 2 === 0 ? seg.color : seg.color + "cc";
       ctx.fill();
       ctx.strokeStyle = "rgba(255,255,255,.3)";
       ctx.lineWidth   = 1.5;
       ctx.stroke();
 
-      /* Text */
       ctx.save();
       ctx.translate(cx, cy);
       ctx.rotate(startAngle + arc / 2);
       ctx.textAlign = "right";
 
       /* Emoji */
-      ctx.font  = `${radius * 0.13}px serif`;
+      ctx.font      = `${radius * 0.13}px serif`;
       ctx.fillStyle = "#fff";
       ctx.fillText(seg.emoji, radius * 0.82, 5);
 
       /* Label */
-      ctx.font      = `bold ${radius * 0.085}px 'DM Sans',sans-serif`;
-      ctx.fillStyle = "#fff";
+      ctx.font        = `bold ${radius * 0.085}px 'DM Sans',sans-serif`;
+      ctx.fillStyle   = "#fff";
       ctx.shadowColor = "rgba(0,0,0,.4)";
       ctx.shadowBlur  = 4;
       ctx.fillText(seg.label, radius * 0.62, -radius * 0.01 + 5);
@@ -153,60 +362,57 @@ function WheelCanvas({ segments, targetSegmentId, spinning, onSpinEnd }) {
     const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius * 0.12);
     grad.addColorStop(0, "#fff");
     grad.addColorStop(1, "#f0ede8");
-
     ctx.beginPath();
     ctx.arc(cx, cy, radius * 0.12, 0, 2 * Math.PI);
-    ctx.fillStyle = grad;
+    ctx.fillStyle   = grad;
     ctx.fill();
     ctx.strokeStyle = "#e8630a";
     ctx.lineWidth   = 3;
     ctx.stroke();
 
-    /* Center logo */
     ctx.font      = `bold ${radius * 0.08}px sans-serif`;
     ctx.fillStyle = "#e8630a";
     ctx.textAlign = "center";
     ctx.fillText("🎡", cx, cy + 5);
   }, [segments]);
 
-  /* Initial draw */
-  useEffect(() => {
-    draw(angleRef.current);
-  }, [draw]);
+  useEffect(() => { draw(angleRef.current); }, [draw]);
 
   /* ── Spin animation ── */
   useEffect(() => {
     if (!spinning || !segments.length || targetSegmentId == null) return;
 
-    /* Calculate where we need to stop */
     const segCount   = segments.length;
     const segAngle   = 360 / segCount;
     const targetIdx  = segments.findIndex((s) => s.id === targetSegmentId);
     if (targetIdx < 0) return;
 
-    /* We want targetIdx segment to land at the top (pointer) */
     const segMidpoint = segAngle * targetIdx + segAngle / 2;
     const stopAngle   = 360 - segMidpoint;
-
-    /* Add 5–8 full rotations + stop offset */
     const rotations   = (5 + Math.floor(Math.random() * 3)) * 360;
     const finalAngle  = stopAngle + rotations;
 
     targetAngle.current = finalAngle;
-    speedRef.current    = 20; // initial speed (deg/frame)
 
-    const TOTAL_FRAMES = 120 + Math.floor(Math.random() * 40);
+    const TOTAL_FRAMES = 130 + Math.floor(Math.random() * 40);
     let   frame        = 0;
 
     const animate = () => {
       frame++;
       const progress = frame / TOTAL_FRAMES;
+      const eased    = 1 - Math.pow(1 - progress, 3);
 
-      /* Ease-out cubic */
-      const eased = 1 - Math.pow(1 - progress, 3);
       angleRef.current = eased * finalAngle;
-
       draw(angleRef.current % 360);
+
+      /* Tick sound on segment change */
+      const curSeg = Math.floor(
+        (angleRef.current % 360) / segAngle
+      ) % segCount;
+      if (curSeg !== lastTickSeg.current) {
+        lastTickSeg.current = curSeg;
+        onTick?.();
+      }
 
       if (frame < TOTAL_FRAMES) {
         rafRef.current = requestAnimationFrame(animate);
@@ -218,18 +424,17 @@ function WheelCanvas({ segments, targetSegmentId, spinning, onSpinEnd }) {
     };
 
     rafRef.current = requestAnimationFrame(animate);
-
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, [spinning, targetSegmentId, segments, draw, onSpinEnd]);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
+  }, [spinning, targetSegmentId, segments, draw, onSpinEnd, onTick]);
 
   return (
     <canvas
       ref={canvasRef}
-      width={300}
-      height={300}
-      style={{ display: "block", maxWidth: "100%" }}
+      width={size}
+      height={size}
+      style={{ display: "block", maxWidth: "100%", borderRadius: "50%" }}
+      aria-label="Spin wheel"
+      role="img"
     />
   );
 }
@@ -239,6 +444,7 @@ function WheelCanvas({ segments, targetSegmentId, spinning, onSpinEnd }) {
 ═══════════════════════════════════════════════════════════════ */
 function ResultModal({ result, onClose }) {
   const [copied, setCopied] = useState(false);
+  const big = isBigWin(result);
 
   const handleCopy = () => {
     if (!result?.coupon_code) return;
@@ -247,20 +453,48 @@ function ResultModal({ result, onClose }) {
     setTimeout(() => setCopied(false), 2_000);
   };
 
+  const handleShare = async () => {
+    const text = result.is_win
+      ? `🎉 I just won ${result.label} on Loemart's Spin & Win! Use my invite code to join: ${result.referral_link || "https://loemart.com"}`
+      : `🎡 I just spun the Loemart wheel! Join and try your luck!`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: "Loemart Spin & Win", text });
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+    } catch (_) {}
+  };
+
+  /* Vibrate on big wins */
+  useEffect(() => {
+    if (big && "vibrate" in navigator) {
+      navigator.vibrate([200, 100, 200, 100, 400]);
+    }
+  }, [big]);
+
   if (!result) return null;
 
   return (
-    <div className="sw-modal-overlay" onClick={onClose}>
-      <div className="sw-modal" onClick={(e) => e.stopPropagation()}>
-
+    <div
+      className="sw-modal-overlay"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={result.is_win ? "You won!" : "Better luck next time"}
+    >
+      <div
+        className={`sw-modal${big ? " sw-modal--big-win" : ""}`}
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Animation */}
         <div className="sw-modal-anim">
           {result.is_win ? (
             <div className="sw-modal-win-ring">
-              <span style={{ fontSize: 48 }}>{result.emoji}</span>
+              <span style={{ fontSize: 48 }} aria-hidden="true">{result.emoji}</span>
             </div>
           ) : (
-            <span style={{ fontSize: 60 }}>😅</span>
+            <span style={{ fontSize: 60 }} aria-hidden="true">😅</span>
           )}
         </div>
 
@@ -273,25 +507,23 @@ function ResultModal({ result, onClose }) {
         {result.is_win && (
           <div className="sw-modal-prize">
             <p className="sw-modal-prize-label">{result.label}</p>
-            {result.type === "fixed" && (
-              <p className="sw-modal-prize-val">{naira(result.value)} OFF</p>
-            )}
-            {result.type === "percentage" && (
-              <p className="sw-modal-prize-val">{result.value}% OFF</p>
-            )}
-            {result.type === "free_shipping" && (
-              <p className="sw-modal-prize-val">🚚 Free Delivery</p>
-            )}
-            {result.type === "airtime" && (
-              <p className="sw-modal-prize-val">📱 {naira(result.value)} Airtime</p>
-            )}
+            {result.type === "fixed"         && <p className="sw-modal-prize-val">{naira(result.value)} OFF</p>}
+            {result.type === "percentage"    && <p className="sw-modal-prize-val">{result.value}% OFF</p>}
+            {result.type === "free_shipping" && <p className="sw-modal-prize-val">🚚 Free Delivery</p>}
+            {result.type === "airtime"       && <p className="sw-modal-prize-val">📱 {naira(result.value)} Airtime</p>}
           </div>
         )}
 
-        {/* Message */}
+        {/* Spin type */}
+        {result.spin_type && (
+          <div className={`sw-modal-spin-type ${result.spin_type === "bonus" ? "bonus" : "free"}`}>
+            {result.spin_type === "bonus" ? "🎁 Bonus Spin Used" : "⭐ Free Daily Spin"}
+          </div>
+        )}
+
         <p className="sw-modal-msg">{result.message}</p>
 
-        {/* Coupon code */}
+        {/* Coupon */}
         {result.coupon_code && (
           <div className="sw-modal-coupon">
             <p className="sw-modal-coupon-label">Your coupon code</p>
@@ -300,6 +532,7 @@ function ResultModal({ result, onClose }) {
               <button
                 className={`sw-modal-copy${copied ? " copied" : ""}`}
                 onClick={handleCopy}
+                aria-label={copied ? "Coupon code copied" : "Copy coupon code"}
               >
                 {copied ? "✓ Copied!" : "Copy"}
               </button>
@@ -310,7 +543,27 @@ function ResultModal({ result, onClose }) {
           </div>
         )}
 
-        <button className="sw-modal-close" onClick={onClose}>
+        {/* Remaining spins */}
+        {result.spins_remaining !== undefined && result.spins_remaining > 0 && (
+          <div className="sw-modal-remaining" aria-live="polite">
+            🎡 You have{" "}
+            <strong>{result.spins_remaining}</strong>{" "}
+            bonus spin{result.spins_remaining !== 1 ? "s" : ""} remaining!
+          </div>
+        )}
+
+        {/* Share win */}
+        {result.is_win && (
+          <button className="sw-modal-share" onClick={handleShare} aria-label="Share your win">
+            📤 Share Your Win
+          </button>
+        )}
+
+        <button
+          className="sw-modal-close"
+          onClick={onClose}
+          aria-label={result.is_win ? "Close win dialog" : "Close dialog"}
+        >
           {result.is_win ? "Awesome! 🎊" : "Try Tomorrow →"}
         </button>
       </div>
@@ -319,46 +572,84 @@ function ResultModal({ result, onClose }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   HISTORY FILTERS
+═══════════════════════════════════════════════════════════════ */
+const FILTERS = [
+  { key: "all",    label: "All"         },
+  { key: "wins",   label: "🏆 Wins"     },
+  { key: "losses", label: "😅 Losses"   },
+  { key: "bonus",  label: "🎁 Bonus"    },
+  { key: "coupon", label: "🎟 Coupons"  },
+];
+
+function filterHistory(history, filter) {
+  switch (filter) {
+    case "wins":   return history.filter((h) => h.is_win);
+    case "losses": return history.filter((h) => !h.is_win);
+    case "bonus":  return history.filter((h) => h.spin_type === "bonus");
+    case "coupon": return history.filter((h) => !!h.coupon_code);
+    default:       return history;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function SpinWheel({ user }) {
   const navigate = useNavigate();
 
-  const [segments,   setSegments]   = useState([]);
-  const [spinStatus, setSpinStatus] = useState(null);
-  const [history,    setHistory]    = useState([]);
-  const [stats,      setStats]      = useState(null);
+  /* ── Data state ── */
+  const [segments,      setSegments]      = useState([]);
+  const [spinStatus,    setSpinStatus]    = useState(null);
+  const [history,       setHistory]       = useState([]);
+  const [stats,         setStats]         = useState(null);
+  const [referralSpins, setReferralSpins] = useState([]);
+
+  /* ── UI state ── */
   const [loading,    setLoading]    = useState(true);
   const [spinning,   setSpinning]   = useState(false);
   const [spinResult, setSpinResult] = useState(null);
   const [showResult, setShowResult] = useState(false);
   const [targetId,   setTargetId]   = useState(null);
-  const [tab,        setTab]        = useState("wheel"); // wheel | history
+  const [tab,        setTab]        = useState("wheel");
+  const [histFilter, setHistFilter] = useState("all");
+  const [bonusToast, setBonusToast] = useState(null);
+  const [spinType,   setSpinType]   = useState("free");
+  const [soundOn,    setSoundOn]    = useState(true);
+  const [bigWin,     setBigWin]     = useState(false);
+  const [shake,      setShake]      = useState(false);
 
-  /* ── Auth check ── */
+  /* ── Auth ── */
   useEffect(() => {
     if (!getToken()) navigate("/auth?redirect=/spin");
   }, [navigate]);
 
-  /* ── Load config ── */
+  /* ── Sound mute sync ── */
+  useEffect(() => { sound.muted = !soundOn; }, [soundOn]);
+
+  /* ── Load data ── */
   const loadConfig = useCallback(async () => {
     setLoading(true);
     try {
-      const [configRes, historyRes] = await Promise.all([
-        fetch(`${API}/spinwheel/config`,  { headers: authH() }),
-        fetch(`${API}/spinwheel/history`, { headers: authH() }),
+      const [configRes, historyRes, referralRes] = await Promise.all([
+        fetch(`${API}/spinwheel/config`,        { headers: authH() }),
+        fetch(`${API}/spinwheel/history`,        { headers: authH() }),
+        fetch(`${API}/spinwheel/referral-spins`, { headers: authH() }),
       ]);
 
       if (configRes.ok) {
         const d = await configRes.json();
-        setSegments(d.segments || []);
+        setSegments(d.segments     || []);
         setSpinStatus(d.spin_status || null);
       }
-
       if (historyRes.ok) {
         const d = await historyRes.json();
         setHistory(d.history || []);
-        setStats(d.stats || null);
+        setStats(d.stats    || null);
+      }
+      if (referralRes.ok) {
+        const d = await referralRes.json();
+        setReferralSpins(d.referral_spins || []);
       }
     } catch (err) {
       console.error("[SpinWheel]", err);
@@ -369,17 +660,78 @@ export default function SpinWheel({ user }) {
 
   useEffect(() => { loadConfig(); }, [loadConfig]);
 
+  /* ── Poll every 90s for bonus spins ── */
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API}/spinwheel/config`, { headers: authH() });
+        if (!res.ok) return;
+        const d = await res.json();
+        const newStatus = d.spin_status;
+        if (!newStatus) return;
+
+        setSpinStatus((prev) => {
+          if (
+            prev &&
+            newStatus.bonus_spins_remaining > (prev.bonus_spins_remaining || 0)
+          ) {
+            const diff =
+              newStatus.bonus_spins_remaining - (prev.bonus_spins_remaining || 0);
+            setBonusToast({
+              spins_awarded : diff,
+              referred_user : newStatus.latest_referral_name || "Someone",
+            });
+          }
+          return newStatus;
+        });
+      } catch (_) {}
+    }, 90_000);   // 90 seconds — reasonable polling interval
+
+    return () => clearInterval(interval);
+  }, []);
+
+  /* ── Computed ── */
+  const canSpin = spinStatus?.can_spin ||
+                  (spinStatus?.bonus_spins_remaining || 0) > 0;
+
+  const currentSpinType = useCallback(() => {
+    if (!spinStatus)                                    return "free";
+    if (spinStatus.can_spin)                            return "free";
+    if ((spinStatus.bonus_spins_remaining || 0) > 0)   return "bonus";
+    return null;
+  }, [spinStatus]);
+
+  const totalSpinsAvailable =
+    (spinStatus?.can_spin ? 1 : 0) +
+    (spinStatus?.bonus_spins_remaining || 0);
+
+  const filteredHistory = useMemo(
+    () => filterHistory(history, histFilter),
+    [history, histFilter]
+  );
+
+  /* ── Sound tick (passed down to canvas) ── */
+  const handleTick = useCallback(() => {
+    sound.tick();
+  }, []);
+
   /* ── Execute spin ── */
   const handleSpin = useCallback(async () => {
-    if (spinning || !spinStatus?.can_spin) return;
+    if (spinning || !canSpin) return;
+    sound.resume();
+    sound.spinStart();
 
+    const type = currentSpinType();
+    setSpinType(type);
     setSpinning(true);
     setSpinResult(null);
+    setBigWin(false);
 
     try {
       const res  = await fetch(`${API}/spinwheel/spin`, {
         method  : "POST",
         headers : authH(),
+        body    : JSON.stringify({ spin_type: type }),
       });
       const data = await res.json();
 
@@ -389,36 +741,51 @@ export default function SpinWheel({ user }) {
         return;
       }
 
-      /* Set target so wheel animation knows where to stop */
       setTargetId(data.segment_id);
-      setSpinResult(data.result);
+      setSpinResult({ ...data.result, spin_type: type });
 
-      /* Update spin status */
-      setSpinStatus((prev) => ({
-        ...prev,
-        can_spin   : false,
-        spins_today: (prev?.spins_today || 0) + 1,
-      }));
+      setSpinStatus((prev) => {
+        const u = { ...prev };
+        if (type === "free") {
+          u.can_spin = false;
+        } else {
+          u.bonus_spins_remaining = Math.max(0, (u.bonus_spins_remaining || 0) - 1);
+        }
+        return u;
+      });
 
     } catch {
       alert("Network error. Please try again.");
       setSpinning(false);
     }
-  }, [spinning, spinStatus]);
+  }, [spinning, canSpin, currentSpinType]);
 
-  /* ── Called when wheel animation finishes ── */
+  /* ── Wheel animation done ── */
   const handleSpinEnd = useCallback(() => {
     setSpinning(false);
 
-    /* Fire confetti if won */
     if (spinResult?.is_win) {
-      fireConfetti();
+      const big = isBigWin(spinResult);
+      setBigWin(big);
+
+      /* Screen shake */
+      setShake(true);
+      setTimeout(() => setShake(false), 600);
+
+      sound.win();
+      fireConfetti(big);
+
+      /* Vibrate on big win */
+      if (big && "vibrate" in navigator) {
+        navigator.vibrate([200, 100, 200, 100, 400]);
+      }
+    } else {
+      sound.lose();
     }
 
-    /* Show result after short delay */
     setTimeout(() => {
       setShowResult(true);
-      loadConfig(); // refresh history
+      loadConfig();
     }, 400);
   }, [spinResult, loadConfig]);
 
@@ -426,7 +793,25 @@ export default function SpinWheel({ user }) {
     setShowResult(false);
     setSpinResult(null);
     setTargetId(null);
+    setBigWin(false);
   }, []);
+
+  /* ── Spin button label ── */
+  const spinBtnLabel = () => {
+    if (spinning) return <><span className="sw-btn-spinner" aria-hidden="true" /> Spinning…</>;
+    if (!canSpin) return `Come back in ${spinStatus?.next_spin_in || "..."}`;
+    const type      = currentSpinType();
+    const bonusLeft = spinStatus?.bonus_spins_remaining || 0;
+    if (type === "free")  return "⭐ SPIN NOW! (Free)";
+    if (type === "bonus") return `🎁 SPIN NOW! (${bonusLeft} bonus left)`;
+    return "No Spins Available";
+  };
+
+  /* ── Responsive wheel size ── */
+  const wheelSize = Math.min(
+    typeof window !== "undefined" ? window.innerWidth - 48 : 320,
+    320
+  );
 
   /* ══════════════════════════════════════════════
      RENDER
@@ -434,21 +819,45 @@ export default function SpinWheel({ user }) {
   return (
     <div className="sw-page">
 
+      {/* ── Bonus toast ── */}
+      <BonusSpinToast bonus={bonusToast} onClose={() => setBonusToast(null)} />
+
       {/* ── Topbar ── */}
       <div className="sw-topbar">
-        <button className="sw-back" onClick={() => navigate(-1)} aria-label="Back">
+        <button
+          className="sw-back"
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+        >
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+            stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
+            aria-hidden="true">
             <path d="M19 12H5M12 19l-7-7 7-7"/>
           </svg>
         </button>
+
         <div>
           <h1 className="sw-topbar-title">🎡 Spin & Win</h1>
-          <p className="sw-topbar-sub">1 free spin per day</p>
+          <p className="sw-topbar-sub">
+            {totalSpinsAvailable > 0
+              ? `${totalSpinsAvailable} spin${totalSpinsAvailable > 1 ? "s" : ""} available`
+              : "1 free spin per day"}
+          </p>
         </div>
+
+        {/* Sound toggle */}
+        <button
+          className="sw-sound-btn"
+          onClick={() => setSoundOn((s) => !s)}
+          aria-label={soundOn ? "Mute sounds" : "Unmute sounds"}
+          title={soundOn ? "Mute" : "Unmute"}
+        >
+          {soundOn ? "🔊" : "🔇"}
+        </button>
+
         <div className="sw-topbar-stats">
           {stats && (
-            <div className="sw-topbar-win-rate">
+            <div className="sw-topbar-win-rate" aria-label={`${stats.total_wins} wins`}>
               <span>{stats.total_wins}</span>
               <small>wins</small>
             </div>
@@ -457,23 +866,26 @@ export default function SpinWheel({ user }) {
       </div>
 
       {/* ── Nav ── */}
-      <div className="sw-nav">
-        <button
-          className={`sw-nav-btn${tab === "wheel" ? " active" : ""}`}
-          onClick={() => setTab("wheel")}
-        >
-          🎡 Spin
-        </button>
-        <button
-          className={`sw-nav-btn${tab === "history" ? " active" : ""}`}
-          onClick={() => setTab("history")}
-        >
-          📋 History
-          {history.length > 0 && (
-            <span className="sw-nav-count">{history.length}</span>
-          )}
-        </button>
-      </div>
+      <nav className="sw-nav" aria-label="Spin wheel sections">
+        {[
+          { key: "wheel",    label: "🎡 Spin",       count: totalSpinsAvailable > 0 ? totalSpinsAvailable : 0 },
+          { key: "history",  label: "📋 History",     count: history.length },
+          { key: "referrals",label: "🎁 Referrals",   count: referralSpins.length },
+        ].map((t) => (
+          <button
+            key={t.key}
+            className={`sw-nav-btn${tab === t.key ? " active" : ""}`}
+            onClick={() => setTab(t.key)}
+            aria-selected={tab === t.key}
+            aria-label={t.label}
+          >
+            {t.label}
+            {t.count > 0 && (
+              <span className="sw-nav-count" aria-hidden="true">{t.count}</span>
+            )}
+          </button>
+        ))}
+      </nav>
 
       <div className="sw-scroll">
 
@@ -482,70 +894,141 @@ export default function SpinWheel({ user }) {
         ══════════════════════════════════════════════ */}
         {tab === "wheel" && (
           <>
-            {/* Spin status banner */}
-            {spinStatus && !spinStatus.can_spin && (
-              <div className="sw-status-banner">
-                <span>⏰</span>
+            {/* Spin counter */}
+            <SpinCounterBadge spinStatus={spinStatus} />
+
+            {/* Countdown timer */}
+            {!canSpin && spinStatus?.next_spin_seconds && (
+              <CountdownTimer secondsLeft={spinStatus.next_spin_seconds} />
+            )}
+
+            {/* Streak */}
+            {stats?.streak > 0 && (
+              <div className="sw-streak">
+                <span className="sw-streak-icon" aria-hidden="true">🔥</span>
+                <div className="sw-streak-body">
+                  <p className="sw-streak-title">Spin Streak!</p>
+                  <p className="sw-streak-sub">Keep spinning daily to maintain your streak</p>
+                </div>
+                <div className="sw-streak-days" aria-label={`${stats.streak} day streak`}>
+                  {stats.streak}
+                  <small>days</small>
+                </div>
+              </div>
+            )}
+
+            {/* Banners */}
+            {spinStatus && !canSpin && (
+              <div className="sw-status-banner" role="status">
+                <span aria-hidden="true">⏰</span>
                 <div>
                   <p>Next spin in <strong>{spinStatus.next_spin_in}</strong></p>
-                  <small>Come back tomorrow for your free spin!</small>
+                  <small>Invite friends to earn bonus spins instantly!</small>
                 </div>
               </div>
             )}
 
             {spinStatus?.can_spin && (
-              <div className="sw-ready-banner">
-                <span>✨</span>
+              <div className="sw-ready-banner" role="status">
+                <span aria-hidden="true">✨</span>
                 <p>Your free spin is ready!</p>
+              </div>
+            )}
+
+            {(spinStatus?.bonus_spins_remaining || 0) > 0 && (
+              <div className="sw-bonus-banner" role="status">
+                <span aria-hidden="true">🎁</span>
+                <div>
+                  <p>
+                    You have{" "}
+                    <strong>
+                      {spinStatus.bonus_spins_remaining} bonus spin
+                      {spinStatus.bonus_spins_remaining > 1 ? "s" : ""}
+                    </strong>{" "}
+                    from referrals!
+                  </p>
+                  <small>These don't expire — use them any time</small>
+                </div>
               </div>
             )}
 
             {/* Wheel */}
             <div className="sw-wheel-wrap">
-              {/* Pointer */}
-              <div className="sw-pointer">▼</div>
+              <div
+                className={`sw-pointer${canSpin && !spinning ? " sw-pointer--ready" : ""}`}
+                aria-hidden="true"
+              >▼</div>
 
-              {/* Canvas */}
-              <div className="sw-canvas-wrap">
-                {loading ? (
-                  <div className="sw-canvas-loading">
-                    <div className="sw-sk-wheel" />
-                  </div>
-                ) : (
-                  <WheelCanvas
-                    segments={segments}
-                    targetSegmentId={targetId}
-                    spinning={spinning}
-                    onSpinEnd={handleSpinEnd}
-                  />
-                )}
+              <div
+                className={`sw-canvas-outer${shake ? " shake" : ""}`}
+              >
+                <div
+                  className={`sw-canvas-wrap${bigWin ? " sw-canvas-wrap--big-win" : ""}`}
+                  style={{ width: wheelSize, height: wheelSize }}
+                >
+                  {loading ? (
+                    <div className="sw-canvas-loading" style={{ width: wheelSize, height: wheelSize }}>
+                      <div className="sw-sk-wheel" style={{ width: wheelSize, height: wheelSize }} />
+                    </div>
+                  ) : (
+                    <WheelCanvas
+                      segments={segments}
+                      targetSegmentId={targetId}
+                      spinning={spinning}
+                      onSpinEnd={handleSpinEnd}
+                      onTick={handleTick}
+                    />
+                  )}
+                </div>
               </div>
             </div>
 
             {/* Spin button */}
             <button
-              className={`sw-spin-btn${spinning ? " sw-spin-btn--spinning" : ""}${!spinStatus?.can_spin ? " sw-spin-btn--disabled" : ""}`}
+              className={[
+                "sw-spin-btn",
+                spinning                           ? "sw-spin-btn--spinning" : "",
+                !canSpin                           ? "sw-spin-btn--disabled" : "",
+                canSpin && !spinning               ? "sw-spin-btn--pulse"    : "",
+                spinType === "bonus" && !spinning  ? "sw-spin-btn--bonus"   : "",
+              ].filter(Boolean).join(" ")}
               onClick={handleSpin}
-              disabled={spinning || !spinStatus?.can_spin || loading}
+              disabled={spinning || !canSpin || loading}
+              aria-label={
+                spinning        ? "Spinning…" :
+                !canSpin        ? "No spins available" :
+                spinType === "bonus" ? "Use bonus spin" :
+                "Spin the wheel for free"
+              }
             >
-              {spinning
-                ? <><span className="sw-btn-spinner" /> Spinning…</>
-                : spinStatus?.can_spin
-                  ? "🎡 SPIN NOW!"
-                  : `Come back in ${spinStatus?.next_spin_in || "..."}`}
+              {spinBtnLabel()}
             </button>
 
-            {/* Prizes list */}
+            {/* Earn more */}
+            <Link to="/invite" className="sw-earn-more" aria-label="Invite friends to earn bonus spins">
+              <span className="sw-earn-more-icon" aria-hidden="true">🚀</span>
+              <div className="sw-earn-more-body">
+                <p className="sw-earn-more-title">Want more spins?</p>
+                <p className="sw-earn-more-sub">
+                  Invite a friend → they sign up → you get{" "}
+                  <strong>+1 bonus spin</strong> instantly!
+                </p>
+              </div>
+              <span className="sw-earn-more-btn" aria-hidden="true">Invite →</span>
+            </Link>
+
+            {/* Prizes */}
             <div className="sw-prizes">
-              <h3 className="sw-prizes-title">🎁 Prizes You Can Win</h3>
-              <div className="sw-prizes-grid">
+              <h2 className="sw-prizes-title">🎁 Prizes You Can Win</h2>
+              <div className="sw-prizes-grid" role="list">
                 {segments.map((seg) => (
                   <div
                     key={seg.id}
                     className="sw-prize-item"
+                    role="listitem"
                     style={{ background: seg.bg, borderColor: seg.color + "44" }}
                   >
-                    <span className="sw-prize-emoji">{seg.emoji}</span>
+                    <span className="sw-prize-emoji" aria-hidden="true">{seg.emoji}</span>
                     <span className="sw-prize-label" style={{ color: seg.color }}>
                       {seg.label}
                     </span>
@@ -559,13 +1042,16 @@ export default function SpinWheel({ user }) {
               <h3 className="sw-rules-title">📋 Rules</h3>
               {[
                 "1 free spin per day — resets at midnight",
+                "Earn +1 bonus spin for every friend who signs up with your invite code",
+                "Bonus spins never expire and stack up to 10",
                 "Coupons expire 30 days after winning",
                 "Airtime credited within 24 hours",
                 "Each coupon can only be used once",
                 "Prizes are non-transferable",
+                "Loemart reserves the right to cancel rewards from fraudulent activity",
               ].map((rule, i) => (
                 <div key={i} className="sw-rule">
-                  <span>•</span>
+                  <span aria-hidden="true">•</span>
                   <span>{rule}</span>
                 </div>
               ))}
@@ -580,38 +1066,53 @@ export default function SpinWheel({ user }) {
           <>
             {/* Stats */}
             {stats && (
-              <div className="sw-hist-stats">
-                <div className="sw-hist-stat">
-                  <p className="sw-hist-stat-val">{stats.total_spins}</p>
-                  <p className="sw-hist-stat-label">Total Spins</p>
-                </div>
-                <div className="sw-hist-stat">
-                  <p className="sw-hist-stat-val" style={{ color: "#16a34a" }}>
-                    {stats.total_wins}
-                  </p>
-                  <p className="sw-hist-stat-label">Wins</p>
-                </div>
-                <div className="sw-hist-stat">
-                  <p className="sw-hist-stat-val" style={{ color: "#e8630a" }}>
-                    {stats.win_rate}%
-                  </p>
-                  <p className="sw-hist-stat-label">Win Rate</p>
-                </div>
+              <div className="sw-hist-stats" role="region" aria-label="Spin statistics">
+                {[
+                  { label: "Total Spins",  val: stats.total_spins,    color: "#fff"     },
+                  { label: "Wins",         val: stats.total_wins,     color: "#16a34a"  },
+                  { label: "Win Rate",     val: `${stats.win_rate}%`, color: "#e8630a"  },
+                  { label: "Bonus Used",   val: stats.bonus_spins_used || 0, color: "#6366f1" },
+                ].map((s) => (
+                  <div key={s.label} className="sw-hist-stat">
+                    <p className="sw-hist-stat-val" style={{ color: s.color }}>{s.val}</p>
+                    <p className="sw-hist-stat-label">{s.label}</p>
+                  </div>
+                ))}
               </div>
             )}
 
-            {/* History list */}
-            {history.length === 0 ? (
+            {/* Filters */}
+            <div className="sw-hist-filters" role="group" aria-label="Filter spin history">
+              {FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  className={`sw-hist-filter-btn${histFilter === f.key ? " active" : ""}`}
+                  onClick={() => setHistFilter(f.key)}
+                  aria-pressed={histFilter === f.key}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+
+            {/* List */}
+            {filteredHistory.length === 0 ? (
               <div className="sw-empty">
-                <span>🎡</span>
-                <p>No spins yet</p>
-                <small>Spin the wheel to win prizes!</small>
-                <button onClick={() => setTab("wheel")}>Go Spin →</button>
+                <span aria-hidden="true">🎡</span>
+                <p>No spins match this filter</p>
+                <small>Try a different filter or spin the wheel!</small>
+                <button
+                  className="sw-empty-btn"
+                  onClick={() => setTab("wheel")}
+                  aria-label="Go to spin wheel"
+                >
+                  Go Spin →
+                </button>
               </div>
             ) : (
-              <div className="sw-hist-list">
-                {history.map((h) => (
-                  <div key={h.id} className="sw-hist-item">
+              <div className="sw-hist-list" role="list">
+                {filteredHistory.map((h) => (
+                  <div key={h.id} className="sw-hist-item" role="listitem">
                     <div
                       className="sw-hist-icon"
                       style={{
@@ -619,23 +1120,44 @@ export default function SpinWheel({ user }) {
                         color      : h.is_win ? "#16a34a" : "#9ca3af",
                         fontSize   : 20,
                       }}
+                      aria-hidden="true"
                     >
                       {h.is_win ? "🎉" : "😅"}
                     </div>
                     <div className="sw-hist-info">
-                      <p className="sw-hist-label">{h.label}</p>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <p className="sw-hist-label">{h.label}</p>
+                        {h.spin_type === "bonus" && (
+                          <span className="sw-hist-bonus-tag" aria-label="Bonus spin">🎁 Bonus</span>
+                        )}
+                      </div>
                       {h.coupon_code && (
                         <p className="sw-hist-code">Code: {h.coupon_code}</p>
                       )}
                       <p className="sw-hist-date">{timeAgo(h.spun_at)}</p>
                     </div>
                     <div className="sw-hist-result">
-                      {h.type === "fixed"        && <span className="sw-hist-win">{naira(h.value)} OFF</span>}
-                      {h.type === "percentage"   && <span className="sw-hist-win">{h.value}% OFF</span>}
-                      {h.type === "free_shipping"&& <span className="sw-hist-win">🚚 Free</span>}
-                      {h.type === "airtime"      && <span className="sw-hist-win">📱 {naira(h.value)}</span>}
-                      {h.type === "none"         && <span className="sw-hist-miss">Try Again</span>}
+                      {h.type === "fixed"         && <span className="sw-hist-win">{naira(h.value)} OFF</span>}
+                      {h.type === "percentage"    && <span className="sw-hist-win">{h.value}% OFF</span>}
+                      {h.type === "free_shipping" && <span className="sw-hist-win">🚚 Free</span>}
+                      {h.type === "airtime"       && <span className="sw-hist-win">📱 {naira(h.value)}</span>}
+                      {h.type === "none"          && <span className="sw-hist-miss">Try Again</span>}
                     </div>
+                    {/* Share win */}
+                    {h.is_win && (
+                      <button
+                        className="sw-hist-share"
+                        aria-label={`Share your ${h.label} win`}
+                        onClick={() => {
+                          const txt = `🎉 I just won ${h.label} on Loemart Spin & Win!`;
+                          navigator.share
+                            ? navigator.share({ title: "Loemart Win!", text: txt })
+                            : navigator.clipboard.writeText(txt);
+                        }}
+                      >
+                        📤
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -643,351 +1165,86 @@ export default function SpinWheel({ user }) {
           </>
         )}
 
-        <p className="sw-footer">© {new Date().getFullYear()} Loemart — Spin responsibly!</p>
+        {/* ══════════════════════════════════════════════
+            REFERRALS TAB
+        ══════════════════════════════════════════════ */}
+        {tab === "referrals" && (
+          <>
+            {/* Summary */}
+            <div className="sw-ref-summary" role="region" aria-label="Referral summary">
+              <div className="sw-ref-summary-row">
+                {[
+                  { val: referralSpins.length,                                                              label: "Friends Joined",      color: "#fff"    },
+                  { val: referralSpins.reduce((a, r) => a + (r.spins_awarded || 0), 0),                    label: "Bonus Spins Earned",  color: "#e8630a" },
+                  { val: spinStatus?.bonus_spins_remaining || 0,                                            label: "Spins Remaining",     color: "#6366f1" },
+                ].map((s, i, arr) => (
+                  <React.Fragment key={s.label}>
+                    <div className="sw-ref-summary-stat">
+                      <span className="sw-ref-summary-val" style={{ color: s.color }}>{s.val}</span>
+                      <span className="sw-ref-summary-label">{s.label}</span>
+                    </div>
+                    {i < arr.length - 1 && <div className="sw-ref-summary-divider" aria-hidden="true" />}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+
+            {/* How it works */}
+            <div className="sw-how-it-works">
+              <h3 className="sw-how-title">How Bonus Spins Work</h3>
+              {[
+                { step: "1", icon: "📤", text: "Share your invite code from the Invite Friends page" },
+                { step: "2", icon: "👤", text: "Your friend signs up using your code" },
+                { step: "3", icon: "✅", text: "They verify their email address" },
+                { step: "4", icon: "🎡", text: "You instantly receive +1 bonus spin!" },
+              ].map((item) => (
+                <div key={item.step} className="sw-how-step">
+                  <div className="sw-how-step-num" aria-hidden="true">{item.step}</div>
+                  <span style={{ fontSize: 20 }} aria-hidden="true">{item.icon}</span>
+                  <p className="sw-how-step-text">{item.text}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Referral list */}
+            <ReferralSpinsPanel referralSpins={referralSpins} />
+
+            {referralSpins.length === 0 && (
+              <div className="sw-empty">
+                <span aria-hidden="true">🎁</span>
+                <p>No referral spins yet</p>
+                <small>Invite friends to earn bonus spins!</small>
+                <Link to="/invite" className="sw-empty-invite-btn">
+                  Go to Invite Page →
+                </Link>
+              </div>
+            )}
+
+            {/* CTA */}
+            <Link
+              to="/invite"
+              className="sw-ref-cta"
+              aria-label="Invite more friends to earn bonus spins"
+            >
+              <span aria-hidden="true">📤</span>
+              <div style={{ flex: 1 }}>
+                <p className="sw-ref-cta-title">Invite More Friends</p>
+                <p className="sw-ref-cta-sub">Each signup = +1 bonus spin for you</p>
+              </div>
+              <span aria-hidden="true" style={{ color: "#e8630a", fontSize: 18 }}>→</span>
+            </Link>
+          </>
+        )}
+
+        <p className="sw-footer">
+          © {new Date().getFullYear()} Loemart — Spin responsibly!
+        </p>
       </div>
 
       {/* ── Result modal ── */}
       {showResult && spinResult && (
         <ResultModal result={spinResult} onClose={closeResult} />
       )}
-
-      {/* ── Styles ── */}
-      <style>{SW_STYLES}</style>
     </div>
   );
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   STYLES
-═══════════════════════════════════════════════════════════════ */
-const SW_STYLES = `
-
-/* ── Page ── */
-.sw-page {
-  max-width: 480px;
-  margin: 0 auto;
-  min-height: 100vh;
-  background: linear-gradient(180deg, #0a0f1e 0%, #1a1614 100%);
-  font-family: 'DM Sans', system-ui, sans-serif;
-  color: #fff;
-  padding-bottom: 40px;
-}
-
-/* ── Topbar ── */
-.sw-topbar {
-  display: flex; align-items: center; gap: 12px;
-  padding: 16px; position: sticky; top: 0; z-index: 50;
-  background: rgba(10,15,30,.96);
-  border-bottom: 1px solid rgba(255,255,255,.08);
-  backdrop-filter: blur(12px);
-}
-.sw-back {
-  width: 38px; height: 38px; border-radius: 50%;
-  border: 1.5px solid rgba(255,255,255,.15);
-  background: rgba(255,255,255,.08);
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: #fff; flex-shrink: 0;
-  transition: all .15s;
-}
-.sw-back:hover { border-color: #e8630a; color: #e8630a; }
-.sw-topbar-title { font-size: 18px; font-weight: 800; margin: 0; }
-.sw-topbar-sub   { font-size: 11px; color: rgba(255,255,255,.5); margin: 0; }
-.sw-topbar-stats { margin-left: auto; }
-.sw-topbar-win-rate {
-  text-align: center;
-  background: rgba(232,99,10,.2);
-  border: 1px solid rgba(232,99,10,.3);
-  border-radius: 10px; padding: 6px 12px;
-}
-.sw-topbar-win-rate span { font-size: 18px; font-weight: 900; color: #e8630a; display: block; }
-.sw-topbar-win-rate small { font-size: 9px; color: rgba(255,255,255,.5); }
-
-/* ── Nav ── */
-.sw-nav {
-  display: flex; background: rgba(255,255,255,.06);
-  border-bottom: 1px solid rgba(255,255,255,.08);
-}
-.sw-nav-btn {
-  flex: 1; padding: 12px 8px; border: none; background: none;
-  color: rgba(255,255,255,.5); font-size: 13px; font-weight: 600;
-  cursor: pointer; border-bottom: 2.5px solid transparent;
-  display: flex; align-items: center; justify-content: center; gap: 5px;
-  transition: color .15s;
-}
-.sw-nav-btn.active { color: #e8630a; border-bottom-color: #e8630a; }
-.sw-nav-count {
-  background: #e8630a; color: #fff;
-  font-size: 10px; font-weight: 700;
-  padding: 1px 6px; border-radius: 20px;
-}
-
-/* ── Scroll ── */
-.sw-scroll { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
-
-/* ── Status banners ── */
-.sw-status-banner {
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px 16px;
-  background: rgba(255,255,255,.06);
-  border: 1px solid rgba(255,255,255,.1);
-  border-radius: 14px;
-  font-size: 13px;
-}
-.sw-status-banner span { font-size: 24px; flex-shrink: 0; }
-.sw-status-banner p    { margin: 0 0 2px; }
-.sw-status-banner small{ color: rgba(255,255,255,.5); }
-
-.sw-ready-banner {
-  display: flex; align-items: center; gap: 10px;
-  padding: 12px 16px;
-  background: rgba(232,99,10,.15);
-  border: 1px solid rgba(232,99,10,.3);
-  border-radius: 14px;
-  font-size: 14px; font-weight: 700; color: #ff8a4a;
-}
-.sw-ready-banner span { font-size: 20px; }
-
-/* ── Wheel ── */
-.sw-wheel-wrap {
-  position: relative;
-  display: flex; flex-direction: column; align-items: center;
-  gap: 0;
-}
-.sw-pointer {
-  font-size: 28px; color: #e8630a;
-  text-shadow: 0 2px 8px rgba(232,99,10,.6);
-  margin-bottom: -4px; position: relative; z-index: 2;
-  animation: sw-pulse 1.5s ease-in-out infinite;
-}
-@keyframes sw-pulse {
-  0%, 100% { transform: translateY(0);   }
-  50%       { transform: translateY(4px); }
-}
-
-.sw-canvas-wrap {
-  width: 300px; height: 300px;
-  border-radius: 50%;
-  box-shadow:
-    0 0 0 8px rgba(232,99,10,.15),
-    0 0 0 16px rgba(232,99,10,.06),
-    0 20px 60px rgba(0,0,0,.5);
-}
-
-.sw-canvas-loading { width: 300px; height: 300px; }
-.sw-sk-wheel {
-  width: 300px; height: 300px; border-radius: 50%;
-  background: linear-gradient(135deg, #1a1614, #2a2420);
-  animation: sw-glow 1.5s ease-in-out infinite;
-}
-@keyframes sw-glow {
-  0%, 100% { box-shadow: 0 0 20px rgba(232,99,10,.2); }
-  50%       { box-shadow: 0 0 40px rgba(232,99,10,.4); }
-}
-
-/* ── Spin button ── */
-.sw-spin-btn {
-  width: 100%; padding: 18px;
-  background: linear-gradient(135deg, #e8630a, #ff8a4a);
-  color: #fff; border: none; border-radius: 16px;
-  font-size: 18px; font-weight: 900; cursor: pointer;
-  box-shadow: 0 4px 24px rgba(232,99,10,.4);
-  transition: all .2s;
-  display: flex; align-items: center; justify-content: center; gap: 8px;
-}
-.sw-spin-btn:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 8px 32px rgba(232,99,10,.5);
-}
-.sw-spin-btn:active:not(:disabled) { transform: scale(.97); }
-.sw-spin-btn--spinning {
-  background: linear-gradient(135deg, #555, #777);
-  box-shadow: none; cursor: wait;
-}
-.sw-spin-btn--disabled {
-  background: rgba(255,255,255,.1);
-  color: rgba(255,255,255,.4);
-  box-shadow: none; cursor: not-allowed;
-}
-
-.sw-btn-spinner {
-  width: 18px; height: 18px;
-  border: 2.5px solid rgba(255,255,255,.3);
-  border-top-color: #fff;
-  border-radius: 50%;
-  display: inline-block;
-  animation: sw-spin .7s linear infinite;
-}
-@keyframes sw-spin { to { transform: rotate(360deg); } }
-
-/* ── Prizes ── */
-.sw-prizes {
-  background: rgba(255,255,255,.05);
-  border: 1px solid rgba(255,255,255,.08);
-  border-radius: 16px; padding: 16px;
-}
-.sw-prizes-title { font-size: 15px; font-weight: 800; margin: 0 0 12px; }
-.sw-prizes-grid  {
-  display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px;
-}
-.sw-prize-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 12px; border-radius: 10px;
-  border: 1px solid;
-}
-.sw-prize-emoji { font-size: 18px; flex-shrink: 0; }
-.sw-prize-label { font-size: 12px; font-weight: 700; }
-
-/* ── Rules ── */
-.sw-rules {
-  background: rgba(255,255,255,.04);
-  border: 1px solid rgba(255,255,255,.06);
-  border-radius: 14px; padding: 14px 16px;
-}
-.sw-rules-title { font-size: 13px; font-weight: 800; margin: 0 0 10px; }
-.sw-rule {
-  display: flex; gap: 8px; font-size: 12px;
-  color: rgba(255,255,255,.6); margin-bottom: 6px; line-height: 1.4;
-}
-.sw-rule:last-child { margin-bottom: 0; }
-
-/* ── History ── */
-.sw-hist-stats {
-  display: grid; grid-template-columns: repeat(3, 1fr);
-  background: rgba(255,255,255,.06);
-  border-radius: 14px; overflow: hidden;
-  border: 1px solid rgba(255,255,255,.08);
-}
-.sw-hist-stat {
-  text-align: center; padding: 16px 8px;
-  border-right: 1px solid rgba(255,255,255,.08);
-}
-.sw-hist-stat:last-child { border-right: none; }
-.sw-hist-stat-val   { font-size: 24px; font-weight: 900; margin: 0 0 3px; }
-.sw-hist-stat-label { font-size: 10px; color: rgba(255,255,255,.5); margin: 0; }
-
-.sw-hist-list { display: flex; flex-direction: column; gap: 0; }
-.sw-hist-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px 0;
-  border-bottom: 1px solid rgba(255,255,255,.06);
-}
-.sw-hist-item:last-child { border-bottom: none; }
-.sw-hist-icon {
-  width: 44px; height: 44px; border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0;
-}
-.sw-hist-info  { flex: 1; min-width: 0; }
-.sw-hist-label { font-size: 14px; font-weight: 700; margin: 0 0 2px; }
-.sw-hist-code  { font-size: 11px; color: #e8630a; font-family: monospace; margin: 0 0 2px; }
-.sw-hist-date  { font-size: 11px; color: rgba(255,255,255,.4); margin: 0; }
-.sw-hist-win   { font-size: 14px; font-weight: 800; color: #16a34a; }
-.sw-hist-miss  { font-size: 12px; color: rgba(255,255,255,.3); }
-
-/* ── Empty ── */
-.sw-empty {
-  text-align: center; padding: 48px 20px;
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-}
-.sw-empty span  { font-size: 40px; }
-.sw-empty p     { font-size: 16px; font-weight: 700; margin: 0; }
-.sw-empty small { font-size: 12px; color: rgba(255,255,255,.5); }
-.sw-empty button {
-  padding: 10px 24px; background: #e8630a; color: #fff;
-  border: none; border-radius: 8px; font-size: 14px;
-  font-weight: 700; cursor: pointer;
-}
-
-/* ── Footer ── */
-.sw-footer {
-  text-align: center; font-size: 11px;
-  color: rgba(255,255,255,.2); padding: 8px 0;
-}
-
-/* ── Result modal ── */
-.sw-modal-overlay {
-  position: fixed; inset: 0; z-index: 500;
-  background: rgba(0,0,0,.8);
-  backdrop-filter: blur(8px);
-  display: flex; align-items: center; justify-content: center;
-  padding: 20px;
-}
-.sw-modal {
-  background: linear-gradient(145deg, #1a1614, #111);
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 24px; padding: 32px 24px;
-  width: 100%; max-width: 360px;
-  text-align: center;
-  box-shadow: 0 24px 80px rgba(0,0,0,.6);
-  animation: sw-modal-in .3s cubic-bezier(.4,0,.2,1);
-}
-@keyframes sw-modal-in {
-  from { opacity: 0; transform: scale(.8) translateY(20px); }
-  to   { opacity: 1; transform: scale(1) translateY(0); }
-}
-
-.sw-modal-anim { margin-bottom: 16px; }
-.sw-modal-win-ring {
-  width: 90px; height: 90px; border-radius: 50%;
-  background: rgba(232,99,10,.15);
-  border: 3px solid #e8630a;
-  display: flex; align-items: center; justify-content: center;
-  margin: 0 auto;
-  animation: sw-ring-pulse 1s ease-in-out infinite;
-}
-@keyframes sw-ring-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(232,99,10,.4); }
-  50%       { box-shadow: 0 0 0 12px rgba(232,99,10,0); }
-}
-
-.sw-modal-title {
-  font-size: 22px; font-weight: 900; color: #fff; margin: 0 0 14px;
-}
-.sw-modal-prize {
-  background: rgba(232,99,10,.1);
-  border: 1px solid rgba(232,99,10,.25);
-  border-radius: 14px; padding: 16px; margin-bottom: 14px;
-}
-.sw-modal-prize-label { font-size: 13px; color: rgba(255,255,255,.7); margin: 0 0 4px; }
-.sw-modal-prize-val   { font-size: 28px; font-weight: 900; color: #e8630a; margin: 0; }
-
-.sw-modal-msg {
-  font-size: 13px; color: rgba(255,255,255,.7); line-height: 1.5; margin-bottom: 16px;
-}
-
-.sw-modal-coupon {
-  background: rgba(255,255,255,.06);
-  border: 1px dashed rgba(255,255,255,.2);
-  border-radius: 12px; padding: 14px; margin-bottom: 20px;
-}
-.sw-modal-coupon-label { font-size: 11px; color: rgba(255,255,255,.5); margin: 0 0 8px; }
-.sw-modal-coupon-row {
-  display: flex; align-items: center; justify-content: center; gap: 10px;
-}
-.sw-modal-coupon-code {
-  font-size: 20px; font-weight: 900; letter-spacing: 2px;
-  color: #e8630a; font-family: monospace;
-}
-.sw-modal-copy {
-  padding: 6px 14px; background: #e8630a; color: #fff;
-  border: none; border-radius: 20px; font-size: 12px;
-  font-weight: 700; cursor: pointer; transition: all .15s;
-}
-.sw-modal-copy.copied { background: #16a34a; }
-.sw-modal-expires { font-size: 11px; color: rgba(255,255,255,.4); margin: 8px 0 0; }
-
-.sw-modal-close {
-  width: 100%; padding: 14px;
-  background: linear-gradient(135deg, #e8630a, #ff8a4a);
-  color: #fff; border: none; border-radius: 12px;
-  font-size: 16px; font-weight: 800; cursor: pointer;
-  transition: opacity .15s;
-}
-.sw-modal-close:hover { opacity: .88; }
-
-/* ── Confetti keyframe ── */
-@keyframes sw-confetti {
-  0%   { transform: translateY(0) rotate(0deg);      opacity: 1; }
-  100% { transform: translateY(100vh) rotate(720deg); opacity: 0; }
-}
-`;
