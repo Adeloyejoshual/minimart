@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import "../styles/Leaderboard.css";
+import "../../styles/Leaderboard.css";
 
 /* ═══════════════════════════════════════════════════
    CONFIG
