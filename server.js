@@ -187,6 +187,7 @@ import spinwheelRouter                   from "./routes/spinwheel.js";
 import editProfileRouter from "./routes/editProfile.js";
 import referralRoutes from "./routes/referrals.js";
 import leaderboardRoutes from "./routes/leaderboard.js";
+import favoritesRouter from "./routes/favorites.js";
 
 /* ══════════════════════════════════════════════════════════════
    WEBHOOKS  — must be registered BEFORE body parsers
@@ -310,6 +311,7 @@ app.use("/api/spinwheel",     spinwheelRouter);
 app.use("/api/referrals", referralRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
 app.use("/api/referrals/leaderboard",   leaderboardRoutes);
+app.use("/api/favorites", favoritesRouter);
 
 /* ══════════════════════════════════════════════════════════════
    STATIC — sitemap + robots
