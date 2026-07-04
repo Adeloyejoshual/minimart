@@ -309,6 +309,7 @@ app.use("/api/coupons",       couponsRouter);
 app.use("/api/spinwheel",     spinwheelRouter);
 app.use("/api/referrals", referralRoutes);
 app.use("/api/leaderboard", leaderboardRoutes);
+app.use("/api/referrals/leaderboard",   leaderboardRoutes);
 
 /* ══════════════════════════════════════════════════════════════
    STATIC — sitemap + robots
