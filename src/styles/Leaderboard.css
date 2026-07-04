@@ -1,0 +1,295 @@
+/* src/styles/Leaderboard.css */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+.lb-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #0f172a 0%, #1e293b 50%, #0f172a 100%);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "DM Sans", sans-serif;
+  color: #fff;
+  padding-bottom: 60px;
+}
+.lb-container { max-width: 600px; margin: 0 auto; }
+
+/* ── Header ── */
+.lb-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(15,23,42,.95);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+.lb-back {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 1.5px solid rgba(255,255,255,.15);
+  background: rgba(255,255,255,.06);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; color: #fff; flex-shrink: 0;
+  transition: all .15s;
+}
+.lb-back:hover { border-color: #f59e0b; color: #f59e0b; }
+.lb-header-center { flex: 1; }
+.lb-title    { font-size: 18px; font-weight: 800; }
+.lb-subtitle { font-size: 11px; color: rgba(255,255,255,.5); margin-top: 1px; }
+.lb-invite-btn {
+  padding: 8px 14px;
+  background: linear-gradient(135deg, #e8630a, #f59e0b);
+  color: #fff;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: opacity .15s;
+}
+.lb-invite-btn:hover { opacity: .88; }
+
+/* ── Global stats ── */
+.lb-global-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  margin: 16px;
+  background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.lb-global-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 8px;
+  border-right: 1px solid rgba(255,255,255,.06);
+  gap: 4px;
+}
+.lb-global-stat:last-child { border-right: none; }
+.lb-global-stat-icon  { font-size: 20px; }
+.lb-global-stat-val   { font-size: 22px; font-weight: 900; color: #f59e0b; }
+.lb-global-stat-label { font-size: 10px; color: rgba(255,255,255,.5); text-align: center; }
+
+/* ── Period tabs ── */
+.lb-periods {
+  display: flex;
+  margin: 0 16px;
+  background: rgba(255,255,255,.06);
+  border-radius: 12px;
+  padding: 4px;
+  gap: 4px;
+}
+.lb-period-btn {
+  flex: 1;
+  padding: 10px;
+  border: none;
+  background: none;
+  color: rgba(255,255,255,.5);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  border-radius: 10px;
+  transition: all .15s;
+}
+.lb-period-btn.active {
+  background: rgba(245,158,11,.2);
+  color: #f59e0b;
+}
+
+/* ── Podium ── */
+.lb-podium {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px 16px 0;
+}
+.lb-podium-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  max-width: 130px;
+}
+.lb-podium-item--first { order: 0; }
+.lb-podium-item:first-child  { order: -1; }
+.lb-podium-item:last-child   { order: 1; }
+
+.lb-podium-avatar-wrap {
+  position: relative;
+  margin-bottom: 8px;
+}
+.lb-podium-avatar, .lb-podium-avatar-img {
+  width: 52px; height: 52px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 18px; font-weight: 800; color: #fff;
+  border: 3px solid rgba(255,255,255,.2);
+  object-fit: cover;
+}
+.lb-podium-avatar--big .lb-podium-avatar,
+.lb-podium-avatar--big .lb-podium-avatar-img {
+  width: 68px; height: 68px;
+  font-size: 22px;
+  border-color: #f59e0b;
+  box-shadow: 0 0 20px rgba(245,158,11,.3);
+}
+.lb-podium-medal {
+  position: absolute;
+  bottom: -4px; right: -4px;
+  font-size: 18px;
+}
+.lb-podium-name  { font-size: 12px; font-weight: 700; text-align: center; margin-bottom: 4px; }
+.lb-podium-count { font-size: 24px; font-weight: 900; color: #f59e0b; }
+.lb-podium-label { font-size: 10px; color: rgba(255,255,255,.4); margin-bottom: 8px; }
+.lb-podium-pillar {
+  width: 100%;
+  border-radius: 8px 8px 0 0;
+}
+.lb-podium-pillar--1 { height: 80px; background: linear-gradient(180deg, rgba(245,158,11,.3), rgba(245,158,11,.05)); }
+.lb-podium-pillar--2 { height: 60px; background: linear-gradient(180deg, rgba(156,163,175,.2), rgba(156,163,175,.05)); }
+.lb-podium-pillar--3 { height: 44px; background: linear-gradient(180deg, rgba(180,130,80,.2), rgba(180,130,80,.05)); }
+
+/* ── Leaderboard items ── */
+.lb-list { padding: 8px 16px; display: flex; flex-direction: column; gap: 0; }
+
+.lb-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid rgba(255,255,255,.05);
+}
+.lb-item:last-child { border-bottom: none; }
+.lb-item--me {
+  background: rgba(245,158,11,.08);
+  border-radius: 12px;
+  padding: 14px 12px;
+  border: 1px solid rgba(245,158,11,.2);
+  margin: 4px 0;
+}
+
+.lb-item-rank { width: 36px; text-align: center; flex-shrink: 0; }
+.lb-rank-num  { font-size: 14px; font-weight: 700; color: rgba(255,255,255,.4); }
+.lb-medal     { font-size: 22px; }
+
+.lb-item-avatar-wrap { position: relative; flex-shrink: 0; }
+.lb-item-avatar, .lb-item-avatar-img {
+  width: 42px; height: 42px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px; font-weight: 800; color: #fff;
+  object-fit: cover;
+}
+.lb-item-verified {
+  position: absolute; bottom: -1px; right: -1px;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #10b981; color: #fff;
+  font-size: 9px; font-weight: 900;
+  display: flex; align-items: center; justify-content: center;
+  border: 2px solid #1e293b;
+}
+
+.lb-item-info { flex: 1; min-width: 0; }
+.lb-item-name { font-size: 14px; font-weight: 700; }
+.lb-item-you  { color: #f59e0b; font-size: 12px; }
+.lb-item-sub  { font-size: 11px; color: rgba(255,255,255,.4); margin-top: 2px; }
+
+.lb-item-stats { display: flex; gap: 12px; flex-shrink: 0; }
+.lb-item-stat  {
+  display: flex; flex-direction: column; align-items: center;
+  min-width: 40px;
+}
+.lb-item-stat-val   { font-size: 16px; font-weight: 900; color: rgba(255,255,255,.8); }
+.lb-item-stat--primary .lb-item-stat-val { color: #f59e0b; font-size: 18px; }
+.lb-item-stat-label { font-size: 9px; color: rgba(255,255,255,.4); }
+
+/* ── My rank section ── */
+.lb-my-rank {
+  margin: 16px;
+  padding: 0 0 4px;
+}
+.lb-my-rank-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,255,255,.5);
+  margin-bottom: 8px;
+  padding-left: 4px;
+}
+.lb-my-rank--none {
+  text-align: center;
+  padding: 16px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid rgba(255,255,255,.06);
+  border-radius: 12px;
+}
+.lb-my-rank-text  { font-size: 13px; color: rgba(255,255,255,.6); }
+.lb-my-rank-link  { color: #f59e0b; font-weight: 700; text-decoration: none; }
+
+/* ── CTA ── */
+.lb-cta-wrap { padding: 16px; }
+.lb-cta {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+  background: linear-gradient(135deg, rgba(245,158,11,.15), rgba(245,158,11,.05));
+  border: 1px solid rgba(245,158,11,.25);
+  border-radius: 18px;
+  text-decoration: none;
+  color: #fff;
+  transition: border-color .15s;
+}
+.lb-cta:hover { border-color: rgba(245,158,11,.5); }
+.lb-cta-title { font-weight: 800; font-size: 15px; margin: 0 0 4px; }
+.lb-cta-sub   { font-size: 12px; opacity: .6; margin: 0; }
+
+/* ── States ── */
+.lb-loading {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 64px 20px; gap: 16px; color: rgba(255,255,255,.5);
+}
+.lb-spinner {
+  width: 36px; height: 36px;
+  border: 3.5px solid rgba(255,255,255,.1);
+  border-top-color: #f59e0b;
+  border-radius: 50%;
+  animation: lb-spin .7s linear infinite;
+}
+@keyframes lb-spin { to { transform: rotate(360deg); } }
+
+.lb-error, .lb-empty {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 10px; padding: 64px 20px; text-align: center;
+}
+.lb-error span, .lb-empty span { font-size: 48px; }
+.lb-error p, .lb-empty p { font-size: 16px; font-weight: 700; }
+.lb-empty small { font-size: 12px; color: rgba(255,255,255,.5); }
+.lb-retry, .lb-empty-btn {
+  padding: 10px 24px;
+  background: #f59e0b;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.lb-footer {
+  text-align: center;
+  font-size: 11px;
+  color: rgba(255,255,255,.15);
+  padding: 20px 16px;
+}
+
+@media (max-width: 380px) {
+  .lb-podium-avatar, .lb-podium-avatar-img { width: 44px; height: 44px; }
+  .lb-podium-avatar--big .lb-podium-avatar,
+  .lb-podium-avatar--big .lb-podium-avatar-img { width: 56px; height: 56px; }
+  .lb-podium-count { font-size: 20px; }
+}
