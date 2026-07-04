@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { FiHeart, FiTrash2, FiMapPin, FiEye } from "react-icons/fi";
 import api from "../services/api";
-import "/styles/Saved.css";
+import "../../styles/Saved.css";
 
 export default function Saved() {
   const [savedItems, setSavedItems] = useState([]);
