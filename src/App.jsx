@@ -49,7 +49,8 @@ import SellerDashboard from "./pages/seller/SellerDashboard";
    PAGES — USER (PROTECTED)
 ═══════════════════════════════════════════════════════════════ */
 import Profile           from "./pages/Profile";
-import EditProfile       from "./pages/Profile/EditProfile";   // ← NEW
+import EditProfile       from "./pages/Profile/EditProfile";
+import SavedItems        from "./pages/Profile/SavedItems";       // ← NEW
 import NotificationsPage from "./pages/NotificationsPage";
 import SettingsPage      from "./pages/SettingsPage";
 import AddProduct        from "./pages/AddProduct";
@@ -202,8 +203,6 @@ export default function App() {
         timeout : 8_000,
       })
       .then((res) => {
-        // users/me returns the basic shape — enough for App-level auth
-        // EditProfile fetches from edit-profile/me separately for full shape
         setUser(res.data);
       })
       .catch(() => {
@@ -268,16 +267,14 @@ export default function App() {
   };
 
   /* ── Profile update handler ─────────────────────────────── */
-  // Called after EditProfile saves so App-level user state stays fresh
   const handleProfileUpdate = (updatedData) => {
     setUser((prev) => ({
       ...prev,
-      // Only update the fields App.jsx actually uses
-      name:          updatedData.name          ?? prev?.name,
-      profile_image: updatedData.profile_image ?? prev?.profile_image,
-      username:      updatedData.username      ?? prev?.username,
-      store_name:    updatedData.store_name    ?? prev?.store_name,
-      email_verified: updatedData.email_verified ?? prev?.email_verified,
+      name:           updatedData.name           ?? prev?.name,
+      profile_image:  updatedData.profile_image  ?? prev?.profile_image,
+      username:       updatedData.username        ?? prev?.username,
+      store_name:     updatedData.store_name      ?? prev?.store_name,
+      email_verified: updatedData.email_verified  ?? prev?.email_verified,
     }));
   };
 
@@ -352,10 +349,17 @@ export default function App() {
           </ProtectedRoute>
         }/>
 
-        {/* ── EditProfile — standalone page, own data fetch ── */}
+        {/* ── EditProfile ── */}
         <Route path="/profile/edit" element={
           <ProtectedRoute user={user}>
             <EditProfile onProfileUpdate={handleProfileUpdate}/>
+          </ProtectedRoute>
+        }/>
+
+        {/* ── Saved Items ── */}                                  {/* ← NEW */}
+        <Route path="/saved" element={
+          <ProtectedRoute user={user}>
+            <SavedItems user={user}/>
           </ProtectedRoute>
         }/>
 
