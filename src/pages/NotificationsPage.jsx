@@ -1,573 +1,595 @@
-/**
- * src/pages/NotificationsPage.jsx
- * Route: /notifications
- *
- * Features:
- * - Filter by type (order, message, product, system)
- * - Mark one / all as read (optimistic)
- * - Delete (optimistic with animation)
- * - Grouped by date (Today / Yesterday / Earlier)
- * - Pagination / load more
- */
+// src/pages/Notifications.jsx
 
-import { useState, useEffect, useCallback } from "react";
-import axios from "axios";
-import toast from "react-hot-toast";
+import React, {
+  useState, useEffect, useCallback,
+  useRef, useMemo,
+} from "react";
+import { useNavigate, Link } from "react-router-dom";
+import "../styles/Notifications.css";
 
-/* ═══════════════════════════════════════════════════════════════
-   ENV + API
-═══════════════════════════════════════════════════════════════ */
-const API = `${import.meta.env.VITE_API_BASE_URL}/api/notifications`;
+/* ══════════════════════════════════════════════════════════════
+   CONFIG
+══════════════════════════════════════════════════════════════ */
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API      = `${BASE_URL}/api/notifications`;
+const PAGE_SIZE = 20;
 
-/* ═══════════════════════════════════════════════════════════════
-   CONSTANTS
-═══════════════════════════════════════════════════════════════ */
-const FILTERS = [
-  { id: "all",     label: "All"      },
-  { id: "order",   label: "Orders"   },
-  { id: "message", label: "Messages" },
-  { id: "product", label: "Products" },
-  { id: "system",  label: "System"   },
-];
-
-const TYPE_CONFIG = {
-  order   : { color: "#10b981", bg: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.25)",  icon: "🛒" },
-  message : { color: "#6366f1", bg: "rgba(99,102,241,0.12)",  border: "rgba(99,102,241,0.25)",  icon: "💬" },
-  product : { color: "#f59e0b", bg: "rgba(245,158,11,0.12)",  border: "rgba(245,158,11,0.25)",  icon: "📦" },
-  verify  : { color: "#10b981", bg: "rgba(16,185,129,0.12)",  border: "rgba(16,185,129,0.25)",  icon: "✅" },
-  review  : { color: "#8b5cf6", bg: "rgba(139,92,246,0.12)",  border: "rgba(139,92,246,0.25)",  icon: "⭐" },
-  promo   : { color: "#f97316", bg: "rgba(249,115,22,0.12)",  border: "rgba(249,115,22,0.25)",  icon: "⚡" },
-  system  : { color: "#ef4444", bg: "rgba(239,68,68,0.12)",   border: "rgba(239,68,68,0.25)",   icon: "🔐" },
-};
-
-const AVATAR_COLORS = [
-  "#6366f1", "#8b5cf6", "#ec4899",
-  "#14b8a6", "#f97316", "#10b981",
-];
-
-const PAGE_LIMIT = 20;
-
-/* ═══════════════════════════════════════════════════════════════
-   HELPERS
-═══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════
+   AUTH
+══════════════════════════════════════════════════════════════ */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("token");
+  localStorage.getItem("token") || null;
 
-const authHeaders = () => ({
-  Authorization: `Bearer ${getToken()}`,
+const authH = () => ({
+  Authorization  : `Bearer ${getToken()}`,
+  "Content-Type" : "application/json",
 });
 
-const timeAgo = (dateStr) => {
-  const diff  = Date.now() - new Date(dateStr).getTime();
-  const mins  = Math.floor(diff / 60_000);
-  const hours = Math.floor(diff / 3_600_000);
-  const days  = Math.floor(diff / 86_400_000);
-  if (mins  <  1) return "just now";
-  if (mins  < 60) return `${mins}m ago`;
-  if (hours < 24) return `${hours}h ago`;
-  return `${days}d ago`;
+/* ══════════════════════════════════════════════════════════════
+   NOTIFICATION CONFIG
+   icon + color + action link per type
+══════════════════════════════════════════════════════════════ */
+const NOTIF_CFG = {
+  /* Account */
+  welcome              : { icon: "👋", color: "#2563eb", bg: "#eff6ff", label: "Welcome",           link: "/" },
+  email_verified       : { icon: "✅", color: "#10b981", bg: "#ecfdf5", label: "Email Verified",     link: "/settings" },
+  identity_approved    : { icon: "🛡️", color: "#10b981", bg: "#ecfdf5", label: "Verified",           link: "/profile" },
+  identity_rejected    : { icon: "❌", color: "#ef4444", bg: "#fef2f2", label: "Rejected",           link: "/verify" },
+  store_approved       : { icon: "🏪", color: "#10b981", bg: "#ecfdf5", label: "Store Approved",     link: "/store" },
+  store_rejected       : { icon: "🏪", color: "#ef4444", bg: "#fef2f2", label: "Store Rejected",     link: "/verify" },
+  account_flagged      : { icon: "⚠️", color: "#f59e0b", bg: "#fffbeb", label: "Account Flagged",    link: "/support" },
+  password_changed     : { icon: "🔒", color: "#6b7280", bg: "#f3f4f6", label: "Security",           link: "/settings" },
+
+  /* Referral */
+  referral_signup      : { icon: "👤", color: "#2563eb", bg: "#eff6ff", label: "Referral",           link: "/invite" },
+  referral_rewarded    : { icon: "🎁", color: "#8b5cf6", bg: "#f5f3ff", label: "Reward",             link: "/invite" },
+  bonus_spin_earned    : { icon: "🎡", color: "#e8630a", bg: "#fff0e6", label: "Bonus Spin",         link: "/spin"   },
+
+  /* Spin */
+  spin_win             : { icon: "🎉", color: "#16a34a", bg: "#f0fdf4", label: "You Won!",           link: "/spin"   },
+  spin_coupon_expiring : { icon: "⏰", color: "#f59e0b", bg: "#fffbeb", label: "Expiring Soon",      link: "/spin"   },
+
+  /* Orders */
+  order_placed         : { icon: "📦", color: "#2563eb", bg: "#eff6ff", label: "Order Placed",       link: "/orders" },
+  order_confirmed      : { icon: "✅", color: "#10b981", bg: "#ecfdf5", label: "Confirmed",           link: "/orders" },
+  order_shipped        : { icon: "🚚", color: "#0891b2", bg: "#f0f9ff", label: "Shipped",            link: "/orders" },
+  order_delivered      : { icon: "🎊", color: "#16a34a", bg: "#f0fdf4", label: "Delivered",          link: "/orders" },
+  order_cancelled      : { icon: "❌", color: "#ef4444", bg: "#fef2f2", label: "Cancelled",          link: "/orders" },
+
+  /* Products */
+  product_approved     : { icon: "✅", color: "#10b981", bg: "#ecfdf5", label: "Product Live",       link: "/listings" },
+  product_rejected     : { icon: "❌", color: "#ef4444", bg: "#fef2f2", label: "Product Rejected",   link: "/listings" },
+  product_expiring     : { icon: "⏰", color: "#f59e0b", bg: "#fffbeb", label: "Expiring Soon",      link: "/listings" },
+
+  /* Messages */
+  new_message          : { icon: "💬", color: "#2563eb", bg: "#eff6ff", label: "Message",            link: "/messages" },
+
+  /* System */
+  system               : { icon: "🔔", color: "#6b7280", bg: "#f3f4f6", label: "System",             link: "/" },
+  promotion            : { icon: "🎯", color: "#e8630a", bg: "#fff0e6", label: "Promotion",          link: "/" },
 };
 
-const groupNotifications = (list) => {
-  const today = [], yesterday = [], older = [];
+const getCfg = (type) => NOTIF_CFG[type] || NOTIF_CFG.system;
 
-  list.forEach((n) => {
-    const diff = Date.now() - new Date(n.created_at).getTime();
-    if (diff < 86_400_000)       today.push(n);
-    else if (diff < 172_800_000) yesterday.push(n);
-    else                         older.push(n);
-  });
+/* ══════════════════════════════════════════════════════════════
+   FILTER TABS
+══════════════════════════════════════════════════════════════ */
+const FILTERS = [
+  { key: "all",      label: "All"        },
+  { key: "unread",   label: "Unread"     },
+  { key: "referral", label: "Referrals"  },
+  { key: "spin",     label: "Spin & Win" },
+  { key: "order",    label: "Orders"     },
+  { key: "system",   label: "System"     },
+];
 
-  const groups = [];
-  if (today.length)     groups.push({ label: "Today",     items: today });
-  if (yesterday.length) groups.push({ label: "Yesterday", items: yesterday });
-  if (older.length)     groups.push({ label: "Earlier",   items: older });
-  return groups;
+const FILTER_TYPES = {
+  referral : ["referral_signup","referral_rewarded","bonus_spin_earned"],
+  spin     : ["spin_win","spin_coupon_expiring"],
+  order    : ["order_placed","order_confirmed","order_shipped","order_delivered","order_cancelled"],
+  system   : ["system","promotion","welcome","email_verified","identity_approved",
+               "identity_rejected","store_approved","store_rejected","account_flagged","password_changed"],
 };
 
-const avatarColor = (name = "") => {
-  const code = [...name].reduce((s, c) => s + c.charCodeAt(0), 0);
-  return AVATAR_COLORS[code % AVATAR_COLORS.length];
+/* ══════════════════════════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════════════════════════ */
+const timeAgo = (d) => {
+  if (!d) return "";
+  const s = Math.floor((Date.now() - new Date(d)) / 1_000);
+  if (s < 60)     return "just now";
+  if (s < 3_600)  return `${Math.floor(s / 60)}m ago`;
+  if (s < 86_400) return `${Math.floor(s / 3_600)}h ago`;
+  if (s < 604_800)return `${Math.floor(s / 86_400)}d ago`;
+  return new Date(d).toLocaleDateString("en-NG", { day: "numeric", month: "short" });
 };
 
-const initials = (name = "") =>
-  name.split(" ").map((w) => w[0] || "").join("").toUpperCase().slice(0, 2);
+/* ══════════════════════════════════════════════════════════════
+   NOTIFICATION ITEM
+══════════════════════════════════════════════════════════════ */
+function NotifItem({ notif, onRead, onDelete }) {
+  const cfg  = getCfg(notif.type);
+  const meta = notif.metadata || {};
 
-/* ═══════════════════════════════════════════════════════════════
-   STYLES
-═══════════════════════════════════════════════════════════════ */
-const STYLES = `
-  @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
-
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-
-  ::-webkit-scrollbar       { width: 4px; }
-  ::-webkit-scrollbar-thumb { background: #2a2a3a; border-radius: 2px; }
-
-  @keyframes pulse {
-    0%, 100% { opacity: 1;   }
-    50%       { opacity: 0.4; }
-  }
-
-  .np     { opacity: 0; transform: translateY(16px); transition: opacity .45s ease, transform .45s ease; }
-  .np.vis { opacity: 1; transform: translateY(0); }
-
-  .f-btn {
-    background: transparent; border: 1px solid #1e1e2e; color: #7070a0;
-    padding: 6px 16px; border-radius: 999px; cursor: pointer;
-    font-family: 'Sora', sans-serif; font-size: 12px; font-weight: 500;
-    letter-spacing: .03em; transition: all .2s ease; white-space: nowrap;
-  }
-  .f-btn:hover  { border-color: #3a3a5a; color: #b0b0d0; }
-  .f-btn.active { background: #6366f1; border-color: #6366f1; color: #fff; }
-
-  .ni {
-    display: flex; gap: 14px; padding: 16px 20px; border-radius: 14px;
-    margin-bottom: 8px; cursor: pointer; border: 1px solid transparent;
-    transition: all .25s ease; position: relative; overflow: hidden;
-  }
-  .ni.unread { background: rgba(255,255,255,.032); border-color: rgba(255,255,255,.06); }
-  .ni:hover  { background: rgba(255,255,255,.055); border-color: rgba(255,255,255,.1); transform: translateX(2px); }
-  .ni.del    { opacity: 0; transform: translateX(40px) scale(.96); pointer-events: none; }
-
-  .iw {
-    width: 42px; height: 42px; border-radius: 12px;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 18px; flex-shrink: 0;
-  }
-
-  .nt { font-size: 13.5px; font-weight: 600; color: #d8d8f0; line-height: 1.3; margin-bottom: 4px; }
-  .ni.read .nt { color: #7070a0; font-weight: 500; }
-
-  .nm {
-    font-size: 12.5px; color: #606080; line-height: 1.5;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .ni.unread .nm { color: #9090b8; }
-
-  .ntime { font-size: 11px; color: #404060; font-family: 'DM Mono', monospace; margin-top: 5px; }
-  .ni.unread .ntime { color: #5050a0; }
-
-  .udot {
-    width: 7px; height: 7px; border-radius: 50%; background: #6366f1;
-    flex-shrink: 0; margin-top: 5px; box-shadow: 0 0 6px rgba(99,102,241,.6);
-  }
-
-  .dbtn {
-    background: transparent; border: none; color: #303050; cursor: pointer;
-    padding: 4px 6px; border-radius: 6px; opacity: 0; transition: all .2s;
-    font-size: 13px; line-height: 1; flex-shrink: 0;
-  }
-  .ni:hover .dbtn { opacity: 1; color: #ef4444; }
-
-  .glabel {
-    font-size: 10.5px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
-    color: #404060; padding: 8px 4px 10px; font-family: 'DM Mono', monospace;
-  }
-
-  .mabtn {
-    background: transparent; border: 1px solid #1e1e2e; color: #6366f1;
-    padding: 7px 16px; border-radius: 8px; cursor: pointer;
-    font-family: 'Sora', sans-serif; font-size: 12px; font-weight: 500;
-    transition: all .2s; white-space: nowrap;
-  }
-  .mabtn:hover    { background: rgba(99,102,241,.1); border-color: #6366f1; }
-  .mabtn:disabled { opacity: .4; cursor: not-allowed; }
-
-  .lmbtn {
-    width: 100%; background: transparent; border: 1px solid #1e1e2e; color: #6060a0;
-    padding: 12px; border-radius: 12px; cursor: pointer;
-    font-family: 'Sora', sans-serif; font-size: 12.5px; font-weight: 500;
-    transition: all .2s; margin-top: 8px;
-  }
-  .lmbtn:hover    { background: rgba(255,255,255,.04); color: #a0a0c0; }
-  .lmbtn:disabled { opacity: .4; cursor: not-allowed; }
-
-  .badge {
-    display: inline-flex; align-items: center; justify-content: center;
-    background: #6366f1; color: #fff; font-size: 10px; font-weight: 700;
-    min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
-    margin-left: 8px; font-family: 'DM Mono', monospace;
-  }
-
-  .empty { text-align: center; padding: 80px 20px; color: #404060; }
-`;
-
-/* ═══════════════════════════════════════════════════════════════
-   SKELETON ITEM
-═══════════════════════════════════════════════════════════════ */
-function SkeletonItem() {
   return (
-    <div style={{
-      display      : "flex",
-      gap          : 14,
-      padding      : "16px 20px",
-      borderRadius : 14,
-      marginBottom : 8,
-      background   : "rgba(255,255,255,0.025)",
-      border       : "1px solid rgba(255,255,255,0.04)",
-      animation    : "pulse 1.6s ease-in-out infinite",
-    }}>
-      <div style={{
-        width        : 42,
-        height       : 42,
-        borderRadius : 12,
-        background   : "#1a1a2e",
-        flexShrink   : 0,
-      }} />
-      <div style={{ flex: 1 }}>
-        <div style={{ height: 13, width: "52%", borderRadius: 6, background: "#1a1a2e", marginBottom: 9  }} />
-        <div style={{ height: 11, width: "82%", borderRadius: 6, background: "#141420", marginBottom: 7  }} />
-        <div style={{ height: 10, width: "30%", borderRadius: 6, background: "#141420" }} />
+    <div
+      className={`notif-item${notif.is_read ? "" : " notif-item--unread"}`}
+      role="listitem"
+    >
+      {/* Unread dot */}
+      {!notif.is_read && (
+        <div className="notif-unread-dot" aria-label="Unread" />
+      )}
+
+      {/* Icon */}
+      <div
+        className="notif-icon"
+        style={{ backgroundColor: cfg.bg, color: cfg.color }}
+        aria-hidden="true"
+      >
+        {cfg.icon}
+      </div>
+
+      {/* Content */}
+      <div className="notif-content">
+        <div className="notif-header">
+          <span
+            className="notif-badge"
+            style={{ backgroundColor: cfg.bg, color: cfg.color }}
+          >
+            {cfg.label}
+          </span>
+          <span className="notif-time">{timeAgo(notif.created_at)}</span>
+        </div>
+
+        <p className="notif-title">{notif.title}</p>
+        <p className="notif-message">{notif.message}</p>
+
+        {/* Coupon code pill */}
+        {meta.coupon_code && (
+          <div className="notif-coupon">
+            <span>🎟</span>
+            <code>{meta.coupon_code}</code>
+          </div>
+        )}
+
+        {/* Spins awarded pill */}
+        {meta.spins_awarded && (
+          <div className="notif-spin-pill">
+            🎡 +{meta.spins_awarded} bonus spin{meta.spins_awarded > 1 ? "s" : ""}
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="notif-actions">
+          {cfg.link && (
+            <Link
+              to={cfg.link}
+              className="notif-action-link"
+              onClick={() => { if (!notif.is_read) onRead(notif.id); }}
+              aria-label={`Go to ${cfg.label}`}
+            >
+              View →
+            </Link>
+          )}
+
+          {!notif.is_read && (
+            <button
+              className="notif-action-btn"
+              onClick={() => onRead(notif.id)}
+              aria-label="Mark as read"
+            >
+              Mark read
+            </button>
+          )}
+
+          <button
+            className="notif-action-delete"
+            onClick={() => onDelete(notif.id)}
+            aria-label="Delete notification"
+          >
+            🗑
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   COMPONENT
-═══════════════════════════════════════════════════════════════ */
-export default function NotificationsPage({ user }) {
-  const [notifications, setNotifications] = useState([]);
-  const [loading,       setLoading]       = useState(true);
-  const [loadingMore,   setLoadingMore]   = useState(false);
-  const [filter,        setFilter]        = useState("all");
-  const [visible,       setVisible]       = useState(false);
-  const [deletingId,    setDeletingId]    = useState(null);
-  const [markingAll,    setMarkingAll]    = useState(false);
-  const [pagination,    setPagination]    = useState({
-    page     : 1,
-    has_next : false,
-    total    : 0,
-  });
+/* ══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+══════════════════════════════════════════════════════════════ */
+export default function Notifications() {
+  const navigate = useNavigate();
 
-  // ── Fetch ─────────────────────────────────────────────────
-  const fetchNotifications = useCallback(async (
-    page    = 1,
-    type    = "all",
-    replace = true,
-  ) => {
+  /* ── State ── */
+  const [notifs,      setNotifs]      = useState([]);
+  const [total,       setTotal]       = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [loading,     setLoading]     = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [error,       setError]       = useState(null);
+  const [filter,      setFilter]      = useState("all");
+  const [offset,      setOffset]      = useState(0);
+  const [toast,       setToast]       = useState({ show: false, text: "" });
+  const [deleting,    setDeleting]    = useState(new Set());
+
+  const toastTimer = useRef(null);
+
+  /* ── Auth guard ── */
+  useEffect(() => {
+    if (!getToken()) navigate("/auth?redirect=/notifications");
+  }, [navigate]);
+
+  /* ── Toast ── */
+  const showToast = useCallback((text) => {
+    clearTimeout(toastTimer.current);
+    setToast({ show: true, text });
+    toastTimer.current = setTimeout(
+      () => setToast({ show: false, text: "" }),
+      2_500
+    );
+  }, []);
+
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  /* ══════════════════════════════════════════════
+     BUILD QUERY PARAMS
+  ══════════════════════════════════════════════ */
+  const buildParams = useCallback((currentOffset = 0) => {
+    const p = new URLSearchParams();
+    p.set("limit",  String(PAGE_SIZE));
+    p.set("offset", String(currentOffset));
+
+    if (filter === "unread") {
+      p.set("unread", "true");
+    } else if (FILTER_TYPES[filter]) {
+      /* We'll filter client-side for type groups */
+    }
+
+    return p.toString();
+  }, [filter]);
+
+  /* ══════════════════════════════════════════════
+     FETCH NOTIFICATIONS
+  ══════════════════════════════════════════════ */
+  const fetchNotifs = useCallback(async (reset = true) => {
+    if (reset) {
+      setLoading(true);
+      setOffset(0);
+    } else {
+      setLoadingMore(true);
+    }
+    setError(null);
+
+    const currentOffset = reset ? 0 : offset;
+
     try {
-      replace ? setLoading(true) : setLoadingMore(true);
+      const res = await fetch(
+        `${API}?${buildParams(currentOffset)}`,
+        { headers: authH() }
+      );
 
-      const params = { page, limit: PAGE_LIMIT };
-      if (type !== "all") params.type = type;
-
-      const { data } = await axios.get(API, {
-        headers : authHeaders(),
-        params,
-      });
-
-      if (data.success) {
-        setNotifications((prev) =>
-          replace ? data.data : [...prev, ...data.data]
-        );
-        setPagination(data.pagination);
+      if (res.status === 401) {
+        navigate("/auth?redirect=/notifications");
+        return;
       }
-    } catch {
-      toast.error("Could not load notifications");
+
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.message || `${res.status}`);
+      }
+
+      const data = await res.json();
+
+      setTotal(data.total       ?? 0);
+      setUnreadCount(data.unread_count ?? 0);
+
+      if (reset) {
+        setNotifs(data.data || []);
+        setOffset(data.data?.length || 0);
+      } else {
+        setNotifs((prev) => [...prev, ...(data.data || [])]);
+        setOffset((prev) => prev + (data.data?.length || 0));
+      }
+
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
       setLoadingMore(false);
-      setTimeout(() => setVisible(true), 60);
     }
-  }, []);
+  }, [filter, offset, buildParams, navigate]);
 
-  useEffect(() => {
-    setVisible(false);
-    fetchNotifications(1, filter, true);
-  }, [filter, fetchNotifications]);
+  /* Fetch on mount + filter change */
+  useEffect(() => { fetchNotifs(true); }, [filter]);
 
-  // ── Mark one read (optimistic) ────────────────────────────
-  const markRead = async (n) => {
-    if (n.is_read) return;
+  /* ══════════════════════════════════════════════
+     FILTERED LIST (client-side type grouping)
+  ══════════════════════════════════════════════ */
+  const displayedNotifs = useMemo(() => {
+    if (!FILTER_TYPES[filter]) return notifs;
+    return notifs.filter((n) => FILTER_TYPES[filter].includes(n.type));
+  }, [notifs, filter]);
 
-    setNotifications((prev) =>
-      prev.map((x) => x.id === n.id ? { ...x, is_read: true } : x)
+  /* ══════════════════════════════════════════════
+     MARK ONE READ
+  ══════════════════════════════════════════════ */
+  const handleRead = useCallback(async (id) => {
+    /* Optimistic update */
+    setNotifs((prev) =>
+      prev.map((n) => n.id === id ? { ...n, is_read: true } : n)
     );
+    setUnreadCount((c) => Math.max(0, c - 1));
 
     try {
-      await axios.patch(
-        `${API}/${n.id}/read`,
-        {},
-        { headers: authHeaders() }
-      );
+      const res = await fetch(`${API}/read/${id}`, {
+        method  : "POST",
+        headers : authH(),
+      });
+      if (!res.ok) throw new Error("Failed");
     } catch {
-      setNotifications((prev) =>
-        prev.map((x) => x.id === n.id ? { ...x, is_read: false } : x)
+      /* Revert on failure */
+      setNotifs((prev) =>
+        prev.map((n) => n.id === id ? { ...n, is_read: false } : n)
       );
-      toast.error("Failed to mark as read");
+      setUnreadCount((c) => c + 1);
+      showToast("❌ Could not mark as read");
     }
-  };
+  }, [showToast]);
 
-  // ── Mark all read (optimistic) ────────────────────────────
-  const markAllRead = async () => {
-    setMarkingAll(true);
-    const snapshot = notifications;
-    setNotifications((prev) => prev.map((x) => ({ ...x, is_read: true })));
+  /* ══════════════════════════════════════════════
+     MARK ALL READ
+  ══════════════════════════════════════════════ */
+  const handleReadAll = useCallback(async () => {
+    const prevNotifs = notifs;
+    const prevCount  = unreadCount;
+
+    setNotifs((prev) => prev.map((n) => ({ ...n, is_read: true })));
+    setUnreadCount(0);
+    showToast("✅ All marked as read");
 
     try {
-      await axios.patch(`${API}/read-all`, {}, { headers: authHeaders() });
-      toast.success("All marked as read");
+      const res = await fetch(`${API}/read-all`, {
+        method  : "POST",
+        headers : authH(),
+      });
+      if (!res.ok) throw new Error("Failed");
     } catch {
-      setNotifications(snapshot);
-      toast.error("Failed to mark all as read");
+      setNotifs(prevNotifs);
+      setUnreadCount(prevCount);
+      showToast("❌ Could not mark all as read");
+    }
+  }, [notifs, unreadCount, showToast]);
+
+  /* ══════════════════════════════════════════════
+     DELETE ONE
+  ══════════════════════════════════════════════ */
+  const handleDelete = useCallback(async (id) => {
+    setDeleting((prev) => new Set(prev).add(id));
+
+    /* Optimistic */
+    const removed = notifs.find((n) => n.id === id);
+    setNotifs((prev) => prev.filter((n) => n.id !== id));
+    setTotal((t)  => Math.max(0, t - 1));
+    if (removed && !removed.is_read) {
+      setUnreadCount((c) => Math.max(0, c - 1));
+    }
+
+    try {
+      const res = await fetch(`${API}/${id}`, {
+        method  : "DELETE",
+        headers : authH(),
+      });
+      if (!res.ok) throw new Error("Failed");
+      showToast("🗑 Notification deleted");
+    } catch {
+      /* Revert */
+      if (removed) setNotifs((prev) => [removed, ...prev]);
+      setTotal((t)  => t + 1);
+      if (removed && !removed.is_read) setUnreadCount((c) => c + 1);
+      showToast("❌ Could not delete");
     } finally {
-      setMarkingAll(false);
+      setDeleting((prev) => {
+        const s = new Set(prev);
+        s.delete(id);
+        return s;
+      });
     }
-  };
+  }, [notifs, showToast]);
 
-  // ── Delete (optimistic) ───────────────────────────────────
-  const deleteOne = async (id) => {
-    setDeletingId(id);
-    await new Promise((r) => setTimeout(r, 290)); // allow exit animation
+  /* ══════════════════════════════════════════════
+     DELETE ALL
+  ══════════════════════════════════════════════ */
+  const handleDeleteAll = useCallback(async () => {
+    if (!window.confirm("Delete all notifications? This cannot be undone.")) return;
 
-    const snapshot = notifications;
-    setNotifications((prev) => prev.filter((x) => x.id !== id));
-    setDeletingId(null);
+    const prevNotifs = notifs;
+    setNotifs([]);
+    setTotal(0);
+    setUnreadCount(0);
+    showToast("🗑 All notifications deleted");
 
     try {
-      await axios.delete(`${API}/${id}`, { headers: authHeaders() });
+      const res = await fetch(API, {
+        method  : "DELETE",
+        headers : authH(),
+      });
+      if (!res.ok) throw new Error("Failed");
     } catch {
-      setNotifications(snapshot);
-      toast.error("Failed to delete notification");
+      setNotifs(prevNotifs);
+      showToast("❌ Could not delete all");
     }
-  };
+  }, [notifs, showToast]);
 
-  // ── Load more ─────────────────────────────────────────────
-  const loadMore = () =>
-    fetchNotifications(pagination.page + 1, filter, false);
+  /* ══════════════════════════════════════════════
+     LOAD MORE
+  ══════════════════════════════════════════════ */
+  const hasMore = offset < total;
 
-  // ── Derived ───────────────────────────────────────────────
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
-  const groups      = groupNotifications(notifications);
-
-  // ── Render ────────────────────────────────────────────────
+  /* ══════════════════════════════════════════════
+     RENDER
+  ══════════════════════════════════════════════ */
   return (
-    <div style={{
-      minHeight  : "100vh",
-      background : "#0a0a0f",
-      fontFamily : "'Sora', sans-serif",
-      color      : "#e8e8f0",
-    }}>
-      <style>{STYLES}</style>
+    <div className="notif-page">
+      <div className="notif-container">
 
-      <div
-        className={`np${visible ? " vis" : ""}`}
-        style={{ maxWidth: 680, margin: "0 auto", padding: "40px 20px 80px" }}
-      >
-
-        {/* ══════════════════════════════════════════════
-            HEADER
-        ══════════════════════════════════════════════ */}
-        <div style={{
-          display        : "flex",
-          alignItems     : "flex-start",
-          justifyContent : "space-between",
-          marginBottom   : 32,
-          gap            : 12,
-        }}>
-          <div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}>
-              <h1 style={{
-                fontSize      : 26,
-                fontWeight    : 700,
-                letterSpacing : "-0.02em",
-                color         : "#f0f0ff",
-              }}>
-                Notifications
-              </h1>
-              {unreadCount > 0 && (
-                <span className="badge">
-                  {unreadCount > 99 ? "99+" : unreadCount}
-                </span>
-              )}
-            </div>
-            <p style={{
-              fontSize   : 12.5,
-              color      : "#40405a",
-              fontFamily : "'DM Mono', monospace",
-            }}>
-              {loading
-                ? "Loading..."
-                : unreadCount > 0
-                  ? `${unreadCount} unread update${unreadCount !== 1 ? "s" : ""}`
-                  : "You're all caught up"}
-            </p>
-          </div>
-
-          {unreadCount > 0 && (
-            <button
-              className="mabtn"
-              onClick={markAllRead}
-              disabled={markingAll}
-            >
-              {markingAll ? "Marking..." : "Mark all read"}
-            </button>
-          )}
+        {/* ── Toast ── */}
+        <div
+          className={`notif-toast${toast.show ? " show" : ""}`}
+          role="status"
+          aria-live="polite"
+        >
+          {toast.text}
         </div>
 
-        {/* ══════════════════════════════════════════════
-            FILTERS
-        ══════════════════════════════════════════════ */}
-        <div style={{ display: "flex", gap: 8, marginBottom: 28, flexWrap: "wrap" }}>
+        {/* ══════════════════════════════════════
+            HEADER
+        ══════════════════════════════════════ */}
+        <div className="notif-header-bar">
+          <div className="notif-header-left">
+            <button
+              className="notif-back"
+              onClick={() => navigate(-1)}
+              aria-label="Go back"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
+                aria-hidden="true">
+                <path d="M19 12H5M12 19l-7-7 7-7"/>
+              </svg>
+            </button>
+            <div>
+              <h1 className="notif-title">Notifications</h1>
+              {unreadCount > 0 && (
+                <p className="notif-subtitle">
+                  {unreadCount} unread
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="notif-header-actions">
+            {unreadCount > 0 && (
+              <button
+                className="notif-action-pill"
+                onClick={handleReadAll}
+                aria-label="Mark all as read"
+              >
+                ✓ Read all
+              </button>
+            )}
+            {notifs.length > 0 && (
+              <button
+                className="notif-action-pill notif-action-pill--danger"
+                onClick={handleDeleteAll}
+                aria-label="Delete all notifications"
+              >
+                🗑 Clear
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* ══════════════════════════════════════
+            FILTER TABS
+        ══════════════════════════════════════ */}
+        <div className="notif-filters" role="tablist" aria-label="Filter notifications">
           {FILTERS.map((f) => (
             <button
-              key={f.id}
-              className={`f-btn${filter === f.id ? " active" : ""}`}
-              onClick={() => setFilter(f.id)}
+              key={f.key}
+              className={`notif-filter-btn${filter === f.key ? " active" : ""}`}
+              onClick={() => setFilter(f.key)}
+              role="tab"
+              aria-selected={filter === f.key}
             >
               {f.label}
+              {f.key === "unread" && unreadCount > 0 && (
+                <span className="notif-filter-count">{unreadCount}</span>
+              )}
             </button>
           ))}
         </div>
 
-        {/* ══════════════════════════════════════════════
-            SKELETON
-        ══════════════════════════════════════════════ */}
-        {loading && [...Array(5)].map((_, i) => <SkeletonItem key={i} />)}
+        {/* ══════════════════════════════════════
+            CONTENT
+        ══════════════════════════════════════ */}
 
-        {/* ══════════════════════════════════════════════
-            EMPTY STATE
-        ══════════════════════════════════════════════ */}
-        {!loading && notifications.length === 0 && (
-          <div className="empty">
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🔔</div>
-            <p style={{ fontSize: 15, fontWeight: 600, color: "#30305a", marginBottom: 4 }}>
-              No notifications
-            </p>
-            <p style={{ fontSize: 12.5 }}>
-              {filter !== "all"
-                ? "None in this category yet."
-                : "Nothing here yet — check back later."}
-            </p>
+        {/* Loading */}
+        {loading && (
+          <div className="notif-loading" aria-busy="true">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="notif-skeleton-item">
+                <div className="notif-skeleton-icon" />
+                <div className="notif-skeleton-body">
+                  <div className="notif-skeleton-line" style={{ width: "40%" }} />
+                  <div className="notif-skeleton-line" style={{ width: "70%" }} />
+                  <div className="notif-skeleton-line" style={{ width: "55%" }} />
+                </div>
+              </div>
+            ))}
           </div>
         )}
 
-        {/* ══════════════════════════════════════════════
-            NOTIFICATION GROUPS
-        ══════════════════════════════════════════════ */}
-        {!loading && groups.map((group) => (
-          <div key={group.label}>
-            <div className="glabel">{group.label}</div>
-
-            {group.items.map((n) => {
-              const cfg      = TYPE_CONFIG[n.type] ?? TYPE_CONFIG.system;
-              const sender   = n.meta?.sender ?? "";
-              const ini      = sender ? initials(sender) : null;
-              const isUnread = !n.is_read;
-
-              return (
-                <div
-                  key={n.id}
-                  className={[
-                    "ni",
-                    isUnread        ? "unread" : "read",
-                    deletingId === n.id ? "del" : "",
-                  ].filter(Boolean).join(" ")}
-                  onClick={() => markRead(n)}
-                >
-                  {/* Left accent bar for unread */}
-                  {isUnread && (
-                    <div style={{
-                      position     : "absolute",
-                      left         : 0,
-                      top          : 0,
-                      bottom       : 0,
-                      width        : 3,
-                      borderRadius : "3px 0 0 3px",
-                      background   : cfg.color,
-                    }} />
-                  )}
-
-                  {/* Avatar or icon */}
-                  {ini ? (
-                    <div
-                      className="iw"
-                      style={{
-                        background : avatarColor(sender),
-                        color      : "#fff",
-                        fontSize   : 13,
-                        fontWeight : 700,
-                      }}
-                    >
-                      {ini}
-                    </div>
-                  ) : (
-                    <div
-                      className="iw"
-                      style={{
-                        background : cfg.bg,
-                        border     : `1px solid ${cfg.border}`,
-                      }}
-                    >
-                      {n.meta?.icon ?? cfg.icon}
-                    </div>
-                  )}
-
-                  {/* Text content */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="nt">{n.title}</div>
-                    <div className="nm">{n.message}</div>
-                    <div className="ntime">{timeAgo(n.created_at)}</div>
-                  </div>
-
-                  {/* Right: unread dot + dismiss */}
-                  <div style={{
-                    display        : "flex",
-                    flexDirection  : "column",
-                    alignItems     : "flex-end",
-                    gap            : 6,
-                    flexShrink     : 0,
-                  }}>
-                    {isUnread && <div className="udot" />}
-                    <button
-                      className="dbtn"
-                      onClick={(e) => { e.stopPropagation(); deleteOne(n.id); }}
-                      title="Dismiss"
-                      aria-label="Dismiss notification"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+        {/* Error */}
+        {!loading && error && (
+          <div className="notif-error" role="alert">
+            <span aria-hidden="true">⚠️</span>
+            <p>{error}</p>
+            <button onClick={() => fetchNotifs(true)} className="notif-retry">
+              Try Again
+            </button>
           </div>
-        ))}
+        )}
 
-        {/* ══════════════════════════════════════════════
-            LOAD MORE
-        ══════════════════════════════════════════════ */}
-        {!loading && pagination.has_next && (
+        {/* Empty */}
+        {!loading && !error && displayedNotifs.length === 0 && (
+          <div className="notif-empty">
+            <div className="notif-empty-icon" aria-hidden="true">🔔</div>
+            <p>No notifications yet</p>
+            <small>
+              {filter === "unread"
+                ? "You're all caught up!"
+                : "We'll notify you of important updates here."}
+            </small>
+          </div>
+        )}
+
+        {/* List */}
+        {!loading && !error && displayedNotifs.length > 0 && (
+          <div className="notif-list" role="list" aria-label="Notifications">
+            {displayedNotifs.map((notif) => (
+              <NotifItem
+                key={notif.id}
+                notif={notif}
+                onRead={handleRead}
+                onDelete={handleDelete}
+                isDeleting={deleting.has(notif.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Load more */}
+        {!loading && hasMore && displayedNotifs.length > 0 && (
           <button
-            className="lmbtn"
-            onClick={loadMore}
+            className="notif-load-more"
+            onClick={() => fetchNotifs(false)}
             disabled={loadingMore}
+            aria-label="Load more notifications"
           >
             {loadingMore
-              ? "Loading..."
-              : `Load more  ·  ${pagination.total - notifications.length} remaining`}
+              ? <><span className="notif-spinner" /> Loading…</>
+              : `Load more (${total - offset} remaining)`}
           </button>
         )}
 
-        {/* ══════════════════════════════════════════════
-            FOOTER COUNT
-        ══════════════════════════════════════════════ */}
-        {!loading && notifications.length > 0 && (
-          <div style={{ textAlign: "center", marginTop: 28 }}>
-            <p style={{
-              fontSize   : 11.5,
-              color      : "#282840",
-              fontFamily : "'DM Mono', monospace",
-            }}>
-              {`— ${notifications.length} of ${pagination.total} notification${
-                pagination.total !== 1 ? "s" : ""
-              } —`}
-            </p>
-          </div>
-        )}
+        {/* Footer */}
+        <p className="notif-footer">
+          © {new Date().getFullYear()} Loemart · All rights reserved
+        </p>
 
       </div>
     </div>
