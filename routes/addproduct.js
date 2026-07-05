@@ -1,13 +1,13 @@
 // ════════════════════════════════════════════════════════════════
-// FILE: routes/addproduct.js — v13
+// FILE: routes/addproduct.js — v14
 //
-// Changes from v12:
-//  ─ Removed Cloudinary — replaced with Cloudflare R2
-//  ─ Removed streamifier (no longer needed)
-//  ─ uploadToCloudinary  → uploadToR2
-//  ─ destroyCloudinaryAssets → destroyR2Assets
-//  ─ publicId → key (R2 object key)
-//  ─ product_images: cloudinary_public_id → r2_key
+// Changes from v13:
+//  ─ All listings now get active_until (30 days verified, 7 days unverified)
+//  ─ computeActiveUntil updated for both verified + unverified
+//  ─ Removed cleanupStuckPendingPayments (belongs to payment.js)
+//  ─ FREE_LISTING_DAYS constant added
+//  ─ Expiry messages for all active listings
+//  ─ Notifications for both trial + free listings
 // ════════════════════════════════════════════════════════════════
 
 import express   from "express";
@@ -40,7 +40,7 @@ const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
 
 /* ═══════════════════════════════════════════════════════════════
-   R2 CLIENT SETUP
+   R2 CLIENT
 ═══════════════════════════════════════════════════════════════ */
 const r2 = new S3Client({
   region   : process.env.R2_REGION ?? "auto",
@@ -53,12 +53,7 @@ const r2 = new S3Client({
 
 const R2_BUCKET     = process.env.R2_BUCKET_NAME;
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL?.replace(/\/$/, "");
-// e.g. "https://images.loemart.com"
 
-/**
- * Upload a single file buffer to R2.
- * Returns { url, key }
- */
 const uploadToR2 = async (buffer, originalName, mimetype) => {
   const ext = path.extname(originalName || "file.jpg") || ".jpg";
   const key = `products/${Date.now()}-${crypto.randomUUID()}${ext}`;
@@ -72,16 +67,9 @@ const uploadToR2 = async (buffer, originalName, mimetype) => {
     })
   );
 
-  return {
-    url : `${R2_PUBLIC_URL}/${key}`,
-    key,
-  };
+  return { url: `${R2_PUBLIC_URL}/${key}`, key };
 };
 
-/**
- * Delete multiple R2 objects by their keys.
- * Mirrors the old destroyCloudinaryAssets(publicIds).
- */
 const destroyR2Assets = async (keys) => {
   if (!keys?.length) return;
   try {
@@ -95,37 +83,19 @@ const destroyR2Assets = async (keys) => {
       })
     );
     console.log(
-      "[addproduct] ✓ orphan cleanup:",
+      "[addproduct] ✓ R2 cleanup:",
       keys.length,
-      "image(s) deleted from R2"
+      "image(s) deleted"
     );
   } catch (e) {
-    console.error("[addproduct] R2 orphan cleanup failed:", e.message);
+    console.error("[addproduct] R2 cleanup failed:", e.message);
   }
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   POLICY TABLE
+   CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const POLICY = Object.freeze({
-  unverified: Object.freeze({
-    dailyLimit       :   3,
-    activeLimit      :   3,
-    cooldownMinutes  :  10,
-    expiryDays       :   7,
-    canReactivate    : false,
-    totalLifetimeMax :   3,
-  }),
-  verified: Object.freeze({
-    dailyLimit       : 100,
-    activeLimit      : 500,
-    cooldownMinutes  :   0,
-    expiryDays       :   0,
-    canReactivate    : true,
-    totalLifetimeMax : null,
-  }),
-});
-
+const FREE_LISTING_DAYS   = 30; // verified seller listing lifespan
 const ALLOWED_STATUSES    = new Set(["active", "draft", "pending_payment"]);
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_IMAGES          = 6;
@@ -138,13 +108,39 @@ const ALLOWED_WA_HOSTS = [
   "business.whatsapp.com",
 ];
 
+/* ═══════════════════════════════════════════════════════════════
+   POLICY TABLE
+   unverified → 3 trial listings, 7-day expiry, cooldown
+   verified   → unlimited, 30-day expiry, no cooldown
+═══════════════════════════════════════════════════════════════ */
+const POLICY = Object.freeze({
+  unverified: Object.freeze({
+    dailyLimit       :   3,
+    activeLimit      :   3,
+    cooldownMinutes  :  10,
+    expiryDays       :   7,   // trial listing expiry
+    freeListingDays  :  30,   // renewal window (not used for unverified)
+    canReactivate    : false,
+    totalLifetimeMax :   3,
+  }),
+  verified: Object.freeze({
+    dailyLimit       : 100,
+    activeLimit      : 500,
+    cooldownMinutes  :   0,
+    expiryDays       :   0,
+    freeListingDays  :  30,   // listing expires after 30 days, renewable
+    canReactivate    : true,
+    totalLifetimeMax : null,
+  }),
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   REDIS  (trending only — non-critical)
+═══════════════════════════════════════════════════════════════ */
 const TRENDING_WINDOW_SECS = 24 * 60 * 60;
 const TRENDING_TTL_SECS    = TRENDING_WINDOW_SECS + 3_600;
 const TRENDING_KEY         = "trending:24h";
 
-/* ═══════════════════════════════════════════════════════════════
-   REDIS
-═══════════════════════════════════════════════════════════════ */
 let redis = null;
 (async () => {
   if (!process.env.REDIS_URL) {
@@ -202,7 +198,9 @@ const withImageUpload = (handler) => (req, res, next) =>
   handler(req, res, (err) => {
     if (!err) return next();
     if (
-      ["LIMIT_FILE_SIZE", "LIMIT_FILE_COUNT", "INVALID_MIME"].includes(err.code)
+      ["LIMIT_FILE_SIZE", "LIMIT_FILE_COUNT", "INVALID_MIME"].includes(
+        err.code
+      )
     )
       return res.status(400).json({ success: false, message: err.message });
     return next(err);
@@ -269,7 +267,6 @@ const safeParse = (v, fallback) => {
 const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
-/* ── Date helpers ── */
 const getTodayUTC = () => new Date().toISOString().slice(0, 10);
 
 const getTomorrowUTC = () => {
@@ -285,6 +282,7 @@ const getIp = (req) =>
   null;
 
 const PHONE_RE = /^\+?[0-9]{7,15}$/;
+
 const validatePhone = (value, label) => {
   if (!value) return `${label} is required.`;
   const cleaned = String(value).replace(/[\s\-().]/g, "");
@@ -299,7 +297,8 @@ const sanitizeWhatsAppLink = (raw) => {
     const url = new URL(String(raw).trim());
     if (url.protocol !== "https:") return null;
     const allowed = ALLOWED_WA_HOSTS.some(
-      (host) => url.hostname === host || url.hostname.endsWith(`.${host}`)
+      (host) =>
+        url.hostname === host || url.hostname.endsWith(`.${host}`)
     );
     return allowed ? url.href : null;
   } catch { return null; }
@@ -310,6 +309,29 @@ const validateImageHashes = (raw) => {
   return raw
     .filter((h) => typeof h === "string" && /^[a-f0-9]{64}$/i.test(h))
     .slice(0, MAX_IMAGES);
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   ACTIVE UNTIL  —  expiry date for all active listings
+   unverified → 7-day trial
+   verified   → 30-day free listing
+═══════════════════════════════════════════════════════════════ */
+const computeActiveUntil = (isVerified) => {
+  const days = isVerified
+    ? FREE_LISTING_DAYS                    // 30 days
+    : POLICY.unverified.expiryDays;        // 7 days
+
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+};
+
+const daysUntilExpiry = (activeUntil) => {
+  if (!activeUntil) return null;
+  return Math.max(
+    0,
+    Math.ceil((new Date(activeUntil).getTime() - Date.now()) / 86_400_000)
+  );
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -380,16 +402,16 @@ const fetchSellerStats = (client, sellerId) => {
          WHERE created_at >= $2::timestamptz
            AND created_at <  $3::timestamptz
            AND status     <> 'deleted'
-       )::int                                                  AS today_count,
+       )::int                                                   AS today_count,
 
        COUNT(*) FILTER (
          WHERE is_active = TRUE
            AND status IN ('active', 'active_limited')
-       )::int                                                  AS active_count,
+       )::int                                                   AS active_count,
 
-       COUNT(*)::int                                           AS lifetime_count,
+       COUNT(*)::int                                            AS lifetime_count,
 
-       MAX(created_at) FILTER (WHERE status <> 'deleted')      AS last_submit_at
+       MAX(created_at) FILTER (WHERE status <> 'deleted')       AS last_submit_at
 
      FROM products
      WHERE seller_id = $1`,
@@ -543,19 +565,13 @@ const enforcePolicyLimits = ({
       message : `Please wait ${mins} minute${mins !== 1 ? "s" : ""} before posting again.`,
       extra   : {
         retry_after_seconds : cooldownSecsLeft,
-        upgrade_message     : "Verify your identity to remove posting cooldowns.",
+        upgrade_message     :
+          "Verify your identity to remove posting cooldowns.",
       },
     };
   }
 
   return null;
-};
-
-const computeActiveUntil = (isVerified) => {
-  if (isVerified || POLICY.unverified.expiryDays === 0) return null;
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() + POLICY.unverified.expiryDays);
-  return d;
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -606,7 +622,14 @@ const buildTrialInfo = (ctx) => {
 
 /* ═══════════════════════════════════════════════════════════════
    EXPORTED CRON UTILITIES
+   These are used by server.js cron jobs — they belong here
+   because they relate to listing lifecycle (not payments)
 ═══════════════════════════════════════════════════════════════ */
+
+/**
+ * Called after a seller completes identity verification.
+ * Upgrades all their active_limited listings to permanent active.
+ */
 export const reactivateLimitedListings = async (sellerId) => {
   const client = await pool.connect();
   try {
@@ -614,7 +637,7 @@ export const reactivateLimitedListings = async (sellerId) => {
       `UPDATE products
        SET    status       = 'active',
               is_active    = TRUE,
-              active_until = NULL,
+              active_until = NOW() + INTERVAL '${FREE_LISTING_DAYS} days',
               updated_at   = NOW()
        WHERE  seller_id    = $1
          AND  status       = 'active_limited'
@@ -622,22 +645,27 @@ export const reactivateLimitedListings = async (sellerId) => {
        RETURNING id, title`,
       [sellerId]
     );
+
     if (rowCount > 0) {
       console.log(
         `[addproduct] reactivated ${rowCount} listing(s) for seller ${sellerId}`
       );
+
       createNotification({
         userId  : sellerId,
         type    : "listings_reactivated",
-        title   : "Listings Made Permanent",
+        title   : "Listings Made Permanent 🎉",
         message :
           `${rowCount} listing${rowCount !== 1 ? "s" : ""} ` +
-          "have been upgraded to permanent status now that your identity is verified.",
+          `have been upgraded to full active status. ` +
+          `Each listing is now live for ${FREE_LISTING_DAYS} days and renewable.`,
       }).catch(() => {});
+
       if (redis) {
         for (const r of rows) trackTrending(r.id).catch(() => {});
       }
     }
+
     return rowCount;
   } catch (err) {
     console.error("[addproduct] reactivateLimitedListings error:", err.message);
@@ -647,6 +675,10 @@ export const reactivateLimitedListings = async (sellerId) => {
   }
 };
 
+/**
+ * Cron: pause expired trial listings for unverified sellers.
+ * Called by jobs/listingExpiry.js every hour.
+ */
 export const pauseExpiredListings = async () => {
   const client = await pool.connect();
   try {
@@ -664,13 +696,16 @@ export const pauseExpiredListings = async () => {
        RETURNING id, seller_id, title`,
       []
     );
+
     if (rowCount > 0) {
-      console.log(`[addproduct] paused ${rowCount} listing(s)`);
+      console.log(`[addproduct] paused ${rowCount} expired trial listing(s)`);
+
       const bySeller = rows.reduce((acc, r) => {
         const key = String(r.seller_id);
         (acc[key] ??= []).push(r.title);
         return acc;
       }, {});
+
       for (const [sellerId, titles] of Object.entries(bySeller)) {
         createNotification({
           userId  : sellerId,
@@ -683,65 +718,10 @@ export const pauseExpiredListings = async () => {
         }).catch(() => {});
       }
     }
+
     return rows;
   } catch (err) {
     console.error("[addproduct] pauseExpiredListings error:", err.message);
-    return [];
-  } finally {
-    client.release();
-  }
-};
-
-export const cleanupStuckPendingPayments = async () => {
-  const client = await pool.connect();
-  try {
-    const { rows, rowCount } = await client.query(
-      `UPDATE products
-       SET    status     = 'draft',
-              updated_at = NOW()
-       WHERE  status     = 'pending_payment'
-         AND  updated_at < NOW() - INTERVAL '30 minutes'
-       RETURNING id, seller_id, title`,
-      []
-    );
-    if (rowCount > 0) {
-      console.log(
-        `[addproduct] cleanup: reverted ${rowCount} stuck listing(s)`
-      );
-      const productIds = rows.map((r) => r.id);
-      if (productIds.length > 0) {
-        await client.query(
-          `UPDATE payments
-           SET    status     = 'expired',
-                  updated_at = NOW()
-           WHERE  product_id = ANY($1::uuid[])
-             AND  status     = 'pending'`,
-          [productIds]
-        );
-      }
-      const bySeller = rows.reduce((acc, r) => {
-        const key = String(r.seller_id);
-        (acc[key] ??= []).push(r.title);
-        return acc;
-      }, {});
-      for (const [sellerId, titles] of Object.entries(bySeller)) {
-        createNotification({
-          userId  : sellerId,
-          type    : "payment_expired",
-          title   : "Payment Session Expired",
-          message :
-            `${titles.length} listing${titles.length !== 1 ? "s" : ""} ` +
-            "returned to draft because the payment session expired. " +
-            "Please try posting again.",
-        }).catch(() => {});
-      }
-    }
-    return rows;
-  } catch (err) {
-    console.error(
-      "[addproduct] cleanupStuckPendingPayments error:",
-      err.message
-    );
     return [];
   } finally {
     client.release();
@@ -762,14 +742,15 @@ router.get(
   async (req, res) => {
     const categoryId = req.params.id;
     if (!categoryId) return fail(res, 400, "Category ID required.");
+
     try {
       const { rows } = await pool.query(
         `SELECT
-           COUNT(*)                                             AS total_listings,
-           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price)  AS median_price,
-           MIN(price)                                           AS min_price,
-           MAX(price)                                           AS max_price,
-           AVG(price)                                           AS avg_price
+           COUNT(*)                                              AS total_listings,
+           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price)   AS median_price,
+           MIN(price)                                            AS min_price,
+           MAX(price)                                            AS max_price,
+           AVG(price)                                            AS avg_price
          FROM products
          WHERE category_id = $1
            AND is_active   = TRUE
@@ -777,14 +758,16 @@ router.get(
            AND price       > 0`,
         [categoryId]
       );
+
       const stats = rows[0];
       if (!stats || parseInt(stats.total_listings, 10) < 3) {
         return res.json({
           success  : true,
           guidance : null,
-          message  : "Not enough listings to show guidance.",
+          message  : "Not enough listings to show price guidance.",
         });
       }
+
       return res.json({
         success  : true,
         guidance : {
@@ -795,7 +778,8 @@ router.get(
           total_listings : parseInt(stats.total_listings, 10),
           currency       : "NGN",
           tip            :
-            `Most sellers price between ₦${Math.round(Number(stats.min_price)).toLocaleString("en-NG")} and ` +
+            `Most sellers price between ` +
+            `₦${Math.round(Number(stats.min_price)).toLocaleString("en-NG")} and ` +
             `₦${Math.round(Number(stats.max_price)).toLocaleString("en-NG")}.`,
         },
       });
@@ -821,21 +805,23 @@ router.get(
     try {
       const ctx = await getSellerContextReadOnly(client, sellerId);
       return res.json({
-        success          : true,
-        seller_verified  : ctx.isVerified,
-        daily_limit      : ctx.policy.dailyLimit,
-        daily_used       : ctx.todayCount,
-        daily_remaining  : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount),
-        active_limit     : ctx.policy.activeLimit,
-        active_count     : ctx.activeCount,
-        active_remaining : Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
-        cooldown_seconds : ctx.cooldownSecsLeft,
-        expiry_days      : ctx.policy.expiryDays || null,
-        can_reactivate   : ctx.policy.canReactivate,
-        trial_exhausted  : ctx.trialExhausted,
-        trial_remaining  : ctx.trialRemaining,
-        lifetime_used    : ctx.lifetimeCount,
-        lifetime_max     : ctx.isVerified
+        success           : true,
+        seller_verified   : ctx.isVerified,
+        daily_limit       : ctx.policy.dailyLimit,
+        daily_used        : ctx.todayCount,
+        daily_remaining   : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount),
+        active_limit      : ctx.policy.activeLimit,
+        active_count      : ctx.activeCount,
+        active_remaining  : Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
+        cooldown_seconds  : ctx.cooldownSecsLeft,
+        expiry_days       : ctx.isVerified
+          ? FREE_LISTING_DAYS
+          : ctx.policy.expiryDays,
+        can_reactivate    : ctx.policy.canReactivate,
+        trial_exhausted   : ctx.trialExhausted,
+        trial_remaining   : ctx.trialRemaining,
+        lifetime_used     : ctx.lifetimeCount,
+        lifetime_max      : ctx.isVerified
           ? null
           : POLICY.unverified.totalLifetimeMax,
       });
@@ -859,10 +845,12 @@ router.post(
     const sellerId     = req.user?.id;
     const { title }    = req.body;
     const image_hashes = validateImageHashes(req.body.image_hashes);
+
     if (!sellerId || !title) return res.json({ isDuplicate: false });
 
     const client = await pool.connect();
     try {
+      /* Title match */
       const { rows: titleMatches } = await client.query(
         `SELECT id FROM products
          WHERE  seller_id  = $1
@@ -871,6 +859,7 @@ router.post(
            AND  LOWER(TRIM(title)) = LOWER(TRIM($2))`,
         [sellerId, title]
       );
+
       if (titleMatches.length > 0) {
         return res.json({
           isDuplicate : true,
@@ -879,6 +868,8 @@ router.post(
             "Check your listings before reposting.",
         });
       }
+
+      /* Image hash match */
       if (image_hashes.length > 0) {
         const hashMatches = await checkImageHashDuplicates(
           client,
@@ -894,6 +885,7 @@ router.post(
           });
         }
       }
+
       return res.json({ isDuplicate: false });
     } catch (err) {
       console.error("[check-duplicate]", err.message);
@@ -915,11 +907,13 @@ router.get(
     const sellerId  = req.user?.id;
     const productId = req.params.id;
     if (!sellerId) return fail(res, 401, "Not authenticated.");
+
     try {
       const { rows } = await pool.query(
-        `SELECT p.id, p.status, p.is_active, p.active_until,
-                p.is_first_product,
-                u.identity_verified AS seller_verified
+        `SELECT
+           p.id, p.status, p.is_active, p.active_until,
+           p.is_first_product,
+           u.identity_verified AS seller_verified
          FROM   products p
          JOIN   public.users u ON u.id = p.seller_id
          WHERE  p.id        = $1
@@ -927,20 +921,15 @@ router.get(
            AND  p.status   <> 'deleted'`,
         [productId, sellerId]
       );
+
       if (!rows.length) return fail(res, 404, "Product not found.");
-      const p           = rows[0];
-      const isLimited   = p.status === "active_limited";
-      const isExpired   =
-        isLimited && p.active_until && new Date(p.active_until) < new Date();
-      const daysRemaining =
-        isLimited && p.active_until
-          ? Math.max(
-              0,
-              Math.ceil(
-                (new Date(p.active_until).getTime() - Date.now()) / 86_400_000
-              )
-            )
-          : null;
+
+      const p         = rows[0];
+      const isLimited = p.status === "active_limited";
+      const isExpired =
+        p.active_until && new Date(p.active_until) < new Date();
+      const days      = daysUntilExpiry(p.active_until);
+
       return res.json({
         success            : true,
         status             : p.status,
@@ -949,8 +938,8 @@ router.get(
         is_first_product   : p.is_first_product,
         seller_verified    : p.seller_verified,
         needs_verification : isLimited && !isExpired,
-        is_expired         : isExpired,
-        days_remaining     : daysRemaining,
+        is_expired         : !!isExpired,
+        days_remaining     : days,
       });
     } catch (err) {
       console.error("[addproduct] STATUS ERROR:", err.message);
@@ -960,7 +949,7 @@ router.get(
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /products — Create product
+   POST /products  — Create product
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/products",
@@ -971,7 +960,7 @@ router.post(
     const sellerId = req.user?.id;
     const ip       = getIp(req);
 
-    console.log("\n[addproduct] ▶ CREATE PRODUCT  seller:", sellerId);
+    console.log("\n[addproduct] ▶ CREATE  seller:", sellerId);
     if (!sellerId) return fail(res, 401, "Not authenticated.");
 
     /* ── Parse fields ── */
@@ -988,17 +977,13 @@ router.post(
     const phone          = cleanText(req.body.phone);
     const whatsapp       = cleanText(req.body.whatsapp);
     const idempotencyKey = cleanText(req.body.idempotency_key);
-    const imageHashes    = validateImageHashes(
-      safeParse(req.body.image_hashes, [])
-    );
-    const attributes  = safeParse(req.body.attributes, {});
-    const delivery    = safeParse(req.body.delivery, {});
-    const contact     = safeParse(req.body.contact, {});
-    const whatsappLink = sanitizeWhatsAppLink(
-      cleanText(req.body.whatsapp_link)
-    );
+    const imageHashes    = validateImageHashes(safeParse(req.body.image_hashes, []));
+    const attributes     = safeParse(req.body.attributes, {});
+    const delivery       = safeParse(req.body.delivery, {});
+    const contact        = safeParse(req.body.contact, {});
+    const whatsappLink   = sanitizeWhatsAppLink(cleanText(req.body.whatsapp_link));
 
-    /* ── Basic validation ── */
+    /* ── Validation ── */
     if (!title)             return fail(res, 400, "Title required.");
     if (title.length > 120) return fail(res, 400, "Title must be at most 120 characters.");
     if (!description || description.length < 10)
@@ -1016,6 +1001,7 @@ router.post(
 
     const phoneErr = validatePhone(phone, "Phone number");
     if (phoneErr) return fail(res, 400, phoneErr);
+
     if (whatsapp) {
       const waErr = validatePhone(whatsapp, "WhatsApp number");
       if (waErr) return fail(res, 400, waErr);
@@ -1053,13 +1039,13 @@ router.post(
     }).catch(() => ({ score: 0, isSpam: false, reasons: [] }));
 
     if (spamResult.isSpam || spamResult.score >= 70) {
-      console.warn("[addproduct] spam detected  seller:", sellerId);
+      console.warn("[addproduct] spam detected seller:", sellerId);
       return fail(res, 403, "Listing flagged as spam.", {
         reasons: spamResult.reasons ?? [],
       });
     }
 
-    /* ── PHASE 1: Pre-upload policy check ── */
+    /* ── PHASE 1: Pre-upload policy check (saves R2 costs) ── */
     if (requestedStatus === "active") {
       try {
         const preCtx   = await getSellerContextPreUpload(sellerId);
@@ -1069,32 +1055,22 @@ router.post(
           return fail(res, earlyErr.status, earlyErr.message, earlyErr.extra);
         }
       } catch (preErr) {
-        console.warn(
-          "[addproduct] pre-upload check failed (non-fatal):",
-          preErr.message
-        );
+        console.warn("[addproduct] pre-upload check failed (non-fatal):", preErr.message);
       }
     }
 
     /* ── Early category validation ── */
-    const earlyCategory = await validateCategoryEarly(
-      categoryId,
-      subcategoryId
-    );
+    const earlyCategory = await validateCategoryEarly(categoryId, subcategoryId);
     if (!earlyCategory.valid) return fail(res, 400, earlyCategory.message);
 
     /* ── Upload images to R2 ── */
-    console.log("[addproduct] uploading", files.length, "image(s) to R2...");
+    console.log("[addproduct] uploading", files.length, "image(s) to R2…");
     let uploaded;
     try {
       uploaded = await Promise.all(
         files.map((file, i) =>
           uploadToR2(file.buffer, file.originalname, file.mimetype).then(
-            (r) => ({
-              url   : r.url,
-              key   : r.key,   // ← R2 object key (replaces publicId)
-              order : i,
-            })
+            (r) => ({ url: r.url, key: r.key, order: i })
           )
         )
       );
@@ -1106,7 +1082,7 @@ router.post(
     const thumbnail = uploaded[0]?.url ?? null;
     const r2Keys    = uploaded.map((u) => u.key);
 
-    /* ── PHASE 2: Locked TX ── */
+    /* ── PHASE 2: Locked transaction ── */
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -1123,9 +1099,7 @@ router.post(
       });
 
       const catCheck = await validateCategoryRelationship(
-        client,
-        categoryId,
-        subcategoryId
+        client, categoryId, subcategoryId
       );
       if (!catCheck.valid) {
         await client.query("ROLLBACK");
@@ -1142,19 +1116,29 @@ router.post(
         }
       }
 
+      /* ── Determine final status + expiry ── */
       let finalStatus = requestedStatus;
       let finalActive = requestedStatus === "active";
       let activeUntil = null;
 
-      if (requestedStatus === "active" && !ctx.isVerified) {
-        finalStatus = "active_limited";
-        finalActive = true;
-        activeUntil = computeActiveUntil(false);
+      if (requestedStatus === "active") {
+        if (!ctx.isVerified) {
+          /* Unverified — trial listing, 7 days */
+          finalStatus = "active_limited";
+          finalActive = true;
+          activeUntil = computeActiveUntil(false);
+        } else {
+          /* Verified — free listing, 30 days */
+          finalStatus = "active";
+          finalActive = true;
+          activeUntil = computeActiveUntil(true);
+        }
       }
+      /* draft — no expiry */
 
       /* ── Slug generation ── */
-      const baseSlug  = generateBaseSlug(title).slice(0, 60);
       const shortId   = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+      const baseSlug  = generateBaseSlug(title).slice(0, 60);
       const firstSlug = generateSlugWithId(title, shortId);
 
       let product;
@@ -1205,9 +1189,7 @@ router.post(
           firstErr.code === "23505" &&
           firstErr.constraint?.includes("slug")
         ) {
-          console.warn(
-            "[addproduct] slug collision, falling back to timestamp"
-          );
+          console.warn("[addproduct] slug collision — retrying with timestamp");
           product = await insertProduct(`${baseSlug}-${Date.now()}`);
         } else {
           throw firstErr;
@@ -1217,14 +1199,10 @@ router.post(
       if (!product) {
         await client.query("ROLLBACK");
         await destroyR2Assets(r2Keys);
-        return fail(
-          res,
-          500,
-          "Failed to create product record. Please try again."
-        );
+        return fail(res, 500, "Failed to create product record. Please try again.");
       }
 
-      /* ── Insert product_images — r2_key replaces cloudinary_public_id ── */
+      /* ── Insert product_images ── */
       await Promise.all(
         uploaded.map((img) =>
           client.query(
@@ -1237,15 +1215,24 @@ router.post(
         )
       );
 
+      /* ── Update images JSONB on product row ── */
+      const imagesJson = JSON.stringify(
+        uploaded.map((img) => ({ url: img.url, key: img.key, order: img.order }))
+      );
+      await client.query(
+        `UPDATE products SET images = $1 WHERE id = $2`,
+        [imagesJson, product.id]
+      );
+      product.images = JSON.parse(imagesJson);
+
       await client.query("COMMIT");
       console.log(
-        "[addproduct] ✓ created  id:",
-        product.id,
-        " status:",
-        finalStatus
+        "[addproduct] ✓ created  id:", product.id,
+        " status:", finalStatus,
+        " expires:", activeUntil?.toISOString() ?? "never"
       );
 
-      /* ── Post-commit ── */
+      /* ── Post-commit (fire-and-forget) ── */
       if (imageHashes.length > 0)
         storeImageHashes(product.id, imageHashes).catch(() => {});
 
@@ -1256,10 +1243,10 @@ router.post(
         targetId   : product.id,
         metadata   : {
           title,
-          status         : finalStatus,
-          active_until   : activeUntil,
-          is_verified    : ctx.isVerified,
-          lifetime_count : ctx.lifetimeCount + 1,
+          status          : finalStatus,
+          active_until    : activeUntil,
+          is_verified     : ctx.isVerified,
+          lifetime_count  : ctx.lifetimeCount + 1,
           trial_remaining : ctx.trialRemaining !== null
             ? Math.max(0, ctx.trialRemaining - 1)
             : null,
@@ -1272,8 +1259,11 @@ router.post(
       );
       trackTrending(product.id).catch(() => {});
 
+      /* ── Notifications ── */
       const needsVerification = finalStatus === "active_limited";
+      const isFreeListing     = finalStatus === "active" && activeUntil !== null;
       const trialInfo         = buildTrialInfo(ctx);
+      const expiryDays        = daysUntilExpiry(activeUntil);
 
       if (needsVerification) {
         const remaining = trialInfo?.trial_remaining ?? 0;
@@ -1290,34 +1280,50 @@ router.post(
               `You have ${remaining} free trial listing(s) remaining. ` +
               "Verify your identity for unlimited posting.",
         }).catch(() => {});
+
+      } else if (isFreeListing) {
+        createNotification({
+          userId  : sellerId,
+          type    : "listing_posted",
+          title   : "Listing Posted ✓",
+          message :
+            `"${title}" is now live for ${FREE_LISTING_DAYS} days. ` +
+            "You'll be notified 3 days before it expires so you can renew for free.",
+        }).catch(() => {});
       }
 
+      /* ── Response ── */
       return res.status(201).json({
         success            : true,
         product,
         first_product      : ctx.isFirstProduct,
         needs_verification : needsVerification,
         active_until       : activeUntil ?? null,
-        days_remaining     : needsVerification
-          ? POLICY.unverified.expiryDays
-          : null,
+        days_remaining     : expiryDays,
         seller_verified    : ctx.isVerified,
         trial              : trialInfo,
         limits             : {
           daily_limit  : ctx.policy.dailyLimit,
           daily_used   : ctx.todayCount + 1,
-          daily_left   : Math.max(
-            0,
-            ctx.policy.dailyLimit - ctx.todayCount - 1
-          ),
+          daily_left   : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount - 1),
           active_limit : ctx.policy.activeLimit,
           active_count : ctx.activeCount + 1,
         },
+
+        /* Expiry message for ALL active listings */
+        ...(activeUntil && {
+          expiry_message: needsVerification
+            ? `Your listing is live for ${expiryDays} days (trial). ` +
+              "Verify your identity to post permanently."
+            : `Your listing is live for ${expiryDays} days. ` +
+              "You can renew it for free before it expires.",
+        }),
+
         ...(needsVerification && {
           verification_message: trialInfo?.trial_exhausted
             ? "You have used all your free trial listings. " +
               "Verify your identity to continue posting on Loemart."
-            : `Your listing is live for ${POLICY.unverified.expiryDays} days. ` +
+            : `Your listing is live for ${expiryDays} days. ` +
               `You have ${trialInfo?.trial_remaining ?? 0} free trial listing(s) remaining. ` +
               "Verify your identity for unlimited posting.",
         }),
@@ -1356,13 +1362,7 @@ router.post(
     const productId = req.params.id;
     const ip        = getIp(req);
 
-    console.log(
-      "\n[addproduct] ▶ ACTIVATE  product:",
-      productId,
-      " seller:",
-      sellerId
-    );
-
+    console.log("\n[addproduct] ▶ ACTIVATE  product:", productId, " seller:", sellerId);
     if (!sellerId)  return fail(res, 401, "Not authenticated.");
     if (!productId) return fail(res, 400, "Product ID required.");
 
@@ -1424,11 +1424,18 @@ router.post(
         return fail(res, policyErr.status, policyErr.message, policyErr.extra);
       }
 
+      /* ── Determine status + expiry ── */
       let finalStatus = "active";
       let activeUntil = null;
+
       if (!isVerified) {
+        /* Unverified — trial listing, 7 days */
         finalStatus = "active_limited";
         activeUntil = computeActiveUntil(false);
+      } else {
+        /* Verified — free listing, 30 days */
+        finalStatus = "active";
+        activeUntil = computeActiveUntil(true);
       }
 
       const { rows: updated } = await client.query(
@@ -1439,10 +1446,13 @@ router.post(
                 updated_at   = NOW()
          WHERE  id = $3
          RETURNING *`,
-        [finalStatus, activeUntil ?? null, productId]
+        [finalStatus, activeUntil, productId]
       );
 
       await client.query("COMMIT");
+
+      const expiryDays        = daysUntilExpiry(activeUntil);
+      const needsVerification = finalStatus === "active_limited";
 
       writeAudit({
         actorId    : sellerId,
@@ -1455,29 +1465,26 @@ router.post(
 
       trackTrending(productId).catch(() => {});
 
-      const needsVerification = finalStatus === "active_limited";
-      const daysRemaining     =
-        needsVerification && activeUntil
-          ? Math.max(
-              0,
-              Math.ceil(
-                (new Date(activeUntil).getTime() - Date.now()) / 86_400_000
-              )
-            )
-          : null;
-
-      console.log("[addproduct] ✓ activated  status:", finalStatus);
+      console.log(
+        "[addproduct] ✓ activated  status:", finalStatus,
+        " expires:", activeUntil?.toISOString()
+      );
 
       return res.json({
         success            : true,
         product            : updated[0],
         needs_verification : needsVerification,
-        active_until       : activeUntil ?? null,
-        days_remaining     : daysRemaining,
+        active_until       : activeUntil,
+        days_remaining     : expiryDays,
         seller_verified    : isVerified,
+        expiry_message     : needsVerification
+          ? `Your listing is live for ${expiryDays} days (trial). ` +
+            "Verify your identity to post permanently."
+          : `Your listing is live for ${expiryDays} days. ` +
+            "You can renew it for free before it expires.",
         ...(needsVerification && {
           verification_message:
-            `Your listing is live for ${daysRemaining} day${daysRemaining !== 1 ? "s" : ""}. ` +
+            `Your listing is live for ${expiryDays} day${expiryDays !== 1 ? "s" : ""}. ` +
             "Complete identity verification to make it permanent.",
         }),
       });
@@ -1497,65 +1504,108 @@ router.post(
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   DELETE /products/:id — SOFT DELETE
+   DELETE /products/:id  — Soft delete
+   Note: active (verified) listings must be paused before delete.
+         Scam protection: row stays in DB, just hidden from feed.
 ═══════════════════════════════════════════════════════════════ */
-router.delete("/products/:id", authenticate, async (req, res) => {
-  const sellerId  = req.user?.id;
-  const productId = req.params.id;
-  const ip        = getIp(req);
+router.delete(
+  "/products/:id",
+  authenticate,
+  async (req, res) => {
+    const sellerId  = req.user?.id;
+    const productId = req.params.id;
+    const ip        = getIp(req);
+    const HOLD_DAYS = 30; // days before permanent deletion
 
-  console.log(
-    "[addproduct] ▶ SOFT DELETE  product:",
-    productId,
-    " seller:",
-    sellerId
-  );
-  if (!sellerId) return fail(res, 401, "Not authenticated.");
+    console.log("\n[addproduct] ▶ SOFT DELETE  product:", productId, " seller:", sellerId);
+    if (!sellerId) return fail(res, 401, "Not authenticated.");
 
-  try {
-    const { rows } = await pool.query(
-      `UPDATE products
-       SET    status     = 'deleted',
-              is_active  = FALSE,
-              deleted_at = NOW(),
-              updated_at = NOW()
-       WHERE  id         = $1
-         AND  seller_id  = $2
-         AND  status    IN ('draft', 'paused', 'pending_payment', 'active_limited')
-       RETURNING id, title`,
-      [productId, sellerId]
-    );
+    try {
+      /* Check ownership first */
+      const { rows: check } = await pool.query(
+        `SELECT id, status, is_deleted
+         FROM public.products
+         WHERE id = $1 AND seller_id = $2
+         LIMIT 1`,
+        [productId, sellerId]
+      );
 
-    if (!rows.length) {
+      if (!check.length) {
+        return fail(res, 404, "Product not found or not owned by you.");
+      }
+
+      if (check[0].is_deleted) {
+        return fail(res, 400, "Product already deleted.");
+      }
+
+      /* active (verified) listings must be paused first */
+      if (check[0].status === "active") {
+        return fail(
+          res,
+          409,
+          "Active listings must be paused before deleting. " +
+          "Tap the pause button first, then delete."
+        );
+      }
+
+      /* Soft delete — stays in DB for HOLD_DAYS for scam investigation */
+      const { rows } = await pool.query(
+        `UPDATE products
+         SET
+           is_active             = false,
+           status                = 'deleted',
+           deletion_requested_at = NOW(),
+           deletion_reason       = 'user_deleted',
+           permanent_delete_at   = NOW() + ($1 || ' days')::INTERVAL,
+           deleted_at            = NOW(),
+           updated_at            = NOW()
+         WHERE id        = $2
+           AND seller_id = $3
+           AND is_deleted = false
+         RETURNING id, title`,
+        [HOLD_DAYS, productId, sellerId]
+      );
+
+      if (!rows.length) {
+        return fail(res, 404, "Product not found or already deleted.");
+      }
+
+      writeAudit({
+        actorId    : sellerId,
+        action     : "product_soft_deleted",
+        targetType : "product",
+        targetId   : productId,
+        metadata   : {
+          title       : rows[0].title,
+          hold_days   : HOLD_DAYS,
+          recoverable : true,
+        },
+        ipAddress : ip,
+      }).catch(() => {});
+
+      console.log(
+        "[addproduct] ✓ soft-deleted  id:", productId,
+        " — permanent deletion in", HOLD_DAYS, "days"
+      );
+
+      return res.json({
+        success             : true,
+        message             : "Listing deleted",
+        hold_days           : HOLD_DAYS,
+        permanent_delete_at : new Date(
+          Date.now() + HOLD_DAYS * 24 * 60 * 60 * 1000
+        ).toISOString(),
+      });
+
+    } catch (err) {
+      console.error("[addproduct] DELETE ERROR:", err.message);
       return fail(
         res,
-        404,
-        "Product not found, not owned by you, or cannot be deleted " +
-        "in its current state. Fully active (verified) listings " +
-        "cannot be deleted — pause them first."
+        500,
+        IS_PROD ? "Delete failed. Please try again." : err.message
       );
     }
-
-    writeAudit({
-      actorId    : sellerId,
-      action     : "product_soft_deleted",
-      targetType : "product",
-      targetId   : productId,
-      metadata   : { title: rows[0].title },
-      ipAddress  : ip,
-    }).catch(() => {});
-
-    console.log("[addproduct] ✓ soft-deleted  id:", productId);
-    return res.json({ success: true });
-
-  } catch (err) {
-    console.error("[addproduct] DELETE ERROR:", err.message);
-    return fail(
-      res,
-      500,
-      IS_PROD ? "Delete failed. Please try again." : err.message
-    );
   }
-});
+);
 
 export default router;
