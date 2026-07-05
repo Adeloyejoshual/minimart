@@ -2,12 +2,13 @@
    src/styles/Profile.css
    Brand vars: --hm-orange, --hm-navy, etc.
    Glass / transparent design
-   Desktop: sidebar-left + content-right
-   Mobile: single column, bottom-nav aware
+   Desktop ≥1024: sidebar-left + content-right
+   Tablet 520–1023: single column, grid listings
+   Mobile <520: single column, scroll listings
 ═══════════════════════════════════════════════════════════════ */
 
 /* ────────────────────────────────────────
-   FONT SMOOTHING + BOX MODEL
+   BASE RESET
 ──────────────────────────────────────── */
 .pf-page *,
 .pf-page *::before,
@@ -27,18 +28,20 @@
 }
 
 /* ────────────────────────────────────────
-   VISIBILITY HELPERS
+   VISIBILITY
+   Mobile + Tablet : pf-mobile-only visible
+   Desktop ≥1024   : pf-desktop-only visible
 ──────────────────────────────────────── */
 .pf-mobile-only  { display: block; }
 .pf-desktop-only { display: none;  }
 
 /* ────────────────────────────────────────
-   MOBILE HEADER WRAPPER
+   MOBILE HEADER
 ──────────────────────────────────────── */
 .pf-mobile-header { display: block; }
 
 /* ────────────────────────────────────────
-   LAYOUT — mobile: single column
+   LAYOUT — single column by default
 ──────────────────────────────────────── */
 .pf-layout {
   display: flex;
@@ -55,7 +58,7 @@
 }
 
 /* ────────────────────────────────────────
-   ANIMATIONS — keyframes
+   KEYFRAMES
 ──────────────────────────────────────── */
 @keyframes pf-spin-rotate {
   to { transform: rotate(360deg); }
@@ -67,7 +70,7 @@
 }
 
 @keyframes pf-shimmer {
-  0%   { background-position: 200% 0; }
+  0%   { background-position: 200% 0;  }
   100% { background-position: -200% 0; }
 }
 
@@ -77,9 +80,9 @@
 }
 
 .pf-spin-icon {
-  animation: pf-spin-rotate 0.8s linear infinite;
   width: 14px;
   height: 14px;
+  animation: pf-spin-rotate 0.8s linear infinite;
 }
 
 /* ────────────────────────────────────────
@@ -136,7 +139,12 @@
   background: var(--hm-orange-soft, rgba(255, 107, 53, 0.06));
 }
 
-/* ── 3-dot dropdown ── */
+.pf-hdr-btn:focus-visible {
+  outline: 2px solid var(--hm-orange, #ff6b35);
+  outline-offset: 2px;
+}
+
+/* ── Dropdown ── */
 .pf-dots-wrap { position: relative; }
 
 .pf-dropdown {
@@ -171,9 +179,9 @@
   transition: background 0.12s;
 }
 
-.pf-dropdown-item svg        { width: 16px; height: 16px; flex-shrink: 0; }
-.pf-dropdown-item:hover      { background: rgba(247, 244, 239, 0.8); }
-.pf-dropdown-item--danger    { color: #dc2626; }
+.pf-dropdown-item svg           { width: 16px; height: 16px; flex-shrink: 0; }
+.pf-dropdown-item:hover         { background: rgba(247, 244, 239, 0.8); }
+.pf-dropdown-item--danger       { color: #dc2626; }
 .pf-dropdown-item--danger:hover { background: rgba(254, 242, 242, 0.8); }
 
 .pf-dropdown-divider {
@@ -183,7 +191,7 @@
 }
 
 /* ────────────────────────────────────────
-   IDENTITY CARD (mobile)
+   IDENTITY CARD (mobile + tablet)
 ──────────────────────────────────────── */
 .pf-identity-card {
   background: rgba(255, 255, 255, 0.65);
@@ -210,7 +218,12 @@
   transform: translateY(0);
 }
 
-/* ── Edit hint badge ── */
+.pf-identity-card--clickable:focus-visible {
+  outline: 2px solid var(--hm-orange, #ff6b35);
+  outline-offset: 2px;
+}
+
+/* ── Edit hint ── */
 .pf-edit-hint {
   position: absolute;
   top: 14px;
@@ -241,7 +254,7 @@
   text-overflow: ellipsis;
 }
 
-/* ── Avatar row ── */
+/* ── Avatar ── */
 .pf-avatar-row {
   display: flex;
   gap: 14px;
@@ -452,6 +465,11 @@
   flex-shrink: 0;
 }
 
+.pf-qa-btn:focus-visible {
+  outline: 2px solid var(--hm-orange, #ff6b35);
+  outline-offset: 2px;
+}
+
 .pf-qa-btn--primary {
   background: var(--hm-orange, #ff6b35);
   color: #fff;
@@ -475,7 +493,7 @@
   background: rgba(255, 107, 53, 0.04);
 }
 
-/* ── Desktop quick actions bar ── */
+/* ── Desktop quick bar ── */
 .pf-quick-bar {
   display: flex;
   gap: 10px;
@@ -504,10 +522,7 @@
   margin: 0 16px 12px;
 }
 
-.pf-error-icon {
-  display: flex;
-  flex-shrink: 0;
-}
+.pf-error-icon { display: flex; flex-shrink: 0; }
 
 .pf-error-icon svg {
   width: 22px;
@@ -515,10 +530,7 @@
   color: #ef4444;
 }
 
-.pf-error-content {
-  flex: 1;
-  min-width: 0;
-}
+.pf-error-content { flex: 1; min-width: 0; }
 
 .pf-error-title {
   font-size: 13px;
@@ -551,27 +563,18 @@
   flex-shrink: 0;
 }
 
-.pf-error-retry:hover {
-  background: #dc2626;
-}
+.pf-error-retry:hover    { background: #dc2626; }
+.pf-error-retry svg      { width: 14px; height: 14px; }
+.pf-error-retry:disabled { opacity: 0.6; cursor: not-allowed; background: #999; }
+.pf-error-retry:disabled:hover { background: #999; }
 
-.pf-error-retry svg {
-  width: 14px;
-  height: 14px;
-}
-
-.pf-error-retry:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-  background: #999;
-}
-
-.pf-error-retry:disabled:hover {
-  background: #999;
+.pf-error-retry:focus-visible {
+  outline: 2px solid #991b1b;
+  outline-offset: 2px;
 }
 
 /* ────────────────────────────────────────
-   RECENT LISTINGS — shared styles
+   RECENT LISTINGS — shared
 ──────────────────────────────────────── */
 .pf-recent-section {
   margin: 0 0 8px;
@@ -595,9 +598,7 @@
   margin: 0;
 }
 
-.pf-recent-title-icon {
-  display: flex;
-}
+.pf-recent-title-icon { display: flex; }
 
 .pf-recent-title-icon svg {
   width: 17px;
@@ -619,13 +620,12 @@
   white-space: nowrap;
 }
 
-.pf-recent-viewall svg {
-  width: 14px;
-  height: 14px;
-}
+.pf-recent-viewall svg   { width: 14px; height: 14px; }
+.pf-recent-viewall:hover { color: var(--hm-orange-hover, #e64a19); }
 
-.pf-recent-viewall:hover {
-  color: var(--hm-orange-hover, #e64a19);
+.pf-recent-viewall:focus-visible {
+  outline: 2px solid var(--hm-orange, #ff6b35);
+  outline-offset: 2px;
 }
 
 /* ── Mobile: horizontal scroll ── */
@@ -640,7 +640,7 @@
 
 .pf-recent-scroll::-webkit-scrollbar { display: none; }
 
-/* ── Listing card (mobile scroll) ── */
+/* ── Listing card ── */
 .pf-recent-card {
   flex-shrink: 0;
   width: 140px;
@@ -660,7 +660,7 @@
   outline-offset: 2px;
 }
 
-/* ── Image area ── */
+/* Image wrap */
 .pf-recent-img-wrap {
   position: relative;
   width: 100%;
@@ -688,16 +688,10 @@
   left: 0;
 }
 
-.pf-recent-img-placeholder--visible {
-  display: flex;
-}
+.pf-recent-img-placeholder--visible { display: flex; }
+.pf-recent-img-placeholder svg      { width: 32px; height: 32px; }
 
-.pf-recent-img-placeholder svg {
-  width: 32px;
-  height: 32px;
-}
-
-/* ── Status / promoted badges ── */
+/* Status badges */
 .pf-recent-status {
   position: absolute;
   top: 6px;
@@ -722,10 +716,8 @@
   right: 6px;
 }
 
-/* ── Info area ── */
-.pf-recent-info {
-  padding: 10px;
-}
+/* Info */
+.pf-recent-info { padding: 10px; }
 
 .pf-recent-name {
   font-size: 12.5px;
@@ -774,20 +766,20 @@
   white-space: nowrap;
 }
 
-/* ── Desktop: responsive grid ── */
+/* ── Desktop grid — HIDDEN by default ── */
 .pf-recent-grid {
-  display: grid;
+  display: none;
   grid-template-columns: repeat(2, 1fr);
   gap: 16px;
   padding: 0 16px 12px;
 }
 
-/* ── Grid skeleton (lazy load fallback) ── */
+/* ── Skeleton ── */
 .pf-grid-skeleton {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  display: none;
+  grid-template-columns: repeat(2, 1fr);
   gap: 14px;
-  padding: 0 20px 4px;
+  padding: 0 16px 4px;
 }
 
 .pf-grid-skeleton-card {
@@ -824,10 +816,7 @@
   margin: 0 16px 8px;
 }
 
-.pf-referral-text {
-  flex: 1;
-  min-width: 0;
-}
+.pf-referral-text { flex: 1; min-width: 0; }
 
 .pf-referral-head {
   font-size: 14px;
@@ -862,26 +851,20 @@
   transition: background 0.15s;
 }
 
-.pf-referral-code:hover {
-  background: rgba(255, 107, 53, 0.06);
+.pf-referral-code:hover { background: rgba(255, 107, 53, 0.06); }
+
+.pf-referral-code:focus-visible {
+  outline: 2px solid var(--hm-orange, #ff6b35);
+  outline-offset: 2px;
 }
 
-.pf-referral-copy-icon {
-  display: flex;
-  align-items: center;
-}
-
-.pf-referral-copy-icon svg {
-  width: 14px;
-  height: 14px;
-}
+.pf-referral-copy-icon     { display: flex; align-items: center; }
+.pf-referral-copy-icon svg { width: 14px; height: 14px; }
 
 /* ────────────────────────────────────────
-   MENU SECTIONS (mobile)
+   MENU SECTIONS (mobile + tablet)
 ──────────────────────────────────────── */
-.pf-menu-section {
-  margin: 0 16px 8px;
-}
+.pf-menu-section { margin: 0 16px 8px; }
 
 .pf-menu-label {
   font-size: 11px;
@@ -929,7 +912,7 @@
   outline-offset: -2px;
 }
 
-/* ── Active menu item ── */
+/* Active state */
 .pf-menu-item--active {
   background: rgba(255, 107, 53, 0.06) !important;
   border-left-color: var(--hm-orange, #ff6b35);
@@ -949,7 +932,7 @@
   color: var(--hm-orange, #ff6b35);
 }
 
-/* ── Menu icon ── */
+/* Icon */
 .pf-menu-icon {
   width: 36px;
   height: 36px;
@@ -1085,7 +1068,7 @@
 .pf-hdr-save-btn--flash   { background: #16a34a !important; }
 
 /* ════════════════════════════════════════════════════════════════
-   SMALL MOBILE ≤ 380px
+   SMALL MOBILE  ≤ 380px
 ════════════════════════════════════════════════════════════════ */
 @media (max-width: 380px) {
   .pf-identity-card {
@@ -1093,11 +1076,7 @@
     padding: 16px 14px;
   }
 
-  .pf-avatar {
-    width: 68px;
-    height: 68px;
-  }
-
+  .pf-avatar        { width: 68px; height: 68px; }
   .pf-avatar-letter { font-size: 26px; }
 
   .pf-name {
@@ -1106,12 +1085,7 @@
   }
 
   .pf-quick-actions { flex-wrap: wrap; }
-
-  .pf-qa-btn {
-    flex: none;
-    width: calc(50% - 4px);
-  }
-
+  .pf-qa-btn        { flex: none; width: calc(50% - 4px); }
   .pf-qa-btn:first-child { width: 100%; }
 
   .pf-kstat-val { font-size: 15px; }
@@ -1153,7 +1127,8 @@
 }
 
 /* ════════════════════════════════════════════════════════════════
-   TABLET 520px – 1023px
+   TABLET  520px – 1023px
+   Single column, mobile card, but listings become 2-col grid
 ════════════════════════════════════════════════════════════════ */
 @media (min-width: 520px) and (max-width: 1023px) {
   .pf-page {
@@ -1166,11 +1141,7 @@
     padding: 24px 20px 20px;
   }
 
-  .pf-avatar {
-    width: 90px;
-    height: 90px;
-  }
-
+  .pf-avatar        { width: 90px; height: 90px; }
   .pf-avatar-letter { font-size: 34px; }
   .pf-name          { font-size: 22px; }
 
@@ -1195,7 +1166,7 @@
 
   .pf-header { padding: 12px 20px; }
 
-  /* Tablet: 2-col grid */
+  /* Recent section card shell */
   .pf-recent-section {
     background: rgba(255, 255, 255, 0.55);
     backdrop-filter: blur(10px);
@@ -1208,44 +1179,42 @@
 
   .pf-recent-header { padding: 0 16px; }
 
+  /* Hide horizontal scroll, show grid */
+  .pf-recent-scroll { display: none; }
+
   .pf-recent-grid {
+    display: grid;
     grid-template-columns: repeat(2, 1fr);
     padding: 0 16px 4px;
+    gap: 16px;
   }
-
-  /* Tablet shows grid, hides scroll */
-  .pf-desktop-only            { display: block; }
-  .pf-mobile-only.pf-recent-scroll { display: none; }
 
   .pf-grid-skeleton {
+    display: grid;
     grid-template-columns: repeat(2, 1fr);
     padding: 0 16px 4px;
   }
 
-  .pf-error-banner {
-    margin: 0 20px 12px;
-  }
+  .pf-error-banner { margin: 0 20px 12px; }
 }
 
 /* ════════════════════════════════════════════════════════════════
-   DESKTOP ≥ 1024px
+   DESKTOP  ≥ 1024px
    Sidebar left · Content right
 ════════════════════════════════════════════════════════════════ */
 @media (min-width: 1024px) {
 
-  /* Visibility */
+  /* Visibility swap */
   .pf-mobile-only   { display: none !important; }
   .pf-desktop-only  { display: block; }
   .pf-mobile-header { display: none;  }
 
-  /* Page */
   .pf-page {
     max-width: 1280px;
     margin: 0 auto;
     padding: 0 24px;
   }
 
-  /* Layout */
   .pf-layout {
     gap: 28px;
     align-items: flex-start;
@@ -1275,7 +1244,7 @@
 
   .pf-sidebar::-webkit-scrollbar { display: none; }
 
-  /* ── Sidebar identity ── */
+  /* Identity inside sidebar */
   .pf-sidebar-identity {
     padding: 28px 20px 20px;
     display: flex;
@@ -1352,9 +1321,7 @@
     margin-bottom: 14px;
   }
 
-  .pf-sidebar-star {
-    display: flex;
-  }
+  .pf-sidebar-star { display: flex; }
 
   .pf-sidebar-star svg {
     width: 16px;
@@ -1387,7 +1354,7 @@
     flex-shrink: 0;
   }
 
-  /* ── Referral inside sidebar ── */
+  /* Referral inside sidebar */
   .pf-sidebar .pf-referral {
     margin: 0;
     border-radius: 0;
@@ -1398,7 +1365,7 @@
     padding: 16px 20px;
   }
 
-  /* ── Sidebar navigation ── */
+  /* Sidebar nav */
   .pf-sidebar-nav {
     flex: 1;
     padding: 8px 0;
@@ -1478,7 +1445,7 @@
 
   .pf-sidebar-link-text { flex: 1; }
 
-  /* ── Sidebar logout ── */
+  /* Sidebar logout */
   .pf-sidebar-logout {
     display: flex;
     align-items: center;
@@ -1504,14 +1471,14 @@
     outline-offset: -2px;
   }
 
-  /* ── CONTENT AREA ── */
+  /* ── CONTENT ── */
   .pf-content {
     flex: 1;
     min-width: 0;
     padding-bottom: 48px;
   }
 
-  /* ── Quick actions bar ── */
+  /* Quick bar */
   .pf-quick-bar {
     background: rgba(255, 255, 255, 0.65);
     backdrop-filter: blur(12px);
@@ -1522,20 +1489,20 @@
     margin-bottom: 20px;
   }
 
-  /* ── Error banner desktop ── */
+  /* Error */
   .pf-error-banner {
     margin: 0 0 16px;
     border-radius: 16px;
   }
 
-  /* ── Recent listings desktop ── */
+  /* Recent listings */
   .pf-recent-section {
     background: rgba(255, 255, 255, 0.65);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid rgba(237, 233, 227, 0.5);
     border-radius: 20px;
-    padding: 20px 0 20px;
+    padding: 20px 0;
     margin-bottom: 20px;
   }
 
@@ -1544,18 +1511,22 @@
     margin-bottom: 16px;
   }
 
+  /* Hide scroll, show 3-col grid */
+  .pf-recent-scroll { display: none; }
+
   .pf-recent-grid {
+    display: grid;
     grid-template-columns: repeat(3, 1fr);
     padding: 0 20px 4px;
     gap: 14px;
   }
 
   .pf-grid-skeleton {
+    display: grid;
     grid-template-columns: repeat(3, 1fr);
     padding: 0 20px 4px;
   }
 
-  /* ── Footer ── */
   .pf-footer {
     font-size: 12px;
     padding-bottom: 40px;
@@ -1563,13 +1534,11 @@
 }
 
 /* ════════════════════════════════════════════════════════════════
-   WIDE DESKTOP ≥ 1280px — 4-column grid
+   WIDE DESKTOP  ≥ 1280px
 ════════════════════════════════════════════════════════════════ */
 @media (min-width: 1280px) {
-  .pf-page { padding: 0 32px; }
-
+  .pf-page   { padding: 0 32px; }
   .pf-layout { gap: 32px; }
-
   .pf-sidebar { width: 320px; }
 
   .pf-recent-grid {
@@ -1582,13 +1551,10 @@
 }
 
 /* ════════════════════════════════════════════════════════════════
-   ULTRA WIDE ≥ 1536px
+   ULTRA WIDE  ≥ 1536px
 ════════════════════════════════════════════════════════════════ */
 @media (min-width: 1536px) {
-  .pf-page {
-    max-width: 1440px;
-  }
-
+  .pf-page { max-width: 1440px; }
   .pf-sidebar { width: 340px; }
 
   .pf-sidebar-avatar {
@@ -1610,7 +1576,7 @@
 }
 
 /* ════════════════════════════════════════════════════════════════
-   REDUCED MOTION — disable animations for accessibility
+   REDUCED MOTION
 ════════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   *,
@@ -1621,13 +1587,8 @@
     transition-duration: 0.01ms !important;
   }
 
-  .pf-spin-icon {
-    animation: none;
-  }
-
-  .pf-badge-pill--notif {
-    animation: none;
-  }
+  .pf-spin-icon         { animation: none; }
+  .pf-badge-pill--notif { animation: none; }
 
   .pf-grid-skeleton-card {
     animation: none;
@@ -1636,7 +1597,7 @@
 }
 
 /* ════════════════════════════════════════════════════════════════
-   HIGH CONTRAST MODE
+   HIGH CONTRAST
 ════════════════════════════════════════════════════════════════ */
 @media (forced-colors: active) {
   .pf-identity-card,
@@ -1654,18 +1615,14 @@
     border: 1px solid ButtonText;
   }
 
-  .pf-avatar {
-    border: 2px solid ButtonText;
-  }
+  .pf-avatar { border: 2px solid ButtonText; }
 
-  .pf-menu-item--active,
-  .pf-sidebar-link--active {
-    border-left: 3px solid Highlight;
-  }
+  .pf-menu-item--active { border-left: 3px solid Highlight; }
+  .pf-sidebar-link--active { border-right: 3px solid Highlight; }
 }
 
 /* ════════════════════════════════════════════════════════════════
-   PRINT STYLES
+   PRINT
 ════════════════════════════════════════════════════════════════ */
 @media print {
   .pf-sidebar,
@@ -1681,9 +1638,7 @@
     display: none !important;
   }
 
-  .pf-page {
-    background: #fff;
-  }
+  .pf-page { background: #fff; }
 
   .pf-identity-card,
   .pf-menu-list,
@@ -1695,7 +1650,5 @@
     box-shadow: none;
   }
 
-  .pf-content {
-    padding-bottom: 0;
-  }
+  .pf-content { padding-bottom: 0; }
 }
