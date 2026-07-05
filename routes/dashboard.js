@@ -6,10 +6,10 @@ import authenticate from "../middleware/auth.js";
 const router = express.Router();
 
 /* ═══════════════════════════════════════════════════════════════
-   IN-MEMORY CACHE  (TTL = 5 min)
+   IN-MEMORY CACHE  (TTL = 2 min — reduced for freshness)
 ═══════════════════════════════════════════════════════════════ */
 const _cache    = new Map();
-const CACHE_TTL = 5 * 60 * 1_000;
+const CACHE_TTL = 2 * 60 * 1_000;
 
 const cacheGet = (key) => {
   const item = _cache.get(key);
@@ -17,71 +17,144 @@ const cacheGet = (key) => {
   if (Date.now() > item.expires) { _cache.delete(key); return null; }
   return item.value;
 };
-
 const cacheSet = (key, value) =>
   _cache.set(key, { value, expires: Date.now() + CACHE_TTL });
+const cacheDel = (prefix) => {
+  for (const key of _cache.keys()) {
+    if (key.startsWith(prefix)) _cache.delete(key);
+  }
+};
 
-const cacheDel = (key) => _cache.delete(key);
-
-/* Auto-evict expired entries every 10 min */
 setInterval(() => {
   const now = Date.now();
   for (const [k, v] of _cache.entries()) {
     if (now > v.expires) _cache.delete(k);
   }
-}, 10 * 60 * 1_000);
+}, 5 * 60 * 1_000);
 
 /* ═══════════════════════════════════════════════════════════════
    STATUS HELPERS
+   Valid: draft | active | active_limited | paused |
+          pending_payment | deleted
 ═══════════════════════════════════════════════════════════════ */
-const ACTIVE_STATUSES  = `(p.status = 'active' OR p.status LIKE 'active_%')`;
-const PENDING_STATUSES = `(p.status = 'pending' OR p.status LIKE 'pending_%')`;
-const NOT_DELETED      = `COALESCE(p.is_deleted, false) = false AND p.status != 'deleted'`;
-
-const ACTIVE_STATUSES_RAW  = `(status = 'active' OR status LIKE 'active_%')`;
-const PENDING_STATUSES_RAW = `(status = 'pending' OR status LIKE 'pending_%')`;
-const NOT_DELETED_RAW      = `COALESCE(is_deleted, false) = false AND status != 'deleted'`;
+const ACTIVE_STATUSES     = `p.status IN ('active', 'active_limited')`;
+const ACTIVE_STATUSES_RAW = `status IN ('active', 'active_limited')`;
+const NOT_DELETED         = `p.is_deleted = false AND p.status != 'deleted'`;
+const NOT_DELETED_RAW     = `is_deleted = false AND status != 'deleted'`;
 
 /* ═══════════════════════════════════════════════════════════════
    IMAGE RESOLVER
-   Only uses main_image + thumbnail_url (no images column in schema)
 ═══════════════════════════════════════════════════════════════ */
 function resolveProductImage(p) {
-  const image = p.main_image || p.thumbnail_url || null;
-  return {
-    image,
-    imagesArr: image ? [image] : [],
-  };
+  let image = p.main_image || p.thumbnail_url || null;
+
+  let imagesArr = [];
+  if (p.images) {
+    let raw = p.images;
+    if (typeof raw === "string") {
+      try { raw = JSON.parse(raw); } catch { raw = []; }
+    }
+    if (Array.isArray(raw) && raw.length > 0) {
+      imagesArr = raw
+        .map((img) => {
+          if (typeof img === "string") return img;
+          if (img?.url) return img.url;
+          if (img?.secure_url) return img.secure_url;
+          return null;
+        })
+        .filter(Boolean);
+      if (!image && imagesArr.length > 0) image = imagesArr[0];
+    }
+  }
+
+  if (imagesArr.length === 0 && image) imagesArr = [image];
+
+  return { image, imagesArr };
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SHAPE PRODUCT ROW
+   SHAPE PRODUCT  (list view — lighter)
 ═══════════════════════════════════════════════════════════════ */
 function shapeProduct(p) {
   const { image, imagesArr } = resolveProductImage(p);
+
+  let displayStatus = p.status || "draft";
+  if (p.status === "active_limited" && p.active_until) {
+    if (new Date(p.active_until) < new Date()) displayStatus = "expired";
+  }
+
   return {
     id:               p.id,
     title:            p.title,
     price:            Number(p.price            || 0),
-    slug:             p.slug            || null,
-    status:           p.status          || "draft",
-    is_active:        p.is_active       !== false,
+    slug:             p.slug             || null,
+    status:           p.status           || "draft",
+    display_status:   displayStatus,
+    is_active:        p.is_active        !== false,
     is_promoted:      !!p.is_promoted,
-    promotion_type:   p.promotion_type  || null,
+    is_featured:      !!p.is_featured,
+    promotion_type:   p.promotion_type   || null,
     views:            Number(p.views            || 0),
     clicks_count:     Number(p.clicks_count     || 0),
     favorites_count:  Number(p.favorites_count  || 0),
     engagement_score: Number(p.engagement_score || 0),
     quality_score:    Number(p.quality_score    || 0),
-    created_at:       p.created_at      || null,
-    updated_at:       p.updated_at      || null,
-    location_city:    p.location_city   || null,
-    location_state:   p.location_state  || null,
-    category_name:    p.category_name   || null,
-    main_image:       p.main_image      || null,
-    thumbnail_url:    p.thumbnail_url   || null,
+    created_at:       p.created_at       || null,
+    updated_at:       p.updated_at       || null,
+    active_until:     p.active_until     || null,
+    location_city:    p.location_city    || null,
+    location_state:   p.location_state   || null,
+    category_name:    p.category_name    || null,
+    condition:        p.condition        || null,
+    negotiable:       p.negotiable       ?? true,
+    stock_quantity:    Number(p.stock_quantity || 1),
+    stock_status:     p.stock_status     || "in_stock",
+    main_image:       p.main_image       || null,
+    thumbnail_url:    p.thumbnail_url    || null,
     image,
     images:           imagesArr,
+    seller_name:      p.seller_name      || null,
+  };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SHAPE PRODUCT FULL  (edit view — all fields)
+═══════════════════════════════════════════════════════════════ */
+function shapeProductFull(p) {
+  const base = shapeProduct(p);
+
+  /* Parse images from product_images table if provided */
+  let productImages = [];
+  if (p.product_images) {
+    const raw = typeof p.product_images === "string"
+      ? (() => { try { return JSON.parse(p.product_images); } catch { return []; } })()
+      : p.product_images;
+    if (Array.isArray(raw)) productImages = raw;
+  }
+
+  return {
+    ...base,
+    description:     p.description     || "",
+    category_id:     p.category_id     || null,
+    subcategory_id:  p.subcategory_id  || null,
+    phone:           p.phone           || null,
+    whatsapp:        p.whatsapp        || null,
+    whatsapp_link:   p.whatsapp_link   || null,
+    latitude:        p.latitude        || null,
+    longitude:       p.longitude       || null,
+    attributes:      p.attributes      || {},
+    delivery:        p.delivery        || {},
+    contact:         p.contact         || {},
+    highlights:      p.highlights      || [],
+    specifications:  p.specifications  || {},
+    faq:             p.faq             || [],
+    brand:           p.brand           || null,
+    model:           p.model           || null,
+    video_url:       p.video_url       || null,
+    promotion_end:   p.promotion_end   || null,
+    promotion_start: p.promotion_start || null,
+    renewal_count:   Number(p.renewal_count || 0),
+    product_images:  productImages,
   };
 }
 
@@ -95,6 +168,11 @@ function buildTabWhere(tab) {
         where: `AND ${ACTIVE_STATUSES} AND p.is_active = true AND ${NOT_DELETED}`,
         count: `AND ${ACTIVE_STATUSES_RAW} AND is_active = true AND ${NOT_DELETED_RAW}`,
       };
+    case "active_limited":
+      return {
+        where: `AND p.status = 'active_limited' AND p.is_active = true AND ${NOT_DELETED}`,
+        count: `AND status = 'active_limited' AND is_active = true AND ${NOT_DELETED_RAW}`,
+      };
     case "draft":
       return {
         where: `AND p.status = 'draft' AND ${NOT_DELETED}`,
@@ -102,15 +180,16 @@ function buildTabWhere(tab) {
       };
     case "paused":
       return {
-        where: `AND p.is_active = false AND p.status NOT IN ('draft','deleted') AND ${NOT_DELETED}`,
-        count: `AND is_active = false AND status NOT IN ('draft','deleted') AND ${NOT_DELETED_RAW}`,
+        where: `AND p.status = 'paused' AND ${NOT_DELETED}`,
+        count: `AND status = 'paused' AND ${NOT_DELETED_RAW}`,
       };
     case "pending":
+    case "pending_payment":
       return {
-        where: `AND ${PENDING_STATUSES} AND ${NOT_DELETED}`,
-        count: `AND ${PENDING_STATUSES_RAW} AND ${NOT_DELETED_RAW}`,
+        where: `AND p.status = 'pending_payment' AND ${NOT_DELETED}`,
+        count: `AND status = 'pending_payment' AND ${NOT_DELETED_RAW}`,
       };
-    default: /* all */
+    default:
       return {
         where: `AND ${NOT_DELETED}`,
         count: `AND ${NOT_DELETED_RAW}`,
@@ -119,7 +198,30 @@ function buildTabWhere(tab) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SELLER SCORE CALCULATOR
+   PRODUCTS SELECT COLUMNS
+═══════════════════════════════════════════════════════════════ */
+const PRODUCT_COLS = `
+  p.id, p.title, p.price, p.slug, p.status, p.is_active,
+  p.is_promoted, p.is_featured, p.promotion_type,
+  p.views, p.clicks_count, p.favorites_count,
+  p.engagement_score, p.quality_score,
+  p.created_at, p.updated_at, p.active_until,
+  p.main_image, p.thumbnail_url, p.images,
+  p.location_city, p.location_state,
+  p.condition, p.negotiable, p.stock_quantity, p.stock_status,
+  p.seller_name,
+  cat.name AS category_name
+`;
+
+/* Full columns for edit view */
+const PRODUCT_COLS_FULL = `
+  p.*,
+  cat.name AS category_name,
+  subcat.name AS subcategory_name
+`;
+
+/* ═══════════════════════════════════════════════════════════════
+   SELLER SCORE
 ═══════════════════════════════════════════════════════════════ */
 async function getSellerScore(userId) {
   try {
@@ -168,7 +270,7 @@ async function getSellerScore(userId) {
     const views      = Number(a.total_views      || 0);
     const clicks     = Number(a.total_clicks     || 0);
     const engagement = Number(a.total_engagement || 0);
-    const products   = Number(a.active_count     || 1);
+    const products   = Math.max(Number(a.active_count || 1), 1);
     const rating     = Number(a.rating           || 0);
 
     const ctr         = views > 0 ? (clicks / views) * 100 : 0;
@@ -189,32 +291,6 @@ async function getSellerScore(userId) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PRODUCTS SELECT COLUMNS  (reused in multiple routes)
-═══════════════════════════════════════════════════════════════ */
-const PRODUCT_COLS = `
-  p.id,
-  p.title,
-  p.price,
-  p.slug,
-  p.status,
-  p.is_active,
-  p.is_promoted,
-  p.promotion_type,
-  p.views,
-  p.clicks_count,
-  p.favorites_count,
-  p.engagement_score,
-  p.quality_score,
-  p.created_at,
-  p.updated_at,
-  p.main_image,
-  p.thumbnail_url,
-  p.location_city,
-  p.location_state,
-  cat.name AS category_name
-`;
-
-/* ═══════════════════════════════════════════════════════════════
    GET /api/seller-dashboard/stats
 ═══════════════════════════════════════════════════════════════ */
 router.get("/stats", authenticate, async (req, res) => {
@@ -229,41 +305,25 @@ router.get("/stats", authenticate, async (req, res) => {
 
     const { rows } = await pool.query(
       `SELECT
-         u.rating,
-         u.total_sales,
-         u.trust_score,
+         u.rating, u.total_sales, u.trust_score,
          COALESCE(SUM(p.views),           0)::int AS total_views,
          COALESCE(SUM(p.clicks_count),    0)::int AS total_clicks,
          COALESCE(SUM(p.favorites_count), 0)::int AS total_favorites,
          COUNT(p.id)::int                         AS total_products,
 
-         COUNT(CASE
-           WHEN (p.status = 'active' OR p.status LIKE 'active_%')
-            AND p.is_active = true
-           THEN 1 END)::int AS active,
-
-         COUNT(CASE
-           WHEN p.status = 'draft'
-           THEN 1 END)::int AS draft,
-
-         COUNT(CASE
-           WHEN p.is_active = false
-            AND p.status NOT IN ('draft','deleted')
-           THEN 1 END)::int AS paused,
-
-         COUNT(CASE
-           WHEN (p.status = 'pending' OR p.status LIKE 'pending_%')
-           THEN 1 END)::int AS pending,
-
-         COUNT(CASE
-           WHEN p.is_promoted = true
-           THEN 1 END)::int AS promoted
+         COUNT(CASE WHEN p.status = 'active'         AND p.is_active = true THEN 1 END)::int AS active,
+         COUNT(CASE WHEN p.status = 'active_limited'  AND p.is_active = true THEN 1 END)::int AS active_limited,
+         COUNT(CASE WHEN p.status = 'draft'                                  THEN 1 END)::int AS draft,
+         COUNT(CASE WHEN p.status = 'paused'                                 THEN 1 END)::int AS paused,
+         COUNT(CASE WHEN p.status = 'pending_payment'                        THEN 1 END)::int AS pending_payment,
+         COUNT(CASE WHEN p.is_promoted = true                                THEN 1 END)::int AS promoted,
+         COUNT(CASE WHEN p.is_featured = true                                THEN 1 END)::int AS featured
 
        FROM public.users u
        LEFT JOIN public.products p
-         ON  p.seller_id = u.id
-         AND p.status   != 'deleted'
-         AND COALESCE(p.is_deleted, false) = false
+         ON  p.seller_id  = u.id
+         AND p.is_deleted  = false
+         AND p.status     != 'deleted'
        WHERE u.id = $1
        GROUP BY u.id, u.rating, u.total_sales, u.trust_score`,
       [userId]
@@ -273,20 +333,25 @@ router.get("/stats", authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    const r = rows[0];
+    const r           = rows[0];
+    const activeTotal = Number(r.active || 0) + Number(r.active_limited || 0);
+
     const stats = {
-      total_products:  Number(r.total_products  || 0),
-      active:          Number(r.active          || 0),
-      draft:           Number(r.draft           || 0),
-      paused:          Number(r.paused          || 0),
-      pending:         Number(r.pending         || 0),
-      promoted:        Number(r.promoted        || 0),
-      total_views:     Number(r.total_views     || 0),
-      total_clicks:    Number(r.total_clicks    || 0),
-      total_favorites: Number(r.total_favorites || 0),
-      total_revenue:   Number(r.total_sales     || 0),
-      rating:          Number(r.rating          || 0),
-      trust_score:     Number(r.trust_score     || 50),
+      total_products:  Number(r.total_products   || 0),
+      active:          activeTotal,
+      active_full:     Number(r.active           || 0),
+      active_limited:  Number(r.active_limited   || 0),
+      draft:           Number(r.draft            || 0),
+      paused:          Number(r.paused           || 0),
+      pending_payment: Number(r.pending_payment  || 0),
+      promoted:        Number(r.promoted         || 0),
+      featured:        Number(r.featured         || 0),
+      total_views:     Number(r.total_views      || 0),
+      total_clicks:    Number(r.total_clicks     || 0),
+      total_favorites: Number(r.total_favorites  || 0),
+      total_revenue:   Number(r.total_sales      || 0),
+      rating:          Number(r.rating           || 0),
+      trust_score:     Number(r.trust_score      || 50),
     };
 
     console.log(`[dashboard/stats] total=${stats.total_products} active=${stats.active}`);
@@ -296,71 +361,164 @@ router.get("/stats", authenticate, async (req, res) => {
 
   } catch (err) {
     console.error("[dashboard/stats] ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      detail:  err.message,
-    });
+    return res.status(500).json({ success: false, message: "Server error", detail: err.message });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/seller-dashboard/products
+   Supports: tab, limit, cursor (infinite scroll), search
 ═══════════════════════════════════════════════════════════════ */
 router.get("/products", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
-    const limit  = Math.min(Number(req.query.limit) || 50, 100);
-    const page   = Math.max(Number(req.query.page)  || 1,  1);
-    const offset = (page - 1) * limit;
-    const tab    = req.query.tab || "all";
+    const limit  = Math.min(Number(req.query.limit) || 20, 50);
+    const cursor = req.query.cursor || null; // ISO date string for infinite scroll
+    const tab    = req.query.tab    || "all";
+    const search = (req.query.search || "").trim();
 
-    console.log(`[dashboard/products] userId=${userId} tab=${tab} page=${page}`);
+    console.log(`[dashboard/products] userId=${userId} tab=${tab} cursor=${cursor} search=${search}`);
 
     const { where, count } = buildTabWhere(tab);
 
-    /* Main query */
-    const { rows } = await pool.query(
-      `SELECT ${PRODUCT_COLS}
-       FROM public.products p
-       LEFT JOIN public.categories cat ON cat.id = p.category_id
-       WHERE p.seller_id = $1
-         ${where}
-       ORDER BY p.created_at DESC
-       LIMIT  $2
-       OFFSET $3`,
-      [userId, limit, offset]
-    );
+    /* Search filter */
+    const searchWhere = search
+      ? `AND LOWER(p.title) LIKE '%' || LOWER($4) || '%'`
+      : "";
 
-    /* Count query */
-    const { rows: cRows } = await pool.query(
-      `SELECT COUNT(*)::int AS total
-       FROM public.products
-       WHERE seller_id = $1
-         ${count}`,
-      [userId]
-    );
+    /* Cursor-based pagination (created_at < cursor) */
+    const cursorWhere = cursor
+      ? `AND p.created_at < $${search ? 5 : 4}::timestamptz`
+      : "";
 
-    const total    = Number(cRows[0]?.total || 0);
-    const products = rows.map(shapeProduct);
+    const params = [userId, limit + 1]; // +1 to detect has_more
+    let paramIdx = 3;
 
-    console.log(`[dashboard/products] found=${products.length} total=${total}`);
+    if (search) {
+      params.push(search);
+      paramIdx++;
+    }
+    if (cursor) {
+      params.push(cursor);
+    }
+
+    /* Dynamic query build */
+    const sql = `
+      SELECT ${PRODUCT_COLS}
+      FROM public.products p
+      LEFT JOIN public.categories cat ON cat.id = p.category_id
+      WHERE p.seller_id = $1
+        ${where}
+        ${searchWhere}
+        ${cursorWhere}
+      ORDER BY p.created_at DESC
+      LIMIT $2
+    `;
+
+    const { rows } = await pool.query(sql, params);
+
+    /* Determine has_more */
+    const hasMore  = rows.length > limit;
+    const sliced   = hasMore ? rows.slice(0, limit) : rows;
+    const products = sliced.map(shapeProduct);
+
+    /* Next cursor = created_at of last item */
+    const nextCursor = hasMore && sliced.length > 0
+      ? sliced[sliced.length - 1].created_at
+      : null;
+
+    /* Total count (only on first load, not on cursor loads) */
+    let total = null;
+    if (!cursor) {
+      const countParams = search ? [userId, search] : [userId];
+      const searchCountWhere = search
+        ? `AND LOWER(title) LIKE '%' || LOWER($2) || '%'`
+        : "";
+
+      const { rows: cRows } = await pool.query(
+        `SELECT COUNT(*)::int AS total
+         FROM public.products
+         WHERE seller_id = $1
+           ${count}
+           ${searchCountWhere}`,
+        countParams
+      );
+      total = cRows[0]?.total || 0;
+    }
+
+    console.log(`[dashboard/products] found=${products.length} hasMore=${hasMore}`);
 
     return res.json({
-      success: true,
+      success:     true,
       products,
       total,
-      pagination: {
-        total,
-        page,
-        limit,
-        total_pages: Math.ceil(total / limit),
-        has_more:    offset + rows.length < total,
-      },
+      has_more:    hasMore,
+      next_cursor: nextCursor,
     });
 
   } catch (err) {
     console.error("[dashboard/products] ERROR:", err);
+    return res.status(500).json({ success: false, message: "Server error", detail: err.message });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /api/seller-dashboard/products/:id
+   Full product data for editing
+═══════════════════════════════════════════════════════════════ */
+router.get("/products/:id", authenticate, async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  try {
+    console.log(`[dashboard/product] id=${id} userId=${userId}`);
+
+    /* Fetch product with category names */
+    const { rows } = await pool.query(
+      `SELECT
+         ${PRODUCT_COLS_FULL}
+       FROM public.products p
+       LEFT JOIN public.categories cat    ON cat.id = p.category_id
+       LEFT JOIN public.categories subcat ON subcat.id = p.subcategory_id
+       WHERE p.id        = $1
+         AND p.seller_id = $2
+         AND p.is_deleted = false
+         AND p.status    != 'deleted'
+       LIMIT 1`,
+      [id, userId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Product not found or not owned by you",
+      });
+    }
+
+    /* Fetch product_images separately for full edit data */
+    const { rows: imgRows } = await pool.query(
+      `SELECT
+         id, image_url, r2_key, position_order, is_primary
+       FROM public.product_images
+       WHERE product_id = $1
+       ORDER BY position_order ASC`,
+      [id]
+    );
+
+    const product = shapeProductFull({
+      ...rows[0],
+      product_images: imgRows,
+    });
+
+    console.log(`[dashboard/product] found: "${product.title}"`);
+
+    return res.json({
+      success: true,
+      product,
+    });
+
+  } catch (err) {
+    console.error("[dashboard/product] ERROR:", err);
     return res.status(500).json({
       success: false,
       message: "Server error",
@@ -382,8 +540,7 @@ router.patch("/products/:id/toggle", authenticate, async (req, res) => {
     const { rows } = await pool.query(
       `SELECT id, is_active, status
        FROM public.products
-       WHERE id = $1 AND seller_id = $2
-         AND COALESCE(is_deleted, false) = false
+       WHERE id = $1 AND seller_id = $2 AND is_deleted = false
        LIMIT 1`,
       [id, userId]
     );
@@ -392,7 +549,8 @@ router.patch("/products/:id/toggle", authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: "Product not found" });
     }
 
-    const newActive = !rows[0].is_active;
+    const current   = rows[0];
+    const newActive = !current.is_active;
     const newStatus = newActive ? "active" : "paused";
 
     await pool.query(
@@ -407,35 +565,216 @@ router.patch("/products/:id/toggle", authenticate, async (req, res) => {
     cacheDel(`stats:${userId}`);
     cacheDel(`overview:${userId}`);
 
-    console.log(`[dashboard/toggle] productId=${id} is_active=${newActive} status=${newStatus}`);
+    console.log(`[dashboard/toggle] id=${id} active=${newActive} status=${newStatus}`);
 
     return res.json({ success: true, is_active: newActive, status: newStatus });
 
   } catch (err) {
     console.error("[dashboard/toggle] ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      detail:  err.message,
+    return res.status(500).json({ success: false, message: "Server error", detail: err.message });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/seller-dashboard/products/:id/renew
+   Free renewal — extends active_until by 30 days
+═══════════════════════════════════════════════════════════════ */
+router.post("/products/:id/renew", authenticate, async (req, res) => {
+  const { id }       = req.params;
+  const userId       = req.user.id;
+  const RENEW_DAYS   = 30;
+  const MAX_RENEWALS = 10;
+
+  try {
+    console.log(`[dashboard/renew] productId=${id} userId=${userId}`);
+
+    const { rows } = await pool.query(
+      `SELECT
+         id, title, status, is_active, active_until,
+         is_promoted, COALESCE(renewal_count, 0) AS renewal_count
+       FROM public.products
+       WHERE id = $1 AND seller_id = $2 AND is_deleted = false
+       LIMIT 1`,
+      [id, userId]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: "Listing not found" });
+    }
+
+    const product = rows[0];
+
+    if (["deleted", "pending_payment"].includes(product.status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot renew a listing with status "${product.status}"`,
+      });
+    }
+
+    if (product.renewal_count >= MAX_RENEWALS) {
+      return res.status(400).json({
+        success: false,
+        message: "Maximum renewals reached. Please create a new listing.",
+      });
+    }
+
+    const now      = new Date();
+    const expiry   = product.active_until ? new Date(product.active_until) : null;
+    const daysLeft = expiry ? Math.ceil((expiry - now) / (1000 * 60 * 60 * 24)) : null;
+
+    if (daysLeft !== null && daysLeft > 7) {
+      return res.status(400).json({
+        success:   false,
+        message:   `Your listing still has ${daysLeft} days left. Renewal available when 7 days or less remain.`,
+        days_left: daysLeft,
+      });
+    }
+
+    const base      = expiry && expiry > now ? expiry : now;
+    const newExpiry = new Date(base);
+    newExpiry.setDate(newExpiry.getDate() + RENEW_DAYS);
+
+    const newStatus   = product.is_promoted ? product.status : "active";
+    const newIsActive = true;
+
+    await pool.query(
+      `UPDATE public.products
+       SET active_until  = $1,
+           status        = $2,
+           is_active     = $3,
+           renewal_count = COALESCE(renewal_count, 0) + 1,
+           updated_at    = NOW()
+       WHERE id = $4 AND seller_id = $5`,
+      [newExpiry, newStatus, newIsActive, id, userId]
+    );
+
+    cacheDel(`stats:${userId}`);
+    cacheDel(`overview:${userId}`);
+
+    /* Notification */
+    try {
+      await pool.query(
+        `INSERT INTO public.notifications
+           (user_id, type, title, message, metadata)
+         VALUES ($1, 'listing_renewed', 'Listing Renewed ✓', $2, $3)`,
+        [
+          userId,
+          `"${product.title}" renewed for ${RENEW_DAYS} more days.`,
+          JSON.stringify({ product_id: id }),
+        ]
+      );
+    } catch { /* non-critical */ }
+
+    console.log(`[dashboard/renew] id=${id} renewed until ${newExpiry.toISOString()}`);
+
+    return res.json({
+      success:      true,
+      message:      `Listing renewed for ${RENEW_DAYS} days`,
+      active_until: newExpiry.toISOString(),
+      days_added:   RENEW_DAYS,
+      status:       newStatus,
     });
+
+  } catch (err) {
+    console.error("[dashboard/renew] ERROR:", err);
+    return res.status(500).json({ success: false, message: "Server error", detail: err.message });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE /api/seller-dashboard/products/:id
-   Soft delete
+   Soft delete — stays in DB 30 days for scam investigation
 ═══════════════════════════════════════════════════════════════ */
 router.delete("/products/:id", authenticate, async (req, res) => {
-  const { id } = req.params;
-  const userId = req.user.id;
+  const { id }    = req.params;
+  const userId    = req.user.id;
+  const HOLD_DAYS = 30;
 
   try {
     console.log(`[dashboard/delete] productId=${id} userId=${userId}`);
 
-    const { rows } = await pool.query(
-      `SELECT id FROM public.products
+    const { rows: check } = await pool.query(
+      `SELECT id, title, status, is_deleted
+       FROM public.products
        WHERE id = $1 AND seller_id = $2
-         AND COALESCE(is_deleted, false) = false
+       LIMIT 1`,
+      [id, userId]
+    );
+
+    if (!check.length) {
+      return res.status(404).json({ success: false, message: "Product not found" });
+    }
+
+    if (check[0].is_deleted) {
+      return res.status(400).json({ success: false, message: "Already deleted" });
+    }
+
+    /* Active verified listings must be paused first */
+    if (check[0].status === "active") {
+      return res.status(409).json({
+        success: false,
+        message: "Active listings must be paused before deleting.",
+      });
+    }
+
+    /* Check for active reports — extend hold period */
+    let holdDays = HOLD_DAYS;
+    try {
+      const { rows: reportRows } = await pool.query(
+        `SELECT COUNT(*)::int AS cnt
+         FROM public.product_reports
+         WHERE product_id = $1 AND status = 'pending'`,
+        [id]
+      );
+      if (reportRows[0]?.cnt > 0) holdDays = 365;
+    } catch { /* reports table might not exist yet */ }
+
+    await pool.query(
+      `UPDATE public.products
+       SET
+         is_active             = false,
+         status                = 'deleted',
+         deletion_requested_at = NOW(),
+         deletion_reason       = 'user_deleted',
+         permanent_delete_at   = NOW() + ($1 || ' days')::INTERVAL,
+         deleted_at            = NOW(),
+         updated_at            = NOW()
+       WHERE id = $2 AND seller_id = $3 AND is_deleted = false`,
+      [holdDays, id, userId]
+    );
+
+    cacheDel(`stats:${userId}`);
+    cacheDel(`overview:${userId}`);
+
+    console.log(`[dashboard/delete] id=${id} soft-deleted — hold ${holdDays} days`);
+
+    return res.json({
+      success:   true,
+      message:   "Listing deleted",
+      hold_days: holdDays,
+    });
+
+  } catch (err) {
+    console.error("[dashboard/delete] ERROR:", err);
+    return res.status(500).json({ success: false, message: "Server error", detail: err.message });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/seller-dashboard/products/:id/restore
+   Restore soft-deleted product within hold window
+═══════════════════════════════════════════════════════════════ */
+router.post("/products/:id/restore", authenticate, async (req, res) => {
+  const { id } = req.params;
+  const userId = req.user.id;
+
+  try {
+    console.log(`[dashboard/restore] productId=${id} userId=${userId}`);
+
+    const { rows } = await pool.query(
+      `SELECT id, title, status, permanent_delete_at
+       FROM public.products
+       WHERE id = $1 AND seller_id = $2
        LIMIT 1`,
       [id, userId]
     );
@@ -444,12 +783,30 @@ router.delete("/products/:id", authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: "Product not found" });
     }
 
+    const product = rows[0];
+
+    if (product.status !== "deleted") {
+      return res.status(400).json({ success: false, message: "Product is not deleted" });
+    }
+
+    if (product.permanent_delete_at && new Date(product.permanent_delete_at) < new Date()) {
+      return res.status(400).json({
+        success: false,
+        message: "Recovery window expired. Product cannot be restored.",
+      });
+    }
+
     await pool.query(
       `UPDATE public.products
-       SET is_active  = false,
-           is_deleted = true,
-           status     = 'deleted',
-           updated_at = NOW()
+       SET
+         is_active             = false,
+         status                = 'draft',
+         is_deleted            = false,
+         deletion_requested_at = NULL,
+         deletion_reason       = NULL,
+         permanent_delete_at   = NULL,
+         deleted_at            = NULL,
+         updated_at            = NOW()
        WHERE id = $1 AND seller_id = $2`,
       [id, userId]
     );
@@ -457,17 +814,65 @@ router.delete("/products/:id", authenticate, async (req, res) => {
     cacheDel(`stats:${userId}`);
     cacheDel(`overview:${userId}`);
 
-    console.log(`[dashboard/delete] productId=${id} soft-deleted`);
+    console.log(`[dashboard/restore] id=${id} restored to draft`);
 
-    return res.json({ success: true, message: "Product deleted" });
+    return res.json({ success: true, message: "Product restored to drafts", status: "draft" });
 
   } catch (err) {
-    console.error("[dashboard/delete] ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      detail:  err.message,
+    console.error("[dashboard/restore] ERROR:", err);
+    return res.status(500).json({ success: false, message: "Server error", detail: err.message });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /api/seller-dashboard/products/deleted
+   List soft-deleted products still within hold window
+═══════════════════════════════════════════════════════════════ */
+router.get("/products/deleted", authenticate, async (req, res) => {
+  const userId = req.user.id;
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         p.id, p.title, p.price, p.slug,
+         p.status, p.main_image, p.thumbnail_url, p.images,
+         p.deletion_requested_at, p.permanent_delete_at,
+         p.deletion_reason,
+         cat.name AS category_name
+       FROM public.products p
+       LEFT JOIN public.categories cat ON cat.id = p.category_id
+       WHERE p.seller_id           = $1
+         AND p.status              = 'deleted'
+         AND p.permanent_delete_at > NOW()
+       ORDER BY p.deletion_requested_at DESC
+       LIMIT 50`,
+      [userId]
+    );
+
+    const products = rows.map((p) => {
+      const { image } = resolveProductImage(p);
+      const daysLeft  = p.permanent_delete_at
+        ? Math.ceil((new Date(p.permanent_delete_at) - new Date()) / (1000 * 60 * 60 * 24))
+        : 0;
+      return {
+        id:                    p.id,
+        title:                 p.title,
+        price:                 Number(p.price || 0),
+        slug:                  p.slug,
+        image,
+        category_name:         p.category_name,
+        deletion_requested_at: p.deletion_requested_at,
+        permanent_delete_at:   p.permanent_delete_at,
+        days_left:             Math.max(0, daysLeft),
+        can_restore:           daysLeft > 0,
+      };
     });
+
+    return res.json({ success: true, products, total: products.length });
+
+  } catch (err) {
+    console.error("[dashboard/deleted] ERROR:", err);
+    return res.status(500).json({ success: false, message: "Server error", detail: err.message });
   }
 });
 
@@ -481,7 +886,7 @@ router.get("/analytics", authenticate, async (req, res) => {
 
     console.log(`[dashboard/analytics] userId=${userId} days=${days}`);
 
-    /* ── Daily chart data ── */
+    /* Daily chart */
     let daily = [];
     try {
       const { rows: dRows } = await pool.query(
@@ -492,15 +897,14 @@ router.get("/analytics", authenticate, async (req, res) => {
            SUM(favorites_count)::int AS favorites,
            COUNT(*)::int             AS product_count
          FROM public.products
-         WHERE seller_id = $1
+         WHERE seller_id  = $1
            AND created_at > NOW() - ($2 || ' days')::INTERVAL
-           AND COALESCE(is_deleted, false) = false
-           AND status != 'deleted'
+           AND is_deleted  = false
+           AND status     != 'deleted'
          GROUP BY DATE(created_at AT TIME ZONE 'Africa/Lagos')
          ORDER BY date ASC`,
         [userId, days]
       );
-
       daily = dRows.map((r) => ({
         date:      r.date,
         label:     new Date(r.date).toLocaleDateString("en-NG", {
@@ -514,48 +918,50 @@ router.get("/analytics", authenticate, async (req, res) => {
       console.error("[dashboard/analytics] chart error:", chartErr.message);
     }
 
-    /* ── Top 5 products by views ── */
+    /* Top 5 */
     let topProducts = [];
     try {
       const { rows: tRows } = await pool.query(
         `SELECT
            p.id, p.title, p.slug, p.price,
-           p.main_image, p.thumbnail_url,
+           p.main_image, p.thumbnail_url, p.images,
            p.views, p.clicks_count, p.favorites_count,
-           p.status, p.is_active, p.is_promoted,
+           p.status, p.is_active, p.is_promoted, p.active_until,
            cat.name AS category_name
          FROM public.products p
          LEFT JOIN public.categories cat ON cat.id = p.category_id
-         WHERE p.seller_id = $1
-           AND COALESCE(p.is_deleted, false) = false
-           AND p.status != 'deleted'
+         WHERE p.seller_id  = $1
+           AND p.is_deleted  = false
+           AND p.status     != 'deleted'
          ORDER BY p.views DESC
          LIMIT 5`,
         [userId]
       );
-
-      topProducts = tRows.map((p) => ({
-        id:              p.id,
-        title:           p.title,
-        slug:            p.slug,
-        price:           Number(p.price           || 0),
-        image:           p.main_image || p.thumbnail_url || null,
-        views:           Number(p.views           || 0),
-        clicks_count:    Number(p.clicks_count    || 0),
-        favorites_count: Number(p.favorites_count || 0),
-        status:          p.status,
-        is_active:       p.is_active,
-        is_promoted:     !!p.is_promoted,
-        category_name:   p.category_name || null,
-        ctr: Number(p.views || 0) > 0
-          ? Number(((p.clicks_count / p.views) * 100).toFixed(1))
-          : 0,
-      }));
+      topProducts = tRows.map((p) => {
+        const { image } = resolveProductImage(p);
+        return {
+          id:              p.id,
+          title:           p.title,
+          slug:            p.slug,
+          price:           Number(p.price           || 0),
+          image,
+          views:           Number(p.views           || 0),
+          clicks_count:    Number(p.clicks_count    || 0),
+          favorites_count: Number(p.favorites_count || 0),
+          status:          p.status,
+          is_active:       p.is_active,
+          is_promoted:     !!p.is_promoted,
+          active_until:    p.active_until || null,
+          category_name:   p.category_name || null,
+          ctr: Number(p.views || 0) > 0
+            ? Number(((Number(p.clicks_count || 0) / Number(p.views)) * 100).toFixed(1))
+            : 0,
+        };
+      });
     } catch (topErr) {
       console.error("[dashboard/analytics] top products error:", topErr.message);
     }
 
-    /* ── Seller score ── */
     const sellerScore = await getSellerScore(userId);
 
     console.log(`[dashboard/analytics] daily=${daily.length} top=${topProducts.length} score=${sellerScore}`);
@@ -570,11 +976,7 @@ router.get("/analytics", authenticate, async (req, res) => {
 
   } catch (err) {
     console.error("[dashboard/analytics] ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      detail:  err.message,
-    });
+    return res.status(500).json({ success: false, message: "Server error", detail: err.message });
   }
 });
 
@@ -592,70 +994,43 @@ router.get("/overview", authenticate, async (req, res) => {
     console.log(`[dashboard/overview] userId=${userId}`);
 
     const [statsRes, recentRes] = await Promise.all([
-
       pool.query(
         `SELECT
-           u.name,
-           u.store_name,
-           u.store_logo,
-           u.profile_image,
-           u.rating,
-           u.total_sales,
-           u.trust_score,
-           u.products_count,
-           u.store_verified,
-           u.verified,
-           u.is_online,
-           u.email_verified,
-           u.created_at,
+           u.name, u.store_name, u.store_logo, u.profile_image,
+           u.rating, u.total_sales, u.trust_score,
+           u.products_count, u.store_verified, u.verified,
+           u.is_online, u.created_at,
            COALESCE(SUM(p.views),            0)::int AS total_views,
            COALESCE(SUM(p.clicks_count),     0)::int AS total_clicks,
            COALESCE(SUM(p.favorites_count),  0)::int AS total_favorites,
            COUNT(p.id)::int                          AS total_products,
 
-           COUNT(CASE
-             WHEN (p.status = 'active' OR p.status LIKE 'active_%')
-              AND p.is_active = true
-             THEN 1 END)::int AS active,
-
-           COUNT(CASE
-             WHEN p.status = 'draft'
-             THEN 1 END)::int AS draft,
-
-           COUNT(CASE
-             WHEN p.is_active = false
-              AND p.status NOT IN ('draft','deleted')
-             THEN 1 END)::int AS paused,
-
-           COUNT(CASE
-             WHEN (p.status = 'pending' OR p.status LIKE 'pending_%')
-             THEN 1 END)::int AS pending,
-
-           COUNT(CASE
-             WHEN p.is_promoted = true
-             THEN 1 END)::int AS promoted
+           COUNT(CASE WHEN p.status = 'active'         AND p.is_active = true THEN 1 END)::int AS active,
+           COUNT(CASE WHEN p.status = 'active_limited'  AND p.is_active = true THEN 1 END)::int AS active_limited,
+           COUNT(CASE WHEN p.status = 'draft'                                  THEN 1 END)::int AS draft,
+           COUNT(CASE WHEN p.status = 'paused'                                 THEN 1 END)::int AS paused,
+           COUNT(CASE WHEN p.status = 'pending_payment'                        THEN 1 END)::int AS pending_payment,
+           COUNT(CASE WHEN p.is_promoted = true                                THEN 1 END)::int AS promoted
 
          FROM public.users u
          LEFT JOIN public.products p
-           ON  p.seller_id = u.id
-           AND p.status   != 'deleted'
-           AND COALESCE(p.is_deleted, false) = false
+           ON  p.seller_id  = u.id
+           AND p.is_deleted  = false
+           AND p.status     != 'deleted'
          WHERE u.id = $1
          GROUP BY
            u.id, u.name, u.store_name, u.store_logo, u.profile_image,
            u.rating, u.total_sales, u.trust_score, u.products_count,
-           u.store_verified, u.verified, u.is_online,
-           u.email_verified, u.created_at`,
+           u.store_verified, u.verified, u.is_online, u.created_at`,
         [userId]
       ),
-
       pool.query(
         `SELECT ${PRODUCT_COLS}
          FROM public.products p
          LEFT JOIN public.categories cat ON cat.id = p.category_id
-         WHERE p.seller_id = $1
-           AND p.status   != 'deleted'
-           AND COALESCE(p.is_deleted, false) = false
+         WHERE p.seller_id  = $1
+           AND p.is_deleted  = false
+           AND p.status     != 'deleted'
          ORDER BY p.created_at DESC
          LIMIT 6`,
         [userId]
@@ -668,6 +1043,7 @@ router.get("/overview", authenticate, async (req, res) => {
 
     const s           = statsRes.rows[0];
     const sellerScore = await getSellerScore(userId);
+    const activeTotal = Number(s.active || 0) + Number(s.active_limited || 0);
 
     const data = {
       seller_score: sellerScore,
@@ -678,43 +1054,38 @@ router.get("/overview", authenticate, async (req, res) => {
         profile_image:  s.profile_image  || null,
         verified:       !!s.verified,
         store_verified: !!s.store_verified,
-        email_verified: !!s.email_verified,
         is_online:      !!s.is_online,
         trust_score:    Number(s.trust_score || 50),
         rating:         Number(s.rating      || 0),
         member_since:   s.created_at,
       },
       stats: {
-        total_products:  Number(s.total_products  || 0),
-        active:          Number(s.active          || 0),
-        draft:           Number(s.draft           || 0),
-        paused:          Number(s.paused          || 0),
-        pending:         Number(s.pending         || 0),
-        promoted:        Number(s.promoted        || 0),
-        total_views:     Number(s.total_views     || 0),
-        total_clicks:    Number(s.total_clicks    || 0),
-        total_favorites: Number(s.total_favorites || 0),
-        total_revenue:   Number(s.total_sales     || 0),
-        rating:          Number(s.rating          || 0),
-        trust_score:     Number(s.trust_score     || 50),
+        total_products:  Number(s.total_products   || 0),
+        active:          activeTotal,
+        active_full:     Number(s.active           || 0),
+        active_limited:  Number(s.active_limited   || 0),
+        draft:           Number(s.draft            || 0),
+        paused:          Number(s.paused           || 0),
+        pending_payment: Number(s.pending_payment  || 0),
+        promoted:        Number(s.promoted         || 0),
+        total_views:     Number(s.total_views      || 0),
+        total_clicks:    Number(s.total_clicks     || 0),
+        total_favorites: Number(s.total_favorites  || 0),
+        total_revenue:   Number(s.total_sales      || 0),
+        rating:          Number(s.rating           || 0),
+        trust_score:     Number(s.trust_score      || 50),
       },
       recent_products: recentRes.rows.map(shapeProduct),
     };
 
-    console.log(
-      `[dashboard/overview] seller=${s.name} products=${data.stats.total_products} score=${sellerScore}`
-    );
+    console.log(`[dashboard/overview] seller=${s.name} products=${data.stats.total_products} score=${sellerScore}`);
 
     cacheSet(cacheKey, data);
     return res.json({ success: true, cached: false, data });
 
   } catch (err) {
     console.error("[dashboard/overview] ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Server error",
-      detail:  err.message,
-    });
+    return res.status(500).json({ success: false, message: "Server error", detail: err.message });
   }
 });
 
