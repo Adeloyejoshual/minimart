@@ -1,15 +1,17 @@
 /* ═══════════════════════════════════════════════════════════════
    src/styles/Profile.css
-   Uses :root brand variables — --hm-orange, --hm-navy, etc.
+   Brand vars: --hm-orange, --hm-navy, etc.
    Glass / transparent design
-   Desktop: sidebar-left + content-right (Jiji / eBay / FB Marketplace)
-   Mobile:  unchanged — single column, bottom-nav aware
+   Desktop: sidebar-left + content-right
+   Mobile: single column, bottom-nav aware
 ═══════════════════════════════════════════════════════════════ */
 
 /* ────────────────────────────────────────
-   FONT SMOOTHING
+   FONT SMOOTHING + BOX MODEL
 ──────────────────────────────────────── */
-.pf-page * {
+.pf-page *,
+.pf-page *::before,
+.pf-page *::after {
   -webkit-font-smoothing: antialiased;
   box-sizing: border-box;
 }
@@ -26,8 +28,6 @@
 
 /* ────────────────────────────────────────
    VISIBILITY HELPERS
-   Mobile-only  → hidden on desktop (≥ 1024px)
-   Desktop-only → hidden on mobile  (< 1024px)
 ──────────────────────────────────────── */
 .pf-mobile-only  { display: block; }
 .pf-desktop-only { display: none;  }
@@ -46,14 +46,40 @@
   align-items: flex-start;
 }
 
-/* Sidebar hidden on mobile */
 .pf-sidebar { display: none; }
 
-/* Content fills full width on mobile */
 .pf-content {
   flex: 1;
   min-width: 0;
   padding-bottom: calc(var(--bottom-nav-h, 72px) + 32px);
+}
+
+/* ────────────────────────────────────────
+   ANIMATIONS — keyframes
+──────────────────────────────────────── */
+@keyframes pf-spin-rotate {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pf-fade-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+@keyframes pf-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes pf-notif-pulse {
+  0%, 100% { transform: scale(1);   }
+  50%      { transform: scale(1.15); }
+}
+
+.pf-spin-icon {
+  animation: pf-spin-rotate 0.8s linear infinite;
+  width: 14px;
+  height: 14px;
 }
 
 /* ────────────────────────────────────────
@@ -104,6 +130,7 @@
 }
 
 .pf-hdr-btn svg { width: 18px; height: 18px; }
+
 .pf-hdr-btn:hover {
   border-color: var(--hm-orange, #ff6b35);
   background: var(--hm-orange-soft, rgba(255, 107, 53, 0.06));
@@ -126,11 +153,6 @@
   overflow: hidden;
   z-index: 200;
   animation: pf-fade-in 0.15s ease;
-}
-
-@keyframes pf-fade-in {
-  from { opacity: 0; transform: translateY(-6px); }
-  to   { opacity: 1; transform: translateY(0);    }
 }
 
 .pf-dropdown-item {
@@ -161,7 +183,7 @@
 }
 
 /* ────────────────────────────────────────
-   IDENTITY CARD  (mobile)
+   IDENTITY CARD (mobile)
 ──────────────────────────────────────── */
 .pf-identity-card {
   background: rgba(255, 255, 255, 0.65);
@@ -184,9 +206,11 @@
   transform: translateY(-1px);
 }
 
-.pf-identity-card--clickable:active { transform: translateY(0); }
+.pf-identity-card--clickable:active {
+  transform: translateY(0);
+}
 
-/* Edit hint badge */
+/* ── Edit hint badge ── */
 .pf-edit-hint {
   position: absolute;
   top: 14px;
@@ -201,11 +225,23 @@
   font-size: 12px;
   font-weight: 600;
   pointer-events: none;
+  z-index: 2;
+  max-width: 45%;
+  white-space: nowrap;
 }
 
-.pf-edit-hint-icon svg { width: 13px; height: 13px; }
+.pf-edit-hint-icon svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
 
-/* ── Avatar ── */
+.pf-edit-hint-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Avatar row ── */
 .pf-avatar-row {
   display: flex;
   gap: 14px;
@@ -255,7 +291,11 @@
 }
 
 /* ── Identity text ── */
-.pf-identity { flex: 1; min-width: 0; }
+.pf-identity {
+  flex: 1;
+  min-width: 0;
+  padding-right: 4px;
+}
 
 .pf-name {
   font-size: 20px;
@@ -263,6 +303,10 @@
   color: var(--hm-navy, #1a1a2e);
   margin: 0 0 3px;
   line-height: 1.1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .pf-store {
@@ -270,6 +314,9 @@
   color: #888;
   margin: 0 0 6px;
   font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pf-meta {
@@ -288,7 +335,7 @@
   gap: 3px;
 }
 
-.pf-meta-item::before         { content: "·"; color: #ddd; }
+.pf-meta-item::before             { content: "·"; color: #ddd; }
 .pf-meta-item:first-child::before { display: none; }
 
 /* ── Badges ── */
@@ -395,12 +442,15 @@
   font-weight: 700;
   cursor: pointer;
   border: none;
-  transition: opacity 0.15s, transform 0.1s, background 0.15s;
+  transition: opacity 0.15s, background 0.15s;
   white-space: nowrap;
 }
 
-.pf-qa-btn svg { width: 14px; height: 14px; flex-shrink: 0; }
-.pf-qa-btn:active { transform: scale(0.96); }
+.pf-qa-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
 
 .pf-qa-btn--primary {
   background: var(--hm-orange, #ff6b35);
@@ -408,7 +458,9 @@
   box-shadow: 0 4px 12px rgba(255, 107, 53, 0.25);
 }
 
-.pf-qa-btn--primary:hover { background: var(--hm-orange-hover, #e64a19); }
+.pf-qa-btn--primary:hover {
+  background: var(--hm-orange-hover, #e64a19);
+}
 
 .pf-qa-btn--outline {
   background: rgba(255, 255, 255, 0.7);
@@ -421,6 +473,21 @@
   border-color: var(--hm-orange, #ff6b35);
   color: var(--hm-orange, #ff6b35);
   background: rgba(255, 107, 53, 0.04);
+}
+
+/* ── Desktop quick actions bar ── */
+.pf-quick-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+
+.pf-quick-bar .pf-qa-btn {
+  flex: none;
+  padding: 12px 20px;
+  font-size: 13px;
+  border-radius: 12px;
 }
 
 /* ────────────────────────────────────────
@@ -437,8 +504,21 @@
   margin: 0 16px 12px;
 }
 
-.pf-error-icon svg { width: 22px; height: 22px; color: #ef4444; flex-shrink: 0; }
-.pf-error-content  { flex: 1; min-width: 0; }
+.pf-error-icon {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.pf-error-icon svg {
+  width: 22px;
+  height: 22px;
+  color: #ef4444;
+}
+
+.pf-error-content {
+  flex: 1;
+  min-width: 0;
+}
 
 .pf-error-title {
   font-size: 13px;
@@ -471,11 +551,27 @@
   flex-shrink: 0;
 }
 
-.pf-error-retry:hover { background: #dc2626; }
-.pf-error-retry svg   { width: 14px; height: 14px; }
+.pf-error-retry:hover {
+  background: #dc2626;
+}
+
+.pf-error-retry svg {
+  width: 14px;
+  height: 14px;
+}
+
+.pf-error-retry:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: #999;
+}
+
+.pf-error-retry:disabled:hover {
+  background: #999;
+}
 
 /* ────────────────────────────────────────
-   RECENT LISTINGS — shared header
+   RECENT LISTINGS — shared styles
 ──────────────────────────────────────── */
 .pf-recent-section {
   margin: 0 0 8px;
@@ -499,7 +595,15 @@
   margin: 0;
 }
 
-.pf-recent-title-icon svg { width: 17px; height: 17px; color: #6366f1; }
+.pf-recent-title-icon {
+  display: flex;
+}
+
+.pf-recent-title-icon svg {
+  width: 17px;
+  height: 17px;
+  color: var(--hm-orange, #ff6b35);
+}
 
 .pf-recent-viewall {
   display: flex;
@@ -507,7 +611,7 @@
   gap: 2px;
   background: none;
   border: none;
-  color: #6366f1;
+  color: var(--hm-orange, #ff6b35);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -515,10 +619,16 @@
   white-space: nowrap;
 }
 
-.pf-recent-viewall svg   { width: 14px; height: 14px; }
-.pf-recent-viewall:hover { color: #4f46e5; }
+.pf-recent-viewall svg {
+  width: 14px;
+  height: 14px;
+}
 
-/* ── Mobile: horizontal scroll row ── */
+.pf-recent-viewall:hover {
+  color: var(--hm-orange-hover, #e64a19);
+}
+
+/* ── Mobile: horizontal scroll ── */
 .pf-recent-scroll {
   display: flex;
   gap: 12px;
@@ -530,27 +640,32 @@
 
 .pf-recent-scroll::-webkit-scrollbar { display: none; }
 
-/* ── Mobile listing card ── */
+/* ── Listing card (mobile scroll) ── */
 .pf-recent-card {
   flex-shrink: 0;
   width: 140px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   border-radius: 14px;
-  border: 1px solid #f1f5f9;
+  border: 1px solid rgba(237, 233, 227, 0.5);
   overflow: hidden;
   cursor: pointer;
   scroll-snap-align: start;
-  transition: transform 0.15s, box-shadow 0.15s;
+  transition: box-shadow 0.18s;
 }
 
-.pf-recent-card:hover  { transform: translateY(-2px); box-shadow: 0 4px 16px rgba(0,0,0,0.08); }
-.pf-recent-card:active { transform: translateY(0); }
+.pf-recent-card:focus-visible {
+  outline: 2px solid var(--hm-orange, #ff6b35);
+  outline-offset: 2px;
+}
 
+/* ── Image area ── */
 .pf-recent-img-wrap {
   position: relative;
   width: 100%;
   height: 110px;
-  background: #f8fafc;
+  background: rgba(248, 250, 252, 0.8);
   overflow: hidden;
 }
 
@@ -558,6 +673,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
 }
 
 .pf-recent-img-placeholder {
@@ -567,14 +683,21 @@
   width: 100%;
   height: 100%;
   color: #cbd5e1;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 
 .pf-recent-img-placeholder--visible {
   display: flex;
 }
 
-.pf-recent-img-placeholder svg { width: 32px; height: 32px; }
+.pf-recent-img-placeholder svg {
+  width: 32px;
+  height: 32px;
+}
 
+/* ── Status / promoted badges ── */
 .pf-recent-status {
   position: absolute;
   top: 6px;
@@ -590,8 +713,19 @@
 .pf-recent-status--sold    { background: #fecaca; color: #991b1b; }
 .pf-recent-status--pending { background: #fef3c7; color: #92400e; }
 .pf-recent-status--paused  { background: #e2e8f0; color: #475569; }
+.pf-recent-status--draft   { background: #e2e8f0; color: #475569; }
 
-.pf-recent-info { padding: 10px; }
+.pf-recent-status--promoted {
+  background: linear-gradient(135deg, #f59e0b, #ef4444);
+  color: #fff;
+  left: auto;
+  right: 6px;
+}
+
+/* ── Info area ── */
+.pf-recent-info {
+  padding: 10px;
+}
 
 .pf-recent-name {
   font-size: 12.5px;
@@ -606,14 +740,38 @@
 .pf-recent-price {
   font-size: 13px;
   font-weight: 800;
-  color: #6366f1;
+  color: var(--hm-orange, #ff6b35);
   margin: 0 0 3px;
 }
 
+.pf-recent-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.pf-recent-views {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #94a3b8;
+  font-weight: 500;
+}
+
+.pf-recent-views svg {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+
 .pf-recent-time {
-  font-size: 11px;
+  font-size: 10px;
   color: #94a3b8;
   margin: 0;
+  white-space: nowrap;
 }
 
 /* ── Desktop: responsive grid ── */
@@ -624,6 +782,27 @@
   padding: 0 16px 12px;
 }
 
+/* ── Grid skeleton (lazy load fallback) ── */
+.pf-grid-skeleton {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  padding: 0 20px 4px;
+}
+
+.pf-grid-skeleton-card {
+  height: 220px;
+  border-radius: 14px;
+  background: linear-gradient(
+    110deg,
+    rgba(245, 243, 239, 0.6) 8%,
+    rgba(237, 233, 227, 0.3) 18%,
+    rgba(245, 243, 239, 0.6) 33%
+  );
+  background-size: 200% 100%;
+  animation: pf-shimmer 1.5s ease-in-out infinite;
+}
+
 /* ────────────────────────────────────────
    REFERRAL BANNER
 ──────────────────────────────────────── */
@@ -632,7 +811,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  background: linear-gradient(135deg, rgba(255,107,53,0.07), rgba(255,107,53,0.03));
+  background: linear-gradient(
+    135deg,
+    rgba(255, 107, 53, 0.07),
+    rgba(255, 107, 53, 0.03)
+  );
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 107, 53, 0.15);
@@ -641,7 +824,10 @@
   margin: 0 16px 8px;
 }
 
-.pf-referral-text { flex: 1; min-width: 0; }
+.pf-referral-text {
+  flex: 1;
+  min-width: 0;
+}
 
 .pf-referral-head {
   font-size: 14px;
@@ -676,14 +862,26 @@
   transition: background 0.15s;
 }
 
-.pf-referral-code:hover        { background: rgba(255, 107, 53, 0.06); }
-.pf-referral-copy-icon         { display: flex; align-items: center; }
-.pf-referral-copy-icon svg     { width: 14px; height: 14px; }
+.pf-referral-code:hover {
+  background: rgba(255, 107, 53, 0.06);
+}
+
+.pf-referral-copy-icon {
+  display: flex;
+  align-items: center;
+}
+
+.pf-referral-copy-icon svg {
+  width: 14px;
+  height: 14px;
+}
 
 /* ────────────────────────────────────────
-   MENU SECTIONS  (mobile)
+   MENU SECTIONS (mobile)
 ──────────────────────────────────────── */
-.pf-menu-section { margin: 0 16px 8px; }
+.pf-menu-section {
+  margin: 0 16px 8px;
+}
 
 .pf-menu-label {
   font-size: 11px;
@@ -719,12 +917,39 @@
   width: 100%;
   text-align: left;
   cursor: pointer;
+  border-left: 3px solid transparent;
 }
 
 .pf-menu-item:last-child { border-bottom: none; }
 .pf-menu-item:hover      { background: rgba(250, 248, 244, 0.8); }
 .pf-menu-item:active     { background: rgba(245, 242, 237, 0.9); }
 
+.pf-menu-item:focus-visible {
+  outline: 2px solid var(--hm-orange, #ff6b35);
+  outline-offset: -2px;
+}
+
+/* ── Active menu item ── */
+.pf-menu-item--active {
+  background: rgba(255, 107, 53, 0.06) !important;
+  border-left-color: var(--hm-orange, #ff6b35);
+}
+
+.pf-menu-item--active .pf-menu-icon {
+  background: rgba(255, 107, 53, 0.12);
+  color: var(--hm-orange, #ff6b35);
+}
+
+.pf-menu-item--active .pf-menu-label-text {
+  color: var(--hm-orange, #ff6b35);
+  font-weight: 700;
+}
+
+.pf-menu-item--active .pf-menu-chevron {
+  color: var(--hm-orange, #ff6b35);
+}
+
+/* ── Menu icon ── */
 .pf-menu-icon {
   width: 36px;
   height: 36px;
@@ -735,7 +960,7 @@
   justify-content: center;
   flex-shrink: 0;
   color: #555;
-  transition: background 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
 
 .pf-menu-icon svg { width: 17px; height: 17px; }
@@ -750,6 +975,7 @@
 .pf-menu-chevron {
   color: #ddd;
   flex-shrink: 0;
+  display: flex;
   transition: transform 0.15s, color 0.15s;
 }
 
@@ -770,14 +996,28 @@
   color: #fff;
   letter-spacing: 0.03em;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .pf-badge-pill--win   { background: linear-gradient(135deg, #f59e0b, #ef4444); }
 .pf-badge-pill--new   { background: #16a34a; }
 .pf-badge-pill--money { background: #059669; }
 
+.pf-badge-pill--notif {
+  background: #ef4444;
+  color: #fff;
+  min-width: 20px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 800;
+  padding: 3px 6px;
+  animation: pf-notif-pulse 2s ease-in-out infinite;
+}
+
 /* ────────────────────────────────────────
-   LOG OUT BUTTON  (mobile)
+   LOG OUT BUTTON (mobile)
 ──────────────────────────────────────── */
 .pf-logout {
   display: flex;
@@ -799,9 +1039,13 @@
   transition: background 0.15s, border-color 0.15s;
 }
 
-.pf-logout svg     { width: 16px; height: 16px; }
-.pf-logout:hover   { background: rgba(254, 242, 242, 0.75); border-color: rgba(252, 165, 165, 0.8); }
-.pf-logout:active  { transform: scale(0.98); }
+.pf-logout svg   { width: 16px; height: 16px; }
+.pf-logout:hover { background: rgba(254, 242, 242, 0.75); border-color: rgba(252, 165, 165, 0.8); }
+
+.pf-logout:focus-visible {
+  outline: 2px solid #dc2626;
+  outline-offset: 2px;
+}
 
 /* ────────────────────────────────────────
    FOOTER
@@ -815,7 +1059,7 @@
 }
 
 /* ────────────────────────────────────────
-   HEADER SAVE BUTTON  (EditProfile)
+   HEADER SAVE BUTTON (EditProfile)
 ──────────────────────────────────────── */
 .pf-hdr-save-btn {
   display: inline-flex;
@@ -841,15 +1085,158 @@
 .pf-hdr-save-btn--flash   { background: #16a34a !important; }
 
 /* ════════════════════════════════════════════════════════════════
-   DESKTOP LAYOUT  ≥ 1024px
-   Sidebar left · Content right (Jiji / eBay / FB Marketplace)
+   SMALL MOBILE ≤ 380px
+════════════════════════════════════════════════════════════════ */
+@media (max-width: 380px) {
+  .pf-identity-card {
+    margin: 8px 12px;
+    padding: 16px 14px;
+  }
+
+  .pf-avatar {
+    width: 68px;
+    height: 68px;
+  }
+
+  .pf-avatar-letter { font-size: 26px; }
+
+  .pf-name {
+    font-size: 17px;
+    max-width: calc(100% - 10px);
+  }
+
+  .pf-quick-actions { flex-wrap: wrap; }
+
+  .pf-qa-btn {
+    flex: none;
+    width: calc(50% - 4px);
+  }
+
+  .pf-qa-btn:first-child { width: 100%; }
+
+  .pf-kstat-val { font-size: 15px; }
+
+  .pf-menu-section { margin: 0 12px 8px; }
+
+  .pf-referral {
+    margin: 0 12px 8px;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .pf-referral-code {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .pf-logout {
+    width: calc(100% - 24px);
+    margin: 8px 12px;
+  }
+
+  .pf-edit-hint {
+    max-width: 40%;
+    font-size: 11px;
+    padding: 3px 8px 3px 5px;
+  }
+
+  .pf-error-banner {
+    margin: 0 12px 12px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .pf-error-retry {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   TABLET 520px – 1023px
+════════════════════════════════════════════════════════════════ */
+@media (min-width: 520px) and (max-width: 1023px) {
+  .pf-page {
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  .pf-identity-card {
+    margin: 16px 20px 10px;
+    padding: 24px 20px 20px;
+  }
+
+  .pf-avatar {
+    width: 90px;
+    height: 90px;
+  }
+
+  .pf-avatar-letter { font-size: 34px; }
+  .pf-name          { font-size: 22px; }
+
+  .pf-quick-actions .pf-qa-btn {
+    font-size: 13px;
+    padding: 12px 14px;
+  }
+
+  .pf-referral {
+    margin: 0 20px 10px;
+    padding: 16px 20px;
+  }
+
+  .pf-menu-section { margin: 0 20px 10px; }
+  .pf-menu-item    { padding: 15px 18px; }
+  .pf-menu-icon    { width: 38px; height: 38px; }
+
+  .pf-logout {
+    width: calc(100% - 40px);
+    margin: 10px 20px;
+  }
+
+  .pf-header { padding: 12px 20px; }
+
+  /* Tablet: 2-col grid */
+  .pf-recent-section {
+    background: rgba(255, 255, 255, 0.55);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(237, 233, 227, 0.5);
+    border-radius: 20px;
+    margin: 0 20px 12px;
+    padding: 16px 0;
+  }
+
+  .pf-recent-header { padding: 0 16px; }
+
+  .pf-recent-grid {
+    grid-template-columns: repeat(2, 1fr);
+    padding: 0 16px 4px;
+  }
+
+  /* Tablet shows grid, hides scroll */
+  .pf-desktop-only            { display: block; }
+  .pf-mobile-only.pf-recent-scroll { display: none; }
+
+  .pf-grid-skeleton {
+    grid-template-columns: repeat(2, 1fr);
+    padding: 0 16px 4px;
+  }
+
+  .pf-error-banner {
+    margin: 0 20px 12px;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   DESKTOP ≥ 1024px
+   Sidebar left · Content right
 ════════════════════════════════════════════════════════════════ */
 @media (min-width: 1024px) {
 
   /* Visibility */
-  .pf-mobile-only  { display: none !important; }
-  .pf-desktop-only { display: block; }
-  .pf-mobile-header { display: none; }
+  .pf-mobile-only   { display: none !important; }
+  .pf-desktop-only  { display: block; }
+  .pf-mobile-header { display: none;  }
 
   /* Page */
   .pf-page {
@@ -876,7 +1263,6 @@
     max-height: calc(100vh - 48px);
     overflow-y: auto;
     scrollbar-width: none;
-    gap: 0;
 
     background: rgba(255, 255, 255, 0.70);
     backdrop-filter: blur(16px);
@@ -889,7 +1275,7 @@
 
   .pf-sidebar::-webkit-scrollbar { display: none; }
 
-  /* Identity card inside sidebar */
+  /* ── Sidebar identity ── */
   .pf-sidebar-identity {
     padding: 28px 20px 20px;
     display: flex;
@@ -906,6 +1292,11 @@
     background: rgba(249, 247, 243, 0.6);
   }
 
+  .pf-sidebar-identity:focus-visible {
+    outline: 2px solid var(--hm-orange, #ff6b35);
+    outline-offset: -2px;
+  }
+
   .pf-sidebar-avatar-wrap { margin-bottom: 14px; }
 
   .pf-sidebar-avatar {
@@ -919,6 +1310,11 @@
     color: var(--hm-navy, #1a1a2e);
     margin: 0 0 4px;
     line-height: 1.2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    padding: 0 8px;
   }
 
   .pf-sidebar-store {
@@ -926,6 +1322,11 @@
     color: #888;
     font-weight: 500;
     margin: 0 0 8px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    padding: 0 8px;
   }
 
   .pf-sidebar-meta {
@@ -951,6 +1352,10 @@
     margin-bottom: 14px;
   }
 
+  .pf-sidebar-star {
+    display: flex;
+  }
+
   .pf-sidebar-star svg {
     width: 16px;
     height: 16px;
@@ -973,11 +1378,16 @@
     background: rgba(99, 102, 241, 0.08);
     padding: 5px 12px;
     border-radius: 20px;
+    white-space: nowrap;
   }
 
-  .pf-sidebar-edit-hint svg { width: 13px; height: 13px; }
+  .pf-sidebar-edit-hint svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+  }
 
-  /* Referral banner inside sidebar */
+  /* ── Referral inside sidebar ── */
   .pf-sidebar .pf-referral {
     margin: 0;
     border-radius: 0;
@@ -985,9 +1395,10 @@
     border-right: none;
     border-top: none;
     border-bottom: 1px solid rgba(237, 233, 227, 0.5);
+    padding: 16px 20px;
   }
 
-  /* Nav inside sidebar */
+  /* ── Sidebar navigation ── */
   .pf-sidebar-nav {
     flex: 1;
     padding: 8px 0;
@@ -1019,11 +1430,29 @@
     font-size: 13.5px;
     font-weight: 600;
     border-radius: 0;
-    transition: background 0.12s, color 0.12s;
+    border-right: 3px solid transparent;
+    transition: background 0.12s, color 0.12s, border-color 0.12s;
   }
 
   .pf-sidebar-link:hover {
     background: rgba(255, 107, 53, 0.05);
+    color: var(--hm-orange, #ff6b35);
+  }
+
+  .pf-sidebar-link:focus-visible {
+    outline: 2px solid var(--hm-orange, #ff6b35);
+    outline-offset: -2px;
+  }
+
+  /* Active sidebar link */
+  .pf-sidebar-link--active {
+    background: rgba(255, 107, 53, 0.08) !important;
+    color: var(--hm-orange, #ff6b35) !important;
+    border-right-color: var(--hm-orange, #ff6b35);
+  }
+
+  .pf-sidebar-link--active .pf-sidebar-link-icon {
+    background: rgba(255, 107, 53, 0.14);
     color: var(--hm-orange, #ff6b35);
   }
 
@@ -1049,7 +1478,7 @@
 
   .pf-sidebar-link-text { flex: 1; }
 
-  /* Logout inside sidebar */
+  /* ── Sidebar logout ── */
   .pf-sidebar-logout {
     display: flex;
     align-items: center;
@@ -1070,6 +1499,11 @@
   .pf-sidebar-logout svg   { width: 15px; height: 15px; }
   .pf-sidebar-logout:hover { background: rgba(254, 242, 242, 0.6); }
 
+  .pf-sidebar-logout:focus-visible {
+    outline: 2px solid #dc2626;
+    outline-offset: -2px;
+  }
+
   /* ── CONTENT AREA ── */
   .pf-content {
     flex: 1;
@@ -1077,55 +1511,24 @@
     padding-bottom: 48px;
   }
 
-  /* Desktop welcome bar */
-  .pf-desktop-welcome {
+  /* ── Quick actions bar ── */
+  .pf-quick-bar {
     background: rgba(255, 255, 255, 0.65);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
     border: 1px solid rgba(237, 233, 227, 0.5);
-    border-radius: 20px;
-    padding: 24px 28px;
+    border-radius: 16px;
+    padding: 16px 20px;
     margin-bottom: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    flex-wrap: wrap;
   }
 
-  .pf-desktop-welcome-title {
-    font-size: 22px;
-    font-weight: 900;
-    color: var(--hm-navy, #1a1a2e);
-    margin: 0 0 4px;
-  }
-
-  .pf-desktop-welcome-sub {
-    font-size: 13px;
-    color: #888;
-    margin: 0;
-  }
-
-  .pf-desktop-welcome-actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .pf-desktop-welcome .pf-qa-btn {
-    font-size: 13px;
-    padding: 11px 18px;
-    border-radius: 12px;
-    flex: none;
-  }
-
-  /* Error banner on desktop */
+  /* ── Error banner desktop ── */
   .pf-error-banner {
     margin: 0 0 16px;
     border-radius: 16px;
   }
 
-  /* Recent listings section on desktop */
+  /* ── Recent listings desktop ── */
   .pf-recent-section {
     background: rgba(255, 255, 255, 0.65);
     backdrop-filter: blur(12px);
@@ -1141,14 +1544,18 @@
     margin-bottom: 16px;
   }
 
-  /* 3-column grid on desktop */
   .pf-recent-grid {
     grid-template-columns: repeat(3, 1fr);
     padding: 0 20px 4px;
     gap: 14px;
   }
 
-  /* Footer */
+  .pf-grid-skeleton {
+    grid-template-columns: repeat(3, 1fr);
+    padding: 0 20px 4px;
+  }
+
+  /* ── Footer ── */
   .pf-footer {
     font-size: 12px;
     padding-bottom: 40px;
@@ -1156,10 +1563,11 @@
 }
 
 /* ════════════════════════════════════════════════════════════════
-   WIDE DESKTOP  ≥ 1280px — 4-column grid
+   WIDE DESKTOP ≥ 1280px — 4-column grid
 ════════════════════════════════════════════════════════════════ */
 @media (min-width: 1280px) {
   .pf-page { padding: 0 32px; }
+
   .pf-layout { gap: 32px; }
 
   .pf-sidebar { width: 320px; }
@@ -1167,79 +1575,127 @@
   .pf-recent-grid {
     grid-template-columns: repeat(4, 1fr);
   }
+
+  .pf-grid-skeleton {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 /* ════════════════════════════════════════════════════════════════
-   SMALL MOBILE  ≤ 380px
+   ULTRA WIDE ≥ 1536px
 ════════════════════════════════════════════════════════════════ */
-@media (max-width: 380px) {
-  .pf-identity-card { margin: 8px 12px; padding: 16px 14px; }
-  .pf-avatar        { width: 68px; height: 68px; }
-  .pf-avatar-letter { font-size: 26px; }
-  .pf-name          { font-size: 18px; }
-
-  .pf-quick-actions { flex-wrap: wrap; }
-  .pf-qa-btn        { flex: none; width: calc(50% - 4px); }
-  .pf-qa-btn:first-child { width: 100%; }
-
-  .pf-kstat-val  { font-size: 15px; }
-  .pf-menu-section { margin: 0 12px 8px; }
-
-  .pf-referral {
-    margin: 0 12px 8px;
-    flex-direction: column;
-    align-items: flex-start;
+@media (min-width: 1536px) {
+  .pf-page {
+    max-width: 1440px;
   }
 
-  .pf-referral-code { width: 100%; justify-content: center; }
-  .pf-logout        { width: calc(100% - 24px); margin: 8px 12px; }
-}
+  .pf-sidebar { width: 340px; }
 
-/* ════════════════════════════════════════════════════════════════
-   TABLET  520px – 1023px
-════════════════════════════════════════════════════════════════ */
-@media (min-width: 520px) and (max-width: 1023px) {
-  .pf-page { max-width: 720px; margin: 0 auto; }
-
-  .pf-identity-card {
-    margin: 16px 20px 10px;
-    padding: 24px 20px 20px;
+  .pf-sidebar-avatar {
+    width: 104px !important;
+    height: 104px !important;
   }
 
-  .pf-avatar        { width: 90px; height: 90px; }
-  .pf-avatar-letter { font-size: 34px; }
-  .pf-name          { font-size: 22px; }
-
-  .pf-quick-actions .pf-qa-btn {
-    font-size: 13px;
-    padding: 12px 14px;
-  }
-
-  .pf-referral  { margin: 0 20px 10px; padding: 16px 20px; }
-  .pf-menu-section { margin: 0 20px 10px; }
-  .pf-menu-item    { padding: 15px 18px; }
-  .pf-menu-icon    { width: 38px; height: 38px; }
-
-  .pf-logout  { width: calc(100% - 40px); margin: 10px 20px; }
-  .pf-header  { padding: 12px 20px; }
-
-  /* Tablet: 2-column grid, inside a card */
-  .pf-recent-section {
-    background: rgba(255, 255, 255, 0.55);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(237, 233, 227, 0.5);
-    border-radius: 20px;
-    margin: 0 20px 12px;
-    padding: 16px 0;
-  }
-
-  .pf-recent-header { padding: 0 16px; }
+  .pf-sidebar-name { font-size: 20px; }
 
   .pf-recent-grid {
-    grid-template-columns: repeat(2, 1fr);
-    padding: 0 16px 4px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
   }
 
-  .pf-desktop-only { display: block; }
-  .pf-mobile-only.pf-recent-scroll { display: none; }
+  .pf-quick-bar .pf-qa-btn {
+    padding: 13px 24px;
+    font-size: 14px;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   REDUCED MOTION — disable animations for accessibility
+════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .pf-spin-icon {
+    animation: none;
+  }
+
+  .pf-badge-pill--notif {
+    animation: none;
+  }
+
+  .pf-grid-skeleton-card {
+    animation: none;
+    background: rgba(245, 243, 239, 0.6);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   HIGH CONTRAST MODE
+════════════════════════════════════════════════════════════════ */
+@media (forced-colors: active) {
+  .pf-identity-card,
+  .pf-menu-list,
+  .pf-sidebar,
+  .pf-recent-card,
+  .pf-referral,
+  .pf-error-banner,
+  .pf-quick-bar {
+    border: 2px solid ButtonText;
+  }
+
+  .pf-badge,
+  .pf-badge-pill {
+    border: 1px solid ButtonText;
+  }
+
+  .pf-avatar {
+    border: 2px solid ButtonText;
+  }
+
+  .pf-menu-item--active,
+  .pf-sidebar-link--active {
+    border-left: 3px solid Highlight;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════════
+   PRINT STYLES
+════════════════════════════════════════════════════════════════ */
+@media print {
+  .pf-sidebar,
+  .pf-mobile-header,
+  .pf-quick-actions,
+  .pf-quick-bar,
+  .pf-logout,
+  .pf-sidebar-logout,
+  .pf-edit-hint,
+  .pf-sidebar-edit-hint,
+  .pf-error-banner,
+  .pf-menu-chevron {
+    display: none !important;
+  }
+
+  .pf-page {
+    background: #fff;
+  }
+
+  .pf-identity-card,
+  .pf-menu-list,
+  .pf-referral,
+  .pf-recent-section {
+    background: #fff;
+    backdrop-filter: none;
+    border: 1px solid #ddd;
+    box-shadow: none;
+  }
+
+  .pf-content {
+    padding-bottom: 0;
+  }
 }
