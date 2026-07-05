@@ -83,7 +83,7 @@ const HARD_ALLOWED = [
   "http://localhost:3000",
   "http://localhost:4173",
 ];
-const _envOrigins  = ALLOWED_ORIGIN === "*"
+const _envOrigins     = ALLOWED_ORIGIN === "*"
   ? []
   : ALLOWED_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean);
 const ALLOWED_ORIGINS = new Set([..._envOrigins, ...HARD_ALLOWED]);
@@ -145,53 +145,60 @@ const uploadLimiter = rateLimit({
 /* ══════════════════════════════════════════════════════════════
    ROUTE IMPORTS
 ══════════════════════════════════════════════════════════════ */
-import paymentRouter, { webhookRouter }  from "./routes/payment.js";
-import flwWebhookRouter                  from "./routes/webhooks/flutterwave.js";
-import checkoutWebhookRouter             from "./routes/checkout/webhook.js";
-import checkoutRouter                    from "./routes/checkout/index.js";
+import paymentRouter, { webhookRouter } from "./routes/payment.js";
+import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
+import checkoutWebhookRouter            from "./routes/checkout/webhook.js";
+import checkoutRouter                   from "./routes/checkout/index.js";
 
-/* ── Auth ─────────────────────────────────────────────────────
-   auth.routes.js   → POST /api/auth/register
-                    → POST /api/auth/login
-   forgotPassword.js → POST /api/auth/forgot-password
-                     → POST /api/auth/forgot-password/verify
-   resetPassword.js  → POST /api/auth/reset-password
-──────────────────────────────────────────────────────────────*/
+/* ── Auth ── */
 import authRouter           from "./routes/auth.routes.js";
-import forgotPasswordRouter from "./routes/forgotPassword.js";   // ✅
-import resetPasswordRouter  from "./routes/resetPassword.js";    // ✅
+import forgotPasswordRouter from "./routes/forgotPassword.js";
+import resetPasswordRouter  from "./routes/resetPassword.js";
 
-import sellerOnboardingRouter            from "./routes/sellerOnboarding.routes.js";
-import sellerProfileRouter               from "./routes/sellerprofile.js";
-import sellerPayoutRoutes                from "./routes/seller/payout.js";
-import sellerDashboardRouter             from "./routes/seller/dashboard.js";
-import sellerSettingsRouter              from "./routes/seller/settings.js";
-import addproductRouter                  from "./routes/addproduct.js";
-import marketRouter                      from "./routes/market/index.js";
-import marketDetailRouter                from "./routes/marketDetail/index.js";
-import productDetailRouter               from "./routes/productDetail.js";
-import cartRouter                        from "./routes/cart/index.js";
-import userRouter                        from "./routes/users.js";
-import messagesRouter                    from "./routes/messages.js";
-import conversationsRouter               from "./routes/conversations.js";
-import adminRouter                       from "./routes/admin.js";
-import searchRouter                      from "./routes/search.js";
-import homepageRouter                    from "./routes/homepage.js";
-import dashboardRoutes                   from "./routes/dashboard.js";
-import notificationsRouter               from "./routes/notifications.js";
-import walletRoutes                      from "./routes/wallets.js";
-import p2pRouter                         from "./routes/p2p.js";
-import verificationRouter                from "./routes/verification.js";
-import couponsRouter                     from "./routes/coupons.js";
-import spinwheelRouter                   from "./routes/spinwheel.js";
+/* ── Seller ── */
+import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
+import sellerProfileRouter    from "./routes/sellerprofile.js";
+import sellerPayoutRoutes     from "./routes/seller/payout.js";
+import sellerSettingsRouter   from "./routes/seller/settings.js";
+
+/* ── Seller Dashboard ─────────────────────────────────────────
+   routes/dashboard.js  →  /api/seller-dashboard/*
+   NOTE: routes/seller/dashboard.js has been REPLACED by
+         routes/dashboard.js — do not import both.
+──────────────────────────────────────────────────────────────*/
+import sellerDashboardRouter from "./routes/dashboard.js";
+
+/* ── Products + marketplace ── */
+import addproductRouter    from "./routes/addproduct.js";
+import marketRouter        from "./routes/market/index.js";
+import marketDetailRouter  from "./routes/marketDetail/index.js";
+import productDetailRouter from "./routes/productDetail.js";
+import cartRouter          from "./routes/cart/index.js";
+
+/* ── Users ── */
+import userRouter       from "./routes/users.js";
 import editProfileRouter from "./routes/editProfile.js";
-import referralRoutes from "./routes/referrals.js";
-import leaderboardRoutes from "./routes/leaderboard.js";
-import favoritesRouter from "./routes/favorites.js";
+
+/* ── Messaging ── */
+import messagesRouter      from "./routes/messages.js";
+import conversationsRouter from "./routes/conversations.js";
+
+/* ── Platform ── */
+import adminRouter        from "./routes/admin.js";
+import searchRouter       from "./routes/search.js";
+import homepageRouter     from "./routes/homepage.js";
+import notificationsRouter from "./routes/notifications.js";
+import walletRoutes       from "./routes/wallets.js";
+import p2pRouter          from "./routes/p2p.js";
+import verificationRouter from "./routes/verification.js";
+import couponsRouter      from "./routes/coupons.js";
+import spinwheelRouter    from "./routes/spinwheel.js";
+import referralRoutes     from "./routes/referrals.js";
+import leaderboardRoutes  from "./routes/leaderboard.js";
+import favoritesRouter    from "./routes/favorites.js";
 
 /* ══════════════════════════════════════════════════════════════
-   WEBHOOKS  — must be registered BEFORE body parsers
-   (need raw body for signature verification)
+   WEBHOOKS  — must be BEFORE body parsers
 ══════════════════════════════════════════════════════════════ */
 app.use("/api/payment/webhook",
   express.raw({ type: "*/*" }),
@@ -258,60 +265,60 @@ app.use(globalLimiter);
    ROUTES
 ══════════════════════════════════════════════════════════════ */
 
-/* payments */
+/* ── Payments ── */
 app.use("/api/payment",  paymentRouter);
 app.use("/api/checkout", checkoutRouter);
 
-/* ── auth ─────────────────────────────────────────────────────
-   All three routers mount on /api/auth.
-   Express matches routes in order so there is no conflict:
+/* ── Auth ─────────────────────────────────────────────────────
+   All three routers mount on /api/auth
      /register                → auth.routes.js
      /login                   → auth.routes.js
      /forgot-password         → forgotPassword.js
      /forgot-password/verify  → forgotPassword.js
      /reset-password          → resetPassword.js
 ──────────────────────────────────────────────────────────────*/
-app.use("/api/auth", authRouter);           // register · login        ✅
-app.use("/api/auth", forgotPasswordRouter); // forgot-password · verify ✅
-app.use("/api/auth", resetPasswordRouter);  // reset-password           ✅
+app.use("/api/auth", authRouter);
+app.use("/api/auth", forgotPasswordRouter);
+app.use("/api/auth", resetPasswordRouter);
 
-/* ── users ── */
-app.use("/api/users", userRouter);
+/* ── Users ── */
+app.use("/api/users",        userRouter);
 app.use("/api/edit-profile", editProfileRouter);
-/* seller */
-app.use("/api/seller-onboarding", sellerOnboardingRouter);
-app.use("/api/seller",            sellerProfileRouter);
-app.use("/api/seller/payout",     sellerPayoutRoutes);
-app.use("/api/seller-dashboard",  sellerDashboardRouter);
-app.use("/api/seller/settings",   sellerSettingsRouter);
 
-/* products + marketplace */
+/* ── Seller ─────────────────────────────────────────────────
+   /api/seller-dashboard/*  →  routes/dashboard.js  (new)
+──────────────────────────────────────────────────────────────*/
+app.use("/api/seller-onboarding",  sellerOnboardingRouter);
+app.use("/api/seller",             sellerProfileRouter);
+app.use("/api/seller/payout",      sellerPayoutRoutes);
+app.use("/api/seller/settings",    sellerSettingsRouter);
+app.use("/api/seller-dashboard",   sellerDashboardRouter); // ✅ routes/dashboard.js
+
+/* ── Products + marketplace ── */
 app.use("/api/products",   marketRouter);
 app.use("/api/shop",       marketDetailRouter);
 app.use("/api/cart",       cartRouter);
 app.use("/api/addproduct", addproductRouter);
 app.use("/api/product",    productDetailRouter);
 
-/* messaging */
+/* ── Messaging ── */
 app.use("/api/messages/upload", uploadLimiter);
 app.use("/api/messages",        messagesRouter);
 app.use("/api/conversations",   conversationsRouter);
 
-/* platform */
+/* ── Platform ── */
 app.use("/api/admin",         adminRouter);
 app.use("/api/search",        searchRouter);
 app.use("/api/homepage",      homepageRouter);
-app.use("/api/dashboard",     dashboardRoutes);
 app.use("/api/notifications", notificationsRouter);
 app.use("/api/v1/wallets",    walletRoutes);
 app.use("/api/p2p",           p2pRouter);
 app.use("/api/verification",  verificationRouter);
 app.use("/api/coupons",       couponsRouter);
 app.use("/api/spinwheel",     spinwheelRouter);
-app.use("/api/referrals", referralRoutes);
-app.use("/api/leaderboard", leaderboardRoutes);
-app.use("/api/referrals/leaderboard",   leaderboardRoutes);
-app.use("/api/favorites", favoritesRouter);
+app.use("/api/referrals",     referralRoutes);
+app.use("/api/leaderboard",   leaderboardRoutes);
+app.use("/api/favorites",     favoritesRouter);
 
 /* ══════════════════════════════════════════════════════════════
    STATIC — sitemap + robots
@@ -393,7 +400,7 @@ if (IS_PROD) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   404  — development (production handled above via SPA fallback)
+   404  — development only (production handled above)
 ══════════════════════════════════════════════════════════════ */
 app.use((req, res) =>
   res.status(404).json({
@@ -486,13 +493,19 @@ try {
 
 server.listen(PORT, () => {
   console.log(`\n🚀 Loemart on port ${PORT} | ${process.env.NODE_ENV || "development"}`);
-  console.log(`   Auth  → /api/auth`);
-  console.log(`           POST /register`);
-  console.log(`           POST /login`);
-  console.log(`           POST /forgot-password`);
-  console.log(`           POST /forgot-password/verify`);
-  console.log(`           POST /reset-password`);
-  console.log(`   Users → /api/users (me · profile update)\n`);
+  console.log(`   Auth            → /api/auth`);
+  console.log(`                      POST /register`);
+  console.log(`                      POST /login`);
+  console.log(`                      POST /forgot-password`);
+  console.log(`                      POST /forgot-password/verify`);
+  console.log(`                      POST /reset-password`);
+  console.log(`   Seller Dashboard→ /api/seller-dashboard`);
+  console.log(`                      GET  /stats`);
+  console.log(`                      GET  /products`);
+  console.log(`                      GET  /analytics`);
+  console.log(`                      GET  /overview`);
+  console.log(`                      PATCH /products/:id/toggle`);
+  console.log(`                      DELETE /products/:id\n`);
 });
 
 export default app;
