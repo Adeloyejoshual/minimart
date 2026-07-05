@@ -10,7 +10,6 @@ import axios from "axios";
 import ProfileHeader from "../components/ProfileHeader.jsx";
 import "../styles/Profile.css";
 
-/* Lazy-load MasonryCard — desktop grid only */
 const MasonryCard = lazy(() => import("../components/MasonryCard"));
 
 /* ═══════════════════════════════════════════════════════════════
@@ -80,7 +79,7 @@ function normalizeUser(raw) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   API FETCHERS (React Query)
+   API FETCHERS
 ═══════════════════════════════════════════════════════════════ */
 async function fetchUserData() {
   const token = getToken();
@@ -94,11 +93,16 @@ async function fetchUserData() {
 async function fetchUserListings() {
   const token = getToken();
   if (!token) return [];
-  const { data } = await axios.get(`${API}/seller-dashboard/products`, {
-    headers: { Authorization: `Bearer ${token}` },
-    params:  { limit: 8, page: 1, tab: "active" },
-  });
-  return (data?.products || []).slice(0, 8);
+  try {
+    const { data } = await axios.get(`${API}/seller-dashboard/products`, {
+      headers: { Authorization: `Bearer ${token}` },
+      params:  { limit: 8, page: 1, tab: "all" },
+    });
+    return (data?.products || []).slice(0, 8);
+  } catch (err) {
+    console.warn("[Profile] listings fetch failed:", err?.response?.status);
+    return [];
+  }
 }
 
 async function fetchUnreadCount() {
@@ -142,12 +146,7 @@ const cardItem = {
   visible: { opacity: 1, y: 0,  scale: 1    },
 };
 
-const spring = {
-  type: "spring",
-  stiffness: 260,
-  damping: 24,
-};
-
+const spring = { type: "spring", stiffness: 260, damping: 24 };
 const viewportOnce = { once: true, amount: 0.2 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -178,7 +177,7 @@ const Icon = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   MENU CONFIG (static)
+   MENU CONFIG
 ═══════════════════════════════════════════════════════════════ */
 const buildMenuSections = (unreadCount = 0) => [
   {
@@ -218,8 +217,8 @@ const buildMenuSections = (unreadCount = 0) => [
           : null,
         badgeType: "notif",
       },
-      { to: "/support",       Ic: Icon.support,  label: "Help & Support" },
-      { to: "/faq",           Ic: Icon.help,     label: "FAQ"            },
+      { to: "/support", Ic: Icon.support, label: "Help & Support" },
+      { to: "/faq",     Ic: Icon.help,    label: "FAQ"            },
     ],
   },
 ];
@@ -250,9 +249,7 @@ const ReferralBanner = memo(function ReferralBanner({ code }) {
     >
       <div className="pf-referral-text">
         <p className="pf-referral-head">Refer & Earn ₦500</p>
-        <p className="pf-referral-sub">
-          Share your code and earn when a friend signs up.
-        </p>
+        <p className="pf-referral-sub">Share your code and earn when a friend signs up.</p>
       </div>
       <motion.button
         className="pf-referral-code"
@@ -305,28 +302,34 @@ const ErrorBanner = memo(function ErrorBanner({ message, onRetry, isRetrying }) 
         disabled={isRetrying}
         aria-disabled={isRetrying}
         whileTap={isRetrying ? {} : { scale: 0.95 }}
-        whileHover={isRetrying ? {} : { scale: 1.03 }}
       >
-        {isRetrying ? (
-          <>
-            <Icon.spinner /> Refreshing…
-          </>
-        ) : (
-          <>
-            <Icon.refresh /> Retry
-          </>
-        )}
+        {isRetrying
+          ? <><Icon.spinner /> Refreshing…</>
+          : <><Icon.refresh /> Retry</>
+        }
       </motion.button>
     </motion.div>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   IMAGE RESOLVER
+═══════════════════════════════════════════════════════════════ */
+const resolveImage = (item) => {
+  if (item.image)         return item.image;
+  if (item.main_image)    return item.main_image;
+  if (item.thumbnail_url) return item.thumbnail_url;
+  if (Array.isArray(item.images) && item.images.length > 0) {
+    const first = item.images[0];
+    if (typeof first === "string") return first;
+    if (first?.url) return first.url;
+  }
+  return null;
+};
+
+/* ═══════════════════════════════════════════════════════════════
    LISTING CARD
 ═══════════════════════════════════════════════════════════════ */
-const resolveImage = (item) =>
-  item.image || item.main_image || item.thumbnail_url || null;
-
 const ListingCard = memo(function ListingCard({ item, onClick, index = 0 }) {
   const img = resolveImage(item);
 
@@ -361,23 +364,19 @@ const ListingCard = memo(function ListingCard({ item, onClick, index = 0 }) {
           />
         )}
         <div
-          className={`pf-recent-img-placeholder${
-            !img ? " pf-recent-img-placeholder--visible" : ""
-          }`}
+          className={`pf-recent-img-placeholder${!img ? " pf-recent-img-placeholder--visible" : ""}`}
           aria-hidden="true"
         >
           <Icon.package />
         </div>
 
-        {item.status && item.status !== "active" && (
-          <span className={`pf-recent-status pf-recent-status--${item.status}`}>
-            {item.status}
+        {item.status && !item.status.startsWith("active") && (
+          <span className={`pf-recent-status pf-recent-status--${item.status.split("_")[0]}`}>
+            {item.status.replace(/_/g, " ")}
           </span>
         )}
         {item.is_promoted && (
-          <span className="pf-recent-status pf-recent-status--promoted">
-            Boosted
-          </span>
+          <span className="pf-recent-status pf-recent-status--promoted">Boosted</span>
         )}
       </div>
 
@@ -389,9 +388,7 @@ const ListingCard = memo(function ListingCard({ item, onClick, index = 0 }) {
             <Icon.trending />
             {fmtNum(item.views || 0)}
           </span>
-          <span className="pf-recent-time">
-            {timeAgo(item.created_at)}
-          </span>
+          <span className="pf-recent-time">{timeAgo(item.created_at)}</span>
         </div>
       </div>
     </motion.div>
@@ -438,20 +435,15 @@ const RecentListings = memo(function RecentListings({ listings, onViewAll }) {
       </div>
 
       {/* Mobile: horizontal scroll */}
-      <div className="pf-recent-scroll pf-mobile-only" role="list">
+      <div className="pf-recent-scroll" role="list">
         {listings.map((item, i) => (
-          <ListingCard
-            key={item.id}
-            item={item}
-            index={i}
-            onClick={() => goTo(item)}
-          />
+          <ListingCard key={item.id} item={item} index={i} onClick={() => goTo(item)} />
         ))}
       </div>
 
-      {/* Desktop: responsive grid */}
+      {/* Tablet + Desktop: responsive grid */}
       <motion.div
-        className="pf-recent-grid pf-desktop-only"
+        className="pf-recent-grid"
         variants={staggerContainer}
         initial="hidden"
         whileInView="visible"
@@ -495,15 +487,15 @@ const RecentListings = memo(function RecentListings({ listings, onViewAll }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   MENU ITEM WITH ARIA
+   MENU ITEM
 ═══════════════════════════════════════════════════════════════ */
 const MenuItem = memo(function MenuItem({ to, Ic, label, badge, badgeType, currentPath }) {
   const isActive = currentPath === to;
 
   const badgeClass =
-    badgeType === "notif" ? " pf-badge-pill--notif" :
-    badge === "WIN"        ? " pf-badge-pill--win"   :
-    badge === "NEW"        ? " pf-badge-pill--new"   :
+    badgeType === "notif"      ? " pf-badge-pill--notif" :
+    badge === "WIN"            ? " pf-badge-pill--win"   :
+    badge === "NEW"            ? " pf-badge-pill--new"   :
     badge?.startsWith?.("₦") ? " pf-badge-pill--money" : "";
 
   return (
@@ -528,15 +520,15 @@ const MenuItem = memo(function MenuItem({ to, Ic, label, badge, badgeType, curre
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   SIDEBAR LINK WITH ARIA
+   SIDEBAR LINK
 ═══════════════════════════════════════════════════════════════ */
 const SidebarLink = memo(function SidebarLink({ to, Ic, label, badge, badgeType, currentPath }) {
   const isActive = currentPath === to;
 
   const badgeClass =
-    badgeType === "notif" ? " pf-badge-pill--notif" :
-    badge === "WIN"        ? " pf-badge-pill--win"   :
-    badge === "NEW"        ? " pf-badge-pill--new"   :
+    badgeType === "notif"      ? " pf-badge-pill--notif" :
+    badge === "WIN"            ? " pf-badge-pill--win"   :
+    badge === "NEW"            ? " pf-badge-pill--new"   :
     badge?.startsWith?.("₦") ? " pf-badge-pill--money" : "";
 
   return (
@@ -560,7 +552,7 @@ const SidebarLink = memo(function SidebarLink({ to, Ic, label, badge, badgeType,
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   SIDEBAR (desktop only)
+   SIDEBAR
 ═══════════════════════════════════════════════════════════════ */
 const Sidebar = memo(function Sidebar({
   user, joinedLabel, onEditProfile, onLogout, menuSections, currentPath, children,
@@ -574,7 +566,6 @@ const Sidebar = memo(function Sidebar({
       animate="visible"
       transition={{ ...spring, delay: 0.1 }}
     >
-      {/* Identity card */}
       <div
         className="pf-sidebar-identity"
         onClick={onEditProfile}
@@ -633,10 +624,8 @@ const Sidebar = memo(function Sidebar({
         </span>
       </div>
 
-      {/* Referral injected as children */}
       {children}
 
-      {/* Navigation */}
       <nav className="pf-sidebar-nav" aria-label="Profile navigation">
         {menuSections.map((section) => (
           <div key={section.title} className="pf-sidebar-section">
@@ -646,13 +635,8 @@ const Sidebar = memo(function Sidebar({
             <div role="list" aria-labelledby={`sidebar-${section.title}`}>
               {section.items.map(({ to, Ic, label, badge, badgeType }) => (
                 <SidebarLink
-                  key={to}
-                  to={to}
-                  Ic={Ic}
-                  label={label}
-                  badge={badge}
-                  badgeType={badgeType}
-                  currentPath={currentPath}
+                  key={to} to={to} Ic={Ic} label={label}
+                  badge={badge} badgeType={badgeType} currentPath={currentPath}
                 />
               ))}
             </div>
@@ -681,16 +665,15 @@ export default function Profile({ onLogout }) {
   const currentPath = location.pathname;
   const menuRef     = useRef(null);
 
-  const [menuOpen,    setMenuOpen]    = useState(false);
-  const [isRetrying,  setIsRetrying]  = useState(false);
+  const [menuOpen,   setMenuOpen]   = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
 
   /* ── React Query: User ── */
   const {
-    data:     user,
-    error:    userError,
-    isError:  userIsError,
-    refetch:  refetchUser,
-    isFetching: userFetching,
+    data:    user,
+    error:   userError,
+    isError: userIsError,
+    refetch: refetchUser,
   } = useQuery({
     queryKey:  ["profile-user"],
     queryFn:   fetchUserData,
@@ -718,16 +701,15 @@ export default function Profile({ onLogout }) {
 
   /* ── React Query: Unread notifications ── */
   const { data: unreadCount = 0 } = useQuery({
-    queryKey:  ["profile-unread-count"],
-    queryFn:   fetchUnreadCount,
-    staleTime: 60 * 1000,
-    gcTime:    5 * 60 * 1000,
-    retry:     1,
-    enabled:   !!getToken(),
+    queryKey:       ["profile-unread-count"],
+    queryFn:        fetchUnreadCount,
+    staleTime:      60 * 1000,
+    gcTime:         5 * 60 * 1000,
+    retry:          1,
+    enabled:        !!getToken(),
     refetchInterval: 60 * 1000,
   });
 
-  /* ── Build menu with live badge ── */
   const menuSections = buildMenuSections(unreadCount);
 
   /* ── Auth redirect ── */
@@ -794,7 +776,7 @@ export default function Profile({ onLogout }) {
   return (
     <div className="pf-page" role="main">
 
-      {/* ── Mobile header ── */}
+      {/* Mobile header */}
       <div className="pf-mobile-header">
         <ProfileHeader
           title="My Profile"
@@ -811,7 +793,7 @@ export default function Profile({ onLogout }) {
 
       <div className="pf-layout">
 
-        {/* ── SIDEBAR (desktop) ── */}
+        {/* SIDEBAR (desktop) */}
         <Sidebar
           user={user}
           joinedLabel={joinedLabel}
@@ -823,10 +805,9 @@ export default function Profile({ onLogout }) {
           <ReferralBanner code={user?.referral_code} />
         </Sidebar>
 
-        {/* ── CONTENT ── */}
+        {/* CONTENT */}
         <main className="pf-content" aria-live="polite">
 
-          {/* Error banner */}
           <AnimatePresence>
             {errorMessage && (
               <ErrorBanner
@@ -837,7 +818,7 @@ export default function Profile({ onLogout }) {
             )}
           </AnimatePresence>
 
-          {/* ── Quick actions bar (desktop) ── */}
+          {/* Desktop quick bar */}
           <motion.div
             className="pf-quick-bar pf-desktop-only"
             variants={fadeIn}
@@ -872,7 +853,7 @@ export default function Profile({ onLogout }) {
             </motion.button>
           </motion.div>
 
-          {/* ── Mobile identity card ── */}
+          {/* Mobile identity card */}
           <motion.div
             className="pf-identity-card pf-identity-card--clickable pf-mobile-only"
             onClick={goEditProfile}
@@ -892,11 +873,7 @@ export default function Profile({ onLogout }) {
             </div>
 
             <div className="pf-avatar-row">
-              <motion.div
-                className="pf-avatar"
-                whileHover={{ scale: 1.05 }}
-                transition={spring}
-              >
+              <motion.div className="pf-avatar" whileHover={{ scale: 1.05 }} transition={spring}>
                 {user?.profile_image ? (
                   <img
                     src={user.profile_image}
@@ -915,19 +892,11 @@ export default function Profile({ onLogout }) {
                 <h1 className="pf-name" title={user?.name || "User"}>
                   {user?.name || "User"}
                 </h1>
-                <p className="pf-store">
-                  {user?.store_name || "Loemart Member"}
-                </p>
-
+                <p className="pf-store">{user?.store_name || "Loemart Member"}</p>
                 <div className="pf-meta">
-                  {joinedLabel && (
-                    <span className="pf-meta-item">Joined {joinedLabel}</span>
-                  )}
-                  {user?.location_state && (
-                    <span className="pf-meta-item">{user.location_state}</span>
-                  )}
+                  {joinedLabel && <span className="pf-meta-item">Joined {joinedLabel}</span>}
+                  {user?.location_state && <span className="pf-meta-item">{user.location_state}</span>}
                 </div>
-
                 <div className="pf-badges">
                   {user?.verified      && <span className="pf-badge pf-badge--verified">Verified</span>}
                   {user?.is_seller     && <span className="pf-badge pf-badge--seller">Seller</span>}
@@ -982,15 +951,15 @@ export default function Profile({ onLogout }) {
             </div>
           </motion.div>
 
-          {/* ── Recent listings ── */}
+          {/* Recent listings */}
           <RecentListings listings={listings} onViewAll={goViewAll} />
 
-          {/* ── Referral: mobile only ── */}
+          {/* Referral: mobile only */}
           <div className="pf-mobile-only">
             <ReferralBanner code={user?.referral_code} />
           </div>
 
-          {/* ── Menu sections: mobile only ── */}
+          {/* Menu: mobile only */}
           <div className="pf-mobile-only">
             {menuSections.map((section, si) => (
               <motion.section
@@ -1002,26 +971,14 @@ export default function Profile({ onLogout }) {
                 viewport={viewportOnce}
                 transition={{ ...spring, delay: si * 0.04 }}
               >
-                <p
-                  className="pf-menu-label"
-                  id={`menu-${section.title}`}
-                >
+                <p className="pf-menu-label" id={`menu-${section.title}`}>
                   {section.title}
                 </p>
-                <div
-                  className="pf-menu-list"
-                  role="list"
-                  aria-labelledby={`menu-${section.title}`}
-                >
+                <div className="pf-menu-list" role="list" aria-labelledby={`menu-${section.title}`}>
                   {section.items.map(({ to, Ic, label, badge, badgeType }) => (
                     <MenuItem
-                      key={to}
-                      to={to}
-                      Ic={Ic}
-                      label={label}
-                      badge={badge}
-                      badgeType={badgeType}
-                      currentPath={currentPath}
+                      key={to} to={to} Ic={Ic} label={label}
+                      badge={badge} badgeType={badgeType} currentPath={currentPath}
                     />
                   ))}
                 </div>
