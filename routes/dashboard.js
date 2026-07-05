@@ -33,63 +33,89 @@ setInterval(() => {
 
 /* ═══════════════════════════════════════════════════════════════
    STATUS HELPERS
-   Products can have:  active | active_limited | active_promoted
-                       pending | pending_payment | pending_review
-                       draft | paused | deleted
 ═══════════════════════════════════════════════════════════════ */
 const ACTIVE_STATUSES  = `(p.status = 'active' OR p.status LIKE 'active_%')`;
 const PENDING_STATUSES = `(p.status = 'pending' OR p.status LIKE 'pending_%')`;
 const NOT_DELETED      = `COALESCE(p.is_deleted, false) = false AND p.status != 'deleted'`;
 
-/* Same expressions without table alias — for COUNT subqueries */
 const ACTIVE_STATUSES_RAW  = `(status = 'active' OR status LIKE 'active_%')`;
 const PENDING_STATUSES_RAW = `(status = 'pending' OR status LIKE 'pending_%')`;
 const NOT_DELETED_RAW      = `COALESCE(is_deleted, false) = false AND status != 'deleted'`;
 
 /* ═══════════════════════════════════════════════════════════════
    IMAGE RESOLVER
-   Products store images in multiple ways
+   Only uses main_image + thumbnail_url (no images column in schema)
 ═══════════════════════════════════════════════════════════════ */
 function resolveProductImage(p) {
-  let image = p.main_image || p.thumbnail_url || null;
-
-  if (!image && Array.isArray(p.images) && p.images.length > 0) {
-    const first = p.images[0];
-    if (typeof first === "string") image = first;
-    else if (first?.url) image = first.url;
-  }
-
-  let imagesArr = [];
-  if (Array.isArray(p.images) && p.images.length > 0) {
-    imagesArr = p.images
-      .map((img) => (typeof img === "string" ? img : img?.url || null))
-      .filter(Boolean);
-  } else if (image) {
-    imagesArr = [image];
-  }
-
-  return { image, imagesArr };
+  const image = p.main_image || p.thumbnail_url || null;
+  return {
+    image,
+    imagesArr: image ? [image] : [],
+  };
 }
 
 /* ═══════════════════════════════════════════════════════════════
    SHAPE PRODUCT ROW
-   Consistent shape returned from every route
 ═══════════════════════════════════════════════════════════════ */
 function shapeProduct(p) {
   const { image, imagesArr } = resolveProductImage(p);
   return {
-    ...p,
-    image,
-    images:           imagesArr,
+    id:               p.id,
+    title:            p.title,
     price:            Number(p.price            || 0),
+    slug:             p.slug            || null,
+    status:           p.status          || "draft",
+    is_active:        p.is_active       !== false,
+    is_promoted:      !!p.is_promoted,
+    promotion_type:   p.promotion_type  || null,
     views:            Number(p.views            || 0),
     clicks_count:     Number(p.clicks_count     || 0),
     favorites_count:  Number(p.favorites_count  || 0),
     engagement_score: Number(p.engagement_score || 0),
     quality_score:    Number(p.quality_score    || 0),
-    is_active:        p.is_active !== false,
-    is_promoted:      !!p.is_promoted,
+    created_at:       p.created_at      || null,
+    updated_at:       p.updated_at      || null,
+    location_city:    p.location_city   || null,
+    location_state:   p.location_state  || null,
+    category_name:    p.category_name   || null,
+    main_image:       p.main_image      || null,
+    thumbnail_url:    p.thumbnail_url   || null,
+    image,
+    images:           imagesArr,
   };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TAB WHERE BUILDER
+═══════════════════════════════════════════════════════════════ */
+function buildTabWhere(tab) {
+  switch (tab) {
+    case "active":
+      return {
+        where: `AND ${ACTIVE_STATUSES} AND p.is_active = true AND ${NOT_DELETED}`,
+        count: `AND ${ACTIVE_STATUSES_RAW} AND is_active = true AND ${NOT_DELETED_RAW}`,
+      };
+    case "draft":
+      return {
+        where: `AND p.status = 'draft' AND ${NOT_DELETED}`,
+        count: `AND status = 'draft' AND ${NOT_DELETED_RAW}`,
+      };
+    case "paused":
+      return {
+        where: `AND p.is_active = false AND p.status NOT IN ('draft','deleted') AND ${NOT_DELETED}`,
+        count: `AND is_active = false AND status NOT IN ('draft','deleted') AND ${NOT_DELETED_RAW}`,
+      };
+    case "pending":
+      return {
+        where: `AND ${PENDING_STATUSES} AND ${NOT_DELETED}`,
+        count: `AND ${PENDING_STATUSES_RAW} AND ${NOT_DELETED_RAW}`,
+      };
+    default: /* all */
+      return {
+        where: `AND ${NOT_DELETED}`,
+        count: `AND ${NOT_DELETED_RAW}`,
+      };
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -97,7 +123,6 @@ function shapeProduct(p) {
 ═══════════════════════════════════════════════════════════════ */
 async function getSellerScore(userId) {
   try {
-    /* Response-time score */
     const { rows: rRows } = await pool.query(
       `SELECT
          COALESCE(
@@ -119,22 +144,13 @@ async function getSellerScore(userId) {
       hrs <= 24 ?  60 :
       hrs <= 48 ?  40 : 20;
 
-    /* Aggregate stats */
     const { rows: aRows } = await pool.query(
       `SELECT
          u.rating,
-         u.total_sales,
-         u.trust_score,
-         u.products_count,
-         u.store_verified,
-         u.verified,
          COALESCE(SUM(p.views),            0)::int AS total_views,
          COALESCE(SUM(p.clicks_count),     0)::int AS total_clicks,
-         COALESCE(SUM(p.favorites_count),  0)::int AS total_favorites,
-         COALESCE(SUM(p.share_count),      0)::int AS total_shares,
          COALESCE(SUM(p.engagement_score), 0)::int AS total_engagement,
-         COUNT(p.id)::int                          AS active_count,
-         COUNT(CASE WHEN p.is_promoted THEN 1 END)::int AS promoted_count
+         COUNT(p.id)::int                          AS active_count
        FROM public.users u
        LEFT JOIN public.products p
          ON  p.seller_id = u.id
@@ -142,9 +158,7 @@ async function getSellerScore(userId) {
          AND p.is_active = true
          AND ${NOT_DELETED}
        WHERE u.id = $1
-       GROUP BY
-         u.id, u.rating, u.total_sales, u.trust_score,
-         u.products_count, u.store_verified, u.verified`,
+       GROUP BY u.id, u.rating`,
       [userId]
     );
 
@@ -168,65 +182,37 @@ async function getSellerScore(userId) {
       ratingScore   * 0.20 +
       responseScore * 0.15
     )));
-
-  } catch {
+  } catch (err) {
+    console.error("[getSellerScore] error:", err.message);
     return 0;
   }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   WHERE EXTRA BUILDER
-   Builds the extra WHERE fragment + count fragment for a given tab
+   PRODUCTS SELECT COLUMNS  (reused in multiple routes)
 ═══════════════════════════════════════════════════════════════ */
-function buildTabWhere(tab) {
-  switch (tab) {
-    case "active":
-      return {
-        where: `
-          AND ${ACTIVE_STATUSES}
-          AND p.is_active = true
-          AND ${NOT_DELETED}
-        `,
-        count: `
-          AND ${ACTIVE_STATUSES_RAW}
-          AND is_active = true
-          AND ${NOT_DELETED_RAW}
-        `,
-      };
-
-    case "draft":
-      return {
-        where: `AND p.status = 'draft' AND ${NOT_DELETED}`,
-        count: `AND status  = 'draft' AND ${NOT_DELETED_RAW}`,
-      };
-
-    case "paused":
-      return {
-        where: `
-          AND p.is_active = false
-          AND p.status NOT IN ('draft', 'deleted')
-          AND ${NOT_DELETED}
-        `,
-        count: `
-          AND is_active = false
-          AND status NOT IN ('draft', 'deleted')
-          AND ${NOT_DELETED_RAW}
-        `,
-      };
-
-    case "pending":
-      return {
-        where: `AND ${PENDING_STATUSES} AND ${NOT_DELETED}`,
-        count: `AND ${PENDING_STATUSES_RAW} AND ${NOT_DELETED_RAW}`,
-      };
-
-    default: /* all */
-      return {
-        where: `AND ${NOT_DELETED}`,
-        count: `AND ${NOT_DELETED_RAW}`,
-      };
-  }
-}
+const PRODUCT_COLS = `
+  p.id,
+  p.title,
+  p.price,
+  p.slug,
+  p.status,
+  p.is_active,
+  p.is_promoted,
+  p.promotion_type,
+  p.views,
+  p.clicks_count,
+  p.favorites_count,
+  p.engagement_score,
+  p.quality_score,
+  p.created_at,
+  p.updated_at,
+  p.main_image,
+  p.thumbnail_url,
+  p.location_city,
+  p.location_state,
+  cat.name AS category_name
+`;
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/seller-dashboard/stats
@@ -239,6 +225,8 @@ router.get("/stats", authenticate, async (req, res) => {
     const cached = cacheGet(cacheKey);
     if (cached) return res.json({ success: true, cached: true, stats: cached });
 
+    console.log(`[dashboard/stats] userId=${userId}`);
+
     const { rows } = await pool.query(
       `SELECT
          u.rating,
@@ -247,7 +235,7 @@ router.get("/stats", authenticate, async (req, res) => {
          COALESCE(SUM(p.views),           0)::int AS total_views,
          COALESCE(SUM(p.clicks_count),    0)::int AS total_clicks,
          COALESCE(SUM(p.favorites_count), 0)::int AS total_favorites,
-         COUNT(p.id)::int AS total_products,
+         COUNT(p.id)::int                         AS total_products,
 
          COUNT(CASE
            WHEN (p.status = 'active' OR p.status LIKE 'active_%')
@@ -286,7 +274,6 @@ router.get("/stats", authenticate, async (req, res) => {
     }
 
     const r = rows[0];
-
     const stats = {
       total_products:  Number(r.total_products  || 0),
       active:          Number(r.active          || 0),
@@ -302,12 +289,18 @@ router.get("/stats", authenticate, async (req, res) => {
       trust_score:     Number(r.trust_score     || 50),
     };
 
+    console.log(`[dashboard/stats] total=${stats.total_products} active=${stats.active}`);
+
     cacheSet(cacheKey, stats);
     return res.json({ success: true, cached: false, stats });
 
   } catch (err) {
-    console.error("[dashboard] GET /stats:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("[dashboard/stats] ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      detail:  err.message,
+    });
   }
 });
 
@@ -326,29 +319,9 @@ router.get("/products", authenticate, async (req, res) => {
 
     const { where, count } = buildTabWhere(tab);
 
+    /* Main query */
     const { rows } = await pool.query(
-      `SELECT
-         p.id,
-         p.title,
-         p.price,
-         p.slug,
-         p.status,
-         p.is_active,
-         p.is_promoted,
-         p.promotion_type,
-         p.views,
-         p.clicks_count,
-         p.favorites_count,
-         p.engagement_score,
-         p.quality_score,
-         p.created_at,
-         p.updated_at,
-         p.main_image,
-         p.thumbnail_url,
-         p.images,
-         p.location_city,
-         p.location_state,
-         cat.name AS category_name
+      `SELECT ${PRODUCT_COLS}
        FROM public.products p
        LEFT JOIN public.categories cat ON cat.id = p.category_id
        WHERE p.seller_id = $1
@@ -359,6 +332,7 @@ router.get("/products", authenticate, async (req, res) => {
       [userId, limit, offset]
     );
 
+    /* Count query */
     const { rows: cRows } = await pool.query(
       `SELECT COUNT(*)::int AS total
        FROM public.products
@@ -367,7 +341,7 @@ router.get("/products", authenticate, async (req, res) => {
       [userId]
     );
 
-    const total    = cRows[0]?.total || 0;
+    const total    = Number(cRows[0]?.total || 0);
     const products = rows.map(shapeProduct);
 
     console.log(`[dashboard/products] found=${products.length} total=${total}`);
@@ -386,24 +360,30 @@ router.get("/products", authenticate, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[dashboard] GET /products:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("[dashboard/products] ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      detail:  err.message,
+    });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    PATCH /api/seller-dashboard/products/:id/toggle
-   Toggle active ↔ paused
 ═══════════════════════════════════════════════════════════════ */
 router.patch("/products/:id/toggle", authenticate, async (req, res) => {
-  const { id }  = req.params;
-  const userId  = req.user.id;
+  const { id } = req.params;
+  const userId = req.user.id;
 
   try {
+    console.log(`[dashboard/toggle] productId=${id} userId=${userId}`);
+
     const { rows } = await pool.query(
       `SELECT id, is_active, status
        FROM public.products
        WHERE id = $1 AND seller_id = $2
+         AND COALESCE(is_deleted, false) = false
        LIMIT 1`,
       [id, userId]
     );
@@ -427,11 +407,17 @@ router.patch("/products/:id/toggle", authenticate, async (req, res) => {
     cacheDel(`stats:${userId}`);
     cacheDel(`overview:${userId}`);
 
+    console.log(`[dashboard/toggle] productId=${id} is_active=${newActive} status=${newStatus}`);
+
     return res.json({ success: true, is_active: newActive, status: newStatus });
 
   } catch (err) {
-    console.error("[dashboard] PATCH /products/:id/toggle:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("[dashboard/toggle] ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      detail:  err.message,
+    });
   }
 });
 
@@ -440,13 +426,16 @@ router.patch("/products/:id/toggle", authenticate, async (req, res) => {
    Soft delete
 ═══════════════════════════════════════════════════════════════ */
 router.delete("/products/:id", authenticate, async (req, res) => {
-  const { id }  = req.params;
-  const userId  = req.user.id;
+  const { id } = req.params;
+  const userId = req.user.id;
 
   try {
+    console.log(`[dashboard/delete] productId=${id} userId=${userId}`);
+
     const { rows } = await pool.query(
       `SELECT id FROM public.products
        WHERE id = $1 AND seller_id = $2
+         AND COALESCE(is_deleted, false) = false
        LIMIT 1`,
       [id, userId]
     );
@@ -468,11 +457,17 @@ router.delete("/products/:id", authenticate, async (req, res) => {
     cacheDel(`stats:${userId}`);
     cacheDel(`overview:${userId}`);
 
+    console.log(`[dashboard/delete] productId=${id} soft-deleted`);
+
     return res.json({ success: true, message: "Product deleted" });
 
   } catch (err) {
-    console.error("[dashboard] DELETE /products/:id:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("[dashboard/delete] ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      detail:  err.message,
+    });
   }
 });
 
@@ -484,28 +479,29 @@ router.get("/analytics", authenticate, async (req, res) => {
     const userId = req.user.id;
     const days   = Math.min(Number(req.query.days) || 7, 30);
 
-    /* Daily chart */
+    console.log(`[dashboard/analytics] userId=${userId} days=${days}`);
+
+    /* ── Daily chart data ── */
     let daily = [];
     try {
-      const { rows } = await pool.query(
+      const { rows: dRows } = await pool.query(
         `SELECT
-           DATE(last_interaction_at AT TIME ZONE 'Africa/Lagos') AS date,
-           SUM(views)::int            AS views,
-           SUM(clicks_count)::int     AS clicks,
-           SUM(favorites_count)::int  AS favorites,
-           COUNT(*)::int              AS products_active
+           DATE(created_at AT TIME ZONE 'Africa/Lagos') AS date,
+           SUM(views)::int           AS views,
+           SUM(clicks_count)::int    AS clicks,
+           SUM(favorites_count)::int AS favorites,
+           COUNT(*)::int             AS product_count
          FROM public.products
-         WHERE seller_id            = $1
-           AND last_interaction_at IS NOT NULL
-           AND last_interaction_at  > NOW() - ($2 || ' days')::INTERVAL
-           AND is_active            = true
+         WHERE seller_id = $1
+           AND created_at > NOW() - ($2 || ' days')::INTERVAL
            AND COALESCE(is_deleted, false) = false
-         GROUP BY DATE(last_interaction_at AT TIME ZONE 'Africa/Lagos')
+           AND status != 'deleted'
+         GROUP BY DATE(created_at AT TIME ZONE 'Africa/Lagos')
          ORDER BY date ASC`,
         [userId, days]
       );
 
-      daily = rows.map((r) => ({
+      daily = dRows.map((r) => ({
         date:      r.date,
         label:     new Date(r.date).toLocaleDateString("en-NG", {
           weekday: "short", day: "numeric", month: "short",
@@ -514,39 +510,55 @@ router.get("/analytics", authenticate, async (req, res) => {
         clicks:    Number(r.clicks    || 0),
         favorites: Number(r.favorites || 0),
       }));
-    } catch {}
+    } catch (chartErr) {
+      console.error("[dashboard/analytics] chart error:", chartErr.message);
+    }
 
-    /* Top 5 products by views */
-    const { rows: topRows } = await pool.query(
-      `SELECT
-         id, title, slug, price,
-         main_image, thumbnail_url, images,
-         views, clicks_count, favorites_count,
-         engagement_score, status, is_active, is_promoted
-       FROM public.products
-       WHERE seller_id = $1
-         AND ${ACTIVE_STATUSES_RAW}
-         AND is_active = true
-         AND COALESCE(is_deleted, false) = false
-       ORDER BY views DESC
-       LIMIT 5`,
-      [userId]
-    );
+    /* ── Top 5 products by views ── */
+    let topProducts = [];
+    try {
+      const { rows: tRows } = await pool.query(
+        `SELECT
+           p.id, p.title, p.slug, p.price,
+           p.main_image, p.thumbnail_url,
+           p.views, p.clicks_count, p.favorites_count,
+           p.status, p.is_active, p.is_promoted,
+           cat.name AS category_name
+         FROM public.products p
+         LEFT JOIN public.categories cat ON cat.id = p.category_id
+         WHERE p.seller_id = $1
+           AND COALESCE(p.is_deleted, false) = false
+           AND p.status != 'deleted'
+         ORDER BY p.views DESC
+         LIMIT 5`,
+        [userId]
+      );
 
-    const topProducts = topRows.map((p) => {
-      const { image } = resolveProductImage(p);
-      return {
-        ...p,
-        image,
-        price: Number(p.price || 0),
-        views: Number(p.views || 0),
-        ctr:   Number(p.views || 0) > 0
+      topProducts = tRows.map((p) => ({
+        id:              p.id,
+        title:           p.title,
+        slug:            p.slug,
+        price:           Number(p.price           || 0),
+        image:           p.main_image || p.thumbnail_url || null,
+        views:           Number(p.views           || 0),
+        clicks_count:    Number(p.clicks_count    || 0),
+        favorites_count: Number(p.favorites_count || 0),
+        status:          p.status,
+        is_active:       p.is_active,
+        is_promoted:     !!p.is_promoted,
+        category_name:   p.category_name || null,
+        ctr: Number(p.views || 0) > 0
           ? Number(((p.clicks_count / p.views) * 100).toFixed(1))
           : 0,
-      };
-    });
+      }));
+    } catch (topErr) {
+      console.error("[dashboard/analytics] top products error:", topErr.message);
+    }
 
+    /* ── Seller score ── */
     const sellerScore = await getSellerScore(userId);
+
+    console.log(`[dashboard/analytics] daily=${daily.length} top=${topProducts.length} score=${sellerScore}`);
 
     return res.json({
       success:      true,
@@ -557,8 +569,12 @@ router.get("/analytics", authenticate, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[dashboard] GET /analytics:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("[dashboard/analytics] ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      detail:  err.message,
+    });
   }
 });
 
@@ -573,19 +589,29 @@ router.get("/overview", authenticate, async (req, res) => {
     const cached = cacheGet(cacheKey);
     if (cached) return res.json({ success: true, cached: true, data: cached });
 
+    console.log(`[dashboard/overview] userId=${userId}`);
+
     const [statsRes, recentRes] = await Promise.all([
 
       pool.query(
         `SELECT
-           u.name, u.store_name, u.store_logo, u.profile_image,
-           u.rating, u.total_sales, u.trust_score,
-           u.products_count, u.store_verified, u.verified,
-           u.is_online, u.email_verified, u.created_at,
+           u.name,
+           u.store_name,
+           u.store_logo,
+           u.profile_image,
+           u.rating,
+           u.total_sales,
+           u.trust_score,
+           u.products_count,
+           u.store_verified,
+           u.verified,
+           u.is_online,
+           u.email_verified,
+           u.created_at,
            COALESCE(SUM(p.views),            0)::int AS total_views,
            COALESCE(SUM(p.clicks_count),     0)::int AS total_clicks,
            COALESCE(SUM(p.favorites_count),  0)::int AS total_favorites,
-           COALESCE(SUM(p.engagement_score), 0)::int AS total_engagement,
-           COUNT(p.id)::int AS total_products,
+           COUNT(p.id)::int                          AS total_products,
 
            COUNT(CASE
              WHEN (p.status = 'active' OR p.status LIKE 'active_%')
@@ -624,16 +650,13 @@ router.get("/overview", authenticate, async (req, res) => {
       ),
 
       pool.query(
-        `SELECT
-           id, title, price, slug, status, is_active,
-           is_promoted, views, clicks_count, favorites_count,
-           created_at, main_image, thumbnail_url, images,
-           location_city, location_state
-         FROM public.products
-         WHERE seller_id = $1
-           AND status != 'deleted'
-           AND COALESCE(is_deleted, false) = false
-         ORDER BY created_at DESC
+        `SELECT ${PRODUCT_COLS}
+         FROM public.products p
+         LEFT JOIN public.categories cat ON cat.id = p.category_id
+         WHERE p.seller_id = $1
+           AND p.status   != 'deleted'
+           AND COALESCE(p.is_deleted, false) = false
+         ORDER BY p.created_at DESC
          LIMIT 6`,
         [userId]
       ),
@@ -650,9 +673,9 @@ router.get("/overview", authenticate, async (req, res) => {
       seller_score: sellerScore,
       seller: {
         name:           s.name,
-        store_name:     s.store_name,
-        store_logo:     s.store_logo,
-        profile_image:  s.profile_image,
+        store_name:     s.store_name     || null,
+        store_logo:     s.store_logo     || null,
+        profile_image:  s.profile_image  || null,
         verified:       !!s.verified,
         store_verified: !!s.store_verified,
         email_verified: !!s.email_verified,
@@ -678,12 +701,20 @@ router.get("/overview", authenticate, async (req, res) => {
       recent_products: recentRes.rows.map(shapeProduct),
     };
 
+    console.log(
+      `[dashboard/overview] seller=${s.name} products=${data.stats.total_products} score=${sellerScore}`
+    );
+
     cacheSet(cacheKey, data);
     return res.json({ success: true, cached: false, data });
 
   } catch (err) {
-    console.error("[dashboard] GET /overview:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    console.error("[dashboard/overview] ERROR:", err);
+    return res.status(500).json({
+      success: false,
+      message: "Server error",
+      detail:  err.message,
+    });
   }
 });
 
