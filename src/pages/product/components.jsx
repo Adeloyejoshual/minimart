@@ -1,17 +1,18 @@
 /**
  * src/pages/product/components.jsx
+ * v2 — Edit mode + design tokens + external CSS
  *
- * v10 — cleanup
- *  ─ SellerLimitsBanner removed entirely
- *  ─ DraftRecoveryBanner removed entirely
- *  ─ AutoSaveIndicator removed from top bar
- *  ─ Submit button never disabled by canPost — server enforces limits
- *  ─ Upsell modal auto-opens when trialExhausted becomes true
- *  ─ Image upload input never disabled by canPost
- *  ─ Duplicate "Minimum 10 characters" hint removed (CharCounter handles it)
- *  ─ Duplicate "₦450,000 NGN" price hint removed
- *  ─ Delivery fee duplicate hint removed
- *  ─ All other v9 improvements preserved
+ * Changes:
+ *  ─ Edit mode: shows existing images, different title/button text
+ *  ─ ExistingImageGrid: displays server images with remove button
+ *  ─ INITIAL_FORM removed from props (imported directly)
+ *  ─ Design tokens used throughout (--o, --ink, --bd, etc.)
+ *  ─ Styles moved to AddProduct.css
+ *  ─ moveImage now handles both existing + new (moveAllImages)
+ *  ─ totalImageCount prop used for image limit display
+ *  ─ Submit button / page title adapt to edit mode
+ *  ─ Payment plan section hidden in edit mode
+ *  ─ Terms checkbox hidden in edit mode (auto-agreed)
  */
 
 import {
@@ -21,6 +22,7 @@ import { Link }           from "react-router-dom";
 import DropdownModal      from "../../components/DropdownModal.jsx";
 import AddProductHeader   from "../../components/AddProductHeader.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
+import { INITIAL_FORM }   from "../../hooks/useFormState.js";
 
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
@@ -34,8 +36,8 @@ function normalizeOptions(list) {
     .map((item) => {
       if (typeof item === "string") return { id: item, name: item };
       return {
-        id   : String(item.id    ?? item.value ?? item.name ?? ""),
-        name : String(item.name  ?? item.label ?? item.id   ?? ""),
+        id  : String(item.id    ?? item.value ?? item.name ?? ""),
+        name: String(item.name  ?? item.label ?? item.id   ?? ""),
       };
     })
     .filter((item) => item.id && item.name);
@@ -151,6 +153,12 @@ const CheckIcon = () => (
        stroke="currentColor" strokeWidth="2.2"
        strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <polyline points="2 8 6 12 14 4"/>
+  </svg>
+);
+
+const StarIcon = () => (
+  <svg viewBox="0 0 20 20" width="12" height="12" fill="currentColor" aria-hidden="true">
+    <polygon points="10 1 12.9 7 19.5 7.6 14.5 12 16.2 18.5 10 15 3.8 18.5 5.5 12 0.5 7.6 7.1 7"/>
   </svg>
 );
 
@@ -295,11 +303,11 @@ function VerificationUpsellModal({ onClose, trialRemaining = null }) {
         </p>
         <ul className="upsell-benefits" role="list">
           {[
-            { icon: "∞", label: "Permanent listings — your posts never expire"   },
-            { icon: "↑", label: "100 products per day (you get 3 trial listings)" },
-            { icon: "☑", label: "500 active listings at once (vs 3 trial)"       },
-            { icon: "⚡", label: "No cooldown between posts"                      },
-            { icon: "★", label: "Higher trust score · more buyer confidence"      },
+            { icon: "∞", label: "Permanent listings — your posts never expire"    },
+            { icon: "↑", label: "100 products per day (vs 3 trial listings)"      },
+            { icon: "☑", label: "500 active listings at once (vs 3 trial)"        },
+            { icon: "⚡", label: "No cooldown between posts"                       },
+            { icon: "★", label: "Higher trust score · more buyer confidence"       },
           ].map(({ icon, label }) => (
             <li key={label} className="upsell-benefit">
               <span className="upsell-benefit-icon" aria-hidden="true">{icon}</span>
@@ -333,8 +341,7 @@ function VerificationNudgeBanner({ verificationData }) {
         </strong>
         <p>
           {message ??
-            "Complete identity verification to make your listings permanent " +
-            "and unlock unlimited posting."}
+            "Complete identity verification to make your listings permanent."}
         </p>
         <Link to="/verification" className="primary-btn verification-nudge-btn">
           Complete Verification
@@ -354,7 +361,7 @@ function ImageUploadRules() {
   return (
     <div className="image-upload-rules" aria-label="Upload requirements">
       {[
-        { ok: true,  label: "JPEG / PNG / WebP" },
+        { ok: true,  label: "JPEG / PNG / WebP"  },
         { ok: true,  label: "Max 3 MB per image" },
         { ok: false, label: "No GIF or HEIC"     },
       ].map(({ ok, label }) => (
@@ -367,10 +374,60 @@ function ImageUploadRules() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   IMAGE GRID
+   EXISTING IMAGE GRID  (edit mode — server images)
+═══════════════════════════════════════════════════════════════ */
+const ExistingImageGrid = memo(function ExistingImageGrid({
+  existingImages,
+  onRemove,
+}) {
+  if (!existingImages || existingImages.length === 0) return null;
+
+  return (
+    <div className="existing-images-wrap">
+      <p className="existing-images-label">
+        Current Images
+        <span className="existing-images-hint">
+          — tap × to remove
+        </span>
+      </p>
+      <div className="existing-images-grid">
+        {existingImages.map((img, index) => (
+          <div key={img.id} className="existing-thumb">
+            <img
+              src={img.url}
+              alt={`Existing image ${index + 1}`}
+              loading="lazy"
+              decoding="async"
+            />
+            {img.is_primary && (
+              <span className="preview-primary-badge">Main</span>
+            )}
+            <button
+              type="button"
+              className="preview-remove-btn"
+              aria-label={`Remove existing image ${index + 1}`}
+              onClick={() => onRemove(img.id)}
+            >
+              <svg viewBox="0 0 14 14" width="10" height="10" fill="none"
+                   stroke="currentColor" strokeWidth="2.2"
+                   strokeLinecap="round" aria-hidden="true">
+                <line x1="1" y1="1" x2="13" y2="13"/>
+                <line x1="13" y1="1" x2="1"  y2="13"/>
+              </svg>
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   IMAGE GRID  (new uploads)
 ═══════════════════════════════════════════════════════════════ */
 const ImageGrid = memo(function ImageGrid({
-  images, imageErrors, MAX_IMAGES, isDragging, dropZoneRef,
+  images, imageErrors, MAX_IMAGES, canAddMore,
+  isDragging, dropZoneRef,
   onDragEnter, onDragOver, onDragLeave, onDrop,
   onRemove, onMove, onAdd,
 }) {
@@ -476,7 +533,9 @@ const ImageGrid = memo(function ImageGrid({
               <img
                 src={img.preview}
                 alt={`Product image ${index + 1}`}
-                loading="lazy" decoding="async" draggable={false}
+                loading="lazy"
+                decoding="async"
+                draggable={false}
                 style={{ opacity: err ? 0.4 : 1 }}
               />
               {err && (
@@ -484,9 +543,12 @@ const ImageGrid = memo(function ImageGrid({
                   <WarningIcon /><span>{err}</span>
                 </div>
               )}
-              <button type="button" className="preview-remove-btn"
-                      aria-label={`Remove image ${index + 1}`}
-                      onClick={() => onRemove(img.id)}>
+              <button
+                type="button"
+                className="preview-remove-btn"
+                aria-label={`Remove image ${index + 1}`}
+                onClick={() => onRemove(img.id)}
+              >
                 <svg viewBox="0 0 14 14" width="10" height="10" fill="none"
                      stroke="currentColor" strokeWidth="2.2"
                      strokeLinecap="round" aria-hidden="true">
@@ -520,7 +582,7 @@ const ImageGrid = memo(function ImageGrid({
           );
         })}
 
-        {images.length < MAX_IMAGES && (
+        {canAddMore && (
           <label
             className={[
               "add-image-box add-image-btn",
@@ -546,7 +608,12 @@ const ImageGrid = memo(function ImageGrid({
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function ProductComponents({
-  form, attributes, images, state, city,
+  /* ─ data ─ */
+  form,
+  attributes,
+  images,
+  state,
+  city,
   categories        = [],
   selectedPlan      = null,
   paymentData       = null,
@@ -561,11 +628,18 @@ export default function ProductComponents({
   detectingLocation = false,
   agreedToTerms     = false,
   TermsCheckbox,
-  INITIAL_FORM,
   MAX_IMAGES        = 6,
   promotionPlans    = [],
   plansLoading      = false,
 
+  /* ─ edit mode ─ */
+  isEditMode           = false,
+  editId               = null,
+  existingImages       = [],
+  removeExistingImage,
+  totalImageCount      = 0,
+
+  /* ─ seller limits ─ */
   sellerLimits      = null,
   limitsLoading     = false,
   isVerifiedSeller  = false,
@@ -573,21 +647,39 @@ export default function ProductComponents({
   dailyRemaining    = null,
   activeRemaining   = null,
   cooldownSecs      = 0,
-
   trialExhausted    = false,
   trialRemaining    = null,
 
+  /* ─ post-creation ─ */
   needsVerification = false,
   verificationData  = null,
 
-  updateForm, updateAttribute, updateContact, updateDelivery,
-  updateDeliveryDuration, toggleFeature, setState, setCity,
-  setSelectedPlan, handleImages, removeImage, moveImage,
-  handleSubmit, clearDraft, detectLocation, resumePayment,
+  /* ─ handlers ─ */
+  updateForm,
+  updateAttribute,
+  updateContact,
+  updateDelivery,
+  updateDeliveryDuration,
+  toggleFeature,
+  setState,
+  setCity,
+  setSelectedPlan,
+  handleImages,
+  removeImage,
+  moveImage,
+  handleSubmit,
+  clearDraft,
+  detectLocation,
+  resumePayment,
   cancelPendingPayment,
 
-  displayPrice, formatLabel, onlyNumbers, onlyDigits,
+  /* ─ formatters ─ */
+  displayPrice,
+  formatLabel,
+  onlyNumbers,
+  onlyDigits,
 
+  /* ─ API base ─ */
   apiBase = import.meta.env?.VITE_API_BASE_URL
     ? `${import.meta.env.VITE_API_BASE_URL}/api`
     : "/api",
@@ -612,7 +704,6 @@ export default function ProductComponents({
   const planRefs        = useRef([]);
 
   cardIndexRef.current = 0;
-
   const nextCardRef = () => {
     const i = cardIndexRef.current++;
     return (el) => { if (el) cardRefs.current[i] = el; };
@@ -625,10 +716,10 @@ export default function ProductComponents({
     return () => timers.forEach(clearTimeout);
   }, []);
 
-  /* Auto-open upsell modal when trial exhausted (server 403 → fetchLimits) */
+  /* Auto-open upsell when trial exhausted */
   useEffect(() => {
-    if (trialExhausted) setShowUpsellModal(true);
-  }, [trialExhausted]);
+    if (trialExhausted && !isEditMode) setShowUpsellModal(true);
+  }, [trialExhausted, isEditMode]);
 
   /* ── Image validation ── */
   const validateAndHashImages = useCallback(async (incomingImages) => {
@@ -687,51 +778,40 @@ export default function ProductComponents({
     }
   }, [images]);
 
-  /* ── Server duplicate check ── */
+  /* ── Server duplicate check (skip in edit mode) ── */
   const checkServerDuplicate = useCallback(async () => {
+    if (isEditMode) return;
     if (!form.title?.trim() || !form.price || !form.category_id) return;
     const token = getToken();
     if (!token) return;
 
     setDupChecking(true);
     try {
-      const hashes = await Promise.all(
-        images.map((img) => hashImageFile(img.file))
-      );
-      const res = await fetch(
-        `${apiBase}/addproduct/products/check-duplicate`,
-        {
-          method  : "POST",
-          headers : {
-            "Content-Type": "application/json",
-            Authorization : `Bearer ${token}`,
-          },
-          body    : JSON.stringify({
-            title       : form.title.trim(),
-            price       : Number(form.price),
-            category_id : form.category_id,
-            image_hashes: hashes,
-          }),
-        }
-      );
+      const hashes = await Promise.all(images.map((img) => hashImageFile(img.file)));
+      const res = await fetch(`${apiBase}/addproduct/products/check-duplicate`, {
+        method  : "POST",
+        headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body    : JSON.stringify({
+          title       : form.title.trim(),
+          price       : Number(form.price),
+          category_id : form.category_id,
+          image_hashes: hashes,
+        }),
+      });
       if (!res.ok) return;
       const data = await res.json();
-      setDupWarning(
-        data.isDuplicate
-          ? (data.message ?? "A similar listing already exists.")
-          : ""
-      );
+      setDupWarning(data.isDuplicate ? (data.message ?? "A similar listing already exists.") : "");
     } catch {}
     finally { setDupChecking(false); }
-  }, [form.title, form.price, form.category_id, images, apiBase]);
+  }, [isEditMode, form.title, form.price, form.category_id, images, apiBase]);
 
   useEffect(() => {
-    if (!form.title?.trim() || form.title.length < 8) {
+    if (isEditMode || !form.title?.trim() || form.title.length < 8) {
       setDupWarning(""); return;
     }
     const t = setTimeout(checkServerDuplicate, 1_200);
     return () => clearTimeout(t);
-  }, [form.title, form.price, form.category_id, images.length, checkServerDuplicate]);
+  }, [isEditMode, form.title, form.price, form.category_id, images.length, checkServerDuplicate]);
 
   /* ── WhatsApp link ── */
   const ALLOWED_WA_HOSTS = useMemo(() => [
@@ -754,8 +834,7 @@ export default function ProductComponents({
 
   const handleWaLinkChange = useCallback((e) => {
     setWaLinkError("");
-    updateContact("whatsapp_link",
-      sanitizeWhatsAppLink(e.target.value) || e.target.value);
+    updateContact("whatsapp_link", sanitizeWhatsAppLink(e.target.value) || e.target.value);
   }, [sanitizeWhatsAppLink, updateContact]);
 
   const handleWaLinkBlur = useCallback((e) => {
@@ -789,7 +868,7 @@ export default function ProductComponents({
   const handleDragEnter = useCallback((e) => {
     e.preventDefault(); dragCounterRef.current += 1; setIsDragging(true);
   }, []);
-  const handleDragOver = useCallback((e) => { e.preventDefault(); }, []);
+  const handleDragOver  = useCallback((e) => { e.preventDefault(); }, []);
   const handleDragLeave = useCallback((e) => {
     e.preventDefault();
     dragCounterRef.current -= 1;
@@ -850,22 +929,22 @@ export default function ProductComponents({
     [attributes?.features]
   );
 
-  const brandOptions     = useMemo(() => normalizeOptions(options?.brands),     [options?.brands]);
-  const colorOptions     = useMemo(() => normalizeOptions(options?.colors),     [options?.colors]);
-  const conditionOptions = useMemo(() => normalizeOptions(options?.conditions), [options?.conditions]);
+  const brandOptions      = useMemo(() => normalizeOptions(options?.brands),     [options?.brands]);
+  const colorOptions      = useMemo(() => normalizeOptions(options?.colors),     [options?.colors]);
+  const conditionOptions  = useMemo(() => normalizeOptions(options?.conditions), [options?.conditions]);
   const usedDetailOptions = useMemo(() => normalizeOptions(options?.used_details ?? options?.usedDetails ?? []), [options?.used_details, options?.usedDetails]);
-  const ramOptions       = useMemo(() => normalizeOptions(options?.ram),        [options?.ram]);
-  const storageOptions   = useMemo(() => normalizeOptions(options?.storage),    [options?.storage]);
-  const simOptions       = useMemo(() => normalizeOptions(options?.sim),        [options?.sim]);
-  const yearOptions      = useMemo(() => normalizeOptions(options?.years),      [options?.years]);
-  const engineOptions    = useMemo(() => normalizeOptions(options?.engine ?? options?.engines ?? []), [options?.engine, options?.engines]);
-  const fuelTypeOptions  = useMemo(() => normalizeOptions(options?.fuelType ?? options?.fuel_types ?? []), [options?.fuelType, options?.fuel_types]);
-  const sizeOptions      = useMemo(() => normalizeOptions(options?.size),       [options?.size]);
-  const ageRangeOptions  = useMemo(() => normalizeOptions(options?.age_range),  [options?.age_range]);
-  const bedroomOptions   = useMemo(() => normalizeOptions(options?.bedrooms),   [options?.bedrooms]);
-  const bathroomOptions  = useMemo(() => normalizeOptions(options?.bathrooms),  [options?.bathrooms]);
-  const expLevelOptions  = useMemo(() => normalizeOptions(options?.experience_level), [options?.experience_level]);
-  const skillsOptions    = useMemo(() => normalizeOptions(options?.skills),     [options?.skills]);
+  const ramOptions        = useMemo(() => normalizeOptions(options?.ram),        [options?.ram]);
+  const storageOptions    = useMemo(() => normalizeOptions(options?.storage),    [options?.storage]);
+  const simOptions        = useMemo(() => normalizeOptions(options?.sim),        [options?.sim]);
+  const yearOptions       = useMemo(() => normalizeOptions(options?.years),      [options?.years]);
+  const engineOptions     = useMemo(() => normalizeOptions(options?.engine ?? options?.engines ?? []), [options?.engine, options?.engines]);
+  const fuelTypeOptions   = useMemo(() => normalizeOptions(options?.fuelType ?? options?.fuel_types ?? []), [options?.fuelType, options?.fuel_types]);
+  const sizeOptions       = useMemo(() => normalizeOptions(options?.size),       [options?.size]);
+  const ageRangeOptions   = useMemo(() => normalizeOptions(options?.age_range),  [options?.age_range]);
+  const bedroomOptions    = useMemo(() => normalizeOptions(options?.bedrooms),   [options?.bedrooms]);
+  const bathroomOptions   = useMemo(() => normalizeOptions(options?.bathrooms),  [options?.bathrooms]);
+  const expLevelOptions   = useMemo(() => normalizeOptions(options?.experience_level), [options?.experience_level]);
+  const skillsOptions     = useMemo(() => normalizeOptions(options?.skills),     [options?.skills]);
 
   const optionsMap = {
     brand: brandOptions, color: colorOptions, condition: conditionOptions,
@@ -883,7 +962,10 @@ export default function ProductComponents({
   const contactFilled  = !!(form.contact?.email && form.contact?.phone);
   const locationFilled = !!(state && city);
   const hasImageErrors = Object.keys(imageErrors).length > 0;
-  const imagesFilled   = images.length > 0 && !hasImageErrors;
+
+  /* In edit mode, existing images count toward imagesFilled */
+  const imagesFilled   = totalImageCount > 0 && !hasImageErrors;
+
   const sectionsComplete = [
     basicFilled, detailsFilled, contactFilled, locationFilled, imagesFilled,
   ].filter(Boolean).length;
@@ -926,8 +1008,9 @@ export default function ProductComponents({
     return String(n);
   }, []);
 
-  /* ── Title suggestion ── */
+  /* ── Title suggestions (skip in edit mode) ── */
   useEffect(() => {
+    if (isEditMode) return;
     if (!form.description || form.description.length < 30 || form.title?.trim().length >= 10) {
       setTitleSuggestions([]); return;
     }
@@ -939,49 +1022,79 @@ export default function ProductComponents({
       setTitleSuggestions(words.length >= 3 ? [words.join(" ")] : []);
     }, 600);
     return () => clearTimeout(t);
-  }, [form.description, form.title]);
+  }, [isEditMode, form.description, form.title]);
 
-  /* Submit blocked — only form validation, never by canPost */
+  /* ── Can add more images ── */
+  const canAddMore = totalImageCount < MAX_IMAGES;
+
+  /* ── Submit state ── */
   const submitBlocked =
-    loading || !agreedToTerms || plansLoading ||
+    loading || (!isEditMode && !agreedToTerms) ||
+    (!isEditMode && plansLoading) ||
     !!deliveryRangeError || hasImageErrors;
 
-  const submitTitle = !agreedToTerms
+  const submitTitle = !agreedToTerms && !isEditMode
     ? "Please accept the Terms & Conditions first"
-    : plansLoading         ? "Plans are still loading"
-    : !!deliveryRangeError ? deliveryRangeError
-    : hasImageErrors       ? "Fix image errors before submitting"
+    : plansLoading && !isEditMode ? "Plans are still loading"
+    : !!deliveryRangeError        ? deliveryRangeError
+    : hasImageErrors              ? "Fix image errors before submitting"
     : undefined;
+
+  /* ── Submit button label ── */
+  const submitLabel = (() => {
+    if (loading)           return isEditMode ? "Saving…" : "Processing…";
+    if (deliveryRangeError) return "Fix Delivery Dates";
+    if (hasImageErrors)    return "Fix Image Errors";
+    if (isEditMode)        return "Save Changes";
+    if (isFreePlan)        return "Post Ad";
+    return "Post Ad & Pay";
+  })();
+
+  /* ── Page title ── */
+  const pageTitle = isEditMode ? "Edit Listing" : "Post a Listing";
 
   /* ═══════════════════════════════════════════════════════════
      RENDER
   ═══════════════════════════════════════════════════════════ */
   return (
     <>
-      <AddProductHeader title="Add Product" onClearDraft={clearDraft} />
+      <AddProductHeader
+        title={pageTitle}
+        onClearDraft={isEditMode ? null : clearDraft}
+      />
 
-      {showUpsellModal && (
+      {showUpsellModal && !isEditMode && (
         <VerificationUpsellModal
           onClose={() => setShowUpsellModal(false)}
           trialRemaining={trialRemaining}
         />
       )}
 
-      {/* Top bar — progress only */}
-      <div className="ap-top-bar">
-        {sectionsComplete < 5 && (
-          <div className="form-progress" aria-label="Form completion">
-            <div className="form-progress-bar"
-                 style={{ width: `${(sectionsComplete / 5) * 100}%` }} />
-            <span className="form-progress-label">
-              {sectionsComplete}/5 sections complete
-            </span>
-          </div>
-        )}
-      </div>
+      {/* Progress bar (create mode only) */}
+      {!isEditMode && (
+        <div className="ap-top-bar">
+          {sectionsComplete < 5 && (
+            <div className="form-progress" aria-label="Form completion">
+              <div className="form-progress-bar"
+                   style={{ width: `${(sectionsComplete / 5) * 100}%` }} />
+              <span className="form-progress-label">
+                {sectionsComplete}/5 sections complete
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
-      {/* Duplicate warning */}
-      {dupWarning && (
+      {/* Edit mode indicator */}
+      {isEditMode && (
+        <div className="ap-edit-mode-bar">
+          <span className="ap-edit-mode-icon">✏️</span>
+          <span>Editing listing</span>
+        </div>
+      )}
+
+      {/* Duplicate warning (create mode only) */}
+      {!isEditMode && dupWarning && (
         <div className="duplicate-warning" role="alert">
           <WarningIcon />
           <div>
@@ -992,7 +1105,7 @@ export default function ProductComponents({
                   className="duplicate-dismiss" aria-label="Dismiss">&times;</button>
         </div>
       )}
-      {dupChecking && (
+      {!isEditMode && dupChecking && (
         <div className="dup-checking" aria-live="polite">
           <SpinnerIcon /> Checking for duplicates…
         </div>
@@ -1014,8 +1127,8 @@ export default function ProductComponents({
         <VerificationNudgeBanner verificationData={verificationData} />
       )}
 
-      {/* Incomplete payment */}
-      {paymentData?.authUrl && (
+      {/* Incomplete payment (create mode only) */}
+      {!isEditMode && paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
             <CardIcon />
@@ -1057,17 +1170,12 @@ export default function ProductComponents({
             <span />
             <CharCounter value={form.title} max={120} />
           </div>
-          {titleSuggestions.length > 0 && (
+          {!isEditMode && titleSuggestions.length > 0 && (
             <div className="title-suggestions">
-              <span className="title-suggestions-label">
-                Suggestion from description:
-              </span>
+              <span className="title-suggestions-label">Suggestion:</span>
               {titleSuggestions.map((s, i) => (
                 <button key={i} type="button" className="title-suggestion-chip"
-                        onClick={() => {
-                          updateForm("title", s);
-                          setTitleSuggestions([]);
-                        }}>
+                        onClick={() => { updateForm("title", s); setTitleSuggestions([]); }}>
                   {s}
                 </button>
               ))}
@@ -1075,7 +1183,6 @@ export default function ProductComponents({
           )}
         </div>
 
-        {/* Description — only CharCounter shows the "X more needed" hint */}
         <div className="form-group">
           <label htmlFor="ap-desc">Description *</label>
           <textarea
@@ -1091,7 +1198,6 @@ export default function ProductComponents({
           </div>
         </div>
 
-        {/* Price — no duplicate ₦X NGN hint */}
         <div className="form-group">
           <label htmlFor="ap-price">Price (&#8358;) *</label>
           <input
@@ -1119,7 +1225,10 @@ export default function ProductComponents({
               if (normValue(value) === normValue(form.category_id)) return;
               updateForm("category_id",    value);
               updateForm("subcategory_id", "");
-              updateForm("attributes",     deepClone(INITIAL_FORM.attributes));
+              /* Only reset attributes in create mode */
+              if (!isEditMode) {
+                updateForm("attributes", deepClone(INITIAL_FORM.attributes));
+              }
             }}
           />
         </div>
@@ -1129,9 +1238,7 @@ export default function ProductComponents({
             <label>Subcategory</label>
             <DropdownModal
               value={normValue(form.subcategory_id)}
-              options={subcategories.map((sub) => ({
-                id: String(sub.id), name: sub.name,
-              }))}
+              options={subcategories.map((sub) => ({ id: String(sub.id), name: sub.name }))}
               placeholder="Select subcategory"
               onChange={(value) => updateForm("subcategory_id", value)}
             />
@@ -1166,9 +1273,7 @@ export default function ProductComponents({
                 type="text"
                 placeholder="e.g. Pavilion 15-eg3000"
                 value={attributes?.model ?? ""}
-                onChange={(e) =>
-                  updateAttribute("model", e.target.value.trimStart())
-                }
+                onChange={(e) => updateAttribute("model", e.target.value.trimStart())}
               />
             )}
           </div>
@@ -1193,8 +1298,7 @@ export default function ProductComponents({
         {totalFeatureCount > 0 && (
           <div className="form-group">
             <label>Features</label>
-            <div className="checkbox-grid-inline" role="group"
-                 aria-label="Product features">
+            <div className="checkbox-grid-inline" role="group" aria-label="Product features">
               {visibleFeatures.map((feature) => (
                 <label key={safeStr(feature)} className="checkbox-inline">
                   <input
@@ -1328,17 +1432,13 @@ export default function ProductComponents({
                 <label htmlFor="ap-del-from">From Day *</label>
                 <input id="ap-del-from" type="number" min="1" max="30"
                        value={form.delivery.duration.from}
-                       onChange={(e) =>
-                         handleDeliveryDuration("from", clampDay(e.target.value))
-                       } />
+                       onChange={(e) => handleDeliveryDuration("from", clampDay(e.target.value))} />
               </div>
               <div className="form-group">
                 <label htmlFor="ap-del-to">To Day *</label>
                 <input id="ap-del-to" type="number" min="1" max="30"
                        value={form.delivery.duration.to}
-                       onChange={(e) =>
-                         handleDeliveryDuration("to", clampDay(e.target.value))
-                       } />
+                       onChange={(e) => handleDeliveryDuration("to", clampDay(e.target.value))} />
               </div>
             </div>
 
@@ -1353,9 +1453,7 @@ export default function ProductComponents({
                 <label htmlFor="ap-del-fee">Fee (&#8358;) *</label>
                 <input id="ap-del-fee" type="text" inputMode="numeric"
                        value={displayPrice(form.delivery.fee)}
-                       onChange={(e) =>
-                         updateDelivery("fee", onlyNumbers(e.target.value))
-                       } />
+                       onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))} />
               </div>
               <div className="form-group">
                 <label htmlFor="ap-del-note">
@@ -1381,6 +1479,18 @@ export default function ProductComponents({
           Product Images * <SectionDot filled={imagesFilled} />
         </h3>
 
+        {/* Image count status */}
+        <div className="image-count-status">
+          <span className={`image-count-badge${totalImageCount >= MAX_IMAGES ? " image-count-badge--full" : ""}`}>
+            {totalImageCount}/{MAX_IMAGES} images
+          </span>
+          {isEditMode && existingImages.length > 0 && (
+            <span className="image-count-existing">
+              {existingImages.length} existing · {images.length} new
+            </span>
+          )}
+        </div>
+
         {hasImageErrors && (
           <div className="form-error" role="alert" style={{ marginBottom: 10 }}>
             <WarningIcon />{" "}
@@ -1390,120 +1500,158 @@ export default function ProductComponents({
           </div>
         )}
 
-        <ImageGrid
-          images={images}
-          imageErrors={imageErrors}
-          MAX_IMAGES={MAX_IMAGES}
-          isDragging={isDragging}
-          dropZoneRef={dropZoneRef}
-          onDragEnter={handleDragEnter}
-          onDragOver={handleDragOver}
-          onDragLeave={handleDragLeave}
-          onDrop={handleDrop}
-          onRemove={(id) => {
-            removeImage(id);
-            setImageErrors((prev) => {
-              const next = { ...prev };
-              delete next[id];
-              return next;
-            });
-          }}
-          onMove={moveImage}
-          onAdd={handleImages}
-        />
+        {/* Existing images (edit mode) */}
+        {isEditMode && (
+          <ExistingImageGrid
+            existingImages={existingImages}
+            onRemove={removeExistingImage}
+          />
+        )}
 
-        {images.length > 0 && (
+        {/* New uploads */}
+        {canAddMore && (
+          <ImageGrid
+            images={images}
+            imageErrors={imageErrors}
+            MAX_IMAGES={MAX_IMAGES}
+            canAddMore={canAddMore}
+            isDragging={isDragging}
+            dropZoneRef={dropZoneRef}
+            onDragEnter={handleDragEnter}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onRemove={(id) => {
+              removeImage(id);
+              setImageErrors((prev) => {
+                const next = { ...prev };
+                delete next[id];
+                return next;
+              });
+            }}
+            onMove={moveImage}
+            onAdd={handleImages}
+          />
+        )}
+
+        {/* Upload hint when all slots used */}
+        {!canAddMore && (
+          <p className="image-limit-reached">
+            Maximum {MAX_IMAGES} images reached.
+            {isEditMode && " Remove an existing image to add a new one."}
+          </p>
+        )}
+
+        {totalImageCount > 0 && (
           <div className="image-footer">
             <small className="image-count">
-              {images.length}/{MAX_IMAGES} images added
+              {totalImageCount}/{MAX_IMAGES} images
             </small>
             <small className="field-hint">
-              First image is the main photo · drag to reorder
+              {isEditMode
+                ? "Remove existing images above or add new ones below"
+                : "First image is the main photo · drag to reorder"}
             </small>
           </div>
         )}
       </section>
 
-      {/* ── PROMOTION PLAN ── */}
-      <section ref={nextCardRef()} className="section form-card">
-        <h3 className="section-title">Promotion Plan</h3>
+      {/* ── PROMOTION PLAN (create mode only) ── */}
+      {!isEditMode && (
+        <section ref={nextCardRef()} className="section form-card">
+          <h3 className="section-title">Promotion Plan</h3>
 
-        {plansLoading && (
-          <div className="plans-loading" aria-live="polite">
-            <SpinnerIcon /> Loading plans&#8230;
-          </div>
-        )}
+          {plansLoading && (
+            <div className="plans-loading" aria-live="polite">
+              <SpinnerIcon /> Loading plans&#8230;
+            </div>
+          )}
 
-        {!plansLoading && promotionPlans.length === 0 && (
-          <div className="form-error" role="alert">
-            <WarningIcon /> Could not load promotion plans. Please refresh the page.
-          </div>
-        )}
+          {!plansLoading && promotionPlans.length === 0 && (
+            <div className="form-error" role="alert">
+              <WarningIcon /> Could not load promotion plans. Please refresh.
+            </div>
+          )}
 
-        {!plansLoading && promotionPlans.length > 0 && (
-          <div className="plans-grid" role="radiogroup" aria-label="Promotion plan">
-            {promotionPlans.map((plan, planIndex) => {
-              const isSelected  = String(selectedPlan?.id) === String(plan.id);
-              const isBestValue = String(plan.id) === String(bestValuePlanId);
-              return (
-                <div
-                  key={plan.id}
-                  ref={(el) => { if (el) planRefs.current[planIndex] = el; }}
-                  className={[
-                    "plan-card",
-                    isSelected  ? "selected"       : "",
-                    isBestValue ? "plan-card--best" : "",
-                  ].filter(Boolean).join(" ")}
-                  onClick={() => setSelectedPlan(isSelected ? null : plan)}
-                  role="radio"
-                  tabIndex={isSelected ? 0 : -1}
-                  aria-checked={isSelected}
-                  aria-label={`${plan.name} plan${isBestValue ? " — Best Value" : ""}`}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      setSelectedPlan(isSelected ? null : plan);
-                      return;
-                    }
-                    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-                      e.preventDefault();
-                      const next = (planIndex + 1) % promotionPlans.length;
-                      setSelectedPlan(promotionPlans[next]);
-                      planRefs.current[next]?.focus();
-                    }
-                    if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                      e.preventDefault();
-                      const prev = (planIndex - 1 + promotionPlans.length) % promotionPlans.length;
-                      setSelectedPlan(promotionPlans[prev]);
-                      planRefs.current[prev]?.focus();
-                    }
-                  }}
-                >
-                  {isBestValue && <div className="plan-best-badge">Best Value</div>}
-                  <div className="plan-header">
-                    <strong>{plan.name}</strong>
-                    <span className="plan-price">{planPriceLabel(plan)}</span>
+          {!plansLoading && promotionPlans.length > 0 && (
+            <div className="plans-grid" role="radiogroup" aria-label="Promotion plan">
+              {promotionPlans.map((plan, planIndex) => {
+                const isSelected  = String(selectedPlan?.id) === String(plan.id);
+                const isBestValue = String(plan.id) === String(bestValuePlanId);
+                return (
+                  <div
+                    key={plan.id}
+                    ref={(el) => { if (el) planRefs.current[planIndex] = el; }}
+                    className={[
+                      "plan-card",
+                      isSelected  ? "selected"       : "",
+                      isBestValue ? "plan-card--best" : "",
+                    ].filter(Boolean).join(" ")}
+                    onClick={() => setSelectedPlan(isSelected ? null : plan)}
+                    role="radio"
+                    tabIndex={isSelected ? 0 : -1}
+                    aria-checked={isSelected}
+                    aria-label={`${plan.name} plan${isBestValue ? " — Best Value" : ""}`}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        setSelectedPlan(isSelected ? null : plan);
+                        return;
+                      }
+                      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                        e.preventDefault();
+                        const next = (planIndex + 1) % promotionPlans.length;
+                        setSelectedPlan(promotionPlans[next]);
+                        planRefs.current[next]?.focus();
+                      }
+                      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                        e.preventDefault();
+                        const prev = (planIndex - 1 + promotionPlans.length) % promotionPlans.length;
+                        setSelectedPlan(promotionPlans[prev]);
+                        planRefs.current[prev]?.focus();
+                      }
+                    }}
+                  >
+                    {isBestValue && (
+                      <div className="plan-best-badge">
+                        <StarIcon /> Best Value
+                      </div>
+                    )}
+                    <div className="plan-header">
+                      <strong>{plan.name}</strong>
+                      <span className="plan-price">{planPriceLabel(plan)}</span>
+                    </div>
+                    <div className="plan-duration">
+                      {plan.duration || `${plan.duration_days ?? 30} days`}
+                    </div>
+                    {Array.isArray(plan.features) && plan.features.length > 0 && (
+                      <ul className="plan-features">
+                        {plan.features.map((f, i) => (
+                          <li key={i}><CheckIcon /> {safeStr(f)}</li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
-                  <div className="plan-duration">
-                    {plan.duration || `${plan.duration_days ?? 30} days`}
-                  </div>
-                  {Array.isArray(plan.features) && plan.features.length > 0 && (
-                    <ul className="plan-features">
-                      {plan.features.map((f, i) => (
-                        <li key={i}><CheckIcon /> {safeStr(f)}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
 
       {/* ── TERMS + SUBMIT ── */}
       <div ref={nextCardRef()} className="button-section section form-card">
-        {TermsCheckbox}
+
+        {/* Terms checkbox (create mode only — edit auto-agrees) */}
+        {!isEditMode && TermsCheckbox}
+
+        {/* Edit mode: back link */}
+        {isEditMode && (
+          <p className="edit-back-hint">
+            Changes are saved to your listing immediately.{" "}
+            <Link to="/dashboard">← Back to Dashboard</Link>
+          </p>
+        )}
 
         <button
           type="button"
@@ -1515,19 +1663,9 @@ export default function ProductComponents({
           title={submitTitle}
         >
           {loading ? (
-            <>
-              <SpinnerIcon />
-              <span className="sr-only">Submitting…</span>
-              {" "}Processing&#8230;
-            </>
-          ) : deliveryRangeError ? (
-            "Fix Delivery Dates"
-          ) : hasImageErrors ? (
-            "Fix Image Errors"
-          ) : isFreePlan ? (
-            "Post Ad"
+            <><SpinnerIcon />{" "}{isEditMode ? "Saving…" : "Processing…"}</>
           ) : (
-            "Post Ad & Pay"
+            submitLabel
           )}
         </button>
       </div>
