@@ -197,6 +197,10 @@ import referralRoutes     from "./routes/referrals.js";
 import leaderboardRoutes  from "./routes/leaderboard.js";
 import favoritesRouter    from "./routes/favorites.js";
 
+/* ── Background jobs ── */
+import { startListingExpiryJob } from "./jobs/listingExpiry.js";
+import { startCleanupJob }       from "./jobs/cleanupDeletedProducts.js";
+
 /* ══════════════════════════════════════════════════════════════
    WEBHOOKS  — must be BEFORE body parsers
 ══════════════════════════════════════════════════════════════ */
@@ -490,6 +494,10 @@ try {
   console.error("❌ DB connection failed:", err.message);
   process.exit(1);
 }
+
+/* ── Start background jobs (after DB connection confirmed) ── */
+startListingExpiryJob();
+startCleanupJob();
 
 server.listen(PORT, () => {
   console.log(`\n🚀 Loemart on port ${PORT} | ${process.env.NODE_ENV || "development"}`);
