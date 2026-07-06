@@ -1,0 +1,130 @@
+/* ═══════════════════════════════════════════
+   MESSAGING DESKTOP — Root Layout
+═══════════════════════════════════════════ */
+
+.msg-desktop {
+  display: flex;
+  height: 100dvh;
+  font-family: var(--fb);
+  background: var(--bg);
+  overflow: hidden;
+  color: var(--ink);
+}
+
+/* ── Not Logged In ── */
+.msg-login-wall {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  gap: 16px;
+  font-family: var(--fb);
+  padding: 24px;
+  text-align: center;
+  background: var(--bg);
+}
+
+.msg-login-wall svg {
+  color: var(--ink3);
+}
+
+.msg-login-wall__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  font-family: var(--fd);
+}
+
+.msg-login-wall__subtitle {
+  font-size: 13px;
+  color: var(--ink2);
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+.msg-login-wall__btn {
+  padding: 11px 36px;
+  border-radius: var(--r3);
+  border: none;
+  background: var(--o);
+  color: var(--wh);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.msg-login-wall__btn:hover {
+  background: var(--o2);
+}
+
+/* ── Empty Chat Pane (right side placeholder) ── */
+.msg-empty-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  background: var(--bg);
+}
+
+.msg-empty-pane svg {
+  color: var(--bd2);
+}
+
+.msg-empty-pane__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink3);
+  margin: 0;
+  font-family: var(--fd);
+}
+
+.msg-empty-pane__sub {
+  font-size: 13px;
+  color: var(--bd2);
+  margin: 0;
+  text-align: center;
+  max-width: 260px;
+  line-height: 1.5;
+}
+
+/* ── Global Scrollbar ── */
+.msg-desktop ::-webkit-scrollbar {
+  width: 5px;
+}
+
+.msg-desktop ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.msg-desktop ::-webkit-scrollbar-thumb {
+  background: var(--bd);
+  border-radius: 4px;
+}
+
+.msg-desktop ::-webkit-scrollbar-thumb:hover {
+  background: var(--bd2);
+}
+
+/* ── Animations ── */
+@keyframes msg-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes msg-typing {
+  0%, 100% { transform: translateY(0); opacity: 0.4; }
+  50%      { transform: translateY(-4px); opacity: 1; }
+}
+
+@keyframes msg-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
+}
+
+@keyframes msg-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
