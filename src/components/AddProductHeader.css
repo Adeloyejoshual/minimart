@@ -1,12 +1,20 @@
 /* ── AddProductHeader.css ───────────────────────────────────── */
 
 .aph {
-  --o:           #FF5C00;
-  --od:          #d94c00;
-  --ink:         #141210;
-  --ink2:        #5A5650;
-  --bd:          #EAE6E0;
-  --font:        'Plus Jakarta Sans', system-ui, sans-serif;
+  /* Local tokens — inherit global if available */
+  --_o:    var(--o,    #FF5C00);
+  --_od:   var(--od,   #d94c00);
+  --_ink:  var(--ink,  #141210);
+  --_ink2: var(--ink2, #5A5650);
+  --_ink3: var(--ink3, #A8A39D);
+  --_bg:   var(--bg,   #F7F4EF);
+  --_wh:   var(--wh,   #FFFFFF);
+  --_bd:   var(--bd,   #EAE6E0);
+  --_obd:  var(--o-bg, #FFF3EE);
+  --_fb:   var(--fb,   'Plus Jakarta Sans', system-ui, sans-serif);
+  --_fd:   var(--fd,   'Fraunces', Georgia, serif);
+  --_r1:   var(--r1,   8px);
+
   --aph-scrolled: 0;
 
   position: sticky;
@@ -24,7 +32,7 @@
   padding: 12px 16px;
   min-height: 58px;
 
-  background: rgba(247, 244, 239, 0.92);
+  background: rgba(247, 244, 239, 0.93);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
 
@@ -33,24 +41,31 @@
     0 2px 12px rgba(0, 0, 0, 0.06),
     0 1px  3px rgba(255, 92, 0, 0.08);
 
-  font-family: var(--font);
+  font-family: var(--_fb);
 }
 
 @supports not (backdrop-filter: blur(1px)) {
-  .aph { background: rgb(247, 244, 239); }
+  .aph { background: var(--_bg); }
 }
 
-/* Scroll shadow */
+/* ── Scroll shadow ── */
 .aph::after {
   content: "";
   position: absolute;
   bottom: -10px;
-  left: 0; right: 0;
+  left: 0;
+  right: 0;
   height: 10px;
-  background: linear-gradient(to bottom, rgba(0,0,0,0.04), transparent);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.04), transparent);
   pointer-events: none;
   opacity: var(--aph-scrolled, 0);
   transition: opacity 0.2s ease;
+}
+
+/* ── Edit mode — orange left accent ── */
+.aph--edit {
+  border-left: 3px solid var(--_o);
+  padding-left: 13px; /* compensate for border */
 }
 
 /* ── Back button ── */
@@ -60,13 +75,13 @@
   gap: 5px;
 
   padding: 7px 12px 7px 8px;
-  border-radius: 10px;
-  border: 1.5px solid var(--bd);
-  background: #fff;
-  color: var(--ink);
+  border-radius: var(--_r1);
+  border: 1.5px solid var(--_bd);
+  background: var(--_wh);
+  color: var(--_ink);
   font-size: 0.82rem;
   font-weight: 600;
-  font-family: var(--font);
+  font-family: var(--_fb);
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
@@ -77,22 +92,47 @@
     color        0.18s ease,
     transform    0.12s ease;
 }
+.aph-back:hover {
+  background:   var(--_obd);
+  border-color: var(--_o);
+  color:        var(--_o);
+}
+.aph-back:active {
+  transform: scale(0.96);
+}
+.aph-back:focus-visible {
+  outline:      2px solid var(--_o);
+  outline-offset: 2px;
+  border-color: var(--_o);
+  background:   var(--_obd);
+}
+.aph-back:focus:not(:focus-visible) {
+  outline: none;
+}
 
-.aph-back:hover              { background: #FFF3EE; border-color: var(--o); color: var(--o); }
-.aph-back:active             { transform: scale(0.96); }
-.aph-back:focus-visible      { outline: 2px solid var(--o); outline-offset: 2px; border-color: var(--o); background: #FFF3EE; }
-.aph-back:focus:not(:focus-visible) { outline: none; }
+/* Edit mode back — slightly bolder because it goes to dashboard */
+.aph--edit .aph-back {
+  border-color: rgba(255, 92, 0, 0.3);
+  color: var(--_ink2);
+}
+.aph--edit .aph-back:hover {
+  border-color: var(--_o);
+  color: var(--_o);
+  background: var(--_obd);
+}
 
-.aph-back-label { display: inline; }
+.aph-back-label {
+  display: inline;
+}
 
 /* ── Title ── */
 .aph-title {
   flex: 1;
   text-align: center;
-  font-family: 'Fraunces', serif;
+  font-family: var(--_fd);
   font-weight: 800;
   font-size: clamp(0.95rem, 3vw, 1.1rem);
-  color: var(--ink);
+  color: var(--_ink);
   letter-spacing: -0.02em;
   line-height: 1.2;
   overflow: hidden;
@@ -100,6 +140,11 @@
   white-space: nowrap;
   padding: 0 6px;
   margin: 0;
+}
+
+/* Edit mode title — subtle orange tint */
+.aph--edit .aph-title {
+  color: var(--_o);
 }
 
 /* ── Right slot ── */
@@ -110,20 +155,20 @@
   flex-shrink: 0;
 }
 
-/* ── Clear draft ── */
+/* ── Clear draft button (create mode only) ── */
 .aph-clear {
   display: inline-flex;
   align-items: center;
   gap: 5px;
 
   padding: 7px 12px;
-  border-radius: 10px;
+  border-radius: var(--_r1);
   border: 1.5px solid rgba(220, 38, 38, 0.25);
   background: rgba(220, 38, 38, 0.05);
   color: #dc2626;
   font-size: 0.8rem;
   font-weight: 600;
-  font-family: var(--font);
+  font-family: var(--_fb);
   cursor: pointer;
   white-space: nowrap;
 
@@ -132,35 +177,75 @@
     border-color 0.18s ease,
     transform    0.12s ease;
 }
+.aph-clear:hover {
+  background:   rgba(220, 38, 38, 0.10);
+  border-color: rgba(220, 38, 38, 0.50);
+}
+.aph-clear:active {
+  transform: scale(0.96);
+}
+.aph-clear:focus-visible {
+  outline:        2px solid #dc2626;
+  outline-offset: 2px;
+  border-color:   rgba(220, 38, 38, 0.70);
+}
+.aph-clear:focus:not(:focus-visible) {
+  outline: none;
+}
 
-.aph-clear:hover              { background: rgba(220,38,38,0.1); border-color: rgba(220,38,38,0.5); }
-.aph-clear:active             { transform: scale(0.96); }
-.aph-clear:focus-visible      { outline: 2px solid #dc2626; outline-offset: 2px; border-color: rgba(220,38,38,0.7); }
-.aph-clear:focus:not(:focus-visible) { outline: none; }
-
+/* Confirm state */
 .aph-clear--confirm {
   background:   rgba(220, 38, 38, 0.15);
-  border-color: rgba(220, 38, 38, 0.7);
+  border-color: rgba(220, 38, 38, 0.70);
   color:        #b91c1c;
   font-weight:  700;
   animation:    aph-clear-pulse 0.9s ease infinite alternate;
 }
+.aph-clear--confirm:hover {
+  background:   rgba(220, 38, 38, 0.22);
+  border-color: rgba(220, 38, 38, 0.85);
+}
 
 @keyframes aph-clear-pulse {
-  from { box-shadow: 0 0 0 0   rgba(220,38,38,0.25); }
-  to   { box-shadow: 0 0 0 5px rgba(220,38,38,0);    }
+  from { box-shadow: 0 0 0 0px rgba(220, 38, 38, 0.25); }
+  to   { box-shadow: 0 0 0 5px rgba(220, 38, 38, 0);    }
 }
 
 /* ── Responsive ── */
 @media (max-width: 400px) {
-  .aph            { padding: 10px 12px; min-height: 52px; }
-  .aph-back-label { display: none; }
-  .aph-back       { padding: 7px 9px; }
-  .aph-clear      { font-size: 0.75rem; padding: 7px 10px; }
+  .aph {
+    padding: 10px 12px;
+    min-height: 52px;
+  }
+  .aph--edit {
+    padding-left: 9px;
+  }
+  .aph-back-label {
+    display: none;
+  }
+  .aph-back {
+    padding: 7px 9px;
+  }
+  .aph-clear {
+    font-size: 0.75rem;
+    padding: 7px 10px;
+  }
+  .aph-title {
+    font-size: 0.92rem;
+  }
 }
 
 /* ── Reduced motion ── */
 @media (prefers-reduced-motion: reduce) {
-  .aph-back, .aph-clear, .aph-title, .aph::after { transition: none; animation: none; }
-  .aph-clear--confirm { outline: 2px solid rgba(220,38,38,0.7); animation: none; }
+  .aph-back,
+  .aph-clear,
+  .aph-title,
+  .aph::after {
+    transition: none;
+    animation: none;
+  }
+  .aph-clear--confirm {
+    outline: 2px solid rgba(220, 38, 38, 0.7);
+    animation: none;
+  }
 }
