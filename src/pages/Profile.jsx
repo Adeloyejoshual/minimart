@@ -21,7 +21,7 @@ import "../styles/Profile.css";
 
 const MasonryCard = lazy(() =>
   import("../components/MasonryCard").catch(() => ({
-    default: () => null, // silent fallback if MasonryCard fails
+    default: () => null,
   }))
 );
 
@@ -58,18 +58,24 @@ const fmtJoined = (d) => {
 const timeAgo = (d) => {
   if (!d) return "";
   const diff = Date.now() - new Date(d).getTime();
-  const mins = Math.floor(diff / 60000);
+  const mins  = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  if (mins < 1) return "Just now";
+  const days  = Math.floor(diff / 86400000);
+  if (mins < 1)  return "Just now";
   if (mins < 60) return `${mins}m ago`;
   if (hours < 24) return `${hours}h ago`;
-  if (days < 30) return `${days}d ago`;
-  return new Date(d).toLocaleDateString("en-NG", { month: "short", day: "numeric" });
+  if (days < 30)  return `${days}d ago`;
+  return new Date(d).toLocaleDateString("en-NG", {
+    month: "short",
+    day: "numeric",
+  });
 };
 
 const onActivate = (fn) => (e) => {
-  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); fn(); }
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    fn();
+  }
 };
 
 /* ── Desktop detection ── */
@@ -95,6 +101,95 @@ function useIsDesktop(query = "(min-width: 1024px)") {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   DRAG SCROLL HOOK
+   Wires click-and-drag on a ref'd element.
+   Only activates on non-touch (pointer: fine) devices.
+═══════════════════════════════════════════════════════════════ */
+function useDragScroll(enabled = true) {
+  const ref       = useRef(null);
+  const state     = useRef({
+    isDown:     false,
+    startX:     0,
+    scrollLeft: 0,
+    hasDragged: false,   // true once mouse moves > threshold
+  });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !enabled) return;
+
+    /* Only wire up on devices with a fine pointer (mouse / trackpad).
+       Avoids breaking touch scrolling on hybrids.                    */
+    const finePointer =
+      typeof window !== "undefined" &&
+      window.matchMedia("(pointer: fine)").matches;
+    if (!finePointer) return;
+
+    const DRAG_THRESHOLD = 5; // px before we consider it a drag
+
+    const onMouseDown = (e) => {
+      if (e.button !== 0) return; // left button only
+      state.current.isDown     = true;
+      state.current.hasDragged = false;
+      state.current.startX     = e.pageX - el.offsetLeft;
+      state.current.scrollLeft = el.scrollLeft;
+      el.classList.add("pf-recent-scroll--dragging");
+    };
+
+    const onMouseUp = () => {
+      state.current.isDown = false;
+      el.classList.remove("pf-recent-scroll--dragging");
+    };
+
+    const onMouseLeave = () => {
+      if (!state.current.isDown) return;
+      state.current.isDown = false;
+      el.classList.remove("pf-recent-scroll--dragging");
+    };
+
+    const onMouseMove = (e) => {
+      if (!state.current.isDown) return;
+      e.preventDefault();
+
+      const x    = e.pageX - el.offsetLeft;
+      const walk = x - state.current.startX;
+
+      // Mark as dragged once threshold passed
+      if (Math.abs(walk) > DRAG_THRESHOLD) {
+        state.current.hasDragged = true;
+      }
+
+      el.scrollLeft = state.current.scrollLeft - walk * 1.4;
+    };
+
+    /* Suppress click on cards if user actually dragged */
+    const onClickCapture = (e) => {
+      if (state.current.hasDragged) {
+        e.stopPropagation();
+        e.preventDefault();
+        state.current.hasDragged = false;
+      }
+    };
+
+    el.addEventListener("mousedown",    onMouseDown);
+    el.addEventListener("mouseup",      onMouseUp);
+    el.addEventListener("mouseleave",   onMouseLeave);
+    el.addEventListener("mousemove",    onMouseMove, { passive: false });
+    el.addEventListener("click",        onClickCapture, true); // capture phase
+
+    return () => {
+      el.removeEventListener("mousedown",  onMouseDown);
+      el.removeEventListener("mouseup",    onMouseUp);
+      el.removeEventListener("mouseleave", onMouseLeave);
+      el.removeEventListener("mousemove",  onMouseMove);
+      el.removeEventListener("click",      onClickCapture, true);
+    };
+  }, [enabled]);
+
+  return ref;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    AUTH
 ═══════════════════════════════════════════════════════════════ */
 const getToken = () =>
@@ -110,8 +205,10 @@ function normalizeUser(raw) {
   return {
     ...raw,
     phone: raw.phone || raw.phone_number || "",
-    location_state: raw.location?.state || raw.location_state || raw.state || "",
-    location_city: raw.location?.city || raw.location_city || raw.city || "",
+    location_state:
+      raw.location?.state || raw.location_state || raw.state || "",
+    location_city:
+      raw.location?.city || raw.location_city || raw.city || "",
   };
 }
 
@@ -139,7 +236,11 @@ async function fetchUserListings() {
     console.log("[Profile] listings fetched:", list.length, list[0]?.title);
     return list.slice(0, 8);
   } catch (err) {
-    console.warn("[Profile] listings fetch failed:", err?.response?.status, err?.message);
+    console.warn(
+      "[Profile] listings fetch failed:",
+      err?.response?.status,
+      err?.message
+    );
     return [];
   }
 }
@@ -161,53 +262,53 @@ async function fetchUnreadCount() {
    ANIMATION VARIANTS
 ═══════════════════════════════════════════════════════════════ */
 const fadeIn = {
-  hidden: { opacity: 0, y: 16 },
+  hidden:  { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0 },
 };
 const slideRight = {
-  hidden: { opacity: 0, x: -24 },
+  hidden:  { opacity: 0, x: -24 },
   visible: { opacity: 1, x: 0 },
 };
 const scaleIn = {
-  hidden: { opacity: 0, scale: 0.92 },
+  hidden:  { opacity: 0, scale: 0.92 },
   visible: { opacity: 1, scale: 1 },
 };
 const staggerContainer = {
-  hidden: {},
+  hidden:  {},
   visible: { transition: { staggerChildren: 0.06 } },
 };
 const cardItem = {
-  hidden: { opacity: 0, y: 20, scale: 0.95 },
-  visible: { opacity: 1, y: 0, scale: 1 },
+  hidden:  { opacity: 0, y: 20, scale: 0.95 },
+  visible: { opacity: 1, y: 0,  scale: 1 },
 };
-const spring = { type: "spring", stiffness: 260, damping: 24 };
+const spring       = { type: "spring", stiffness: 260, damping: 24 };
 const viewportOnce = { once: true, amount: 0.1 };
 
 /* ═══════════════════════════════════════════════════════════════
    ICONS
 ═══════════════════════════════════════════════════════════════ */
 const Icon = {
-  logout: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>),
-  chevron: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6" /></svg>),
+  logout:    () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>),
+  chevron:   () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6" /></svg>),
   dashboard: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>),
-  plus: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>),
-  saved: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>),
-  messages: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>),
-  trending: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>),
-  gift: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 12 20 22 4 22 4 12" /><rect x="2" y="7" width="20" height="5" /><path d="M12 22V7" /><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" /><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" /></svg>),
-  shield: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>),
-  help: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>),
-  zap: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>),
-  notify: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>),
-  support: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6 6l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16l.19.92z" /></svg>),
-  copy: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>),
-  star: () => (<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>),
-  settings: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>),
-  edit: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>),
-  refresh: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>),
-  wifi: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="1" y1="1" x2="23" y2="23" /><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" /><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" /><path d="M10.71 5.05A16 16 0 0 1 22.56 9" /><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" /><path d="M8.53 16.11a6 6 0 0 1 6.95 0" /><line x1="12" y1="20" x2="12.01" y2="20" /></svg>),
-  package: () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21" /><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>),
-  spinner: () => (<svg className="pf-spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></svg>),
+  plus:      () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19" /><line x1="5" y1="12" x2="19" y2="12" /></svg>),
+  saved:     () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>),
+  messages:  () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" /></svg>),
+  trending:  () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17" /><polyline points="16 7 22 7 22 13" /></svg>),
+  gift:      () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="20 12 20 22 4 22 4 12" /><rect x="2" y="7" width="20" height="5" /><path d="M12 22V7" /><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z" /><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z" /></svg>),
+  shield:    () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></svg>),
+  help:      () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>),
+  zap:       () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" /></svg>),
+  notify:    () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" /><path d="M13.73 21a2 2 0 0 1-3.46 0" /></svg>),
+  support:   () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.41 2 2 0 0 1 3.6 1.22h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.81a16 16 0 0 0 6 6l.95-.95a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 21.73 16l.19.92z" /></svg>),
+  copy:      () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>),
+  star:      () => (<svg viewBox="0 0 24 24" fill="currentColor"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" /></svg>),
+  settings:  () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>),
+  edit:      () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>),
+  refresh:   () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>),
+  wifi:      () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="1" y1="1" x2="23" y2="23" /><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" /><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" /><path d="M10.71 5.05A16 16 0 0 1 22.56 9" /><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" /><path d="M8.53 16.11a6 6 0 0 1 6.95 0" /><line x1="12" y1="20" x2="12.01" y2="20" /></svg>),
+  package:   () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21" /><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>),
+  spinner:   () => (<svg className="pf-spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></svg>),
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -232,21 +333,26 @@ const buildMenuSections = (unreadCount = 0) => [
   {
     title: "Rewards",
     items: [
-      { to: "/spin",       Ic: Icon.zap,  label: "Spin & Win",    badge: "WIN" },
+      { to: "/spin",       Ic: Icon.zap,  label: "Spin & Win",      badge: "WIN" },
       { to: "/coupons",    Ic: Icon.gift, label: "Coupons & Promos" },
-      { to: "/invitation", Ic: Icon.gift, label: "Refer & Earn",  badge: "₦500" },
+      { to: "/invitation", Ic: Icon.gift, label: "Refer & Earn",    badge: "₦500" },
     ],
   },
   {
     title: "Account",
     items: [
-      { to: "/settings",      Ic: Icon.settings, label: "Settings" },
-      { to: "/verification",  Ic: Icon.shield,   label: "Verification" },
+      { to: "/settings",     Ic: Icon.settings, label: "Settings" },
+      { to: "/verification", Ic: Icon.shield,   label: "Verification" },
       {
         to: "/notifications",
         Ic: Icon.notify,
         label: "Notifications",
-        badge: unreadCount > 0 ? (unreadCount > 99 ? "99+" : String(unreadCount)) : null,
+        badge:
+          unreadCount > 0
+            ? unreadCount > 99
+              ? "99+"
+              : String(unreadCount)
+            : null,
         badgeType: "notif",
       },
       { to: "/support", Ic: Icon.support, label: "Help & Support" },
@@ -281,7 +387,9 @@ const ReferralBanner = memo(function ReferralBanner({ code }) {
     >
       <div className="pf-referral-text">
         <p className="pf-referral-head">Refer & Earn ₦500</p>
-        <p className="pf-referral-sub">Share your code and earn when a friend signs up.</p>
+        <p className="pf-referral-sub">
+          Share your code and earn when a friend signs up.
+        </p>
       </div>
       <motion.button
         className="pf-referral-code"
@@ -322,7 +430,9 @@ const ErrorBanner = memo(function ErrorBanner({ message, onRetry, isRetrying }) 
       exit={{ opacity: 0, y: -12 }}
       transition={spring}
     >
-      <span className="pf-error-icon"><Icon.wifi /></span>
+      <span className="pf-error-icon">
+        <Icon.wifi />
+      </span>
       <div className="pf-error-content">
         <p className="pf-error-title">Something went wrong</p>
         <p className="pf-error-msg">{message}</p>
@@ -334,7 +444,15 @@ const ErrorBanner = memo(function ErrorBanner({ message, onRetry, isRetrying }) 
         disabled={isRetrying}
         whileTap={isRetrying ? {} : { scale: 0.95 }}
       >
-        {isRetrying ? <><Icon.spinner /> Refreshing…</> : <><Icon.refresh /> Retry</>}
+        {isRetrying ? (
+          <>
+            <Icon.spinner /> Refreshing…
+          </>
+        ) : (
+          <>
+            <Icon.refresh /> Retry
+          </>
+        )}
       </motion.button>
     </motion.div>
   );
@@ -345,8 +463,8 @@ const ErrorBanner = memo(function ErrorBanner({ message, onRetry, isRetrying }) 
 ═══════════════════════════════════════════════════════════════ */
 const resolveImage = (item) => {
   if (!item) return null;
-  if (item.image) return item.image;
-  if (item.main_image) return item.main_image;
+  if (item.image)         return item.image;
+  if (item.main_image)    return item.main_image;
   if (item.thumbnail_url) return item.thumbnail_url;
   if (Array.isArray(item.images) && item.images.length > 0) {
     const first = item.images[0];
@@ -357,7 +475,7 @@ const resolveImage = (item) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   LISTING CARD  — used in mobile scroll + desktop grid fallback
+   LISTING CARD
 ═══════════════════════════════════════════════════════════════ */
 const ListingCard = memo(function ListingCard({ item, onClick, index = 0 }) {
   const img = resolveImage(item);
@@ -386,18 +504,27 @@ const ListingCard = memo(function ListingCard({ item, onClick, index = 0 }) {
             onError={() => setImgError(true)}
           />
         ) : (
-          <div className="pf-recent-img-placeholder pf-recent-img-placeholder--visible" aria-hidden="true">
+          <div
+            className="pf-recent-img-placeholder pf-recent-img-placeholder--visible"
+            aria-hidden="true"
+          >
             <Icon.package />
           </div>
         )}
 
         {item.status && !item.status.startsWith("active") && (
-          <span className={`pf-recent-status pf-recent-status--${item.status.split("_")[0]}`}>
+          <span
+            className={`pf-recent-status pf-recent-status--${
+              item.status.split("_")[0]
+            }`}
+          >
             {item.status.replace(/_/g, " ")}
           </span>
         )}
         {item.is_promoted && (
-          <span className="pf-recent-status pf-recent-status--promoted">Boosted</span>
+          <span className="pf-recent-status pf-recent-status--promoted">
+            Boosted
+          </span>
         )}
       </div>
 
@@ -405,7 +532,10 @@ const ListingCard = memo(function ListingCard({ item, onClick, index = 0 }) {
         <p className="pf-recent-name">{item.title}</p>
         <p className="pf-recent-price">{naira(item.price)}</p>
         <div className="pf-recent-meta">
-          <span className="pf-recent-views"><Icon.trending />{fmtNum(item.views || 0)}</span>
+          <span className="pf-recent-views">
+            <Icon.trending />
+            {fmtNum(item.views || 0)}
+          </span>
           <span className="pf-recent-time">{timeAgo(item.created_at)}</span>
         </div>
       </div>
@@ -414,7 +544,7 @@ const ListingCard = memo(function ListingCard({ item, onClick, index = 0 }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   DESKTOP LISTING GRID  — uses MasonryCard with fallback
+   DESKTOP LISTING GRID  — MasonryCard with ListingCard fallback
 ═══════════════════════════════════════════════════════════════ */
 const DesktopListingGrid = memo(function DesktopListingGrid({ listings, onGoTo }) {
   return (
@@ -462,7 +592,10 @@ const DesktopListingGrid = memo(function DesktopListingGrid({ listings, onGoTo }
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   RECENT LISTINGS  — renders differently on mobile vs desktop
+   RECENT LISTINGS
+   • Mobile  → horizontal scroll strip  (touch + drag)
+   • Desktop → drag-scrollable strip    (styled thumb + mouse drag)
+             → falls back to grid if MasonryCard fails
 ═══════════════════════════════════════════════════════════════ */
 const RecentListings = memo(function RecentListings({
   listings,
@@ -471,7 +604,9 @@ const RecentListings = memo(function RecentListings({
 }) {
   const navigate = useNavigate();
 
-  // Debug log to trace if listings arrive
+  /* Drag scroll — active on desktop (fine pointer) only */
+  const scrollRef = useDragScroll(isDesktop);
+
   useEffect(() => {
     console.log(
       "[RecentListings] isDesktop:", isDesktop,
@@ -495,12 +630,14 @@ const RecentListings = memo(function RecentListings({
       viewport={viewportOnce}
       transition={{ ...spring, delay: 0.1 }}
     >
-      {/* Header — always shown */}
+      {/* Header */}
       <div className="pf-recent-header">
         <h2 className="pf-recent-title">
-          <span className="pf-recent-title-icon"><Icon.package /></span>
+          <span className="pf-recent-title-icon">
+            <Icon.package />
+          </span>
           My Recent Listings
-          <span className="pf-recent-count">({listings.length})</span>
+          <span className="pf-recent-count"> ({listings.length})</span>
         </h2>
         <motion.button
           className="pf-recent-viewall"
@@ -513,24 +650,33 @@ const RecentListings = memo(function RecentListings({
         </motion.button>
       </div>
 
-      {/* Mobile — horizontal scroll cards */}
-      {!isDesktop && (
-        <div className="pf-recent-scroll" role="list">
-          {listings.map((item, i) => (
-            <ListingCard
-              key={item.id}
-              item={item}
-              index={i}
-              onClick={() => goTo(item)}
-            />
-          ))}
-        </div>
-      )}
+      {/*
+        ── SCROLL STRIP ──────────────────────────────────────────
+        Always rendered on both mobile and desktop.
 
-      {/* Desktop — masonry grid */}
-      {isDesktop && (
-        <DesktopListingGrid listings={listings} onGoTo={goTo} />
-      )}
+        Mobile  : touch-scroll, no thumb (scrollbar-width: none)
+        Desktop : styled orange thumb + useDragScroll hook
+
+        The CSS at ≥1024px:
+          • sets cursor: grab
+          • shows ::-webkit-scrollbar thumb
+          • .pf-recent-scroll--dragging → cursor: grabbing
+      */}
+      <div
+        className="pf-recent-scroll"
+        ref={scrollRef}
+        role="list"
+        aria-label="Recent listings"
+      >
+        {listings.map((item, i) => (
+          <ListingCard
+            key={item.id}
+            item={item}
+            index={i}
+            onClick={() => goTo(item)}
+          />
+        ))}
+      </div>
     </motion.section>
   );
 });
@@ -538,12 +684,14 @@ const RecentListings = memo(function RecentListings({
 /* ═══════════════════════════════════════════════════════════════
    MENU ITEM
 ═══════════════════════════════════════════════════════════════ */
-const MenuItem = memo(function MenuItem({ to, Ic, label, badge, badgeType, currentPath }) {
+const MenuItem = memo(function MenuItem({
+  to, Ic, label, badge, badgeType, currentPath,
+}) {
   const isActive = currentPath === to;
   const badgeClass =
-    badgeType === "notif" ? " pf-badge-pill--notif"
-    : badge === "WIN" ? " pf-badge-pill--win"
-    : badge === "NEW" ? " pf-badge-pill--new"
+    badgeType === "notif"    ? " pf-badge-pill--notif"
+    : badge === "WIN"        ? " pf-badge-pill--win"
+    : badge === "NEW"        ? " pf-badge-pill--new"
     : badge?.startsWith?.("₦") ? " pf-badge-pill--money"
     : "";
 
@@ -558,12 +706,18 @@ const MenuItem = memo(function MenuItem({ to, Ic, label, badge, badgeType, curre
       {badge && (
         <span
           className={`pf-badge-pill${badgeClass}`}
-          aria-label={badgeType === "notif" ? `${badge} unread notifications` : undefined}
+          aria-label={
+            badgeType === "notif"
+              ? `${badge} unread notifications`
+              : undefined
+          }
         >
           {badge}
         </span>
       )}
-      <span className="pf-menu-chevron" aria-hidden="true"><Icon.chevron /></span>
+      <span className="pf-menu-chevron" aria-hidden="true">
+        <Icon.chevron />
+      </span>
     </Link>
   );
 });
@@ -571,12 +725,14 @@ const MenuItem = memo(function MenuItem({ to, Ic, label, badge, badgeType, curre
 /* ═══════════════════════════════════════════════════════════════
    SIDEBAR LINK
 ═══════════════════════════════════════════════════════════════ */
-const SidebarLink = memo(function SidebarLink({ to, Ic, label, badge, badgeType, currentPath }) {
+const SidebarLink = memo(function SidebarLink({
+  to, Ic, label, badge, badgeType, currentPath,
+}) {
   const isActive = currentPath === to;
   const badgeClass =
-    badgeType === "notif" ? " pf-badge-pill--notif"
-    : badge === "WIN" ? " pf-badge-pill--win"
-    : badge === "NEW" ? " pf-badge-pill--new"
+    badgeType === "notif"    ? " pf-badge-pill--notif"
+    : badge === "WIN"        ? " pf-badge-pill--win"
+    : badge === "NEW"        ? " pf-badge-pill--new"
     : badge?.startsWith?.("₦") ? " pf-badge-pill--money"
     : "";
 
@@ -591,7 +747,11 @@ const SidebarLink = memo(function SidebarLink({ to, Ic, label, badge, badgeType,
       {badge && (
         <span
           className={`pf-badge-pill${badgeClass}`}
-          aria-label={badgeType === "notif" ? `${badge} unread notifications` : undefined}
+          aria-label={
+            badgeType === "notif"
+              ? `${badge} unread notifications`
+              : undefined
+          }
         >
           {badge}
         </span>
@@ -616,6 +776,7 @@ const Sidebar = memo(function Sidebar({
       animate="visible"
       transition={{ ...spring, delay: 0.1 }}
     >
+      {/* Identity */}
       <div
         className="pf-sidebar-identity"
         onClick={onEditProfile}
@@ -634,7 +795,9 @@ const Sidebar = memo(function Sidebar({
               <img
                 src={user.profile_image}
                 alt={user?.name}
-                onError={(e) => { e.currentTarget.style.display = "none"; }}
+                onError={(e) => {
+                  e.currentTarget.style.display = "none";
+                }}
               />
             ) : (
               <span className="pf-avatar-letter">
@@ -648,16 +811,22 @@ const Sidebar = memo(function Sidebar({
         <h2 className="pf-sidebar-name" title={user?.name || "User"}>
           {user?.name || "User"}
         </h2>
-        <p className="pf-sidebar-store">{user?.store_name || "Loemart Member"}</p>
+        <p className="pf-sidebar-store">
+          {user?.store_name || "Loemart Member"}
+        </p>
 
         <div className="pf-sidebar-meta">
-          {joinedLabel && <span className="pf-meta-item">Joined {joinedLabel}</span>}
-          {user?.location_state && <span className="pf-meta-item">{user.location_state}</span>}
+          {joinedLabel && (
+            <span className="pf-meta-item">Joined {joinedLabel}</span>
+          )}
+          {user?.location_state && (
+            <span className="pf-meta-item">{user.location_state}</span>
+          )}
         </div>
 
         <div className="pf-badges pf-sidebar-badges">
-          {user?.verified     && <span className="pf-badge pf-badge--verified">Verified</span>}
-          {user?.is_seller    && <span className="pf-badge pf-badge--seller">Seller</span>}
+          {user?.verified      && <span className="pf-badge pf-badge--verified">Verified</span>}
+          {user?.is_seller     && <span className="pf-badge pf-badge--seller">Seller</span>}
           {user?.is_top_seller && <span className="pf-badge pf-badge--top">Top Seller</span>}
         </div>
 
@@ -674,8 +843,10 @@ const Sidebar = memo(function Sidebar({
         </span>
       </div>
 
+      {/* Slot (referral banner etc.) */}
       {children}
 
+      {/* Nav */}
       <nav className="pf-sidebar-nav" aria-label="Profile navigation">
         {menuSections.map((section) => (
           <div key={section.title} className="pf-sidebar-section">
@@ -685,7 +856,10 @@ const Sidebar = memo(function Sidebar({
             >
               {section.title}
             </p>
-            <div role="list" aria-labelledby={`sidebar-${section.title}`}>
+            <div
+              role="list"
+              aria-labelledby={`sidebar-${section.title}`}
+            >
               {section.items.map(({ to, Ic, label, badge, badgeType }) => (
                 <SidebarLink
                   key={to}
@@ -784,7 +958,7 @@ export default function Profile({ onLogout }) {
     }
   }, [userIsError, userError, navigate]);
 
-  /* ── Outside click ── */
+  /* ── Outside click to close dropdown ── */
   useEffect(() => {
     const handler = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target))
@@ -809,8 +983,14 @@ export default function Profile({ onLogout }) {
     finally { setIsRetrying(false); }
   }, [refetchUser, refetchListings]);
 
-  const goEditProfile = useCallback(() => navigate("/profile/edit"), [navigate]);
-  const goViewAll     = useCallback(() => navigate("/dashboard"),    [navigate]);
+  const goEditProfile = useCallback(
+    () => navigate("/profile/edit"),
+    [navigate]
+  );
+  const goViewAll = useCallback(
+    () => navigate("/dashboard"),
+    [navigate]
+  );
 
   const joinedLabel = fmtJoined(user?.created_at || user?.joined_at);
 
@@ -831,7 +1011,7 @@ export default function Profile({ onLogout }) {
   return (
     <div className="pf-page" role="main">
 
-      {/* ── Mobile header ── */}
+      {/* Mobile header */}
       {!isDesktop && (
         <div className="pf-mobile-header">
           <ProfileHeader
@@ -849,7 +1029,7 @@ export default function Profile({ onLogout }) {
 
       <div className="pf-layout">
 
-        {/* ── Desktop sidebar ── */}
+        {/* Desktop sidebar */}
         {isDesktop && (
           <Sidebar
             user={user}
@@ -863,7 +1043,7 @@ export default function Profile({ onLogout }) {
           </Sidebar>
         )}
 
-        {/* ── Main content ── */}
+        {/* Main content */}
         <main className="pf-content" aria-live="polite">
 
           <AnimatePresence>
@@ -876,7 +1056,7 @@ export default function Profile({ onLogout }) {
             )}
           </AnimatePresence>
 
-          {/* Desktop quick action bar */}
+          {/* Desktop quick-action bar */}
           {isDesktop && (
             <motion.div
               className="pf-quick-bar"
@@ -934,12 +1114,18 @@ export default function Profile({ onLogout }) {
               </div>
 
               <div className="pf-avatar-row">
-                <motion.div className="pf-avatar" whileHover={{ scale: 1.05 }} transition={spring}>
+                <motion.div
+                  className="pf-avatar"
+                  whileHover={{ scale: 1.05 }}
+                  transition={spring}
+                >
                   {user?.profile_image ? (
                     <img
                       src={user.profile_image}
                       alt={user?.name}
-                      onError={(e) => { e.currentTarget.style.display = "none"; }}
+                      onError={(e) => {
+                        e.currentTarget.style.display = "none";
+                      }}
                     />
                   ) : (
                     <span className="pf-avatar-letter">
@@ -953,10 +1139,20 @@ export default function Profile({ onLogout }) {
                   <h1 className="pf-name" title={user?.name || "User"}>
                     {user?.name || "User"}
                   </h1>
-                  <p className="pf-store">{user?.store_name || "Loemart Member"}</p>
+                  <p className="pf-store">
+                    {user?.store_name || "Loemart Member"}
+                  </p>
                   <div className="pf-meta">
-                    {joinedLabel && <span className="pf-meta-item">Joined {joinedLabel}</span>}
-                    {user?.location_state && <span className="pf-meta-item">{user.location_state}</span>}
+                    {joinedLabel && (
+                      <span className="pf-meta-item">
+                        Joined {joinedLabel}
+                      </span>
+                    )}
+                    {user?.location_state && (
+                      <span className="pf-meta-item">
+                        {user.location_state}
+                      </span>
+                    )}
                   </div>
                   <div className="pf-badges">
                     {user?.verified      && <span className="pf-badge pf-badge--verified">Verified</span>}
@@ -985,22 +1181,40 @@ export default function Profile({ onLogout }) {
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => e.stopPropagation()}
               >
-                <motion.button className="pf-qa-btn pf-qa-btn--primary" onClick={() => navigate("/minimart/add")} type="button" whileTap={{ scale: 0.95 }}>
+                <motion.button
+                  className="pf-qa-btn pf-qa-btn--primary"
+                  onClick={() => navigate("/minimart/add")}
+                  type="button"
+                  whileTap={{ scale: 0.95 }}
+                >
                   <Icon.plus /> Post Listing
                 </motion.button>
-                <motion.button className="pf-qa-btn pf-qa-btn--outline" onClick={() => navigate("/dashboard")} type="button" whileTap={{ scale: 0.95 }}>
+                <motion.button
+                  className="pf-qa-btn pf-qa-btn--outline"
+                  onClick={() => navigate("/dashboard")}
+                  type="button"
+                  whileTap={{ scale: 0.95 }}
+                >
                   <Icon.dashboard /> Dashboard
                 </motion.button>
-                <motion.button className="pf-qa-btn pf-qa-btn--outline" onClick={() => navigate("/conversations")} type="button" whileTap={{ scale: 0.95 }}>
+                <motion.button
+                  className="pf-qa-btn pf-qa-btn--outline"
+                  onClick={() => navigate("/conversations")}
+                  type="button"
+                  whileTap={{ scale: 0.95 }}
+                >
                   <Icon.messages /> Messages
                 </motion.button>
               </div>
             </motion.div>
           )}
 
-          {/* ── Listings section ── */}
+          {/* Listings */}
           {listingsLoading ? (
-            <div className="pf-grid-skeleton" aria-label="Loading listings">
+            <div
+              className="pf-grid-skeleton"
+              aria-label="Loading listings"
+            >
               {[1, 2, 3, 4].map((i) => (
                 <div key={i} className="pf-grid-skeleton-card" />
               ))}
@@ -1010,7 +1224,6 @@ export default function Profile({ onLogout }) {
               listings={listings}
               onViewAll={goViewAll}
               isDesktop={isDesktop}
-              /* isDesktop passed above so RecentListings can render mobile/desktop layout */
             />
           )}
 
@@ -1030,21 +1243,30 @@ export default function Profile({ onLogout }) {
                     viewport={viewportOnce}
                     transition={{ ...spring, delay: si * 0.04 }}
                   >
-                    <p className="pf-menu-label" id={`menu-${section.title}`}>
+                    <p
+                      className="pf-menu-label"
+                      id={`menu-${section.title}`}
+                    >
                       {section.title}
                     </p>
-                    <div className="pf-menu-list" role="list" aria-labelledby={`menu-${section.title}`}>
-                      {section.items.map(({ to, Ic, label, badge, badgeType }) => (
-                        <MenuItem
-                          key={to}
-                          to={to}
-                          Ic={Ic}
-                          label={label}
-                          badge={badge}
-                          badgeType={badgeType}
-                          currentPath={currentPath}
-                        />
-                      ))}
+                    <div
+                      className="pf-menu-list"
+                      role="list"
+                      aria-labelledby={`menu-${section.title}`}
+                    >
+                      {section.items.map(
+                        ({ to, Ic, label, badge, badgeType }) => (
+                          <MenuItem
+                            key={to}
+                            to={to}
+                            Ic={Ic}
+                            label={label}
+                            badge={badge}
+                            badgeType={badgeType}
+                            currentPath={currentPath}
+                          />
+                        )
+                      )}
                     </div>
                   </motion.section>
                 ))}
