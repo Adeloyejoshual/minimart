@@ -1,9 +1,9 @@
 // src/components/AddProductHeader.jsx
 import React, { useState, useEffect } from "react";
-import { useNavigate }                 from "react-router-dom";
+import { useNavigate }                from "react-router-dom";
 import "./AddProductHeader.css";
 
-/* ── Error boundary for the rightAction slot ─────────────────── */
+/* ── Error boundary for the rightAction slot ── */
 class ActionBoundary extends React.Component {
   state = { failed: false };
   static getDerivedStateFromError() { return { failed: true }; }
@@ -15,13 +15,14 @@ class ActionBoundary extends React.Component {
   }
 }
 
-/* ── Component ───────────────────────────────────────────────── */
+/* ── Component ── */
 export default function AddProductHeader({
-  title       = "Add Product",
-  rightAction = null,
-  onClearDraft,
+  title        = "Add Product",
+  rightAction  = null,
+  onClearDraft = null,
+  isEditMode   = false,
 }) {
-  const navigate      = useNavigate();
+  const navigate = useNavigate();
   const [confirmClear, setConfirmClear] = useState(false);
 
   /* ── Safe title ── */
@@ -39,12 +40,12 @@ export default function AddProductHeader({
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  /* ── Back navigation with empty-history guard ── */
+  /* ── Back navigation ── */
   const handleBack = () => {
     if (window.history.length > 2) {
       navigate(-1);
     } else {
-      navigate("/", { replace: true });
+      navigate(isEditMode ? "/dashboard" : "/", { replace: true });
     }
   };
 
@@ -56,14 +57,14 @@ export default function AddProductHeader({
       return;
     }
     setConfirmClear(false);
-    onClearDraft();
+    onClearDraft?.();
   };
 
   return (
     <header
-      className="aph"
+      className={`aph${isEditMode ? " aph--edit" : ""}`}
       role="banner"
-      aria-label="Add product navigation"
+      aria-label={isEditMode ? "Edit listing navigation" : "Add product navigation"}
     >
       {/* Back */}
       <button
@@ -75,16 +76,22 @@ export default function AddProductHeader({
             handleBack();
           }
         }}
-        aria-label="Go back"
+        aria-label={isEditMode ? "Back to dashboard" : "Go back"}
         type="button"
       >
-        <svg viewBox="0 0 20 20" width="18" height="18" fill="none"
-             aria-hidden="true" focusable="false">
-          <path d="M13 4L7 10L13 16"
-                stroke="currentColor" strokeWidth="2"
-                strokeLinecap="round" strokeLinejoin="round"/>
+        <svg
+          viewBox="0 0 20 20" width="18" height="18"
+          fill="none" aria-hidden="true" focusable="false"
+        >
+          <path
+            d="M13 4L7 10L13 16"
+            stroke="currentColor" strokeWidth="2"
+            strokeLinecap="round" strokeLinejoin="round"
+          />
         </svg>
-        <span className="aph-back-label">Back</span>
+        <span className="aph-back-label">
+          {isEditMode ? "Dashboard" : "Back"}
+        </span>
       </button>
 
       {/* Title */}
@@ -98,7 +105,8 @@ export default function AddProductHeader({
           {rightAction}
         </ActionBoundary>
 
-        {onClearDraft && (
+        {/* Clear draft — create mode only */}
+        {!isEditMode && onClearDraft && (
           <button
             className={`aph-clear${confirmClear ? " aph-clear--confirm" : ""}`}
             onClick={handleClearDraft}
