@@ -8,8 +8,8 @@ import {
   FC,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { io, Socket } from "socket.io-client";
-import axios from "axios";
+import { io, Socket }  from "socket.io-client";
+import axios           from "axios";
 
 /* ═══════════════════════════════════════════════════════════════
    EXISTING CHAT SUB-COMPONENTS
@@ -51,17 +51,18 @@ const SEND_TIMEOUT = 15_000;
    MESSAGES REDUCER
 ═══════════════════════════════════════════════════════════════ */
 type MsgAction =
-  | { type: "SET";          payload: Message[] }
-  | { type: "APPEND";       payload: Message }
-  | { type: "REPLACE";      tempId: string | number; payload: Message }
-  | { type: "PATCH";        id: string | number; patch: Partial<Message> }
-  | { type: "PATCH_OFFER";  id: string | number; status: string }
-  | { type: "SOFT_DELETE";  id: string | number }
-  | { type: "MARK_READ";    myId: string | number }
-  | { type: "REMOVE";       id: string | number };
+  | { type: "SET";         payload: Message[] }
+  | { type: "APPEND";      payload: Message }
+  | { type: "REPLACE";     tempId: string | number; payload: Message }
+  | { type: "PATCH";       id: string | number; patch: Partial<Message> }
+  | { type: "PATCH_OFFER"; id: string | number; status: string }
+  | { type: "SOFT_DELETE"; id: string | number }
+  | { type: "MARK_READ";   myId: string | number }
+  | { type: "REMOVE";      id: string | number };
 
 function msgsReducer(state: Message[], action: MsgAction): Message[] {
   switch (action.type) {
+
     case "SET":
       return dedupe(action.payload);
 
@@ -118,7 +119,10 @@ function msgsReducer(state: Message[], action: MsgAction): Message[] {
         m.id === action.id && (m as any)._offerMeta
           ? {
               ...m,
-              _offerMeta: { ...(m as any)._offerMeta, status: action.status },
+              _offerMeta: {
+                ...(m as any)._offerMeta,
+                status: action.status,
+              },
             }
           : m
       );
@@ -147,19 +151,24 @@ function msgsReducer(state: Message[], action: MsgAction): Message[] {
    PROPS
 ═══════════════════════════════════════════════════════════════ */
 interface ChatPanelProps {
-  threadId: string;
-  user:     User;
+  threadId:           string;
+  user:               User;
+  onDeselectThread?:  () => void;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    COMPONENT
 ═══════════════════════════════════════════════════════════════ */
-const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
+const ChatPanel: FC<ChatPanelProps> = ({
+  threadId,
+  user,
+  onDeselectThread,
+}) => {
   const navigate = useNavigate();
 
-  // ── Core state ────────────────────────────────────────────
-  const [messages,  dispatch]     = useReducer(msgsReducer, []);
-  const [newMsg,    setNewMsg]    = useState("");
+  /* ── Core state ─────────────────────────────────────────── */
+  const [messages,  dispatch]  = useReducer(msgsReducer, []);
+  const [newMsg,    setNewMsg]  = useState("");
   const [otherUser, setOtherUser] = useState<any>(null);
   const [product,   setProduct]   = useState<Product | null>(null);
   const [loading,   setLoading]   = useState(true);
@@ -168,29 +177,31 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
   const [sockReady, setSockReady] = useState(false);
   const [error,     setError]     = useState<string | null>(null);
 
-  // Who is buyer in this thread
-  const [threadBuyerId, setThreadBuyerId] = useState<string | number | null>(null);
+  /* Buyer tracking */
+  const [threadBuyerId, setThreadBuyerId] = useState<
+    string | number | null
+  >(null);
 
-  // ── UI state ──────────────────────────────────────────────
+  /* ── UI state ───────────────────────────────────────────── */
   const [showMenu,        setShowMenu]        = useState(false);
   const [muted,           setMuted]           = useState(false);
-  const [showSuggestions, setShowSuggestions]  = useState(true);
+  const [showSuggestions, setShowSuggestions] = useState(true);
   const [showAttach,      setShowAttach]      = useState(false);
   const [lightboxUrl,     setLightboxUrl]     = useState<string | null>(null);
   const [replyTo,         setReplyTo]         = useState<Message | null>(null);
 
-  // Context menu
+  /* Context menu */
   const [ctxMsgId, setCtxMsgId] = useState<string | number | null>(null);
   const [ctxPos,   setCtxPos]   = useState<any>(null);
 
-  // Modals
+  /* Modals */
   const [offerModal,        setOfferModal]        = useState(false);
   const [counterModal,      setCounterModal]      = useState<Message | null>(null);
   const [locationModal,     setLocationModal]     = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showReportModal,   setShowReportModal]   = useState(false);
 
-  // ── Refs ──────────────────────────────────────────────────
+  /* ── Refs ───────────────────────────────────────────────── */
   const socketRef     = useRef<Socket | null>(null);
   const bottomRef     = useRef<HTMLDivElement>(null);
   const inputRef      = useRef<HTMLInputElement>(null);
@@ -198,16 +209,19 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
   const historyLoaded = useRef(false);
   const pendingMsgs   = useRef<Message[]>([]);
   const mounted       = useRef(true);
-  const sendTimers    = useRef(new Map<string | number, ReturnType<typeof setTimeout>>());
-  const fileRef       = useRef<HTMLInputElement>(null);
-  const cameraRef     = useRef<HTMLInputElement>(null);
+  const sendTimers    = useRef(
+    new Map<string | number, ReturnType<typeof setTimeout>>()
+  );
+  const fileRef   = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
 
-  // Always-fresh refs
+  /* Always-fresh refs */
   const newMsgRef  = useRef("");
   const sendingRef = useRef(false);
-  useEffect(() => { newMsgRef.current  = newMsg;  }, [newMsg]);
-  useEffect(() => { sendingRef.current = sending; }, [sending]);
+  useEffect(() => { newMsgRef.current  = newMsg;   }, [newMsg]);
+  useEffect(() => { sendingRef.current = sending;  }, [sending]);
 
+  /* Mount guard */
   useEffect(() => {
     mounted.current = true;
     return () => { mounted.current = false; };
@@ -217,7 +231,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     if (mounted.current) fn();
   }, []);
 
-  // ── Derived ───────────────────────────────────────────────
+  /* ── Derived ────────────────────────────────────────────── */
   const suggestions = useMemo(
     () => pickSuggestions(messages, user?.id),
     [messages, user?.id]
@@ -275,6 +289,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
           );
         }
 
+        /* Enrich with full user profile */
         if (oid) {
           axios
             .get(`${API}/users/${oid}`, { headers: authH() })
@@ -334,7 +349,11 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
         .catch(() => {});
     };
 
-    const onRead = ({ userId: uid }: { userId: string | number }) => {
+    const onRead = ({
+      userId: uid,
+    }: {
+      userId: string | number;
+    }) => {
       if (uid === user.id) return;
       safe(() => dispatch({ type: "MARK_READ", myId: user.id }));
     };
@@ -342,40 +361,54 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     const onTyping     = () => safe(() => setIsTyping(true));
     const onStopTyping = () => safe(() => setIsTyping(false));
 
-    const onDeleted = ({ messageId }: { messageId: string | number }) =>
-      safe(() => dispatch({ type: "SOFT_DELETE", id: messageId }));
+    const onDeleted = ({
+      messageId,
+    }: {
+      messageId: string | number;
+    }) => safe(() => dispatch({ type: "SOFT_DELETE", id: messageId }));
 
     const onOfferUpdated = ({
       messageId,
       status,
     }: {
       messageId: string | number;
-      status: string;
-    }) => safe(() => dispatch({ type: "PATCH_OFFER", id: messageId, status }));
+      status:    string;
+    }) =>
+      safe(() =>
+        dispatch({ type: "PATCH_OFFER", id: messageId, status })
+      );
 
-    const onOnline = ({ userId: uid }: { userId: string | number }) => {
+    const onOnline = ({
+      userId: uid,
+    }: {
+      userId: string | number;
+    }) => {
       if (String(uid) !== String(user.id))
         safe(() =>
           setOtherUser((p: any) => (p ? { ...p, is_online: true } : p))
         );
     };
-    const onOffline = ({ userId: uid }: { userId: string | number }) => {
+    const onOffline = ({
+      userId: uid,
+    }: {
+      userId: string | number;
+    }) => {
       if (String(uid) !== String(user.id))
         safe(() =>
           setOtherUser((p: any) => (p ? { ...p, is_online: false } : p))
         );
     };
 
-    sock.on("connect",           onConnect);
-    sock.on("disconnect",        onDisconnect);
-    sock.on("receiveMessage",    onReceive);
-    sock.on("messagesRead",      onRead);
-    sock.on("userTyping",        onTyping);
-    sock.on("userStopTyping",    onStopTyping);
-    sock.on("messageDeleted",    onDeleted);
-    sock.on("offerUpdated",      onOfferUpdated);
-    sock.on("userOnline",        onOnline);
-    sock.on("userOffline",       onOffline);
+    sock.on("connect",        onConnect);
+    sock.on("disconnect",     onDisconnect);
+    sock.on("receiveMessage", onReceive);
+    sock.on("messagesRead",   onRead);
+    sock.on("userTyping",     onTyping);
+    sock.on("userStopTyping", onStopTyping);
+    sock.on("messageDeleted", onDeleted);
+    sock.on("offerUpdated",   onOfferUpdated);
+    sock.on("userOnline",     onOnline);
+    sock.on("userOffline",    onOffline);
 
     return () => {
       sock.off("connect",        onConnect);
@@ -465,7 +498,10 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     socketRef.current?.emit("typing", { threadId, userId: user?.id });
     if (typingTimer.current) clearTimeout(typingTimer.current);
     typingTimer.current = setTimeout(() => {
-      socketRef.current?.emit("stopTyping", { threadId, userId: user?.id });
+      socketRef.current?.emit("stopTyping", {
+        threadId,
+        userId: user?.id,
+      });
     }, 1500);
   }, [threadId, user?.id]);
 
@@ -483,10 +519,10 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     async (text: string, extras: Record<string, any> = {}) => {
       if (!text || typeof text !== "string") return;
       const trimmed = text.trim();
-      if (!trimmed)            return;
-      if (sendingRef.current)  return;
-      if (!user?.id)           return;
-      if (!threadId)           return;
+      if (!trimmed)           return;
+      if (sendingRef.current) return;
+      if (!user?.id)          return;
+      if (!threadId)          return;
 
       const clientMsgId = `${user.id}_${Date.now()}`;
       const tempId      = `temp_${clientMsgId}`;
@@ -514,9 +550,15 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
         _failed:           false,
         _timedOut:         false,
         ...replyRef,
-        ...(extras.offerMeta      ? { _offerMeta:    extras.offerMeta }      : {}),
-        ...(extras.location       ? { location:       extras.location }       : {}),
-        ...(extras.shared_product ? { shared_product: extras.shared_product } : {}),
+        ...(extras.offerMeta
+          ? { _offerMeta: extras.offerMeta }
+          : {}),
+        ...(extras.location
+          ? { location: extras.location }
+          : {}),
+        ...(extras.shared_product
+          ? { shared_product: extras.shared_product }
+          : {}),
       };
 
       dispatch({ type: "APPEND", payload: temp });
@@ -527,14 +569,17 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
       setReplyTo(null);
 
       if (typingTimer.current) clearTimeout(typingTimer.current);
-      socketRef.current?.emit("stopTyping", { threadId, userId: user.id });
+      socketRef.current?.emit("stopTyping", {
+        threadId,
+        userId: user.id,
+      });
 
-      // Timeout fallback
+      /* Timeout fallback */
       const timer = setTimeout(() => {
         if (mounted.current) {
           dispatch({
-            type: "PATCH",
-            id: tempId,
+            type:  "PATCH",
+            id:    tempId,
             patch: { _temp: false, _timedOut: true },
           });
           setSending(false);
@@ -553,9 +598,15 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
             messageType:     msgType,
             clientMessageId: clientMsgId,
             ...replyRef,
-            ...(extras.offerMeta      ? { offerMeta:     extras.offerMeta }      : {}),
-            ...(extras.location       ? { location:      extras.location }       : {}),
-            ...(extras.shared_product ? { sharedProduct: extras.shared_product } : {}),
+            ...(extras.offerMeta
+              ? { offerMeta: extras.offerMeta }
+              : {}),
+            ...(extras.location
+              ? { location: extras.location }
+              : {}),
+            ...(extras.shared_product
+              ? { sharedProduct: extras.shared_product }
+              : {}),
           },
           { headers: authH(), timeout: SEND_TIMEOUT }
         );
@@ -565,9 +616,15 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
 
         const final = {
           ...saved,
-          ...(extras.offerMeta      ? { _offerMeta:    extras.offerMeta }      : {}),
-          ...(extras.location       ? { location:       extras.location }       : {}),
-          ...(extras.shared_product ? { shared_product: extras.shared_product } : {}),
+          ...(extras.offerMeta
+            ? { _offerMeta: extras.offerMeta }
+            : {}),
+          ...(extras.location
+            ? { location: extras.location }
+            : {}),
+          ...(extras.shared_product
+            ? { shared_product: extras.shared_product }
+            : {}),
         };
 
         if (mounted.current)
@@ -580,8 +637,8 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
 
         if (mounted.current) {
           dispatch({
-            type: "PATCH",
-            id: tempId,
+            type:  "PATCH",
+            id:    tempId,
             patch: { _temp: false, _failed: true, _timedOut: false },
           });
           setNewMsg(trimmed);
@@ -597,7 +654,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     [threadId, user?.id, replyTo]
   );
 
-  /** Button onClick */
+  /* Button onClick — never receives event as text */
   const handleSend = useCallback(
     (e?: any) => {
       if (e?.preventDefault) e.preventDefault();
@@ -608,7 +665,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     [doSend]
   );
 
-  /** Called from offer / location / product */
+  /* Called with (string, extras) from offer / location / product */
   const sendMessage = useCallback(
     (overrideText: string, extras: Record<string, any> = {}) => {
       const text =
@@ -631,8 +688,14 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
       e.target.value = "";
       setShowAttach(false);
 
-      if (!file.type.startsWith("image/")) { alert("Only images allowed."); return; }
-      if (file.size > 10 * 1024 * 1024)    { alert("Image too large. Max 10 MB."); return; }
+      if (!file.type.startsWith("image/")) {
+        alert("Only images allowed.");
+        return;
+      }
+      if (file.size > 10 * 1024 * 1024) {
+        alert("Image too large. Max 10 MB.");
+        return;
+      }
 
       const clientMsgId = `${user.id}_${Date.now()}`;
       const tempId      = `temp_${clientMsgId}`;
@@ -669,7 +732,10 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
           `${API}/messages/upload`,
           form,
           {
-            headers: { ...authH(), "Content-Type": "multipart/form-data" },
+            headers: {
+              ...authH(),
+              "Content-Type": "multipart/form-data",
+            },
             timeout: 30_000,
           }
         );
@@ -684,8 +750,8 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
         URL.revokeObjectURL(localUrl);
         if (mounted.current)
           dispatch({
-            type: "PATCH",
-            id: tempId,
+            type:  "PATCH",
+            id:    tempId,
             patch: { _temp: false, _failed: true, _timedOut: false },
           });
       }
@@ -712,7 +778,11 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
       }
 
       if (mounted.current)
-        dispatch({ type: "PATCH_OFFER", id: origMsg.id, status: action });
+        dispatch({
+          type:   "PATCH_OFFER",
+          id:     origMsg.id,
+          status: action,
+        });
 
       const txt =
         action === OFFER_STATUS.ACCEPTED
@@ -724,8 +794,8 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
       socketRef.current?.emit("offerResponse", {
         threadId,
         messageId: origMsg.id,
-        status: action,
-        userId: user.id,
+        status:    action,
+        userId:    user.id,
       });
 
       axios
@@ -745,8 +815,12 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
   const handleDelete = useCallback(
     (msg: Message) => {
       if (!window.confirm("Delete this message?")) return;
-      if (mounted.current) dispatch({ type: "SOFT_DELETE", id: msg.id });
-      socketRef.current?.emit("deleteMessage", { threadId, messageId: msg.id });
+      if (mounted.current)
+        dispatch({ type: "SOFT_DELETE", id: msg.id });
+      socketRef.current?.emit("deleteMessage", {
+        threadId,
+        messageId: msg.id,
+      });
       axios
         .delete(`${API}/messages/${msg.id}`, {
           data:    { userId: user.id },
@@ -774,7 +848,9 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
   const handleShareProduct = useCallback(() => {
     if (!product) return;
     sendMessage(
-      `${product.title} — ${CURRENCY}${Number(product.price).toLocaleString()}`,
+      `${product.title} — ${CURRENCY}${Number(
+        product.price
+      ).toLocaleString()}`,
       {
         shared_product: {
           id:    product.id    || "",
@@ -787,19 +863,29 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     );
   }, [product, sendMessage]);
 
+  /*
+   * handleDeleteChat:
+   *  - On desktop: after deletion, call onDeselectThread to
+   *    clear the right panel instead of navigate(-1)
+   *  - On mobile:  navigate(-1) as before
+   */
   const handleDeleteChat = useCallback(async () => {
     try {
       await axios.delete(`${API}/conversations/${threadId}`, {
         data:    { userId: user.id },
         headers: authH(),
       });
-      navigate(-1);
+      if (onDeselectThread) {
+        onDeselectThread();
+      } else {
+        navigate(-1);
+      }
     } catch {
       alert("Failed to delete chat. Please try again.");
     }
-  }, [threadId, user?.id, navigate]);
+  }, [threadId, user?.id, navigate, onDeselectThread]);
 
-  // Context menu
+  /* Context menu */
   const handleCtx = useCallback(
     (msg: Message, pos: any, shortcut?: string) => {
       if (shortcut === "reply") {
@@ -824,7 +910,10 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
   );
 
   const handleCtxReply = useCallback(() => {
-    if (ctxMsg) { setReplyTo(ctxMsg); inputRef.current?.focus(); }
+    if (ctxMsg) {
+      setReplyTo(ctxMsg);
+      inputRef.current?.focus();
+    }
   }, [ctxMsg]);
 
   const handleCtxCopy = useCallback(() => {
@@ -835,17 +924,20 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     if (ctxMsg) handleDelete(ctxMsg);
   }, [ctxMsg, handleDelete]);
 
-  // Retry failed
+  /* Retry failed message */
   const retryMessage = useCallback((fm: Message) => {
     dispatch({ type: "REMOVE", id: fm.id });
     setNewMsg(fm.message || "");
     inputRef.current?.focus();
   }, []);
 
-  // Keyboard
+  /* Keyboard */
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(e); }
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        handleSend(e);
+      }
       if (e.key === "Escape") setReplyTo(null);
     },
     [handleSend]
@@ -864,25 +956,31 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     [user?.id]
   );
 
-  // ── Stable UI callbacks ───────────────────────────────────
-  const openOfferModal       = useCallback(() => setOfferModal(true),        []);
-  const closeOfferModal      = useCallback(() => setOfferModal(false),       []);
-  const closeCounterModal    = useCallback(() => setCounterModal(null),      []);
-  const openLocationModal    = useCallback(() => { setShowAttach(false); setLocationModal(true); }, []);
-  const closeLocationModal   = useCallback(() => setLocationModal(false),    []);
-  const toggleMenu           = useCallback(() => setShowMenu((v) => !v),     []);
+  /* ── Stable UI callbacks ─────────────────────────────────── */
+  const openOfferModal    = useCallback(() => setOfferModal(true),         []);
+  const closeOfferModal   = useCallback(() => setOfferModal(false),        []);
+  const closeCounterModal = useCallback(() => setCounterModal(null),       []);
+  const openLocationModal = useCallback(() => {
+    setShowAttach(false);
+    setLocationModal(true);
+  }, []);
+  const closeLocationModal   = useCallback(() => setLocationModal(false),   []);
+  const toggleMenu           = useCallback(() => setShowMenu((v) => !v),    []);
   const closeMenu            = useCallback(() => setShowMenu(false),         []);
-  const toggleAttach         = useCallback((e: any) => { e.stopPropagation(); setShowAttach((v) => !v); }, []);
-  const showSuggestionsAgain = useCallback(() => setShowSuggestions(true),   []);
-  const handleMute           = useCallback(() => setMuted((v) => !v),        []);
-  const closeLightbox        = useCallback(() => setLightboxUrl(null),       []);
-  const openCamera           = useCallback(() => cameraRef.current?.click(), []);
-  const openGallery          = useCallback(() => fileRef.current?.click(),   []);
-  const clearReply           = useCallback(() => setReplyTo(null),           []);
-  const openDeleteConfirm    = useCallback(() => setShowDeleteConfirm(true), []);
+  const toggleAttach         = useCallback((e: any) => {
+    e.stopPropagation();
+    setShowAttach((v) => !v);
+  }, []);
+  const showSuggestionsAgain = useCallback(() => setShowSuggestions(true),  []);
+  const handleMute           = useCallback(() => setMuted((v) => !v),       []);
+  const closeLightbox        = useCallback(() => setLightboxUrl(null),      []);
+  const openCamera           = useCallback(() => cameraRef.current?.click(),[]);
+  const openGallery          = useCallback(() => fileRef.current?.click(),  []);
+  const clearReply           = useCallback(() => setReplyTo(null),          []);
+  const openDeleteConfirm    = useCallback(() => setShowDeleteConfirm(true),[]);
   const closeDeleteConfirm   = useCallback(() => setShowDeleteConfirm(false),[]);
-  const openReportModal      = useCallback(() => setShowReportModal(true),   []);
-  const closeReportModal     = useCallback(() => setShowReportModal(false),  []);
+  const openReportModal      = useCallback(() => setShowReportModal(true),  []);
+  const closeReportModal     = useCallback(() => setShowReportModal(false), []);
 
   const handleSelectSuggestion = useCallback((s: string) => {
     setNewMsg(s);
@@ -890,7 +988,10 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     inputRef.current?.focus();
   }, []);
 
-  const handleDismissSuggestions = useCallback(() => setShowSuggestions(false), []);
+  const handleDismissSuggestions = useCallback(
+    () => setShowSuggestions(false),
+    []
+  );
 
   const handleBodyClick = useCallback(() => {
     setCtxMsgId(null);
@@ -898,7 +999,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
     setShowAttach(false);
   }, []);
 
-  // Cleanup send timers
+  /* Cleanup all send timers on unmount */
   useEffect(
     () => () => sendTimers.current.forEach((t) => clearTimeout(t)),
     []
@@ -909,7 +1010,8 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
   ════════════════════════════════════════════════════════════ */
   return (
     <div className="cp-panel" onClick={handleBodyClick}>
-      {/* ── Header — uses your existing ChatHeader ── */}
+
+      {/* ── Header ─────────────────────────────────────────── */}
       <ChatHeader
         otherUser={otherUser}
         product={product}
@@ -924,8 +1026,10 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
         onDeleteChat={openDeleteConfirm}
         onReport={openReportModal}
         isBuyer={isBuyerUser}
+        onDeselectThread={onDeselectThread}
       />
 
+      {/* ── Mute Banner ────────────────────────────────────── */}
       {muted && (
         <div className="cp-mute-banner">
           Notifications muted
@@ -933,24 +1037,31 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
         </div>
       )}
 
-      {/* ── Body ── */}
+      {/* ── Messages Body ──────────────────────────────────── */}
       <main className="cp-body">
+
+        {/* Loading */}
         {loading && (
           <div className="cp-center">
             <div className="cp-spinner" />
           </div>
         )}
 
+        {/* Error */}
         {!loading && error && (
           <div className="cp-center">
             <p className="cp-center__title">Failed to load messages</p>
             <p className="cp-center__error-code">{error}</p>
-            <button onClick={loadHistory} className="cp-center__retry-btn">
+            <button
+              onClick={loadHistory}
+              className="cp-center__retry-btn"
+            >
               Retry
             </button>
           </div>
         )}
 
+        {/* Empty */}
         {!loading && !error && messages.length === 0 && (
           <div className="cp-center">
             <p className="cp-center__title">No messages yet</p>
@@ -960,6 +1071,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
           </div>
         )}
 
+        {/* Message list */}
         {!loading &&
           !error &&
           messages.length > 0 &&
@@ -986,9 +1098,10 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
 
         {isTyping && <TypingBubble />}
         <div ref={bottomRef} />
+
       </main>
 
-      {/* ── Context Menu ── */}
+      {/* ── Context Menu ───────────────────────────────────── */}
       {ctxMsgId && ctxMsg && ctxPos && (
         <ContextMenu
           msg={ctxMsg}
@@ -1001,26 +1114,35 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
         />
       )}
 
-      {/* ── Toolbar ── */}
+      {/* ── Toolbar ────────────────────────────────────────── */}
       <div className="cp-toolbar">
         {isBuyerUser && (
-          <button className="cp-toolbar__btn cp-toolbar__btn--offer" onClick={openOfferModal}>
+          <button
+            className="cp-toolbar__btn cp-toolbar__btn--offer"
+            onClick={openOfferModal}
+          >
             {Icon.offer} Make Offer
           </button>
         )}
         {product && (
-          <button className="cp-toolbar__btn cp-toolbar__btn--share" onClick={handleShareProduct}>
+          <button
+            className="cp-toolbar__btn cp-toolbar__btn--share"
+            onClick={handleShareProduct}
+          >
             {Icon.product} Share Product
           </button>
         )}
         {!showSuggestions && (
-          <button className="cp-toolbar__btn" onClick={showSuggestionsAgain}>
+          <button
+            className="cp-toolbar__btn"
+            onClick={showSuggestionsAgain}
+          >
             {Icon.suggest} Suggestions
           </button>
         )}
       </div>
 
-      {/* ── Suggestions ── */}
+      {/* ── Suggestions ────────────────────────────────────── */}
       {showSuggestions && (
         <SuggestionsBar
           suggestions={suggestions}
@@ -1029,16 +1151,24 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
         />
       )}
 
-      {/* ── Reply Preview ── */}
+      {/* ── Reply Preview ──────────────────────────────────── */}
       {replyTo && (
         <div className="cp-reply-preview">
           {Icon.reply}
           <div className="cp-reply-preview__text">
             <div className="cp-reply-preview__sender">
-              {replyTo.sender_id === user?.id ? "You" : otherUser?.name}
+              {replyTo.sender_id === user?.id
+                ? "You"
+                : otherUser?.name}
             </div>
             {replyTo.media_url ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+              <div
+                style={{
+                  display:    "flex",
+                  alignItems: "center",
+                  gap:        6,
+                }}
+              >
                 <img
                   src={replyTo.media_url}
                   alt=""
@@ -1052,24 +1182,41 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
               </div>
             )}
           </div>
-          <button className="cp-reply-preview__close" onClick={clearReply}>
+          <button
+            className="cp-reply-preview__close"
+            onClick={clearReply}
+          >
             {Icon.close}
           </button>
         </div>
       )}
 
-      {/* ── Footer ── */}
+      {/* ── Footer ─────────────────────────────────────────── */}
       <footer className="cp-footer">
+
+        {/* Attach popover */}
         {showAttach && (
           <div className="cp-attach-popover">
-            <button className="cp-attach-option" onClick={openCamera}>
-              {Icon.camera}<span>Camera</span>
+            <button
+              className="cp-attach-option"
+              onClick={openCamera}
+            >
+              {Icon.camera}
+              <span>Camera</span>
             </button>
-            <button className="cp-attach-option" onClick={openGallery}>
-              {Icon.gallery}<span>Gallery</span>
+            <button
+              className="cp-attach-option"
+              onClick={openGallery}
+            >
+              {Icon.gallery}
+              <span>Gallery</span>
             </button>
-            <button className="cp-attach-option" onClick={openLocationModal}>
-              {Icon.location}<span>Location</span>
+            <button
+              className="cp-attach-option"
+              onClick={openLocationModal}
+            >
+              {Icon.location}
+              <span>Location</span>
             </button>
           </div>
         )}
@@ -1091,6 +1238,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
           onChange={handleImageChange}
         />
 
+        {/* Attach toggle */}
         <button
           className="cp-footer__attach-btn"
           onClick={toggleAttach}
@@ -1099,6 +1247,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
           {Icon.plus}
         </button>
 
+        {/* Text input */}
         <input
           ref={inputRef}
           className="cp-footer__input"
@@ -1106,11 +1255,14 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
           value={newMsg}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
-          placeholder={replyTo ? "Write a reply…" : "Type a message…"}
+          placeholder={
+            replyTo ? "Write a reply…" : "Type a message…"
+          }
           aria-label="Message"
           maxLength={5000}
         />
 
+        {/* Send button */}
         <button
           className={`cp-footer__send-btn ${
             canSend
@@ -1121,11 +1273,16 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
           disabled={!canSend}
           aria-label="Send"
         >
-          {sending ? <div className="cp-spinner cp-spinner--sm" /> : Icon.send}
+          {sending ? (
+            <div className="cp-spinner cp-spinner--sm" />
+          ) : (
+            Icon.send
+          )}
         </button>
+
       </footer>
 
-      {/* ── Lightbox ── */}
+      {/* ── Lightbox ───────────────────────────────────────── */}
       {lightboxUrl && (
         <div className="cp-lightbox" onClick={closeLightbox}>
           <img
@@ -1134,13 +1291,16 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
             className="cp-lightbox__img"
             onClick={(e) => e.stopPropagation()}
           />
-          <button className="cp-lightbox__close" onClick={closeLightbox}>
+          <button
+            className="cp-lightbox__close"
+            onClick={closeLightbox}
+          >
             {Icon.close}
           </button>
         </div>
       )}
 
-      {/* ── Modals ── */}
+      {/* ── Modals ─────────────────────────────────────────── */}
       {offerModal && (
         <MakeOfferModal
           product={product}
@@ -1162,7 +1322,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
         />
       )}
 
-      {/* ── Delete Chat Confirm ── */}
+      {/* ── Delete Chat Confirm ────────────────────────────── */}
       {showDeleteConfirm && (
         <DeleteChatConfirm
           onConfirm={() => {
@@ -1173,7 +1333,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
         />
       )}
 
-      {/* ── Report Modal ── */}
+      {/* ── Report Modal ───────────────────────────────────── */}
       {showReportModal && (
         <ReportModal
           threadId={threadId}
@@ -1183,6 +1343,7 @@ const ChatPanel: FC<ChatPanelProps> = ({ threadId, user }) => {
           onSuccess={() => {}}
         />
       )}
+
     </div>
   );
 };
