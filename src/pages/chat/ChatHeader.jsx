@@ -10,7 +10,6 @@ const HeaderMenu = memo(function HeaderMenu({
   onMute, muted,
   onDeleteChat, onReport, isBuyer,
 }) {
-  /* close on Escape */
   useEffect(() => {
     const h = e => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", h);
@@ -19,7 +18,6 @@ const HeaderMenu = memo(function HeaderMenu({
 
   const goProfile = useCallback(() => {
     onClose();
-    /* ← navigates to /seller/:id — matches your route */
     if (otherUser?.id) navigate(`/seller/${otherUser.id}`);
   }, [onClose, navigate, otherUser?.id]);
 
@@ -40,7 +38,6 @@ const HeaderMenu = memo(function HeaderMenu({
       <div className="chat-menu-overlay" onClick={onClose}/>
       <div className="chat-menu" role="menu" aria-label="Chat options">
 
-        {/* ── Delete Chat — always first, always red ── */}
         <button
           className="chat-menu-item chat-menu-danger"
           onClick={handleDelete}
@@ -50,7 +47,6 @@ const HeaderMenu = memo(function HeaderMenu({
           <span>Delete Chat</span>
         </button>
 
-        {/* ── View Profile → /seller/:id ── */}
         {otherUser?.id && (
           <button
             className="chat-menu-item"
@@ -62,7 +58,6 @@ const HeaderMenu = memo(function HeaderMenu({
           </button>
         )}
 
-        {/* ── Mute / Unmute ── */}
         <button
           className="chat-menu-item"
           onClick={handleMute}
@@ -72,7 +67,6 @@ const HeaderMenu = memo(function HeaderMenu({
           <span>{muted ? "Unmute" : "Mute"} Notifications</span>
         </button>
 
-        {/* ── Report Seller — buyer only ── */}
         {isBuyer && (
           <button
             className="chat-menu-item chat-menu-danger"
@@ -113,7 +107,7 @@ const Avatar = memo(function Avatar({ user: u }) {
     ? u.profile_image
     : `https://ui-avatars.com/api/?name=${encodeURIComponent(
         u?.name || "U"
-      )}&background=111&color=fff&size=80`;
+      )}&background=FF5C00&color=fff&size=80`;
 
   return (
     <div className="chat-avatar-wrap">
@@ -130,7 +124,7 @@ const Avatar = memo(function Avatar({ user: u }) {
 });
 
 /* ════════════════════════════════════
-   PRODUCT THUMB — clicks to /product/:slug
+   PRODUCT THUMB
 ════════════════════════════════════ */
 const ProductThumb = memo(function ProductThumb({ product, navigate }) {
   const [imgErr, setImgErr] = useState(false);
@@ -138,10 +132,6 @@ const ProductThumb = memo(function ProductThumb({ product, navigate }) {
 
   const handleClick = useCallback(() => {
     if (!product) return;
-    /*
-     * Use slug if available, fall back to id.
-     * Matches your route: <Route path="/product/:slug" …/>
-     */
     const dest = product.slug || product.id;
     if (dest) navigate(`/product/${dest}`);
   }, [product, navigate]);
@@ -181,6 +171,26 @@ const StatusLine = memo(function StatusLine({ otherUser, isTyping }) {
 });
 
 /* ════════════════════════════════════
+   DESKTOP DETECTION HOOK
+════════════════════════════════════ */
+function useIsDesktop() {
+  const [desktop, setDesktop] = useState(
+    () => typeof window !== "undefined"
+      ? window.matchMedia("(min-width: 1024px)").matches
+      : false
+  );
+
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const handler = (e) => setDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+
+  return desktop;
+}
+
+/* ════════════════════════════════════
    MAIN HEADER
 ════════════════════════════════════ */
 function ChatHeader({
@@ -197,28 +207,52 @@ function ChatHeader({
   onDeleteChat,
   onReport,
   isBuyer,
+  /* NEW: optional callback from desktop parent to deselect thread */
+  onDeselectThread,
 }) {
-  const goBack = useCallback(() => navigate(-1), [navigate]);
+  const isDesktop = useIsDesktop();
 
-  /* tapping name/avatar → /seller/:id */
+  /*
+   * Back button behavior:
+   *  - Desktop: deselect current thread (go back to "select a conversation")
+   *             Falls back to /messages if no callback provided
+   *  - Mobile:  navigate(-1) as before
+   */
+  const goBack = useCallback(() => {
+    if (isDesktop) {
+      if (onDeselectThread) {
+        onDeselectThread();
+      } else {
+        navigate("/messages", { replace: true });
+      }
+    } else {
+      navigate(-1);
+    }
+  }, [isDesktop, navigate, onDeselectThread]);
+
   const goProfile = useCallback(() => {
     if (otherUser?.id) navigate(`/seller/${otherUser.id}`);
   }, [otherUser?.id, navigate]);
 
   return (
     <>
-      <header className="chat-header" role="banner">
-        {/* Back */}
-        <button className="chat-icon-btn" onClick={goBack} aria-label="Back">
-          {Icon.back}
-        </button>
+      <header
+        className={`chat-header${isDesktop ? " chat-header--desktop" : ""}`}
+        role="banner"
+      >
+        {/* Back — hidden on desktop unless you want it */}
+        {!isDesktop && (
+          <button className="chat-icon-btn" onClick={goBack} aria-label="Back">
+            {Icon.back}
+          </button>
+        )}
 
-        {/* Avatar — tap → seller profile */}
-        <div onClick={goProfile} style={{ cursor:"pointer" }}>
+        {/* Avatar */}
+        <div onClick={goProfile} style={{ cursor: "pointer" }}>
           <Avatar user={otherUser}/>
         </div>
 
-        {/* Name + status — tap → seller profile */}
+        {/* Name + status */}
         <div
           className="chat-header-info"
           onClick={goProfile}
@@ -238,7 +272,7 @@ function ChatHeader({
           <StatusLine otherUser={otherUser} isTyping={isTyping}/>
         </div>
 
-        {/* Product thumb — tap → /product/:slug */}
+        {/* Product thumb */}
         <ProductThumb product={product} navigate={navigate}/>
 
         {/* Connection dot */}
