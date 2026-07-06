@@ -15,6 +15,7 @@ import { useProductCache } from "./context/ProductCacheContext";
    PAGES — PUBLIC
 ═══════════════════════════════════════════════════════════════ */
 import Homepage           from "./pages/Homepage";
+import HomepageDesktop    from "./pages/HomepageDesktop";
 import SearchPage         from "./pages/SearchPage";
 import ProductDetail      from "./pages/ProductDetail";
 import MarketDetail       from "./pages/MarketDetail";
@@ -165,6 +166,29 @@ function ScrollToTop() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   DESKTOP / MOBILE HOMEPAGE SPLIT
+═══════════════════════════════════════════════════════════════ */
+function useIsDesktop() {
+  const [desktop, setDesktop] = useState(
+    () => window.matchMedia("(min-width: 1024px)").matches
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 1024px)");
+    const fn = (e) => setDesktop(e.matches);
+    mq.addEventListener("change", fn);
+    return () => mq.removeEventListener("change", fn);
+  }, []);
+  return desktop;
+}
+
+function HomeRoute({ user }) {
+  const isDesktop = useIsDesktop();
+  return isDesktop
+    ? <HomepageDesktop user={user}/>
+    : <Homepage        user={user}/>;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    ROUTE GUARDS
 ═══════════════════════════════════════════════════════════════ */
 function ProtectedRoute({ user, children }) {
@@ -292,7 +316,7 @@ export default function App() {
         {/* ══════════════════════════════════════════════════
             PUBLIC ROUTES
         ══════════════════════════════════════════════════ */}
-        <Route path="/"              element={<Homepage key={user?.id ?? "guest"} user={user}/>}/>
+        <Route path="/"              element={<HomeRoute key={user?.id ?? "guest"} user={user}/>}/>
         <Route path="/search"        element={<SearchPage    user={user}/>}/>
         <Route path="/product/:slug" element={<ProductDetail user={user}/>}/>
         <Route path="/shop/:slug"    element={<MarketDetail  user={user}/>}/>
