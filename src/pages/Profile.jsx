@@ -1009,7 +1009,8 @@ export default function Profile({ onLogout }) {
             <RecentListings
               listings={listings}
               onViewAll={goViewAll}
-              isDesktop={isDesktop}   {/* ← pass isDesktop so component knows */}
+              isDesktop={isDesktop}
+              /* isDesktop passed above so RecentListings can render mobile/desktop layout */
             />
           )}
 
