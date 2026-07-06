@@ -16,7 +16,7 @@ import {
   formatLocationLabel,
 }                         from "../hooks/useLocation";
 import { useDesktopFeed } from "../hooks/useDesktopFeed";
-import type { Product }   from "../hooks/useDesktopFeed";
+import type { Product, Filters } from "../hooks/useDesktopFeed";
 import "./HomepageDesktop.css";
 
 /* ── constants ── */
@@ -51,7 +51,7 @@ const fmtCount = (n: number): string => {
    SUB-COMPONENTS
    ════════════════════════════════════════════════════════ */
 
-/* ── Skeleton ── */
+/* ── Grid Skeleton ── */
 const GridSkeleton = memo(function GridSkeleton({ cols = 4 }: { cols?: number }) {
   return (
     <div className="dsk-grid" style={{ "--cols": cols } as React.CSSProperties}
@@ -64,25 +64,113 @@ const GridSkeleton = memo(function GridSkeleton({ cols = 4 }: { cols?: number })
   );
 });
 
-/* ── Left Sidebar ── */
+/* ── Left Sidebar with WORKING FILTERS ── */
 interface SidebarProps {
-  category      : string;
-  onCategory    : (id: string) => void;
-  savedLocation : ReturnType<typeof useStoredLocation>["location"];
-  onOpenPicker  : () => void;
-  onClearLoc    : () => void;
+  category       : string;
+  onCategory     : (id: string) => void;
+  savedLocation  : ReturnType<typeof useStoredLocation>["location"];
+  onOpenPicker   : () => void;
+  onClearLoc     : () => void;
+  filters        : Filters;
+  onUpdateFilters: (f: Partial<Filters>) => void;
+  onClearFilters : () => void;
+  resultCount    : number;
 }
 
 const LeftSidebar = memo(function LeftSidebar({
   category, onCategory, savedLocation, onOpenPicker, onClearLoc,
+  filters, onUpdateFilters, onClearFilters, resultCount,
 }: SidebarProps) {
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
-  const [condition, setCondition] = useState("all");
+  const [localCondition, setLocalCondition] = useState("all");
   const locLabel = formatLocationLabel(savedLocation);
+
+  /* sync from external filters */
+  useEffect(() => {
+    setPriceMin(filters.priceMin != null ? String(filters.priceMin) : "");
+    setPriceMax(filters.priceMax != null ? String(filters.priceMax) : "");
+    setLocalCondition(filters.condition || "all");
+  }, [filters]);
+
+  const handleApplyPrice = useCallback(() => {
+    const min = priceMin ? Number(priceMin) : null;
+    const max = priceMax ? Number(priceMax) : null;
+    onUpdateFilters({ priceMin: min, priceMax: max });
+  }, [priceMin, priceMax, onUpdateFilters]);
+
+  const handleConditionChange = useCallback((value: string) => {
+    setLocalCondition(value);
+    onUpdateFilters({ condition: value });
+  }, [onUpdateFilters]);
+
+  const handleClearAll = useCallback(() => {
+    setPriceMin("");
+    setPriceMax("");
+    setLocalCondition("all");
+    onClearFilters();
+  }, [onClearFilters]);
+
+  const handlePriceKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter") handleApplyPrice();
+    },
+    [handleApplyPrice]
+  );
+
+  const hasActiveFilters =
+    filters.priceMin != null ||
+    filters.priceMax != null ||
+    (filters.condition && filters.condition !== "all");
 
   return (
     <aside className="dsk-sidebar-left" aria-label="Filters">
+
+      {/* Active filters badge */}
+      {hasActiveFilters && (
+        <div className="dsk-sb-active-filters">
+          <div className="dsk-sb-active-head">
+            <span className="dsk-sb-active-badge">
+              Filters active
+            </span>
+            <button className="dsk-sb-active-clear" onClick={handleClearAll}>
+              Clear all
+            </button>
+          </div>
+          <div className="dsk-sb-active-tags">
+            {filters.priceMin != null && (
+              <span className="dsk-sb-tag">
+                Min: ₦{filters.priceMin.toLocaleString()}
+                <button
+                  onClick={() => { setPriceMin(""); onUpdateFilters({ priceMin: null }); }}
+                  aria-label="Remove min price"
+                >×</button>
+              </span>
+            )}
+            {filters.priceMax != null && (
+              <span className="dsk-sb-tag">
+                Max: ₦{filters.priceMax.toLocaleString()}
+                <button
+                  onClick={() => { setPriceMax(""); onUpdateFilters({ priceMax: null }); }}
+                  aria-label="Remove max price"
+                >×</button>
+              </span>
+            )}
+            {filters.condition && filters.condition !== "all" && (
+              <span className="dsk-sb-tag">
+                {filters.condition.charAt(0).toUpperCase() + filters.condition.slice(1)}
+                <button
+                  onClick={() => { setLocalCondition("all"); onUpdateFilters({ condition: "all" }); }}
+                  aria-label="Remove condition filter"
+                >×</button>
+              </span>
+            )}
+          </div>
+          <p className="dsk-sb-result-count">
+            {resultCount} result{resultCount !== 1 ? "s" : ""}
+          </p>
+        </div>
+      )}
 
       {/* Categories */}
       <section className="dsk-sb-section">
@@ -117,38 +205,57 @@ const LeftSidebar = memo(function LeftSidebar({
         )}
       </section>
 
-      {/* Price Range */}
+      {/* Price Range — WORKING */}
       <section className="dsk-sb-section">
         <h3 className="dsk-sb-title">Price Range (₦)</h3>
         <div className="dsk-sb-price-row">
           <input
             className="dsk-sb-price-inp"
-            type="number" placeholder="Min"
+            type="number"
+            placeholder="Min"
             value={priceMin}
             onChange={(e) => setPriceMin(e.target.value)}
+            onKeyDown={handlePriceKeyDown}
+            min="0"
           />
           <span className="dsk-sb-price-sep">–</span>
           <input
             className="dsk-sb-price-inp"
-            type="number" placeholder="Max"
+            type="number"
+            placeholder="Max"
             value={priceMax}
             onChange={(e) => setPriceMax(e.target.value)}
+            onKeyDown={handlePriceKeyDown}
+            min="0"
           />
         </div>
-        <button className="dsk-sb-apply-btn">Apply</button>
+        <button className="dsk-sb-apply-btn" onClick={handleApplyPrice}>
+          Apply Price Filter
+        </button>
       </section>
 
-      {/* Condition */}
+      {/* Condition — WORKING (instant) */}
       <section className="dsk-sb-section">
         <h3 className="dsk-sb-title">Condition</h3>
-        {["all", "new", "used", "refurbished"].map((c) => (
-          <label key={c} className="dsk-sb-radio">
+        {[
+          { value: "all",         label: "Any condition" },
+          { value: "new",         label: "Brand New"     },
+          { value: "used",        label: "Used"          },
+          { value: "refurbished", label: "Refurbished"   },
+        ].map((opt) => (
+          <label
+            key={opt.value}
+            className={`dsk-sb-radio${localCondition === opt.value ? " dsk-sb-radio--active" : ""}`}
+          >
             <input
-              type="radio" name="condition"
-              value={c} checked={condition === c}
-              onChange={() => setCondition(c)}
+              type="radio"
+              name="condition"
+              value={opt.value}
+              checked={localCondition === opt.value}
+              onChange={() => handleConditionChange(opt.value)}
             />
-            <span>{c === "all" ? "Any condition" : c.charAt(0).toUpperCase() + c.slice(1)}</span>
+            <span className="dsk-sb-radio-dot" />
+            <span>{opt.label}</span>
           </label>
         ))}
       </section>
@@ -162,9 +269,8 @@ interface RightSidebarProps { navigate: (path: string) => void }
 
 const RightSidebar = memo(function RightSidebar({ navigate }: RightSidebarProps) {
   return (
-    <aside className="dsk-sidebar-right" aria-label="Trending & Ads">
+    <aside className="dsk-sidebar-right" aria-label="Trending">
 
-      {/* Trending Searches */}
       <section className="dsk-sb-section">
         <h3 className="dsk-sb-title">🔥 Trending Searches</h3>
         <ul className="dsk-trend-list" role="list">
@@ -186,7 +292,6 @@ const RightSidebar = memo(function RightSidebar({ navigate }: RightSidebarProps)
         </ul>
       </section>
 
-      {/* Popular Categories */}
       <section className="dsk-sb-section">
         <h3 className="dsk-sb-title">Popular Categories</h3>
         <div className="dsk-pop-cats">
@@ -203,7 +308,6 @@ const RightSidebar = memo(function RightSidebar({ navigate }: RightSidebarProps)
         </div>
       </section>
 
-      {/* Sponsored Slot */}
       <section className="dsk-sb-section dsk-sb-ad">
         <p className="dsk-sb-ad-label">Sponsored</p>
         <div className="dsk-sb-ad-slot">
@@ -212,12 +316,11 @@ const RightSidebar = memo(function RightSidebar({ navigate }: RightSidebarProps)
           <button onClick={() => navigate("/advertise")}>Learn more</button>
         </div>
       </section>
-
     </aside>
   );
 });
 
-/* ── Featured Card (desktop) ── */
+/* ── Featured Card ── */
 const FeatCard = memo(function FeatCard({
   product, onClick,
 }: { product: Product; onClick: (p: Product) => void }) {
@@ -256,7 +359,7 @@ const FeatCard = memo(function FeatCard({
   );
 });
 
-/* ── Deal Card (desktop) ── */
+/* ── Deal Card ── */
 const DealCard = memo(function DealCard({
   product, onClick,
 }: { product: Product; onClick: (p: Product) => void }) {
@@ -307,7 +410,9 @@ export default function HomepageDesktop({ user }: Props) {
     products, featured, deals, meta,
     loading, loadingMore, error,
     hasMore, total, category,
+    filters,
     loadFeed, loadMore, switchCategory,
+    updateFilters, clearFilters,
   } = useDesktopFeed(savedLocation);
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -325,7 +430,7 @@ export default function HomepageDesktop({ user }: Props) {
     return () => io.disconnect();
   }, [hasMore, loadMore]);
 
-  /* click tracking */
+  /* click + view tracking */
   const handleProductClick = useCallback((product: Product) => {
     if (!product?.id) return;
     navigator.sendBeacon?.(`${API}/products/${product.id}/click`);
@@ -353,8 +458,7 @@ export default function HomepageDesktop({ user }: Props) {
   /* ── RENDER ── */
   return (
     <div className="dsk-root">
-      {/* Top Nav — already has logo + search + profile */}
-      <TopNav user={user} desktop />
+      <TopNav user={user} />
 
       <div className="dsk-body">
 
@@ -363,7 +467,6 @@ export default function HomepageDesktop({ user }: Props) {
           <div className="dsk-hero-blob dsk-hero-blob--1" aria-hidden="true" />
           <div className="dsk-hero-blob dsk-hero-blob--2" aria-hidden="true" />
 
-          {/* Left copy */}
           <div className="dsk-hero-copy">
             <span className="dsk-hero-kicker">🛒 Loemart Marketplace</span>
             <h1 className="dsk-hero-h1">
@@ -374,21 +477,16 @@ export default function HomepageDesktop({ user }: Props) {
               Thousands of verified listings from sellers across Nigeria.
             </p>
             <div className="dsk-hero-actions">
-              <button
-                className="dsk-hero-cta"
-                onClick={() => navigate("/search")}
-              >
+              <button className="dsk-hero-cta"
+                      onClick={() => navigate("/search")}>
                 Browse Listings
               </button>
-              <button
-                className="dsk-hero-cta dsk-hero-cta--outline"
-                onClick={() => navigate("/minimart/add")}
-              >
+              <button className="dsk-hero-cta dsk-hero-cta--outline"
+                      onClick={() => navigate("/minimart/add")}>
                 Sell for Free
               </button>
             </div>
 
-            {/* Stats */}
             <div className="dsk-hero-stats">
               {loading ? (
                 [1, 2, 3].map((i) => (
@@ -401,9 +499,9 @@ export default function HomepageDesktop({ user }: Props) {
                 ))
               ) : (
                 [
-                  { val: fmtCount(total), label: "Listings"  },
-                  { val: "24/7",          label: "Live"       },
-                  { val: "Free",          label: "To list"    },
+                  { val: fmtCount(total), label: "Listings" },
+                  { val: "24/7",          label: "Live" },
+                  { val: "Free",          label: "To list" },
                 ].map((s) => (
                   <div key={s.label} className="dsk-hero-stat">
                     <span className="dsk-hero-stat-val">{s.val}</span>
@@ -414,21 +512,14 @@ export default function HomepageDesktop({ user }: Props) {
             </div>
           </div>
 
-          {/* Right — featured product showcase */}
           <div className="dsk-hero-right" aria-hidden={loading}>
             {loading ? (
               <div className="dsk-sk dsk-shimmer dsk-hero-img-sk" />
             ) : featured.slice(0, 1).map((p) => (
-              <button
-                key={p.id}
-                className="dsk-hero-feat-preview"
-                onClick={() => handleProductClick(p)}
-              >
-                <img
-                  src={getImageUrl(p) || PH}
-                  alt={p.title}
-                  onError={(e) => { e.currentTarget.src = PH; }}
-                />
+              <button key={p.id} className="dsk-hero-feat-preview"
+                      onClick={() => handleProductClick(p)}>
+                <img src={getImageUrl(p) || PH} alt={p.title}
+                     onError={(e) => { e.currentTarget.src = PH; }} />
                 <div className="dsk-hero-feat-info">
                   <span className="dsk-hero-feat-tag">💎 Featured</span>
                   <p className="dsk-hero-feat-title">{p.title}</p>
@@ -439,7 +530,7 @@ export default function HomepageDesktop({ user }: Props) {
           </div>
         </section>
 
-        {/* ══ CATEGORY STRIP ══ */}
+        {/* ══ CATEGORIES ══ */}
         <section className="dsk-cat-section" aria-label="Categories">
           <div className="dsk-inner">
             <div className="dsk-cat-grid">
@@ -458,22 +549,25 @@ export default function HomepageDesktop({ user }: Props) {
           </div>
         </section>
 
-        {/* ══ MAIN 3-COLUMN LAYOUT ══ */}
+        {/* ══ 3-COLUMN LAYOUT ══ */}
         <div className="dsk-inner dsk-layout">
 
-          {/* Left Sidebar */}
+          {/* Left Sidebar — with working filters */}
           <LeftSidebar
             category={category}
             onCategory={switchCategory}
             savedLocation={savedLocation}
             onOpenPicker={() => setPickerOpen(true)}
             onClearLoc={clearLocation}
+            filters={filters}
+            onUpdateFilters={updateFilters}
+            onClearFilters={clearFilters}
+            resultCount={products.length}
           />
 
           {/* Centre Feed */}
           <main className="dsk-feed" id="dsk-main">
 
-            {/* Error */}
             {error && (
               <div className="dsk-error" role="alert">
                 <span>⚡</span>
@@ -543,18 +637,22 @@ export default function HomepageDesktop({ user }: Props) {
                 <div className="dsk-empty">
                   <span className="dsk-empty-emoji">🛍️</span>
                   <h3>No listings found</h3>
-                  <p>Try another category or location.</p>
-                  <button onClick={() => switchCategory("all")}>
-                    Browse all
-                  </button>
+                  <p>Try adjusting your filters or location.</p>
+                  <div className="dsk-empty-actions">
+                    <button onClick={() => clearFilters()}>
+                      Clear filters
+                    </button>
+                    <button className="dsk-empty-btn--outline"
+                            onClick={() => switchCategory("all")}>
+                      Browse all
+                    </button>
+                  </div>
                 </div>
               ) : (
                 <>
-                  <div
-                    className="dsk-grid"
-                    style={{ "--cols": cols } as React.CSSProperties}
-                    role="list"
-                  >
+                  <div className="dsk-grid"
+                       style={{ "--cols": cols } as React.CSSProperties}
+                       role="list">
                     {products.map((p, i) => (
                       <div key={p.id} role="listitem">
                         <MasonryCard
@@ -581,9 +679,7 @@ export default function HomepageDesktop({ user }: Props) {
                       <p>You've seen it all 🎉</p>
                       <button onClick={() =>
                         window.scrollTo({ top: 0, behavior: "smooth" })
-                      }>
-                        Back to top ↑
-                      </button>
+                      }>Back to top ↑</button>
                     </div>
                   )}
                 </>
@@ -614,7 +710,6 @@ export default function HomepageDesktop({ user }: Props) {
         </div>
       </div>
 
-      {/* Location Picker */}
       <LocationPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
