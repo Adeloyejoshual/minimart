@@ -1,165 +1,278 @@
-/* ─────────────────────────────────────────────
-   Footer.css — Minimart
-   ───────────────────────────────────────────── */
+/* src/styles/Footer.css
+   Shared footer — mobile + desktop
+   ─────────────────────────────────────────────── */
 
-.footer {
-  background: #111;
-  color: #ccc;
-  padding: 40px 20px 100px; /* bottom padding clears BottomNav */
-  margin-top: 32px;
-  font-family: inherit;
+.ft {
+  background  : #111;
+  color       : #ccc;
+  padding     : 40px 20px 100px;
+  margin-top  : 32px;
+  font-family : inherit;
 }
 
-/* ── Brand ── */
-.footer-brand {
-  margin-bottom: 32px;
+.ft-inner {
+  max-width : 1440px;
+  margin    : 0 auto;
 }
 
-.footer-logo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+/* ══ TOP — brand + nav ══ */
+.ft-top {
+  display        : flex;
+  flex-direction : column;
+  gap            : 32px;
+  margin-bottom  : 32px;
+}
+
+/* Brand */
+.ft-brand       { max-width: 300px; }
+.ft-logo {
+  display     : flex;
+  align-items : center;
+  gap         : 8px;
   margin-bottom: 10px;
 }
-
-.footer-logo-mark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  background: #e8523a;
-  color: #fff;
-  font-size: 16px;
-  font-weight: 800;
-  letter-spacing: -0.5px;
-  flex-shrink: 0;
+.ft-logo-mark {
+  display         : inline-flex;
+  align-items     : center;
+  justify-content : center;
+  width           : 32px;
+  height          : 32px;
+  border-radius   : 8px;
+  background      : #e85d26;
+  color           : #fff;
+  font-size       : 16px;
+  font-weight     : 800;
+  letter-spacing  : -0.5px;
+  flex-shrink     : 0;
+}
+.ft-logo-name {
+  font-size      : 18px;
+  font-weight    : 700;
+  color          : #fff;
+  letter-spacing : -0.3px;
+}
+.ft-tagline {
+  font-size   : 13px;
+  line-height : 1.6;
+  color       : #888;
+  margin      : 0 0 16px;
 }
 
-.footer-logo-name {
-  font-size: 18px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: -0.3px;
+/* Socials — desktop (hidden on mobile) */
+.ft-socials {
+  display : none;
+  gap     : 8px;
+}
+.ft-social-link {
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  width           : 32px;
+  height          : 32px;
+  border-radius   : 50%;
+  background      : #222;
+  color           : #888;
+  transition      : all .18s ease;
+  text-decoration : none;
+}
+.ft-social-link:hover {
+  background : #e85d26;
+  color      : #fff;
+  transform  : translateY(-1px);
 }
 
-.footer-tagline {
-  font-size: 13px;
-  line-height: 1.6;
-  color: #888;
-  max-width: 300px;
-  margin: 0;
+/* Nav */
+.ft-nav {
+  display               : grid;
+  grid-template-columns : repeat(3, 1fr);
+  gap                   : 24px;
 }
 
-/* ── Nav columns ── */
-.footer-nav {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 24px;
-  margin-bottom: 32px;
+.ft-col-title {
+  font-size      : 11px;
+  font-weight    : 700;
+  letter-spacing : 0.08em;
+  text-transform : uppercase;
+  color          : #fff;
+  margin         : 0 0 12px;
 }
 
-.footer-col-title {
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #fff;
-  margin: 0 0 12px;
+.ft-links {
+  list-style     : none;
+  margin         : 0;
+  padding        : 0;
+  display        : flex;
+  flex-direction : column;
+  gap            : 9px;
 }
-
-.footer-links {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-}
-
-.footer-links li button {
-  all: unset;
-  font-size: 13px;
-  color: #888;
-  cursor: pointer;
-  transition: color 0.18s;
+.ft-links li button {
+  all        : unset;
+  font-size  : 13px;
+  color      : #888;
+  cursor     : pointer;
+  transition : color .18s;
   line-height: 1;
 }
-
-.footer-links li button:hover,
-.footer-links li button:focus-visible {
+.ft-links li button:hover,
+.ft-links li button:focus-visible {
   color: #fff;
 }
 
-/* ── Rule ── */
-.footer-rule {
-  height: 1px;
-  background: #222;
-  margin-bottom: 20px;
+/* ══ NEWSLETTER — hidden on mobile ══ */
+.ft-newsletter {
+  display       : none;
+  padding       : 24px 28px;
+  background    : #1a1a1a;
+  border-radius : 12px;
+  border        : 1px solid #222;
+  margin-bottom : 32px;
 }
-
-/* ── Bottom bar ── */
-.footer-bottom {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.ft-newsletter-text h4 {
+  font-size   : .95rem;
+  font-weight : 700;
+  color       : #fff;
+  margin      : 0 0 4px;
 }
-
-.footer-copy {
-  font-size: 12px;
+.ft-newsletter-text p {
+  font-size : .82rem;
+  color     : #888;
+  margin    : 0;
+}
+.ft-newsletter-form {
+  display : flex;
+  gap     : 8px;
+}
+.ft-newsletter-input {
+  flex          : 1;
+  padding       : 10px 14px;
+  border-radius : 8px;
+  border        : 1.5px solid #333;
+  background    : #111;
+  color         : #fff;
+  font-size     : .85rem;
+  outline       : none;
+  transition    : border-color .18s;
+  min-width     : 0;
+}
+.ft-newsletter-input:focus {
+  border-color: #e85d26;
+}
+.ft-newsletter-input::placeholder {
   color: #555;
-  margin: 0;
+}
+.ft-newsletter-btn {
+  padding       : 10px 20px;
+  border-radius : 8px;
+  border        : none;
+  background    : #e85d26;
+  color         : #fff;
+  font-size     : .85rem;
+  font-weight   : 700;
+  cursor        : pointer;
+  white-space   : nowrap;
+  transition    : background .18s;
+  flex-shrink   : 0;
+}
+.ft-newsletter-btn:hover {
+  background: #c94e1e;
 }
 
-.footer-legal {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
+/* ══ RULE ══ */
+.ft-rule {
+  height        : 1px;
+  background    : #222;
+  margin-bottom : 20px;
 }
 
-.footer-legal-link {
-  all: unset;
-  font-size: 12px;
-  color: #666;
-  cursor: pointer;
-  transition: color 0.18s;
+/* ══ BOTTOM ══ */
+.ft-bottom {
+  display        : flex;
+  flex-direction : column;
+  gap            : 10px;
+}
+.ft-copy {
+  font-size : 12px;
+  color     : #555;
+  margin    : 0;
+}
+.ft-legal {
+  display     : flex;
+  align-items : center;
+  flex-wrap   : wrap;
+  gap         : 6px;
+}
+.ft-legal-link {
+  all        : unset;
+  font-size  : 12px;
+  color      : #666;
+  cursor     : pointer;
+  transition : color .18s;
+}
+.ft-legal-link:hover,
+.ft-legal-link:focus-visible {
+  color           : #ddd;
+  text-decoration : underline;
+}
+.ft-dot {
+  color       : #444;
+  font-size   : 12px;
+  user-select : none;
 }
 
-.footer-legal-link:hover,
-.footer-legal-link:focus-visible {
-  color: #ddd;
-  text-decoration: underline;
+/* Socials — mobile only */
+.ft-socials-mobile {
+  display : flex;
+  gap     : 8px;
 }
 
-.footer-dot {
-  color: #444;
-  font-size: 12px;
-  user-select: none;
-}
+/* ══════════════════════════════════════════════════════════
+   RESPONSIVE
+   ══════════════════════════════════════════════════════════ */
 
-/* ── Responsive: tablet+ ── */
+/* Tablet */
 @media (min-width: 600px) {
-  .footer {
-    padding: 48px 32px 120px;
+  .ft { padding: 48px 32px 120px; }
+  .ft-bottom {
+    flex-direction  : row;
+    align-items     : center;
+    justify-content : space-between;
+  }
+  .ft-socials-mobile { display: none; }
+  .ft-socials        { display: flex; }
+}
+
+/* Desktop */
+@media (min-width: 1024px) {
+  .ft {
+    padding : 56px 48px 48px;
   }
 
-  .footer-bottom {
-    flex-direction: row;
-    align-items: center;
-    justify-content: space-between;
+  .ft-top {
+    flex-direction  : row;
+    gap             : 64px;
+    align-items     : flex-start;
+  }
+
+  .ft-brand {
+    flex-shrink : 0;
+    min-width   : 240px;
+  }
+
+  .ft-nav {
+    flex                  : 1;
+    grid-template-columns : repeat(4, 1fr);
+    gap                   : 40px;
+  }
+
+  .ft-newsletter {
+    display         : flex;
+    align-items     : center;
+    justify-content : space-between;
+    gap             : 32px;
   }
 }
 
-@media (min-width: 900px) {
-  .footer {
-    padding: 56px 48px 80px;
-  }
-
-  .footer-nav {
-    grid-template-columns: repeat(3, auto);
-    gap: 48px;
-    justify-content: flex-start;
-  }
+/* Large desktop */
+@media (min-width: 1440px) {
+  .ft-inner { padding: 0 32px; }
 }
