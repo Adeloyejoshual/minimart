@@ -51,7 +51,7 @@ import SellerDashboard from "./pages/seller/SellerDashboard";
 ═══════════════════════════════════════════════════════════════ */
 import Profile           from "./pages/Profile";
 import EditProfile       from "./pages/Profile/EditProfile";
-import SavedItems        from "./pages/Profile/SavedItems";       // ← NEW
+import SavedItems        from "./pages/Profile/SavedItems";
 import NotificationsPage from "./pages/NotificationsPage";
 import SettingsPage      from "./pages/SettingsPage";
 import AddProduct        from "./pages/AddProduct";
@@ -72,6 +72,11 @@ import PaymentSuccess    from "./pages/PaymentSuccess";
 import CheckoutPage      from "./pages/CheckoutPage";
 import OrderSuccess      from "./pages/OrderSuccess";
 import OrderHistory      from "./pages/OrderHistory";
+
+/* ═══════════════════════════════════════════════════════════════
+   PAGES — MESSAGING DESKTOP
+═══════════════════════════════════════════════════════════════ */
+import MessagingDesktop from "./pages/MessagingDesktop";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — CHECKOUT / PAYMENT FLOW
@@ -186,6 +191,23 @@ function HomeRoute({ user }) {
   return isDesktop
     ? <HomepageDesktop user={user}/>
     : <Homepage        user={user}/>;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DESKTOP / MOBILE MESSAGING SPLIT
+═══════════════════════════════════════════════════════════════ */
+function MessagesRoute({ user }) {
+  const isDesktop = useIsDesktop();
+  return isDesktop
+    ? <MessagingDesktop user={user}/>
+    : <Conversations    user={user}/>;
+}
+
+function ChatRoute({ user }) {
+  const isDesktop = useIsDesktop();
+  return isDesktop
+    ? <MessagingDesktop user={user}/>
+    : <Chat             user={user}/>;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -373,14 +395,12 @@ export default function App() {
           </ProtectedRoute>
         }/>
 
-        {/* ── EditProfile ── */}
         <Route path="/profile/edit" element={
           <ProtectedRoute user={user}>
             <EditProfile onProfileUpdate={handleProfileUpdate}/>
           </ProtectedRoute>
         }/>
 
-        {/* ── Saved Items ── */}                                  {/* ← NEW */}
         <Route path="/saved" element={
           <ProtectedRoute user={user}>
             <SavedItems user={user}/>
@@ -405,18 +425,42 @@ export default function App() {
           </ProtectedRoute>
         }/>
 
+        {/* ══════════════════════════════════════════════════
+            MESSAGING — RESPONSIVE (Desktop ↔ Mobile)
+
+            Desktop (≥1024px): Split-pane MessagingDesktop
+            Mobile  (<1024px): Separate Conversations / Chat
+
+            /conversations → sidebar list (mobile) or full desktop
+            /messages      → alias for desktop split-pane
+            /messages/:id  → desktop with thread selected
+            /chat/:id      → mobile full-screen chat or desktop
+        ══════════════════════════════════════════════════ */}
         <Route path="/conversations" element={
           <ProtectedRoute user={user}>
-            <Conversations user={user}/>
+            <MessagesRoute user={user}/>
+          </ProtectedRoute>
+        }/>
+
+        <Route path="/messages" element={
+          <ProtectedRoute user={user}>
+            <MessagesRoute user={user}/>
+          </ProtectedRoute>
+        }/>
+
+        <Route path="/messages/:threadId" element={
+          <ProtectedRoute user={user}>
+            <ChatRoute user={user}/>
           </ProtectedRoute>
         }/>
 
         <Route path="/chat/:threadId" element={
           <ProtectedRoute user={user}>
-            <Chat user={user}/>
+            <ChatRoute user={user}/>
           </ProtectedRoute>
         }/>
 
+        {/* ── Other protected routes ── */}
         <Route path="/coupons" element={
           <ProtectedRoute user={user}>
             <Coupons user={user}/>
