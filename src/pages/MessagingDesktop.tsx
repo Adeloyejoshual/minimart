@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback, FC } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import ConversationsSidebar from "../components/messaging/ConversationsSidebar";
-import ChatPanel from "../components/messaging/ChatPanel";
-import { User, Thread } from "../components/messaging/types";
+import ChatPanel            from "../components/messaging/ChatPanel";
+import { User, Thread }     from "../components/messaging/types";
 
 import "../styles/messaging-desktop.css";
 
 /* ─────────────────────────────────────────
-   NoChatSelected placeholder
+   NoChatSelected
 ───────────────────────────────────────── */
 const NoChatSelected: FC = () => (
   <div className="msg-empty-pane">
@@ -46,25 +46,32 @@ interface MessagingDesktopProps {
    Component
 ───────────────────────────────────────── */
 const MessagingDesktop: FC<MessagingDesktopProps> = ({ user }) => {
-  const navigate = useNavigate();
-  const { threadId: urlThread } = useParams<{ threadId?: string }>();
+  const navigate                        = useNavigate();
+  const { threadId: urlThread }         = useParams<{ threadId?: string }>();
+  const [selectedThreadId, setSelected] = useState<string | null>(urlThread ?? null);
 
-  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(
-    urlThread ?? null
-  );
-
-  /* Sync URL → selected */
+  /* Sync URL → state on deep-link */
   useEffect(() => {
-    if (urlThread) setSelectedThreadId(urlThread);
+    if (urlThread) setSelected(urlThread);
   }, [urlThread]);
 
+  /* Select a thread — update state + URL */
   const handleSelectThread = useCallback(
     (tid: string, _thread: Thread) => {
-      setSelectedThreadId(tid);
+      setSelected(tid);
       navigate(`/messages/${tid}`, { replace: true });
     },
     [navigate]
   );
+
+  /*
+   * Deselect — called by ChatHeader's back button on desktop.
+   * Clears the right panel and resets URL to /messages.
+   */
+  const handleDeselectThread = useCallback(() => {
+    setSelected(null);
+    navigate("/messages", { replace: true });
+  }, [navigate]);
 
   /* ── Not logged in ── */
   if (!user?.id) {
@@ -103,7 +110,7 @@ const MessagingDesktop: FC<MessagingDesktopProps> = ({ user }) => {
   /* ── Main Layout ── */
   return (
     <div className="msg-desktop">
-      {/* Left: Conversations Sidebar */}
+      {/* Left: Sidebar — always mounted, keeps polling alive */}
       <ConversationsSidebar
         user={user}
         selectedThreadId={selectedThreadId}
@@ -112,10 +119,15 @@ const MessagingDesktop: FC<MessagingDesktopProps> = ({ user }) => {
 
       {/* Right: Chat panel or placeholder */}
       {selectedThreadId ? (
+        /*
+         * key= forces a full remount when thread changes.
+         * This cleanly resets socket, messages, and all state.
+         */
         <ChatPanel
           key={selectedThreadId}
           threadId={selectedThreadId}
           user={user}
+          onDeselectThread={handleDeselectThread}
         />
       ) : (
         <NoChatSelected />
