@@ -1,35 +1,34 @@
 /* src/pages/HomepageDesktop.css
-   Desktop layout — 1024px+
-   Uses same brand colors as mobile
-   ─────────────────────────────────────────────────── */
+   Elite desktop — 1024px+
+   Same brand colors as mobile
+   ─────────────────────────────────────────────── */
 
-/* ══ LAYOUT TOKENS ═══════════════════════════════════════ */
+/* ══ TOKENS ══════════════════════════════════════════════ */
 :root {
-  --dsk-max        : 1440px;
-  --dsk-pad        : 32px;
-  --dsk-sidebar-w  : 230px;
-  --dsk-right-w    : 240px;
-  --dsk-gap        : 24px;
-  --dsk-radius     : 14px;
-  --dsk-radius-sm  : 8px;
-  --dsk-shadow     : 0 2px 12px rgba(0, 0, 0, .06);
-  --dsk-shadow-hov : 0 8px 32px rgba(0, 0, 0, .12);
-  --dsk-trans      : 220ms cubic-bezier(.4, 0, .2, 1);
+  --dsk-max         : 1440px;
+  --dsk-pad         : 32px;
+  --dsk-sidebar-w   : 240px;
+  --dsk-right-w     : 240px;
+  --dsk-gap         : 24px;
+  --dsk-radius      : 14px;
+  --dsk-radius-sm   : 8px;
+  --dsk-shadow      : 0 2px 12px rgba(0, 0, 0, .06);
+  --dsk-shadow-hov  : 0 8px 32px rgba(0, 0, 0, .12);
+  --dsk-trans       : 220ms cubic-bezier(.4, 0, .2, 1);
 
-  /* ── brand colours (same as mobile) ── */
-  --dsk-accent     : #e85d26;
-  --dsk-accent-dark: #c94e1e;
+  --dsk-accent      : #e85d26;
+  --dsk-accent-dark : #c94e1e;
   --dsk-accent-light: #fff5f1;
-  --dsk-accent-glow: rgba(232, 93, 38, .12);
-  --dsk-bg         : #f5f4f1;
-  --dsk-card       : #ffffff;
-  --dsk-card-alt   : #faf9f7;
-  --dsk-border     : #ebebeb;
-  --dsk-text       : #1a1a1a;
-  --dsk-text-soft  : #555;
-  --dsk-muted      : #777;
-  --dsk-skeleton   : #e8e5e0;
-  --dsk-skeleton-hi: #f0ede8;
+  --dsk-accent-glow : rgba(232, 93, 38, .12);
+  --dsk-bg          : #f5f4f1;
+  --dsk-card        : #ffffff;
+  --dsk-card-alt    : #faf9f7;
+  --dsk-border      : #ebebeb;
+  --dsk-text        : #1a1a1a;
+  --dsk-text-soft   : #555;
+  --dsk-muted       : #777;
+  --dsk-skeleton    : #e8e5e0;
+  --dsk-skeleton-hi : #f0ede8;
 }
 
 /* ══ ROOT ════════════════════════════════════════════════ */
@@ -80,7 +79,6 @@
   overflow               : hidden;
 }
 
-/* blobs — same accent colour, different opacity */
 .dsk-hero-blob {
   position       : absolute;
   border-radius  : 50%;
@@ -123,12 +121,10 @@
   margin      : 0 0 16px;
   color       : var(--dsk-text);
 }
-
 .dsk-hero-em {
-  font-style  : normal;
-  color       : var(--dsk-accent);
+  font-style : normal;
+  color      : var(--dsk-accent);
 }
-
 .dsk-hero-sub {
   font-size   : 1.05rem;
   color       : var(--dsk-text-soft);
@@ -144,7 +140,6 @@
   flex-wrap     : wrap;
   margin-bottom : 36px;
 }
-
 .dsk-hero-cta {
   padding       : 13px 28px;
   border-radius : 10px;
@@ -161,7 +156,6 @@
   border-color : var(--dsk-accent-dark);
   transform    : translateY(-1px);
 }
-
 .dsk-hero-cta--outline {
   background : transparent;
   color      : var(--dsk-accent);
@@ -194,8 +188,8 @@
 }
 
 /* Right hero */
-.dsk-hero-right      { position: relative; z-index: 1; }
-.dsk-hero-img-sk     { width: 100%; height: 340px; border-radius: var(--dsk-radius); }
+.dsk-hero-right  { position: relative; z-index: 1; }
+.dsk-hero-img-sk { width: 100%; height: 340px; border-radius: var(--dsk-radius); }
 
 .dsk-hero-feat-preview {
   width         : 100%;
@@ -219,9 +213,7 @@
   display    : block;
   transition : transform var(--dsk-trans);
 }
-.dsk-hero-feat-preview:hover img {
-  transform: scale(1.04);
-}
+.dsk-hero-feat-preview:hover img { transform: scale(1.04); }
 
 .dsk-hero-feat-info {
   padding        : 16px;
@@ -229,37 +221,22 @@
   flex-direction : column;
   gap            : 6px;
 }
-.dsk-hero-feat-tag {
-  font-size   : .72rem;
-  font-weight : 700;
-  color       : var(--dsk-accent);
-}
-.dsk-hero-feat-title {
-  font-size   : .95rem;
-  font-weight : 600;
-  margin      : 0;
-  color       : var(--dsk-text);
-}
-.dsk-hero-feat-price {
-  font-size   : 1.05rem;
-  font-weight : 800;
-  color       : var(--dsk-accent);
-}
+.dsk-hero-feat-tag   { font-size: .72rem; font-weight: 700; color: var(--dsk-accent); }
+.dsk-hero-feat-title { font-size: .95rem; font-weight: 600; margin: 0; color: var(--dsk-text); }
+.dsk-hero-feat-price { font-size: 1.05rem; font-weight: 800; color: var(--dsk-accent); }
 
-/* ══ CATEGORY GRID ═══════════════════════════════════════ */
+/* ══ CATEGORIES ══════════════════════════════════════════ */
 .dsk-cat-section {
   background    : var(--dsk-card);
   border-top    : 1px solid var(--dsk-border);
   border-bottom : 1px solid var(--dsk-border);
   padding       : 20px var(--dsk-pad);
 }
-
 .dsk-cat-grid {
   display               : grid;
   grid-template-columns : repeat(auto-fill, minmax(100px, 1fr));
   gap                   : 10px;
 }
-
 .dsk-cat-btn {
   display        : flex;
   flex-direction : column;
@@ -287,7 +264,6 @@
   color        : var(--dsk-accent);
   font-weight  : 700;
 }
-
 .dsk-cat-icon { font-size: 1.5rem; }
 .dsk-cat-name { text-align: center; line-height: 1.2; }
 
@@ -301,21 +277,21 @@
   padding-bottom        : 48px;
 }
 
-/* ══ SIDEBARS — SHARED ═══════════════════════════════════ */
+/* ══ SIDEBARS ════════════════════════════════════════════ */
 .dsk-sidebar-left,
 .dsk-sidebar-right {
-  position       : sticky;
-  top            : 80px;
-  background     : var(--dsk-card);
-  border-radius  : var(--dsk-radius);
-  box-shadow     : var(--dsk-shadow);
-  padding        : 20px 16px;
-  display        : flex;
-  flex-direction : column;
-  gap            : 4px;
-  max-height     : calc(100vh - 100px);
-  overflow-y     : auto;
-  scrollbar-width: thin;
+  position        : sticky;
+  top             : 80px;
+  background      : var(--dsk-card);
+  border-radius   : var(--dsk-radius);
+  box-shadow      : var(--dsk-shadow);
+  padding         : 20px 16px;
+  display         : flex;
+  flex-direction  : column;
+  gap             : 4px;
+  max-height      : calc(100vh - 100px);
+  overflow-y      : auto;
+  scrollbar-width : thin;
 }
 
 .dsk-sb-section {
@@ -333,7 +309,75 @@
   margin         : 0 0 10px;
 }
 
-/* ── Left sidebar — categories ── */
+/* ── Active Filters Badge ── */
+.dsk-sb-active-filters {
+  background    : var(--dsk-accent-light);
+  border        : 1.5px solid var(--dsk-accent);
+  border-radius : var(--dsk-radius-sm);
+  padding       : 12px;
+  margin-bottom : 8px;
+}
+.dsk-sb-active-head {
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  margin-bottom   : 8px;
+}
+.dsk-sb-active-badge {
+  font-size   : .7rem;
+  font-weight : 700;
+  color       : var(--dsk-accent);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+.dsk-sb-active-clear {
+  background  : none;
+  border      : none;
+  color       : var(--dsk-accent);
+  font-size   : .75rem;
+  font-weight : 600;
+  cursor      : pointer;
+  padding     : 0;
+  text-decoration: underline;
+}
+
+.dsk-sb-active-tags {
+  display   : flex;
+  flex-wrap : wrap;
+  gap       : 6px;
+  margin-bottom: 8px;
+}
+.dsk-sb-tag {
+  display       : inline-flex;
+  align-items   : center;
+  gap           : 4px;
+  padding       : 3px 8px;
+  border-radius : 20px;
+  background    : var(--dsk-card);
+  border        : 1px solid var(--dsk-border);
+  font-size     : .72rem;
+  font-weight   : 600;
+  color         : var(--dsk-text);
+}
+.dsk-sb-tag button {
+  background  : none;
+  border      : none;
+  color       : var(--dsk-muted);
+  font-size   : .85rem;
+  cursor      : pointer;
+  padding     : 0;
+  line-height : 1;
+  margin-left : 2px;
+}
+.dsk-sb-tag button:hover { color: var(--dsk-accent); }
+
+.dsk-sb-result-count {
+  font-size : .75rem;
+  color     : var(--dsk-text-soft);
+  margin    : 0;
+}
+
+/* ── Categories ── */
 .dsk-sb-cat-list {
   list-style     : none;
   margin         : 0;
@@ -342,7 +386,6 @@
   flex-direction : column;
   gap            : 2px;
 }
-
 .dsk-sb-cat-btn {
   display       : flex;
   align-items   : center;
@@ -358,18 +401,11 @@
   text-align    : left;
   transition    : var(--dsk-trans);
 }
-.dsk-sb-cat-btn:hover {
-  background : var(--dsk-card-alt);
-}
-.dsk-sb-cat-btn--active {
-  background  : var(--dsk-accent-light);
-  color       : var(--dsk-accent);
-  font-weight : 700;
-}
+.dsk-sb-cat-btn:hover      { background: var(--dsk-card-alt); }
+.dsk-sb-cat-btn--active    { background: var(--dsk-accent-light); color: var(--dsk-accent); font-weight: 700; }
+.dsk-sb-cat-icon           { font-size: 1rem; }
 
-.dsk-sb-cat-icon { font-size: 1rem; }
-
-/* ── Left sidebar — location ── */
+/* ── Location ── */
 .dsk-sb-loc-btn {
   display       : flex;
   align-items   : center;
@@ -384,34 +420,29 @@
   color         : var(--dsk-text);
   transition    : var(--dsk-trans);
 }
-.dsk-sb-loc-btn:hover {
-  border-color: var(--dsk-accent);
-}
+.dsk-sb-loc-btn:hover { border-color: var(--dsk-accent); }
 
 .dsk-sb-loc-clear {
-  margin-top  : 6px;
-  background  : none;
-  border      : none;
-  color       : var(--dsk-muted);
-  font-size   : .75rem;
-  cursor      : pointer;
-  padding     : 0;
+  margin-top : 6px;
+  background : none;
+  border     : none;
+  color      : var(--dsk-muted);
+  font-size  : .75rem;
+  cursor     : pointer;
+  padding    : 0;
 }
-.dsk-sb-loc-clear:hover {
-  color: var(--dsk-accent);
-}
+.dsk-sb-loc-clear:hover { color: var(--dsk-accent); }
 
-/* ── Left sidebar — price ── */
+/* ── Price Range ── */
 .dsk-sb-price-row {
   display       : flex;
   align-items   : center;
   gap           : 8px;
   margin-bottom : 10px;
 }
-
 .dsk-sb-price-inp {
   flex          : 1;
-  padding       : 7px 10px;
+  padding       : 9px 10px;
   border-radius : var(--dsk-radius-sm);
   border        : 1.5px solid var(--dsk-border);
   font-size     : .82rem;
@@ -422,20 +453,15 @@
   color         : var(--dsk-text);
 }
 .dsk-sb-price-inp:focus {
-  border-color: var(--dsk-accent);
+  border-color : var(--dsk-accent);
+  box-shadow   : 0 0 0 3px var(--dsk-accent-glow);
 }
-.dsk-sb-price-inp::placeholder {
-  color: var(--dsk-muted);
-}
-
-.dsk-sb-price-sep {
-  color     : var(--dsk-muted);
-  font-size : .82rem;
-}
+.dsk-sb-price-inp::placeholder { color: var(--dsk-muted); }
+.dsk-sb-price-sep { color: var(--dsk-muted); font-size: .82rem; }
 
 .dsk-sb-apply-btn {
   width         : 100%;
-  padding       : 9px;
+  padding       : 10px;
   border-radius : var(--dsk-radius-sm);
   border        : none;
   background    : var(--dsk-accent);
@@ -446,24 +472,66 @@
   transition    : var(--dsk-trans);
 }
 .dsk-sb-apply-btn:hover {
-  background: var(--dsk-accent-dark);
+  background : var(--dsk-accent-dark);
+  transform  : translateY(-1px);
 }
 
-/* ── Left sidebar — condition ── */
+/* ── Condition Radio — Custom ── */
 .dsk-sb-radio {
   display     : flex;
   align-items : center;
   gap         : 8px;
   font-size   : .82rem;
   cursor      : pointer;
-  padding     : 4px 0;
+  padding     : 7px 10px;
+  border-radius: var(--dsk-radius-sm);
+  transition  : var(--dsk-trans);
   color       : var(--dsk-text);
+  margin-bottom: 2px;
 }
-.dsk-sb-radio input[type="radio"] {
-  accent-color: var(--dsk-accent);
+.dsk-sb-radio:hover {
+  background: var(--dsk-card-alt);
+}
+.dsk-sb-radio--active {
+  background : var(--dsk-accent-light);
+  color      : var(--dsk-accent);
+  font-weight: 600;
 }
 
-/* ── Right sidebar — trending ── */
+/* hide native radio */
+.dsk-sb-radio input[type="radio"] {
+  position : absolute;
+  opacity  : 0;
+  width    : 0;
+  height   : 0;
+}
+
+/* custom dot */
+.dsk-sb-radio-dot {
+  width         : 16px;
+  height        : 16px;
+  border-radius : 50%;
+  border        : 2px solid var(--dsk-border);
+  flex-shrink   : 0;
+  position      : relative;
+  transition    : var(--dsk-trans);
+}
+.dsk-sb-radio--active .dsk-sb-radio-dot,
+.dsk-sb-radio input:checked + .dsk-sb-radio-dot {
+  border-color : var(--dsk-accent);
+}
+.dsk-sb-radio input:checked + .dsk-sb-radio-dot::after {
+  content       : "";
+  position      : absolute;
+  top           : 3px;
+  left          : 3px;
+  width         : 6px;
+  height        : 6px;
+  border-radius : 50%;
+  background    : var(--dsk-accent);
+}
+
+/* ── Right Sidebar — Trending ── */
 .dsk-trend-list {
   list-style     : none;
   margin         : 0;
@@ -472,7 +540,6 @@
   flex-direction : column;
   gap            : 2px;
 }
-
 .dsk-trend-item {
   display       : flex;
   align-items   : center;
@@ -488,10 +555,7 @@
   text-align    : left;
   transition    : var(--dsk-trans);
 }
-.dsk-trend-item:hover {
-  background : var(--dsk-card-alt);
-  color      : var(--dsk-accent);
-}
+.dsk-trend-item:hover { background: var(--dsk-card-alt); color: var(--dsk-accent); }
 
 .dsk-trend-rank {
   width           : 20px;
@@ -506,16 +570,14 @@
   flex-shrink     : 0;
   color           : var(--dsk-muted);
 }
-
 .dsk-trend-label { flex: 1; }
 
-/* ── Right sidebar — popular categories ── */
+/* Popular categories */
 .dsk-pop-cats {
   display               : grid;
   grid-template-columns : 1fr 1fr;
   gap                   : 6px;
 }
-
 .dsk-pop-cat {
   display        : flex;
   flex-direction : column;
@@ -537,14 +599,13 @@
   transform    : translateY(-1px);
 }
 
-/* ── Right sidebar — ad slot ── */
+/* Ad slot */
 .dsk-sb-ad-label {
   font-size  : .65rem;
   color      : var(--dsk-muted);
   text-align : right;
   margin     : 0 0 6px;
 }
-
 .dsk-sb-ad-slot {
   border         : 1.5px dashed var(--dsk-border);
   border-radius  : 10px;
@@ -559,7 +620,6 @@
   color          : var(--dsk-muted);
 }
 .dsk-sb-ad-slot span { font-size: 1.8rem; }
-
 .dsk-sb-ad-slot button {
   padding       : 6px 14px;
   border-radius : 6px;
@@ -576,24 +636,21 @@
   color      : #fff;
 }
 
-/* ══ FEED / SECTIONS ═════════════════════════════════════ */
+/* ══ FEED ════════════════════════════════════════════════ */
 .dsk-feed    { min-width: 0; }
 .dsk-section { margin-bottom: 36px; }
-
 .dsk-section-head {
   display         : flex;
   align-items     : center;
   justify-content : space-between;
   margin-bottom   : 16px;
 }
-
 .dsk-section-title {
   font-size   : 1.1rem;
   font-weight : 700;
   margin      : 0;
   color       : var(--dsk-text);
 }
-
 .dsk-section-link,
 .dsk-cat-clear {
   background  : none;
@@ -605,17 +662,14 @@
   padding     : 0;
 }
 .dsk-section-link:hover,
-.dsk-cat-clear:hover {
-  text-decoration: underline;
-}
+.dsk-cat-clear:hover { text-decoration: underline; }
 
-/* ══ FEATURED GRID ═══════════════════════════════════════ */
+/* Featured */
 .dsk-feat-grid {
   display               : grid;
   grid-template-columns : repeat(auto-fill, minmax(200px, 1fr));
   gap                   : 16px;
 }
-
 .dsk-feat-card {
   background    : var(--dsk-card);
   border-radius : var(--dsk-radius);
@@ -630,12 +684,7 @@
   box-shadow : var(--dsk-shadow-hov);
   transform  : translateY(-4px);
 }
-
-.dsk-feat-img-wrap {
-  position : relative;
-  overflow : hidden;
-}
-
+.dsk-feat-img-wrap { position: relative; overflow: hidden; }
 .dsk-feat-img {
   width      : 100%;
   height     : 180px;
@@ -643,21 +692,17 @@
   display    : block;
   transition : transform var(--dsk-trans);
 }
-.dsk-feat-card:hover .dsk-feat-img {
-  transform: scale(1.05);
-}
-
+.dsk-feat-card:hover .dsk-feat-img { transform: scale(1.05); }
 .dsk-feat-overlay {
   position   : absolute;
   inset      : 0;
-  background : linear-gradient(to top, rgba(0, 0, 0, .3) 0%, transparent 60%);
+  background : linear-gradient(to top, rgba(0,0,0,.3) 0%, transparent 60%);
 }
-
 .dsk-feat-tag {
   position        : absolute;
   top             : 8px;
   left            : 8px;
-  background      : rgba(0, 0, 0, .5);
+  background      : rgba(0,0,0,.5);
   color           : #fff;
   font-size       : .68rem;
   font-weight     : 700;
@@ -665,7 +710,6 @@
   border-radius   : 20px;
   backdrop-filter : blur(4px);
 }
-
 .dsk-feat-disc {
   position      : absolute;
   top           : 8px;
@@ -677,46 +721,30 @@
   padding       : 3px 7px;
   border-radius : 20px;
 }
-
 .dsk-feat-body  { padding: 12px; }
-
 .dsk-feat-title {
-  font-size      : .88rem;
-  font-weight    : 600;
-  margin         : 0 0 8px;
-  color          : var(--dsk-text);
-  white-space    : nowrap;
-  overflow       : hidden;
-  text-overflow  : ellipsis;
+  font-size     : .88rem;
+  font-weight   : 600;
+  margin        : 0 0 8px;
+  color         : var(--dsk-text);
+  white-space   : nowrap;
+  overflow      : hidden;
+  text-overflow : ellipsis;
 }
-
 .dsk-feat-foot {
   display         : flex;
   align-items     : center;
   justify-content : space-between;
 }
+.dsk-feat-price { font-size: .95rem; font-weight: 800; color: var(--dsk-accent); }
+.dsk-feat-loc   { font-size: .72rem; color: var(--dsk-muted); display: flex; align-items: center; gap: 3px; }
 
-.dsk-feat-price {
-  font-size   : .95rem;
-  font-weight : 800;
-  color       : var(--dsk-accent);
-}
-
-.dsk-feat-loc {
-  font-size   : .72rem;
-  color       : var(--dsk-muted);
-  display     : flex;
-  align-items : center;
-  gap         : 3px;
-}
-
-/* ══ DEALS GRID ══════════════════════════════════════════ */
+/* Deals */
 .dsk-deals-grid {
   display               : grid;
   grid-template-columns : repeat(auto-fill, minmax(160px, 1fr));
   gap                   : 14px;
 }
-
 .dsk-deal-card {
   background    : var(--dsk-card);
   border-radius : var(--dsk-radius);
@@ -731,12 +759,7 @@
   box-shadow : var(--dsk-shadow-hov);
   transform  : translateY(-3px);
 }
-
-.dsk-deal-img-wrap {
-  position : relative;
-  overflow : hidden;
-}
-
+.dsk-deal-img-wrap { position: relative; overflow: hidden; }
 .dsk-deal-img {
   width      : 100%;
   height     : 140px;
@@ -744,10 +767,7 @@
   display    : block;
   transition : transform var(--dsk-trans);
 }
-.dsk-deal-card:hover .dsk-deal-img {
-  transform: scale(1.05);
-}
-
+.dsk-deal-card:hover .dsk-deal-img { transform: scale(1.05); }
 .dsk-deal-disc {
   position      : absolute;
   top           : 6px;
@@ -759,14 +779,12 @@
   padding       : 2px 7px;
   border-radius : 20px;
 }
-
 .dsk-deal-body {
   padding        : 10px;
   display        : flex;
   flex-direction : column;
   gap            : 3px;
 }
-
 .dsk-deal-title {
   font-size     : .8rem;
   font-weight   : 600;
@@ -776,29 +794,17 @@
   overflow      : hidden;
   text-overflow : ellipsis;
 }
+.dsk-deal-price { font-size: .88rem; font-weight: 800; color: var(--dsk-accent); }
+.dsk-deal-loc   { font-size: .7rem; color: var(--dsk-muted); display: flex; align-items: center; gap: 3px; }
 
-.dsk-deal-price {
-  font-size   : .88rem;
-  font-weight : 800;
-  color       : var(--dsk-accent);
-}
-
-.dsk-deal-loc {
-  font-size   : .7rem;
-  color       : var(--dsk-muted);
-  display     : flex;
-  align-items : center;
-  gap         : 3px;
-}
-
-/* ══ MAIN PRODUCT GRID ═══════════════════════════════════ */
+/* Main grid */
 .dsk-grid {
   display               : grid;
   grid-template-columns : repeat(var(--cols, 4), 1fr);
   gap                   : 16px;
 }
 
-/* ══ PAGINATION / INFINITE SCROLL ════════════════════════ */
+/* Pagination */
 .dsk-loading-more {
   text-align      : center;
   padding         : 20px;
@@ -809,7 +815,6 @@
   justify-content : center;
   gap             : 8px;
 }
-
 .dsk-spinner {
   display       : inline-block;
   width         : 16px;
@@ -821,7 +826,7 @@
 }
 @keyframes dsk-spin { to { transform: rotate(360deg); } }
 
-/* ══ FEED END ════════════════════════════════════════════ */
+/* Feed end */
 .dsk-feed-end {
   text-align     : center;
   padding        : 32px 0;
@@ -834,7 +839,6 @@
   color          : var(--dsk-muted);
   font-size      : .9rem;
 }
-
 .dsk-feed-end button {
   padding       : 8px 20px;
   border        : 1.5px solid var(--dsk-border);
@@ -850,7 +854,7 @@
   color        : var(--dsk-accent);
 }
 
-/* ══ ERROR ═══════════════════════════════════════════════ */
+/* Error */
 .dsk-error {
   background     : var(--dsk-accent-light);
   border         : 1.5px solid #ffd4c2;
@@ -864,7 +868,6 @@
   gap            : 8px;
   color          : var(--dsk-text);
 }
-
 .dsk-error button {
   padding       : 9px 20px;
   border        : none;
@@ -875,11 +878,9 @@
   cursor        : pointer;
   transition    : var(--dsk-trans);
 }
-.dsk-error button:hover {
-  background: var(--dsk-accent-dark);
-}
+.dsk-error button:hover { background: var(--dsk-accent-dark); }
 
-/* ══ EMPTY ═══════════════════════════════════════════════ */
+/* Empty */
 .dsk-empty {
   text-align     : center;
   padding        : 60px 20px;
@@ -889,18 +890,14 @@
   gap            : 12px;
 }
 .dsk-empty-emoji { font-size: 2.8rem; }
-.dsk-empty h3 {
-  font-size   : 1.15rem;
-  font-weight : 700;
-  margin      : 0;
-  color       : var(--dsk-text);
+.dsk-empty h3    { font-size: 1.15rem; font-weight: 700; margin: 0; color: var(--dsk-text); }
+.dsk-empty p     { color: var(--dsk-muted); font-size: .88rem; margin: 0; }
+
+.dsk-empty-actions {
+  display : flex;
+  gap     : 10px;
 }
-.dsk-empty p {
-  color     : var(--dsk-muted);
-  font-size : .88rem;
-  margin    : 0;
-}
-.dsk-empty button {
+.dsk-empty-actions button {
   padding       : 10px 24px;
   border        : none;
   border-radius : var(--dsk-radius-sm);
@@ -910,33 +907,35 @@
   cursor        : pointer;
   transition    : var(--dsk-trans);
 }
-.dsk-empty button:hover {
-  background: var(--dsk-accent-dark);
+.dsk-empty-actions button:hover { background: var(--dsk-accent-dark); }
+.dsk-empty-btn--outline {
+  background   : transparent !important;
+  border       : 1.5px solid var(--dsk-accent) !important;
+  color        : var(--dsk-accent) !important;
+}
+.dsk-empty-btn--outline:hover {
+  background : var(--dsk-accent-light) !important;
 }
 
-/* ══ SELL BANNER ═════════════════════════════════════════ */
+/* Sell Banner */
 .dsk-sell-banner {
   position      : relative;
   border-radius : var(--dsk-radius);
-  background    : linear-gradient(135deg,
-    var(--dsk-accent) 0%,
-    var(--dsk-accent-dark) 100%);
+  background    : linear-gradient(135deg, var(--dsk-accent) 0%, var(--dsk-accent-dark) 100%);
   color         : #fff;
   overflow      : hidden;
   margin-bottom : 36px;
 }
-
 .dsk-sell-blob {
   position       : absolute;
   width          : 300px;
   height         : 300px;
-  background     : rgba(255, 255, 255, .08);
+  background     : rgba(255,255,255,.08);
   border-radius  : 50%;
   top            : -80px;
   right          : -60px;
   pointer-events : none;
 }
-
 .dsk-sell-content {
   position        : relative;
   display         : flex;
@@ -945,22 +944,13 @@
   padding         : 32px 36px;
   gap             : 24px;
 }
-.dsk-sell-content h2 {
-  font-size   : 1.3rem;
-  font-weight : 800;
-  margin      : 0 0 6px;
-}
-.dsk-sell-content p {
-  font-size : .9rem;
-  opacity   : .9;
-  margin    : 0;
-}
-
+.dsk-sell-content h2 { font-size: 1.3rem; font-weight: 800; margin: 0 0 6px; }
+.dsk-sell-content p  { font-size: .9rem; opacity: .9; margin: 0; }
 .dsk-sell-content button {
   padding         : 13px 28px;
   border-radius   : 10px;
-  border          : 2px solid rgba(255, 255, 255, .6);
-  background      : rgba(255, 255, 255, .15);
+  border          : 2px solid rgba(255,255,255,.6);
+  background      : rgba(255,255,255,.15);
   color           : #fff;
   font-size       : .95rem;
   font-weight     : 700;
@@ -971,28 +961,18 @@
   flex-shrink     : 0;
 }
 .dsk-sell-content button:hover {
-  background   : rgba(255, 255, 255, .28);
+  background   : rgba(255,255,255,.28);
   border-color : #fff;
 }
 
 /* ══ RESPONSIVE ══════════════════════════════════════════ */
 @media (max-width: 1399px) {
-  :root {
-    --dsk-right-w: 210px;
-  }
+  :root { --dsk-right-w: 210px; }
 }
-
 @media (max-width: 1199px) {
-  .dsk-layout {
-    grid-template-columns: var(--dsk-sidebar-w) 1fr;
-  }
-  .dsk-sidebar-right {
-    display: none;
-  }
+  .dsk-layout { grid-template-columns: var(--dsk-sidebar-w) 1fr; }
+  .dsk-sidebar-right { display: none; }
 }
-
 @media (max-width: 1023px) {
-  .dsk-root {
-    display: none;
-  }
+  .dsk-root { display: none; }
 }
