@@ -8,15 +8,15 @@ import {
   memo,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import TopNav          from "../../components/TopNav";
-import BottomNav       from "../../components/BottomNav";
-import Footer          from "../../components/Footer";
-import MasonryCard     from "../../components/MasonryCard";
+import TopNav      from "../../components/TopNav";
+import BottomNav   from "../../components/BottomNav";
+import Footer      from "../../components/Footer";
+import MasonryCard from "../../components/MasonryCard";
 import "../../styles/NearbyPage.css";
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API       = `${BASE_URL}/api`;
 const PAGE_SIZE = 40;
@@ -32,7 +32,7 @@ const GPS_OPTS = {
 
 /* ══════════════════════════════════════════════════════════════
    GPS CACHE
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 function readCachedGps() {
   try {
     const raw = sessionStorage.getItem(GPS_KEY);
@@ -54,7 +54,7 @@ function writeCachedGps(coords) {
 
 /* ══════════════════════════════════════════════════════════════
    NORMALIZE + DEDUP
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const normalizeProduct = (p) => {
   if (!p || typeof p !== "object" || !p.id) return null;
   return {
@@ -87,7 +87,7 @@ const dedup = (arr) => {
 
 /* ══════════════════════════════════════════════════════════════
    FETCH — with silent fallback to general feed
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 async function fetchNearbyPage({ pageParam = 0, coords } = {}) {
   const makeParams = (section) => {
     const p = new URLSearchParams({ page: pageParam, limit: PAGE_SIZE });
@@ -116,8 +116,167 @@ async function fetchNearbyPage({ pageParam = 0, coords } = {}) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   INLINE COMPONENTS
-   ══════════════════════════════════════════════════════════════ */
+   HOOK — detect desktop
+══════════════════════════════════════════════════════════════ */
+function useIsDesktop(breakpoint = 1024) {
+  const [isDesktop, setIsDesktop] = useState(
+    () => window.innerWidth >= breakpoint
+  );
+  useEffect(() => {
+    const mq = window.matchMedia(`(min-width: ${breakpoint}px)`);
+    const handler = (e) => setIsDesktop(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [breakpoint]);
+  return isDesktop;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   SHARED COMPONENTS
+══════════════════════════════════════════════════════════════ */
+
+/* ── Live Clock ── */
+function LiveClock({ elite = false }) {
+  const fmt = () => new Date().toLocaleTimeString("en-NG", {
+    hour: "2-digit", minute: "2-digit",
+  });
+  const [time, setTime] = useState(fmt);
+  useEffect(() => {
+    const t = setInterval(() => setTime(fmt()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  return (
+    <span className={elite ? "elite-clock" : "nb-clock"}>
+      {time}
+    </span>
+  );
+}
+
+/* ── Nearby Card Wrapper ── */
+const NearbyCardWrapper = memo(function NearbyCardWrapper({
+  product, priority, onView, onClick, elite = false,
+}) {
+  return (
+    <div className={`nb-card-wrap${elite ? " nb-card-wrap--elite" : ""}`}>
+      <MasonryCard
+        product={product}
+        priority={priority}
+        onView={onView}
+        onClick={onClick}
+      />
+    </div>
+  );
+});
+
+/* ── Date Group Separator (mobile) ── */
+const GROUP_CONFIG = {
+  "Just Added" : { Icon: Icon.Flash,     cls: "nb-dg--new"   },
+  "Today"      : { Icon: Icon.Today,     cls: "nb-dg--today" },
+  "Yesterday"  : { Icon: Icon.Yesterday, cls: "nb-dg--yest"  },
+  "This Week"  : { Icon: Icon.Week,      cls: "nb-dg--week"  },
+  "This Month" : { Icon: Icon.Month,     cls: "nb-dg--month" },
+  "Older"      : { Icon: Icon.Archive,   cls: "nb-dg--old"   },
+};
+
+/* ── Toast ── */
+function NewArrivalToast({ count, onDismiss, elite = false }) {
+  if (!count || count <= 0) return null;
+  return (
+    <button
+      className={elite ? "elite-toast" : "nb-toast"}
+      onClick={onDismiss}
+      aria-live="polite"
+    >
+      <span className={elite ? "elite-toast-dot" : "nb-toast-dot"}
+            aria-hidden="true" />
+      <Icon.Bell />
+      {count} new listing{count !== 1 ? "s" : ""} — tap to refresh
+    </button>
+  );
+}
+
+/* ── Scroll Top ── */
+function ScrollTopBtn({ elite = false }) {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const fn = () => setVisible(window.scrollY > 320);
+    window.addEventListener("scroll", fn, { passive: true });
+    return () => window.removeEventListener("scroll", fn);
+  }, []);
+  return (
+    <button
+      className={`${elite ? "elite-scroll-top" : "nb-scroll-top"}${
+        visible ? " visible" : ""}`}
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      aria-label="Scroll to top"
+    >
+      <Icon.ChevronUp />
+    </button>
+  );
+}
+
+/* ── Empty State ── */
+function EmptyState({ gpsStatus, onBrowseAll, elite = false }) {
+  return (
+    <div className={elite ? "elite-empty" : "nb-empty"} role="status">
+      <span className={elite ? "elite-empty-icon-wrap" : "nb-empty-icon-wrap"}>
+        <Icon.Empty />
+      </span>
+      <h3 className={elite ? "elite-empty-title" : "nb-empty-title"}>
+        {gpsStatus === "denied"
+          ? "Location access denied"
+          : "No nearby listings found"}
+      </h3>
+      <p className={elite ? "elite-empty-sub" : "nb-empty-sub"}>
+        {gpsStatus === "denied"
+          ? "We couldn't detect your location. Showing listings from across Nigeria."
+          : "There are no listings in your area yet. More sellers joining daily!"}
+      </p>
+      {category !== "all" ? (
+        <button
+          className={elite ? "elite-empty-btn" : "nb-empty-btn"}
+          onClick={onClearCategory}
+        >
+          Show All Categories
+        </button>
+      ) : (
+        <button
+          className={elite ? "elite-empty-btn" : "nb-empty-btn"}
+          onClick={onBrowseAll}
+        >
+          Browse All Listings
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ── Error ── */
+function ErrorBanner({ message, onRetry, elite = false }) {
+  return (
+    <div className={elite ? "elite-err" : "nb-err"} role="alert">
+      <span className={elite ? "elite-err-icon-wrap" : "nb-err-icon-wrap"}>
+        <Icon.Error />
+      </span>
+      <p className={elite ? "elite-err-title" : "nb-err-title"}>
+        Could not load listings
+      </p>
+      <p className={elite ? "elite-err-msg" : "nb-err-msg"}>
+        {message}
+      </p>
+      <button
+        className={elite ? "elite-err-btn" : "nb-err-btn"}
+        onClick={onRetry}
+      >
+        Try again
+      </button>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE-ONLY COMPONENTS
+══════════════════════════════════════════════════════════════ */
 
 /* ── Header ── */
 const NearbyHeader = memo(function NearbyHeader({
@@ -132,17 +291,9 @@ const NearbyHeader = memo(function NearbyHeader({
 
   return (
     <div className="nb-header">
-      <button
-        className="nb-back"
-        onClick={onBack}
-        aria-label="Go back"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24"
-             fill="currentColor" aria-hidden="true">
-          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-        </svg>
+      <button className="nb-back" onClick={onBack} aria-label="Go back">
+        <Icon.Back />
       </button>
-
       <div className="nb-title-wrap">
         <h1 className="nb-title">Near You</h1>
         <span className={`nb-chip ${chip.cls}`}>
@@ -155,20 +306,13 @@ const NearbyHeader = memo(function NearbyHeader({
           {chip.text}
         </span>
       </div>
-
       {gpsStatus === "denied" && (
         <button
           className="nb-gps-btn"
           onClick={onRequestGps}
           aria-label="Enable GPS"
         >
-          <svg width="14" height="14" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor"
-               strokeWidth="2" strokeLinecap="round"
-               aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-          </svg>
+          <Icon.GPS />
           Enable GPS
         </button>
       )}
@@ -176,7 +320,7 @@ const NearbyHeader = memo(function NearbyHeader({
   );
 });
 
-/* ── Location banner ── */
+/* ── Location Banner ── */
 const NearbyLocationBanner = memo(function NearbyLocationBanner({
   label, gpsStatus, count,
 }) {
@@ -201,7 +345,7 @@ const NearbyLocationBanner = memo(function NearbyLocationBanner({
   );
 });
 
-/* ── GPS prompt ── */
+/* ── GPS Prompt ── */
 const NearbyGpsPrompt = memo(function NearbyGpsPrompt({
   onAllow, onDismiss,
 }) {
@@ -229,7 +373,6 @@ const NearbyGpsPrompt = memo(function NearbyGpsPrompt({
 
 /* ── Skeleton ── */
 const SKEL_HEIGHTS = [240, 300, 220, 280, 260, 230, 310, 250, 270, 240];
-
 const NearbySkeleton = memo(function NearbySkeleton() {
   return (
     <>
@@ -244,75 +387,149 @@ const NearbySkeleton = memo(function NearbySkeleton() {
   );
 });
 
-/* ── Scroll to top ── */
-function ScrollTopBtn() {
-  const [visible, setVisible] = useState(false);
-  useEffect(() => {
-    const fn = () => setVisible(window.scrollY > 320);
-    window.addEventListener("scroll", fn, { passive: true });
-    return () => window.removeEventListener("scroll", fn);
-  }, []);
-  return (
-    <button
-      className={`nb-scroll-top${visible ? " visible" : ""}`}
-      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-      aria-label="Scroll to top"
-    >
-      <svg width="16" height="16" viewBox="0 0 24 24"
-           fill="none" stroke="currentColor"
-           strokeWidth="2.5" strokeLinecap="round"
-           aria-hidden="true">
-        <path d="M18 15l-6-6-6 6" />
-      </svg>
-    </button>
-  );
-}
+/* ══════════════════════════════════════════════════════════════
+   DESKTOP ELITE COMPONENTS
+══════════════════════════════════════════════════════════════ */
 
-/* ── Empty state ── */
-function EmptyState({ gpsStatus, onBrowseAll }) {
+/* ── Elite Header ── */
+const EliteNearbyHeader = memo(function EliteNearbyHeader({
+  gpsStatus, onBack, onRequestGps,
+}) {
+  const chipConfig = {
+    pending : { text: "Locating…",   cls: "nb-chip--pending" },
+    gps     : { text: "📍 GPS Live", cls: "nb-chip--gps"     },
+    denied  : { text: "📍 Manual",   cls: "nb-chip--manual"  },
+  };
+  const chip = chipConfig[gpsStatus] || chipConfig.pending;
+
   return (
-    <div className="nb-empty" role="status">
-      <span className="nb-empty-emoji" aria-hidden="true">
-        {gpsStatus === "denied" ? "🗺️" : "📍"}
-      </span>
-      <h3 className="nb-empty-title">
-        {gpsStatus === "denied"
-          ? "Location access denied"
-          : "No nearby listings found"}
-      </h3>
-      <p className="nb-empty-sub">
-        {gpsStatus === "denied"
-          ? "We couldn't detect your location. Showing listings from across Nigeria."
-          : "There are no listings in your area yet. More sellers joining daily!"}
-      </p>
-      <button className="nb-empty-btn" onClick={onBrowseAll}>
-        Browse All Listings
+    <div className="elite-nb-header">
+      <button className="elite-nb-back" onClick={onBack} aria-label="Go back">
+        <Icon.Back />
       </button>
+      <div className="elite-nb-title-wrap">
+        <h1 className="elite-nb-title">Near You</h1>
+        <span className={`elite-nb-chip ${chip.cls}`}>
+          {gpsStatus === "pending" && (
+            <span className="elite-nb-chip-spin" aria-hidden="true" />
+          )}
+          {gpsStatus === "gps" && (
+            <span className="elite-nb-chip-dot" aria-hidden="true" />
+          )}
+          {chip.text}
+        </span>
+      </div>
+      {gpsStatus === "denied" && (
+        <button
+          className="elite-nb-gps-btn"
+          onClick={onRequestGps}
+          aria-label="Enable GPS"
+        >
+          <Icon.GPS />
+          Enable GPS
+        </button>
+      )}
     </div>
   );
-}
+});
 
-/* ── Error banner ── */
-function ErrorBanner({ message, onRetry }) {
+/* ── Elite Top Bar ── */
+const EliteNearbyTopBar = memo(function EliteNearbyTopBar({
+  locationLabel, total, lastUpdated, onRefresh,
+}) {
+  const timeLabel = lastUpdated
+    ? new Date(lastUpdated).toLocaleTimeString("en-NG", {
+        hour: "2-digit", minute: "2-digit",
+      })
+    : null;
+
   return (
-    <div className="nb-err" role="alert">
-      <span className="nb-err-icon" aria-hidden="true">⚡</span>
-      <p className="nb-err-title">Could not load listings</p>
-      <p className="nb-err-msg">{message}</p>
-      <button className="nb-err-btn" onClick={onRetry}>
-        Try again
-      </button>
+    <div className="elite-nb-topbar">
+      <div className="elite-nb-topbar-left">
+        <nav className="elite-nb-breadcrumb" aria-label="Breadcrumb">
+          <span className="elite-nb-bc-home">Home</span>
+          <span className="elite-nb-bc-sep">›</span>
+          <span className="elite-nb-bc-current">Near You</span>
+        </nav>
+        {locationLabel && (
+          <span className="elite-nb-location">
+            <Icon.Location />
+            {locationLabel}
+          </span>
+        )}
+        {!loading && total > 0 && (
+          <span className="elite-nb-count">
+            {total.toLocaleString()} listings
+          </span>
+        )}
+        {timeLabel && (
+          <span className="elite-nb-updated">
+            <span className="elite-nb-pulse" aria-hidden="true" />
+            Updated {timeLabel}
+          </span>
+        )}
+      </div>
+      <div className="elite-nb-topbar-right">
+        <button className="elite-nb-refresh-btn" onClick={onRefresh}>
+          <Icon.Refresh />
+          Refresh
+        </button>
+      </div>
     </div>
   );
-}
+});
+
+/* ── Elite Sidebar ── */
+const EliteNearbySidebar = memo(function EliteNearbySidebar({
+  onBack, total, onRefresh,
+}) {
+  return (
+    <aside className="elite-nb-sidebar">
+      {/* Brand */}
+      <div className="elite-nb-brand">
+        <div className="elite-nb-brand-icon">
+          <Icon.Layers />
+        </div>
+        <div>
+          <span className="elite-nb-brand-name">Loemart</span>
+          <span className="elite-nb-brand-sub">Nearby</span>
+        </div>
+      </div>
+
+      {/* Live counter */}
+      <div className="elite-nb-live-counter">
+        <div className="elite-nb-live-pulse" aria-hidden="true" />
+        <div>
+          <span className="elite-nb-live-num">
+            {total?.toLocaleString() ?? "—"}
+          </span>
+          <span className="elite-nb-live-label">listings near</span>
+        </div>
+      </div>
+
+      {/* Refresh */}
+      <button className="elite-nb-refresh" onClick={onRefresh}>
+        <Icon.Refresh />
+        Refresh Feed
+      </button>
+
+      {/* Back */}
+      <button className="elite-nb-back" onClick={onBack}>
+        <Icon.Back />
+        All Listings
+      </button>
+    </aside>
+  );
+});
 
 /* ══════════════════════════════════════════════════════════════
    MAIN COMPONENT
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 export default function NearbyPage({ user }) {
   const navigate = useNavigate();
+  const isDesktop = useIsDesktop();
 
-  /* ── GPS ── */
+  /* ── GPS State ── */
   const [coords,     setCoords]     = useState(() => readCachedGps());
   const [gpsStatus,  setGpsStatus]  = useState(
     () => readCachedGps() ? "gps" : "pending"
@@ -348,7 +565,7 @@ export default function NearbyPage({ user }) {
     return () => clearTimeout(t);
   }, [coords, requestGps]);
 
-  /* ── Data state ── */
+  /* ── Data State ── */
   const [products,    setProducts]    = useState([]);
   const [meta,        setMeta]        = useState({});
   const [loading,     setLoading]     = useState(true);
@@ -378,7 +595,7 @@ export default function NearbyPage({ user }) {
     }
   }, [coords]);
 
-  /* ── Initial load ── */
+  /* ── Initial Load ── */
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -387,7 +604,7 @@ export default function NearbyPage({ user }) {
     load(0, false).finally(() => setLoading(false));
   }, [load]);
 
-  /* ── Load more ── */
+  /* ── Load More ── */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -400,7 +617,7 @@ export default function NearbyPage({ user }) {
     }
   }, [loadingMore, hasMore, page, load]);
 
-  /* ── Infinite scroll ── */
+  /* ── Infinite Scroll ── */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -412,7 +629,7 @@ export default function NearbyPage({ user }) {
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
-  /* ── Location label ── */
+  /* ── Location Label (from meta or first product) ── */
   const locLabel = useMemo(() => {
     if (meta?.location) return meta.location;
     if (products[0]) {
@@ -442,23 +659,170 @@ export default function NearbyPage({ user }) {
     navigate(`/product/${product.slug || product.id}`);
   }, [navigate]);
 
+  const handleRetry = useCallback(() => {
+    setError(null);
+    setLoading(true);
+    productsRef.current = [];
+    load(0, false).finally(() => setLoading(false));
+  }, [load]);
+
+  const handleRefresh = useCallback(() => {
+    setShowPrompt(false);
+    setGpsStatus("pending");
+    setCoords(null);
+    setShowPrompt(true);
+    setLoading(true);
+    productsRef.current = [];
+    load(0, false).finally(() => setLoading(false));
+  }, [load]);
+
+  /* ── Shared Grid ── */
+  const GroupedGrid = ({ elite = false }) => (
+    <>
+      {/* Date groups would go here if needed */}
+      <div className={`nb-masonry${elite ? " nb-masonry--desktop" : ""}`}
+           role="list"
+           aria-label="Nearby listings">
+        {products.map((p, i) => (
+          <div key={p.id} role="listitem">
+            <NearbyCardWrapper
+              product={p}
+              priority={i < (elite ? 8 : 6)}
+              onView={trackView}
+              onClick={handleClick}
+              elite={elite}
+            />
+          </div>
+        ))}
+      </div>
+      <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
+      {loadingMore && (
+        <div
+          className={elite ? "elite-nb-loading-more" : "nb-loading-more"}
+          aria-live="polite"
+        >
+          {elite ? (
+            <div className="elite-nb-dots">
+              <span /><span /><span />
+            </div>
+          ) : (
+            <span className="nb-spinner" aria-hidden="true" />
+          )}
+          Loading more…
+        </div>
+      )}
+      {!hasMore && products.length > 0 && (
+        elite ? (
+          <div className="elite-nb-feed-end">
+            <div className="elite-nb-feed-end-line" />
+            <div className="elite-nb-feed-end-content">
+              <span className="elite-nb-feed-end-icon">
+                <Icon.Done />
+              </span>
+              <p className="elite-nb-feed-end-text">
+                You've seen all nearby listings
+              </p>
+              <button
+                className="elite-nb-feed-end-btn"
+                onClick={() => navigate("/")}
+              >
+                Browse all
+                <Icon.ArrowRight />
+              </button>
+            </div>
+            <div className="elite-nb-feed-end-line" />
+          </div>
+        ) : (
+          <div className="nb-feed-end-wrap">
+            <p className="nb-feed-end">You've seen all nearby listings</p>
+            <button
+              className="nb-feed-end-btn"
+              onClick={() => navigate("/")}
+            >
+              Browse all
+              <Icon.ArrowRight />
+            </button>
+          </div>
+        )
+      )}
+    </>
+  );
+
   /* ══════════════════════════════════════════════════════════
-     RENDER
+     DESKTOP RENDER
+  ══════════════════════════════════════════════════════════ */
+  if (isDesktop) {
+    return (
+      <div className="nb-root nb-root--elite">
+        <TopNav user={user} />
+
+        <NewArrivalToast
+          count={0}
+          onDismiss={handleRefresh}
+          elite
+        />
+
+        {/* Hero */}
+        {/* (Hero optional for nearby — using top bar instead) */}
+        <div className="elite-nb-layout">
+          <EliteNearbySidebar
+            onBack={() => navigate("/")}
+            total={total}
+            onRefresh={handleRefresh}
+          />
+
+          <main className="elite-nb-main" id="nb-main">
+            <EliteNearbyTopBar
+              locationLabel={locLabel}
+              total={total}
+              lastUpdated={Date.now()}
+              onRefresh={handleRefresh}
+            />
+
+            {error && (
+              <ErrorBanner message={error} onRetry={handleRetry} elite />
+            )}
+
+            {loading && <NearbySkeleton />}
+
+            {!loading && !error && products.length === 0 && (
+              <EmptyState
+                gpsStatus={gpsStatus}
+                onBrowseAll={() => navigate("/")}
+                elite
+              />
+            )}
+
+            {!loading && products.length > 0 && (
+              <GroupedGrid elite />
+            )}
+
+            {!loading && <Footer />}
+          </main>
+        </div>
+
+        <ScrollTopBtn elite />
+      </div>
+    );
+  }
+
+  /* ══════════════════════════════════════════════════════════
+     MOBILE RENDER
   ══════════════════════════════════════════════════════════ */
   return (
     <div className="nb-root">
       <TopNav user={user} />
 
-      <main className="nb-page" id="nb-main">
+      <NewArrivalToast count={0} onDismiss={handleRefresh} />
 
-        {/* Header */}
+      <main className="nb-page" id="nb-main">
         <NearbyHeader
           gpsStatus={gpsStatus}
           onBack={() => navigate(-1)}
           onRequestGps={requestGps}
         />
 
-        {/* GPS prompt */}
+        {/* GPS Prompt */}
         {showPrompt && gpsStatus === "pending" && (
           <NearbyGpsPrompt
             onAllow={() => { setShowPrompt(false); requestGps(); }}
@@ -466,7 +830,7 @@ export default function NearbyPage({ user }) {
           />
         )}
 
-        {/* Location banner */}
+        {/* Location Banner */}
         {!loading && locLabel && (
           <NearbyLocationBanner
             label={locLabel}
@@ -506,7 +870,7 @@ export default function NearbyPage({ user }) {
                  aria-label="Nearby listings">
               {products.map((p, i) => (
                 <div key={p.id} role="listitem">
-                  <MasonryCard
+                  <NearbyCardWrapper
                     product={p}
                     priority={i < 6}
                     onView={trackView}
@@ -528,12 +892,13 @@ export default function NearbyPage({ user }) {
 
             {!hasMore && products.length > 0 && (
               <div className="nb-feed-end-wrap">
-                <p className="nb-feed-end">
-                  You've seen all nearby listings 🎉
-                </p>
-                <button className="nb-feed-end-btn"
-                        onClick={() => navigate("/")}>
-                  Browse all →
+                <p className="nb-feed-end">You've seen all nearby listings</p>
+                <button
+                  className="nb-feed-end-btn"
+                  onClick={() => navigate("/")}
+                >
+                  Browse all
+                  <Icon.ArrowRight />
                 </button>
               </div>
             )}
@@ -541,7 +906,6 @@ export default function NearbyPage({ user }) {
         )}
 
         {!loading && <Footer />}
-
       </main>
 
       <ScrollTopBtn />
