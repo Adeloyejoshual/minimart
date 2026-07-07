@@ -30,6 +30,7 @@ import MenuPage           from "./pages/MenuPage";
 ═══════════════════════════════════════════════════════════════ */
 import TrendingPage from "./pages/Homepage/TrendingPage";
 import LatestPage   from "./pages/Homepage/LatestPage";
+import NearbyPage   from "./pages/Homepage/NearbyPage";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — AUTH
@@ -368,6 +369,7 @@ export default function App() {
         {/* ══════════════ HOMEPAGE SUB-PAGES ══════════════ */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
         <Route path="/latest"   element={<LatestPage   user={user} />} />
+        <Route path="/nearby"   element={<NearbyPage   user={user} />} />
 
         {/* ══════════════ AUTH ══════════════ */}
         <Route path="/auth" element={
