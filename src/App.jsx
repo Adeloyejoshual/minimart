@@ -78,7 +78,7 @@ import OrderSuccessPage    from "./pages/Checkout/Payment/OrderSuccessPage";
 import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
 
 /* ═══════════════════════════════════════════════════════════════
-   PAGES — ADMIN
+   PAGES — ADMIN (note: folder is "page" not "pages")
 ═══════════════════════════════════════════════════════════════ */
 import AdminLogin     from "./pages/admin/AdminLogin";
 import AdminDashboard from "./page/admin/AdminDashboard";
@@ -91,14 +91,14 @@ import CartPage from "./components/Cart/CartPage";
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
 ═══════════════════════════════════════════════════════════════ */
-const BASE_URL  = import.meta.env.VITE_API_BASE_URL;
-const USERS_API = `${BASE_URL}/api/users`;
-const CART_API  = `${BASE_URL}/api/cart`;
+var BASE_URL  = import.meta.env.VITE_API_BASE_URL;
+var USERS_API = BASE_URL + "/api/users";
+var CART_API  = BASE_URL + "/api/cart";
 
 /* ═══════════════════════════════════════════════════════════════
-   TOKEN KEYS — single source of truth
+   TOKEN KEYS
 ═══════════════════════════════════════════════════════════════ */
-export const TOKEN_KEYS = {
+export var TOKEN_KEYS = {
   marketplace : "marketplace_token",
   seller      : "seller_token",
   admin       : "admin_token",
@@ -107,9 +107,9 @@ export const TOKEN_KEYS = {
 /* ═══════════════════════════════════════════════════════════════
    TOASTER CONFIG
 ═══════════════════════════════════════════════════════════════ */
-const TOASTER_OPTIONS = {
-  duration : 3_500,
-  style    : {
+var TOASTER_OPTIONS = {
+  duration : 3500,
+  style : {
     padding      : "10px 14px",
     borderRadius : 8,
     color        : "#fff",
@@ -124,29 +124,30 @@ const TOASTER_OPTIONS = {
 ═══════════════════════════════════════════════════════════════ */
 async function syncCartAfterLogin(token) {
   try {
-    const raw       = localStorage.getItem("mm_cart");
-    const localCart = JSON.parse(raw || "[]");
+    var raw = localStorage.getItem("mm_cart");
+    var localCart = JSON.parse(raw || "[]");
     if (!Array.isArray(localCart) || localCart.length === 0) return;
 
-    for (const item of localCart) {
+    for (var i = 0; i < localCart.length; i++) {
+      var item = localCart[i];
       try {
         await axios.post(
-          `${CART_API}/items`,
+          CART_API + "/items",
           {
             product_id : item.productId,
-            variant_id : item.variant?.id ?? null,
+            variant_id : (item.variant && item.variant.id) ? item.variant.id : null,
             qty        : item.qty,
           },
-          { headers: { Authorization: `Bearer ${token}` } }
+          { headers: { Authorization: "Bearer " + token } }
         );
-      } catch {
+      } catch (e) {
         /* one bad item should not block the rest */
       }
     }
 
     localStorage.removeItem("mm_cart");
     window.dispatchEvent(new Event("cart-updated"));
-  } catch {
+  } catch (e) {
     /* silently ignore — cart sync is best-effort */
   }
 }
@@ -155,10 +156,10 @@ async function syncCartAfterLogin(token) {
    SCROLL TO TOP ON ROUTE CHANGE
 ═══════════════════════════════════════════════════════════════ */
 function ScrollToTop() {
-  const { pathname } = useLocation();
-  useEffect(() => {
+  var location = useLocation();
+  useEffect(function () {
     window.scrollTo({ top: 0, behavior: "instant" });
-  }, [pathname]);
+  }, [location.pathname]);
   return null;
 }
 
@@ -166,98 +167,114 @@ function ScrollToTop() {
    DESKTOP / MOBILE HOMEPAGE SPLIT
 ═══════════════════════════════════════════════════════════════ */
 function useIsDesktop() {
-  const [desktop, setDesktop] = useState(
-    () => window.matchMedia("(min-width: 1024px)").matches
-  );
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const fn = (e) => setDesktop(e.matches);
+  var result = useState(function () {
+    return window.matchMedia("(min-width: 1024px)").matches;
+  });
+  var desktop = result[0];
+  var setDesktop = result[1];
+
+  useEffect(function () {
+    var mq = window.matchMedia("(min-width: 1024px)");
+    function fn(e) { setDesktop(e.matches); }
     mq.addEventListener("change", fn);
-    return () => mq.removeEventListener("change", fn);
+    return function () { mq.removeEventListener("change", fn); };
   }, []);
+
   return desktop;
 }
 
-function HomeRoute({ user }) {
-  const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <HomepageDesktop user={user} />
-    : <Homepage        user={user} />;
+function HomeRoute(props) {
+  var isDesktop = useIsDesktop();
+  if (isDesktop) return <HomepageDesktop user={props.user} />;
+  return <Homepage user={props.user} />;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    DESKTOP / MOBILE MESSAGING SPLIT
 ═══════════════════════════════════════════════════════════════ */
-function MessagesRoute({ user }) {
-  const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <MessagingDesktop user={user} />
-    : <Conversations    user={user} />;
+function MessagesRoute(props) {
+  var isDesktop = useIsDesktop();
+  if (isDesktop) return <MessagingDesktop user={props.user} />;
+  return <Conversations user={props.user} />;
 }
 
-function ChatRoute({ user }) {
-  const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <MessagingDesktop user={user} />
-    : <Chat             user={user} />;
+function ChatRoute(props) {
+  var isDesktop = useIsDesktop();
+  if (isDesktop) return <MessagingDesktop user={props.user} />;
+  return <Chat user={props.user} />;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    ROUTE GUARDS
 ═══════════════════════════════════════════════════════════════ */
-function ProtectedRoute({ user, children }) {
-  const location = useLocation();
-  if (!user) {
+function ProtectedRoute(props) {
+  var location = useLocation();
+  if (!props.user) {
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
-  return children;
+  return props.children;
 }
 
-function AdminProtectedRoute({ admin, children }) {
-  if (!admin) return <Navigate to="/admin/login" replace />;
-  return children;
+function AdminProtectedRoute(props) {
+  if (!props.admin) return <Navigate to="/admin/login" replace />;
+  return props.children;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    APP
 ═══════════════════════════════════════════════════════════════ */
 export default function App() {
-  const [user,         setUser]         = useState(null);
-  const [admin,        setAdmin]        = useState(null);
-  const [loadingUser,  setLoadingUser]  = useState(true);
-  const [loadingAdmin, setLoadingAdmin] = useState(true);
-  const [slowServer,   setSlowServer]   = useState(false);
+  var userState = useState(null);
+  var user = userState[0];
+  var setUser = userState[1];
 
-  const { resetCache } = useProductCache();
+  var adminState = useState(null);
+  var admin = adminState[0];
+  var setAdmin = adminState[1];
+
+  var loadingUserState = useState(true);
+  var loadingUser = loadingUserState[0];
+  var setLoadingUser = loadingUserState[1];
+
+  var loadingAdminState = useState(true);
+  var loadingAdmin = loadingAdminState[0];
+  var setLoadingAdmin = loadingAdminState[1];
+
+  var slowState = useState(false);
+  var slowServer = slowState[0];
+  var setSlowServer = slowState[1];
+
+  var cache = useProductCache();
+  var resetCache = cache.resetCache;
 
   /* ── Marketplace user auth ── */
-  useEffect(() => {
-    const token = localStorage.getItem(TOKEN_KEYS.marketplace);
+  useEffect(function () {
+    var token = localStorage.getItem(TOKEN_KEYS.marketplace);
     if (!token) { setLoadingUser(false); return; }
 
     axios
-      .get(`${USERS_API}/me`, {
-        headers : { Authorization: `Bearer ${token}` },
-        timeout : 8_000,
+      .get(USERS_API + "/me", {
+        headers : { Authorization: "Bearer " + token },
+        timeout : 8000,
       })
-      .then((res) => {
+      .then(function (res) {
         setUser(res.data);
       })
-      .catch(() => {
+      .catch(function () {
         localStorage.removeItem(TOKEN_KEYS.marketplace);
         setUser(null);
       })
-      .finally(() => setLoadingUser(false));
+      .finally(function () { setLoadingUser(false); });
   }, []);
 
   /* ── Admin auth (local only) ── */
-  useEffect(() => {
-    const token       = localStorage.getItem(TOKEN_KEYS.admin);
-    const storedAdmin = localStorage.getItem("admin_data");
+  useEffect(function () {
+    var token = localStorage.getItem(TOKEN_KEYS.admin);
+    var storedAdmin = localStorage.getItem("admin_data");
     if (!token || !storedAdmin) { setLoadingAdmin(false); return; }
     try {
       setAdmin(JSON.parse(storedAdmin));
-    } catch {
+    } catch (e) {
       localStorage.removeItem("admin_data");
       localStorage.removeItem(TOKEN_KEYS.admin);
     } finally {
@@ -266,10 +283,10 @@ export default function App() {
   }, []);
 
   /* ── Slow-server hint after 5s ── */
-  useEffect(() => {
+  useEffect(function () {
     if (!loadingUser && !loadingAdmin) return;
-    const timer = setTimeout(() => setSlowServer(true), 5_000);
-    return () => clearTimeout(timer);
+    var timer = setTimeout(function () { setSlowServer(true); }, 5000);
+    return function () { clearTimeout(timer); };
   }, [loadingUser, loadingAdmin]);
 
   /* ── Loading screen ── */
@@ -284,7 +301,7 @@ export default function App() {
   }
 
   /* ── Marketplace login handler ── */
-  const handleAuthSuccess = (userData, token, navigateFn, from) => {
+  function handleAuthSuccess(userData, token, navigateFn, from) {
     localStorage.setItem(TOKEN_KEYS.marketplace, token);
     resetCache();
     localStorage.removeItem("lastLocation");
@@ -292,29 +309,32 @@ export default function App() {
     localStorage.removeItem("cacheTime");
     setUser(userData);
     syncCartAfterLogin(token);
-    toast.success(`Welcome back, ${userData.name}!`);
+    toast.success("Welcome back, " + userData.name + "!");
     navigateFn(from || "/", { replace: true });
-  };
+  }
 
   /* ── Logout handler ── */
-  const handleLogout = () => {
+  function handleLogout() {
     localStorage.removeItem(TOKEN_KEYS.marketplace);
     setUser(null);
     resetCache();
     toast.success("Signed out");
-  };
+  }
 
   /* ── Profile update handler ── */
-  const handleProfileUpdate = (updatedData) => {
-    setUser((prev) => ({
-      ...prev,
-      name:           updatedData.name           ?? prev?.name,
-      profile_image:  updatedData.profile_image  ?? prev?.profile_image,
-      username:       updatedData.username        ?? prev?.username,
-      store_name:     updatedData.store_name      ?? prev?.store_name,
-      email_verified: updatedData.email_verified  ?? prev?.email_verified,
-    }));
-  };
+  function handleProfileUpdate(updatedData) {
+    setUser(function (prev) {
+      return {
+        name:           updatedData.name           != null ? updatedData.name           : (prev && prev.name),
+        profile_image:  updatedData.profile_image  != null ? updatedData.profile_image  : (prev && prev.profile_image),
+        username:       updatedData.username        != null ? updatedData.username        : (prev && prev.username),
+        store_name:     updatedData.store_name      != null ? updatedData.store_name      : (prev && prev.store_name),
+        email_verified: updatedData.email_verified  != null ? updatedData.email_verified  : (prev && prev.email_verified),
+        id:             prev && prev.id,
+        email:          prev && prev.email,
+      };
+    });
+  }
 
   /* ════════════════════════════════════════════════════════════
      RENDER
@@ -322,15 +342,14 @@ export default function App() {
   return (
     <Router>
       <ScrollToTop />
-
       <Toaster position="top-right" toastOptions={TOASTER_OPTIONS} />
 
       <Routes>
 
-        {/* ══════════════════════════════════════════════════
-            PUBLIC
-        ══════════════════════════════════════════════════ */}
-        <Route path="/"              element={<HomeRoute key={user?.id ?? "guest"} user={user} />} />
+        {/* ══════════════ PUBLIC ══════════════ */}
+        <Route path="/" element={
+          <HomeRoute key={user ? user.id : "guest"} user={user} />
+        } />
         <Route path="/search"        element={<SearchPage    user={user} />} />
         <Route path="/product/:slug" element={<ProductDetail user={user} />} />
         <Route path="/shop/:slug"    element={<MarketDetail  user={user} />} />
@@ -340,44 +359,29 @@ export default function App() {
         <Route path="/p2p"           element={<P2P           user={user} />} />
         <Route path="/menu"          element={<MenuPage      user={user} />} />
 
-        {/* ══════════════════════════════════════════════════
-            AUTH
-        ══════════════════════════════════════════════════ */}
-        <Route
-          path="/auth"
-          element={
-            user
-              ? <Navigate to="/" replace />
-              : <AuthPage setUser={handleAuthSuccess} />
-          }
-        />
-        <Route
-          path="/forgot-password"
-          element={
-            user
-              ? <Navigate to="/" replace />
-              : <ForgotPassword />
-          }
-        />
-        <Route
-          path="/reset-password"
-          element={
-            user
-              ? <Navigate to="/" replace />
-              : <ResetPassword setUser={handleAuthSuccess} />
-          }
-        />
+        {/* ══════════════ AUTH ══════════════ */}
+        <Route path="/auth" element={
+          user
+            ? <Navigate to="/" replace />
+            : <AuthPage setUser={handleAuthSuccess} />
+        } />
+        <Route path="/forgot-password" element={
+          user
+            ? <Navigate to="/" replace />
+            : <ForgotPassword />
+        } />
+        <Route path="/reset-password" element={
+          user
+            ? <Navigate to="/" replace />
+            : <ResetPassword setUser={handleAuthSuccess} />
+        } />
 
-        {/* ══════════════════════════════════════════════════
-            SELLER
-        ══════════════════════════════════════════════════ */}
-        <Route path="/become-seller"         element={<BecomeSeller    user={user} />} />
+        {/* ══════════════ SELLER ══════════════ */}
+        <Route path="/become-seller"         element={<BecomeSeller user={user} />} />
         <Route path="/seller/dashboard"      element={<SellerDashboard />} />
         <Route path="/seller/dashboard/:tab" element={<SellerDashboard />} />
 
-        {/* ══════════════════════════════════════════════════
-            PROTECTED — USER
-        ══════════════════════════════════════════════════ */}
+        {/* ══════════════ PROTECTED — USER ══════════════ */}
         <Route path="/profile" element={
           <ProtectedRoute user={user}>
             <Profile user={user} onLogout={handleLogout} />
@@ -414,9 +418,7 @@ export default function App() {
           </ProtectedRoute>
         } />
 
-        {/* ══════════════════════════════════════════════════
-            MESSAGING — RESPONSIVE
-        ══════════════════════════════════════════════════ */}
+        {/* ══════════════ MESSAGING ══════════════ */}
         <Route path="/conversations" element={
           <ProtectedRoute user={user}>
             <MessagesRoute user={user} />
@@ -441,9 +443,7 @@ export default function App() {
           </ProtectedRoute>
         } />
 
-        {/* ══════════════════════════════════════════════════
-            OTHER PROTECTED
-        ══════════════════════════════════════════════════ */}
+        {/* ══════════════ OTHER PROTECTED ══════════════ */}
         <Route path="/coupons" element={
           <ProtectedRoute user={user}>
             <Coupons user={user} />
@@ -510,9 +510,7 @@ export default function App() {
           </ProtectedRoute>
         } />
 
-        {/* ══════════════════════════════════════════════════
-            CART / CHECKOUT / ORDERS
-        ══════════════════════════════════════════════════ */}
+        {/* ══════════════ CART / CHECKOUT / ORDERS ══════════════ */}
         <Route path="/shop/cart"       element={<CartPage />} />
         <Route path="/payment/success" element={<PaymentSuccess />} />
 
@@ -534,44 +532,29 @@ export default function App() {
           </ProtectedRoute>
         } />
 
-        {/* ══════════════════════════════════════════════════
-            PAYMENT FLOW
-        ══════════════════════════════════════════════════ */}
+        {/* ══════════════ PAYMENT FLOW ══════════════ */}
         <Route path="/payment/callback"        element={<FlutterwaveRedirect />} />
         <Route path="/order-success/:orderId"  element={<OrderSuccessPage />} />
         <Route path="/payment-failed/:orderId" element={<PaymentFailedPage />} />
 
-        {/* ══════════════════════════════════════════════════
-            ADMIN
-        ══════════════════════════════════════════════════ */}
-        <Route
-          path="/admin"
-          element={
-            admin
-              ? <Navigate to="/admin/dashboard" replace />
-              : <Navigate to="/admin/login"     replace />
-          }
-        />
-        <Route
-          path="/admin/login"
-          element={
-            admin
-              ? <Navigate to="/admin/dashboard" replace />
-              : <AdminLogin setAdmin={setAdmin} />
-          }
-        />
-        <Route
-          path="/admin/dashboard"
-          element={
-            <AdminProtectedRoute admin={admin}>
-              <AdminDashboard admin={admin} />
-            </AdminProtectedRoute>
-          }
-        />
+        {/* ══════════════ ADMIN ══════════════ */}
+        <Route path="/admin" element={
+          admin
+            ? <Navigate to="/admin/dashboard" replace />
+            : <Navigate to="/admin/login" replace />
+        } />
+        <Route path="/admin/login" element={
+          admin
+            ? <Navigate to="/admin/dashboard" replace />
+            : <AdminLogin setAdmin={setAdmin} />
+        } />
+        <Route path="/admin/dashboard" element={
+          <AdminProtectedRoute admin={admin}>
+            <AdminDashboard admin={admin} />
+          </AdminProtectedRoute>
+        } />
 
-        {/* ══════════════════════════════════════════════════
-            FALLBACK
-        ══════════════════════════════════════════════════ */}
+        {/* ══════════════ FALLBACK ══════════════ */}
         <Route path="*" element={<Navigate to="/" replace />} />
 
       </Routes>
