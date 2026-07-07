@@ -26,6 +26,11 @@ import P2P                from "./pages/P2P";
 import MenuPage           from "./pages/MenuPage";
 
 /* ═══════════════════════════════════════════════════════════════
+   PAGES — HOMEPAGE SUB-PAGES  ← ADDED
+═══════════════════════════════════════════════════════════════ */
+import TrendingPage from "./pages/Homepage/TrendingPage";
+
+/* ═══════════════════════════════════════════════════════════════
    PAGES — AUTH
 ═══════════════════════════════════════════════════════════════ */
 import AuthPage       from "./pages/AuthPage";
@@ -78,7 +83,7 @@ import OrderSuccessPage    from "./pages/Checkout/Payment/OrderSuccessPage";
 import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
 
 /* ═══════════════════════════════════════════════════════════════
-   PAGES — ADMIN (note: folder is "page" not "pages")
+   PAGES — ADMIN (folder is "page" not "pages")
 ═══════════════════════════════════════════════════════════════ */
 import AdminLogin     from "./pages/admin/AdminLogin";
 import AdminDashboard from "./page/admin/AdminDashboard";
@@ -325,13 +330,13 @@ export default function App() {
   function handleProfileUpdate(updatedData) {
     setUser(function (prev) {
       return {
+        id:             prev && prev.id,
+        email:          prev && prev.email,
         name:           updatedData.name           != null ? updatedData.name           : (prev && prev.name),
         profile_image:  updatedData.profile_image  != null ? updatedData.profile_image  : (prev && prev.profile_image),
         username:       updatedData.username        != null ? updatedData.username        : (prev && prev.username),
         store_name:     updatedData.store_name      != null ? updatedData.store_name      : (prev && prev.store_name),
         email_verified: updatedData.email_verified  != null ? updatedData.email_verified  : (prev && prev.email_verified),
-        id:             prev && prev.id,
-        email:          prev && prev.email,
       };
     });
   }
@@ -358,6 +363,9 @@ export default function App() {
         <Route path="/minimart"      element={<MinimartPage  user={user} />} />
         <Route path="/p2p"           element={<P2P           user={user} />} />
         <Route path="/menu"          element={<MenuPage      user={user} />} />
+
+        {/* ══════════════ HOMEPAGE SUB-PAGES ══════════════ */}
+        <Route path="/trending" element={<TrendingPage user={user} />} />
 
         {/* ══════════════ AUTH ══════════════ */}
         <Route path="/auth" element={
