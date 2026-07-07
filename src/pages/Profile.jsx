@@ -61,8 +61,8 @@ const timeAgo = (d) => {
   const mins  = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
   const days  = Math.floor(diff / 86400000);
-  if (mins < 1)  return "Just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1)   return "Just now";
+  if (mins < 60)  return `${mins}m ago`;
   if (hours < 24) return `${hours}h ago`;
   if (days < 30)  return `${days}d ago`;
   return new Date(d).toLocaleDateString("en-NG", {
@@ -102,33 +102,29 @@ function useIsDesktop(query = "(min-width: 1024px)") {
 
 /* ═══════════════════════════════════════════════════════════════
    DRAG SCROLL HOOK
-   Wires click-and-drag on a ref'd element.
-   Only activates on non-touch (pointer: fine) devices.
 ═══════════════════════════════════════════════════════════════ */
 function useDragScroll(enabled = true) {
-  const ref       = useRef(null);
-  const state     = useRef({
+  const ref   = useRef(null);
+  const state = useRef({
     isDown:     false,
     startX:     0,
     scrollLeft: 0,
-    hasDragged: false,   // true once mouse moves > threshold
+    hasDragged: false,
   });
 
   useEffect(() => {
     const el = ref.current;
     if (!el || !enabled) return;
 
-    /* Only wire up on devices with a fine pointer (mouse / trackpad).
-       Avoids breaking touch scrolling on hybrids.                    */
     const finePointer =
       typeof window !== "undefined" &&
       window.matchMedia("(pointer: fine)").matches;
     if (!finePointer) return;
 
-    const DRAG_THRESHOLD = 5; // px before we consider it a drag
+    const DRAG_THRESHOLD = 5;
 
     const onMouseDown = (e) => {
-      if (e.button !== 0) return; // left button only
+      if (e.button !== 0) return;
       state.current.isDown     = true;
       state.current.hasDragged = false;
       state.current.startX     = e.pageX - el.offsetLeft;
@@ -150,19 +146,14 @@ function useDragScroll(enabled = true) {
     const onMouseMove = (e) => {
       if (!state.current.isDown) return;
       e.preventDefault();
-
       const x    = e.pageX - el.offsetLeft;
       const walk = x - state.current.startX;
-
-      // Mark as dragged once threshold passed
       if (Math.abs(walk) > DRAG_THRESHOLD) {
         state.current.hasDragged = true;
       }
-
       el.scrollLeft = state.current.scrollLeft - walk * 1.4;
     };
 
-    /* Suppress click on cards if user actually dragged */
     const onClickCapture = (e) => {
       if (state.current.hasDragged) {
         e.stopPropagation();
@@ -171,11 +162,11 @@ function useDragScroll(enabled = true) {
       }
     };
 
-    el.addEventListener("mousedown",    onMouseDown);
-    el.addEventListener("mouseup",      onMouseUp);
-    el.addEventListener("mouseleave",   onMouseLeave);
-    el.addEventListener("mousemove",    onMouseMove, { passive: false });
-    el.addEventListener("click",        onClickCapture, true); // capture phase
+    el.addEventListener("mousedown",  onMouseDown);
+    el.addEventListener("mouseup",    onMouseUp);
+    el.addEventListener("mouseleave", onMouseLeave);
+    el.addEventListener("mousemove",  onMouseMove,      { passive: false });
+    el.addEventListener("click",      onClickCapture,   true);
 
     return () => {
       el.removeEventListener("mousedown",  onMouseDown);
@@ -544,7 +535,7 @@ const ListingCard = memo(function ListingCard({ item, onClick, index = 0 }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   DESKTOP LISTING GRID  — MasonryCard with ListingCard fallback
+   DESKTOP LISTING GRID
 ═══════════════════════════════════════════════════════════════ */
 const DesktopListingGrid = memo(function DesktopListingGrid({ listings, onGoTo }) {
   return (
@@ -593,19 +584,14 @@ const DesktopListingGrid = memo(function DesktopListingGrid({ listings, onGoTo }
 
 /* ═══════════════════════════════════════════════════════════════
    RECENT LISTINGS
-   • Mobile  → horizontal scroll strip  (touch + drag)
-   • Desktop → drag-scrollable strip    (styled thumb + mouse drag)
-             → falls back to grid if MasonryCard fails
 ═══════════════════════════════════════════════════════════════ */
 const RecentListings = memo(function RecentListings({
   listings,
   onViewAll,
   isDesktop,
 }) {
-  const navigate = useNavigate();
-
-  /* Drag scroll — active on desktop (fine pointer) only */
-  const scrollRef = useDragScroll(isDesktop);
+  const navigate   = useNavigate();
+  const scrollRef  = useDragScroll(isDesktop);
 
   useEffect(() => {
     console.log(
@@ -630,7 +616,6 @@ const RecentListings = memo(function RecentListings({
       viewport={viewportOnce}
       transition={{ ...spring, delay: 0.1 }}
     >
-      {/* Header */}
       <div className="pf-recent-header">
         <h2 className="pf-recent-title">
           <span className="pf-recent-title-icon">
@@ -650,18 +635,6 @@ const RecentListings = memo(function RecentListings({
         </motion.button>
       </div>
 
-      {/*
-        ── SCROLL STRIP ──────────────────────────────────────────
-        Always rendered on both mobile and desktop.
-
-        Mobile  : touch-scroll, no thumb (scrollbar-width: none)
-        Desktop : styled orange thumb + useDragScroll hook
-
-        The CSS at ≥1024px:
-          • sets cursor: grab
-          • shows ::-webkit-scrollbar thumb
-          • .pf-recent-scroll--dragging → cursor: grabbing
-      */}
       <div
         className="pf-recent-scroll"
         ref={scrollRef}
@@ -689,10 +662,10 @@ const MenuItem = memo(function MenuItem({
 }) {
   const isActive = currentPath === to;
   const badgeClass =
-    badgeType === "notif"    ? " pf-badge-pill--notif"
-    : badge === "WIN"        ? " pf-badge-pill--win"
-    : badge === "NEW"        ? " pf-badge-pill--new"
-    : badge?.startsWith?.("₦") ? " pf-badge-pill--money"
+    badgeType === "notif"         ? " pf-badge-pill--notif"
+    : badge === "WIN"             ? " pf-badge-pill--win"
+    : badge === "NEW"             ? " pf-badge-pill--new"
+    : badge?.startsWith?.("₦")   ? " pf-badge-pill--money"
     : "";
 
   return (
@@ -730,10 +703,10 @@ const SidebarLink = memo(function SidebarLink({
 }) {
   const isActive = currentPath === to;
   const badgeClass =
-    badgeType === "notif"    ? " pf-badge-pill--notif"
-    : badge === "WIN"        ? " pf-badge-pill--win"
-    : badge === "NEW"        ? " pf-badge-pill--new"
-    : badge?.startsWith?.("₦") ? " pf-badge-pill--money"
+    badgeType === "notif"         ? " pf-badge-pill--notif"
+    : badge === "WIN"             ? " pf-badge-pill--win"
+    : badge === "NEW"             ? " pf-badge-pill--new"
+    : badge?.startsWith?.("₦")   ? " pf-badge-pill--money"
     : "";
 
   return (
@@ -846,34 +819,39 @@ const Sidebar = memo(function Sidebar({
       {/* Slot (referral banner etc.) */}
       {children}
 
-      {/* Nav */}
-      <nav className="pf-sidebar-nav" aria-label="Profile navigation">
-        {menuSections.map((section) => (
-          <div key={section.title} className="pf-sidebar-section">
-            <p
-              className="pf-sidebar-section-title"
-              id={`sidebar-${section.title}`}
-            >
-              {section.title}
-            </p>
-            <div
-              role="list"
-              aria-labelledby={`sidebar-${section.title}`}
-            >
-              {section.items.map(({ to, Ic, label, badge, badgeType }) => (
-                <SidebarLink
-                  key={to}
-                  to={to}
-                  Ic={Ic}
-                  label={label}
-                  badge={badge}
-                  badgeType={badgeType}
-                  currentPath={currentPath}
-                />
-              ))}
+      {/* Scrollable Nav */}
+      <nav
+        className="pf-sidebar-nav"
+        aria-label="Profile navigation"
+      >
+        <div className="pf-sidebar-nav-scroll">
+          {menuSections.map((section) => (
+            <div key={section.title} className="pf-sidebar-section">
+              <p
+                className="pf-sidebar-section-title"
+                id={`sidebar-${section.title}`}
+              >
+                {section.title}
+              </p>
+              <div
+                role="list"
+                aria-labelledby={`sidebar-${section.title}`}
+              >
+                {section.items.map(({ to, Ic, label, badge, badgeType }) => (
+                  <SidebarLink
+                    key={to}
+                    to={to}
+                    Ic={Ic}
+                    label={label}
+                    badge={badge}
+                    badgeType={badgeType}
+                    currentPath={currentPath}
+                  />
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </nav>
 
       <motion.button
@@ -1227,12 +1205,13 @@ export default function Profile({ onLogout }) {
             />
           )}
 
-          {/* Mobile referral + menu */}
+          {/* Mobile referral + scrollable menu */}
           {!isDesktop && (
             <>
               <ReferralBanner code={user?.referral_code} />
 
-              <div>
+              {/* ── Scrollable menu container ── */}
+              <div className="pf-menu-scroll-container">
                 {menuSections.map((section, si) => (
                   <motion.section
                     key={section.title}
@@ -1284,6 +1263,7 @@ export default function Profile({ onLogout }) {
                   <Icon.logout /> Log Out
                 </motion.button>
               </div>
+              {/* ── End scrollable menu container ── */}
             </>
           )}
 
