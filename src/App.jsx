@@ -26,9 +26,10 @@ import P2P                from "./pages/P2P";
 import MenuPage           from "./pages/MenuPage";
 
 /* ═══════════════════════════════════════════════════════════════
-   PAGES — HOMEPAGE SUB-PAGES  ← ADDED
+   PAGES — HOMEPAGE SUB-PAGES
 ═══════════════════════════════════════════════════════════════ */
 import TrendingPage from "./pages/Homepage/TrendingPage";
+import LatestPage   from "./pages/Homepage/LatestPage";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — AUTH
@@ -153,7 +154,7 @@ async function syncCartAfterLogin(token) {
     localStorage.removeItem("mm_cart");
     window.dispatchEvent(new Event("cart-updated"));
   } catch (e) {
-    /* silently ignore — cart sync is best-effort */
+    /* silently ignore */
   }
 }
 
@@ -366,6 +367,7 @@ export default function App() {
 
         {/* ══════════════ HOMEPAGE SUB-PAGES ══════════════ */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
+        <Route path="/latest"   element={<LatestPage   user={user} />} />
 
         {/* ══════════════ AUTH ══════════════ */}
         <Route path="/auth" element={
