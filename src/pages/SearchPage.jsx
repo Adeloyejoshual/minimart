@@ -9,7 +9,7 @@ import {
 } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
-import "./SearchPage.css";
+import "../styles/SearchPage.css";
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
