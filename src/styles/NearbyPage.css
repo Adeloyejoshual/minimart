@@ -1,1088 +1,272 @@
-// src/pages/Homepage/NearbyPage.jsx
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  memo,
-} from "react";
-import { useNavigate } from "react-router-dom";
-import TopNav      from "../../components/TopNav";
-import BottomNav   from "../../components/BottomNav";
-import Footer      from "../../components/Footer";
-import MasonryCard from "../../components/MasonryCard";
-import "../../styles/NearbyPage.css";
+/* src/styles/NearbyPage.css */
 
 /* ══════════════════════════════════════════════════════════════
-   CONSTANTS
+   TOKENS
 ══════════════════════════════════════════════════════════════ */
-var BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
-var API       = BASE_URL + "/api";
-var PAGE_SIZE = 40;
-var GPS_KEY   = "loemart_gps";
-var GPS_TTL   = 10 * 60000;
-var GPS_OPTS  = {
-  timeout            : 6000,
-  enableHighAccuracy : false,
-  maximumAge         : 300000,
-};
+:root {
+  --nb-teal       : #00bcd4;
+  --nb-teal-soft  : rgba(0,188,212,0.10);
+  --nb-teal-hover : #0097a7;
+  --nb-red        : #e74c3c;
+  --nb-red-soft   : rgba(231,76,60,0.07);
+  --nb-red-border : rgba(231,76,60,0.18);
 
-/* ══════════════════════════════════════════════════════════════
-   SVG ICONS — all inline, no external dependency
-══════════════════════════════════════════════════════════════ */
-function IcoBack() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M19 12H5M12 5l-7 7 7 7" />
-    </svg>
-  );
+  --nb-glass       : rgba(255,255,255,0.55);
+  --nb-glass-strong: rgba(255,255,255,0.72);
+  --nb-glass-border: rgba(255,255,255,0.42);
+  --nb-blur        : 20px;
+  --nb-shadow      : 0 4px 24px rgba(0,0,0,0.05), 0 1px 4px rgba(0,0,0,0.02);
+
+  --nb-text       : #1a1a2e;
+  --nb-text-2     : #4a4a6a;
+  --nb-text-muted : #8888aa;
+  --nb-bg         : #f4f4f8;
+
+  --nb-elite-bg      : #0a0a0f;
+  --nb-elite-surface : #13131f;
+  --nb-elite-border  : rgba(255,255,255,0.07);
+  --nb-elite-border-2: rgba(255,255,255,0.12);
+  --nb-elite-text    : #ffffff;
+  --nb-elite-text-2  : rgba(255,255,255,0.65);
+  --nb-elite-muted   : rgba(255,255,255,0.38);
+  --nb-elite-blue    : #0ea5e9;
+
+  --nb-font: "Inter","SF Pro Display",-apple-system,BlinkMacSystemFont,sans-serif;
+  --nb-r-sm : 10px;
+  --nb-r-md : 14px;
+  --nb-r-lg : 18px;
+  --nb-r-xl : 22px;
+  --nb-r-pill: 999px;
 }
 
-function IcoGPS() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-    </svg>
-  );
-}
-
-function IcoBell() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0" />
-    </svg>
-  );
-}
-
-function IcoChevronUp() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M18 15l-6-6-6 6" />
-    </svg>
-  );
-}
-
-function IcoArrowRight() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5 12h14M12 5l7 7-7 7" />
-    </svg>
-  );
-}
-
-function IcoLocation() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
-      <circle cx="12" cy="10" r="3" />
-    </svg>
-  );
-}
-
-function IcoRefresh() {
-  return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M23 4v6h-6" />
-      <path d="M1 20v-6h6" />
-      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
-    </svg>
-  );
-}
-
-function IcoLayers() {
-  return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="12 2 2 7 12 12 22 7 12 2" />
-      <polyline points="2 17 12 22 22 17" />
-      <polyline points="2 12 12 17 22 12" />
-    </svg>
-  );
-}
-
-function IcoDone() {
-  return (
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
-      <polyline points="22 4 12 14.01 9 11.01" />
-    </svg>
-  );
-}
-
-function IcoFlash() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-    </svg>
-  );
-}
-
-function IcoEmpty() {
-  return (
-    <svg width="44" height="44" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-      <circle cx="11" cy="11" r="8" opacity="0.35" />
-      <path d="M21 21l-4.35-4.35" opacity="0.35" />
-      <path d="M8 11h6" strokeWidth="2" />
-    </svg>
-  );
-}
-
-function IcoError() {
-  return (
-    <svg width="36" height="36" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-      <circle cx="12" cy="12" r="10" opacity="0.25" />
-      <path d="M12 8v4M12 16h.01" strokeWidth="2.5" />
-    </svg>
-  );
-}
-
-function IcoClock() {
-  return (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <circle cx="12" cy="12" r="10" />
-      <path d="M12 6v6l4 2" />
-    </svg>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════
-   GPS CACHE
-══════════════════════════════════════════════════════════════ */
-function readCachedGps() {
-  try {
-    var raw = sessionStorage.getItem(GPS_KEY);
-    if (!raw) return null;
-    var parsed = JSON.parse(raw);
-    var coords = parsed.coords;
-    var ts     = parsed.ts;
-    if (Date.now() - ts < GPS_TTL) return coords;
-  } catch (e) {}
-  return null;
-}
-
-function writeCachedGps(coords) {
-  try {
-    sessionStorage.setItem(
-      GPS_KEY,
-      JSON.stringify({ coords: coords, ts: Date.now() })
-    );
-  } catch (e) {}
-}
-
-/* ══════════════════════════════════════════════════════════════
-   NORMALIZE + DEDUP
-══════════════════════════════════════════════════════════════ */
-function normalizeProduct(p) {
-  if (!p || typeof p !== "object" || !p.id) return null;
-  var img = null;
-  if (p.image) {
-    img = p.image;
-  } else if (Array.isArray(p.images) && p.images.length > 0) {
-    img = typeof p.images[0] === "string"
-      ? p.images[0]
-      : (p.images[0] && p.images[0].url) || null;
-  } else if (p.main_image) {
-    img = p.main_image;
-  } else if (p.thumbnail_url) {
-    img = p.thumbnail_url;
+@media (prefers-color-scheme:dark) {
+  :root {
+    --nb-glass       : rgba(25,25,40,0.60);
+    --nb-glass-strong: rgba(35,35,55,0.78);
+    --nb-glass-border: rgba(255,255,255,0.07);
+    --nb-shadow      : 0 4px 24px rgba(0,0,0,0.20);
+    --nb-bg          : #0d0d1a;
+    --nb-text        : #e8e8f4;
+    --nb-text-2      : #a0a0c0;
+    --nb-text-muted  : #6a6a8a;
   }
-
-  return Object.assign({}, p, {
-    price             : Number(p.price              || 0),
-    engagement_score  : Number(p.engagement_score   || 0),
-    clicks_count      : Number(p.clicks_count        || 0),
-    impression_count  : Number(p.impression_count    || 0),
-    views             : Number(p.views               || 0),
-    ctr               : Number(p.ctr                 || 0),
-    promotion_priority: Number(p.promotion_priority  || 0),
-    is_promoted       : !!p.is_promoted,
-    image             : img,
-    location_city : (p.location && p.location.city)  || p.location_city  || null,
-    location_state: (p.location && p.location.state) || p.location_state || null,
-  });
 }
 
-function dedup(arr) {
-  var seen = {};
-  var result = [];
-  for (var i = 0; i < arr.length; i++) {
-    var p = arr[i];
-    if (p && !seen[p.id]) {
-      seen[p.id] = true;
-      result.push(p);
-    }
-  }
-  return result;
-}
+/* ══════════════════ ROOT ══════════════════ */
+.nb-root { display:flex; flex-direction:column; min-height:100dvh; background:var(--nb-bg); font-family:var(--nb-font); -webkit-font-smoothing:antialiased; }
+.nb-page { flex:1; display:flex; flex-direction:column; padding-bottom:calc(80px + env(safe-area-inset-bottom)); }
+.nb-root--elite { background:var(--nb-elite-bg); color:var(--nb-elite-text); }
+.nb-root--elite [class*="bottom-nav"],.nb-root--elite [class*="BottomNav"] { display:none!important; }
+
+/* ══════════════════ MOBILE HEADER ══════════════════ */
+.nb-header { display:flex; align-items:center; gap:10px; padding:14px 16px 10px; background:var(--nb-glass-strong); backdrop-filter:blur(var(--nb-blur)); border-bottom:1px solid var(--nb-glass-border); position:sticky; top:0; z-index:50; }
+.nb-back { display:flex; align-items:center; justify-content:center; width:40px; height:40px; border:1.5px solid var(--nb-glass-border); border-radius:50%; background:var(--nb-glass); color:var(--nb-text); cursor:pointer; flex-shrink:0; transition:all .2s; }
+.nb-back:hover { background:var(--nb-glass-strong); transform:scale(1.05); }
+.nb-title-wrap { flex:1; display:flex; align-items:center; gap:8px; }
+.nb-title { font-size:1.15rem; font-weight:750; color:var(--nb-text); margin:0; letter-spacing:-0.025em; }
+.nb-chip { display:inline-flex; align-items:center; gap:5px; padding:3px 10px; background:var(--nb-teal-soft); border:1px solid rgba(0,188,212,0.25); color:var(--nb-teal); border-radius:var(--nb-r-pill); font-size:0.68rem; font-weight:700; letter-spacing:0.05em; text-transform:uppercase; }
+.nb-chip-dot { width:6px; height:6px; border-radius:50%; background:var(--nb-teal); animation:nb-pulse 1.8s ease-in-out infinite; }
+.nb-chip-spin { width:6px; height:6px; border-radius:50%; background:var(--nb-teal); animation:nb-spin .8s linear infinite; }
+.nb-gps-btn { display:flex; align-items:center; gap:6px; padding:8px 14px; border-radius:var(--nb-r-md); border:1.5px solid var(--nb-glass-border); background:var(--nb-glass); color:var(--nb-text-muted); font-size:0.78rem; font-weight:600; font-family:var(--nb-font); cursor:pointer; transition:all .18s; }
+.nb-gps-btn:hover { background:var(--nb-glass-strong); border-color:var(--nb-teal); color:var(--nb-teal); }
+
+/* ══════════════════ GPS PROMPT ══════════════════ */
+.nb-gps-prompt { display:flex; align-items:center; gap:12px; margin:12px 16px; padding:14px 16px; background:var(--nb-glass); border:1px solid var(--nb-glass-border); border-radius:var(--nb-r-lg); backdrop-filter:blur(var(--nb-blur)); flex-wrap:wrap; }
+.nb-gps-prompt-icon { font-size:2rem; flex-shrink:0; }
+.nb-gps-prompt-body { flex:1; min-width:0; }
+.nb-gps-prompt-title { font-size:0.9rem; font-weight:750; color:var(--nb-text); margin:0 0 4px; }
+.nb-gps-prompt-sub { font-size:0.78rem; color:var(--nb-text-2); line-height:1.55; margin:0; }
+.nb-gps-prompt-actions { display:flex; gap:8px; width:100%; margin-top:8px; }
+.nb-gps-prompt-allow { flex:1; padding:10px; background:var(--nb-teal); color:#fff; border:none; border-radius:var(--nb-r-md); font-size:0.82rem; font-weight:700; font-family:var(--nb-font); cursor:pointer; transition:all .18s; }
+.nb-gps-prompt-allow:hover { background:var(--nb-teal-hover); }
+.nb-gps-prompt-skip { padding:10px 16px; background:transparent; color:var(--nb-text-muted); border:1.5px solid var(--nb-glass-border); border-radius:var(--nb-r-md); font-size:0.82rem; font-weight:600; font-family:var(--nb-font); cursor:pointer; transition:all .18s; }
+.nb-gps-prompt-skip:hover { border-color:var(--nb-text-muted); color:var(--nb-text); }
+
+/* ══════════════════ LOCATION BANNER ══════════════════ */
+.nb-loc-banner { display:flex; align-items:center; justify-content:space-between; padding:10px 16px; margin:8px 16px 0; background:var(--nb-glass); backdrop-filter:blur(var(--nb-blur)); border:1px solid var(--nb-glass-border); border-radius:var(--nb-r-md); }
+.nb-loc-left { display:flex; align-items:center; gap:8px; }
+.nb-loc-icon { font-size:1.2rem; flex-shrink:0; }
+.nb-loc-text { display:flex; flex-direction:column; }
+.nb-loc-label { font-size:0.7rem; color:var(--nb-text-muted); font-weight:600; }
+.nb-loc-place { font-size:0.85rem; font-weight:700; color:var(--nb-text); margin-top:2px; }
+.nb-loc-count { font-size:0.78rem; color:var(--nb-text-muted); font-weight:500; }
+
+/* ══════════════════ MASONRY ══════════════════ */
+.nb-masonry { columns:2; column-gap:8px; padding:4px 16px 0; column-fill:balance; }
+@media (min-width:480px) { .nb-masonry { column-gap:10px; } }
+@media (min-width:540px) { .nb-masonry { columns:3; } }
+@media (min-width:768px) { .nb-masonry { columns:4; padding:4px 20px 0; } }
+@media (min-width:1024px){ .nb-masonry { columns:5; } }
+@media (min-width:1280px){ .nb-masonry { columns:6; } }
+
+.nb-card-wrap { break-inside:avoid; margin-bottom:8px; position:relative; }
+
+/* ══════════════════ SKELETON ══════════════════ */
+.nb-sk { break-inside:avoid; border-radius:var(--nb-r-lg); margin-bottom:8px; }
+.nb-sk-banner { height:90px; margin-bottom:0; }
+.nb-shimmer { background-color:var(--nb-glass); background-image:linear-gradient(105deg,rgba(255,255,255,0) 30%,rgba(255,255,255,0.22) 50%,rgba(255,255,255,0) 70%); background-size:250% 100%; animation:nb-shimmer 1.6s ease-in-out infinite; }
+@media (prefers-color-scheme:dark) { .nb-shimmer { background-image:linear-gradient(105deg,rgba(255,255,255,0) 30%,rgba(255,255,255,0.06) 50%,rgba(255,255,255,0) 70%); } }
+
+/* ══════════════════ TOAST ══════════════════ */
+.nb-toast { position:fixed; top:calc(60px + env(safe-area-inset-top) + 8px); left:50%; transform:translateX(-50%); z-index:80; display:flex; align-items:center; gap:7px; padding:10px 18px; background:var(--nb-teal); color:#fff; font-size:0.82rem; font-weight:700; font-family:var(--nb-font); border:none; border-radius:var(--nb-r-pill); cursor:pointer; box-shadow:0 6px 24px rgba(0,188,212,0.38); white-space:nowrap; animation:nb-slide-down .3s cubic-bezier(.16,1,.3,1); }
+.nb-toast-dot { width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,0.65); animation:nb-pulse 1.5s ease-in-out infinite; flex-shrink:0; }
+
+/* ══════════════════ EMPTY ══════════════════ */
+.nb-empty { display:flex; flex-direction:column; align-items:center; padding:48px 24px; margin:16px; text-align:center; gap:10px; background:var(--nb-glass); backdrop-filter:blur(var(--nb-blur)); border:1px solid var(--nb-glass-border); border-radius:var(--nb-r-lg); box-shadow:var(--nb-shadow); }
+.nb-empty-icon { display:flex; align-items:center; justify-content:center; width:86px; height:86px; border-radius:50%; background:var(--nb-glass); border:1.5px solid var(--nb-glass-border); color:var(--nb-text-muted); margin-bottom:4px; }
+.nb-empty-title { font-size:1.1rem; font-weight:750; color:var(--nb-text); margin:0; }
+.nb-empty-sub { font-size:0.86rem; color:var(--nb-text-2); line-height:1.7; margin:0; }
+.nb-empty-btn { margin-top:8px; padding:12px 28px; background:var(--nb-teal); color:#fff; border:none; border-radius:var(--nb-r-pill); font-size:0.86rem; font-weight:700; font-family:var(--nb-font); cursor:pointer; transition:all .2s; box-shadow:0 4px 16px rgba(0,188,212,0.25); }
+.nb-empty-btn:hover { background:var(--nb-teal-hover); transform:translateY(-2px); }
+
+/* ══════════════════ ERROR ══════════════════ */
+.nb-err { display:flex; flex-direction:column; align-items:center; margin:16px; padding:28px 16px; background:var(--nb-red-soft); border:1.5px solid var(--nb-red-border); border-radius:var(--nb-r-lg); text-align:center; }
+.nb-err-icon { display:flex; align-items:center; justify-content:center; width:72px; height:72px; border-radius:50%; background:var(--nb-red-soft); border:1.5px solid var(--nb-red-border); color:var(--nb-red); margin-bottom:12px; }
+.nb-err-title { font-size:0.95rem; font-weight:750; color:var(--nb-red); margin:0 0 4px; }
+.nb-err-msg { font-size:0.82rem; color:var(--nb-text-2); line-height:1.65; margin:0; }
+.nb-err-btn { margin-top:12px; padding:10px 26px; background:var(--nb-red); color:#fff; border:none; border-radius:var(--nb-r-pill); font-size:0.82rem; font-weight:700; font-family:var(--nb-font); cursor:pointer; transition:all .2s; }
+.nb-err-btn:hover { background:#c0392b; transform:translateY(-1px); }
+
+/* ══════════════════ LOADING MORE ══════════════════ */
+.nb-loading-more { display:flex; align-items:center; justify-content:center; gap:10px; padding:24px; font-size:0.85rem; color:var(--nb-text-muted); font-weight:500; }
+.nb-spinner { width:18px; height:18px; border:2.5px solid var(--nb-glass-border); border-top-color:var(--nb-teal); border-radius:50%; animation:nb-spin .75s linear infinite; display:inline-block; flex-shrink:0; }
+
+/* ══════════════════ FEED END ══════════════════ */
+.nb-feed-end-wrap { display:flex; flex-direction:column; align-items:center; gap:12px; margin:0 16px; padding:28px 20px; background:var(--nb-glass); border:1px solid var(--nb-glass-border); border-radius:var(--nb-r-lg); text-align:center; }
+.nb-feed-end { font-size:0.88rem; color:var(--nb-text-muted); font-weight:500; margin:0; }
+.nb-feed-end-btn { display:inline-flex; align-items:center; gap:6px; padding:11px 22px; border:1.5px solid var(--nb-glass-border); border-radius:var(--nb-r-pill); background:var(--nb-glass); color:var(--nb-teal); font-size:0.82rem; font-weight:600; font-family:var(--nb-font); cursor:pointer; transition:all .2s; }
+.nb-feed-end-btn:hover { background:var(--nb-teal-soft); border-color:var(--nb-teal); transform:translateY(-1px); }
+
+/* ══════════════════ SCROLL TOP (mobile) ══════════════════ */
+.nb-scroll-top { position:fixed; bottom:calc(72px + env(safe-area-inset-bottom) + 16px); right:16px; width:42px; height:42px; border:1.5px solid var(--nb-glass-border); border-radius:50%; background:var(--nb-glass-strong); backdrop-filter:blur(var(--nb-blur)); color:var(--nb-text-muted); cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:var(--nb-shadow); z-index:30; opacity:0; transform:translateY(12px) scale(0.9); pointer-events:none; transition:all .25s cubic-bezier(.16,1,.3,1); }
+.nb-scroll-top.visible { opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+.nb-scroll-top:hover { background:var(--nb-teal-soft); color:var(--nb-teal); border-color:var(--nb-teal); transform:translateY(-2px) scale(1.06); }
 
 /* ══════════════════════════════════════════════════════════════
-   FETCH
+   ELITE DESKTOP
 ══════════════════════════════════════════════════════════════ */
-function fetchNearbyPage(options) {
-  var pageParam = (options && options.pageParam) || 0;
-  var coords    = (options && options.coords)    || null;
+.elite-layout { display:flex; gap:24px; padding:24px 28px; max-width:1600px; margin:0 auto; width:100%; min-height:calc(100dvh - 120px); align-items:flex-start; }
+.elite-main { flex:1; min-width:0; }
 
-  function makeParams(section) {
-    var p = new URLSearchParams({
-      page  : String(pageParam),
-      limit : String(PAGE_SIZE),
-    });
-    if (section) p.set("section", section);
-    if (coords) {
-      p.set("lat", String(coords.lat));
-      p.set("lng", String(coords.lng));
-    }
-    return p;
-  }
+/* ── Sidebar ── */
+.elite-sidebar { position:sticky; top:80px; width:252px; min-width:232px; flex-shrink:0; background:var(--nb-elite-surface); border:1px solid var(--nb-elite-border); border-radius:var(--nb-r-xl); padding:22px 18px; display:flex; flex-direction:column; gap:18px; max-height:calc(100vh - 110px); overflow-y:auto; scrollbar-width:none; box-shadow:0 0 0 1px rgba(255,255,255,0.03),0 24px 64px rgba(0,0,0,0.55); }
+.elite-sidebar::-webkit-scrollbar { display:none; }
 
-  return fetch(API + "/homepage?" + makeParams("nearby").toString())
-    .then(function (res) {
-      if (res.ok) return res.json();
-      throw new Error("nearby failed");
-    })
-    .then(function (data) {
-      var items = Array.isArray(data.products) ? data.products : [];
-      if (items.length > 0) return data;
-      throw new Error("empty nearby");
-    })
-    .catch(function () {
-      return fetch(API + "/homepage?" + makeParams().toString())
-        .then(function (res) {
-          if (!res.ok) throw new Error("HTTP " + res.status);
-          return res.json();
-        });
-    });
+.elite-brand { display:flex; align-items:center; gap:10px; }
+.elite-brand-icon { width:40px; height:40px; border-radius:11px; background:linear-gradient(135deg,#0ea5e9,#7c3aed); display:flex; align-items:center; justify-content:center; color:#fff; flex-shrink:0; box-shadow:0 4px 14px rgba(14,165,233,0.35); }
+.elite-brand-name { display:block; font-size:0.96rem; font-weight:800; color:var(--nb-elite-text); line-height:1.15; }
+.elite-brand-sub { display:block; font-size:0.67rem; color:var(--nb-elite-muted); letter-spacing:0.05em; text-transform:uppercase; }
+
+.elite-live { position:relative; background:linear-gradient(135deg,rgba(14,165,233,0.10),rgba(14,165,233,0.04)); border:1px solid rgba(14,165,233,0.20); border-radius:var(--nb-r-md); padding:14px 16px; display:flex; align-items:center; gap:12px; }
+.elite-live-pulse { width:9px; height:9px; border-radius:50%; background:var(--nb-elite-blue); flex-shrink:0; animation:nb-pulse 2s ease-in-out infinite; box-shadow:0 0 0 3px rgba(14,165,233,0.20); }
+.elite-live-num { display:block; font-size:1.5rem; font-weight:900; color:var(--nb-elite-blue); line-height:1; }
+.elite-live-label { display:block; font-size:0.72rem; color:var(--nb-elite-muted); font-weight:500; margin-top:3px; }
+
+.elite-side-btn { display:flex; align-items:center; gap:7px; padding:10px 14px; border-radius:var(--nb-r-sm); border:1px solid var(--nb-elite-border-2); background:transparent; color:var(--nb-elite-text-2); font-size:0.83rem; font-weight:600; font-family:var(--nb-font); cursor:pointer; transition:all .18s; width:100%; }
+.elite-side-btn:hover { background:rgba(255,255,255,.06); color:var(--nb-elite-text); }
+.elite-side-btn--ghost { border:none; background:rgba(255,255,255,.04); color:var(--nb-elite-muted); }
+.elite-side-btn--ghost:hover { background:rgba(255,255,255,.08); color:var(--nb-elite-text-2); }
+
+/* ── Top Bar ── */
+.elite-topbar { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:12px; background:var(--nb-elite-surface); border:1px solid var(--nb-elite-border); border-radius:var(--nb-r-md); padding:13px 20px; margin-bottom:20px; box-shadow:0 2px 12px rgba(0,0,0,0.25); }
+.elite-topbar-left { display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+.elite-bc { font-size:0.82rem; color:var(--nb-elite-muted); user-select:none; }
+.elite-bc-sep { margin:0 4px; }
+.elite-bc-cur { color:var(--nb-elite-text-2); font-weight:600; }
+.elite-loc { display:flex; align-items:center; gap:6px; font-size:0.78rem; color:var(--nb-elite-text-2); font-weight:500; }
+.elite-count { font-size:0.76rem; color:var(--nb-elite-muted); background:rgba(255,255,255,0.05); padding:3px 10px; border-radius:var(--nb-r-pill); border:1px solid var(--nb-elite-border); }
+.elite-updated { display:flex; align-items:center; gap:6px; font-size:0.76rem; color:var(--nb-elite-muted); }
+.elite-pulse { width:7px; height:7px; border-radius:50%; background:var(--nb-elite-blue); flex-shrink:0; animation:nb-pulse 2s ease-in-out infinite; }
+.elite-topbar-right { display:flex; align-items:center; gap:8px; }
+.elite-refresh-btn { display:flex; align-items:center; gap:6px; padding:7px 14px; border-radius:var(--nb-r-sm); border:1px solid var(--nb-elite-border-2); background:transparent; color:var(--nb-elite-text-2); font-size:0.78rem; font-weight:600; font-family:var(--nb-font); cursor:pointer; transition:all .18s; }
+.elite-refresh-btn:hover { background:rgba(255,255,255,.07); color:var(--nb-elite-text); }
+
+/* ── Desktop masonry ── */
+.nb-masonry--desktop { columns:4!important; column-gap:16px!important; padding:0 0 16px!important; }
+@media (min-width:1300px) { .nb-masonry--desktop { columns:5!important; } }
+@media (min-width:1024px) and (max-width:1199px) { .nb-masonry--desktop { columns:3!important; } }
+
+/* ── Elite card overrides ── */
+.nb-root--elite .nb-masonry .masonry-card { background:var(--nb-elite-surface); border-color:var(--nb-elite-border); box-shadow:0 2px 14px rgba(0,0,0,0.30); }
+.nb-root--elite .nb-masonry .masonry-card:hover { border-color:rgba(14,165,233,0.25); box-shadow:0 12px 36px rgba(0,0,0,0.45),0 0 0 1px rgba(14,165,233,0.15); transform:translateY(-4px); }
+.nb-root--elite .nb-masonry .masonry-name { color:var(--nb-elite-text); }
+.nb-root--elite .nb-masonry .masonry-price { color:var(--nb-elite-blue); }
+.nb-root--elite .nb-masonry .masonry-loc { color:var(--nb-elite-muted); }
+
+/* ── Elite empty ── */
+.elite-empty { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:80px 24px; text-align:center; gap:12px; }
+.elite-empty-icon { display:flex; align-items:center; justify-content:center; width:96px; height:96px; border-radius:50%; background:rgba(14,165,233,0.08); border:1.5px solid rgba(14,165,233,0.18); color:var(--nb-elite-blue); margin-bottom:4px; }
+.elite-empty-title { font-size:1.45rem; font-weight:800; color:var(--nb-elite-text); margin:0; }
+.elite-empty-sub { font-size:0.90rem; color:var(--nb-elite-muted); margin:0; line-height:1.65; max-width:340px; }
+.elite-empty-btn { margin-top:8px; padding:13px 32px; border-radius:var(--nb-r-md); background:linear-gradient(135deg,#0ea5e9,#7c3aed); border:none; color:#fff; font-size:0.90rem; font-weight:700; font-family:var(--nb-font); cursor:pointer; transition:opacity .18s,transform .18s; box-shadow:0 6px 22px rgba(14,165,233,0.30); }
+.elite-empty-btn:hover { opacity:0.86; transform:translateY(-2px); }
+
+/* ── Elite error ── */
+.elite-err { display:flex; flex-direction:column; align-items:center; margin:0 0 20px; padding:32px 20px; background:rgba(231,76,60,0.07); border:1.5px solid rgba(231,76,60,0.18); border-radius:var(--nb-r-lg); text-align:center; }
+.elite-err-icon { display:flex; align-items:center; justify-content:center; width:72px; height:72px; border-radius:50%; background:rgba(231,76,60,0.08); border:1.5px solid rgba(231,76,60,0.18); color:#e74c3c; margin-bottom:12px; }
+.elite-err-title { font-size:1rem; font-weight:750; color:#e74c3c; margin:0 0 4px; }
+.elite-err-msg { font-size:0.84rem; color:var(--nb-elite-text-2); margin:0; line-height:1.6; }
+.elite-err-btn { margin-top:14px; padding:10px 26px; background:#e74c3c; color:#fff; border:none; border-radius:var(--nb-r-pill); font-size:0.82rem; font-weight:700; font-family:var(--nb-font); cursor:pointer; transition:all .2s; }
+.elite-err-btn:hover { background:#c0392b; transform:translateY(-1px); }
+
+/* ── Elite loading more ── */
+.elite-loading-more { display:flex; align-items:center; justify-content:center; gap:12px; padding:30px; color:var(--nb-elite-muted); font-size:0.85rem; font-weight:500; }
+.elite-dots { display:flex; gap:5px; }
+.elite-dots span { width:8px; height:8px; border-radius:50%; background:var(--nb-elite-blue); animation:nb-bounce 1.2s ease-in-out infinite; }
+.elite-dots span:nth-child(2) { animation-delay:0.20s; }
+.elite-dots span:nth-child(3) { animation-delay:0.40s; }
+
+/* ── Elite feed end ── */
+.elite-feed-end { display:flex; align-items:center; gap:20px; padding:36px 0 16px; }
+.elite-feed-end-line { flex:1; height:1px; background:linear-gradient(90deg,transparent,rgba(255,255,255,0.08),transparent); }
+.elite-feed-end-center { display:flex; flex-direction:column; align-items:center; gap:10px; text-align:center; }
+.elite-feed-end-icon { display:flex; align-items:center; justify-content:center; width:52px; height:52px; border-radius:50%; background:rgba(16,185,129,0.10); border:1.5px solid rgba(16,185,129,0.20); color:#10b981; flex-shrink:0; }
+.elite-feed-end-text { font-size:0.84rem; color:var(--nb-elite-muted); margin:0; font-weight:500; }
+.elite-feed-end-btn { display:inline-flex; align-items:center; gap:7px; padding:9px 22px; border-radius:var(--nb-r-pill); background:linear-gradient(135deg,#0ea5e9,#7c3aed); border:none; color:#fff; font-size:0.82rem; font-weight:700; font-family:var(--nb-font); cursor:pointer; transition:opacity .18s,transform .18s; box-shadow:0 4px 16px rgba(14,165,233,0.35); }
+.elite-feed-end-btn:hover { opacity:0.85; transform:translateY(-2px); }
+
+/* ── Elite toast ── */
+.elite-toast { position:fixed; top:calc(68px + env(safe-area-inset-top) + 10px); left:50%; transform:translateX(-50%); z-index:80; display:flex; align-items:center; gap:8px; padding:11px 22px; background:linear-gradient(135deg,#0ea5e9,#7c3aed); color:#fff; font-size:0.84rem; font-weight:700; font-family:var(--nb-font); border:none; border-radius:var(--nb-r-pill); cursor:pointer; box-shadow:0 6px 24px rgba(14,165,233,0.40); white-space:nowrap; animation:nb-slide-down .3s cubic-bezier(.16,1,.3,1); }
+.elite-toast-dot { width:8px; height:8px; border-radius:50%; background:rgba(255,255,255,0.65); animation:nb-pulse 1.5s ease-in-out infinite; flex-shrink:0; }
+
+/* ── Elite scroll top ── */
+.elite-scroll-top { position:fixed; bottom:28px; right:28px; width:46px; height:46px; border:none; border-radius:50%; background:linear-gradient(135deg,#0ea5e9,#7c3aed); color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 4px 20px rgba(14,165,233,0.40); z-index:30; opacity:0; transform:translateY(12px) scale(0.9); pointer-events:none; transition:all .25s cubic-bezier(.16,1,.3,1); }
+.elite-scroll-top.visible { opacity:1; transform:translateY(0) scale(1); pointer-events:auto; }
+.elite-scroll-top:hover { opacity:0.88; transform:translateY(-3px) scale(1.08); box-shadow:0 10px 28px rgba(14,165,233,0.50); }
+
+/* ── Elite footer ── */
+.nb-root--elite .footer,.elite-main .footer { background:var(--nb-elite-surface); border-top:1px solid var(--nb-elite-border); color:var(--nb-elite-muted); margin-top:40px; }
+
+/* ══════════════════ KEYFRAMES ══════════════════ */
+@keyframes nb-spin { to { transform:rotate(360deg); } }
+@keyframes nb-pulse { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(0.82); } }
+@keyframes nb-shimmer { from { background-position:250% 0; } to { background-position:-250% 0; } }
+@keyframes nb-bounce { 0%,80%,100% { transform:scale(0.8); opacity:0.5; } 40% { transform:scale(1.25); opacity:1; } }
+@keyframes nb-slide-down { from { opacity:0; transform:translateX(-50%) translateY(-12px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+
+/* ══════════════════ RESPONSIVE ══════════════════ */
+@media (max-width:360px) {
+  .nb-header { padding:12px 12px 8px; }
+  .nb-title { font-size:1.05rem; }
+  .nb-chip { display:none; }
+  .nb-masonry { padding:4px 10px 0; column-gap:6px; }
+  .nb-loc-banner { padding:8px 10px; }
+  .nb-empty { margin:16px 10px; }
+  .nb-err { margin:16px 10px; }
+  .nb-feed-end-wrap { margin:8px 10px 0; }
 }
-
-/* ══════════════════════════════════════════════════════════════
-   HOOK — detect desktop
-══════════════════════════════════════════════════════════════ */
-function useIsDesktop(breakpoint) {
-  var bp = breakpoint || 1024;
-  var result = useState(function () {
-    return window.innerWidth >= bp;
-  });
-  var isDesktop  = result[0];
-  var setDesktop = result[1];
-
-  useEffect(function () {
-    var mq = window.matchMedia("(min-width: " + bp + "px)");
-    function handler(e) { setDesktop(e.matches); }
-    mq.addEventListener("change", handler);
-    return function () { mq.removeEventListener("change", handler); };
-  }, [bp]);
-
-  return isDesktop;
+@media (min-width:640px) {
+  .nb-header { padding:16px 24px 12px; }
+  .nb-title { font-size:1.3rem; }
+  .nb-loc-banner { padding:8px 24px; }
+  .nb-masonry { padding:4px 24px 0; }
+  .nb-empty { margin:16px 24px; }
+  .nb-err { margin:16px 24px; }
+  .nb-feed-end-wrap { margin:8px 24px 0; }
 }
-
-/* ══════════════════════════════════════════════════════════════
-   SHARED SMALL COMPONENTS
-══════════════════════════════════════════════════════════════ */
-function LiveClock(props) {
-  var elite = props.elite || false;
-  function fmt() {
-    return new Date().toLocaleTimeString("en-NG", {
-      hour: "2-digit", minute: "2-digit",
-    });
-  }
-  var ts = useState(fmt);
-  var time    = ts[0];
-  var setTime = ts[1];
-
-  useEffect(function () {
-    var t = setInterval(function () { setTime(fmt()); }, 30000);
-    return function () { clearInterval(t); };
-  }, []);
-
-  return (
-    <span className={elite ? "elite-clock" : "nb-clock"}>
-      {time}
-    </span>
-  );
-}
-
-var NearbyCardWrapper = memo(function NearbyCardWrapper(props) {
-  var product  = props.product;
-  var priority = props.priority;
-  var onView   = props.onView;
-  var onClick  = props.onClick;
-  var elite    = props.elite || false;
-
-  return (
-    <div className={"nb-card-wrap" + (elite ? " nb-card-wrap--elite" : "")}>
-      <MasonryCard
-        product={product}
-        priority={priority}
-        onView={onView}
-        onClick={onClick}
-      />
-    </div>
-  );
-});
-
-function NewArrivalToast(props) {
-  var count     = props.count;
-  var onDismiss = props.onDismiss;
-  var elite     = props.elite || false;
-
-  if (!count || count <= 0) return null;
-
-  return (
-    <button
-      className={elite ? "elite-toast" : "nb-toast"}
-      onClick={onDismiss}
-      aria-live="polite"
-    >
-      <span
-        className={elite ? "elite-toast-dot" : "nb-toast-dot"}
-        aria-hidden="true"
-      />
-      <IcoBell />
-      {count} new listing{count !== 1 ? "s" : ""} — tap to refresh
-    </button>
-  );
-}
-
-function ScrollTopBtn(props) {
-  var elite = props.elite || false;
-  var vs = useState(false);
-  var visible    = vs[0];
-  var setVisible = vs[1];
-
-  useEffect(function () {
-    function fn() { setVisible(window.scrollY > 320); }
-    window.addEventListener("scroll", fn, { passive: true });
-    return function () { window.removeEventListener("scroll", fn); };
-  }, []);
-
-  return (
-    <button
-      className={
-        (elite ? "elite-nb-scroll-top" : "nb-scroll-top") +
-        (visible ? " visible" : "")
-      }
-      onClick={function () {
-        window.scrollTo({ top: 0, behavior: "smooth" });
-      }}
-      aria-label="Scroll to top"
-    >
-      <IcoChevronUp />
-    </button>
-  );
-}
-
-function EmptyState(props) {
-  var gpsStatus   = props.gpsStatus;
-  var onBrowseAll = props.onBrowseAll;
-  var elite       = props.elite || false;
-
-  return (
-    <div className={elite ? "elite-nb-empty" : "nb-empty"} role="status">
-      <span className={elite ? "elite-nb-empty-icon-wrap" : "nb-empty-icon-wrap"}>
-        <IcoEmpty />
-      </span>
-      <h3 className={elite ? "elite-nb-empty-title" : "nb-empty-title"}>
-        {gpsStatus === "denied"
-          ? "Location access denied"
-          : "No nearby listings found"}
-      </h3>
-      <p className={elite ? "elite-nb-empty-sub" : "nb-empty-sub"}>
-        {gpsStatus === "denied"
-          ? "We couldn't detect your location. Showing listings from across Nigeria."
-          : "There are no listings in your area yet. More sellers joining daily!"}
-      </p>
-      <button
-        className={elite ? "elite-nb-empty-btn" : "nb-empty-btn"}
-        onClick={onBrowseAll}
-      >
-        Browse All Listings
-      </button>
-    </div>
-  );
-}
-
-function ErrorBanner(props) {
-  var message = props.message;
-  var onRetry = props.onRetry;
-  var elite   = props.elite || false;
-
-  return (
-    <div className={elite ? "elite-nb-err" : "nb-err"} role="alert">
-      <span className={elite ? "elite-nb-err-icon-wrap" : "nb-err-icon-wrap"}>
-        <IcoError />
-      </span>
-      <p className={elite ? "elite-nb-err-title" : "nb-err-title"}>
-        Could not load listings
-      </p>
-      <p className={elite ? "elite-nb-err-msg" : "nb-err-msg"}>
-        {message}
-      </p>
-      <button
-        className={elite ? "elite-nb-err-btn" : "nb-err-btn"}
-        onClick={onRetry}
-      >
-        Try again
-      </button>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════
-   MOBILE COMPONENTS
-══════════════════════════════════════════════════════════════ */
-var NearbyHeader = memo(function NearbyHeader(props) {
-  var gpsStatus    = props.gpsStatus;
-  var onBack       = props.onBack;
-  var onRequestGps = props.onRequestGps;
-
-  var chipText = "Locating…";
-  var chipCls  = "nb-chip--pending";
-  if (gpsStatus === "gps")    { chipText = "GPS Live"; chipCls = "nb-chip--gps";    }
-  if (gpsStatus === "denied") { chipText = "Manual";   chipCls = "nb-chip--manual"; }
-
-  return (
-    <div className="nb-header">
-      <button className="nb-back" onClick={onBack} aria-label="Go back">
-        <IcoBack />
-      </button>
-      <div className="nb-title-wrap">
-        <h1 className="nb-title">Near You</h1>
-        <span className={"nb-chip " + chipCls}>
-          {gpsStatus === "pending" && (
-            <span className="nb-chip-spin" aria-hidden="true" />
-          )}
-          {gpsStatus === "gps" && (
-            <span className="nb-chip-dot" aria-hidden="true" />
-          )}
-          {gpsStatus === "gps" ? "📍 " : ""}
-          {chipText}
-        </span>
-      </div>
-      {gpsStatus === "denied" && (
-        <button
-          className="nb-gps-btn"
-          onClick={onRequestGps}
-          aria-label="Enable GPS"
-        >
-          <IcoGPS />
-          Enable GPS
-        </button>
-      )}
-    </div>
-  );
-});
-
-var NearbyLocationBanner = memo(function NearbyLocationBanner(props) {
-  var label     = props.label;
-  var gpsStatus = props.gpsStatus;
-  var count     = props.count;
-
-  if (!label) return null;
-
-  return (
-    <div className="nb-loc-banner" role="status" aria-live="polite">
-      <div className="nb-loc-left">
-        <span className="nb-loc-icon" aria-hidden="true">
-          {gpsStatus === "gps" ? "📡" : "📍"}
-        </span>
-        <div className="nb-loc-text">
-          <span className="nb-loc-label">Showing listings near</span>
-          <strong className="nb-loc-place">{label}</strong>
-        </div>
-      </div>
-      {count > 0 && (
-        <span className="nb-loc-count">
-          {count.toLocaleString()} listing{count !== 1 ? "s" : ""}
-        </span>
-      )}
-    </div>
-  );
-});
-
-var NearbyGpsPrompt = memo(function NearbyGpsPrompt(props) {
-  var onAllow   = props.onAllow;
-  var onDismiss = props.onDismiss;
-
-  return (
-    <div
-      className="nb-gps-prompt"
-      role="dialog"
-      aria-label="Enable location for better results"
-    >
-      <div className="nb-gps-prompt-icon" aria-hidden="true">📍</div>
-      <div className="nb-gps-prompt-body">
-        <h3 className="nb-gps-prompt-title">See listings near you</h3>
-        <p className="nb-gps-prompt-sub">
-          Allow location access to find deals closest to you first.
-        </p>
-      </div>
-      <div className="nb-gps-prompt-actions">
-        <button className="nb-gps-prompt-allow" onClick={onAllow}>
-          Allow Location
-        </button>
-        <button className="nb-gps-prompt-skip" onClick={onDismiss}>
-          Maybe later
-        </button>
-      </div>
-    </div>
-  );
-});
-
-var SKEL_HEIGHTS = [240, 300, 220, 280, 260, 230, 310, 250, 270, 240];
-
-var NearbySkeleton = memo(function NearbySkeleton() {
-  return (
-    <>
-      <div className="nb-sk nb-sk-banner nb-shimmer" aria-hidden="true" />
-      <div className="nb-masonry" aria-busy="true">
-        {SKEL_HEIGHTS.map(function (h, i) {
-          return (
-            <div
-              key={i}
-              className="nb-sk nb-shimmer"
-              style={{ height: h }}
-              aria-hidden="true"
-            />
-          );
-        })}
-      </div>
-    </>
-  );
-});
-
-/* ══════════════════════════════════════════════════════════════
-   DESKTOP ELITE COMPONENTS
-══════════════════════════════════════════════════════════════ */
-var EliteNearbyHeader = memo(function EliteNearbyHeader(props) {
-  var gpsStatus    = props.gpsStatus;
-  var onBack       = props.onBack;
-  var onRequestGps = props.onRequestGps;
-
-  var chipText = "Locating…";
-  var chipCls  = "nb-chip--pending";
-  if (gpsStatus === "gps")    { chipText = "GPS Live"; chipCls = "nb-chip--gps";    }
-  if (gpsStatus === "denied") { chipText = "Manual";   chipCls = "nb-chip--manual"; }
-
-  return (
-    <div className="elite-nb-header">
-      <button className="elite-nb-back" onClick={onBack} aria-label="Go back">
-        <IcoBack />
-      </button>
-      <div className="elite-nb-title-wrap">
-        <h1 className="elite-nb-title">Near You</h1>
-        <span className={"elite-nb-chip " + chipCls}>
-          {gpsStatus === "pending" && (
-            <span className="elite-nb-chip-spin" aria-hidden="true" />
-          )}
-          {gpsStatus === "gps" && (
-            <span className="elite-nb-chip-dot" aria-hidden="true" />
-          )}
-          {chipText}
-        </span>
-      </div>
-      {gpsStatus === "denied" && (
-        <button
-          className="elite-nb-gps-btn"
-          onClick={onRequestGps}
-          aria-label="Enable GPS"
-        >
-          <IcoGPS />
-          Enable GPS
-        </button>
-      )}
-    </div>
-  );
-});
-
-var EliteNearbyTopBar = memo(function EliteNearbyTopBar(props) {
-  var locationLabel = props.locationLabel;
-  var total         = props.total;
-  var lastUpdated   = props.lastUpdated;
-  var onRefresh     = props.onRefresh;
-
-  var timeLabel = null;
-  if (lastUpdated) {
-    timeLabel = new Date(lastUpdated).toLocaleTimeString("en-NG", {
-      hour: "2-digit", minute: "2-digit",
-    });
-  }
-
-  return (
-    <div className="elite-nb-topbar">
-      <div className="elite-nb-topbar-left">
-        <nav className="elite-nb-breadcrumb" aria-label="Breadcrumb">
-          <span className="elite-nb-bc-home">Home</span>
-          <span className="elite-nb-bc-sep">›</span>
-          <span className="elite-nb-bc-current">Near You</span>
-        </nav>
-        {locationLabel && (
-          <span className="elite-nb-location">
-            <IcoLocation />
-            {locationLabel}
-          </span>
-        )}
-        {total > 0 && (
-          <span className="elite-nb-count">
-            {total.toLocaleString()} listings
-          </span>
-        )}
-        {timeLabel && (
-          <span className="elite-nb-updated">
-            <span className="elite-nb-pulse" aria-hidden="true" />
-            Updated {timeLabel}
-          </span>
-        )}
-      </div>
-      <div className="elite-nb-topbar-right">
-        <button className="elite-nb-refresh-btn" onClick={onRefresh}>
-          <IcoRefresh />
-          Refresh
-        </button>
-      </div>
-    </div>
-  );
-});
-
-var EliteNearbySidebar = memo(function EliteNearbySidebar(props) {
-  var onBack    = props.onBack;
-  var total     = props.total;
-  var onRefresh = props.onRefresh;
-
-  return (
-    <aside className="elite-nb-sidebar">
-      <div className="elite-nb-brand">
-        <div className="elite-nb-brand-icon">
-          <IcoLayers />
-        </div>
-        <div>
-          <span className="elite-nb-brand-name">Loemart</span>
-          <span className="elite-nb-brand-sub">Nearby</span>
-        </div>
-      </div>
-
-      <div className="elite-nb-live-counter">
-        <div className="elite-nb-live-pulse" aria-hidden="true" />
-        <div>
-          <span className="elite-nb-live-num">
-            {total != null ? total.toLocaleString() : "—"}
-          </span>
-          <span className="elite-nb-live-label">listings near you</span>
-        </div>
-      </div>
-
-      <button className="elite-nb-refresh" onClick={onRefresh}>
-        <IcoRefresh />
-        Refresh Feed
-      </button>
-
-      <button className="elite-nb-back" onClick={onBack}>
-        <IcoBack />
-        All Listings
-      </button>
-    </aside>
-  );
-});
-
-/* ══════════════════════════════════════════════════════════════
-   MAIN COMPONENT
-══════════════════════════════════════════════════════════════ */
-export default function NearbyPage(props) {
-  var user      = props.user;
-  var navigate  = useNavigate();
-  var isDesktop = useIsDesktop();
-
-  /* GPS state */
-  var coordsResult = useState(function () { return readCachedGps(); });
-  var coords    = coordsResult[0];
-  var setCoords = coordsResult[1];
-
-  var gpsResult    = useState(function () {
-    return readCachedGps() ? "gps" : "pending";
-  });
-  var gpsStatus    = gpsResult[0];
-  var setGpsStatus = gpsResult[1];
-
-  var promptResult  = useState(false);
-  var showPrompt    = promptResult[0];
-  var setShowPrompt = promptResult[1];
-
-  var gpsAttempted = useRef(false);
-
-  var requestGps = useCallback(function () {
-    if (!navigator.geolocation) {
-      setGpsStatus("denied");
-      return;
-    }
-    setGpsStatus("pending");
-    setShowPrompt(false);
-    navigator.geolocation.getCurrentPosition(
-      function (pos) {
-        var result = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        writeCachedGps(result);
-        setCoords(result);
-        setGpsStatus("gps");
-      },
-      function () { setGpsStatus("denied"); },
-      GPS_OPTS
-    );
-  }, []);
-
-  useEffect(function () {
-    if (gpsAttempted.current || coords) return;
-    gpsAttempted.current = true;
-    if (!navigator.geolocation) { setGpsStatus("denied"); return; }
-    setShowPrompt(true);
-    var t = setTimeout(requestGps, 800);
-    return function () { clearTimeout(t); };
-  }, [coords, requestGps]);
-
-  /* Data state */
-  var p1 = useState([]);
-  var products    = p1[0];
-  var setProducts = p1[1];
-
-  var p2 = useState({});
-  var meta    = p2[0];
-  var setMeta = p2[1];
-
-  var p3 = useState(true);
-  var loading    = p3[0];
-  var setLoading = p3[1];
-
-  var p4 = useState(false);
-  var loadingMore    = p4[0];
-  var setLoadingMore = p4[1];
-
-  var p5 = useState(null);
-  var error    = p5[0];
-  var setError = p5[1];
-
-  var p6 = useState(false);
-  var hasMore    = p6[0];
-  var setHasMore = p6[1];
-
-  var p7 = useState(0);
-  var page    = p7[0];
-  var setPage = p7[1];
-
-  var productsRef = useRef([]);
-  var sentinelRef = useRef(null);
-
-  /* Load */
-  var load = useCallback(function (pg, append) {
-    var pageNum  = pg     || 0;
-    var doAppend = append || false;
-
-    return fetchNearbyPage({ pageParam: pageNum, coords: coords })
-      .then(function (data) {
-        var raw = Array.isArray(data.products) ? data.products : [];
-        var normalized = dedup(raw).map(normalizeProduct).filter(Boolean);
-        var merged = doAppend
-          ? dedup(productsRef.current.concat(normalized))
-          : normalized;
-        productsRef.current = merged;
-        setProducts(merged);
-        setMeta(data.meta || {});
-        var more = data.hasMore != null
-          ? data.hasMore
-          : (data.meta && data.meta.has_more != null)
-            ? data.meta.has_more
-            : raw.length >= PAGE_SIZE;
-        setHasMore(more);
-      })
-      .catch(function (err) {
-        if (!doAppend) setError(err.message || "Could not load listings.");
-      });
-  }, [coords]);
-
-  /* Initial load */
-  useEffect(function () {
-    setLoading(true);
-    setError(null);
-    setPage(0);
-    productsRef.current = [];
-    load(0, false).finally(function () { setLoading(false); });
-  }, [load]);
-
-  /* Load more */
-  var loadMore = useCallback(function () {
-    if (loadingMore || !hasMore) return;
-    setLoadingMore(true);
-    var next = page + 1;
-    load(next, true)
-      .then(function () { setPage(next); })
-      .finally(function () { setLoadingMore(false); });
-  }, [loadingMore, hasMore, page, load]);
-
-  /* Infinite scroll */
-  useEffect(function () {
-    var el = sentinelRef.current;
-    if (!el || !hasMore) return;
-    var io = new IntersectionObserver(
-      function (entries) {
-        if (entries[0].isIntersecting) loadMore();
-      },
-      { threshold: 0.1 }
-    );
-    io.observe(el);
-    return function () { io.disconnect(); };
-  }, [hasMore, loadingMore, loadMore]);
-
-  /* Location label */
-  var locLabel = useMemo(function () {
-    if (meta && meta.location) return meta.location;
-    if (products.length > 0) {
-      var p = products[0];
-      var c = p.location_city  || (p.location && p.location.city);
-      var s = p.location_state || (p.location && p.location.state);
-      return [c, s].filter(Boolean).join(", ") || null;
-    }
-    return null;
-  }, [meta, products]);
-
-  var total = (meta && meta.total != null) ? meta.total : products.length;
-
-  /* Analytics */
-  var trackView = useCallback(function (id) {
-    if (!id) return;
-    fetch(API + "/products/" + id + "/view", {
-      method: "POST", keepalive: true,
-    }).catch(function () {});
-  }, []);
-
-  var handleClick = useCallback(function (product) {
-    if (!product || !product.id) return;
-    fetch(API + "/products/" + product.id + "/click", {
-      method: "POST", keepalive: true,
-    }).catch(function () {});
-    navigate("/product/" + (product.slug || product.id));
-  }, [navigate]);
-
-  var handleRetry = useCallback(function () {
-    setError(null);
-    setLoading(true);
-    productsRef.current = [];
-    load(0, false).finally(function () { setLoading(false); });
-  }, [load]);
-
-  var handleRefresh = useCallback(function () {
-    setShowPrompt(false);
-    setGpsStatus("pending");
-    setCoords(null);
-    setShowPrompt(true);
-    setLoading(true);
-    productsRef.current = [];
-    load(0, false).finally(function () { setLoading(false); });
-  }, [load]);
-
-  /* Shared grid */
-  function SharedGrid(gridProps) {
-    var elite = gridProps.elite || false;
-
-    return (
-      <>
-        <div
-          className={"nb-masonry" + (elite ? " nb-masonry--desktop" : "")}
-          role="list"
-          aria-label="Nearby listings"
-        >
-          {products.map(function (p, i) {
-            return (
-              <div key={p.id} role="listitem">
-                <NearbyCardWrapper
-                  product={p}
-                  priority={i < (elite ? 8 : 6)}
-                  onView={trackView}
-                  onClick={handleClick}
-                  elite={elite}
-                />
-              </div>
-            );
-          })}
-        </div>
-
-        <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
-
-        {loadingMore && (
-          <div
-            className={elite ? "elite-nb-loading-more" : "nb-loading-more"}
-            aria-live="polite"
-          >
-            {elite ? (
-              <div className="elite-nb-dots">
-                <span /><span /><span />
-              </div>
-            ) : (
-              <span className="nb-spinner" aria-hidden="true" />
-            )}
-            Loading more…
-          </div>
-        )}
-
-        {!hasMore && products.length > 0 && (
-          elite ? (
-            <div className="elite-nb-feed-end">
-              <div className="elite-nb-feed-end-line" />
-              <div className="elite-nb-feed-end-content">
-                <span className="elite-nb-feed-end-icon">
-                  <IcoDone />
-                </span>
-                <p className="elite-nb-feed-end-text">
-                  You&apos;ve seen all nearby listings
-                </p>
-                <button
-                  className="elite-nb-feed-end-btn"
-                  onClick={function () { navigate("/"); }}
-                >
-                  Browse all
-                  <IcoArrowRight />
-                </button>
-              </div>
-              <div className="elite-nb-feed-end-line" />
-            </div>
-          ) : (
-            <div className="nb-feed-end-wrap">
-              <p className="nb-feed-end">
-                You&apos;ve seen all nearby listings
-              </p>
-              <button
-                className="nb-feed-end-btn"
-                onClick={function () { navigate("/"); }}
-              >
-                Browse all
-                <IcoArrowRight />
-              </button>
-            </div>
-          )
-        )}
-      </>
-    );
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     DESKTOP RENDER
-  ══════════════════════════════════════════════════════════ */
-  if (isDesktop) {
-    return (
-      <div className="nb-root nb-root--elite">
-        <TopNav user={user} />
-
-        <NewArrivalToast count={0} onDismiss={handleRefresh} elite />
-
-        <div className="elite-nb-layout">
-          <EliteNearbySidebar
-            onBack={function () { navigate("/"); }}
-            total={total}
-            onRefresh={handleRefresh}
-          />
-
-          <main className="elite-nb-main" id="nb-main">
-            <EliteNearbyTopBar
-              locationLabel={locLabel}
-              total={total}
-              lastUpdated={Date.now()}
-              onRefresh={handleRefresh}
-            />
-
-            {error && (
-              <ErrorBanner message={error} onRetry={handleRetry} elite />
-            )}
-
-            {loading && <NearbySkeleton />}
-
-            {!loading && !error && products.length === 0 && (
-              <EmptyState
-                gpsStatus={gpsStatus}
-                onBrowseAll={function () { navigate("/"); }}
-                elite
-              />
-            )}
-
-            {!loading && products.length > 0 && (
-              <SharedGrid elite />
-            )}
-
-            {!loading && <Footer />}
-          </main>
-        </div>
-
-        <ScrollTopBtn elite />
-      </div>
-    );
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     MOBILE RENDER
-  ══════════════════════════════════════════════════════════ */
-  return (
-    <div className="nb-root">
-      <TopNav user={user} />
-
-      <NewArrivalToast count={0} onDismiss={handleRefresh} />
-
-      <main className="nb-page" id="nb-main">
-        <NearbyHeader
-          gpsStatus={gpsStatus}
-          onBack={function () { navigate(-1); }}
-          onRequestGps={requestGps}
-        />
-
-        {showPrompt && gpsStatus === "pending" && (
-          <NearbyGpsPrompt
-            onAllow={function () {
-              setShowPrompt(false);
-              requestGps();
-            }}
-            onDismiss={function () {
-              setShowPrompt(false);
-              setGpsStatus("denied");
-            }}
-          />
-        )}
-
-        {!loading && locLabel && (
-          <NearbyLocationBanner
-            label={locLabel}
-            gpsStatus={gpsStatus}
-            count={total}
-          />
-        )}
-
-        {error && (
-          <ErrorBanner message={error} onRetry={handleRetry} />
-        )}
-
-        {loading && <NearbySkeleton />}
-
-        {!loading && !error && products.length === 0 && (
-          <EmptyState
-            gpsStatus={gpsStatus}
-            onBrowseAll={function () { navigate("/"); }}
-          />
-        )}
-
-        {!loading && products.length > 0 && (
-          <SharedGrid />
-        )}
-
-        {!loading && <Footer />}
-      </main>
-
-      <ScrollTopBtn />
-      <BottomNav />
-    </div>
-  );
+@media (min-width:1024px) { .nb-page { padding-bottom:28px; } }
+
+/* ══════════════════ REDUCED MOTION ══════════════════ */
+@media (prefers-reduced-motion:reduce) {
+  *,*::before,*::after { animation-duration:0.01ms!important; animation-iteration-count:1!important; transition-duration:0.01ms!important; }
 }
