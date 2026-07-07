@@ -1,4 +1,4 @@
-// src/pages/SearchPage.tsx
+// src/pages/SearchPage.jsx
 import {
   useState,
   useEffect,
@@ -6,81 +6,10 @@ import {
   useRef,
   useMemo,
   memo,
-  type FC,
-  type ReactNode,
-  type ChangeEvent,
-  type KeyboardEvent,
 } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
 import "./SearchPage.css";
-
-/* ═══════════════════════════════════════════════════════════════
-   TYPES
-   ═══════════════════════════════════════════════════════════════ */
-interface Product {
-  id: string;
-  title: string;
-  price: number;
-  original_price?: number;
-  description?: string;
-  images?: string[];
-  image?: string;
-  condition?: string;
-  category_id?: string;
-  category_name?: string;
-  city?: string;
-  state?: string;
-  rating?: number;
-  review_count?: number;
-  seller_name?: string;
-  seller_avatar?: string;
-  seller_verified?: boolean;
-  views?: number;
-  created_at?: string;
-  is_featured?: boolean;
-  is_flash?: boolean;
-  is_hot?: boolean;
-  is_trending?: boolean;
-  is_new?: boolean;
-  discount_percentage?: number;
-}
-
-interface Aggregations {
-  price: { min: number; max: number };
-  conditions: string[];
-  states: string[];
-  categories: { id: string; name: string; count?: number }[];
-}
-
-interface Meta {
-  total: number;
-  page: number;
-  limit: number;
-  has_more: boolean;
-}
-
-interface DraftFilters {
-  sort: string;
-  category_id: string;
-  min_price: string;
-  max_price: string;
-  condition: string;
-  state: string;
-  city: string;
-}
-
-interface FilterChip {
-  key: string;
-  label: string;
-  remove: () => void;
-}
-
-interface User {
-  id?: string;
-  name?: string;
-  avatar?: string;
-}
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -95,32 +24,31 @@ const PRICE_PRESETS = [
   { label: "₦20k–50k", min: "20000", max: "50000" },
   { label: "₦50k–100k", min: "50000", max: "100000" },
   { label: "₦100k+", min: "100000", max: "" },
-] as const;
+];
 
 const SORT_OPTIONS = [
-  { value: "relevance", label: "Best Match", icon: <SvgStar /> },
-  { value: "newest", label: "Newest First", icon: <SvgClock /> },
-  { value: "price_asc", label: "Price: Low → High", icon: <SvgTrendUp /> },
-  { value: "price_desc", label: "Price: High → Low", icon: <SvgTrendDown /> },
-  { value: "rating", label: "Top Rated", icon: <SvgHeart /> },
-] as const;
+  { value: "relevance", label: "Best Match", icon: "star" },
+  { value: "newest", label: "Newest First", icon: "clock" },
+  { value: "price_asc", label: "Price: Low → High", icon: "trend-up" },
+  { value: "price_desc", label: "Price: High → Low", icon: "trend-down" },
+  { value: "rating", label: "Top Rated", icon: "heart" },
+];
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
    ═══════════════════════════════════════════════════════════════ */
-const naira = (v: number | string): string =>
-  `₦${Number(v).toLocaleString("en-NG")}`;
+const naira = (v) => `₦${Number(v).toLocaleString("en-NG")}`;
 
-const getImageUrl = (p: Product): string => {
+const getImageUrl = (p) => {
   if (p.images?.length) return p.images[0];
   if (p.image) return p.image;
   return "/placeholder.webp";
 };
 
-const formatCity = (city?: string, state?: string): string =>
+const formatCity = (city, state) =>
   [city, state].filter(Boolean).join(", ");
 
-const timeAgo = (iso?: string): string => {
+const timeAgo = (iso) => {
   if (!iso) return "";
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (s < 60) return "just now";
@@ -129,15 +57,15 @@ const timeAgo = (iso?: string): string => {
   return `${Math.floor(s / 86400)}d ago`;
 };
 
-const discount = (p: Product): number | null => {
+const calcDiscount = (p) => {
   if (!p.original_price || p.original_price <= p.price) return null;
   return Math.round(((p.original_price - p.price) / p.original_price) * 100);
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SVG ICONS — transparent, no emoji
+   SVG ICONS
    ═══════════════════════════════════════════════════════════════ */
-function SvgSearch({ size = 18 }: { size?: number }) {
+function SvgSearch({ size = 18 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -147,7 +75,7 @@ function SvgSearch({ size = 18 }: { size?: number }) {
   );
 }
 
-function SvgFilter({ size = 16 }: { size?: number }) {
+function SvgFilter({ size = 16 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -156,7 +84,7 @@ function SvgFilter({ size = 16 }: { size?: number }) {
   );
 }
 
-function SvgGrid({ size = 15 }: { size?: number }) {
+function SvgGrid({ size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
       <rect x="3" y="3" width="7" height="7" rx="1.5" />
@@ -167,7 +95,7 @@ function SvgGrid({ size = 15 }: { size?: number }) {
   );
 }
 
-function SvgList({ size = 15 }: { size?: number }) {
+function SvgList({ size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -176,7 +104,7 @@ function SvgList({ size = 15 }: { size?: number }) {
   );
 }
 
-function SvgMasonry({ size = 15 }: { size?: number }) {
+function SvgMasonry({ size = 15 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
       <rect x="3" y="3" width="7" height="10" rx="1.5" />
@@ -187,7 +115,7 @@ function SvgMasonry({ size = 15 }: { size?: number }) {
   );
 }
 
-function SvgClose({ size = 14 }: { size?: number }) {
+function SvgClose({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -196,7 +124,7 @@ function SvgClose({ size = 14 }: { size?: number }) {
   );
 }
 
-function SvgChevronLeft({ size = 16 }: { size?: number }) {
+function SvgChevronLeft({ size = 16 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -205,7 +133,7 @@ function SvgChevronLeft({ size = 16 }: { size?: number }) {
   );
 }
 
-function SvgChevronRight({ size = 16 }: { size?: number }) {
+function SvgChevronRight({ size = 16 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -214,7 +142,7 @@ function SvgChevronRight({ size = 16 }: { size?: number }) {
   );
 }
 
-function SvgPin({ size = 12 }: { size?: number }) {
+function SvgPin({ size = 12 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -224,7 +152,7 @@ function SvgPin({ size = 12 }: { size?: number }) {
   );
 }
 
-function SvgHeart({ size = 14 }: { size?: number }) {
+function SvgHeart({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -233,25 +161,15 @@ function SvgHeart({ size = 14 }: { size?: number }) {
   );
 }
 
-function SvgHeartFilled({ size = 14 }: { size?: number }) {
+function SvgStar({ size = 14 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24"
-      fill="currentColor" stroke="currentColor" strokeWidth="1">
-      <path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" />
-    </svg>
-  );
-}
-
-function SvgStar({ size = 14 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24"
-      fill="currentColor" stroke="none">
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
       <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
     </svg>
   );
 }
 
-function SvgStarOutline({ size = 12 }: { size?: number }) {
+function SvgStarOutline({ size = 12 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -260,7 +178,7 @@ function SvgStarOutline({ size = 12 }: { size?: number }) {
   );
 }
 
-function SvgClock({ size = 14 }: { size?: number }) {
+function SvgClock({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -270,7 +188,7 @@ function SvgClock({ size = 14 }: { size?: number }) {
   );
 }
 
-function SvgTrendUp({ size = 14 }: { size?: number }) {
+function SvgTrendUp({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -280,7 +198,7 @@ function SvgTrendUp({ size = 14 }: { size?: number }) {
   );
 }
 
-function SvgTrendDown({ size = 14 }: { size?: number }) {
+function SvgTrendDown({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -290,7 +208,7 @@ function SvgTrendDown({ size = 14 }: { size?: number }) {
   );
 }
 
-function SvgEye({ size = 14 }: { size?: number }) {
+function SvgEye({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -300,7 +218,7 @@ function SvgEye({ size = 14 }: { size?: number }) {
   );
 }
 
-function SvgCamera({ size = 11 }: { size?: number }) {
+function SvgCamera({ size = 11 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
@@ -310,7 +228,7 @@ function SvgCamera({ size = 11 }: { size?: number }) {
   );
 }
 
-function SvgVerified({ size = 13 }: { size?: number }) {
+function SvgVerified({ size = 13 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <circle cx="12" cy="12" r="10" fill="#1565c0" />
@@ -319,7 +237,7 @@ function SvgVerified({ size = 13 }: { size?: number }) {
   );
 }
 
-function SvgShare({ size = 14 }: { size?: number }) {
+function SvgShare({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -331,7 +249,7 @@ function SvgShare({ size = 14 }: { size?: number }) {
   );
 }
 
-function SvgExternalLink({ size = 13 }: { size?: number }) {
+function SvgExternalLink({ size = 13 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -340,7 +258,7 @@ function SvgExternalLink({ size = 13 }: { size?: number }) {
   );
 }
 
-function SvgHome({ size = 13 }: { size?: number }) {
+function SvgHome({ size = 13 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -350,7 +268,7 @@ function SvgHome({ size = 13 }: { size?: number }) {
   );
 }
 
-function SvgTag({ size = 12 }: { size?: number }) {
+function SvgTag({ size = 12 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -360,7 +278,7 @@ function SvgTag({ size = 12 }: { size?: number }) {
   );
 }
 
-function SvgSliders({ size = 14 }: { size?: number }) {
+function SvgSliders({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round">
@@ -377,7 +295,7 @@ function SvgSliders({ size = 14 }: { size?: number }) {
   );
 }
 
-function SvgSparkle({ size = 14 }: { size?: number }) {
+function SvgSparkle({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
       <path d="M12 2L14.4 8.2L21 9.2L16 14L17.5 21L12 17.5L6.5 21L8 14L3 9.2L9.6 8.2L12 2Z" />
@@ -385,7 +303,7 @@ function SvgSparkle({ size = 14 }: { size?: number }) {
   );
 }
 
-function SvgFlash({ size = 12 }: { size?: number }) {
+function SvgFlash({ size = 12 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
@@ -393,7 +311,7 @@ function SvgFlash({ size = 12 }: { size?: number }) {
   );
 }
 
-function SvgFire({ size = 12 }: { size?: number }) {
+function SvgFire({ size = 12 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
       <path d="M12 23c-4.97 0-9-3.58-9-8 0-3.07 2.31-6.64 4.5-9 .37-.4 1.02-.11 1 .44-.09 2.41 1.49 3.94 3.08 4.35C12.23 11 13 10 13 8c0-1.5-.5-3.5-2-5 3.34 1 7 5 7 10 0 5-4 8-6 8z" />
@@ -401,7 +319,7 @@ function SvgFire({ size = 12 }: { size?: number }) {
   );
 }
 
-function SvgArrowUp({ size = 12 }: { size?: number }) {
+function SvgArrowUp({ size = 12 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -410,7 +328,7 @@ function SvgArrowUp({ size = 12 }: { size?: number }) {
   );
 }
 
-function SvgEmpty({ size = 64 }: { size?: number }) {
+function SvgEmpty({ size = 64 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="1.2" strokeLinecap="round">
@@ -421,7 +339,7 @@ function SvgEmpty({ size = 64 }: { size?: number }) {
   );
 }
 
-function SvgError({ size = 48 }: { size?: number }) {
+function SvgError({ size = 48 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -431,58 +349,74 @@ function SvgError({ size = 48 }: { size?: number }) {
   );
 }
 
+/* sort icon helper */
+const SORT_ICON_MAP = {
+  star: SvgStar,
+  clock: SvgClock,
+  "trend-up": SvgTrendUp,
+  "trend-down": SvgTrendDown,
+  heart: SvgHeart,
+};
+
+function SortIcon({ name, size = 14 }) {
+  const Comp = SORT_ICON_MAP[name];
+  return Comp ? <Comp size={size} /> : null;
+}
+
 /* ═══════════════════════════════════════════════════════════════
-   STARS COMPONENT
+   STARS
    ═══════════════════════════════════════════════════════════════ */
-const Stars: FC<{ rating: number; size?: number }> = ({ rating, size = 11 }) => (
-  <span className="sp-stars" aria-label={`${rating} out of 5 stars`}>
-    {Array.from({ length: 5 }, (_, i) => (
-      <span key={i} className={i < Math.round(rating) ? "sp-star--filled" : "sp-star--empty"}>
-        {i < Math.round(rating) ? <SvgStar size={size} /> : <SvgStarOutline size={size} />}
-      </span>
-    ))}
-  </span>
-);
+const Stars = memo(function Stars({ rating, size = 11 }) {
+  return (
+    <span className="sp-stars" aria-label={`${rating} out of 5 stars`}>
+      {Array.from({ length: 5 }, (_, i) => (
+        <span key={i} className={i < Math.round(rating) ? "sp-star--filled" : "sp-star--empty"}>
+          {i < Math.round(rating) ? <SvgStar size={size} /> : <SvgStarOutline size={size} />}
+        </span>
+      ))}
+    </span>
+  );
+});
 
 /* ═══════════════════════════════════════════════════════════════
    SKELETON CARD
    ═══════════════════════════════════════════════════════════════ */
-const SkeletonCard = memo<{ view: string; index: number }>(({ view, index }) => (
-  <div
-    className={`sp-card sp-card--sk ${view === "list" ? "sp-card--list" : "sp-card--grid"}`}
-    aria-hidden="true"
-    style={{ animationDelay: `${index * 35}ms` }}
-  >
-    <div className="sp-card__img-wrap sp-sk-pulse" />
-    <div className="sp-card__body">
-      <div className="sp-sk-line" style={{ width: "85%", height: 13 }} />
-      <div className="sp-sk-line" style={{ width: "55%", height: 17, marginTop: 6 }} />
-      <div className="sp-sk-line" style={{ width: "65%", height: 10, marginTop: 8 }} />
+const SkeletonCard = memo(function SkeletonCard({ view, index }) {
+  return (
+    <div
+      className={`sp-card sp-card--sk ${view === "list" ? "sp-card--list" : "sp-card--grid"}`}
+      aria-hidden="true"
+      style={{ animationDelay: `${index * 35}ms` }}
+    >
+      <div className="sp-card__img-wrap sp-sk-pulse" />
+      <div className="sp-card__body">
+        <div className="sp-sk-line" style={{ width: "85%", height: 13 }} />
+        <div className="sp-sk-line" style={{ width: "55%", height: 17, marginTop: 6 }} />
+        <div className="sp-sk-line" style={{ width: "65%", height: 10, marginTop: 8 }} />
+      </div>
     </div>
-  </div>
-));
+  );
+});
 
 /* ═══════════════════════════════════════════════════════════════
    PRODUCT CARD
    ═══════════════════════════════════════════════════════════════ */
-const ProductCard = memo<{
-  product: Product;
-  index: number;
-  view: string;
-  active: boolean;
-  onHover: (p: Product | null) => void;
-  onClick: (p: Product) => void;
-}>(({ product: p, index, view, active, onHover, onClick }) => {
-  const disc = discount(p);
+const ProductCard = memo(function ProductCard({ product: p, index, view, active, onHover, onClick }) {
+  const disc = calcDiscount(p);
   const loc = formatCity(p.city, p.state);
   const imgCount = p.images?.length || 0;
   const isList = view === "list";
 
-  const badge = p.is_featured ? { cls: "sp-badge--feat", icon: <SvgSparkle size={9} />, text: "Featured" }
-    : p.is_flash ? { cls: "sp-badge--flash", icon: <SvgFlash size={9} />, text: "Flash" }
-    : p.is_hot ? { cls: "sp-badge--hot", icon: <SvgFire size={9} />, text: "Hot" }
-    : p.is_trending ? { cls: "sp-badge--trend", icon: <SvgTrendUp size={9} />, text: "Trending" }
-    : p.is_new ? { cls: "sp-badge--new", icon: <SvgStar size={9} />, text: "New" }
+  const badge = p.is_featured
+    ? { cls: "sp-badge--feat", icon: <SvgSparkle size={9} />, text: "Featured" }
+    : p.is_flash
+    ? { cls: "sp-badge--flash", icon: <SvgFlash size={9} />, text: "Flash" }
+    : p.is_hot
+    ? { cls: "sp-badge--hot", icon: <SvgFire size={9} />, text: "Hot" }
+    : p.is_trending
+    ? { cls: "sp-badge--trend", icon: <SvgTrendUp size={9} />, text: "Trending" }
+    : p.is_new
+    ? { cls: "sp-badge--new", icon: <SvgStar size={9} />, text: "New" }
     : null;
 
   return (
@@ -495,7 +429,7 @@ const ProductCard = memo<{
       onMouseEnter={() => onHover(p)}
       onFocus={() => onHover(p)}
       onClick={() => onClick(p)}
-      onKeyDown={(e: KeyboardEvent) => e.key === "Enter" && onClick(p)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(p)}
     >
       {/* Image */}
       <div className="sp-card__img-wrap">
@@ -515,9 +449,7 @@ const ProductCard = memo<{
         )}
 
         {disc && disc > 0 && (
-          <span className="sp-badge sp-badge--disc">
-            -{disc}%
-          </span>
+          <span className="sp-badge sp-badge--disc">-{disc}%</span>
         )}
 
         {imgCount > 1 && (
@@ -531,7 +463,7 @@ const ProductCard = memo<{
         <div className="sp-card__overlay">
           <button
             className="sp-card__overlay-btn"
-            onClick={(e) => { e.stopPropagation(); }}
+            onClick={(e) => e.stopPropagation()}
             aria-label="Add to wishlist"
             type="button"
           >
@@ -577,7 +509,11 @@ const ProductCard = memo<{
         </div>
 
         {p.condition && (
-          <span className={`sp-card__condition sp-cond--${p.condition.toLowerCase().replace(/\s+/g, "")}`}>
+          <span
+            className={`sp-card__condition sp-cond--${p.condition
+              .toLowerCase()
+              .replace(/\s+/g, "")}`}
+          >
             {p.condition}
           </span>
         )}
@@ -587,23 +523,24 @@ const ProductCard = memo<{
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   FILTER PANEL
+   FILTER PANEL (LEFT SIDEBAR)
    ═══════════════════════════════════════════════════════════════ */
-const FilterPanel = memo<{
-  aggregations: Aggregations;
-  draft: DraftFilters;
-  onChange: (key: keyof DraftFilters, value: string) => void;
-  onApply: () => void;
-  onReset: () => void;
-  activeCount: number;
-}>(({ aggregations, draft, onChange, onApply, onReset, activeCount }) => {
+const FilterPanel = memo(function FilterPanel({
+  aggregations,
+  draft,
+  onChange,
+  onApply,
+  onReset,
+  activeCount,
+}) {
   const { price, conditions, states, categories } = aggregations;
 
-  const activePreset = PRICE_PRESETS.find(
-    (p) => p.min === (draft.min_price || "") && p.max === (draft.max_price || "")
-  );
+  const activePreset =
+    PRICE_PRESETS.find(
+      (p) => p.min === (draft.min_price || "") && p.max === (draft.max_price || "")
+    ) || null;
 
-  const togglePreset = (preset: typeof PRICE_PRESETS[number]) => {
+  const togglePreset = (preset) => {
     if (activePreset?.label === preset.label) {
       onChange("min_price", "");
       onChange("max_price", "");
@@ -639,11 +576,13 @@ const FilterPanel = memo<{
             {SORT_OPTIONS.map((opt) => (
               <button
                 key={opt.value}
-                className={`sp-panel__sort-btn ${draft.sort === opt.value ? "sp-panel__sort-btn--active" : ""}`}
+                className={`sp-panel__sort-btn ${
+                  draft.sort === opt.value ? "sp-panel__sort-btn--active" : ""
+                }`}
                 onClick={() => onChange("sort", opt.value)}
                 type="button"
               >
-                {opt.icon}
+                <SortIcon name={opt.icon} />
                 {opt.label}
               </button>
             ))}
@@ -687,9 +626,11 @@ const FilterPanel = memo<{
               <input
                 type="number"
                 min={0}
-                placeholder={price.min ? `${price.min.toLocaleString()}` : "Min"}
+                placeholder={
+                  price.min ? `${price.min.toLocaleString()}` : "Min"
+                }
                 value={draft.min_price}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onChange("min_price", e.target.value)}
+                onChange={(e) => onChange("min_price", e.target.value)}
               />
             </div>
             <span className="sp-panel__price-sep">
@@ -700,9 +641,11 @@ const FilterPanel = memo<{
               <input
                 type="number"
                 min={0}
-                placeholder={price.max ? `${price.max.toLocaleString()}` : "Max"}
+                placeholder={
+                  price.max ? `${price.max.toLocaleString()}` : "Max"
+                }
                 value={draft.max_price}
-                onChange={(e: ChangeEvent<HTMLInputElement>) => onChange("max_price", e.target.value)}
+                onChange={(e) => onChange("max_price", e.target.value)}
               />
             </div>
           </div>
@@ -710,7 +653,11 @@ const FilterPanel = memo<{
             {PRICE_PRESETS.map((preset) => (
               <button
                 key={preset.label}
-                className={`sp-panel__preset ${activePreset?.label === preset.label ? "sp-panel__preset--active" : ""}`}
+                className={`sp-panel__preset ${
+                  activePreset?.label === preset.label
+                    ? "sp-panel__preset--active"
+                    : ""
+                }`}
                 onClick={() => togglePreset(preset)}
                 type="button"
               >
@@ -730,7 +677,9 @@ const FilterPanel = memo<{
                 return (
                   <button
                     key={c}
-                    className={`sp-panel__cond ${isActive ? "sp-panel__cond--active" : ""}`}
+                    className={`sp-panel__cond ${
+                      isActive ? "sp-panel__cond--active" : ""
+                    }`}
                     onClick={() => onChange("condition", isActive ? "" : c)}
                     type="button"
                   >
@@ -754,11 +703,13 @@ const FilterPanel = memo<{
               <select
                 className="sp-panel__select"
                 value={draft.state}
-                onChange={(e: ChangeEvent<HTMLSelectElement>) => onChange("state", e.target.value)}
+                onChange={(e) => onChange("state", e.target.value)}
               >
                 <option value="">All States</option>
                 {states.map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
               <SvgChevronRight size={12} />
@@ -778,30 +729,36 @@ const FilterPanel = memo<{
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   PREVIEW PANE
+   PREVIEW PANE (RIGHT SIDEBAR)
    ═══════════════════════════════════════════════════════════════ */
-const PreviewPane = memo<{
-  product: Product | null;
-  onClose: () => void;
-  onNavigate: (p: Product) => void;
-}>(({ product: p, onClose, onNavigate }) => {
-  if (!p) return (
-    <aside className="sp-preview sp-preview--empty" aria-label="Product preview">
-      <div className="sp-preview__placeholder">
-        <SvgEye size={32} />
-        <p>Hover over a product to preview</p>
-      </div>
-    </aside>
-  );
+const PreviewPane = memo(function PreviewPane({ product: p, onClose, onNavigate }) {
+  if (!p) {
+    return (
+      <aside className="sp-preview sp-preview--empty" aria-label="Product preview">
+        <div className="sp-preview__placeholder">
+          <SvgEye size={32} />
+          <p>Hover over a product to preview</p>
+        </div>
+      </aside>
+    );
+  }
 
-  const disc = discount(p);
+  const disc = calcDiscount(p);
   const loc = formatCity(p.city, p.state);
 
   return (
-    <aside className="sp-preview sp-preview--active" aria-label={`Preview of ${p.title}`}>
+    <aside
+      className="sp-preview sp-preview--active"
+      aria-label={`Preview of ${p.title}`}
+    >
       <div className="sp-preview__header">
         <span className="sp-preview__header-tag">Quick View</span>
-        <button className="sp-preview__close" onClick={onClose} type="button" aria-label="Close preview">
+        <button
+          className="sp-preview__close"
+          onClick={onClose}
+          type="button"
+          aria-label="Close preview"
+        >
           <SvgClose size={12} />
         </button>
       </div>
@@ -826,7 +783,9 @@ const PreviewPane = memo<{
             <img key={i} src={img} alt="" className="sp-preview__thumb" />
           ))}
           {p.images.length > 5 && (
-            <span className="sp-preview__thumb-more">+{p.images.length - 5}</span>
+            <span className="sp-preview__thumb-more">
+              +{p.images.length - 5}
+            </span>
           )}
         </div>
       )}
@@ -838,7 +797,9 @@ const PreviewPane = memo<{
         <div className="sp-preview__price-block">
           <span className="sp-preview__price">{naira(p.price)}</span>
           {p.original_price && p.original_price > p.price && (
-            <span className="sp-preview__orig">{naira(p.original_price)}</span>
+            <span className="sp-preview__orig">
+              {naira(p.original_price)}
+            </span>
           )}
         </div>
 
@@ -846,7 +807,9 @@ const PreviewPane = memo<{
           <div className="sp-preview__rating">
             <Stars rating={p.rating} size={13} />
             {p.review_count != null && (
-              <span className="sp-preview__reviews">{p.review_count} review{p.review_count !== 1 ? "s" : ""}</span>
+              <span className="sp-preview__reviews">
+                {p.review_count} review{p.review_count !== 1 ? "s" : ""}
+              </span>
             )}
           </div>
         )}
@@ -887,7 +850,11 @@ const PreviewPane = memo<{
         {p.seller_name && (
           <div className="sp-preview__seller">
             {p.seller_avatar ? (
-              <img src={p.seller_avatar} alt="" className="sp-preview__seller-avatar" />
+              <img
+                src={p.seller_avatar}
+                alt=""
+                className="sp-preview__seller-avatar"
+              />
             ) : (
               <span className="sp-preview__seller-avatar sp-preview__seller-avatar--placeholder">
                 {p.seller_name[0]?.toUpperCase()}
@@ -910,10 +877,18 @@ const PreviewPane = memo<{
           View Full Details
         </button>
         <div className="sp-preview__btn-row">
-          <button className="sp-preview__btn sp-preview__btn--icon" type="button" aria-label="Save">
+          <button
+            className="sp-preview__btn sp-preview__btn--icon"
+            type="button"
+            aria-label="Save"
+          >
             <SvgHeart size={15} />
           </button>
-          <button className="sp-preview__btn sp-preview__btn--icon" type="button" aria-label="Share">
+          <button
+            className="sp-preview__btn sp-preview__btn--icon"
+            type="button"
+            aria-label="Share"
+          >
             <SvgShare size={15} />
           </button>
         </div>
@@ -925,28 +900,40 @@ const PreviewPane = memo<{
 /* ═══════════════════════════════════════════════════════════════
    EMPTY STATE
    ═══════════════════════════════════════════════════════════════ */
-const EmptyState: FC<{ query: string; onReset: () => void }> = ({ query, onReset }) => (
-  <div className="sp-empty">
-    <SvgEmpty size={72} />
-    <h2 className="sp-empty__title">No results for "{query}"</h2>
-    <p className="sp-empty__sub">We searched everywhere but couldn't find a match.</p>
-    <ul className="sp-empty__tips">
-      <li><SvgSparkle size={10} /> Try different or fewer keywords</li>
-      <li><SvgSparkle size={10} /> Check for spelling mistakes</li>
-      <li><SvgSparkle size={10} /> Remove active filters</li>
-      <li><SvgSparkle size={10} /> Use broader search terms</li>
-    </ul>
-    <button className="sp-empty__btn" onClick={onReset} type="button">
-      <SvgClose size={12} />
-      Clear filters & retry
-    </button>
-  </div>
-);
+function EmptyState({ query, onReset }) {
+  return (
+    <div className="sp-empty">
+      <SvgEmpty size={72} />
+      <h2 className="sp-empty__title">No results for "{query}"</h2>
+      <p className="sp-empty__sub">
+        We searched everywhere but couldn't find a match.
+      </p>
+      <ul className="sp-empty__tips">
+        <li>
+          <SvgSparkle size={10} /> Try different or fewer keywords
+        </li>
+        <li>
+          <SvgSparkle size={10} /> Check for spelling mistakes
+        </li>
+        <li>
+          <SvgSparkle size={10} /> Remove active filters
+        </li>
+        <li>
+          <SvgSparkle size={10} /> Use broader search terms
+        </li>
+      </ul>
+      <button className="sp-empty__btn" onClick={onReset} type="button">
+        <SvgClose size={12} />
+        Clear filters & retry
+      </button>
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════════════
-   SCROLL TO TOP BUTTON
+   SCROLL TO TOP
    ═══════════════════════════════════════════════════════════════ */
-const ScrollToTop: FC = () => {
+function ScrollToTop() {
   const [visible, setVisible] = useState(false);
 
   useEffect(() => {
@@ -967,54 +954,71 @@ const ScrollToTop: FC = () => {
       <SvgArrowUp size={16} />
     </button>
   );
-};
+}
 
 /* ═══════════════════════════════════════════════════════════════
    MAIN — SearchPage
    ═══════════════════════════════════════════════════════════════ */
-const SearchPage: FC<{ user?: User }> = ({ user }) => {
+export default function SearchPage({ user }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
-  /* URL state */
-  const query       = searchParams.get("q")           || "";
-  const sort        = searchParams.get("sort")        || "relevance";
+  /* ── URL state ── */
+  const query = searchParams.get("q") || "";
+  const sort = searchParams.get("sort") || "relevance";
   const category_id = searchParams.get("category_id") || "";
-  const min_price   = searchParams.get("min_price")   || "";
-  const max_price   = searchParams.get("max_price")   || "";
-  const condition   = searchParams.get("condition")   || "";
-  const state       = searchParams.get("state")       || "";
-  const city        = searchParams.get("city")        || "";
-  const page        = Number(searchParams.get("page") || 0);
+  const min_price = searchParams.get("min_price") || "";
+  const max_price = searchParams.get("max_price") || "";
+  const condition = searchParams.get("condition") || "";
+  const state = searchParams.get("state") || "";
+  const city = searchParams.get("city") || "";
+  const page = Number(searchParams.get("page") || 0);
 
-  /* Component state */
-  const [products, setProducts] = useState<Product[]>([]);
-  const [aggregations, setAggregations] = useState<Aggregations>({
-    price: { min: 0, max: 0 }, conditions: [], states: [], categories: [],
+  /* ── Component state ── */
+  const [products, setProducts] = useState([]);
+  const [aggregations, setAggregations] = useState({
+    price: { min: 0, max: 0 },
+    conditions: [],
+    states: [],
+    categories: [],
   });
-  const [meta, setMeta] = useState<Meta | null>(null);
+  const [meta, setMeta] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"grid" | "list" | "masonry">("grid");
-  const [preview, setPreview] = useState<Product | null>(null);
+  const [error, setError] = useState(null);
+  const [view, setView] = useState("grid");
+  const [preview, setPreview] = useState(null);
   const [filterCollapsed, setFilterCollapsed] = useState(false);
 
-  /* Draft filters */
-  const [draft, setDraft] = useState<DraftFilters>({
-    sort, category_id, min_price, max_price, condition, state, city,
+  /* ── Draft filters ── */
+  const [draft, setDraft] = useState({
+    sort,
+    category_id,
+    min_price,
+    max_price,
+    condition,
+    state,
+    city,
   });
 
-  const filterOpen = useRef(false);
+  const filterOpenRef = useRef(false);
 
   useEffect(() => {
-    if (!filterOpen.current) {
-      setDraft({ sort, category_id, min_price, max_price, condition, state, city });
+    if (!filterOpenRef.current) {
+      setDraft({
+        sort,
+        category_id,
+        min_price,
+        max_price,
+        condition,
+        state,
+        city,
+      });
     }
   }, [sort, category_id, min_price, max_price, condition, state, city]);
 
-  const abortRef = useRef<AbortController | null>(null);
+  const abortRef = useRef(null);
 
-  /* Fetch */
+  /* ── Fetch ── */
   const fetchResults = useCallback(async () => {
     if (!query || query.length < 2) {
       setProducts([]);
@@ -1026,7 +1030,11 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
     setLoading(true);
     setError(null);
 
-    const params = new URLSearchParams({ q: query, page: String(page), limit: String(PAGE_SIZE) });
+    const params = new URLSearchParams({
+      q: query,
+      page: String(page),
+      limit: String(PAGE_SIZE),
+    });
     if (sort && sort !== "relevance") params.set("sort", sort);
     if (category_id) params.set("category_id", category_id);
     if (min_price) params.set("min_price", min_price);
@@ -1036,7 +1044,9 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
     if (city) params.set("city", city);
 
     try {
-      const res = await fetch(`${API}/search?${params}`, { signal: abortRef.current.signal });
+      const res = await fetch(`${API}/search?${params}`, {
+        signal: abortRef.current.signal,
+      });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.message || `HTTP ${res.status}`);
@@ -1044,9 +1054,16 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
       const data = await res.json();
       setProducts(data.products || []);
       setMeta(data.meta || null);
-      setAggregations(data.aggregations || { price: { min: 0, max: 0 }, conditions: [], states: [], categories: [] });
+      setAggregations(
+        data.aggregations || {
+          price: { min: 0, max: 0 },
+          conditions: [],
+          states: [],
+          categories: [],
+        }
+      );
       window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (err: any) {
+    } catch (err) {
       if (err.name !== "AbortError") {
         setError(err.message);
         setProducts([]);
@@ -1054,24 +1071,34 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
     } finally {
       setLoading(false);
     }
-  }, [query, page, sort, category_id, min_price, max_price, condition, state, city]);
+  }, [
+    query,
+    page,
+    sort,
+    category_id,
+    min_price,
+    max_price,
+    condition,
+    state,
+    city,
+  ]);
 
   useEffect(() => {
     fetchResults();
     return () => abortRef.current?.abort();
   }, [fetchResults]);
 
-  /* Handlers */
-  const handleDraftChange = useCallback((key: keyof DraftFilters, value: string) => {
-    filterOpen.current = true;
+  /* ── Handlers ── */
+  const handleDraftChange = useCallback((key, value) => {
+    filterOpenRef.current = true;
     setDraft((prev) => ({ ...prev, [key]: value }));
   }, []);
 
   const handleApply = useCallback(() => {
-    filterOpen.current = false;
+    filterOpenRef.current = false;
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      const set = (k: string, v: string) => v ? next.set(k, v) : next.delete(k);
+      const set = (k, v) => (v ? next.set(k, v) : next.delete(k));
       if (draft.sort && draft.sort !== "relevance") next.set("sort", draft.sort);
       else next.delete("sort");
       set("category_id", draft.category_id);
@@ -1086,66 +1113,123 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
   }, [draft, setSearchParams]);
 
   const handleReset = useCallback(() => {
-    filterOpen.current = false;
+    filterOpenRef.current = false;
     setSearchParams({ q: query });
-    setDraft({ sort: "relevance", category_id: "", min_price: "", max_price: "", condition: "", state: "", city: "" });
+    setDraft({
+      sort: "relevance",
+      category_id: "",
+      min_price: "",
+      max_price: "",
+      condition: "",
+      state: "",
+      city: "",
+    });
   }, [query, setSearchParams]);
 
-  const removeFilter = useCallback((...keys: string[]) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      keys.forEach((k) => next.delete(k));
-      next.delete("page");
-      return next;
-    });
-  }, [setSearchParams]);
+  const removeFilter = useCallback(
+    (...keys) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        keys.forEach((k) => next.delete(k));
+        next.delete("page");
+        return next;
+      });
+    },
+    [setSearchParams]
+  );
 
-  const handlePage = useCallback((dir: number) => {
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      const newPage = Math.max(0, page + dir);
-      if (newPage === 0) next.delete("page");
-      else next.set("page", String(newPage));
-      return next;
-    });
-  }, [page, setSearchParams]);
+  const handlePage = useCallback(
+    (dir) => {
+      setSearchParams((prev) => {
+        const next = new URLSearchParams(prev);
+        const newPage = Math.max(0, page + dir);
+        if (newPage === 0) next.delete("page");
+        else next.set("page", String(newPage));
+        return next;
+      });
+    },
+    [page, setSearchParams]
+  );
 
-  const handleProductClick = useCallback((p: Product) => {
-    navigate(`/product/${p.id}`);
-  }, [navigate]);
+  const handleProductClick = useCallback(
+    (p) => {
+      navigate(`/product/${p.id}`);
+    },
+    [navigate]
+  );
 
-  /* Active chips */
-  const activeChips = useMemo<FilterChip[]>(() => {
-    const chips: FilterChip[] = [];
-    const SORT_LABELS: Record<string, string> = {
-      newest: "Newest", price_asc: "Price ↑", price_desc: "Price ↓", rating: "Top Rated",
+  /* ── Active chips ── */
+  const activeChips = useMemo(() => {
+    const chips = [];
+    const SORT_LABELS = {
+      newest: "Newest",
+      price_asc: "Price ↑",
+      price_desc: "Price ↓",
+      rating: "Top Rated",
     };
     if (sort && sort !== "relevance")
-      chips.push({ key: "sort", label: SORT_LABELS[sort] || sort, remove: () => removeFilter("sort") });
+      chips.push({
+        key: "sort",
+        label: SORT_LABELS[sort] || sort,
+        remove: () => removeFilter("sort"),
+      });
     if (condition)
-      chips.push({ key: "condition", label: condition, remove: () => removeFilter("condition") });
+      chips.push({
+        key: "condition",
+        label: condition,
+        remove: () => removeFilter("condition"),
+      });
     if (state)
-      chips.push({ key: "state", label: state, remove: () => removeFilter("state") });
+      chips.push({
+        key: "state",
+        label: state,
+        remove: () => removeFilter("state"),
+      });
     if (city)
-      chips.push({ key: "city", label: city, remove: () => removeFilter("city") });
+      chips.push({
+        key: "city",
+        label: city,
+        remove: () => removeFilter("city"),
+      });
     if (min_price || max_price) {
-      const label = min_price && max_price
-        ? `${naira(min_price)} – ${naira(max_price)}`
-        : min_price ? `From ${naira(min_price)}` : `Up to ${naira(max_price)}`;
-      chips.push({ key: `price-${min_price}-${max_price}`, label, remove: () => removeFilter("min_price", "max_price") });
+      const label =
+        min_price && max_price
+          ? `${naira(min_price)} – ${naira(max_price)}`
+          : min_price
+          ? `From ${naira(min_price)}`
+          : `Up to ${naira(max_price)}`;
+      chips.push({
+        key: `price-${min_price}-${max_price}`,
+        label,
+        remove: () => removeFilter("min_price", "max_price"),
+      });
     }
     if (category_id) {
       const cat = aggregations.categories?.find((c) => c.id === category_id);
-      chips.push({ key: "category_id", label: cat?.name || "Category", remove: () => removeFilter("category_id") });
+      chips.push({
+        key: "category_id",
+        label: cat?.name || "Category",
+        remove: () => removeFilter("category_id"),
+      });
     }
     return chips;
-  }, [sort, condition, state, city, min_price, max_price, category_id, aggregations, removeFilter]);
+  }, [
+    sort,
+    condition,
+    state,
+    city,
+    min_price,
+    max_price,
+    category_id,
+    aggregations,
+    removeFilter,
+  ]);
 
   const totalPages = meta?.total ? Math.ceil(meta.total / PAGE_SIZE) : null;
 
-  /* ═════════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      RENDER
-  ═════════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
   return (
     <div className="sp">
       <TopNav user={user} />
@@ -1155,7 +1239,11 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
         <div className="sp__header-inner">
           {/* Breadcrumb */}
           <nav className="sp__crumb" aria-label="Breadcrumb">
-            <button className="sp__crumb-link" onClick={() => navigate("/")} type="button">
+            <button
+              className="sp__crumb-link"
+              onClick={() => navigate("/")}
+              type="button"
+            >
               <SvgHome size={11} />
               Home
             </button>
@@ -1177,15 +1265,26 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
           <div className="sp__title-row">
             <h1 className="sp__title">
               {loading ? (
-                <>Searching <span className="sp__title-q">"{query}"</span><span className="sp__dots"><span>.</span><span>.</span><span>.</span></span></>
+                <>
+                  Searching <span className="sp__title-q">"{query}"</span>
+                  <span className="sp__dots">
+                    <span>.</span>
+                    <span>.</span>
+                    <span>.</span>
+                  </span>
+                </>
               ) : meta && meta.total > 0 ? (
                 <>
-                  <span className="sp__title-count">{meta.total.toLocaleString()}</span>
-                  {" "}result{meta.total !== 1 ? "s" : ""} for{" "}
+                  <span className="sp__title-count">
+                    {meta.total.toLocaleString()}
+                  </span>{" "}
+                  result{meta.total !== 1 ? "s" : ""} for{" "}
                   <span className="sp__title-q">"{query}"</span>
                 </>
               ) : query ? (
-                <>No results for <span className="sp__title-q">"{query}"</span></>
+                <>
+                  No results for <span className="sp__title-q">"{query}"</span>
+                </>
               ) : (
                 "Search"
               )}
@@ -1194,15 +1293,21 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
             {/* Controls */}
             <div className="sp__controls">
               {/* View toggle */}
-              <div className="sp__view-group" role="group" aria-label="View mode">
-                {([
-                  { v: "grid" as const, icon: <SvgGrid />, label: "Grid" },
-                  { v: "masonry" as const, icon: <SvgMasonry />, label: "Masonry" },
-                  { v: "list" as const, icon: <SvgList />, label: "List" },
-                ]).map(({ v, icon, label }) => (
+              <div
+                className="sp__view-group"
+                role="group"
+                aria-label="View mode"
+              >
+                {[
+                  { v: "grid", icon: <SvgGrid />, label: "Grid" },
+                  { v: "masonry", icon: <SvgMasonry />, label: "Masonry" },
+                  { v: "list", icon: <SvgList />, label: "List" },
+                ].map(({ v, icon, label }) => (
                   <button
                     key={v}
-                    className={`sp__view-btn ${view === v ? "sp__view-btn--active" : ""}`}
+                    className={`sp__view-btn ${
+                      view === v ? "sp__view-btn--active" : ""
+                    }`}
                     onClick={() => setView(v)}
                     aria-label={label}
                     aria-pressed={view === v}
@@ -1215,10 +1320,14 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
 
               {/* Collapse filter panel */}
               <button
-                className={`sp__toggle-panel ${filterCollapsed ? "sp__toggle-panel--collapsed" : ""}`}
+                className={`sp__toggle-panel ${
+                  filterCollapsed ? "sp__toggle-panel--collapsed" : ""
+                }`}
                 onClick={() => setFilterCollapsed((v) => !v)}
                 type="button"
-                aria-label={filterCollapsed ? "Show filters" : "Hide filters"}
+                aria-label={
+                  filterCollapsed ? "Show filters" : "Hide filters"
+                }
               >
                 <SvgFilter />
                 {filterCollapsed ? "Show Filters" : "Hide Filters"}
@@ -1228,16 +1337,28 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
 
           {/* Active chips */}
           {activeChips.length > 0 && (
-            <div className="sp__chips" role="list" aria-label="Active filters">
+            <div
+              className="sp__chips"
+              role="list"
+              aria-label="Active filters"
+            >
               {activeChips.map((chip) => (
                 <span key={chip.key} className="sp__chip" role="listitem">
                   {chip.label}
-                  <button onClick={chip.remove} type="button" aria-label={`Remove ${chip.label}`}>
+                  <button
+                    onClick={chip.remove}
+                    type="button"
+                    aria-label={`Remove ${chip.label}`}
+                  >
                     <SvgClose size={10} />
                   </button>
                 </span>
               ))}
-              <button className="sp__chips-clear" onClick={handleReset} type="button">
+              <button
+                className="sp__chips-clear"
+                onClick={handleReset}
+                type="button"
+              >
                 Clear all
               </button>
             </div>
@@ -1246,8 +1367,11 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
       </header>
 
       {/* ── 3-COLUMN LAYOUT ── */}
-      <div className={`sp__layout ${filterCollapsed ? "sp__layout--collapsed" : ""}`}>
-
+      <div
+        className={`sp__layout ${
+          filterCollapsed ? "sp__layout--collapsed" : ""
+        }`}
+      >
         {/* Left: Filters */}
         {!filterCollapsed && (
           <FilterPanel
@@ -1261,14 +1385,20 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
         )}
 
         {/* Center: Results */}
-        <main className="sp__main" aria-live="polite" aria-busy={loading} aria-label="Search results">
-
+        <main
+          className="sp__main"
+          aria-live="polite"
+          aria-busy={loading}
+          aria-label="Search results"
+        >
           {/* No query */}
           {!query && !loading && (
             <div className="sp__placeholder">
               <SvgSearch size={44} />
               <h2>Start searching</h2>
-              <p>Use the search bar above to find products, brands, and more.</p>
+              <p>
+                Use the search bar above to find products, brands, and more.
+              </p>
             </div>
           )}
 
@@ -1278,7 +1408,11 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
               <SvgError size={52} />
               <h3>Something went wrong</h3>
               <p>{error}</p>
-              <button className="sp__error-btn" onClick={fetchResults} type="button">
+              <button
+                className="sp__error-btn"
+                onClick={fetchResults}
+                type="button"
+              >
                 Try again
               </button>
             </div>
@@ -1325,7 +1459,12 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
 
                 <span className="sp__page-info">
                   Page <strong>{page + 1}</strong>
-                  {totalPages && <> of <strong>{totalPages}</strong></>}
+                  {totalPages && (
+                    <>
+                      {" "}
+                      of <strong>{totalPages}</strong>
+                    </>
+                  )}
                 </span>
 
                 <button
@@ -1344,7 +1483,8 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
                 <div className="sp__end">
                   <span className="sp__end-line" />
                   <span>
-                    {(meta?.total || products.length).toLocaleString()} result{(meta?.total || products.length) !== 1 ? "s" : ""}
+                    {(meta?.total || products.length).toLocaleString()} result
+                    {(meta?.total || products.length) !== 1 ? "s" : ""}
                   </span>
                   <span className="sp__end-line" />
                 </div>
@@ -1369,6 +1509,4 @@ const SearchPage: FC<{ user?: User }> = ({ user }) => {
       <ScrollToTop />
     </div>
   );
-};
-
-export default SearchPage;
+}
