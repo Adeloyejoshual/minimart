@@ -1,43 +1,60 @@
-// src/pages/Homepage/DealsPage.jsx
+// src/pages/Homepage/NearbyPage.jsx
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   memo,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import TopNav      from "../../components/TopNav";
-import BottomNav   from "../../components/BottomNav";
-import Footer      from "../../components/Footer";
-import MasonryCard from "../../components/MasonryCard";
-import "../../styles/DealsPage.css";
+import TopNav          from "../../components/TopNav";
+import BottomNav       from "../../components/BottomNav";
+import Footer          from "../../components/Footer";
+import MasonryCard     from "../../components/MasonryCard";
+import "../../styles/NearbyPage.css";
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
-══════════════════════════════════════════════════════════════ */
+   ══════════════════════════════════════════════════════════════ */
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API       = `${BASE_URL}/api`;
 const PAGE_SIZE = 40;
 
-const PRICE_OPTIONS = [
-  { label: "All Deals",   value: "",      icon: "✦" },
-  { label: "Under ₦5k",  value: "5000",  icon: "💎" },
-  { label: "Under ₦10k", value: "10000", icon: "💎" },
-  { label: "Under ₦20k", value: "20000", icon: "💎" },
-  { label: "Under ₦50k", value: "50000", icon: "💎" },
-];
+const GPS_KEY = "loemart_gps";
+const GPS_TTL = 10 * 60_000;
 
-const SORT_OPTIONS = [
-  { label: "Lowest Price",  value: "price_asc",      icon: "↓" },
-  { label: "Most Popular",  value: "engagement_desc", icon: "🔥" },
-  { label: "Newest First",  value: "created_desc",    icon: "✨" },
-  { label: "Best Discount", value: "discount_desc",   icon: "🏷️" },
-];
+const GPS_OPTS = {
+  timeout           : 6_000,
+  enableHighAccuracy: false,
+  maximumAge        : 300_000,
+};
 
 /* ══════════════════════════════════════════════════════════════
-   HELPERS
-══════════════════════════════════════════════════════════════ */
+   GPS CACHE
+   ══════════════════════════════════════════════════════════════ */
+function readCachedGps() {
+  try {
+    const raw = sessionStorage.getItem(GPS_KEY);
+    if (!raw) return null;
+    const { coords, ts } = JSON.parse(raw);
+    if (Date.now() - ts < GPS_TTL) return coords;
+  } catch {}
+  return null;
+}
+
+function writeCachedGps(coords) {
+  try {
+    sessionStorage.setItem(
+      GPS_KEY,
+      JSON.stringify({ coords, ts: Date.now() })
+    );
+  } catch {}
+}
+
+/* ══════════════════════════════════════════════════════════════
+   NORMALIZE + DEDUP
+   ══════════════════════════════════════════════════════════════ */
 const normalizeProduct = (p) => {
   if (!p || typeof p !== "object" || !p.id) return null;
   return {
@@ -47,7 +64,7 @@ const normalizeProduct = (p) => {
     clicks_count      : Number(p.clicks_count      || 0),
     impression_count  : Number(p.impression_count  || 0),
     views             : Number(p.views             || 0),
-    favorites_count   : Number(p.favorites_count   || 0),
+    ctr               : Number(p.ctr               || 0),
     promotion_priority: Number(p.promotion_priority || 0),
     is_promoted       : !!p.is_promoted,
     image:
@@ -69,359 +86,165 @@ const dedup = (arr) => {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   FETCH
-══════════════════════════════════════════════════════════════ */
-async function fetchDealsPage({ page = 0, maxPrice, sortBy } = {}) {
-  const params = new URLSearchParams({
-    section : "deals",
-    page,
-    limit   : PAGE_SIZE,
-  });
-  if (maxPrice) params.set("max_price", maxPrice);
-  if (sortBy && sortBy !== "discount_desc") params.set("sort", sortBy);
+   FETCH — with silent fallback to general feed
+   ══════════════════════════════════════════════════════════════ */
+async function fetchNearbyPage({ pageParam = 0, coords } = {}) {
+  const makeParams = (section) => {
+    const p = new URLSearchParams({ page: pageParam, limit: PAGE_SIZE });
+    if (section) p.set("section", section);
+    if (coords) {
+      p.set("lat", coords.lat);
+      p.set("lng", coords.lng);
+    }
+    return p;
+  };
 
-  const res = await fetch(`${API}/homepage?${params}`);
+  /* Try nearby section first */
+  try {
+    const res = await fetch(`${API}/homepage?${makeParams("nearby")}`);
+    if (res.ok) {
+      const data  = await res.json();
+      const items = Array.isArray(data.products) ? data.products : [];
+      if (items.length > 0) return data;
+    }
+  } catch {}
+
+  /* Fallback → general feed */
+  const res = await fetch(`${API}/homepage?${makeParams()}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
 
 /* ══════════════════════════════════════════════════════════════
-   HOOK — detect desktop
-══════════════════════════════════════════════════════════════ */
-function useIsDesktop(breakpoint = 1024) {
-  const [isDesktop, setIsDesktop] = useState(
-    () => window.innerWidth >= breakpoint
-  );
-  useEffect(() => {
-    const mq = window.matchMedia(`(min-width: ${breakpoint}px)`);
-    const handler = (e) => setIsDesktop(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, [breakpoint]);
-  return isDesktop;
-}
+   INLINE COMPONENTS
+   ══════════════════════════════════════════════════════════════ */
 
-/* ══════════════════════════════════════════════════════════════
-   DESKTOP COMPONENTS
-══════════════════════════════════════════════════════════════ */
-
-/* ── Elite Hero Banner ── */
-const EliteHeroBanner = memo(function EliteHeroBanner({ total, loading }) {
-  return (
-    <div className="elite-hero">
-      <div className="elite-hero-bg" aria-hidden="true">
-        <div className="elite-hero-orb elite-hero-orb--1" />
-        <div className="elite-hero-orb elite-hero-orb--2" />
-        <div className="elite-hero-orb elite-hero-orb--3" />
-        <div className="elite-hero-grid" />
-      </div>
-
-      <div className="elite-hero-content">
-        <div className="elite-hero-badge">
-          <span className="elite-hero-badge-dot" />
-          LIVE DEALS
-        </div>
-
-        <h1 className="elite-hero-title">
-          Cheap <span className="elite-hero-title-accent">Deals</span>
-        </h1>
-
-        <p className="elite-hero-sub">
-          Handpicked bargains under ₦50,000 — updated daily
-        </p>
-
-        {!loading && total > 0 && (
-          <div className="elite-hero-stats">
-            <div className="elite-hero-stat">
-              <span className="elite-hero-stat-num">
-                {total.toLocaleString()}
-              </span>
-              <span className="elite-hero-stat-label">Active Deals</span>
-            </div>
-            <div className="elite-hero-stat-divider" />
-            <div className="elite-hero-stat">
-              <span className="elite-hero-stat-num">₦50k</span>
-              <span className="elite-hero-stat-label">Max Price</span>
-            </div>
-            <div className="elite-hero-stat-divider" />
-            <div className="elite-hero-stat">
-              <span className="elite-hero-stat-num">Daily</span>
-              <span className="elite-hero-stat-label">Updates</span>
-            </div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-});
-
-/* ── Elite Sidebar ── */
-const EliteSidebar = memo(function EliteSidebar({
-  maxPrice, sortBy, total, onMaxPriceChange, onSortChange, onBack,
+/* ── Header ── */
+const NearbyHeader = memo(function NearbyHeader({
+  gpsStatus, onBack, onRequestGps,
 }) {
+  const chipConfig = {
+    pending : { text: "Locating…",   cls: "nb-chip--pending" },
+    gps     : { text: "📍 GPS Live", cls: "nb-chip--gps"     },
+    denied  : { text: "📍 Manual",   cls: "nb-chip--manual"  },
+  };
+  const chip = chipConfig[gpsStatus] || chipConfig.pending;
+
   return (
-    <aside className="elite-sidebar">
-
-      {/* Logo mark */}
-      <div className="esb-logo">
-        <div className="esb-logo-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24"
-               fill="currentColor" aria-hidden="true">
-            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5
-                     10-5M2 12l10 5 10-5"/>
-          </svg>
-        </div>
-        <div>
-          <span className="esb-logo-text">Loemart</span>
-          <span className="esb-logo-sub">Deals Hub</span>
-        </div>
-      </div>
-
-      {/* Live counter */}
-      <div className="esb-counter">
-        <div className="esb-counter-pulse" aria-hidden="true" />
-        <div className="esb-counter-inner">
-          <span className="esb-counter-num">
-            {total > 0 ? total.toLocaleString() : "—"}
-          </span>
-          <span className="esb-counter-label">deals live now</span>
-        </div>
-      </div>
-
-      {/* Price filter */}
-      <div className="esb-section">
-        <div className="esb-section-head">
-          <span className="esb-section-icon">◈</span>
-          <span className="esb-section-title">Price Range</span>
-        </div>
-        <div className="esb-options">
-          {PRICE_OPTIONS.map((o) => (
-            <button
-              key={o.value}
-              className={`esb-opt${maxPrice === o.value ? " esb-opt--active" : ""}`}
-              onClick={() => onMaxPriceChange(o.value)}
-            >
-              <span className="esb-opt-icon">{o.icon}</span>
-              <span className="esb-opt-label">{o.label}</span>
-              {maxPrice === o.value && (
-                <span className="esb-opt-check">✓</span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Sort filter */}
-      <div className="esb-section">
-        <div className="esb-section-head">
-          <span className="esb-section-icon">◈</span>
-          <span className="esb-section-title">Sort By</span>
-        </div>
-        <div className="esb-options">
-          {SORT_OPTIONS.map((o) => (
-            <button
-              key={o.value}
-              className={`esb-opt${sortBy === o.value ? " esb-opt--active" : ""}`}
-              onClick={() => onSortChange(o.value)}
-            >
-              <span className="esb-opt-icon">{o.icon}</span>
-              <span className="esb-opt-label">{o.label}</span>
-              {sortBy === o.value && (
-                <span className="esb-opt-check">✓</span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Share */}
+    <div className="nb-header">
       <button
-        className="esb-share"
-        onClick={() => {
-          navigator.share?.({
-            title : "Loemart Deals",
-            text  : "Check out cheap deals on Loemart!",
-            url   : window.location.href,
-          }).catch(() => {});
-        }}
+        className="nb-back"
+        onClick={onBack}
+        aria-label="Go back"
       >
-        <svg width="14" height="14" viewBox="0 0 24 24"
-             fill="none" stroke="currentColor"
-             strokeWidth="2" strokeLinecap="round"
-             aria-hidden="true">
-          <circle cx="18" cy="5"  r="3" />
-          <circle cx="6"  cy="12" r="3" />
-          <circle cx="18" cy="19" r="3" />
-          <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" />
-        </svg>
-        Share Deals
-      </button>
-
-      {/* Back */}
-      <button className="esb-back" onClick={onBack}>
-        <svg width="13" height="13" viewBox="0 0 24 24"
-             fill="currentColor" aria-hidden="true">
-          <path d="M20 11H7.83l5.59-5.59L12
-                   4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
-        </svg>
-        All Listings
-      </button>
-    </aside>
-  );
-});
-
-/* ── Elite Top Bar ── */
-const EliteTopBar = memo(function EliteTopBar({
-  total, loading, sortBy, onSortChange,
-}) {
-  return (
-    <div className="elite-topbar">
-      <div className="elite-topbar-left">
-        <nav className="elite-breadcrumb" aria-label="Breadcrumb">
-          <span className="elite-bc-home">Home</span>
-          <span className="elite-bc-sep">›</span>
-          <span className="elite-bc-current">Deals</span>
-        </nav>
-        {!loading && total > 0 && (
-          <span className="elite-topbar-count">
-            {total.toLocaleString()} results
-          </span>
-        )}
-      </div>
-
-      <div className="elite-topbar-right">
-        <span className="elite-topbar-sort-label">Sort:</span>
-        <div className="elite-topbar-pills">
-          {SORT_OPTIONS.map((o) => (
-            <button
-              key={o.value}
-              className={`elite-pill${sortBy === o.value
-                ? " elite-pill--active" : ""}`}
-              onClick={() => onSortChange(o.value)}
-            >
-              {o.label}
-            </button>
-          ))}
-        </div>
-      </div>
-    </div>
-  );
-});
-
-/* ── Elite Skeleton ── */
-const SKEL_H = [240, 300, 210, 270, 255, 225, 290, 240,
-                260, 215, 280, 235, 250, 220, 265, 245];
-
-const EliteSkeleton = memo(function EliteSkeleton() {
-  return (
-    <div className="deals-masonry deals-masonry--desktop" aria-busy="true">
-      {SKEL_H.map((h, i) => (
-        <div key={i} className="elite-sk" style={{ height: h }}
-             aria-hidden="true">
-          <div className="elite-sk-img" style={{ height: h * 0.65 }} />
-          <div className="elite-sk-body">
-            <div className="elite-sk-line elite-sk-line--wide" />
-            <div className="elite-sk-line elite-sk-line--mid"  />
-            <div className="elite-sk-line elite-sk-line--short"/>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-});
-
-/* ── Mobile Header (unchanged) ── */
-const DealsHeader = memo(function DealsHeader({ onBack }) {
-  return (
-    <div className="dh-wrap">
-      <button className="dh-back" onClick={onBack} aria-label="Go back">
         <svg width="18" height="18" viewBox="0 0 24 24"
              fill="currentColor" aria-hidden="true">
-          <path d="M20 11H7.83l5.59-5.59L12
-                   4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
         </svg>
       </button>
-      <div className="dh-title-wrap">
-        <h1 className="dh-title">Cheap Deals</h1>
-        <span className="dh-chip">
-          <span className="dh-chip-dot" aria-hidden="true" />
-          Under ₦50k
+
+      <div className="nb-title-wrap">
+        <h1 className="nb-title">Near You</h1>
+        <span className={`nb-chip ${chip.cls}`}>
+          {gpsStatus === "pending" && (
+            <span className="nb-chip-spin" aria-hidden="true" />
+          )}
+          {gpsStatus === "gps" && (
+            <span className="nb-chip-dot" aria-hidden="true" />
+          )}
+          {chip.text}
         </span>
       </div>
-      <button className="dh-share" aria-label="Share deals page"
-        onClick={() => {
-          navigator.share?.({
-            title: "Loemart Deals",
-            text : "Check out cheap deals on Loemart!",
-            url  : window.location.href,
-          }).catch(() => {});
-        }}
-      >
-        <svg width="17" height="17" viewBox="0 0 24 24"
-             fill="none" stroke="currentColor"
-             strokeWidth="2" strokeLinecap="round"
-             aria-hidden="true">
-          <circle cx="18" cy="5"  r="3" />
-          <circle cx="6"  cy="12" r="3" />
-          <circle cx="18" cy="19" r="3" />
-          <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" />
-        </svg>
-      </button>
+
+      {gpsStatus === "denied" && (
+        <button
+          className="nb-gps-btn"
+          onClick={onRequestGps}
+          aria-label="Enable GPS"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor"
+               strokeWidth="2" strokeLinecap="round"
+               aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+          </svg>
+          Enable GPS
+        </button>
+      )}
     </div>
   );
 });
 
-/* ── Mobile Filter Bar (unchanged) ── */
-const DealsFilterBar = memo(function DealsFilterBar({
-  maxPrice, sortBy, total, onMaxPriceChange, onSortChange,
+/* ── Location banner ── */
+const NearbyLocationBanner = memo(function NearbyLocationBanner({
+  label, gpsStatus, count,
 }) {
+  if (!label) return null;
   return (
-    <div className="df-bar" role="toolbar" aria-label="Filter deals">
-      {total > 0 && (
-        <span className="df-count">
-          {total.toLocaleString()} deal{total !== 1 ? "s" : ""}
+    <div className="nb-loc-banner" role="status" aria-live="polite">
+      <div className="nb-loc-left">
+        <span className="nb-loc-icon" aria-hidden="true">
+          {gpsStatus === "gps" ? "📡" : "📍"}
+        </span>
+        <div className="nb-loc-text">
+          <span className="nb-loc-label">Showing listings near</span>
+          <strong className="nb-loc-place">{label}</strong>
+        </div>
+      </div>
+      {count > 0 && (
+        <span className="nb-loc-count">
+          {count.toLocaleString()} listing{count !== 1 ? "s" : ""}
         </span>
       )}
-      <div className="df-controls">
-        <div className="df-select-wrap">
-          <label htmlFor="df-price" className="df-label">Price</label>
-          <select id="df-price" className="df-select"
-            value={maxPrice}
-            onChange={(e) => onMaxPriceChange(e.target.value)}>
-            {PRICE_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-        <div className="df-select-wrap">
-          <label htmlFor="df-sort" className="df-label">Sort</label>
-          <select id="df-sort" className="df-select"
-            value={sortBy}
-            onChange={(e) => onSortChange(e.target.value)}>
-            {SORT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
+    </div>
+  );
+});
+
+/* ── GPS prompt ── */
+const NearbyGpsPrompt = memo(function NearbyGpsPrompt({
+  onAllow, onDismiss,
+}) {
+  return (
+    <div className="nb-gps-prompt" role="dialog"
+         aria-label="Enable location for better results">
+      <div className="nb-gps-prompt-icon" aria-hidden="true">📍</div>
+      <div className="nb-gps-prompt-body">
+        <h3 className="nb-gps-prompt-title">See listings near you</h3>
+        <p className="nb-gps-prompt-sub">
+          Allow location access to find deals closest to you first.
+        </p>
+      </div>
+      <div className="nb-gps-prompt-actions">
+        <button className="nb-gps-prompt-allow" onClick={onAllow}>
+          Allow Location
+        </button>
+        <button className="nb-gps-prompt-skip" onClick={onDismiss}>
+          Maybe later
+        </button>
       </div>
     </div>
   );
 });
 
-/* ── Mobile Skeleton ── */
-const SKEL_HEIGHTS = [220, 280, 200, 260, 240, 210, 270, 230, 250, 220];
-const DealsSkeleton = memo(function DealsSkeleton() {
+/* ── Skeleton ── */
+const SKEL_HEIGHTS = [240, 300, 220, 280, 260, 230, 310, 250, 270, 240];
+
+const NearbySkeleton = memo(function NearbySkeleton() {
   return (
-    <div className="deals-masonry" aria-busy="true">
-      {SKEL_HEIGHTS.map((h, i) => (
-        <div key={i} className="dc-sk deals-shimmer"
-             style={{ height: h }} aria-hidden="true" />
-      ))}
-    </div>
+    <>
+      <div className="nb-sk nb-sk-banner nb-shimmer" aria-hidden="true" />
+      <div className="nb-masonry" aria-busy="true">
+        {SKEL_HEIGHTS.map((h, i) => (
+          <div key={i} className="nb-sk nb-shimmer"
+               style={{ height: h }} aria-hidden="true" />
+        ))}
+      </div>
+    </>
   );
 });
 
-/* ── Scroll Top ── */
+/* ── Scroll to top ── */
 function ScrollTopBtn() {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -431,7 +254,7 @@ function ScrollTopBtn() {
   }, []);
   return (
     <button
-      className={`deals-scroll-top${visible ? " visible" : ""}`}
+      className={`nb-scroll-top${visible ? " visible" : ""}`}
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
       aria-label="Scroll to top"
     >
@@ -445,45 +268,39 @@ function ScrollTopBtn() {
   );
 }
 
-/* ── Empty State ── */
-function EmptyState({ onBack }) {
+/* ── Empty state ── */
+function EmptyState({ gpsStatus, onBrowseAll }) {
   return (
-    <div className="deals-empty" role="status">
-      <span className="deals-empty-emoji" aria-hidden="true">🏷️</span>
-      <h3 className="deals-empty-title">No deals right now</h3>
-      <p className="deals-empty-sub">
-        New listings under ₦50,000 appear daily.<br />Check back soon!
+    <div className="nb-empty" role="status">
+      <span className="nb-empty-emoji" aria-hidden="true">
+        {gpsStatus === "denied" ? "🗺️" : "📍"}
+      </span>
+      <h3 className="nb-empty-title">
+        {gpsStatus === "denied"
+          ? "Location access denied"
+          : "No nearby listings found"}
+      </h3>
+      <p className="nb-empty-sub">
+        {gpsStatus === "denied"
+          ? "We couldn't detect your location. Showing listings from across Nigeria."
+          : "There are no listings in your area yet. More sellers joining daily!"}
       </p>
-      <button className="deals-empty-btn" onClick={onBack}>
+      <button className="nb-empty-btn" onClick={onBrowseAll}>
         Browse All Listings
       </button>
     </div>
   );
 }
 
-/* ── Error Banner ── */
+/* ── Error banner ── */
 function ErrorBanner({ message, onRetry }) {
   return (
-    <div className="deals-err" role="alert">
-      <span className="deals-err-icon" aria-hidden="true">⚡</span>
-      <p className="deals-err-title">Could not load deals</p>
-      <p className="deals-err-msg">{message}</p>
-      <button className="deals-err-btn" onClick={onRetry}>Try again</button>
-    </div>
-  );
-}
-
-/* ── Desktop Empty ── */
-function EliteEmpty({ onBack }) {
-  return (
-    <div className="elite-empty">
-      <div className="elite-empty-icon">🏷️</div>
-      <h3 className="elite-empty-title">No deals found</h3>
-      <p className="elite-empty-sub">
-        Try adjusting your filters or check back later.
-      </p>
-      <button className="elite-empty-btn" onClick={onBack}>
-        Browse All Listings
+    <div className="nb-err" role="alert">
+      <span className="nb-err-icon" aria-hidden="true">⚡</span>
+      <p className="nb-err-title">Could not load listings</p>
+      <p className="nb-err-msg">{message}</p>
+      <button className="nb-err-btn" onClick={onRetry}>
+        Try again
       </button>
     </div>
   );
@@ -491,56 +308,84 @@ function EliteEmpty({ onBack }) {
 
 /* ══════════════════════════════════════════════════════════════
    MAIN COMPONENT
-══════════════════════════════════════════════════════════════ */
-export default function DealsPage({ user }) {
-  const navigate  = useNavigate();
-  const isDesktop = useIsDesktop();
+   ══════════════════════════════════════════════════════════════ */
+export default function NearbyPage({ user }) {
+  const navigate = useNavigate();
 
-  /* ── Filters ── */
-  const [maxPrice, setMaxPrice] = useState("");
-  const [sortBy,   setSortBy]   = useState("price_asc");
+  /* ── GPS ── */
+  const [coords,     setCoords]     = useState(() => readCachedGps());
+  const [gpsStatus,  setGpsStatus]  = useState(
+    () => readCachedGps() ? "gps" : "pending"
+  );
+  const [showPrompt, setShowPrompt] = useState(false);
+  const gpsAttempted = useRef(false);
 
-  /* ── Data ── */
+  const requestGps = useCallback(() => {
+    if (!navigator.geolocation) {
+      setGpsStatus("denied");
+      return;
+    }
+    setGpsStatus("pending");
+    setShowPrompt(false);
+    navigator.geolocation.getCurrentPosition(
+      ({ coords: c }) => {
+        const result = { lat: c.latitude, lng: c.longitude };
+        writeCachedGps(result);
+        setCoords(result);
+        setGpsStatus("gps");
+      },
+      () => setGpsStatus("denied"),
+      GPS_OPTS
+    );
+  }, []);
+
+  useEffect(() => {
+    if (gpsAttempted.current || coords) return;
+    gpsAttempted.current = true;
+    if (!navigator.geolocation) { setGpsStatus("denied"); return; }
+    setShowPrompt(true);
+    const t = setTimeout(requestGps, 800);
+    return () => clearTimeout(t);
+  }, [coords, requestGps]);
+
+  /* ── Data state ── */
   const [products,    setProducts]    = useState([]);
+  const [meta,        setMeta]        = useState({});
   const [loading,     setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error,       setError]       = useState(null);
   const [hasMore,     setHasMore]     = useState(false);
   const [page,        setPage]        = useState(0);
-  const [total,       setTotal]       = useState(0);
 
   const productsRef = useRef([]);
   const sentinelRef = useRef(null);
 
   /* ── Load ── */
-  const load = useCallback(async (pg = 0, append = false, mp, sb) => {
+  const load = useCallback(async (pg = 0, append = false) => {
     try {
-      const data = await fetchDealsPage({ page: pg, maxPrice: mp, sortBy: sb });
+      const data = await fetchNearbyPage({ pageParam: pg, coords });
       const raw  = Array.isArray(data.products) ? data.products : [];
       const normalized = dedup(raw).map(normalizeProduct).filter(Boolean);
       const merged = append
         ? dedup([...productsRef.current, ...normalized])
         : normalized;
-
       productsRef.current = merged;
       setProducts(merged);
-      setTotal(data.meta?.total ?? merged.length);
-      setHasMore(
-        data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE
-      );
+      setMeta(data.meta || {});
+      setHasMore(data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE);
     } catch (err) {
-      if (!append) setError(err.message || "Could not load deals.");
+      if (!append) setError(err.message || "Could not load listings.");
     }
-  }, []);
+  }, [coords]);
 
-  /* ── Reload on filter change ── */
+  /* ── Initial load ── */
   useEffect(() => {
     setLoading(true);
     setError(null);
     setPage(0);
     productsRef.current = [];
-    load(0, false, maxPrice, sortBy).finally(() => setLoading(false));
-  }, [maxPrice, sortBy, load]);
+    load(0, false).finally(() => setLoading(false));
+  }, [load]);
 
   /* ── Load more ── */
   const loadMore = useCallback(async () => {
@@ -548,12 +393,12 @@ export default function DealsPage({ user }) {
     setLoadingMore(true);
     const next = page + 1;
     try {
-      await load(next, true, maxPrice, sortBy);
+      await load(next, true);
       setPage(next);
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, page, maxPrice, sortBy, load]);
+  }, [loadingMore, hasMore, page, load]);
 
   /* ── Infinite scroll ── */
   useEffect(() => {
@@ -566,6 +411,20 @@ export default function DealsPage({ user }) {
     io.observe(el);
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
+
+  /* ── Location label ── */
+  const locLabel = useMemo(() => {
+    if (meta?.location) return meta.location;
+    if (products[0]) {
+      const p = products[0];
+      const c = p.location_city  || p.location?.city;
+      const s = p.location_state || p.location?.state;
+      return [c, s].filter(Boolean).join(", ") || null;
+    }
+    return null;
+  }, [meta, products]);
+
+  const total = meta?.total ?? products.length;
 
   /* ── Analytics ── */
   const trackView = useCallback((id) => {
@@ -583,151 +442,106 @@ export default function DealsPage({ user }) {
     navigate(`/product/${product.slug || product.id}`);
   }, [navigate]);
 
-  const handleRetry = useCallback(() => {
-    setError(null);
-    setLoading(true);
-    productsRef.current = [];
-    load(0, false, maxPrice, sortBy).finally(() => setLoading(false));
-  }, [load, maxPrice, sortBy]);
-
-  /* ── Shared grid ── */
-  const Grid = ({ desktop = false }) => (
-    <>
-      <div
-        className={`deals-masonry${desktop
-          ? " deals-masonry--desktop" : ""}`}
-        role="list"
-        aria-label="Deal listings"
-      >
-        {products.map((p, i) => (
-          <div key={p.id} role="listitem">
-            <MasonryCard
-              product={p}
-              priority={i < (desktop ? 10 : 6)}
-              onView={trackView}
-              onClick={handleClick}
-            />
-          </div>
-        ))}
-      </div>
-
-      <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
-
-      {loadingMore && (
-        <div className="elite-loading-more" aria-live="polite">
-          <div className="elite-loading-dots">
-            <span /><span /><span />
-          </div>
-          <span>Loading more deals…</span>
-        </div>
-      )}
-
-      {!hasMore && products.length > 0 && (
-        <div className="elite-feed-end">
-          <div className="elite-feed-end-line" />
-          <div className="elite-feed-end-content">
-            <span className="elite-feed-end-emoji">🎉</span>
-            <p className="elite-feed-end-text">You've seen all the deals</p>
-            <button
-              className="elite-feed-end-btn"
-              onClick={() => navigate("/")}
-            >
-              Browse all listings →
-            </button>
-          </div>
-          <div className="elite-feed-end-line" />
-        </div>
-      )}
-    </>
-  );
-
   /* ══════════════════════════════════════════════════════════
-     DESKTOP RENDER
-  ══════════════════════════════════════════════════════════ */
-  if (isDesktop) {
-    return (
-      <div className="deals-root deals-root--elite">
-        <TopNav user={user} />
-
-        {/* Hero */}
-        <EliteHeroBanner total={total} loading={loading} />
-
-        <div className="elite-layout">
-
-          {/* Sidebar */}
-          <EliteSidebar
-            maxPrice={maxPrice}
-            sortBy={sortBy}
-            total={total}
-            onMaxPriceChange={setMaxPrice}
-            onSortChange={setSortBy}
-            onBack={() => navigate("/")}
-          />
-
-          {/* Main */}
-          <main className="elite-main" id="main-content">
-
-            <EliteTopBar
-              total={total}
-              loading={loading}
-              sortBy={sortBy}
-              onSortChange={setSortBy}
-            />
-
-            {error && (
-              <ErrorBanner message={error} onRetry={handleRetry} />
-            )}
-
-            {loading && <EliteSkeleton />}
-
-            {!loading && !error && products.length === 0 && (
-              <EliteEmpty onBack={() => navigate("/")} />
-            )}
-
-            {!loading && products.length > 0 && (
-              <Grid desktop />
-            )}
-
-            {!loading && <Footer />}
-          </main>
-        </div>
-
-        <ScrollTopBtn />
-      </div>
-    );
-  }
-
-  /* ══════════════════════════════════════════════════════════
-     MOBILE RENDER
+     RENDER
   ══════════════════════════════════════════════════════════ */
   return (
-    <div className="deals-root">
+    <div className="nb-root">
       <TopNav user={user} />
 
-      <main className="deals-page" id="main-content">
-        <DealsHeader onBack={() => navigate(-1)} />
+      <main className="nb-page" id="nb-main">
 
-        <DealsFilterBar
-          maxPrice={maxPrice}
-          sortBy={sortBy}
-          total={total}
-          onMaxPriceChange={setMaxPrice}
-          onSortChange={setSortBy}
+        {/* Header */}
+        <NearbyHeader
+          gpsStatus={gpsStatus}
+          onBack={() => navigate(-1)}
+          onRequestGps={requestGps}
         />
 
+        {/* GPS prompt */}
+        {showPrompt && gpsStatus === "pending" && (
+          <NearbyGpsPrompt
+            onAllow={() => { setShowPrompt(false); requestGps(); }}
+            onDismiss={() => { setShowPrompt(false); setGpsStatus("denied"); }}
+          />
+        )}
+
+        {/* Location banner */}
+        {!loading && locLabel && (
+          <NearbyLocationBanner
+            label={locLabel}
+            gpsStatus={gpsStatus}
+            count={total}
+          />
+        )}
+
+        {/* Error */}
         {error && (
-          <ErrorBanner message={error} onRetry={handleRetry} />
+          <ErrorBanner
+            message={error}
+            onRetry={() => {
+              setError(null);
+              setLoading(true);
+              productsRef.current = [];
+              load(0, false).finally(() => setLoading(false));
+            }}
+          />
         )}
 
-        {loading && <DealsSkeleton />}
+        {/* Skeleton */}
+        {loading && <NearbySkeleton />}
 
+        {/* Empty */}
         {!loading && !error && products.length === 0 && (
-          <EmptyState onBack={() => navigate("/")} />
+          <EmptyState
+            gpsStatus={gpsStatus}
+            onBrowseAll={() => navigate("/")}
+          />
         )}
 
-        {!loading && products.length > 0 && <Grid />}
+        {/* Grid */}
+        {!loading && products.length > 0 && (
+          <>
+            <div className="nb-masonry" role="list"
+                 aria-label="Nearby listings">
+              {products.map((p, i) => (
+                <div key={p.id} role="listitem">
+                  <MasonryCard
+                    product={p}
+                    priority={i < 6}
+                    onView={trackView}
+                    onClick={handleClick}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div ref={sentinelRef} aria-hidden="true"
+                 style={{ height: 1 }} />
+
+            {loadingMore && (
+              <p className="nb-loading-more" aria-live="polite">
+                <span className="nb-spinner" aria-hidden="true" />
+                Loading more…
+              </p>
+            )}
+
+            {!hasMore && products.length > 0 && (
+              <div className="nb-feed-end-wrap">
+                <p className="nb-feed-end">
+                  You've seen all nearby listings 🎉
+                </p>
+                <button className="nb-feed-end-btn"
+                        onClick={() => navigate("/")}>
+                  Browse all →
+                </button>
+              </div>
+            )}
+          </>
+        )}
 
         {!loading && <Footer />}
+
       </main>
 
       <ScrollTopBtn />
