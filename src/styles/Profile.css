@@ -75,7 +75,7 @@
 }
 
 @keyframes pf-notif-pulse {
-  0%, 100% { transform: scale(1);   }
+  0%, 100% { transform: scale(1);    }
   50%      { transform: scale(1.15); }
 }
 
@@ -642,7 +642,7 @@
   -webkit-overflow-scrolling: touch;
   scroll-behavior: smooth;
 
-  /* hide thumb on mobile, show nothing */
+  /* hide thumb on mobile */
   scrollbar-width: none;
 }
 
@@ -786,8 +786,7 @@
 }
 
 /* ────────────────────────────────────────
-   DESKTOP GRID — used on ≥1024 alongside
-   or instead of scroll strip
+   DESKTOP GRID
 ──────────────────────────────────────── */
 .pf-recent-grid {
   display: none;
@@ -882,6 +881,40 @@
 
 .pf-referral-copy-icon     { display: flex; align-items: center; }
 .pf-referral-copy-icon svg { width: 14px; height: 14px; }
+
+/* ────────────────────────────────────────
+   MOBILE MENU SCROLL CONTAINER
+──────────────────────────────────────── */
+.pf-menu-scroll-container {
+  max-height: 60vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 12px;
+  padding-right: 2px;
+
+  /* Firefox */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 107, 53, 0.50) transparent;
+}
+
+.pf-menu-scroll-container::-webkit-scrollbar {
+  width: 4px;
+}
+
+.pf-menu-scroll-container::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 4px;
+}
+
+.pf-menu-scroll-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 107, 53, 0.45);
+  border-radius: 4px;
+}
+
+.pf-menu-scroll-container::-webkit-scrollbar-thumb:hover {
+  background: var(--hm-orange, #ff6b35);
+}
 
 /* ────────────────────────────────────────
    MENU SECTIONS (mobile + tablet)
@@ -1114,6 +1147,11 @@
 
   .pf-menu-section { margin: 0 12px 8px; }
 
+  /* Adjust scroll container margins on tiny screens */
+  .pf-menu-scroll-container {
+    max-height: 55vh;
+  }
+
   .pf-referral {
     margin: 0 12px 8px;
     flex-direction: column;
@@ -1181,6 +1219,11 @@
   .pf-menu-item    { padding: 15px 18px; }
   .pf-menu-icon    { width: 38px; height: 38px; }
 
+  /* Taller scroll area on tablet */
+  .pf-menu-scroll-container {
+    max-height: 65vh;
+  }
+
   .pf-logout {
     width: calc(100% - 40px);
     margin: 10px 20px;
@@ -1230,7 +1273,10 @@
   /* Visibility swap */
   .pf-mobile-only   { display: none !important; }
   .pf-desktop-only  { display: block; }
-  .pf-mobile-header { display: none;  }
+  .pf-mobile-header { display: none; }
+
+  /* Mobile menu scroll container hidden on desktop */
+  .pf-menu-scroll-container { display: none; }
 
   .pf-page {
     max-width: 1280px;
@@ -1253,8 +1299,6 @@
     position: sticky;
     top: 24px;
     max-height: calc(100vh - 48px);
-    overflow-y: auto;
-    scrollbar-width: none;
 
     background: rgba(255, 255, 255, 0.70);
     backdrop-filter: blur(16px);
@@ -1262,10 +1306,10 @@
     border: 1px solid rgba(237, 233, 227, 0.55);
     border-radius: 24px;
     box-shadow: 0 4px 32px rgba(0, 0, 0, 0.06);
+
+    /* Sidebar itself does not scroll — children handle it */
     overflow: hidden;
   }
-
-  .pf-sidebar::-webkit-scrollbar { display: none; }
 
   /* Identity inside sidebar */
   .pf-sidebar-identity {
@@ -1278,6 +1322,7 @@
     border-bottom: 1px solid rgba(237, 233, 227, 0.5);
     transition: background 0.15s;
     position: relative;
+    flex-shrink: 0;       /* never squash the identity block */
   }
 
   .pf-sidebar-identity:hover {
@@ -1386,17 +1431,53 @@
     border-top: none;
     border-bottom: 1px solid rgba(237, 233, 227, 0.5);
     padding: 16px 20px;
+    flex-shrink: 0;       /* never squash referral block */
   }
 
-  /* Sidebar nav */
+  /* ── Sidebar nav — scrollable ── */
   .pf-sidebar-nav {
     flex: 1;
-    padding: 8px 0;
-    overflow-y: auto;
-    scrollbar-width: none;
+    min-height: 0;         /* critical: allows flex child to shrink + scroll */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 
-  .pf-sidebar-nav::-webkit-scrollbar { display: none; }
+  /* Inner scroll wrapper */
+  .pf-sidebar-nav-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 8px 0 8px;
+    padding-right: 0;
+
+    /* Firefox */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 107, 53, 0.40) transparent;
+  }
+
+  .pf-sidebar-nav-scroll::-webkit-scrollbar {
+    width: 4px;
+  }
+
+  .pf-sidebar-nav-scroll::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 4px;
+    margin: 8px 0;
+  }
+
+  .pf-sidebar-nav-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255, 107, 53, 0.35);
+    border-radius: 4px;
+  }
+
+  .pf-sidebar-nav-scroll::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 107, 53, 0.65);
+  }
+
+  .pf-sidebar-nav-scroll::-webkit-scrollbar-thumb:active {
+    background: var(--hm-orange, #ff6b35);
+  }
 
   .pf-sidebar-section { padding: 4px 0; }
 
@@ -1468,7 +1549,7 @@
 
   .pf-sidebar-link-text { flex: 1; }
 
-  /* Sidebar logout */
+  /* Sidebar logout — pinned to bottom, never scrolls away */
   .pf-sidebar-logout {
     display: flex;
     align-items: center;
@@ -1484,6 +1565,7 @@
     font-weight: 700;
     cursor: pointer;
     transition: background 0.15s;
+    flex-shrink: 0;        /* always visible at bottom */
   }
 
   .pf-sidebar-logout svg   { width: 15px; height: 15px; }
@@ -1534,9 +1616,9 @@
     margin-bottom: 16px;
   }
 
-  /* ── Desktop: show scroll strip, hide grid ── */
-  .pf-recent-grid    { display: none; }
-  .pf-grid-skeleton  { display: none; }
+  /* Desktop: scroll strip only */
+  .pf-recent-grid   { display: none; }
+  .pf-grid-skeleton { display: none; }
 
   .pf-recent-scroll {
     display: flex;
@@ -1561,7 +1643,7 @@
   .pf-recent-scroll::-webkit-scrollbar-track {
     background: rgba(245, 243, 239, 0.55);
     border-radius: 10px;
-    margin: 0 20px;           /* inset from edges */
+    margin: 0 20px;
   }
 
   .pf-recent-scroll::-webkit-scrollbar-thumb {
@@ -1581,11 +1663,10 @@
   /* ── Dragging state — toggled by JS ── */
   .pf-recent-scroll--dragging {
     cursor: grabbing;
-    scroll-behavior: auto;    /* instant while dragging */
-    scroll-snap-type: none;   /* disable snap during drag */
+    scroll-behavior: auto;
+    scroll-snap-type: none;
   }
 
-  /* Prevent card clicks firing mid-drag */
   .pf-recent-scroll--dragging .pf-recent-card {
     pointer-events: none;
     user-select: none;
@@ -1593,13 +1674,8 @@
   }
 
   /* Wider cards on desktop */
-  .pf-recent-card {
-    width: 180px;
-  }
-
-  .pf-recent-img-wrap {
-    height: 130px;
-  }
+  .pf-recent-card     { width: 180px; }
+  .pf-recent-img-wrap { height: 130px; }
 
   .pf-footer {
     font-size: 12px;
@@ -1615,15 +1691,9 @@
   .pf-layout { gap: 32px; }
   .pf-sidebar { width: 320px; }
 
-  .pf-recent-card {
-    width: 200px;
-  }
+  .pf-recent-card     { width: 200px; }
+  .pf-recent-img-wrap { height: 140px; }
 
-  .pf-recent-img-wrap {
-    height: 140px;
-  }
-
-  /* Grid only shown if scroll strip is explicitly hidden */
   .pf-recent-grid {
     grid-template-columns: repeat(4, 1fr);
   }
@@ -1637,7 +1707,7 @@
    ULTRA WIDE  ≥ 1536px
 ════════════════════════════════════════════════════════════════ */
 @media (min-width: 1536px) {
-  .pf-page { max-width: 1440px; }
+  .pf-page    { max-width: 1440px; }
   .pf-sidebar { width: 340px; }
 
   .pf-sidebar-avatar {
@@ -1647,13 +1717,8 @@
 
   .pf-sidebar-name { font-size: 20px; }
 
-  .pf-recent-card {
-    width: 220px;
-  }
-
-  .pf-recent-img-wrap {
-    height: 155px;
-  }
+  .pf-recent-card     { width: 220px; }
+  .pf-recent-img-wrap { height: 155px; }
 
   .pf-recent-grid {
     grid-template-columns: repeat(4, 1fr);
@@ -1686,10 +1751,7 @@
     background: rgba(245, 243, 239, 0.6);
   }
 
-  /* No smooth scroll when motion is reduced */
-  .pf-recent-scroll {
-    scroll-behavior: auto;
-  }
+  .pf-recent-scroll { scroll-behavior: auto; }
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -1716,10 +1778,9 @@
   .pf-menu-item--active    { border-left: 3px solid Highlight; }
   .pf-sidebar-link--active { border-right: 3px solid Highlight; }
 
-  /* Force scrollbar thumb visible in high contrast */
-  .pf-recent-scroll::-webkit-scrollbar-thumb {
-    background: ButtonText;
-  }
+  .pf-recent-scroll::-webkit-scrollbar-thumb      { background: ButtonText; }
+  .pf-sidebar-nav-scroll::-webkit-scrollbar-thumb { background: ButtonText; }
+  .pf-menu-scroll-container::-webkit-scrollbar-thumb { background: ButtonText; }
 }
 
 /* ════════════════════════════════════════════════════════════════
@@ -1735,7 +1796,8 @@
   .pf-edit-hint,
   .pf-sidebar-edit-hint,
   .pf-error-banner,
-  .pf-menu-chevron {
+  .pf-menu-chevron,
+  .pf-menu-scroll-container {
     display: none !important;
   }
 
