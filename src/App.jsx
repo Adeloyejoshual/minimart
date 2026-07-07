@@ -26,14 +26,6 @@ import P2P                from "./pages/P2P";
 import MenuPage           from "./pages/MenuPage";
 
 /* ═══════════════════════════════════════════════════════════════
-   PAGES — HOMEPAGE SUB-PAGES
-═══════════════════════════════════════════════════════════════ */
-import NearbyPage   from "./pages/Homepage/NearbyPage";
-import DealsPage    from "./pages/Homepage/DealsPage";
-import LatestPage   from "./pages/Homepage/LatestPage";
-import TrendingPage from "./pages/Homepage/TrendingPage";
-
-/* ═══════════════════════════════════════════════════════════════
    PAGES — AUTH
 ═══════════════════════════════════════════════════════════════ */
 import AuthPage       from "./pages/AuthPage";
@@ -148,14 +140,14 @@ async function syncCartAfterLogin(token) {
           { headers: { Authorization: `Bearer ${token}` } }
         );
       } catch {
-        // One bad item should not block the rest
+        /* one bad item should not block the rest */
       }
     }
 
     localStorage.removeItem("mm_cart");
     window.dispatchEvent(new Event("cart-updated"));
   } catch {
-    // Silently ignore — cart sync is best-effort
+    /* silently ignore — cart sync is best-effort */
   }
 }
 
@@ -189,8 +181,8 @@ function useIsDesktop() {
 function HomeRoute({ user }) {
   const isDesktop = useIsDesktop();
   return isDesktop
-    ? <HomepageDesktop user={user}/>
-    : <Homepage        user={user}/>;
+    ? <HomepageDesktop user={user} />
+    : <Homepage        user={user} />;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -199,15 +191,15 @@ function HomeRoute({ user }) {
 function MessagesRoute({ user }) {
   const isDesktop = useIsDesktop();
   return isDesktop
-    ? <MessagingDesktop user={user}/>
-    : <Conversations    user={user}/>;
+    ? <MessagingDesktop user={user} />
+    : <Conversations    user={user} />;
 }
 
 function ChatRoute({ user }) {
   const isDesktop = useIsDesktop();
   return isDesktop
-    ? <MessagingDesktop user={user}/>
-    : <Chat             user={user}/>;
+    ? <MessagingDesktop user={user} />
+    : <Chat             user={user} />;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -216,13 +208,13 @@ function ChatRoute({ user }) {
 function ProtectedRoute({ user, children }) {
   const location = useLocation();
   if (!user) {
-    return <Navigate to="/auth" state={{ from: location }} replace/>;
+    return <Navigate to="/auth" state={{ from: location }} replace />;
   }
   return children;
 }
 
 function AdminProtectedRoute({ admin, children }) {
-  if (!admin) return <Navigate to="/admin/login" replace/>;
+  if (!admin) return <Navigate to="/admin/login" replace />;
   return children;
 }
 
@@ -238,7 +230,7 @@ export default function App() {
 
   const { resetCache } = useProductCache();
 
-  /* ── Marketplace user auth ──────────────────────────────── */
+  /* ── Marketplace user auth ── */
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEYS.marketplace);
     if (!token) { setLoadingUser(false); return; }
@@ -258,7 +250,7 @@ export default function App() {
       .finally(() => setLoadingUser(false));
   }, []);
 
-  /* ── Admin auth (local only) ────────────────────────────── */
+  /* ── Admin auth (local only) ── */
   useEffect(() => {
     const token       = localStorage.getItem(TOKEN_KEYS.admin);
     const storedAdmin = localStorage.getItem("admin_data");
@@ -273,25 +265,25 @@ export default function App() {
     }
   }, []);
 
-  /* ── Slow-server hint after 5s ──────────────────────────── */
+  /* ── Slow-server hint after 5s ── */
   useEffect(() => {
     if (!loadingUser && !loadingAdmin) return;
     const timer = setTimeout(() => setSlowServer(true), 5_000);
     return () => clearTimeout(timer);
   }, [loadingUser, loadingAdmin]);
 
-  /* ── Loading screen ─────────────────────────────────────── */
+  /* ── Loading screen ── */
   if (loadingUser || loadingAdmin) {
     return (
       <div className="global-loader">
         <div className="logo">Loemart</div>
-        <div className="spinner"/>
+        <div className="spinner" />
         <p>{slowServer ? "Waking up server… please wait" : "Loading Loemart…"}</p>
       </div>
     );
   }
 
-  /* ── Marketplace login handler ──────────────────────────── */
+  /* ── Marketplace login handler ── */
   const handleAuthSuccess = (userData, token, navigateFn, from) => {
     localStorage.setItem(TOKEN_KEYS.marketplace, token);
     resetCache();
@@ -304,7 +296,7 @@ export default function App() {
     navigateFn(from || "/", { replace: true });
   };
 
-  /* ── Logout handler ─────────────────────────────────────── */
+  /* ── Logout handler ── */
   const handleLogout = () => {
     localStorage.removeItem(TOKEN_KEYS.marketplace);
     setUser(null);
@@ -312,7 +304,7 @@ export default function App() {
     toast.success("Signed out");
   };
 
-  /* ── Profile update handler ─────────────────────────────── */
+  /* ── Profile update handler ── */
   const handleProfileUpdate = (updatedData) => {
     setUser((prev) => ({
       ...prev,
@@ -329,256 +321,250 @@ export default function App() {
   ════════════════════════════════════════════════════════════ */
   return (
     <Router>
-      <ScrollToTop/>
+      <ScrollToTop />
 
-      <Toaster position="top-right" toastOptions={TOASTER_OPTIONS}/>
+      <Toaster position="top-right" toastOptions={TOASTER_OPTIONS} />
 
       <Routes>
 
         {/* ══════════════════════════════════════════════════
-            PUBLIC ROUTES
+            PUBLIC
         ══════════════════════════════════════════════════ */}
-        <Route path="/"              element={<HomeRoute key={user?.id ?? "guest"} user={user}/>}/>
-        <Route path="/search"        element={<SearchPage    user={user}/>}/>
-        <Route path="/product/:slug" element={<ProductDetail user={user}/>}/>
-        <Route path="/shop/:slug"    element={<MarketDetail  user={user}/>}/>
-        <Route path="/seller/:id"    element={<SellerProfile user={user}/>}/>
-        <Route path="/terms"         element={<TermsAndConditions/>}/>
-        <Route path="/minimart"      element={<MinimartPage  user={user}/>}/>
-        <Route path="/p2p"           element={<P2P           user={user}/>}/>
-        <Route path="/menu"          element={<MenuPage      user={user}/>}/>
-
-        {/* ── Homepage sub-pages ── */}
-        <Route path="/nearby"   element={<NearbyPage   user={user}/>}/>
-        <Route path="/deals"    element={<DealsPage    user={user}/>}/>
-        <Route path="/latest"   element={<LatestPage   user={user}/>}/>
-        <Route path="/trending" element={<TrendingPage user={user}/>}/>
+        <Route path="/"              element={<HomeRoute key={user?.id ?? "guest"} user={user} />} />
+        <Route path="/search"        element={<SearchPage    user={user} />} />
+        <Route path="/product/:slug" element={<ProductDetail user={user} />} />
+        <Route path="/shop/:slug"    element={<MarketDetail  user={user} />} />
+        <Route path="/seller/:id"    element={<SellerProfile user={user} />} />
+        <Route path="/terms"         element={<TermsAndConditions />} />
+        <Route path="/minimart"      element={<MinimartPage  user={user} />} />
+        <Route path="/p2p"           element={<P2P           user={user} />} />
+        <Route path="/menu"          element={<MenuPage      user={user} />} />
 
         {/* ══════════════════════════════════════════════════
-            AUTH ROUTES
+            AUTH
         ══════════════════════════════════════════════════ */}
-        <Route path="/auth"
+        <Route
+          path="/auth"
           element={
             user
-              ? <Navigate to="/" replace/>
-              : <AuthPage setUser={handleAuthSuccess}/>
+              ? <Navigate to="/" replace />
+              : <AuthPage setUser={handleAuthSuccess} />
           }
         />
-        <Route path="/forgot-password"
+        <Route
+          path="/forgot-password"
           element={
             user
-              ? <Navigate to="/" replace/>
-              : <ForgotPassword/>
+              ? <Navigate to="/" replace />
+              : <ForgotPassword />
           }
         />
-        <Route path="/reset-password"
+        <Route
+          path="/reset-password"
           element={
             user
-              ? <Navigate to="/" replace/>
-              : <ResetPassword setUser={handleAuthSuccess}/>
+              ? <Navigate to="/" replace />
+              : <ResetPassword setUser={handleAuthSuccess} />
           }
         />
 
         {/* ══════════════════════════════════════════════════
-            SELLER ROUTES
+            SELLER
         ══════════════════════════════════════════════════ */}
-        <Route path="/become-seller"         element={<BecomeSeller    user={user}/>}/>
-        <Route path="/seller/dashboard"      element={<SellerDashboard/>}/>
-        <Route path="/seller/dashboard/:tab" element={<SellerDashboard/>}/>
+        <Route path="/become-seller"         element={<BecomeSeller    user={user} />} />
+        <Route path="/seller/dashboard"      element={<SellerDashboard />} />
+        <Route path="/seller/dashboard/:tab" element={<SellerDashboard />} />
 
         {/* ══════════════════════════════════════════════════
-            PROTECTED — USER ROUTES
+            PROTECTED — USER
         ══════════════════════════════════════════════════ */}
         <Route path="/profile" element={
           <ProtectedRoute user={user}>
-            <Profile user={user} onLogout={handleLogout}/>
+            <Profile user={user} onLogout={handleLogout} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/profile/edit" element={
           <ProtectedRoute user={user}>
-            <EditProfile onProfileUpdate={handleProfileUpdate}/>
+            <EditProfile onProfileUpdate={handleProfileUpdate} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/saved" element={
           <ProtectedRoute user={user}>
-            <SavedItems user={user}/>
+            <SavedItems user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/notifications" element={
           <ProtectedRoute user={user}>
-            <NotificationsPage user={user}/>
+            <NotificationsPage user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/settings" element={
           <ProtectedRoute user={user}>
-            <SettingsPage user={user}/>
+            <SettingsPage user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/minimart/add" element={
           <ProtectedRoute user={user}>
-            <AddProduct user={user}/>
+            <AddProduct user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         {/* ══════════════════════════════════════════════════
-            MESSAGING — RESPONSIVE (Desktop ↔ Mobile)
-
-            Desktop (≥1024px): Split-pane MessagingDesktop
-            Mobile  (<1024px): Separate Conversations / Chat
-
-            /conversations → sidebar list (mobile) or full desktop
-            /messages      → alias for desktop split-pane
-            /messages/:id  → desktop with thread selected
-            /chat/:id      → mobile full-screen chat or desktop
+            MESSAGING — RESPONSIVE
         ══════════════════════════════════════════════════ */}
         <Route path="/conversations" element={
           <ProtectedRoute user={user}>
-            <MessagesRoute user={user}/>
+            <MessagesRoute user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/messages" element={
           <ProtectedRoute user={user}>
-            <MessagesRoute user={user}/>
+            <MessagesRoute user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/messages/:threadId" element={
           <ProtectedRoute user={user}>
-            <ChatRoute user={user}/>
+            <ChatRoute user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/chat/:threadId" element={
           <ProtectedRoute user={user}>
-            <ChatRoute user={user}/>
+            <ChatRoute user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
-        {/* ── Other protected routes ── */}
+        {/* ══════════════════════════════════════════════════
+            OTHER PROTECTED
+        ══════════════════════════════════════════════════ */}
         <Route path="/coupons" element={
           <ProtectedRoute user={user}>
-            <Coupons user={user}/>
+            <Coupons user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/dashboard" element={
           <ProtectedRoute user={user}>
-            <Dashboard user={user}/>
+            <Dashboard user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/spin" element={
           <ProtectedRoute user={user}>
-            <SpinWheel user={user}/>
+            <SpinWheel user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/leaderboard" element={
           <ProtectedRoute user={user}>
-            <Leaderboard user={user}/>
+            <Leaderboard user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/verification" element={
           <ProtectedRoute user={user}>
-            <Verification user={user}/>
+            <Verification user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/wallet" element={
           <ProtectedRoute user={user}>
-            <Wallet user={user}/>
+            <Wallet user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/faq" element={
           <ProtectedRoute user={user}>
-            <FAQ user={user}/>
+            <FAQ user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/complain" element={
           <ProtectedRoute user={user}>
-            <Complain user={user}/>
+            <Complain user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/support" element={
           <ProtectedRoute user={user}>
-            <Support user={user}/>
+            <Support user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/invitation" element={
           <ProtectedRoute user={user}>
-            <Invitation user={user}/>
+            <Invitation user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/minimart/post-ad" element={
           <ProtectedRoute user={user}>
-            <PostAds user={user}/>
+            <PostAds user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         {/* ══════════════════════════════════════════════════
             CART / CHECKOUT / ORDERS
         ══════════════════════════════════════════════════ */}
-        <Route path="/shop/cart"       element={<CartPage/>}/>
-        <Route path="/payment/success" element={<PaymentSuccess/>}/>
+        <Route path="/shop/cart"       element={<CartPage />} />
+        <Route path="/payment/success" element={<PaymentSuccess />} />
 
         <Route path="/shop/checkout" element={
           <ProtectedRoute user={user}>
-            <CheckoutPage user={user}/>
+            <CheckoutPage user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/shop/orders/:orderGroupId" element={
           <ProtectedRoute user={user}>
-            <OrderSuccess user={user}/>
+            <OrderSuccess user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         <Route path="/shop/orders" element={
           <ProtectedRoute user={user}>
-            <OrderHistory user={user}/>
+            <OrderHistory user={user} />
           </ProtectedRoute>
-        }/>
+        } />
 
         {/* ══════════════════════════════════════════════════
             PAYMENT FLOW
         ══════════════════════════════════════════════════ */}
-        <Route path="/payment/callback"        element={<FlutterwaveRedirect/>}/>
-        <Route path="/order-success/:orderId"  element={<OrderSuccessPage/>}/>
-        <Route path="/payment-failed/:orderId" element={<PaymentFailedPage/>}/>
+        <Route path="/payment/callback"        element={<FlutterwaveRedirect />} />
+        <Route path="/order-success/:orderId"  element={<OrderSuccessPage />} />
+        <Route path="/payment-failed/:orderId" element={<PaymentFailedPage />} />
 
         {/* ══════════════════════════════════════════════════
-            ADMIN ROUTES
+            ADMIN
         ══════════════════════════════════════════════════ */}
-        <Route path="/admin"
+        <Route
+          path="/admin"
           element={
             admin
-              ? <Navigate to="/admin/dashboard" replace/>
-              : <Navigate to="/admin/login"     replace/>
+              ? <Navigate to="/admin/dashboard" replace />
+              : <Navigate to="/admin/login"     replace />
           }
         />
-        <Route path="/admin/login"
+        <Route
+          path="/admin/login"
           element={
             admin
-              ? <Navigate to="/admin/dashboard" replace/>
-              : <AdminLogin setAdmin={setAdmin}/>
+              ? <Navigate to="/admin/dashboard" replace />
+              : <AdminLogin setAdmin={setAdmin} />
           }
         />
-        <Route path="/admin/dashboard"
+        <Route
+          path="/admin/dashboard"
           element={
             <AdminProtectedRoute admin={admin}>
-              <AdminDashboard admin={admin}/>
+              <AdminDashboard admin={admin} />
             </AdminProtectedRoute>
           }
         />
@@ -586,7 +572,7 @@ export default function App() {
         {/* ══════════════════════════════════════════════════
             FALLBACK
         ══════════════════════════════════════════════════ */}
-        <Route path="*" element={<Navigate to="/" replace/>}/>
+        <Route path="*" element={<Navigate to="/" replace />} />
 
       </Routes>
     </Router>
