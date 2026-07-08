@@ -1,16 +1,12 @@
-/**
- * src/pages/ProductDetail/SimilarProducts.jsx
- *
- * Uses MasonryCard for full uncropped images.
- */
-
+// SimilarProducts.jsx — add memo + section semantics
+import { memo } from "react";
 import MasonryCard from "../../components/MasonryCard";
 
-export default function SimilarProducts({ products, onProductClick }) {
-  if (!products || products.length === 0) return null;
+export default memo(function SimilarProducts({ products, onProductClick }) {
+  if (!products?.length) return null;
 
   return (
-    <div className="pd-section">
+    <section className="pd-section" aria-label="Similar products">
       <h3 className="pd-section-h">You may also like</h3>
       <div className="pd-similar-masonry">
         {products.map((p) => (
@@ -21,6 +17,6 @@ export default function SimilarProducts({ products, onProductClick }) {
           />
         ))}
       </div>
-    </div>
+    </section>
   );
-}
+});
