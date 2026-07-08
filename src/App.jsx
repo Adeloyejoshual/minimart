@@ -28,9 +28,10 @@ import MenuPage           from "./pages/MenuPage";
 /* ═══════════════════════════════════════════════════════════════
    PAGES — HOMEPAGE SUB-PAGES
 ═══════════════════════════════════════════════════════════════ */
-import TrendingPage from "./pages/Homepage/TrendingPage";
-import LatestPage   from "./pages/Homepage/LatestPage";
-import NearbyPage   from "./pages/Homepage/NearbyPage";
+import TrendingPage      from "./pages/Homepage/TrendingPage";
+import LatestPage        from "./pages/Homepage/LatestPage";
+import NearbyPage        from "./pages/Homepage/NearbyPage";
+import NearbyPageDesktop from "./desktop/NearbyPageDesktop";
 
 /* ═══════════════════════════════════════════════════════════════
    PAGES — AUTH
@@ -85,7 +86,7 @@ import OrderSuccessPage    from "./pages/Checkout/Payment/OrderSuccessPage";
 import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
 
 /* ═══════════════════════════════════════════════════════════════
-   PAGES — ADMIN (folder is "page" not "pages")
+   PAGES — ADMIN
 ═══════════════════════════════════════════════════════════════ */
 import AdminLogin     from "./pages/admin/AdminLogin";
 import AdminDashboard from "./page/admin/AdminDashboard";
@@ -171,7 +172,7 @@ function ScrollToTop() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DESKTOP / MOBILE HOMEPAGE SPLIT
+   DESKTOP / MOBILE DETECTION
 ═══════════════════════════════════════════════════════════════ */
 function useIsDesktop() {
   var result = useState(function () {
@@ -190,15 +191,21 @@ function useIsDesktop() {
   return desktop;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   DESKTOP / MOBILE ROUTE SPLITS
+═══════════════════════════════════════════════════════════════ */
 function HomeRoute(props) {
   var isDesktop = useIsDesktop();
   if (isDesktop) return <HomepageDesktop user={props.user} />;
   return <Homepage user={props.user} />;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   DESKTOP / MOBILE MESSAGING SPLIT
-═══════════════════════════════════════════════════════════════ */
+function NearbyRoute(props) {
+  var isDesktop = useIsDesktop();
+  if (isDesktop) return <NearbyPageDesktop user={props.user} />;
+  return <NearbyPage user={props.user} />;
+}
+
 function MessagesRoute(props) {
   var isDesktop = useIsDesktop();
   if (isDesktop) return <MessagingDesktop user={props.user} />;
@@ -239,25 +246,13 @@ export default function App() {
   var admin = adminState[0];
   var setAdmin = adminState[1];
 
-  var loadingUserState = useState(true);
-  var loadingUser = loadingUserState[0];
-  var setLoadingUser = loadingUserState[1];
-
-  var loadingAdminState = useState(true);
-  var loadingAdmin = loadingAdminState[0];
-  var setLoadingAdmin = loadingAdminState[1];
-
-  var slowState = useState(false);
-  var slowServer = slowState[0];
-  var setSlowServer = slowState[1];
-
   var cache = useProductCache();
   var resetCache = cache.resetCache;
 
   /* ── Marketplace user auth ── */
   useEffect(function () {
     var token = localStorage.getItem(TOKEN_KEYS.marketplace);
-    if (!token) { setLoadingUser(false); return; }
+    if (!token) return;
 
     axios
       .get(USERS_API + "/me", {
@@ -270,42 +265,21 @@ export default function App() {
       .catch(function () {
         localStorage.removeItem(TOKEN_KEYS.marketplace);
         setUser(null);
-      })
-      .finally(function () { setLoadingUser(false); });
+      });
   }, []);
 
   /* ── Admin auth (local only) ── */
   useEffect(function () {
     var token = localStorage.getItem(TOKEN_KEYS.admin);
     var storedAdmin = localStorage.getItem("admin_data");
-    if (!token || !storedAdmin) { setLoadingAdmin(false); return; }
+    if (!token || !storedAdmin) return;
     try {
       setAdmin(JSON.parse(storedAdmin));
     } catch (e) {
       localStorage.removeItem("admin_data");
       localStorage.removeItem(TOKEN_KEYS.admin);
-    } finally {
-      setLoadingAdmin(false);
     }
   }, []);
-
-  /* ── Slow-server hint after 5s ── */
-  useEffect(function () {
-    if (!loadingUser && !loadingAdmin) return;
-    var timer = setTimeout(function () { setSlowServer(true); }, 5000);
-    return function () { clearTimeout(timer); };
-  }, [loadingUser, loadingAdmin]);
-
-  /* ── Loading screen ── */
-  if (loadingUser || loadingAdmin) {
-    return (
-      <div className="global-loader">
-        <div className="logo">Loemart</div>
-        <div className="spinner" />
-        <p>{slowServer ? "Waking up server… please wait" : "Loading Loemart…"}</p>
-      </div>
-    );
-  }
 
   /* ── Marketplace login handler ── */
   function handleAuthSuccess(userData, token, navigateFn, from) {
@@ -369,7 +343,7 @@ export default function App() {
         {/* ══════════════ HOMEPAGE SUB-PAGES ══════════════ */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
         <Route path="/latest"   element={<LatestPage   user={user} />} />
-        <Route path="/nearby"   element={<NearbyPage   user={user} />} />
+        <Route path="/nearby"   element={<NearbyRoute  user={user} />} />
 
         {/* ══════════════ AUTH ══════════════ */}
         <Route path="/auth" element={
