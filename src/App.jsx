@@ -90,8 +90,8 @@ import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
    PAGES — ADMIN
    ✅ Fixed typo: "./page/..." → "./pages/..."
 ═══════════════════════════════════════════════════════════════ */
-import AdminLogin     from "./page/admin/AdminLogin";
-import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminLogin     from "./pages/admin/AdminLogin";
+import AdminDashboard from "./page/admin/AdminDashboard";
 
 /* ═══════════════════════════════════════════════════════════════
    COMPONENTS
