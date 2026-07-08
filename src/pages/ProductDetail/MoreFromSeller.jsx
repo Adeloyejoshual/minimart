@@ -1,23 +1,16 @@
 /**
  * src/pages/ProductDetail/MoreFromSeller.jsx
- *
- * Horizontal scroll on mobile, responsive grid on desktop.
- * Full uncropped images.
  */
-
-import { useRef, useState, useCallback } from "react";
+import { memo } from "react";
 import { useNavigate } from "react-router-dom";
 
-const PH =
-  "https://placehold.co/800x600/f0ede8/b0a89e?text=Loemart";
+const PH = "https://placehold.co/800x600/f0ede8/b0a89e?text=Loemart";
 
-const naira = (n) =>
-  "₦" + Number(n || 0).toLocaleString("en-NG");
-
-const getImg = (p) => {
+// ✅ Move to src/utils/product.js and share across components
+export const getProductImage = (p) => {
   if (!p) return PH;
-  if (p.image) return p.image;
-  if (p.main_image) return p.main_image;
+  if (p.image)         return p.image;
+  if (p.main_image)    return p.main_image;
   if (p.thumbnail_url) return p.thumbnail_url;
   if (Array.isArray(p.images) && p.images.length > 0) {
     const first = p.images[0];
@@ -28,103 +21,84 @@ const getImg = (p) => {
   return PH;
 };
 
-export default function MoreFromSeller({
-  products,
-  seller,
-  sellerId,
-  onProductClick,
-}) {
-  const navigate = useNavigate();
-  const scrollRef = useRef(null);
-  const [touchStartX, setTouchStartX] = useState(null);
-  const [scrollStartLeft, setScrollStartLeft] = useState(0);
+export const formatNaira = (n) =>
+  "₦" + Number(n || 0).toLocaleString("en-NG");
 
-  /* ── swipe / drag to scroll ─────────────────── */
-  const handleTouchStart = useCallback((e) => {
-    const container = scrollRef.current;
-    if (!container) return;
-    setTouchStartX(e.touches[0].clientX);
-    setScrollStartLeft(container.scrollLeft);
-  }, []);
+// ── Seller Product Card ───────────────────────────────────────
+const SellerProductCard = memo(function SellerProductCard({ product, onClick }) {
+  const location = product.location_city || product.location?.city;
 
-  const handleTouchMove = useCallback(
-    (e) => {
-      if (touchStartX === null) return;
-      const container = scrollRef.current;
-      if (!container) return;
-      const diff = touchStartX - e.touches[0].clientX;
-      container.scrollLeft = scrollStartLeft + diff;
-    },
-    [touchStartX, scrollStartLeft]
+  return (
+    <div
+      className="pd-more-seller-card"
+      onClick={() => onClick(product)}
+      role="button"
+      tabIndex={0}
+      aria-label={`View ${product.title || "product"}`}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
+    >
+      <div className="pd-more-seller-img-wrap">
+        <img
+          src={getProductImage(product)}
+          alt={product.title || "Product image"}   // ✅ fallback alt
+          loading="lazy"
+          onError={(e) => { e.currentTarget.src = PH; }}
+        />
+        {product.is_promoted && (
+          <span className="pd-more-seller-badge" aria-label="Featured listing">
+            Featured
+          </span>
+        )}
+      </div>
+
+      <div className="pd-more-seller-body">
+        <p className="pd-more-seller-title">{product.title}</p>
+        <p className="pd-more-seller-price">{formatNaira(product.price)}</p>
+        {location && (
+          <p className="pd-more-seller-loc" aria-label={`Location: ${location}`}>
+            📍 {location}
+          </p>
+        )}
+      </div>
+    </div>
   );
+});
 
-  const handleTouchEnd = useCallback(() => {
-    setTouchStartX(null);
-  }, []);
+// ── Main Component ────────────────────────────────────────────
+function MoreFromSeller({ products, seller, sellerId, onProductClick }) {
+  const navigate = useNavigate();
 
-  if (!products || products.length === 0) return null;
+  if (!products?.length) return null;
+
+  const sellerName = seller?.store_name || seller?.name || "this seller";
 
   return (
     <div className="pd-section pd-more-seller-section">
-      <h3 className="pd-section-h">
-        More from{" "}
-        {seller?.store_name || seller?.name || "this seller"}
-      </h3>
+      <h3 className="pd-section-h">More from {sellerName}</h3>
 
-      <div
-        className="pd-more-seller-scroll"
-        ref={scrollRef}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-      >
+      {/*
+        ✅ Removed custom touch handlers — CSS handles native scroll:
+           .pd-more-seller-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+      */}
+      <div className="pd-more-seller-scroll">
         {products.map((p) => (
-          <div
+          <SellerProductCard
             key={p.id}
-            className="pd-more-seller-card"
-            onClick={() => onProductClick(p)}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(e) =>
-              e.key === "Enter" && onProductClick(p)
-            }
-          >
-            <div className="pd-more-seller-img-wrap">
-              <img
-                src={getImg(p)}
-                alt={p.title}
-                loading="lazy"
-                onError={(e) => {
-                  e.currentTarget.src = PH;
-                }}
-              />
-              {p.is_promoted && (
-                <span className="pd-more-seller-badge">
-                  Featured
-                </span>
-              )}
-            </div>
-            <div className="pd-more-seller-body">
-              <p className="pd-more-seller-title">{p.title}</p>
-              <p className="pd-more-seller-price">
-                {naira(p.price)}
-              </p>
-              {(p.location_city || p.location?.city) && (
-                <p className="pd-more-seller-loc">
-                  📍 {p.location_city || p.location?.city}
-                </p>
-              )}
-            </div>
-          </div>
+            product={p}
+            onClick={onProductClick}
+          />
         ))}
       </div>
 
       <button
         className="pd-see-all-btn"
         onClick={() => navigate(`/seller/${sellerId}`)}
+        aria-label={`See all listings from ${sellerName}`}
       >
         See all listings →
       </button>
     </div>
   );
 }
+
+export default memo(MoreFromSeller);
