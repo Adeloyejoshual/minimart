@@ -4,24 +4,25 @@
 :root {
   --hm-width-mobile: 300px;
   --hm-width-desktop: 340px;
-  --hm-bg: #0f1117;
-  --hm-bg-subtle: #161822;
-  --hm-surface: #1c1f2e;
-  --hm-border: rgba(255, 255, 255, 0.06);
-  --hm-text: #e4e6ef;
-  --hm-text-dim: #7a7f96;
-  --hm-text-faint: #4e526a;
-  --hm-accent: #6c5ce7;
-  --hm-accent-glow: rgba(108, 92, 231, 0.25);
-  --hm-cta-gradient: linear-gradient(135deg, #6c5ce7 0%, #a855f7 100%);
+  --hm-bg: var(--wh);
+  --hm-bg-subtle: var(--o-bg);
+  --hm-surface: var(--bg);
+  --hm-border: var(--bd);
+  --hm-text: var(--ink);
+  --hm-text-dim: var(--ink2);
+  --hm-text-faint: var(--ink3);
+  --hm-accent: var(--o);
+  --hm-accent-bg: var(--o-bg);
+  --hm-accent-glow: rgba(255, 92, 0, 0.25);
+  --hm-cta-gradient: linear-gradient(135deg, var(--o) 0%, var(--o2) 100%);
   --hm-radius: 12px;
   --hm-radius-sm: 8px;
   --hm-transition: 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 
   /* scrollbar */
   --hm-scroll-track: transparent;
-  --hm-scroll-thumb: rgba(108, 92, 231, 0.3);
-  --hm-scroll-thumb-hover: rgba(108, 92, 231, 0.55);
+  --hm-scroll-thumb: rgba(255, 92, 0, 0.3);
+  --hm-scroll-thumb-hover: rgba(255, 92, 0, 0.55);
   --hm-scroll-width: 5px;
 }
 
@@ -57,7 +58,7 @@
   height: 100dvh;
   background: var(--hm-bg);
   border-right: 1px solid var(--hm-border);
-  box-shadow: 8px 0 40px rgba(0, 0, 0, 0.5);
+  box-shadow: 8px 0 40px rgba(20, 18, 16, 0.12);
   transform: translateX(-105%);
   transition: transform var(--hm-transition);
   overflow: hidden;
@@ -134,7 +135,7 @@
 }
 
 .hm-close:hover {
-  background: rgba(108, 92, 231, 0.12);
+  background: var(--hm-accent-bg);
   border-color: var(--hm-accent);
 }
 
@@ -183,7 +184,7 @@
 
 .hm-cta:hover {
   transform: translateY(-1px);
-  box-shadow: 0 6px 28px rgba(108, 92, 231, 0.4);
+  box-shadow: 0 6px 28px rgba(255, 92, 0, 0.4);
 }
 
 .hm-cta:active {
@@ -311,12 +312,12 @@
 }
 
 .hm-item--active {
-  background: rgba(108, 92, 231, 0.1);
-  color: #fff;
+  background: var(--hm-accent-bg);
+  color: var(--hm-accent);
 }
 
 .hm-item--active:hover {
-  background: rgba(108, 92, 231, 0.15);
+  background: rgba(255, 92, 0, 0.15);
 }
 
 .hm-item-icon {
@@ -333,13 +334,13 @@
 }
 
 .hm-item--active .hm-item-icon {
-  background: rgba(108, 92, 231, 0.2);
+  background: rgba(255, 92, 0, 0.2);
   box-shadow: 0 0 12px var(--hm-accent-glow);
   color: var(--hm-accent);
 }
 
 .hm-item:hover .hm-item-icon {
-  background: rgba(108, 92, 231, 0.12);
+  background: rgba(255, 92, 0, 0.12);
 }
 
 .hm-item-label {
