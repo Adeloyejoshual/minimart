@@ -849,7 +849,7 @@ export default function SpinWheel() {
                 />
                 <p>No referral spins yet</p>
                 <small>Invite friends to earn bonus spins!</small>
-                <Link to="/invite" className="sw-empty-invite-btn">
+                <Link to="/invitation" className="sw-empty-invite-btn">
                   Go to Invite Page{" "}
                   <Icon name="arrowRight" size={14} />
                 </Link>
@@ -857,7 +857,7 @@ export default function SpinWheel() {
             )}
 
             <Link
-              to="/invite"
+              to="/invitation"
               className="sw-ref-cta"
               aria-label="Invite more friends"
             >
