@@ -119,16 +119,40 @@ const validateLoginBody = (body) => {
 
 /* ════════════════════════════════════════════════════════════
    REFERRAL — recordReferral
-   ✅ Now accepts a DB client so it runs INSIDE the registration
-      transaction. The referral row is committed atomically with
-      the user row — no more timing / replication issues.
+
+   Runs INSIDE the registration transaction (same pg client).
+   Uses the exact schema from your exported table:
+     inviter_id  UUID NOT NULL
+     invitee_id  UUID NOT NULL  ← legacy NOT NULL col
+     referee_id  UUID NULL      ← new col, used everywhere
+     invite_code VARCHAR(20)
+     status      VARCHAR(20)    DEFAULT 'pending'
+     reward_type VARCHAR(30)    DEFAULT 'bonus_spin'
+     reward_value DECIMAL(12,2)
+
+   Both invitee_id AND referee_id are written on every insert
+   so the NOT NULL constraint is satisfied and all new queries
+   work against referee_id.
+
+   NO ON CONFLICT clause — the unique index does not exist yet.
+   Duplicate prevention is done with an explicit SELECT first.
 ════════════════════════════════════════════════════════════ */
 async function recordReferral(client, inviteCode, newUserId) {
-  if (!inviteCode || !newUserId) return;
+  /* ── Entry log — confirms function was called ── */
+  console.log("[referral] recordReferral() called");
+  console.log("[referral]   invite_code :", inviteCode);
+  console.log("[referral]   new_user_id :", newUserId);
+
+  if (!inviteCode || !newUserId) {
+    console.warn("[referral] missing inviteCode or newUserId — aborting");
+    return;
+  }
 
   const code = String(inviteCode).toUpperCase().trim();
 
-  /* ── Find inviter ── */
+  /* ── 1. Find inviter ── */
+  console.log("[referral] looking up inviter by referral_code:", code);
+
   const { rows: [inviter] } = await client.query(
     `SELECT id, status
      FROM   users
@@ -138,83 +162,117 @@ async function recordReferral(client, inviteCode, newUserId) {
   );
 
   if (!inviter) {
-    console.warn(`[referral] code not found: ${code}`);
+    console.warn(`[referral] no user found with referral_code=${code}`);
     return;
   }
 
-  if (inviter.id === newUserId) {
-    console.warn(`[referral] self-referral blocked — user=${newUserId}`);
+  console.log(`[referral] inviter found: id=${inviter.id} status=${inviter.status}`);
+
+  /* ── 2. Guards ── */
+  if (String(inviter.id) === String(newUserId)) {
+    console.warn("[referral] self-referral blocked");
     return;
   }
 
   if (BANNED_STATUSES.includes(inviter.status)) {
-    console.warn(
-      `[referral] inviter ${inviter.id} is ${inviter.status} — skipping`
-    );
+    console.warn(`[referral] inviter is ${inviter.status} — skipping`);
     return;
   }
 
-  /* ── Guard: one referral per referee ── */
-  const { rowCount: alreadyReferred } = await client.query(
-    `SELECT 1 FROM referrals WHERE referee_id = $1 LIMIT 1`,
+  /* ── 3. Duplicate check — check BOTH columns ── */
+  const { rows: existing } = await client.query(
+    `SELECT id
+     FROM   referrals
+     WHERE  referee_id  = $1
+        OR  invitee_id  = $1
+     LIMIT  1`,
     [newUserId]
   );
 
-  if (alreadyReferred) {
-    console.warn(`[referral] user ${newUserId} already referred — skipping`);
+  if (existing.length > 0) {
+    console.warn(`[referral] user ${newUserId} already has a referral — skipping`);
     return;
   }
 
-  /* ── Insert referral row ── */
+  /* ── 4. Insert referral — NO ON CONFLICT clause ──
+          Writes both invitee_id (NOT NULL) and referee_id.  ── */
+  console.log("[referral] inserting referral row...");
+
   const { rows: [referral] } = await client.query(
     `INSERT INTO referrals
-       (inviter_id, referee_id, invite_code,
-        status, reward_type, reward_value)
-     VALUES ($1, $2, $3, 'pending', 'bonus_spin', 1)
-     ON CONFLICT DO NOTHING
+       (inviter_id,  invitee_id, referee_id,
+        invite_code, status,
+        reward_type, reward_value)
+     VALUES
+       ($1, $2, $2,
+        $3, 'pending',
+        'bonus_spin', 1)
      RETURNING id`,
     [inviter.id, newUserId, code]
   );
 
   if (!referral) {
-    console.warn(`[referral] insert conflict — duplicate skipped`);
+    console.error("[referral] INSERT returned no row — unexpected");
     return;
   }
 
-  /* ── Store referred_by on new user ── */
-  await client.query(
-    `UPDATE users SET referred_by = $1 WHERE id = $2`,
-    [inviter.id, newUserId]
-  );
+  console.log(`[referral] referral row inserted: id=${referral.id}`);
 
-  /* ── Log signed_up event ── */
-  await client.query(
-    `INSERT INTO referral_events
-       (referral_id, event_type, description, metadata)
-     VALUES ($1, 'signed_up',
-             'New user signed up using invite code',
-             $2::JSONB)`,
-    [
-      referral.id,
-      JSON.stringify({
-        invite_code : code,
-        inviter_id  : inviter.id,
-        referee_id  : newUserId,
-      }),
-    ]
-  );
+  /* ── 5. Store referred_by on new user (if column exists) ── */
+  try {
+    await client.query(
+      `UPDATE users
+       SET    referred_by = $1
+       WHERE  id          = $2
+         AND  referred_by IS NULL`,
+      [inviter.id, newUserId]
+    );
+    console.log(`[referral] referred_by set on user ${newUserId}`);
+  } catch (e) {
+    /* Column may not exist — non-fatal */
+    console.warn(`[referral] referred_by update skipped: ${e.message}`);
+  }
 
-  /* ── Increment inviter's total_referrals counter ── */
-  await client.query(
-    `UPDATE users
-     SET total_referrals = COALESCE(total_referrals, 0) + 1
-     WHERE id = $1`,
-    [inviter.id]
-  );
+  /* ── 6. Increment inviter's total_referrals ── */
+  try {
+    await client.query(
+      `UPDATE users
+       SET    total_referrals = COALESCE(total_referrals, 0) + 1
+       WHERE  id = $1`,
+      [inviter.id]
+    );
+    console.log(`[referral] total_referrals incremented for inviter ${inviter.id}`);
+  } catch (e) {
+    console.warn(`[referral] total_referrals update skipped: ${e.message}`);
+  }
+
+  /* ── 7. Log signed_up event ── */
+  try {
+    await client.query(
+      `INSERT INTO referral_events
+         (referral_id, event_type, description, metadata)
+       VALUES
+         ($1, 'signed_up',
+          'New user signed up using invite code',
+          $2::JSONB)`,
+      [
+        referral.id,
+        JSON.stringify({
+          invite_code : code,
+          inviter_id  : String(inviter.id),
+          referee_id  : String(newUserId),
+        }),
+      ]
+    );
+    console.log(`[referral] signed_up event logged for referral ${referral.id}`);
+  } catch (e) {
+    /* referral_events may not exist — non-fatal */
+    console.warn(`[referral] event log skipped: ${e.message}`);
+  }
 
   console.log(
-    `[referral] ✓ recorded  ` +
-    `inviter=${inviter.id}  referee=${newUserId}  code=${code}`
+    `[referral] ✓ DONE  inviter=${inviter.id}  ` +
+    `referee=${newUserId}  code=${code}  referral_id=${referral.id}`
   );
 }
 
@@ -225,70 +283,123 @@ async function recordReferral(client, inviteCode, newUserId) {
 async function grantReferralRewardOnVerify(verifiedUserId) {
   if (!verifiedUserId) return;
 
+  console.log(`[referral] grantReferralRewardOnVerify called — user=${verifiedUserId}`);
+
   try {
+    /* Check both columns for compatibility */
     const { rows: [referral] } = await pool.query(
       `SELECT id, inviter_id
        FROM   referrals
-       WHERE  referee_id = $1
-         AND  status     = 'pending'
+       WHERE  (referee_id = $1 OR invitee_id = $1)
+         AND  status = 'pending'
        LIMIT  1`,
       [verifiedUserId]
     );
 
-    if (!referral) return;
+    if (!referral) {
+      console.log(`[referral] no pending referral for user=${verifiedUserId} — skipping`);
+      return;
+    }
 
-    /* Atomic — prevents double-grant */
+    console.log(`[referral] found pending referral=${referral.id}`);
+
+    /* Atomic transition — only succeeds once */
     const { rowCount } = await pool.query(
       `UPDATE referrals
        SET    status      = 'verified',
-              verified_at = NOW()
+              verified_at = now()
        WHERE  id     = $1
          AND  status = 'pending'`,
       [referral.id]
     );
 
     if (!rowCount) {
-      console.warn(
-        `[referral] referral ${referral.id} already processed — skipping`
-      );
+      console.warn(`[referral] referral ${referral.id} already processed`);
       return;
     }
 
-    await pool.query(
-      `INSERT INTO referral_events
-         (referral_id, event_type, description)
-       VALUES ($1, 'email_verified',
-               'Referee verified their email address')`,
-      [referral.id]
-    );
-
-    const { rows: [result] } = await pool.query(
-      `SELECT grant_referral_reward($1) AS result`,
-      [referral.id]
-    );
-
-    const reward = result?.result;
-
-    if (reward?.success) {
-      console.log(
-        `[referral] ✓ reward granted  ` +
-        `inviter=${reward.inviter_id}  ` +
-        `referee=${verifiedUserId}  ` +
-        `+${reward.reward_value} spin`
+    /* Log email_verified event */
+    try {
+      await pool.query(
+        `INSERT INTO referral_events
+           (referral_id, event_type, description)
+         VALUES ($1, 'email_verified',
+                 'Referee verified their email address')`,
+        [referral.id]
       );
-    } else {
-      console.warn(
-        `[referral] reward not granted  ` +
-        `reason=${reward?.reason ?? "unknown"}  ` +
-        `referral=${referral.id}`
-      );
+    } catch (e) {
+      console.warn(`[referral] email_verified event log skipped: ${e.message}`);
     }
+
+    /* Grant bonus spin */
+    await grantBonusSpin(referral.id, referral.inviter_id, verifiedUserId);
 
   } catch (err) {
     console.error(
-      `[referral] grantReferralRewardOnVerify error (non-fatal): ${err.message}`
+      `[referral] grantReferralRewardOnVerify error (non-fatal): ` +
+      `${err.message}\n${err.stack}`
     );
   }
+}
+
+/* ════════════════════════════════════════════════════════════
+   grantBonusSpin
+   Inline reward — no DB stored procedure needed.
+   Idempotent: only fires when status = 'verified'.
+════════════════════════════════════════════════════════════ */
+async function grantBonusSpin(referralId, inviterId, refereeId) {
+  const REWARD = 1;
+
+  const { rowCount } = await pool.query(
+    `UPDATE referrals
+     SET    status          = 'rewarded',
+            reward_value    = $1,
+            reward_given_at = now()
+     WHERE  id     = $2
+       AND  status = 'verified'`,
+    [REWARD, referralId]
+  );
+
+  if (!rowCount) {
+    console.warn(
+      `[referral] grantBonusSpin — referral ${referralId} not in verified state`
+    );
+    return;
+  }
+
+  /* Credit inviter */
+  await pool.query(
+    `UPDATE users
+     SET    bonus_spins = COALESCE(bonus_spins, 0) + $1
+     WHERE  id = $2`,
+    [REWARD, inviterId]
+  );
+
+  /* Log reward_granted event */
+  try {
+    await pool.query(
+      `INSERT INTO referral_events
+         (referral_id, event_type, description, metadata)
+       VALUES ($1, 'reward_granted',
+               'Bonus spin awarded to inviter',
+               $2::JSONB)`,
+      [
+        referralId,
+        JSON.stringify({
+          inviter_id   : String(inviterId),
+          referee_id   : String(refereeId),
+          reward_value : REWARD,
+        }),
+      ]
+    );
+  } catch (e) {
+    console.warn(`[referral] reward_granted event log skipped: ${e.message}`);
+  }
+
+  console.log(
+    `[referral] ✓ bonus spin granted  ` +
+    `inviter=${inviterId}  referee=${refereeId}  +${REWARD} spin`
+  );
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -317,7 +428,18 @@ const authLimiter = mkLimiter({
 router.post("/register", authLimiter, async (req, res, next) => {
   const ip = getIp(req);
 
-  /* ── 1. Validate input ── */
+  /* ── Log raw body in dev so we can confirm invite_code arrives ── */
+  if (!IS_PROD) {
+    console.log("[auth] register body received:", {
+      name         : req.body.name,
+      email        : req.body.email,
+      phone_number : req.body.phone_number,
+      country      : req.body.country,
+      invite_code  : req.body.invite_code ?? "(not sent)",
+    });
+  }
+
+  /* ── 1. Validate ── */
   const validationError = validateRegisterBody(req.body);
   if (validationError) return fail(res, 400, validationError);
 
@@ -334,12 +456,18 @@ router.post("/register", authLimiter, async (req, res, next) => {
     ? String(invite_code).trim().toUpperCase()
     : null;
 
+  /* ── Log whether invite code is present ── */
+  console.log(
+    `[auth] register — email=${cleanEmail}  ` +
+    `invite_code=${cleanInviteCode ?? "(none)"}`
+  );
+
   const client = await pool.connect();
 
   try {
     await client.query("BEGIN");
 
-    /* ── 2. Duplicate email check ── */
+    /* ── 2. Duplicate email ── */
     const { rowCount: emailTaken } = await client.query(
       `SELECT 1 FROM users WHERE email = $1`,
       [cleanEmail]
@@ -352,8 +480,10 @@ router.post("/register", authLimiter, async (req, res, next) => {
       });
     }
 
-    /* ── 3. Validate invite code (if provided) ── */
+    /* ── 3. Validate invite code exists ── */
     if (cleanInviteCode) {
+      console.log(`[auth] validating invite code: ${cleanInviteCode}`);
+
       const { rowCount: codeValid } = await client.query(
         `SELECT 1
          FROM   users
@@ -363,23 +493,27 @@ router.post("/register", authLimiter, async (req, res, next) => {
       );
 
       if (!codeValid) {
+        console.warn(`[auth] invite code ${cleanInviteCode} not found in users`);
         await client.query("ROLLBACK");
         return fail(res, 400, "Invalid or expired invite code.", {
           code: "INVALID_INVITE_CODE",
         });
       }
+
+      console.log(`[auth] invite code ${cleanInviteCode} is valid`);
     }
 
     /* ── 4. Hash password ── */
     const password_hash = await bcrypt.hash(password, HASH_ROUNDS);
 
-    /* ── 5. Generate referral code for the new user ── */
+    /* ── 5. Generate referral code for new user ── */
     let newReferralCode = null;
     try {
       newReferralCode = await generateUniqueReferralCode();
+      console.log(`[auth] generated referral code for new user: ${newReferralCode}`);
     } catch (genErr) {
       console.error(
-        `[auth] referral code generation failed (non-fatal): ${genErr.message}`
+        `[auth] referral code gen failed (non-fatal): ${genErr.message}`
       );
     }
 
@@ -402,27 +536,39 @@ router.post("/register", authLimiter, async (req, res, next) => {
       ]
     );
 
-    /* ── 7. Record referral INSIDE the transaction ──
-            ✅ Now uses the same client — committed atomically
-               with the user row. No timing issues.            ── */
+    console.log(`[auth] user inserted: id=${user.id}`);
+
+    /* ── 7. Record referral — inside transaction ──
+            ✅ Same client = committed atomically with user row
+            ✅ Writes both invitee_id (NOT NULL) + referee_id
+            ✅ No ON CONFLICT — explicit duplicate check first
+            ✅ Every step has its own try/catch so one failure
+               doesn't abort the whole registration           ── */
     if (cleanInviteCode) {
+      console.log(
+        `[auth] calling recordReferral — code=${cleanInviteCode} user=${user.id}`
+      );
       try {
         await recordReferral(client, cleanInviteCode, user.id);
       } catch (refErr) {
-        /* Non-fatal — log and continue */
+        /* Non-fatal — user is registered even if referral fails */
         console.error(
-          `[auth] recordReferral error (non-fatal): ${refErr.message}`
+          `[auth] recordReferral threw (non-fatal): ` +
+          `${refErr.message}\n${refErr.stack}`
         );
       }
+    } else {
+      console.log("[auth] no invite code — skipping recordReferral");
     }
 
-    /* ── 8. Commit everything ── */
+    /* ── 8. Commit ── */
     await client.query("COMMIT");
+    console.log(`[auth] transaction committed for user=${user.id}`);
 
-    /* ── 9. Sign JWT ── */
+    /* ── 9. JWT ── */
     const token = makeJwt(user);
 
-    /* ── 10. Generate & store OTP ── */
+    /* ── 10. OTP ── */
     const rawOtp  = generateOtp();
     const otpHash = hashOtp(rawOtp);
 
@@ -430,16 +576,15 @@ router.post("/register", authLimiter, async (req, res, next) => {
       await pool.query(
         `INSERT INTO email_verification_otps
            (user_id, otp_hash, expires_at)
-         VALUES ($1, $2, NOW() + ($3 || ' minutes')::INTERVAL)`,
+         VALUES ($1, $2, now() + ($3 || ' minutes')::INTERVAL)`,
         [user.id, otpHash, String(OTP_EXPIRY_MINUTES)]
       );
+      console.log(`[auth] OTP stored for user=${user.id}`);
     } catch (otpErr) {
-      console.error(
-        `[auth] OTP store failed (non-fatal): ${otpErr.message}`
-      );
+      console.error(`[auth] OTP store failed (non-fatal): ${otpErr.message}`);
     }
 
-    /* ── 11. Send verification email ── */
+    /* ── 11. Send email ── */
     let emailSent = true;
     try {
       await sendEmailVerificationOtp({
@@ -462,13 +607,13 @@ router.post("/register", authLimiter, async (req, res, next) => {
       console.log(`   Email       : ${user.email}`);
       console.log(`   OTP         : ${rawOtp}`);
       console.log(`   Expiry      : ${OTP_EXPIRY_MINUTES} minutes`);
-      console.log(`   Referral    : ${newReferralCode  ?? "(none)"}`);
+      console.log(`   Referral    : ${newReferralCode  ?? "(none — gen failed)"}`);
       console.log(`   Invite Code : ${cleanInviteCode  ?? "(none)"}`);
       console.log(`   Email sent  : ${emailSent}`);
       console.log("═".repeat(60) + "\n");
     }
 
-    /* ── 13. Audit log ── */
+    /* ── 13. Audit ── */
     writeAudit({
       actorId    : user.id,
       action     : "user_registered",
@@ -480,9 +625,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
         referral_code : newReferralCode ?? null,
         email_sent    : emailSent,
       },
-    }).catch((e) =>
-      console.error(`[auth] audit write failed: ${e.message}`)
-    );
+    }).catch((e) => console.error(`[auth] audit failed: ${e.message}`));
 
     console.log(
       `[auth] ✓ registered  user=${user.id}  email=${cleanEmail}` +
@@ -491,7 +634,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
     );
 
     /* ── 14. Response ── */
-    const responseBody = {
+    const body = {
       success : true,
       message : "Account created successfully.",
       token,
@@ -499,30 +642,45 @@ router.post("/register", authLimiter, async (req, res, next) => {
     };
 
     if (!IS_PROD && !emailSent) {
-      responseBody.dev_otp  = rawOtp;
-      responseBody.dev_hint =
+      body.dev_otp  = rawOtp;
+      body.dev_hint =
         "Email delivery failed — use the OTP in the server console.";
     }
 
-    return res.status(201).json(responseBody);
+    return res.status(201).json(body);
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
 
-    if (err.code === "23505") {
-      const detail = (err.detail ?? "").toLowerCase();
+    /* CockroachDB uses "duplicate key" in message, not err.code === "23505" */
+    const isDuplicate =
+      err.code === "23505" ||
+      err.message?.toLowerCase().includes("duplicate key");
+
+    if (isDuplicate) {
+      const detail = (err.detail ?? err.message ?? "").toLowerCase();
+
       if (detail.includes("phone"))
         return fail(res, 409, "Phone number already registered.", {
           code: "PHONE_TAKEN",
         });
+
       if (detail.includes("referral_code"))
         return fail(res, 500,
           "Could not generate a unique referral code. Please try again.", {
             code: "REFERRAL_CODE_CONFLICT",
           });
-      return fail(res, 409, "An account with this email already exists.", {
-        code: "EMAIL_TAKEN",
-      });
+
+      /* referee_id / invitee_id duplicate means already referred —
+         this should not reach here because we check first, but just in case */
+      if (detail.includes("referee") || detail.includes("invitee")) {
+        console.warn("[auth] duplicate referee constraint hit — referral skipped");
+        /* Don't fail the whole registration for this */
+      } else {
+        return fail(res, 409, "An account with this email already exists.", {
+          code: "EMAIL_TAKEN",
+        });
+      }
     }
 
     console.error(`[auth] register error: ${err.message}\n${err.stack}`);
@@ -561,24 +719,23 @@ router.post("/login", authLimiter, async (req, res, next) => {
       return fail(res, 403,
         "Your account has been suspended. Please contact support.", {
           code: "ACCOUNT_SUSPENDED",
-        });
+        }
+      );
     }
 
     const valid = await bcrypt.compare(req.body.password, row.password_hash);
     if (!valid)
       return fail(res, 401, "Invalid email or password.");
 
-    pool
-      .query(
-        `UPDATE users
-         SET    last_login = NOW(),
-                is_online  = true
-         WHERE  id = $1`,
-        [row.id]
-      )
-      .catch((e) =>
-        console.error(`[auth] last_login update failed: ${e.message}`)
-      );
+    pool.query(
+      `UPDATE users
+       SET    last_login = now(),
+              is_online  = true
+       WHERE  id = $1`,
+      [row.id]
+    ).catch((e) =>
+      console.error(`[auth] last_login update failed: ${e.message}`)
+    );
 
     const { password_hash, ...user } = row;
     const token = makeJwt(user);
@@ -589,9 +746,7 @@ router.post("/login", authLimiter, async (req, res, next) => {
       targetType : "user",
       targetId   : user.id,
       ipAddress  : ip,
-    }).catch((e) =>
-      console.error(`[auth] audit write failed: ${e.message}`)
-    );
+    }).catch((e) => console.error(`[auth] audit failed: ${e.message}`));
 
     console.log(`[auth] ✓ login  user=${user.id}  email=${cleanEmail}`);
 
