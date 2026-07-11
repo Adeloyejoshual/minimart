@@ -9,21 +9,20 @@ import express        from "express";
 import bcrypt         from "bcrypt";
 import jwt            from "jsonwebtoken";
 import rateLimit      from "express-rate-limit";
-import nodeCrypto     from "crypto";                      // Node.js crypto — for hashOtp
+import nodeCrypto     from "crypto";
 import { pool }       from "../config/db.js";
 import { writeAudit } from "../lib/audit.js";
-import { sendEmailVerificationOtp } from "../services/email.js";
+import { sendEmailVerificationOtp }   from "../services/email.js";
 import { generateUniqueReferralCode } from "../lib/generateReferralCode.js";
 
 const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
 
 /* ════════════════════════════════════════════════════════════
-   STARTUP CHECKS
-   Fail fast — catch missing env vars before any request hits.
+   STARTUP GUARD
 ════════════════════════════════════════════════════════════ */
 if (!process.env.JWT_SECRET) {
-  throw new Error("[auth] FATAL: JWT_SECRET is not set in environment.");
+  throw new Error("[auth] FATAL: JWT_SECRET is not set.");
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -32,18 +31,13 @@ if (!process.env.JWT_SECRET) {
 const HASH_ROUNDS        = 12;
 const OTP_EXPIRY_MINUTES = 15;
 const OTP_LENGTH         = 6;
-const OTP_MIN            = 10 ** (OTP_LENGTH - 1);          // 100_000
-const OTP_RANGE          = 10 **  OTP_LENGTH - OTP_MIN;     // 900_000
+const OTP_MIN            = 10 ** (OTP_LENGTH - 1);
+const OTP_RANGE          = 10 **  OTP_LENGTH - OTP_MIN;
 
-const BANNED_STATUSES  = Object.freeze(["banned", "suspended", "flagged"]);
-const INVITE_CODE_RE   = /^[A-Z0-9]{4,20}$/;
-const EMAIL_RE         = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const BANNED_STATUSES = Object.freeze(["banned", "suspended", "flagged"]);
+const INVITE_CODE_RE  = /^[A-Z0-9]{4,20}$/;
+const EMAIL_RE        = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-/* ════════════════════════════════════════════════════════════
-   SAFE FIELDS
-   Every column we are allowed to return to the client.
-   password_hash is NEVER included here.
-════════════════════════════════════════════════════════════ */
 const SAFE_FIELDS = `
   id, name, email, phone_number,
   country, state, city,
@@ -58,7 +52,7 @@ const SAFE_FIELDS = `
 `;
 
 /* ════════════════════════════════════════════════════════════
-   HELPERS — general
+   HELPERS
 ════════════════════════════════════════════════════════════ */
 const getIp = (req) =>
   req.ip ??
@@ -69,12 +63,9 @@ const getIp = (req) =>
 const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
-const normalizeEmail  = (raw = "") => raw.trim().toLowerCase();
-const isValidEmail    = (e)        => EMAIL_RE.test(e);
+const normalizeEmail = (raw = "") => raw.trim().toLowerCase();
+const isValidEmail   = (e)        => EMAIL_RE.test(e);
 
-/* ════════════════════════════════════════════════════════════
-   HELPERS — JWT
-════════════════════════════════════════════════════════════ */
 const makeJwt = (user) =>
   jwt.sign(
     { id: user.id, email: user.email, role: user.role ?? null },
@@ -82,175 +73,159 @@ const makeJwt = (user) =>
     { expiresIn: process.env.JWT_EXPIRES_IN ?? "7d" }
   );
 
-/* ════════════════════════════════════════════════════════════
-   HELPERS — OTP
-   generateOtp  → uses globalThis.crypto (Web Crypto, built-in Node 19+)
-   hashOtp      → uses nodeCrypto (Node built-in, imported above)
-════════════════════════════════════════════════════════════ */
 const generateOtp = () => {
   const buf = new Uint32Array(1);
-  globalThis.crypto.getRandomValues(buf);           // Web Crypto — no import needed
-  return String(OTP_MIN + (buf[0] % OTP_RANGE));    // always exactly OTP_LENGTH digits
+  globalThis.crypto.getRandomValues(buf);
+  return String(OTP_MIN + (buf[0] % OTP_RANGE));
 };
 
 const hashOtp = (raw) =>
-  nodeCrypto                                        // Node crypto — imported at top
-    .createHash("sha256")
-    .update(String(raw))
-    .digest("hex");
+  nodeCrypto.createHash("sha256").update(String(raw)).digest("hex");
 
 /* ════════════════════════════════════════════════════════════
-   HELPERS — input validation
+   VALIDATION
 ════════════════════════════════════════════════════════════ */
 const validateRegisterBody = (body) => {
   const { name, email, password, invite_code } = body;
 
   if (!name || !email || !password)
     return "Name, email and password are required.";
-
   if (typeof name !== "string" || name.trim().length < 2)
     return "Name must be at least 2 characters.";
-
   if (!isValidEmail(normalizeEmail(email)))
     return "Please enter a valid email address.";
-
   if (typeof password !== "string" || password.length < 8)
     return "Password must be at least 8 characters.";
-
   if (!/[A-Z]/.test(password))
     return "Password must contain at least one uppercase letter.";
-
   if (!/[0-9]/.test(password))
     return "Password must contain at least one number.";
-
   if (invite_code) {
     const clean = String(invite_code).trim().toUpperCase();
     if (!INVITE_CODE_RE.test(clean))
       return "Invalid invite code format.";
   }
-
-  return null; // ✅ all good
+  return null;
 };
 
 const validateLoginBody = (body) => {
   const { email, password } = body;
-
   if (!email || !password)
     return "Email and password are required.";
-
   if (!isValidEmail(normalizeEmail(email)))
     return "Please enter a valid email address.";
-
-  return null; // ✅ all good
+  return null;
 };
 
 /* ════════════════════════════════════════════════════════════
    REFERRAL — recordReferral
-   Called fire-and-forget after a new user is inserted.
-   NEVER throws — referral failure must not break registration.
+   ✅ Now accepts a DB client so it runs INSIDE the registration
+      transaction. The referral row is committed atomically with
+      the user row — no more timing / replication issues.
 ════════════════════════════════════════════════════════════ */
-async function recordReferral(inviteCode, newUserId) {
+async function recordReferral(client, inviteCode, newUserId) {
   if (!inviteCode || !newUserId) return;
 
   const code = String(inviteCode).toUpperCase().trim();
 
-  try {
-    /* ── Find inviter ── */
-    const { rows: [inviter] } = await pool.query(
-      `SELECT id, status
-       FROM   users
-       WHERE  referral_code = $1
-       LIMIT  1`,
-      [code]
-    );
+  /* ── Find inviter ── */
+  const { rows: [inviter] } = await client.query(
+    `SELECT id, status
+     FROM   users
+     WHERE  referral_code = $1
+     LIMIT  1`,
+    [code]
+  );
 
-    if (!inviter) {
-      console.warn(`[referral] code not found: ${code}`);
-      return;
-    }
-
-    if (inviter.id === newUserId) {
-      console.warn(`[referral] self-referral blocked — user=${newUserId}`);
-      return;
-    }
-
-    if (BANNED_STATUSES.includes(inviter.status)) {
-      console.warn(
-        `[referral] inviter ${inviter.id} is ${inviter.status} — skipping`
-      );
-      return;
-    }
-
-    /* ── Guard: one referral per referee ── */
-    const { rowCount: alreadyReferred } = await pool.query(
-      `SELECT 1 FROM referrals WHERE referee_id = $1 LIMIT 1`,
-      [newUserId]
-    );
-
-    if (alreadyReferred) {
-      console.warn(
-        `[referral] user ${newUserId} already referred — skipping`
-      );
-      return;
-    }
-
-    /* ── Insert referral row ── */
-    const { rows: [referral] } = await pool.query(
-      `INSERT INTO referrals
-         (inviter_id, referee_id, invite_code,
-          status, reward_type, reward_value)
-       VALUES ($1, $2, $3, 'pending', 'bonus_spin', 1)
-       ON CONFLICT DO NOTHING
-       RETURNING id`,
-      [inviter.id, newUserId, code]
-    );
-
-    if (!referral) {
-      console.warn(`[referral] insert conflict — duplicate skipped`);
-      return;
-    }
-
-    /* ── Store referred_by on new user ── */
-    await pool.query(
-      `UPDATE users SET referred_by = $1 WHERE id = $2`,
-      [inviter.id, newUserId]
-    );
-
-    /* ── Log signed_up event ── */
-    await pool.query(
-      `INSERT INTO referral_events
-         (referral_id, event_type, description, metadata)
-       VALUES ($1, 'signed_up',
-               'New user signed up using invite code',
-               $2::JSONB)`,
-      [
-        referral.id,
-        JSON.stringify({ invite_code: code, inviter_id: inviter.id }),
-      ]
-    );
-
-    console.log(
-      `[referral] ✓ recorded  ` +
-      `inviter=${inviter.id}  referee=${newUserId}  code=${code}`
-    );
-
-  } catch (err) {
-    console.error(
-      `[referral] recordReferral error (non-fatal): ${err.message}`
-    );
+  if (!inviter) {
+    console.warn(`[referral] code not found: ${code}`);
+    return;
   }
+
+  if (inviter.id === newUserId) {
+    console.warn(`[referral] self-referral blocked — user=${newUserId}`);
+    return;
+  }
+
+  if (BANNED_STATUSES.includes(inviter.status)) {
+    console.warn(
+      `[referral] inviter ${inviter.id} is ${inviter.status} — skipping`
+    );
+    return;
+  }
+
+  /* ── Guard: one referral per referee ── */
+  const { rowCount: alreadyReferred } = await client.query(
+    `SELECT 1 FROM referrals WHERE referee_id = $1 LIMIT 1`,
+    [newUserId]
+  );
+
+  if (alreadyReferred) {
+    console.warn(`[referral] user ${newUserId} already referred — skipping`);
+    return;
+  }
+
+  /* ── Insert referral row ── */
+  const { rows: [referral] } = await client.query(
+    `INSERT INTO referrals
+       (inviter_id, referee_id, invite_code,
+        status, reward_type, reward_value)
+     VALUES ($1, $2, $3, 'pending', 'bonus_spin', 1)
+     ON CONFLICT DO NOTHING
+     RETURNING id`,
+    [inviter.id, newUserId, code]
+  );
+
+  if (!referral) {
+    console.warn(`[referral] insert conflict — duplicate skipped`);
+    return;
+  }
+
+  /* ── Store referred_by on new user ── */
+  await client.query(
+    `UPDATE users SET referred_by = $1 WHERE id = $2`,
+    [inviter.id, newUserId]
+  );
+
+  /* ── Log signed_up event ── */
+  await client.query(
+    `INSERT INTO referral_events
+       (referral_id, event_type, description, metadata)
+     VALUES ($1, 'signed_up',
+             'New user signed up using invite code',
+             $2::JSONB)`,
+    [
+      referral.id,
+      JSON.stringify({
+        invite_code : code,
+        inviter_id  : inviter.id,
+        referee_id  : newUserId,
+      }),
+    ]
+  );
+
+  /* ── Increment inviter's total_referrals counter ── */
+  await client.query(
+    `UPDATE users
+     SET total_referrals = COALESCE(total_referrals, 0) + 1
+     WHERE id = $1`,
+    [inviter.id]
+  );
+
+  console.log(
+    `[referral] ✓ recorded  ` +
+    `inviter=${inviter.id}  referee=${newUserId}  code=${code}`
+  );
 }
 
 /* ════════════════════════════════════════════════════════════
    REFERRAL — grantReferralRewardOnVerify
-   Called fire-and-forget after email verification succeeds.
-   NEVER throws — reward failure must not break verification.
+   Called after email verification. Never throws.
 ════════════════════════════════════════════════════════════ */
 async function grantReferralRewardOnVerify(verifiedUserId) {
   if (!verifiedUserId) return;
 
   try {
-    /* ── Find pending referral ── */
     const { rows: [referral] } = await pool.query(
       `SELECT id, inviter_id
        FROM   referrals
@@ -260,15 +235,15 @@ async function grantReferralRewardOnVerify(verifiedUserId) {
       [verifiedUserId]
     );
 
-    if (!referral) return; // user was not referred — perfectly normal
+    if (!referral) return;
 
-    /* ── Atomic status update — prevents double-grant ── */
+    /* Atomic — prevents double-grant */
     const { rowCount } = await pool.query(
       `UPDATE referrals
        SET    status      = 'verified',
               verified_at = NOW()
        WHERE  id     = $1
-         AND  status = 'pending'`,   // only succeeds once
+         AND  status = 'pending'`,
       [referral.id]
     );
 
@@ -279,7 +254,6 @@ async function grantReferralRewardOnVerify(verifiedUserId) {
       return;
     }
 
-    /* ── Log email_verified event ── */
     await pool.query(
       `INSERT INTO referral_events
          (referral_id, event_type, description)
@@ -288,7 +262,6 @@ async function grantReferralRewardOnVerify(verifiedUserId) {
       [referral.id]
     );
 
-    /* ── Call DB function to grant reward ── */
     const { rows: [result] } = await pool.query(
       `SELECT grant_referral_reward($1) AS result`,
       [referral.id]
@@ -356,7 +329,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
 
   const cleanEmail      = normalizeEmail(email);
   const cleanName       = name.trim();
-  const cleanPhone      = phone_number?.trim()  || null;
+  const cleanPhone      = phone_number?.trim() || null;
   const cleanInviteCode = invite_code
     ? String(invite_code).trim().toUpperCase()
     : null;
@@ -379,7 +352,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
       });
     }
 
-    /* ── 3. Validate invite code exists in DB (if provided) ── */
+    /* ── 3. Validate invite code (if provided) ── */
     if (cleanInviteCode) {
       const { rowCount: codeValid } = await client.query(
         `SELECT 1
@@ -400,9 +373,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
     /* ── 4. Hash password ── */
     const password_hash = await bcrypt.hash(password, HASH_ROUNDS);
 
-    /* ── 5. Generate referral code for the NEW user ──
-            Non-fatal: if generation fails the user still registers.
-            The DB trigger (if any) acts as the final safety net.    ── */
+    /* ── 5. Generate referral code for the new user ── */
     let newReferralCode = null;
     try {
       newReferralCode = await generateUniqueReferralCode();
@@ -417,9 +388,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
       `INSERT INTO users
          (name, email, password_hash, phone_number,
           country, state, city, referral_code)
-       VALUES
-         ($1, $2, $3, $4,
-          $5, $6, $7, $8)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING ${SAFE_FIELDS}`,
       [
         cleanName,
@@ -429,40 +398,45 @@ router.post("/register", authLimiter, async (req, res, next) => {
         country         ?? null,
         state           ?? null,
         city            ?? null,
-        newReferralCode,          // null-safe — trigger handles null if set up
+        newReferralCode,
       ]
     );
 
-    await client.query("COMMIT");
-
-    /* ── 7. Record referral — fire-and-forget ──
-            Runs AFTER commit so the new user row is visible to
-            the referral query. Never blocks the response.           ── */
+    /* ── 7. Record referral INSIDE the transaction ──
+            ✅ Now uses the same client — committed atomically
+               with the user row. No timing issues.            ── */
     if (cleanInviteCode) {
-      recordReferral(cleanInviteCode, user.id).catch((err) =>
-        console.error(`[auth] recordReferral unexpected: ${err.message}`)
-      );
+      try {
+        await recordReferral(client, cleanInviteCode, user.id);
+      } catch (refErr) {
+        /* Non-fatal — log and continue */
+        console.error(
+          `[auth] recordReferral error (non-fatal): ${refErr.message}`
+        );
+      }
     }
 
-    /* ── 8. Sign JWT ── */
+    /* ── 8. Commit everything ── */
+    await client.query("COMMIT");
+
+    /* ── 9. Sign JWT ── */
     const token = makeJwt(user);
 
-    /* ── 9. Generate OTP ── */
+    /* ── 10. Generate & store OTP ── */
     const rawOtp  = generateOtp();
     const otpHash = hashOtp(rawOtp);
 
-    /* ── 10. Store OTP — separate try/catch, outside the transaction ── */
     try {
       await pool.query(
         `INSERT INTO email_verification_otps
            (user_id, otp_hash, expires_at)
-         VALUES
-           ($1, $2, NOW() + ($3 || ' minutes')::INTERVAL)`,
+         VALUES ($1, $2, NOW() + ($3 || ' minutes')::INTERVAL)`,
         [user.id, otpHash, String(OTP_EXPIRY_MINUTES)]
       );
     } catch (otpErr) {
-      /* Non-fatal — user can request a new OTP from account settings */
-      console.error(`[auth] OTP store failed (non-fatal): ${otpErr.message}`);
+      console.error(
+        `[auth] OTP store failed (non-fatal): ${otpErr.message}`
+      );
     }
 
     /* ── 11. Send verification email ── */
@@ -480,17 +454,17 @@ router.post("/register", authLimiter, async (req, res, next) => {
       console.error(`[auth] OTP email failed: ${mailErr.message}`);
     }
 
-    /* ── 12. Dev console output ── */
+    /* ── 12. Dev output ── */
     if (!IS_PROD) {
       console.log("\n" + "═".repeat(60));
-      console.log("[auth] 🔑  DEV MODE — EMAIL VERIFICATION OTP");
-      console.log(`   User ID      : ${user.id}`);
-      console.log(`   Email        : ${user.email}`);
-      console.log(`   OTP          : ${rawOtp}`);
-      console.log(`   Expires      : ${OTP_EXPIRY_MINUTES} minutes`);
-      console.log(`   Referral     : ${newReferralCode  ?? "(none — generation failed)"}`);
-      console.log(`   Invite Code  : ${cleanInviteCode  ?? "(none)"}`);
-      console.log(`   Email sent   : ${emailSent}`);
+      console.log("[auth] 🔑  DEV — EMAIL VERIFICATION OTP");
+      console.log(`   User ID     : ${user.id}`);
+      console.log(`   Email       : ${user.email}`);
+      console.log(`   OTP         : ${rawOtp}`);
+      console.log(`   Expiry      : ${OTP_EXPIRY_MINUTES} minutes`);
+      console.log(`   Referral    : ${newReferralCode  ?? "(none)"}`);
+      console.log(`   Invite Code : ${cleanInviteCode  ?? "(none)"}`);
+      console.log(`   Email sent  : ${emailSent}`);
       console.log("═".repeat(60) + "\n");
     }
 
@@ -524,45 +498,34 @@ router.post("/register", authLimiter, async (req, res, next) => {
       user,
     };
 
-    /* Surface OTP in dev when email delivery failed */
     if (!IS_PROD && !emailSent) {
       responseBody.dev_otp  = rawOtp;
       responseBody.dev_hint =
-        "Email delivery failed — use the OTP printed in the server console.";
+        "Email delivery failed — use the OTP in the server console.";
     }
 
     return res.status(201).json(responseBody);
 
   } catch (err) {
-    /* Always rollback on unexpected error */
     await client.query("ROLLBACK").catch(() => {});
 
-    /* ── Handle known Postgres unique violations ── */
     if (err.code === "23505") {
       const detail = (err.detail ?? "").toLowerCase();
-
       if (detail.includes("phone"))
         return fail(res, 409, "Phone number already registered.", {
           code: "PHONE_TAKEN",
         });
-
       if (detail.includes("referral_code"))
-        return fail(
-          res,
-          500,
-          "Could not generate a unique referral code. Please try again.",
-          { code: "REFERRAL_CODE_CONFLICT" }
-        );
-
+        return fail(res, 500,
+          "Could not generate a unique referral code. Please try again.", {
+            code: "REFERRAL_CODE_CONFLICT",
+          });
       return fail(res, 409, "An account with this email already exists.", {
         code: "EMAIL_TAKEN",
       });
     }
 
-    /* ── Unknown error — log full stack, forward to error middleware ── */
-    console.error(
-      `[auth] register error: ${err.message}\n${err.stack}`
-    );
+    console.error(`[auth] register error: ${err.message}\n${err.stack}`);
     next(err);
 
   } finally {
@@ -576,14 +539,12 @@ router.post("/register", authLimiter, async (req, res, next) => {
 router.post("/login", authLimiter, async (req, res, next) => {
   const ip = getIp(req);
 
-  /* ── 1. Validate input ── */
   const validationError = validateLoginBody(req.body);
   if (validationError) return fail(res, 400, validationError);
 
   const cleanEmail = normalizeEmail(req.body.email);
 
   try {
-    /* ── 2. Fetch user + password hash ── */
     const { rows } = await pool.query(
       `SELECT ${SAFE_FIELDS}, password_hash
        FROM   users
@@ -591,28 +552,22 @@ router.post("/login", authLimiter, async (req, res, next) => {
       [cleanEmail]
     );
 
-    /* Intentionally vague — never reveal whether email exists */
     if (!rows.length)
       return fail(res, 401, "Invalid email or password.");
 
     const row = rows[0];
 
-    /* ── 3. Account status check ── */
     if (BANNED_STATUSES.includes(row.status)) {
-      return fail(
-        res,
-        403,
-        "Your account has been suspended. Please contact support.",
-        { code: "ACCOUNT_SUSPENDED" }
-      );
+      return fail(res, 403,
+        "Your account has been suspended. Please contact support.", {
+          code: "ACCOUNT_SUSPENDED",
+        });
     }
 
-    /* ── 4. Password check ── */
     const valid = await bcrypt.compare(req.body.password, row.password_hash);
     if (!valid)
       return fail(res, 401, "Invalid email or password.");
 
-    /* ── 5. Update last_login + is_online — fire-and-forget ── */
     pool
       .query(
         `UPDATE users
@@ -625,11 +580,9 @@ router.post("/login", authLimiter, async (req, res, next) => {
         console.error(`[auth] last_login update failed: ${e.message}`)
       );
 
-    /* ── 6. Build response — strip password_hash ── */
     const { password_hash, ...user } = row;
     const token = makeJwt(user);
 
-    /* ── 7. Audit log ── */
     writeAudit({
       actorId    : user.id,
       action     : "user_login",
@@ -640,9 +593,7 @@ router.post("/login", authLimiter, async (req, res, next) => {
       console.error(`[auth] audit write failed: ${e.message}`)
     );
 
-    console.log(
-      `[auth] ✓ login  user=${user.id}  email=${cleanEmail}`
-    );
+    console.log(`[auth] ✓ login  user=${user.id}  email=${cleanEmail}`);
 
     return res.json({
       success : true,
