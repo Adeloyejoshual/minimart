@@ -1,27 +1,20 @@
 // ════════════════════════════════════════════════════════════
-// FILE: src/pages/Leaderboard.jsx
+// FILE: src/pages/Profile/Leaderboard.jsx
 // ════════════════════════════════════════════════════════════
 
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-} from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import "../../styles/Leaderboard.css";
 
 /* ════════════════════════════════════════════════════════════
    CONFIG
-   ✅ API points to /api/leaderboard (not /api/referrals/leaderboard)
 ════════════════════════════════════════════════════════════ */
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api/leaderboard`;
 
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("token")             ||
-  null;
+  localStorage.getItem("token") || null;
 
 const authH = () => {
   const t = getToken();
@@ -31,192 +24,318 @@ const authH = () => {
 };
 
 /* ════════════════════════════════════════════════════════════
-   HELPERS
-════════════════════════════════════════════════════════════ */
-const timeAgo = (d) => {
-  if (!d) return "";
-  const s = Math.floor((Date.now() - new Date(d)) / 1_000);
-  if (s < 86_400)    return "today";
-  if (s < 604_800)   return `${Math.floor(s / 86_400)}d ago`;
-  if (s < 2_592_000) return `${Math.floor(s / 604_800)}w ago`;
-  return `${Math.floor(s / 2_592_000)}mo ago`;
-};
-
-/* ════════════════════════════════════════════════════════════
    CONSTANTS
 ════════════════════════════════════════════════════════════ */
 const PERIODS = [
   { key: "all",   label: "All Time"   },
+  { key: "year",  label: "This Year"  },
   { key: "month", label: "This Month" },
   { key: "week",  label: "This Week"  },
   { key: "today", label: "Today"      },
 ];
 
 /* ════════════════════════════════════════════════════════════
-   RANK BADGE
+   SVG ICONS — transparent, no emoji
 ════════════════════════════════════════════════════════════ */
-function RankBadge({ rank }) {
-  if (rank === 1) return <span className="lb-medal lb-medal--gold"   aria-label="1st place">🥇</span>;
-  if (rank === 2) return <span className="lb-medal lb-medal--silver" aria-label="2nd place">🥈</span>;
-  if (rank === 3) return <span className="lb-medal lb-medal--bronze" aria-label="3rd place">🥉</span>;
-  return <span className="lb-rank-num" aria-label={`Rank ${rank}`}>#{rank}</span>;
+const Ic = {
+  Back: () => (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+         strokeLinejoin="round">
+      <path d="M19 12H5"/>
+      <polyline points="12 19 5 12 12 5"/>
+    </svg>
+  ),
+
+  Trophy: ({ size = 22, color = "currentColor" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth="1.8" strokeLinecap="round"
+         strokeLinejoin="round">
+      <path d="M6 9H4.5a2.5 2.5 0 010-5H6"/>
+      <path d="M18 9h1.5a2.5 2.5 0 000-5H18"/>
+      <path d="M4 22h16"/>
+      <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22"/>
+      <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22"/>
+      <path d="M18 2H6v7a6 6 0 1012 0V2z"/>
+    </svg>
+  ),
+
+  Crown: ({ size = 20, color = "#FF5C00" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth="1.8" strokeLinecap="round"
+         strokeLinejoin="round">
+      <path d="M2 4l3 12h14l3-12-6 7-4-9-4 9-6-7z"
+            fill={color} fillOpacity="0.15"/>
+      <path d="M2 4l3 12h14l3-12-6 7-4-9-4 9-6-7z"/>
+      <path d="M5 16h14v2a2 2 0 01-2 2H7a2 2 0 01-2-2v-2z"
+            fill={color} fillOpacity="0.15"/>
+      <path d="M5 16h14v2a2 2 0 01-2 2H7a2 2 0 01-2-2v-2z"/>
+    </svg>
+  ),
+
+  Medal1: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="#FF5C00" strokeWidth="1.6" strokeLinecap="round"
+         strokeLinejoin="round">
+      <circle cx="12" cy="15" r="6" fill="#FF5C00" fillOpacity="0.12"/>
+      <circle cx="12" cy="15" r="6"/>
+      <path d="M9 2h6l-1.5 6h-3L9 2z" fill="#FF5C00" fillOpacity="0.1"/>
+      <path d="M9 2h6l-1.5 6h-3L9 2z"/>
+      <text x="12" y="18" textAnchor="middle" fill="#FF5C00"
+            fontSize="8" fontWeight="800" fontFamily="sans-serif">1</text>
+    </svg>
+  ),
+
+  Medal2: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="#A8A39D" strokeWidth="1.6" strokeLinecap="round"
+         strokeLinejoin="round">
+      <circle cx="12" cy="15" r="6" fill="#A8A39D" fillOpacity="0.12"/>
+      <circle cx="12" cy="15" r="6"/>
+      <path d="M9 2h6l-1.5 6h-3L9 2z" fill="#A8A39D" fillOpacity="0.1"/>
+      <path d="M9 2h6l-1.5 6h-3L9 2z"/>
+      <text x="12" y="18" textAnchor="middle" fill="#5A5650"
+            fontSize="8" fontWeight="800" fontFamily="sans-serif">2</text>
+    </svg>
+  ),
+
+  Medal3: ({ size = 24 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="#CD7F32" strokeWidth="1.6" strokeLinecap="round"
+         strokeLinejoin="round">
+      <circle cx="12" cy="15" r="6" fill="#CD7F32" fillOpacity="0.12"/>
+      <circle cx="12" cy="15" r="6"/>
+      <path d="M9 2h6l-1.5 6h-3L9 2z" fill="#CD7F32" fillOpacity="0.1"/>
+      <path d="M9 2h6l-1.5 6h-3L9 2z"/>
+      <text x="12" y="18" textAnchor="middle" fill="#8B5E34"
+            fontSize="8" fontWeight="800" fontFamily="sans-serif">3</text>
+    </svg>
+  ),
+
+  Users: ({ size = 16, color = "currentColor" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth="1.8" strokeLinecap="round"
+         strokeLinejoin="round">
+      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 00-3-3.87"/>
+      <path d="M16 3.13a4 4 0 010 7.75"/>
+    </svg>
+  ),
+
+  Share: ({ size = 15, color = "currentColor" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth="2" strokeLinecap="round"
+         strokeLinejoin="round">
+      <circle cx="18" cy="5" r="3"/>
+      <circle cx="6" cy="12" r="3"/>
+      <circle cx="18" cy="19" r="3"/>
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+    </svg>
+  ),
+
+  Clock: ({ size = 14, color = "currentColor" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth="2" strokeLinecap="round"
+         strokeLinejoin="round">
+      <circle cx="12" cy="12" r="10"/>
+      <polyline points="12 6 12 12 16 14"/>
+    </svg>
+  ),
+
+  Gift: ({ size = 16, color = "currentColor" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth="1.8" strokeLinecap="round"
+         strokeLinejoin="round">
+      <polyline points="20 12 20 22 4 22 4 12"/>
+      <rect x="2" y="7" width="20" height="5"/>
+      <line x1="12" y1="22" x2="12" y2="7"/>
+      <path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z"/>
+      <path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
+    </svg>
+  ),
+
+  Star: ({ size = 15, color = "currentColor" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth="1.8" strokeLinecap="round"
+         strokeLinejoin="round">
+      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77
+                        5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+    </svg>
+  ),
+
+  ChevronRight: ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+         strokeLinejoin="round">
+      <polyline points="9 18 15 12 9 6"/>
+    </svg>
+  ),
+
+  Rocket: ({ size = 20, color = "currentColor" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth="1.8" strokeLinecap="round"
+         strokeLinejoin="round">
+      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91
+               a2.18 2.18 0 00-2.91-.09z"/>
+      <path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78
+               7.5-6 11.5A9.9 9.9 0 0112 15z"/>
+      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/>
+      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>
+    </svg>
+  ),
+
+  Award: ({ size = 18, color = "currentColor" }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke={color} strokeWidth="1.8" strokeLinecap="round"
+         strokeLinejoin="round">
+      <circle cx="12" cy="8" r="7"/>
+      <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
+    </svg>
+  ),
+
+  Verified: ({ size = 12 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="#15803D" strokeWidth="2.5" strokeLinecap="round"
+         strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12"/>
+    </svg>
+  ),
+};
+
+/* ════════════════════════════════════════════════════════════
+   COUNTDOWN HOOK
+════════════════════════════════════════════════════════════ */
+function useCountdown(isoTarget) {
+  const [label, setLabel] = useState("");
+
+  useEffect(() => {
+    if (!isoTarget) return;
+    const tick = () => {
+      const ms = new Date(isoTarget) - Date.now();
+      if (ms <= 0) { setLabel("Ended"); return; }
+      const d = Math.floor(ms / 86_400_000);
+      const h = Math.floor((ms % 86_400_000) / 3_600_000);
+      const m = Math.floor((ms % 3_600_000) / 60_000);
+      const s = Math.floor((ms % 60_000) / 1_000);
+      setLabel(d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`);
+    };
+    tick();
+    const id = setInterval(tick, 1_000);
+    return () => clearInterval(id);
+  }, [isoTarget]);
+
+  return label;
 }
 
 /* ════════════════════════════════════════════════════════════
-   LEADERBOARD ITEM
+   RANK BADGE
 ════════════════════════════════════════════════════════════ */
-function LeaderItem({ entry, highlight }) {
-  const isTop3 = entry.rank <= 3;
+function RankBadge({ rank }) {
+  if (rank === 1) return <Ic.Medal1 />;
+  if (rank === 2) return <Ic.Medal2 />;
+  if (rank === 3) return <Ic.Medal3 />;
+  return <span className="lb-rank-num">#{rank}</span>;
+}
+
+/* ════════════════════════════════════════════════════════════
+   REWARD BANNER
+════════════════════════════════════════════════════════════ */
+function RewardBanner({ rewards, period, countdown }) {
+  const cdLabel = useCountdown(countdown?.iso);
+  if (!rewards?.length) return null;
+
+  const medals = [Ic.Medal1, Ic.Medal2, Ic.Medal3];
 
   return (
-    <div
-      className={[
-        "lb-item",
-        isTop3            ? "lb-item--top3"    : "",
-        highlight         ? "lb-item--me"      : "",
-        entry.rank === 1  ? "lb-item--gold"    : "",
-        entry.rank === 2  ? "lb-item--silver"  : "",
-        entry.rank === 3  ? "lb-item--bronze"  : "",
-      ]
-        .filter(Boolean)
-        .join(" ")}
-      role="listitem"
-      aria-label={`Rank ${entry.rank}: ${entry.display_name}`}
-    >
-      {/* Rank */}
-      <div className="lb-item-rank">
-        <RankBadge rank={entry.rank} />
+    <div className="lb-reward-banner">
+      <div className="lb-reward-banner-header">
+        <Ic.Gift size={18} color="var(--o)" />
+        <span className="lb-reward-banner-title">
+          {period === "month" ? "Monthly Prizes" : "Yearly Prizes"}
+        </span>
       </div>
 
-      {/* Avatar */}
-      <div className="lb-item-avatar-wrap">
-        {entry.avatar_url ? (
-          <img
-            src={entry.avatar_url}
-            alt={entry.display_name}
-            className="lb-item-avatar-img"
-          />
-        ) : (
-          <div
-            className="lb-item-avatar"
-            style={{ backgroundColor: entry.color }}
-            aria-hidden="true"
-          >
-            {entry.initials}
-          </div>
-        )}
-        {entry.is_verified && (
-          <div className="lb-item-verified" aria-label="Verified user">
-            ✓
-          </div>
-        )}
+      <div className="lb-reward-prizes">
+        {rewards.map((r, i) => {
+          const Medal = medals[i];
+          return (
+            <div key={r.rank} className="lb-reward-prize">
+              {Medal && <Medal size={20} />}
+              <span className="lb-reward-prize-label">{r.label}</span>
+            </div>
+          );
+        })}
       </div>
 
-      {/* Info */}
-      <div className="lb-item-info">
-        <p className="lb-item-name">
-          {entry.display_name}
-          {highlight && (
-            <span className="lb-item-you" aria-label="This is you"> (You)</span>
-          )}
-        </p>
-        {entry.last_referral_at && (
-          <p className="lb-item-sub">
-            Last invite {timeAgo(entry.last_referral_at)}
-          </p>
-        )}
-      </div>
-
-      {/* Stats */}
-      <div className="lb-item-stats">
-        <div
-          className="lb-item-stat lb-item-stat--primary"
-          aria-label={`${entry.total_referrals} invites`}
-        >
-          <span className="lb-item-stat-val">{entry.total_referrals}</span>
-          <span className="lb-item-stat-label">invites</span>
+      {cdLabel && (
+        <div className="lb-reward-countdown">
+          <Ic.Clock size={13} color="var(--ink3)" />
+          <span>
+            Ends in <strong>{cdLabel}</strong>
+          </span>
         </div>
-        <div
-          className="lb-item-stat"
-          aria-label={`${entry.total_spins_earned} spins`}
-        >
-          <span className="lb-item-stat-val">{entry.total_spins_earned}</span>
-          <span className="lb-item-stat-label">spins</span>
-        </div>
-      </div>
+      )}
     </div>
   );
 }
 
 /* ════════════════════════════════════════════════════════════
-   PODIUM — top 3
+   PODIUM — with crown on #1
 ════════════════════════════════════════════════════════════ */
 function Podium({ top3 }) {
   if (!top3 || top3.length < 3) return null;
 
-  /* Visual order: 2nd | 1st | 3rd */
-  const order = [top3[1], top3[0], top3[2]];
+  const order  = [top3[1], top3[0], top3[2]];
+  const medals = { 1: Ic.Medal1, 2: Ic.Medal2, 3: Ic.Medal3 };
 
   return (
-    <div className="lb-podium" aria-label="Top 3 inviters podium">
-      {order.map((entry, i) => {
+    <div className="lb-podium">
+      {order.map((e, i) => {
         const isFirst = i === 1;
-        const medal   =
-          entry.rank === 1 ? "🥇" :
-          entry.rank === 2 ? "🥈" : "🥉";
+        const Medal   = medals[e.rank];
 
         return (
           <div
-            key={entry.user_id}
-            className={[
-              "lb-podium-item",
-              isFirst ? "lb-podium-item--first" : "",
-            ]
-              .filter(Boolean)
-              .join(" ")}
-            aria-label={`${entry.rank === 1 ? "1st" : entry.rank === 2 ? "2nd" : "3rd"} place: ${entry.display_name}`}
+            key={e.user_id}
+            className={`lb-podium-item${isFirst ? " lb-podium-item--first" : ""}`}
           >
+            {/* Crown — only #1 */}
+            {e.rank === 1 && (
+              <div className="lb-crown">
+                <Ic.Crown size={28} color="var(--o)" />
+              </div>
+            )}
+
             {/* Avatar */}
-            <div
-              className={[
-                "lb-podium-avatar-wrap",
-                isFirst ? "lb-podium-avatar--big" : "",
-              ]
-                .filter(Boolean)
-                .join(" ")}
-            >
-              {entry.avatar_url ? (
-                <img
-                  src={entry.avatar_url}
-                  alt={entry.display_name}
-                  className="lb-podium-avatar-img"
-                />
+            <div className={`lb-podium-avatar-wrap${isFirst ? " lb-podium-avatar--big" : ""}`}>
+              {e.avatar_url ? (
+                <img src={e.avatar_url} alt="" className="lb-podium-avatar-img" />
               ) : (
-                <div
-                  className="lb-podium-avatar"
-                  style={{ backgroundColor: entry.color }}
-                  aria-hidden="true"
-                >
-                  {entry.initials}
+                <div className="lb-podium-avatar" style={{ backgroundColor: e.color }}>
+                  {e.initials}
                 </div>
               )}
-              <div className="lb-podium-medal" aria-hidden="true">
-                {medal}
+              <div className="lb-podium-medal">
+                <Medal size={20} />
               </div>
             </div>
 
-            {/* Name */}
-            <p className="lb-podium-name">{entry.display_name}</p>
+            <p className="lb-podium-name">
+              {e.display_name}
+              {e.is_current_user && <span className="lb-you"> (You)</span>}
+            </p>
+            <p className="lb-podium-count">{e.total_referrals}</p>
 
-            {/* Stats */}
-            <p className="lb-podium-count">{entry.total_referrals}</p>
-            <p className="lb-podium-label">invites</p>
+            {e.reward && (
+              <p className="lb-podium-reward">
+                <Ic.Gift size={12} color="var(--o)" />
+                {e.reward.label}
+              </p>
+            )}
 
-            {/* Pillar */}
-            <div
-              className={`lb-podium-pillar lb-podium-pillar--${entry.rank}`}
-              aria-hidden="true"
-            />
+            <div className={`lb-podium-pillar lb-podium-pillar--${e.rank}`} />
           </div>
         );
       })}
@@ -225,53 +344,116 @@ function Podium({ top3 }) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   SKELETON LOADER
+   LEADERBOARD ROW
 ════════════════════════════════════════════════════════════ */
-function SkeletonList({ count = 5 }) {
+function LeaderRow({ entry, highlight }) {
   return (
     <div
-      className="lb-skeleton-list"
-      aria-busy="true"
-      aria-label="Loading leaderboard"
+      className={[
+        "lb-row",
+        entry.rank <= 3   ? "lb-row--top"    : "",
+        highlight         ? "lb-row--me"     : "",
+        entry.rank === 1  ? "lb-row--gold"   : "",
+        entry.rank === 2  ? "lb-row--silver" : "",
+        entry.rank === 3  ? "lb-row--bronze" : "",
+      ].filter(Boolean).join(" ")}
+      role="listitem"
     >
-      {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="lb-skeleton-item">
-          <div className="lb-skeleton lb-skeleton--rank"   />
-          <div className="lb-skeleton lb-skeleton--avatar" />
-          <div className="lb-skeleton-info">
-            <div className="lb-skeleton lb-skeleton--name"  />
-            <div className="lb-skeleton lb-skeleton--sub"   />
+      <div className="lb-row-rank">
+        <RankBadge rank={entry.rank} />
+      </div>
+
+      <div className="lb-row-avatar-wrap">
+        {entry.avatar_url ? (
+          <img src={entry.avatar_url} alt="" className="lb-row-avatar-img" />
+        ) : (
+          <div className="lb-row-avatar" style={{ backgroundColor: entry.color }}>
+            {entry.initials}
           </div>
-          <div className="lb-skeleton lb-skeleton--stats"  />
-        </div>
-      ))}
+        )}
+      </div>
+
+      <div className="lb-row-name">
+        {entry.display_name}
+        {highlight && <span className="lb-you"> (You)</span>}
+      </div>
+
+      <div className="lb-row-count">{entry.total_referrals}</div>
+
+      {entry.reward && (
+        <div className="lb-row-reward">{entry.reward.label}</div>
+      )}
     </div>
   );
 }
 
 /* ════════════════════════════════════════════════════════════
-   GLOBAL STATS BAR
+   PREVIOUS WINNERS
 ════════════════════════════════════════════════════════════ */
-function GlobalStats({ stats }) {
-  const items = useMemo(() => [
-    { val: stats.total_inviters    ?? 0, label: "Inviters",        icon: "👥" },
-    { val: stats.total_referrals   ?? 0, label: "Total Referrals", icon: "🤝" },
-    { val: stats.total_spins_given ?? 0, label: "Spins Awarded",   icon: "🎡" },
-  ], [stats]);
+function PreviousWinners({ data, period }) {
+  if (!data) return null;
+  const entries = Object.entries(data);
+  if (!entries.length) return null;
+
+  const medals = { 1: Ic.Medal1, 2: Ic.Medal2, 3: Ic.Medal3 };
+
+  const formatKey = (key) => {
+    if (period === "month") {
+      const [y, m] = key.split("-").map(Number);
+      return new Date(y, m - 1).toLocaleString("default", {
+        month: "long", year: "numeric",
+      });
+    }
+    return `Year ${key}`;
+  };
 
   return (
-    <div className="lb-global-stats" role="list" aria-label="Community stats">
-      {items.map((s) => (
-        <div key={s.label} className="lb-global-stat" role="listitem">
-          <span className="lb-global-stat-icon" aria-hidden="true">
-            {s.icon}
-          </span>
-          <span className="lb-global-stat-val">
-            {s.val.toLocaleString()}
-          </span>
-          <span className="lb-global-stat-label">{s.label}</span>
+    <div className="lb-prev-winners">
+      <div className="lb-prev-winners-header">
+        <Ic.Award size={18} color="var(--o)" />
+        <h3>Past {period === "month" ? "Monthly" : "Yearly"} Champions</h3>
+      </div>
+
+      {entries.map(([key, winners]) => (
+        <div key={key} className="lb-prev-period">
+          <p className="lb-prev-period-label">{formatKey(key)}</p>
+          <div className="lb-prev-period-list">
+            {winners.map((w) => {
+              const Medal = medals[w.rank];
+              return (
+                <div key={w.rank} className="lb-prev-winner">
+                  {w.rank === 1 && (
+                    <span className="lb-prev-crown">
+                      <Ic.Crown size={14} color="var(--o)" />
+                    </span>
+                  )}
+                  {Medal && <Medal size={18} />}
+                  <div className="lb-prev-winner-avatar"
+                    style={{ backgroundColor: w.color }}>
+                    {w.initials}
+                  </div>
+                  <span className="lb-prev-winner-name">{w.display_name}</span>
+                  <span className="lb-prev-winner-count">{w.total_referrals}</span>
+                  <span className={`lb-prev-winner-reward${
+                    w.reward_status === "paid" ? " lb-prev-winner-reward--paid" : ""
+                  }`}>
+                    {w.reward_label}
+                    {w.reward_status === "paid" && (
+                      <Ic.Verified size={11} />
+                    )}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       ))}
+
+      <Link to="/hall-of-fame" className="lb-hof-link">
+        <Ic.Award size={14} color="var(--o)" />
+        View Full Hall of Fame
+        <Ic.ChevronRight size={14} />
+      </Link>
     </div>
   );
 }
@@ -282,127 +464,78 @@ function GlobalStats({ stats }) {
 export default function Leaderboard() {
   const navigate = useNavigate();
 
-  const [data,      setData]      = useState(null);
-  const [period,    setPeriod]    = useState("all");
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState(null);
-  const [refreshing,setRefreshing]= useState(false);
+  const [data,    setData]    = useState(null);
+  const [period,  setPeriod]  = useState("month");
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
 
-  const isLoggedIn = Boolean(getToken());
+  const isLoggedIn    = Boolean(getToken());
+  const isCompetition = period === "month" || period === "year";
 
-  /* ════════════════════════════════════════════════
-     FETCH LEADERBOARD
-     ✅ Hits /api/leaderboard?period=&limit=
-        (was incorrectly hitting /api/referrals/leaderboard)
-  ════════════════════════════════════════════════ */
-  const fetchLeaderboard = useCallback(
-    async (silent = false) => {
-      silent ? setRefreshing(true) : setLoading(true);
-      setError(null);
-
-      try {
-        const res = await fetch(
-          `${API}?period=${period}&limit=20`,
-          { headers: authH() }
-        );
-
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.message || `${res.status} ${res.statusText}`);
-        }
-
-        const d = await res.json();
-        setData(d);
-      } catch (err) {
-        console.error("[Leaderboard] fetch error:", err.message);
-        setError(err.message);
-      } finally {
-        setLoading(false);
-        setRefreshing(false);
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const r = await fetch(`${API}?period=${period}&limit=20`, {
+        headers: authH(),
+      });
+      if (!r.ok) {
+        const b = await r.json().catch(() => ({}));
+        throw new Error(b.message || `${r.status}`);
       }
-    },
-    [period]
-  );
+      setData(await r.json());
+    } catch (e) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [period]);
 
-  useEffect(() => {
-    fetchLeaderboard();
-  }, [fetchLeaderboard]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  /* ── Derived values ── */
-  const leaderboard = data?.leaderboard  ?? [];
-  const globalStats = data?.global_stats ?? {};
-  const top3        = leaderboard.slice(0, 3);
-  const rest        = leaderboard.slice(3);
+  const list       = data?.leaderboard     ?? [];
+  const myRank     = data?.my_rank         ?? null;
+  const rewards    = data?.rewards         ?? null;
+  const countdown  = data?.countdown       ?? null;
+  const prevWins   = data?.previous_winners ?? null;
+  const totalInv   = data?.total_inviters  ?? 0;
+  const top3       = list.slice(0, 3);
+  const rest       = list.slice(3);
+  const myInList   = list.some((e) => e.is_current_user);
+  const showMyRank = myRank && !myInList;
 
-  /*
-   * ✅ myRank logic fixed:
-   *    The backend marks is_current_user = true on entries
-   *    in the top list already. my_rank is only set when the
-   *    user is NOT in the top list.
-   *    We show myRank only when it's not null AND not already
-   *    visible in the leaderboard list.
-   */
-  const myRank       = data?.my_rank ?? null;
-  const myInTopList  = leaderboard.some((e) => e.is_current_user);
-  const showMyRank   = myRank !== null && !myInTopList;
-  const notOnBoard   = myRank === null && !myInTopList && isLoggedIn;
-
-  /* ════════════════════════════════════════════════════════
-     RENDER
-  ════════════════════════════════════════════════════════ */
   return (
     <div className="lb-page">
       <div className="lb-container">
 
-        {/* ════════════════════════════════
-            HEADER
-        ════════════════════════════════ */}
+        {/* ── Header ── */}
         <div className="lb-header">
-          <button
-            className="lb-back"
-            onClick={() => navigate(-1)}
-            aria-label="Go back"
-          >
-            <svg
-              width="18" height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2.2"
-              strokeLinecap="round"
-              aria-hidden="true"
-            >
-              <path d="M19 12H5M12 19l-7-7 7-7"/>
-            </svg>
+          <button className="lb-back" onClick={() => navigate(-1)} aria-label="Go back">
+            <Ic.Back />
           </button>
-
           <div className="lb-header-center">
-            <h1 className="lb-title">🏆 Referral Leaderboard</h1>
-            <p className="lb-subtitle">Top inviters on Loemart</p>
+            <div className="lb-header-title">
+              <Ic.Trophy size={24} color="var(--o)" />
+              <h1>Referral Leaderboard</h1>
+            </div>
+            <p className="lb-subtitle">
+              <Ic.Users size={13} color="var(--ink3)" />
+              {totalInv} inviter{totalInv !== 1 ? "s" : ""} · verified only
+            </p>
           </div>
-
-          <Link
-            to="/invitation"
-            className="lb-invite-btn"
-            aria-label="Invite friends"
-          >
-            📤 Invite
-          </Link>
+          <div className="lb-header-actions">
+            <Link to="/hall-of-fame" className="lb-hof-btn" aria-label="Hall of Fame">
+              <Ic.Award size={18} color="var(--o)" />
+            </Link>
+            <Link to="/invitation" className="lb-invite-btn">
+              <Ic.Share size={13} />
+              Invite
+            </Link>
+          </div>
         </div>
 
-        {/* ════════════════════════════════
-            GLOBAL STATS
-        ════════════════════════════════ */}
-        <GlobalStats stats={globalStats} />
-
-        {/* ════════════════════════════════
-            PERIOD TABS
-        ════════════════════════════════ */}
-        <div
-          className="lb-periods"
-          role="tablist"
-          aria-label="Time period filter"
-        >
+        {/* ── Period tabs ── */}
+        <div className="lb-periods" role="tablist">
           {PERIODS.map((p) => (
             <button
               key={p.key}
@@ -410,8 +543,6 @@ export default function Leaderboard() {
               onClick={() => setPeriod(p.key)}
               role="tab"
               aria-selected={period === p.key}
-              aria-controls="lb-board"
-              id={`tab-${p.key}`}
               disabled={loading}
             >
               {p.label}
@@ -419,137 +550,109 @@ export default function Leaderboard() {
           ))}
         </div>
 
-        {/* ════════════════════════════════
-            LOADING SKELETON
-        ════════════════════════════════ */}
-        {loading && <SkeletonList count={6} />}
+        {/* ── Reward banner ── */}
+        {!loading && isCompetition && (
+          <RewardBanner rewards={rewards} period={period} countdown={countdown} />
+        )}
 
-        {/* ════════════════════════════════
-            ERROR
-        ════════════════════════════════ */}
+        {/* ── Loading ── */}
+        {loading && (
+          <div className="lb-loading" aria-busy="true">
+            <div className="lb-spinner" />
+            <p>Loading leaderboard…</p>
+          </div>
+        )}
+
+        {/* ── Error ── */}
         {!loading && error && (
-          <div className="lb-error" role="alert" aria-live="assertive">
-            <span aria-hidden="true">⚠️</span>
+          <div className="lb-error" role="alert">
             <p>{error}</p>
-            <button
-              onClick={() => fetchLeaderboard()}
-              className="lb-retry"
-              aria-label="Retry loading leaderboard"
-            >
-              Try Again
-            </button>
+            <button onClick={fetchData} className="lb-retry">Try Again</button>
           </div>
         )}
 
-        {/* ════════════════════════════════
-            EMPTY STATE
-        ════════════════════════════════ */}
-        {!loading && !error && leaderboard.length === 0 && (
-          <div className="lb-empty" role="status">
-            <span aria-hidden="true">🏆</span>
-            <p>No referrals yet for this period</p>
-            <small>Be the first — share your invite code!</small>
-            <Link to="/invitation" className="lb-empty-btn">
-              Start Inviting →
-            </Link>
-          </div>
-        )}
-
-        {/* Board wrapper — used by aria-controls on tabs */}
-        <div id="lb-board">
-
-          {/* ════════════════════════════════
-              PODIUM (top 3)
-          ════════════════════════════════ */}
-          {!loading && !error && top3.length === 3 && (
-            <Podium top3={top3} />
-          )}
-
-          {/* ════════════════════════════════
-              MY RANK (not in top list)
-              ✅ Fixed: was checking !myRank.is_current_user
-                 but is_current_user is always true on my_rank
-                 returned by the backend. Now correctly uses
-                 showMyRank derived above.
-          ════════════════════════════════ */}
-          {!loading && !error && showMyRank && (
-            <div
-              className="lb-my-rank"
-              aria-label="Your position on the leaderboard"
-            >
-              <p className="lb-my-rank-label">Your Position</p>
-              <LeaderItem
-                entry={{ ...myRank, is_current_user: true }}
-                highlight
-              />
-            </div>
-          )}
-
-          {/* ════════════════════════════════
-              NOT ON LEADERBOARD YET
-          ════════════════════════════════ */}
-          {!loading && !error && notOnBoard && leaderboard.length > 0 && (
-            <div className="lb-my-rank lb-my-rank--none" role="status">
-              <p className="lb-my-rank-text">
-                You're not on the board yet.{" "}
-                <Link to="/invitation" className="lb-my-rank-link">
-                  Invite friends →
-                </Link>
+        {/* ── Empty ── */}
+        {!loading && !error && list.length === 0 && (
+          <div className="lb-empty">
+            <Ic.Trophy size={40} color="var(--ink3)" />
+            <p>No verified referrals yet</p>
+            {isCompetition && (
+              <p className="lb-empty-reward">
+                Be the first — win up to{" "}
+                {period === "month" ? "₦15,000" : "₦50,000"}!
               </p>
-            </div>
-          )}
-
-          {/* ════════════════════════════════
-              REST OF LIST (#4 onward)
-          ════════════════════════════════ */}
-          {!loading && !error && rest.length > 0 && (
-            <div
-              className="lb-list"
-              role="list"
-              aria-label="Leaderboard rankings from 4th place"
-            >
-              {rest.map((entry) => (
-                <LeaderItem
-                  key={entry.user_id}
-                  entry={entry}
-                  highlight={entry.is_current_user}
-                />
-              ))}
-            </div>
-          )}
-
-        </div>{/* end #lb-board */}
-
-        {/* ════════════════════════════════
-            CTA
-        ════════════════════════════════ */}
-        {!loading && !error && (
-          <div className="lb-cta-wrap">
-            <Link
-              to="/invitation"
-              className="lb-cta"
-              aria-label="Start inviting friends to climb the leaderboard"
-            >
-              <span style={{ fontSize: 28 }} aria-hidden="true">🚀</span>
-              <div style={{ flex: 1 }}>
-                <p className="lb-cta-title">Climb the Leaderboard</p>
-                <p className="lb-cta-sub">
-                  Each friend who signs up = +1 invite + bonus spin
-                </p>
-              </div>
-              <span
-                style={{ fontSize: 18, opacity: 0.6 }}
-                aria-hidden="true"
-              >
-                →
-              </span>
+            )}
+            <Link to="/invitation" className="lb-empty-btn">
+              <Ic.Share size={14} color="var(--wh)" />
+              Start Inviting
             </Link>
           </div>
         )}
 
-        <p className="lb-footer">
-          © {new Date().getFullYear()} Loemart · All rights reserved
-        </p>
+        {/* ── Podium ── */}
+        {!loading && !error && top3.length === 3 && <Podium top3={top3} />}
+
+        {/* ── My rank ── */}
+        {!loading && !error && showMyRank && (
+          <div className="lb-my-rank">
+            <div className="lb-my-rank-label">
+              <Ic.Star size={13} color="var(--o)" />
+              Your Position
+            </div>
+            <LeaderRow entry={myRank} highlight />
+            {isCompetition && myRank.reward && (
+              <div className="lb-my-rank-prize">
+                <Ic.Gift size={13} color="var(--o)" />
+                Your current prize: <strong>{myRank.reward.label}</strong>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Not on board ── */}
+        {!loading && !error && !myRank && !myInList && isLoggedIn && list.length > 0 && (
+          <div className="lb-my-rank lb-my-rank--none">
+            <p>
+              You're not on the board yet.{" "}
+              {isCompetition && (
+                <span>Win up to {period === "month" ? "₦15,000" : "₦50,000"}! </span>
+              )}
+              <Link to="/invitation">Invite friends →</Link>
+            </p>
+          </div>
+        )}
+
+        {/* ── List #4+ ── */}
+        {!loading && !error && rest.length > 0 && (
+          <div className="lb-list" role="list">
+            {rest.map((e) => (
+              <LeaderRow key={e.user_id} entry={e} highlight={e.is_current_user} />
+            ))}
+          </div>
+        )}
+
+        {/* ── Previous winners ── */}
+        {!loading && !error && isCompetition && (
+          <PreviousWinners data={prevWins} period={period} />
+        )}
+
+        {/* ── CTA ── */}
+        {!loading && !error && (
+          <Link to="/invitation" className="lb-cta">
+            <Ic.Rocket size={22} color="var(--o)" />
+            <div className="lb-cta-text">
+              <span className="lb-cta-title">Invite friends to compete</span>
+              {isCompetition && (
+                <span className="lb-cta-reward">
+                  Win up to {period === "month" ? "₦15,000" : "₦50,000"}
+                </span>
+              )}
+            </div>
+            <Ic.ChevronRight size={18} />
+          </Link>
+        )}
+
+        <p className="lb-footer">© {new Date().getFullYear()} Loemart</p>
 
       </div>
     </div>
