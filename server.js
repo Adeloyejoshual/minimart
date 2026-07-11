@@ -200,6 +200,7 @@ import favoritesRouter    from "./routes/favorites.js";
 /* ── Background jobs ── */
 import { startListingExpiryJob } from "./jobs/listingExpiry.js";
 import { startCleanupJob }       from "./jobs/cleanupDeletedProducts.js";
+import { initLeaderboardCron }   from "./services/leaderboardCron.js";
 
 /* ══════════════════════════════════════════════════════════════
    WEBHOOKS  — must be BEFORE body parsers
@@ -495,9 +496,10 @@ try {
   process.exit(1);
 }
 
-/* ── Start background jobs (after DB connection confirmed) ── */
+/* ── Start background jobs (after DB connection confirmed, all routes registered) ── */
 startListingExpiryJob();
 startCleanupJob();
+initLeaderboardCron();
 
 server.listen(PORT, () => {
   console.log(`\n🚀 Loemart on port ${PORT} | ${process.env.NODE_ENV || "development"}`);
