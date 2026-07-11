@@ -1,16 +1,18 @@
 // ════════════════════════════════════════════════════════════
 // FILE: services/leaderboardCron.js
-//
-// Runs automatically:
-//   • 12:00 AM on the 1st of every month → monthly finalization
-//   • 12:00 AM on January 1st            → yearly finalization
 // ════════════════════════════════════════════════════════════
 
-import { pool }             from "../config/db.js";
+import { pool }               from "../config/db.js";
 import { createNotification } from "./notifications.js";
-import { sendEmail }          from "./email.js";
 
-const IS_PROD = process.env.NODE_ENV === "production";
+// ✅ Import only what email.js actually exports
+// We do NOT import sendEmail — it's not exported.
+// Winner emails are sent directly via Resend inside this file.
+
+const IS_PROD      = process.env.NODE_ENV === "production";
+const BRAND        = process.env.EMAIL_BRAND   || "Loemart";
+const SUPPORT      = process.env.EMAIL_SUPPORT || "support@loemart.com";
+const FROM_ADDRESS = process.env.EMAIL_FROM    || "Loemart <no-reply@loemart.com>";
 
 /* ════════════════════════════════════════════════════════════
    REWARD CONFIG — single source of truth
@@ -27,10 +29,33 @@ const YEARLY_REWARDS = {
   3 : { amount: 20_000, label: "₦20,000", emoji: "🥉" },
 };
 
-const VERIFIED      = `('rewarded', 'verified')`;
-const BRAND         = process.env.EMAIL_BRAND   || "Loemart";
-const SUPPORT       = process.env.EMAIL_SUPPORT || "support@loemart.com";
-const FROM_ADDRESS  = process.env.EMAIL_FROM    || "Loemart <no-reply@loemart.com>";
+const VERIFIED    = `('rewarded', 'verified')`;
+const RANK_LABELS = { 1: "1st", 2: "2nd", 3: "3rd" };
+
+/* ════════════════════════════════════════════════════════════
+   RESEND CLIENT
+   ✅ Self-contained — no dependency on email.js
+════════════════════════════════════════════════════════════ */
+let _resend = null;
+
+function getResendClient() {
+  if (_resend) return _resend;
+  const key = process.env.RESEND_API_KEY;
+  if (!key) {
+    console.warn(
+      "[leaderboardCron] RESEND_API_KEY not set — winner emails skipped"
+    );
+    return null;
+  }
+  try {
+    const { Resend } = await import("resend").catch(() => ({ Resend: null }));
+    if (!Resend) return null;
+    _resend = new Resend(key);
+    return _resend;
+  } catch {
+    return null;
+  }
+}
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
@@ -74,104 +99,163 @@ function formatPeriodLabel(type, key) {
   return `Year ${key}`;
 }
 
-const RANK_LABELS = { 1: "1st", 2: "2nd", 3: "3rd" };
-
 /* ════════════════════════════════════════════════════════════
    SEND WINNER EMAIL
+   ✅ Uses Resend directly — no dependency on email.js
 ════════════════════════════════════════════════════════════ */
-async function sendWinnerEmail({ to, name, rank, reward, periodLabel }) {
-  if (!to) return;
+async function sendWinnerEmail({ to, name, rank, reward, periodLabel, type }) {
+  if (!to) {
+    console.warn("[leaderboardCron] sendWinnerEmail — no email address, skipping");
+    return;
+  }
 
-  const rankLabel   = RANK_LABELS[rank] || `${rank}th`;
-  const subject     = `🏆 You won ${reward.label}! ${rankLabel} Place — ${BRAND} Referral`;
-  const compType    = reward.amount >= 20_000 ? "Yearly" : "Monthly";
+  const rankLabel = RANK_LABELS[rank] || `${rank}th`;
+  const compType  = type === "yearly" ? "Yearly" : "Monthly";
+  const subject   = `${reward.emoji} You won ${reward.label}! — ${BRAND} ${compType} Leaderboard`;
 
-  const html = `
-    <div style="font-family:sans-serif;max-width:560px;margin:0 auto">
-      <div style="background:#1e3a5f;padding:32px;text-align:center;border-radius:8px 8px 0 0">
-        <div style="font-size:48px">${reward.emoji}</div>
-        <h1 style="color:#fff;margin:12px 0 4px">Congratulations, ${name}!</h1>
-        <p style="color:#93c5fd;margin:0">${BRAND} Referral Leaderboard</p>
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>${subject}</title>
+  <style>
+    body{margin:0;padding:0;background:#060b14;
+         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;}
+    .outer{padding:40px 16px 60px;background:#060b14;}
+    .card{background:#0d1523;border-radius:16px;max-width:520px;
+          margin:0 auto;overflow:hidden;
+          border:1px solid rgba(255,255,255,0.07);}
+    .top{padding:24px 32px;border-bottom:1px solid rgba(255,255,255,0.07);}
+    .brand{font-size:22px;font-weight:800;color:#f1f5f9;letter-spacing:-0.5px;}
+    .brand-dot{color:#FF5C00;}
+    .body{padding:32px;}
+    h2{font-size:20px;font-weight:700;color:#f1f5f9;margin:0 0 12px;}
+    p{font-size:14px;color:#94a3b8;line-height:1.7;margin:0 0 14px;}
+    strong{color:#f1f5f9;}
+    .prize-box{
+      background:rgba(22,163,74,0.10);
+      border:1px solid rgba(22,163,74,0.30);
+      border-radius:12px;padding:24px;
+      margin:24px 0;text-align:center;
+    }
+    .prize-label{font-size:13px;font-weight:700;
+                 color:#4ade80;text-transform:uppercase;letter-spacing:1px;}
+    .prize-amount{font-size:40px;font-weight:800;color:#4ade80;margin:8px 0 0;}
+    .info{background:#111c2d;border-radius:10px;
+          padding:14px 18px;margin:16px 0;
+          font-size:13px;color:#94a3b8;line-height:1.6;}
+    .footer{padding:18px 32px 24px;
+            border-top:1px solid rgba(255,255,255,0.07);
+            font-size:11px;color:#475569;text-align:center;}
+    .footer a{color:#FF5C00;text-decoration:none;}
+  </style>
+</head>
+<body>
+  <div class="outer">
+    <div class="card">
+      <div class="top">
+        <span class="brand">Loe<span class="brand-dot">mart</span></span>
       </div>
-
-      <div style="background:#fff;padding:32px;border:1px solid #e5e7eb;border-radius:0 0 8px 8px">
-        <p style="font-size:18px;color:#111">
+      <div class="body">
+        <h2>Congratulations, ${name}! ${reward.emoji}</h2>
+        <p>
           You finished <strong>${rankLabel} place</strong> in the
           <strong>${compType} Referral Competition</strong> for
-          <strong>${periodLabel}</strong>!
+          <strong>${periodLabel}</strong>.
         </p>
-
-        <div style="background:#f0fdf4;border:2px solid #22c55e;border-radius:8px;
-                    padding:24px;text-align:center;margin:24px 0">
-          <p style="margin:0;color:#15803d;font-size:14px;font-weight:600">YOUR PRIZE</p>
-          <p style="margin:8px 0 0;font-size:36px;font-weight:800;color:#15803d">
-            ${reward.label}
-          </p>
+        <div class="prize-box">
+          <div class="prize-label">Your Prize</div>
+          <div class="prize-amount">${reward.label}</div>
         </div>
-
-        <p style="color:#374151">
-          Our team will contact you within <strong>3–5 business days</strong>
-          to process your payment. Make sure your account details are up to date.
-        </p>
-
-        <p style="color:#374151">
-          Keep inviting friends — the next competition is already running! 🚀
-        </p>
-
-        <div style="border-top:1px solid #e5e7eb;margin-top:24px;padding-top:16px">
-          <p style="color:#6b7280;font-size:13px;margin:0">
-            Questions? Contact us at
-            <a href="mailto:${SUPPORT}" style="color:#2563eb">${SUPPORT}</a>
-          </p>
+        <div class="info">
+          Our team will contact you within <strong style="color:#f1f5f9">
+          3–5 business days</strong> to process your payment.
+          Make sure your account details are up to date.
         </div>
+        <p>
+          Keep inviting — the next competition is already running! 🚀
+        </p>
+        <p>
+          Questions?
+          <a href="mailto:${SUPPORT}" style="color:#FF5C00;">${SUPPORT}</a>
+        </p>
+      </div>
+      <div class="footer">
+        &copy; ${new Date().getFullYear()} ${BRAND}. All rights reserved.<br/>
+        <a href="mailto:${SUPPORT}">${SUPPORT}</a>
       </div>
     </div>
-  `;
+  </div>
+</body>
+</html>`;
 
   const text = [
     `Congratulations, ${name}!`,
     ``,
     `You finished ${rankLabel} place in the ${compType} Referral Competition`,
-    `for ${periodLabel}!`,
+    `for ${periodLabel}.`,
     ``,
     `Your prize: ${reward.label}`,
     ``,
-    `Our team will contact you within 3-5 business days to process your payment.`,
+    `Our team will contact you within 3-5 business days to process payment.`,
     ``,
     `Questions? ${SUPPORT}`,
-    `— ${BRAND} Team`,
+    `— ${BRAND}`,
   ].join("\n");
 
+  /* ── Dev mode: print to console instead of sending ── */
+  if (!IS_PROD) {
+    console.log("\n" + "═".repeat(60));
+    console.log("[leaderboardCron] 📧 DEV — winner email (not sent)");
+    console.log(`   To      : ${to}`);
+    console.log(`   Subject : ${subject}`);
+    console.log(`   Prize   : ${reward.label}`);
+    console.log("═".repeat(60) + "\n");
+    return;
+  }
+
   try {
+    const key = process.env.RESEND_API_KEY;
+    if (!key) {
+      console.warn("[leaderboardCron] RESEND_API_KEY not set — email skipped");
+      return;
+    }
     const { Resend } = await import("resend");
-    const client = new Resend(process.env.RESEND_API_KEY);
-    await client.emails.send({ from: FROM_ADDRESS, to, subject, html, text });
-    console.log(`[leaderboardCron] ✓ winner email sent → ${to}`);
+    const client = new Resend(key);
+    const result = await client.emails.send({
+      from    : FROM_ADDRESS,
+      to,
+      subject,
+      html,
+      text,
+    });
+    console.log(`[leaderboardCron] ✓ winner email sent → ${to}  id=${result?.data?.id ?? "?"}`);
   } catch (err) {
+    /* Non-fatal — winner is still recorded even if email fails */
     console.error(`[leaderboardCron] winner email failed: ${err.message}`);
   }
 }
 
 /* ════════════════════════════════════════════════════════════
-   CORE FINALIZE FUNCTION
-   Called by cron OR by POST /api/leaderboard/finalize
+   CORE FINALIZE
 ════════════════════════════════════════════════════════════ */
 export async function finalizeLeaderboard(type, overridePeriodKey = null) {
-  const periodType = type; // "monthly" | "yearly"
-  const rewardMap  = type === "monthly" ? MONTHLY_REWARDS : YEARLY_REWARDS;
+  const rewardMap = type === "monthly" ? MONTHLY_REWARDS : YEARLY_REWARDS;
 
-  /* Use the PREVIOUS period key when called by cron
-     (cron runs on the 1st of new month / Jan 1st of new year) */
+  /* When called by cron use PREVIOUS period;
+     when called manually use current or override */
   const pKey = overridePeriodKey ?? previousPeriodKey(type);
   const { start, end } = periodDateRange(type, pKey);
   const periodLabel    = formatPeriodLabel(type, pKey);
+  const periodType     = type === "monthly" ? "monthly" : "yearly";
 
   console.log(
     `[leaderboardCron] finalizing ${type}  period=${pKey}` +
     `  range=${start} → ${end}`
   );
 
-  /* ── Guard: already finalized? ── */
+  /* ── Already finalized? ── */
   const { rowCount: exists } = await pool.query(
     `SELECT 1 FROM leaderboard_winners
      WHERE period_type = $1 AND period_key = $2 LIMIT 1`,
@@ -206,7 +290,11 @@ export async function finalizeLeaderboard(type, overridePeriodKey = null) {
 
   if (top3.length === 0) {
     console.log(`[leaderboardCron] no qualifying referrals for ${pKey}`);
-    return { skipped: true, reason: "no_qualifying_referrals", period_key: pKey };
+    return {
+      skipped    : true,
+      reason     : "no_qualifying_referrals",
+      period_key : pKey,
+    };
   }
 
   const winners = [];
@@ -224,7 +312,8 @@ export async function finalizeLeaderboard(type, overridePeriodKey = null) {
           total_referrals, reward_amount, reward_currency, reward_status)
        VALUES ($1, $2, $3, $4, $5, $6, 'NGN', 'pending')
        ON CONFLICT (period_type, period_key, rank) DO NOTHING`,
-      [periodType, pKey, rank, row.user_id, row.total_referrals, reward.amount]
+      [periodType, pKey, rank, row.user_id,
+       row.total_referrals, reward.amount]
     );
 
     /* ── In-app notification ── */
@@ -248,21 +337,20 @@ export async function finalizeLeaderboard(type, overridePeriodKey = null) {
       });
     } catch (notifErr) {
       console.warn(
-        `[leaderboardCron] notification failed for user=${row.user_id}:`,
+        `[leaderboardCron] notification failed user=${row.user_id}:`,
         notifErr.message
       );
     }
 
     /* ── Winner email ── */
-    if (row.email) {
-      await sendWinnerEmail({
-        to          : row.email,
-        name,
-        rank,
-        reward,
-        periodLabel,
-      });
-    }
+    await sendWinnerEmail({
+      to          : row.email,
+      name,
+      rank,
+      reward,
+      periodLabel,
+      type,
+    });
 
     winners.push({
       rank,
@@ -279,11 +367,11 @@ export async function finalizeLeaderboard(type, overridePeriodKey = null) {
     );
   }
 
-  /* ── Announce to all users (optional global notification) ── */
+  /* ── Global announcement ── */
   try {
-    const announcement =
-      `🏆 ${periodLabel} Referral Competition has ended! ` +
-      `Congratulations to our top inviters. Check the leaderboard to see the winners!`;
+    const msg =
+      `${formatPeriodLabel(type, pKey)} Referral Competition has ended! ` +
+      `Check the leaderboard to see the winners!`;
 
     await pool.query(
       `INSERT INTO notifications
@@ -291,18 +379,18 @@ export async function finalizeLeaderboard(type, overridePeriodKey = null) {
        SELECT
          id,
          'leaderboard_announcement',
-         '🏆 Leaderboard Winners Announced!',
+         'Leaderboard Winners Announced',
          $1,
          $2::JSONB
        FROM users
        WHERE status NOT IN ('banned', 'suspended', 'flagged')
          AND email_verified = true`,
       [
-        announcement,
+        msg,
         JSON.stringify({ period_type: periodType, period_key: pKey }),
       ]
     ).catch((e) =>
-      console.warn("[leaderboardCron] bulk announcement failed:", e.message)
+      console.warn("[leaderboardCron] bulk announce failed:", e.message)
     );
   } catch (_) {}
 
@@ -316,40 +404,37 @@ export async function finalizeLeaderboard(type, overridePeriodKey = null) {
 
 /* ════════════════════════════════════════════════════════════
    CRON SCHEDULER
-   Call initLeaderboardCron() once at app startup.
+   Call once at app startup.
 ════════════════════════════════════════════════════════════ */
 export function initLeaderboardCron() {
   if (!IS_PROD) {
-    console.log("[leaderboardCron] dev mode — cron disabled");
+    console.log("[leaderboardCron] dev mode — cron disabled (won't run)");
     return;
   }
 
-  console.log("[leaderboardCron] initializing cron jobs…");
+  console.log("[leaderboardCron] ✓ cron initialized — checking every minute");
 
-  /* ── Check every minute ── */
-  setInterval(async () => {
+  setInterval(() => {
     const now = new Date();
-    const h   = now.getHours();
-    const m   = now.getMinutes();
-    const d   = now.getDate();
-    const mo  = now.getMonth(); // 0-indexed
+    const h   = now.getUTCHours();
+    const m   = now.getUTCMinutes();
+    const d   = now.getUTCDate();
+    const mo  = now.getUTCMonth(); // 0-indexed
 
-    /* Monthly: 1st of every month at 00:00 */
+    /* Monthly: 1st of every month at 00:00 UTC */
     if (d === 1 && h === 0 && m === 0) {
-      console.log("[leaderboardCron] ⏰ running monthly finalization…");
+      console.log("[leaderboardCron] ⏰ triggering monthly finalization…");
       finalizeLeaderboard("monthly").catch((err) =>
         console.error("[leaderboardCron] monthly error:", err.message)
       );
     }
 
-    /* Yearly: January 1st at 00:00 */
+    /* Yearly: January 1st at 00:00 UTC */
     if (d === 1 && mo === 0 && h === 0 && m === 0) {
-      console.log("[leaderboardCron] ⏰ running yearly finalization…");
+      console.log("[leaderboardCron] ⏰ triggering yearly finalization…");
       finalizeLeaderboard("yearly").catch((err) =>
         console.error("[leaderboardCron] yearly error:", err.message)
       );
     }
-  }, 60_000); // check every minute
-
-  console.log("[leaderboardCron] ✓ cron jobs active");
+  }, 60_000);
 }
