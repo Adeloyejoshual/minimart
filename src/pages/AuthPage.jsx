@@ -1,18 +1,30 @@
-// src/pages/AuthPage.jsx
+// ════════════════════════════════════════════════════════════
+// FILE: src/pages/AuthPage.jsx
+// ════════════════════════════════════════════════════════════
 
 import {
-  useState, useEffect, useRef, useCallback, useMemo,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
 } from "react";
-import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
-import axios from "axios";
-import toast from "react-hot-toast";
+import {
+  useNavigate,
+  useLocation,
+  useSearchParams,
+  useParams,
+  Navigate,
+} from "react-router-dom";
+import axios  from "axios";
+import toast  from "react-hot-toast";
 import { locationsByState } from "../config/locationsByState";
 import { countries, getFlag } from "../config/countries";
 import "../styles/AuthPage.css";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    CONFIG
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const BASE = import.meta.env.VITE_API_BASE_URL;
 const API  = `${BASE}/api/auth`;
 const VAPI = `${BASE}/api/verification`;
@@ -21,6 +33,9 @@ const RAPI = `${BASE}/api/referrals`;
 const OTP_LENGTH  = 6;
 const RESEND_SECS = 60;
 
+/* ════════════════════════════════════════════════════════════
+   CONSTANTS
+════════════════════════════════════════════════════════════ */
 const STRENGTH_LEVELS = [
   { score: 0, label: "",       color: "transparent" },
   { score: 1, label: "Weak",   color: "#EF4444"     },
@@ -30,10 +45,10 @@ const STRENGTH_LEVELS = [
 ];
 
 const TRUST_ITEMS = [
-  { icon: "Shield",      label: "Secure Payments", sub: "SSL encrypted"   },
-  { icon: "Truck",       label: "Fast Delivery",   sub: "To your door"    },
+  { icon: "Shield",      label: "Secure Payments",  sub: "SSL encrypted"   },
+  { icon: "Truck",       label: "Fast Delivery",    sub: "To your door"    },
   { icon: "CheckCircle", label: "Verified Sellers", sub: "Quality assured" },
-  { icon: "Headphones",  label: "24/7 Support",    sub: "Always here"     },
+  { icon: "Headphones",  label: "24/7 Support",     sub: "Always here"     },
 ];
 
 const FEATURES = [
@@ -43,83 +58,161 @@ const FEATURES = [
   { icon: "Headphones",  title: "Real Support",     desc: "Help when you need it"           },
 ];
 
-/* ═══════════════════════════════════════════════════════════════
+const INITIAL_FORM = {
+  name         : "",
+  email        : "",
+  password     : "",
+  phone_number : "",
+  country      : "",
+  state        : "",
+  city         : "",
+  invite_code  : "",
+};
+
+/* Minimum length before we bother hitting the validate API */
+const MIN_INVITE_LEN = 4;
+const MAX_INVITE_LEN = 20;
+
+/* ════════════════════════════════════════════════════════════
    PASSWORD STRENGTH
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const getStrength = (pw) => {
   if (!pw) return { ...STRENGTH_LEVELS[0], checks: [] };
   const checks = [
-    { label: "8+ chars",  met: pw.length >= 8          },
-    { label: "Uppercase", met: /[A-Z]/.test(pw)         },
-    { label: "Number",    met: /[0-9]/.test(pw)         },
-    { label: "Symbol",    met: /[^A-Za-z0-9]/.test(pw)  },
+    { label: "8+ chars",  met: pw.length >= 8         },
+    { label: "Uppercase", met: /[A-Z]/.test(pw)        },
+    { label: "Number",    met: /[0-9]/.test(pw)        },
+    { label: "Symbol",    met: /[^A-Za-z0-9]/.test(pw) },
   ];
-  return { ...STRENGTH_LEVELS[checks.filter((c) => c.met).length], checks };
+  return {
+    ...STRENGTH_LEVELS[checks.filter((c) => c.met).length],
+    checks,
+  };
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
+   VALIDATION
+════════════════════════════════════════════════════════════ */
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+const validateLogin = (form) => {
+  if (!form.email.trim())    return "Please enter your email address.";
+  if (!EMAIL_RE.test(form.email.trim())) return "Please enter a valid email address.";
+  if (!form.password)        return "Please enter your password.";
+  return null;
+};
+
+const validateRegister = (form) => {
+  if (!form.name.trim())     return "Please enter your full name.";
+  if (!form.email.trim())    return "Please enter your email address.";
+  if (!EMAIL_RE.test(form.email.trim())) return "Please enter a valid email address.";
+  if (!form.password)        return "Please enter a password.";
+  if (form.password.length < 8) return "Password must be at least 8 characters.";
+  return null;
+};
+
+/* ════════════════════════════════════════════════════════════
+   SANITISERS
+════════════════════════════════════════════════════════════ */
+
+/**
+ * Cleans any raw invite-code input into the canonical format:
+ * uppercase, alphanumeric only, max 20 chars.
+ * Used consistently everywhere invite codes are read/written.
+ */
+const sanitizeInviteCode = (raw) =>
+  String(raw ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, MAX_INVITE_LEN);
+
+/* ════════════════════════════════════════════════════════════
    ICONS
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const Ic = {
   User: ({ s = 17 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke="currentColor" strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
       <circle cx="12" cy="7" r="4"/>
     </svg>
   ),
+
   Mail: ({ s = 17, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke={c} strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
       <polyline points="22,6 12,13 2,6"/>
     </svg>
   ),
+
   Lock: ({ s = 17, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke={c} strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
       <path d="M7 11V7a5 5 0 0110 0v4"/>
     </svg>
   ),
+
   Phone: ({ s = 17 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 015.19 12 19.79 19.79 0 012.12 3.33A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+         stroke="currentColor" strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
+      <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 015.19 12
+               19.79 19.79 0 012.12 3.33A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7
+               2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45
+               c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
     </svg>
   ),
+
   Globe: ({ s = 17 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke="currentColor" strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10"/>
       <line x1="2" y1="12" x2="22" y2="12"/>
-      <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+      <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10
+               15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
     </svg>
   ),
+
   Pin: ({ s = 17 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke="currentColor" strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/>
       <circle cx="12" cy="10" r="3"/>
     </svg>
   ),
+
   Eye: ({ s = 17 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke="currentColor" strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
       <circle cx="12" cy="12" r="3"/>
     </svg>
   ),
+
   EyeOff: ({ s = 17 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+         stroke="currentColor" strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8
+               a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4
+               c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07
+               a3 3 0 11-4.24-4.24"/>
       <line x1="1" y1="1" x2="23" y2="23"/>
     </svg>
   ),
+
   Gift: ({ s = 17, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke={c} strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 12 20 22 4 22 4 12"/>
       <rect x="2" y="7" width="20" height="5"/>
       <line x1="12" y1="22" x2="12" y2="7"/>
@@ -127,71 +220,90 @@ const Ic = {
       <path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
     </svg>
   ),
+
   Check: ({ s = 14, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+         stroke={c} strokeWidth="2.5"
+         strokeLinecap="round" strokeLinejoin="round">
       <polyline points="20 6 9 17 4 12"/>
     </svg>
   ),
+
   Shield: ({ s = 15, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke={c} strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
     </svg>
   ),
+
   Truck: ({ s = 15, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke={c} strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <rect x="1" y="3" width="15" height="13"/>
       <polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/>
-      <circle cx="5.5" cy="18.5" r="2.5"/>
+      <circle cx="5.5"  cy="18.5" r="2.5"/>
       <circle cx="18.5" cy="18.5" r="2.5"/>
     </svg>
   ),
+
   Zap: ({ s = 15, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke={c} strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
     </svg>
   ),
+
   Arrow: ({ s = 18 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+         stroke="currentColor" strokeWidth="2"
+         strokeLinecap="round" strokeLinejoin="round">
       <line x1="5" y1="12" x2="19" y2="12"/>
       <polyline points="12 5 19 12 12 19"/>
     </svg>
   ),
+
   CheckCircle: ({ s = 15, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke={c} strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
       <polyline points="22 4 12 14.01 9 11.01"/>
     </svg>
   ),
+
   Headphones: ({ s = 15, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+         stroke={c} strokeWidth="1.6"
+         strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 18v-6a9 9 0 0118 0v6"/>
       <path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3z"/>
       <path d="M3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z"/>
     </svg>
   ),
+
   Refresh: ({ s = 14 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+         stroke="currentColor" strokeWidth="2"
+         strokeLinecap="round" strokeLinejoin="round">
       <polyline points="23 4 23 10 17 10"/>
       <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/>
     </svg>
   ),
+
   X: ({ s = 14, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <line x1="18" y1="6" x2="6" y2="18"/>
-      <line x1="6" y1="6" x2="18" y2="18"/>
+         stroke={c} strokeWidth="2"
+         strokeLinecap="round" strokeLinejoin="round">
+      <line x1="18" y1="6"  x2="6"  y2="18"/>
+      <line x1="6"  y1="6"  x2="18" y2="18"/>
     </svg>
   ),
 };
 
+/* Icon resolver for data-driven sections */
 const IcMap = {
   Shield      : (c) => <Ic.Shield      s={14} c={c} />,
   Truck       : (c) => <Ic.Truck       s={14} c={c} />,
@@ -200,9 +312,21 @@ const IcMap = {
   Zap         : (c) => <Ic.Zap         s={14} c={c} />,
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
+   INVITE REDIRECT
+   Handles /invite/:code → redirects to /auth?ref=CODE
+   Add this to your router:
+     <Route path="/invite/:code" element={<InviteRedirect />} />
+════════════════════════════════════════════════════════════ */
+export function InviteRedirect() {
+  const { code } = useParams();
+  const safeCode = sanitizeInviteCode(code);
+  return <Navigate to={`/auth?ref=${safeCode}`} replace />;
+}
+
+/* ════════════════════════════════════════════════════════════
    PARTICLE CANVAS
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 function ParticleCanvas() {
   const ref = useRef(null);
   const pts = useRef([]);
@@ -212,16 +336,19 @@ function ParticleCanvas() {
   useEffect(() => {
     const canvas = ref.current;
     if (!canvas) return;
+
     const ctx = canvas.getContext("2d");
     const dpr = window.devicePixelRatio || 1;
     let w, h;
 
     const resize = () => {
       const r = canvas.getBoundingClientRect();
-      w = r.width; h = r.height;
+      w = r.width;
+      h = r.height;
       canvas.width  = w * dpr;
       canvas.height = h * dpr;
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
       pts.current = Array.from(
         { length: Math.min(30, Math.floor((w * h) / 18_000)) },
         () => ({
@@ -241,11 +368,21 @@ function ParticleCanvas() {
       const { x: ox, y: oy } = mx.current;
 
       for (const q of p) {
-        q.x += q.vx; q.y += q.vy;
-        if (q.x < -4) q.x = w + 4; if (q.x > w + 4) q.x = -4;
-        if (q.y < -4) q.y = h + 4; if (q.y > h + 4) q.y = -4;
-        const dx = q.x - ox, dy = q.y - oy, d = Math.hypot(dx, dy);
-        if (d < 80 && d > 0) { q.x += dx * 0.005; q.y += dy * 0.005; }
+        q.x += q.vx;
+        q.y += q.vy;
+        if (q.x < -4)    q.x = w + 4;
+        if (q.x > w + 4) q.x = -4;
+        if (q.y < -4)    q.y = h + 4;
+        if (q.y > h + 4) q.y = -4;
+
+        const dx = q.x - ox;
+        const dy = q.y - oy;
+        const d  = Math.hypot(dx, dy);
+        if (d < 80 && d > 0) {
+          q.x += dx * 0.005;
+          q.y += dy * 0.005;
+        }
+
         ctx.beginPath();
         ctx.arc(q.x, q.y, q.r, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(180,80,0,${q.o})`;
@@ -270,19 +407,20 @@ function ParticleCanvas() {
     };
 
     const onMove  = (e) => {
-      const r = canvas.getBoundingClientRect();
+      const r    = canvas.getBoundingClientRect();
       mx.current = { x: e.clientX - r.left, y: e.clientY - r.top };
     };
     const onLeave = () => { mx.current = { x: -9999, y: -9999 }; };
 
-    resize(); draw();
-    window.addEventListener("resize", resize);
+    resize();
+    draw();
+    window.addEventListener("resize",     resize);
     canvas.addEventListener("mousemove",  onMove);
     canvas.addEventListener("mouseleave", onLeave);
 
     return () => {
       cancelAnimationFrame(raf.current);
-      window.removeEventListener("resize", resize);
+      window.removeEventListener("resize",     resize);
       canvas.removeEventListener("mousemove",  onMove);
       canvas.removeEventListener("mouseleave", onLeave);
     };
@@ -291,6 +429,7 @@ function ParticleCanvas() {
   return (
     <canvas
       ref={ref}
+      aria-hidden="true"
       style={{
         position      : "absolute",
         inset         : 0,
@@ -304,9 +443,9 @@ function ParticleCanvas() {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    OTP CELLS
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 function OtpCells({ value, onChange, disabled, hasError }) {
   const refs = useRef([]);
 
@@ -317,7 +456,10 @@ function OtpCells({ value, onChange, disabled, hasError }) {
 
   const char   = (i) => value[i] ?? "";
   const update = (i, ch) => {
-    const arr = Array.from({ length: OTP_LENGTH }, (_, k) => value[k] ?? "");
+    const arr = Array.from(
+      { length: OTP_LENGTH },
+      (_, k) => value[k] ?? ""
+    );
     arr[i] = ch;
     onChange(arr.join(""));
   };
@@ -326,7 +468,7 @@ function OtpCells({ value, onChange, disabled, hasError }) {
     <div
       className={`ap-otp-group${hasError ? " ap-otp-group--error" : ""}`}
       role="group"
-      aria-label="Code input"
+      aria-label="One-time code input"
     >
       {Array.from({ length: OTP_LENGTH }).map((_, i) => (
         <input
@@ -338,12 +480,14 @@ function OtpCells({ value, onChange, disabled, hasError }) {
           maxLength={1}
           value={char(i)}
           disabled={disabled}
-          aria-label={`Digit ${i + 1}`}
+          aria-label={`Digit ${i + 1} of ${OTP_LENGTH}`}
           className={[
             "ap-otp-cell",
             char(i)  ? "ap-otp-cell--filled" : "",
             hasError ? "ap-otp-cell--error"  : "",
-          ].join(" ")}
+          ]
+            .filter(Boolean)
+            .join(" ")}
           onChange={(e) => {
             const d = e.target.value.replace(/\D/g, "").slice(-1);
             update(i, d);
@@ -352,16 +496,17 @@ function OtpCells({ value, onChange, disabled, hasError }) {
           onKeyDown={(e) => {
             if (e.key === "Backspace") {
               e.preventDefault();
-              if (char(i)) update(i, "");
-              else if (i > 0) {
+              if (char(i)) {
+                update(i, "");
+              } else if (i > 0) {
                 update(i - 1, "");
                 refs.current[i - 1]?.focus();
               }
             } else if (e.key === "ArrowLeft"  && i > 0)              refs.current[i - 1]?.focus();
             else if   (e.key === "ArrowRight" && i < OTP_LENGTH - 1) refs.current[i + 1]?.focus();
           }}
-          onFocus={(e) => e.target.select()}
-          onPaste={(e) => {
+          onFocus={(e)  => e.target.select()}
+          onPaste={(e)  => {
             e.preventDefault();
             const digits = e.clipboardData
               .getData("text")
@@ -372,7 +517,9 @@ function OtpCells({ value, onChange, disabled, hasError }) {
               (_, k) => digits[k] ?? ""
             ).join("");
             onChange(result);
-            refs.current[Math.min(digits.length, OTP_LENGTH - 1)]?.focus();
+            refs.current[
+              Math.min(digits.length, OTP_LENGTH - 1)
+            ]?.focus();
           }}
         />
       ))}
@@ -380,41 +527,51 @@ function OtpCells({ value, onChange, disabled, hasError }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    COUNTDOWN
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 function Countdown({ seconds, resendKey, onDone }) {
   const [left,    setLeft]  = useState(seconds);
   const onDoneRef           = useRef(onDone);
+
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
   useEffect(() => {
     setLeft(seconds);
     if (seconds <= 0) return;
+
     const id = setInterval(() => {
       setLeft((p) => {
-        if (p <= 1) { clearInterval(id); onDoneRef.current?.(); return 0; }
+        if (p <= 1) {
+          clearInterval(id);
+          onDoneRef.current?.();
+          return 0;
+        }
         return p - 1;
       });
     }, 1_000);
+
     return () => clearInterval(id);
   }, [seconds, resendKey]);
 
   return (
-    <span className={`ap-countdown${left <= 10 ? " ap-countdown--warn" : ""}`}>
+    <span className={`ap-countdown${left <= 10 ? " ap-countdown--warn" : ""}`}
+          aria-live="polite"
+          aria-atomic="true">
       {left}s
     </span>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    SMALL HELPERS
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 function Chevron() {
   return (
-    <span className="ap-chev">
+    <span className="ap-chev" aria-hidden="true">
       <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-           stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+           stroke="currentColor" strokeWidth="2.5"
+           strokeLinecap="round" strokeLinejoin="round">
         <polyline points="6 9 12 15 18 9"/>
       </svg>
     </span>
@@ -423,8 +580,16 @@ function Chevron() {
 
 function Spinner({ c = "#fff" }) {
   return (
-    <svg className="ap-spinner" width="18" height="18" viewBox="0 0 24 24"
-         fill="none" stroke={c} strokeWidth="2.5" strokeLinecap="round">
+    <svg
+      className="ap-spinner"
+      width="18" height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke={c}
+      strokeWidth="2.5"
+      strokeLinecap="round"
+      aria-hidden="true"
+    >
       <path d="M21 12a9 9 0 11-6.219-8.56"/>
     </svg>
   );
@@ -432,7 +597,7 @@ function Spinner({ c = "#fff" }) {
 
 function Badges() {
   return (
-    <div className="ap-badges">
+    <div className="ap-badges" aria-label="Security badges">
       <span className="ap-badge"><Ic.Shield s={11} c="#6B6560" /> SSL Secured</span>
       <span className="ap-badge"><Ic.Lock   s={11} c="#6B6560" /> Encrypted</span>
       <span className="ap-badge"><Ic.Check  s={11} c="#6B6560" /> GDPR</span>
@@ -440,15 +605,15 @@ function Badges() {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    INVITE CODE PREVIEW
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 function InviteCodePreview({ status, preview, onClear }) {
   if (!status) return null;
 
   if (status === "checking") {
     return (
-      <div className="ap-invite-status ap-invite-status--checking">
+      <div className="ap-invite-status ap-invite-status--checking" aria-live="polite">
         <Spinner c="#6B7280" />
         <span>Checking invite code…</span>
       </div>
@@ -457,7 +622,11 @@ function InviteCodePreview({ status, preview, onClear }) {
 
   if (status === "valid" && preview) {
     return (
-      <div className="ap-invite-status ap-invite-status--valid">
+      <div
+        className="ap-invite-status ap-invite-status--valid"
+        role="status"
+        aria-live="polite"
+      >
         {preview.avatar_url ? (
           <img
             src={preview.avatar_url}
@@ -465,7 +634,10 @@ function InviteCodePreview({ status, preview, onClear }) {
             className="ap-invite-avatar"
           />
         ) : (
-          <div className="ap-invite-avatar ap-invite-avatar--letter">
+          <div
+            className="ap-invite-avatar ap-invite-avatar--letter"
+            aria-hidden="true"
+          >
             {preview.display_name?.[0]?.toUpperCase() || "?"}
           </div>
         )}
@@ -493,7 +665,11 @@ function InviteCodePreview({ status, preview, onClear }) {
 
   if (status === "invalid") {
     return (
-      <div className="ap-invite-status ap-invite-status--invalid">
+      <div
+        className="ap-invite-status ap-invite-status--invalid"
+        role="alert"
+        aria-live="assertive"
+      >
         <Ic.X s={12} c="#DC2626" />
         <span>Invalid invite code — it won't be applied</span>
       </div>
@@ -503,12 +679,12 @@ function InviteCodePreview({ status, preview, onClear }) {
   return null;
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    LEFT PANEL
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 function LeftPanel() {
   return (
-    <div className="ap-left">
+    <div className="ap-left" aria-hidden="true">
       <div className="ap-blob ap-blob1" />
       <div className="ap-blob ap-blob2" />
       <ParticleCanvas />
@@ -557,35 +733,96 @@ function LeftPanel() {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
+   PASSWORD STRENGTH METER
+════════════════════════════════════════════════════════════ */
+function PasswordStrength({ pw }) {
+  if (!pw.checks?.length) return null;
+
+  return (
+    <div className="ap-pw" role="status" aria-live="polite">
+      <div className="ap-pw-bars" aria-hidden="true">
+        {[1, 2, 3, 4].map((v) => (
+          <div
+            key={v}
+            className={`ap-pw-bar${pw.score >= v ? " ap-pw-bar--on" : ""}`}
+            style={pw.score >= v ? { background: pw.color } : {}}
+          />
+        ))}
+      </div>
+      <div
+        className="ap-pw-label"
+        style={{ color: pw.color }}
+        aria-label={`Password strength: ${pw.label}`}
+      >
+        {pw.label}
+      </div>
+      <div className="ap-pw-checks">
+        {pw.checks.map((c, i) => (
+          <span
+            key={i}
+            className={`ap-pw-check ${c.met ? "ap-pw-check--met" : "ap-pw-check--no"}`}
+            aria-label={`${c.label}: ${c.met ? "met" : "not met"}`}
+          >
+            {c.met ? (
+              <Ic.Check s={9} c="#15803D" />
+            ) : (
+              <span
+                aria-hidden="true"
+                style={{
+                  width        : 9,
+                  height       : 9,
+                  display      : "inline-block",
+                  borderRadius : "50%",
+                  border       : "1.5px solid #B0AAA3",
+                }}
+              />
+            )}
+            {c.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
    OTP PANEL
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 function OtpPanel({
-  otp, setOtp,
-  otpError, otpErrMsg,
+  otp,
+  setOtp,
+  otpError,
+  otpErrMsg,
   attemptsLeft,
-  canResend, resendKey,
+  canResend,
+  resendKey,
   resendLeft,
-  devOtp, maskedEmail,
+  devOtp,
+  maskedEmail,
   verifyingRef,
-  onResend, onSkip,
+  onResend,
+  onSkip,
 }) {
   return (
     <>
       <div className="ap-otp-header">
-        <div className="ap-otp-icon-wrap">
+        <div className="ap-otp-icon-wrap" aria-hidden="true">
           <Ic.Mail s={28} c="#fff" />
         </div>
         <h3 className="ap-otp-title">Check your email</h3>
         <p className="ap-otp-sub">
           We sent a 6-digit code to{" "}
-          {maskedEmail ? <strong>{maskedEmail}</strong> : "your email address"}.
+          {maskedEmail
+            ? <strong>{maskedEmail}</strong>
+            : "your email address"
+          }.
           Enter it below to verify your account.
         </p>
       </div>
 
       {devOtp && (
-        <div className="ap-dev-otp">
+        <div className="ap-dev-otp" role="note">
           Dev mode — code: <strong>{devOtp}</strong>
         </div>
       )}
@@ -597,12 +834,16 @@ function OtpPanel({
         hasError={otpError}
       />
 
-      <p className="ap-otp-hint">Auto-submits when all 6 digits are entered</p>
+      <p className="ap-otp-hint" aria-live="polite">
+        Auto-submits when all {OTP_LENGTH} digits are entered
+      </p>
 
       {otpErrMsg && (
-        <div className="ap-otp-error">
+        <div className="ap-otp-error" role="alert" aria-live="assertive">
           {otpErrMsg}
-          {attemptsLeft !== null && attemptsLeft > 0 && attemptsLeft <= 4 && (
+          {typeof attemptsLeft === "number" &&
+           attemptsLeft > 0 &&
+           attemptsLeft <= 4 && (
             <span className="ap-otp-error__sub">
               {attemptsLeft} attempt{attemptsLeft !== 1 ? "s" : ""} remaining
             </span>
@@ -613,9 +854,16 @@ function OtpPanel({
       <div className="ap-otp-resend">
         <div>
           {resendLeft === 0 ? (
-            <span className="ap-otp-resend__limit">Daily limit reached — try tomorrow</span>
+            <span className="ap-otp-resend__limit">
+              Daily limit reached — try tomorrow
+            </span>
           ) : canResend ? (
-            <button type="button" className="ap-otp-resend__btn" onClick={onResend}>
+            <button
+              type="button"
+              className="ap-otp-resend__btn"
+              onClick={onResend}
+              aria-label="Resend verification code"
+            >
               <Ic.Refresh s={13} /> Resend code
               {resendLeft !== null && (
                 <span className="ap-otp-resend__count">({resendLeft} left)</span>
@@ -633,11 +881,18 @@ function OtpPanel({
             </span>
           )}
         </div>
-        <span className="ap-otp-resend__note"><Ic.Lock s={11} /> Never share this</span>
+        <span className="ap-otp-resend__note">
+          <Ic.Lock s={11} /> Never share this
+        </span>
       </div>
 
       <div className="ap-otp-skip">
-        <button type="button" className="ap-forgot" onClick={onSkip}>
+        <button
+          type="button"
+          className="ap-forgot"
+          onClick={onSkip}
+          aria-label="Skip email verification for now"
+        >
           Skip for now — verify later
         </button>
       </div>
@@ -647,34 +902,25 @@ function OtpPanel({
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    MAIN COMPONENT
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 export default function AuthPage({ setUser }) {
-  const navigate     = useNavigate();
-  const location     = useLocation();
-  const [params]     = useSearchParams();
-  const from         = location.state?.from?.pathname || "/";
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [params] = useSearchParams();
+  const from     = location.state?.from?.pathname || "/";
 
-  /* ── mode ── */
+  /* ── Mode ── */
   const [mode,     setMode]     = useState("login");
   const [showPw,   setShowPw]   = useState(false);
   const [remember, setRemember] = useState(false);
   const [loading,  setLoading]  = useState(false);
 
-  /* ── form ── */
-  const [form, setForm] = useState({
-    name         : "",
-    email        : "",
-    password     : "",
-    phone_number : "",
-    country      : "",
-    state        : "",
-    city         : "",
-    invite_code  : "",
-  });
+  /* ── Form ── */
+  const [form, setForm] = useState(INITIAL_FORM);
 
-  /* ── invite code validation ── */
+  /* ── Invite code ── */
   const [inviteStatus,  setInviteStatus]  = useState(null);
   const [invitePreview, setInvitePreview] = useState(null);
   const inviteDebounce                    = useRef(null);
@@ -694,69 +940,71 @@ export default function AuthPage({ setUser }) {
   const autoRef      = useRef(false);
   const verifyingRef = useRef(false);
 
-  /* ═══════════════════════════════════════════════════════════
-     AUTO-FILL INVITE CODE FROM URL
-     Supports:
-       /auth?ref=JOSHUA247
-       /auth?code=JOSHUA247
-       /auth?invite=JOSHUA247
-       /invite/JOSHUA247 (via redirect)
-  ═══════════════════════════════════════════════════════════ */
-  useEffect(() => {
-    const refCode = (
-      params.get("ref")    ||
-      params.get("code")   ||
-      params.get("invite") ||
-      ""
-    ).trim().toUpperCase();
-
-    if (refCode && refCode.length >= 4) {
-      setForm((f) => ({ ...f, invite_code: refCode }));
-      validateInviteCode(refCode);
-      /* Auto-switch to register if user arrived via invite link */
-      setMode("register");
-    }
-  }, [params]);
-
-  /* ═══════════════════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════
      VALIDATE INVITE CODE
-  ═══════════════════════════════════════════════════════════ */
+     ⚠️ Defined BEFORE the useEffect below so it exists when
+        that effect calls it on first render. This was the
+        root cause of the invite code not showing — the effect
+        ran before this function existed in the closure.
+  ════════════════════════════════════════════════════════ */
   const validateInviteCode = useCallback(async (code) => {
-    const clean = (code || "").trim().toUpperCase();
-    if (!clean || clean.length < 4) {
+    const clean = sanitizeInviteCode(code);
+
+    if (clean.length < MIN_INVITE_LEN) {
       setInviteStatus(null);
       setInvitePreview(null);
       return;
     }
 
     setInviteStatus("checking");
+
     try {
       const { data } = await axios.get(
         `${RAPI}/validate/${encodeURIComponent(clean)}`
       );
+
       if (data.valid) {
         setInviteStatus("valid");
         setInvitePreview({
           display_name : data.display_name,
-          avatar_url   : data.avatar_url,
+          avatar_url   : data.avatar_url ?? null,
         });
       } else {
         setInviteStatus("invalid");
         setInvitePreview(null);
       }
     } catch (err) {
-      if (err.response?.status === 404) {
-        setInviteStatus("invalid");
-      } else {
-        setInviteStatus(null);
-      }
+      /* 404 = definitively invalid; anything else = network/server issue */
+      setInviteStatus(err.response?.status === 404 ? "invalid" : null);
       setInvitePreview(null);
     }
-  }, []);
+  }, []); // no external deps — only calls setState
 
-  /* ═══════════════════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════
+     AUTO-FILL INVITE CODE FROM URL
+     Supports: ?ref=  ?code=  ?invite=
+     (Path-style /invite/:code is handled by <InviteRedirect />,
+      which redirects to /auth?ref=CODE before this ever runs.)
+  ════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    const raw =
+      params.get("ref")    ||
+      params.get("code")   ||
+      params.get("invite") ||
+      "";
+
+    const refCode = sanitizeInviteCode(raw);
+
+    if (refCode.length >= MIN_INVITE_LEN) {
+      setForm((f) => ({ ...f, invite_code: refCode }));
+      setMode("register");
+      validateInviteCode(refCode); // ✅ safe — defined above, in deps below
+    }
+  }, [params, validateInviteCode]); // ✅ correct deps, no eslint-disable needed
+
+  /* ════════════════════════════════════════════════════════
      FORM HANDLERS
-  ═══════════════════════════════════════════════════════════ */
+  ════════════════════════════════════════════════════════ */
   const handleChange = useCallback((e) => {
     const { name, value } = e.target;
     setForm((prev) => {
@@ -768,25 +1016,31 @@ export default function AuthPage({ setUser }) {
   }, []);
 
   const handleInviteChange = useCallback((e) => {
-    const raw   = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 20);
-    setForm((f) => ({ ...f, invite_code: raw }));
+    const raw = sanitizeInviteCode(e.target.value);
 
+    setForm((f) => ({ ...f, invite_code: raw }));
     clearTimeout(inviteDebounce.current);
-    if (!raw || raw.length < 4) {
+
+    if (raw.length < MIN_INVITE_LEN) {
       setInviteStatus(null);
       setInvitePreview(null);
       return;
     }
+
     inviteDebounce.current = setTimeout(() => {
       validateInviteCode(raw);
     }, 600);
   }, [validateInviteCode]);
 
   const clearInviteCode = useCallback(() => {
-    setForm((f) => ({ ...f, invite_code: "" }));
+    clearTimeout(inviteDebounce.current);
+    setForm((f)   => ({ ...f, invite_code: "" }));
     setInviteStatus(null);
     setInvitePreview(null);
   }, []);
+
+  /* Cleanup debounce timer on unmount */
+  useEffect(() => () => clearTimeout(inviteDebounce.current), []);
 
   const switchMode = useCallback((m) => {
     setMode(m);
@@ -796,6 +1050,7 @@ export default function AuthPage({ setUser }) {
     setOtpErrMsg("");
   }, []);
 
+  /* ── Derived location data ── */
   const isNigeria     = form.country === "Nigeria";
   const nigeriaStates = useMemo(() => Object.keys(locationsByState).sort(), []);
   const cities        = useMemo(() => {
@@ -804,11 +1059,12 @@ export default function AuthPage({ setUser }) {
     return [];
   }, [isNigeria, form.state]);
 
+  /* ── Password strength ── */
   const pw = useMemo(() => getStrength(form.password), [form.password]);
 
-  /* ═══════════════════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════
      SEND OTP
-  ═══════════════════════════════════════════════════════════ */
+  ════════════════════════════════════════════════════════ */
   const sendOtp = useCallback(async (token) => {
     const tok = token || authToken;
     try {
@@ -825,18 +1081,19 @@ export default function AuthPage({ setUser }) {
     }
   }, [authToken]);
 
-  /* ═══════════════════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════
      LOGIN
-  ═══════════════════════════════════════════════════════════ */
-  const handleLogin = async () => {
-    if (!form.email || !form.password)
-      return toast.error("Please enter your email and password.");
+  ════════════════════════════════════════════════════════ */
+  const handleLogin = useCallback(async () => {
+    const err = validateLogin(form);
+    if (err) return toast.error(err);
 
     setLoading(true);
     try {
       const { data } = await axios.post(`${API}/login`, {
         email    : form.email.trim().toLowerCase(),
         password : form.password,
+        remember,
       });
       setUser(data.user, data.token, navigate, from);
     } catch (err) {
@@ -844,18 +1101,17 @@ export default function AuthPage({ setUser }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [form, remember, setUser, navigate, from]);
 
-  /* ═══════════════════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════
      REGISTER
-  ═══════════════════════════════════════════════════════════ */
-  const handleRegister = async () => {
-    if (!form.name || !form.email || !form.password)
-      return toast.error("Please fill in the required fields.");
+  ════════════════════════════════════════════════════════ */
+  const handleRegister = useCallback(async () => {
+    const err = validateRegister(form);
+    if (err) return toast.error(err);
 
     setLoading(true);
     try {
-      /* Build payload — only include invite_code if valid */
       const payload = {
         name         : form.name.trim(),
         email        : form.email.trim().toLowerCase(),
@@ -866,6 +1122,7 @@ export default function AuthPage({ setUser }) {
         city         : form.city         || null,
       };
 
+      /* Only send invite_code when it passed validation */
       if (inviteStatus === "valid" && form.invite_code) {
         payload.invite_code = form.invite_code;
       }
@@ -886,17 +1143,27 @@ export default function AuthPage({ setUser }) {
       setDevOtp("");
       setMode("otp");
 
-      toast.success("Account created! Check your email for the verification code.");
+      toast.success(
+        "Account created! Check your email for the verification code."
+      );
     } catch (err) {
-      toast.error(err.response?.data?.message || "Registration failed.");
+      /* Surface backend validation errors (e.g. INVALID_INVITE_CODE) clearly */
+      const msg = err.response?.data?.message || "Registration failed.";
+      toast.error(msg);
+
+      /* If the invite code was rejected server-side, reflect that in the UI */
+      if (err.response?.data?.code === "INVALID_INVITE_CODE") {
+        setInviteStatus("invalid");
+        setInvitePreview(null);
+      }
     } finally {
       setLoading(false);
     }
-  };
+  }, [form, inviteStatus, sendOtp]);
 
-  /* ═══════════════════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════
      VERIFY OTP
-  ═══════════════════════════════════════════════════════════ */
+  ════════════════════════════════════════════════════════ */
   const verifyOtp = useCallback(async (code) => {
     if (verifyingRef.current) return;
     verifyingRef.current = true;
@@ -937,11 +1204,17 @@ export default function AuthPage({ setUser }) {
         await verifyOtp(otp);
         autoRef.current = false;
       }, 180);
-      return () => { clearTimeout(t); autoRef.current = false; };
+      return () => {
+        clearTimeout(t);
+        autoRef.current = false;
+      };
     }
   }, [otp, mode, verifyOtp]);
 
-  const handleResend = async () => {
+  /* ════════════════════════════════════════════════════════
+     RESEND OTP
+  ════════════════════════════════════════════════════════ */
+  const handleResend = useCallback(async () => {
     setCanResend(false);
     setResendKey((k) => k + 1);
     setOtp("");
@@ -950,17 +1223,23 @@ export default function AuthPage({ setUser }) {
     setDevOtp("");
     await sendOtp();
     toast.success("New code sent!");
-  };
+  }, [sendOtp]);
 
-  const onSubmit = (e) => {
-    e.preventDefault();
-    if (mode === "login")    handleLogin();
-    if (mode === "register") handleRegister();
-  };
+  /* ════════════════════════════════════════════════════════
+     FORM SUBMIT DISPATCHER
+  ════════════════════════════════════════════════════════ */
+  const onSubmit = useCallback(
+    (e) => {
+      e.preventDefault();
+      if (mode === "login")    handleLogin();
+      if (mode === "register") handleRegister();
+    },
+    [mode, handleLogin, handleRegister]
+  );
 
-  /* ═══════════════════════════════════════════════════════════
-     OTP MODE
-  ═══════════════════════════════════════════════════════════ */
+  /* ════════════════════════════════════════════════════════
+     OTP SCREEN
+  ════════════════════════════════════════════════════════ */
   if (mode === "otp") {
     return (
       <div className="ap">
@@ -993,35 +1272,37 @@ export default function AuthPage({ setUser }) {
     );
   }
 
-  /* ═══════════════════════════════════════════════════════════
-     LOGIN / REGISTER
-  ═══════════════════════════════════════════════════════════ */
+  /* ════════════════════════════════════════════════════════
+     LOGIN / REGISTER SCREEN
+  ════════════════════════════════════════════════════════ */
   return (
     <div className="ap">
       <LeftPanel />
+
       <div className="ap-right">
         <div className="ap-right-scroll">
           <div className="ap-box">
 
-            {/* Tabs */}
-            <div className="ap-tabs">
-              <button
-                type="button"
-                className={`ap-tab${mode === "login" ? " active" : ""}`}
-                onClick={() => switchMode("login")}
-              >
-                Login
-              </button>
-              <button
-                type="button"
-                className={`ap-tab${mode === "register" ? " active" : ""}`}
-                onClick={() => switchMode("register")}
-              >
-                Register
-              </button>
+            {/* ── Tab switcher ── */}
+            <div className="ap-tabs" role="tablist" aria-label="Authentication mode">
+              {[
+                { key: "login",    label: "Login"    },
+                { key: "register", label: "Register" },
+              ].map(({ key, label }) => (
+                <button
+                  key={key}
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === key}
+                  className={`ap-tab${mode === key ? " active" : ""}`}
+                  onClick={() => switchMode(key)}
+                >
+                  {label}
+                </button>
+              ))}
             </div>
 
-            {/* Heading */}
+            {/* ── Heading ── */}
             <div className="ap-heading">
               <h3>
                 {mode === "login" ? "Welcome back" : "Create your account"}
@@ -1034,12 +1315,13 @@ export default function AuthPage({ setUser }) {
               </p>
             </div>
 
-            {/* ── Invite Code Banner (show when valid code from URL) ── */}
+            {/* ── Invite banner (shown when a valid code is pre-filled) ── */}
             {mode === "register" && inviteStatus === "valid" && invitePreview && (
-              <div className="ap-invite-banner">
+              <div className="ap-invite-banner" role="note">
                 <Ic.Gift s={18} c="#15803D" />
                 <div>
-                  <strong>{invitePreview.display_name}</strong> invited you to join Loemart!
+                  <strong>{invitePreview.display_name}</strong>{" "}
+                  invited you to join Loemart!
                   <br />
                   <span style={{ fontSize: 12, opacity: 0.7 }}>
                     You'll both earn rewards when you sign up
@@ -1048,22 +1330,28 @@ export default function AuthPage({ setUser }) {
               </div>
             )}
 
-            {/* Form */}
-            <form onSubmit={onSubmit}>
+            {/* ── Form ── */}
+            <form onSubmit={onSubmit} noValidate>
               <div className="ap-form">
 
-                {/* Name */}
+                {/* Full Name */}
                 {mode === "register" && (
                   <div className="ap-field">
-                    <label className="ap-label">Full Name</label>
+                    <label className="ap-label" htmlFor="ap-name">
+                      Full Name
+                    </label>
                     <div className="ap-iw">
-                      <span className="ap-icon"><Ic.User /></span>
+                      <span className="ap-icon" aria-hidden="true">
+                        <Ic.User />
+                      </span>
                       <input
+                        id="ap-name"
                         name="name"
                         value={form.name}
                         onChange={handleChange}
                         placeholder="Your full name"
                         autoComplete="name"
+                        required
                       />
                     </div>
                   </div>
@@ -1071,37 +1359,47 @@ export default function AuthPage({ setUser }) {
 
                 {/* Email */}
                 <div className="ap-field">
-                  <label className="ap-label">Email</label>
+                  <label className="ap-label" htmlFor="ap-email">
+                    Email
+                  </label>
                   <div className="ap-iw">
-                    <span className="ap-icon"><Ic.Mail /></span>
+                    <span className="ap-icon" aria-hidden="true">
+                      <Ic.Mail />
+                    </span>
                     <input
+                      id="ap-email"
                       name="email"
                       type="email"
                       value={form.email}
                       onChange={handleChange}
                       placeholder="Email address"
                       autoComplete="email"
+                      required
                     />
                   </div>
                 </div>
 
                 {/* Password */}
                 <div className="ap-field">
-                  <label className="ap-label">
+                  <label className="ap-label" htmlFor="ap-password">
                     Password
                     {mode === "login" && (
                       <button
                         type="button"
                         className="ap-forgot"
                         onClick={() => navigate("/forgot-password")}
+                        aria-label="Forgot password"
                       >
                         Forgot?
                       </button>
                     )}
                   </label>
                   <div className="ap-iw">
-                    <span className="ap-icon"><Ic.Lock /></span>
+                    <span className="ap-icon" aria-hidden="true">
+                      <Ic.Lock />
+                    </span>
                     <input
+                      id="ap-password"
                       name="password"
                       type={showPw ? "text" : "password"}
                       value={form.password}
@@ -1110,120 +1408,103 @@ export default function AuthPage({ setUser }) {
                       autoComplete={
                         mode === "login" ? "current-password" : "new-password"
                       }
+                      required
                     />
                     <button
                       type="button"
                       className="ap-eye"
                       onClick={() => setShowPw((v) => !v)}
                       tabIndex={-1}
+                      aria-label={showPw ? "Hide password" : "Show password"}
+                      aria-pressed={showPw}
                     >
                       {showPw ? <Ic.EyeOff /> : <Ic.Eye />}
                     </button>
                   </div>
 
                   {mode === "register" && form.password && (
-                    <div className="ap-pw">
-                      <div className="ap-pw-bars">
-                        {[1, 2, 3, 4].map((v) => (
-                          <div
-                            key={v}
-                            className={`ap-pw-bar${pw.score >= v ? " ap-pw-bar--on" : ""}`}
-                            style={pw.score >= v ? { background: pw.color } : {}}
-                          />
-                        ))}
-                      </div>
-                      <div className="ap-pw-label" style={{ color: pw.color }}>
-                        {pw.label}
-                      </div>
-                      <div className="ap-pw-checks">
-                        {pw.checks.map((c, i) => (
-                          <span
-                            key={i}
-                            className={`ap-pw-check ${c.met ? "ap-pw-check--met" : "ap-pw-check--no"}`}
-                          >
-                            {c.met
-                              ? <Ic.Check s={9} c="#15803D" />
-                              : <span style={{
-                                  width: 9, height: 9, display: "inline-block",
-                                  borderRadius: "50%", border: "1.5px solid #B0AAA3",
-                                }} />
-                            }
-                            {c.label}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
+                    <PasswordStrength pw={pw} />
                   )}
                 </div>
 
-                {/* ══════════════════════════════════════════
-                    INVITE CODE FIELD — Register only
-                ══════════════════════════════════════════ */}
-                {mode === "register" && (
-                  <div className="ap-field">
-                    <label className="ap-label">
-                      Invite Code
-                      <span className="ap-label-opt">Optional</span>
-                    </label>
-                    <div className="ap-iw" style={{
-                      borderColor:
-                        inviteStatus === "valid"   ? "#22C55E" :
-                        inviteStatus === "invalid" ? "#EF4444" : undefined,
-                    }}>
-                      <span className="ap-icon">
-                        <Ic.Gift s={17} c={
-                          inviteStatus === "valid"   ? "#15803D" :
-                          inviteStatus === "invalid" ? "#DC2626" : "currentColor"
-                        } />
-                      </span>
-                      <input
-                        name="invite_code"
-                        value={form.invite_code}
-                        onChange={handleInviteChange}
-                        placeholder="e.g. JOSHUA247"
-                        maxLength={20}
-                        autoComplete="off"
-                        spellCheck={false}
-                        style={{
-                          textTransform : "uppercase",
-                          letterSpacing : form.invite_code ? "1.5px" : undefined,
-                          fontWeight    : form.invite_code ? 700 : undefined,
-                        }}
-                      />
-                      {form.invite_code && inviteStatus !== "checking" && (
-                        <button
-                          type="button"
-                          className="ap-eye"
-                          onClick={clearInviteCode}
-                          aria-label="Clear invite code"
-                          style={{ padding: 4 }}
-                        >
-                          <Ic.X s={14} c="#9CA3AF" />
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Invite code status preview */}
-                    <InviteCodePreview
-                      status={inviteStatus}
-                      preview={invitePreview}
-                      onClear={clearInviteCode}
-                    />
-                  </div>
-                )}
-
-                {/* Register extras */}
+                {/* ── Register-only fields ── */}
                 {mode === "register" && (
                   <>
+                    {/* Invite Code */}
                     <div className="ap-field">
-                      <label className="ap-label">
+                      <label className="ap-label" htmlFor="ap-invite-code">
+                        Invite Code
+                        <span className="ap-label-opt">Optional</span>
+                      </label>
+                      <div
+                        className="ap-iw"
+                        style={{
+                          borderColor:
+                            inviteStatus === "valid"   ? "#22C55E" :
+                            inviteStatus === "invalid" ? "#EF4444" : undefined,
+                        }}
+                      >
+                        <span className="ap-icon" aria-hidden="true">
+                          <Ic.Gift
+                            s={17}
+                            c={
+                              inviteStatus === "valid"   ? "#15803D" :
+                              inviteStatus === "invalid" ? "#DC2626" : "currentColor"
+                            }
+                          />
+                        </span>
+                        <input
+                          id="ap-invite-code"
+                          name="invite_code"
+                          value={form.invite_code}
+                          onChange={handleInviteChange}
+                          placeholder="e.g. JOSHUA247"
+                          maxLength={MAX_INVITE_LEN}
+                          autoComplete="off"
+                          spellCheck={false}
+                          aria-describedby="ap-invite-status"
+                          style={{
+                            textTransform : "uppercase",
+                            letterSpacing : form.invite_code ? "1.5px"  : undefined,
+                            fontWeight    : form.invite_code ? 700      : undefined,
+                          }}
+                        />
+                        {form.invite_code && inviteStatus !== "checking" && (
+                          <button
+                            type="button"
+                            className="ap-eye"
+                            onClick={clearInviteCode}
+                            aria-label="Clear invite code"
+                            style={{ padding: 4 }}
+                          >
+                            <Ic.X s={14} c="#9CA3AF" />
+                          </button>
+                        )}
+                      </div>
+
+                      <div id="ap-invite-status">
+                        <InviteCodePreview
+                          status={inviteStatus}
+                          preview={invitePreview}
+                          onClear={clearInviteCode}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Phone */}
+                    <div className="ap-field">
+                      <label className="ap-label" htmlFor="ap-phone">
                         Phone Number
                         <span className="ap-label-opt">Optional</span>
                       </label>
                       <div className="ap-iw">
-                        <span className="ap-icon"><Ic.Phone /></span>
+                        <span className="ap-icon" aria-hidden="true">
+                          <Ic.Phone />
+                        </span>
                         <input
+                          id="ap-phone"
                           name="phone_number"
+                          type="tel"
                           value={form.phone_number}
                           onChange={handleChange}
                           placeholder="Phone number"
@@ -1232,11 +1513,17 @@ export default function AuthPage({ setUser }) {
                       </div>
                     </div>
 
+                    {/* Country */}
                     <div className="ap-field">
-                      <label className="ap-label">Country</label>
+                      <label className="ap-label" htmlFor="ap-country">
+                        Country
+                      </label>
                       <div className="ap-iw">
-                        <span className="ap-icon"><Ic.Globe /></span>
+                        <span className="ap-icon" aria-hidden="true">
+                          <Ic.Globe />
+                        </span>
                         <select
+                          id="ap-country"
                           name="country"
                           value={form.country}
                           onChange={handleChange}
@@ -1253,14 +1540,20 @@ export default function AuthPage({ setUser }) {
                       </div>
                     </div>
 
+                    {/* State + City */}
                     <div className="ap-row">
                       <div className="ap-field">
-                        <label className="ap-label">State</label>
+                        <label className="ap-label" htmlFor="ap-state">
+                          State
+                        </label>
                         <div className="ap-iw">
-                          <span className="ap-icon"><Ic.Pin /></span>
+                          <span className="ap-icon" aria-hidden="true">
+                            <Ic.Pin />
+                          </span>
                           {isNigeria ? (
                             <>
                               <select
+                                id="ap-state"
                                 name="state"
                                 value={form.state}
                                 onChange={handleChange}
@@ -1275,6 +1568,7 @@ export default function AuthPage({ setUser }) {
                             </>
                           ) : (
                             <input
+                              id="ap-state"
                               name="state"
                               value={form.state}
                               onChange={handleChange}
@@ -1285,15 +1579,18 @@ export default function AuthPage({ setUser }) {
                       </div>
 
                       <div className="ap-field">
-                        <label className="ap-label">
+                        <label className="ap-label" htmlFor="ap-city">
                           City
                           <span className="ap-label-opt">Optional</span>
                         </label>
                         <div className="ap-iw">
-                          <span className="ap-icon"><Ic.Pin /></span>
+                          <span className="ap-icon" aria-hidden="true">
+                            <Ic.Pin />
+                          </span>
                           {isNigeria && cities.length > 0 ? (
                             <>
                               <select
+                                id="ap-city"
                                 name="city"
                                 value={form.city}
                                 onChange={handleChange}
@@ -1308,12 +1605,16 @@ export default function AuthPage({ setUser }) {
                             </>
                           ) : (
                             <input
+                              id="ap-city"
                               name="city"
                               value={form.city}
                               onChange={handleChange}
                               placeholder={
-                                isNigeria && !form.state ? "Select state first" : "City"
+                                isNigeria && !form.state
+                                  ? "Select state first"
+                                  : "City"
                               }
+                              disabled={isNigeria && !form.state}
                             />
                           )}
                         </div>
@@ -1322,17 +1623,21 @@ export default function AuthPage({ setUser }) {
                   </>
                 )}
 
-                {/* Remember me */}
+                {/* Remember me — login only */}
                 {mode === "login" && (
                   <div className="ap-opts">
-                    <label
-                      className="ap-remember"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setRemember((v) => !v);
-                      }}
-                    >
-                      <span className={`ap-checkbox${remember ? " ap-checkbox--on" : ""}`}>
+                    <label className="ap-remember" htmlFor="ap-remember">
+                      <input
+                        id="ap-remember"
+                        type="checkbox"
+                        checked={remember}
+                        onChange={(e) => setRemember(e.target.checked)}
+                        style={{ display: "none" }}
+                      />
+                      <span
+                        className={`ap-checkbox${remember ? " ap-checkbox--on" : ""}`}
+                        aria-hidden="true"
+                      >
                         {remember && <Ic.Check s={10} c="#fff" />}
                       </span>
                       Remember me
@@ -1340,7 +1645,13 @@ export default function AuthPage({ setUser }) {
                   </div>
                 )}
 
-                <button type="submit" className="ap-submit" disabled={loading}>
+                {/* Submit */}
+                <button
+                  type="submit"
+                  className="ap-submit"
+                  disabled={loading}
+                  aria-busy={loading}
+                >
                   {loading ? (
                     <><Spinner /> Please wait…</>
                   ) : mode === "login" ? (
@@ -1353,19 +1664,29 @@ export default function AuthPage({ setUser }) {
               </div>
             </form>
 
+            {/* ── Mode switcher ── */}
             <p className="ap-switch">
               {mode === "login"
                 ? "Don't have an account? "
                 : "Already have an account? "
               }
-              <a onClick={() => switchMode(mode === "login" ? "register" : "login")}>
+              <a
+                role="button"
+                tabIndex={0}
+                onClick={() => switchMode(mode === "login" ? "register" : "login")}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ")
+                    switchMode(mode === "login" ? "register" : "login");
+                }}
+                style={{ cursor: "pointer" }}
+              >
                 {mode === "login" ? "Register" : "Login"}
               </a>
             </p>
 
             <p className="ap-terms">
               By continuing you agree to our{" "}
-              <a href="/terms" target="_blank" rel="noreferrer">Terms of Service</a>
+              <a href="/terms"   target="_blank" rel="noreferrer">Terms of Service</a>
               {" "}and{" "}
               <a href="/privacy" target="_blank" rel="noreferrer">Privacy Policy</a>
             </p>
