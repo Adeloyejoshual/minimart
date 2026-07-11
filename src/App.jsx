@@ -79,6 +79,11 @@ import OrderSuccess      from "./pages/OrderSuccess";
 import OrderHistory      from "./pages/OrderHistory";
 
 /* ════════════════════════════════════════════════════════════
+   PAGES — PUBLIC INFO / COMMUNITY
+════════════════════════════════════════════════════════════ */
+import HallOfFame from "./pages/HallOfFame";
+
+/* ════════════════════════════════════════════════════════════
    PAGES — MESSAGING DESKTOP
 ════════════════════════════════════════════════════════════ */
 import MessagingDesktop from "./pages/MessagingDesktop";
@@ -576,6 +581,10 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* ════════════ HALL OF FAME (public) ════════════ */}
+        <Route path="/hall-of-fame" element={<HallOfFame />} />
+
         <Route
           path="/verification"
           element={
