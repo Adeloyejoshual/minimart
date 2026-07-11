@@ -2,14 +2,8 @@
 // FILE: routes/leaderboard.js
 // Base: /api/leaderboard
 //
-// Schema facts (from your exported CockroachDB table):
-//   referrals.inviter_id  UUID NOT NULL
-//   referrals.invitee_id  UUID NOT NULL  ← legacy NOT NULL col
-//   referrals.referee_id  UUID NULL      ← new col
-//
-// Rules applied everywhere:
-//   COUNT(DISTINCT ...) uses COALESCE(r.referee_id, r.invitee_id)
-//   name concat uses COALESCE(col, '') to avoid NULL crashes
+// ✅ Names are masked for privacy: "Joshua Adamu" → "J*****a A***u"
+// ✅ Falls back through: first_name+last_name → name → username → email
 // ════════════════════════════════════════════════════════════
 
 import express   from "express";
@@ -43,7 +37,84 @@ const getIp = (req) =>
   req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
   null;
 
-/* ── Avatar color from name ── */
+/* ════════════════════════════════════════════════════════════
+   MASKING — the core fix
+
+   Examples:
+     "Joshua"      → "J****a"
+     "Jo"          → "J*"
+     "J"           → "J"
+     "Joshua Adamu"→ "J****a A***u"
+     "jo@mail.com" → "j*@m***.com"
+     null          → "User"
+════════════════════════════════════════════════════════════ */
+function maskWord(word) {
+  if (!word) return "";
+  const w = word.trim();
+  if (w.length <= 1) return w;
+  if (w.length === 2) return `${w[0]}*`;
+  /* Show first char + stars + last char */
+  return `${w[0]}${"*".repeat(w.length - 2)}${w[w.length - 1]}`;
+}
+
+function maskEmail(email) {
+  if (!email || !email.includes("@")) return "User";
+  const [local, domain] = email.split("@");
+  const maskedLocal = maskWord(local);
+  const domParts    = domain.split(".");
+  if (domParts.length >= 2) {
+    const maskedDom = maskWord(domParts[0]);
+    return `${maskedLocal}@${maskedDom}.${domParts.slice(1).join(".")}`;
+  }
+  return `${maskedLocal}@${maskWord(domain)}`;
+}
+
+function maskName(raw) {
+  if (!raw || !raw.trim()) return null;
+  const words = raw.trim().split(/\s+/);
+  return words.map(maskWord).join(" ");
+}
+
+/**
+ * buildMaskedDisplayName
+ * Takes a user row with all possible name fields and returns
+ * a privacy-safe masked display name.
+ *
+ * Priority:
+ *   1. first_name + last_name  → "J****a A***u"
+ *   2. name (full name)        → "J****a A***u"
+ *   3. username                → "j*****7"
+ *   4. email                   → "j*@m***.com"
+ *   5. fallback                → "User"
+ */
+function buildMaskedDisplayName(row) {
+  /* 1. first_name + last_name */
+  const first = row.first_name?.trim();
+  const last  = row.last_name?.trim();
+  if (first || last) {
+    const parts = [first, last].filter(Boolean);
+    return parts.map(maskWord).join(" ");
+  }
+
+  /* 2. name (full name field) */
+  const name = row.name?.trim();
+  if (name) return maskName(name);
+
+  /* 3. username */
+  const uname = row.username?.trim();
+  if (uname) return maskWord(uname);
+
+  /* 4. email */
+  const email = row.email?.trim();
+  if (email) return maskEmail(email);
+
+  /* 5. fallback */
+  return "User";
+}
+
+/* ════════════════════════════════════════════════════════════
+   AVATAR HELPERS
+════════════════════════════════════════════════════════════ */
 const AVATAR_COLORS = [
   "#2563eb","#10b981","#f59e0b","#8b5cf6",
   "#ef4444","#0891b2","#e8630a","#059669",
@@ -55,6 +126,11 @@ const colorFor = (str = "") =>
     [...str].reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_COLORS.length
   ];
 
+/**
+ * initialsOf — generates initials from a masked name.
+ * Uses the FIRST character of each word (which is NOT masked).
+ * "J****a A***u" → "JA"
+ */
 const initialsOf = (name = "") =>
   (name || "?")
     .split(" ")
@@ -62,15 +138,26 @@ const initialsOf = (name = "") =>
     .map((w) => w[0]?.toUpperCase() || "")
     .join("");
 
-/* ── Format a leaderboard row ── */
+/* ════════════════════════════════════════════════════════════
+   FORMAT LEADERBOARD ENTRY
+   Takes a raw DB row + computes masked display name, initials,
+   avatar color, etc.
+════════════════════════════════════════════════════════════ */
 const formatEntry = (row, rank, currentUserId) => {
-  const name = row.display_name || "Loemart User";
+  const maskedName = buildMaskedDisplayName({
+    first_name : row.first_name,
+    last_name  : row.last_name,
+    name       : row.raw_name,
+    username   : row.username,
+    email      : row.email,
+  });
+
   return {
     rank,
     user_id            : row.user_id,
-    display_name       : name,
-    initials           : initialsOf(name),
-    color              : colorFor(name),
+    display_name       : maskedName,
+    initials           : initialsOf(maskedName),
+    color              : colorFor(maskedName),
     avatar_url         : row.avatar_url         || null,
     referral_code      : row.referral_code       || null,
     total_referrals    : Number(row.total_referrals    || 0),
@@ -84,7 +171,6 @@ const formatEntry = (row, rank, currentUserId) => {
 
 /* ════════════════════════════════════════════════════════════
    OPTIONAL AUTH
-   Reads JWT if present — never fails on missing/invalid token.
 ════════════════════════════════════════════════════════════ */
 function optionalAuth(req, _res, next) {
   try {
@@ -130,7 +216,7 @@ const myRankLimiter = makeLimiter({
 });
 
 /* ════════════════════════════════════════════════════════════
-   VALID PERIODS + DATE FILTER
+   PERIODS + DATE FILTER
 ════════════════════════════════════════════════════════════ */
 const VALID_PERIODS = ["all", "month", "week", "today"];
 
@@ -158,44 +244,43 @@ function buildDateFilter(period) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   CORE SELECT FRAGMENT
-   Used by the main leaderboard query.
-
-   ✅ name concat uses COALESCE(col,'') — no NULL crash
-   ✅ No referee_id reference here — ranking is by inviter_id
+   CORE SELECT
+   ✅ Fetches ALL name fields so buildMaskedDisplayName
+      can pick the best one and mask it.
+   ✅ No COALESCE/name logic in SQL — done in JS for control.
 ════════════════════════════════════════════════════════════ */
 const LEADERBOARD_SELECT = `
   SELECT
-    r.inviter_id                                                   AS user_id,
-    COUNT(r.id)::INT                                               AS total_referrals,
-    COALESCE(SUM(r.reward_value), 0)::INT                          AS total_spins_earned,
-    MAX(r.reward_given_at)                                         AS last_referral_at,
-    COALESCE(
-      NULLIF(TRIM(
-        COALESCE(u.first_name, '') || ' ' ||
-        COALESCE(u.last_name,  '')
-      ), ''),
-      u.name,
-      u.username,
-      'Loemart User'
-    )                                                              AS display_name,
-    u.profile_image                                                AS avatar_url,
+    r.inviter_id                            AS user_id,
+    COUNT(r.id)::INT                        AS total_referrals,
+    COALESCE(SUM(r.reward_value), 0)::INT   AS total_spins_earned,
+    MAX(r.reward_given_at)                  AS last_referral_at,
+    u.first_name,
+    u.last_name,
+    u.name                                  AS raw_name,
+    u.username,
+    u.email,
+    u.profile_image                         AS avatar_url,
     u.referral_code,
     u.identity_verified,
     u.store_verified,
-    u.created_at                                                   AS member_since
+    u.created_at                            AS member_since
   FROM   referrals r
   JOIN   users     u ON u.id = r.inviter_id
-  WHERE  r.status = 'rewarded'
+  WHERE  r.status IN ('rewarded', 'verified', 'pending')
     AND  u.status NOT IN ('banned', 'suspended', 'flagged')
 `;
 
-/* ════════════════════════════════════════════════════════════
-   RANK SUBQUERY FRAGMENT
-   Reused by GET / (my rank) and GET /me.
-   Parameterised: caller provides dateWhere + userParam.
+const LEADERBOARD_GROUP = `
+  GROUP BY
+    r.inviter_id,
+    u.first_name, u.last_name, u.name, u.username, u.email,
+    u.profile_image, u.referral_code,
+    u.identity_verified, u.store_verified, u.created_at
+`;
 
-   ✅ COALESCE on name to avoid NULL crashes
+/* ════════════════════════════════════════════════════════════
+   RANK SUBQUERY BUILDER
 ════════════════════════════════════════════════════════════ */
 const buildRankSubquery = (dateWhere = "", userParam = "$1") => `
   SELECT
@@ -203,7 +288,11 @@ const buildRankSubquery = (dateWhere = "", userParam = "$1") => `
     sub.total_referrals,
     sub.total_spins_earned,
     sub.last_referral_at,
-    sub.display_name,
+    sub.first_name,
+    sub.last_name,
+    sub.raw_name,
+    sub.username,
+    sub.email,
     sub.avatar_url,
     sub.referral_code,
     sub.identity_verified,
@@ -211,48 +300,35 @@ const buildRankSubquery = (dateWhere = "", userParam = "$1") => `
     sub.member_since
   FROM (
     SELECT
-      r.inviter_id,
-      COUNT(r.id)::INT                       AS total_referrals,
-      COALESCE(SUM(r.reward_value), 0)::INT  AS total_spins_earned,
-      MAX(r.reward_given_at)                 AS last_referral_at,
-      COALESCE(
-        NULLIF(TRIM(
-          COALESCE(u.first_name, '') || ' ' ||
-          COALESCE(u.last_name,  '')
-        ), ''),
-        u.name,
-        u.username,
-        'Loemart User'
-      )                                      AS display_name,
-      u.profile_image                        AS avatar_url,
+      r.inviter_id                            AS user_id,
+      COUNT(r.id)::INT                        AS total_referrals,
+      COALESCE(SUM(r.reward_value), 0)::INT   AS total_spins_earned,
+      MAX(r.reward_given_at)                  AS last_referral_at,
+      u.first_name,
+      u.last_name,
+      u.name                                  AS raw_name,
+      u.username,
+      u.email,
+      u.profile_image                         AS avatar_url,
       u.referral_code,
       u.identity_verified,
       u.store_verified,
-      u.created_at                           AS member_since,
+      u.created_at                            AS member_since,
       RANK() OVER (
         ORDER BY COUNT(r.id) DESC, MAX(r.reward_given_at) ASC
-      )::INT                                 AS rank
+      )::INT                                  AS rank
     FROM   referrals r
     JOIN   users     u ON u.id = r.inviter_id
-    WHERE  r.status = 'rewarded'
+    WHERE  r.status IN ('rewarded', 'verified', 'pending')
       AND  u.status NOT IN ('banned', 'suspended', 'flagged')
       ${dateWhere}
-    GROUP BY
-      r.inviter_id,
-      u.first_name, u.last_name, u.name, u.username,
-      u.profile_image, u.referral_code,
-      u.identity_verified, u.store_verified, u.created_at
+    ${LEADERBOARD_GROUP}
   ) sub
-  WHERE sub.inviter_id = ${userParam}
+  WHERE sub.user_id = ${userParam}
 `;
 
 /* ════════════════════════════════════════════════════════════
    GET /api/leaderboard
-   Main leaderboard — top inviters.
-
-   Query params:
-     period — "all" | "week" | "month" | "today" (default: "all")
-     limit  — 1–50  (default: 20)
 ════════════════════════════════════════════════════════════ */
 router.get("/", optionalAuth, leaderboardLimiter, async (req, res) => {
   const period = VALID_PERIODS.includes(req.query.period)
@@ -273,10 +349,7 @@ router.get("/", optionalAuth, leaderboardLimiter, async (req, res) => {
   );
 
   try {
-
-    /* ════════════════════════════════
-       1. TOP N LEADERBOARD
-    ════════════════════════════════ */
+    /* ── 1. Top N ── */
     const params = [];
     let   dateClause = "";
 
@@ -291,11 +364,7 @@ router.get("/", optionalAuth, leaderboardLimiter, async (req, res) => {
     const { rows: topRows } = await pool.query(
       `${LEADERBOARD_SELECT}
        ${dateClause}
-       GROUP BY
-         r.inviter_id,
-         u.first_name, u.last_name, u.name, u.username,
-         u.profile_image, u.referral_code,
-         u.identity_verified, u.store_verified, u.created_at
+       ${LEADERBOARD_GROUP}
        ORDER BY total_referrals DESC, last_referral_at ASC
        LIMIT ${limitParam}`,
       params
@@ -305,30 +374,23 @@ router.get("/", optionalAuth, leaderboardLimiter, async (req, res) => {
       formatEntry(row, idx + 1, currentUserId)
     );
 
-    console.log(`[leaderboard] ✓ fetched ${leaderboard.length} entries`);
+    console.log(`[leaderboard] ✓ ${leaderboard.length} entries`);
 
-    /* ════════════════════════════════
-       2. MY RANK (logged-in users)
-    ════════════════════════════════ */
+    /* ── 2. My rank ── */
     let myRank = null;
 
     if (currentUserId) {
-      /* Already in the top list? Use that entry directly */
       const inList = leaderboard.find((e) => e.user_id === currentUserId);
 
       if (inList) {
         myRank = inList;
-        console.log(`[leaderboard] my rank=${inList.rank} (in top list)`);
       } else {
-        console.log(
-          `[leaderboard] fetching rank for user=${currentUserId}…`
-        );
         try {
-          const rankParams  = cutoff
+          const rankParams = cutoff
             ? [cutoff, currentUserId]
             : [currentUserId];
-          const dateWhere   = cutoff ? `AND r.reward_given_at >= $1` : "";
-          const userParam   = cutoff ? "$2" : "$1";
+          const dateWhere  = cutoff ? `AND r.reward_given_at >= $1` : "";
+          const userParam  = cutoff ? "$2" : "$1";
 
           const { rows: [myRow] } = await pool.query(
             buildRankSubquery(dateWhere, userParam),
@@ -336,40 +398,21 @@ router.get("/", optionalAuth, leaderboardLimiter, async (req, res) => {
           );
 
           if (myRow) {
-            const name = myRow.display_name || "You";
-            myRank = {
-              rank               : myRow.rank,
-              user_id            : currentUserId,
-              display_name       : name,
-              initials           : initialsOf(name),
-              color              : colorFor(name),
-              avatar_url         : myRow.avatar_url         || null,
-              referral_code      : myRow.referral_code       || null,
-              total_referrals    : Number(myRow.total_referrals    || 0),
-              total_spins_earned : Number(myRow.total_spins_earned || 0),
-              is_verified        : Boolean(
-                myRow.identity_verified || myRow.store_verified
-              ),
-              last_referral_at   : myRow.last_referral_at   || null,
-              member_since       : myRow.member_since        || null,
-              is_current_user    : true,
-            };
-            console.log(`[leaderboard] my rank=${myRank.rank}`);
-          } else {
-            console.log(`[leaderboard] user not on leaderboard yet`);
+            myRank = formatEntry(
+              { ...myRow, user_id: currentUserId },
+              myRow.rank,
+              currentUserId
+            );
           }
         } catch (rankErr) {
-          /* Non-fatal — leaderboard still loads without my rank */
           console.warn(
-            "[leaderboard] my rank query (non-fatal):", rankErr.message
+            "[leaderboard] my rank (non-fatal):", rankErr.message
           );
         }
       }
     }
 
-    /* ════════════════════════════════
-       3. GLOBAL STATS
-    ════════════════════════════════ */
+    /* ── 3. Global stats ── */
     let globalStats = {
       total_inviters    : 0,
       total_referrals   : 0,
@@ -388,7 +431,7 @@ router.get("/", optionalAuth, leaderboardLimiter, async (req, res) => {
            COUNT(r.id)::INT                      AS total_referrals,
            COALESCE(SUM(r.reward_value), 0)::INT AS total_spins_given
          FROM referrals r
-         WHERE r.status = 'rewarded'
+         WHERE r.status IN ('rewarded', 'verified', 'pending')
            ${statsDateWhere}`,
         statsParams
       );
@@ -401,9 +444,7 @@ router.get("/", optionalAuth, leaderboardLimiter, async (req, res) => {
         };
       }
     } catch (statsErr) {
-      console.warn(
-        "[leaderboard] global stats (non-fatal):", statsErr.message
-      );
+      console.warn("[leaderboard] stats (non-fatal):", statsErr.message);
     }
 
     return res.json({
@@ -423,7 +464,6 @@ router.get("/", optionalAuth, leaderboardLimiter, async (req, res) => {
 
 /* ════════════════════════════════════════════════════════════
    GET /api/leaderboard/me
-   Returns the current user's rank across all periods.
 ════════════════════════════════════════════════════════════ */
 router.get("/me", optionalAuth, myRankLimiter, async (req, res) => {
   const userId = req.currentUserId;
@@ -434,7 +474,6 @@ router.get("/me", optionalAuth, myRankLimiter, async (req, res) => {
   try {
     const results = {};
 
-    /* Run each period in parallel for speed */
     await Promise.all(
       VALID_PERIODS.map(async (period) => {
         const cutoff    = buildDateFilter(period);
@@ -442,16 +481,12 @@ router.get("/me", optionalAuth, myRankLimiter, async (req, res) => {
         const dateWhere = cutoff ? `AND r.reward_given_at >= $1` : "";
         const userParam = cutoff ? "$2" : "$1";
 
-        /* Simplified rank subquery — no extra columns needed here */
-        const rankOnlySubquery = `
-          SELECT
-            sub.rank,
-            sub.total_referrals,
-            sub.total_spins_earned,
-            sub.last_referral_at
+        const rankQuery = `
+          SELECT sub.rank, sub.total_referrals,
+                 sub.total_spins_earned, sub.last_referral_at
           FROM (
             SELECT
-              r.inviter_id,
+              r.inviter_id AS user_id,
               COUNT(r.id)::INT                       AS total_referrals,
               COALESCE(SUM(r.reward_value), 0)::INT  AS total_spins_earned,
               MAX(r.reward_given_at)                 AS last_referral_at,
@@ -461,17 +496,16 @@ router.get("/me", optionalAuth, myRankLimiter, async (req, res) => {
               )::INT                                 AS rank
             FROM   referrals r
             JOIN   users     u ON u.id = r.inviter_id
-            WHERE  r.status = 'rewarded'
+            WHERE  r.status IN ('rewarded', 'verified', 'pending')
               AND  u.status NOT IN ('banned', 'suspended', 'flagged')
               ${dateWhere}
             GROUP BY r.inviter_id
           ) sub
-          WHERE sub.inviter_id = ${userParam}
+          WHERE sub.user_id = ${userParam}
         `;
 
         try {
-          const { rows: [row] } = await pool.query(rankOnlySubquery, params);
-
+          const { rows: [row] } = await pool.query(rankQuery, params);
           results[period] = row
             ? {
                 rank               : Number(row.rank              || 0),
@@ -487,16 +521,11 @@ router.get("/me", optionalAuth, myRankLimiter, async (req, res) => {
                 last_referral_at   : null,
                 on_leaderboard     : false,
               };
-        } catch (periodErr) {
-          console.warn(
-            `[leaderboard] /me period=${period}:`, periodErr.message
-          );
+        } catch (e) {
+          console.warn(`[leaderboard] /me period=${period}:`, e.message);
           results[period] = {
-            rank               : null,
-            total_referrals    : 0,
-            total_spins_earned : 0,
-            last_referral_at   : null,
-            on_leaderboard     : false,
+            rank: null, total_referrals: 0,
+            total_spins_earned: 0, on_leaderboard: false,
           };
         }
       })
@@ -515,9 +544,6 @@ router.get("/me", optionalAuth, myRankLimiter, async (req, res) => {
 
 /* ════════════════════════════════════════════════════════════
    GET /api/leaderboard/user/:userId
-   Public profile — view a specific user's leaderboard stats.
-
-   ✅ name concat uses COALESCE(col,'') — no NULL crash
 ════════════════════════════════════════════════════════════ */
 router.get("/user/:userId", optionalAuth, leaderboardLimiter, async (req, res) => {
   const { userId } = req.params;
@@ -526,19 +552,14 @@ router.get("/user/:userId", optionalAuth, leaderboardLimiter, async (req, res) =
   console.log(`[leaderboard] GET /user/${userId}`);
 
   try {
-    /* ── User info ── */
     const { rows: [user] } = await pool.query(
       `SELECT
          id,
-         COALESCE(
-           NULLIF(TRIM(
-             COALESCE(first_name, '') || ' ' ||
-             COALESCE(last_name,  '')
-           ), ''),
-           name,
-           username,
-           'Loemart User'
-         )              AS display_name,
+         first_name,
+         last_name,
+         name,
+         username,
+         email,
          profile_image  AS avatar_url,
          referral_code,
          identity_verified,
@@ -551,14 +572,18 @@ router.get("/user/:userId", optionalAuth, leaderboardLimiter, async (req, res) =
     );
 
     if (!user) return fail(res, 404, "User not found.");
-
-    if (["banned", "suspended", "flagged"].includes(user.status)) {
+    if (["banned","suspended","flagged"].includes(user.status)) {
       return fail(res, 403, "This profile is not available.");
     }
 
-    const name = user.display_name || "Loemart User";
+    const maskedName = buildMaskedDisplayName({
+      first_name : user.first_name,
+      last_name  : user.last_name,
+      name       : user.name,
+      username   : user.username,
+      email      : user.email,
+    });
 
-    /* ── Their referral stats ── */
     const { rows: [stats] } = await pool.query(
       `SELECT
          COUNT(r.id)::INT                       AS total_referrals,
@@ -566,44 +591,41 @@ router.get("/user/:userId", optionalAuth, leaderboardLimiter, async (req, res) =
          MAX(r.reward_given_at)                 AS last_referral_at
        FROM referrals r
        WHERE r.inviter_id = $1
-         AND r.status     = 'rewarded'`,
+         AND r.status IN ('rewarded', 'verified', 'pending')`,
       [userId]
     );
 
-    /* ── Their all-time rank ── */
     let rank = null;
     try {
       const { rows: [rankRow] } = await pool.query(
-        `SELECT sub.rank
-         FROM (
+        `SELECT sub.rank FROM (
            SELECT
-             r.inviter_id,
+             r.inviter_id AS user_id,
              RANK() OVER (
                ORDER BY COUNT(r.id) DESC,
                         MAX(r.reward_given_at) ASC
              )::INT AS rank
            FROM   referrals r
            JOIN   users     u ON u.id = r.inviter_id
-           WHERE  r.status = 'rewarded'
+           WHERE  r.status IN ('rewarded', 'verified', 'pending')
              AND  u.status NOT IN ('banned', 'suspended', 'flagged')
            GROUP BY r.inviter_id
          ) sub
-         WHERE sub.inviter_id = $1`,
+         WHERE sub.user_id = $1`,
         [userId]
       );
       rank = rankRow?.rank ?? null;
-    } catch (rankErr) {
-      /* Non-fatal */
-      console.warn("[leaderboard] user rank:", rankErr.message);
+    } catch (e) {
+      console.warn("[leaderboard] user rank:", e.message);
     }
 
     return res.json({
       success : true,
       profile : {
         user_id            : user.id,
-        display_name       : name,
-        initials           : initialsOf(name),
-        color              : colorFor(name),
+        display_name       : maskedName,
+        initials           : initialsOf(maskedName),
+        color              : colorFor(maskedName),
         avatar_url         : user.avatar_url    || null,
         referral_code      : user.referral_code  || null,
         is_verified        : Boolean(
@@ -625,10 +647,6 @@ router.get("/user/:userId", optionalAuth, leaderboardLimiter, async (req, res) =
 
 /* ════════════════════════════════════════════════════════════
    GET /api/leaderboard/stats
-   Public community stats — lightweight, no auth required.
-
-   ✅ COUNT(DISTINCT COALESCE(r.referee_id, r.invitee_id))
-      so rows with only invitee_id are counted correctly.
 ════════════════════════════════════════════════════════════ */
 router.get("/stats", leaderboardLimiter, async (_req, res) => {
   console.log("[leaderboard] GET /stats");
@@ -649,7 +667,7 @@ router.get("/stats", leaderboardLimiter, async (_req, res) => {
            WHERE r.reward_given_at >= NOW() - INTERVAL '30 days'
          )::INT                                                 AS referrals_this_month
        FROM referrals r
-       WHERE r.status = 'rewarded'`
+       WHERE r.status IN ('rewarded', 'verified', 'pending')`
     );
 
     return res.json({
@@ -666,6 +684,42 @@ router.get("/stats", leaderboardLimiter, async (_req, res) => {
 
   } catch (err) {
     return failErr(res, 500, "Failed to load stats", err);
+  }
+});
+
+/* ════════════════════════════════════════════════════════════
+   GET /api/leaderboard/debug  (dev only)
+════════════════════════════════════════════════════════════ */
+router.get("/debug", async (req, res) => {
+  if (IS_PROD) return fail(res, 403, "Not available.");
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         r.id,
+         r.inviter_id,
+         COALESCE(r.referee_id, r.invitee_id) AS referee_id,
+         r.invite_code,
+         r.status,
+         r.reward_value,
+         r.reward_given_at,
+         r.verified_at,
+         r.created_at,
+         ui.name  AS inviter_name,
+         ui.email AS inviter_email,
+         ue.name  AS referee_name,
+         ue.email AS referee_email
+       FROM   referrals r
+       JOIN   users     ui ON ui.id = r.inviter_id
+       JOIN   users     ue
+              ON ue.id = COALESCE(r.referee_id, r.invitee_id)
+       ORDER  BY r.created_at DESC
+       LIMIT  20`
+    );
+
+    return res.json({ success: true, count: rows.length, referrals: rows });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
   }
 });
 
