@@ -1,55 +1,59 @@
-// src/App.jsx
-import { useEffect, useState, useCallback, useRef, memo } from "react";
+// ════════════════════════════════════════════════════════════
+// FILE: src/App.jsx
+// ════════════════════════════════════════════════════════════
+
+import { useEffect, useState, useCallback, memo } from "react";
 import {
   BrowserRouter as Router,
   Routes,
   Route,
   Navigate,
   useLocation,
+  useParams,
 } from "react-router-dom";
 import axios              from "axios";
 import toast, { Toaster } from "react-hot-toast";
 import { useProductCache } from "./context/ProductCacheContext";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    PAGES — PUBLIC
-═══════════════════════════════════════════════════════════════ */
-import Homepage           from "./pages/Homepage";
-import HomepageDesktop    from "./pages/HomepageDesktop";
-import SearchPage         from "./pages/SearchPage";
-import ProductDetail      from "./pages/ProductDetail";
-import ProductDetailDesktop from "./desktop/ProductDetailDesktop"; // ✅ wired up
-import MarketDetail       from "./pages/MarketDetail";
-import SellerProfile      from "./pages/SellerProfile";
-import TermsAndConditions from "./pages/TermsAndConditions";
-import MinimartPage       from "./pages/MinimartPage";
-import P2P                from "./pages/P2P";
-import MenuPage           from "./pages/MenuPage";
+════════════════════════════════════════════════════════════ */
+import Homepage             from "./pages/Homepage";
+import HomepageDesktop      from "./pages/HomepageDesktop";
+import SearchPage           from "./pages/SearchPage";
+import ProductDetail        from "./pages/ProductDetail";
+import ProductDetailDesktop from "./desktop/ProductDetailDesktop";
+import MarketDetail         from "./pages/MarketDetail";
+import SellerProfile        from "./pages/SellerProfile";
+import TermsAndConditions   from "./pages/TermsAndConditions";
+import MinimartPage         from "./pages/MinimartPage";
+import P2P                  from "./pages/P2P";
+import MenuPage             from "./pages/MenuPage";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    PAGES — HOMEPAGE SUB-PAGES
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 import TrendingPage      from "./pages/Homepage/TrendingPage";
 import LatestPage        from "./pages/Homepage/LatestPage";
 import NearbyPage        from "./pages/Homepage/NearbyPage";
 import NearbyPageDesktop from "./desktop/NearbyPageDesktop";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    PAGES — AUTH
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 import AuthPage       from "./pages/AuthPage";
 import ForgotPassword from "./pages/ForgotPassword";
 import ResetPassword  from "./pages/ResetPassword";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    PAGES — SELLER
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 import BecomeSeller    from "./pages/BecomeSeller";
 import SellerDashboard from "./pages/seller/SellerDashboard";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    PAGES — USER (PROTECTED)
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 import Profile           from "./pages/Profile";
 import EditProfile       from "./pages/Profile/EditProfile";
 import SavedItems        from "./pages/Profile/SavedItems";
@@ -74,33 +78,32 @@ import CheckoutPage      from "./pages/CheckoutPage";
 import OrderSuccess      from "./pages/OrderSuccess";
 import OrderHistory      from "./pages/OrderHistory";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    PAGES — MESSAGING DESKTOP
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 import MessagingDesktop from "./pages/MessagingDesktop";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    PAGES — CHECKOUT / PAYMENT FLOW
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 import FlutterwaveRedirect from "./pages/Checkout/Payment/FlutterwaveRedirect";
 import OrderSuccessPage    from "./pages/Checkout/Payment/OrderSuccessPage";
 import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    PAGES — ADMIN
-   ✅ Fixed typo: "./page/..." → "./pages/..."
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 import AdminLogin     from "./pages/admin/AdminLogin";
 import AdminDashboard from "./page/admin/AdminDashboard";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    COMPONENTS
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 import CartPage from "./components/Cart/CartPage";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    CONSTANTS
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL;
 const USERS_API = `${BASE_URL}/api/users`;
 const CART_API  = `${BASE_URL}/api/cart`;
@@ -123,16 +126,16 @@ const TOASTER_OPTIONS = {
   error   : { style: { background: "#dc2626" } },
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    CART SYNC
-═══════════════════════════════════════════════════════════════ */
+   Merges local (guest) cart into server cart after login.
+════════════════════════════════════════════════════════════ */
 async function syncCartAfterLogin(token) {
   try {
     const raw       = localStorage.getItem("mm_cart");
     const localCart = JSON.parse(raw || "[]");
     if (!Array.isArray(localCart) || localCart.length === 0) return;
 
-    // ✅ Promise.allSettled — parallel, no sequential await in loop
     await Promise.allSettled(
       localCart.map((item) =>
         axios.post(
@@ -150,13 +153,13 @@ async function syncCartAfterLogin(token) {
     localStorage.removeItem("mm_cart");
     window.dispatchEvent(new Event("cart-updated"));
   } catch {
-    /* silently ignore */
+    /* silently ignore — cart sync is best-effort */
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    SCROLL TO TOP
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 function ScrollToTop() {
   const { pathname } = useLocation();
   useEffect(() => {
@@ -165,10 +168,10 @@ function ScrollToTop() {
   return null;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   SHARED DESKTOP HOOK
-   ✅ Single definition — consumed by all route split components
-═══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   DESKTOP HOOK
+   Single definition — consumed by all responsive route components.
+════════════════════════════════════════════════════════════ */
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(
     () => window.matchMedia("(min-width: 1024px)").matches
@@ -184,10 +187,11 @@ function useIsDesktop() {
   return isDesktop;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   ROUTE SPLIT COMPONENTS
-   ✅ Each is a proper component — hooks always called at top level
-═══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   RESPONSIVE ROUTE COMPONENTS
+   Each is a proper component so hooks are always called
+   at the top level (no conditional hook calls).
+════════════════════════════════════════════════════════════ */
 function HomeRoute({ user }) {
   const isDesktop = useIsDesktop();
   return isDesktop
@@ -198,7 +202,7 @@ function HomeRoute({ user }) {
 function ProductRoute({ user }) {
   const isDesktop = useIsDesktop();
   return isDesktop
-    ? <ProductDetailDesktop user={user} />   // ✅ Now wired up
+    ? <ProductDetailDesktop user={user} />
     : <ProductDetail        user={user} />;
 }
 
@@ -223,11 +227,34 @@ function ChatRoute({ user }) {
     : <Chat             user={user} />;
 }
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
+   INVITE REDIRECT
+   /invite/:code  →  /auth?ref=CODE
+   Sanitises the code before placing it in the URL so no
+   invalid characters reach the auth page or backend.
+════════════════════════════════════════════════════════════ */
+function InviteRedirect() {
+  const { code } = useParams();
+
+  const safe = (code ?? "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 20);
+
+  /* If there is nothing usable, drop straight to register */
+  if (!safe || safe.length < 4) {
+    return <Navigate to="/auth" replace />;
+  }
+
+  return <Navigate to={`/auth?ref=${safe}`} replace />;
+}
+
+/* ════════════════════════════════════════════════════════════
    ROUTE GUARDS
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 function ProtectedRoute({ user, children }) {
   const location = useLocation();
+
   if (!user) {
     return (
       <Navigate
@@ -237,6 +264,7 @@ function ProtectedRoute({ user, children }) {
       />
     );
   }
+
   return children;
 }
 
@@ -245,10 +273,10 @@ function AdminProtectedRoute({ admin, children }) {
   return children;
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   AUTH LOADING SPINNER
-   ✅ Prevents flash of unauthenticated UI on cold load
-═══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   AUTH LOADER
+   Shown while /me is in-flight — prevents flash of wrong UI.
+════════════════════════════════════════════════════════════ */
 const AuthLoader = memo(function AuthLoader() {
   return (
     <div
@@ -259,36 +287,39 @@ const AuthLoader = memo(function AuthLoader() {
         minHeight      : "100vh",
         background     : "#faf9f7",
       }}
+      role="status"
       aria-label="Loading"
       aria-busy="true"
     >
-      <div style={{
-        width        : 36,
-        height       : 36,
-        border       : "3px solid #e8e4de",
-        borderTop    : "3px solid #2c6fad",
-        borderRadius : "50%",
-        animation    : "spin .7s linear infinite",
-      }} />
+      <div
+        style={{
+          width        : 36,
+          height       : 36,
+          border       : "3px solid #e8e4de",
+          borderTop    : "3px solid #2c6fad",
+          borderRadius : "50%",
+          animation    : "spin .7s linear infinite",
+        }}
+      />
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    APP
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 export default function App() {
   const [user,        setUser]        = useState(null);
   const [admin,       setAdmin]       = useState(null);
-  // ✅ authChecked prevents flash of wrong UI before /me resolves
   const [authChecked, setAuthChecked] = useState(false);
 
   const { resetCache } = useProductCache();
 
-  /* ── Marketplace user auth ─────────────────────────────── */
+  /* ── Resolve marketplace user from stored token ── */
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEYS.marketplace);
+
     if (!token) {
       setAuthChecked(true);
       return;
@@ -297,26 +328,22 @@ export default function App() {
     axios
       .get(`${USERS_API}/me`, {
         headers : { Authorization: `Bearer ${token}` },
-        timeout : 8000,
+        timeout : 8_000,
       })
-      .then((res) => {
-        setUser(res.data);
-      })
+      .then((res) => setUser(res.data))
       .catch(() => {
         localStorage.removeItem(TOKEN_KEYS.marketplace);
         setUser(null);
       })
-      .finally(() => {
-        // ✅ Always mark auth as resolved
-        setAuthChecked(true);
-      });
+      .finally(() => setAuthChecked(true));
   }, []);
 
-  /* ── Admin auth ────────────────────────────────────────── */
+  /* ── Resolve admin from localStorage ── */
   useEffect(() => {
     const token       = localStorage.getItem(TOKEN_KEYS.admin);
     const storedAdmin = localStorage.getItem("admin_data");
     if (!token || !storedAdmin) return;
+
     try {
       setAdmin(JSON.parse(storedAdmin));
     } catch {
@@ -325,23 +352,26 @@ export default function App() {
     }
   }, []);
 
-  /* ── Handlers — useCallback so refs are stable ─────────── */
+  /* ── Auth success handler (login + register) ── */
   const handleAuthSuccess = useCallback(
     (userData, token, navigateFn, from) => {
       localStorage.setItem(TOKEN_KEYS.marketplace, token);
+
+      /* Clear stale cache + location keys */
       resetCache();
-      // Clear stale location / cache keys
       ["lastLocation", "active_location", "cacheTime"].forEach((k) =>
         localStorage.removeItem(k)
       );
+
       setUser(userData);
       syncCartAfterLogin(token);
-      toast.success(`Welcome back, ${userData.name}!`);
+      toast.success(`Welcome, ${userData.name}!`);
       navigateFn(from || "/", { replace: true });
     },
     [resetCache]
   );
 
+  /* ── Logout handler ── */
   const handleLogout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEYS.marketplace);
     setUser(null);
@@ -349,10 +379,9 @@ export default function App() {
     toast.success("Signed out");
   }, [resetCache]);
 
-  /*
-   * ✅ Safer profile update — uses spread so all existing
-   *    fields are preserved; no risk of null prev crash.
-   */
+  /* ── Profile update handler ──
+        Merges only non-null fields so a partial update never
+        wipes existing data.                                  ── */
   const handleProfileUpdate = useCallback((updatedData) => {
     setUser((prev) => ({
       ...prev,
@@ -362,12 +391,12 @@ export default function App() {
     }));
   }, []);
 
-  /* ── Block render until we know auth state ─────────────── */
+  /* ── Block render until auth state is resolved ── */
   if (!authChecked) return <AuthLoader />;
 
-  /* ═══════════════════════════════════════════════════════════
+  /* ══════════════════════════════════════════════════════════
      ROUTES
-  ═══════════════════════════════════════════════════════════ */
+  ══════════════════════════════════════════════════════════ */
   return (
     <Router>
       <ScrollToTop />
@@ -375,26 +404,26 @@ export default function App() {
 
       <Routes>
 
-        {/* ══════════════ PUBLIC ══════════════ */}
+        {/* ════════════ PUBLIC ════════════ */}
         <Route
           path="/"
           element={<HomeRoute key={user?.id ?? "guest"} user={user} />}
         />
-        <Route path="/search"     element={<SearchPage    user={user} />} />
-        <Route path="/product/:slug" element={<ProductRoute user={user} />} /> {/* ✅ desktop wired */}
-        <Route path="/shop/:slug" element={<MarketDetail  user={user} />} />
-        <Route path="/seller/:id" element={<SellerProfile user={user} />} />
-        <Route path="/terms"      element={<TermsAndConditions />} />
-        <Route path="/minimart"   element={<MinimartPage  user={user} />} />
-        <Route path="/p2p"        element={<P2P           user={user} />} />
-        <Route path="/menu"       element={<MenuPage      user={user} />} />
+        <Route path="/search"        element={<SearchPage    user={user} />} />
+        <Route path="/product/:slug" element={<ProductRoute  user={user} />} />
+        <Route path="/shop/:slug"    element={<MarketDetail  user={user} />} />
+        <Route path="/seller/:id"    element={<SellerProfile user={user} />} />
+        <Route path="/terms"         element={<TermsAndConditions />} />
+        <Route path="/minimart"      element={<MinimartPage  user={user} />} />
+        <Route path="/p2p"           element={<P2P           user={user} />} />
+        <Route path="/menu"          element={<MenuPage      user={user} />} />
 
-        {/* ══════════════ HOMEPAGE SUB-PAGES ══════════════ */}
+        {/* ════════════ HOMEPAGE SUB-PAGES ════════════ */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
         <Route path="/latest"   element={<LatestPage   user={user} />} />
         <Route path="/nearby"   element={<NearbyRoute  user={user} />} />
 
-        {/* ══════════════ AUTH ══════════════ */}
+        {/* ════════════ AUTH ════════════ */}
         <Route
           path="/auth"
           element={
@@ -418,12 +447,19 @@ export default function App() {
           }
         />
 
-        {/* ══════════════ SELLER ══════════════ */}
+        {/* ════════════ INVITE REDIRECT ════════════
+            /invite/ABC123  →  /auth?ref=ABC123
+            This is what makes the referral code appear
+            in the register form automatically.
+        ════════════════════════════════════════════ */}
+        <Route path="/invite/:code" element={<InviteRedirect />} />
+
+        {/* ════════════ SELLER ════════════ */}
         <Route path="/become-seller"         element={<BecomeSeller user={user} />} />
         <Route path="/seller/dashboard"      element={<SellerDashboard />} />
         <Route path="/seller/dashboard/:tab" element={<SellerDashboard />} />
 
-        {/* ══════════════ PROTECTED — PROFILE ══════════════ */}
+        {/* ════════════ PROTECTED — PROFILE ════════════ */}
         <Route
           path="/profile"
           element={
@@ -473,7 +509,7 @@ export default function App() {
           }
         />
 
-        {/* ══════════════ MESSAGING ══════════════ */}
+        {/* ════════════ MESSAGING ════════════ */}
         <Route
           path="/conversations"
           element={
@@ -507,22 +543,78 @@ export default function App() {
           }
         />
 
-        {/* ══════════════ OTHER PROTECTED ══════════════ */}
-        <Route path="/coupons"    element={<ProtectedRoute user={user}><Coupons      user={user} /></ProtectedRoute>} />
-        <Route path="/dashboard"  element={<ProtectedRoute user={user}><Dashboard    user={user} /></ProtectedRoute>} />
-        <Route path="/spin"       element={<ProtectedRoute user={user}><SpinWheel    user={user} /></ProtectedRoute>} />
-        <Route path="/leaderboard" element={<ProtectedRoute user={user}><Leaderboard user={user} /></ProtectedRoute>} />
-        <Route path="/verification" element={<ProtectedRoute user={user}><Verification user={user} /></ProtectedRoute>} />
-        <Route path="/wallet"     element={<ProtectedRoute user={user}><Wallet       user={user} /></ProtectedRoute>} />
-        <Route path="/invitation" element={<ProtectedRoute user={user}><Invitation   user={user} /></ProtectedRoute>} />
-        <Route path="/minimart/post-ad" element={<ProtectedRoute user={user}><PostAds user={user} /></ProtectedRoute>} />
+        {/* ════════════ OTHER PROTECTED ════════════ */}
+        <Route
+          path="/coupons"
+          element={
+            <ProtectedRoute user={user}>
+              <Coupons user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute user={user}>
+              <Dashboard user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/spin"
+          element={
+            <ProtectedRoute user={user}>
+              <SpinWheel user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/leaderboard"
+          element={
+            <ProtectedRoute user={user}>
+              <Leaderboard user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/verification"
+          element={
+            <ProtectedRoute user={user}>
+              <Verification user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/wallet"
+          element={
+            <ProtectedRoute user={user}>
+              <Wallet user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/invitation"
+          element={
+            <ProtectedRoute user={user}>
+              <Invitation user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/minimart/post-ad"
+          element={
+            <ProtectedRoute user={user}>
+              <PostAds user={user} />
+            </ProtectedRoute>
+          }
+        />
 
-        {/* ── Public info pages (no auth required) ── */}
+        {/* ════════════ PUBLIC INFO PAGES ════════════ */}
         <Route path="/faq"      element={<FAQ      user={user} />} />
         <Route path="/complain" element={<Complain user={user} />} />
         <Route path="/support"  element={<Support  user={user} />} />
 
-        {/* ══════════════ CART / CHECKOUT / ORDERS ══════════════ */}
+        {/* ════════════ CART / CHECKOUT / ORDERS ════════════ */}
         <Route path="/shop/cart"       element={<CartPage />} />
         <Route path="/payment/success" element={<PaymentSuccess />} />
         <Route
@@ -550,16 +642,19 @@ export default function App() {
           }
         />
 
-        {/* ══════════════ PAYMENT FLOW ══════════════ */}
+        {/* ════════════ PAYMENT FLOW ════════════ */}
         <Route path="/payment/callback"        element={<FlutterwaveRedirect />} />
         <Route path="/order-success/:orderId"  element={<OrderSuccessPage />} />
         <Route path="/payment-failed/:orderId" element={<PaymentFailedPage />} />
 
-        {/* ══════════════ ADMIN ══════════════ */}
+        {/* ════════════ ADMIN ════════════ */}
         <Route
           path="/admin"
           element={
-            <Navigate to={admin ? "/admin/dashboard" : "/admin/login"} replace />
+            <Navigate
+              to={admin ? "/admin/dashboard" : "/admin/login"}
+              replace
+            />
           }
         />
         <Route
@@ -578,8 +673,16 @@ export default function App() {
             </AdminProtectedRoute>
           }
         />
+        <Route
+          path="/admin/dashboard/:tab"
+          element={
+            <AdminProtectedRoute admin={admin}>
+              <AdminDashboard admin={admin} />
+            </AdminProtectedRoute>
+          }
+        />
 
-        {/* ══════════════ FALLBACK ══════════════ */}
+        {/* ════════════ FALLBACK ════════════ */}
         <Route path="*" element={<Navigate to="/" replace />} />
 
       </Routes>
