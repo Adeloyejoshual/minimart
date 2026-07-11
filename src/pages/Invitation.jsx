@@ -1,4 +1,6 @@
-// src/pages/Invitation.jsx
+// ════════════════════════════════════════════════════════════
+// FILE: src/pages/Invitation.jsx
+// ════════════════════════════════════════════════════════════
 
 import React, {
   useState,
@@ -29,6 +31,7 @@ import {
   FaLink,
   FaSync,
   FaChevronRight,
+  FaExclamationTriangle,
 } from "react-icons/fa";
 import "../styles/Invitation.css";
 
@@ -44,7 +47,7 @@ const API      = `${BASE_URL}/api/referrals`;
 ══════════════════════════════════════════════════════════════ */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("token") ||
+  localStorage.getItem("token")             ||
   null;
 
 const authHeaders = () => ({
@@ -64,7 +67,8 @@ const timeAgo = (d) => {
   return `${Math.floor(s / 86_400)}d ago`;
 };
 
-const buildInviteLink = (code) => `${APP_URL}/invite/${code}`;
+const buildInviteLink = (code) =>
+  code && code !== "—" ? `${APP_URL}/invite/${code}` : "";
 
 const buildMessage = (code, link) =>
   `Join me on Loemart — the smart marketplace for buying and selling ` +
@@ -75,10 +79,10 @@ const buildMessage = (code, link) =>
    STATUS CONFIG
 ══════════════════════════════════════════════════════════════ */
 const STATUS_CFG = {
-  pending  : { label: "Pending",          cls: "badge-pending",   icon: <FaHourglassHalf size={10} /> },
-  verified : { label: "Verified",         cls: "badge-verified",  icon: <FaCheckCircle   size={10} /> },
-  rewarded : { label: "Rewarded",         cls: "badge-rewarded",  icon: <FaTrophy        size={10} /> },
-  rejected : { label: "Rejected",         cls: "badge-rejected",  icon: null                          },
+  pending  : { label: "Pending",  cls: "badge-pending",  icon: <FaHourglassHalf size={10} /> },
+  verified : { label: "Verified", cls: "badge-verified", icon: <FaCheckCircle   size={10} /> },
+  rewarded : { label: "Rewarded", cls: "badge-rewarded", icon: <FaTrophy        size={10} /> },
+  rejected : { label: "Rejected", cls: "badge-rejected", icon: null                          },
 };
 
 /* ══════════════════════════════════════════════════════════════
@@ -135,52 +139,81 @@ const TABS = [
 ];
 
 const HOW_STEPS = [
-  { icon: "📤", title: "Share your invite code",    sub: "Copy your code or link and share it anywhere" },
-  { icon: "👤", title: "Friend signs up",           sub: "They register using your invite code"          },
-  { icon: "✅", title: "They verify their email",   sub: "Confirms the referral is genuine"              },
-  { icon: "🎡", title: "You earn a bonus spin",     sub: "Instantly get +1 spin on the Spin & Win wheel" },
-  { icon: "🏆", title: "Use your spins",            sub: "Win coupons, discounts, airtime and more"      },
+  { icon: "📤", title: "Share your invite code",  sub: "Copy your code or link and share it anywhere"       },
+  { icon: "👤", title: "Friend signs up",         sub: "They register using your invite code"                },
+  { icon: "✅", title: "They verify their email", sub: "Confirms the referral is genuine"                    },
+  { icon: "🎡", title: "You earn a bonus spin",   sub: "Instantly get +1 spin on the Spin & Win wheel"      },
+  { icon: "🏆", title: "Use your spins",          sub: "Win coupons, discounts, airtime and more"            },
 ];
 
-const SHARE_PLATFORMS = (link, message) => [
+/* ══════════════════════════════════════════════════════════════
+   SHARE PLATFORMS
+   Note: the native Share button's fn is injected at render time
+   via useMemo so it always closes over the latest inviteLink.
+══════════════════════════════════════════════════════════════ */
+const SHARE_PLATFORM_DEFS = [
   {
     cls   : "btn-share",
     label : "Share",
-    icon  : <FaShareAlt size={14} />,
-    fn    : null, // injected later (native share)
+    icon  : <FaShareAlt    size={14} />,
+    build : null, // injected — see useShareButtons
   },
   {
     cls   : "btn-whatsapp",
     label : "WhatsApp",
-    icon  : <FaWhatsapp size={15} />,
-    fn    : () => window.open(`https://wa.me/?text=${encodeURIComponent(message)}`, "_blank", "noopener"),
+    icon  : <FaWhatsapp    size={15} />,
+    build : (link, msg) => () =>
+      window.open(
+        `https://wa.me/?text=${encodeURIComponent(msg)}`,
+        "_blank",
+        "noopener"
+      ),
   },
   {
     cls   : "btn-facebook",
     label : "Facebook",
-    icon  : <FaFacebookF size={14} />,
-    fn    : () => window.open(`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`, "_blank", "noopener"),
+    icon  : <FaFacebookF   size={14} />,
+    build : (link) => () =>
+      window.open(
+        `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(link)}`,
+        "_blank",
+        "noopener"
+      ),
   },
   {
     cls   : "btn-twitter",
     label : "Twitter",
-    icon  : <FaTwitter size={14} />,
-    fn    : () => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(message)}`, "_blank", "noopener"),
+    icon  : <FaTwitter     size={14} />,
+    build : (link, msg) => () =>
+      window.open(
+        `https://twitter.com/intent/tweet?text=${encodeURIComponent(msg)}`,
+        "_blank",
+        "noopener"
+      ),
   },
   {
     cls   : "btn-telegram",
     label : "Telegram",
     icon  : <FaTelegramPlane size={14} />,
-    fn    : () => window.open(`https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(message)}`, "_blank", "noopener"),
+    build : (link, msg) => () =>
+      window.open(
+        `https://t.me/share/url?url=${encodeURIComponent(link)}&text=${encodeURIComponent(msg)}`,
+        "_blank",
+        "noopener"
+      ),
   },
 ];
 
 /* ══════════════════════════════════════════════════════════════
-   ACTIVITY ITEM
+   SUB-COMPONENTS
 ══════════════════════════════════════════════════════════════ */
+
+/* ── Activity Item ── */
+const STAGES = ["pending", "verified", "rewarded"];
+
 function ActivityItem({ item }) {
-  const badge  = STATUS_CFG[item.status] || STATUS_CFG.pending;
-  const stages = ["pending", "verified", "rewarded"];
+  const badge       = STATUS_CFG[item.status] ?? STATUS_CFG.pending;
+  const stageIndex  = STAGES.indexOf(item.status);
 
   return (
     <div className="inv-activity-item" role="listitem">
@@ -216,19 +249,19 @@ function ActivityItem({ item }) {
         <div
           className="inv-activity-timeline"
           role="progressbar"
+          aria-valuenow={stageIndex + 1}
+          aria-valuemin={1}
+          aria-valuemax={STAGES.length}
           aria-label={`Status: ${badge.label}`}
         >
-          {stages.map((stage, i) => {
-            const done = stages.indexOf(item.status) >= i;
-            return (
-              <React.Fragment key={stage}>
-                <span className={`inv-tl-dot${done ? " done" : ""}`} />
-                {i < stages.length - 1 && (
-                  <span className="inv-tl-line" />
-                )}
-              </React.Fragment>
-            );
-          })}
+          {STAGES.map((stage, i) => (
+            <React.Fragment key={stage}>
+              <span className={`inv-tl-dot${stageIndex >= i ? " done" : ""}`} />
+              {i < STAGES.length - 1 && (
+                <span className="inv-tl-line" />
+              )}
+            </React.Fragment>
+          ))}
         </div>
 
         <div className="inv-activity-steps" aria-hidden="true">
@@ -248,7 +281,10 @@ function ActivityItem({ item }) {
         </span>
 
         {item.status === "rewarded" && (
-          <span className="inv-reward-pill" aria-label={`+${item.reward_value} bonus spin`}>
+          <span
+            className="inv-reward-pill"
+            aria-label={`+${item.reward_value} bonus spin`}
+          >
             🎡 +{item.reward_value} Spin
           </span>
         )}
@@ -267,24 +303,21 @@ function ActivityItem({ item }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════════════
-   EVENTS FEED
-══════════════════════════════════════════════════════════════ */
+/* ── Events Feed ── */
 function EventsFeed({ events }) {
   if (!events?.length) return null;
 
   return (
     <div className="inv-events-feed" role="log" aria-live="polite">
       {events.map((ev, i) => (
-        <div key={i} className="inv-event-item">
+        <div key={`${ev.type}-${ev.created_at}-${i}`} className="inv-event-item">
           <span className="inv-event-icon" aria-hidden="true">
-            {EVENT_ICON[ev.type] || "📌"}
+            {EVENT_ICON[ev.type] ?? "📌"}
           </span>
           <div className="inv-event-body">
             <p className="inv-event-desc">
               <strong>{ev.referee_name}</strong>{" "}
-              {ev.description?.toLowerCase() ||
-               ev.type.replace(/_/g, " ")}
+              {ev.description?.toLowerCase() ?? ev.type.replace(/_/g, " ")}
             </p>
             <p className="inv-event-time">{timeAgo(ev.created_at)}</p>
           </div>
@@ -294,23 +327,40 @@ function EventsFeed({ events }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════════════
-   SKELETON LOADER
-══════════════════════════════════════════════════════════════ */
+/* ── Skeleton Loader ── */
 function SkeletonCard({ rows = 3 }) {
   return (
     <div className="inv-card" aria-busy="true" aria-label="Loading">
-      {Array.from({ length: rows }).map((_, i) => (
+      {Array.from({ length: rows }, (_, i) => (
         <div
           key={i}
           className="inv-skeleton"
           style={{
             height       : i === 0 ? 18 : 14,
-            width        : i === 0 ? "60%" : `${70 + Math.random() * 20}%`,
+            width        : i === 0 ? "60%" : `${75 + (i * 7) % 20}%`,
             marginBottom : 10,
           }}
         />
       ))}
+    </div>
+  );
+}
+
+/* ── No-code Banner ── */
+function NoCodeBanner({ onGenerate, generating }) {
+  return (
+    <div className="inv-no-code-banner" role="alert">
+      <FaExclamationTriangle size={16} aria-hidden="true" />
+      <span>You don't have an invite code yet.</span>
+      <button
+        className="inv-generate-btn"
+        onClick={onGenerate}
+        disabled={generating}
+        aria-label="Generate invite code"
+        aria-busy={generating}
+      >
+        {generating ? "Generating…" : "Generate Code"}
+      </button>
     </div>
   );
 }
@@ -322,17 +372,18 @@ export default function Invitation() {
   const navigate = useNavigate();
 
   /* ── Data state ── */
-  const [data,      setData]      = useState(null);
-  const [loading,   setLoading]   = useState(true);
-  const [refreshing,setRefreshing]= useState(false);
-  const [error,     setError]     = useState(null);
+  const [data,       setData]       = useState(null);
+  const [loading,    setLoading]    = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [error,      setError]      = useState(null);
 
   /* ── UI state ── */
-  const [message,   setMessage]   = useState("");
-  const [isEditing, setIsEditing] = useState(false);
-  const [copied,    setCopied]    = useState({});
-  const [toast,     setToast]     = useState({ show: false, text: "" });
-  const [tab,       setTab]       = useState("activity");
+  const [message,    setMessage]    = useState("");
+  const [isEditing,  setIsEditing]  = useState(false);
+  const [copied,     setCopied]     = useState({});
+  const [toast,      setToast]      = useState({ show: false, text: "" });
+  const [tab,        setTab]        = useState("activity");
+  const [generating, setGenerating] = useState(false);
 
   const toastTimer = useRef(null);
 
@@ -340,54 +391,6 @@ export default function Invitation() {
   useEffect(() => {
     if (!getToken()) navigate("/auth?redirect=/invite");
   }, [navigate]);
-
-  /* ── Fetch dashboard ── */
-  const fetchDashboard = useCallback(async (silent = false) => {
-    if (!silent) setLoading(true);
-    else         setRefreshing(true);
-    setError(null);
-
-    try {
-      const res = await fetch(`${API}/dashboard`, {
-        headers: authHeaders(),
-      });
-
-      if (res.status === 401) {
-        navigate("/auth?redirect=/invite");
-        return;
-      }
-
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.message || `${res.status} ${res.statusText}`);
-      }
-
-      const d = await res.json();
-      setData(d);
-
-      /* Build default message once */
-      const code = d.referral_code;
-      if (code) {
-        const link = buildInviteLink(code);
-        setMessage(buildMessage(code, link));
-      }
-
-    } catch (err) {
-      console.error("[Invitation] fetch error:", err.message);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [navigate]);
-
-  useEffect(() => {
-    fetchDashboard();
-  }, [fetchDashboard]);
-
-  /* ── Derived values ── */
-  const inviteCode = data?.referral_code || "—";
-  const inviteLink = buildInviteLink(inviteCode);
 
   /* ── Toast ── */
   const showToast = useCallback((text) => {
@@ -399,19 +402,112 @@ export default function Invitation() {
     );
   }, []);
 
+  /* ── Cleanup timer on unmount ── */
+  useEffect(() => () => clearTimeout(toastTimer.current), []);
+
+  /* ── Fetch dashboard ── */
+  const fetchDashboard = useCallback(
+    async (silent = false) => {
+      silent ? setRefreshing(true) : setLoading(true);
+      setError(null);
+
+      try {
+        const res = await fetch(`${API}/dashboard`, {
+          headers: authHeaders(),
+        });
+
+        if (res.status === 401) {
+          navigate("/auth?redirect=/invite");
+          return;
+        }
+
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.message || `${res.status} ${res.statusText}`);
+        }
+
+        const d = await res.json();
+        setData(d);
+
+        /* Build default message once — only when no code existed before */
+        if (d.referral_code) {
+          const link = buildInviteLink(d.referral_code);
+          setMessage((prev) =>
+            prev ? prev : buildMessage(d.referral_code, link)
+          );
+        }
+
+      } catch (err) {
+        console.error("[Invitation] fetch error:", err.message);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [navigate]
+  );
+
+  useEffect(() => {
+    fetchDashboard();
+  }, [fetchDashboard]);
+
+  /* ── Generate code on demand ── */
+  const handleGenerateCode = useCallback(async () => {
+    setGenerating(true);
+    try {
+      const res = await fetch(`${API}/generate-code`, {
+        method  : "POST",
+        headers : authHeaders(),
+      });
+
+      const body = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(body.message || `${res.status} ${res.statusText}`);
+      }
+
+      const newCode = body.referral_code;
+      if (!newCode) throw new Error("No code returned from server.");
+
+      /* Patch data in place — no full refetch needed */
+      setData((prev) => ({ ...prev, referral_code: newCode }));
+
+      const link = buildInviteLink(newCode);
+      setMessage(buildMessage(newCode, link));
+      showToast("✅ Invite code generated!");
+
+    } catch (err) {
+      console.error("[Invitation] generate-code error:", err.message);
+      showToast(`❌ ${err.message}`);
+    } finally {
+      setGenerating(false);
+    }
+  }, [showToast]);
+
+  /* ── Derived values ── */
+  const inviteCode = data?.referral_code ?? null;
+  const inviteLink = inviteCode ? buildInviteLink(inviteCode) : "";
+  const hasCode    = Boolean(inviteCode);
+
   /* ── Copy ── */
   const handleCopy = useCallback(
     (text, key, label) => {
+      if (!text) return;
       navigator.clipboard.writeText(text).catch(() => {});
       setCopied((p) => ({ ...p, [key]: true }));
       showToast(`✅ ${label} copied`);
-      setTimeout(() => setCopied((p) => ({ ...p, [key]: false })), 2_200);
+      setTimeout(
+        () => setCopied((p) => ({ ...p, [key]: false })),
+        2_200
+      );
     },
     [showToast]
   );
 
   /* ── Native share ── */
   const handleNativeShare = useCallback(async () => {
+    if (!inviteLink) return;
     try {
       if (navigator.share) {
         await navigator.share({
@@ -422,8 +518,22 @@ export default function Invitation() {
       } else {
         handleCopy(inviteLink, "link", "Invite link");
       }
-    } catch (_) {}
+    } catch (_) {
+      /* User cancelled share — silently ignore */
+    }
   }, [inviteLink, handleCopy]);
+
+  /* ── Share buttons ── */
+  const shareButtons = useMemo(
+    () =>
+      SHARE_PLATFORM_DEFS.map((def) => ({
+        ...def,
+        fn: def.build === null
+          ? handleNativeShare
+          : def.build(inviteLink, message),
+      })),
+    [inviteLink, message, handleNativeShare]
+  );
 
   /* ── QR download ── */
   const downloadQR = useCallback(() => {
@@ -436,16 +546,6 @@ export default function Invitation() {
     showToast("📥 QR code downloaded");
   }, [inviteCode, showToast]);
 
-  /* ── Share buttons (inject native share) ── */
-  const shareButtons = useMemo(() => {
-    const btns = SHARE_PLATFORMS(inviteLink, message);
-    btns[0].fn = handleNativeShare;
-    return btns;
-  }, [inviteLink, message, handleNativeShare]);
-
-  /* ── Cleanup timer on unmount ── */
-  useEffect(() => () => clearTimeout(toastTimer.current), []);
-
   /* ══════════════════════════════════════════════════════════
      LOADING STATE
   ══════════════════════════════════════════════════════════ */
@@ -453,7 +553,11 @@ export default function Invitation() {
     return (
       <div className="inv-page">
         <div className="inv-container">
-          <div className="inv-full-loading" aria-busy="true" aria-label="Loading invite dashboard">
+          <div
+            className="inv-full-loading"
+            aria-busy="true"
+            aria-label="Loading invite dashboard"
+          >
             <div className="inv-spinner-lg" />
             <p>Loading your invite dashboard…</p>
           </div>
@@ -470,7 +574,7 @@ export default function Invitation() {
       <div className="inv-page">
         <div className="inv-container">
           <div className="inv-error-state" role="alert">
-            <span aria-hidden="true">⚠️</span>
+            <FaExclamationTriangle size={32} aria-hidden="true" />
             <p>Could not load your invite page</p>
             <small>{error}</small>
             <button
@@ -489,6 +593,8 @@ export default function Invitation() {
   /* ══════════════════════════════════════════════════════════
      MAIN RENDER
   ══════════════════════════════════════════════════════════ */
+  const spinsRemaining = data?.stats?.bonus_spins_remaining ?? 0;
+
   return (
     <div className="inv-page">
       <div className="inv-container">
@@ -518,28 +624,28 @@ export default function Invitation() {
           <div>
             <p className="inv-topbar-title">Invite Friends</p>
             <p className="inv-topbar-sub">
-              {(data?.stats?.bonus_spins_remaining ?? 0)} bonus spin
-              {data?.stats?.bonus_spins_remaining !== 1 ? "s" : ""} available
+              {spinsRemaining} bonus spin{spinsRemaining !== 1 ? "s" : ""} available
             </p>
           </div>
 
-          {/* Refresh button */}
           <button
             className="inv-refresh-btn"
             onClick={() => fetchDashboard(true)}
             disabled={refreshing}
             aria-label="Refresh referral data"
+            aria-busy={refreshing}
           >
             <FaSync
               size={13}
               style={{
-                animation: refreshing ? "inv-spin 0.75s linear infinite" : "none",
+                animation: refreshing
+                  ? "inv-spin 0.75s linear infinite"
+                  : "none",
               }}
               aria-hidden="true"
             />
           </button>
 
-          {/* Spin shortcut */}
           <Link
             to="/spin"
             className="inv-spin-shortcut"
@@ -565,9 +671,9 @@ export default function Invitation() {
           {/* Quick stats row */}
           <div className="inv-header-stats" role="list" aria-label="Quick stats">
             {[
-              { val: data?.stats?.total_invites      ?? 0, label: "Invited"   },
-              { val: data?.stats?.successful_signups ?? 0, label: "Signed up" },
-              { val: data?.stats?.bonus_spins_remaining ?? 0, label: "Spins"  },
+              { val: data?.stats?.total_invites       ?? 0, label: "Invited"   },
+              { val: data?.stats?.successful_signups  ?? 0, label: "Signed up" },
+              { val: spinsRemaining,                         label: "Spins"     },
             ].map((s, i, arr) => (
               <React.Fragment key={s.label}>
                 <div className="inv-header-stat" role="listitem">
@@ -586,13 +692,20 @@ export default function Invitation() {
         <div className="inv-info-banner" role="note">
           <FaInfoCircle size={17} style={{ flexShrink: 0 }} aria-hidden="true" />
           <span>
-            Each verified signup earns you{" "}
-            <strong>+1 bonus spin</strong>.{" "}
+            Each verified signup earns you <strong>+1 bonus spin</strong>.{" "}
             <Link to="/spin" style={{ color: "#1e40af", fontWeight: 700 }}>
               Go spin →
             </Link>
           </span>
         </div>
+
+        {/* ── No-code banner ── */}
+        {!hasCode && (
+          <NoCodeBanner
+            onGenerate={handleGenerateCode}
+            generating={generating}
+          />
+        )}
 
         {/* ══════════════════════════════════════════════
             INVITE CODE
@@ -603,21 +716,29 @@ export default function Invitation() {
             Your Invite Code
           </h2>
 
-          <div
-            className="inv-code-box"
-            aria-label={`Your invite code is ${inviteCode}`}
-          >
-            <span className="inv-code-text">{inviteCode}</span>
-            <button
-              className={`inv-copy-btn${copied.code ? " copied" : ""}`}
-              onClick={() => handleCopy(inviteCode, "code", "Invite code")}
-              aria-label={copied.code ? "Invite code copied" : "Copy invite code"}
+          {hasCode ? (
+            <div
+              className="inv-code-box"
+              aria-label={`Your invite code is ${inviteCode}`}
             >
-              {copied.code
-                ? <><FaCheckCircle size={13} aria-hidden="true" /> Copied</>
-                : <><FaCopy        size={13} aria-hidden="true" /> Copy Code</>}
-            </button>
-          </div>
+              <span className="inv-code-text">{inviteCode}</span>
+              <button
+                className={`inv-copy-btn${copied.code ? " copied" : ""}`}
+                onClick={() => handleCopy(inviteCode, "code", "Invite code")}
+                aria-label={copied.code ? "Invite code copied" : "Copy invite code"}
+              >
+                {copied.code ? (
+                  <><FaCheckCircle size={13} aria-hidden="true" /> Copied</>
+                ) : (
+                  <><FaCopy size={13} aria-hidden="true" /> Copy Code</>
+                )}
+              </button>
+            </div>
+          ) : (
+            <p className="inv-no-code-msg">
+              Generate an invite code to start inviting friends.
+            </p>
+          )}
         </div>
 
         {/* ══════════════════════════════════════════════
@@ -629,40 +750,54 @@ export default function Invitation() {
             Your Invite Link
           </h2>
 
-          {/* Link row */}
-          <div className="inv-link-box" aria-label={`Invite link: ${inviteLink}`}>
-            <span className="inv-link-text" aria-hidden="true">
-              {inviteLink}
-            </span>
-            <button
-              className={`inv-copy-btn${copied.link ? " copied" : ""}`}
-              onClick={() => handleCopy(inviteLink, "link", "Invite link")}
-              aria-label={copied.link ? "Copied" : "Copy invite link"}
-            >
-              {copied.link
-                ? <><FaCheckCircle size={13} aria-hidden="true" /> Copied</>
-                : <><FaCopy        size={13} aria-hidden="true" /> Copy</>}
-            </button>
-          </div>
-
-          {/* Share grid */}
-          <div
-            className="inv-share-grid"
-            role="group"
-            aria-label="Share on social media"
-          >
-            {shareButtons.map((btn) => (
-              <button
-                key={btn.label}
-                className={`inv-share-btn ${btn.cls}`}
-                onClick={btn.fn}
-                aria-label={`Share on ${btn.label}`}
+          {hasCode ? (
+            <>
+              {/* Link row */}
+              <div
+                className="inv-link-box"
+                aria-label={`Invite link: ${inviteLink}`}
               >
-                <span aria-hidden="true">{btn.icon}</span>
-                {btn.label}
-              </button>
-            ))}
-          </div>
+                <span className="inv-link-text" aria-hidden="true">
+                  {inviteLink}
+                </span>
+                <button
+                  className={`inv-copy-btn${copied.link ? " copied" : ""}`}
+                  onClick={() => handleCopy(inviteLink, "link", "Invite link")}
+                  aria-label={copied.link ? "Copied" : "Copy invite link"}
+                >
+                  {copied.link ? (
+                    <><FaCheckCircle size={13} aria-hidden="true" /> Copied</>
+                  ) : (
+                    <><FaCopy size={13} aria-hidden="true" /> Copy</>
+                  )}
+                </button>
+              </div>
+
+              {/* Share grid */}
+              <div
+                className="inv-share-grid"
+                role="group"
+                aria-label="Share on social media"
+              >
+                {shareButtons.map((btn) => (
+                  <button
+                    key={btn.label}
+                    className={`inv-share-btn ${btn.cls}`}
+                    onClick={btn.fn}
+                    disabled={!hasCode}
+                    aria-label={`Share on ${btn.label}`}
+                  >
+                    <span aria-hidden="true">{btn.icon}</span>
+                    {btn.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : (
+            <p className="inv-no-code-msg">
+              Your invite link will appear here once you generate a code.
+            </p>
+          )}
         </div>
 
         {/* ══════════════════════════════════════════════
@@ -673,44 +808,56 @@ export default function Invitation() {
             <h2 className="inv-card-title" style={{ marginBottom: 0 }}>
               Invitation Message
             </h2>
-            <button
-              className="inv-edit-btn"
-              onClick={() => setIsEditing((e) => !e)}
-              aria-label={isEditing ? "Save message" : "Edit message"}
-              aria-pressed={isEditing}
-            >
-              {isEditing
-                ? <><FaSave size={12} aria-hidden="true" /> Save</>
-                : <><FaEdit size={12} aria-hidden="true" /> Edit</>}
-            </button>
+            {hasCode && (
+              <button
+                className="inv-edit-btn"
+                onClick={() => setIsEditing((e) => !e)}
+                aria-label={isEditing ? "Save message" : "Edit message"}
+                aria-pressed={isEditing}
+              >
+                {isEditing ? (
+                  <><FaSave size={12} aria-hidden="true" /> Save</>
+                ) : (
+                  <><FaEdit size={12} aria-hidden="true" /> Edit</>
+                )}
+              </button>
+            )}
           </div>
 
-          {isEditing ? (
-            <textarea
-              className="inv-msg-textarea"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              rows={7}
-              aria-label="Edit invitation message"
-            />
-          ) : (
-            <div
-              className="inv-msg-preview"
-              aria-label="Invitation message preview"
-            >
-              {message.split("\n").map((line, i) => (
-                <span key={i}>{line}<br /></span>
-              ))}
-            </div>
-          )}
+          {hasCode ? (
+            <>
+              {isEditing ? (
+                <textarea
+                  className="inv-msg-textarea"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  rows={7}
+                  aria-label="Edit invitation message"
+                />
+              ) : (
+                <div
+                  className="inv-msg-preview"
+                  aria-label="Invitation message preview"
+                >
+                  {message.split("\n").map((line, i) => (
+                    <span key={i}>{line}<br /></span>
+                  ))}
+                </div>
+              )}
 
-          <button
-            className="inv-copy-msg-btn"
-            onClick={() => handleCopy(message, "msg", "Message")}
-            aria-label="Copy invitation message"
-          >
-            <FaCopy size={13} aria-hidden="true" /> Copy Message
-          </button>
+              <button
+                className="inv-copy-msg-btn"
+                onClick={() => handleCopy(message, "msg", "Message")}
+                aria-label="Copy invitation message"
+              >
+                <FaCopy size={13} aria-hidden="true" /> Copy Message
+              </button>
+            </>
+          ) : (
+            <p className="inv-no-code-msg">
+              Your invitation message will appear once you have a code.
+            </p>
+          )}
         </div>
 
         {/* ══════════════════════════════════════════════
@@ -720,28 +867,36 @@ export default function Invitation() {
           <h2 className="inv-card-title">QR Code</h2>
           <p className="inv-qr-sub">Scan to join Loemart instantly</p>
 
-          <div
-            className="inv-qr-box"
-            aria-label={`QR code for invite link ${inviteLink}`}
-          >
-            <QRCodeCanvas
-              id="loemart-invite-qr"
-              value={inviteLink}
-              size={160}
-              includeMargin
-              bgColor="#ffffff"
-              fgColor="#1e3a5f"
-            />
-            <p className="inv-qr-note">{inviteLink}</p>
-          </div>
+          {hasCode ? (
+            <>
+              <div
+                className="inv-qr-box"
+                aria-label={`QR code for invite link ${inviteLink}`}
+              >
+                <QRCodeCanvas
+                  id="loemart-invite-qr"
+                  value={inviteLink}
+                  size={160}
+                  includeMargin
+                  bgColor="#ffffff"
+                  fgColor="#1e3a5f"
+                />
+                <p className="inv-qr-note">{inviteLink}</p>
+              </div>
 
-          <button
-            className="inv-download-btn"
-            onClick={downloadQR}
-            aria-label="Download QR code as image"
-          >
-            📥 Download QR Code
-          </button>
+              <button
+                className="inv-download-btn"
+                onClick={downloadQR}
+                aria-label="Download QR code as image"
+              >
+                📥 Download QR Code
+              </button>
+            </>
+          ) : (
+            <p className="inv-no-code-msg">
+              QR code will appear once you generate your invite code.
+            </p>
+          )}
         </div>
 
         {/* ══════════════════════════════════════════════
@@ -750,7 +905,11 @@ export default function Invitation() {
         <div className="inv-card">
           <h2 className="inv-card-title">📊 Referral Stats</h2>
 
-          <div className="inv-stats-grid" role="list" aria-label="Referral statistics">
+          <div
+            className="inv-stats-grid"
+            role="list"
+            aria-label="Referral statistics"
+          >
             {STATS_CFG.map((s) => (
               <div
                 key={s.key}
@@ -781,7 +940,11 @@ export default function Invitation() {
         <div className="inv-card">
 
           {/* Tab nav */}
-          <div className="inv-tab-nav" role="tablist" aria-label="Referral sections">
+          <div
+            className="inv-tab-nav"
+            role="tablist"
+            aria-label="Referral sections"
+          >
             {TABS.map((t) => {
               const count =
                 t.key === "activity" ? (data?.activity?.length ?? 0) :
@@ -793,7 +956,9 @@ export default function Invitation() {
                   className={`inv-tab-btn${tab === t.key ? " active" : ""}`}
                   onClick={() => setTab(t.key)}
                   role="tab"
+                  id={`tab-${t.key}`}
                   aria-selected={tab === t.key}
+                  aria-controls={`tabpanel-${t.key}`}
                   aria-label={t.label}
                 >
                   {t.label}
@@ -809,7 +974,11 @@ export default function Invitation() {
 
           {/* ── Activity tab ── */}
           {tab === "activity" && (
-            <div role="tabpanel" aria-label="Referral activity">
+            <div
+              id="tabpanel-activity"
+              role="tabpanel"
+              aria-labelledby="tab-activity"
+            >
               <h2 className="inv-card-title" style={{ marginTop: 16 }}>
                 👥 Referral Activity
               </h2>
@@ -832,7 +1001,11 @@ export default function Invitation() {
 
           {/* ── Events tab ── */}
           {tab === "events" && (
-            <div role="tabpanel" aria-label="Recent events">
+            <div
+              id="tabpanel-events"
+              role="tabpanel"
+              aria-labelledby="tab-events"
+            >
               <h2 className="inv-card-title" style={{ marginTop: 16 }}>
                 ⚡ Recent Events
               </h2>
@@ -851,7 +1024,11 @@ export default function Invitation() {
 
           {/* ── How it works tab ── */}
           {tab === "how" && (
-            <div role="tabpanel" aria-label="How it works">
+            <div
+              id="tabpanel-how"
+              role="tabpanel"
+              aria-labelledby="tab-how"
+            >
               <h2 className="inv-card-title" style={{ marginTop: 16 }}>
                 ❓ How It Works
               </h2>
@@ -859,7 +1036,9 @@ export default function Invitation() {
                 {HOW_STEPS.map((step, i) => (
                   <div key={i} className="inv-how-step">
                     <div className="inv-how-num" aria-hidden="true">{i + 1}</div>
-                    <span style={{ fontSize: 22 }} aria-hidden="true">{step.icon}</span>
+                    <span style={{ fontSize: 22 }} aria-hidden="true">
+                      {step.icon}
+                    </span>
                     <div className="inv-how-content">
                       <p className="inv-how-title">{step.title}</p>
                       <p className="inv-how-sub">{step.sub}</p>
@@ -890,9 +1069,9 @@ export default function Invitation() {
           <div style={{ flex: 1 }}>
             <p className="inv-spin-cta-title">Use Your Bonus Spins</p>
             <p className="inv-spin-cta-sub">
-              {(data?.stats?.bonus_spins_remaining ?? 0) > 0
-                ? `You have ${data.stats.bonus_spins_remaining} bonus spin${
-                    data.stats.bonus_spins_remaining !== 1 ? "s" : ""
+              {spinsRemaining > 0
+                ? `You have ${spinsRemaining} bonus spin${
+                    spinsRemaining !== 1 ? "s" : ""
                   } ready!`
                 : "Invite friends to earn bonus spins!"}
             </p>
