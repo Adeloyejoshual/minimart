@@ -3,11 +3,16 @@
 // Base: /api/referrals
 // ════════════════════════════════════════════════════════════
 
-import express    from "express";
-import rateLimit  from "express-rate-limit";
-import { pool }   from "../config/db.js";
-import { authenticate } from "../middleware/auth.js";
-import { writeAudit }   from "../lib/audit.js";
+import express   from "express";
+import rateLimit from "express-rate-limit";
+
+import { pool }                      from "../config/db.js";
+import { authenticate }              from "../middleware/auth.js";
+import { writeAudit }                from "../lib/audit.js";
+import {
+  generateCode,
+  generateUniqueReferralCode,
+} from "../lib/generateReferralCode.js";
 
 const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -15,18 +20,18 @@ const IS_PROD = process.env.NODE_ENV === "production";
 /* ══════════════════════════════════════════════════════════════
    HELPERS
 ══════════════════════════════════════════════════════════════ */
-const fail    = (res, status, message, extra = {}) =>
+const fail  = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
-const getIp   = (req) =>
+const getIp = (req) =>
   req.ip ??
   req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
   req.socket?.remoteAddress ??
   null;
 
 const AVATAR_COLORS = [
-  "#2563eb","#10b981","#f59e0b","#8b5cf6",
-  "#ef4444","#0891b2","#e8630a","#059669",
+  "#2563eb", "#10b981", "#f59e0b", "#8b5cf6",
+  "#ef4444", "#0891b2", "#e8630a", "#059669",
 ];
 
 const colorFor = (str = "") =>
@@ -43,11 +48,11 @@ const initialsOf = (name = "") =>
 
 const resolveDisplayName = (row) =>
   [row.first_name, row.last_name].filter(Boolean).join(" ").trim() ||
-  row.name        ||
-  row.username    ||
+  row.name     ||
+  row.username ||
   "Unknown";
 
-/* ── Format a referral row into activity item ── */
+/* ── Format a referral row into an activity item ── */
 const formatActivity = (row) => {
   const name = resolveDisplayName({
     first_name : row.referee_first_name,
@@ -103,26 +108,100 @@ const makeLimiter = ({ windowMin, max, message }) =>
 
 const dashboardLimiter = makeLimiter({
   windowMin : 1,
-  max       : IS_PROD ? 30 : 300,
+  max       : 30,
   message   : "Too many requests. Please slow down.",
 });
 
 const recordLimiter = makeLimiter({
   windowMin : 60,
-  max       : IS_PROD ? 5 : 100,
+  max       : 5,
   message   : "Too many referral submissions.",
 });
 
 const validateLimiter = makeLimiter({
   windowMin : 5,
-  max       : IS_PROD ? 20 : 200,
+  max       : 20,
   message   : "Too many validation requests.",
 });
+
+const generateLimiter = makeLimiter({
+  windowMin : 60,
+  max       : 5,
+  message   : "Too many code generation requests.",
+});
+
+/* ══════════════════════════════════════════════════════════════
+   POST /api/referrals/generate-code
+   Generates and assigns a referral code to the authenticated
+   user if they do not already have one.
+══════════════════════════════════════════════════════════════ */
+router.post(
+  "/generate-code",
+  authenticate,
+  generateLimiter,
+  async (req, res) => {
+    const userId = req.user?.id;
+    if (!userId) return fail(res, 401, "Not authenticated.");
+
+    const ip = getIp(req);
+
+    try {
+      /* ── Check if user already has a code ── */
+      const { rows: [user] } = await pool.query(
+        `SELECT referral_code FROM users WHERE id = $1`,
+        [userId]
+      );
+
+      if (!user) return fail(res, 404, "User not found.");
+
+      if (user.referral_code) {
+        return res.json({
+          success       : true,
+          referral_code : user.referral_code,
+          message       : "Referral code already exists.",
+        });
+      }
+
+      /* ── Generate a new unique code ── */
+      const code = await generateUniqueReferralCode();
+
+      await pool.query(
+        `UPDATE users SET referral_code = $1 WHERE id = $2`,
+        [code, userId]
+      );
+
+      writeAudit({
+        actorId    : userId,
+        action     : "referral_code_generated",
+        targetType : "user",
+        targetId   : userId,
+        metadata   : { referral_code: code },
+        ipAddress  : ip,
+      }).catch(() => {});
+
+      if (!IS_PROD) {
+        console.log(
+          `[referrals] ✓ code assigned  user=${userId}  code=${code}`
+        );
+      }
+
+      return res.status(201).json({
+        success       : true,
+        referral_code : code,
+        message       : "Referral code generated successfully.",
+      });
+
+    } catch (err) {
+      console.error("[referrals/generate-code]", err.message, "\n", err.stack);
+      return fail(res, 500, `Database error: ${err.message}`);
+    }
+  }
+);
 
 /* ══════════════════════════════════════════════════════════════
    GET /api/referrals/dashboard
    Returns everything the Invitation page needs in one call:
-   - referral_code
+   - referral_code  (auto-generates one if missing)
    - bonus_spins
    - stats (totals)
    - activity list (who joined, status, reward)
@@ -133,7 +212,6 @@ router.get("/dashboard", authenticate, dashboardLimiter, async (req, res) => {
   if (!userId) return fail(res, 401, "Not authenticated.");
 
   try {
-
     /* ── 1. User referral info ── */
     const { rows: [user] } = await pool.query(
       `SELECT
@@ -146,6 +224,34 @@ router.get("/dashboard", authenticate, dashboardLimiter, async (req, res) => {
     );
 
     if (!user) return fail(res, 404, "User not found.");
+
+    /* ── 1a. Auto-generate a referral code if the user has none ── */
+    let referralCode = user.referral_code ?? null;
+
+    if (!referralCode) {
+      try {
+        referralCode = await generateUniqueReferralCode();
+
+        await pool.query(
+          `UPDATE users SET referral_code = $1 WHERE id = $2`,
+          [referralCode, userId]
+        );
+
+        if (!IS_PROD) {
+          console.log(
+            `[referrals/dashboard] ✓ auto-generated code=${referralCode}` +
+            ` for user=${userId}`
+          );
+        }
+      } catch (genErr) {
+        /* Non-fatal — dashboard still loads without a code */
+        console.error(
+          "[referrals/dashboard] failed to auto-generate code:",
+          genErr.message
+        );
+        referralCode = null;
+      }
+    }
 
     /* ── 2. Aggregate stats ── */
     const { rows: [stats] } = await pool.query(
@@ -171,13 +277,12 @@ router.get("/dashboard", authenticate, dashboardLimiter, async (req, res) => {
          r.reward_type,
          r.reward_value,
          r.reward_given_at,
-         r.created_at   AS joined_at,
+         r.created_at    AS joined_at,
          r.verified_at,
-         -- referee details
-         u.name         AS referee_name,
-         u.first_name   AS referee_first_name,
-         u.last_name    AS referee_last_name,
-         u.username     AS referee_username,
+         u.name          AS referee_name,
+         u.first_name    AS referee_first_name,
+         u.last_name     AS referee_last_name,
+         u.username      AS referee_username,
          u.profile_image AS referee_avatar
        FROM  referrals r
        JOIN  users     u ON r.referee_id = u.id
@@ -208,17 +313,17 @@ router.get("/dashboard", authenticate, dashboardLimiter, async (req, res) => {
     return res.json({
       success : true,
 
-      referral_code   : user.referral_code   ?? null,
-      bonus_spins     : user.bonus_spins      ?? 0,
-      total_referrals : user.total_referrals  ?? 0,
+      referral_code   : referralCode,
+      bonus_spins     : user.bonus_spins     ?? 0,
+      total_referrals : user.total_referrals ?? 0,
 
       stats: {
-        total_invites          : stats.total_invites       ?? 0,
-        successful_signups     : stats.successful_signups  ?? 0,
-        pending_invites        : stats.pending_invites     ?? 0,
-        verified_count         : stats.verified_count      ?? 0,
-        total_spins_earned     : stats.total_spins_earned  ?? 0,
-        bonus_spins_remaining  : user.bonus_spins          ?? 0,
+        total_invites         : stats.total_invites      ?? 0,
+        successful_signups    : stats.successful_signups  ?? 0,
+        pending_invites       : stats.pending_invites     ?? 0,
+        verified_count        : stats.verified_count      ?? 0,
+        total_spins_earned    : stats.total_spins_earned  ?? 0,
+        bonus_spins_remaining : user.bonus_spins          ?? 0,
       },
 
       activity : activityRows.map(formatActivity),
@@ -234,8 +339,7 @@ router.get("/dashboard", authenticate, dashboardLimiter, async (req, res) => {
 /* ══════════════════════════════════════════════════════════════
    POST /api/referrals/record
    Called during registration when an invite code is provided.
-   This is called from auth.routes.js — no auth middleware needed
-   because the user was JUST created and may not have a token yet.
+   No auth middleware — user was JUST created, may have no token.
 ══════════════════════════════════════════════════════════════ */
 router.post("/record", recordLimiter, async (req, res) => {
   const { invite_code, referee_id } = req.body;
@@ -248,6 +352,7 @@ router.post("/record", recordLimiter, async (req, res) => {
 
   const code = invite_code.toString().toUpperCase().trim();
 
+  /* ── Reuse the same format check as generateCode ── */
   if (!/^[A-Z0-9]{4,20}$/.test(code)) {
     return fail(res, 400, "Invalid invite code format.");
   }
@@ -291,7 +396,6 @@ router.post("/record", recordLimiter, async (req, res) => {
 
     if (alreadyReferred) {
       await client.query("ROLLBACK");
-      /* Not an error — just silently skip */
       return res.json({
         success : false,
         message : "Already referred.",
@@ -310,9 +414,12 @@ router.post("/record", recordLimiter, async (req, res) => {
     );
 
     if (!referral) {
-      /* ON CONFLICT fired — duplicate silently ignored */
       await client.query("ROLLBACK");
-      return res.json({ success: false, message: "Duplicate referral.", code: "DUPLICATE" });
+      return res.json({
+        success : false,
+        message : "Duplicate referral.",
+        code    : "DUPLICATE",
+      });
     }
 
     /* ── Store referred_by on the new user ── */
@@ -349,10 +456,12 @@ router.post("/record", recordLimiter, async (req, res) => {
       ipAddress  : ip,
     }).catch(() => {});
 
-    console.log(
-      `[referrals] ✓ recorded  ` +
-      `inviter=${inviter.id}  referee=${referee_id}  code=${code}`
-    );
+    if (!IS_PROD) {
+      console.log(
+        `[referrals] ✓ recorded  ` +
+        `inviter=${inviter.id}  referee=${referee_id}  code=${code}`
+      );
+    }
 
     return res.status(201).json({
       success     : true,
@@ -363,9 +472,12 @@ router.post("/record", recordLimiter, async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
 
-    /* Unique constraint — treat as duplicate */
     if (err.code === "23505") {
-      return res.json({ success: false, message: "Duplicate referral.", code: "DUPLICATE" });
+      return res.json({
+        success : false,
+        message : "Duplicate referral.",
+        code    : "DUPLICATE",
+      });
     }
 
     console.error("[referrals/record]", err.message, "\n", err.stack);
@@ -377,11 +489,8 @@ router.post("/record", recordLimiter, async (req, res) => {
 
 /* ══════════════════════════════════════════════════════════════
    POST /api/referrals/verify
-   Called from verification.js after email is verified.
    Marks referral verified + calls grant_referral_reward().
-   Already handled inside grantReferralRewardOnVerify() in
-   verification.js — this endpoint exists as a manual fallback
-   or for admin use.
+   Manual fallback / admin use — auto-flow lives in verification.js
 ══════════════════════════════════════════════════════════════ */
 router.post("/verify", authenticate, async (req, res) => {
   const { referee_id } = req.body;
@@ -428,7 +537,7 @@ router.post("/verify", authenticate, async (req, res) => {
       [referral.id]
     );
 
-    /* ── Grant reward ── */
+    /* ── Grant reward via DB function ── */
     const { rows: [result] } = await client.query(
       `SELECT grant_referral_reward($1) AS result`,
       [referral.id]
@@ -436,7 +545,7 @@ router.post("/verify", authenticate, async (req, res) => {
 
     await client.query("COMMIT");
 
-    const reward = result?.result;
+    const reward = result?.result ?? null;
 
     writeAudit({
       actorId    : referee_id,
@@ -447,15 +556,17 @@ router.post("/verify", authenticate, async (req, res) => {
       ipAddress  : ip,
     }).catch(() => {});
 
-    console.log(
-      `[referrals] ✓ verified  referral=${referral.id}  ` +
-      `inviter=${referral.inviter_id}  reward=${JSON.stringify(reward)}`
-    );
+    if (!IS_PROD) {
+      console.log(
+        `[referrals] ✓ verified  referral=${referral.id}  ` +
+        `inviter=${referral.inviter_id}  reward=${JSON.stringify(reward)}`
+      );
+    }
 
     return res.json({
       success : true,
       message : "Referral verified and reward granted.",
-      reward  : reward ?? null,
+      reward,
     });
 
   } catch (err) {
@@ -469,14 +580,13 @@ router.post("/verify", authenticate, async (req, res) => {
 
 /* ══════════════════════════════════════════════════════════════
    GET /api/referrals/validate/:code
-   Called from the registration form in real-time to preview
-   who owns this invite code before the user submits.
+   Real-time code preview during registration.
    No authentication required.
 ══════════════════════════════════════════════════════════════ */
 router.get("/validate/:code", validateLimiter, async (req, res) => {
   const code = (req.params.code ?? "").toUpperCase().trim();
 
-  /* ── Format check ── */
+  /* ── Format check — mirrors generateCode output ── */
   if (!code || !/^[A-Z0-9]{4,20}$/.test(code)) {
     return res.json({ valid: false, message: "Invalid code format." });
   }
@@ -490,8 +600,8 @@ router.get("/validate/:code", validateLimiter, async (req, res) => {
            NULLIF(TRIM(name), ''),
            username,
            'Loemart User'
-         )                AS display_name,
-         profile_image    AS avatar_url,
+         )             AS display_name,
+         profile_image AS avatar_url,
          referral_code
        FROM  users
        WHERE referral_code = $1
@@ -504,10 +614,10 @@ router.get("/validate/:code", validateLimiter, async (req, res) => {
     }
 
     return res.json({
-      valid        : true,
-      display_name : user.display_name,
-      avatar_url   : user.avatar_url   || null,
-      referral_code: user.referral_code,
+      valid         : true,
+      display_name  : user.display_name,
+      avatar_url    : user.avatar_url || null,
+      referral_code : user.referral_code,
     });
 
   } catch (err) {
@@ -548,7 +658,7 @@ router.get("/stats", authenticate, dashboardLimiter, async (req, res) => {
     if (!row) return fail(res, 404, "User not found.");
 
     return res.json({
-      success : true,
+      success               : true,
       referral_code         : row.referral_code    ?? null,
       bonus_spins_remaining : row.bonus_spins       ?? 0,
       total_referrals       : row.total_referrals   ?? 0,
@@ -573,8 +683,8 @@ router.get("/history", authenticate, dashboardLimiter, async (req, res) => {
   const userId = req.user?.id;
   if (!userId) return fail(res, 401, "Not authenticated.");
 
-  const page  = Math.max(1, parseInt(req.query.page  ?? "1",  10));
-  const limit = Math.min(50, parseInt(req.query.limit ?? "20", 10));
+  const page   = Math.max(1,  parseInt(req.query.page  ?? "1",  10));
+  const limit  = Math.min(50, parseInt(req.query.limit ?? "20", 10));
   const offset = (page - 1) * limit;
 
   try {
@@ -602,7 +712,9 @@ router.get("/history", authenticate, dashboardLimiter, async (req, res) => {
     );
 
     const { rows: [countRow] } = await pool.query(
-      `SELECT COUNT(*)::INT AS total FROM referrals WHERE inviter_id = $1`,
+      `SELECT COUNT(*)::INT AS total
+       FROM referrals
+       WHERE inviter_id = $1`,
       [userId]
     );
 
