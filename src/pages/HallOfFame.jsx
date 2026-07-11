@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link }                        from "react-router-dom";
-import "../../styles/HallOfFame.css";
+import "../styles/HallOfFame.css";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api/leaderboard`;
