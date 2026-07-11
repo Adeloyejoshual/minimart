@@ -1,6 +1,12 @@
 // ════════════════════════════════════════════════════════════
-// FILE: routes/spinwheel.js — v4 (+ Earn Tasks)
+// FILE: routes/spinwheel.js
 // Base: /api/spinwheel
+//
+// Schema facts (from your exported CockroachDB table):
+//   referrals.inviter_id  UUID NOT NULL
+//   referrals.invitee_id  UUID NOT NULL  ← legacy NOT NULL col
+//   referrals.referee_id  UUID NULL      ← new col
+//   Every JOIN uses COALESCE(r.referee_id, r.invitee_id)
 // ════════════════════════════════════════════════════════════
 
 import express      from "express";
@@ -12,24 +18,24 @@ import { writeAudit }   from "../lib/audit.js";
 const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    WHEEL SEGMENTS
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const WHEEL_SEGMENTS = [
-  { id: 1, label: "Try Again",      type: "none",          value: 0,   color: "#6b7280", bg: "#f3f4f6", emoji: "😅",  probability: 35, is_big_win: false },
-  { id: 2, label: "₦100 Coupon",    type: "fixed",         value: 100, color: "#e8630a", bg: "#fff0e6", emoji: "🎟️", probability: 25, is_big_win: false },
-  { id: 3, label: "5% Discount",    type: "percentage",    value: 5,   color: "#6366f1", bg: "#eef2ff", emoji: "%",   probability: 15, is_big_win: false },
-  { id: 4, label: "₦500 Coupon",    type: "fixed",         value: 500, color: "#16a34a", bg: "#f0fdf4", emoji: "💰",  probability: 10, is_big_win: false },
-  { id: 5, label: "₦100 Airtime",   type: "airtime",       value: 100, color: "#0891b2", bg: "#f0f9ff", emoji: "📱",  probability: 7,  is_big_win: false },
-  { id: 6, label: "Free Shipping",  type: "free_shipping", value: 0,   color: "#d97706", bg: "#fffbeb", emoji: "🚚",  probability: 5,  is_big_win: true  },
-  { id: 7, label: "10% Discount",   type: "percentage",    value: 10,  color: "#dc2626", bg: "#fef2f2", emoji: "🔥",  probability: 3,  is_big_win: true  },
+  { id: 1, label: "Try Again",     type: "none",          value: 0,   color: "#6b7280", bg: "#f3f4f6", emoji: "😅",  probability: 35, is_big_win: false },
+  { id: 2, label: "₦100 Coupon",   type: "fixed",         value: 100, color: "#e8630a", bg: "#fff0e6", emoji: "🎟️", probability: 25, is_big_win: false },
+  { id: 3, label: "5% Discount",   type: "percentage",    value: 5,   color: "#6366f1", bg: "#eef2ff", emoji: "%",   probability: 15, is_big_win: false },
+  { id: 4, label: "₦500 Coupon",   type: "fixed",         value: 500, color: "#16a34a", bg: "#f0fdf4", emoji: "💰",  probability: 10, is_big_win: false },
+  { id: 5, label: "₦100 Airtime",  type: "airtime",       value: 100, color: "#0891b2", bg: "#f0f9ff", emoji: "📱",  probability: 7,  is_big_win: false },
+  { id: 6, label: "Free Shipping", type: "free_shipping", value: 0,   color: "#d97706", bg: "#fffbeb", emoji: "🚚",  probability: 5,  is_big_win: true  },
+  { id: 7, label: "10% Discount",  type: "percentage",    value: 10,  color: "#dc2626", bg: "#fef2f2", emoji: "🔥",  probability: 3,  is_big_win: true  },
 ];
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    EARN TASKS DEFINITION
-   Single source of truth — mirrors frontend EARN_TASKS in helpers.js
+   Single source of truth — mirrors frontend EARN_TASKS.
    spins_reward MUST match the frontend config exactly.
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const EARN_TASKS_DEF = [
   {
     id          : "follow_instagram",
@@ -38,7 +44,7 @@ const EARN_TASKS_DEF = [
     type        : "follow",
     category    : "social",
     spins_reward: 3,
-    verify_type : "honor",   // honor | api
+    verify_type : "honor",
   },
   {
     id          : "follow_tiktok",
@@ -78,32 +84,32 @@ const EARN_TASKS_DEF = [
   },
 ];
 
-/* Build a fast lookup map */
-const TASK_MAP = Object.fromEntries(EARN_TASKS_DEF.map((t) => [t.id, t]));
+/* Fast lookup map */
+const TASK_MAP = Object.fromEntries(
+  EARN_TASKS_DEF.map((t) => [t.id, t])
+);
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    CONSTANTS
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const MAX_FREE_DAILY     = 1;
 const MAX_BONUS_STACKED  = 10;
 const COUPON_EXPIRY_DAYS = 30;
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    HELPERS
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const fail = (res, status, message, extra = {}) => {
-  console.error(`[spinwheel] ✗ ${status} — ${message}`, extra);
+  console.error(`[spinwheel] ✗ ${status} — ${message}`);
   return res.status(status).json({ success: false, message, ...extra });
 };
 
 const failErr = (res, status, userMsg, err, extra = {}) => {
   const detail = err?.message || String(err);
   const stack  = err?.stack   || "";
-
   console.error(`[spinwheel] ✗ ERROR — ${userMsg}`);
   console.error(`            → ${detail}`);
   if (stack) console.error(stack);
-
   return res.status(status).json({
     success : false,
     message : IS_PROD ? userMsg : `${userMsg}: ${detail}`,
@@ -144,7 +150,7 @@ function timeUntilMidnight() {
   const now  = new Date();
   const next = new Date();
   next.setHours(24, 0, 0, 0);
-  const ms   = next - now;
+  const ms = next - now;
   return {
     label   : `${Math.floor(ms / 3_600_000)}h ${Math.floor((ms % 3_600_000) / 60_000)}m`,
     iso     : next.toISOString(),
@@ -158,9 +164,9 @@ function safeSegments() {
   }));
 }
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    RATE LIMITERS
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const makeLimiter = ({ windowMin, max, message }) =>
   rateLimit({
     windowMs        : windowMin * 60_000,
@@ -178,9 +184,9 @@ const historyLimiter = makeLimiter({ windowMin: 1, max: 20, message: "Too many r
 const taskLimiter    = makeLimiter({ windowMin: 1, max: 20, message: "Too many requests."  });
 const claimLimiter   = makeLimiter({ windowMin: 5, max: 10, message: "Too many claim attempts. Please wait." });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    ENSURE TABLES
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 async function ensureTables() {
   console.log("[spinwheel] ensuring tables…");
 
@@ -200,7 +206,7 @@ async function ensureTables() {
       spun_at     TIMESTAMP NOT NULL DEFAULT now(),
       CONSTRAINT  spin_history_pkey PRIMARY KEY (id ASC),
       INDEX       idx_spin_user    (user_id ASC),
-      INDEX       idx_spin_spun_at (user_id, spun_at DESC)
+      INDEX       idx_spin_spun_at (user_id ASC, spun_at DESC)
     )
   `);
   console.log("[spinwheel] ✓ spin_history ready");
@@ -208,46 +214,47 @@ async function ensureTables() {
   /* ── spin_config ── */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.spin_config (
-      id               UUID NOT NULL DEFAULT gen_random_uuid(),
-      user_id          UUID NOT NULL,
-      spins_today      INT8 NOT NULL DEFAULT 0,
+      id               UUID      NOT NULL DEFAULT gen_random_uuid(),
+      user_id          UUID      NOT NULL,
+      spins_today      INT8      NOT NULL DEFAULT 0,
       last_spin_at     TIMESTAMP NULL,
-      total_spins      INT8 NOT NULL DEFAULT 0,
-      total_wins       INT8 NOT NULL DEFAULT 0,
-      streak           INT8 NOT NULL DEFAULT 0,
-      last_streak_date DATE NULL,
-      CONSTRAINT  spin_config_pkey PRIMARY KEY (id ASC),
+      total_spins      INT8      NOT NULL DEFAULT 0,
+      total_wins       INT8      NOT NULL DEFAULT 0,
+      streak           INT8      NOT NULL DEFAULT 0,
+      last_streak_date DATE      NULL,
+      CONSTRAINT  spin_config_pkey  PRIMARY KEY (id ASC),
       UNIQUE INDEX unique_spin_config_user (user_id ASC)
     )
   `);
   console.log("[spinwheel] ✓ spin_config ready");
 
-  /* ── spin_task_completions ── NEW ── */
+  /* ── spin_task_completions ── */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.spin_task_completions (
-      id           UUID      NOT NULL DEFAULT gen_random_uuid(),
-      user_id      UUID      NOT NULL,
-      task_id      STRING    NOT NULL,
-      platform     STRING    NOT NULL,
-      spins_awarded INT8     NOT NULL DEFAULT 0,
-      ip_address   STRING    NULL,
-      completed_at TIMESTAMP NOT NULL DEFAULT now(),
-      CONSTRAINT   stc_pkey PRIMARY KEY (id ASC),
-      UNIQUE INDEX unique_task_per_user (user_id ASC, task_id ASC),
-      INDEX        idx_stc_user (user_id ASC)
+      id            UUID      NOT NULL DEFAULT gen_random_uuid(),
+      user_id       UUID      NOT NULL,
+      task_id       STRING    NOT NULL,
+      platform      STRING    NOT NULL,
+      spins_awarded INT8      NOT NULL DEFAULT 0,
+      ip_address    STRING    NULL,
+      completed_at  TIMESTAMP NOT NULL DEFAULT now(),
+      CONSTRAINT    stc_pkey PRIMARY KEY (id ASC),
+      UNIQUE INDEX  unique_task_per_user (user_id ASC, task_id ASC),
+      INDEX         idx_stc_user (user_id ASC)
     )
   `);
   console.log("[spinwheel] ✓ spin_task_completions ready");
 
-  /* ── Safe migrations for existing tables ── */
+  /* ── Safe column migrations ── */
   const migrations = [
     `ALTER TABLE public.spin_history ADD COLUMN IF NOT EXISTS is_win    BOOL   NOT NULL DEFAULT FALSE`,
     `ALTER TABLE public.spin_history ADD COLUMN IF NOT EXISTS spin_type STRING NOT NULL DEFAULT 'free'`,
     `ALTER TABLE public.spin_config  ADD COLUMN IF NOT EXISTS total_wins       INT8 NOT NULL DEFAULT 0`,
     `ALTER TABLE public.spin_config  ADD COLUMN IF NOT EXISTS streak           INT8 NOT NULL DEFAULT 0`,
     `ALTER TABLE public.spin_config  ADD COLUMN IF NOT EXISTS last_streak_date DATE NULL`,
-    /* Add bonus_spins to users if missing */
-    `ALTER TABLE public.users        ADD COLUMN IF NOT EXISTS bonus_spins INT8 NOT NULL DEFAULT 0`,
+    `ALTER TABLE public.users        ADD COLUMN IF NOT EXISTS bonus_spins      INT8 NOT NULL DEFAULT 0`,
+    `ALTER TABLE public.users        ADD COLUMN IF NOT EXISTS total_referrals  INT8 NOT NULL DEFAULT 0`,
+    `ALTER TABLE public.users        ADD COLUMN IF NOT EXISTS referred_by      UUID NULL`,
   ];
 
   for (const sql of migrations) {
@@ -264,23 +271,30 @@ async function ensureTables() {
 }
 
 ensureTables().catch((err) =>
-  console.error("[spinwheel] ✗ table init FAILED:", err.message, "\n", err.stack)
+  console.error(
+    "[spinwheel] ✗ table init FAILED:",
+    err.message, "\n", err.stack
+  )
 );
 
-/* ══════════════════════════════════════════════════════════════
-   GET SPIN STATUS
-══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   GET SPIN STATUS  (shared by /config and /spin)
+════════════════════════════════════════════════════════════ */
 async function getSpinStatus(userId) {
   console.log(`[spinwheel] getSpinStatus → user=${userId}`);
 
+  /* Upsert spin_config and reset spins_today if it's a new day */
   const { rows: [config] } = await pool.query(
     `INSERT INTO public.spin_config
-       (user_id, spins_today, last_spin_at, total_spins, total_wins, streak, last_streak_date)
+       (user_id, spins_today, last_spin_at, total_spins,
+        total_wins, streak, last_streak_date)
      VALUES ($1, 0, NULL, 0, 0, 0, NULL)
      ON CONFLICT (user_id) DO UPDATE
        SET spins_today = CASE
-         WHEN spin_config.last_spin_at IS NULL              THEN 0
-         WHEN DATE(spin_config.last_spin_at) < CURRENT_DATE THEN 0
+         WHEN spin_config.last_spin_at IS NULL
+              THEN 0
+         WHEN DATE(spin_config.last_spin_at) < CURRENT_DATE
+              THEN 0
          ELSE spin_config.spins_today
        END
      RETURNING *`,
@@ -294,15 +308,22 @@ async function getSpinStatus(userId) {
 
   if (!user) throw new Error(`User not found in DB: ${userId}`);
 
-  const bonusSpins  = Math.min(Number(user.bonus_spins ?? 0), MAX_BONUS_STACKED);
-  const lastSpinAt  = config.last_spin_at ? new Date(config.last_spin_at) : null;
-  const today       = new Date();
-  const isNewDay    = !lastSpinAt || lastSpinAt.toDateString() !== today.toDateString();
+  const bonusSpins = Math.min(
+    Number(user.bonus_spins ?? 0),
+    MAX_BONUS_STACKED
+  );
+  const lastSpinAt = config.last_spin_at
+    ? new Date(config.last_spin_at)
+    : null;
+  const today     = new Date();
+  const isNewDay  = !lastSpinAt ||
+    lastSpinAt.toDateString() !== today.toDateString();
   const spinsToday  = isNewDay ? 0 : Number(config.spins_today || 0);
   const canFreeSpin = spinsToday < MAX_FREE_DAILY;
   const canSpin     = canFreeSpin || bonusSpins > 0;
   const midnight    = timeUntilMidnight();
 
+  /* Streak calculation */
   let streak = Number(config.streak || 0);
   const lastStreakDate = config.last_streak_date
     ? new Date(config.last_streak_date).toDateString()
@@ -311,7 +332,7 @@ async function getSpinStatus(userId) {
   yesterday.setDate(yesterday.getDate() - 1);
 
   if (lastStreakDate === today.toDateString()) {
-    /* already counted */
+    /* Already counted today */
   } else if (lastStreakDate !== yesterday.toDateString()) {
     streak = 0;
   }
@@ -342,9 +363,9 @@ async function getSpinStatus(userId) {
   };
 }
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    GET /api/spinwheel/config
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 router.get("/config", authenticate, configLimiter, async (req, res) => {
   const userId = req.user?.id;
   console.log(`[spinwheel] GET /config → user=${userId}`);
@@ -353,16 +374,24 @@ router.get("/config", authenticate, configLimiter, async (req, res) => {
   try {
     const { status } = await getSpinStatus(userId);
 
-    /* Latest referral name — non-critical */
+    /* Latest referral name — non-critical, uses COALESCE for schema compat */
     try {
       const { rows: [latest] } = await pool.query(
         `SELECT
            COALESCE(
-             NULLIF(TRIM(u.first_name || ' ' || COALESCE(u.last_name, '')), ''),
-             u.name, u.username, 'Someone'
+             NULLIF(
+               TRIM(
+                 COALESCE(u.first_name, '') || ' ' ||
+                 COALESCE(u.last_name,  '')
+               ), ''
+             ),
+             u.name,
+             u.username,
+             'Someone'
            ) AS name
          FROM  referrals r
-         JOIN  users     u ON r.referee_id = u.id
+         JOIN  users     u
+               ON u.id = COALESCE(r.referee_id, r.invitee_id)
          WHERE r.inviter_id = $1
            AND r.status     = 'rewarded'
          ORDER BY r.reward_given_at DESC
@@ -371,7 +400,10 @@ router.get("/config", authenticate, configLimiter, async (req, res) => {
       );
       if (latest?.name) status.latest_referral_name = latest.name;
     } catch (refErr) {
-      console.warn("[spinwheel] referral name fetch (non-fatal):", refErr.message);
+      /* Non-fatal */
+      console.warn(
+        "[spinwheel] referral name fetch (non-fatal):", refErr.message
+      );
     }
 
     return res.json({
@@ -385,18 +417,21 @@ router.get("/config", authenticate, configLimiter, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    POST /api/spinwheel/spin
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 router.post("/spin", authenticate, spinLimiter, async (req, res) => {
   const userId   = req.user?.id;
   const ip       = getIp(req);
   const spinType = req.body?.spin_type || "free";
 
-  console.log(`\n[spinwheel] POST /spin → user=${userId} spin_type=${spinType}`);
+  console.log(
+    `\n[spinwheel] POST /spin → user=${userId} spin_type=${spinType}`
+  );
 
-  if (!userId)                              return fail(res, 401, "Not authenticated.");
-  if (!["free","bonus"].includes(spinType)) return fail(res, 400, "spin_type must be 'free' or 'bonus'.");
+  if (!userId) return fail(res, 401, "Not authenticated.");
+  if (!["free", "bonus"].includes(spinType))
+    return fail(res, 400, "spin_type must be 'free' or 'bonus'.");
 
   const client = await pool.connect();
   try {
@@ -417,11 +452,13 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
     let actualType = spinType;
 
     if (actualType === "free" && !canFreeSpin) {
-      if (bonusSpins > 0) { actualType = "bonus"; }
-      else {
+      if (bonusSpins > 0) {
+        actualType = "bonus";
+      } else {
         await client.query("ROLLBACK");
         const midnight = timeUntilMidnight();
-        return fail(res, 429,
+        return fail(
+          res, 429,
           `No spins available. Come back in ${midnight.label}.`,
           { next_spin_at: midnight.iso }
         );
@@ -429,8 +466,9 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
     }
 
     if (actualType === "bonus" && bonusSpins <= 0) {
-      if (canFreeSpin) { actualType = "free"; }
-      else {
+      if (canFreeSpin) {
+        actualType = "free";
+      } else {
         await client.query("ROLLBACK");
         return fail(res, 429, "No spins available.");
       }
@@ -440,19 +478,23 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
     try {
       if (actualType === "free") {
         const { rows: [check] } = await client.query(
-          `SELECT spins_today, last_spin_at FROM public.spin_config WHERE user_id = $1`,
+          `SELECT spins_today, last_spin_at
+           FROM   public.spin_config
+           WHERE  user_id = $1`,
           [userId]
         );
         const lastDate = check?.last_spin_at
           ? new Date(check.last_spin_at).toDateString()
           : null;
-        const dbSpins  = (lastDate === new Date().toDateString())
-          ? Number(check?.spins_today || 0) : 0;
+        const dbSpins = lastDate === new Date().toDateString()
+          ? Number(check?.spins_today || 0)
+          : 0;
         if (dbSpins >= MAX_FREE_DAILY) {
           await client.query("ROLLBACK");
           return fail(res, 429, "Free spin already used today.");
         }
       }
+
       if (actualType === "bonus") {
         const { rows: [check] } = await client.query(
           `SELECT bonus_spins FROM users WHERE id = $1`,
@@ -468,11 +510,11 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
       return failErr(res, 500, "DB double-check failed", checkErr);
     }
 
-    /* ── Step 4: Spin ── */
+    /* ── Step 4: Spin the wheel ── */
     const result = spinWheel();
     const isWin  = result.type !== "none";
 
-    /* ── Step 5: Coupon ── */
+    /* ── Step 5: Create coupon if won ── */
     let couponId   = null;
     let couponCode = null;
 
@@ -488,41 +530,50 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING id`,
           [
-            couponCode, result.type, result.value, 0,
+            couponCode,
+            result.type,
+            result.value,
+            0,
             result.type === "percentage" && result.value >= 10 ? 5000 : null,
-            1, expiry,
+            1,
+            expiry,
             `🎡 Spin & Win — ${result.label}`,
             userId,
           ]
         );
         couponId = coupon?.id ?? null;
       } catch (couponErr) {
-        console.warn("[spinwheel] coupon insert failed (non-fatal):", couponErr.message);
+        console.warn(
+          "[spinwheel] coupon insert failed (non-fatal):", couponErr.message
+        );
         couponId   = null;
         couponCode = null;
       }
     }
 
-    /* ── Step 6: spin_history ── */
+    /* ── Step 6: Record spin_history ── */
     try {
       await client.query(
         `INSERT INTO public.spin_history
            (user_id, segment_id, label, type, value,
             is_win, spin_type, coupon_id, coupon_code)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [userId, result.id, result.label, result.type, result.value,
-         isWin, actualType, couponId, couponCode]
+        [
+          userId, result.id, result.label, result.type, result.value,
+          isWin, actualType, couponId, couponCode,
+        ]
       );
     } catch (histErr) {
       await client.query("ROLLBACK");
       return failErr(res, 500, "Failed to record spin history", histErr);
     }
 
-    /* ── Step 7: spin_config ── */
+    /* ── Step 7: Update spin_config ── */
     const today     = new Date();
     const todayDate = today.toISOString().slice(0, 10);
-    const yestDate  = new Date(today.setDate(today.getDate() - 1))
-      .toISOString().slice(0, 10);
+    const yest      = new Date(today);
+    yest.setDate(yest.getDate() - 1);
+    const yestDate  = yest.toISOString().slice(0, 10);
 
     try {
       await client.query(
@@ -532,8 +583,10 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
          VALUES ($1, $2, NOW(), 1, $3, 1, $4)
          ON CONFLICT (user_id) DO UPDATE
            SET spins_today = CASE
-                 WHEN spin_config.last_spin_at IS NULL               THEN $2
-                 WHEN DATE(spin_config.last_spin_at) < CURRENT_DATE  THEN $2
+                 WHEN spin_config.last_spin_at IS NULL
+                      THEN $2
+                 WHEN DATE(spin_config.last_spin_at) < CURRENT_DATE
+                      THEN $2
                  ELSE spin_config.spins_today + $2
                END,
                last_spin_at     = NOW(),
@@ -545,7 +598,13 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
                  ELSE 1
                END,
                last_streak_date = $4`,
-        [userId, actualType === "free" ? 1 : 0, isWin ? 1 : 0, todayDate, yestDate]
+        [
+          userId,
+          actualType === "free" ? 1 : 0,
+          isWin ? 1 : 0,
+          todayDate,
+          yestDate,
+        ]
       );
     } catch (configErr) {
       await client.query("ROLLBACK");
@@ -569,15 +628,17 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
     }
 
     await client.query("COMMIT");
+    console.log(`[spinwheel] ✓ spin committed — ${result.label}`);
 
-    /* ── Remaining spins ── */
+    /* ── Remaining spins (after commit) ── */
     let spinsRemaining = 0;
     try {
       const { rows: [afterUser] } = await pool.query(
-        `SELECT bonus_spins FROM users WHERE id = $1`, [userId]
+        `SELECT bonus_spins FROM users WHERE id = $1`,
+        [userId]
       );
       spinsRemaining = Number(afterUser?.bonus_spins ?? 0);
-    } catch (_) {}
+    } catch (_) { /* non-fatal */ }
 
     /* ── Audit ── */
     writeAudit({
@@ -586,15 +647,17 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
       targetType : "user",
       targetId   : userId,
       metadata   : {
-        spin_type  : actualType,
-        segment_id : result.id,
-        label      : result.label,
-        is_win     : isWin,
-        coupon_code: couponCode,
-        is_big_win : result.is_big_win,
+        spin_type   : actualType,
+        segment_id  : result.id,
+        label       : result.label,
+        is_win      : isWin,
+        coupon_code : couponCode,
+        is_big_win  : result.is_big_win,
       },
       ipAddress  : ip,
-    }).catch((e) => console.warn("[spinwheel] audit failed:", e.message));
+    }).catch((e) =>
+      console.warn("[spinwheel] audit failed:", e.message)
+    );
 
     return res.json({
       success    : true,
@@ -619,7 +682,7 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
               ? `🎉 You won ${result.label}! Use code ${couponCode} at checkout.`
               : `🎉 You won ${result.label}!`
           : "😅 Better luck next time! Come back tomorrow for another spin.",
-        expires_in      : isWin && couponCode ? `${COUPON_EXPIRY_DAYS} days` : null,
+        expires_in : isWin && couponCode ? `${COUPON_EXPIRY_DAYS} days` : null,
       },
     });
 
@@ -631,14 +694,14 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    GET /api/spinwheel/history
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 router.get("/history", authenticate, historyLimiter, async (req, res) => {
   const userId = req.user?.id;
   if (!userId) return fail(res, 401, "Not authenticated.");
 
-  const page   = Math.max(1, parseInt(req.query.page  ?? "1",  10));
+  const page   = Math.max(1,  parseInt(req.query.page  ?? "1",  10));
   const limit  = Math.min(50, parseInt(req.query.limit ?? "20", 10));
   const offset = (page - 1) * limit;
 
@@ -654,16 +717,22 @@ router.get("/history", authenticate, historyLimiter, async (req, res) => {
         [userId, limit, offset]
       ),
       pool.query(
-        `SELECT COUNT(*)::INT AS total FROM public.spin_history WHERE user_id = $1`,
+        `SELECT COUNT(*)::INT AS total
+         FROM   public.spin_history
+         WHERE  user_id = $1`,
         [userId]
       ),
       pool.query(
-        `SELECT total_spins, total_wins, streak FROM public.spin_config WHERE user_id = $1`,
+        `SELECT total_spins, total_wins, streak
+         FROM   public.spin_config
+         WHERE  user_id = $1`,
         [userId]
       ),
       pool.query(
-        `SELECT COUNT(*)::INT AS cnt FROM public.spin_history
-         WHERE user_id = $1 AND spin_type = 'bonus'`,
+        `SELECT COUNT(*)::INT AS cnt
+         FROM   public.spin_history
+         WHERE  user_id  = $1
+           AND  spin_type = 'bonus'`,
         [userId]
       ),
     ]);
@@ -692,7 +761,8 @@ router.get("/history", authenticate, historyLimiter, async (req, res) => {
         total_spins      : totalSpins,
         total_wins       : totalWins,
         win_rate         : totalSpins > 0
-          ? Math.round((totalWins / totalSpins) * 100) : 0,
+          ? Math.round((totalWins / totalSpins) * 100)
+          : 0,
         bonus_spins_used : bonusRes.rows[0]?.cnt ?? 0,
         streak           : Number(config?.streak || 0),
       },
@@ -703,9 +773,12 @@ router.get("/history", authenticate, historyLimiter, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    GET /api/spinwheel/referral-spins
-══════════════════════════════════════════════════════════════ */
+
+   ✅ JOIN uses COALESCE(r.referee_id, r.invitee_id)
+      so rows inserted before the migration are still visible.
+════════════════════════════════════════════════════════════ */
 router.get("/referral-spins", authenticate, historyLimiter, async (req, res) => {
   const userId = req.user?.id;
   if (!userId) return fail(res, 401, "Not authenticated.");
@@ -718,12 +791,20 @@ router.get("/referral-spins", authenticate, historyLimiter, async (req, res) => 
          r.reward_given_at AS created_at,
          r.status,
          COALESCE(
-           NULLIF(TRIM(u.first_name || ' ' || COALESCE(u.last_name, '')), ''),
-           u.name, u.username, 'Unknown'
+           NULLIF(
+             TRIM(
+               COALESCE(u.first_name, '') || ' ' ||
+               COALESCE(u.last_name,  '')
+             ), ''
+           ),
+           u.name,
+           u.username,
+           'Unknown'
          )               AS referred_name,
          u.profile_image AS avatar_url
        FROM  referrals r
-       JOIN  users      u ON r.referee_id = u.id
+       JOIN  users      u
+             ON u.id = COALESCE(r.referee_id, r.invitee_id)
        WHERE r.inviter_id = $1
          AND r.status     = 'rewarded'
        ORDER BY r.reward_given_at DESC
@@ -738,8 +819,11 @@ router.get("/referral-spins", authenticate, historyLimiter, async (req, res) => 
 
     const referralSpins = rows.map((r) => {
       const name     = r.referred_name || "?";
-      const initials = name.split(" ").slice(0, 2)
-        .map((w) => w[0]?.toUpperCase() || "").join("");
+      const initials = name
+        .split(" ")
+        .slice(0, 2)
+        .map((w) => w[0]?.toUpperCase() || "")
+        .join("");
       const color = COLORS[
         [...name].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length
       ];
@@ -755,25 +839,27 @@ router.get("/referral-spins", authenticate, historyLimiter, async (req, res) => 
       };
     });
 
-    return res.json({ success: true, referral_spins: referralSpins });
+    return res.json({
+      success        : true,
+      referral_spins : referralSpins,
+    });
 
   } catch (err) {
     return failErr(res, 500, "Failed to load referral spins", err);
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    GET /api/spinwheel/tasks
    Returns which tasks this user has already completed
-   + aggregate stats for the earn tab header
-══════════════════════════════════════════════════════════════ */
+   + aggregate stats for the earn tab header.
+════════════════════════════════════════════════════════════ */
 router.get("/tasks", authenticate, taskLimiter, async (req, res) => {
   const userId = req.user?.id;
   console.log(`[spinwheel] GET /tasks → user=${userId}`);
   if (!userId) return fail(res, 401, "Not authenticated.");
 
   try {
-    /* Completed task IDs for this user */
     const { rows: completedRows } = await pool.query(
       `SELECT task_id, spins_awarded, completed_at
        FROM   public.spin_task_completions
@@ -783,17 +869,13 @@ router.get("/tasks", authenticate, taskLimiter, async (req, res) => {
     );
 
     const completedTaskIds = completedRows.map((r) => r.task_id);
-
-    /* Total spins earned via tasks */
     const totalEarned = completedRows.reduce(
       (sum, r) => sum + Number(r.spins_awarded || 0), 0
     );
-
-    /* Per-task detail (useful for admin/debugging) */
     const completedDetail = completedRows.map((r) => ({
-      task_id      : r.task_id,
-      spins_awarded: Number(r.spins_awarded),
-      completed_at : r.completed_at,
+      task_id       : r.task_id,
+      spins_awarded : Number(r.spins_awarded),
+      completed_at  : r.completed_at,
     }));
 
     console.log(
@@ -806,12 +888,13 @@ router.get("/tasks", authenticate, taskLimiter, async (req, res) => {
       completed_task_ids : completedTaskIds,
       completed_detail   : completedDetail,
       stats : {
-        total_tasks    : EARN_TASKS_DEF.length,
-        completed_count: completedTaskIds.length,
-        pending_count  : EARN_TASKS_DEF.length - completedTaskIds.length,
-        total_earned   : totalEarned,
-        /* Max possible spins from all tasks */
-        max_possible   : EARN_TASKS_DEF.reduce((s, t) => s + t.spins_reward, 0),
+        total_tasks     : EARN_TASKS_DEF.length,
+        completed_count : completedTaskIds.length,
+        pending_count   : EARN_TASKS_DEF.length - completedTaskIds.length,
+        total_earned    : totalEarned,
+        max_possible    : EARN_TASKS_DEF.reduce(
+          (s, t) => s + t.spins_reward, 0
+        ),
       },
     });
 
@@ -820,23 +903,25 @@ router.get("/tasks", authenticate, taskLimiter, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    POST /api/spinwheel/earn-task
-   Called when user clicks "Verify & Claim" in the frontend.
+   Called when user clicks "Verify & Claim".
 
    Flow:
    1. Validate task_id exists in EARN_TASKS_DEF
-   2. Check not already completed (unique constraint also guards)
+   2. Check not already completed
    3. Insert completion record
-   4. Credit bonus_spins to user
+   4. Credit bonus_spins (capped at MAX_BONUS_STACKED)
    5. Return new spin totals
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 router.post("/earn-task", authenticate, claimLimiter, async (req, res) => {
   const userId = req.user?.id;
   const ip     = getIp(req);
   const taskId = req.body?.task_id;
 
-  console.log(`\n[spinwheel] POST /earn-task → user=${userId} task=${taskId}`);
+  console.log(
+    `\n[spinwheel] POST /earn-task → user=${userId} task=${taskId}`
+  );
 
   if (!userId) return fail(res, 401, "Not authenticated.");
   if (!taskId) return fail(res, 400, "task_id is required.");
@@ -844,7 +929,11 @@ router.post("/earn-task", authenticate, claimLimiter, async (req, res) => {
   /* ── Validate task exists ── */
   const taskDef = TASK_MAP[taskId];
   if (!taskDef) {
-    return fail(res, 404, `Unknown task: ${taskId}. Valid tasks: ${Object.keys(TASK_MAP).join(", ")}`);
+    return fail(
+      res, 404,
+      `Unknown task: ${taskId}. ` +
+      `Valid tasks: ${Object.keys(TASK_MAP).join(", ")}`
+    );
   }
 
   console.log(
@@ -855,18 +944,23 @@ router.post("/earn-task", authenticate, claimLimiter, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* ── Step 1: Check already completed ── */
+    /* ── Step 1: Already completed? ── */
     const { rows: [existing] } = await client.query(
-      `SELECT id, completed_at FROM public.spin_task_completions
-       WHERE  user_id = $1 AND task_id = $2
+      `SELECT id, completed_at
+       FROM   public.spin_task_completions
+       WHERE  user_id = $1
+         AND  task_id = $2
        LIMIT  1`,
       [userId, taskId]
     );
 
     if (existing) {
       await client.query("ROLLBACK");
-      console.log(`[spinwheel] task already done at ${existing.completed_at}`);
-      return fail(res, 409,
+      console.log(
+        `[spinwheel] task already done at ${existing.completed_at}`
+      );
+      return fail(
+        res, 409,
         `You've already claimed the reward for "${taskDef.label}".`,
         { completed_at: existing.completed_at }
       );
@@ -884,11 +978,15 @@ router.post("/earn-task", authenticate, claimLimiter, async (req, res) => {
     } catch (insertErr) {
       await client.query("ROLLBACK");
 
-      /* Unique constraint violation = race condition / double-submit */
-      if (insertErr.message?.includes("unique") ||
-          insertErr.code === "23505" ||
-          insertErr.message?.includes("duplicate")) {
-        return fail(res, 409,
+      /* Race condition / double-submit */
+      const isDup =
+        insertErr.message?.toLowerCase().includes("unique") ||
+        insertErr.code === "23505"                          ||
+        insertErr.message?.toLowerCase().includes("duplicate");
+
+      if (isDup) {
+        return fail(
+          res, 409,
           `You've already claimed the reward for "${taskDef.label}".`
         );
       }
@@ -925,16 +1023,17 @@ router.post("/earn-task", authenticate, claimLimiter, async (req, res) => {
       targetType : "user",
       targetId   : userId,
       metadata   : {
-        task_id      : taskId,
-        task_label   : taskDef.label,
-        platform     : taskDef.platform,
-        spins_awarded: taskDef.spins_reward,
-        bonus_spins  : newBonusSpins,
+        task_id       : taskId,
+        task_label    : taskDef.label,
+        platform      : taskDef.platform,
+        spins_awarded : taskDef.spins_reward,
+        bonus_spins   : newBonusSpins,
       },
       ipAddress  : ip,
-    }).catch((e) => console.warn("[spinwheel] audit failed:", e.message));
+    }).catch((e) =>
+      console.warn("[spinwheel] audit failed:", e.message)
+    );
 
-    /* ── Response ── */
     return res.json({
       success       : true,
       task_id       : taskId,
@@ -942,61 +1041,69 @@ router.post("/earn-task", authenticate, claimLimiter, async (req, res) => {
       platform      : taskDef.platform,
       spins_awarded : taskDef.spins_reward,
       bonus_spins   : newBonusSpins,
-      message       : `🎡 +${taskDef.spins_reward} bonus spin${taskDef.spins_reward > 1 ? "s" : ""} added for completing "${taskDef.label}"!`,
+      message       :
+        `🎡 +${taskDef.spins_reward} bonus spin` +
+        `${taskDef.spins_reward > 1 ? "s" : ""} added for ` +
+        `completing "${taskDef.label}"!`,
     });
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error("[spinwheel] ✗ UNHANDLED in POST /earn-task:", err.message);
+    console.error(
+      "[spinwheel] ✗ UNHANDLED in POST /earn-task:", err.message
+    );
     return failErr(res, 500, "Failed to claim task reward", err);
   } finally {
     client.release();
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    GET /api/spinwheel/tasks/all
-   Admin / debug endpoint — lists all defined tasks + completion
-   counts across all users. Only exposed in non-production unless
-   the user has admin role.
-══════════════════════════════════════════════════════════════ */
+   Admin / debug endpoint — task completion stats.
+   Blocked in production unless user has admin role.
+════════════════════════════════════════════════════════════ */
 router.get("/tasks/all", authenticate, async (req, res) => {
-  const userId = req.user?.id;
-  const isAdmin = req.user?.role === "admin" || req.user?.is_admin === true;
+  const isAdmin =
+    req.user?.role === "admin" || req.user?.is_admin === true;
 
   if (!isAdmin && IS_PROD) {
     return fail(res, 403, "Admin access required.");
   }
 
   try {
-    /* Completion counts per task */
     const { rows: counts } = await pool.query(
-      `SELECT   task_id,
-                COUNT(*)::INT             AS total_completions,
-                SUM(spins_awarded)::INT   AS total_spins_awarded,
-                MIN(completed_at)         AS first_completed_at,
-                MAX(completed_at)         AS last_completed_at
-       FROM     public.spin_task_completions
-       GROUP BY task_id`
+      `SELECT
+         task_id,
+         COUNT(*)::INT           AS total_completions,
+         SUM(spins_awarded)::INT AS total_spins_awarded,
+         MIN(completed_at)       AS first_completed_at,
+         MAX(completed_at)       AS last_completed_at
+       FROM   public.spin_task_completions
+       GROUP  BY task_id`
     );
 
-    const countMap = Object.fromEntries(counts.map((r) => [r.task_id, r]));
+    const countMap = Object.fromEntries(
+      counts.map((r) => [r.task_id, r])
+    );
 
     const tasks = EARN_TASKS_DEF.map((t) => ({
       ...t,
       stats: countMap[t.id] ?? {
-        total_completions : 0,
-        total_spins_awarded: 0,
-        first_completed_at: null,
-        last_completed_at : null,
+        total_completions   : 0,
+        total_spins_awarded : 0,
+        first_completed_at  : null,
+        last_completed_at   : null,
       },
     }));
 
     return res.json({
-      success          : true,
+      success            : true,
       tasks,
-      total_tasks      : tasks.length,
-      max_spins_possible: EARN_TASKS_DEF.reduce((s, t) => s + t.spins_reward, 0),
+      total_tasks        : tasks.length,
+      max_spins_possible : EARN_TASKS_DEF.reduce(
+        (s, t) => s + t.spins_reward, 0
+      ),
     });
 
   } catch (err) {
