@@ -1,832 +1,383 @@
-/**
- * src/pages/Profile/Coupons.jsx
- * Route: /coupons
- *
- * Shows available coupons + history + manual code entry
- */
+// routes/coupons.js
+import express      from "express";
+import { pool }     from "../config/db.js";
+import authenticate from "../middleware/auth.js";
 
-import { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+const router = express.Router();
 
 /* ═══════════════════════════════════════════════════════════════
-   ENV + API
+   ENSURE TABLES + INDEXES
 ═══════════════════════════════════════════════════════════════ */
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
-const API      = `${BASE_URL}/api`;
+async function ensureTables() {
+
+  /* ── Coupons ── */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.coupons (
+      id           UUID        NOT NULL DEFAULT gen_random_uuid(),
+      code         TEXT        NOT NULL,
+      type         TEXT        NOT NULL DEFAULT 'percentage',
+      value        DECIMAL     NOT NULL DEFAULT 0,
+      min_purchase DECIMAL     NOT NULL DEFAULT 0,
+      max_discount DECIMAL     NULL,
+      usage_limit  INT8        NULL,
+      usage_count  INT8        NOT NULL DEFAULT 0,
+      expires_at   TIMESTAMPTZ NULL,
+      is_active    BOOLEAN     NOT NULL DEFAULT true,
+      description  TEXT        NULL,
+      created_by   UUID        NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT coupons_pkey PRIMARY KEY (id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS unique_coupon_code
+    ON public.coupons (code)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_coupons_active
+    ON public.coupons (is_active)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_coupons_expires
+    ON public.coupons (expires_at)
+  `);
+
+  /* ── Coupon redemptions ── */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.coupon_redemptions (
+      id          UUID        NOT NULL DEFAULT gen_random_uuid(),
+      coupon_id   UUID        NOT NULL,
+      user_id     UUID        NOT NULL,
+      order_id    UUID        NULL,
+      discount    DECIMAL     NOT NULL DEFAULT 0,
+      redeemed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT coupon_redemptions_pkey PRIMARY KEY (id)
+    )
+  `);
+
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon
+    ON public.coupon_redemptions (coupon_id, user_id)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_redemptions_coupon
+    ON public.coupon_redemptions (coupon_id)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_redemptions_user
+    ON public.coupon_redemptions (user_id)
+  `);
+}
+
+ensureTables().catch((err) =>
+  console.warn("[coupons] table init:", err.message)
+);
 
 /* ═══════════════════════════════════════════════════════════════
-   AUTH
+   GET /api/coupons
+   All active coupons with per-user usability flags
+   Returns both usable and used/expired so the frontend
+   can show the Available tab and the Used tab
 ═══════════════════════════════════════════════════════════════ */
-const getToken = () =>
-  localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("token") || null;
+router.get("/", authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
 
-const authH = () => ({
-  Authorization  : `Bearer ${getToken()}`,
-  "Content-Type" : "application/json",
+    const { rows } = await pool.query(
+      `SELECT
+         c.id,
+         c.code,
+         c.type,
+         c.value,
+         c.min_purchase,
+         c.max_discount,
+         c.usage_limit,
+         c.usage_count,
+         c.expires_at,
+         c.description,
+         c.created_at,
+         COUNT(r.id) FILTER (WHERE r.user_id = $1)::int AS user_usage_count
+       FROM public.coupons c
+       LEFT JOIN public.coupon_redemptions r ON r.coupon_id = c.id
+       WHERE c.is_active = true
+       GROUP BY
+         c.id, c.code, c.type, c.value, c.min_purchase,
+         c.max_discount, c.usage_limit, c.usage_count,
+         c.expires_at, c.description, c.created_at
+       ORDER BY
+         CASE
+           WHEN (c.expires_at IS NULL OR c.expires_at > NOW())
+            AND (c.usage_limit IS NULL OR c.usage_count < c.usage_limit)
+           THEN 0 ELSE 1
+         END,
+         c.created_at DESC`,
+      [userId]
+    );
+
+    const now     = new Date();
+    const coupons = rows.map((c) => {
+      const expiresAt = c.expires_at ? new Date(c.expires_at) : null;
+      const isExpired = expiresAt ? expiresAt < now : false;
+      const isUsed    = c.user_usage_count > 0;
+      const isFull    = c.usage_limit
+        ? Number(c.usage_count) >= Number(c.usage_limit)
+        : false;
+      const daysLeft  = expiresAt
+        ? Math.max(0, Math.ceil((expiresAt - now) / 86_400_000))
+        : null;
+
+      return {
+        id           : c.id,
+        code         : c.code,
+        type         : c.type,
+        description  : c.description,
+        value        : Number(c.value        || 0),
+        min_purchase : Number(c.min_purchase || 0),
+        max_discount : c.max_discount ? Number(c.max_discount) : null,
+        usage_count  : Number(c.usage_count  || 0),
+        usage_limit  : c.usage_limit  ? Number(c.usage_limit)  : null,
+        expires_at   : c.expires_at,
+        created_at   : c.created_at,
+        is_expired   : isExpired,
+        is_used      : isUsed,
+        is_full      : isFull,
+        days_left    : daysLeft,
+        usable       : !isExpired && !isUsed && !isFull,
+      };
+    });
+
+    return res.json({ success: true, coupons });
+
+  } catch (err) {
+    console.error("[coupons] GET /:", err.message);
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPERS
+   POST /api/coupons/validate
+   Validate a coupon code and calculate the discount
+   Body: { code, order_amount }
 ═══════════════════════════════════════════════════════════════ */
-const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
+router.post("/validate", authenticate, async (req, res) => {
+  const { code, order_amount = 0 } = req.body;
+  const userId = req.user.id;
 
-const fmtDate = (d) => {
-  if (!d) return "";
-  return new Date(d).toLocaleDateString("en-NG", {
-    day: "numeric", month: "short", year: "numeric",
-  });
-};
+  if (!code?.trim()) {
+    return res.status(400).json({ success: false, message: "Coupon code is required." });
+  }
 
-const timeAgo = (d) => {
-  if (!d) return "";
-  const s = Math.floor((Date.now() - new Date(d)) / 1_000);
-  if (s < 3_600)  return `${Math.floor(s / 60)}m ago`;
-  if (s < 86_400) return `${Math.floor(s / 3_600)}h ago`;
-  return `${Math.floor(s / 86_400)}d ago`;
-};
+  try {
+    /* ── Find coupon ── */
+    const { rows } = await pool.query(
+      `SELECT * FROM public.coupons
+       WHERE UPPER(code) = UPPER($1)
+         AND is_active   = true
+       LIMIT 1`,
+      [code.trim()]
+    );
 
-const COUPON_CONFIG = {
-  percentage   : { color: "#6366f1", bg: "#eef2ff", icon: "%" },
-  fixed        : { color: "#e8630a", bg: "#fff0e6", icon: "₦" },
-  free_shipping: { color: "#16a34a", bg: "#dcfce7", icon: "🚚" },
-};
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: "Invalid coupon code." });
+    }
 
-/* ═══════════════════════════════════════════════════════════════
-   COUPON CARD
-═══════════════════════════════════════════════════════════════ */
-function CouponCard({ coupon, onCopy, copied }) {
-  const cfg       = COUPON_CONFIG[coupon.type] || COUPON_CONFIG.percentage;
-  const isCopied  = copied === coupon.code;
+    const c   = rows[0];
+    const now = new Date();
 
-  const discountText =
-    coupon.type === "percentage"
-      ? `${coupon.value}% OFF`
-      : coupon.type === "fixed"
-        ? `${naira(coupon.value)} OFF`
-        : "FREE DELIVERY";
+    /* ── Expiry check ── */
+    if (c.expires_at && new Date(c.expires_at) < now) {
+      return res.status(400).json({ success: false, message: "This coupon has expired." });
+    }
 
-  const statusText =
-    !coupon.usable
-      ? coupon.is_used    ? "Already used"
-      : coupon.is_expired ? "Expired"
-      : coupon.is_full    ? "Fully redeemed"
-      : "Unavailable"
-      : coupon.days_left === 0 ? "Expires today!"
-      : coupon.days_left <= 3  ? `${coupon.days_left} days left`
-      : coupon.days_left != null ? `${coupon.days_left} days left`
-      : "No expiry";
-
-  const statusColor =
-    !coupon.usable        ? "#dc2626" :
-    coupon.days_left <= 3 ? "#f59e0b" :
-    "#16a34a";
-
-  return (
-    <div className={`cp-card${!coupon.usable ? " cp-card--used" : ""}`}>
-
-      {/* Left strip */}
-      <div className="cp-card-strip" style={{ background: cfg.color }} />
-
-      {/* Main */}
-      <div className="cp-card-main">
-
-        {/* Header */}
-        <div className="cp-card-head">
-          <div className="cp-discount-badge" style={{ background: cfg.bg, color: cfg.color }}>
-            <span className="cp-discount-icon">{cfg.icon}</span>
-            <span className="cp-discount-text">{discountText}</span>
-          </div>
-          <span className="cp-status" style={{ color: statusColor }}>
-            {statusText}
-          </span>
-        </div>
-
-        {/* Description */}
-        {coupon.description && (
-          <p className="cp-desc">{coupon.description}</p>
-        )}
-
-        {/* Details */}
-        <div className="cp-details">
-          {coupon.min_purchase > 0 && (
-            <span className="cp-detail">
-              Min: {naira(coupon.min_purchase)}
-            </span>
-          )}
-          {coupon.max_discount && (
-            <span className="cp-detail">
-              Max: {naira(coupon.max_discount)}
-            </span>
-          )}
-          {coupon.usage_limit && (
-            <span className="cp-detail">
-              {coupon.usage_count}/{coupon.usage_limit} used
-            </span>
-          )}
-          {coupon.expires_at && (
-            <span className="cp-detail">
-              Expires {fmtDate(coupon.expires_at)}
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="cp-divider">
-        <div className="cp-divider-notch cp-divider-notch--top" />
-        <div className="cp-divider-line" />
-        <div className="cp-divider-notch cp-divider-notch--bottom" />
-      </div>
-
-      {/* Code */}
-      <div className="cp-card-code">
-        <p className="cp-code-label">Code</p>
-        <p className="cp-code">{coupon.code}</p>
-        <button
-          className={`cp-copy-btn${isCopied ? " cp-copy-btn--done" : ""}`}
-          onClick={() => onCopy(coupon.code)}
-          disabled={!coupon.usable}
-        >
-          {isCopied ? "✓ Copied" : "Copy"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   VALIDATE INPUT
-═══════════════════════════════════════════════════════════════ */
-function ValidatePanel({ onValidated }) {
-  const [code,    setCode]    = useState("");
-  const [amount,  setAmount]  = useState("");
-  const [loading, setLoading] = useState(false);
-  const [result,  setResult]  = useState(null);
-  const [error,   setError]   = useState(null);
-
-  const validate = async () => {
-    if (!code.trim()) { setError("Enter a coupon code"); return; }
-    setLoading(true);
-    setError(null);
-    setResult(null);
-
-    try {
-      const res = await fetch(`${API}/coupons/validate`, {
-        method  : "POST",
-        headers : authH(),
-        body    : JSON.stringify({
-          code         : code.trim().toUpperCase(),
-          order_amount : Number(amount) || 0,
-        }),
+    /* ── Usage limit check ── */
+    if (c.usage_limit && Number(c.usage_count) >= Number(c.usage_limit)) {
+      return res.status(400).json({
+        success: false,
+        message: "This coupon has reached its usage limit.",
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        setError(data.message || "Invalid coupon");
-      } else {
-        setResult(data);
-        onValidated?.(data);
-      }
-    } catch {
-      setError("Network error. Please try again.");
-    } finally {
-      setLoading(false);
     }
-  };
 
-  return (
-    <div className="cp-validate-panel">
-      <h3 className="cp-validate-title">🏷️ Have a coupon code?</h3>
-      <p className="cp-validate-sub">Enter your code below to check if it's valid</p>
+    /* ── Already used by this user? ── */
+    const { rows: used } = await pool.query(
+      `SELECT id FROM public.coupon_redemptions
+       WHERE coupon_id = $1
+         AND user_id   = $2
+       LIMIT 1`,
+      [c.id, userId]
+    );
 
-      <div className="cp-validate-inputs">
-        <input
-          className="cp-validate-input"
-          placeholder="Enter coupon code"
-          value={code}
-          onChange={(e) => { setCode(e.target.value.toUpperCase()); setError(null); setResult(null); }}
-          onKeyDown={(e) => e.key === "Enter" && validate()}
-        />
-        <input
-          className="cp-validate-input"
-          placeholder="Order amount (optional)"
-          type="number"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && validate()}
-        />
-      </div>
+    if (used.length) {
+      return res.status(400).json({
+        success: false,
+        message: "You have already used this coupon.",
+      });
+    }
 
-      <button
-        className="cp-validate-btn"
-        onClick={validate}
-        disabled={loading || !code.trim()}
-      >
-        {loading ? "Checking…" : "Validate Coupon"}
-      </button>
+    /* ── Minimum purchase check ── */
+    const amount = Number(order_amount);
 
-      {error && (
-        <div className="cp-validate-error">
-          <span>❌</span>
-          <span>{error}</span>
-        </div>
-      )}
+    if (Number(c.min_purchase) > 0 && amount < Number(c.min_purchase)) {
+      return res.status(400).json({
+        success: false,
+        message: `A minimum order of ₦${Number(c.min_purchase).toLocaleString("en-NG")} is required for this coupon.`,
+      });
+    }
 
-      {result && (
-        <div className="cp-validate-success">
-          <div className="cp-validate-success-top">
-            <span>✅ Valid coupon!</span>
-            <span className="cp-validate-save">
-              Save {naira(result.discount)}
-            </span>
-          </div>
-          <p>{result.message}</p>
-          {result.final_amount > 0 && (
-            <p className="cp-validate-final">
-              Final amount: <strong>{naira(result.final_amount)}</strong>
-            </p>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+    /* ── Calculate discount ── */
+    let discount = 0;
+    let message  = "";
+
+    if (c.type === "percentage") {
+      discount = (amount * Number(c.value)) / 100;
+      if (c.max_discount) {
+        discount = Math.min(discount, Number(c.max_discount));
+      }
+      discount = Math.round(discount);
+      message  = `Coupon applied! You save ₦${discount.toLocaleString("en-NG")}.`;
+
+    } else if (c.type === "fixed") {
+      discount = Math.round(Math.min(Number(c.value), amount));
+      message  = `Coupon applied! You save ₦${discount.toLocaleString("en-NG")}.`;
+
+    } else if (c.type === "free_shipping") {
+      discount = 0;
+      message  = "Free shipping applied! Your delivery fee is waived at checkout.";
+    }
+
+    return res.json({
+      success      : true,
+      valid        : true,
+      coupon: {
+        id         : c.id,
+        code       : c.code,
+        type       : c.type,
+        value      : Number(c.value),
+        description: c.description,
+      },
+      discount,
+      final_amount : Math.max(0, amount - discount),
+      message,
+    });
+
+  } catch (err) {
+    console.error("[coupons] POST /validate:", err.message);
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+});
 
 /* ═══════════════════════════════════════════════════════════════
-   MAIN COMPONENT
+   POST /api/coupons/redeem
+   Record coupon use after a successful order
+   Body: { code, order_id, discount }
 ═══════════════════════════════════════════════════════════════ */
-export default function Coupons({ user }) {
-  const navigate = useNavigate();
+router.post("/redeem", authenticate, async (req, res) => {
+  const { code, order_id, discount } = req.body;
+  const userId = req.user.id;
 
-  const [coupons,  setCoupons]  = useState([]);
-  const [history,  setHistory]  = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [error,    setError]    = useState(null);
-  const [tab,      setTab]      = useState("available"); // available | used | history
-  const [copied,   setCopied]   = useState(null);
-  const [toast,    setToast]    = useState(null);
+  if (!code?.trim()) {
+    return res.status(400).json({ success: false, message: "Coupon code is required." });
+  }
 
-  /* ── Auth check ── */
-  useEffect(() => {
-    if (!getToken()) navigate("/auth?redirect=/coupons");
-  }, [navigate]);
+  try {
+    /* ── Find coupon ── */
+    const { rows } = await pool.query(
+      `SELECT id FROM public.coupons
+       WHERE UPPER(code) = UPPER($1)
+         AND is_active   = true
+       LIMIT 1`,
+      [code.trim()]
+    );
 
-  /* ── Load coupons ── */
-  const loadCoupons = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const [couponRes, historyRes] = await Promise.all([
-        fetch(`${API}/coupons`,         { headers: authH() }),
-        fetch(`${API}/coupons/history`, { headers: authH() }),
-      ]);
-
-      if (couponRes.ok) {
-        const d = await couponRes.json();
-        setCoupons(d.coupons || []);
-      }
-
-      if (historyRes.ok) {
-        const d = await historyRes.json();
-        setHistory(d.history || []);
-      }
-    } catch {
-      setError("Could not load coupons. Please try again.");
-    } finally {
-      setLoading(false);
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: "Coupon not found." });
     }
-  }, []);
 
-  useEffect(() => { loadCoupons(); }, [loadCoupons]);
+    const couponId = rows[0].id;
 
-  /* ── Copy code ── */
-  const handleCopy = useCallback((code) => {
-    navigator.clipboard?.writeText(code).catch(() => {});
-    setCopied(code);
-    setToast(`Code "${code}" copied!`);
-    setTimeout(() => { setCopied(null); setToast(null); }, 2_500);
-  }, []);
+    /* ── Guard: already redeemed by this user? ── */
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM public.coupon_redemptions
+       WHERE coupon_id = $1
+         AND user_id   = $2
+       LIMIT 1`,
+      [couponId, userId]
+    );
 
-  /* ── Filtered ── */
-  const available = coupons.filter((c) =>  c.usable);
-  const used      = coupons.filter((c) => !c.usable);
+    if (existing.length) {
+      return res.status(409).json({
+        success: false,
+        message: "You have already redeemed this coupon.",
+      });
+    }
 
-  /* ── Stats ── */
-  const totalSaved = history.reduce((s, h) => s + Number(h.discount || 0), 0);
+    /* ── Insert redemption record ── */
+    await pool.query(
+      `INSERT INTO public.coupon_redemptions
+         (coupon_id, user_id, order_id, discount)
+       VALUES ($1, $2, $3, $4)`,
+      [couponId, userId, order_id || null, Number(discount || 0)]
+    );
 
-  /* ══════════════════════════════════════════════
-     RENDER
-  ══════════════════════════════════════════════ */
-  return (
-    <div className="cp-page">
+    /* ── Increment usage count ── */
+    await pool.query(
+      `UPDATE public.coupons
+       SET usage_count = usage_count + 1
+       WHERE id = $1`,
+      [couponId]
+    );
 
-      {/* ── Topbar ── */}
-      <div className="cp-topbar">
-        <button className="cp-back" onClick={() => navigate(-1)} aria-label="Back">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-            <path d="M19 12H5M12 19l-7-7 7-7"/>
-          </svg>
-        </button>
-        <div>
-          <h1 className="cp-topbar-title">My Coupons</h1>
-          <p className="cp-topbar-sub">{coupons.length} available</p>
-        </div>
-        <button className="cp-refresh" onClick={loadCoupons} aria-label="Refresh">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-            <path d="M3 12a9 9 0 009-9 9.75 9.75 0 00-6.74 2.74L3 8"/>
-            <path d="M3 3v5h5"/>
-            <path d="M21 12a9 9 0 01-9 9 9.75 9.75 0 006.74-2.74L21 16"/>
-            <path d="M21 21v-5h-5"/>
-          </svg>
-        </button>
-      </div>
+    return res.json({ success: true, message: "Coupon redeemed successfully." });
 
-      <div className="cp-scroll">
-
-        {/* ── Savings banner ── */}
-        {totalSaved > 0 && (
-          <div className="cp-savings-banner">
-            <span className="cp-savings-emoji">🎉</span>
-            <div>
-              <p className="cp-savings-title">Total Saved</p>
-              <p className="cp-savings-amount">{naira(totalSaved)}</p>
-            </div>
-            <span className="cp-savings-count">
-              {history.length} coupon{history.length !== 1 ? "s" : ""} used
-            </span>
-          </div>
-        )}
-
-        {/* ── Validate panel ── */}
-        <ValidatePanel />
-
-        {/* ── Error ── */}
-        {error && (
-          <div className="cp-error">
-            <p>⚠️ {error}</p>
-            <button onClick={loadCoupons}>Retry</button>
-          </div>
-        )}
-
-        {/* ── Tabs ── */}
-        <div className="cp-tabs">
-          {[
-            { key: "available", label: "Available", count: available.length },
-            { key: "used",      label: "Used",      count: used.length      },
-            { key: "history",   label: "History",   count: history.length   },
-          ].map((t) => (
-            <button
-              key={t.key}
-              className={`cp-tab${tab === t.key ? " cp-tab--active" : ""}`}
-              onClick={() => setTab(t.key)}
-            >
-              {t.label}
-              <span className="cp-tab-count">{t.count}</span>
-            </button>
-          ))}
-        </div>
-
-        {/* ── Loading ── */}
-        {loading && (
-          <div className="cp-sk-list">
-            {[1,2,3].map((i) => (
-              <div key={i} className="cp-sk" />
-            ))}
-          </div>
-        )}
-
-        {/* ── Available coupons ── */}
-        {!loading && tab === "available" && (
-          <>
-            {available.length === 0 ? (
-              <div className="cp-empty">
-                <span>🏷️</span>
-                <p>No coupons available right now</p>
-                <small>Check back soon — new deals drop regularly!</small>
-              </div>
-            ) : (
-              <div className="cp-list">
-                {available.map((c) => (
-                  <CouponCard
-                    key={c.id}
-                    coupon={c}
-                    onCopy={handleCopy}
-                    copied={copied}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* ── Used coupons ── */}
-        {!loading && tab === "used" && (
-          <>
-            {used.length === 0 ? (
-              <div className="cp-empty">
-                <span>✅</span>
-                <p>No used or expired coupons</p>
-              </div>
-            ) : (
-              <div className="cp-list">
-                {used.map((c) => (
-                  <CouponCard
-                    key={c.id}
-                    coupon={c}
-                    onCopy={handleCopy}
-                    copied={copied}
-                  />
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {/* ── History ── */}
-        {!loading && tab === "history" && (
-          <>
-            {history.length === 0 ? (
-              <div className="cp-empty">
-                <span>📋</span>
-                <p>No coupon history yet</p>
-                <small>Coupons you use will appear here</small>
-              </div>
-            ) : (
-              <div className="cp-history">
-                {history.map((h) => {
-                  const cfg = COUPON_CONFIG[h.type] || COUPON_CONFIG.percentage;
-                  return (
-                    <div key={h.id} className="cp-history-item">
-                      <div
-                        className="cp-history-icon"
-                        style={{ background: cfg.bg, color: cfg.color }}
-                      >
-                        {cfg.icon}
-                      </div>
-                      <div className="cp-history-info">
-                        <p className="cp-history-code">{h.code}</p>
-                        <p className="cp-history-desc">{h.description || "Coupon applied"}</p>
-                        <p className="cp-history-date">{timeAgo(h.redeemed_at)}</p>
-                      </div>
-                      <div className="cp-history-save">
-                        <p className="cp-history-amount">-{naira(h.discount)}</p>
-                        <p className="cp-history-label">saved</p>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                <div className="cp-history-total">
-                  <p>Total saved across {history.length} orders</p>
-                  <p className="cp-history-total-amount">{naira(totalSaved)}</p>
-                </div>
-              </div>
-            )}
-          </>
-        )}
-
-        {/* ── Tips ── */}
-        <div className="cp-tips">
-          <h3 className="cp-tips-title">💡 How to use coupons</h3>
-          {[
-            { i: "1️⃣", t: "Copy the coupon code by tapping 'Copy'" },
-            { i: "2️⃣", t: "Go to checkout and paste the code in the coupon field" },
-            { i: "3️⃣", t: "Your discount will be applied automatically" },
-            { i: "4️⃣", t: "Each coupon can only be used once per account" },
-          ].map((tip, idx) => (
-            <div key={idx} className="cp-tip">
-              <span>{tip.i}</span>
-              <p>{tip.t}</p>
-            </div>
-          ))}
-        </div>
-
-      </div>
-
-      {/* ── Toast ── */}
-      {toast && (
-        <div className="cp-toast">
-          ✅ {toast}
-        </div>
-      )}
-
-      {/* ── Styles ── */}
-      <style>{CP_STYLES}</style>
-    </div>
-  );
-}
+  } catch (err) {
+    console.error("[coupons] POST /redeem:", err.message);
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+});
 
 /* ═══════════════════════════════════════════════════════════════
-   STYLES
+   GET /api/coupons/history
+   The current user's coupon redemption history
 ═══════════════════════════════════════════════════════════════ */
-const CP_STYLES = `
+router.get("/history", authenticate, async (req, res) => {
+  try {
+    const userId = req.user.id;
 
-/* ── Page ── */
-.cp-page {
-  max-width: 680px;
-  margin: 0 auto;
-  min-height: 100vh;
-  background: #f7f4ef;
-  font-family: 'DM Sans', system-ui, sans-serif;
-  padding-bottom: 60px;
-}
+    const { rows } = await pool.query(
+      `SELECT
+         r.id,
+         r.discount,
+         r.redeemed_at,
+         r.order_id,
+         c.code,
+         c.type,
+         c.value,
+         c.description
+       FROM public.coupon_redemptions r
+       JOIN public.coupons c ON c.id = r.coupon_id
+       WHERE r.user_id = $1
+       ORDER BY r.redeemed_at DESC
+       LIMIT 50`,
+      [userId]
+    );
 
-/* ── Topbar ── */
-.cp-topbar {
-  position: sticky; top: 0; z-index: 50;
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px 16px;
-  background: rgba(247,244,239,.96);
-  border-bottom: 1px solid #ede9e3;
-  backdrop-filter: blur(12px);
-}
-.cp-back {
-  width: 38px; height: 38px; border-radius: 50%;
-  border: 1.5px solid #e0d8cc; background: #fff;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: #333; flex-shrink: 0; transition: all .15s;
-}
-.cp-back:hover { border-color: #e8630a; color: #e8630a; }
-.cp-topbar-title { font-size: 18px; font-weight: 800; color: #111; margin: 0; }
-.cp-topbar-sub   { font-size: 11px; color: #aaa; margin: 0; }
-.cp-refresh {
-  margin-left: auto;
-  width: 34px; height: 34px; border-radius: 50%;
-  border: 1.5px solid #e0d8cc; background: #fff;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; color: #555; transition: all .15s;
-}
-.cp-refresh:hover { border-color: #e8630a; color: #e8630a; }
+    return res.json({
+      success : true,
+      history : rows.map((r) => ({
+        ...r,
+        discount : Number(r.discount || 0),
+        value    : Number(r.value    || 0),
+      })),
+    });
 
-/* ── Scroll ── */
-.cp-scroll { padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+  } catch (err) {
+    console.error("[coupons] GET /history:", err.message);
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+});
 
-/* ── Savings banner ── */
-.cp-savings-banner {
-  background: linear-gradient(135deg, #fff7ed, #fff0dc);
-  border: 1px solid #ffd4a8;
-  border-radius: 16px; padding: 16px 18px;
-  display: flex; align-items: center; gap: 14px;
-}
-.cp-savings-emoji  { font-size: 32px; flex-shrink: 0; }
-.cp-savings-title  { font-size: 11px; color: #a16207; font-weight: 600; margin: 0; }
-.cp-savings-amount { font-size: 22px; font-weight: 900; color: #e8630a; margin: 0; }
-.cp-savings-count  {
-  margin-left: auto; flex-shrink: 0;
-  font-size: 11px; font-weight: 700; color: #a16207;
-  background: #fef3c7; padding: 4px 10px; border-radius: 20px;
-}
-
-/* ── Validate panel ── */
-.cp-validate-panel {
-  background: #fff; border: 1px solid #ede9e3;
-  border-radius: 16px; padding: 18px 16px;
-  box-shadow: 0 1px 4px rgba(0,0,0,.04);
-}
-.cp-validate-title { font-size: 15px; font-weight: 800; color: #111; margin: 0 0 4px; }
-.cp-validate-sub   { font-size: 12px; color: #aaa; margin: 0 0 14px; }
-.cp-validate-inputs {
-  display: flex; flex-direction: column; gap: 8px; margin-bottom: 10px;
-}
-.cp-validate-input {
-  width: 100%; padding: 11px 14px;
-  border: 1.5px solid #ede9e3; border-radius: 10px;
-  font-size: 14px; background: #faf8f4;
-  box-sizing: border-box; outline: none; font-family: inherit;
-  transition: border-color .15s; letter-spacing: 0.5px;
-}
-.cp-validate-input:focus { border-color: #e8630a; background: #fff; }
-.cp-validate-btn {
-  width: 100%; padding: 12px;
-  background: #e8630a; color: #fff; border: none;
-  border-radius: 10px; font-size: 14px; font-weight: 700;
-  cursor: pointer; transition: opacity .15s;
-}
-.cp-validate-btn:disabled { opacity: .5; cursor: not-allowed; }
-.cp-validate-error {
-  display: flex; align-items: center; gap: 8px;
-  margin-top: 10px; padding: 10px 12px;
-  background: #fef2f2; border: 1px solid #fecaca;
-  border-radius: 8px; font-size: 13px; color: #dc2626;
-}
-.cp-validate-success {
-  margin-top: 10px; padding: 12px 14px;
-  background: #f0fdf4; border: 1px solid #bbf7d0;
-  border-radius: 10px;
-}
-.cp-validate-success-top {
-  display: flex; justify-content: space-between;
-  align-items: center; margin-bottom: 4px;
-  font-size: 13px; font-weight: 700; color: #16a34a;
-}
-.cp-validate-save  { font-size: 16px; font-weight: 900; color: #16a34a; }
-.cp-validate-success p { font-size: 12px; color: #166534; margin: 3px 0 0; }
-.cp-validate-final { font-size: 13px !important; color: #111 !important; margin-top: 6px !important; }
-
-/* ── Error ── */
-.cp-error {
-  padding: 12px 14px;
-  background: #fef2f2; border: 1px solid #fecaca;
-  border-radius: 10px;
-  display: flex; align-items: center; justify-content: space-between;
-  font-size: 13px; color: #dc2626;
-}
-.cp-error button {
-  padding: 5px 12px; background: #dc2626; color: #fff;
-  border: none; border-radius: 6px; font-size: 12px; cursor: pointer;
-}
-
-/* ── Tabs ── */
-.cp-tabs {
-  display: flex; gap: 0;
-  background: #fff; border-radius: 12px;
-  border: 1px solid #ede9e3; overflow: hidden;
-}
-.cp-tab {
-  flex: 1; padding: 11px 8px;
-  border: none; background: none;
-  font-size: 13px; font-weight: 600; color: #aaa;
-  cursor: pointer; border-bottom: 2.5px solid transparent;
-  display: flex; align-items: center; justify-content: center; gap: 5px;
-  transition: color .15s;
-}
-.cp-tab--active { color: #111; border-bottom-color: #e8630a; background: #faf8f4; }
-.cp-tab-count {
-  background: #f5f3ef; color: #888;
-  font-size: 10px; font-weight: 700;
-  padding: 1px 6px; border-radius: 20px;
-}
-.cp-tab--active .cp-tab-count { background: #fff0e6; color: #e8630a; }
-
-/* ── Coupon list ── */
-.cp-list { display: flex; flex-direction: column; gap: 12px; }
-
-/* ── Coupon card ── */
-.cp-card {
-  background: #fff; border: 1px solid #ede9e3;
-  border-radius: 16px; overflow: hidden;
-  display: flex; align-items: stretch;
-  box-shadow: 0 2px 8px rgba(0,0,0,.05);
-  transition: transform .15s, box-shadow .15s;
-}
-.cp-card:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,.08); }
-.cp-card--used { opacity: .6; filter: grayscale(.3); }
-
-/* Left colored strip */
-.cp-card-strip { width: 6px; flex-shrink: 0; }
-
-/* Main area */
-.cp-card-main { flex: 1; padding: 14px 12px; min-width: 0; }
-.cp-card-head {
-  display: flex; align-items: center;
-  justify-content: space-between; gap: 8px; margin-bottom: 8px;
-}
-.cp-discount-badge {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 5px 12px; border-radius: 20px;
-  font-weight: 800; font-size: 14px;
-}
-.cp-discount-icon { font-size: 16px; }
-.cp-status { font-size: 10px; font-weight: 700; white-space: nowrap; }
-
-.cp-desc {
-  font-size: 13px; color: #555; line-height: 1.4; margin-bottom: 8px;
-}
-.cp-details {
-  display: flex; flex-wrap: wrap; gap: 5px;
-}
-.cp-detail {
-  font-size: 10px; font-weight: 600; color: #888;
-  background: #f5f3ef; padding: 2px 8px; border-radius: 20px;
-}
-
-/* Divider (dotted cut) */
-.cp-divider {
-  width: 20px; flex-shrink: 0;
-  display: flex; flex-direction: column; align-items: center;
-  position: relative; background: #f7f4ef;
-}
-.cp-divider-line {
-  flex: 1; width: 1px;
-  background: repeating-linear-gradient(
-    to bottom, #ddd 0, #ddd 4px, transparent 4px, transparent 8px
-  );
-}
-.cp-divider-notch {
-  width: 16px; height: 16px; border-radius: 50%;
-  background: #f7f4ef; flex-shrink: 0;
-  border: 1px solid #ede9e3;
-}
-.cp-divider-notch--top  { margin-top: -8px;  border-top: none; }
-.cp-divider-notch--bottom { margin-bottom: -8px; border-bottom: none; }
-
-/* Code area */
-.cp-card-code {
-  padding: 14px 12px;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
-  gap: 6px; min-width: 90px; flex-shrink: 0;
-}
-.cp-code-label { font-size: 9px; color: #aaa; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; }
-.cp-code {
-  font-size: 13px; font-weight: 900; color: #111;
-  letter-spacing: 1px; text-align: center;
-  word-break: break-all;
-}
-.cp-copy-btn {
-  padding: 6px 14px;
-  background: #e8630a; color: #fff; border: none;
-  border-radius: 20px; font-size: 11px; font-weight: 700;
-  cursor: pointer; transition: all .15s; white-space: nowrap;
-}
-.cp-copy-btn--done  { background: #16a34a; }
-.cp-copy-btn:disabled {
-  background: #ddd; color: #aaa; cursor: not-allowed;
-}
-
-/* ── Empty ── */
-.cp-empty {
-  text-align: center; padding: 48px 24px;
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-}
-.cp-empty span  { font-size: 40px; }
-.cp-empty p     { font-size: 15px; font-weight: 700; color: #333; margin: 0; }
-.cp-empty small { font-size: 12px; color: #aaa; }
-
-/* ── History ── */
-.cp-history { display: flex; flex-direction: column; gap: 0; }
-.cp-history-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 14px 0; border-bottom: 1px solid #f5f3ef;
-}
-.cp-history-item:last-of-type { border-bottom: none; }
-.cp-history-icon {
-  width: 40px; height: 40px; border-radius: 12px;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 17px; font-weight: 700; flex-shrink: 0;
-}
-.cp-history-info { flex: 1; min-width: 0; }
-.cp-history-code { font-size: 14px; font-weight: 700; color: #111; margin: 0 0 2px; }
-.cp-history-desc { font-size: 12px; color: #888; margin: 0 0 2px; }
-.cp-history-date { font-size: 11px; color: #bbb; margin: 0; }
-.cp-history-save { text-align: right; flex-shrink: 0; }
-.cp-history-amount { font-size: 16px; font-weight: 800; color: #16a34a; margin: 0 0 2px; }
-.cp-history-label  { font-size: 10px; color: #aaa; margin: 0; }
-
-.cp-history-total {
-  margin-top: 14px; padding: 14px 16px;
-  background: #f0fdf4; border: 1px solid #bbf7d0;
-  border-radius: 12px;
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 13px; color: #166534; font-weight: 600;
-}
-.cp-history-total-amount { font-size: 20px; font-weight: 900; color: #16a34a; }
-
-/* ── Tips ── */
-.cp-tips {
-  background: #fff; border: 1px solid #ede9e3;
-  border-radius: 16px; padding: 16px;
-}
-.cp-tips-title { font-size: 15px; font-weight: 800; color: #111; margin: 0 0 12px; }
-.cp-tip { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; }
-.cp-tip:last-child { margin-bottom: 0; }
-.cp-tip span:first-child { font-size: 16px; flex-shrink: 0; }
-.cp-tip p { font-size: 13px; color: #555; line-height: 1.4; margin: 0; }
-
-/* ── Toast ── */
-.cp-toast {
-  position: fixed; bottom: 80px; left: 50%;
-  transform: translateX(-50%);
-  background: #111; color: #fff;
-  padding: 12px 20px; border-radius: 20px;
-  font-size: 13px; font-weight: 600;
-  box-shadow: 0 4px 20px rgba(0,0,0,.25);
-  z-index: 999; white-space: nowrap;
-  animation: cp-fade .2s ease;
-}
-@keyframes cp-fade {
-  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
-  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-}
-
-/* ── Skeleton ── */
-@keyframes cp-shimmer {
-  from { background-position: -400px 0; }
-  to   { background-position:  400px 0; }
-}
-.cp-sk-list { display: flex; flex-direction: column; gap: 12px; }
-.cp-sk {
-  height: 110px; border-radius: 16px;
-  background: linear-gradient(90deg, #ede9e3 25%, #f5f3ef 50%, #ede9e3 75%);
-  background-size: 400px 100%;
-  animation: cp-shimmer 1.4s infinite linear;
-}
-
-/* ── Responsive ── */
-@media (max-width: 380px) {
-  .cp-card-code { min-width: 75px; }
-  .cp-code      { font-size: 11px; }
-}
-`;
+export default router;
