@@ -1,8 +1,13 @@
-// routes/admin.js
+// ════════════════════════════════════════════════════════════
+// FILE: routes/admin.js
+// Base: /api/admin
+// ════════════════════════════════════════════════════════════
+
 import express                          from "express";
-import { pool }                         from "../server.js";
+import { pool }                         from "../config/db.js";
 import bcrypt                           from "bcrypt";
 import jwt                              from "jsonwebtoken";
+
 import { verifyAdmin, requireSuperAdmin } from "./admin/middleware.js";
 
 // ── Sub-routers ───────────────────────────────────────────────
@@ -18,6 +23,9 @@ import promotionRouter                  from "./admin/promotion.js";
 import verificationRouter               from "./admin/verification.js";
 import vendorVerificationRouter         from "./admin/vendorVerification.js";
 import withdrawalRouter                 from "./admin/withdrawalRoutes.js";
+
+// ✅ NEW: Leaderboard Admin Router
+import leaderboardRouter                from "./admin/leaderboard.js";
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -162,93 +170,76 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       vendorsPendingRes,
       vendorsActiveRes,
       vendorsReviewRes,
+
+      // Referral stats
+      totalReferralsRes,
+      pendingReferralsRes,
+      verifiedReferralsRes,
+      rewardedReferralsRes,
     ] = await Promise.all([
-      // Users
       pool.query(`SELECT COUNT(*) FROM public.users`),
       pool.query(`SELECT COUNT(*) FROM public.users WHERE status != 'banned'`),
       pool.query(`SELECT COUNT(*) FROM public.users WHERE status = 'banned'`),
-      pool.query(
-        `SELECT COUNT(*) FROM public.users WHERE created_at >= $1`, [today]
-      ),
+      pool.query(`SELECT COUNT(*) FROM public.users WHERE created_at >= $1`, [today]),
 
-      // Public products
       safe(pool.query(`SELECT COUNT(*) FROM public.products`)),
       safe(pool.query(`SELECT COUNT(*) FROM public.products WHERE status = 'pending'`)),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM public.products WHERE created_at >= $1`, [today]
-      )),
+      safe(pool.query(`SELECT COUNT(*) FROM public.products WHERE created_at >= $1`, [today])),
 
-      // Market products
       safe(pool.query(`SELECT COUNT(*) FROM market.products`)),
       safe(pool.query(`SELECT COUNT(*) FROM market.products WHERE status = 'pending'`)),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM market.products WHERE created_at >= $1`, [today]
-      )),
+      safe(pool.query(`SELECT COUNT(*) FROM market.products WHERE created_at >= $1`, [today])),
 
-      // Orders
       safe(pool.query(`SELECT COUNT(*) FROM orders`)),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM orders WHERE created_at >= $1`, [today]
-      )),
+      safe(pool.query(`SELECT COUNT(*) FROM orders WHERE created_at >= $1`, [today])),
 
-      // Revenue
       pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS revenue
-         FROM payments
-         WHERE status IN ('success', 'completed', 'paid')`
+         FROM payments WHERE status IN ('success','completed','paid')`
       ),
       pool.query(
         `SELECT COALESCE(SUM(amount), 0) AS revenue
-         FROM payments
-         WHERE status IN ('success', 'completed', 'paid')
-           AND created_at >= $1`,
-        [today]
+         FROM payments WHERE status IN ('success','completed','paid')
+           AND created_at >= $1`, [today]
       ),
       pool.query(
         `SELECT DATE(created_at) AS date,
                 COALESCE(SUM(amount), 0) AS amount
          FROM payments
-         WHERE status IN ('success', 'completed', 'paid')
+         WHERE status IN ('success','completed','paid')
            AND created_at >= NOW() - INTERVAL '30 days'
          GROUP BY DATE(created_at)
          ORDER BY date ASC`
       ),
 
-      // Vendors
       safe(pool.query(`SELECT COUNT(*) FROM market.vendors`)),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM market.vendors WHERE status = 'pending'`
-      )),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM market.vendors WHERE status = 'active'`
-      )),
-      safe(pool.query(
-        `SELECT COUNT(*) FROM market.vendors WHERE status = 'under_review'`
-      )),
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'pending'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'active'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'under_review'`)),
+
+      safe(pool.query(`SELECT COUNT(*) FROM referrals`)),
+      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'pending'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status IN ('verified','rewarded')`)),
+      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'rewarded'`)),
     ]);
 
     return res.json({
-      // Users
       users:       Number(usersRes.rows[0].count),
       activeUsers: Number(activeUsersRes.rows[0].count),
       bannedUsers: Number(bannedUsersRes.rows[0].count),
       todayUsers:  Number(todayUsersRes.rows[0].count),
 
-      // Public products
       totalProducts:   Number(pubProductsRes.rows[0].count),
       pendingProducts: Number(pubPendingRes.rows[0].count),
       todayProducts:   Number(pubTodayRes.rows[0].count),
 
-      // Market products
       marketTotalProducts:   Number(mktProductsRes.rows[0].count),
       marketPendingProducts: Number(mktPendingRes.rows[0].count),
       marketTodayProducts:   Number(mktTodayRes.rows[0].count),
 
-      // Orders
       orders:      Number(ordersRes.rows[0].count),
       todayOrders: Number(todayOrdersRes.rows[0].count),
 
-      // Revenue
       revenue:      Number(revenueRes.rows[0].revenue),
       todayRevenue: Number(todayRevenueRes.rows[0].revenue),
       dailySales:   dailySalesRes.rows.map((r) => ({
@@ -256,11 +247,17 @@ router.get("/stats", verifyAdmin, async (req, res) => {
         amount: Number(r.amount),
       })),
 
-      // Vendors
       vendorsTotal:       Number(vendorsTotalRes.rows[0].count),
       vendorsPending:     Number(vendorsPendingRes.rows[0].count),
       vendorsActive:      Number(vendorsActiveRes.rows[0].count),
       vendorsUnderReview: Number(vendorsReviewRes.rows[0].count),
+
+      referrals: {
+        total:     Number(totalReferralsRes.rows[0].count),
+        pending:   Number(pendingReferralsRes.rows[0].count),
+        verified:  Number(verifiedReferralsRes.rows[0].count),
+        rewarded:  Number(rewardedReferralsRes.rows[0].count),
+      },
     });
 
   } catch (err) {
@@ -269,9 +266,14 @@ router.get("/stats", verifyAdmin, async (req, res) => {
   }
 });
 
-// ══════════════════════════════════════════════════════════════
-// ADMIN MANAGEMENT
-// ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════════
+   LEADERBOARD ADMIN ROUTES
+═════════════════════════════════════════════════════════════ */
+router.use("/leaderboard", leaderboardRouter);
+
+/* ══════════════════════════════════════════════════════════════
+   ADMIN MANAGEMENT
+═════════════════════════════════════════════════════════════ */
 
 // GET /api/admin/admins
 router.get("/admins", verifyAdmin, requireSuperAdmin, async (req, res) => {
@@ -506,5 +508,8 @@ router.use("/plans",           promotionRouter);
 router.use("/verification",    verificationRouter);
 router.use("/vendors",         vendorVerificationRouter);
 router.use("/withdrawals",     withdrawalRouter);
+
+// ✅ NEW: Leaderboard Admin Routes
+router.use("/leaderboard",     leaderboardRouter);
 
 export default router;
