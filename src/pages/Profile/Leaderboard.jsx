@@ -1,13 +1,9 @@
 // ════════════════════════════════════════════════════════════
 // FILE: src/pages/Profile/Leaderboard.jsx
-// Public leaderboard — masked names, period tabs, prizes
+// Public leaderboard — masked names, SVG icons, your design tokens
 // ════════════════════════════════════════════════════════════
 
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-} from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import "../../styles/Leaderboard.css";
 
@@ -30,7 +26,7 @@ const authH = () => {
 };
 
 /* ════════════════════════════════════════════════════════════
-   CONSTANTS
+   PERIODS
 ════════════════════════════════════════════════════════════ */
 const PERIODS = [
   { key: "all",   label: "All Time"   },
@@ -41,7 +37,7 @@ const PERIODS = [
 ];
 
 /* ════════════════════════════════════════════════════════════
-   SVG ICONS
+   SVG ICONS — transparent, no emoji
 ════════════════════════════════════════════════════════════ */
 const Ic = {
   Back: () => (
@@ -51,6 +47,7 @@ const Ic = {
       <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
     </svg>
   ),
+
   Trophy: ({ size = 20, color = "currentColor" }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
          stroke={color} strokeWidth="1.8"
@@ -63,6 +60,7 @@ const Ic = {
       <path d="M18 2H6v7a6 6 0 1012 0V2z"/>
     </svg>
   ),
+
   Crown: ({ size = 26, color = "var(--o)" }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
          stroke={color} strokeWidth="1.8"
@@ -75,11 +73,12 @@ const Ic = {
       <path d="M5 16h14v2a2 2 0 01-2 2H7a2 2 0 01-2-2v-2z"/>
     </svg>
   ),
+
   Medal: ({ rank, size = 22 }) => {
     const cfg = {
-      1: { stroke: "#FF5C00", fill: "rgba(255,92,0,0.12)",  text: "#FF5C00" },
-      2: { stroke: "#A8A39D", fill: "rgba(168,163,157,0.12)", text: "#5A5650" },
-      3: { stroke: "#CD7F32", fill: "rgba(205,127,50,0.12)", text: "#8B5E34" },
+      1: { stroke: "var(--o)",  fill: "rgba(255,92,0,0.12)",    text: "var(--o)"  },
+      2: { stroke: "#A8A39D",   fill: "rgba(168,163,157,0.12)", text: "#5A5650"   },
+      3: { stroke: "#CD7F32",   fill: "rgba(205,127,50,0.12)",  text: "#8B5E34"   },
     }[rank] ?? { stroke: "#A8A39D", fill: "transparent", text: "#5A5650" };
     return (
       <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -97,6 +96,7 @@ const Ic = {
       </svg>
     );
   },
+
   Users: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
          stroke="currentColor" strokeWidth="1.8"
@@ -107,6 +107,7 @@ const Ic = {
       <path d="M16 3.13a4 4 0 010 7.75"/>
     </svg>
   ),
+
   Gift: ({ size = 15, color = "currentColor" }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
          stroke={color} strokeWidth="1.8"
@@ -118,6 +119,7 @@ const Ic = {
       <path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
     </svg>
   ),
+
   Clock: ({ size = 13 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
          stroke="currentColor" strokeWidth="2"
@@ -126,6 +128,7 @@ const Ic = {
       <polyline points="12 6 12 12 16 14"/>
     </svg>
   ),
+
   Star: ({ size = 13, color = "var(--o)" }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
          stroke={color} strokeWidth="1.8"
@@ -134,6 +137,7 @@ const Ic = {
                         12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
     </svg>
   ),
+
   Share: ({ size = 14 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
          stroke="currentColor" strokeWidth="2"
@@ -145,6 +149,7 @@ const Ic = {
       <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
     </svg>
   ),
+
   Award: ({ size = 16, color = "currentColor" }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
          stroke={color} strokeWidth="1.8"
@@ -153,23 +158,33 @@ const Ic = {
       <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
     </svg>
   ),
+
   Rocket: ({ size = 20, color = "currentColor" }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
          stroke={color} strokeWidth="1.8"
          strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13
-               -.09-2.91a2.18 2.18 0 00-2.91-.09z"/>
-      <path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0
-               2.72-.78 7.5-6 11.5A9.9 9.9 0 0112 15z"/>
+      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84
+               .7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/>
+      <path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122
+               2c0 2.72-.78 7.5-6 11.5A9.9 9.9 0 0112 15z"/>
       <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/>
       <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>
     </svg>
   ),
+
   ChevronRight: ({ size = 16 }) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
          stroke="currentColor" strokeWidth="2"
          strokeLinecap="round" strokeLinejoin="round">
       <polyline points="9 18 15 12 9 6"/>
+    </svg>
+  ),
+
+  Check: ({ size = 10 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth="3"
+         strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="20 6 9 17 4 12"/>
     </svg>
   ),
 };
@@ -188,9 +203,7 @@ function useCountdown(isoTarget) {
       const h = Math.floor((ms % 86_400_000) / 3_600_000);
       const m = Math.floor((ms % 3_600_000) / 60_000);
       const s = Math.floor((ms % 60_000) / 1_000);
-      setLabel(
-        d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`
-      );
+      setLabel(d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`);
     };
     tick();
     const id = setInterval(tick, 1_000);
@@ -200,11 +213,12 @@ function useCountdown(isoTarget) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   REWARD BANNER
+   REWARD BANNER — monthly / yearly prize info + countdown
 ════════════════════════════════════════════════════════════ */
 function RewardBanner({ rewards, period, countdown }) {
   const cdLabel = useCountdown(countdown?.iso);
   if (!rewards?.length) return null;
+
   return (
     <div className="lb-reward-banner">
       <div className="lb-reward-banner-header">
@@ -214,7 +228,7 @@ function RewardBanner({ rewards, period, countdown }) {
         </span>
       </div>
       <div className="lb-reward-prizes">
-        {rewards.map((r, i) => (
+        {rewards.map((r) => (
           <div key={r.rank} className="lb-reward-prize">
             <Ic.Medal rank={r.rank} size={20} />
             <span className="lb-reward-prize-label">{r.label}</span>
@@ -232,11 +246,12 @@ function RewardBanner({ rewards, period, countdown }) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   PODIUM
+   PODIUM — top 3 with crown on #1
 ════════════════════════════════════════════════════════════ */
 function Podium({ top3 }) {
   if (!top3 || top3.length < 3) return null;
-  const order = [top3[1], top3[0], top3[2]]; // 2nd | 1st | 3rd
+  const order = [top3[1], top3[0], top3[2]];
+
   return (
     <div className="lb-podium">
       {order.map((e, i) => {
@@ -246,14 +261,12 @@ function Podium({ top3 }) {
             key={e.user_id}
             className={`lb-podium-item${isFirst ? " lb-podium-item--first" : ""}`}
           >
-            {/* Crown on #1 */}
             {e.rank === 1 && (
               <div className="lb-crown">
                 <Ic.Crown size={28} color="var(--o)" />
               </div>
             )}
 
-            {/* Avatar */}
             <div className={`lb-podium-avatar-wrap${isFirst ? " lb-podium-avatar--big" : ""}`}>
               {e.avatar_url ? (
                 <img src={e.avatar_url} alt="" className="lb-podium-avatar-img" />
@@ -270,9 +283,7 @@ function Podium({ top3 }) {
 
             <p className="lb-podium-name">
               {e.display_name}
-              {e.is_current_user && (
-                <span className="lb-you"> (You)</span>
-              )}
+              {e.is_current_user && <span className="lb-you"> (You)</span>}
             </p>
             <p className="lb-podium-count">{e.total_referrals}</p>
 
@@ -292,7 +303,49 @@ function Podium({ top3 }) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   LEADERBOARD ROW
+   SINGLE ROW — less than 3 entries (no podium possible)
+════════════════════════════════════════════════════════════ */
+function SingleEntry({ entry, rewardMap }) {
+  return (
+    <div className="lb-single-entry">
+      {/* Crown */}
+      <div className="lb-single-crown">
+        <Ic.Crown size={36} color="var(--o)" />
+      </div>
+
+      {/* Avatar */}
+      <div className="lb-single-avatar-wrap">
+        {entry.avatar_url ? (
+          <img src={entry.avatar_url} alt="" className="lb-single-avatar-img" />
+        ) : (
+          <div className="lb-single-avatar"
+               style={{ backgroundColor: entry.color }}>
+            {entry.initials}
+          </div>
+        )}
+        <div className="lb-single-medal">
+          <Ic.Medal rank={1} size={22} />
+        </div>
+      </div>
+
+      <p className="lb-single-name">
+        {entry.display_name}
+        {entry.is_current_user && <span className="lb-you"> (You)</span>}
+      </p>
+      <p className="lb-single-count">{entry.total_referrals}</p>
+
+      {entry.reward && (
+        <p className="lb-single-reward">
+          <Ic.Gift size={13} color="var(--o)" />
+          {entry.reward.label}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/* ════════════════════════════════════════════════════════════
+   LEADERBOARD ROW — #4 and beyond
 ════════════════════════════════════════════════════════════ */
 function LeaderRow({ entry, highlight }) {
   return (
@@ -308,11 +361,10 @@ function LeaderRow({ entry, highlight }) {
       role="listitem"
     >
       <div className="lb-row-rank">
-        {entry.rank <= 3 ? (
-          <Ic.Medal rank={entry.rank} />
-        ) : (
-          <span className="lb-rank-num">#{entry.rank}</span>
-        )}
+        {entry.rank <= 3
+          ? <Ic.Medal rank={entry.rank} />
+          : <span className="lb-rank-num">#{entry.rank}</span>
+        }
       </div>
 
       <div className="lb-row-avatar-wrap">
@@ -377,31 +429,17 @@ function PreviousWinners({ data, period }) {
                   </span>
                 )}
                 <Ic.Medal rank={w.rank} size={16} />
-                <div
-                  className="lb-prev-winner-avatar"
-                  style={{ backgroundColor: w.color }}
-                >
+                <div className="lb-prev-winner-avatar"
+                     style={{ backgroundColor: w.color }}>
                   {w.initials}
                 </div>
-                <span className="lb-prev-winner-name">
-                  {w.display_name}
-                </span>
-                <span className="lb-prev-winner-count">
-                  {w.total_referrals}
-                </span>
+                <span className="lb-prev-winner-name">{w.display_name}</span>
+                <span className="lb-prev-winner-count">{w.total_referrals}</span>
                 <span className={`lb-prev-winner-reward${
-                  w.reward_status === "paid"
-                    ? " lb-prev-winner-reward--paid"
-                    : ""
+                  w.reward_status === "paid" ? " lb-prev-winner-reward--paid" : ""
                 }`}>
                   {w.reward_label}
-                  {w.reward_status === "paid" && (
-                    <svg width="10" height="10" viewBox="0 0 24 24"
-                         fill="none" stroke="currentColor" strokeWidth="3"
-                         strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                  )}
+                  {w.reward_status === "paid" && <Ic.Check size={10} />}
                 </span>
               </div>
             ))}
@@ -419,13 +457,12 @@ function PreviousWinners({ data, period }) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   SKELETON
+   SKELETON LOADER
 ════════════════════════════════════════════════════════════ */
 function Skeleton() {
   return (
-    <div className="lb-skeleton-list" aria-busy="true"
-         aria-label="Loading leaderboard">
-      {Array.from({ length: 6 }, (_, i) => (
+    <div className="lb-skeleton-list" aria-busy="true">
+      {Array.from({ length: 5 }, (_, i) => (
         <div key={i} className="lb-skeleton-item">
           <div className="lb-skeleton lb-skeleton--rank"   />
           <div className="lb-skeleton lb-skeleton--avatar" />
@@ -444,15 +481,17 @@ function Skeleton() {
    MAIN COMPONENT
 ════════════════════════════════════════════════════════════ */
 export default function Leaderboard() {
-  const navigate    = useNavigate();
-  const [data,      setData]    = useState(null);
-  const [period,    setPeriod]  = useState("month");
-  const [loading,   setLoading] = useState(true);
-  const [error,     setError]   = useState(null);
+  const navigate = useNavigate();
+
+  const [data,    setData]    = useState(null);
+  const [period,  setPeriod]  = useState("month");
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
 
   const isLoggedIn    = Boolean(getToken());
   const isCompetition = period === "month" || period === "year";
 
+  /* ── Fetch ── */
   const fetchData = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -465,8 +504,16 @@ export default function Leaderboard() {
         const b = await r.json().catch(() => ({}));
         throw new Error(b.message || `${r.status}`);
       }
-      setData(await r.json());
+      const d = await r.json();
+      console.log("[Leaderboard] response:", {
+        period,
+        entries   : d.leaderboard?.length,
+        myRank    : d.my_rank,
+        inviters  : d.total_inviters,
+      });
+      setData(d);
     } catch (e) {
+      console.error("[Leaderboard] fetch error:", e.message);
       setError(e.message);
     } finally {
       setLoading(false);
@@ -475,22 +522,27 @@ export default function Leaderboard() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  const list      = data?.leaderboard     ?? [];
-  const myRank    = data?.my_rank         ?? null;
-  const rewards   = data?.rewards         ?? null;
-  const countdown = data?.countdown       ?? null;
-  const prevWins  = data?.previous_winners ?? null;
-  const totalInv  = data?.total_inviters  ?? 0;
-  const top3      = list.slice(0, 3);
-  const rest      = list.slice(3);
-  const myInList  = list.some((e) => e.is_current_user);
-  const showMyRank = myRank && !myInList;
+  /* ── Derived ── */
+  const list       = data?.leaderboard     ?? [];
+  const myRank     = data?.my_rank         ?? null;
+  const rewards    = data?.rewards         ?? null;
+  const countdown  = data?.countdown       ?? null;
+  const prevWins   = data?.previous_winners ?? null;
+  const totalInv   = data?.total_inviters  ?? 0;
+
+  const top3        = list.length >= 3 ? list.slice(0, 3) : [];
+  const rest        = list.length >= 3 ? list.slice(3)    : [];
+  const myInList    = list.some((e) => e.is_current_user);
+  const showMyRank  = myRank && !myInList;
+
+  /* If 1 or 2 entries, show them as individual cards, not a podium */
+  const fewEntries  = list.length > 0 && list.length < 3;
 
   return (
     <div className="lb-page">
       <div className="lb-container">
 
-        {/* Header */}
+        {/* ── Header ── */}
         <div className="lb-header">
           <button className="lb-back" onClick={() => navigate(-1)}
                   aria-label="Go back">
@@ -518,7 +570,7 @@ export default function Leaderboard() {
           </div>
         </div>
 
-        {/* Period tabs */}
+        {/* ── Period tabs ── */}
         <div className="lb-periods" role="tablist">
           {PERIODS.map((p) => (
             <button
@@ -534,7 +586,7 @@ export default function Leaderboard() {
           ))}
         </div>
 
-        {/* Reward banner */}
+        {/* ── Reward banner ── */}
         {!loading && isCompetition && (
           <RewardBanner
             rewards={rewards}
@@ -543,10 +595,10 @@ export default function Leaderboard() {
           />
         )}
 
-        {/* Loading */}
+        {/* ── Loading ── */}
         {loading && <Skeleton />}
 
-        {/* Error */}
+        {/* ── Error ── */}
         {!loading && error && (
           <div className="lb-error" role="alert">
             <Ic.Trophy size={28} color="var(--ink3)" />
@@ -557,7 +609,7 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Empty */}
+        {/* ── Empty ── */}
         {!loading && !error && list.length === 0 && (
           <div className="lb-empty">
             <Ic.Trophy size={36} color="var(--ink3)" />
@@ -575,12 +627,28 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Podium */}
+        {/* ── Single / Two entries (not enough for podium) ── */}
+        {!loading && !error && fewEntries && (
+          <div className="lb-few-entries">
+            {list.map((entry) => (
+              <SingleEntry
+                key={entry.user_id}
+                entry={entry}
+                rewardMap={
+                  period === "month" ? rewards :
+                  period === "year"  ? rewards : null
+                }
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ── Podium (3+ entries) ── */}
         {!loading && !error && top3.length === 3 && (
           <Podium top3={top3} />
         )}
 
-        {/* My rank */}
+        {/* ── My rank ── */}
         {!loading && !error && showMyRank && (
           <div className="lb-my-rank">
             <div className="lb-my-rank-label">
@@ -597,7 +665,7 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Not on board */}
+        {/* ── Not on board ── */}
         {!loading && !error && !myRank && !myInList
           && isLoggedIn && list.length > 0 && (
           <div className="lb-my-rank lb-my-rank--none">
@@ -614,7 +682,7 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Rest of list #4+ */}
+        {/* ── Rest #4+ ── */}
         {!loading && !error && rest.length > 0 && (
           <div className="lb-list" role="list">
             {rest.map((e) => (
@@ -627,12 +695,12 @@ export default function Leaderboard() {
           </div>
         )}
 
-        {/* Previous winners */}
+        {/* ── Previous winners ── */}
         {!loading && !error && isCompetition && (
           <PreviousWinners data={prevWins} period={period} />
         )}
 
-        {/* CTA */}
+        {/* ── CTA ── */}
         {!loading && !error && (
           <Link to="/invitation" className="lb-cta">
             <Ic.Rocket size={20} color="var(--o)" />
