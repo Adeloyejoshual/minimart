@@ -1,4 +1,7 @@
-// adminlayout/Sidebar.jsx
+// ════════════════════════════════════════════════════════════
+// FILE: adminlayout/Sidebar.jsx
+// ════════════════════════════════════════════════════════════
+
 import { NAV } from "./nav";
 
 export default function Sidebar({
@@ -9,21 +12,25 @@ export default function Sidebar({
   marketPendingCount,
   verificationPendingCount,
   vendorPendingCount,
+  withdrawalPendingCount,   // ✅ was already in AdminDashboard, now wired here
 }) {
-  // ── Badge map — id → count ──────────────────────────────
+
+  /* ── Badge map — nav id → count ── */
   const badges = {
-    products:             pendingCount,
-    market_products:      marketPendingCount,
-    reports:              reportCount,
-    verification:         verificationPendingCount,
-    vendor_verification:  vendorPendingCount,
+    products            : pendingCount,
+    market_products     : marketPendingCount,
+    reports             : reportCount,
+    verification        : verificationPendingCount,
+    vendor_verification : vendorPendingCount,
+    withdrawals         : withdrawalPendingCount,   // ✅ NEW
   };
 
-  // ── Red badge IDs (alert badges vs info badges) ─────────
+  /* ── Red badges (alert) vs orange badges (info) ── */
   const redBadges = new Set([
     "reports",
     "verification",
     "vendor_verification",
+    "withdrawals",                                  // ✅ NEW — withdrawals are urgent
   ]);
 
   return (
@@ -34,10 +41,12 @@ export default function Sidebar({
 
       {NAV.map((item, i) =>
         item.g ? (
+          /* Section heading */
           <div key={`g-${i}`} className="sb-section">
             {item.g}
           </div>
         ) : (
+          /* Nav button */
           <button
             key={item.id}
             className={`nav-btn ${page === item.id ? "active" : ""}`}
@@ -46,6 +55,7 @@ export default function Sidebar({
             <span className="nav-icon">{item.icon}</span>
             {item.label}
 
+            {/* Badge — only shown when count > 0 */}
             {badges[item.id] > 0 && (
               <span
                 className={`nav-badge ${
