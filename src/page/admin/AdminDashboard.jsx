@@ -1,15 +1,6 @@
-/**
- * src/pages/admin/AdminDashboard.jsx
- *
- * Admin dashboard shell with:
- * - Sidebar + Topbar layout
- * - Unified data loading (useData hook)
- * - Memoised filters (useDerived hook)
- * - Admin actions (useActions hook)
- * - Confirm modal
- * - Live log polling (every 5s)
- * - Notification badge counts
- */
+// ════════════════════════════════════════════════════════════
+// FILE: src/pages/admin/AdminDashboard.jsx
+// ════════════════════════════════════════════════════════════
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import axios from "axios";
@@ -34,38 +25,39 @@ import System             from "./SuperAdmin/System";
 import Reports            from "./SuperAdmin/Reports";
 import Verification       from "./SuperAdmin/Verification";
 import VendorVerification from "./SuperAdmin/VendorVerification";
+import Leaderboard        from "./SuperAdmin/Leaderboard"; // ✅ NEW
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    ENV + API
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const BASE     = `${import.meta.env.VITE_API_BASE_URL}/api/admin`;
 const PAY_BASE = `${import.meta.env.VITE_API_BASE_URL}/api/payment`;
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    CONSTANTS
-═══════════════════════════════════════════════════════════════ */
-const LOG_POLL_INTERVAL = 5_000; // 5 seconds
+════════════════════════════════════════════════════════════ */
+const LOG_POLL_INTERVAL = 5_000;
 
-/* ═══════════════════════════════════════════════════════════════
-   createApi — axios instance with admin token
-═══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   createApi
+════════════════════════════════════════════════════════════ */
 const createApi = (token) => {
   const h = { Authorization: `Bearer ${token}` };
   return {
-    get   : (p, base = BASE)          => axios.get(base + p,      { headers: h }),
-    post  : (p, b = {}, base = BASE)  => axios.post(base + p, b,  { headers: h }),
-    put   : (p, b = {}, base = BASE)  => axios.put(base + p, b,   { headers: h }),
-    patch : (p, b = {}, base = BASE)  => axios.patch(base + p, b, { headers: h }),
-    del   : (p, base = BASE)          => axios.delete(base + p,   { headers: h }),
+    get   : (p, base = BASE)         => axios.get(base + p,      { headers: h }),
+    post  : (p, b = {}, base = BASE) => axios.post(base + p, b,  { headers: h }),
+    put   : (p, b = {}, base = BASE) => axios.put(base + p, b,   { headers: h }),
+    patch : (p, b = {}, base = BASE) => axios.patch(base + p, b, { headers: h }),
+    del   : (p, base = BASE)         => axios.delete(base + p,   { headers: h }),
   };
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    CONFIRM MODAL
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 function Confirm({ cfg, onClose }) {
   if (!cfg) return null;
   return (
@@ -91,27 +83,33 @@ function Confirm({ cfg, onClose }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   useData — fetches all admin data
-═══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   useData
+════════════════════════════════════════════════════════════ */
 function useData(api) {
   const [stats, setStats] = useState({
-    users               : 0,
-    orders              : 0,
-    revenue             : 0,
-    dailySales          : [],
-    activeUsers         : 0,
-    bannedUsers         : 0,
-    pendingProducts     : 0,
-    totalProducts       : 0,
-    todayUsers          : 0,
-    todayProducts       : 0,
-    todayRevenue        : 0,
-    todayOrders         : 0,
-    vendorsTotal        : 0,
-    vendorsPending      : 0,
-    vendorsActive       : 0,
-    vendorsUnderReview  : 0,
+    users              : 0,
+    orders             : 0,
+    revenue            : 0,
+    dailySales         : [],
+    activeUsers        : 0,
+    bannedUsers        : 0,
+    pendingProducts    : 0,
+    totalProducts      : 0,
+    todayUsers         : 0,
+    todayProducts      : 0,
+    todayRevenue       : 0,
+    todayOrders        : 0,
+    vendorsTotal       : 0,
+    vendorsPending     : 0,
+    vendorsActive      : 0,
+    vendorsUnderReview : 0,
+    referrals          : {       // ✅ NEW
+      total    : 0,
+      pending  : 0,
+      verified : 0,
+      rewarded : 0,
+    },
   });
 
   const [users,                    setUsers]                    = useState([]);
@@ -127,6 +125,7 @@ function useData(api) {
     allowPayments : true,
   });
   const [plans,                    setPlans]                    = useState([]);
+
   const [reportCount,              setReportCount]              = useState(0);
   const [marketPendingCount,       setMarketPendingCount]       = useState(0);
   const [verificationPendingCount, setVerificationPendingCount] = useState(0);
@@ -134,7 +133,6 @@ function useData(api) {
   const [withdrawalPendingCount,   setWithdrawalPendingCount]   = useState(0);
   const [loading,                  setLoading]                  = useState(true);
 
-  // ── Generic safe fetcher ──────────────────────────────────
   const safe = useCallback(async (path, setter, base) => {
     try {
       const { data } = await api.get(path, base);
@@ -155,7 +153,6 @@ function useData(api) {
     }
   }, []);
 
-  // ── Individual reload functions ───────────────────────────
   const reloadPlans = useCallback(async () => {
     try {
       const { data } = await api.get("/plans", PAY_BASE);
@@ -177,8 +174,7 @@ function useData(api) {
       const { data } = await api.get("/market-products?status=pending");
       const count =
         data?.counts?.pending ??
-        (Array.isArray(data?.products) ? data.products.length : 0) ??
-        0;
+        (Array.isArray(data?.products) ? data.products.length : 0) ?? 0;
       setMarketPendingCount(count);
     } catch {}
   }, [api]);
@@ -186,10 +182,9 @@ function useData(api) {
   const reloadVerificationCount = useCallback(async () => {
     try {
       const { data } = await api.get("/verification/stats");
-      const count =
-        (data?.identity?.pending ?? 0) +
-        (data?.store?.pending    ?? 0);
-      setVerificationPendingCount(count);
+      setVerificationPendingCount(
+        (data?.identity?.pending ?? 0) + (data?.store?.pending ?? 0)
+      );
     } catch {}
   }, [api]);
 
@@ -197,8 +192,7 @@ function useData(api) {
     try {
       const { data } = await api.get("/vendors?status=pending&limit=1");
       setVendorPendingCount(
-        data?.status_counts?.pending ??
-        data?.pagination?.total      ?? 0
+        data?.status_counts?.pending ?? data?.pagination?.total ?? 0
       );
     } catch {}
   }, [api]);
@@ -207,13 +201,11 @@ function useData(api) {
     try {
       const { data } = await api.get("/withdrawals?status=pending&limit=1");
       setWithdrawalPendingCount(
-        data?.pagination?.total ??
-        data?.total             ?? 0
+        data?.pagination?.total ?? data?.total ?? 0
       );
     } catch {}
   }, [api]);
 
-  // ── Reload map ────────────────────────────────────────────
   const reload = useMemo(() => ({
     users               : () => safe("/users",            setUsers),
     admins              : () => safe("/admins",           setAdmins),
@@ -242,7 +234,6 @@ function useData(api) {
     reloadWithdrawalCount,
   ]);
 
-  // ── Load everything on mount ──────────────────────────────
   const loadAll = useCallback(async () => {
     setLoading(true);
     await Promise.all([
@@ -276,18 +267,16 @@ function useData(api) {
   return {
     stats, users, admins, products, pending,
     payments, orders, logs, system, plans,
-    reportCount,
-    marketPendingCount,
-    verificationPendingCount,
-    vendorPendingCount,
+    reportCount, marketPendingCount,
+    verificationPendingCount, vendorPendingCount,
     withdrawalPendingCount,
     loading, loadAll, reload,
   };
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   useDerived — memoised filters
-═══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   useDerived
+════════════════════════════════════════════════════════════ */
 function useDerived({
   users, products, pending, orders, payments, stats,
   productTab, userQ, productQ, orderQ, payQ,
@@ -357,9 +346,9 @@ function useDerived({
   };
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   useActions — admin operations
-═══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   useActions
+════════════════════════════════════════════════════════════ */
 function useActions(api, reload) {
   const [busy, setBusy] = useState(null);
 
@@ -445,9 +434,9 @@ function useActions(api, reload) {
   };
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   ADMIN DASHBOARD — main component
-═══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   ADMIN DASHBOARD
+════════════════════════════════════════════════════════════ */
 export default function AdminDashboard() {
   const token     = useMemo(() => localStorage.getItem("admin_token"), []);
   const adminName = useMemo(() => localStorage.getItem("admin_name") || "SA", []);
@@ -465,17 +454,14 @@ export default function AdminDashboard() {
 
   const data    = useData(api);
   const derived = useDerived({
-    users      : data.users,
-    products   : data.products,
-    pending    : data.pending,
-    orders     : data.orders,
-    payments   : data.payments,
-    stats      : data.stats,
+    users: data.users, products: data.products,
+    pending: data.pending, orders: data.orders,
+    payments: data.payments, stats: data.stats,
     productTab, userQ, productQ, orderQ, payQ,
   });
   const actions = useActions(api, data.reload);
 
-  // ── Live log polling (every 5s) ───────────────────────────
+  /* ── Live log polling ── */
   const logRef = useMemo(() => ({ current: data.reload.logs }), []);
   useEffect(() => { logRef.current = data.reload.logs; });
 
@@ -486,16 +472,15 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // ── Total notification badge ──────────────────────────────
+  /* ── Total notification badge ── */
   const totalNotifCount =
-    data.pending.length               +
-    data.marketPendingCount           +
-    data.reportCount                  +
-    data.verificationPendingCount     +
-    data.vendorPendingCount           +
+    data.pending.length           +
+    data.marketPendingCount       +
+    data.reportCount              +
+    data.verificationPendingCount +
+    data.vendorPendingCount       +
     data.withdrawalPendingCount;
 
-  // ── Loading screen ────────────────────────────────────────
   if (data.loading) {
     return (
       <>
@@ -507,7 +492,7 @@ export default function AdminDashboard() {
     );
   }
 
-  // ── Page map ──────────────────────────────────────────────
+  /* ── Page map ── */
   const pageMap = {
 
     overview: (
@@ -645,11 +630,17 @@ export default function AdminDashboard() {
         onMutation={data.reload.vendorCount}
       />
     ),
+
+    /* ✅ NEW — Leaderboard admin page */
+    leaderboard: (
+      <Leaderboard
+        api={api}
+        referralStats={data.stats.referrals}
+        confirm={confirm}
+      />
+    ),
   };
 
-  /* ════════════════════════════════════════════════════════════
-     RENDER
-  ════════════════════════════════════════════════════════════ */
   return (
     <>
       <style>{css}</style>
