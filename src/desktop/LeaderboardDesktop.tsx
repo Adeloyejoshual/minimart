@@ -13,7 +13,7 @@ import React, {
   type ReactNode,
 } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import "../styles/LeaderboardDesktop.css";
+import "./styles/LeaderboardDesktop.css";
 
 /* ════════════════════════════════════════════════════════════
    TYPES
