@@ -1,659 +1,719 @@
 // ════════════════════════════════════════════════════════════
-// FILE: src/pages/Profile/Leaderboard.jsx
-// Public leaderboard — masked names, period tabs, prizes
+// FILE: routes/leaderboard.js
+// Base: /api/leaderboard
 // ════════════════════════════════════════════════════════════
 
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-} from "react";
-import { useNavigate, Link } from "react-router-dom";
-import "../../styles/Leaderboard.css";
+import express   from "express";
+import rateLimit from "express-rate-limit";
+import jwt       from "jsonwebtoken";
+import { pool }  from "../config/db.js";
+
+const router  = express.Router();
+const IS_PROD = process.env.NODE_ENV === "production";
 
 /* ════════════════════════════════════════════════════════════
    CONFIG
 ════════════════════════════════════════════════════════════ */
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
-const API      = `${BASE_URL}/api/leaderboard`;
+const MONTHLY_REWARDS = {
+  1 : { amount: 15_000, label: "₦15,000", emoji: "🥇" },
+  2 : { amount: 10_000, label: "₦10,000", emoji: "🥈" },
+  3 : { amount:  5_000, label: "₦5,000",  emoji: "🥉" },
+};
 
-const getToken = () =>
-  localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("token") ||
+const YEARLY_REWARDS = {
+  1 : { amount: 50_000, label: "₦50,000", emoji: "🥇" },
+  2 : { amount: 30_000, label: "₦30,000", emoji: "🥈" },
+  3 : { amount: 20_000, label: "₦20,000", emoji: "🥉" },
+};
+
+const VALID_PERIODS = ["all", "year", "month", "week", "today"];
+
+const PERIOD_LABELS = {
+  all   : "All Time",
+  year  : "This Year",
+  month : "This Month",
+  week  : "This Week",
+  today : "Today",
+};
+
+/* ════════════════════════════════════════════════════════════
+   HELPERS
+════════════════════════════════════════════════════════════ */
+const fail = (res, status, message, extra = {}) => {
+  console.error(`[leaderboard] ✗ ${status} — ${message}`);
+  return res.status(status).json({ success: false, message, ...extra });
+};
+
+const failErr = (res, status, userMsg, err) => {
+  console.error(`[leaderboard] ✗ ${userMsg}:`, err?.message);
+  return res.status(status).json({
+    success : false,
+    message : IS_PROD ? userMsg : `${userMsg}: ${err?.message}`,
+  });
+};
+
+const getIp = (req) =>
+  req.ip ??
+  req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
   null;
 
-const authH = () => {
-  const t = getToken();
-  return t
-    ? { Authorization: `Bearer ${t}`, "Content-Type": "application/json" }
-    : { "Content-Type": "application/json" };
-};
+/* ════════════════════════════════════════════════════════════
+   NAME MASKING
+   a********d@gmail.com format
+════════════════════════════════════════════════════════════ */
+function maskWord(word) {
+  if (!word) return "";
+  const w = word.trim();
+  if (w.length <= 1) return w;
+  if (w.length === 2) return `${w[0]}*`;
+  return `${w[0]}${"*".repeat(w.length - 2)}${w[w.length - 1]}`;
+}
+
+function maskEmail(email) {
+  if (!email?.includes("@")) return "User";
+  const [local, domain] = email.split("@");
+  return `${maskWord(local)}@${domain}`;
+}
+
+function buildMaskedName(row) {
+  const first = row.first_name?.trim();
+  const last  = row.last_name?.trim();
+  if (first || last)
+    return [first, last].filter(Boolean).map(maskWord).join(" ");
+
+  const name = row.name?.trim();
+  if (name) return name.split(/\s+/).map(maskWord).join(" ");
+
+  const uname = row.username?.trim();
+  if (uname) return maskWord(uname);
+
+  const email = row.email?.trim();
+  if (email) return maskEmail(email);
+
+  return "User";
+}
 
 /* ════════════════════════════════════════════════════════════
-   CONSTANTS
+   AVATAR
 ════════════════════════════════════════════════════════════ */
-const PERIODS = [
-  { key: "all",   label: "All Time"   },
-  { key: "year",  label: "This Year"  },
-  { key: "month", label: "This Month" },
-  { key: "week",  label: "This Week"  },
-  { key: "today", label: "Today"      },
+const COLORS = [
+  "#2563eb","#10b981","#f59e0b","#8b5cf6",
+  "#ef4444","#0891b2","#e8630a","#059669",
+  "#7c3aed","#0284c7","#dc2626","#16a34a",
 ];
 
+const colorFor = (str = "") =>
+  COLORS[[...str].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
+
+const initialsOf = (name = "") =>
+  (name || "?").split(" ").slice(0, 2)
+    .map((w) => w[0]?.toUpperCase() || "").join("");
+
 /* ════════════════════════════════════════════════════════════
-   SVG ICONS
+   FORMAT ENTRY
 ════════════════════════════════════════════════════════════ */
-const Ic = {
-  Back: () => (
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2"
-         strokeLinecap="round" strokeLinejoin="round">
-      <path d="M19 12H5"/><polyline points="12 19 5 12 12 5"/>
-    </svg>
-  ),
-  Trophy: ({ size = 20, color = "currentColor" }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke={color} strokeWidth="1.8"
-         strokeLinecap="round" strokeLinejoin="round">
-      <path d="M6 9H4.5a2.5 2.5 0 010-5H6"/>
-      <path d="M18 9h1.5a2.5 2.5 0 000-5H18"/>
-      <path d="M4 22h16"/>
-      <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20 7 22"/>
-      <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20 17 22"/>
-      <path d="M18 2H6v7a6 6 0 1012 0V2z"/>
-    </svg>
-  ),
-  Crown: ({ size = 26, color = "var(--o)" }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke={color} strokeWidth="1.8"
-         strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 4l3 12h14l3-12-6 7-4-9-4 9-6-7z"
-            fill={color} fillOpacity="0.15"/>
-      <path d="M2 4l3 12h14l3-12-6 7-4-9-4 9-6-7z"/>
-      <path d="M5 16h14v2a2 2 0 01-2 2H7a2 2 0 01-2-2v-2z"
-            fill={color} fillOpacity="0.12"/>
-      <path d="M5 16h14v2a2 2 0 01-2 2H7a2 2 0 01-2-2v-2z"/>
-    </svg>
-  ),
-  Medal: ({ rank, size = 22 }) => {
-    const cfg = {
-      1: { stroke: "#FF5C00", fill: "rgba(255,92,0,0.12)",  text: "#FF5C00" },
-      2: { stroke: "#A8A39D", fill: "rgba(168,163,157,0.12)", text: "#5A5650" },
-      3: { stroke: "#CD7F32", fill: "rgba(205,127,50,0.12)", text: "#8B5E34" },
-    }[rank] ?? { stroke: "#A8A39D", fill: "transparent", text: "#5A5650" };
-    return (
-      <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-           stroke={cfg.stroke} strokeWidth="1.6"
-           strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="15" r="6" fill={cfg.fill}/>
-        <circle cx="12" cy="15" r="6"/>
-        <path d="M9 2h6l-1.5 6h-3L9 2z" fill={cfg.fill}/>
-        <path d="M9 2h6l-1.5 6h-3L9 2z"/>
-        <text x="12" y="18.5" textAnchor="middle"
-              fill={cfg.text} fontSize="7.5"
-              fontWeight="800" fontFamily="sans-serif">
-          {rank}
-        </text>
-      </svg>
+function formatEntry(row, rank, currentUserId, rewardMap = null) {
+  const masked = buildMaskedName({
+    first_name : row.first_name,
+    last_name  : row.last_name,
+    name       : row.name,
+    username   : row.username,
+    email      : row.email,
+  });
+
+  return {
+    rank,
+    user_id         : row.user_id,
+    display_name    : masked,
+    initials        : initialsOf(masked),
+    color           : colorFor(masked),
+    avatar_url      : row.avatar_url || null,
+    total_referrals : Number(row.total_referrals || 0),
+    is_current_user : row.user_id === currentUserId,
+    reward          : rewardMap?.[rank]
+      ? { ...rewardMap[rank], currency: "NGN" }
+      : null,
+  };
+}
+
+/* ════════════════════════════════════════════════════════════
+   OPTIONAL AUTH
+════════════════════════════════════════════════════════════ */
+function optionalAuth(req, _res, next) {
+  try {
+    const h = req.headers.authorization;
+    if (h?.startsWith("Bearer ")) {
+      const d = jwt.verify(h.slice(7), process.env.JWT_SECRET);
+      req.currentUserId = d?.id ?? null;
+    } else {
+      req.currentUserId = null;
+    }
+  } catch (_) {
+    req.currentUserId = null;
+  }
+  next();
+}
+
+/* ════════════════════════════════════════════════════════════
+   RATE LIMITER
+════════════════════════════════════════════════════════════ */
+const limiter = rateLimit({
+  windowMs        : 60_000,
+  max             : IS_PROD ? 30 : 600,
+  standardHeaders : true,
+  legacyHeaders   : false,
+  keyGenerator    : (req) =>
+    String(req.currentUserId ?? req.user?.id ?? getIp(req)),
+  handler : (_req, res) =>
+    res.status(429).json({ success: false, message: "Too many requests." }),
+});
+
+/* ════════════════════════════════════════════════════════════
+   DATE CUTOFF
+════════════════════════════════════════════════════════════ */
+function dateCutoff(period) {
+  const now = new Date();
+  if (period === "today")
+    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())).toISOString();
+  if (period === "week") {
+    const d = new Date(now);
+    d.setUTCDate(d.getUTCDate() - 7);
+    return d.toISOString();
+  }
+  if (period === "month")
+    return new Date(Date.UTC(now.getFullYear(), now.getMonth(), 1)).toISOString();
+  if (period === "year")
+    return new Date(Date.UTC(now.getFullYear(), 0, 1)).toISOString();
+  return null;
+}
+
+/* ════════════════════════════════════════════════════════════
+   COUNTDOWN
+════════════════════════════════════════════════════════════ */
+function endOfMonth() {
+  const now = new Date();
+  const end = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59));
+  const ms  = end - now;
+  const d = Math.floor(ms / 86_400_000);
+  const h = Math.floor((ms % 86_400_000) / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  return { iso: end.toISOString(), seconds: Math.floor(ms / 1_000),
+           label: d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m` };
+}
+
+function endOfYear() {
+  const now = new Date();
+  const end = new Date(Date.UTC(now.getFullYear(), 11, 31, 23, 59, 59));
+  const ms  = end - now;
+  const d = Math.floor(ms / 86_400_000);
+  const h = Math.floor((ms % 86_400_000) / 3_600_000);
+  return { iso: end.toISOString(), seconds: Math.floor(ms / 1_000),
+           label: `${d}d ${h}h` };
+}
+
+/* ════════════════════════════════════════════════════════════
+   GET /api/leaderboard
+   ✅ Fixed: properly parameterized queries
+   ✅ Fixed: includes 'pending' status so new referrals show
+   ✅ Fixed: logs exact query for debugging
+════════════════════════════════════════════════════════════ */
+router.get("/", optionalAuth, limiter, async (req, res) => {
+  const period = VALID_PERIODS.includes(req.query.period)
+    ? req.query.period : "all";
+
+  const limit = Math.min(
+    Math.max(parseInt(req.query.limit ?? "20", 10) || 20, 1), 50
+  );
+
+  const userId    = req.currentUserId ?? null;
+  const cutoff    = dateCutoff(period);
+  const rewardMap =
+    period === "month" ? MONTHLY_REWARDS :
+    period === "year"  ? YEARLY_REWARDS  : null;
+  const countdown =
+    period === "month" ? endOfMonth() :
+    period === "year"  ? endOfYear()  : null;
+
+  try {
+    /* ── Build query with proper $1, $2 params ── */
+    let topSQL, topParams;
+
+    if (cutoff) {
+      topSQL = `
+        SELECT
+          r.inviter_id            AS user_id,
+          COUNT(r.id)::INT        AS total_referrals,
+          MAX(r.created_at)       AS last_referral_at,
+          u.first_name,
+          u.last_name,
+          u.name,
+          u.username,
+          u.email,
+          u.profile_image         AS avatar_url
+        FROM   referrals r
+        JOIN   users     u ON u.id = r.inviter_id
+        WHERE  r.status IN ('rewarded', 'verified', 'pending')
+          AND  u.status NOT IN ('banned', 'suspended', 'flagged')
+          AND  r.created_at >= $1
+        GROUP BY
+          r.inviter_id, u.first_name, u.last_name,
+          u.name, u.username, u.email, u.profile_image
+        ORDER BY total_referrals DESC, last_referral_at ASC
+        LIMIT $2
+      `;
+      topParams = [cutoff, limit];
+    } else {
+      topSQL = `
+        SELECT
+          r.inviter_id            AS user_id,
+          COUNT(r.id)::INT        AS total_referrals,
+          MAX(r.created_at)       AS last_referral_at,
+          u.first_name,
+          u.last_name,
+          u.name,
+          u.username,
+          u.email,
+          u.profile_image         AS avatar_url
+        FROM   referrals r
+        JOIN   users     u ON u.id = r.inviter_id
+        WHERE  r.status IN ('rewarded', 'verified', 'pending')
+          AND  u.status NOT IN ('banned', 'suspended', 'flagged')
+        GROUP BY
+          r.inviter_id, u.first_name, u.last_name,
+          u.name, u.username, u.email, u.profile_image
+        ORDER BY total_referrals DESC, last_referral_at ASC
+        LIMIT $1
+      `;
+      topParams = [limit];
+    }
+
+    console.log(
+      `[leaderboard] GET / period=${period} cutoff=${cutoff ?? "none"} limit=${limit}`
     );
-  },
-  Users: ({ size = 14 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.8"
-         strokeLinecap="round" strokeLinejoin="round">
-      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-      <circle cx="9" cy="7" r="4"/>
-      <path d="M23 21v-2a4 4 0 00-3-3.87"/>
-      <path d="M16 3.13a4 4 0 010 7.75"/>
-    </svg>
-  ),
-  Gift: ({ size = 15, color = "currentColor" }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke={color} strokeWidth="1.8"
-         strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="20 12 20 22 4 22 4 12"/>
-      <rect x="2" y="7" width="20" height="5"/>
-      <line x1="12" y1="22" x2="12" y2="7"/>
-      <path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z"/>
-      <path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
-    </svg>
-  ),
-  Clock: ({ size = 13 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2"
-         strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="12" r="10"/>
-      <polyline points="12 6 12 12 16 14"/>
-    </svg>
-  ),
-  Star: ({ size = 13, color = "var(--o)" }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke={color} strokeWidth="1.8"
-         strokeLinecap="round" strokeLinejoin="round">
-      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02
-                        12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-    </svg>
-  ),
-  Share: ({ size = 14 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2"
-         strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="18" cy="5" r="3"/>
-      <circle cx="6" cy="12" r="3"/>
-      <circle cx="18" cy="19" r="3"/>
-      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
-      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
-    </svg>
-  ),
-  Award: ({ size = 16, color = "currentColor" }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke={color} strokeWidth="1.8"
-         strokeLinecap="round" strokeLinejoin="round">
-      <circle cx="12" cy="8" r="7"/>
-      <polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"/>
-    </svg>
-  ),
-  Rocket: ({ size = 20, color = "currentColor" }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke={color} strokeWidth="1.8"
-         strokeLinecap="round" strokeLinejoin="round">
-      <path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13
-               -.09-2.91a2.18 2.18 0 00-2.91-.09z"/>
-      <path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0
-               2.72-.78 7.5-6 11.5A9.9 9.9 0 0112 15z"/>
-      <path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/>
-      <path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>
-    </svg>
-  ),
-  ChevronRight: ({ size = 16 }) => (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2"
-         strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="9 18 15 12 9 6"/>
-    </svg>
-  ),
-};
 
-/* ════════════════════════════════════════════════════════════
-   COUNTDOWN HOOK
-════════════════════════════════════════════════════════════ */
-function useCountdown(isoTarget) {
-  const [label, setLabel] = useState("");
-  useEffect(() => {
-    if (!isoTarget) return;
-    const tick = () => {
-      const ms = new Date(isoTarget) - Date.now();
-      if (ms <= 0) { setLabel("Ended"); return; }
-      const d = Math.floor(ms / 86_400_000);
-      const h = Math.floor((ms % 86_400_000) / 3_600_000);
-      const m = Math.floor((ms % 3_600_000) / 60_000);
-      const s = Math.floor((ms % 60_000) / 1_000);
-      setLabel(
-        d > 0 ? `${d}d ${h}h ${m}m` : `${h}h ${m}m ${s}s`
+    const { rows: topRows } = await pool.query(topSQL, topParams);
+
+    console.log(`[leaderboard] query returned ${topRows.length} rows`);
+
+    /* Debug: if 0 rows, show what exists */
+    if (topRows.length === 0) {
+      const { rows: debug } = await pool.query(
+        `SELECT
+           r.status,
+           COUNT(*)::INT AS cnt
+         FROM   referrals r
+         JOIN   users     u ON u.id = r.inviter_id
+         WHERE  u.status NOT IN ('banned', 'suspended', 'flagged')
+         GROUP  BY r.status`
       );
-    };
-    tick();
-    const id = setInterval(tick, 1_000);
-    return () => clearInterval(id);
-  }, [isoTarget]);
-  return label;
-}
+      console.log("[leaderboard] referral status breakdown:", debug);
 
-/* ════════════════════════════════════════════════════════════
-   REWARD BANNER
-════════════════════════════════════════════════════════════ */
-function RewardBanner({ rewards, period, countdown }) {
-  const cdLabel = useCountdown(countdown?.iso);
-  if (!rewards?.length) return null;
-  return (
-    <div className="lb-reward-banner">
-      <div className="lb-reward-banner-header">
-        <Ic.Gift size={16} color="var(--o)" />
-        <span className="lb-reward-banner-title">
-          {period === "month" ? "Monthly Prizes" : "Yearly Prizes"}
-        </span>
-      </div>
-      <div className="lb-reward-prizes">
-        {rewards.map((r, i) => (
-          <div key={r.rank} className="lb-reward-prize">
-            <Ic.Medal rank={r.rank} size={20} />
-            <span className="lb-reward-prize-label">{r.label}</span>
-          </div>
-        ))}
-      </div>
-      {cdLabel && (
-        <div className="lb-reward-countdown">
-          <Ic.Clock size={13} />
-          <span>Ends in <strong>{cdLabel}</strong></span>
-        </div>
-      )}
-    </div>
-  );
-}
+      /* Also check if any referrals exist at all */
+      const { rows: [total] } = await pool.query(
+        `SELECT COUNT(*)::INT AS cnt FROM referrals`
+      );
+      console.log(`[leaderboard] total referrals in DB: ${total.cnt}`);
+    }
 
-/* ════════════════════════════════════════════════════════════
-   PODIUM
-════════════════════════════════════════════════════════════ */
-function Podium({ top3 }) {
-  if (!top3 || top3.length < 3) return null;
-  const order = [top3[1], top3[0], top3[2]]; // 2nd | 1st | 3rd
-  return (
-    <div className="lb-podium">
-      {order.map((e, i) => {
-        const isFirst = i === 1;
-        return (
-          <div
-            key={e.user_id}
-            className={`lb-podium-item${isFirst ? " lb-podium-item--first" : ""}`}
-          >
-            {/* Crown on #1 */}
-            {e.rank === 1 && (
-              <div className="lb-crown">
-                <Ic.Crown size={28} color="var(--o)" />
-              </div>
-            )}
+    const leaderboard = topRows.map((row, i) =>
+      formatEntry(row, i + 1, userId, rewardMap)
+    );
 
-            {/* Avatar */}
-            <div className={`lb-podium-avatar-wrap${isFirst ? " lb-podium-avatar--big" : ""}`}>
-              {e.avatar_url ? (
-                <img src={e.avatar_url} alt="" className="lb-podium-avatar-img" />
-              ) : (
-                <div className="lb-podium-avatar"
-                     style={{ backgroundColor: e.color }}>
-                  {e.initials}
-                </div>
-              )}
-              <div className="lb-podium-medal">
-                <Ic.Medal rank={e.rank} size={18} />
-              </div>
-            </div>
+    /* ── My rank ── */
+    let myRank = null;
 
-            <p className="lb-podium-name">
-              {e.display_name}
-              {e.is_current_user && (
-                <span className="lb-you"> (You)</span>
-              )}
-            </p>
-            <p className="lb-podium-count">{e.total_referrals}</p>
+    if (userId) {
+      const inList = leaderboard.find((e) => e.is_current_user);
 
-            {e.reward && (
-              <p className="lb-podium-reward">
-                <Ic.Gift size={11} color="var(--o)" />
-                {e.reward.label}
-              </p>
-            )}
+      if (inList) {
+        myRank = inList;
+      } else {
+        try {
+          let rankSQL, rankParams;
 
-            <div className={`lb-podium-pillar lb-podium-pillar--${e.rank}`} />
-          </div>
+          if (cutoff) {
+            rankSQL = `
+              SELECT sub.rank, sub.total_referrals
+              FROM (
+                SELECT
+                  r.inviter_id AS user_id,
+                  COUNT(r.id)::INT AS total_referrals,
+                  RANK() OVER (
+                    ORDER BY COUNT(r.id) DESC, MAX(r.created_at) ASC
+                  )::INT AS rank
+                FROM   referrals r
+                JOIN   users     u ON u.id = r.inviter_id
+                WHERE  r.status IN ('rewarded', 'verified', 'pending')
+                  AND  u.status NOT IN ('banned', 'suspended', 'flagged')
+                  AND  r.created_at >= $1
+                GROUP BY r.inviter_id
+              ) sub
+              WHERE sub.user_id = $2
+            `;
+            rankParams = [cutoff, userId];
+          } else {
+            rankSQL = `
+              SELECT sub.rank, sub.total_referrals
+              FROM (
+                SELECT
+                  r.inviter_id AS user_id,
+                  COUNT(r.id)::INT AS total_referrals,
+                  RANK() OVER (
+                    ORDER BY COUNT(r.id) DESC, MAX(r.created_at) ASC
+                  )::INT AS rank
+                FROM   referrals r
+                JOIN   users     u ON u.id = r.inviter_id
+                WHERE  r.status IN ('rewarded', 'verified', 'pending')
+                  AND  u.status NOT IN ('banned', 'suspended', 'flagged')
+                GROUP BY r.inviter_id
+              ) sub
+              WHERE sub.user_id = $1
+            `;
+            rankParams = [userId];
+          }
+
+          const { rows: [myRow] } = await pool.query(rankSQL, rankParams);
+
+          if (myRow) {
+            myRank = {
+              rank            : Number(myRow.rank),
+              total_referrals : Number(myRow.total_referrals),
+              is_current_user : true,
+              reward          : rewardMap?.[myRow.rank]
+                ? { ...rewardMap[myRow.rank], currency: "NGN" }
+                : null,
+            };
+          }
+        } catch (e) {
+          console.warn("[leaderboard] my rank error:", e.message);
+        }
+      }
+    }
+
+    /* ── Total inviters ── */
+    let totalInviters = 0;
+    try {
+      let cntSQL, cntParams;
+      if (cutoff) {
+        cntSQL    = `
+          SELECT COUNT(DISTINCT r.inviter_id)::INT AS cnt
+          FROM   referrals r
+          JOIN   users     u ON u.id = r.inviter_id
+          WHERE  r.status IN ('rewarded', 'verified', 'pending')
+            AND  u.status NOT IN ('banned', 'suspended', 'flagged')
+            AND  r.created_at >= $1
+        `;
+        cntParams = [cutoff];
+      } else {
+        cntSQL    = `
+          SELECT COUNT(DISTINCT r.inviter_id)::INT AS cnt
+          FROM   referrals r
+          JOIN   users     u ON u.id = r.inviter_id
+          WHERE  r.status IN ('rewarded', 'verified', 'pending')
+            AND  u.status NOT IN ('banned', 'suspended', 'flagged')
+        `;
+        cntParams = [];
+      }
+      const { rows: [c] } = await pool.query(cntSQL, cntParams);
+      totalInviters = Number(c?.cnt || 0);
+    } catch (_) {}
+
+    /* ── Previous winners ── */
+    let previousWinners = null;
+    if (period === "month" || period === "year") {
+      try {
+        const ptype = period === "month" ? "monthly" : "yearly";
+        const { rows: pw } = await pool.query(
+          `SELECT
+             lw.rank, lw.period_key, lw.total_referrals,
+             lw.reward_amount, lw.reward_status,
+             u.first_name, u.last_name, u.name,
+             u.username, u.email,
+             u.profile_image AS avatar_url
+           FROM   leaderboard_winners lw
+           JOIN   users               u ON u.id = lw.user_id
+           WHERE  lw.period_type = $1
+           ORDER  BY lw.period_key DESC, lw.rank ASC
+           LIMIT  30`,
+          [ptype]
         );
-      })}
-    </div>
-  );
-}
+
+        const grouped = {};
+        for (const row of pw) {
+          if (!grouped[row.period_key]) grouped[row.period_key] = [];
+          const masked = buildMaskedName(row);
+          grouped[row.period_key].push({
+            rank            : row.rank,
+            display_name    : masked,
+            initials        : initialsOf(masked),
+            color           : colorFor(masked),
+            avatar_url      : row.avatar_url || null,
+            total_referrals : Number(row.total_referrals),
+            reward_amount   : Number(row.reward_amount),
+            reward_label    : `₦${Number(row.reward_amount).toLocaleString()}`,
+            reward_status   : row.reward_status,
+          });
+        }
+        previousWinners = grouped;
+      } catch (e) {
+        console.warn("[leaderboard] previous winners:", e.message);
+      }
+    }
+
+    return res.json({
+      success          : true,
+      period,
+      period_label     : PERIOD_LABELS[period],
+      leaderboard,
+      my_rank          : myRank,
+      total_inviters   : totalInviters,
+      countdown,
+      rewards          : rewardMap
+        ? Object.entries(rewardMap).map(([rank, r]) => ({
+            rank: Number(rank), ...r, currency: "NGN",
+          }))
+        : null,
+      previous_winners : previousWinners,
+    });
+
+  } catch (err) {
+    return failErr(res, 500, "Failed to load leaderboard", err);
+  }
+});
 
 /* ════════════════════════════════════════════════════════════
-   LEADERBOARD ROW
+   GET /api/leaderboard/me
 ════════════════════════════════════════════════════════════ */
-function LeaderRow({ entry, highlight }) {
-  return (
-    <div
-      className={[
-        "lb-row",
-        entry.rank <= 3   ? "lb-row--top"    : "",
-        highlight         ? "lb-row--me"     : "",
-        entry.rank === 1  ? "lb-row--gold"   : "",
-        entry.rank === 2  ? "lb-row--silver" : "",
-        entry.rank === 3  ? "lb-row--bronze" : "",
-      ].filter(Boolean).join(" ")}
-      role="listitem"
-    >
-      <div className="lb-row-rank">
-        {entry.rank <= 3 ? (
-          <Ic.Medal rank={entry.rank} />
-        ) : (
-          <span className="lb-rank-num">#{entry.rank}</span>
-        )}
-      </div>
+router.get("/me", optionalAuth, limiter, async (req, res) => {
+  const userId = req.currentUserId;
+  if (!userId) return fail(res, 401, "Login to see your rank.");
 
-      <div className="lb-row-avatar-wrap">
-        {entry.avatar_url ? (
-          <img src={entry.avatar_url} alt="" className="lb-row-avatar-img" />
-        ) : (
-          <div className="lb-row-avatar"
-               style={{ backgroundColor: entry.color }}>
-            {entry.initials}
-          </div>
-        )}
-      </div>
-
-      <div className="lb-row-name">
-        {entry.display_name}
-        {highlight && <span className="lb-you"> (You)</span>}
-      </div>
-
-      <div className="lb-row-count">{entry.total_referrals}</div>
-
-      {entry.reward && (
-        <div className="lb-row-reward">{entry.reward.label}</div>
-      )}
-    </div>
-  );
-}
+  try {
+    const results = {};
+    await Promise.all(
+      VALID_PERIODS.map(async (period) => {
+        const cutoff = dateCutoff(period);
+        try {
+          let sql, params;
+          if (cutoff) {
+            sql = `
+              SELECT sub.rank, sub.total_referrals
+              FROM (
+                SELECT r.inviter_id AS user_id,
+                       COUNT(r.id)::INT AS total_referrals,
+                       RANK() OVER (
+                         ORDER BY COUNT(r.id) DESC, MAX(r.created_at) ASC
+                       )::INT AS rank
+                FROM   referrals r
+                JOIN   users u ON u.id = r.inviter_id
+                WHERE  r.status IN ('rewarded','verified','pending')
+                  AND  u.status NOT IN ('banned','suspended','flagged')
+                  AND  r.created_at >= $1
+                GROUP BY r.inviter_id
+              ) sub WHERE sub.user_id = $2
+            `;
+            params = [cutoff, userId];
+          } else {
+            sql = `
+              SELECT sub.rank, sub.total_referrals
+              FROM (
+                SELECT r.inviter_id AS user_id,
+                       COUNT(r.id)::INT AS total_referrals,
+                       RANK() OVER (
+                         ORDER BY COUNT(r.id) DESC, MAX(r.created_at) ASC
+                       )::INT AS rank
+                FROM   referrals r
+                JOIN   users u ON u.id = r.inviter_id
+                WHERE  r.status IN ('rewarded','verified','pending')
+                  AND  u.status NOT IN ('banned','suspended','flagged')
+                GROUP BY r.inviter_id
+              ) sub WHERE sub.user_id = $1
+            `;
+            params = [userId];
+          }
+          const { rows: [row] } = await pool.query(sql, params);
+          results[period] = row
+            ? { rank: Number(row.rank), total_referrals: Number(row.total_referrals), on_leaderboard: true }
+            : { rank: null, total_referrals: 0, on_leaderboard: false };
+        } catch (_) {
+          results[period] = { rank: null, total_referrals: 0, on_leaderboard: false };
+        }
+      })
+    );
+    return res.json({ success: true, user_id: userId, ranks: results });
+  } catch (err) {
+    return failErr(res, 500, "Failed to load your rank", err);
+  }
+});
 
 /* ════════════════════════════════════════════════════════════
-   PREVIOUS WINNERS
+   GET /api/leaderboard/winners
 ════════════════════════════════════════════════════════════ */
-function PreviousWinners({ data, period }) {
-  if (!data) return null;
-  const entries = Object.entries(data);
-  if (!entries.length) return null;
-
-  const formatKey = (key) => {
-    if (period === "month") {
-      const [y, m] = key.split("-").map(Number);
-      return new Date(y, m - 1).toLocaleString("default", {
-        month: "long", year: "numeric",
+router.get("/winners", optionalAuth, limiter, async (req, res) => {
+  const type  = req.query.type === "yearly" ? "yearly" : "monthly";
+  const limit = Math.min(parseInt(req.query.limit ?? "12", 10), 36);
+  try {
+    const { rows } = await pool.query(
+      `SELECT lw.rank, lw.period_key, lw.period_type,
+              lw.total_referrals, lw.reward_amount,
+              lw.reward_status, lw.paid_at,
+              u.first_name, u.last_name, u.name,
+              u.username, u.email,
+              u.profile_image AS avatar_url
+       FROM   leaderboard_winners lw
+       JOIN   users u ON u.id = lw.user_id
+       WHERE  lw.period_type = $1
+       ORDER  BY lw.period_key DESC, lw.rank ASC
+       LIMIT  $2`,
+      [type, limit * 3]
+    );
+    const grouped = {};
+    for (const row of rows) {
+      if (!grouped[row.period_key]) grouped[row.period_key] = { period_key: row.period_key, winners: [] };
+      const masked = buildMaskedName(row);
+      grouped[row.period_key].winners.push({
+        rank: row.rank, display_name: masked,
+        initials: initialsOf(masked), color: colorFor(masked),
+        avatar_url: row.avatar_url || null,
+        total_referrals: Number(row.total_referrals),
+        reward_amount: Number(row.reward_amount),
+        reward_label: `₦${Number(row.reward_amount).toLocaleString()}`,
+        reward_status: row.reward_status, paid_at: row.paid_at,
       });
     }
-    return `Year ${key}`;
-  };
-
-  return (
-    <div className="lb-prev-winners">
-      <div className="lb-prev-winners-header">
-        <Ic.Award size={16} color="var(--o)" />
-        <h3>Past {period === "month" ? "Monthly" : "Yearly"} Champions</h3>
-      </div>
-
-      {entries.map(([key, winners]) => (
-        <div key={key} className="lb-prev-period">
-          <p className="lb-prev-period-label">{formatKey(key)}</p>
-          <div className="lb-prev-period-list">
-            {winners.map((w) => (
-              <div key={w.rank} className="lb-prev-winner">
-                {w.rank === 1 && (
-                  <span className="lb-prev-crown">
-                    <Ic.Crown size={13} color="var(--o)" />
-                  </span>
-                )}
-                <Ic.Medal rank={w.rank} size={16} />
-                <div
-                  className="lb-prev-winner-avatar"
-                  style={{ backgroundColor: w.color }}
-                >
-                  {w.initials}
-                </div>
-                <span className="lb-prev-winner-name">
-                  {w.display_name}
-                </span>
-                <span className="lb-prev-winner-count">
-                  {w.total_referrals}
-                </span>
-                <span className={`lb-prev-winner-reward${
-                  w.reward_status === "paid"
-                    ? " lb-prev-winner-reward--paid"
-                    : ""
-                }`}>
-                  {w.reward_label}
-                  {w.reward_status === "paid" && (
-                    <svg width="10" height="10" viewBox="0 0 24 24"
-                         fill="none" stroke="currentColor" strokeWidth="3"
-                         strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                  )}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-
-      <Link to="/hall-of-fame" className="lb-hof-link">
-        <Ic.Award size={13} color="var(--o)" />
-        View Full Hall of Fame
-        <Ic.ChevronRight size={13} />
-      </Link>
-    </div>
-  );
-}
+    return res.json({ success: true, type, periods: Object.values(grouped),
+                      rewards: type === "monthly" ? MONTHLY_REWARDS : YEARLY_REWARDS });
+  } catch (err) {
+    return failErr(res, 500, "Failed to load winners", err);
+  }
+});
 
 /* ════════════════════════════════════════════════════════════
-   SKELETON
+   GET /api/leaderboard/user/:userId
 ════════════════════════════════════════════════════════════ */
-function Skeleton() {
-  return (
-    <div className="lb-skeleton-list" aria-busy="true"
-         aria-label="Loading leaderboard">
-      {Array.from({ length: 6 }, (_, i) => (
-        <div key={i} className="lb-skeleton-item">
-          <div className="lb-skeleton lb-skeleton--rank"   />
-          <div className="lb-skeleton lb-skeleton--avatar" />
-          <div className="lb-skeleton-info">
-            <div className="lb-skeleton lb-skeleton--name" />
-            <div className="lb-skeleton lb-skeleton--sub"  />
-          </div>
-          <div className="lb-skeleton lb-skeleton--count"  />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/* ════════════════════════════════════════════════════════════
-   MAIN COMPONENT
-════════════════════════════════════════════════════════════ */
-export default function Leaderboard() {
-  const navigate    = useNavigate();
-  const [data,      setData]    = useState(null);
-  const [period,    setPeriod]  = useState("month");
-  const [loading,   setLoading] = useState(true);
-  const [error,     setError]   = useState(null);
-
-  const isLoggedIn    = Boolean(getToken());
-  const isCompetition = period === "month" || period === "year";
-
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+router.get("/user/:userId", optionalAuth, limiter, async (req, res) => {
+  const { userId } = req.params;
+  if (!userId) return fail(res, 400, "userId required.");
+  try {
+    const { rows: [user] } = await pool.query(
+      `SELECT id, first_name, last_name, name, username, email,
+              profile_image AS avatar_url, status
+       FROM users WHERE id = $1`, [userId]);
+    if (!user) return fail(res, 404, "User not found.");
+    if (["banned","suspended","flagged"].includes(user.status))
+      return fail(res, 403, "Profile not available.");
+    const masked = buildMaskedName(user);
+    const { rows: [stats] } = await pool.query(
+      `SELECT COUNT(r.id)::INT AS total_referrals
+       FROM referrals r
+       WHERE r.inviter_id = $1
+         AND r.status IN ('rewarded','verified','pending')`, [userId]);
+    let rank = null;
     try {
-      const r = await fetch(
-        `${API}?period=${period}&limit=20`,
-        { headers: authH() }
-      );
-      if (!r.ok) {
-        const b = await r.json().catch(() => ({}));
-        throw new Error(b.message || `${r.status}`);
-      }
-      setData(await r.json());
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [period]);
+      const { rows: [r] } = await pool.query(
+        `SELECT sub.rank FROM (
+           SELECT r.inviter_id AS user_id,
+                  RANK() OVER (ORDER BY COUNT(r.id) DESC, MAX(r.created_at) ASC)::INT AS rank
+           FROM   referrals r
+           JOIN   users u ON u.id = r.inviter_id
+           WHERE  r.status IN ('rewarded','verified','pending')
+             AND  u.status NOT IN ('banned','suspended','flagged')
+           GROUP BY r.inviter_id
+         ) sub WHERE sub.user_id = $1`, [userId]);
+      rank = r?.rank ?? null;
+    } catch (_) {}
+    const { rows: wins } = await pool.query(
+      `SELECT period_type, period_key, rank, reward_amount, reward_status
+       FROM leaderboard_winners WHERE user_id = $1
+       ORDER BY period_key DESC`, [userId]).catch(() => ({ rows: [] }));
+    return res.json({
+      success: true,
+      profile: {
+        user_id: user.id, display_name: masked,
+        initials: initialsOf(masked), color: colorFor(masked),
+        avatar_url: user.avatar_url || null,
+        total_referrals: Number(stats?.total_referrals || 0),
+        rank, is_current_user: user.id === req.currentUserId,
+        wins: wins.map((w) => ({
+          period_type: w.period_type, period_key: w.period_key,
+          rank: w.rank,
+          reward_label: `₦${Number(w.reward_amount).toLocaleString()}`,
+          reward_status: w.reward_status,
+        })),
+      },
+    });
+  } catch (err) {
+    return failErr(res, 500, "Failed to load profile", err);
+  }
+});
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+/* ════════════════════════════════════════════════════════════
+   GET /api/leaderboard/stats
+════════════════════════════════════════════════════════════ */
+router.get("/stats", limiter, async (_req, res) => {
+  try {
+    const { rows: [s] } = await pool.query(
+      `SELECT
+         COUNT(DISTINCT r.inviter_id)::INT AS total_inviters,
+         COUNT(r.id)::INT                  AS total_referrals,
+         COUNT(r.id) FILTER (WHERE r.created_at >= DATE_TRUNC('month', NOW()))::INT AS referrals_this_month,
+         COUNT(r.id) FILTER (WHERE r.created_at >= DATE_TRUNC('year', NOW()))::INT  AS referrals_this_year
+       FROM referrals r
+       JOIN users u ON u.id = r.inviter_id
+       WHERE r.status IN ('rewarded','verified','pending')
+         AND u.status NOT IN ('banned','suspended','flagged')`
+    );
+    return res.json({
+      success: true,
+      stats: {
+        total_inviters      : Number(s?.total_inviters       || 0),
+        total_referrals     : Number(s?.total_referrals      || 0),
+        referrals_this_month: Number(s?.referrals_this_month || 0),
+        referrals_this_year : Number(s?.referrals_this_year  || 0),
+      },
+      monthly_rewards: MONTHLY_REWARDS,
+      yearly_rewards : YEARLY_REWARDS,
+    });
+  } catch (err) {
+    return failErr(res, 500, "Failed to load stats", err);
+  }
+});
 
-  const list      = data?.leaderboard     ?? [];
-  const myRank    = data?.my_rank         ?? null;
-  const rewards   = data?.rewards         ?? null;
-  const countdown = data?.countdown       ?? null;
-  const prevWins  = data?.previous_winners ?? null;
-  const totalInv  = data?.total_inviters  ?? 0;
-  const top3      = list.slice(0, 3);
-  const rest      = list.slice(3);
-  const myInList  = list.some((e) => e.is_current_user);
-  const showMyRank = myRank && !myInList;
+/* ════════════════════════════════════════════════════════════
+   GET /api/leaderboard/debug
+════════════════════════════════════════════════════════════ */
+router.get("/debug", async (req, res) => {
+  if (IS_PROD) return fail(res, 403, "Not available.");
+  try {
+    const [referrals, statusCounts, topAll] = await Promise.all([
+      pool.query(
+        `SELECT r.id, r.status, r.created_at, r.inviter_id,
+                COALESCE(r.referee_id, r.invitee_id) AS referee_id,
+                u.name AS inviter_name, u.email AS inviter_email, u.status AS inviter_status
+         FROM   referrals r JOIN users u ON u.id = r.inviter_id
+         ORDER  BY r.created_at DESC LIMIT 20`
+      ),
+      pool.query(
+        `SELECT status, COUNT(*)::INT AS cnt FROM referrals GROUP BY status`
+      ),
+      pool.query(
+        `SELECT r.inviter_id, COUNT(r.id)::INT AS total, u.name, u.email, u.status
+         FROM   referrals r JOIN users u ON u.id = r.inviter_id
+         WHERE  r.status IN ('rewarded','verified','pending')
+           AND  u.status NOT IN ('banned','suspended','flagged')
+         GROUP  BY r.inviter_id, u.name, u.email, u.status
+         ORDER  BY total DESC`
+      ),
+    ]);
+    return res.json({
+      success       : true,
+      referrals     : referrals.rows,
+      status_counts : statusCounts.rows,
+      top_all       : topAll.rows,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
 
-  return (
-    <div className="lb-page">
-      <div className="lb-container">
-
-        {/* Header */}
-        <div className="lb-header">
-          <button className="lb-back" onClick={() => navigate(-1)}
-                  aria-label="Go back">
-            <Ic.Back />
-          </button>
-          <div className="lb-header-center">
-            <div className="lb-header-title">
-              <Ic.Trophy size={22} color="var(--o)" />
-              <h1>Referral Leaderboard</h1>
-            </div>
-            <p className="lb-subtitle">
-              <Ic.Users size={12} />
-              {totalInv} inviter{totalInv !== 1 ? "s" : ""} · verified only
-            </p>
-          </div>
-          <div className="lb-header-actions">
-            <Link to="/hall-of-fame" className="lb-hof-btn"
-                  aria-label="Hall of Fame">
-              <Ic.Award size={17} color="var(--o)" />
-            </Link>
-            <Link to="/invitation" className="lb-invite-btn">
-              <Ic.Share size={13} />
-              Invite
-            </Link>
-          </div>
-        </div>
-
-        {/* Period tabs */}
-        <div className="lb-periods" role="tablist">
-          {PERIODS.map((p) => (
-            <button
-              key={p.key}
-              className={`lb-period-btn${period === p.key ? " active" : ""}`}
-              onClick={() => setPeriod(p.key)}
-              role="tab"
-              aria-selected={period === p.key}
-              disabled={loading}
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Reward banner */}
-        {!loading && isCompetition && (
-          <RewardBanner
-            rewards={rewards}
-            period={period}
-            countdown={countdown}
-          />
-        )}
-
-        {/* Loading */}
-        {loading && <Skeleton />}
-
-        {/* Error */}
-        {!loading && error && (
-          <div className="lb-error" role="alert">
-            <Ic.Trophy size={28} color="var(--ink3)" />
-            <p>{error}</p>
-            <button onClick={fetchData} className="lb-retry">
-              Try Again
-            </button>
-          </div>
-        )}
-
-        {/* Empty */}
-        {!loading && !error && list.length === 0 && (
-          <div className="lb-empty">
-            <Ic.Trophy size={36} color="var(--ink3)" />
-            <p>No verified referrals yet</p>
-            {isCompetition && (
-              <p className="lb-empty-reward">
-                Be the first — win up to{" "}
-                {period === "month" ? "₦15,000" : "₦50,000"}!
-              </p>
-            )}
-            <Link to="/invitation" className="lb-empty-btn">
-              <Ic.Share size={13} color="var(--wh)" />
-              Start Inviting
-            </Link>
-          </div>
-        )}
-
-        {/* Podium */}
-        {!loading && !error && top3.length === 3 && (
-          <Podium top3={top3} />
-        )}
-
-        {/* My rank */}
-        {!loading && !error && showMyRank && (
-          <div className="lb-my-rank">
-            <div className="lb-my-rank-label">
-              <Ic.Star size={12} color="var(--o)" />
-              Your Position
-            </div>
-            <LeaderRow entry={myRank} highlight />
-            {isCompetition && myRank.reward && (
-              <div className="lb-my-rank-prize">
-                <Ic.Gift size={12} color="var(--o)" />
-                Current prize: <strong>{myRank.reward.label}</strong>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Not on board */}
-        {!loading && !error && !myRank && !myInList
-          && isLoggedIn && list.length > 0 && (
-          <div className="lb-my-rank lb-my-rank--none">
-            <p>
-              You're not on the board yet.{" "}
-              {isCompetition && (
-                <span>
-                  Win up to{" "}
-                  {period === "month" ? "₦15,000" : "₦50,000"}!{" "}
-                </span>
-              )}
-              <Link to="/invitation">Invite friends →</Link>
-            </p>
-          </div>
-        )}
-
-        {/* Rest of list #4+ */}
-        {!loading && !error && rest.length > 0 && (
-          <div className="lb-list" role="list">
-            {rest.map((e) => (
-              <LeaderRow
-                key={e.user_id}
-                entry={e}
-                highlight={e.is_current_user}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Previous winners */}
-        {!loading && !error && isCompetition && (
-          <PreviousWinners data={prevWins} period={period} />
-        )}
-
-        {/* CTA */}
-        {!loading && !error && (
-          <Link to="/invitation" className="lb-cta">
-            <Ic.Rocket size={20} color="var(--o)" />
-            <div className="lb-cta-text">
-              <span className="lb-cta-title">Invite friends to compete</span>
-              {isCompetition && (
-                <span className="lb-cta-reward">
-                  Win up to{" "}
-                  {period === "month" ? "₦15,000" : "₦50,000"}
-                </span>
-              )}
-            </div>
-            <Ic.ChevronRight size={16} />
-          </Link>
-        )}
-
-        <p className="lb-footer">
-          © {new Date().getFullYear()} Loemart
-        </p>
-
-      </div>
-    </div>
-  );
-}
+export default router;
