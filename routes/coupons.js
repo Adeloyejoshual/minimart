@@ -6,61 +6,72 @@ import authenticate from "../middleware/auth.js";
 const router = express.Router();
 
 /* ═══════════════════════════════════════════════════════════════
-   CREATE TABLE IF NOT EXISTS
+   ENSURE TABLES + INDEXES
 ═══════════════════════════════════════════════════════════════ */
 async function ensureTables() {
+
+  /* ── Coupons ── */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.coupons (
-      id            UUID        NOT NULL DEFAULT gen_random_uuid(),
-      code          STRING      NOT NULL,
-      type          STRING      NOT NULL DEFAULT 'percentage', -- percentage | fixed | free_shipping
-      value         DECIMAL     NOT NULL DEFAULT 0,
-      min_purchase  DECIMAL     NULL DEFAULT 0,
-      max_discount  DECIMAL     NULL,
-      usage_limit   INT8        NULL,
-      usage_count   INT8        NOT NULL DEFAULT 0,
-      expires_at    TIMESTAMP   NULL,
-      is_active     BOOL        NOT NULL DEFAULT true,
-      description   STRING      NULL,
-      created_by    UUID        NULL,
-      created_at    TIMESTAMP   NOT NULL DEFAULT now(),
-      CONSTRAINT coupons_pkey PRIMARY KEY (id ASC),
-      UNIQUE INDEX unique_coupon_code (code ASC)
+      id           UUID        NOT NULL DEFAULT gen_random_uuid(),
+      code         TEXT        NOT NULL,
+      type         TEXT        NOT NULL DEFAULT 'percentage',
+      value        DECIMAL     NOT NULL DEFAULT 0,
+      min_purchase DECIMAL     NOT NULL DEFAULT 0,
+      max_discount DECIMAL     NULL,
+      usage_limit  INT8        NULL,
+      usage_count  INT8        NOT NULL DEFAULT 0,
+      expires_at   TIMESTAMPTZ NULL,
+      is_active    BOOLEAN     NOT NULL DEFAULT true,
+      description  TEXT        NULL,
+      created_by   UUID        NULL,
+      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT coupons_pkey PRIMARY KEY (id)
     )
   `);
 
   await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS unique_coupon_code
+    ON public.coupons (code)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_coupons_active
+    ON public.coupons (is_active)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_coupons_expires
+    ON public.coupons (expires_at)
+  `);
+
+  /* ── Coupon redemptions ── */
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS public.coupon_redemptions (
-      id          UUID      NOT NULL DEFAULT gen_random_uuid(),
-      coupon_id   UUID      NOT NULL,
-      user_id     UUID      NOT NULL,
-      order_id    UUID      NULL,
-      discount    DECIMAL   NOT NULL DEFAULT 0,
-      redeemed_at TIMESTAMP NOT NULL DEFAULT now(),
-      CONSTRAINT coupon_redemptions_pkey PRIMARY KEY (id ASC),
-      INDEX idx_redemptions_coupon (coupon_id ASC),
-      INDEX idx_redemptions_user   (user_id   ASC)
+      id          UUID        NOT NULL DEFAULT gen_random_uuid(),
+      coupon_id   UUID        NOT NULL,
+      user_id     UUID        NOT NULL,
+      order_id    UUID        NULL,
+      discount    DECIMAL     NOT NULL DEFAULT 0,
+      redeemed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      CONSTRAINT coupon_redemptions_pkey PRIMARY KEY (id)
     )
   `);
 
-  // Seed some default coupons if none exist
-  const { rows } = await pool.query(
-    `SELECT COUNT(*)::int AS total FROM public.coupons`
-  );
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon
+    ON public.coupon_redemptions (coupon_id, user_id)
+  `);
 
-  if (rows[0].total === 0) {
-    await pool.query(`
-      INSERT INTO public.coupons
-        (code, type, value, min_purchase, max_discount, usage_limit, expires_at, description)
-      VALUES
-        ('WELCOME10',  'percentage',  10, 0,      5000,  1000, NOW() + INTERVAL '365 days', 'Get 10% off your first purchase'),
-        ('SAVE500',    'fixed',      500, 2000,    NULL,   500, NOW() + INTERVAL '90 days',  'Save ₦500 on orders above ₦2,000'),
-        ('LOEMART20',  'percentage',  20, 5000,   10000,  200, NOW() + INTERVAL '30 days',  '20% off orders above ₦5,000'),
-        ('FREESHIP',   'free_shipping', 0, 1000,  NULL,   300, NOW() + INTERVAL '60 days',  'Free delivery on all orders'),
-        ('FLASH50',    'percentage',  50, 10000,  25000,  100, NOW() + INTERVAL '7 days',   '50% off — Flash sale!')
-      ON CONFLICT (code) DO NOTHING
-    `);
-  }
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_redemptions_coupon
+    ON public.coupon_redemptions (coupon_id)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_redemptions_user
+    ON public.coupon_redemptions (user_id)
+  `);
 }
 
 ensureTables().catch((err) =>
@@ -69,13 +80,14 @@ ensureTables().catch((err) =>
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/coupons
-   Get available coupons for the current user
+   All active coupons with per-user usability flags
+   Returns both usable and used/expired so the frontend
+   can show the Available tab and the Used tab
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
 
-    /* Get all active coupons with user's redemption info */
     const { rows } = await pool.query(
       `SELECT
          c.id,
@@ -87,41 +99,50 @@ router.get("/", authenticate, async (req, res) => {
          c.usage_limit,
          c.usage_count,
          c.expires_at,
-         c.is_active,
          c.description,
          c.created_at,
          COUNT(r.id) FILTER (WHERE r.user_id = $1)::int AS user_usage_count
        FROM public.coupons c
-       LEFT JOIN public.coupon_redemptions r
-         ON r.coupon_id = c.id
-       WHERE c.is_active  = true
-         AND (c.expires_at IS NULL OR c.expires_at > NOW())
-         AND (c.usage_limit IS NULL OR c.usage_count < c.usage_limit)
-       GROUP BY c.id, c.code, c.type, c.value, c.min_purchase,
-                c.max_discount, c.usage_limit, c.usage_count,
-                c.expires_at, c.is_active, c.description, c.created_at
-       ORDER BY c.created_at DESC`,
+       LEFT JOIN public.coupon_redemptions r ON r.coupon_id = c.id
+       WHERE c.is_active = true
+       GROUP BY
+         c.id, c.code, c.type, c.value, c.min_purchase,
+         c.max_discount, c.usage_limit, c.usage_count,
+         c.expires_at, c.description, c.created_at
+       ORDER BY
+         CASE
+           WHEN (c.expires_at IS NULL OR c.expires_at > NOW())
+            AND (c.usage_limit IS NULL OR c.usage_count < c.usage_limit)
+           THEN 0 ELSE 1
+         END,
+         c.created_at DESC`,
       [userId]
     );
 
-    /* Mark which coupons user has already used */
-    const now = new Date();
+    const now     = new Date();
     const coupons = rows.map((c) => {
-      const expiresAt  = c.expires_at ? new Date(c.expires_at) : null;
-      const isExpired  = expiresAt ? expiresAt < now : false;
-      const isUsed     = c.user_usage_count > 0;
-      const isFull     = c.usage_limit ? c.usage_count >= c.usage_limit : false;
-      const daysLeft   = expiresAt
-        ? Math.max(0, Math.ceil((expiresAt - now) / (1000 * 60 * 60 * 24)))
+      const expiresAt = c.expires_at ? new Date(c.expires_at) : null;
+      const isExpired = expiresAt ? expiresAt < now : false;
+      const isUsed    = c.user_usage_count > 0;
+      const isFull    = c.usage_limit
+        ? Number(c.usage_count) >= Number(c.usage_limit)
+        : false;
+      const daysLeft  = expiresAt
+        ? Math.max(0, Math.ceil((expiresAt - now) / 86_400_000))
         : null;
 
       return {
-        ...c,
-        value        : Number(c.value       || 0),
+        id           : c.id,
+        code         : c.code,
+        type         : c.type,
+        description  : c.description,
+        value        : Number(c.value        || 0),
         min_purchase : Number(c.min_purchase || 0),
         max_discount : c.max_discount ? Number(c.max_discount) : null,
         usage_count  : Number(c.usage_count  || 0),
-        usage_limit  : c.usage_limit ? Number(c.usage_limit) : null,
+        usage_limit  : c.usage_limit  ? Number(c.usage_limit)  : null,
+        expires_at   : c.expires_at,
+        created_at   : c.created_at,
         is_expired   : isExpired,
         is_used      : isUsed,
         is_full      : isFull,
@@ -134,154 +155,193 @@ router.get("/", authenticate, async (req, res) => {
 
   } catch (err) {
     console.error("[coupons] GET /:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({ success: false, message: "Server error." });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/coupons/validate
-   Validate a coupon code + calculate discount
+   Validate a coupon code and calculate the discount
+   Body: { code, order_amount }
 ═══════════════════════════════════════════════════════════════ */
 router.post("/validate", authenticate, async (req, res) => {
   const { code, order_amount = 0 } = req.body;
   const userId = req.user.id;
 
   if (!code?.trim()) {
-    return res.status(400).json({ success: false, message: "Coupon code required" });
+    return res.status(400).json({ success: false, message: "Coupon code is required." });
   }
 
   try {
-    /* Find coupon */
+    /* ── Find coupon ── */
     const { rows } = await pool.query(
       `SELECT * FROM public.coupons
-       WHERE UPPER(code) = UPPER($1) AND is_active = true
+       WHERE UPPER(code) = UPPER($1)
+         AND is_active   = true
        LIMIT 1`,
       [code.trim()]
     );
 
     if (!rows.length) {
-      return res.status(404).json({ success: false, message: "Invalid coupon code" });
+      return res.status(404).json({ success: false, message: "Invalid coupon code." });
     }
 
     const c   = rows[0];
     const now = new Date();
 
-    /* Check expiry */
+    /* ── Expiry check ── */
     if (c.expires_at && new Date(c.expires_at) < now) {
-      return res.status(400).json({ success: false, message: "This coupon has expired" });
+      return res.status(400).json({ success: false, message: "This coupon has expired." });
     }
 
-    /* Check usage limit */
-    if (c.usage_limit && c.usage_count >= c.usage_limit) {
-      return res.status(400).json({ success: false, message: "This coupon has reached its usage limit" });
+    /* ── Usage limit check ── */
+    if (c.usage_limit && Number(c.usage_count) >= Number(c.usage_limit)) {
+      return res.status(400).json({
+        success: false,
+        message: "This coupon has reached its usage limit.",
+      });
     }
 
-    /* Check if user already used this coupon */
+    /* ── Already used by this user? ── */
     const { rows: used } = await pool.query(
       `SELECT id FROM public.coupon_redemptions
-       WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
+       WHERE coupon_id = $1
+         AND user_id   = $2
+       LIMIT 1`,
       [c.id, userId]
     );
 
     if (used.length) {
-      return res.status(400).json({ success: false, message: "You have already used this coupon" });
-    }
-
-    /* Check minimum purchase */
-    const amount = Number(order_amount);
-    if (c.min_purchase && amount < Number(c.min_purchase)) {
       return res.status(400).json({
-        success : false,
-        message : `Minimum order of ₦${Number(c.min_purchase).toLocaleString("en-NG")} required`,
+        success: false,
+        message: "You have already used this coupon.",
       });
     }
 
-    /* Calculate discount */
+    /* ── Minimum purchase check ── */
+    const amount = Number(order_amount);
+
+    if (Number(c.min_purchase) > 0 && amount < Number(c.min_purchase)) {
+      return res.status(400).json({
+        success: false,
+        message: `A minimum order of ₦${Number(c.min_purchase).toLocaleString("en-NG")} is required for this coupon.`,
+      });
+    }
+
+    /* ── Calculate discount ── */
     let discount = 0;
+    let message  = "";
 
     if (c.type === "percentage") {
       discount = (amount * Number(c.value)) / 100;
       if (c.max_discount) {
         discount = Math.min(discount, Number(c.max_discount));
       }
+      discount = Math.round(discount);
+      message  = `Coupon applied! You save ₦${discount.toLocaleString("en-NG")}.`;
+
     } else if (c.type === "fixed") {
-      discount = Math.min(Number(c.value), amount);
+      discount = Math.round(Math.min(Number(c.value), amount));
+      message  = `Coupon applied! You save ₦${discount.toLocaleString("en-NG")}.`;
+
     } else if (c.type === "free_shipping") {
-      discount = 0; // applied at checkout level
+      discount = 0;
+      message  = "Free shipping applied! Your delivery fee is waived at checkout.";
     }
 
-    discount = Math.round(discount);
-
     return res.json({
-      success  : true,
-      valid    : true,
-      coupon   : {
-        id          : c.id,
-        code        : c.code,
-        type        : c.type,
-        value       : Number(c.value),
-        description : c.description,
+      success      : true,
+      valid        : true,
+      coupon: {
+        id         : c.id,
+        code       : c.code,
+        type       : c.type,
+        value      : Number(c.value),
+        description: c.description,
       },
       discount,
       final_amount : Math.max(0, amount - discount),
-      message      : `Coupon applied! You save ₦${discount.toLocaleString("en-NG")}`,
+      message,
     });
 
   } catch (err) {
     console.error("[coupons] POST /validate:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({ success: false, message: "Server error." });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/coupons/redeem
-   Mark coupon as used after order is placed
+   Record coupon use after a successful order
+   Body: { code, order_id, discount }
 ═══════════════════════════════════════════════════════════════ */
 router.post("/redeem", authenticate, async (req, res) => {
   const { code, order_id, discount } = req.body;
   const userId = req.user.id;
 
   if (!code?.trim()) {
-    return res.status(400).json({ success: false, message: "Coupon code required" });
+    return res.status(400).json({ success: false, message: "Coupon code is required." });
   }
 
   try {
+    /* ── Find coupon ── */
     const { rows } = await pool.query(
-      `SELECT id FROM public.coupons WHERE UPPER(code) = UPPER($1) AND is_active = true LIMIT 1`,
+      `SELECT id FROM public.coupons
+       WHERE UPPER(code) = UPPER($1)
+         AND is_active   = true
+       LIMIT 1`,
       [code.trim()]
     );
 
     if (!rows.length) {
-      return res.status(404).json({ success: false, message: "Coupon not found" });
+      return res.status(404).json({ success: false, message: "Coupon not found." });
     }
 
     const couponId = rows[0].id;
 
-    /* Insert redemption */
+    /* ── Guard: already redeemed by this user? ── */
+    const { rows: existing } = await pool.query(
+      `SELECT id FROM public.coupon_redemptions
+       WHERE coupon_id = $1
+         AND user_id   = $2
+       LIMIT 1`,
+      [couponId, userId]
+    );
+
+    if (existing.length) {
+      return res.status(409).json({
+        success: false,
+        message: "You have already redeemed this coupon.",
+      });
+    }
+
+    /* ── Insert redemption record ── */
     await pool.query(
-      `INSERT INTO public.coupon_redemptions (coupon_id, user_id, order_id, discount)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT DO NOTHING`,
+      `INSERT INTO public.coupon_redemptions
+         (coupon_id, user_id, order_id, discount)
+       VALUES ($1, $2, $3, $4)`,
       [couponId, userId, order_id || null, Number(discount || 0)]
     );
 
-    /* Increment usage count */
+    /* ── Increment usage count ── */
     await pool.query(
-      `UPDATE public.coupons SET usage_count = usage_count + 1 WHERE id = $1`,
+      `UPDATE public.coupons
+       SET usage_count = usage_count + 1
+       WHERE id = $1`,
       [couponId]
     );
 
-    return res.json({ success: true, message: "Coupon redeemed" });
+    return res.json({ success: true, message: "Coupon redeemed successfully." });
 
   } catch (err) {
     console.error("[coupons] POST /redeem:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({ success: false, message: "Server error." });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/coupons/history
-   User's coupon redemption history
+   The current user's coupon redemption history
 ═══════════════════════════════════════════════════════════════ */
 router.get("/history", authenticate, async (req, res) => {
   try {
@@ -301,13 +361,13 @@ router.get("/history", authenticate, async (req, res) => {
        JOIN public.coupons c ON c.id = r.coupon_id
        WHERE r.user_id = $1
        ORDER BY r.redeemed_at DESC
-       LIMIT 20`,
+       LIMIT 50`,
       [userId]
     );
 
     return res.json({
-      success  : true,
-      history  : rows.map((r) => ({
+      success : true,
+      history : rows.map((r) => ({
         ...r,
         discount : Number(r.discount || 0),
         value    : Number(r.value    || 0),
@@ -316,7 +376,7 @@ router.get("/history", authenticate, async (req, res) => {
 
   } catch (err) {
     console.error("[coupons] GET /history:", err.message);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(500).json({ success: false, message: "Server error." });
   }
 });
 
