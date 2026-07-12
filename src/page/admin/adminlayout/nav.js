@@ -1,4 +1,6 @@
-// adminlayout/nav.js
+// ════════════════════════════════════════════════════════════
+// FILE: adminlayout/nav.js
+// ════════════════════════════════════════════════════════════
 
 export const NAV = [
   { g: "Dashboard" },
@@ -17,11 +19,14 @@ export const NAV = [
   { g: "Operations" },
   { id: "payments",            icon: "₦",  label: "Payments"        },
   { id: "orders",              icon: "◫",  label: "Orders"          },
-  { id: "withdrawals",         icon: "💸", label: "Withdrawals"     }, // ← NEW
+  { id: "withdrawals",         icon: "💸", label: "Withdrawals"     },
 
   { g: "Moderation" },
   { id: "reports",             icon: "⚑",  label: "Reports"         },
   { id: "verification",        icon: "✦",  label: "Verification"    },
+
+  { g: "Growth" },                                    // ✅ NEW section
+  { id: "leaderboard",         icon: "⬖",  label: "Leaderboard"     }, // ✅ NEW
 
   { g: "Config" },
   { id: "promotions",          icon: "◆",  label: "Promotions"      },
