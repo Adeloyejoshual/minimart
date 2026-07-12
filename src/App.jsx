@@ -84,6 +84,11 @@ import OrderHistory      from "./pages/OrderHistory";
 import HallOfFame from "./pages/HallOfFame";
 
 /* ════════════════════════════════════════════════════════════
+   PAGES — DESKTOP                                    ✅ NEW
+════════════════════════════════════════════════════════════ */
+import LeaderboardDesktop from "./desktop/LeaderboardDesktop";
+
+/* ════════════════════════════════════════════════════════════
    PAGES — MESSAGING DESKTOP
 ════════════════════════════════════════════════════════════ */
 import MessagingDesktop from "./pages/MessagingDesktop";
@@ -233,10 +238,20 @@ function ChatRoute({ user }) {
 }
 
 /* ════════════════════════════════════════════════════════════
+   LEADERBOARD ROUTE                                  ✅ NEW
+   Mobile  → Leaderboard (existing mobile page)
+   Desktop → LeaderboardDesktop (new split-layout page)
+════════════════════════════════════════════════════════════ */
+function LeaderboardRoute({ user }) {
+  const isDesktop = useIsDesktop();
+  return isDesktop
+    ? <LeaderboardDesktop />
+    : <Leaderboard user={user} />;
+}
+
+/* ════════════════════════════════════════════════════════════
    INVITE REDIRECT
    /invite/:code  →  /auth?ref=CODE
-   Sanitises the code before placing it in the URL so no
-   invalid characters reach the auth page or backend.
 ════════════════════════════════════════════════════════════ */
 function InviteRedirect() {
   const { code } = useParams();
@@ -246,7 +261,6 @@ function InviteRedirect() {
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 20);
 
-  /* If there is nothing usable, drop straight to register */
   if (!safe || safe.length < 4) {
     return <Navigate to="/auth" replace />;
   }
@@ -280,7 +294,6 @@ function AdminProtectedRoute({ admin, children }) {
 
 /* ════════════════════════════════════════════════════════════
    AUTH LOADER
-   Shown while /me is in-flight — prevents flash of wrong UI.
 ════════════════════════════════════════════════════════════ */
 const AuthLoader = memo(function AuthLoader() {
   return (
@@ -357,17 +370,14 @@ export default function App() {
     }
   }, []);
 
-  /* ── Auth success handler (login + register) ── */
+  /* ── Auth success handler ── */
   const handleAuthSuccess = useCallback(
     (userData, token, navigateFn, from) => {
       localStorage.setItem(TOKEN_KEYS.marketplace, token);
-
-      /* Clear stale cache + location keys */
       resetCache();
       ["lastLocation", "active_location", "cacheTime"].forEach((k) =>
         localStorage.removeItem(k)
       );
-
       setUser(userData);
       syncCartAfterLogin(token);
       toast.success(`Welcome, ${userData.name}!`);
@@ -384,9 +394,7 @@ export default function App() {
     toast.success("Signed out");
   }, [resetCache]);
 
-  /* ── Profile update handler ──
-        Merges only non-null fields so a partial update never
-        wipes existing data.                                  ── */
+  /* ── Profile update handler ── */
   const handleProfileUpdate = useCallback((updatedData) => {
     setUser((prev) => ({
       ...prev,
@@ -396,12 +404,8 @@ export default function App() {
     }));
   }, []);
 
-  /* ── Block render until auth state is resolved ── */
   if (!authChecked) return <AuthLoader />;
 
-  /* ══════════════════════════════════════════════════════════
-     ROUTES
-  ══════════════════════════════════════════════════════════ */
   return (
     <Router>
       <ScrollToTop />
@@ -452,11 +456,7 @@ export default function App() {
           }
         />
 
-        {/* ════════════ INVITE REDIRECT ════════════
-            /invite/ABC123  →  /auth?ref=ABC123
-            This is what makes the referral code appear
-            in the register form automatically.
-        ════════════════════════════════════════════ */}
+        {/* ════════════ INVITE REDIRECT ════════════ */}
         <Route path="/invite/:code" element={<InviteRedirect />} />
 
         {/* ════════════ SELLER ════════════ */}
@@ -573,11 +573,17 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* ════════════ LEADERBOARD ════════════
+            ✅ UPDATED: now responsive
+            Mobile  → Leaderboard
+            Desktop → LeaderboardDesktop
+        ════════════════════════════════════════ */}
         <Route
           path="/leaderboard"
           element={
             <ProtectedRoute user={user}>
-              <Leaderboard user={user} />
+              <LeaderboardRoute user={user} />
             </ProtectedRoute>
           }
         />
