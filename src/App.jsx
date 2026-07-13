@@ -63,6 +63,7 @@ import AddProduct        from "./pages/AddProduct";
 import Conversations     from "./pages/Conversations";
 import Chat              from "./pages/Chat";
 import Coupons           from "./pages/Profile/Coupons";
+import AirtimeCoupons    from "./pages/Profile/AirtimeCoupons";
 import Dashboard         from "./pages/Profile/Dashboard";
 import SpinWheel         from "./pages/Profile/SpinWheel";
 import Leaderboard       from "./pages/Profile/Leaderboard";
@@ -554,6 +555,14 @@ export default function App() {
           element={
             <ProtectedRoute user={user}>
               <Coupons user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/airtime-coupons"
+          element={
+            <ProtectedRoute user={user}>
+              <AirtimeCoupons user={user} />
             </ProtectedRoute>
           }
         />
