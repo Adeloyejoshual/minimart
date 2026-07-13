@@ -18,7 +18,8 @@ export const NAV = [
   { id: "payments",            icon: "₦",  label: "Payments"        },
   { id: "orders",              icon: "◫",  label: "Orders"          },
   { id: "withdrawals",         icon: "💸", label: "Withdrawals"     },
-  { id: "airtime_coupons",     icon: "📱", label: "Airtime"         }, // ✅ NEW
+  { id: "airtime_coupons",     icon: "📱", label: "Airtime"         },
+  { id: "coupon_redemption",   icon: "🎟️", label: "Redeem Coupons"  }, // ✅ NEW
 
   { g: "Moderation" },
   { id: "reports",             icon: "⚑",  label: "Reports"         },
