@@ -23,11 +23,27 @@ async function ensureTables() {
       usage_count  INT8        NOT NULL DEFAULT 0,
       expires_at   TIMESTAMPTZ NULL,
       is_active    BOOLEAN     NOT NULL DEFAULT true,
+      is_private   BOOLEAN     NOT NULL DEFAULT false,
       description  TEXT        NULL,
       created_by   UUID        NULL,
       created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
       CONSTRAINT coupons_pkey PRIMARY KEY (id)
     )
+  `);
+
+  /* ── Add is_private if this table already existed ── */
+  await pool.query(`
+    ALTER TABLE public.coupons
+    ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT false
+  `);
+
+  /* ── Mark any existing spin wheel coupons as private ── */
+  await pool.query(`
+    UPDATE public.coupons
+    SET is_private = true
+    WHERE is_private = false
+      AND created_by IS NOT NULL
+      AND description LIKE '%Spin & Win%'
   `);
 
   await pool.query(`
@@ -43,6 +59,11 @@ async function ensureTables() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_coupons_expires
     ON public.coupons (expires_at)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_coupons_private
+    ON public.coupons (is_private, created_by)
   `);
 
   /* ── Coupon redemptions ── */
@@ -80,9 +101,12 @@ ensureTables().catch((err) =>
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/coupons
-   All active coupons with per-user usability flags
-   Returns both usable and used/expired so the frontend
-   can show the Available tab and the Used tab
+   Returns:
+     - Public coupons  (is_private = false) — visible to everyone
+     - Private coupons (is_private = true)  — only visible to the
+       user who earned them (created_by = userId)
+   Both usable and used/expired are returned so the frontend
+   can populate the Available tab and the Used tab correctly.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
   try {
@@ -100,15 +124,20 @@ router.get("/", authenticate, async (req, res) => {
          c.usage_count,
          c.expires_at,
          c.description,
+         c.is_private,
          c.created_at,
          COUNT(r.id) FILTER (WHERE r.user_id = $1)::int AS user_usage_count
        FROM public.coupons c
        LEFT JOIN public.coupon_redemptions r ON r.coupon_id = c.id
        WHERE c.is_active = true
+         AND (
+           c.is_private = false      -- public: visible to all users
+           OR c.created_by = $1      -- private: only visible to the owner
+         )
        GROUP BY
          c.id, c.code, c.type, c.value, c.min_purchase,
          c.max_discount, c.usage_limit, c.usage_count,
-         c.expires_at, c.description, c.created_at
+         c.expires_at, c.description, c.is_private, c.created_at
        ORDER BY
          CASE
            WHEN (c.expires_at IS NULL OR c.expires_at > NOW())
@@ -143,6 +172,7 @@ router.get("/", authenticate, async (req, res) => {
         usage_limit  : c.usage_limit  ? Number(c.usage_limit)  : null,
         expires_at   : c.expires_at,
         created_at   : c.created_at,
+        is_private   : c.is_private,
         is_expired   : isExpired,
         is_used      : isUsed,
         is_full      : isFull,
@@ -189,9 +219,20 @@ router.post("/validate", authenticate, async (req, res) => {
     const c   = rows[0];
     const now = new Date();
 
+    /* ── Private coupon: only the owner can validate it ── */
+    if (c.is_private && c.created_by !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "This coupon is not valid for your account.",
+      });
+    }
+
     /* ── Expiry check ── */
     if (c.expires_at && new Date(c.expires_at) < now) {
-      return res.status(400).json({ success: false, message: "This coupon has expired." });
+      return res.status(400).json({
+        success: false,
+        message: "This coupon has expired.",
+      });
     }
 
     /* ── Usage limit check ── */
@@ -286,7 +327,7 @@ router.post("/redeem", authenticate, async (req, res) => {
   try {
     /* ── Find coupon ── */
     const { rows } = await pool.query(
-      `SELECT id FROM public.coupons
+      `SELECT id, is_private, created_by FROM public.coupons
        WHERE UPPER(code) = UPPER($1)
          AND is_active   = true
        LIMIT 1`,
@@ -297,7 +338,15 @@ router.post("/redeem", authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: "Coupon not found." });
     }
 
-    const couponId = rows[0].id;
+    const coupon = rows[0];
+
+    /* ── Private coupon: only the owner can redeem it ── */
+    if (coupon.is_private && coupon.created_by !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: "This coupon is not valid for your account.",
+      });
+    }
 
     /* ── Guard: already redeemed by this user? ── */
     const { rows: existing } = await pool.query(
@@ -305,7 +354,7 @@ router.post("/redeem", authenticate, async (req, res) => {
        WHERE coupon_id = $1
          AND user_id   = $2
        LIMIT 1`,
-      [couponId, userId]
+      [coupon.id, userId]
     );
 
     if (existing.length) {
@@ -320,7 +369,7 @@ router.post("/redeem", authenticate, async (req, res) => {
       `INSERT INTO public.coupon_redemptions
          (coupon_id, user_id, order_id, discount)
        VALUES ($1, $2, $3, $4)`,
-      [couponId, userId, order_id || null, Number(discount || 0)]
+      [coupon.id, userId, order_id || null, Number(discount || 0)]
     );
 
     /* ── Increment usage count ── */
@@ -328,7 +377,7 @@ router.post("/redeem", authenticate, async (req, res) => {
       `UPDATE public.coupons
        SET usage_count = usage_count + 1
        WHERE id = $1`,
-      [couponId]
+      [coupon.id]
     );
 
     return res.json({ success: true, message: "Coupon redeemed successfully." });
