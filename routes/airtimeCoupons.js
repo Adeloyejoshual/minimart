@@ -52,6 +52,18 @@ const maskPhone = (phone) => {
   return local.slice(0, 4) + "****" + local.slice(-3);
 };
 
+/*
+ * localPhone
+ * Converts +234XXXXXXXXXX → 0XXXXXXXXXX
+ * Used when sending the raw number back to the frontend
+ * so it can pre-fill the phone input without the +234 prefix.
+ */
+const localPhone = (phone) => {
+  if (!phone) return null;
+  if (phone.startsWith("+234")) return "0" + phone.slice(4);
+  return phone;
+};
+
 const daysSince = (date) =>
   Math.floor((Date.now() - new Date(date)) / 86_400_000);
 
@@ -81,16 +93,14 @@ const detectNetwork = (phone) => {
   return network;
 };
 
-/* ── Build the CHECK constraint string from AIRTIME_STATUS ──
- *
- * Keeps the constraint and the constant in sync automatically.
- * If you add a new status to AIRTIME_STATUS it is immediately
- * reflected in the DB constraint without editing two places.
+/*
+ * Build the CHECK constraint string from AIRTIME_STATUS.
+ * Adding a new status to AIRTIME_STATUS automatically
+ * reflects it in the DB constraint — no second place to edit.
  */
 const STATUS_CHECK = Object.values(AIRTIME_STATUS)
   .map((s) => `'${s}'`)
   .join(", ");
-// → 'available', 'redeemed', 'processing', 'completed', 'failed'
 
 /* ═══════════════════════════════════════════════════════════════
    ENSURE TABLES + INDEXES
@@ -192,9 +202,25 @@ ensureTables().catch((err) =>
 
 /* ──────────────────────────────────────────────────────────────
    GET /api/airtime-coupons/phone-status
+
+   Returns the user's phone state so the frontend can decide:
+
+   has_phone = false, verified = false
+     → No phone on file at all → show phone entry step
+
+   has_phone = true, verified = false
+     → Phone exists from registration but not yet verified
+     → Frontend pre-fills the input + goes straight to OTP
+     → local_number is returned so the input can be pre-filled
+
+   has_phone = true, verified = true
+     → Fully verified → show confirm modal directly on Redeem
 ────────────────────────────────────────────────────────────── */
 router.get("/phone-status", authenticate, async (req, res) => {
   try {
+    /* Also pull registration_phone if your users table has one.
+     * If your column is named differently (e.g. mobile, phone_number)
+     * add it to the SELECT and handle it in the logic below. */
     const { rows } = await pool.query(
       `SELECT
          phone,
@@ -214,6 +240,8 @@ router.get("/phone-status", authenticate, async (req, res) => {
 
     const u = rows[0];
 
+    const hasPhone = !!u.phone;
+
     const canChange = !u.phone_changed_at ||
       daysSince(u.phone_changed_at) >= CHANGE_COOLDOWN_DAYS;
 
@@ -224,7 +252,31 @@ router.get("/phone-status", authenticate, async (req, res) => {
     return res.json({
       success: true,
       phone: {
-        masked            : maskPhone(u.phone),
+        /*
+         * has_phone
+         * true  → a phone number is stored (verified or not)
+         * false → no phone on file yet
+         */
+        has_phone : hasPhone,
+
+        /*
+         * local_number
+         * The phone in 0XXXXXXXXXX format so the frontend can
+         * pre-fill the input field without showing +234.
+         * Only returned when has_phone = true AND verified = false.
+         * Once verified we only return the masked version.
+         */
+        local_number : hasPhone && !u.phone_verified
+          ? localPhone(u.phone)
+          : null,
+
+        /*
+         * masked
+         * Always returned when has_phone = true.
+         * 0803****567 format — safe to display.
+         */
+        masked : maskPhone(u.phone),
+
         verified          : u.phone_verified   || false,
         network           : u.phone_network    || null,
         verified_at       : u.phone_verified_at,
@@ -271,7 +323,7 @@ router.post("/send-otp", authenticate, async (req, res) => {
   }
 
   try {
-    /* ── Already linked to a different account? ── */
+    /* ── Already linked to a different verified account? ── */
     const { rows: conflict } = await pool.query(
       `SELECT id FROM public.users
        WHERE phone          = $1
@@ -330,9 +382,12 @@ router.post("/send-otp", authenticate, async (req, res) => {
 
     /*
      * ── SMS delivery ──
+     * Plug in your SMS provider here.
+     *
      * await smsProvider.send({
      *   to     : normalized,
-     *   message: `Your Loemart code is ${otp}. Valid for ${OTP_TTL_MINUTES} minutes. Do not share it.`,
+     *   message: `Your Loemart code is ${otp}. ` +
+     *            `Valid for ${OTP_TTL_MINUTES} minutes. Do not share it.`,
      * });
      */
     if (process.env.NODE_ENV !== "production") {
@@ -451,9 +506,11 @@ router.post("/verify-otp", authenticate, async (req, res) => {
       success: true,
       message: "Phone number verified successfully.",
       phone: {
-        masked   : maskPhone(normalized),
+        has_phone    : true,
+        local_number : null,              // verified — no longer returned
+        masked       : maskPhone(normalized),
         network,
-        verified : true,
+        verified     : true,
       },
     });
 
@@ -519,6 +576,11 @@ router.get("/", authenticate, async (req, res) => {
 /* ──────────────────────────────────────────────────────────────
    POST /api/airtime-coupons/redeem
    Body: { code }
+
+   Security layers:
+   1. SELECT ... FOR UPDATE  — locks row, queues concurrent requests
+   2. UPDATE WHERE status = 'available'  — second safety net
+   3. CHECK constraint on status column  — DB-level guard
 ────────────────────────────────────────────────────────────── */
 router.post("/redeem", authenticate, async (req, res) => {
   const { code } = req.body;
@@ -568,7 +630,7 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Load verified phone ── */
+    /* ── Load verified phone — always read from DB, never from request ── */
     const { rows: userRows } = await client.query(
       `SELECT phone, phone_verified, phone_network
        FROM public.users
@@ -588,7 +650,7 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Always re-detect network ── */
+    /* ── Always re-detect network from stored phone ── */
     let network;
     try {
       network = detectNetwork(user.phone);
@@ -600,7 +662,11 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Conditional UPDATE — second safety net after the lock ── */
+    /* ── Conditional UPDATE — second safety net after the lock ──
+     *
+     * AND status = 'available' means even if two transactions
+     * somehow passed the FOR UPDATE, only one UPDATE wins.
+     */
     const { rows: updated } = await client.query(
       `UPDATE public.airtime_coupons
        SET
@@ -664,7 +730,6 @@ router.post("/redeem", authenticate, async (req, res) => {
 
 /* ──────────────────────────────────────────────────────────────
    GET /api/airtime-coupons/admin
-   List redemption requests
    Query: ?status=redeemed&page=1&limit=20
 ────────────────────────────────────────────────────────────── */
 router.get("/admin", adminAuth, async (req, res) => {
@@ -674,7 +739,6 @@ router.get("/admin", adminAuth, async (req, res) => {
     const limit  = Math.min(100, parseInt(req.query.limit) || 20);
     const offset = (page - 1) * limit;
 
-    /* Reject unknown status values */
     if (!Object.values(AIRTIME_STATUS).includes(status)) {
       return res.status(400).json({
         success: false,
@@ -682,7 +746,6 @@ router.get("/admin", adminAuth, async (req, res) => {
       });
     }
 
-    /* ── Requests for the requested status ── */
     const { rows } = await pool.query(
       `SELECT
          a.id,
@@ -705,7 +768,6 @@ router.get("/admin", adminAuth, async (req, res) => {
       [status, limit, offset]
     );
 
-    /* ── Total for pagination ── */
     const { rows: countRows } = await pool.query(
       `SELECT COUNT(*)::int AS total
        FROM public.airtime_coupons
@@ -713,7 +775,6 @@ router.get("/admin", adminAuth, async (req, res) => {
       [status]
     );
 
-    /* ── Summary counts across all statuses ── */
     const { rows: summaryRows } = await pool.query(
       `SELECT status, COUNT(*)::int AS count
        FROM public.airtime_coupons
@@ -758,30 +819,21 @@ router.get("/admin", adminAuth, async (req, res) => {
 
 /* ──────────────────────────────────────────────────────────────
    POST /api/airtime-coupons/admin/:id/processing
-   Move a redeemed coupon to processing
 ────────────────────────────────────────────────────────────── */
 router.post("/admin/:id/processing", adminAuth, async (req, res) => {
-  await updateAdminStatus({
-    req, res,
-    targetStatus : AIRTIME_STATUS.PROCESSING,
-  });
+  await updateAdminStatus({ req, res, targetStatus: AIRTIME_STATUS.PROCESSING });
 });
 
 /* ──────────────────────────────────────────────────────────────
    POST /api/airtime-coupons/admin/:id/completed
-   Mark a coupon as completed after airtime is sent
 ────────────────────────────────────────────────────────────── */
 router.post("/admin/:id/completed", adminAuth, async (req, res) => {
-  await updateAdminStatus({
-    req, res,
-    targetStatus : AIRTIME_STATUS.COMPLETED,
-  });
+  await updateAdminStatus({ req, res, targetStatus: AIRTIME_STATUS.COMPLETED });
 });
 
 /* ──────────────────────────────────────────────────────────────
    POST /api/airtime-coupons/admin/:id/failed
-   Mark a coupon as failed and save an explanation
-   Body: { note }   — required for failed so user knows why
+   Body: { note }  — required
 ────────────────────────────────────────────────────────────── */
 router.post("/admin/:id/failed", adminAuth, async (req, res) => {
   if (!req.body.note?.trim()) {
@@ -790,16 +842,11 @@ router.post("/admin/:id/failed", adminAuth, async (req, res) => {
       message: "A note explaining the failure is required.",
     });
   }
-
-  await updateAdminStatus({
-    req, res,
-    targetStatus : AIRTIME_STATUS.FAILED,
-  });
+  await updateAdminStatus({ req, res, targetStatus: AIRTIME_STATUS.FAILED });
 });
 
 /* ──────────────────────────────────────────────────────────────
    POST /api/airtime-coupons/admin/assign
-   Assign a new airtime coupon to a user
    Body: { user_id, amount, code? }
 ────────────────────────────────────────────────────────────── */
 router.post("/admin/assign", adminAuth, async (req, res) => {
@@ -812,7 +859,6 @@ router.post("/admin/assign", adminAuth, async (req, res) => {
     });
   }
 
-  /* Auto-generate a code if none provided */
   const couponCode = code?.trim().toUpperCase() ||
     `AIR${Math.round(amount)}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 
@@ -855,7 +901,6 @@ router.post("/admin/assign", adminAuth, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    SHARED ADMIN STATUS UPDATE HELPER
-   Used by /processing, /completed, and /failed
 ═══════════════════════════════════════════════════════════════ */
 async function updateAdminStatus({ req, res, targetStatus }) {
   const { id }   = req.params;
@@ -867,7 +912,6 @@ async function updateAdminStatus({ req, res, targetStatus }) {
   try {
     await client.query("BEGIN");
 
-    /* ── Lock the row ── */
     const { rows } = await client.query(
       `SELECT id, status, code, amount
        FROM public.airtime_coupons
@@ -883,8 +927,6 @@ async function updateAdminStatus({ req, res, targetStatus }) {
     }
 
     const current = rows[0];
-
-    /* ── Validate transition using ADMIN_TRANSITIONS ── */
     const allowed = ADMIN_TRANSITIONS[current.status];
 
     if (!allowed) {
@@ -903,7 +945,6 @@ async function updateAdminStatus({ req, res, targetStatus }) {
       });
     }
 
-    /* ── Apply update ── */
     const { rows: updated } = await client.query(
       `UPDATE public.airtime_coupons
        SET
