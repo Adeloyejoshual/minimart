@@ -196,6 +196,7 @@ import spinwheelRouter    from "./routes/spinwheel.js";
 import referralRoutes     from "./routes/referrals.js";
 import leaderboardRoutes  from "./routes/leaderboard.js";
 import favoritesRouter    from "./routes/favorites.js";
+import airtimeCouponRoutes from "./routes/airtimeCoupons.js";
 
 /* ── Background jobs ── */
 import { startListingExpiryJob } from "./jobs/listingExpiry.js";
