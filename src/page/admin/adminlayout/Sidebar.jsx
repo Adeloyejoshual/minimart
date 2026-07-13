@@ -1,6 +1,4 @@
-// ════════════════════════════════════════════════════════════
-// FILE: adminlayout/Sidebar.jsx
-// ════════════════════════════════════════════════════════════
+// adminlayout/Sidebar.jsx
 
 import { NAV } from "./nav";
 
@@ -12,7 +10,8 @@ export default function Sidebar({
   marketPendingCount,
   verificationPendingCount,
   vendorPendingCount,
-  withdrawalPendingCount,   // ✅ was already in AdminDashboard, now wired here
+  withdrawalPendingCount,
+  airtimePendingCount,        // ✅ NEW
 }) {
 
   /* ── Badge map — nav id → count ── */
@@ -22,15 +21,17 @@ export default function Sidebar({
     reports             : reportCount,
     verification        : verificationPendingCount,
     vendor_verification : vendorPendingCount,
-    withdrawals         : withdrawalPendingCount,   // ✅ NEW
+    withdrawals         : withdrawalPendingCount,
+    airtime_coupons     : airtimePendingCount,    // ✅ NEW
   };
 
-  /* ── Red badges (alert) vs orange badges (info) ── */
+  /* ── Red badges (urgent) vs orange badges (info) ── */
   const redBadges = new Set([
     "reports",
     "verification",
     "vendor_verification",
-    "withdrawals",                                  // ✅ NEW — withdrawals are urgent
+    "withdrawals",
+    "airtime_coupons",                            // ✅ NEW — airtime is urgent
   ]);
 
   return (
@@ -41,12 +42,10 @@ export default function Sidebar({
 
       {NAV.map((item, i) =>
         item.g ? (
-          /* Section heading */
           <div key={`g-${i}`} className="sb-section">
             {item.g}
           </div>
         ) : (
-          /* Nav button */
           <button
             key={item.id}
             className={`nav-btn ${page === item.id ? "active" : ""}`}
@@ -55,7 +54,6 @@ export default function Sidebar({
             <span className="nav-icon">{item.icon}</span>
             {item.label}
 
-            {/* Badge — only shown when count > 0 */}
             {badges[item.id] > 0 && (
               <span
                 className={`nav-badge ${
