@@ -12,34 +12,20 @@ const router = express.Router();
 ═══════════════════════════════════════════════════════════════ */
 async function ensureColumns() {
   const migrations = [
-    `ALTER TABLE public.coupon_redemptions
-     ADD COLUMN IF NOT EXISTS redeemed_by_admin      UUID NULL`,
-
-    `ALTER TABLE public.coupon_redemptions
-     ADD COLUMN IF NOT EXISTS redeemed_by_admin_name TEXT NULL`,
-
-    `ALTER TABLE public.coupon_redemptions
-     ADD COLUMN IF NOT EXISTS reward_type        TEXT NULL`,
-
-    `ALTER TABLE public.coupon_redemptions
-     ADD COLUMN IF NOT EXISTS reward_value       DECIMAL NULL`,
-
-    `ALTER TABLE public.coupon_redemptions
-     ADD COLUMN IF NOT EXISTS reward_description TEXT NULL`,
-
-    `ALTER TABLE public.coupon_redemptions
-     ADD COLUMN IF NOT EXISTS admin_note         TEXT NULL`,
-
-    /* Store which user this redemption was verified against */
-    `ALTER TABLE public.coupon_redemptions
-     ADD COLUMN IF NOT EXISTS verified_user_id   UUID NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin      UUID    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin_name TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_type            TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_value           DECIMAL NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_description     TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS admin_note             TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS verified_user_id       UUID    NULL`,
+    `ALTER TABLE public.coupon_redemptions ALTER COLUMN user_id DROP NOT NULL`,
   ];
 
   for (const sql of migrations) {
-    try {
-      await pool.query(sql);
-    } catch (e) {
-      if (!e.message.includes("already exists")) {
+    try { await pool.query(sql); }
+    catch (e) {
+      if (!e.message.includes("already exists") && !e.message.includes("does not exist")) {
         console.warn("[admin/coupon-redemption] migration:", e.message);
       }
     }
@@ -62,47 +48,60 @@ const buildRewardLabel = (type, value) => {
 
 const normalizePhone = (raw) => {
   if (!raw) return null;
-  const digits = raw.replace(/\D/g, "");
+  const digits = String(raw).replace(/\D/g, "");
   if (digits.startsWith("234")) return "+" + digits;
   if (digits.startsWith("0"))   return "+234" + digits.slice(1);
-  return "+" + digits;
+  if (digits.length >= 10)      return "+234" + digits;
+  return null;
 };
 
 /*
- * findUserByEmailOrPhone
+ * findUser
  * Looks up a user by email OR phone.
- * Returns null if not found.
+ * Returns null if not found — this is fine, see design note below.
+ *
+ * DESIGN NOTE:
+ * We do NOT require the buyer to have a verified account.
+ * The admin is the trusted party here. If the admin says
+ * "this buyer used code X", we record it and mark the coupon used.
+ * The email/phone fields are optional hints — not hard requirements.
  */
-async function findUserByEmailOrPhone(email, phone) {
+async function findUser(email, phone) {
   if (!email && !phone) return null;
 
   const conditions = [];
   const params     = [];
 
-  if (email) {
+  if (email?.trim()) {
     params.push(email.trim().toLowerCase());
-    conditions.push(`LOWER(email) = $${params.length}`);
+    conditions.push(`LOWER(u.email) = $${params.length}`);
   }
 
-  if (phone) {
-    const normalized = normalizePhone(phone);
-    if (normalized) {
-      params.push(normalized);
-      conditions.push(`phone = $${params.length}`);
+  if (phone?.trim()) {
+    const norm = normalizePhone(phone.trim());
+    if (norm) {
+      params.push(norm);
+      /* Also match raw format stored without +234 */
+      const local = norm.replace("+234", "0");
+      params.push(local);
+      conditions.push(`(u.phone = $${params.length - 1} OR u.phone = $${params.length})`);
     }
   }
 
   if (!conditions.length) return null;
 
-  const { rows } = await pool.query(
-    `SELECT id, name, email, phone
-     FROM public.users
-     WHERE ${conditions.join(" OR ")}
-     LIMIT 1`,
-    params
-  );
-
-  return rows[0] || null;
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, email, phone, phone_verified
+       FROM public.users
+       WHERE ${conditions.join(" OR ")}
+       LIMIT 1`,
+      params
+    );
+    return rows[0] || null;
+  } catch {
+    return null;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -112,9 +111,9 @@ router.get("/stats", verifyAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
-         COUNT(*)::int                                  AS total_coupons,
-         COUNT(*) FILTER (WHERE is_active = true)::int  AS available,
-         COUNT(*) FILTER (WHERE is_active = false)::int AS redeemed
+         COUNT(*)::int                                   AS total_coupons,
+         COUNT(*) FILTER (WHERE is_active = true)::int   AS available,
+         COUNT(*) FILTER (WHERE is_active = false)::int  AS redeemed
        FROM public.coupons`
     );
 
@@ -142,20 +141,25 @@ router.get("/stats", verifyAdmin, async (req, res) => {
    GET /api/admin/coupon-redemption/lookup
    Query: ?code=XXXX&email=&phone=
 
+   KEY CHANGE:
+   Email and phone are now OPTIONAL hints used to:
+     - Identify which user the coupon belongs to (for display)
+     - Pre-populate the owner info shown to the admin
+     - Detect if the coupon has already been used by this buyer
+
+   They are NO LONGER hard blockers.
+   The admin sees the coupon details and decides whether to redeem.
+
    Flow:
-   1. Find the coupon
-   2. Run validity checks (inactive, expired, used)
-   3. Find the user by email or phone
-   4. For PRIVATE coupons (Spin & Win):
-        - User must match created_by (the winner)
-   5. For PUBLIC coupons (WELCOME10, LOEMART20 etc.):
-        - User must exist in the system
-        - User must NOT have already used this coupon
-   6. Return full details for admin to confirm
+   1. Find the coupon — check validity (inactive, expired, used)
+   2. Try to find the buyer by email/phone (optional)
+   3. If coupon is private, show owner details from created_by
+   4. Return coupon + owner info for admin to review
+   5. Admin clicks Redeem — that's where the final action happens
 ═══════════════════════════════════════════════════════════════ */
 router.get("/lookup", verifyAdmin, async (req, res) => {
   const code  = req.query.code?.trim().toUpperCase();
-  const email = req.query.email?.trim().toLowerCase() || null;
+  const email = req.query.email?.trim() || null;
   const phone = req.query.phone?.trim() || null;
 
   if (!code) {
@@ -165,11 +169,8 @@ router.get("/lookup", verifyAdmin, async (req, res) => {
     });
   }
 
-  /* Both email and phone are optional but at least one is
-     required for public coupons to identify the buyer. */
-
   try {
-    /* ── Find coupon ── */
+    /* ── Find the coupon ── */
     const { rows: couponRows } = await pool.query(
       `SELECT
          c.id,
@@ -197,192 +198,170 @@ router.get("/lookup", verifyAdmin, async (req, res) => {
     if (!couponRows.length) {
       return res.status(404).json({
         success: false,
-        message: "Invalid coupon code. No coupon found.",
+        message: "Invalid coupon code. No coupon found with that code.",
       });
     }
 
     const c   = couponRows[0];
     const now = new Date();
 
-    /* ── Basic validity ── */
+    /* ── Inactive ── */
     if (!c.is_active) {
       return res.status(400).json({
         success: false,
-        message: "This coupon has been deactivated.",
+        message: "This coupon has been deactivated and can no longer be used.",
       });
     }
 
+    /* ── Expired ── */
     if (c.expires_at && new Date(c.expires_at) < now) {
       return res.status(400).json({
         success: false,
-        message: "This coupon has expired.",
+        message: `This coupon expired on ${new Date(c.expires_at).toLocaleDateString("en-NG")}.`,
       });
     }
 
+    /* ── Usage limit ── */
     if (c.usage_limit && Number(c.usage_count) >= Number(c.usage_limit)) {
       return res.status(400).json({
         success: false,
-        message: "This coupon has reached its usage limit.",
+        message: "This coupon has reached its maximum usage limit.",
       });
     }
 
-    /* ── Already redeemed globally (for single-use coupons) ── */
-    const { rows: globalRedeem } = await pool.query(
-      `SELECT id, redeemed_at, redeemed_by_admin_name
-       FROM public.coupon_redemptions
-       WHERE coupon_id = $1
+    /* ── Already redeemed (global — for single-use coupons) ── */
+    const { rows: anyRedemption } = await pool.query(
+      `SELECT
+         r.id,
+         r.redeemed_at,
+         r.redeemed_by_admin_name,
+         u.name  AS user_name,
+         u.email AS user_email
+       FROM public.coupon_redemptions r
+       LEFT JOIN public.users u ON u.id = r.user_id
+       WHERE r.coupon_id = $1
        LIMIT 1`,
       [c.id]
     );
 
-    if (globalRedeem.length && c.usage_limit === 1) {
+    if (anyRedemption.length) {
+      const r = anyRedemption[0];
       return res.status(409).json({
         success: false,
         message: "This coupon has already been redeemed.",
         already_redeemed: {
-          redeemed_at : globalRedeem[0].redeemed_at,
-          redeemed_by : globalRedeem[0].redeemed_by_admin_name || "Admin",
+          redeemed_at  : r.redeemed_at,
+          redeemed_by  : r.redeemed_by_admin_name || r.user_name || "Admin",
+          redeemed_by_email: r.user_email || null,
         },
       });
     }
 
     /* ══════════════════════════════════════════════════════════
-       PRIVATE COUPON (Spin & Win)
-       Must be redeemed for its specific owner.
+       RESOLVE OWNER INFO
+       For private coupons: use created_by (the winner)
+       For public coupons: try to find by email/phone (optional)
+       Either way — always return coupon details to admin
     ══════════════════════════════════════════════════════════ */
-    if (c.is_private && c.owner_id) {
+    let owner      = null;
+    let buyerFound = false;
+    let ownerMatch = null; // "email" | "phone" | "created_by" | null
 
-      /* Email or phone required to verify the winner */
-      if (!email && !phone) {
-        return res.status(400).json({
-          success     : false,
-          message     : "Please enter the buyer's email or phone to verify their identity.",
-          requires    : "email_or_phone",
+    if (c.is_private && c.owner_id) {
+      /* Private — owner is whoever won the spin */
+      owner      = {
+        id    : c.owner_id,
+        name  : c.owner_name  || "Unknown",
+        email : c.owner_email || null,
+        phone : c.owner_phone || null,
+      };
+      buyerFound = true;
+      ownerMatch = "created_by";
+
+      /* Soft-check: warn admin if email/phone doesn't match */
+      let emailMismatch = false;
+      let phoneMismatch = false;
+
+      if (email && c.owner_email) {
+        emailMismatch = c.owner_email.toLowerCase() !== email.toLowerCase();
+      }
+      if (phone && c.owner_phone) {
+        const inp = normalizePhone(phone);
+        const own = normalizePhone(c.owner_phone);
+        phoneMismatch = inp && own && inp !== own;
+      }
+
+      /* Return warning but still show coupon */
+      if (emailMismatch || phoneMismatch) {
+        return res.json({
+          success     : true,
           coupon_type : "private",
+          warning     : emailMismatch
+            ? "The email entered does not match the coupon owner. Please confirm with the buyer before redeeming."
+            : "The phone number entered does not match the coupon owner. Please confirm with the buyer before redeeming.",
+          coupon: buildCouponResponse(c, owner),
         });
       }
 
-      /* Check email matches */
-      if (email && c.owner_email) {
-        if (c.owner_email.toLowerCase() !== email.toLowerCase()) {
-          return res.status(403).json({
-            success: false,
-            message: "The email address does not match the coupon owner.",
-            hint   : "Ask the buyer to confirm their registered email address.",
-          });
+    } else {
+      /* Public coupon — try to find buyer by email/phone */
+      if (email || phone) {
+        const buyer = await findUser(email, phone);
+        if (buyer) {
+          owner      = buyer;
+          buyerFound = true;
+          ownerMatch = email && buyer.email?.toLowerCase() === email?.toLowerCase()
+            ? "email" : "phone";
+
+          /* Check if this buyer already used this public coupon */
+          const { rows: buyerUsed } = await pool.query(
+            `SELECT id, redeemed_at FROM public.coupon_redemptions
+             WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
+            [c.id, buyer.id]
+          );
+
+          if (buyerUsed.length) {
+            return res.status(409).json({
+              success: false,
+              message: `This coupon has already been used by ${buyer.name || buyer.email}.`,
+              already_redeemed: {
+                redeemed_at : buyerUsed[0].redeemed_at,
+                user_name   : buyer.name,
+                user_email  : buyer.email,
+              },
+            });
+          }
+        } else {
+          /*
+           * No account found for that email/phone.
+           * This is NOT a hard error — admin can still redeem.
+           * We just won't link it to a user account.
+           */
+          owner      = {
+            id    : null,
+            name  : email || phone || "Unknown Buyer",
+            email : email || null,
+            phone : phone || null,
+          };
+          buyerFound = false;
+          ownerMatch = null;
         }
       }
-
-      /* Check phone matches */
-      if (phone && c.owner_phone) {
-        const normalizedInput = normalizePhone(phone);
-        const normalizedOwner = normalizePhone(c.owner_phone);
-        if (normalizedInput !== normalizedOwner) {
-          return res.status(403).json({
-            success: false,
-            message: "The phone number does not match the coupon owner.",
-            hint   : "Ask the buyer to confirm their registered phone number.",
-          });
-        }
-      }
-
-      /* Private coupon — owner verified */
-      return res.json({
-        success: true,
-        coupon_type: "private",
-        coupon: {
-          id           : c.id,
-          code         : c.code,
-          type         : c.type,
-          value        : Number(c.value),
-          description  : c.description,
-          expires_at   : c.expires_at,
-          is_private   : true,
-          reward_label : buildRewardLabel(c.type, c.value),
-          status       : "available",
-          owner: {
-            id    : c.owner_id,
-            name  : c.owner_name,
-            email : c.owner_email,
-            phone : c.owner_phone,
-          },
-        },
-      });
     }
 
-    /* ══════════════════════════════════════════════════════════
-       PUBLIC COUPON (WELCOME10, LOEMART20, FREESHIP etc.)
-       No fixed owner — but we still need to:
-       1. Identify the buyer (by email or phone)
-       2. Make sure they haven't already used this coupon
-    ══════════════════════════════════════════════════════════ */
-
-    /* Email or phone required to identify the buyer */
-    if (!email && !phone) {
-      return res.status(400).json({
-        success     : false,
-        message     : "Please enter the buyer's email or phone to identify them.",
-        requires    : "email_or_phone",
-        coupon_type : "public",
-      });
-    }
-
-    /* Find the buyer */
-    const buyer = await findUserByEmailOrPhone(email, phone);
-
-    if (!buyer) {
-      return res.status(404).json({
-        success: false,
-        message: "No Loemart account found with that email or phone number.",
-        hint   : "Make sure the buyer is registered on Loemart.",
-      });
-    }
-
-    /* Has this buyer already used this coupon? */
-    const { rows: userRedeem } = await pool.query(
-      `SELECT id, redeemed_at
-       FROM public.coupon_redemptions
-       WHERE coupon_id = $1
-         AND user_id   = $2
-       LIMIT 1`,
-      [c.id, buyer.id]
-    );
-
-    if (userRedeem.length) {
-      return res.status(409).json({
-        success: false,
-        message: `This coupon has already been used by ${buyer.name} (${buyer.email}).`,
-        already_redeemed: {
-          redeemed_at : userRedeem[0].redeemed_at,
-          user_name   : buyer.name,
-          user_email  : buyer.email,
-        },
-      });
-    }
-
-    /* Public coupon — buyer identified and has not used it */
     return res.json({
       success     : true,
-      coupon_type : "public",
-      coupon: {
-        id           : c.id,
-        code         : c.code,
-        type         : c.type,
-        value        : Number(c.value),
-        description  : c.description,
-        expires_at   : c.expires_at,
-        is_private   : false,
-        usage_count  : Number(c.usage_count),
-        usage_limit  : c.usage_limit ? Number(c.usage_limit) : null,
-        reward_label : buildRewardLabel(c.type, c.value),
-        status       : "available",
-        owner: {
-          id    : buyer.id,
-          name  : buyer.name,
-          email : buyer.email,
-          phone : buyer.phone,
-        },
-      },
+      coupon_type : c.is_private ? "private" : "public",
+      buyer_found : buyerFound,
+      owner_match : ownerMatch,
+      /*
+       * If no email/phone given and it's a public coupon,
+       * hint to the admin that they can optionally provide one.
+       */
+      hint: (!email && !phone && !c.is_private)
+        ? "You can optionally enter the buyer's email or phone to link this redemption to their account."
+        : null,
+      coupon: buildCouponResponse(c, owner),
     });
 
   } catch (err) {
@@ -391,9 +370,33 @@ router.get("/lookup", verifyAdmin, async (req, res) => {
   }
 });
 
+/* ─── helper: build consistent coupon response object ─── */
+function buildCouponResponse(c, owner) {
+  return {
+    id           : c.id,
+    code         : c.code,
+    type         : c.type,
+    value        : Number(c.value),
+    description  : c.description,
+    expires_at   : c.expires_at,
+    usage_count  : Number(c.usage_count || 0),
+    usage_limit  : c.usage_limit ? Number(c.usage_limit) : null,
+    is_private   : c.is_private,
+    reward_label : buildRewardLabel(c.type, c.value),
+    status       : "available",
+    owner        : owner || null,
+  };
+}
+
 /* ═══════════════════════════════════════════════════════════════
    POST /api/admin/coupon-redemption/redeem
    Body: { code, email?, phone?, note? }
+
+   KEY CHANGE:
+   Email and phone are completely optional.
+   The admin is fully trusted to redeem any valid coupon.
+   We try to link to a user account if possible, but never
+   block the redemption if we can't find one.
 ═══════════════════════════════════════════════════════════════ */
 router.post("/redeem", verifyAdmin, async (req, res) => {
   const {
@@ -418,7 +421,7 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* ── Lock coupon row ── */
+    /* ── Lock the coupon row ── */
     const { rows: couponRows } = await client.query(
       `SELECT
          c.id, c.code, c.type, c.value, c.description,
@@ -450,104 +453,82 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
     /* ── Validity checks ── */
     if (!c.is_active) {
       await client.query("ROLLBACK");
-      return res.status(400).json({ success: false, message: "This coupon has been deactivated." });
+      return res.status(400).json({
+        success: false,
+        message: "This coupon has been deactivated.",
+      });
     }
 
     if (c.expires_at && new Date(c.expires_at) < now) {
       await client.query("ROLLBACK");
-      return res.status(400).json({ success: false, message: "This coupon has expired." });
+      return res.status(400).json({
+        success: false,
+        message: "This coupon has expired.",
+      });
     }
 
     if (c.usage_limit && Number(c.usage_count) >= Number(c.usage_limit)) {
       await client.query("ROLLBACK");
-      return res.status(400).json({ success: false, message: "This coupon has reached its usage limit." });
+      return res.status(400).json({
+        success: false,
+        message: "This coupon has reached its usage limit.",
+      });
     }
 
-    /* ── Resolve which user this redemption belongs to ── */
-    let resolvedUser = null;
+    /* ── Check already redeemed ── */
+    const { rows: alreadyUsed } = await client.query(
+      `SELECT id FROM public.coupon_redemptions
+       WHERE coupon_id = $1 LIMIT 1`,
+      [c.id]
+    );
+
+    if (alreadyUsed.length) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        success: false,
+        message: "This coupon has already been redeemed.",
+      });
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       RESOLVE USER TO LINK REDEMPTION TO
+       Priority order:
+         1. Private coupon  → use created_by (the winner)
+         2. Email/phone given → look up user account
+         3. Nothing found   → record redemption with user_id = NULL
+       In ALL cases the admin can proceed.
+    ══════════════════════════════════════════════════════════ */
+    let resolvedUserId   = null;
+    let resolvedUserName = null;
 
     if (c.is_private && c.owner_id) {
-      /* ── PRIVATE: verify email/phone matches owner ── */
-      if (email && c.owner_email) {
-        if (c.owner_email.toLowerCase() !== email.trim().toLowerCase()) {
+      /* Private spin coupon — always link to the winner */
+      resolvedUserId   = c.owner_id;
+      resolvedUserName = c.owner_name || c.owner_email;
+
+    } else if (email || phone) {
+      /* Public coupon — try to find by email/phone */
+      const buyer = await findUser(email, phone);
+      if (buyer) {
+        /* Check this buyer hasn't used it before */
+        const { rows: buyerUsed } = await client.query(
+          `SELECT id FROM public.coupon_redemptions
+           WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
+          [c.id, buyer.id]
+        );
+
+        if (buyerUsed.length) {
           await client.query("ROLLBACK");
-          return res.status(403).json({
+          return res.status(409).json({
             success: false,
-            message: "The email address does not match the coupon owner.",
+            message: `This coupon has already been used by ${buyer.name || buyer.email}.`,
           });
         }
+
+        resolvedUserId   = buyer.id;
+        resolvedUserName = buyer.name || buyer.email;
       }
-
-      if (phone && c.owner_phone) {
-        const normalizedInput = normalizePhone(phone);
-        const normalizedOwner = normalizePhone(c.owner_phone);
-        if (normalizedInput !== normalizedOwner) {
-          await client.query("ROLLBACK");
-          return res.status(403).json({
-            success: false,
-            message: "The phone number does not match the coupon owner.",
-          });
-        }
-      }
-
-      resolvedUser = {
-        id    : c.owner_id,
-        name  : c.owner_name,
-        email : c.owner_email,
-        phone : c.owner_phone,
-      };
-
-      /* Check this owner hasn't used it */
-      const { rows: ownerUsed } = await client.query(
-        `SELECT id FROM public.coupon_redemptions
-         WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
-        [c.id, c.owner_id]
-      );
-
-      if (ownerUsed.length) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          success: false,
-          message: "This coupon has already been redeemed by its owner.",
-        });
-      }
-
-    } else {
-      /* ── PUBLIC: find buyer by email or phone ── */
-      if (!email && !phone) {
-        await client.query("ROLLBACK");
-        return res.status(400).json({
-          success: false,
-          message: "Please provide the buyer's email or phone number.",
-        });
-      }
-
-      const buyer = await findUserByEmailOrPhone(email, phone);
-
-      if (!buyer) {
-        await client.query("ROLLBACK");
-        return res.status(404).json({
-          success: false,
-          message: "No Loemart account found with that email or phone number.",
-        });
-      }
-
-      /* Has this buyer already used this coupon? */
-      const { rows: buyerUsed } = await client.query(
-        `SELECT id FROM public.coupon_redemptions
-         WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
-        [c.id, buyer.id]
-      );
-
-      if (buyerUsed.length) {
-        await client.query("ROLLBACK");
-        return res.status(409).json({
-          success: false,
-          message: `This coupon has already been used by ${buyer.name} (${buyer.email}).`,
-        });
-      }
-
-      resolvedUser = buyer;
+      /* If buyer not found — that's fine, we proceed without user_id */
     }
 
     /* ── Insert redemption record ── */
@@ -560,32 +541,28 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
       [
         c.id,
-        resolvedUser?.id   || null,
-        Number(c.value     || 0),
+        resolvedUserId,
+        Number(c.value || 0),
         adminId,
         adminName,
         c.type,
         Number(c.value),
         c.description || buildRewardLabel(c.type, c.value),
-        note?.trim()   || null,
-        resolvedUser?.id   || null,
+        note?.trim() || null,
+        resolvedUserId,
       ]
     );
 
-    /* ── Increment usage_count + deactivate if single-use ──
+    /* ── Increment usage_count + deactivate ──
      *
-     * Single-use coupons (usage_limit = 1):
-     *   → is_active = false immediately
-     *
-     * Multi-use public coupons (usage_limit > 1):
-     *   → Only increment count, keep active
-     *   → The per-user check above prevents the same person reusing it
+     * Single-use coupons  (usage_limit = 1) → always deactivate
+     * Multi-use coupons   (usage_limit > 1) → deactivate only when limit hit
+     * No limit coupons    (usage_limit NULL) → keep active
      */
-    const isSingleUse =
-      c.usage_limit !== null && Number(c.usage_limit) === 1;
-
-    const newUsageCount = Number(c.usage_count) + 1;
-    const reachedLimit  = c.usage_limit && newUsageCount >= Number(c.usage_limit);
+    const newCount      = Number(c.usage_count) + 1;
+    const isSingleUse   = c.usage_limit !== null && Number(c.usage_limit) === 1;
+    const limitReached  = c.usage_limit !== null && newCount >= Number(c.usage_limit);
+    const shouldDeactivate = isSingleUse || limitReached;
 
     await client.query(
       `UPDATE public.coupons
@@ -593,7 +570,7 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
          usage_count = usage_count + 1,
          is_active   = CASE WHEN $1 THEN false ELSE is_active END
        WHERE id = $2`,
-      [isSingleUse || reachedLimit, c.id]
+      [shouldDeactivate, c.id]
     );
 
     await client.query("COMMIT");
@@ -609,25 +586,44 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
         "coupon",
         c.id,
         JSON.stringify({
-          code         : c.code,
-          type         : c.type,
-          value        : Number(c.value),
-          is_private   : c.is_private,
-          reward_label : buildRewardLabel(c.type, c.value),
-          buyer_id     : resolvedUser?.id,
-          buyer_email  : resolvedUser?.email,
-          buyer_phone  : resolvedUser?.phone,
-          admin_name   : adminName,
-          admin_note   : note?.trim() || null,
+          code           : c.code,
+          type           : c.type,
+          value          : Number(c.value),
+          is_private     : c.is_private,
+          reward_label   : buildRewardLabel(c.type, c.value),
+          resolved_user  : resolvedUserId,
+          resolved_name  : resolvedUserName,
+          input_email    : email || null,
+          input_phone    : phone || null,
+          admin_name     : adminName,
+          admin_note     : note?.trim() || null,
+          deactivated    : shouldDeactivate,
         }),
       ]
     ).catch((e) =>
-      console.warn("[admin/coupon-redemption] audit log failed:", e.message)
+      console.warn("[admin/coupon-redemption] audit log:", e.message)
     );
+
+    /* ── Build owner display ── */
+    const ownerDisplay = resolvedUserId
+      ? {
+          id    : resolvedUserId,
+          name  : resolvedUserName || "Unknown",
+          email : email || c.owner_email || null,
+          phone : phone || c.owner_phone || null,
+        }
+      : {
+          id    : null,
+          name  : email || phone || "Unregistered Buyer",
+          email : email || null,
+          phone : phone || null,
+        };
 
     return res.json({
       success: true,
-      message: "Coupon redeemed successfully.",
+      message: resolvedUserId
+        ? `Coupon redeemed successfully for ${ownerDisplay.name}.`
+        : "Coupon redeemed successfully.",
       redemption: {
         code         : c.code,
         type         : c.type,
@@ -637,12 +633,8 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
         redeemed_by  : adminName,
         redeemed_at  : new Date().toISOString(),
         admin_note   : note?.trim() || null,
-        owner: {
-          id    : resolvedUser?.id    || null,
-          name  : resolvedUser?.name  || "Unknown",
-          email : resolvedUser?.email || null,
-          phone : resolvedUser?.phone || null,
-        },
+        linked_to_account: !!resolvedUserId,
+        owner        : ownerDisplay,
       },
     });
 
@@ -743,8 +735,8 @@ router.get("/history", verifyAdmin, async (req, res) => {
           redeemed_by  : r.redeemed_by_admin_name || "Admin",
           order_id     : r.order_id,
           user: {
-            id    : r.user_id,
-            name  : r.user_name  || "—",
+            id    : r.user_id   || null,
+            name  : r.user_name || "Unregistered Buyer",
             email : r.user_email || "—",
             phone : r.user_phone || null,
           },
