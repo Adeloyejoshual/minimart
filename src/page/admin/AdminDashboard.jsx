@@ -1,6 +1,4 @@
-// ════════════════════════════════════════════════════════════
-// FILE: src/pages/admin/AdminDashboard.jsx
-// ════════════════════════════════════════════════════════════
+// src/pages/admin/AdminDashboard.jsx
 
 import { useEffect, useState, useMemo, useCallback } from "react";
 import axios from "axios";
@@ -25,7 +23,8 @@ import System             from "./SuperAdmin/System";
 import Reports            from "./SuperAdmin/Reports";
 import Verification       from "./SuperAdmin/Verification";
 import VendorVerification from "./SuperAdmin/VendorVerification";
-import Leaderboard        from "./SuperAdmin/Leaderboard"; // ✅ NEW
+import Leaderboard        from "./SuperAdmin/Leaderboard";
+import AirtimeCoupons     from "./SuperAdmin/AirtimeCoupons"; // ✅ NEW
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
@@ -104,7 +103,7 @@ function useData(api) {
     vendorsPending     : 0,
     vendorsActive      : 0,
     vendorsUnderReview : 0,
-    referrals          : {       // ✅ NEW
+    referrals          : {
       total    : 0,
       pending  : 0,
       verified : 0,
@@ -131,6 +130,10 @@ function useData(api) {
   const [verificationPendingCount, setVerificationPendingCount] = useState(0);
   const [vendorPendingCount,       setVendorPendingCount]       = useState(0);
   const [withdrawalPendingCount,   setWithdrawalPendingCount]   = useState(0);
+
+  /* ── NEW: airtime pending count for sidebar badge ── */
+  const [airtimePendingCount,      setAirtimePendingCount]      = useState(0);
+
   const [loading,                  setLoading]                  = useState(true);
 
   const safe = useCallback(async (path, setter, base) => {
@@ -206,6 +209,14 @@ function useData(api) {
     } catch {}
   }, [api]);
 
+  /* ── NEW: airtime pending badge ── */
+  const reloadAirtimeCount = useCallback(async () => {
+    try {
+      const { data } = await api.get("/airtime-coupons?status=redeemed&limit=1");
+      setAirtimePendingCount(data?.total ?? 0);
+    } catch {}
+  }, [api]);
+
   const reload = useMemo(() => ({
     users               : () => safe("/users",            setUsers),
     admins              : () => safe("/admins",           setAdmins),
@@ -224,6 +235,7 @@ function useData(api) {
     verificationCount   : reloadVerificationCount,
     vendorCount         : reloadVendorCount,
     withdrawalCount     : reloadWithdrawalCount,
+    airtimeCount        : reloadAirtimeCount,  // ✅ NEW
   }), [
     safe,
     reloadPlans,
@@ -232,6 +244,7 @@ function useData(api) {
     reloadVerificationCount,
     reloadVendorCount,
     reloadWithdrawalCount,
+    reloadAirtimeCount,
   ]);
 
   const loadAll = useCallback(async () => {
@@ -252,6 +265,7 @@ function useData(api) {
       reloadVerificationCount(),
       reloadVendorCount(),
       reloadWithdrawalCount(),
+      reloadAirtimeCount(),       // ✅ NEW
     ]);
     setLoading(false);
   }, [
@@ -262,6 +276,7 @@ function useData(api) {
     reloadVerificationCount,
     reloadVendorCount,
     reloadWithdrawalCount,
+    reloadAirtimeCount,
   ]);
 
   return {
@@ -270,6 +285,7 @@ function useData(api) {
     reportCount, marketPendingCount,
     verificationPendingCount, vendorPendingCount,
     withdrawalPendingCount,
+    airtimePendingCount,          // ✅ NEW
     loading, loadAll, reload,
   };
 }
@@ -474,12 +490,13 @@ export default function AdminDashboard() {
 
   /* ── Total notification badge ── */
   const totalNotifCount =
-    data.pending.length           +
-    data.marketPendingCount       +
-    data.reportCount              +
-    data.verificationPendingCount +
-    data.vendorPendingCount       +
-    data.withdrawalPendingCount;
+    data.pending.length                +
+    data.marketPendingCount            +
+    data.reportCount                   +
+    data.verificationPendingCount      +
+    data.vendorPendingCount            +
+    data.withdrawalPendingCount        +
+    data.airtimePendingCount;          // ✅ NEW — airtime in badge total
 
   if (data.loading) {
     return (
@@ -631,12 +648,20 @@ export default function AdminDashboard() {
       />
     ),
 
-    /* ✅ NEW — Leaderboard admin page */
     leaderboard: (
       <Leaderboard
         api={api}
         referralStats={data.stats.referrals}
         confirm={confirm}
+      />
+    ),
+
+    /* ✅ NEW — Airtime Coupons admin page */
+    airtime_coupons: (
+      <AirtimeCoupons
+        api={api}
+        confirm={confirm}
+        onMutation={data.reload.airtimeCount}
       />
     ),
   };
@@ -655,6 +680,7 @@ export default function AdminDashboard() {
           verificationPendingCount={data.verificationPendingCount}
           vendorPendingCount={data.vendorPendingCount}
           withdrawalPendingCount={data.withdrawalPendingCount}
+          airtimePendingCount={data.airtimePendingCount}  // ✅ NEW
         />
 
         <div className="main">
