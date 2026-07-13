@@ -11,10 +11,9 @@ export default function Sidebar({
   verificationPendingCount,
   vendorPendingCount,
   withdrawalPendingCount,
-  airtimePendingCount,        // ✅ NEW
+  airtimePendingCount,
 }) {
 
-  /* ── Badge map — nav id → count ── */
   const badges = {
     products            : pendingCount,
     market_products     : marketPendingCount,
@@ -22,16 +21,15 @@ export default function Sidebar({
     verification        : verificationPendingCount,
     vendor_verification : vendorPendingCount,
     withdrawals         : withdrawalPendingCount,
-    airtime_coupons     : airtimePendingCount,    // ✅ NEW
+    airtime_coupons     : airtimePendingCount,
   };
 
-  /* ── Red badges (urgent) vs orange badges (info) ── */
   const redBadges = new Set([
     "reports",
     "verification",
     "vendor_verification",
     "withdrawals",
-    "airtime_coupons",                            // ✅ NEW — airtime is urgent
+    "airtime_coupons",
   ]);
 
   return (
