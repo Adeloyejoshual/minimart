@@ -31,13 +31,23 @@ async function ensureTables() {
     )
   `);
 
-  /* ── Add is_private if this table already existed ── */
-  await pool.query(`
-    ALTER TABLE public.coupons
-    ADD COLUMN IF NOT EXISTS is_private BOOLEAN NOT NULL DEFAULT false
-  `);
+  /* ── Safe column migrations for existing tables ── */
+  const couponMigrations = [
+    `ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS is_private  BOOLEAN NOT NULL DEFAULT false`,
+    `ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS created_by  UUID    NULL`,
+    `ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS description TEXT    NULL`,
+  ];
 
-  /* ── Mark any existing spin wheel coupons as private ── */
+  for (const sql of couponMigrations) {
+    try { await pool.query(sql); }
+    catch (e) {
+      if (!e.message.includes("already exists")) {
+        console.warn("[coupons] migration:", e.message);
+      }
+    }
+  }
+
+  /* ── Mark existing spin wheel coupons as private ── */
   await pool.query(`
     UPDATE public.coupons
     SET is_private = true
@@ -66,22 +76,74 @@ async function ensureTables() {
     ON public.coupons (is_private, created_by)
   `);
 
-  /* ── Coupon redemptions ── */
+  /* ── Coupon redemptions ──
+   *
+   * user_id is NULL-able so admin redemptions for public
+   * coupons can be recorded even when the buyer is identified
+   * by email/phone rather than a direct user session.
+   *
+   * The admin coupon redemption route stores the resolved
+   * user_id (looked up by email or phone) so it is almost
+   * always populated — but NOT NULL would break the flow
+   * if a buyer has no Loemart account yet.
+   */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.coupon_redemptions (
-      id          UUID        NOT NULL DEFAULT gen_random_uuid(),
-      coupon_id   UUID        NOT NULL,
-      user_id     UUID        NOT NULL,
-      order_id    UUID        NULL,
-      discount    DECIMAL     NOT NULL DEFAULT 0,
-      redeemed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+      id                    UUID        NOT NULL DEFAULT gen_random_uuid(),
+      coupon_id             UUID        NOT NULL,
+      user_id               UUID        NULL,
+      order_id              UUID        NULL,
+      discount              DECIMAL     NOT NULL DEFAULT 0,
+      redeemed_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+      /* Admin redemption columns */
+      redeemed_by_admin      UUID        NULL,
+      redeemed_by_admin_name TEXT        NULL,
+      /* Reward snapshot — accurate even if coupon changes later */
+      reward_type           TEXT        NULL,
+      reward_value          DECIMAL     NULL,
+      reward_description    TEXT        NULL,
+      /* Optional admin note */
+      admin_note            TEXT        NULL,
+      /* Which user was verified at redemption time */
+      verified_user_id      UUID        NULL,
       CONSTRAINT coupon_redemptions_pkey PRIMARY KEY (id)
     )
   `);
 
+  /* ── Safe column migrations for coupon_redemptions ── */
+  const redemptionMigrations = [
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin      UUID    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin_name TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_type            TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_value           DECIMAL NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_description     TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS admin_note             TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS verified_user_id       UUID    NULL`,
+    /* Relax user_id NOT NULL if it was previously set that way */
+    `ALTER TABLE public.coupon_redemptions ALTER COLUMN user_id DROP NOT NULL`,
+  ];
+
+  for (const sql of redemptionMigrations) {
+    try { await pool.query(sql); }
+    catch (e) {
+      if (!e.message.includes("already exists")) {
+        console.warn("[coupons] redemption migration:", e.message);
+      }
+    }
+  }
+
+  /*
+   * unique_user_coupon prevents the same user from redeeming
+   * the same coupon twice via the user-facing API.
+   *
+   * We use a partial index (WHERE user_id IS NOT NULL) so that
+   * admin redemptions (which may have a NULL user_id for edge
+   * cases) do not conflict with each other.
+   */
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon
     ON public.coupon_redemptions (coupon_id, user_id)
+    WHERE user_id IS NOT NULL
   `);
 
   await pool.query(`
@@ -92,6 +154,13 @@ async function ensureTables() {
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_redemptions_user
     ON public.coupon_redemptions (user_id)
+    WHERE user_id IS NOT NULL
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_redemptions_admin
+    ON public.coupon_redemptions (redeemed_by_admin)
+    WHERE redeemed_by_admin IS NOT NULL
   `);
 }
 
@@ -203,7 +272,6 @@ router.post("/validate", authenticate, async (req, res) => {
   }
 
   try {
-    /* ── Find coupon ── */
     const { rows } = await pool.query(
       `SELECT * FROM public.coupons
        WHERE UPPER(code) = UPPER($1)
@@ -227,15 +295,10 @@ router.post("/validate", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Expiry check ── */
     if (c.expires_at && new Date(c.expires_at) < now) {
-      return res.status(400).json({
-        success: false,
-        message: "This coupon has expired.",
-      });
+      return res.status(400).json({ success: false, message: "This coupon has expired." });
     }
 
-    /* ── Usage limit check ── */
     if (c.usage_limit && Number(c.usage_count) >= Number(c.usage_limit)) {
       return res.status(400).json({
         success: false,
@@ -243,12 +306,9 @@ router.post("/validate", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Already used by this user? ── */
     const { rows: used } = await pool.query(
       `SELECT id FROM public.coupon_redemptions
-       WHERE coupon_id = $1
-         AND user_id   = $2
-       LIMIT 1`,
+       WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
       [c.id, userId]
     );
 
@@ -259,7 +319,6 @@ router.post("/validate", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Minimum purchase check ── */
     const amount = Number(order_amount);
 
     if (Number(c.min_purchase) > 0 && amount < Number(c.min_purchase)) {
@@ -269,15 +328,12 @@ router.post("/validate", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Calculate discount ── */
     let discount = 0;
     let message  = "";
 
     if (c.type === "percentage") {
       discount = (amount * Number(c.value)) / 100;
-      if (c.max_discount) {
-        discount = Math.min(discount, Number(c.max_discount));
-      }
+      if (c.max_discount) discount = Math.min(discount, Number(c.max_discount));
       discount = Math.round(discount);
       message  = `Coupon applied! You save ₦${discount.toLocaleString("en-NG")}.`;
 
@@ -325,12 +381,9 @@ router.post("/redeem", authenticate, async (req, res) => {
   }
 
   try {
-    /* ── Find coupon ── */
     const { rows } = await pool.query(
-      `SELECT id, is_private, created_by FROM public.coupons
-       WHERE UPPER(code) = UPPER($1)
-         AND is_active   = true
-       LIMIT 1`,
+      `SELECT id, is_private, created_by, usage_limit FROM public.coupons
+       WHERE UPPER(code) = UPPER($1) AND is_active = true LIMIT 1`,
       [code.trim()]
     );
 
@@ -351,9 +404,7 @@ router.post("/redeem", authenticate, async (req, res) => {
     /* ── Guard: already redeemed by this user? ── */
     const { rows: existing } = await pool.query(
       `SELECT id FROM public.coupon_redemptions
-       WHERE coupon_id = $1
-         AND user_id   = $2
-       LIMIT 1`,
+       WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
       [coupon.id, userId]
     );
 
@@ -372,12 +423,16 @@ router.post("/redeem", authenticate, async (req, res) => {
       [coupon.id, userId, order_id || null, Number(discount || 0)]
     );
 
-    /* ── Increment usage count ── */
+    /* ── Increment usage_count + deactivate if single-use ── */
+    const isSingleUse = coupon.usage_limit !== null && Number(coupon.usage_limit) === 1;
+
     await pool.query(
       `UPDATE public.coupons
-       SET usage_count = usage_count + 1
-       WHERE id = $1`,
-      [coupon.id]
+       SET
+         usage_count = usage_count + 1,
+         is_active   = CASE WHEN $1 THEN false ELSE is_active END
+       WHERE id = $2`,
+      [isSingleUse, coupon.id]
     );
 
     return res.json({ success: true, message: "Coupon redeemed successfully." });
