@@ -1,383 +1,678 @@
-// routes/coupons.js
-import express      from "express";
-import { pool }     from "../config/db.js";
-import authenticate from "../middleware/auth.js";
-
-const router = express.Router();
+// src/pages/Profile/Coupons.jsx
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useNavigate } from "react-router-dom";
+import "./styles/Coupons.css";
 
 /* ═══════════════════════════════════════════════════════════════
-   ENSURE TABLES + INDEXES
+   ENV + API
 ═══════════════════════════════════════════════════════════════ */
-async function ensureTables() {
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API      = `${BASE_URL}/api`;
 
-  /* ── Coupons ── */
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS public.coupons (
-      id           UUID        NOT NULL DEFAULT gen_random_uuid(),
-      code         TEXT        NOT NULL,
-      type         TEXT        NOT NULL DEFAULT 'percentage',
-      value        DECIMAL     NOT NULL DEFAULT 0,
-      min_purchase DECIMAL     NOT NULL DEFAULT 0,
-      max_discount DECIMAL     NULL,
-      usage_limit  INT8        NULL,
-      usage_count  INT8        NOT NULL DEFAULT 0,
-      expires_at   TIMESTAMPTZ NULL,
-      is_active    BOOLEAN     NOT NULL DEFAULT true,
-      description  TEXT        NULL,
-      created_by   UUID        NULL,
-      created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT coupons_pkey PRIMARY KEY (id)
-    )
-  `);
+/* ═══════════════════════════════════════════════════════════════
+   AUTH
+═══════════════════════════════════════════════════════════════ */
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token") ||
+  null;
 
-  await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS unique_coupon_code
-    ON public.coupons (code)
-  `);
+const authH = () => ({
+  Authorization  : `Bearer ${getToken()}`,
+  "Content-Type" : "application/json",
+});
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_coupons_active
-    ON public.coupons (is_active)
-  `);
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════ */
+const naira = (n) => {
+  const num = parseFloat(n);
+  if (isNaN(num)) return "₦0";
+  return "₦" + num.toLocaleString("en-NG");
+};
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_coupons_expires
-    ON public.coupons (expires_at)
-  `);
+const fmtDate = (d) => {
+  if (!d) return "";
+  return new Date(d).toLocaleDateString("en-NG", {
+    day: "numeric", month: "short", year: "numeric",
+  });
+};
 
-  /* ── Coupon redemptions ── */
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS public.coupon_redemptions (
-      id          UUID        NOT NULL DEFAULT gen_random_uuid(),
-      coupon_id   UUID        NOT NULL,
-      user_id     UUID        NOT NULL,
-      order_id    UUID        NULL,
-      discount    DECIMAL     NOT NULL DEFAULT 0,
-      redeemed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-      CONSTRAINT coupon_redemptions_pkey PRIMARY KEY (id)
-    )
-  `);
+const timeAgo = (d) => {
+  if (!d) return "";
+  const s = Math.floor((Date.now() - new Date(d)) / 1_000);
+  if (s < 3_600)  return `${Math.floor(s / 60)}m ago`;
+  if (s < 86_400) return `${Math.floor(s / 3_600)}h ago`;
+  return `${Math.floor(s / 86_400)}d ago`;
+};
 
-  await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon
-    ON public.coupon_redemptions (coupon_id, user_id)
-  `);
+const COUPON_CONFIG = {
+  percentage   : { color: "#6366f1", bg: "#eef2ff" },
+  fixed        : { color: "#e8630a", bg: "#fff0e6" },
+  free_shipping: { color: "#16a34a", bg: "#dcfce7" },
+};
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_redemptions_coupon
-    ON public.coupon_redemptions (coupon_id)
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_redemptions_user
-    ON public.coupon_redemptions (user_id)
-  `);
-}
-
-ensureTables().catch((err) =>
-  console.warn("[coupons] table init:", err.message)
+/* ═══════════════════════════════════════════════════════════════
+   SVG ICONS
+═══════════════════════════════════════════════════════════════ */
+const IconBack = () => (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 12H5M12 19l-7-7 7-7"/>
+  </svg>
 );
 
+const IconRefresh = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 12a9 9 0 019-9 9.75 9.75 0 016.74 2.74L21 8"/>
+    <path d="M21 3v5h-5"/>
+    <path d="M21 12a9 9 0 01-9 9 9.75 9.75 0 01-6.74-2.74L3 16"/>
+    <path d="M3 21v-5h5"/>
+  </svg>
+);
+
+const IconPercent = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+    <circle cx="9"  cy="9"  r="2"/>
+    <circle cx="15" cy="15" r="2"/>
+    <path d="M5 19L19 5"/>
+  </svg>
+);
+
+const IconTag = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/>
+    <line x1="7" y1="7" x2="7.01" y2="7"/>
+  </svg>
+);
+
+const IconTruck = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="1" y="3" width="15" height="13" rx="1"/>
+    <path d="M16 8h4l3 5v3h-7V8z"/>
+    <circle cx="5.5"  cy="18.5" r="2.5"/>
+    <circle cx="18.5" cy="18.5" r="2.5"/>
+  </svg>
+);
+
+const IconCopy = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2"/>
+    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
+  </svg>
+);
+
+const IconCheck = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+
+const IconSearch = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="8"/>
+    <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+  </svg>
+);
+
+const IconAlertCircle = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <line x1="12" y1="8"  x2="12" y2="12"/>
+    <line x1="12" y1="16" x2="12.01" y2="16"/>
+  </svg>
+);
+
+const IconCheckCircle = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+    <polyline points="22 4 12 14.01 9 11.01"/>
+  </svg>
+);
+
+const IconGift = () => (
+  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 12 20 22 4 22 4 12"/>
+    <rect x="2" y="7" width="20" height="5" rx="1"/>
+    <line x1="12" y1="22" x2="12" y2="7"/>
+    <path d="M12 7H7.5a2.5 2.5 0 010-5C11 2 12 7 12 7z"/>
+    <path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
+  </svg>
+);
+
+const IconClock = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <polyline points="12 6 12 12 16 14"/>
+  </svg>
+);
+
+const IconInfo = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <line x1="12" y1="16" x2="12" y2="12"/>
+    <line x1="12" y1="8"  x2="12.01" y2="8"/>
+  </svg>
+);
+
+/* ── Coupon type icon resolver ── */
+const CouponIcon = ({ type, size = 16 }) => {
+  if (type === "percentage")    return <IconPercent />;
+  if (type === "free_shipping") return <IconTruck />;
+  return <IconTag />;
+};
+
 /* ═══════════════════════════════════════════════════════════════
-   GET /api/coupons
-   All active coupons with per-user usability flags
-   Returns both usable and used/expired so the frontend
-   can show the Available tab and the Used tab
+   COUPON CARD
 ═══════════════════════════════════════════════════════════════ */
-router.get("/", authenticate, async (req, res) => {
-  try {
-    const userId = req.user.id;
+function CouponCard({ coupon, onCopy, copied }) {
+  const cfg      = COUPON_CONFIG[coupon.type] || COUPON_CONFIG.percentage;
+  const isCopied = copied === coupon.code;
 
-    const { rows } = await pool.query(
-      `SELECT
-         c.id,
-         c.code,
-         c.type,
-         c.value,
-         c.min_purchase,
-         c.max_discount,
-         c.usage_limit,
-         c.usage_count,
-         c.expires_at,
-         c.description,
-         c.created_at,
-         COUNT(r.id) FILTER (WHERE r.user_id = $1)::int AS user_usage_count
-       FROM public.coupons c
-       LEFT JOIN public.coupon_redemptions r ON r.coupon_id = c.id
-       WHERE c.is_active = true
-       GROUP BY
-         c.id, c.code, c.type, c.value, c.min_purchase,
-         c.max_discount, c.usage_limit, c.usage_count,
-         c.expires_at, c.description, c.created_at
-       ORDER BY
-         CASE
-           WHEN (c.expires_at IS NULL OR c.expires_at > NOW())
-            AND (c.usage_limit IS NULL OR c.usage_count < c.usage_limit)
-           THEN 0 ELSE 1
-         END,
-         c.created_at DESC`,
-      [userId]
-    );
+  const discountText =
+    coupon.type === "percentage"
+      ? `${coupon.value}% OFF`
+      : coupon.type === "fixed"
+        ? `${naira(coupon.value)} OFF`
+        : "FREE DELIVERY";
 
-    const now     = new Date();
-    const coupons = rows.map((c) => {
-      const expiresAt = c.expires_at ? new Date(c.expires_at) : null;
-      const isExpired = expiresAt ? expiresAt < now : false;
-      const isUsed    = c.user_usage_count > 0;
-      const isFull    = c.usage_limit
-        ? Number(c.usage_count) >= Number(c.usage_limit)
-        : false;
-      const daysLeft  = expiresAt
-        ? Math.max(0, Math.ceil((expiresAt - now) / 86_400_000))
-        : null;
+  const statusText =
+    !coupon.usable
+      ? coupon.is_used    ? "Already used"
+      : coupon.is_expired ? "Expired"
+      : coupon.is_full    ? "Fully redeemed"
+      : "Unavailable"
+      : coupon.days_left === 0   ? "Expires today!"
+      : coupon.days_left <= 3    ? `${coupon.days_left}d left`
+      : coupon.days_left != null ? `${coupon.days_left}d left`
+      : "No expiry";
 
-      return {
-        id           : c.id,
-        code         : c.code,
-        type         : c.type,
-        description  : c.description,
-        value        : Number(c.value        || 0),
-        min_purchase : Number(c.min_purchase || 0),
-        max_discount : c.max_discount ? Number(c.max_discount) : null,
-        usage_count  : Number(c.usage_count  || 0),
-        usage_limit  : c.usage_limit  ? Number(c.usage_limit)  : null,
-        expires_at   : c.expires_at,
-        created_at   : c.created_at,
-        is_expired   : isExpired,
-        is_used      : isUsed,
-        is_full      : isFull,
-        days_left    : daysLeft,
-        usable       : !isExpired && !isUsed && !isFull,
-      };
-    });
+  const statusColor =
+    !coupon.usable        ? "#dc2626" :
+    coupon.days_left <= 3 ? "#f59e0b" :
+    "#16a34a";
 
-    return res.json({ success: true, coupons });
+  return (
+    <div className={`cp-card${!coupon.usable ? " cp-card--used" : ""}`}>
 
-  } catch (err) {
-    console.error("[coupons] GET /:", err.message);
-    return res.status(500).json({ success: false, message: "Server error." });
-  }
-});
+      {/* Left colored strip */}
+      <div className="cp-card-strip" style={{ background: cfg.color }} />
+
+      {/* Main body */}
+      <div className="cp-card-main">
+        <div className="cp-card-head">
+          <div
+            className="cp-discount-badge"
+            style={{ background: cfg.bg, color: cfg.color }}
+          >
+            <span className="cp-discount-icon">
+              <CouponIcon type={coupon.type} />
+            </span>
+            <span className="cp-discount-text">{discountText}</span>
+          </div>
+          <span className="cp-status" style={{ color: statusColor }}>
+            {statusText}
+          </span>
+        </div>
+
+        {coupon.description && (
+          <p className="cp-desc">{coupon.description}</p>
+        )}
+
+        <div className="cp-details">
+          {coupon.min_purchase > 0 && (
+            <span className="cp-detail">Min: {naira(coupon.min_purchase)}</span>
+          )}
+          {coupon.max_discount && (
+            <span className="cp-detail">Max: {naira(coupon.max_discount)}</span>
+          )}
+          {coupon.usage_limit && (
+            <span className="cp-detail">
+              {coupon.usage_count}/{coupon.usage_limit} used
+            </span>
+          )}
+          {coupon.expires_at && (
+            <span className="cp-detail cp-detail--date">
+              <IconClock />
+              {fmtDate(coupon.expires_at)}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Ticket divider */}
+      <div className="cp-divider">
+        <div className="cp-divider-notch cp-divider-notch--top" />
+        <div className="cp-divider-line" />
+        <div className="cp-divider-notch cp-divider-notch--bottom" />
+      </div>
+
+      {/* Code + copy */}
+      <div className="cp-card-code">
+        <p className="cp-code-label">Code</p>
+        <p className="cp-code">{coupon.code}</p>
+        <button
+          className={`cp-copy-btn${isCopied ? " cp-copy-btn--done" : ""}`}
+          onClick={() => onCopy(coupon.code)}
+          disabled={!coupon.usable}
+          aria-label={`Copy coupon code ${coupon.code}`}
+        >
+          {isCopied ? <IconCheck /> : <IconCopy />}
+          {isCopied ? "Copied" : "Copy"}
+        </button>
+      </div>
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /api/coupons/validate
-   Validate a coupon code and calculate the discount
-   Body: { code, order_amount }
+   VALIDATE PANEL
 ═══════════════════════════════════════════════════════════════ */
-router.post("/validate", authenticate, async (req, res) => {
-  const { code, order_amount = 0 } = req.body;
-  const userId = req.user.id;
+function ValidatePanel({ onValidated }) {
+  const [code,    setCode]    = useState("");
+  const [amount,  setAmount]  = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result,  setResult]  = useState(null);
+  const [error,   setError]   = useState(null);
 
-  if (!code?.trim()) {
-    return res.status(400).json({ success: false, message: "Coupon code is required." });
-  }
-
-  try {
-    /* ── Find coupon ── */
-    const { rows } = await pool.query(
-      `SELECT * FROM public.coupons
-       WHERE UPPER(code) = UPPER($1)
-         AND is_active   = true
-       LIMIT 1`,
-      [code.trim()]
-    );
-
-    if (!rows.length) {
-      return res.status(404).json({ success: false, message: "Invalid coupon code." });
-    }
-
-    const c   = rows[0];
-    const now = new Date();
-
-    /* ── Expiry check ── */
-    if (c.expires_at && new Date(c.expires_at) < now) {
-      return res.status(400).json({ success: false, message: "This coupon has expired." });
-    }
-
-    /* ── Usage limit check ── */
-    if (c.usage_limit && Number(c.usage_count) >= Number(c.usage_limit)) {
-      return res.status(400).json({
-        success: false,
-        message: "This coupon has reached its usage limit.",
+  const validate = async () => {
+    if (!code.trim()) { setError("Enter a coupon code."); return; }
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res  = await fetch(`${API}/coupons/validate`, {
+        method  : "POST",
+        headers : authH(),
+        body    : JSON.stringify({
+          code         : code.trim().toUpperCase(),
+          order_amount : Math.max(0, Number(amount) || 0),
+        }),
       });
-    }
-
-    /* ── Already used by this user? ── */
-    const { rows: used } = await pool.query(
-      `SELECT id FROM public.coupon_redemptions
-       WHERE coupon_id = $1
-         AND user_id   = $2
-       LIMIT 1`,
-      [c.id, userId]
-    );
-
-    if (used.length) {
-      return res.status(400).json({
-        success: false,
-        message: "You have already used this coupon.",
-      });
-    }
-
-    /* ── Minimum purchase check ── */
-    const amount = Number(order_amount);
-
-    if (Number(c.min_purchase) > 0 && amount < Number(c.min_purchase)) {
-      return res.status(400).json({
-        success: false,
-        message: `A minimum order of ₦${Number(c.min_purchase).toLocaleString("en-NG")} is required for this coupon.`,
-      });
-    }
-
-    /* ── Calculate discount ── */
-    let discount = 0;
-    let message  = "";
-
-    if (c.type === "percentage") {
-      discount = (amount * Number(c.value)) / 100;
-      if (c.max_discount) {
-        discount = Math.min(discount, Number(c.max_discount));
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        setError(data.message || "Invalid coupon.");
+      } else {
+        setResult(data);
+        onValidated?.(data);
       }
-      discount = Math.round(discount);
-      message  = `Coupon applied! You save ₦${discount.toLocaleString("en-NG")}.`;
-
-    } else if (c.type === "fixed") {
-      discount = Math.round(Math.min(Number(c.value), amount));
-      message  = `Coupon applied! You save ₦${discount.toLocaleString("en-NG")}.`;
-
-    } else if (c.type === "free_shipping") {
-      discount = 0;
-      message  = "Free shipping applied! Your delivery fee is waived at checkout.";
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setLoading(false);
     }
+  };
 
-    return res.json({
-      success      : true,
-      valid        : true,
-      coupon: {
-        id         : c.id,
-        code       : c.code,
-        type       : c.type,
-        value      : Number(c.value),
-        description: c.description,
-      },
-      discount,
-      final_amount : Math.max(0, amount - discount),
-      message,
-    });
+  return (
+    <div className="cp-validate-panel">
+      <div className="cp-validate-header">
+        <span className="cp-validate-header-icon"><IconSearch /></span>
+        <div>
+          <h3 className="cp-validate-title">Have a coupon code?</h3>
+          <p className="cp-validate-sub">Enter your code below to check if it's valid</p>
+        </div>
+      </div>
 
-  } catch (err) {
-    console.error("[coupons] POST /validate:", err.message);
-    return res.status(500).json({ success: false, message: "Server error." });
-  }
-});
+      <div className="cp-validate-inputs">
+        <input
+          className="cp-validate-input"
+          placeholder="Enter coupon code"
+          value={code}
+          onChange={(e) => {
+            setCode(e.target.value.toUpperCase());
+            setError(null);
+            setResult(null);
+          }}
+          onKeyDown={(e) => e.key === "Enter" && validate()}
+          autoCapitalize="characters"
+          spellCheck={false}
+        />
+        <input
+          className="cp-validate-input"
+          placeholder="Order amount (optional)"
+          type="number"
+          min="0"
+          value={amount}
+          onChange={(e) =>
+            setAmount(Math.max(0, Number(e.target.value)).toString())
+          }
+          onKeyDown={(e) => e.key === "Enter" && validate()}
+        />
+      </div>
+
+      <button
+        className="cp-validate-btn"
+        onClick={validate}
+        disabled={loading || !code.trim()}
+      >
+        {loading ? "Checking…" : "Validate Coupon"}
+      </button>
+
+      {error && (
+        <div className="cp-validate-error" role="alert">
+          <IconAlertCircle />
+          <span>{error}</span>
+        </div>
+      )}
+
+      {result && (
+        <div className="cp-validate-success" role="status">
+          <div className="cp-validate-success-top">
+            <span className="cp-validate-success-label">
+              <IconCheckCircle /> Valid coupon!
+            </span>
+            <span className="cp-validate-save">{naira(result.discount)} off</span>
+          </div>
+          <p>{result.message}</p>
+          {result.final_amount > 0 && (
+            <p className="cp-validate-final">
+              Final amount: <strong>{naira(result.final_amount)}</strong>
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /api/coupons/redeem
-   Record coupon use after a successful order
-   Body: { code, order_id, discount }
+   MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
-router.post("/redeem", authenticate, async (req, res) => {
-  const { code, order_id, discount } = req.body;
-  const userId = req.user.id;
+export default function Coupons() {
+  const navigate = useNavigate();
 
-  if (!code?.trim()) {
-    return res.status(400).json({ success: false, message: "Coupon code is required." });
-  }
+  const [coupons, setCoupons] = useState([]);
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error,   setError]   = useState(null);
+  const [tab,     setTab]     = useState("available");
+  const [copied,  setCopied]  = useState(null);
+  const [toast,   setToast]   = useState(null);
+  const toastRef = useRef(null);
 
-  try {
-    /* ── Find coupon ── */
-    const { rows } = await pool.query(
-      `SELECT id FROM public.coupons
-       WHERE UPPER(code) = UPPER($1)
-         AND is_active   = true
-       LIMIT 1`,
-      [code.trim()]
-    );
+  /* ── Auth guard ── */
+  useEffect(() => {
+    if (!getToken()) navigate("/auth?redirect=/coupons");
+  }, [navigate]);
 
-    if (!rows.length) {
-      return res.status(404).json({ success: false, message: "Coupon not found." });
+  /* ── Load data ── */
+  const loadCoupons = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [couponRes, historyRes] = await Promise.all([
+        fetch(`${API}/coupons`,         { headers: authH() }),
+        fetch(`${API}/coupons/history`, { headers: authH() }),
+      ]);
+      if (couponRes.ok) {
+        const d = await couponRes.json();
+        setCoupons(d.coupons || []);
+      }
+      if (historyRes.ok) {
+        const d = await historyRes.json();
+        setHistory(d.history || []);
+      }
+    } catch {
+      setError("Could not load coupons. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadCoupons();
+    return () => clearTimeout(toastRef.current);
+  }, [loadCoupons]);
+
+  /* ── Copy handler with fallback ── */
+  const handleCopy = useCallback((code) => {
+    const fallback = () => {
+      const el = document.createElement("textarea");
+      el.value = code;
+      el.style.cssText = "position:fixed;opacity:0";
+      document.body.appendChild(el);
+      el.select();
+      document.execCommand("copy");
+      document.body.removeChild(el);
+    };
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(code).catch(fallback);
+    } else {
+      fallback();
     }
 
-    const couponId = rows[0].id;
+    setCopied(code);
+    setToast(`Code "${code}" copied!`);
+    clearTimeout(toastRef.current);
+    toastRef.current = setTimeout(() => {
+      setCopied(null);
+      setToast(null);
+    }, 2_500);
+  }, []);
 
-    /* ── Guard: already redeemed by this user? ── */
-    const { rows: existing } = await pool.query(
-      `SELECT id FROM public.coupon_redemptions
-       WHERE coupon_id = $1
-         AND user_id   = $2
-       LIMIT 1`,
-      [couponId, userId]
-    );
+  /* ── Derived lists ── */
+  const available  = coupons.filter((c) =>  c.usable);
+  const used       = coupons.filter((c) => !c.usable);
+  const totalSaved = history.reduce((s, h) => s + Number(h.discount || 0), 0);
 
-    if (existing.length) {
-      return res.status(409).json({
-        success: false,
-        message: "You have already redeemed this coupon.",
-      });
-    }
+  const TABS = [
+    { key: "available", label: "Available", count: available.length },
+    { key: "used",      label: "Used",      count: used.length      },
+    { key: "history",   label: "History",   count: history.length   },
+  ];
 
-    /* ── Insert redemption record ── */
-    await pool.query(
-      `INSERT INTO public.coupon_redemptions
-         (coupon_id, user_id, order_id, discount)
-       VALUES ($1, $2, $3, $4)`,
-      [couponId, userId, order_id || null, Number(discount || 0)]
-    );
+  /* ══════════════════════════════════════════════
+     RENDER
+  ══════════════════════════════════════════════ */
+  return (
+    <div className="cp-page">
 
-    /* ── Increment usage count ── */
-    await pool.query(
-      `UPDATE public.coupons
-       SET usage_count = usage_count + 1
-       WHERE id = $1`,
-      [couponId]
-    );
+      {/* ── Topbar ── */}
+      <div className="cp-topbar">
+        <button
+          className="cp-back"
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+        >
+          <IconBack />
+        </button>
 
-    return res.json({ success: true, message: "Coupon redeemed successfully." });
+        <div className="cp-topbar-text">
+          <h1 className="cp-topbar-title">My Coupons</h1>
+          <p className="cp-topbar-sub">{available.length} available</p>
+        </div>
 
-  } catch (err) {
-    console.error("[coupons] POST /redeem:", err.message);
-    return res.status(500).json({ success: false, message: "Server error." });
-  }
-});
+        <button
+          className="cp-refresh"
+          onClick={loadCoupons}
+          aria-label="Refresh coupons"
+          disabled={loading}
+        >
+          <IconRefresh />
+        </button>
+      </div>
 
-/* ═══════════════════════════════════════════════════════════════
-   GET /api/coupons/history
-   The current user's coupon redemption history
-═══════════════════════════════════════════════════════════════ */
-router.get("/history", authenticate, async (req, res) => {
-  try {
-    const userId = req.user.id;
+      <div className="cp-scroll">
 
-    const { rows } = await pool.query(
-      `SELECT
-         r.id,
-         r.discount,
-         r.redeemed_at,
-         r.order_id,
-         c.code,
-         c.type,
-         c.value,
-         c.description
-       FROM public.coupon_redemptions r
-       JOIN public.coupons c ON c.id = r.coupon_id
-       WHERE r.user_id = $1
-       ORDER BY r.redeemed_at DESC
-       LIMIT 50`,
-      [userId]
-    );
+        {/* ── Savings banner ── */}
+        {totalSaved > 0 && (
+          <div className="cp-savings-banner">
+            <span className="cp-savings-icon"><IconGift /></span>
+            <div className="cp-savings-text">
+              <p className="cp-savings-title">Total Saved</p>
+              <p className="cp-savings-amount">{naira(totalSaved)}</p>
+            </div>
+            <span className="cp-savings-count">
+              {history.length} coupon{history.length !== 1 ? "s" : ""} used
+            </span>
+          </div>
+        )}
 
-    return res.json({
-      success : true,
-      history : rows.map((r) => ({
-        ...r,
-        discount : Number(r.discount || 0),
-        value    : Number(r.value    || 0),
-      })),
-    });
+        {/* ── Validate panel ── */}
+        <ValidatePanel />
 
-  } catch (err) {
-    console.error("[coupons] GET /history:", err.message);
-    return res.status(500).json({ success: false, message: "Server error." });
-  }
-});
+        {/* ── Error ── */}
+        {error && (
+          <div className="cp-error" role="alert">
+            <span className="cp-error-icon"><IconAlertCircle /></span>
+            <p>{error}</p>
+            <button onClick={loadCoupons}>Retry</button>
+          </div>
+        )}
 
-export default router;
+        {/* ── Tabs ── */}
+        <div className="cp-tabs" role="tablist">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={tab === t.key}
+              className={`cp-tab${tab === t.key ? " cp-tab--active" : ""}`}
+              onClick={() => setTab(t.key)}
+            >
+              {t.label}
+              <span className="cp-tab-count">{t.count}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* ── Skeleton ── */}
+        {loading && (
+          <div className="cp-sk-list" aria-label="Loading coupons">
+            {[1, 2, 3].map((i) => <div key={i} className="cp-sk" />)}
+          </div>
+        )}
+
+        {/* ── Available tab ── */}
+        {!loading && tab === "available" && (
+          available.length === 0 ? (
+            <div className="cp-empty">
+              <span className="cp-empty-icon"><IconTag /></span>
+              <p>No coupons available right now</p>
+              <small>Check back soon — new deals drop regularly!</small>
+            </div>
+          ) : (
+            <div className="cp-list">
+              {available.map((c) => (
+                <CouponCard
+                  key={c.id}
+                  coupon={c}
+                  onCopy={handleCopy}
+                  copied={copied}
+                />
+              ))}
+            </div>
+          )
+        )}
+
+        {/* ── Used tab ── */}
+        {!loading && tab === "used" && (
+          used.length === 0 ? (
+            <div className="cp-empty">
+              <span className="cp-empty-icon"><IconCheckCircle /></span>
+              <p>No used or expired coupons</p>
+            </div>
+          ) : (
+            <div className="cp-list">
+              {used.map((c) => (
+                <CouponCard
+                  key={c.id}
+                  coupon={c}
+                  onCopy={handleCopy}
+                  copied={copied}
+                />
+              ))}
+            </div>
+          )
+        )}
+
+        {/* ── History tab ── */}
+        {!loading && tab === "history" && (
+          history.length === 0 ? (
+            <div className="cp-empty">
+              <span className="cp-empty-icon"><IconClock /></span>
+              <p>No coupon history yet</p>
+              <small>Coupons you use will appear here</small>
+            </div>
+          ) : (
+            <div className="cp-history">
+              {history.map((h) => {
+                const cfg = COUPON_CONFIG[h.type] || COUPON_CONFIG.percentage;
+                return (
+                  <div key={h.id} className="cp-history-item">
+                    <div
+                      className="cp-history-icon"
+                      style={{ background: cfg.bg, color: cfg.color }}
+                    >
+                      <CouponIcon type={h.type} />
+                    </div>
+                    <div className="cp-history-info">
+                      <p className="cp-history-code">{h.code}</p>
+                      <p className="cp-history-desc">
+                        {h.description || "Coupon applied"}
+                      </p>
+                      <p className="cp-history-date">{timeAgo(h.redeemed_at)}</p>
+                    </div>
+                    <div className="cp-history-save">
+                      <p className="cp-history-amount">-{naira(h.discount)}</p>
+                      <p className="cp-history-label">saved</p>
+                    </div>
+                  </div>
+                );
+              })}
+
+              <div className="cp-history-total">
+                <p>Total saved across {history.length} orders</p>
+                <p className="cp-history-total-amount">{naira(totalSaved)}</p>
+              </div>
+            </div>
+          )
+        )}
+
+        {/* ── Tips ── */}
+        {!loading && (
+          <div className="cp-tips">
+            <div className="cp-tips-header">
+              <IconInfo />
+              <h3 className="cp-tips-title">How to use coupons</h3>
+            </div>
+            {[
+              { icon: <IconCopy />,       t: "Copy the coupon code by tapping 'Copy'" },
+              { icon: <IconTag />,        t: "Go to checkout and paste the code in the coupon field" },
+              { icon: <IconCheckCircle />,t: "Your discount will be applied automatically" },
+              { icon: <IconAlertCircle />,t: "Each coupon can only be used once per account" },
+            ].map((tip, idx) => (
+              <div key={idx} className="cp-tip">
+                <span className="cp-tip-icon">{tip.icon}</span>
+                <p>{tip.t}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+      </div>
+
+      {/* ── Toast ── */}
+      {toast && (
+        <div className="cp-toast" role="alert" aria-live="assertive">
+          <IconCheck />
+          {toast}
+        </div>
+      )}
+
+    </div>
+  );
+}
