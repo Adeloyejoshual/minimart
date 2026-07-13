@@ -325,6 +325,7 @@ app.use("/api/spinwheel",     spinwheelRouter);
 app.use("/api/referrals",     referralRoutes);
 app.use("/api/leaderboard",   leaderboardRoutes);
 app.use("/api/favorites",     favoritesRouter);
+app.use("/api/airtime-coupons", airtimeCouponRoutes);
 
 /* ══════════════════════════════════════════════════════════════
    STATIC — sitemap + robots
