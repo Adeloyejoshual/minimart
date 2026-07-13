@@ -4,14 +4,12 @@ import { useNavigate } from "react-router-dom";
 import "./styles/AirtimeCoupons.css";
 
 /* ═══════════════════════════════════════════════════════════════
-   ENV + API
+   ENV + API + AUTH + HELPERS + ICONS
+   (Same as before — keeping them identical)
 ═══════════════════════════════════════════════════════════════ */
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api`;
 
-/* ═══════════════════════════════════════════════════════════════
-   AUTH
-═══════════════════════════════════════════════════════════════ */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token") ||
@@ -22,9 +20,6 @@ const authH = () => ({
   "Content-Type" : "application/json",
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   HELPERS
-═══════════════════════════════════════════════════════════════ */
 const naira = (n) => {
   const num = parseFloat(n);
   if (isNaN(num)) return "₦0";
@@ -40,7 +35,7 @@ const fmtDate = (d) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   STATUS CONFIG
+   STATUS + NETWORK CONFIG
 ═══════════════════════════════════════════════════════════════ */
 const STATUS_CFG = {
   available  : { label: "Available",  color: "#16a34a", bg: "#f0fdf4", border: "#bbf7d0" },
@@ -182,19 +177,6 @@ const IconAlertTriangle = () => (
   </svg>
 );
 
-const IconWifi = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M5 12.55a11 11 0 0114.08 0"/>
-    <path d="M1.42 9a16 16 0 0121.16 0"/>
-    <path d="M8.53 16.11a6 6 0 016.95 0"/>
-    <line x1="12" y1="20" x2="12.01" y2="20"/>
-  </svg>
-);
-
-/* ═══════════════════════════════════════════════════════════════
-   STATUS ICON — returns icon per status
-═══════════════════════════════════════════════════════════════ */
 const StatusIcon = ({ status }) => {
   switch (status) {
     case "available":  return <IconPhone />;
@@ -207,7 +189,7 @@ const StatusIcon = ({ status }) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   OTP INPUT — 6 boxes with auto-focus + paste support
+   OTP INPUT
 ═══════════════════════════════════════════════════════════════ */
 function OtpInput({ value, onChange, disabled }) {
   const refs = useRef([]);
@@ -257,7 +239,7 @@ function OtpInput({ value, onChange, disabled }) {
 /* ═══════════════════════════════════════════════════════════════
    CONFIRM MODAL
 ═══════════════════════════════════════════════════════════════ */
-function ConfirmModal({ coupon, onConfirm, onCancel, loading }) {
+function ConfirmModal({ coupon, phoneMasked, network, onConfirm, onCancel, loading }) {
   return (
     <div className="at-overlay" role="dialog" aria-modal="true">
       <div className="at-modal">
@@ -275,6 +257,15 @@ function ConfirmModal({ coupon, onConfirm, onCancel, loading }) {
         <div className="at-modal-code-wrap">
           <span className="at-modal-code">{coupon.code}</span>
         </div>
+
+        {/* Show which number will receive it */}
+        {phoneMasked && (
+          <div className="at-modal-phone">
+            <IconPhone />
+            <span>Sending to <strong>{phoneMasked}</strong></span>
+            {network && <span className="at-modal-network">· {network}</span>}
+          </div>
+        )}
 
         <div className="at-modal-warn">
           <IconAlertTriangle />
@@ -305,7 +296,6 @@ function AirtimeCouponCard({ coupon, onRedeem }) {
       <div className="at-strip" style={{ background: cfg.color }} />
 
       <div className="at-body">
-        {/* Top row */}
         <div className="at-top">
           <div className="at-amount-wrap">
             <div className="at-amount-icon-wrap">
@@ -325,7 +315,6 @@ function AirtimeCouponCard({ coupon, onRedeem }) {
           </div>
         </div>
 
-        {/* Status details */}
         {coupon.status === "available" && (
           <p className="at-detail-hint">
             Tap Redeem to send airtime to your verified number.
@@ -404,7 +393,6 @@ function AirtimeCouponCard({ coupon, onRedeem }) {
           </div>
         )}
 
-        {/* Redeem button */}
         {coupon.can_redeem && (
           <button className="at-redeem-btn" onClick={() => onRedeem(coupon)}>
             <IconSend /> Redeem
@@ -421,7 +409,6 @@ function AirtimeCouponCard({ coupon, onRedeem }) {
 export default function AirtimeCoupons() {
   const navigate = useNavigate();
 
-  /* ── State ── */
   const [phoneStatus, setPhoneStatus] = useState(null);
   const [coupons,     setCoupons]     = useState([]);
   const [loading,     setLoading]     = useState(true);
@@ -430,13 +417,13 @@ export default function AirtimeCoupons() {
   const [toast,       setToast]       = useState(null);
   const toastRef = useRef(null);
 
-  /* Phone verification */
-  const [step,      setStep]      = useState(null);   // null | "phone" | "otp"
-  const [phone,     setPhone]     = useState("");
-  const [otp,       setOtp]       = useState("");
-  const [otpLoading,setOtpLoading]= useState(false);
-  const [countdown, setCountdown] = useState(0);
-  const [msg,       setMsg]       = useState(null);
+  /* Phone verification state */
+  const [step,       setStep]       = useState(null);   // null | "phone" | "otp"
+  const [phone,      setPhone]      = useState("");
+  const [otp,        setOtp]        = useState("");
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [countdown,  setCountdown]  = useState(0);
+  const [msg,        setMsg]        = useState(null);
   const timerRef = useRef(null);
 
   /* ── Auth guard ── */
@@ -444,7 +431,7 @@ export default function AirtimeCoupons() {
     if (!getToken()) navigate("/auth?redirect=/airtime-coupons");
   }, [navigate]);
 
-  /* ── Toast helper ── */
+  /* ── Toast ── */
   const showToast = useCallback((type, text) => {
     setToast({ type, text });
     clearTimeout(toastRef.current);
@@ -463,7 +450,7 @@ export default function AirtimeCoupons() {
     }, 1_000);
   }, []);
 
-  /* ── Load everything ── */
+  /* ── Load data ── */
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
@@ -474,7 +461,19 @@ export default function AirtimeCoupons() {
 
       if (phoneRes.ok) {
         const d = await phoneRes.json();
-        if (d.success) setPhoneStatus(d.phone);
+        if (d.success) {
+          setPhoneStatus(d.phone);
+
+          /* ── Pre-fill phone if user has one from registration ── */
+          if (d.phone.has_phone && !d.phone.verified) {
+            /* Convert +234XXXXXXXXXX back to 0XXXXXXXXXX for the input */
+            const raw = d.phone.number || "";
+            const local = raw.startsWith("+234")
+              ? "0" + raw.slice(4)
+              : raw;
+            setPhone(local);
+          }
+        }
       }
 
       if (couponRes.ok) {
@@ -496,7 +495,66 @@ export default function AirtimeCoupons() {
     };
   }, [loadData]);
 
-  /* ── Send OTP ── */
+  /* ═════════════════════════════════════════════
+     SMART VERIFY FLOW
+     Decides which step to show based on phone status
+  ═════════════════════════════════════════════ */
+  const startVerification = useCallback(() => {
+    if (!phoneStatus) {
+      /* Data not loaded yet — show phone entry */
+      setStep("phone");
+      return;
+    }
+
+    if (phoneStatus.verified) {
+      /* Already verified — nothing to do */
+      return;
+    }
+
+    if (phoneStatus.has_phone) {
+      /*
+       * Phone exists from registration but NOT verified yet.
+       * Skip phone entry → go straight to OTP.
+       * Pre-fill is already done in loadData.
+       */
+      setStep("otp");
+      sendOtpForExisting();
+    } else {
+      /* No phone at all → ask them to enter one */
+      setStep("phone");
+    }
+  }, [phoneStatus]);
+
+  /* ── Send OTP using existing phone (auto-triggered) ── */
+  const sendOtpForExisting = async () => {
+    if (!phoneStatus?.number) return;
+
+    /* Convert to local format for the API */
+    const raw   = phoneStatus.number;
+    const local = raw.startsWith("+234") ? "0" + raw.slice(4) : raw;
+
+    setOtpLoading(true);
+    setMsg(null);
+    try {
+      const res  = await fetch(`${API}/airtime-coupons/send-otp`, {
+        method : "POST",
+        headers: authH(),
+        body   : JSON.stringify({ phone: local, purpose: "verify" }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message);
+      startCountdown(data.expires_in || 600);
+      setMsg({ type: "success", text: `OTP sent to ${data.masked}` });
+    } catch (e) {
+      setMsg({ type: "error", text: e.message || "Failed to send OTP." });
+      /* Fall back to phone entry if something went wrong */
+      setStep("phone");
+    } finally {
+      setOtpLoading(false);
+    }
+  };
+
+  /* ── Send OTP (manual — from phone entry step) ── */
   const sendOtp = async (purpose = "verify") => {
     if (phone.replace(/\D/g, "").length < 10) {
       setMsg({ type: "error", text: "Enter a valid 11-digit phone number." });
@@ -541,9 +599,10 @@ export default function AirtimeCoupons() {
       if (!data.success) throw new Error(data.message);
       setPhoneStatus({
         ...phoneStatus,
-        masked   : data.phone.masked,
-        network  : data.phone.network,
-        verified : true,
+        masked    : data.phone.masked,
+        network   : data.phone.network,
+        verified  : true,
+        has_phone : true,
       });
       setStep(null);
       showToast("success", "Phone verified successfully!");
@@ -555,6 +614,16 @@ export default function AirtimeCoupons() {
   };
 
   /* ── Redeem ── */
+  const handleRedeem = useCallback((coupon) => {
+    if (!phoneStatus?.verified) {
+      /* Phone not verified — trigger smart verification */
+      startVerification();
+      return;
+    }
+    /* Phone verified — show confirm modal */
+    setConfirming(coupon);
+  }, [phoneStatus, startVerification]);
+
   const executeRedeem = async () => {
     if (!confirming) return;
     setRedeeming(true);
@@ -568,7 +637,7 @@ export default function AirtimeCoupons() {
       if (!data.success) {
         if (data.code === "PHONE_NOT_VERIFIED") {
           setConfirming(null);
-          setStep("phone");
+          startVerification();
           showToast("error", "Please verify your phone number first.");
           return;
         }
@@ -618,21 +687,32 @@ export default function AirtimeCoupons() {
 
       <div className="at-scroll">
 
-        {/* ── Phone verification section ── */}
+        {/* ══════════════════════════════════════
+           SCENARIO A: Not verified + no step active
+           Show prompt to verify
+        ══════════════════════════════════════ */}
         {!loading && !isVerified && step === null && (
           <div className="at-verify-prompt">
             <div className="at-verify-prompt-icon"><IconShield /></div>
             <div className="at-verify-prompt-text">
               <h3>Verify your phone number</h3>
-              <p>A verified phone number is required to redeem airtime coupons.</p>
+              <p>
+                {phoneStatus?.has_phone
+                  ? `We found ${phoneStatus.masked} from your registration. Tap to verify it.`
+                  : "A verified phone number is required to redeem airtime coupons."
+                }
+              </p>
             </div>
-            <button className="at-verify-prompt-btn" onClick={() => setStep("phone")}>
-              Verify Now
+            <button className="at-verify-prompt-btn" onClick={startVerification}>
+              {phoneStatus?.has_phone ? "Verify" : "Add Number"}
             </button>
           </div>
         )}
 
-        {/* ── Phone entry step ── */}
+        {/* ══════════════════════════════════════
+           PHONE ENTRY STEP
+           Only shown when user has NO phone on file
+        ══════════════════════════════════════ */}
         {step === "phone" && (
           <div className="at-verify-card">
             <h2 className="at-verify-title">Enter your phone number</h2>
@@ -675,12 +755,22 @@ export default function AirtimeCoupons() {
           </div>
         )}
 
-        {/* ── OTP step ── */}
+        {/* ══════════════════════════════════════
+           OTP STEP
+           Shown for both new numbers and
+           pre-existing registration numbers
+        ══════════════════════════════════════ */}
         {step === "otp" && (
           <div className="at-verify-card">
             <h2 className="at-verify-title">Enter the OTP</h2>
             <p className="at-verify-sub">
-              We sent a 6-digit code to <strong>+234{phone.replace(/^0/, "")}</strong>
+              We sent a 6-digit code to{" "}
+              <strong>
+                {phoneStatus?.has_phone
+                  ? phoneStatus.masked
+                  : `+234${phone.replace(/^0/, "")}`
+                }
+              </strong>
             </p>
 
             <OtpInput value={otp} onChange={setOtp} disabled={otpLoading} />
@@ -711,19 +801,52 @@ export default function AirtimeCoupons() {
               <span>Didn't receive it?</span>
               {countdown > 0
                 ? <span className="at-resend-disabled">Resend in {countdown}s</span>
-                : <button className="at-resend-btn" onClick={() => sendOtp("verify")} disabled={otpLoading}>
+                : <button
+                    className="at-resend-btn"
+                    onClick={() => {
+                      if (phoneStatus?.has_phone) {
+                        sendOtpForExisting();
+                      } else {
+                        sendOtp("verify");
+                      }
+                    }}
+                    disabled={otpLoading}
+                  >
                     Resend OTP
                   </button>
               }
             </div>
 
-            <button className="at-text-btn" onClick={() => { setStep("phone"); setOtp(""); setMsg(null); }}>
-              ← Change phone number
-            </button>
+            {/* Only show "change number" if the phone was manually entered */}
+            {!phoneStatus?.has_phone && (
+              <button
+                className="at-text-btn"
+                onClick={() => { setStep("phone"); setOtp(""); setMsg(null); }}
+              >
+                ← Change phone number
+              </button>
+            )}
+
+            {/* If phone from registration, allow them to use a different number */}
+            {phoneStatus?.has_phone && (
+              <button
+                className="at-text-btn"
+                onClick={() => {
+                  setStep("phone");
+                  setPhone("");
+                  setOtp("");
+                  setMsg(null);
+                }}
+              >
+                ← Use a different number
+              </button>
+            )}
           </div>
         )}
 
-        {/* ── Verified badge ── */}
+        {/* ══════════════════════════════════════
+           VERIFIED BADGE
+        ══════════════════════════════════════ */}
         {!loading && isVerified && step === null && (
           <div className="at-verified-card">
             <div className="at-verified-left">
@@ -741,7 +864,10 @@ export default function AirtimeCoupons() {
                 </span>
               )}
               {phoneStatus.can_change ? (
-                <button className="at-change-btn" onClick={() => { setStep("phone"); setPhone(""); setMsg(null); }}>
+                <button
+                  className="at-change-btn"
+                  onClick={() => { setStep("phone"); setPhone(""); setMsg(null); }}
+                >
                   <IconEdit /> Change
                 </button>
               ) : (
@@ -791,7 +917,7 @@ export default function AirtimeCoupons() {
         {!loading && coupons.length > 0 && (
           <div className="at-list">
             {coupons.map((c) => (
-              <AirtimeCouponCard key={c.id} coupon={c} onRedeem={setConfirming} />
+              <AirtimeCouponCard key={c.id} coupon={c} onRedeem={handleRedeem} />
             ))}
           </div>
         )}
@@ -804,10 +930,10 @@ export default function AirtimeCoupons() {
               <h3 className="at-how-title">How airtime coupons work</h3>
             </div>
             {[
-              { icon: <IconPhone />,      t: "Verify your phone number once." },
-              { icon: <IconSend />,       t: "Tap Redeem on an available coupon." },
-              { icon: <IconClock />,      t: "We process and send the airtime to your verified number." },
-              { icon: <IconCheckCircle />,t: "Status updates to Completed once sent." },
+              { icon: <IconPhone />,       t: "Verify your phone number once." },
+              { icon: <IconSend />,        t: "Tap Redeem on an available coupon." },
+              { icon: <IconClock />,       t: "We process and send the airtime to your verified number." },
+              { icon: <IconCheckCircle />, t: "Status updates to Completed once sent." },
             ].map((tip, idx) => (
               <div key={idx} className="at-how-tip">
                 <span className="at-how-tip-icon">{tip.icon}</span>
@@ -823,6 +949,8 @@ export default function AirtimeCoupons() {
       {confirming && (
         <ConfirmModal
           coupon={confirming}
+          phoneMasked={phoneStatus?.masked}
+          network={phoneStatus?.network}
           onConfirm={executeRedeem}
           onCancel={() => setConfirming(null)}
           loading={redeeming}
