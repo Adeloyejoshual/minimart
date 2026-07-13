@@ -1,9 +1,11 @@
 // routes/airtimeCoupons.js
+// Base: /api/airtime-coupons
+// User-facing routes ONLY — no admin routes here
+
 import express      from "express";
 import crypto       from "crypto";
 import { pool }     from "../config/db.js";
 import authenticate from "../middleware/auth.js";
-import adminAuth    from "../middleware/adminAuth.js";
 
 const router = express.Router();
 
@@ -14,7 +16,6 @@ const OTP_TTL_MINUTES      = 10;
 const OTP_MAX_ATTEMPTS     = 5;
 const CHANGE_COOLDOWN_DAYS = 60;
 
-/* ── Single source of truth for all valid statuses ── */
 const AIRTIME_STATUS = Object.freeze({
   AVAILABLE  : "available",
   REDEEMED   : "redeemed",
@@ -23,16 +24,13 @@ const AIRTIME_STATUS = Object.freeze({
   FAILED     : "failed",
 });
 
-/* ── Valid admin status transitions ── */
-const ADMIN_TRANSITIONS = Object.freeze({
-  [AIRTIME_STATUS.REDEEMED]   : [AIRTIME_STATUS.PROCESSING, AIRTIME_STATUS.FAILED],
-  [AIRTIME_STATUS.PROCESSING] : [AIRTIME_STATUS.COMPLETED,  AIRTIME_STATUS.FAILED],
-});
+const STATUS_CHECK = Object.values(AIRTIME_STATUS)
+  .map((s) => `'${s}'`)
+  .join(", ");
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════════════════════ */
-
 const generateOtp = () =>
   crypto.randomInt(100_000, 999_999).toString();
 
@@ -52,12 +50,6 @@ const maskPhone = (phone) => {
   return local.slice(0, 4) + "****" + local.slice(-3);
 };
 
-/*
- * localPhone
- * Converts +234XXXXXXXXXX → 0XXXXXXXXXX
- * Used when sending the raw number back to the frontend
- * so it can pre-fill the phone input without the +234 prefix.
- */
 const localPhone = (phone) => {
   if (!phone) return null;
   if (phone.startsWith("+234")) return "0" + phone.slice(4);
@@ -67,7 +59,6 @@ const localPhone = (phone) => {
 const daysSince = (date) =>
   Math.floor((Date.now() - new Date(date)) / 86_400_000);
 
-/* ── Nigerian network detection ── */
 const PREFIX_MAP = Object.freeze({
   /* MTN */
   "0703": "MTN", "0706": "MTN", "0803": "MTN", "0806": "MTN",
@@ -93,21 +84,11 @@ const detectNetwork = (phone) => {
   return network;
 };
 
-/*
- * Build the CHECK constraint string from AIRTIME_STATUS.
- * Adding a new status to AIRTIME_STATUS automatically
- * reflects it in the DB constraint — no second place to edit.
- */
-const STATUS_CHECK = Object.values(AIRTIME_STATUS)
-  .map((s) => `'${s}'`)
-  .join(", ");
-
 /* ═══════════════════════════════════════════════════════════════
    ENSURE TABLES + INDEXES
 ═══════════════════════════════════════════════════════════════ */
 async function ensureTables() {
 
-  /* ── Phone columns on users ── */
   await pool.query(`
     ALTER TABLE public.users
     ADD COLUMN IF NOT EXISTS phone             TEXT        NULL,
@@ -117,14 +98,12 @@ async function ensureTables() {
     ADD COLUMN IF NOT EXISTS phone_network     TEXT        NULL
   `);
 
-  /* One phone number per account */
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS unique_users_phone
     ON public.users (phone)
     WHERE phone IS NOT NULL
   `);
 
-  /* ── OTP table ── */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.phone_otps (
       id         UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -150,7 +129,6 @@ async function ensureTables() {
     ON public.phone_otps (expires_at)
   `);
 
-  /* ── Airtime coupons ── */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.airtime_coupons (
       id           UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -197,30 +175,10 @@ ensureTables().catch((err) =>
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   PHONE VERIFICATION
-═══════════════════════════════════════════════════════════════ */
-
-/* ──────────────────────────────────────────────────────────────
    GET /api/airtime-coupons/phone-status
-
-   Returns the user's phone state so the frontend can decide:
-
-   has_phone = false, verified = false
-     → No phone on file at all → show phone entry step
-
-   has_phone = true, verified = false
-     → Phone exists from registration but not yet verified
-     → Frontend pre-fills the input + goes straight to OTP
-     → local_number is returned so the input can be pre-filled
-
-   has_phone = true, verified = true
-     → Fully verified → show confirm modal directly on Redeem
-────────────────────────────────────────────────────────────── */
+═══════════════════════════════════════════════════════════════ */
 router.get("/phone-status", authenticate, async (req, res) => {
   try {
-    /* Also pull registration_phone if your users table has one.
-     * If your column is named differently (e.g. mobile, phone_number)
-     * add it to the SELECT and handle it in the logic below. */
     const { rows } = await pool.query(
       `SELECT
          phone,
@@ -238,8 +196,7 @@ router.get("/phone-status", authenticate, async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    const u = rows[0];
-
+    const u        = rows[0];
     const hasPhone = !!u.phone;
 
     const canChange = !u.phone_changed_at ||
@@ -252,31 +209,9 @@ router.get("/phone-status", authenticate, async (req, res) => {
     return res.json({
       success: true,
       phone: {
-        /*
-         * has_phone
-         * true  → a phone number is stored (verified or not)
-         * false → no phone on file yet
-         */
-        has_phone : hasPhone,
-
-        /*
-         * local_number
-         * The phone in 0XXXXXXXXXX format so the frontend can
-         * pre-fill the input field without showing +234.
-         * Only returned when has_phone = true AND verified = false.
-         * Once verified we only return the masked version.
-         */
-        local_number : hasPhone && !u.phone_verified
-          ? localPhone(u.phone)
-          : null,
-
-        /*
-         * masked
-         * Always returned when has_phone = true.
-         * 0803****567 format — safe to display.
-         */
-        masked : maskPhone(u.phone),
-
+        has_phone         : hasPhone,
+        local_number      : hasPhone && !u.phone_verified ? localPhone(u.phone) : null,
+        masked            : maskPhone(u.phone),
         verified          : u.phone_verified   || false,
         network           : u.phone_network    || null,
         verified_at       : u.phone_verified_at,
@@ -291,10 +226,10 @@ router.get("/phone-status", authenticate, async (req, res) => {
   }
 });
 
-/* ──────────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
    POST /api/airtime-coupons/send-otp
-   Body: { phone, purpose }   purpose = "verify" | "change"
-────────────────────────────────────────────────────────────── */
+   Body: { phone, purpose }
+═══════════════════════════════════════════════════════════════ */
 router.post("/send-otp", authenticate, async (req, res) => {
   const { phone, purpose = "verify" } = req.body;
   const userId = req.user.id;
@@ -312,7 +247,6 @@ router.post("/send-otp", authenticate, async (req, res) => {
     });
   }
 
-  /* ── Reject unrecognized prefix early ── */
   try {
     detectNetwork(normalized);
   } catch {
@@ -323,7 +257,6 @@ router.post("/send-otp", authenticate, async (req, res) => {
   }
 
   try {
-    /* ── Already linked to a different verified account? ── */
     const { rows: conflict } = await pool.query(
       `SELECT id FROM public.users
        WHERE phone          = $1
@@ -340,15 +273,12 @@ router.post("/send-otp", authenticate, async (req, res) => {
       });
     }
 
-    /* ── 60-day cooldown for change requests ── */
     if (purpose === "change") {
       const { rows: userRows } = await pool.query(
         `SELECT phone_changed_at FROM public.users WHERE id = $1 LIMIT 1`,
         [userId]
       );
-
       const changedAt = userRows[0]?.phone_changed_at;
-
       if (changedAt && daysSince(changedAt) < CHANGE_COOLDOWN_DAYS) {
         const daysLeft = CHANGE_COOLDOWN_DAYS - daysSince(changedAt);
         return res.status(429).json({
@@ -359,17 +289,13 @@ router.post("/send-otp", authenticate, async (req, res) => {
       }
     }
 
-    /* ── Invalidate all previous unused OTPs for this user + purpose ── */
     await pool.query(
       `UPDATE public.phone_otps
        SET used = true
-       WHERE user_id = $1
-         AND purpose = $2
-         AND used    = false`,
+       WHERE user_id = $1 AND purpose = $2 AND used = false`,
       [userId, purpose]
     );
 
-    /* ── Generate and store new OTP ── */
     const otp       = generateOtp();
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60_000);
 
@@ -382,12 +308,9 @@ router.post("/send-otp", authenticate, async (req, res) => {
 
     /*
      * ── SMS delivery ──
-     * Plug in your SMS provider here.
-     *
      * await smsProvider.send({
      *   to     : normalized,
-     *   message: `Your Loemart code is ${otp}. ` +
-     *            `Valid for ${OTP_TTL_MINUTES} minutes. Do not share it.`,
+     *   message: `Your Loemart code is ${otp}. Valid for ${OTP_TTL_MINUTES} minutes. Do not share it.`,
      * });
      */
     if (process.env.NODE_ENV !== "production") {
@@ -407,10 +330,10 @@ router.post("/send-otp", authenticate, async (req, res) => {
   }
 });
 
-/* ──────────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
    POST /api/airtime-coupons/verify-otp
    Body: { phone, otp, purpose }
-────────────────────────────────────────────────────────────── */
+═══════════════════════════════════════════════════════════════ */
 router.post("/verify-otp", authenticate, async (req, res) => {
   const { phone, otp, purpose = "verify" } = req.body;
   const userId = req.user.id;
@@ -422,7 +345,6 @@ router.post("/verify-otp", authenticate, async (req, res) => {
   const normalized = normalizePhone(phone.trim());
 
   try {
-    /* ── Find the latest valid OTP ── */
     const { rows } = await pool.query(
       `SELECT id, otp, attempts
        FROM public.phone_otps
@@ -445,7 +367,6 @@ router.post("/verify-otp", authenticate, async (req, res) => {
 
     const record = rows[0];
 
-    /* ── Too many attempts ── */
     if (record.attempts >= OTP_MAX_ATTEMPTS) {
       await pool.query(
         `UPDATE public.phone_otps SET used = true WHERE id = $1`,
@@ -457,13 +378,11 @@ router.post("/verify-otp", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Increment attempt count before checking ── */
     await pool.query(
       `UPDATE public.phone_otps SET attempts = attempts + 1 WHERE id = $1`,
       [record.id]
     );
 
-    /* ── Wrong code ── */
     if (record.otp !== otp.trim()) {
       const remaining = OTP_MAX_ATTEMPTS - (record.attempts + 1);
       return res.status(400).json({
@@ -472,7 +391,6 @@ router.post("/verify-otp", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Detect network ── */
     let network;
     try {
       network = detectNetwork(normalized);
@@ -483,13 +401,11 @@ router.post("/verify-otp", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Mark OTP as used ── */
     await pool.query(
       `UPDATE public.phone_otps SET used = true WHERE id = $1`,
       [record.id]
     );
 
-    /* ── Save verified phone to user ── */
     await pool.query(
       `UPDATE public.users
        SET
@@ -507,7 +423,7 @@ router.post("/verify-otp", authenticate, async (req, res) => {
       message: "Phone number verified successfully.",
       phone: {
         has_phone    : true,
-        local_number : null,              // verified — no longer returned
+        local_number : null,
         masked       : maskPhone(normalized),
         network,
         verified     : true,
@@ -521,13 +437,9 @@ router.post("/verify-otp", authenticate, async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   USER — AIRTIME COUPON ROUTES
-═══════════════════════════════════════════════════════════════ */
-
-/* ──────────────────────────────────────────────────────────────
    GET /api/airtime-coupons
    Current user's airtime coupons
-────────────────────────────────────────────────────────────── */
+═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -573,15 +485,10 @@ router.get("/", authenticate, async (req, res) => {
   }
 });
 
-/* ──────────────────────────────────────────────────────────────
+/* ═══════════════════════════════════════════════════════════════
    POST /api/airtime-coupons/redeem
    Body: { code }
-
-   Security layers:
-   1. SELECT ... FOR UPDATE  — locks row, queues concurrent requests
-   2. UPDATE WHERE status = 'available'  — second safety net
-   3. CHECK constraint on status column  — DB-level guard
-────────────────────────────────────────────────────────────── */
+═══════════════════════════════════════════════════════════════ */
 router.post("/redeem", authenticate, async (req, res) => {
   const { code } = req.body;
   const userId   = req.user.id;
@@ -595,7 +502,6 @@ router.post("/redeem", authenticate, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* ── Lock row — concurrent requests queue here ── */
     const { rows: couponRows } = await client.query(
       `SELECT id, user_id, status, amount
        FROM public.airtime_coupons
@@ -612,7 +518,6 @@ router.post("/redeem", authenticate, async (req, res) => {
 
     const coupon = couponRows[0];
 
-    /* ── Must belong to this user ── */
     if (coupon.user_id !== userId) {
       await client.query("ROLLBACK");
       return res.status(403).json({
@@ -621,7 +526,6 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Must be available ── */
     if (coupon.status !== AIRTIME_STATUS.AVAILABLE) {
       await client.query("ROLLBACK");
       return res.status(409).json({
@@ -630,7 +534,6 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Load verified phone — always read from DB, never from request ── */
     const { rows: userRows } = await client.query(
       `SELECT phone, phone_verified, phone_network
        FROM public.users
@@ -650,7 +553,6 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Always re-detect network from stored phone ── */
     let network;
     try {
       network = detectNetwork(user.phone);
@@ -662,11 +564,6 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Conditional UPDATE — second safety net after the lock ──
-     *
-     * AND status = 'available' means even if two transactions
-     * somehow passed the FOR UPDATE, only one UPDATE wins.
-     */
     const { rows: updated } = await client.query(
       `UPDATE public.airtime_coupons
        SET
@@ -723,273 +620,5 @@ router.post("/redeem", authenticate, async (req, res) => {
     client.release();
   }
 });
-
-/* ═══════════════════════════════════════════════════════════════
-   ADMIN — AIRTIME COUPON ROUTES
-═══════════════════════════════════════════════════════════════ */
-
-/* ──────────────────────────────────────────────────────────────
-   GET /api/airtime-coupons/admin
-   Query: ?status=redeemed&page=1&limit=20
-────────────────────────────────────────────────────────────── */
-router.get("/admin", adminAuth, async (req, res) => {
-  try {
-    const status = req.query.status || AIRTIME_STATUS.REDEEMED;
-    const page   = Math.max(1, parseInt(req.query.page)   || 1);
-    const limit  = Math.min(100, parseInt(req.query.limit) || 20);
-    const offset = (page - 1) * limit;
-
-    if (!Object.values(AIRTIME_STATUS).includes(status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid status. Must be one of: ${Object.values(AIRTIME_STATUS).join(", ")}.`,
-      });
-    }
-
-    const { rows } = await pool.query(
-      `SELECT
-         a.id,
-         a.code,
-         a.amount,
-         a.status,
-         a.phone,
-         a.network,
-         a.redeemed_at,
-         a.processed_at,
-         a.admin_note,
-         u.id    AS user_id,
-         u.name  AS user_name,
-         u.email AS user_email
-       FROM public.airtime_coupons a
-       LEFT JOIN public.users u ON u.id = a.redeemed_by
-       WHERE a.status = $1
-       ORDER BY a.redeemed_at DESC NULLS LAST
-       LIMIT $2 OFFSET $3`,
-      [status, limit, offset]
-    );
-
-    const { rows: countRows } = await pool.query(
-      `SELECT COUNT(*)::int AS total
-       FROM public.airtime_coupons
-       WHERE status = $1`,
-      [status]
-    );
-
-    const { rows: summaryRows } = await pool.query(
-      `SELECT status, COUNT(*)::int AS count
-       FROM public.airtime_coupons
-       GROUP BY status`
-    );
-
-    const summary = Object.fromEntries(
-      Object.values(AIRTIME_STATUS).map((s) => [s, 0])
-    );
-    summaryRows.forEach((r) => { summary[r.status] = r.count; });
-
-    return res.json({
-      success  : true,
-      total    : countRows[0].total,
-      page,
-      pages    : Math.ceil(countRows[0].total / limit),
-      summary,
-      requests : rows.map((r) => ({
-        id          : r.id,
-        code        : r.code,
-        amount      : Number(r.amount),
-        status      : r.status,
-        phone       : r.phone,           // full number — admin only
-        phone_masked: maskPhone(r.phone),
-        network     : r.network,
-        redeemed_at : r.redeemed_at,
-        processed_at: r.processed_at,
-        admin_note  : r.admin_note,
-        user: {
-          id   : r.user_id,
-          name : r.user_name,
-          email: r.user_email,
-        },
-      })),
-    });
-
-  } catch (err) {
-    console.error("[airtime-coupons] GET /admin:", err.message);
-    return res.status(500).json({ success: false, message: "Server error." });
-  }
-});
-
-/* ──────────────────────────────────────────────────────────────
-   POST /api/airtime-coupons/admin/:id/processing
-────────────────────────────────────────────────────────────── */
-router.post("/admin/:id/processing", adminAuth, async (req, res) => {
-  await updateAdminStatus({ req, res, targetStatus: AIRTIME_STATUS.PROCESSING });
-});
-
-/* ──────────────────────────────────────────────────────────────
-   POST /api/airtime-coupons/admin/:id/completed
-────────────────────────────────────────────────────────────── */
-router.post("/admin/:id/completed", adminAuth, async (req, res) => {
-  await updateAdminStatus({ req, res, targetStatus: AIRTIME_STATUS.COMPLETED });
-});
-
-/* ──────────────────────────────────────────────────────────────
-   POST /api/airtime-coupons/admin/:id/failed
-   Body: { note }  — required
-────────────────────────────────────────────────────────────── */
-router.post("/admin/:id/failed", adminAuth, async (req, res) => {
-  if (!req.body.note?.trim()) {
-    return res.status(400).json({
-      success: false,
-      message: "A note explaining the failure is required.",
-    });
-  }
-  await updateAdminStatus({ req, res, targetStatus: AIRTIME_STATUS.FAILED });
-});
-
-/* ──────────────────────────────────────────────────────────────
-   POST /api/airtime-coupons/admin/assign
-   Body: { user_id, amount, code? }
-────────────────────────────────────────────────────────────── */
-router.post("/admin/assign", adminAuth, async (req, res) => {
-  const { user_id, amount, code } = req.body;
-
-  if (!user_id || !amount) {
-    return res.status(400).json({
-      success: false,
-      message: "user_id and amount are required.",
-    });
-  }
-
-  const couponCode = code?.trim().toUpperCase() ||
-    `AIR${Math.round(amount)}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
-
-  try {
-    const { rows: userRows } = await pool.query(
-      `SELECT id FROM public.users WHERE id = $1 LIMIT 1`,
-      [user_id]
-    );
-
-    if (!userRows.length) {
-      return res.status(404).json({ success: false, message: "User not found." });
-    }
-
-    const { rows } = await pool.query(
-      `INSERT INTO public.airtime_coupons (code, amount, user_id, status)
-       VALUES ($1, $2, $3, $4)
-       ON CONFLICT (code) DO NOTHING
-       RETURNING id, code, amount, status, created_at`,
-      [couponCode, Number(amount), user_id, AIRTIME_STATUS.AVAILABLE]
-    );
-
-    if (!rows.length) {
-      return res.status(409).json({
-        success: false,
-        message: `Code "${couponCode}" already exists. Try again or provide a different code.`,
-      });
-    }
-
-    return res.status(201).json({
-      success: true,
-      message: `₦${amount} airtime coupon assigned successfully.`,
-      coupon : rows[0],
-    });
-
-  } catch (err) {
-    console.error("[airtime-coupons] POST /admin/assign:", err.message);
-    return res.status(500).json({ success: false, message: "Server error." });
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   SHARED ADMIN STATUS UPDATE HELPER
-═══════════════════════════════════════════════════════════════ */
-async function updateAdminStatus({ req, res, targetStatus }) {
-  const { id }   = req.params;
-  const { note } = req.body;
-  const adminId  = req.user.id;
-
-  const client = await pool.connect();
-
-  try {
-    await client.query("BEGIN");
-
-    const { rows } = await client.query(
-      `SELECT id, status, code, amount
-       FROM public.airtime_coupons
-       WHERE id = $1
-       LIMIT 1
-       FOR UPDATE`,
-      [id]
-    );
-
-    if (!rows.length) {
-      await client.query("ROLLBACK");
-      return res.status(404).json({ success: false, message: "Coupon not found." });
-    }
-
-    const current = rows[0];
-    const allowed = ADMIN_TRANSITIONS[current.status];
-
-    if (!allowed) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        success: false,
-        message: `Status "${current.status}" cannot be updated further.`,
-      });
-    }
-
-    if (!allowed.includes(targetStatus)) {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        success: false,
-        message: `Cannot move from "${current.status}" to "${targetStatus}". Allowed: ${allowed.join(", ")}.`,
-      });
-    }
-
-    const { rows: updated } = await client.query(
-      `UPDATE public.airtime_coupons
-       SET
-         status       = $1,
-         processed_by = $2,
-         processed_at = NOW(),
-         admin_note   = COALESCE($3, admin_note)
-       WHERE id     = $4
-         AND status = $5
-       RETURNING id, code, amount, status, processed_at, admin_note`,
-      [targetStatus, adminId, note?.trim() || null, id, current.status]
-    );
-
-    if (!updated.length) {
-      await client.query("ROLLBACK");
-      return res.status(409).json({
-        success: false,
-        message: "Coupon status changed by another request. Please refresh.",
-      });
-    }
-
-    await client.query("COMMIT");
-
-    const result = updated[0];
-
-    return res.json({
-      success: true,
-      message: `Coupon ${result.code} marked as ${targetStatus}.`,
-      coupon: {
-        id          : result.id,
-        code        : result.code,
-        amount      : Number(result.amount),
-        status      : result.status,
-        processed_at: result.processed_at,
-        admin_note  : result.admin_note,
-      },
-    });
-
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error(`[airtime-coupons] status update → ${targetStatus}:`, err.message);
-    return res.status(500).json({ success: false, message: "Server error." });
-  } finally {
-    client.release();
-  }
-}
 
 export default router;
