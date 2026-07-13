@@ -31,7 +31,7 @@ async function ensureTables() {
     )
   `);
 
-  /* ── Safe column migrations for existing tables ── */
+  /* ── Safe column migrations ── */
   const couponMigrations = [
     `ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS is_private  BOOLEAN NOT NULL DEFAULT false`,
     `ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS created_by  UUID    NULL`,
@@ -76,17 +76,7 @@ async function ensureTables() {
     ON public.coupons (is_private, created_by)
   `);
 
-  /* ── Coupon redemptions ──
-   *
-   * user_id is NULL-able so admin redemptions for public
-   * coupons can be recorded even when the buyer is identified
-   * by email/phone rather than a direct user session.
-   *
-   * The admin coupon redemption route stores the resolved
-   * user_id (looked up by email or phone) so it is almost
-   * always populated — but NOT NULL would break the flow
-   * if a buyer has no Loemart account yet.
-   */
+  /* ── Coupon redemptions ── */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.coupon_redemptions (
       id                    UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -95,22 +85,17 @@ async function ensureTables() {
       order_id              UUID        NULL,
       discount              DECIMAL     NOT NULL DEFAULT 0,
       redeemed_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
-      /* Admin redemption columns */
       redeemed_by_admin      UUID        NULL,
       redeemed_by_admin_name TEXT        NULL,
-      /* Reward snapshot — accurate even if coupon changes later */
       reward_type           TEXT        NULL,
       reward_value          DECIMAL     NULL,
       reward_description    TEXT        NULL,
-      /* Optional admin note */
       admin_note            TEXT        NULL,
-      /* Which user was verified at redemption time */
       verified_user_id      UUID        NULL,
       CONSTRAINT coupon_redemptions_pkey PRIMARY KEY (id)
     )
   `);
 
-  /* ── Safe column migrations for coupon_redemptions ── */
   const redemptionMigrations = [
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin      UUID    NULL`,
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin_name TEXT    NULL`,
@@ -119,7 +104,6 @@ async function ensureTables() {
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_description     TEXT    NULL`,
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS admin_note             TEXT    NULL`,
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS verified_user_id       UUID    NULL`,
-    /* Relax user_id NOT NULL if it was previously set that way */
     `ALTER TABLE public.coupon_redemptions ALTER COLUMN user_id DROP NOT NULL`,
   ];
 
@@ -132,14 +116,6 @@ async function ensureTables() {
     }
   }
 
-  /*
-   * unique_user_coupon prevents the same user from redeeming
-   * the same coupon twice via the user-facing API.
-   *
-   * We use a partial index (WHERE user_id IS NOT NULL) so that
-   * admin redemptions (which may have a NULL user_id for edge
-   * cases) do not conflict with each other.
-   */
   await pool.query(`
     CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon
     ON public.coupon_redemptions (coupon_id, user_id)
@@ -170,12 +146,24 @@ ensureTables().catch((err) =>
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/coupons
-   Returns:
-     - Public coupons  (is_private = false) — visible to everyone
-     - Private coupons (is_private = true)  — only visible to the
-       user who earned them (created_by = userId)
-   Both usable and used/expired are returned so the frontend
-   can populate the Available tab and the Used tab correctly.
+
+   Returns coupons visible to this user:
+
+   RULE 1 — Active public coupons
+     is_active = true AND is_private = false
+     → everyone sees these
+
+   RULE 2 — Active private coupons the user owns
+     is_active = true AND is_private = true AND created_by = userId
+     → only the winner sees their spin coupon
+
+   RULE 3 — Coupons this user has already redeemed
+     Even if is_active = false (deactivated after admin redemption)
+     we still show them in the Used tab so the user can see history.
+     We identify these via coupon_redemptions WHERE user_id = userId.
+
+   Without Rule 3, admin-redeemed coupons disappear from the
+   user's coupon page entirely because is_active = false.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
   try {
@@ -194,22 +182,37 @@ router.get("/", authenticate, async (req, res) => {
          c.expires_at,
          c.description,
          c.is_private,
+         c.is_active,
          c.created_at,
          COUNT(r.id) FILTER (WHERE r.user_id = $1)::int AS user_usage_count
        FROM public.coupons c
        LEFT JOIN public.coupon_redemptions r ON r.coupon_id = c.id
-       WHERE c.is_active = true
-         AND (
-           c.is_private = false      -- public: visible to all users
-           OR c.created_by = $1      -- private: only visible to the owner
+       WHERE
+         /* Rule 1: active public coupons */
+         (c.is_active = true AND c.is_private = false)
+
+         /* Rule 2: active private coupons owned by this user */
+         OR (c.is_active = true AND c.is_private = true AND c.created_by = $1)
+
+         /* Rule 3: any coupon this user has redeemed
+            even if is_active = false (admin redeemed it) */
+         OR (
+           EXISTS (
+             SELECT 1 FROM public.coupon_redemptions rx
+             WHERE rx.coupon_id = c.id
+               AND rx.user_id   = $1
+           )
          )
+
        GROUP BY
          c.id, c.code, c.type, c.value, c.min_purchase,
          c.max_discount, c.usage_limit, c.usage_count,
-         c.expires_at, c.description, c.is_private, c.created_at
+         c.expires_at, c.description, c.is_private, c.is_active, c.created_at
        ORDER BY
+         /* Usable coupons first */
          CASE
-           WHEN (c.expires_at IS NULL OR c.expires_at > NOW())
+           WHEN c.is_active = true
+            AND (c.expires_at IS NULL OR c.expires_at > NOW())
             AND (c.usage_limit IS NULL OR c.usage_count < c.usage_limit)
            THEN 0 ELSE 1
          END,
@@ -221,13 +224,42 @@ router.get("/", authenticate, async (req, res) => {
     const coupons = rows.map((c) => {
       const expiresAt = c.expires_at ? new Date(c.expires_at) : null;
       const isExpired = expiresAt ? expiresAt < now : false;
-      const isUsed    = c.user_usage_count > 0;
-      const isFull    = c.usage_limit
+
+      /*
+       * isUsed:
+       * true if this user has a redemption record for this coupon.
+       * This covers BOTH:
+       *   - user redeemed themselves (via /api/coupons/redeem)
+       *   - admin redeemed on their behalf (is_active flipped to false)
+       */
+      const isUsed = c.user_usage_count > 0;
+
+      /*
+       * isFull:
+       * true if the global usage limit has been reached.
+       * For single-use spin coupons this will be true after admin redeems.
+       */
+      const isFull = c.usage_limit
         ? Number(c.usage_count) >= Number(c.usage_limit)
         : false;
-      const daysLeft  = expiresAt
+
+      /*
+       * isDeactivated:
+       * Coupon was explicitly turned off (e.g. admin redeemed a spin coupon).
+       * Treat the same as "used" for display purposes.
+       */
+      const isDeactivated = !c.is_active;
+
+      const daysLeft = expiresAt
         ? Math.max(0, Math.ceil((expiresAt - now) / 86_400_000))
         : null;
+
+      /*
+       * usable:
+       * Can this user still use this coupon?
+       * No if: expired / already used by them / limit full / deactivated
+       */
+      const usable = !isExpired && !isUsed && !isFull && !isDeactivated;
 
       return {
         id           : c.id,
@@ -242,11 +274,12 @@ router.get("/", authenticate, async (req, res) => {
         expires_at   : c.expires_at,
         created_at   : c.created_at,
         is_private   : c.is_private,
+        is_active    : c.is_active,
         is_expired   : isExpired,
-        is_used      : isUsed,
+        is_used      : isUsed || isDeactivated,  // treat deactivated = used
         is_full      : isFull,
         days_left    : daysLeft,
-        usable       : !isExpired && !isUsed && !isFull,
+        usable,
       };
     });
 
@@ -260,7 +293,6 @@ router.get("/", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/coupons/validate
-   Validate a coupon code and calculate the discount
    Body: { code, order_amount }
 ═══════════════════════════════════════════════════════════════ */
 router.post("/validate", authenticate, async (req, res) => {
@@ -287,7 +319,6 @@ router.post("/validate", authenticate, async (req, res) => {
     const c   = rows[0];
     const now = new Date();
 
-    /* ── Private coupon: only the owner can validate it ── */
     if (c.is_private && c.created_by !== userId) {
       return res.status(403).json({
         success: false,
@@ -336,11 +367,9 @@ router.post("/validate", authenticate, async (req, res) => {
       if (c.max_discount) discount = Math.min(discount, Number(c.max_discount));
       discount = Math.round(discount);
       message  = `Coupon applied! You save ₦${discount.toLocaleString("en-NG")}.`;
-
     } else if (c.type === "fixed") {
       discount = Math.round(Math.min(Number(c.value), amount));
       message  = `Coupon applied! You save ₦${discount.toLocaleString("en-NG")}.`;
-
     } else if (c.type === "free_shipping") {
       discount = 0;
       message  = "Free shipping applied! Your delivery fee is waived at checkout.";
@@ -369,7 +398,6 @@ router.post("/validate", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/coupons/redeem
-   Record coupon use after a successful order
    Body: { code, order_id, discount }
 ═══════════════════════════════════════════════════════════════ */
 router.post("/redeem", authenticate, async (req, res) => {
@@ -393,7 +421,6 @@ router.post("/redeem", authenticate, async (req, res) => {
 
     const coupon = rows[0];
 
-    /* ── Private coupon: only the owner can redeem it ── */
     if (coupon.is_private && coupon.created_by !== userId) {
       return res.status(403).json({
         success: false,
@@ -401,7 +428,6 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Guard: already redeemed by this user? ── */
     const { rows: existing } = await pool.query(
       `SELECT id FROM public.coupon_redemptions
        WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
@@ -415,7 +441,6 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Insert redemption record ── */
     await pool.query(
       `INSERT INTO public.coupon_redemptions
          (coupon_id, user_id, order_id, discount)
@@ -423,7 +448,6 @@ router.post("/redeem", authenticate, async (req, res) => {
       [coupon.id, userId, order_id || null, Number(discount || 0)]
     );
 
-    /* ── Increment usage_count + deactivate if single-use ── */
     const isSingleUse = coupon.usage_limit !== null && Number(coupon.usage_limit) === 1;
 
     await pool.query(
@@ -457,6 +481,7 @@ router.get("/history", authenticate, async (req, res) => {
          r.discount,
          r.redeemed_at,
          r.order_id,
+         r.redeemed_by_admin_name,
          c.code,
          c.type,
          c.value,
@@ -473,8 +498,10 @@ router.get("/history", authenticate, async (req, res) => {
       success : true,
       history : rows.map((r) => ({
         ...r,
-        discount : Number(r.discount || 0),
-        value    : Number(r.value    || 0),
+        discount             : Number(r.discount || 0),
+        value                : Number(r.value    || 0),
+        redeemed_by_admin    : !!r.redeemed_by_admin_name,
+        redeemed_by_admin_name: r.redeemed_by_admin_name || null,
       })),
     });
 
