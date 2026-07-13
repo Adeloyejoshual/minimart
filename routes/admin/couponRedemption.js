@@ -12,22 +12,13 @@ const router = express.Router();
 ═══════════════════════════════════════════════════════════════ */
 async function ensureColumns() {
   const migrations = [
-    /* Make user_id nullable — admin redemptions may not have a user */
     `ALTER TABLE public.coupon_redemptions ALTER COLUMN user_id DROP NOT NULL`,
-
-    /* Admin redemption tracking */
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin      UUID    NULL`,
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin_name TEXT    NULL`,
-
-    /* Reward snapshot — stored so history stays accurate if coupon changes */
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_type            TEXT    NULL`,
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_value           DECIMAL NULL`,
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_description     TEXT    NULL`,
-
-    /* Optional admin note */
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS admin_note             TEXT    NULL`,
-
-    /* Which user was identified at redemption time */
     `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS verified_user_id       UUID    NULL`,
   ];
 
@@ -35,18 +26,17 @@ async function ensureColumns() {
     try {
       await pool.query(sql);
     } catch (e) {
-      /* Ignore "already exists" and "does not exist" — both are fine */
       if (
         !e.message.includes("already exists") &&
         !e.message.includes("does not exist") &&
         !e.message.includes("cannot alter")
       ) {
-        console.warn("[coupon-redemption] migration warning:", e.message);
+        console.warn("[coupon-redemption] migration:", e.message);
       }
     }
   }
 
-  /* Partial unique index — allows NULL user_id (admin-only redemptions) */
+  /* Partial unique index */
   try {
     await pool.query(`
       CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon
@@ -55,11 +45,11 @@ async function ensureColumns() {
     `);
   } catch (e) {
     if (!e.message.includes("already exists")) {
-      console.warn("[coupon-redemption] index warning:", e.message);
+      console.warn("[coupon-redemption] index:", e.message);
     }
   }
 
-  /* Ensure audit_logs exists and has text-compatible ID columns */
+  /* audit_logs — use TEXT for ID columns to avoid UUID cast issues */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.audit_logs (
       id          UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -103,7 +93,6 @@ const normalizePhone = (raw) => {
   return null;
 };
 
-/* Try to find a user by email or phone — returns null if not found */
 async function findUser(email, phone) {
   const conditions = [];
   const params     = [];
@@ -120,7 +109,7 @@ async function findUser(email, phone) {
       params.push(norm);
       conditions.push(`phone = $${params.length}`);
     }
-    if (local) {
+    if (local && local !== phone.trim()) {
       params.push(local);
       conditions.push(`phone = $${params.length}`);
     }
@@ -138,22 +127,21 @@ async function findUser(email, phone) {
     );
     return rows[0] || null;
   } catch (e) {
-    console.warn("[coupon-redemption] findUser error:", e.message);
+    console.warn("[coupon-redemption] findUser:", e.message);
     return null;
   }
 }
 
-/* Safe audit log — never throws, never blocks the response */
 function writeAuditLog(payload) {
   pool.query(
     `INSERT INTO public.audit_logs
        (actor_id, action, target_type, target_id, metadata, created_at)
      VALUES ($1, $2, $3, $4, $5, NOW())`,
     [
-      String(payload.actor_id   || ""),
-      String(payload.action     || ""),
-      String(payload.target_type|| ""),
-      String(payload.target_id  || ""),
+      String(payload.actor_id    || ""),
+      String(payload.action      || ""),
+      String(payload.target_type || ""),
+      String(payload.target_id   || ""),
       JSON.stringify(payload.metadata || {}),
     ]
   ).catch((e) =>
@@ -169,9 +157,9 @@ router.get("/stats", verifyAdmin, async (req, res) => {
     const [couponRes, todayRes] = await Promise.all([
       pool.query(
         `SELECT
-           COUNT(*)::int                                   AS total,
-           COUNT(*) FILTER (WHERE is_active = true)::int   AS available,
-           COUNT(*) FILTER (WHERE is_active = false)::int  AS redeemed
+           COUNT(*)::int                                  AS total,
+           COUNT(*) FILTER (WHERE is_active = true)::int  AS available,
+           COUNT(*) FILTER (WHERE is_active = false)::int AS redeemed
          FROM public.coupons`
       ),
       pool.query(
@@ -198,11 +186,6 @@ router.get("/stats", verifyAdmin, async (req, res) => {
 /* ═══════════════════════════════════════════════════════════════
    GET /api/admin/coupon-redemption/lookup
    Query: ?code=XXXX&email=&phone=
-
-   Always returns the coupon if it is valid.
-   Email and phone are optional hints — they are never hard blockers.
-   A warning is returned if they do not match, but the admin
-   can still proceed to redeem.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/lookup", verifyAdmin, async (req, res) => {
   const code  = req.query.code?.trim().toUpperCase();
@@ -210,54 +193,35 @@ router.get("/lookup", verifyAdmin, async (req, res) => {
   const phone = req.query.phone?.trim() || null;
 
   if (!code) {
-    return res.status(400).json({
-      success: false,
-      message: "Coupon code is required.",
-    });
+    return res.status(400).json({ success: false, message: "Coupon code is required." });
   }
 
   try {
-    /* ── Find the coupon ── */
-    const { rows } = await pool.query(
+    /* ── Find the coupon (no JOIN — avoids FOR UPDATE issue) ── */
+    const { rows: couponRows } = await pool.query(
       `SELECT
-         c.id,
-         c.code,
-         c.type,
-         c.value,
-         c.description,
-         c.is_active,
-         c.is_private,
-         c.usage_limit,
-         c.usage_count,
-         c.expires_at,
-         c.created_by,
-         owner.id    AS owner_id,
-         owner.name  AS owner_name,
-         owner.email AS owner_email,
-         owner.phone AS owner_phone
-       FROM public.coupons c
-       LEFT JOIN public.users owner ON owner.id = c.created_by
-       WHERE UPPER(c.code) = $1
+         id, code, type, value, description,
+         is_active, is_private, usage_limit, usage_count,
+         expires_at, created_by
+       FROM public.coupons
+       WHERE UPPER(code) = $1
        LIMIT 1`,
       [code]
     );
 
-    if (!rows.length) {
+    if (!couponRows.length) {
       return res.status(404).json({
         success: false,
         message: "Invalid coupon code. No coupon found with that code.",
       });
     }
 
-    const c   = rows[0];
+    const c   = couponRows[0];
     const now = new Date();
 
-    /* ── Hard validity checks ── */
+    /* ── Validity checks ── */
     if (!c.is_active) {
-      return res.status(400).json({
-        success: false,
-        message: "This coupon has been deactivated.",
-      });
+      return res.status(400).json({ success: false, message: "This coupon has been deactivated." });
     }
 
     if (c.expires_at && new Date(c.expires_at) < now) {
@@ -268,10 +232,7 @@ router.get("/lookup", verifyAdmin, async (req, res) => {
     }
 
     if (c.usage_limit && Number(c.usage_count) >= Number(c.usage_limit)) {
-      return res.status(400).json({
-        success: false,
-        message: "This coupon has reached its usage limit.",
-      });
+      return res.status(400).json({ success: false, message: "This coupon has reached its usage limit." });
     }
 
     /* ── Already redeemed? ── */
@@ -296,37 +257,43 @@ router.get("/lookup", verifyAdmin, async (req, res) => {
       });
     }
 
-    /* ══════════════════════════════════════════════════════════
-       RESOLVE OWNER + BUYER INFO
-       We never block on email/phone mismatch — just warn.
-    ══════════════════════════════════════════════════════════ */
+    /* ── Fetch owner separately (only if created_by is set) ── */
+    let ownerRow = null;
+    if (c.created_by) {
+      const { rows: ownerRows } = await pool.query(
+        `SELECT id, name, email, phone FROM public.users WHERE id = $1 LIMIT 1`,
+        [c.created_by]
+      );
+      ownerRow = ownerRows[0] || null;
+    }
+
+    /* ── Resolve owner + buyer info ── */
     let owner      = null;
     let buyerFound = false;
     let warning    = null;
 
-    if (c.is_private && c.owner_id) {
-      /* Private Spin & Win coupon — owner is the winner */
-      owner = {
-        id    : c.owner_id,
-        name  : c.owner_name  || "Unknown",
-        email : c.owner_email || null,
-        phone : c.owner_phone || null,
+    if (c.is_private && ownerRow) {
+      owner      = {
+        id    : ownerRow.id,
+        name  : ownerRow.name  || "Unknown",
+        email : ownerRow.email || null,
+        phone : ownerRow.phone || null,
       };
       buyerFound = true;
 
-      /* Soft-check email/phone — warn but never block */
-      if (email && c.owner_email &&
-          c.owner_email.toLowerCase() !== email.toLowerCase()) {
+      /* Soft-check — warn but never block */
+      if (email && ownerRow.email &&
+          ownerRow.email.toLowerCase() !== email.toLowerCase()) {
         warning = "The email entered does not match the coupon winner. Confirm with the buyer before redeeming.";
-      } else if (phone && c.owner_phone) {
+      } else if (phone && ownerRow.phone) {
         const inp = normalizePhone(phone);
-        const own = normalizePhone(c.owner_phone);
+        const own = normalizePhone(ownerRow.phone);
         if (inp && own && inp !== own) {
           warning = "The phone number entered does not match the coupon winner. Confirm with the buyer before redeeming.";
         }
       }
 
-    } else {
+    } else if (!c.is_private) {
       /* Public coupon — try to find buyer by email/phone */
       if (email || phone) {
         const buyer = await findUser(email, phone);
@@ -334,7 +301,7 @@ router.get("/lookup", verifyAdmin, async (req, res) => {
           buyerFound = true;
           owner      = buyer;
 
-          /* Check if this buyer already used the public coupon */
+          /* Check if buyer already used this coupon */
           const { rows: used } = await pool.query(
             `SELECT id FROM public.coupon_redemptions
              WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
@@ -348,7 +315,6 @@ router.get("/lookup", verifyAdmin, async (req, res) => {
             });
           }
         } else {
-          /* No account found — still show coupon, just without a linked account */
           owner = {
             id    : null,
             name  : email || phone || "Unregistered Buyer",
@@ -385,17 +351,13 @@ router.get("/lookup", verifyAdmin, async (req, res) => {
 
   } catch (err) {
     console.error("[coupon-redemption] GET /lookup:", err.message);
-    return res.status(500).json({ success: false, message: "Lookup failed." });
+    return res.status(500).json({ success: false, message: "Lookup failed: " + err.message });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/admin/coupon-redemption/redeem
    Body: { code, email?, phone?, note? }
-
-   Email and phone are optional.
-   Admin is fully trusted — we never block on missing identity.
-   We try to link to a user account if possible.
 ═══════════════════════════════════════════════════════════════ */
 router.post("/redeem", verifyAdmin, async (req, res) => {
   const { code, email, phone, note } = req.body;
@@ -411,18 +373,20 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* ── 1. Find + lock coupon ── */
+    /* ── 1. Lock ONLY the coupons row — no JOIN ──
+     *
+     * FOR UPDATE cannot be used with LEFT JOIN.
+     * Fetch the coupon row alone, then fetch the owner
+     * in a separate query. This is the fix for:
+     * "FOR UPDATE cannot be applied to the nullable side of an outer join"
+     */
     const { rows: couponRows } = await client.query(
       `SELECT
-         c.id, c.code, c.type, c.value, c.description,
-         c.is_active, c.is_private, c.usage_limit, c.usage_count,
-         c.expires_at, c.created_by,
-         owner.id    AS owner_id,
-         owner.name  AS owner_name,
-         owner.email AS owner_email
-       FROM public.coupons c
-       LEFT JOIN public.users owner ON owner.id = c.created_by
-       WHERE UPPER(c.code) = UPPER($1)
+         id, code, type, value, description,
+         is_active, is_private, usage_limit, usage_count,
+         expires_at, created_by
+       FROM public.coupons
+       WHERE UPPER(code) = UPPER($1)
        LIMIT 1
        FOR UPDATE`,
       [code.trim()]
@@ -464,19 +428,30 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
       return res.status(409).json({ success: false, message: "This coupon has already been redeemed." });
     }
 
-    /* ── 4. Resolve user (best effort) ── */
+    /* ── 4. Fetch owner separately (no JOIN needed) ── */
+    let ownerRow = null;
+    if (c.created_by) {
+      const { rows: ownerRows } = await client.query(
+        `SELECT id, name, email, phone FROM public.users WHERE id = $1 LIMIT 1`,
+        [c.created_by]
+      );
+      ownerRow = ownerRows[0] || null;
+    }
+
+    /* ── 5. Resolve which user to link the redemption to ── */
     let resolvedUserId   = null;
     let resolvedUserName = null;
 
-    if (c.is_private && c.owner_id) {
-      /* Private coupon → always link to the winner */
-      resolvedUserId   = c.owner_id;
-      resolvedUserName = c.owner_name || c.owner_email;
-    } else if (email || phone) {
+    if (c.is_private && ownerRow) {
+      /* Private Spin & Win coupon → always link to the winner */
+      resolvedUserId   = ownerRow.id;
+      resolvedUserName = ownerRow.name || ownerRow.email;
+
+    } else if (!c.is_private && (email || phone)) {
       /* Public coupon → try to find buyer account */
       const buyer = await findUser(email, phone);
       if (buyer) {
-        /* Make sure this buyer has not already used this coupon */
+        /* Check buyer has not already used it */
         const { rows: buyerUsed } = await client.query(
           `SELECT id FROM public.coupon_redemptions
            WHERE coupon_id = $1 AND user_id = $2 LIMIT 1`,
@@ -492,20 +467,10 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
         resolvedUserId   = buyer.id;
         resolvedUserName = buyer.name || buyer.email;
       }
-      /* If buyer not found — fine, proceed without a user link */
+      /* Buyer not found — proceed without a user link */
     }
 
-    /* ── 5. INSERT redemption record ──
-     *
-     * Only insert the columns we KNOW exist.
-     * reward_description, admin_note, verified_user_id
-     * are added by ensureColumns() above — but in case
-     * the migration ran after this code was deployed,
-     * we wrap each optional column in a try/fallback.
-     */
-    let insertSuccess = false;
-
-    /* Try with all columns first */
+    /* ── 6. INSERT redemption ── */
     try {
       await client.query(
         `INSERT INTO public.coupon_redemptions
@@ -527,12 +492,11 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
           resolvedUserId,
         ]
       );
-      insertSuccess = true;
-    } catch (fullInsertErr) {
-      console.warn("[coupon-redemption] full INSERT failed:", fullInsertErr.message);
+    } catch (insertErr) {
+      /* Fallback — some columns may not exist yet */
+      console.warn("[coupon-redemption] full INSERT failed:", insertErr.message);
       console.warn("[coupon-redemption] trying minimal INSERT…");
 
-      /* Fallback — only the columns guaranteed to exist */
       try {
         await client.query(
           `INSERT INTO public.coupon_redemptions
@@ -550,25 +514,24 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
             Number(c.value),
           ]
         );
-        insertSuccess = true;
         console.log("[coupon-redemption] minimal INSERT succeeded");
-      } catch (minInsertErr) {
+      } catch (minErr) {
         await client.query("ROLLBACK");
-        console.error("[coupon-redemption] minimal INSERT also failed:", minInsertErr.message);
+        console.error("[coupon-redemption] minimal INSERT failed:", minErr.message);
         return res.status(500).json({
           success : false,
-          message : "Redemption failed: " + minInsertErr.message,
+          message : "Insert failed: " + minErr.message,
           debug   : {
-            message : minInsertErr.message,
-            code    : minInsertErr.code,
-            detail  : minInsertErr.detail,
-            hint    : minInsertErr.hint,
+            message : minErr.message,
+            code    : minErr.code,
+            detail  : minErr.detail,
+            hint    : minErr.hint,
           },
         });
       }
     }
 
-    /* ── 6. UPDATE coupon — increment count + deactivate if needed ── */
+    /* ── 7. UPDATE coupon ── */
     const isSingleUse  = c.usage_limit !== null && Number(c.usage_limit) === 1;
     const newCount     = Number(c.usage_count) + 1;
     const limitReached = c.usage_limit !== null && newCount >= Number(c.usage_limit);
@@ -583,28 +546,26 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
       [deactivate, c.id]
     );
 
-    /* ── 7. COMMIT ── */
+    /* ── 8. COMMIT ── */
     await client.query("COMMIT");
 
-    /* ── 8. Audit log (non-fatal — never blocks the response) ── */
+    /* ── 9. Audit log (non-fatal) ── */
     writeAuditLog({
       actor_id    : String(adminId),
       action      : "admin_coupon_redeem",
       target_type : "coupon",
       target_id   : String(c.id),
       metadata    : {
-        code           : c.code,
-        type           : c.type,
-        value          : Number(c.value),
-        is_private     : c.is_private,
-        reward_label   : buildRewardLabel(c.type, c.value),
-        resolved_user  : resolvedUserId ? String(resolvedUserId) : null,
-        resolved_name  : resolvedUserName,
-        input_email    : email || null,
-        input_phone    : phone || null,
-        admin_name     : adminName,
-        note           : note?.trim() || null,
-        deactivated    : deactivate,
+        code          : c.code,
+        type          : c.type,
+        value         : Number(c.value),
+        is_private    : c.is_private,
+        reward_label  : buildRewardLabel(c.type, c.value),
+        resolved_user : resolvedUserId ? String(resolvedUserId) : null,
+        resolved_name : resolvedUserName,
+        admin_name    : adminName,
+        note          : note?.trim() || null,
+        deactivated   : deactivate,
       },
     });
 
@@ -632,12 +593,7 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error("[coupon-redemption] POST /redeem unhandled error:");
-    console.error("  message:", err.message);
-    console.error("  code:",    err.code);
-    console.error("  detail:",  err.detail);
-    console.error("  hint:",    err.hint);
-
+    console.error("[coupon-redemption] POST /redeem error:", err.message);
     return res.status(500).json({
       success : false,
       message : err.message || "Server error.",
@@ -655,7 +611,6 @@ router.post("/redeem", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/admin/coupon-redemption/history
-   Query: ?page=1&limit=20&search=
 ═══════════════════════════════════════════════════════════════ */
 router.get("/history", verifyAdmin, async (req, res) => {
   try {
