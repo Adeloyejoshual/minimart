@@ -24,7 +24,8 @@ import Reports            from "./SuperAdmin/Reports";
 import Verification       from "./SuperAdmin/Verification";
 import VendorVerification from "./SuperAdmin/VendorVerification";
 import Leaderboard        from "./SuperAdmin/Leaderboard";
-import AirtimeCoupons     from "./SuperAdmin/AirtimeCoupons"; // ✅ NEW
+import AirtimeCoupons     from "./SuperAdmin/AirtimeCoupons";
+import CouponRedemption   from "./SuperAdmin/CouponRedemption"; // ✅ NEW
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
@@ -103,37 +104,40 @@ function useData(api) {
     vendorsPending     : 0,
     vendorsActive      : 0,
     vendorsUnderReview : 0,
-    referrals          : {
+    referrals : {
       total    : 0,
       pending  : 0,
       verified : 0,
       rewarded : 0,
     },
+    coupons : {             // ✅ NEW
+      total     : 0,
+      available : 0,
+      redeemed  : 0,
+      today     : 0,
+    },
   });
 
-  const [users,                    setUsers]                    = useState([]);
-  const [admins,                   setAdmins]                   = useState([]);
-  const [products,                 setProducts]                 = useState([]);
-  const [pending,                  setPending]                  = useState([]);
-  const [payments,                 setPayments]                 = useState([]);
-  const [orders,                   setOrders]                   = useState([]);
-  const [logs,                     setLogs]                     = useState([]);
-  const [system,                   setSystem]                   = useState({
+  const [users,    setUsers]    = useState([]);
+  const [admins,   setAdmins]   = useState([]);
+  const [products, setProducts] = useState([]);
+  const [pending,  setPending]  = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [orders,   setOrders]   = useState([]);
+  const [logs,     setLogs]     = useState([]);
+  const [system,   setSystem]   = useState({
     maintenance   : false,
     allowPosting  : true,
     allowPayments : true,
   });
-  const [plans,                    setPlans]                    = useState([]);
+  const [plans, setPlans] = useState([]);
 
   const [reportCount,              setReportCount]              = useState(0);
   const [marketPendingCount,       setMarketPendingCount]       = useState(0);
   const [verificationPendingCount, setVerificationPendingCount] = useState(0);
   const [vendorPendingCount,       setVendorPendingCount]       = useState(0);
   const [withdrawalPendingCount,   setWithdrawalPendingCount]   = useState(0);
-
-  /* ── NEW: airtime pending count for sidebar badge ── */
   const [airtimePendingCount,      setAirtimePendingCount]      = useState(0);
-
   const [loading,                  setLoading]                  = useState(true);
 
   const safe = useCallback(async (path, setter, base) => {
@@ -147,12 +151,7 @@ function useData(api) {
 
   const normalizePlans = useCallback((data) => {
     if (data?.plans) {
-      setPlans(
-        data.plans.map((p) => ({
-          ...p,
-          features: safeFeatures(p.features),
-        }))
-      );
+      setPlans(data.plans.map((p) => ({ ...p, features: safeFeatures(p.features) })));
     }
   }, []);
 
@@ -175,10 +174,10 @@ function useData(api) {
   const reloadMarketPendingCount = useCallback(async () => {
     try {
       const { data } = await api.get("/market-products?status=pending");
-      const count =
+      setMarketPendingCount(
         data?.counts?.pending ??
-        (Array.isArray(data?.products) ? data.products.length : 0) ?? 0;
-      setMarketPendingCount(count);
+        (Array.isArray(data?.products) ? data.products.length : 0) ?? 0
+      );
     } catch {}
   }, [api]);
 
@@ -203,13 +202,10 @@ function useData(api) {
   const reloadWithdrawalCount = useCallback(async () => {
     try {
       const { data } = await api.get("/withdrawals?status=pending&limit=1");
-      setWithdrawalPendingCount(
-        data?.pagination?.total ?? data?.total ?? 0
-      );
+      setWithdrawalPendingCount(data?.pagination?.total ?? data?.total ?? 0);
     } catch {}
   }, [api]);
 
-  /* ── NEW: airtime pending badge ── */
   const reloadAirtimeCount = useCallback(async () => {
     try {
       const { data } = await api.get("/airtime-coupons?status=redeemed&limit=1");
@@ -218,24 +214,24 @@ function useData(api) {
   }, [api]);
 
   const reload = useMemo(() => ({
-    users               : () => safe("/users",            setUsers),
-    admins              : () => safe("/admins",           setAdmins),
-    products            : () => Promise.all([
+    users              : () => safe("/users",            setUsers),
+    admins             : () => safe("/admins",           setAdmins),
+    products           : () => Promise.all([
       safe("/products",         setProducts),
       safe("/products/pending", setPending),
       safe("/stats",            setStats),
     ]),
-    payments            : () => safe("/payments",         setPayments),
-    orders              : () => safe("/orders",           setOrders),
-    logs                : () => safe("/logs",             setLogs),
-    system              : (d) => setSystem(d),
-    plans               : reloadPlans,
-    reportCount         : reloadReportCount,
-    marketPendingCount  : reloadMarketPendingCount,
-    verificationCount   : reloadVerificationCount,
-    vendorCount         : reloadVendorCount,
-    withdrawalCount     : reloadWithdrawalCount,
-    airtimeCount        : reloadAirtimeCount,  // ✅ NEW
+    payments           : () => safe("/payments",         setPayments),
+    orders             : () => safe("/orders",           setOrders),
+    logs               : () => safe("/logs",             setLogs),
+    system             : (d) => setSystem(d),
+    plans              : reloadPlans,
+    reportCount        : reloadReportCount,
+    marketPendingCount : reloadMarketPendingCount,
+    verificationCount  : reloadVerificationCount,
+    vendorCount        : reloadVendorCount,
+    withdrawalCount    : reloadWithdrawalCount,
+    airtimeCount       : reloadAirtimeCount,
   }), [
     safe,
     reloadPlans,
@@ -265,7 +261,7 @@ function useData(api) {
       reloadVerificationCount(),
       reloadVendorCount(),
       reloadWithdrawalCount(),
-      reloadAirtimeCount(),       // ✅ NEW
+      reloadAirtimeCount(),
     ]);
     setLoading(false);
   }, [
@@ -284,8 +280,7 @@ function useData(api) {
     payments, orders, logs, system, plans,
     reportCount, marketPendingCount,
     verificationPendingCount, vendorPendingCount,
-    withdrawalPendingCount,
-    airtimePendingCount,          // ✅ NEW
+    withdrawalPendingCount, airtimePendingCount,
     loading, loadAll, reload,
   };
 }
@@ -490,13 +485,13 @@ export default function AdminDashboard() {
 
   /* ── Total notification badge ── */
   const totalNotifCount =
-    data.pending.length                +
-    data.marketPendingCount            +
-    data.reportCount                   +
-    data.verificationPendingCount      +
-    data.vendorPendingCount            +
-    data.withdrawalPendingCount        +
-    data.airtimePendingCount;          // ✅ NEW — airtime in badge total
+    data.pending.length           +
+    data.marketPendingCount       +
+    data.reportCount              +
+    data.verificationPendingCount +
+    data.vendorPendingCount       +
+    data.withdrawalPendingCount   +
+    data.airtimePendingCount;
 
   if (data.loading) {
     return (
@@ -656,12 +651,19 @@ export default function AdminDashboard() {
       />
     ),
 
-    /* ✅ NEW — Airtime Coupons admin page */
     airtime_coupons: (
       <AirtimeCoupons
         api={api}
         confirm={confirm}
         onMutation={data.reload.airtimeCount}
+      />
+    ),
+
+    /* ✅ NEW */
+    coupon_redemption: (
+      <CouponRedemption
+        api={api}
+        couponStats={data.stats.coupons}
       />
     ),
   };
@@ -680,7 +682,7 @@ export default function AdminDashboard() {
           verificationPendingCount={data.verificationPendingCount}
           vendorPendingCount={data.vendorPendingCount}
           withdrawalPendingCount={data.withdrawalPendingCount}
-          airtimePendingCount={data.airtimePendingCount}  // ✅ NEW
+          airtimePendingCount={data.airtimePendingCount}
         />
 
         <div className="main">
