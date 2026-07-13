@@ -130,23 +130,18 @@ const IconNote = () => (
     <polyline points="14 2 14 8 20 8"/>
     <line x1="16" y1="13" x2="8" y2="13"/>
     <line x1="16" y1="17" x2="8" y2="17"/>
-    <polyline points="10 9 9 9 8 9"/>
   </svg>
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   STAT CARD
+   SHARED UI COMPONENTS
 ═══════════════════════════════════════════════════════════════ */
 function StatCard({ label, value, color = "#111", icon, sub }) {
   return (
     <div style={{
-      background  : "#fff",
-      border      : "1px solid #ede9e3",
-      borderRadius: 14,
-      padding     : "16px 18px",
-      display     : "flex",
-      alignItems  : "center",
-      gap         : 14,
+      background: "#fff", border: "1px solid #ede9e3",
+      borderRadius: 14, padding: "16px 18px",
+      display: "flex", alignItems: "center", gap: 14,
     }}>
       {icon && (
         <div style={{
@@ -165,46 +160,36 @@ function StatCard({ label, value, color = "#111", icon, sub }) {
         <div style={{ fontSize: ".74rem", color: "var(--muted)", marginTop: 3, fontWeight: 600 }}>
           {label}
         </div>
-        {sub && (
-          <div style={{ fontSize: ".7rem", color: "#aaa", marginTop: 1 }}>{sub}</div>
-        )}
+        {sub && <div style={{ fontSize: ".7rem", color: "#aaa", marginTop: 1 }}>{sub}</div>}
       </div>
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   INPUT ROW — shared form field
-═══════════════════════════════════════════════════════════════ */
 function Field({ label, hint, icon, children }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
       <label style={{
-        fontSize: ".75rem", fontWeight: 700,
-        color: "#555", display: "flex", alignItems: "center", gap: 5,
+        fontSize: ".75rem", fontWeight: 700, color: "#555",
+        display: "flex", alignItems: "center", gap: 5,
       }}>
         {icon && <span style={{ color: "#aaa" }}>{icon}</span>}
         {label}
-        {hint && (
-          <span style={{ fontWeight: 400, color: "#bbb" }}>({hint})</span>
-        )}
+        {hint && <span style={{ fontWeight: 400, color: "#bbb" }}>({hint})</span>}
       </label>
       {children}
     </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   ALERT BOX
-═══════════════════════════════════════════════════════════════ */
 function Alert({ type, children }) {
-  const styles = {
+  const S = {
     success : { bg: "#f0fdf4", border: "#bbf7d0", color: "#166534", icon: <IconCheck /> },
     error   : { bg: "#fef2f2", border: "#fecaca", color: "#dc2626", icon: <IconAlert /> },
     warn    : { bg: "#fffbeb", border: "#fde68a", color: "#d97706", icon: <IconAlert /> },
     info    : { bg: "#eff6ff", border: "#bfdbfe", color: "#1d4ed8", icon: <IconAlert /> },
   };
-  const s = styles[type] || styles.info;
+  const s = S[type] || S.info;
   return (
     <div style={{
       padding: "10px 14px",
@@ -221,27 +206,20 @@ function Alert({ type, children }) {
 /* ═══════════════════════════════════════════════════════════════
    COUPON PREVIEW CARD
 ═══════════════════════════════════════════════════════════════ */
-function CouponPreview({ coupon, note, setNote, onRedeem, loading }) {
+function CouponPreview({ coupon, warning, buyerFound, note, setNote, onRedeem, loading }) {
   const cfg = getCfg(coupon.type);
 
   return (
     <div style={{
-      border      : `1.5px solid ${cfg.border}`,
-      borderRadius: 18,
-      overflow    : "hidden",
-      background  : "#fff",
-      boxShadow   : "0 8px 32px rgba(0,0,0,.08)",
+      border: `1.5px solid ${cfg.border}`, borderRadius: 18,
+      overflow: "hidden", background: "#fff",
+      boxShadow: "0 8px 32px rgba(0,0,0,.08)",
     }}>
+      <div style={{ height: 5, background: `linear-gradient(90deg, ${cfg.color}, ${cfg.color}cc)` }} />
 
-      {/* Coloured top bar */}
-      <div style={{
-        height    : 5,
-        background: `linear-gradient(90deg, ${cfg.color}, ${cfg.color}cc)`,
-      }} />
+      <div style={{ padding: "22px 24px", display: "flex", flexDirection: "column", gap: 14 }}>
 
-      <div style={{ padding: "22px 24px", display: "flex", flexDirection: "column", gap: 16 }}>
-
-        {/* Reward badge + coupon type badge */}
+        {/* Reward + type badges */}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
           <span style={{
             background: cfg.bg, color: cfg.color,
@@ -274,7 +252,7 @@ function CouponPreview({ coupon, note, setNote, onRedeem, loading }) {
           </div>
         </div>
 
-        {/* Code display */}
+        {/* Code */}
         <div style={{
           background: "#f8f6f2", borderRadius: 12, padding: "12px 18px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -286,76 +264,100 @@ function CouponPreview({ coupon, note, setNote, onRedeem, loading }) {
               Code
             </span>
           </div>
-          <span style={{
-            fontFamily: "monospace", fontWeight: 900,
-            fontSize: "1.05rem", color: "#111", letterSpacing: 2,
-          }}>
+          <span style={{ fontFamily: "monospace", fontWeight: 900, fontSize: "1.05rem", color: "#111", letterSpacing: 2 }}>
             {coupon.code}
           </span>
         </div>
 
         {/* Description */}
         {coupon.description && (
-          <p style={{
-            fontSize: ".82rem", color: "#666", margin: 0,
-            lineHeight: 1.6, padding: "0 2px",
-          }}>
+          <p style={{ fontSize: ".82rem", color: "#666", margin: 0, lineHeight: 1.6 }}>
             {coupon.description}
           </p>
         )}
 
         {/* Expiry */}
         {coupon.expires_at && (
-          <div style={{
-            display: "flex", alignItems: "center", gap: 6,
-            fontSize: ".78rem", color: "#888",
-          }}>
-            <IconClock />
-            Expires: {fmtDate(coupon.expires_at)}
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: ".78rem", color: "#888" }}>
+            <IconClock /> Expires: {fmtDate(coupon.expires_at)}
           </div>
         )}
 
         {/* Usage */}
         {coupon.usage_limit && (
-          <div style={{
-            fontSize: ".78rem", color: "#888",
-            display: "flex", alignItems: "center", gap: 6,
-          }}>
+          <div style={{ fontSize: ".78rem", color: "#888", display: "flex", alignItems: "center", gap: 6 }}>
             <IconShield />
             {coupon.usage_count || 0}/{coupon.usage_limit} uses
           </div>
         )}
 
-        {/* Divider */}
-        <div style={{ borderTop: "1px dashed #ede9e3", margin: "0 -4px" }} />
+        {/* Warning — mismatch but admin can still redeem */}
+        {warning && (
+          <Alert type="warn">
+            ⚠️ {warning}
+          </Alert>
+        )}
 
         {/* Owner info */}
-        <div style={{
-          background: "#f8f8f8", borderRadius: 12, padding: "14px 16px",
-          border: "1px solid #f0ede8",
-        }}>
-          <p style={{
-            margin: "0 0 8px", fontSize: ".7rem", fontWeight: 700,
-            color: "#aaa", textTransform: "uppercase", letterSpacing: ".05em",
+        {coupon.owner && (
+          <div style={{
+            background: "#f8f8f8", borderRadius: 12, padding: "14px 16px",
+            border: "1px solid #f0ede8",
           }}>
-            Coupon Owner
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: ".88rem", fontWeight: 800, color: "#111" }}>
-              <IconUser /> {coupon.owner?.name || "Public Coupon"}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+              <p style={{ margin: 0, fontSize: ".7rem", fontWeight: 700, color: "#aaa", textTransform: "uppercase", letterSpacing: ".05em" }}>
+                {coupon.is_private ? "Coupon Winner" : "Buyer"}
+              </p>
+              {buyerFound ? (
+                <span style={{
+                  background: "#f0fdf4", color: "#16a34a",
+                  border: "1px solid #bbf7d0",
+                  padding: "2px 8px", borderRadius: 20,
+                  fontSize: ".68rem", fontWeight: 700,
+                }}>
+                  ✅ Account Found
+                </span>
+              ) : (
+                <span style={{
+                  background: "#fff7ed", color: "#c2410c",
+                  border: "1px solid #fed7aa",
+                  padding: "2px 8px", borderRadius: 20,
+                  fontSize: ".68rem", fontWeight: 700,
+                }}>
+                  ℹ️ No Account
+                </span>
+              )}
             </div>
-            {coupon.owner?.email && (
-              <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: ".8rem", color: "#666" }}>
-                <IconMail /> {coupon.owner.email}
+            <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: ".88rem", fontWeight: 800, color: "#111" }}>
+                <IconUser /> {coupon.owner.name || "Unknown Buyer"}
               </div>
-            )}
-            {coupon.owner?.phone && (
-              <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: ".8rem", color: "#666" }}>
-                <IconPhone /> {coupon.owner.phone}
-              </div>
-            )}
+              {coupon.owner.email && (
+                <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: ".8rem", color: "#666" }}>
+                  <IconMail /> {coupon.owner.email}
+                </div>
+              )}
+              {coupon.owner.phone && (
+                <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: ".8rem", color: "#666" }}>
+                  <IconPhone /> {coupon.owner.phone}
+                </div>
+              )}
+              {!buyerFound && (
+                <p style={{ margin: "4px 0 0", fontSize: ".74rem", color: "#aaa", lineHeight: 1.4 }}>
+                  This email or phone is not registered on Loemart.
+                  You can still redeem — it will not be linked to an account.
+                </p>
+              )}
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* No buyer info provided */}
+        {!coupon.owner && !coupon.is_private && (
+          <Alert type="info">
+            No buyer email or phone provided. The redemption will be recorded but not linked to any user account.
+          </Alert>
+        )}
 
         {/* Admin note */}
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -370,12 +372,15 @@ function CouponPreview({ coupon, note, setNote, onRedeem, loading }) {
           <textarea
             className="inp"
             rows={2}
-            placeholder="e.g. Buyer purchased iPhone 14 Pro via chat"
+            placeholder="e.g. Buyer purchased iPhone 14 via chat"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             style={{ resize: "vertical", fontFamily: "inherit", fontSize: ".82rem" }}
           />
         </div>
+
+        {/* Divider */}
+        <div style={{ borderTop: "1px dashed #ede9e3" }} />
 
         {/* Redeem button */}
         <button
@@ -388,8 +393,7 @@ function CouponPreview({ coupon, note, setNote, onRedeem, loading }) {
             borderRadius: 12, fontWeight: 800, fontSize: "1rem",
             cursor: loading ? "not-allowed" : "pointer",
             transition: "opacity .15s",
-            display: "flex", alignItems: "center",
-            justifyContent: "center", gap: 8,
+            display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
           }}
         >
           <IconCheck />
@@ -401,7 +405,7 @@ function CouponPreview({ coupon, note, setNote, onRedeem, loading }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   HISTORY TABLE ROW
+   HISTORY ROW
 ═══════════════════════════════════════════════════════════════ */
 function HistoryRow({ r }) {
   const cfg = getCfg(r.type);
@@ -417,16 +421,14 @@ function HistoryRow({ r }) {
             {r.code}
           </span>
           {r.is_private && (
-            <span title="Private (Spin & Win)" style={{ color: "#aaa" }}>
-              <IconLock />
-            </span>
+            <span title="Private (Spin & Win)" style={{ color: "#aaa" }}><IconLock /></span>
           )}
         </div>
       </td>
       <td>
         <span style={{
           background: cfg.bg, color: cfg.color,
-          border: `1px solid ${cfg.border}`,
+          border: `1px solid ${cfg.border || "#e0d8cc"}`,
           padding: "3px 10px", borderRadius: 20,
           fontSize: ".74rem", fontWeight: 700, whiteSpace: "nowrap",
         }}>
@@ -454,8 +456,7 @@ function HistoryRow({ r }) {
           border: "1px solid #bbf7d0",
           padding: "3px 10px", borderRadius: 20,
           fontSize: ".72rem", fontWeight: 700,
-          display: "flex", alignItems: "center", gap: 4,
-          width: "fit-content",
+          display: "flex", alignItems: "center", gap: 4, width: "fit-content",
         }}>
           <IconCheck /> Used
         </span>
@@ -467,9 +468,9 @@ function HistoryRow({ r }) {
 /* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
-export default function CouponRedemption({ api }) {
+export default function CouponRedemption({ api, couponStats }) {
 
-  /* ── Lookup state ── */
+  /* Lookup state */
   const [code,       setCode]       = useState("");
   const [email,      setEmail]      = useState("");
   const [phone,      setPhone]      = useState("");
@@ -477,14 +478,15 @@ export default function CouponRedemption({ api }) {
   const [looking,    setLooking]    = useState(false);
   const [redeeming,  setRedeeming]  = useState(false);
   const [coupon,     setCoupon]     = useState(null);
+  const [warning,    setWarning]    = useState(null);
+  const [buyerFound, setBuyerFound] = useState(false);
   const [lookupErr,  setLookupErr]  = useState(null);
-  const [lookupWarn, setLookupWarn] = useState(null);
   const [successMsg, setSuccessMsg] = useState(null);
 
-  /* ── Stats ── */
-  const [stats, setStats] = useState(null);
+  /* Stats */
+  const [stats, setStats] = useState(couponStats || null);
 
-  /* ── History ── */
+  /* History */
   const [history,     setHistory]     = useState([]);
   const [histLoading, setHistLoading] = useState(true);
   const [histTotal,   setHistTotal]   = useState(0);
@@ -494,7 +496,12 @@ export default function CouponRedemption({ api }) {
   const [toast,       setToast]       = useState(null);
   const toastRef = useRef(null);
 
-  /* ── Toast helper ── */
+  /* ── Keep stats in sync when prop updates ── */
+  useEffect(() => {
+    if (couponStats) setStats(couponStats);
+  }, [couponStats]);
+
+  /* ── Toast ── */
   const showToast = useCallback((type, text) => {
     setToast({ type, text });
     clearTimeout(toastRef.current);
@@ -505,7 +512,7 @@ export default function CouponRedemption({ api }) {
   const loadStats = useCallback(async () => {
     try {
       const { data } = await api.get("/coupon-redemption/stats");
-      setStats(data);
+      if (data.success) setStats(data);
     } catch { /* non-fatal */ }
   }, [api]);
 
@@ -520,8 +527,8 @@ export default function CouponRedemption({ api }) {
       });
       const { data } = await api.get(`/coupon-redemption/history?${params}`);
       setHistory(data.history || []);
-      setHistTotal(data.total || 0);
-      setHistPages(data.pages || 1);
+      setHistTotal(data.total  || 0);
+      setHistPages(data.pages  || 1);
       setHistPage(pg);
     } catch (e) {
       showToast("error", e.response?.data?.message || "Failed to load history.");
@@ -531,53 +538,68 @@ export default function CouponRedemption({ api }) {
   }, [api, search, showToast]);
 
   useEffect(() => {
-    loadStats();
+    if (!couponStats) loadStats();
     loadHistory(1);
     return () => clearTimeout(toastRef.current);
   }, [search]);
 
-  /* ── Reset form ── */
+  /* ── Reset ── */
   const resetForm = () => {
     setCode("");
     setEmail("");
     setPhone("");
     setNote("");
     setCoupon(null);
+    setWarning(null);
+    setBuyerFound(false);
     setLookupErr(null);
-    setLookupWarn(null);
     setSuccessMsg(null);
   };
 
   /* ── Lookup ── */
   const handleLookup = async () => {
-    if (!code.trim()) return;
+    const trimmedCode = code.trim().toUpperCase();
+    if (!trimmedCode) return;
+
     setLooking(true);
     setLookupErr(null);
-    setLookupWarn(null);
+    setWarning(null);
     setCoupon(null);
     setSuccessMsg(null);
+    setBuyerFound(false);
 
     try {
-      const params = new URLSearchParams({
-        code: code.trim().toUpperCase(),
-        ...(email ? { email: email.trim() } : {}),
-        ...(phone ? { phone: phone.trim() } : {}),
-      });
+      const params = new URLSearchParams({ code: trimmedCode });
+      if (email.trim()) params.append("email", email.trim());
+      if (phone.trim()) params.append("phone", phone.trim());
+
       const { data } = await api.get(`/coupon-redemption/lookup?${params}`);
 
-      /* If API says email/phone is required — show hint not error */
-      if (data.requires === "email_or_phone") {
-        setLookupWarn(data.message);
-      } else {
-        setCoupon(data.coupon);
+      if (!data.success) {
+        setLookupErr(data.message || "Something went wrong.");
+        return;
       }
+
+      /* Show the coupon no matter what */
+      setCoupon(data.coupon);
+      setBuyerFound(data.buyer_found ?? false);
+
+      /* Non-blocking warning (e.g. phone mismatch) */
+      if (data.warning) {
+        setWarning(data.warning);
+      }
+
+      /* Hint — optional info from backend */
+      if (data.hint && !data.warning) {
+        setWarning(null);
+      }
+
     } catch (e) {
       const errData = e.response?.data;
-      if (errData?.requires === "email_or_phone") {
-        setLookupWarn(errData.message);
-      } else {
-        setLookupErr(errData?.message || "Something went wrong.");
-      }
+      setLookupErr(
+        errData?.message ||
+        `Error ${e.response?.status || ""}: Could not look up coupon.`
+      );
     } finally {
       setLooking(false);
     }
@@ -586,22 +608,35 @@ export default function CouponRedemption({ api }) {
   /* ── Redeem ── */
   const handleRedeem = async () => {
     if (!coupon) return;
+
     setRedeeming(true);
     setLookupErr(null);
+
     try {
-      const { data } = await api.post("/coupon-redemption/redeem", {
-        code  : coupon.code,
-        email : email.trim() || undefined,
-        phone : phone.trim() || undefined,
-        note  : note.trim()  || undefined,
-      });
+      const payload = { code: coupon.code };
+      if (email.trim()) payload.email = email.trim();
+      if (phone.trim()) payload.phone = phone.trim();
+      if (note.trim())  payload.note  = note.trim();
+
+      const { data } = await api.post("/coupon-redemption/redeem", payload);
+
+      if (!data.success) {
+        setLookupErr(data.message);
+        setCoupon(null);
+        return;
+      }
+
       setSuccessMsg(data.message);
       setCoupon(null);
+      setNote("");
+      setWarning(null);
       showToast("success", data.message);
       loadStats();
       loadHistory(1);
+
     } catch (e) {
-      setLookupErr(e.response?.data?.message || "Redemption failed.");
+      const msg = e.response?.data?.message || "Redemption failed. Please try again.";
+      setLookupErr(msg);
       setCoupon(null);
     } finally {
       setRedeeming(false);
@@ -614,7 +649,7 @@ export default function CouponRedemption({ api }) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 24 }}>
 
-      {/* ── Page header ── */}
+      {/* ── Header ── */}
       <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <div>
           <h2 style={{ margin: 0, fontSize: "1.25rem", fontWeight: 900, display: "flex", alignItems: "center", gap: 8 }}>
@@ -633,45 +668,21 @@ export default function CouponRedemption({ api }) {
         </button>
       </div>
 
-      {/* ── Stats row ── */}
+      {/* ── Stats ── */}
       {stats && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
-          <StatCard
-            label="Total Coupons"
-            value={stats.totalCoupons}
-            color="#6366f1"
-            icon={<IconTag />}
-          />
-          <StatCard
-            label="Available"
-            value={stats.available}
-            color="#16a34a"
-            icon={<IconCheck />}
-            sub="Not yet redeemed"
-          />
-          <StatCard
-            label="Redeemed"
-            value={stats.redeemed}
-            color="#e8630a"
-            icon={<IconShield />}
-            sub="Used up"
-          />
-          <StatCard
-            label="Today"
-            value={stats.today}
-            color="#2563eb"
-            icon={<IconClock />}
-            sub="Redemptions today"
-          />
+          <StatCard label="Total Coupons" value={stats.totalCoupons} color="#6366f1" icon={<IconTag />} />
+          <StatCard label="Available"     value={stats.available}    color="#16a34a" icon={<IconCheck />} sub="Not yet redeemed" />
+          <StatCard label="Redeemed"      value={stats.redeemed}     color="#e8630a" icon={<IconShield />} sub="Used up" />
+          <StatCard label="Today"         value={stats.today}        color="#2563eb" icon={<IconClock />} sub="Redemptions today" />
         </div>
       )}
 
       {/* ── Main grid ── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, alignItems: "start" }}>
 
-        {/* ═══ LEFT — Lookup form ═══ */}
+        {/* LEFT — Lookup form */}
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
           <div style={{
             background: "#fff", border: "1px solid #ede9e3",
             borderRadius: 16, padding: 22,
@@ -682,19 +693,19 @@ export default function CouponRedemption({ api }) {
               <IconSearch /> Enter Coupon Details
             </h3>
 
-            {/* Coupon code */}
+            {/* Code */}
             <Field label="Coupon Code" icon={<IconTag />}>
               <div style={{ display: "flex", gap: 8 }}>
                 <input
                   className="inp"
-                  placeholder="e.g. SPIN-QBCDRWEE or WELCOME10"
+                  placeholder="e.g. SPIN-AEACCP5Q or WELCOME10"
                   value={code}
                   onChange={(e) => {
                     setCode(e.target.value.toUpperCase());
                     setLookupErr(null);
-                    setLookupWarn(null);
                     setCoupon(null);
                     setSuccessMsg(null);
+                    setWarning(null);
                   }}
                   onKeyDown={(e) => e.key === "Enter" && handleLookup()}
                   style={{ flex: 1, fontFamily: "monospace", letterSpacing: 1 }}
@@ -712,53 +723,39 @@ export default function CouponRedemption({ api }) {
               </div>
             </Field>
 
-            {/* Buyer email */}
-            <Field label="Buyer Email" hint="for verification" icon={<IconMail />}>
+            {/* Email */}
+            <Field label="Buyer Email" hint="optional" icon={<IconMail />}>
               <input
                 className="inp"
                 placeholder="buyer@email.com"
                 type="email"
                 value={email}
-                onChange={(e) => { setEmail(e.target.value); setLookupErr(null); setLookupWarn(null); }}
+                onChange={(e) => { setEmail(e.target.value); setLookupErr(null); }}
               />
             </Field>
 
-            {/* Buyer phone */}
-            <Field label="Buyer Phone" hint="for verification" icon={<IconPhone />}>
+            {/* Phone */}
+            <Field label="Buyer Phone" hint="optional" icon={<IconPhone />}>
               <input
                 className="inp"
                 placeholder="08012345678"
                 type="tel"
                 value={phone}
-                onChange={(e) => { setPhone(e.target.value); setLookupErr(null); setLookupWarn(null); }}
+                onChange={(e) => { setPhone(e.target.value); setLookupErr(null); }}
               />
             </Field>
 
-            {/* Verification note */}
+            {/* Info */}
             <Alert type="info">
-              <span style={{ display: "flex", alignItems: "flex-start", gap: 5 }}>
-                <span style={{ flexShrink: 0, marginTop: 1 }}><IconShield /></span>
-                <span>
-                  <strong>Private coupons</strong> (Spin &amp; Win): email or phone must match the winner.
-                  <br/>
-                  <strong>Public coupons</strong> (WELCOME10 etc.): email or phone identifies the buyer so they cannot reuse it.
-                </span>
+              <span>
+                Email and phone are <strong>optional</strong>.
+                You can redeem any valid coupon without them.
+                Providing them helps link the redemption to a buyer account.
               </span>
             </Alert>
 
-            {/* Warning — email/phone required */}
-            {lookupWarn && (
-              <Alert type="warn">
-                {lookupWarn}
-              </Alert>
-            )}
-
             {/* Error */}
-            {lookupErr && (
-              <Alert type="error">
-                {lookupErr}
-              </Alert>
-            )}
+            {lookupErr && <Alert type="error">{lookupErr}</Alert>}
 
             {/* Success */}
             {successMsg && (
@@ -790,34 +787,36 @@ export default function CouponRedemption({ api }) {
               💡 How to redeem
             </h4>
             {[
-              { icon: "1", text: "Buyer copies their coupon from Profile → My Coupons." },
-              { icon: "2", text: "Buyer sends the code + their email or phone to admin via chat." },
-              { icon: "3", text: "Admin enters the code and buyer's email or phone, then clicks Find." },
-              { icon: "4", text: "System verifies the coupon is valid and belongs to that buyer." },
-              { icon: "5", text: "Admin confirms and clicks Redeem Coupon — coupon is marked used." },
-            ].map((step) => (
-              <div key={step.icon} style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "flex-start" }}>
+              "Buyer copies their coupon code from Profile → My Coupons.",
+              "Buyer sends the code to admin via chat or message.",
+              "Admin enters the code here and clicks Find.",
+              "Coupon details appear — admin confirms and clicks Redeem.",
+              "Email and phone are optional — they help link to an account.",
+            ].map((step, i) => (
+              <div key={i} style={{ display: "flex", gap: 10, marginBottom: 8, alignItems: "flex-start" }}>
                 <span style={{
                   width: 22, height: 22, borderRadius: "50%",
                   background: "#e8630a", color: "#fff",
                   display: "flex", alignItems: "center", justifyContent: "center",
                   fontSize: ".7rem", fontWeight: 800, flexShrink: 0,
                 }}>
-                  {step.icon}
+                  {i + 1}
                 </span>
                 <p style={{ margin: 0, fontSize: ".8rem", color: "#555", lineHeight: 1.5 }}>
-                  {step.text}
+                  {step}
                 </p>
               </div>
             ))}
           </div>
         </div>
 
-        {/* ═══ RIGHT — Coupon preview ═══ */}
+        {/* RIGHT — Coupon preview */}
         <div>
           {coupon ? (
             <CouponPreview
               coupon={coupon}
+              warning={warning}
+              buyerFound={buyerFound}
               note={note}
               setNote={setNote}
               onRedeem={handleRedeem}
@@ -853,13 +852,9 @@ export default function CouponRedemption({ api }) {
         </div>
       </div>
 
-      {/* ═══ HISTORY ═══ */}
+      {/* ── History ── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-
-        <div style={{
-          display: "flex", alignItems: "center",
-          justifyContent: "space-between", flexWrap: "wrap", gap: 10,
-        }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
           <div>
             <h3 style={{ margin: 0, fontSize: "1rem", fontWeight: 800, display: "flex", alignItems: "center", gap: 7 }}>
               📋 Redemption History
@@ -868,22 +863,17 @@ export default function CouponRedemption({ api }) {
               {histTotal} total redemption{histTotal !== 1 ? "s" : ""}
             </p>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <div style={{ position: "relative" }}>
-              <span style={{
-                position: "absolute", left: 10, top: "50%",
-                transform: "translateY(-50%)", color: "#aaa", pointerEvents: "none",
-              }}>
-                <IconSearch />
-              </span>
-              <input
-                className="inp"
-                placeholder="Search code, name, email…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                style={{ paddingLeft: 32, maxWidth: 260 }}
-              />
-            </div>
+          <div style={{ position: "relative" }}>
+            <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#aaa", pointerEvents: "none" }}>
+              <IconSearch />
+            </span>
+            <input
+              className="inp"
+              placeholder="Search code, name, email…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              style={{ paddingLeft: 32, maxWidth: 260 }}
+            />
           </div>
         </div>
 
@@ -893,14 +883,11 @@ export default function CouponRedemption({ api }) {
           boxShadow: "0 2px 8px rgba(0,0,0,.04)",
         }}>
           {histLoading ? (
-            <div style={{ padding: 48, textAlign: "center", color: "var(--muted)" }}>
-              Loading…
-            </div>
+            <div style={{ padding: 48, textAlign: "center", color: "var(--muted)" }}>Loading…</div>
           ) : history.length === 0 ? (
             <div style={{ padding: 60, textAlign: "center" }}>
               <div style={{
-                width: 56, height: 56, borderRadius: "50%",
-                background: "#f5f3ef",
+                width: 56, height: 56, borderRadius: "50%", background: "#f5f3ef",
                 display: "flex", alignItems: "center", justifyContent: "center",
                 color: "#ccc", margin: "0 auto 12px",
               }}>
@@ -910,9 +897,7 @@ export default function CouponRedemption({ api }) {
                   <polyline points="14 2 14 8 20 8"/>
                 </svg>
               </div>
-              <p style={{ margin: 0, color: "var(--muted)", fontWeight: 700 }}>
-                No redemptions yet
-              </p>
+              <p style={{ margin: 0, color: "var(--muted)", fontWeight: 700 }}>No redemptions yet</p>
               <p style={{ margin: "4px 0 0", fontSize: ".78rem", color: "#aaa" }}>
                 Redeemed coupons will appear here
               </p>
@@ -939,24 +924,15 @@ export default function CouponRedemption({ api }) {
           )}
         </div>
 
-        {/* Pagination */}
         {histPages > 1 && (
           <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center" }}>
-            <button
-              className="btn b-ghost"
-              onClick={() => loadHistory(histPage - 1)}
-              disabled={histPage === 1}
-            >
+            <button className="btn b-ghost" onClick={() => loadHistory(histPage - 1)} disabled={histPage === 1}>
               ← Prev
             </button>
             <span style={{ fontSize: ".82rem", color: "var(--muted)" }}>
               Page {histPage} of {histPages} · {histTotal} total
             </span>
-            <button
-              className="btn b-ghost"
-              onClick={() => loadHistory(histPage + 1)}
-              disabled={histPage === histPages}
-            >
+            <button className="btn b-ghost" onClick={() => loadHistory(histPage + 1)} disabled={histPage === histPages}>
               Next →
             </button>
           </div>
@@ -971,8 +947,7 @@ export default function CouponRedemption({ api }) {
           background: toast.type === "success" ? "#111" : "#dc2626",
           color: "#fff", fontWeight: 700, fontSize: ".84rem",
           boxShadow: "0 4px 20px rgba(0,0,0,.25)",
-          zIndex: 9999,
-          display: "flex", alignItems: "center", gap: 8,
+          zIndex: 9999, display: "flex", alignItems: "center", gap: 8,
           animation: "slideIn .2s ease",
         }}>
           {toast.type === "success" ? <IconCheck /> : <IconAlert />}
