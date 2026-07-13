@@ -23,12 +23,9 @@ import promotionRouter                  from "./admin/promotion.js";
 import verificationRouter               from "./admin/verification.js";
 import vendorVerificationRouter         from "./admin/vendorVerification.js";
 import withdrawalRouter                 from "./admin/withdrawalRoutes.js";
-
-// ✅ NEW: Leaderboard Admin Router
 import leaderboardRouter                from "./admin/leaderboard.js";
-
-// ✅ NEW: Airtime Coupon Admin Router
 import airtimeCouponAdminRouter         from "./admin/airtimeCoupons.js";
+import couponRedemptionRouter           from "./admin/couponRedemption.js"; // ✅ NEW
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -174,11 +171,16 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       vendorsActiveRes,
       vendorsReviewRes,
 
-      // Referral stats
       totalReferralsRes,
       pendingReferralsRes,
       verifiedReferralsRes,
       rewardedReferralsRes,
+
+      /* ── NEW: coupon stats ── */
+      couponTotalRes,
+      couponAvailableRes,
+      couponRedeemedRes,
+      couponTodayRes,
     ] = await Promise.all([
       pool.query(`SELECT COUNT(*) FROM public.users`),
       pool.query(`SELECT COUNT(*) FROM public.users WHERE status != 'banned'`),
@@ -224,6 +226,14 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'pending'`)),
       safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status IN ('verified','rewarded')`)),
       safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'rewarded'`)),
+
+      /* coupon stats */
+      safe(pool.query(`SELECT COUNT(*) FROM public.coupons`)),
+      safe(pool.query(`SELECT COUNT(*) FROM public.coupons WHERE is_active = true`)),
+      safe(pool.query(`SELECT COUNT(*) FROM public.coupons WHERE is_active = false`)),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.coupon_redemptions WHERE redeemed_at >= $1`, [today]
+      )),
     ]);
 
     return res.json({
@@ -256,10 +266,18 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       vendorsUnderReview: Number(vendorsReviewRes.rows[0].count),
 
       referrals: {
-        total:     Number(totalReferralsRes.rows[0].count),
-        pending:   Number(pendingReferralsRes.rows[0].count),
-        verified:  Number(verifiedReferralsRes.rows[0].count),
-        rewarded:  Number(rewardedReferralsRes.rows[0].count),
+        total:    Number(totalReferralsRes.rows[0].count),
+        pending:  Number(pendingReferralsRes.rows[0].count),
+        verified: Number(verifiedReferralsRes.rows[0].count),
+        rewarded: Number(rewardedReferralsRes.rows[0].count),
+      },
+
+      /* ── NEW ── */
+      coupons: {
+        total     : Number(couponTotalRes.rows[0].count),
+        available : Number(couponAvailableRes.rows[0].count),
+        redeemed  : Number(couponRedeemedRes.rows[0].count),
+        today     : Number(couponTodayRes.rows[0].count),
       },
     });
 
@@ -269,14 +287,9 @@ router.get("/stats", verifyAdmin, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════════════════════
-   LEADERBOARD ADMIN ROUTES
-═════════════════════════════════════════════════════════════ */
-router.use("/leaderboard", leaderboardRouter);
-
-/* ══════════════════════════════════════════════════════════════
-   ADMIN MANAGEMENT
-═════════════════════════════════════════════════════════════ */
+// ══════════════════════════════════════════════════════════════
+// ADMIN MANAGEMENT
+// ══════════════════════════════════════════════════════════════
 
 // GET /api/admin/admins
 router.get("/admins", verifyAdmin, requireSuperAdmin, async (req, res) => {
@@ -355,9 +368,7 @@ router.post(
       }
 
       await pool.query(
-        `UPDATE admins
-         SET status = 'banned', updated_at = NOW()
-         WHERE id = $1`,
+        `UPDATE admins SET status = 'banned', updated_at = NOW() WHERE id = $1`,
         [req.params.id]
       );
 
@@ -378,9 +389,7 @@ router.post(
   async (req, res) => {
     try {
       await pool.query(
-        `UPDATE admins
-         SET status = 'active', updated_at = NOW()
-         WHERE id = $1`,
+        `UPDATE admins SET status = 'active', updated_at = NOW() WHERE id = $1`,
         [req.params.id]
       );
 
@@ -438,9 +447,7 @@ router.patch(
       const hash = await bcrypt.hash(password, 12);
 
       await pool.query(
-        `UPDATE admins
-         SET password_hash = $1, updated_at = NOW()
-         WHERE id = $2`,
+        `UPDATE admins SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
         [hash, req.params.id]
       );
 
@@ -498,24 +505,21 @@ router.get("/logs", verifyAdmin, async (req, res) => {
 // ══════════════════════════════════════════════════════════════
 // MOUNT SUB-ROUTERS
 // ══════════════════════════════════════════════════════════════
-router.use("/users",           userRouter);
-router.use("/products",        publicProductRouter);
-router.use("/market-products", marketProductRouter);
-router.use("/payments",        paymentRouter);
-router.use("/orders",          orderRouter);
-router.use("/reports",         reportRouter);
-router.use("/system",          systemRouter);
-router.use("/roles",           rolesRouter);
-router.use("/permissions",     permissionsRouter);
-router.use("/plans",           promotionRouter);
-router.use("/verification",    verificationRouter);
-router.use("/vendors",         vendorVerificationRouter);
-router.use("/withdrawals",     withdrawalRouter);
-
-// ✅ NEW: Leaderboard Admin Routes
-router.use("/leaderboard",     leaderboardRouter);
-
-// ✅ NEW: Airtime Coupon Admin Routes
-router.use("/airtime-coupons", airtimeCouponAdminRouter);
+router.use("/users",              userRouter);
+router.use("/products",           publicProductRouter);
+router.use("/market-products",    marketProductRouter);
+router.use("/payments",           paymentRouter);
+router.use("/orders",             orderRouter);
+router.use("/reports",            reportRouter);
+router.use("/system",             systemRouter);
+router.use("/roles",              rolesRouter);
+router.use("/permissions",        permissionsRouter);
+router.use("/plans",              promotionRouter);
+router.use("/verification",       verificationRouter);
+router.use("/vendors",            vendorVerificationRouter);
+router.use("/withdrawals",        withdrawalRouter);
+router.use("/leaderboard",        leaderboardRouter);
+router.use("/airtime-coupons",    airtimeCouponAdminRouter);
+router.use("/coupon-redemption",  couponRedemptionRouter);  // ✅ NEW
 
 export default router;
