@@ -27,6 +27,9 @@ import withdrawalRouter                 from "./admin/withdrawalRoutes.js";
 // ✅ NEW: Leaderboard Admin Router
 import leaderboardRouter                from "./admin/leaderboard.js";
 
+// ✅ NEW: Airtime Coupon Admin Router
+import airtimeCouponAdminRouter         from "./admin/airtimeCoupons.js";
+
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
@@ -511,5 +514,8 @@ router.use("/withdrawals",     withdrawalRouter);
 
 // ✅ NEW: Leaderboard Admin Routes
 router.use("/leaderboard",     leaderboardRouter);
+
+// ✅ NEW: Airtime Coupon Admin Routes
+router.use("/airtime-coupons", airtimeCouponAdminRouter);
 
 export default router;
