@@ -1,0 +1,107 @@
+/* ─── Plans selection page ───────────────────────────────────────────────── */
+
+.sub-plans-header {
+  text-align: center;
+  margin-bottom: 28px;
+}
+
+.sub-plans-header__title {
+  font-family: var(--fd);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.sub-plans-header__subtitle {
+  font-size: 0.875rem;
+  color: var(--ink2);
+  max-width: 520px;
+  margin: 0 auto;
+  line-height: 1.5;
+}
+
+/* ── Cycle toggle ────────────────────────────────────────────────────────── */
+.sub-cycle-toggle {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 32px;
+}
+
+.sub-cycle-toggle__inner {
+  display: flex;
+  gap: 4px;
+  background: var(--bd);
+  border-radius: 100px;
+  padding: 4px;
+}
+
+.sub-cycle-toggle__btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 20px;
+  font-family: var(--fb);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink2);
+  background: none;
+  border: none;
+  border-radius: 100px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, box-shadow 0.15s;
+}
+
+.sub-cycle-toggle__btn:hover {
+  color: var(--ink);
+}
+
+.sub-cycle-toggle__btn--active {
+  background: var(--wh);
+  color: var(--o);
+  box-shadow: var(--s1);
+}
+
+.sub-cycle-toggle__save {
+  font-size: 0.625rem;
+  font-weight: 700;
+  color: var(--gn);
+  background: var(--gn2);
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+
+/* ── Plans grid ──────────────────────────────────────────────────────────── */
+.sub-plans-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+@media (min-width: 768px) {
+  .sub-plans-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+/* ── Footer ──────────────────────────────────────────────────────────────── */
+.sub-plans-footer {
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--ink3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.sub-plans-footer svg {
+  flex-shrink: 0;
+}
+
+.sub-plans-back {
+  text-align: center;
+  padding-top: 4px;
+}
