@@ -52,11 +52,17 @@ import BecomeSeller    from "./pages/BecomeSeller";
 import SellerDashboard from "./pages/seller/SellerDashboard";
 
 /* ════════════════════════════════════════════════════════════
-   PAGES — SUBSCRIPTION
+   PAGES — SUBSCRIPTION  (mobile)
 ════════════════════════════════════════════════════════════ */
-import Subscription    from "./pages/Subscription/Subscription";
-import Plans           from "./pages/Subscription/Plans";
-import Payment         from "./pages/Subscription/Payment";
+import Subscription from "./pages/Subscription/Subscription";
+import Plans        from "./pages/Subscription/Plans";
+import Payment      from "./pages/Subscription/Payment";
+
+/* ════════════════════════════════════════════════════════════
+   PAGES — SUBSCRIPTION  (desktop)
+════════════════════════════════════════════════════════════ */
+import DesktopSubscription from "./desktop/Subscription/DesktopSubscription";
+import DesktopPlans        from "./desktop/Subscription/DesktopPlans";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — USER (PROTECTED)
@@ -146,7 +152,6 @@ const TOASTER_OPTIONS = {
 
 /* ════════════════════════════════════════════════════════════
    CART SYNC
-   Merges local (guest) cart into server cart after login.
 ════════════════════════════════════════════════════════════ */
 async function syncCartAfterLogin(token) {
   try {
@@ -171,7 +176,7 @@ async function syncCartAfterLogin(token) {
     localStorage.removeItem("mm_cart");
     window.dispatchEvent(new Event("cart-updated"));
   } catch {
-    /* silently ignore — cart sync is best-effort */
+    /* silently ignore */
   }
 }
 
@@ -188,6 +193,7 @@ function ScrollToTop() {
 
 /* ════════════════════════════════════════════════════════════
    DESKTOP HOOK
+   Single definition — shared by every responsive route component.
 ════════════════════════════════════════════════════════════ */
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(
@@ -247,6 +253,28 @@ function LeaderboardRoute({ user }) {
   return isDesktop
     ? <LeaderboardDesktop />
     : <Leaderboard user={user} />;
+}
+
+/* ════════════════════════════════════════════════════════════
+   SUBSCRIPTION RESPONSIVE ROUTES
+   Mobile  → src/pages/Subscription/
+   Desktop → src/desktop/Subscription/
+
+   Both read the auth token from localStorage directly so they
+   do not depend on the user prop being passed down.
+════════════════════════════════════════════════════════════ */
+function SubscriptionRoute() {
+  const isDesktop = useIsDesktop();
+  return isDesktop
+    ? <DesktopSubscription />
+    : <Subscription />;
+}
+
+function PlansRoute() {
+  const isDesktop = useIsDesktop();
+  return isDesktop
+    ? <DesktopPlans />
+    : <Plans />;
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -465,27 +493,27 @@ export default function App() {
         <Route path="/seller/dashboard/:tab" element={<SellerDashboard />} />
 
         {/* ════════════════════════════════════════════════════════
-            SELLER SUBSCRIPTION
-            All three routes are protected — login required.
+            SELLER SUBSCRIPTION — RESPONSIVE
+            ─────────────────────────────────────────────────────
+            /seller/subscription
+              Mobile  → Subscription.jsx
+              Desktop → DesktopSubscription.tsx
 
-            /seller/subscription              → Dashboard (current plan,
-                                                features, payment history)
-            /seller/subscription/plans        → Plan selection page
-                                                (Diamond + Elite heroes +
-                                                 Premium / Pro / Business cards)
-            /subscription/callback/paystack   → Paystack redirects here
-                                                after payment. Verifies and
-                                                activates the subscription.
-                                                Public route — Paystack does
-                                                not send the auth header, so
-                                                the page reads the token from
-                                                localStorage itself.
+            /seller/subscription/plans
+              Mobile  → Plans.jsx
+              Desktop → DesktopPlans.tsx
+
+            /subscription/callback/paystack
+              NOT wrapped in ProtectedRoute.
+              Paystack redirects the browser here — no auth header.
+              Payment.jsx reads the token from localStorage itself.
+              Same page on both mobile and desktop (simple card UI).
         ════════════════════════════════════════════════════════ */}
         <Route
           path="/seller/subscription"
           element={
             <ProtectedRoute user={user}>
-              <Subscription />
+              <SubscriptionRoute />
             </ProtectedRoute>
           }
         />
@@ -493,13 +521,10 @@ export default function App() {
           path="/seller/subscription/plans"
           element={
             <ProtectedRoute user={user}>
-              <Plans />
+              <PlansRoute />
             </ProtectedRoute>
           }
         />
-        {/* Paystack callback — intentionally NOT wrapped in ProtectedRoute.
-            Paystack redirects the browser here without our auth header.
-            The Payment component reads the token from localStorage directly. */}
         <Route
           path="/subscription/callback/paystack"
           element={<Payment />}
