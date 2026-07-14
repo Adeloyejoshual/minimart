@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import "./styles/desktop-payment-history.css";
 
+// ─── FIXED: Use the same token helper ────────────────────────────────────────
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token") ||
@@ -57,10 +58,18 @@ const DesktopPaymentHistory = () => {
   const fetchHistory = useCallback(async (p: number) => {
     setLoading(true);
     setError(null);
+
+    const token = getToken();
+    if (!token) {
+      setError("You are not logged in. Please log in and try again.");
+      setLoading(false);
+      return;
+    }
+
     try {
       const res = await fetch(
         `/api/subscription/payments/history?page=${p}&limit=12`,
-        { headers: { Authorization: `Bearer ${getToken()}` } }
+        { headers: { Authorization: `Bearer ${token}` } }
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
@@ -89,7 +98,11 @@ const DesktopPaymentHistory = () => {
   if (error) {
     return (
       <div className="dph-error">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <circle cx="12" cy="12" r="10" />
+          <line x1="12" y1="8" x2="12" y2="12" />
+          <line x1="12" y1="16" x2="12.01" y2="16" />
+        </svg>
         <div>
           <p className="dph-error__title">Failed to load payment history</p>
           <p className="dph-error__msg">{error}</p>
@@ -110,7 +123,12 @@ const DesktopPaymentHistory = () => {
 
       {!transactions.length ? (
         <div className="dph-empty">
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+            <line x1="16" y1="13" x2="8" y2="13" />
+            <line x1="16" y1="17" x2="8" y2="17" />
+          </svg>
           <p>No payment records yet.</p>
         </div>
       ) : (
@@ -163,7 +181,6 @@ const DesktopPaymentHistory = () => {
             </table>
           </div>
 
-          {/* Pagination */}
           {pagination && pagination.totalPages > 1 && (
             <div className="dph-pagination">
               <span className="dph-pagination__info">
@@ -175,7 +192,9 @@ const DesktopPaymentHistory = () => {
                   onClick={() => setPage((p) => p - 1)}
                   className="dph-pg-btn"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="15 18 9 12 15 6" />
+                  </svg>
                   Prev
                 </button>
 
@@ -206,7 +225,9 @@ const DesktopPaymentHistory = () => {
                   className="dph-pg-btn"
                 >
                   Next
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="9 18 15 12 9 6" />
+                  </svg>
                 </button>
               </div>
             </div>
