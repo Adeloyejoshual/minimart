@@ -12,6 +12,7 @@ export default function Sidebar({
   vendorPendingCount,
   withdrawalPendingCount,
   airtimePendingCount,
+  subscriptionActiveCount,      // ✅ NEW
 }) {
 
   const badges = {
@@ -22,14 +23,21 @@ export default function Sidebar({
     vendor_verification : vendorPendingCount,
     withdrawals         : withdrawalPendingCount,
     airtime_coupons     : airtimePendingCount,
+    subscriptions       : subscriptionActiveCount,  // ✅ NEW
   };
 
+  // These badge keys render in red (action required)
   const redBadges = new Set([
     "reports",
     "verification",
     "vendor_verification",
     "withdrawals",
     "airtime_coupons",
+  ]);
+
+  // These badge keys render in a neutral/info colour (informational)
+  const blueBadges = new Set([
+    "subscriptions",
   ]);
 
   return (
@@ -55,10 +63,14 @@ export default function Sidebar({
             {badges[item.id] > 0 && (
               <span
                 className={`nav-badge ${
-                  redBadges.has(item.id) ? "nav-badge-red" : ""
+                  redBadges.has(item.id)
+                    ? "nav-badge-red"
+                    : blueBadges.has(item.id)
+                    ? "nav-badge-blue"
+                    : ""
                 }`}
               >
-                {badges[item.id]}
+                {badges[item.id] > 999 ? "999+" : badges[item.id]}
               </span>
             )}
           </button>
