@@ -1,0 +1,160 @@
+/* ─── Diamond hero section ───────────────────────────────────────────────── */
+
+.diamond-hero {
+  position: relative;
+  background: var(--ink);
+  border-radius: var(--r3);
+  overflow: hidden;
+  margin-bottom: 32px;
+}
+
+.diamond-hero__glow {
+  position: absolute;
+  top: -80px;
+  right: -80px;
+  width: 320px;
+  height: 320px;
+  background: radial-gradient(circle, rgba(255, 92, 0, 0.15), transparent 70%);
+  pointer-events: none;
+}
+
+.diamond-hero__content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  padding: 40px;
+}
+
+/* ── Text side ───────────────────────────────────────────────────────────── */
+.diamond-hero__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.diamond-hero__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--o2);
+  margin-bottom: 12px;
+}
+
+.diamond-hero__label svg {
+  flex-shrink: 0;
+}
+
+.diamond-hero__title {
+  font-family: var(--fd);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--wh);
+  margin-bottom: 8px;
+  line-height: 1.2;
+}
+
+.diamond-hero__desc {
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.6;
+  margin-bottom: 20px;
+  max-width: 400px;
+}
+
+.diamond-hero__price {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.diamond-hero__amount {
+  font-family: var(--fd);
+  font-size: 2rem;
+  font-weight: 700;
+  color: var(--wh);
+}
+
+.diamond-hero__cycle {
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.diamond-hero__equiv {
+  font-size: 0.75rem;
+  color: var(--gn);
+  margin-bottom: 20px;
+}
+
+.diamond-hero__features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+
+.diamond-hero__features li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.diamond-hero__features li svg {
+  flex-shrink: 0;
+}
+
+.diamond-hero__current {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 24px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: var(--r1);
+  color: rgba(255, 255, 255, 0.5);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+/* ── Visual side ─────────────────────────────────────────────────────────── */
+.diamond-hero__visual {
+  flex-shrink: 0;
+  width: 200px;
+  height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.diamond-hero__svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .diamond-hero__content {
+    flex-direction: column-reverse;
+    padding: 28px 20px;
+    gap: 16px;
+  }
+
+  .diamond-hero__visual {
+    width: 140px;
+    height: 140px;
+  }
+
+  .diamond-hero__title {
+    font-size: 1.375rem;
+  }
+
+  .diamond-hero__amount {
+    font-size: 1.625rem;
+  }
+}
