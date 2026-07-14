@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate }                       from "react-router-dom";
+import SubHeader                             from "../../components/subscription/SubHeader.jsx";
 import CurrentPlan                           from "../../components/subscription/CurrentPlan.jsx";
 import CancelModal                           from "../../components/subscription/CancelModal.jsx";
 import History                               from "./History.jsx";
@@ -119,6 +120,7 @@ const Subscription = () => {
   if (loading) {
     return (
       <div className="sub-page">
+        <SubHeader title="My Subscription" />
         <div className="sub-skeleton sub-skeleton--sm" />
         <div className="sub-skeleton sub-skeleton--lg" />
         <div className="sub-skeleton sub-skeleton--md" />
@@ -134,6 +136,10 @@ const Subscription = () => {
   return (
     <div className="sub-page">
 
+      {/* Header */}
+      <SubHeader title="My Subscription" />
+
+      {/* Toast */}
       {toast && (
         <div className={`sub-toast sub-toast--${toast.type}`}>
           <span className="sub-toast__icon">
@@ -150,8 +156,14 @@ const Subscription = () => {
         </div>
       )}
 
+      {/* Action row */}
       <div className="sub-header">
-        <h1 className="sub-header__title">My Subscription</h1>
+        <h1 className="sub-header__title">
+          {subscription?.isActive
+            ? `${subscription.planBadge ?? ""} ${subscription.planName ?? "Subscription"}`
+            : "My Subscription"
+          }
+        </h1>
         {!subscription?.isActive && (
           <button
             onClick={() => navigate("/seller/subscription/plans")}
@@ -163,6 +175,7 @@ const Subscription = () => {
         )}
       </div>
 
+      {/* Tabs */}
       <div className="sub-tabs">
         {tabs.map((tab) => (
           <button
@@ -175,6 +188,7 @@ const Subscription = () => {
         ))}
       </div>
 
+      {/* Overview tab */}
       {activeTab === "overview" && (
         <div className="sub-overview">
           <CurrentPlan
@@ -231,8 +245,10 @@ const Subscription = () => {
         </div>
       )}
 
+      {/* History tab */}
       {activeTab === "history" && <History />}
 
+      {/* Cancel modal */}
       {cancelOpen && (
         <CancelModal
           subscription={subscription}
