@@ -1,0 +1,146 @@
+/* ─── Desktop Elite Hero ─────────────────────────────────────────────────── */
+
+.deh-hero {
+  position: relative;
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r3);
+  overflow: hidden;
+  box-shadow: var(--s1);
+}
+
+.deh-hero__glow {
+  position: absolute;
+  bottom: -50px;
+  left: -50px;
+  width: 240px;
+  height: 240px;
+  background: radial-gradient(circle, rgba(255,92,0,0.08), transparent 70%);
+  pointer-events: none;
+}
+
+.deh-hero__content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  padding: 32px 36px;
+}
+
+.deh-hero__visual {
+  flex-shrink: 0;
+  width: 160px;
+  height: 160px;
+}
+
+.deh-svg { width: 100%; height: 100%; }
+
+.deh-hero__text { flex: 1; min-width: 0; }
+
+.deh-hero__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--o);
+  margin-bottom: 10px;
+}
+
+.deh-hero__title {
+  font-family: var(--fd);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 6px;
+  line-height: 1.2;
+}
+
+.deh-hero__desc {
+  font-size: 0.8125rem;
+  color: var(--ink2);
+  line-height: 1.6;
+  margin-bottom: 16px;
+  max-width: 340px;
+}
+
+.deh-hero__price {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 3px;
+}
+
+.deh-hero__amount {
+  font-family: var(--fd);
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.deh-hero__cycle { font-size: 0.8125rem; color: var(--ink3); }
+
+.deh-hero__equiv {
+  font-size: 0.6875rem;
+  color: var(--gn);
+  font-weight: 600;
+  margin-bottom: 16px;
+}
+
+.deh-hero__features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 20px;
+}
+
+.deh-hero__features li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--ink2);
+}
+
+.deh-hero__current {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 22px;
+  background: var(--bg);
+  border: 1px solid var(--bd);
+  border-radius: var(--r1);
+  color: var(--ink3);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.deh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 28px;
+  background: var(--ink);
+  color: var(--wh);
+  font-family: var(--fb);
+  font-size: 0.875rem;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--r1);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.deh-btn:hover:not(:disabled) { background: #2a2620; }
+.deh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.deh-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--wh);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: dsub-spin 0.6s linear infinite;
+}
