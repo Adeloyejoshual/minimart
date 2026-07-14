@@ -197,6 +197,7 @@ import referralRoutes     from "./routes/referrals.js";
 import leaderboardRoutes  from "./routes/leaderboard.js";
 import favoritesRouter    from "./routes/favorites.js";
 import airtimeCouponRoutes from "./routes/airtimeCoupons.js";
+import subscriptionRouter from "./routes/subscription/index.js";
 
 /* ── Background jobs ── */
 import { startListingExpiryJob } from "./jobs/listingExpiry.js";
@@ -326,7 +327,7 @@ app.use("/api/referrals",     referralRoutes);
 app.use("/api/leaderboard",   leaderboardRoutes);
 app.use("/api/favorites",     favoritesRouter);
 app.use("/api/airtime-coupons", airtimeCouponRoutes);
-
+app.use("/api/subscription", subscriptionRouter);
 /* ══════════════════════════════════════════════════════════════
    STATIC — sitemap + robots
 ══════════════════════════════════════════════════════════════ */
