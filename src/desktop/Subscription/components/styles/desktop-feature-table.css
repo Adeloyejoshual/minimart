@@ -1,0 +1,73 @@
+/* ─── Desktop Feature Table ──────────────────────────────────────────────── */
+
+.dft-wrap {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r2);
+  box-shadow: var(--s1);
+  overflow: hidden;
+}
+
+.dft-title {
+  font-family: var(--fd);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--ink);
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--bg);
+}
+
+.dft-table { display: flex; flex-direction: column; }
+
+.dft-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 24px;
+  border-bottom: 1px solid var(--bg);
+  transition: background 0.1s;
+}
+
+.dft-row:last-child { border-bottom: none; }
+.dft-row:hover      { background: var(--bg); }
+
+.dft-row__feature {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.875rem;
+  color: var(--ink2);
+}
+
+.dft-row__icon {
+  display: flex;
+  align-items: center;
+  color: var(--ink3);
+  flex-shrink: 0;
+}
+
+.dft-row__label { font-size: 0.875rem; }
+
+.dft-row__value { flex-shrink: 0; }
+
+/* Value styles */
+.dft-val {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.dft-val--yes     { color: var(--gn); }
+.dft-val--no      { color: var(--ink3); font-weight: 400; }
+.dft-val--credits { color: var(--o); }
+.dft-val--text    { color: var(--ink); text-transform: capitalize; }
+
+/* Empty */
+.dft-empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--ink3);
+  font-size: 0.875rem;
+}
