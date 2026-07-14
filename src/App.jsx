@@ -52,6 +52,13 @@ import BecomeSeller    from "./pages/BecomeSeller";
 import SellerDashboard from "./pages/seller/SellerDashboard";
 
 /* ════════════════════════════════════════════════════════════
+   PAGES — SUBSCRIPTION
+════════════════════════════════════════════════════════════ */
+import Subscription    from "./pages/Subscription/Subscription";
+import Plans           from "./pages/Subscription/Plans";
+import Payment         from "./pages/Subscription/Payment";
+
+/* ════════════════════════════════════════════════════════════
    PAGES — USER (PROTECTED)
 ════════════════════════════════════════════════════════════ */
 import Profile           from "./pages/Profile";
@@ -85,7 +92,7 @@ import OrderHistory      from "./pages/OrderHistory";
 import HallOfFame from "./pages/HallOfFame";
 
 /* ════════════════════════════════════════════════════════════
-   PAGES — DESKTOP                                    ✅ NEW
+   PAGES — DESKTOP
 ════════════════════════════════════════════════════════════ */
 import LeaderboardDesktop from "./desktop/LeaderboardDesktop";
 
@@ -181,7 +188,6 @@ function ScrollToTop() {
 
 /* ════════════════════════════════════════════════════════════
    DESKTOP HOOK
-   Single definition — consumed by all responsive route components.
 ════════════════════════════════════════════════════════════ */
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(
@@ -200,8 +206,6 @@ function useIsDesktop() {
 
 /* ════════════════════════════════════════════════════════════
    RESPONSIVE ROUTE COMPONENTS
-   Each is a proper component so hooks are always called
-   at the top level (no conditional hook calls).
 ════════════════════════════════════════════════════════════ */
 function HomeRoute({ user }) {
   const isDesktop = useIsDesktop();
@@ -238,11 +242,6 @@ function ChatRoute({ user }) {
     : <Chat             user={user} />;
 }
 
-/* ════════════════════════════════════════════════════════════
-   LEADERBOARD ROUTE                                  ✅ NEW
-   Mobile  → Leaderboard (existing mobile page)
-   Desktop → LeaderboardDesktop (new split-layout page)
-════════════════════════════════════════════════════════════ */
 function LeaderboardRoute({ user }) {
   const isDesktop = useIsDesktop();
   return isDesktop
@@ -465,6 +464,47 @@ export default function App() {
         <Route path="/seller/dashboard"      element={<SellerDashboard />} />
         <Route path="/seller/dashboard/:tab" element={<SellerDashboard />} />
 
+        {/* ════════════════════════════════════════════════════════
+            SELLER SUBSCRIPTION
+            All three routes are protected — login required.
+
+            /seller/subscription              → Dashboard (current plan,
+                                                features, payment history)
+            /seller/subscription/plans        → Plan selection page
+                                                (Diamond + Elite heroes +
+                                                 Premium / Pro / Business cards)
+            /subscription/callback/paystack   → Paystack redirects here
+                                                after payment. Verifies and
+                                                activates the subscription.
+                                                Public route — Paystack does
+                                                not send the auth header, so
+                                                the page reads the token from
+                                                localStorage itself.
+        ════════════════════════════════════════════════════════ */}
+        <Route
+          path="/seller/subscription"
+          element={
+            <ProtectedRoute user={user}>
+              <Subscription />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/seller/subscription/plans"
+          element={
+            <ProtectedRoute user={user}>
+              <Plans />
+            </ProtectedRoute>
+          }
+        />
+        {/* Paystack callback — intentionally NOT wrapped in ProtectedRoute.
+            Paystack redirects the browser here without our auth header.
+            The Payment component reads the token from localStorage directly. */}
+        <Route
+          path="/subscription/callback/paystack"
+          element={<Payment />}
+        />
+
         {/* ════════════ PROTECTED — PROFILE ════════════ */}
         <Route
           path="/profile"
@@ -582,12 +622,6 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-
-        {/* ════════════ LEADERBOARD ════════════
-            ✅ UPDATED: now responsive
-            Mobile  → Leaderboard
-            Desktop → LeaderboardDesktop
-        ════════════════════════════════════════ */}
         <Route
           path="/leaderboard"
           element={
