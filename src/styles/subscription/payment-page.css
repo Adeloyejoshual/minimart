@@ -1,0 +1,86 @@
+/* ─── Payment verification page ──────────────────────────────────────────── */
+
+.sub-payment-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  padding: 16px;
+}
+
+.sub-payment-card {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r3);
+  box-shadow: var(--s2);
+  max-width: 420px;
+  width: 100%;
+  padding: 40px 32px;
+  text-align: center;
+}
+
+.sub-payment-card__title {
+  font-family: var(--fd);
+  font-size: 1.375rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.sub-payment-card__plan {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--o);
+  margin-bottom: 8px;
+}
+
+.sub-payment-card__text {
+  font-size: 0.8125rem;
+  color: var(--ink2);
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.sub-payment-card__redirect {
+  font-size: 0.6875rem;
+  color: var(--ink3);
+  margin-bottom: 20px;
+}
+
+.sub-payment-card__status-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  border-radius: 50%;
+  margin: 0 auto 20px;
+}
+
+.sub-payment-card__status-icon--success {
+  background: var(--gn2);
+  color: var(--gn);
+}
+
+.sub-payment-card__status-icon--failed {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.sub-payment-card__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Spinner ─────────────────────────────────────────────────────────────── */
+.sub-payment-spinner {
+  width: 48px;
+  height: 48px;
+  border: 3px solid var(--bd);
+  border-top-color: var(--o);
+  border-radius: 50%;
+  animation: sub-spin 0.7s linear infinite;
+  margin: 0 auto 24px;
+}
