@@ -25,7 +25,8 @@ import vendorVerificationRouter         from "./admin/vendorVerification.js";
 import withdrawalRouter                 from "./admin/withdrawalRoutes.js";
 import leaderboardRouter                from "./admin/leaderboard.js";
 import airtimeCouponAdminRouter         from "./admin/airtimeCoupons.js";
-import couponRedemptionRouter           from "./admin/couponRedemption.js"; // ✅ NEW
+import couponRedemptionRouter           from "./admin/couponRedemption.js";
+import subscriptionAdminRouter          from "./admin/subscriptionAdmin.js"; // ✅ NEW
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -520,6 +521,7 @@ router.use("/vendors",            vendorVerificationRouter);
 router.use("/withdrawals",        withdrawalRouter);
 router.use("/leaderboard",        leaderboardRouter);
 router.use("/airtime-coupons",    airtimeCouponAdminRouter);
-router.use("/coupon-redemption",  couponRedemptionRouter);  // ✅ NEW
+router.use("/coupon-redemption",  couponRedemptionRouter);
+router.use("/subscriptions",      subscriptionAdminRouter); // ✅ NEW
 
 export default router;
