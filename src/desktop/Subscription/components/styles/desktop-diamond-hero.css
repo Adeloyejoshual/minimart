@@ -1,0 +1,144 @@
+/* ─── Desktop Diamond Hero ───────────────────────────────────────────────── */
+
+.ddh-hero {
+  position: relative;
+  background: var(--ink);
+  border-radius: var(--r3);
+  overflow: hidden;
+}
+
+.ddh-hero__glow {
+  position: absolute;
+  top: -60px;
+  right: -60px;
+  width: 280px;
+  height: 280px;
+  background: radial-gradient(circle, rgba(255,92,0,0.18), transparent 70%);
+  pointer-events: none;
+}
+
+.ddh-hero__content {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 32px 36px;
+}
+
+.ddh-hero__text { flex: 1; min-width: 0; }
+
+.ddh-hero__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--o2);
+  margin-bottom: 10px;
+}
+
+.ddh-hero__title {
+  font-family: var(--fd);
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: var(--wh);
+  margin-bottom: 6px;
+  line-height: 1.2;
+}
+
+.ddh-hero__desc {
+  font-size: 0.8125rem;
+  color: rgba(255,255,255,0.55);
+  line-height: 1.6;
+  margin-bottom: 18px;
+  max-width: 360px;
+}
+
+.ddh-hero__price {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 3px;
+}
+
+.ddh-hero__amount {
+  font-family: var(--fd);
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--wh);
+}
+
+.ddh-hero__cycle { font-size: 0.8125rem; color: rgba(255,255,255,0.45); }
+
+.ddh-hero__equiv {
+  font-size: 0.6875rem;
+  color: var(--gn);
+  font-weight: 600;
+  margin-bottom: 18px;
+}
+
+.ddh-hero__features {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 22px;
+}
+
+.ddh-hero__features li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: rgba(255,255,255,0.78);
+}
+
+.ddh-hero__current {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 22px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--r1);
+  color: rgba(255,255,255,0.45);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.ddh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 28px;
+  background: var(--o);
+  color: var(--wh);
+  font-family: var(--fb);
+  font-size: 0.875rem;
+  font-weight: 600;
+  border: none;
+  border-radius: var(--r1);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ddh-btn:hover:not(:disabled) { background: #e65200; }
+.ddh-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ddh-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--wh);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: dsub-spin 0.6s linear infinite;
+}
+
+.ddh-hero__visual {
+  flex-shrink: 0;
+  width: 180px;
+  height: 180px;
+}
+
+.ddh-svg { width: 100%; height: 100%; }
