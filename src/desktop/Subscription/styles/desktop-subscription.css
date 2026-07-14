@@ -1,14 +1,94 @@
 /* ═══════════════════════════════════════════════════════════════════════════
    DESKTOP SUBSCRIPTION DASHBOARD
-   Uses: --o --o2 --o-bg --ink --ink2 --ink3 --bg --wh --bd --bd2
-         --gn --gn2 --r1 --r2 --r3 --s1 --s2 --s3 --fd --fb
+   Variables: --o --o2 --o-bg --ink --ink2 --ink3 --bg --wh --bd --bd2
+              --gn --gn2 --r1 --r2 --r3 --s1 --s2 --s3 --fd --fb
 ═══════════════════════════════════════════════════════════════════════════ */
 
 /* ─── Page shell ─────────────────────────────────────────────────────────── */
 .dsub-page {
   min-height: 100vh;
   background: var(--bg);
-  padding: 32px 40px 80px;
+  padding: 28px 40px 80px;
+}
+
+/* ─── Page header ────────────────────────────────────────────────────────── */
+.dsub-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 1240px;
+  margin: 0 auto 24px;
+}
+
+.dsub-page-header__left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dsub-page-header__right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Back arrow button */
+.dsub-page-header__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r1);
+  color: var(--ink2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.dsub-page-header__back:hover {
+  background: var(--bg);
+  color: var(--o);
+  border-color: var(--bd2);
+}
+
+/* Breadcrumb */
+.dsub-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.dsub-breadcrumb__link {
+  font-family: var(--fb);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--ink3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.12s;
+}
+
+.dsub-breadcrumb__link:hover {
+  color: var(--o);
+  text-decoration: underline;
+}
+
+.dsub-breadcrumb__sep {
+  font-size: 0.75rem;
+  color: var(--bd2);
+  user-select: none;
+}
+
+.dsub-breadcrumb__current {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
 }
 
 /* ─── Two-column layout ──────────────────────────────────────────────────── */
@@ -45,7 +125,6 @@
   margin-bottom: 8px;
 }
 
-/* Plan icon */
 .dsub-plan-icon {
   display: flex;
   align-items: center;
@@ -54,7 +133,6 @@
   height: 44px;
   border-radius: var(--r1);
   flex-shrink: 0;
-  transition: transform 0.2s;
 }
 
 .dsub-plan-icon svg {
@@ -62,14 +140,13 @@
   height: 22px;
 }
 
-.dsub-plan-icon--free     { background: var(--bg);    color: var(--ink3); }
-.dsub-plan-icon--premium  { background: #fef9c3;       color: #854d0e;    }
-.dsub-plan-icon--pro      { background: var(--o-bg);   color: var(--o);   }
-.dsub-plan-icon--business { background: #f3e8ff;       color: #7c3aed;    }
-.dsub-plan-icon--elite    { background: #dbeafe;       color: #2563eb;    }
-.dsub-plan-icon--diamond  { background: var(--ink);    color: var(--o);   }
+.dsub-plan-icon--free     { background: var(--bg);   color: var(--ink3); }
+.dsub-plan-icon--premium  { background: #fef9c3;      color: #854d0e;    }
+.dsub-plan-icon--pro      { background: var(--o-bg);  color: var(--o);   }
+.dsub-plan-icon--business { background: #f3e8ff;      color: #7c3aed;    }
+.dsub-plan-icon--elite    { background: #dbeafe;      color: #2563eb;    }
+.dsub-plan-icon--diamond  { background: var(--ink);   color: var(--o);   }
 
-/* Plan name + status pill */
 .dsub-sidebar__plan-name {
   font-family: var(--fd);
   font-size: 0.9375rem;
@@ -99,7 +176,7 @@
 }
 .dsub-sidebar__status--active .dsub-sidebar__status-dot {
   background: var(--gn);
-  box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.18);
+  box-shadow: 0 0 0 2px rgba(21, 128, 61, 0.16);
 }
 
 .dsub-sidebar__status--free {
@@ -156,7 +233,7 @@
 
 /* ── Section navigation ──────────────────────────────────────────────────── */
 .dsub-sidebar__nav {
-  padding: 4px 12px 4px;
+  padding: 4px 12px;
 }
 
 .dsub-sidebar__nav-btn {
@@ -227,7 +304,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   MAIN CONTENT AREA
+   MAIN CONTENT
 ═══════════════════════════════════════════════════════════════════════════ */
 .dsub-main {
   display: flex;
@@ -253,7 +330,6 @@
   box-shadow: var(--s1);
 }
 
-/* Card title — supports both plain text and icon + text */
 .dsub-card__title {
   display: flex;
   align-items: center;
@@ -287,18 +363,15 @@
   border-bottom: 1px solid var(--bg);
 }
 
-/* Odd items get a right divider + right padding */
 .dsub-billing-item:nth-child(odd) {
   padding-right: 28px;
   border-right: 1px solid var(--bg);
 }
 
-/* Even items get left padding */
 .dsub-billing-item:nth-child(even) {
   padding-left: 28px;
 }
 
-/* Remove bottom border from last two items */
 .dsub-billing-item:nth-last-child(-n + 2) {
   border-bottom: none;
 }
@@ -319,7 +392,7 @@
 .dsub-billing-item__value--muted  { color: var(--ink3); font-weight: 400; }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   QUICK STATS ROW (four tiles)
+   QUICK STATS TILES
 ═══════════════════════════════════════════════════════════════════════════ */
 .dsub-quick-stats {
   display: grid;
@@ -353,10 +426,10 @@
   flex-shrink: 0;
 }
 
-.dsub-qstat__icon--plan  { background: var(--o-bg); color: var(--o); }
-.dsub-qstat__icon--time  { background: #dbeafe;     color: #2563eb;  }
-.dsub-qstat__icon--renew { background: var(--gn2);  color: var(--gn);}
-.dsub-qstat__icon--price { background: #fef9c3;     color: #854d0e;  }
+.dsub-qstat__icon--plan  { background: var(--o-bg); color: var(--o);  }
+.dsub-qstat__icon--time  { background: #dbeafe;     color: #2563eb;   }
+.dsub-qstat__icon--renew { background: var(--gn2);  color: var(--gn); }
+.dsub-qstat__icon--price { background: #fef9c3;     color: #854d0e;   }
 
 .dsub-qstat__val {
   display: block;
@@ -375,7 +448,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   UPGRADE CTA CARD  (free plan only)
+   UPGRADE CTA CARD
 ═══════════════════════════════════════════════════════════════════════════ */
 .dsub-card--upgrade {
   display: flex;
@@ -423,7 +496,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   FEATURE HINT BAR  (free plan, features tab)
+   FEATURE HINT BAR
 ═══════════════════════════════════════════════════════════════════════════ */
 .dsub-feature-hint {
   display: flex;
@@ -487,7 +560,7 @@
   flex-shrink: 0;
 }
 
-/* Primary — orange fill */
+/* Primary — orange */
 .dsub-btn--primary {
   background: var(--o);
   color: var(--wh);
@@ -496,6 +569,18 @@
 .dsub-btn--primary:hover:not(:disabled) {
   background: #e65200;
   border-color: #e65200;
+}
+
+/* Ghost — outline */
+.dsub-btn--ghost {
+  background: var(--wh);
+  color: var(--ink2);
+  border-color: var(--bd);
+}
+.dsub-btn--ghost:hover:not(:disabled) {
+  background: var(--bg);
+  border-color: var(--bd2);
+  color: var(--ink);
 }
 
 /* Success — green tint */
@@ -518,7 +603,7 @@
   background: #fef08a;
 }
 
-/* Ghost danger — transparent red text */
+/* Ghost danger — transparent red */
 .dsub-btn--ghost-danger {
   background: none;
   color: #b91c1c;
@@ -530,10 +615,10 @@
 }
 
 /* Modifiers */
-.dsub-btn--full  { width: 100%; }
-.dsub-btn--sm    { padding: 6px 12px; font-size: 0.75rem; }
+.dsub-btn--full { width: 100%; }
+.dsub-btn--sm   { padding: 6px 12px; font-size: 0.75rem; }
 
-/* Spinner inside a button */
+/* Spinner inside button */
 .dsub-btn__spinner {
   width: 13px;
   height: 13px;
@@ -616,7 +701,7 @@
 }
 
 .dsub-sk--title { height: 20px; width: 130px; margin: 0 20px 16px; }
-.dsub-sk--nav   { height: 38px; margin: 3px 12px; border-radius: var(--r1); }
+.dsub-sk--nav   { height: 38px; margin: 3px 12px; }
 .dsub-sk--hero  { height: 210px; border-radius: var(--r2); }
 .dsub-sk--card  { height: 168px; border-radius: var(--r2); }
 
@@ -628,17 +713,11 @@
 }
 
 @keyframes dsub-toast-in {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 @keyframes dsub-pulse {
-  0%, 100% { opacity: 1; }
+  0%, 100% { opacity: 1;    }
   50%       { opacity: 0.48; }
 }
