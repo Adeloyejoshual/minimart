@@ -14,12 +14,15 @@ export const NAV = [
   { g: "Sellers" },
   { id: "vendor_verification", icon: "🏪", label: "Vendors"         },
 
+  { g: "Subscriptions" },
+  { id: "subscriptions",       icon: "◆",  label: "Subscriptions"   }, // ✅ NEW
+
   { g: "Operations" },
   { id: "payments",            icon: "₦",  label: "Payments"        },
   { id: "orders",              icon: "◫",  label: "Orders"          },
   { id: "withdrawals",         icon: "💸", label: "Withdrawals"     },
   { id: "airtime_coupons",     icon: "📱", label: "Airtime"         },
-  { id: "coupon_redemption",   icon: "🎟️", label: "Redeem Coupons"  }, // ✅ NEW
+  { id: "coupon_redemption",   icon: "🎟️", label: "Redeem Coupons"  },
 
   { g: "Moderation" },
   { id: "reports",             icon: "⚑",  label: "Reports"         },
@@ -29,7 +32,7 @@ export const NAV = [
   { id: "leaderboard",         icon: "⬖",  label: "Leaderboard"     },
 
   { g: "Config" },
-  { id: "promotions",          icon: "◆",  label: "Promotions"      },
+  { id: "promotions",          icon: "◈",  label: "Promotions"      },
   { id: "system",              icon: "⌬",  label: "System"          },
 ];
 
