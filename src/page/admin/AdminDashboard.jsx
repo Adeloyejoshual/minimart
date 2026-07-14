@@ -9,23 +9,24 @@ import Topbar  from "./adminlayout/Topbar";
 import { css } from "./adminlayout/css";
 
 // ── Pages ─────────────────────────────────────────────────────
-import Overview           from "./SuperAdmin/Overview";
-import Users              from "./SuperAdmin/Users";
-import Admins             from "./SuperAdmin/Admins";
-import Products           from "./SuperAdmin/Products";
-import MarketProducts     from "./SuperAdmin/MarketProducts";
-import Payments           from "./SuperAdmin/Payments";
-import Orders             from "./SuperAdmin/Orders";
-import Withdrawals        from "./SuperAdmin/Withdrawals";
-import Logs               from "./SuperAdmin/Logs";
-import Promotions         from "./SuperAdmin/Promotions";
-import System             from "./SuperAdmin/System";
-import Reports            from "./SuperAdmin/Reports";
-import Verification       from "./SuperAdmin/Verification";
-import VendorVerification from "./SuperAdmin/VendorVerification";
-import Leaderboard        from "./SuperAdmin/Leaderboard";
-import AirtimeCoupons     from "./SuperAdmin/AirtimeCoupons";
-import CouponRedemption   from "./SuperAdmin/CouponRedemption"; // ✅ NEW
+import Overview              from "./SuperAdmin/Overview";
+import Users                 from "./SuperAdmin/Users";
+import Admins                from "./SuperAdmin/Admins";
+import Products              from "./SuperAdmin/Products";
+import MarketProducts        from "./SuperAdmin/MarketProducts";
+import Payments              from "./SuperAdmin/Payments";
+import Orders                from "./SuperAdmin/Orders";
+import Withdrawals           from "./SuperAdmin/Withdrawals";
+import Logs                  from "./SuperAdmin/Logs";
+import Promotions            from "./SuperAdmin/Promotions";
+import System                from "./SuperAdmin/System";
+import Reports               from "./SuperAdmin/Reports";
+import Verification          from "./SuperAdmin/Verification";
+import VendorVerification    from "./SuperAdmin/VendorVerification";
+import Leaderboard           from "./SuperAdmin/Leaderboard";
+import AirtimeCoupons        from "./SuperAdmin/AirtimeCoupons";
+import CouponRedemption      from "./SuperAdmin/CouponRedemption";
+import AdminSubscriptions    from "./SuperAdmin/AdminSubscriptions"; // ✅ NEW
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
@@ -35,6 +36,7 @@ import { safeFeatures } from "./adminlayout/helpers";
 ════════════════════════════════════════════════════════════ */
 const BASE     = `${import.meta.env.VITE_API_BASE_URL}/api/admin`;
 const PAY_BASE = `${import.meta.env.VITE_API_BASE_URL}/api/payment`;
+const SUB_BASE = `${import.meta.env.VITE_API_BASE_URL}/api/admin`; // ✅ NEW
 
 /* ════════════════════════════════════════════════════════════
    CONSTANTS
@@ -104,17 +106,27 @@ function useData(api) {
     vendorsPending     : 0,
     vendorsActive      : 0,
     vendorsUnderReview : 0,
-    referrals : {
+    referrals: {
       total    : 0,
       pending  : 0,
       verified : 0,
       rewarded : 0,
     },
-    coupons : {             // ✅ NEW
+    coupons: {
       total     : 0,
       available : 0,
       redeemed  : 0,
       today     : 0,
+    },
+    subscriptions: {              // ✅ NEW
+      total       : 0,
+      active      : 0,
+      expired     : 0,
+      cancelled   : 0,
+      mrr         : 0,            // monthly recurring revenue in kobo
+      arr         : 0,            // annual recurring revenue in kobo
+      today       : 0,
+      byPlan      : {},           // { premium: N, pro: N, ... }
     },
   });
 
@@ -138,6 +150,7 @@ function useData(api) {
   const [vendorPendingCount,       setVendorPendingCount]       = useState(0);
   const [withdrawalPendingCount,   setWithdrawalPendingCount]   = useState(0);
   const [airtimePendingCount,      setAirtimePendingCount]      = useState(0);
+  const [subscriptionStats,        setSubscriptionStats]        = useState(null); // ✅ NEW
   const [loading,                  setLoading]                  = useState(true);
 
   const safe = useCallback(async (path, setter, base) => {
@@ -213,6 +226,30 @@ function useData(api) {
     } catch {}
   }, [api]);
 
+  // ✅ NEW — reload subscription stats for the overview card
+  const reloadSubscriptionStats = useCallback(async () => {
+    try {
+      const { data } = await api.get("/subscriptions/stats", SUB_BASE);
+      setSubscriptionStats(data);
+      // Mirror into stats.subscriptions so Overview can read it
+      setStats((prev) => ({
+        ...prev,
+        subscriptions: {
+          total     : data.total     ?? 0,
+          active    : data.active    ?? 0,
+          expired   : data.expired   ?? 0,
+          cancelled : data.cancelled ?? 0,
+          mrr       : data.mrr       ?? 0,
+          arr       : data.arr       ?? 0,
+          today     : data.today     ?? 0,
+          byPlan    : data.byPlan    ?? {},
+        },
+      }));
+    } catch (err) {
+      console.warn("[admin] subscription stats:", err.message);
+    }
+  }, [api]);
+
   const reload = useMemo(() => ({
     users              : () => safe("/users",            setUsers),
     admins             : () => safe("/admins",           setAdmins),
@@ -232,6 +269,7 @@ function useData(api) {
     vendorCount        : reloadVendorCount,
     withdrawalCount    : reloadWithdrawalCount,
     airtimeCount       : reloadAirtimeCount,
+    subscriptionStats  : reloadSubscriptionStats,    // ✅ NEW
   }), [
     safe,
     reloadPlans,
@@ -241,6 +279,7 @@ function useData(api) {
     reloadVendorCount,
     reloadWithdrawalCount,
     reloadAirtimeCount,
+    reloadSubscriptionStats,                          // ✅ NEW
   ]);
 
   const loadAll = useCallback(async () => {
@@ -262,6 +301,7 @@ function useData(api) {
       reloadVendorCount(),
       reloadWithdrawalCount(),
       reloadAirtimeCount(),
+      reloadSubscriptionStats(),                      // ✅ NEW
     ]);
     setLoading(false);
   }, [
@@ -273,6 +313,7 @@ function useData(api) {
     reloadVendorCount,
     reloadWithdrawalCount,
     reloadAirtimeCount,
+    reloadSubscriptionStats,                          // ✅ NEW
   ]);
 
   return {
@@ -281,6 +322,7 @@ function useData(api) {
     reportCount, marketPendingCount,
     verificationPendingCount, vendorPendingCount,
     withdrawalPendingCount, airtimePendingCount,
+    subscriptionStats,                                // ✅ NEW
     loading, loadAll, reload,
   };
 }
@@ -441,6 +483,14 @@ function useActions(api, reload) {
         )
       );
       reload.plans();
+    },
+
+    // ✅ NEW — cancel a seller subscription from the admin panel
+    cancelSellerSubscription: async (userId) => {
+      await run(`csub-${userId}`, async () => {
+        await api.post(`/subscriptions/${userId}/cancel`);
+        reload.subscriptionStats();
+      });
     },
   };
 }
@@ -659,11 +709,21 @@ export default function AdminDashboard() {
       />
     ),
 
-    /* ✅ NEW */
     coupon_redemption: (
       <CouponRedemption
         api={api}
         couponStats={data.stats.coupons}
+      />
+    ),
+
+    // ✅ NEW — Seller Subscription Management
+    subscriptions: (
+      <AdminSubscriptions
+        api={api}
+        subscriptionStats={data.subscriptionStats ?? data.stats.subscriptions}
+        cancelSellerSubscription={actions.cancelSellerSubscription}
+        onMutation={data.reload.subscriptionStats}
+        confirm={confirm}
       />
     ),
   };
@@ -683,6 +743,7 @@ export default function AdminDashboard() {
           vendorPendingCount={data.vendorPendingCount}
           withdrawalPendingCount={data.withdrawalPendingCount}
           airtimePendingCount={data.airtimePendingCount}
+          subscriptionActiveCount={data.subscriptionStats?.active ?? 0} // ✅ NEW
         />
 
         <div className="main">
