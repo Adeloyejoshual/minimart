@@ -1,0 +1,124 @@
+/* ─── Subscription dashboard page ────────────────────────────────────────── */
+
+.sub-page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 32px 16px 64px;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+.sub-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.sub-header__title {
+  font-family: var(--fd);
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+/* ── Tabs ─────────────────────────────────────────────────────────────────── */
+.sub-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--bd);
+  margin-bottom: 24px;
+}
+
+.sub-tabs__btn {
+  padding: 10px 20px;
+  font-family: var(--fb);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink2);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.sub-tabs__btn:hover {
+  color: var(--ink);
+}
+
+.sub-tabs__btn--active {
+  color: var(--o);
+  border-bottom-color: var(--o);
+}
+
+/* ── Overview section ────────────────────────────────────────────────────── */
+.sub-overview {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Features list ───────────────────────────────────────────────────────── */
+.sub-features-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.sub-features-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--bg);
+}
+
+.sub-features-list__row:last-child {
+  border-bottom: none;
+}
+
+.sub-features-list__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+  color: var(--ink2);
+}
+
+.sub-features-list__icon {
+  display: flex;
+  align-items: center;
+  color: var(--ink3);
+  flex-shrink: 0;
+}
+
+/* ── Free plan notice ────────────────────────────────────────────────────── */
+.sub-free-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: #fef9c3;
+  border: 1px solid #fde68a;
+  border-radius: var(--r2);
+  padding: 20px;
+}
+
+.sub-free-notice__icon {
+  flex-shrink: 0;
+  color: #854d0e;
+  margin-top: 1px;
+}
+
+.sub-free-notice__title {
+  font-family: var(--fd);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: #854d0e;
+  margin-bottom: 4px;
+}
+
+.sub-free-notice__text {
+  font-size: 0.8125rem;
+  color: #92400e;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
