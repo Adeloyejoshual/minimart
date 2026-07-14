@@ -3,7 +3,11 @@ import { useNavigate, useSearchParams }      from "react-router-dom";
 import PlanCard                              from "../../components/subscription/PlanCard.jsx";
 import DiamondHero                           from "../../components/subscription/DiamondHero.jsx";
 import EliteHero                             from "../../components/subscription/EliteHero.jsx";
-import "../../styles/subscription/index.css";
+
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token") ||
+  null;
 
 const Plans = () => {
   const navigate       = useNavigate();
@@ -24,17 +28,22 @@ const Plans = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const token = localStorage.getItem("token");
+        const token = getToken();
+
         const [plansRes, subRes] = await Promise.all([
           fetch("/api/subscription/plans"),
           fetch("/api/subscription", {
-            headers: { Authorization: `Bearer ${token}` },
+            headers: token
+              ? { Authorization: `Bearer ${token}` }
+              : {},
           }),
         ]);
+
         const plansData = await plansRes.json();
-        const subData   = await subRes.json();
+        const subData   = subRes.ok ? await subRes.json() : null;
+
         setPlans((plansData.plans ?? []).filter((p) => p.slug !== "free"));
-        setCurrentSub(subData.subscription ?? null);
+        setCurrentSub(subData?.subscription ?? null);
       } catch {
         showToast("error", "Failed to load plans. Please refresh.");
       } finally {
@@ -45,16 +54,24 @@ const Plans = () => {
   }, [showToast]);
 
   const handleSelectPlan = async (planSlug) => {
+    const token = getToken();
+
+    if (!token) {
+      navigate(`/auth?redirect=${encodeURIComponent("/seller/subscription/plans")}`);
+      return;
+    }
+
     setInitiating(planSlug);
     try {
       const res = await fetch("/api/subscription/payments/initiate", {
         method:  "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization:  `Bearer ${localStorage.getItem("token")}`,
+          Authorization:  `Bearer ${token}`,
         },
         body: JSON.stringify({ planSlug, cycle }),
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
 
@@ -65,7 +82,7 @@ const Plans = () => {
 
       window.location.href = data.authorizationUrl;
     } catch (err) {
-      showToast("error", err.message ?? "Could not start payment.");
+      showToast("error", err.message ?? "Could not start payment. Please try again.");
     } finally {
       setInitiating(null);
     }
@@ -106,7 +123,6 @@ const Plans = () => {
         </div>
       )}
 
-      {/* Diamond hero */}
       {diamondPlan && (
         <DiamondHero
           plan={diamondPlan}
@@ -118,7 +134,6 @@ const Plans = () => {
         />
       )}
 
-      {/* Elite hero */}
       {elitePlan && (
         <EliteHero
           plan={elitePlan}
@@ -130,7 +145,6 @@ const Plans = () => {
         />
       )}
 
-      {/* Page header */}
       <div className="sub-plans-header">
         <h1 className="sub-plans-header__title">Choose Your Seller Plan</h1>
         <p className="sub-plans-header__subtitle">
@@ -139,7 +153,6 @@ const Plans = () => {
         </p>
       </div>
 
-      {/* Billing cycle toggle */}
       <div className="sub-cycle-toggle">
         <div className="sub-cycle-toggle__inner">
           {["monthly", "yearly"].map((c) => (
@@ -159,7 +172,6 @@ const Plans = () => {
         </div>
       </div>
 
-      {/* Plan cards */}
       <div className="sub-plans-grid">
         {cardPlans.map((plan) => (
           <PlanCard
@@ -174,7 +186,6 @@ const Plans = () => {
         ))}
       </div>
 
-      {/* Footer */}
       <p className="sub-plans-footer">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
         All plans allow up to 20 photos per listing · Payments secured by Paystack
