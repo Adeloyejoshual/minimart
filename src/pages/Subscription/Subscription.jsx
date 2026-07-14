@@ -3,7 +3,11 @@ import { useNavigate }                       from "react-router-dom";
 import CurrentPlan                           from "../../components/subscription/CurrentPlan.jsx";
 import CancelModal                           from "../../components/subscription/CancelModal.jsx";
 import History                               from "./History.jsx";
-import "../../styles/subscription/index.css";
+
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token") ||
+  null;
 
 const FEATURE_META = {
   auto_renewal:          { label: "Automatic Listing Renewal", icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg> },
@@ -21,7 +25,7 @@ const FEATURE_META = {
   dedicated_manager:     { label: "Dedicated Account Manager",  icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg> },
   early_access:          { label: "Early Feature Access",       icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg> },
   api_access:            { label: "API & Integration Access",   icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg> },
-  custom_branding:       { label: "Custom Branding",            icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12.5" r="2.5"/><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12a10 10 0 0 0 4.5 8.33"/><path d="M7 20.662V18a1 1 0 0 1 1.45-.89l2.1 1.05a1 1 0 0 0 .9 0l2.1-1.05A1 1 0 0 1 15 18v2.662"/></svg> },
+  custom_branding:       { label: "Custom Branding",            icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="10.5" r="2.5"/><circle cx="8.5" cy="7.5" r="2.5"/><circle cx="6.5" cy="12.5" r="2.5"/><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12a10 10 0 0 0 4.5 8.33"/></svg> },
   vip_support:           { label: "VIP Support",                icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12l4 6-10 13L2 9z"/><path d="M11 3l1 6"/><path d="M2 9h20"/><path d="M7 9l5 13 5-13"/></svg> },
 };
 
@@ -44,7 +48,7 @@ const Subscription = () => {
   const fetchSubscription = useCallback(async () => {
     try {
       const res  = await fetch("/api/subscription", {
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${getToken()}` },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
@@ -66,7 +70,7 @@ const Subscription = () => {
         method:  "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization:  `Bearer ${localStorage.getItem("token")}`,
+          Authorization:  `Bearer ${getToken()}`,
         },
         body: JSON.stringify({ autoRenew: newValue }),
       });
@@ -86,7 +90,7 @@ const Subscription = () => {
     try {
       const res  = await fetch("/api/subscription/payments/cancel", {
         method:  "POST",
-        headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
+        headers: { Authorization: `Bearer ${getToken()}` },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
@@ -123,7 +127,7 @@ const Subscription = () => {
   }
 
   const tabs = [
-    { id: "overview", label: "Overview" },
+    { id: "overview", label: "Overview"        },
     { id: "history",  label: "Payment History" },
   ];
 
