@@ -1,0 +1,171 @@
+/* ─── Desktop Payment History ────────────────────────────────────────────── */
+
+.dph-wrap {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r2);
+  box-shadow: var(--s1);
+  overflow: hidden;
+}
+
+.dph-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 16px;
+  border-bottom: 1px solid var(--bg);
+}
+
+.dph-title {
+  font-family: var(--fd);
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.dph-count {
+  font-size: 0.75rem;
+  color: var(--ink3);
+}
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.dph-table-wrap { overflow-x: auto; }
+
+.dph-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+.dph-table thead th {
+  padding: 10px 16px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink3);
+  background: var(--bg);
+  white-space: nowrap;
+}
+
+.dph-table tbody tr {
+  border-bottom: 1px solid var(--bg);
+  transition: background 0.1s;
+}
+
+.dph-table tbody tr:hover  { background: var(--bg); }
+.dph-table tbody tr:last-child { border-bottom: none; }
+
+.dph-table tbody td {
+  padding: 12px 16px;
+  vertical-align: middle;
+}
+
+.dph-table__nowrap    { white-space: nowrap; }
+.dph-table__capitalize { text-transform: capitalize; font-size: 0.75rem; color: var(--ink2); }
+.dph-table__muted     { color: var(--ink3); font-size: 0.75rem; }
+
+.dph-table__amount {
+  font-weight: 700;
+  color: var(--ink);
+  font-family: var(--fd);
+}
+
+.dph-table__ref {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.6875rem;
+  color: var(--ink3);
+}
+
+.dph-table__plan {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  font-size: 0.8125rem;
+}
+
+/* Status pills */
+.dph-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 10px;
+  border-radius: 100px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+}
+
+.dph-status--success  { background: var(--gn2); color: var(--gn); }
+.dph-status--pending  { background: #fef9c3; color: #854d0e; }
+.dph-status--failed   { background: #fef2f2; color: #b91c1c; }
+.dph-status--refunded { background: var(--bg); color: var(--ink3); }
+
+/* ── Pagination ──────────────────────────────────────────────────────────── */
+.dph-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  border-top: 1px solid var(--bg);
+}
+
+.dph-pagination__info {
+  font-size: 0.75rem;
+  color: var(--ink3);
+}
+
+.dph-pagination__btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.dph-pg-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 5px 10px;
+  font-family: var(--fb);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--ink2);
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r1);
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.dph-pg-btn:hover:not(:disabled) { background: var(--bg); }
+.dph-pg-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.dph-pg-btn--active  { background: var(--o); color: var(--wh); border-color: var(--o); }
+.dph-pg-ellipsis     { padding: 0 4px; font-size: 0.6875rem; color: var(--ink3); }
+
+/* ── Error / Empty / Skeleton ────────────────────────────────────────────── */
+.dph-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 24px;
+  color: #991b1b;
+  font-size: 0.8125rem;
+}
+
+.dph-error__title { font-weight: 600; margin-bottom: 2px; }
+.dph-error__msg   { color: #b91c1c; }
+.dph-retry        { margin-top: 8px; color: #b91c1c; text-decoration: underline; background: none; border: none; cursor: pointer; font-size: 0.8125rem; padding: 0; }
+
+.dph-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 56px 24px;
+  color: var(--ink3);
+  font-size: 0.875rem;
+}
+
+.dph-sk-title { height: 20px; width: 160px; background: var(--bd); border-radius: var(--r1); margin: 20px 24px 16px; animation: dsub-pulse 1.5s ease-in-out infinite; }
+.dph-sk-row   { height: 44px; background: var(--bg); margin: 0 24px 4px; border-radius: var(--r1); animation: dsub-pulse 1.5s ease-in-out infinite; }
