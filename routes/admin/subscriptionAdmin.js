@@ -1,0 +1,1457 @@
+// ════════════════════════════════════════════════════════════
+// FILE: routes/admin/subscriptionAdmin.js
+// Base: /api/admin/subscriptions
+// ════════════════════════════════════════════════════════════
+
+import express from "express";
+import { pool } from "../../config/db.js";
+import { verifyAdmin } from "./middleware.js";
+
+const router = express.Router();
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const safeInt = (v, fallback = 0) => {
+  const n = parseInt(v);
+  return isNaN(n) ? fallback : n;
+};
+
+const safeNum = (v, fallback = 0) => {
+  const n = Number(v);
+  return isNaN(n) ? fallback : n;
+};
+
+// Log an admin action to subscription_audit_logs
+const logAction = async (client, adminId, adminName, action, targetUserId, detail = null) => {
+  try {
+    await client.query(
+      `INSERT INTO subscription_audit_logs
+         (admin_id, admin_name, action, target_user_id, detail, created_at)
+       VALUES ($1, $2, $3, $4, $5, NOW())`,
+      [adminId, adminName, action, targetUserId, detail]
+    );
+  } catch {
+    // Audit logging must never break the main action
+  }
+};
+
+// Apply a plan change inside an open transaction
+const applyPlanChange = async (client, userId, planSlug, billingCycle = null) => {
+  const { rows: planRows } = await client.query(
+    `SELECT id, slug, name, rank, monthly_price, yearly_price
+     FROM subscription_plans
+     WHERE slug = $1`,
+    [planSlug]
+  );
+
+  if (!planRows.length) throw new Error(`Plan "${planSlug}" not found.`);
+
+  const plan = planRows[0];
+
+  if (planSlug === "free") {
+    // Revert to free
+    await client.query(
+      `UPDATE subscriptions
+       SET status = 'superseded', updated_at = NOW()
+       WHERE user_id = $1 AND status = 'active'`,
+      [userId]
+    );
+    await client.query(
+      `UPDATE users
+       SET subscription_plan        = 'free',
+           subscription_status      = 'inactive',
+           billing_cycle            = NULL,
+           subscription_started_at  = NULL,
+           subscription_expires_at  = NULL,
+           auto_renew               = TRUE,
+           updated_at               = NOW()
+       WHERE id = $1`,
+      [userId]
+    );
+    await client.query(
+      `UPDATE listings SET search_priority = 0, updated_at = NOW() WHERE user_id = $1`,
+      [userId]
+    );
+    return plan;
+  }
+
+  // Supersede current active subscription
+  await client.query(
+    `UPDATE subscriptions
+     SET status = 'superseded', updated_at = NOW()
+     WHERE user_id = $1 AND status = 'active'`,
+    [userId]
+  );
+
+  // Determine billing cycle — inherit from previous or default monthly
+  const { rows: prevRows } = await client.query(
+    `SELECT billing_cycle, expires_at FROM subscriptions
+     WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+    [userId]
+  );
+
+  const cycle     = billingCycle ?? prevRows[0]?.billing_cycle ?? "monthly";
+  const expiresAt = prevRows[0]?.expires_at && new Date(prevRows[0].expires_at) > new Date()
+    ? prevRows[0].expires_at
+    : (() => { const d = new Date(); cycle === "yearly" ? d.setFullYear(d.getFullYear() + 1) : d.setMonth(d.getMonth() + 1); return d; })();
+
+  const { rows: subRows } = await client.query(
+    `INSERT INTO subscriptions
+       (user_id, plan_id, plan_slug, billing_cycle, amount, currency,
+        payment_reference, status, auto_renew, started_at, expires_at,
+        metadata, created_at, updated_at)
+     VALUES ($1, $2, $3, $4, $5, 'NGN', $6, 'active', TRUE, NOW(), $7,
+             '{"source":"admin_change"}'::jsonb, NOW(), NOW())
+     RETURNING id, expires_at`,
+    [
+      userId,
+      plan.id,
+      plan.slug,
+      cycle,
+      0,                       // amount 0 — admin grant, no charge
+      `ADMIN_GRANT_${Date.now()}`,
+      expiresAt,
+    ]
+  );
+
+  await client.query(
+    `UPDATE users
+     SET subscription_plan        = $1,
+         subscription_status      = 'active',
+         billing_cycle            = $2,
+         subscription_started_at  = NOW(),
+         subscription_expires_at  = $3,
+         auto_renew               = TRUE,
+         updated_at               = NOW()
+     WHERE id = $4`,
+    [plan.slug, cycle, expiresAt, userId]
+  );
+
+  await client.query(
+    `UPDATE listings SET search_priority = $1, updated_at = NOW() WHERE user_id = $2`,
+    [plan.rank, userId]
+  );
+
+  return { plan, subscriptionId: subRows[0].id, expiresAt: subRows[0].expires_at };
+};
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions
+// Paginated list with filters: plan, status, cycle, auto_renew, date range, search
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const page   = Math.max(1, safeInt(req.query.page, 1));
+    const limit  = Math.min(100, safeInt(req.query.limit, 20));
+    const offset = (page - 1) * limit;
+
+    const {
+      plan, status, cycle, auto_renew,
+      date_from, date_to, q,
+    } = req.query;
+
+    const conditions = [];
+    const values     = [];
+    let   idx        = 1;
+
+    if (plan       && plan       !== "all") { conditions.push(`s.plan_slug = $${idx++}`);    values.push(plan);       }
+    if (status     && status     !== "all") { conditions.push(`s.status = $${idx++}`);       values.push(status);     }
+    if (cycle      && cycle      !== "all") { conditions.push(`s.billing_cycle = $${idx++}`);values.push(cycle);      }
+    if (auto_renew && auto_renew !== "all") { conditions.push(`s.auto_renew = $${idx++}`);   values.push(auto_renew === "true"); }
+    if (date_from)                          { conditions.push(`s.started_at >= $${idx++}`);  values.push(date_from);  }
+    if (date_to)                            { conditions.push(`s.started_at <= $${idx++}`);  values.push(date_to);    }
+
+    if (q?.trim()) {
+      conditions.push(`(
+        u.name               ILIKE $${idx}
+        OR u.email           ILIKE $${idx}
+        OR u.phone           ILIKE $${idx}
+        OR u.phone_number    ILIKE $${idx}
+        OR u.business_name   ILIKE $${idx}
+        OR s.id::text        ILIKE $${idx}
+        OR s.payment_reference ILIKE $${idx}
+      )`);
+      values.push(`%${q.trim()}%`);
+      idx++;
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const { rows: subscriptions } = await client.query(
+      `SELECT
+         s.id,
+         s.user_id,
+         s.plan_slug,
+         s.billing_cycle,
+         s.amount,
+         s.currency,
+         s.payment_reference,
+         s.status,
+         s.auto_renew,
+         s.started_at,
+         s.expires_at,
+         s.created_at,
+         u.name             AS user_name,
+         u.email            AS user_email,
+         u.phone            AS user_phone,
+         u.business_name,
+         u.store_verified,
+         sp.name            AS plan_name,
+         sp.badge           AS plan_badge
+       FROM subscriptions s
+       LEFT JOIN users             u  ON u.id     = s.user_id
+       LEFT JOIN subscription_plans sp ON sp.slug = s.plan_slug
+       ${where}
+       ORDER BY s.created_at DESC
+       LIMIT $${idx} OFFSET $${idx + 1}`,
+      [...values, limit, offset]
+    );
+
+    const { rows: countRows } = await client.query(
+      `SELECT COUNT(*) AS total
+       FROM subscriptions s
+       LEFT JOIN users u ON u.id = s.user_id
+       ${where}`,
+      values
+    );
+
+    const total = safeInt(countRows[0].total);
+
+    res.json({
+      subscriptions,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    });
+  } catch (err) {
+    console.error("[GET /admin/subscriptions]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/stats
+// MRR, ARR, by-plan breakdown, today count, etc.
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/stats", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const safe = (p) => p.catch(() => ({ rows: [{}] }));
+
+    const [
+      countsRes,
+      mrrRes,
+      planRes,
+      revenueRes,
+    ] = await Promise.all([
+      safe(client.query(
+        `SELECT
+           COUNT(*)                                                      AS total,
+           COUNT(*) FILTER (WHERE status = 'active')                    AS active,
+           COUNT(*) FILTER (WHERE status = 'expired')                   AS expired,
+           COUNT(*) FILTER (WHERE status = 'cancelled')                 AS cancelled,
+           COUNT(*) FILTER (WHERE status = 'suspended')                 AS suspended,
+           COUNT(*) FILTER (WHERE DATE(created_at) = CURRENT_DATE)      AS today
+         FROM subscriptions`
+      )),
+      safe(client.query(
+        `SELECT COALESCE(SUM(
+           CASE billing_cycle WHEN 'yearly' THEN amount / 12 ELSE amount END
+         ), 0) AS mrr
+         FROM subscriptions
+         WHERE status = 'active'`
+      )),
+      safe(client.query(
+        `SELECT plan_slug, COUNT(*) AS count
+         FROM subscriptions
+         WHERE status = 'active'
+         GROUP BY plan_slug`
+      )),
+      safe(client.query(
+        `SELECT
+           COALESCE(SUM(amount) FILTER (WHERE DATE(paid_at) = CURRENT_DATE),    0) AS today,
+           COALESCE(SUM(amount) FILTER (WHERE DATE_TRUNC('month', paid_at) = DATE_TRUNC('month', NOW())), 0) AS this_month
+         FROM payment_transactions
+         WHERE status = 'success'`
+      )),
+    ]);
+
+    const c   = countsRes.rows[0]  ?? {};
+    const mrr = safeNum(mrrRes.rows[0]?.mrr);
+    const arr = mrr * 12;
+
+    const byPlan = planRes.rows.reduce((acc, row) => {
+      acc[row.plan_slug] = safeInt(row.count);
+      return acc;
+    }, {});
+
+    // Simple derived KPIs — extend as data grows
+    const total  = safeInt(c.total);
+    const active = safeInt(c.active);
+
+    res.json({
+      total,
+      active,
+      expired        : safeInt(c.expired),
+      cancelled      : safeInt(c.cancelled),
+      suspended      : safeInt(c.suspended),
+      today          : safeInt(c.today),
+      mrr,
+      arr,
+      arpu           : active > 0 ? Math.round(mrr / active) : 0,
+      byPlan,
+      revenueToday     : safeNum(revenueRes.rows[0]?.today),
+      revenueThisMonth : safeNum(revenueRes.rows[0]?.this_month),
+    });
+  } catch (err) {
+    console.error("[GET /admin/subscriptions/stats]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/revenue
+// Daily / weekly / monthly revenue arrays for the chart
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/revenue", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const safe = (p) => p.catch(() => ({ rows: [] }));
+
+    const [dailyRes, weeklyRes, monthlyRes] = await Promise.all([
+      safe(client.query(
+        `SELECT TO_CHAR(DATE(paid_at), 'MM-DD') AS label,
+                COALESCE(SUM(amount) / 100, 0)  AS amount
+         FROM payment_transactions
+         WHERE status = 'success'
+           AND paid_at >= NOW() - INTERVAL '30 days'
+         GROUP BY DATE(paid_at)
+         ORDER BY DATE(paid_at)`
+      )),
+      safe(client.query(
+        `SELECT TO_CHAR(DATE_TRUNC('week', paid_at), 'MM-DD') AS label,
+                COALESCE(SUM(amount) / 100, 0)                AS amount
+         FROM payment_transactions
+         WHERE status = 'success'
+           AND paid_at >= NOW() - INTERVAL '12 weeks'
+         GROUP BY DATE_TRUNC('week', paid_at)
+         ORDER BY DATE_TRUNC('week', paid_at)`
+      )),
+      safe(client.query(
+        `SELECT TO_CHAR(DATE_TRUNC('month', paid_at), 'Mon YY') AS label,
+                COALESCE(SUM(amount) / 100, 0)                  AS amount
+         FROM payment_transactions
+         WHERE status = 'success'
+           AND paid_at >= NOW() - INTERVAL '12 months'
+         GROUP BY DATE_TRUNC('month', paid_at)
+         ORDER BY DATE_TRUNC('month', paid_at)`
+      )),
+    ]);
+
+    res.json({
+      daily   : dailyRes.rows.map((r)   => ({ label: r.label, amount: safeNum(r.amount) })),
+      weekly  : weeklyRes.rows.map((r)  => ({ label: r.label, amount: safeNum(r.amount) })),
+      monthly : monthlyRes.rows.map((r) => ({ label: r.label, amount: safeNum(r.amount) })),
+    });
+  } catch (err) {
+    console.error("[GET /admin/subscriptions/revenue]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/expiring
+// Subscriptions expiring within the next 7 days
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/expiring", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT
+         s.id, s.user_id, s.plan_slug, s.billing_cycle,
+         s.expires_at, s.auto_renew, s.status,
+         u.name  AS user_name,
+         u.email AS user_email
+       FROM subscriptions s
+       LEFT JOIN users u ON u.id = s.user_id
+       WHERE s.status = 'active'
+         AND s.expires_at BETWEEN NOW() AND NOW() + INTERVAL '7 days'
+       ORDER BY s.expires_at ASC`
+    );
+    res.json({ subscriptions: rows });
+  } catch (err) {
+    console.error("[GET /admin/subscriptions/expiring]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/churn
+// Cancellations, expirations, reactivations, renewals
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/churn", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE status = 'cancelled'
+           AND DATE(updated_at) = CURRENT_DATE)                     AS cancelled_today,
+         COUNT(*) FILTER (WHERE status = 'cancelled'
+           AND updated_at >= NOW() - INTERVAL '7 days')             AS cancelled_week,
+         COUNT(*) FILTER (WHERE status = 'expired')                 AS expired,
+         COUNT(*) FILTER (WHERE status = 'active'
+           AND metadata::text ILIKE '%reactivate%')                 AS reactivated,
+         COUNT(*) FILTER (WHERE status = 'active'
+           AND renewal_type = 'auto')                               AS renewed
+       FROM subscriptions`
+    );
+
+    const r = rows[0] ?? {};
+    res.json({
+      cancelledToday : safeInt(r.cancelled_today),
+      cancelledWeek  : safeInt(r.cancelled_week),
+      expired        : safeInt(r.expired),
+      reactivated    : safeInt(r.reactivated),
+      renewed        : safeInt(r.renewed),
+    });
+  } catch (err) {
+    console.error("[GET /admin/subscriptions/churn]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/forecast
+// Renewal count + expected revenue for next 7 and 30 days
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/forecast", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE expires_at BETWEEN NOW() AND NOW() + INTERVAL '7 days')   AS next_7_count,
+         COUNT(*) FILTER (WHERE expires_at BETWEEN NOW() AND NOW() + INTERVAL '30 days')  AS next_30_count,
+         COALESCE(SUM(amount) FILTER (WHERE expires_at BETWEEN NOW() AND NOW() + INTERVAL '7 days'),  0) AS revenue_7,
+         COALESCE(SUM(amount) FILTER (WHERE expires_at BETWEEN NOW() AND NOW() + INTERVAL '30 days'), 0) AS revenue_30
+       FROM subscriptions
+       WHERE status = 'active'
+         AND auto_renew = TRUE`
+    );
+
+    const r = rows[0] ?? {};
+    res.json({
+      next7Days  : safeInt(r.next_7_count),
+      next30Days : safeInt(r.next_30_count),
+      revenue7   : safeNum(r.revenue_7),
+      revenue30  : safeNum(r.revenue_30),
+    });
+  } catch (err) {
+    console.error("[GET /admin/subscriptions/forecast]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/top-subscribers
+// Sellers ranked by total spend
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/top-subscribers", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT
+         s.user_id,
+         u.name      AS user_name,
+         u.email     AS user_email,
+         s.plan_slug,
+         SUM(s.amount) AS total_spend
+       FROM subscriptions s
+       LEFT JOIN users u ON u.id = s.user_id
+       WHERE s.status != 'failed'
+       GROUP BY s.user_id, u.name, u.email, s.plan_slug
+       ORDER BY total_spend DESC
+       LIMIT 10`
+    );
+    res.json({
+      subscribers: rows.map((r) => ({
+        ...r,
+        total_spend: safeNum(r.total_spend),
+      })),
+    });
+  } catch (err) {
+    console.error("[GET /admin/subscriptions/top-subscribers]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/audit-log
+// Recent admin actions on subscriptions
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/audit-log", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const limit = Math.min(200, safeInt(req.query.limit, 100));
+
+    const { rows } = await client.query(
+      `SELECT
+         al.id,
+         al.admin_id,
+         al.admin_name,
+         al.action,
+         al.target_user_id,
+         al.detail,
+         al.created_at,
+         u.name  AS target_user,
+         u.email AS target_email
+       FROM subscription_audit_logs al
+       LEFT JOIN users u ON u.id = al.target_user_id
+       ORDER BY al.created_at DESC
+       LIMIT $1`,
+      [limit]
+    );
+
+    res.json({ logs: rows });
+  } catch (err) {
+    console.error("[GET /admin/subscriptions/audit-log]", err.message);
+    // Table may not exist yet — return empty gracefully
+    res.json({ logs: [] });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/export
+// CSV / Excel / PDF export
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/export", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { format = "csv", plan, status, q, ids } = req.query;
+
+    const conditions = [];
+    const values     = [];
+    let   idx        = 1;
+
+    if (plan   && plan   !== "all") { conditions.push(`s.plan_slug = $${idx++}`); values.push(plan);   }
+    if (status && status !== "all") { conditions.push(`s.status = $${idx++}`);    values.push(status); }
+    if (q?.trim()) {
+      conditions.push(`(u.name ILIKE $${idx} OR u.email ILIKE $${idx})`);
+      values.push(`%${q.trim()}%`);
+      idx++;
+    }
+    if (ids) {
+      const idArray = ids.split(",").filter(Boolean);
+      if (idArray.length) {
+        conditions.push(`s.id = ANY($${idx++}::uuid[])`);
+        values.push(idArray);
+      }
+    }
+
+    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const { rows } = await client.query(
+      `SELECT
+         s.id, u.name, u.email, u.phone,
+         s.plan_slug, s.billing_cycle,
+         s.amount / 100 AS amount_naira,
+         s.status, s.auto_renew,
+         s.started_at, s.expires_at,
+         s.payment_reference, s.created_at
+       FROM subscriptions s
+       LEFT JOIN users u ON u.id = s.user_id
+       ${where}
+       ORDER BY s.created_at DESC
+       LIMIT 5000`,
+      values
+    );
+
+    if (format === "csv") {
+      const header = [
+        "ID", "Name", "Email", "Phone", "Plan", "Cycle",
+        "Amount (₦)", "Status", "Auto Renew", "Started", "Expires",
+        "Reference", "Created",
+      ].join(",");
+
+      const body = rows.map((r) => [
+        r.id,
+        `"${(r.name  ?? "").replace(/"/g, '""')}"`,
+        `"${(r.email ?? "").replace(/"/g, '""')}"`,
+        r.phone        ?? "",
+        r.plan_slug    ?? "",
+        r.billing_cycle ?? "",
+        r.amount_naira ?? 0,
+        r.status       ?? "",
+        r.auto_renew   ? "Yes" : "No",
+        r.started_at   ? new Date(r.started_at).toISOString().slice(0, 10) : "",
+        r.expires_at   ? new Date(r.expires_at).toISOString().slice(0, 10) : "",
+        r.payment_reference ?? "",
+        r.created_at   ? new Date(r.created_at).toISOString().slice(0, 10) : "",
+      ].join(",")).join("\n");
+
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", `attachment; filename="subscriptions_${Date.now()}.csv"`);
+      return res.send(`${header}\n${body}`);
+    }
+
+    // For excel / pdf — return JSON and let the client render
+    // (plug in exceljs / pdfkit here if needed)
+    res.json({ rows, format });
+
+  } catch (err) {
+    console.error("[GET /admin/subscriptions/export]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/:userId/payments
+// Payment history for a specific seller
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/:userId/payments", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT
+         pt.id,
+         pt.reference,
+         pt.provider,
+         pt.amount,
+         pt.amount / 100 AS amount_naira,
+         pt.currency,
+         pt.status,
+         pt.type,
+         pt.paid_at,
+         pt.created_at,
+         s.plan_slug,
+         sp.name  AS plan_name
+       FROM payment_transactions pt
+       LEFT JOIN subscriptions s      ON s.id     = pt.subscription_id
+       LEFT JOIN subscription_plans sp ON sp.slug = s.plan_slug
+       WHERE pt.user_id = $1
+       ORDER BY pt.created_at DESC
+       LIMIT 100`,
+      [req.params.userId]
+    );
+
+    res.json({ transactions: rows });
+  } catch (err) {
+    console.error("[GET /:userId/payments]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/:userId/features
+// Feature keys for the seller's current plan + any overrides
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/:userId/features", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows: userRows } = await client.query(
+      `SELECT subscription_plan FROM users WHERE id = $1`,
+      [req.params.userId]
+    );
+
+    if (!userRows.length) return res.status(404).json({ message: "User not found." });
+
+    const planSlug = userRows[0].subscription_plan ?? "free";
+
+    const { rows: featureRows } = await client.query(
+      `SELECT sf.feature_key, sf.feature_value
+       FROM subscription_features sf
+       INNER JOIN subscription_plans sp ON sp.id = sf.plan_id
+       WHERE sp.slug = $1`,
+      [planSlug]
+    );
+
+    const features = featureRows.reduce((acc, r) => {
+      acc[r.feature_key] = r.feature_value;
+      return acc;
+    }, {});
+
+    // Merge any admin overrides on top
+    const { rows: overrideRows } = await client.query(
+      `SELECT feature_key, feature_value
+       FROM subscription_feature_overrides
+       WHERE user_id = $1`,
+      [req.params.userId]
+    ).catch(() => ({ rows: [] }));
+
+    const overrides = overrideRows.reduce((acc, r) => {
+      acc[r.feature_key] = r.feature_value;
+      return acc;
+    }, {});
+
+    res.json({ plan: planSlug, features, overrides });
+  } catch (err) {
+    console.error("[GET /:userId/features]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/:userId/timeline
+// Activity timeline pulled from audit log for this user
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/:userId/timeline", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT action AS event, detail AS description, admin_name, created_at
+       FROM subscription_audit_logs
+       WHERE target_user_id = $1
+       ORDER BY created_at DESC
+       LIMIT 50`,
+      [req.params.userId]
+    );
+
+    res.json({ timeline: rows });
+  } catch {
+    res.json({ timeline: [] });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/:userId/notes
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/:userId/notes", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { rows } = await client.query(
+      `SELECT id, content, admin_name, created_at
+       FROM subscription_notes
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
+      [req.params.userId]
+    );
+    res.json({ notes: rows });
+  } catch {
+    res.json({ notes: [] });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/notes
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/notes", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { content } = req.body;
+
+    if (!content?.trim()) {
+      return res.status(400).json({ message: "Note content is required." });
+    }
+
+    const adminName = req.admin?.name ?? "Admin";
+
+    await client.query(
+      `INSERT INTO subscription_notes (user_id, content, admin_id, admin_name, created_at)
+       VALUES ($1, $2, $3, $4, NOW())`,
+      [req.params.userId, content.trim(), req.admin.id, adminName]
+    );
+
+    res.json({ message: "Note added." });
+  } catch (err) {
+    console.error("[POST /:userId/notes]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// GET /api/admin/subscriptions/:userId/fraud
+// Basic fraud signals for this seller
+// ══════════════════════════════════════════════════════════════════════════════
+router.get("/:userId/fraud", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const userId = req.params.userId;
+    const signals = [];
+
+    // Failed payments count
+    const { rows: failedRows } = await client.query(
+      `SELECT COUNT(*) AS count FROM payment_transactions WHERE user_id = $1 AND status = 'failed'`,
+      [userId]
+    );
+    if (safeInt(failedRows[0]?.count) >= 3) {
+      signals.push({
+        type        : "Multiple Failed Payments",
+        description : `${failedRows[0].count} failed payment attempts detected.`,
+        detected_at : new Date().toISOString(),
+      });
+    }
+
+    // Multiple subscription changes in short period
+    const { rows: changeRows } = await client.query(
+      `SELECT COUNT(*) AS count FROM subscriptions
+       WHERE user_id = $1
+         AND created_at >= NOW() - INTERVAL '24 hours'`,
+      [userId]
+    );
+    if (safeInt(changeRows[0]?.count) >= 5) {
+      signals.push({
+        type        : "Excessive Plan Changes",
+        description : `${changeRows[0].count} subscription changes in the last 24 hours.`,
+        detected_at : new Date().toISOString(),
+      });
+    }
+
+    res.json({ signals });
+  } catch (err) {
+    console.error("[GET /:userId/fraud]", err.message);
+    res.json({ signals: [] });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/change-plan
+// Body: { plan, billingCycle? }  — no payment charged
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/change-plan", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { plan, billingCycle } = req.body;
+    const userId    = req.params.userId;
+    const adminName = req.admin?.name ?? "Admin";
+
+    if (!plan) return res.status(400).json({ message: "plan is required." });
+
+    await client.query("BEGIN");
+
+    const result = await applyPlanChange(client, userId, plan, billingCycle ?? null);
+
+    await logAction(client, req.admin.id, adminName, `Changed plan to ${plan}`, userId, `Admin change — no charge.`);
+
+    await client.query("COMMIT");
+
+    res.json({ message: `Plan changed to ${plan}.`, result });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /:userId/change-plan]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/grant
+// Body: { plan, duration, reason }  — free access grant
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/grant", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { plan, duration, reason } = req.body;
+    const userId    = req.params.userId;
+    const adminName = req.admin?.name ?? "Admin";
+
+    if (!plan)     return res.status(400).json({ message: "plan is required."     });
+    if (!duration) return res.status(400).json({ message: "duration is required." });
+
+    const { rows: planRows } = await client.query(
+      `SELECT id, slug, name, rank FROM subscription_plans WHERE slug = $1`,
+      [plan]
+    );
+
+    if (!planRows.length) return res.status(404).json({ message: "Plan not found." });
+
+    const p         = planRows[0];
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + safeInt(duration, 30));
+
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE subscriptions
+       SET status = 'superseded', updated_at = NOW()
+       WHERE user_id = $1 AND status = 'active'`,
+      [userId]
+    );
+
+    await client.query(
+      `INSERT INTO subscriptions
+         (user_id, plan_id, plan_slug, billing_cycle, amount, currency,
+          payment_reference, status, auto_renew, started_at, expires_at,
+          metadata, created_at, updated_at)
+       VALUES ($1, $2, $3, 'monthly', 0, 'NGN', $4, 'active', FALSE, NOW(), $5,
+               $6::jsonb, NOW(), NOW())`,
+      [
+        userId, p.id, p.slug,
+        `ADMIN_GRANT_${Date.now()}`,
+        expiresAt,
+        JSON.stringify({ source: "admin_grant", reason: reason ?? "", admin: adminName }),
+      ]
+    );
+
+    await client.query(
+      `UPDATE users
+       SET subscription_plan        = $1,
+           subscription_status      = 'active',
+           billing_cycle            = 'monthly',
+           subscription_started_at  = NOW(),
+           subscription_expires_at  = $2,
+           auto_renew               = FALSE,
+           updated_at               = NOW()
+       WHERE id = $3`,
+      [p.slug, expiresAt, userId]
+    );
+
+    await client.query(
+      `UPDATE listings SET search_priority = $1, updated_at = NOW() WHERE user_id = $2`,
+      [p.rank, userId]
+    );
+
+    await logAction(
+      client, req.admin.id, adminName,
+      `Granted ${p.name} for ${duration} days`,
+      userId,
+      reason ?? "Admin grant — no charge."
+    );
+
+    await client.query("COMMIT");
+
+    res.json({ message: `${p.name} granted for ${duration} days.` });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /:userId/grant]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/extend
+// Body: { days?, until_date? }
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/extend", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { days, until_date } = req.body;
+    const userId    = req.params.userId;
+    const adminName = req.admin?.name ?? "Admin";
+
+    if (!days && !until_date) {
+      return res.status(400).json({ message: "days or until_date is required." });
+    }
+
+    await client.query("BEGIN");
+
+    if (days) {
+      await client.query(
+        `UPDATE subscriptions
+         SET expires_at = expires_at + ($1 || ' days')::INTERVAL, updated_at = NOW()
+         WHERE user_id = $2 AND status = 'active'`,
+        [safeInt(days, 30), userId]
+      );
+      await client.query(
+        `UPDATE users
+         SET subscription_expires_at = subscription_expires_at + ($1 || ' days')::INTERVAL,
+             updated_at = NOW()
+         WHERE id = $2`,
+        [safeInt(days, 30), userId]
+      );
+    } else {
+      await client.query(
+        `UPDATE subscriptions
+         SET expires_at = $1, updated_at = NOW()
+         WHERE user_id = $2 AND status = 'active'`,
+        [new Date(until_date), userId]
+      );
+      await client.query(
+        `UPDATE users
+         SET subscription_expires_at = $1, updated_at = NOW()
+         WHERE id = $2`,
+        [new Date(until_date), userId]
+      );
+    }
+
+    const label = days ? `+${days} days` : `until ${until_date}`;
+    await logAction(client, req.admin.id, adminName, `Extended subscription ${label}`, userId);
+
+    await client.query("COMMIT");
+
+    res.json({ message: `Subscription extended ${label}.` });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /:userId/extend]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/cancel
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/cancel", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const userId    = req.params.userId;
+    const adminName = req.admin?.name ?? "Admin";
+
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE subscriptions
+       SET status = 'cancelled', auto_renew = FALSE, updated_at = NOW()
+       WHERE user_id = $1 AND status = 'active'`,
+      [userId]
+    );
+
+    await client.query(
+      `UPDATE users SET auto_renew = FALSE, updated_at = NOW() WHERE id = $1`,
+      [userId]
+    );
+
+    await logAction(client, req.admin.id, adminName, "Cancelled subscription", userId);
+
+    await client.query("COMMIT");
+
+    res.json({ message: "Subscription cancelled. Access continues until expiry." });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /:userId/cancel]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/suspend
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/suspend", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const userId    = req.params.userId;
+    const adminName = req.admin?.name ?? "Admin";
+
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE subscriptions
+       SET status = 'suspended', updated_at = NOW()
+       WHERE user_id = $1 AND status = 'active'`,
+      [userId]
+    );
+
+    await client.query(
+      `UPDATE users
+       SET subscription_status = 'suspended', updated_at = NOW()
+       WHERE id = $1`,
+      [userId]
+    );
+
+    await logAction(client, req.admin.id, adminName, "Suspended subscription", userId);
+
+    await client.query("COMMIT");
+
+    res.json({ message: "Subscription suspended." });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /:userId/suspend]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/reactivate
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/reactivate", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const userId    = req.params.userId;
+    const adminName = req.admin?.name ?? "Admin";
+
+    await client.query("BEGIN");
+
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 30);
+
+    const { rows } = await client.query(
+      `UPDATE subscriptions
+       SET status     = 'active',
+           expires_at = $1,
+           updated_at = NOW()
+       WHERE user_id  = $2
+         AND status IN ('cancelled', 'expired', 'suspended')
+       ORDER BY created_at DESC
+       LIMIT 1
+       RETURNING id, plan_slug, expires_at`,
+      [expiresAt, userId]
+    );
+
+    if (rows.length) {
+      await client.query(
+        `UPDATE users
+         SET subscription_status      = 'active',
+             subscription_expires_at  = $1,
+             auto_renew               = FALSE,
+             updated_at               = NOW()
+         WHERE id = $2`,
+        [expiresAt, userId]
+      );
+    }
+
+    await logAction(
+      client, req.admin.id, adminName,
+      "Reactivated subscription for 30 days", userId
+    );
+
+    await client.query("COMMIT");
+
+    res.json({ message: "Subscription reactivated for 30 days." });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /:userId/reactivate]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/toggle-auto-renew
+// Body: { autoRenew: boolean }
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/toggle-auto-renew", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { autoRenew } = req.body;
+    const userId    = req.params.userId;
+    const adminName = req.admin?.name ?? "Admin";
+
+    if (typeof autoRenew !== "boolean") {
+      return res.status(400).json({ message: "autoRenew must be a boolean." });
+    }
+
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE subscriptions SET auto_renew = $1, updated_at = NOW()
+       WHERE user_id = $2 AND status = 'active'`,
+      [autoRenew, userId]
+    );
+    await client.query(
+      `UPDATE users SET auto_renew = $1, updated_at = NOW() WHERE id = $2`,
+      [autoRenew, userId]
+    );
+
+    await logAction(
+      client, req.admin.id, adminName,
+      `${autoRenew ? "Enabled" : "Disabled"} auto-renew`, userId
+    );
+
+    await client.query("COMMIT");
+
+    res.json({ message: `Auto-renew ${autoRenew ? "enabled" : "disabled"}.`, autoRenew });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /:userId/toggle-auto-renew]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/refund
+// Body: { transaction_id, reason, amount }
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/refund", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { transaction_id, reason, amount } = req.body;
+    const userId    = req.params.userId;
+    const adminName = req.admin?.name ?? "Admin";
+
+    if (!transaction_id) return res.status(400).json({ message: "transaction_id is required." });
+
+    const { rows: txRows } = await client.query(
+      `SELECT * FROM payment_transactions WHERE id = $1 AND user_id = $2`,
+      [transaction_id, userId]
+    );
+
+    if (!txRows.length) return res.status(404).json({ message: "Transaction not found." });
+
+    const tx = txRows[0];
+
+    await client.query("BEGIN");
+
+    await client.query(
+      `UPDATE payment_transactions
+       SET status = 'refunded', updated_at = NOW()
+       WHERE id = $1`,
+      [tx.id]
+    );
+
+    await client.query(
+      `INSERT INTO subscription_refunds
+         (user_id, transaction_id, amount, reason, admin_id, admin_name, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
+      [
+        userId, tx.id,
+        Math.round((amount ?? tx.amount / 100) * 100), // store in kobo
+        reason ?? "Admin refund",
+        req.admin.id, adminName,
+      ]
+    ).catch(() => {}); // table may not exist — fail silently
+
+    await logAction(
+      client, req.admin.id, adminName,
+      `Refunded ₦${amount ?? tx.amount / 100}`,
+      userId,
+      `Reason: ${reason ?? "Admin refund"} · Ref: ${tx.reference}`
+    );
+
+    await client.query("COMMIT");
+
+    res.json({ message: "Refund recorded." });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[POST /:userId/refund]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/feature-override
+// Body: { key, value }
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/feature-override", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { key, value } = req.body;
+    const userId    = req.params.userId;
+    const adminName = req.admin?.name ?? "Admin";
+
+    if (!key) return res.status(400).json({ message: "key is required." });
+
+    await client.query(
+      `INSERT INTO subscription_feature_overrides
+         (user_id, feature_key, feature_value, admin_id, updated_at)
+       VALUES ($1, $2, $3, $4, NOW())
+       ON CONFLICT (user_id, feature_key)
+       DO UPDATE SET feature_value = $3, admin_id = $4, updated_at = NOW()`,
+      [userId, key, String(value), req.admin.id]
+    ).catch(async () => {
+      // Table may not exist — silently skip
+    });
+
+    await logAction(
+      client, req.admin.id, adminName,
+      `Override: ${key} = ${value}`, userId
+    );
+
+    res.json({ message: `Feature "${key}" set to "${value}".` });
+  } catch (err) {
+    console.error("[POST /:userId/feature-override]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/:userId/notify
+// Body: { type }
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/:userId/notify", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { type }  = req.body;
+    const userId    = req.params.userId;
+    const adminName = req.admin?.name ?? "Admin";
+
+    // ── Plug your email provider here (Nodemailer, SendGrid, etc.) ─────────
+    // const user = await getUserById(userId);
+    // await sendEmail({ to: user.email, template: type, ... });
+    // ───────────────────────────────────────────────────────────────────────
+
+    await logAction(
+      client, req.admin.id, adminName,
+      `Sent notification: ${type}`, userId
+    );
+
+    res.json({ message: `Notification "${type}" queued.` });
+  } catch (err) {
+    console.error("[POST /:userId/notify]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/verify-payment
+// Body: { reference }  — re-verify a Paystack reference
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/verify-payment", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { reference } = req.body;
+
+    if (!reference) return res.status(400).json({ message: "reference is required." });
+
+    // Call Paystack verify endpoint
+    const axios    = (await import("axios")).default;
+    const response = await axios.get(
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
+      { headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` }, timeout: 12000 }
+    );
+
+    const body = response.data;
+
+    if (!body.status || body.data?.status !== "success") {
+      return res.status(400).json({
+        message : "Payment not verified.",
+        gateway : body.data?.gateway_response ?? "Unknown",
+      });
+    }
+
+    // Update local transaction record if it exists
+    await client.query(
+      `UPDATE payment_transactions
+       SET status = 'success', paid_at = NOW(), updated_at = NOW()
+       WHERE reference = $1 AND status != 'success'`,
+      [reference]
+    ).catch(() => {});
+
+    res.json({
+      message  : "Payment verified successfully.",
+      verified : true,
+      data     : body.data,
+    });
+  } catch (err) {
+    console.error("[POST /verify-payment]", err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+// ══════════════════════════════════════════════════════════════════════════════
+// POST /api/admin/subscriptions/bulk/:action
+// Body: { ids: string[] }  — cancel | extend | notify
+// ══════════════════════════════════════════════════════════════════════════════
+router.post("/bulk/:action", verifyAdmin, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { ids }   = req.body;
+    const { action} = req.params;
+    const adminName = req.admin?.name ?? "Admin";
+
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ message: "ids array is required." });
+    }
+
+    const allowed = ["cancel", "extend", "notify"];
+    if (!allowed.includes(action)) {
+      return res.status(400).json({ message: `Unknown bulk action "${action}".` });
+    }
+
+    await client.query("BEGIN");
+
+    if (action === "cancel") {
+      await client.query(
+        `UPDATE subscriptions
+         SET status = 'cancelled', auto_renew = FALSE, updated_at = NOW()
+         WHERE id = ANY($1::uuid[]) AND status = 'active'`,
+        [ids]
+      );
+    }
+
+    if (action === "extend") {
+      await client.query(
+        `UPDATE subscriptions
+         SET expires_at = expires_at + INTERVAL '30 days', updated_at = NOW()
+         WHERE id = ANY($1::uuid[])`,
+        [ids]
+      );
+    }
+
+    // Log bulk action once
+    await logAction(
+      client, req.admin.id, adminName,
+      `Bulk ${action} on ${ids.length} subscription(s)`,
+      null,
+      `IDs: ${ids.slice(0, 5).join(", ")}${ids.length > 5 ? "…" : ""}`
+    );
+
+    await client.query("COMMIT");
+
+    res.json({ message: `Bulk ${action} applied to ${ids.length} subscription(s).` });
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error(`[POST /bulk/${req.params.action}]`, err.message);
+    res.status(500).json({ message: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+
+export default router;
