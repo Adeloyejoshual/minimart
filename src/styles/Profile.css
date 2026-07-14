@@ -508,6 +508,150 @@
   border-radius: 12px;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   SUBSCRIPTION BADGE ON IDENTITY
+═══════════════════════════════════════════════════════════════ */
+.pf-sub-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.pf-sub-badge svg {
+  width: 10px;
+  height: 10px;
+}
+
+.pf-sub-badge--premium  { background: #fef9c3; color: #854d0e; border-color: #fde68a; }
+.pf-sub-badge--pro      { background: var(--o-bg); color: var(--o); border-color: #ffd6bf; }
+.pf-sub-badge--business { background: #f3e8ff; color: #7c3aed; border-color: #ddd6fe; }
+.pf-sub-badge--elite    { background: #dbeafe; color: #2563eb; border-color: #bfdbfe; }
+.pf-sub-badge--diamond  { background: var(--o-bg); color: var(--o); border-color: var(--o); }
+
+/* ═══════════════════════════════════════════════════════════════
+   SUBSCRIPTION BADGE ON MENU ITEMS
+═══════════════════════════════════════════════════════════════ */
+.pf-badge-pill--sub {
+  background: var(--o-bg);
+  color: var(--o);
+  font-size: 0.5625rem;
+  font-weight: 700;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SUBSCRIPTION MINI-CARD
+═══════════════════════════════════════════════════════════════ */
+.pf-sub-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r2);
+  cursor: pointer;
+  transition: background 0.15s, box-shadow 0.15s;
+  margin: 0 0 4px;
+}
+
+.pf-sub-card--active {
+  background: var(--o-bg);
+  border: 1px solid #ffd6bf;
+}
+
+.pf-sub-card--active:hover {
+  box-shadow: var(--s1);
+}
+
+.pf-sub-card--free {
+  background: var(--bg);
+  border: 1px dashed var(--bd2);
+}
+
+.pf-sub-card--free:hover {
+  background: var(--bd);
+  border-style: solid;
+}
+
+.pf-sub-card__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r1);
+  flex-shrink: 0;
+}
+
+.pf-sub-card--active .pf-sub-card__icon {
+  background: var(--o);
+  color: var(--wh);
+}
+
+.pf-sub-card--free .pf-sub-card__icon {
+  background: var(--bd);
+  color: var(--ink3);
+}
+
+.pf-sub-card__icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.pf-sub-card__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.pf-sub-card__plan-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pf-sub-card__status {
+  font-size: 0.6875rem;
+  color: var(--gn);
+  font-weight: 600;
+}
+
+.pf-sub-card__cta {
+  font-size: 0.6875rem;
+  color: var(--o);
+  font-weight: 600;
+}
+
+.pf-sub-card__chevron {
+  display: flex;
+  align-items: center;
+  color: var(--ink3);
+  flex-shrink: 0;
+}
+
+.pf-sub-card__chevron svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ── Desktop sidebar placement ── */
+@media (min-width: 1024px) {
+  .pf-sub-card {
+    margin: 0 16px 4px;
+  }
+}
+
+/* ── Mobile placement ── */
+@media (max-width: 1023px) {
+  .pf-sub-card {
+    margin: 0 0 12px;
+    border-radius: var(--r2);
+  }
+}
+
 /* ────────────────────────────────────────
    ERROR BANNER
 ──────────────────────────────────────── */
