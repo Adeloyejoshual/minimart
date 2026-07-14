@@ -12,40 +12,46 @@ function QuickMenu({ sub, onView, onAction, onClose }) {
   const ref = useRef(null);
 
   useEffect(() => {
-    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const h = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) onClose();
+    };
     document.addEventListener("mousedown", h);
     return () => document.removeEventListener("mousedown", h);
   }, [onClose]);
 
   const items = [
-    { label: "View Details",        action: "view",        color: C.blue    },
-    { label: "Change Plan",         action: "changePlan",  color: C.text    },
-    { label: "Extend Subscription", action: "extend",      color: C.text    },
-    { label: "Grant Free Access",   action: "grant",       color: C.green   },
-    { label: "Toggle Auto-Renew",   action: "toggleRenew", color: C.text    },
-    { label: "View Payments",       action: "payments",    color: C.text    },
+    { label: "👁 View Details",         action: "view",         color: C.blue    },
+    { label: "⬆ Upgrade Plan",          action: "changePlan",   color: C.green   },
+    { label: "⬇ Downgrade Plan",        action: "changePlan",   color: "#c2410c" },
+    { label: "⏰ Extend Subscription",  action: "extend",       color: C.text    },
+    { label: "🎁 Grant Free Access",    action: "grant",        color: C.green   },
+    { label: "🔄 Toggle Auto-Renew",    action: "toggleRenew",  color: C.text    },
+    { label: "💳 View Payments",        action: "payments",     color: C.text    },
+    { label: "🔧 Feature Overrides",    action: "overrides",    color: C.purple  },
+    { label: "📧 Send Email",           action: "sendEmail",    color: C.text    },
     ...(sub.status === "active" ? [
-      { label: "Suspend",           action: "suspend",     color: "#c2410c" },
-      { label: "Cancel",            action: "cancel",      color: C.red     },
+      { label: "⏸ Suspend",            action: "suspend",      color: "#c2410c" },
+      { label: "✕ Cancel",             action: "cancel",       color: C.red     },
     ] : []),
-    ...((sub.status === "cancelled" || sub.status === "expired") ? [
-      { label: "Reactivate",        action: "reactivate",  color: C.green   },
+    ...((sub.status === "cancelled" || sub.status === "expired" || sub.status === "suspended") ? [
+      { label: "♻ Reactivate",         action: "reactivate",   color: C.green   },
     ] : []),
-    { label: "Send Email",          action: "sendEmail",   color: C.text    },
-    { label: "Feature Overrides",   action: "overrides",   color: C.purple  },
   ];
 
   return (
     <div ref={ref} style={{
       position: "absolute", right: 0, top: "100%", zIndex: 200,
       background: C.card, border: `1px solid ${C.border}`,
-      borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.13)",
-      minWidth: 190, overflow: "hidden",
+      borderRadius: 8, boxShadow: "0 8px 24px rgba(0,0,0,.15)",
+      minWidth: 210, overflow: "hidden",
     }}>
-      {items.map((item) => (
+      {items.map((item, i) => (
         <button
-          key={item.action}
-          onClick={() => { item.action === "view" ? onView() : onAction(item.action); onClose(); }}
+          key={`${item.action}-${i}`}
+          onClick={() => {
+            item.action === "view" ? onView() : onAction(item.action);
+            onClose();
+          }}
           style={{
             display: "block", width: "100%", padding: "9px 14px",
             textAlign: "left", background: "none", border: "none",
@@ -62,6 +68,333 @@ function QuickMenu({ sub, onView, onAction, onClose }) {
   );
 }
 
+/* ─── Assign Plan Modal ──────────────────────────────────────────────────── */
+function AssignPlanModal({ api, onClose, onSuccess }) {
+  const [step,       setStep]       = useState("search"); // search | assign
+  const [searchQ,    setSearchQ]    = useState("");
+  const [users,      setUsers]      = useState([]);
+  const [searching,  setSearching]  = useState(false);
+  const [pickedUser, setPickedUser] = useState(null);
+  const [plan,       setPlan]       = useState("premium");
+  const [cycle,      setCycle]      = useState("monthly");
+  const [duration,   setDuration]   = useState(30);
+  const [reason,     setReason]     = useState("Admin Assignment");
+  const [busy,       setBusy]       = useState(false);
+  const [error,      setError]      = useState(null);
+
+  const ADM = `${import.meta.env.VITE_API_BASE_URL}/api/admin`;
+
+  const searchUsers = async () => {
+    if (!searchQ.trim()) return;
+    setSearching(true);
+    setError(null);
+    try {
+      const { data } = await api.get(
+        `/users?q=${encodeURIComponent(searchQ.trim())}&limit=10`,
+        ADM
+      );
+      // Support both array and { users: [] } shapes
+      setUsers(Array.isArray(data) ? data : (data.users ?? data.data ?? []));
+    } catch (err) {
+      setError(err?.response?.data?.message ?? "Search failed.");
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleAssign = async () => {
+    if (!pickedUser) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.post(
+        `/subscriptions/${pickedUser.id}/grant`,
+        { plan, duration: Number(duration), reason },
+        ADM
+      );
+      onSuccess?.(`${PLAN_BADGE[plan]} ${PLAN_LABELS[plan]} granted to ${pickedUser.name}.`);
+      onClose();
+    } catch (err) {
+      setError(err?.response?.data?.message ?? "Grant failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 3000,
+      background: "rgba(0,0,0,.5)", backdropFilter: "blur(3px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 16,
+    }}>
+      <div style={{
+        background: C.card, borderRadius: 14, padding: 24,
+        maxWidth: 520, width: "100%",
+        boxShadow: "0 20px 60px rgba(0,0,0,.25)",
+      }}>
+
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <div style={{ fontWeight: 700, fontSize: ".95rem" }}>
+            🎁 Assign Subscription to Seller
+          </div>
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", fontSize: "1.2rem", color: C.muted }}>×</button>
+        </div>
+
+        {error && (
+          <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 7, padding: "8px 12px", color: C.red, fontSize: ".78rem", marginBottom: 12 }}>
+            {error}
+          </div>
+        )}
+
+        {/* Step 1: Search */}
+        {step === "search" && (
+          <div>
+            <div style={{ fontSize: ".75rem", color: C.muted, marginBottom: 8 }}>
+              Search for a seller by name, email, or phone number
+            </div>
+            <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+              <input
+                value={searchQ}
+                onChange={(e) => setSearchQ(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && searchUsers()}
+                placeholder="John Doe, john@email.com, 08012345678…"
+                style={{
+                  flex: 1, padding: "8px 11px",
+                  border: `1px solid ${C.border}`, borderRadius: 7,
+                  fontSize: ".8rem", background: C.card, color: C.text,
+                  fontFamily: "inherit",
+                }}
+              />
+              <Btn variant="primary" onClick={searchUsers} disabled={searching || !searchQ.trim()}>
+                {searching ? <Spinner size={13} /> : "Search"}
+              </Btn>
+            </div>
+
+            {/* Results */}
+            {users.length > 0 && (
+              <div style={{
+                border: `1px solid ${C.border}`, borderRadius: 8,
+                overflow: "hidden", marginBottom: 14,
+              }}>
+                {users.map((u, i) => (
+                  <div
+                    key={u.id}
+                    onClick={() => { setPickedUser(u); setStep("assign"); }}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "10px 14px", cursor: "pointer",
+                      borderBottom: i < users.length - 1 ? `1px solid ${C.border}` : "none",
+                      transition: "background .1s",
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = C.hover)}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "")}
+                  >
+                    {/* Avatar */}
+                    <div style={{
+                      width: 36, height: 36, borderRadius: "50%",
+                      background: C.orange, color: "#fff",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: ".8rem", fontWeight: 700, flexShrink: 0,
+                      overflow: "hidden",
+                    }}>
+                      {u.profile_image
+                        ? <img src={u.profile_image} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                        : (u.name ?? "?").charAt(0).toUpperCase()
+                      }
+                    </div>
+
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: ".82rem", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {u.name ?? "—"}
+                      </div>
+                      <div style={{ fontSize: ".7rem", color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {u.email ?? ""}
+                        {u.phone && <span style={{ marginLeft: 6 }}>· {u.phone}</span>}
+                      </div>
+                    </div>
+
+                    <div style={{ flexShrink: 0, textAlign: "right" }}>
+                      {u.subscription_plan && u.subscription_plan !== "free" ? (
+                        <span style={{
+                          fontSize: ".65rem", fontWeight: 700, padding: "2px 7px",
+                          borderRadius: 100, background: "#dcfce7", color: "#166534",
+                        }}>
+                          {PLAN_BADGE[u.subscription_plan]} {u.subscription_plan}
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: ".65rem", color: C.muted }}>Free</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {!searching && users.length === 0 && searchQ.trim() && (
+              <div style={{ fontSize: ".78rem", color: C.muted, textAlign: "center", padding: "16px 0" }}>
+                No users found. Try a different search.
+              </div>
+            )}
+
+            <Btn variant="ghost" onClick={onClose} style={{ width: "100%", marginTop: 4 }}>
+              Cancel
+            </Btn>
+          </div>
+        )}
+
+        {/* Step 2: Assign plan */}
+        {step === "assign" && pickedUser && (
+          <div>
+            {/* Selected user card */}
+            <div style={{
+              display: "flex", alignItems: "center", gap: 10,
+              background: C.bg, border: `1px solid ${C.border}`,
+              borderRadius: 8, padding: "10px 14px", marginBottom: 18,
+            }}>
+              <div style={{
+                width: 36, height: 36, borderRadius: "50%",
+                background: C.orange, color: "#fff",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: ".8rem", fontWeight: 700, flexShrink: 0,
+              }}>
+                {(pickedUser.name ?? "?").charAt(0).toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 600, fontSize: ".82rem" }}>{pickedUser.name}</div>
+                <div style={{ fontSize: ".7rem", color: C.muted }}>{pickedUser.email}</div>
+              </div>
+              <button
+                onClick={() => { setStep("search"); setPickedUser(null); }}
+                style={{ background: "none", border: "none", cursor: "pointer", fontSize: ".72rem", color: C.orange }}
+              >
+                Change
+              </button>
+            </div>
+
+            {/* Plan picker */}
+            <div style={{ marginBottom: 13 }}>
+              <div style={{ fontSize: ".72rem", color: C.muted, marginBottom: 6 }}>Plan</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {PLAN_SLUGS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setPlan(s)}
+                    style={{
+                      padding: "6px 12px", borderRadius: 7, cursor: "pointer",
+                      fontFamily: "inherit", fontSize: ".75rem", fontWeight: 600,
+                      border: `1px solid ${plan === s ? C.orange : C.border}`,
+                      background: plan === s ? "#fff3ee" : C.card,
+                      color: plan === s ? C.orange : C.text,
+                      transition: "all .12s",
+                    }}
+                  >
+                    {PLAN_BADGE[s]} {PLAN_LABELS[s]}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Billing cycle */}
+            <div style={{ marginBottom: 13 }}>
+              <div style={{ fontSize: ".72rem", color: C.muted, marginBottom: 6 }}>Billing Cycle</div>
+              <div style={{ display: "flex", gap: 6 }}>
+                {["monthly", "yearly"].map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setCycle(c)}
+                    style={{
+                      padding: "6px 16px", borderRadius: 7, cursor: "pointer",
+                      fontFamily: "inherit", fontSize: ".75rem", fontWeight: 600,
+                      border: `1px solid ${cycle === c ? C.orange : C.border}`,
+                      background: cycle === c ? "#fff3ee" : C.card,
+                      color: cycle === c ? C.orange : C.text,
+                      transition: "all .12s",
+                    }}
+                  >
+                    {c.charAt(0).toUpperCase() + c.slice(1)}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Duration */}
+            <div style={{ marginBottom: 13 }}>
+              <div style={{ fontSize: ".72rem", color: C.muted, marginBottom: 6 }}>Duration (days)</div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {[7, 14, 30, 60, 90, 180, 365].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setDuration(d)}
+                    style={{
+                      padding: "5px 10px", borderRadius: 6, cursor: "pointer",
+                      fontFamily: "inherit", fontSize: ".72rem", fontWeight: 600,
+                      border: `1px solid ${duration === d ? C.blue : C.border}`,
+                      background: duration === d ? "#dbeafe" : C.card,
+                      color: duration === d ? C.blue : C.text,
+                      transition: "all .12s",
+                    }}
+                  >
+                    {d}d
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Reason */}
+            <div style={{ marginBottom: 18 }}>
+              <div style={{ fontSize: ".72rem", color: C.muted, marginBottom: 6 }}>Reason</div>
+              <input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. Promotion Winner, Compensation, Test Account…"
+                style={{
+                  width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`,
+                  borderRadius: 7, fontSize: ".8rem", background: C.card, color: C.text,
+                  fontFamily: "inherit", boxSizing: "border-box",
+                }}
+              />
+            </div>
+
+            {/* Summary */}
+            <div style={{
+              background: C.bg, border: `1px solid ${C.border}`, borderRadius: 8,
+              padding: "10px 14px", marginBottom: 16, fontSize: ".75rem",
+            }}>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: C.muted }}>Seller</span>
+                <span style={{ fontWeight: 600 }}>{pickedUser.name}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: C.muted }}>Plan</span>
+                <span style={{ fontWeight: 600 }}>{PLAN_BADGE[plan]} {PLAN_LABELS[plan]}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+                <span style={{ color: C.muted }}>Cycle</span>
+                <span style={{ fontWeight: 600, textTransform: "capitalize" }}>{cycle}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}>
+                <span style={{ color: C.muted }}>Duration</span>
+                <span style={{ fontWeight: 600 }}>{duration} days</span>
+              </div>
+            </div>
+
+            <div style={{ display: "flex", gap: 8 }}>
+              <Btn variant="ghost" onClick={() => setStep("search")} style={{ flex: 1 }}>
+                ← Back
+              </Btn>
+              <Btn variant="success" onClick={handleAssign} disabled={busy} style={{ flex: 2 }}>
+                {busy ? <Spinner /> : `🎁 Grant ${PLAN_LABELS[plan]} Access`}
+              </Btn>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 /* ═══════════════════════════════════════════════════════════════════════════
    SUBSCRIPTION TABLE
 ═══════════════════════════════════════════════════════════════════════════ */
@@ -72,14 +405,47 @@ export function SubscriptionTable({
   selected, setSelected,
   onView, onQuickAction,
   onExport, exporting,
+  api,
 }) {
-  const [openMenuId, setOpenMenuId] = useState(null);
+  const [openMenuId,   setOpenMenuId]   = useState(null);
+  const [showAssign,   setShowAssign]   = useState(false);
+  const [assignToast,  setAssignToast]  = useState(null);
 
   const allSelected = subscriptions.length > 0 && selected.size === subscriptions.length;
   const toggleAll   = () => setSelected(allSelected ? new Set() : new Set(subscriptions.map((s) => s.id)));
   const toggle      = (id) => { const n = new Set(selected); n.has(id) ? n.delete(id) : n.add(id); setSelected(n); };
   const setFilter   = (key, val) => setFilters((prev) => ({ ...prev, [key]: val, _page: 1 }));
   const totalPgs    = Math.ceil(total / LIMIT);
+
+  const showSuccess = (msg) => {
+    setAssignToast(msg);
+    setTimeout(() => setAssignToast(null), 5000);
+    onRetry?.();
+  };
+
+  /* ── Top action bar ───────────────────────────────────────────────────── */
+  const TopBar = () => (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      marginBottom: 14, flexWrap: "wrap", gap: 10,
+    }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <span style={{ fontSize: ".82rem", fontWeight: 600, color: C.text }}>
+          {total > 0
+            ? `${total} subscription${total !== 1 ? "s" : ""}`
+            : "No subscriptions yet"}
+        </span>
+        {total === 0 && (
+          <span style={{ fontSize: ".72rem", color: C.muted }}>
+            — Assign a plan to get started
+          </span>
+        )}
+      </div>
+      <Btn variant="success" onClick={() => setShowAssign(true)}>
+        🎁 Assign Subscription to Seller
+      </Btn>
+    </div>
+  );
 
   /* ── Bulk bar ─────────────────────────────────────────────────────────── */
   const BulkBar = () => (
@@ -111,7 +477,7 @@ export function SubscriptionTable({
         <Inp
           value={filters.q ?? ""}
           onChange={(e) => setFilter("q", e.target.value)}
-          placeholder="Name, email, phone, ID, reference…"
+          placeholder="Search name, email, phone, ID, reference…"
           style={{ flex: 1, minWidth: 200 }}
         />
         <Sel value={filters.plan ?? "all"} onChange={(e) => setFilter("plan", e.target.value)}>
@@ -142,7 +508,7 @@ export function SubscriptionTable({
         <Btn variant="ghost" onClick={onRetry}>↻</Btn>
       </div>
 
-      {/* Date range + export row */}
+      {/* Date range + export */}
       <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontSize: ".72rem", color: C.muted }}>Date range:</span>
         <Inp type="date" value={filters.date_from ?? ""} onChange={(e) => setFilter("date_from", e.target.value)} style={{ width: 140 }} />
@@ -153,8 +519,7 @@ export function SubscriptionTable({
             <Btn key={f} variant="ghost" onClick={() => onExport?.(f)} disabled={!!exporting}>
               {exporting === f
                 ? <Spinner size={12} />
-                : f === "csv" ? "📥 CSV" : f === "excel" ? "📊 Excel" : "🖨 PDF"
-              }
+                : f === "csv" ? "📥 CSV" : f === "excel" ? "📊 Excel" : "🖨 PDF"}
             </Btn>
           ))}
         </div>
@@ -165,13 +530,29 @@ export function SubscriptionTable({
   /* ── Render ───────────────────────────────────────────────────────────── */
   return (
     <div>
+      {/* Success toast for assign action */}
+      {assignToast && (
+        <div style={{
+          position: "fixed", top: 20, right: 20, zIndex: 9999,
+          background: "#dcfce7", border: "1px solid #bbf7d0",
+          borderRadius: 8, padding: "12px 16px", color: "#166534",
+          fontSize: ".82rem", fontWeight: 500,
+          boxShadow: "0 4px 16px rgba(0,0,0,.1)",
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          ✅ {assignToast}
+          <button onClick={() => setAssignToast(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#166534", fontSize: ".9rem" }}>×</button>
+        </div>
+      )}
+
+      <TopBar />
       <FiltersBar />
       {selected.size > 0 && <BulkBar />}
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "48px 0", color: C.muted }}>
-          <Spinner size={22} />
-          <div style={{ marginTop: 10, fontSize: ".82rem" }}>Loading subscriptions…</div>
+        <div style={{ textAlign: "center", padding: "56px 0", color: C.muted }}>
+          <Spinner size={24} />
+          <div style={{ marginTop: 12, fontSize: ".82rem" }}>Loading subscriptions…</div>
         </div>
       ) : error ? (
         <div style={{
@@ -185,20 +566,38 @@ export function SubscriptionTable({
           </button>
         </div>
       ) : !subscriptions.length ? (
-        <div style={{ textAlign: "center", padding: "56px 0", color: C.muted }}>
-          <div style={{ fontSize: "2.5rem", marginBottom: 8 }}>📋</div>
-          <p style={{ fontSize: ".85rem" }}>No subscriptions match your filters.</p>
+        <div style={{
+          textAlign: "center", padding: "56px 0",
+          background: C.card, border: `1px solid ${C.border}`,
+          borderRadius: 12,
+        }}>
+          <div style={{ fontSize: "2.5rem", marginBottom: 10 }}>📋</div>
+          <p style={{ fontSize: ".88rem", fontWeight: 600, color: C.text, marginBottom: 6 }}>
+            No subscriptions yet
+          </p>
+          <p style={{ fontSize: ".78rem", color: C.muted, marginBottom: 20 }}>
+            Sellers subscribe through the app, or you can manually assign a plan below.
+          </p>
+          <Btn variant="success" onClick={() => setShowAssign(true)}>
+            🎁 Assign Subscription to Seller
+          </Btn>
         </div>
       ) : (
         <>
-          <div style={{ overflowX: "auto", background: C.card, border: `1px solid ${C.border}`, borderRadius: 10 }}>
+          <div style={{
+            overflowX: "auto", background: C.card,
+            border: `1px solid ${C.border}`, borderRadius: 10,
+          }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: ".76rem" }}>
               <thead>
                 <tr style={{ background: C.bg, borderBottom: `2px solid ${C.border}` }}>
                   <th style={{ padding: "10px 12px" }}>
                     <input type="checkbox" checked={allSelected} onChange={toggleAll} />
                   </th>
-                  {["Seller","Plan","Cycle","Amount","Status","Auto Renew","Started","Expires","Actions"].map((h) => (
+                  {[
+                    "Seller", "Plan", "Cycle", "Amount",
+                    "Status", "Auto Renew", "Started", "Expires", "Actions",
+                  ].map((h) => (
                     <th key={h} style={{
                       padding: "10px 12px", textAlign: "left", fontWeight: 600,
                       color: C.muted, fontSize: ".66rem", textTransform: "uppercase",
@@ -215,10 +614,14 @@ export function SubscriptionTable({
                   return (
                     <tr
                       key={sub.id}
-                      style={{ borderBottom: `1px solid ${C.border}`, background: soon ? "#fff7ed" : undefined }}
+                      style={{
+                        borderBottom: `1px solid ${C.border}`,
+                        background: soon ? "#fff7ed" : undefined,
+                      }}
                       onMouseEnter={(e) => (e.currentTarget.style.background = soon ? "#fff3cd" : C.hover)}
                       onMouseLeave={(e) => (e.currentTarget.style.background = soon ? "#fff7ed" : "")}
                     >
+                      {/* Checkbox */}
                       <td style={{ padding: "10px 12px" }}>
                         <input
                           type="checkbox"
@@ -227,6 +630,8 @@ export function SubscriptionTable({
                           onClick={(e) => e.stopPropagation()}
                         />
                       </td>
+
+                      {/* Seller */}
                       <td style={{ padding: "10px 12px", maxWidth: 180 }}>
                         <div style={{ fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {sub.user_name ?? "—"}
@@ -235,26 +640,42 @@ export function SubscriptionTable({
                           {sub.user_email ?? ""}
                         </div>
                       </td>
+
+                      {/* Plan */}
                       <td style={{ padding: "10px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>
                         {PLAN_BADGE[sub.plan_slug] ?? ""} {sub.plan_name ?? sub.plan_slug}
                       </td>
+
+                      {/* Cycle */}
                       <td style={{ padding: "10px 12px", color: C.muted, textTransform: "capitalize", whiteSpace: "nowrap" }}>
                         {sub.billing_cycle ?? "—"}
                       </td>
+
+                      {/* Amount */}
                       <td style={{ padding: "10px 12px", fontWeight: 700, whiteSpace: "nowrap" }}>
-                        {sub.amount ? naira(sub.amount) : "—"}
+                        {sub.amount ? naira(sub.amount) : (
+                          <span style={{ fontSize: ".68rem", color: C.muted }}>Free grant</span>
+                        )}
                       </td>
+
+                      {/* Status */}
                       <td style={{ padding: "10px 12px" }}>
                         <StatusPill status={sub.status} />
                       </td>
+
+                      {/* Auto-renew */}
                       <td style={{ padding: "10px 12px", whiteSpace: "nowrap" }}>
                         <span style={{ color: sub.auto_renew ? C.green : C.muted, fontWeight: 600, fontSize: ".72rem" }}>
                           {sub.auto_renew ? "✅ On" : "❌ Off"}
                         </span>
                       </td>
+
+                      {/* Started */}
                       <td style={{ padding: "10px 12px", color: C.muted, whiteSpace: "nowrap", fontSize: ".7rem" }}>
                         {fmt(sub.started_at)}
                       </td>
+
+                      {/* Expires */}
                       <td style={{
                         padding: "10px 12px", whiteSpace: "nowrap", fontSize: ".7rem",
                         color: soon ? C.red : C.muted, fontWeight: soon ? 700 : 400,
@@ -262,16 +683,47 @@ export function SubscriptionTable({
                         {fmt(sub.expires_at)}
                         {soon && <span style={{ marginLeft: 3, fontSize: ".6rem" }}>⚠</span>}
                       </td>
+
+                      {/* Actions */}
                       <td style={{ padding: "10px 12px" }}>
                         <div style={{ display: "flex", gap: 5, alignItems: "center", position: "relative" }}>
-                          <Btn variant="blue" onClick={() => onView(sub)} style={{ fontSize: ".68rem", padding: "3px 9px" }}>
+                          {/* Primary action buttons — always visible */}
+                          <Btn
+                            variant="blue"
+                            onClick={() => onView(sub)}
+                            style={{ fontSize: ".68rem", padding: "3px 9px" }}
+                            title="View full details"
+                          >
                             View
                           </Btn>
+
+                          {sub.status === "active" ? (
+                            <Btn
+                              variant="warning"
+                              onClick={() => onQuickAction(sub, "changePlan")}
+                              style={{ fontSize: ".68rem", padding: "3px 9px" }}
+                              title="Upgrade or downgrade plan"
+                            >
+                              Edit
+                            </Btn>
+                          ) : (
+                            <Btn
+                              variant="success"
+                              onClick={() => onQuickAction(sub, "reactivate")}
+                              style={{ fontSize: ".68rem", padding: "3px 9px" }}
+                              title="Reactivate subscription"
+                            >
+                              Reactivate
+                            </Btn>
+                          )}
+
+                          {/* ⋮ overflow menu */}
                           <div style={{ position: "relative" }}>
                             <Btn
                               variant="ghost"
                               onClick={() => setOpenMenuId((p) => p === sub.id ? null : sub.id)}
-                              style={{ fontSize: ".75rem", padding: "3px 8px" }}
+                              style={{ fontSize: ".78rem", padding: "3px 8px" }}
+                              title="More actions"
                             >
                               ⋮
                             </Btn>
@@ -303,15 +755,15 @@ export function SubscriptionTable({
                 {total} record{total !== 1 ? "s" : ""} · Page {page} of {totalPgs}
               </span>
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                <Btn variant="ghost" onClick={() => setPage(1)} disabled={page <= 1} style={{ fontSize: ".7rem", padding: "3px 8px" }}>«</Btn>
-                <Btn variant="ghost" onClick={() => setPage((p) => p - 1)} disabled={page <= 1} style={{ fontSize: ".7rem", padding: "3px 8px" }}>‹</Btn>
+                <Btn variant="ghost" onClick={() => setPage(1)}                 disabled={page <= 1}         style={{ fontSize: ".7rem", padding: "3px 8px" }}>«</Btn>
+                <Btn variant="ghost" onClick={() => setPage((p) => p - 1)}     disabled={page <= 1}         style={{ fontSize: ".7rem", padding: "3px 8px" }}>‹</Btn>
 
                 {Array.from({ length: Math.min(7, totalPgs) }, (_, i) => {
                   let p;
-                  if      (totalPgs <= 7)           p = i + 1;
-                  else if (page <= 4)               p = i + 1;
-                  else if (page >= totalPgs - 3)    p = totalPgs - 6 + i;
-                  else                              p = page - 3 + i;
+                  if      (totalPgs <= 7)        p = i + 1;
+                  else if (page <= 4)            p = i + 1;
+                  else if (page >= totalPgs - 3) p = totalPgs - 6 + i;
+                  else                           p = page - 3 + i;
                   return (
                     <Btn
                       key={p}
@@ -324,12 +776,21 @@ export function SubscriptionTable({
                   );
                 })}
 
-                <Btn variant="ghost" onClick={() => setPage((p) => p + 1)} disabled={page >= totalPgs} style={{ fontSize: ".7rem", padding: "3px 8px" }}>›</Btn>
-                <Btn variant="ghost" onClick={() => setPage(totalPgs)} disabled={page >= totalPgs} style={{ fontSize: ".7rem", padding: "3px 8px" }}>»</Btn>
+                <Btn variant="ghost" onClick={() => setPage((p) => p + 1)}     disabled={page >= totalPgs} style={{ fontSize: ".7rem", padding: "3px 8px" }}>›</Btn>
+                <Btn variant="ghost" onClick={() => setPage(totalPgs)}          disabled={page >= totalPgs} style={{ fontSize: ".7rem", padding: "3px 8px" }}>»</Btn>
               </div>
             </div>
           )}
         </>
+      )}
+
+      {/* Assign Plan Modal */}
+      {showAssign && (
+        <AssignPlanModal
+          api={api}
+          onClose={() => setShowAssign(false)}
+          onSuccess={showSuccess}
+        />
       )}
     </div>
   );
