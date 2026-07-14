@@ -1,6 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import "../../styles/subscription/index.css";
+
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token") ||
+  null;
 
 const Payment = () => {
   const navigate = useNavigate();
@@ -21,14 +25,18 @@ const Payment = () => {
         const reference = params.get("reference") ?? params.get("trxref");
         if (!reference) throw new Error("No payment reference found in the URL.");
 
+        const token = getToken();
+        if (!token) throw new Error("Session expired. Please log in and try again.");
+
         const res = await fetch("/api/subscription/payments/verify/paystack", {
           method:  "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization:  `Bearer ${localStorage.getItem("token")}`,
+            Authorization:  `Bearer ${token}`,
           },
           body: JSON.stringify({ reference }),
         });
+
         const data = await res.json();
         if (!res.ok) throw new Error(data.message);
 
@@ -108,6 +116,7 @@ const Payment = () => {
             </div>
           </>
         )}
+
       </div>
     </div>
   );
