@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams }      from "react-router-dom";
+import SubHeader                             from "../../components/subscription/SubHeader.jsx";
 import PlanCard                              from "../../components/subscription/PlanCard.jsx";
 import DiamondHero                           from "../../components/subscription/DiamondHero.jsx";
 import EliteHero                             from "../../components/subscription/EliteHero.jsx";
@@ -91,6 +92,7 @@ const Plans = () => {
   if (loading) {
     return (
       <div className="sub-page">
+        <SubHeader title="Choose Plan" showPlans={false} />
         <div className="sub-plans-grid">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="sub-skeleton sub-skeleton--card" />
@@ -107,6 +109,10 @@ const Plans = () => {
   return (
     <div className="sub-page">
 
+      {/* Header */}
+      <SubHeader title="Choose Plan" showPlans={false} />
+
+      {/* Toast */}
       {toast && (
         <div className={`sub-toast sub-toast--${toast.type}`}>
           <span className="sub-toast__icon">
@@ -123,6 +129,7 @@ const Plans = () => {
         </div>
       )}
 
+      {/* Diamond hero */}
       {diamondPlan && (
         <DiamondHero
           plan={diamondPlan}
@@ -134,6 +141,7 @@ const Plans = () => {
         />
       )}
 
+      {/* Elite hero */}
       {elitePlan && (
         <EliteHero
           plan={elitePlan}
@@ -145,6 +153,7 @@ const Plans = () => {
         />
       )}
 
+      {/* Page header */}
       <div className="sub-plans-header">
         <h1 className="sub-plans-header__title">Choose Your Seller Plan</h1>
         <p className="sub-plans-header__subtitle">
@@ -153,6 +162,7 @@ const Plans = () => {
         </p>
       </div>
 
+      {/* Billing cycle toggle */}
       <div className="sub-cycle-toggle">
         <div className="sub-cycle-toggle__inner">
           {["monthly", "yearly"].map((c) => (
@@ -172,6 +182,7 @@ const Plans = () => {
         </div>
       </div>
 
+      {/* Plan cards */}
       <div className="sub-plans-grid">
         {cardPlans.map((plan) => (
           <PlanCard
@@ -186,6 +197,7 @@ const Plans = () => {
         ))}
       </div>
 
+      {/* Footer */}
       <p className="sub-plans-footer">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
         All plans allow up to 20 photos per listing · Payments secured by Paystack
