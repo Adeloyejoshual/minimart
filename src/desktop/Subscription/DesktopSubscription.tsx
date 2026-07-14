@@ -7,7 +7,7 @@ import DesktopSubscriptionTimeline           from "./components/DesktopSubscript
 import DesktopCancelModal                    from "./components/DesktopCancelModal";
 import "./styles/desktop-subscription.css";
 
-// ─── Token helper ─────────────────────────────────────────────────────────────
+// ─── Token helper — matches App.jsx TOKEN_KEYS ───────────────────────────────
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token") ||
@@ -34,7 +34,7 @@ interface Subscription {
   activeRecord:  Record<string, unknown> | null;
 }
 
-// ─── Sidebar nav ──────────────────────────────────────────────────────────────
+// ─── Sidebar nav items ────────────────────────────────────────────────────────
 const NAV_ITEMS = [
   {
     id: "overview",
@@ -80,7 +80,7 @@ const NAV_ITEMS = [
   },
 ];
 
-// ─── Plan icon color map ──────────────────────────────────────────────────────
+// ─── Plan ring color map ──────────────────────────────────────────────────────
 const PLAN_RING_COLOR: Record<string, string> = {
   premium:  "#eab308",
   pro:      "#FF5C00",
@@ -89,7 +89,7 @@ const PLAN_RING_COLOR: Record<string, string> = {
   diamond:  "#FF5C00",
 };
 
-// ─── Days ring component ──────────────────────────────────────────────────────
+// ─── Days ring SVG component ──────────────────────────────────────────────────
 interface DaysRingProps {
   daysRemaining: number;
   totalDays:     number;
@@ -107,14 +107,12 @@ function DaysRing({ daysRemaining, totalDays, plan }: DaysRingProps) {
   return (
     <div className="dsub-ring">
       <svg width="112" height="112" viewBox="0 0 112 112">
-        {/* Track */}
         <circle
           cx="56" cy="56" r={radius}
           fill="none"
           stroke="var(--bd)"
           strokeWidth="7"
         />
-        {/* Progress */}
         <circle
           cx="56" cy="56" r={radius}
           fill="none"
@@ -134,7 +132,27 @@ function DaysRing({ daysRemaining, totalDays, plan }: DaysRingProps) {
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
+// ─── Section label map ────────────────────────────────────────────────────────
+const SECTION_LABELS: Record<string, string> = {
+  overview: "Overview",
+  features: "Plan Features",
+  payments: "Payment History",
+  timeline: "Subscription History",
+};
+
+// ─── Format date helper ───────────────────────────────────────────────────────
+const fmt = (d: string | null) =>
+  d
+    ? new Date(d).toLocaleDateString("en-NG", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      })
+    : "—";
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
 const DesktopSubscription = () => {
   const navigate = useNavigate();
 
@@ -146,7 +164,6 @@ const DesktopSubscription = () => {
   const [cancelling,    setCancelling]    = useState(false);
   const [toast,         setToast]         = useState<{ type: string; message: string } | null>(null);
 
-  // ─── Toast ────────────────────────────────────────────────────────────────
   const showToast = useCallback((type: string, message: string) => {
     setToast({ type, message });
     setTimeout(() => setToast(null), 5000);
@@ -154,9 +171,14 @@ const DesktopSubscription = () => {
 
   // ─── Fetch subscription ───────────────────────────────────────────────────
   const fetchSubscription = useCallback(async () => {
+    const token = getToken();
+    if (!token) {
+      navigate("/auth?redirect=/seller/subscription");
+      return;
+    }
     try {
       const res  = await fetch("/api/subscription", {
-        headers: { Authorization: `Bearer ${getToken()}` },
+        headers: { Authorization: `Bearer ${token}` },
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
@@ -167,7 +189,7 @@ const DesktopSubscription = () => {
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [showToast, navigate]);
 
   useEffect(() => {
     fetchSubscription();
@@ -220,20 +242,13 @@ const DesktopSubscription = () => {
     }
   };
 
-  // ─── Format date helper ───────────────────────────────────────────────────
-  const fmt = (d: string | null) =>
-    d
-      ? new Date(d).toLocaleDateString("en-NG", {
-          year: "numeric",
-          month: "long",
-          day: "numeric",
-        })
-      : "—";
-
   // ─── Loading skeleton ─────────────────────────────────────────────────────
   if (loading) {
     return (
       <div className="dsub-page">
+        <div className="dsub-page-header">
+          <div className="dsub-sk dsub-sk--title" style={{ margin: 0 }} />
+        </div>
         <div className="dsub-layout">
           <aside className="dsub-sidebar">
             <div className="dsub-sk dsub-sk--title" />
@@ -263,8 +278,7 @@ const DesktopSubscription = () => {
           <span className="dsub-toast__icon">
             {toast.type === "success" ? (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 12l2 2 4-4" />
-                <circle cx="12" cy="12" r="10" />
+                <path d="M9 12l2 2 4-4" /><circle cx="12" cy="12" r="10" />
               </svg>
             ) : (
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -283,6 +297,78 @@ const DesktopSubscription = () => {
           </button>
         </div>
       )}
+
+      {/* ── Page header with navigation ────────────────────────────────────── */}
+      <div className="dsub-page-header">
+        <div className="dsub-page-header__left">
+          <button
+            onClick={() => navigate(-1)}
+            className="dsub-page-header__back"
+            aria-label="Go back"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="19" y1="12" x2="5" y2="12" />
+              <polyline points="12 19 5 12 12 5" />
+            </svg>
+          </button>
+
+          <nav className="dsub-breadcrumb" aria-label="Breadcrumb">
+            <button
+              onClick={() => navigate("/profile")}
+              className="dsub-breadcrumb__link"
+            >
+              Profile
+            </button>
+            <span className="dsub-breadcrumb__sep">/</span>
+            <span className="dsub-breadcrumb__current">Subscription</span>
+            {activeSection !== "overview" && (
+              <>
+                <span className="dsub-breadcrumb__sep">/</span>
+                <span className="dsub-breadcrumb__current">
+                  {SECTION_LABELS[activeSection] ?? activeSection}
+                </span>
+              </>
+            )}
+          </nav>
+        </div>
+
+        <div className="dsub-page-header__right">
+          <button
+            onClick={() => navigate("/seller/subscription/plans")}
+            className="dsub-btn dsub-btn--primary dsub-btn--sm"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
+              <polyline points="16 7 22 7 22 13" />
+            </svg>
+            {subscription?.isActive ? "Change Plan" : "View Plans"}
+          </button>
+
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="dsub-btn dsub-btn--ghost dsub-btn--sm"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="7" height="7" />
+              <rect x="14" y="3" width="7" height="7" />
+              <rect x="14" y="14" width="7" height="7" />
+              <rect x="3" y="14" width="7" height="7" />
+            </svg>
+            Dashboard
+          </button>
+
+          <button
+            onClick={() => navigate("/profile")}
+            className="dsub-btn dsub-btn--ghost dsub-btn--sm"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
+            Profile
+          </button>
+        </div>
+      </div>
 
       <div className="dsub-layout">
 
@@ -339,8 +425,6 @@ const DesktopSubscription = () => {
 
           {/* Actions */}
           <div className="dsub-sidebar__actions">
-
-            {/* Upgrade / Change plan */}
             <button
               onClick={() => navigate("/seller/subscription/plans")}
               className="dsub-btn dsub-btn--primary dsub-btn--full"
@@ -352,10 +436,8 @@ const DesktopSubscription = () => {
               {subscription?.isActive ? "Change Plan" : "Upgrade Now"}
             </button>
 
-            {/* Active-only actions */}
             {subscription?.isActive && (
               <>
-                {/* Toggle auto-renew */}
                 <button
                   onClick={handleToggleAutoRenew}
                   disabled={togglingRenew}
@@ -364,10 +446,7 @@ const DesktopSubscription = () => {
                   }`}
                 >
                   {togglingRenew ? (
-                    <>
-                      <span className="dsub-btn__spinner" />
-                      Updating...
-                    </>
+                    <><span className="dsub-btn__spinner" /> Updating...</>
                   ) : subscription.autoRenew ? (
                     <>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -389,7 +468,6 @@ const DesktopSubscription = () => {
                   )}
                 </button>
 
-                {/* Cancel */}
                 <button
                   onClick={() => setCancelOpen(true)}
                   className="dsub-btn dsub-btn--ghost-danger dsub-btn--full"
@@ -405,16 +483,13 @@ const DesktopSubscription = () => {
             )}
           </div>
 
-          {/* Auto-renew footnote */}
           {subscription?.isActive && (
             <p className="dsub-sidebar__note">
               {subscription.autoRenew ? (
                 <>
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M21 2v6h-6" />
-                    <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-                    <path d="M3 22v-6h6" />
-                    <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                    <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                    <path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
                   </svg>
                   Renews automatically on {fmt(subscription.expiresAt)}
                 </>
@@ -440,11 +515,8 @@ const DesktopSubscription = () => {
           {/* ── Overview ──────────────────────────────────────────────────── */}
           {activeSection === "overview" && (
             <div className="dsub-section">
-
-              {/* Current plan hero */}
               <DesktopCurrentPlan subscription={subscription} />
 
-              {/* Billing details card */}
               {subscription?.isActive && (
                 <div className="dsub-card">
                   <h2 className="dsub-card__title">
@@ -456,45 +528,20 @@ const DesktopSubscription = () => {
                   </h2>
                   <div className="dsub-billing-grid">
                     {[
-                      {
-                        label: "Current Plan",
-                        value: `${subscription.planBadge} ${subscription.planName}`,
-                        accent: true,
-                      },
-                      {
-                        label: "Billing Cycle",
-                        value: subscription.billingCycle
-                          ? subscription.billingCycle.charAt(0).toUpperCase() +
-                            subscription.billingCycle.slice(1)
-                          : "—",
-                      },
-                      {
-                        label: "Started",
-                        value: fmt(subscription.startedAt),
-                      },
-                      {
-                        label: "Next Renewal",
-                        value: fmt(subscription.expiresAt),
-                      },
-                      {
-                        label: "Monthly Rate",
-                        value: `₦${(subscription.monthlyPrice / 100).toLocaleString("en-NG")}`,
-                      },
-                      {
-                        label: "Auto-Renew",
-                        value: subscription.autoRenew ? "Enabled" : "Disabled",
-                        good: subscription.autoRenew,
-                      },
+                      { label: "Current Plan", value: `${subscription.planBadge} ${subscription.planName}`, accent: true },
+                      { label: "Billing Cycle", value: subscription.billingCycle ? subscription.billingCycle.charAt(0).toUpperCase() + subscription.billingCycle.slice(1) : "—" },
+                      { label: "Started",       value: fmt(subscription.startedAt) },
+                      { label: "Next Renewal",  value: fmt(subscription.expiresAt) },
+                      { label: "Monthly Rate",  value: `₦${(subscription.monthlyPrice / 100).toLocaleString("en-NG")}` },
+                      { label: "Auto-Renew",    value: subscription.autoRenew ? "Enabled" : "Disabled", good: subscription.autoRenew },
                     ].map(({ label, value, accent, good }) => (
                       <div key={label} className="dsub-billing-item">
                         <span className="dsub-billing-item__label">{label}</span>
-                        <span
-                          className={`dsub-billing-item__value${
-                            accent        ? " dsub-billing-item__value--accent" :
-                            good === true ? " dsub-billing-item__value--good"   :
-                            good === false? " dsub-billing-item__value--muted"  : ""
-                          }`}
-                        >
+                        <span className={`dsub-billing-item__value${
+                          accent         ? " dsub-billing-item__value--accent" :
+                          good === true  ? " dsub-billing-item__value--good"   :
+                          good === false ? " dsub-billing-item__value--muted"  : ""
+                        }`}>
                           {value}
                         </span>
                       </div>
@@ -503,14 +550,12 @@ const DesktopSubscription = () => {
                 </div>
               )}
 
-              {/* Quick stats row (only for active subscribers) */}
               {subscription?.isActive && (
                 <div className="dsub-quick-stats">
                   <div className="dsub-qstat">
                     <span className="dsub-qstat__icon dsub-qstat__icon--plan">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z" />
-                        <path d="M3 20h18" />
+                        <path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z" /><path d="M3 20h18" />
                       </svg>
                     </span>
                     <div>
@@ -518,12 +563,10 @@ const DesktopSubscription = () => {
                       <span className="dsub-qstat__label">Current Plan</span>
                     </div>
                   </div>
-
                   <div className="dsub-qstat">
                     <span className="dsub-qstat__icon dsub-qstat__icon--time">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10" />
-                        <polyline points="12 6 12 12 16 14" />
+                        <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
                       </svg>
                     </span>
                     <div>
@@ -531,20 +574,16 @@ const DesktopSubscription = () => {
                       <span className="dsub-qstat__label">Remaining</span>
                     </div>
                   </div>
-
                   <div className="dsub-qstat">
                     <span className="dsub-qstat__icon dsub-qstat__icon--renew">
                       {subscription.autoRenew ? (
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <path d="M21 2v6h-6" />
-                          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-                          <path d="M3 22v-6h6" />
-                          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                          <path d="M21 2v6h-6" /><path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                          <path d="M3 22v-6h6" /><path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
                         </svg>
                       ) : (
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                          <rect x="6" y="4" width="4" height="16" />
-                          <rect x="14" y="4" width="4" height="16" />
+                          <rect x="6" y="4" width="4" height="16" /><rect x="14" y="4" width="4" height="16" />
                         </svg>
                       )}
                     </span>
@@ -553,7 +592,6 @@ const DesktopSubscription = () => {
                       <span className="dsub-qstat__label">Auto-Renew</span>
                     </div>
                   </div>
-
                   <div className="dsub-qstat">
                     <span className="dsub-qstat__icon dsub-qstat__icon--price">
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -563,9 +601,9 @@ const DesktopSubscription = () => {
                     </span>
                     <div>
                       <span className="dsub-qstat__val">
-                        ₦{(subscription.billingCycle === "yearly"
-                          ? subscription.yearlyPrice / 100
-                          : subscription.monthlyPrice / 100
+                        ₦{((subscription.billingCycle === "yearly"
+                          ? subscription.yearlyPrice
+                          : subscription.monthlyPrice) / 100
                         ).toLocaleString("en-NG")}
                       </span>
                       <span className="dsub-qstat__label">
@@ -576,14 +614,12 @@ const DesktopSubscription = () => {
                 </div>
               )}
 
-              {/* Free plan CTA */}
               {!subscription?.isActive && (
                 <div className="dsub-card dsub-card--upgrade">
                   <div className="dsub-upgrade-content">
                     <div className="dsub-upgrade-icon">
                       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z" />
-                        <path d="M3 20h18" />
+                        <path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z" /><path d="M3 20h18" />
                       </svg>
                     </div>
                     <div>
@@ -613,8 +649,6 @@ const DesktopSubscription = () => {
           {activeSection === "features" && (
             <div className="dsub-section">
               <DesktopFeatureTable featureKeys={subscription?.featureKeys ?? {}} />
-
-              {/* Feature upgrade hint for free users */}
               {!subscription?.isActive && (
                 <div className="dsub-feature-hint">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -643,7 +677,7 @@ const DesktopSubscription = () => {
             </div>
           )}
 
-          {/* ── Subscription History / Timeline ───────────────────────────── */}
+          {/* ── Subscription Timeline ─────────────────────────────────────── */}
           {activeSection === "timeline" && (
             <div className="dsub-section">
               <DesktopSubscriptionTimeline />
