@@ -1,0 +1,135 @@
+/* ─── Desktop Current Plan Hero Card ────────────────────────────────────── */
+
+.dcp-hero {
+  border-radius: var(--r3);
+  overflow: hidden;
+  box-shadow: var(--s2);
+  margin-bottom: 20px;
+}
+
+.dcp-hero__content {
+  display: flex;
+  gap: 32px;
+  padding: 32px 36px;
+  align-items: flex-start;
+}
+
+/* ── Plan tints ──────────────────────────────────────────────────────────── */
+.dcp-hero--free     { background: var(--wh); border: 1px solid var(--bd); }
+.dcp-hero--premium  { background: linear-gradient(135deg, #fefce8 0%, #fef9c3 100%); border: 1px solid #fde68a; }
+.dcp-hero--pro      { background: linear-gradient(135deg, var(--wh) 0%, var(--o-bg) 100%); border: 1px solid #ffd6bf; }
+.dcp-hero--business { background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%); border: 1px solid #ddd6fe; }
+.dcp-hero--elite    { background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border: 1px solid #bfdbfe; }
+.dcp-hero--diamond  { background: var(--ink); border: 1px solid #2a2620; }
+
+/* ── Left side ───────────────────────────────────────────────────────────── */
+.dcp-hero__left { flex: 1; min-width: 0; }
+
+.dcp-hero__badge-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.dcp-hero__plan-badge { font-size: 2.5rem; line-height: 1; }
+
+.dcp-hero__plan-name {
+  font-family: var(--fd);
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.dcp-hero--diamond .dcp-hero__plan-name { color: var(--wh); }
+
+.dcp-hero__cycle {
+  font-size: 0.8125rem;
+  text-transform: capitalize;
+  margin-top: 2px;
+}
+
+.dcp-hero--diamond .dcp-hero__cycle { color: rgba(255,255,255,0.5); }
+
+/* Pills */
+.dcp-hero__pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.dcp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 100px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+}
+
+.dcp-pill__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.dcp-pill--active  { background: var(--o-bg); color: var(--o); border-color: #ffd6bf; }
+.dcp-pill--active  .dcp-pill__dot { background: var(--gn); }
+.dcp-pill--free    { background: var(--bg);   color: var(--ink3); border-color: var(--bd); }
+.dcp-pill--free    .dcp-pill__dot { background: var(--ink3); }
+.dcp-pill--renew   { background: var(--gn2);  color: var(--gn); border-color: #bbf7d0; }
+.dcp-pill--paused  { background: var(--bg);   color: var(--ink3); border-color: var(--bd); }
+
+/* Progress */
+.dcp-hero__progress      { max-width: 400px; }
+.dcp-hero__progress-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.6875rem;
+  color: var(--ink3);
+  margin-bottom: 6px;
+}
+.dcp-hero--diamond .dcp-hero__progress-labels { color: rgba(255,255,255,0.4); }
+
+.dcp-hero__progress-bar {
+  height: 6px;
+  background: var(--bg);
+  border-radius: 100px;
+  overflow: hidden;
+}
+.dcp-hero--diamond .dcp-hero__progress-bar { background: rgba(255,255,255,0.1); }
+
+.dcp-hero__progress-fill {
+  height: 100%;
+  border-radius: 100px;
+  transition: width 0.3s ease;
+}
+
+.dcp-hero__progress-fill--premium  { background: #eab308; }
+.dcp-hero__progress-fill--pro      { background: var(--o); }
+.dcp-hero__progress-fill--business { background: #9333ea; }
+.dcp-hero__progress-fill--elite    { background: #2563eb; }
+.dcp-hero__progress-fill--diamond  { background: var(--o); }
+.dcp-hero__progress-fill--free     { background: var(--ink3); }
+
+/* ── Right: features ─────────────────────────────────────────────────────── */
+.dcp-hero__features {
+  list-style: none;
+  min-width: 240px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dcp-hero__features li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8125rem;
+}
+
+.dcp-hero--diamond .dcp-hero__features li { color: rgba(255,255,255,0.75); }
