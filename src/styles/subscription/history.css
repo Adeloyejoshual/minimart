@@ -1,0 +1,139 @@
+/* ─── Payment history table ──────────────────────────────────────────────── */
+
+.sub-table-wrap {
+  overflow-x: auto;
+  margin: 0 -24px;
+  padding: 0 24px;
+}
+
+.sub-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8125rem;
+  text-align: left;
+}
+
+.sub-table thead th {
+  padding: 0 12px 12px 0;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ink3);
+  border-bottom: 1px solid var(--bd);
+  white-space: nowrap;
+}
+
+.sub-table tbody tr {
+  border-bottom: 1px solid var(--bg);
+  transition: background 0.1s;
+}
+
+.sub-table tbody tr:hover {
+  background: var(--bg);
+}
+
+.sub-table tbody tr:last-child {
+  border-bottom: none;
+}
+
+.sub-table tbody td {
+  padding: 12px 12px 12px 0;
+  vertical-align: middle;
+}
+
+.sub-table__nowrap {
+  white-space: nowrap;
+}
+
+.sub-table__amount {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.sub-table__ref {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.6875rem;
+  color: var(--ink3);
+}
+
+.sub-table__plan {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+  color: var(--ink);
+  font-size: 0.75rem;
+}
+
+.sub-table__muted {
+  color: var(--ink3);
+  font-size: 0.6875rem;
+}
+
+/* ── Pagination ──────────────────────────────────────────────────────────── */
+.sub-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 16px;
+  margin-top: 16px;
+  border-top: 1px solid var(--bg);
+  flex-wrap: wrap;
+}
+
+.sub-pagination__info {
+  font-size: 0.6875rem;
+  color: var(--ink3);
+}
+
+.sub-pagination__btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sub-pagination__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 5px 10px;
+  font-family: var(--fb);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--ink2);
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r1);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+  white-space: nowrap;
+}
+
+.sub-pagination__btn:hover:not(:disabled) {
+  background: var(--bg);
+  border-color: var(--bd2);
+}
+
+.sub-pagination__btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.sub-pagination__btn--active {
+  background: var(--o);
+  color: var(--wh);
+  border-color: var(--o);
+}
+
+.sub-pagination__btn--active:hover {
+  background: var(--o);
+}
+
+.sub-pagination__ellipsis {
+  padding: 0 4px;
+  font-size: 0.6875rem;
+  color: var(--ink3);
+}
