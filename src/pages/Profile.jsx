@@ -1,7 +1,3 @@
-/**
- * src/pages/Profile.jsx
- */
-
 import {
   useState,
   useEffect,
@@ -224,14 +220,8 @@ async function fetchUserListings() {
       params: { limit: 8, page: 1, tab: "all" },
     });
     const list = data?.products || [];
-    console.log("[Profile] listings fetched:", list.length, list[0]?.title);
     return list.slice(0, 8);
-  } catch (err) {
-    console.warn(
-      "[Profile] listings fetch failed:",
-      err?.response?.status,
-      err?.message
-    );
+  } catch {
     return [];
   }
 }
@@ -246,6 +236,20 @@ async function fetchUnreadCount() {
     return Number(data?.count ?? data?.unread ?? 0);
   } catch {
     return 0;
+  }
+}
+
+/* ─── NEW: Fetch subscription status ─── */
+async function fetchSubscriptionStatus() {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const { data } = await axios.get(`${API}/subscription/status`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    return data;
+  } catch {
+    return null;
   }
 }
 
@@ -300,17 +304,87 @@ const Icon = {
   wifi:      () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="1" y1="1" x2="23" y2="23" /><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" /><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" /><path d="M10.71 5.05A16 16 0 0 1 22.56 9" /><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" /><path d="M8.53 16.11a6 6 0 0 1 6.95 0" /><line x1="12" y1="20" x2="12.01" y2="20" /></svg>),
   package:   () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="16.5" y1="9.4" x2="7.5" y2="4.21" /><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" /><polyline points="3.27 6.96 12 12.01 20.73 6.96" /><line x1="12" y1="22.08" x2="12" y2="12" /></svg>),
   spinner:   () => (<svg className="pf-spin-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" /></svg>),
+  /* ── NEW: Subscription icon ── */
+  crown:     () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z" /><path d="M3 20h18" /></svg>),
+  diamond:   () => (<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12l4 6-10 13L2 9z" /><path d="M11 3l1 6" /><path d="M2 9h20" /></svg>),
 };
+
+/* ═══════════════════════════════════════════════════════════════
+   SUBSCRIPTION BADGE MAP
+═══════════════════════════════════════════════════════════════ */
+const SUB_BADGE_MAP = {
+  premium:  { label: "Premium",  className: "pf-sub-badge--premium"  },
+  pro:      { label: "Pro",      className: "pf-sub-badge--pro"      },
+  business: { label: "Business", className: "pf-sub-badge--business" },
+  elite:    { label: "Elite",    className: "pf-sub-badge--elite"    },
+  diamond:  { label: "Diamond",  className: "pf-sub-badge--diamond"  },
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   SUBSCRIPTION CARD (inline mini-card for sidebar + mobile)
+═══════════════════════════════════════════════════════════════ */
+const SubscriptionCard = memo(function SubscriptionCard({ sub, onClick }) {
+  if (!sub) return null;
+
+  const isActive = sub.isActive;
+  const badge    = SUB_BADGE_MAP[sub.plan];
+
+  return (
+    <motion.div
+      className={`pf-sub-card ${isActive ? "pf-sub-card--active" : "pf-sub-card--free"}`}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      aria-label="Manage subscription"
+      onKeyDown={onActivate(onClick)}
+      variants={scaleIn}
+      initial="hidden"
+      whileInView="visible"
+      viewport={viewportOnce}
+      transition={{ ...spring, delay: 0.08 }}
+      whileTap={{ scale: 0.97 }}
+    >
+      <div className="pf-sub-card__icon">
+        {isActive ? <Icon.crown /> : <Icon.diamond />}
+      </div>
+      <div className="pf-sub-card__info">
+        {isActive && badge ? (
+          <>
+            <span className="pf-sub-card__plan-name">
+              {sub.planBadge} {sub.planName}
+            </span>
+            <span className="pf-sub-card__status">Active</span>
+          </>
+        ) : (
+          <>
+            <span className="pf-sub-card__plan-name">Free Plan</span>
+            <span className="pf-sub-card__cta">Upgrade</span>
+          </>
+        )}
+      </div>
+      <span className="pf-sub-card__chevron">
+        <Icon.chevron />
+      </span>
+    </motion.div>
+  );
+});
 
 /* ═══════════════════════════════════════════════════════════════
    MENU CONFIG
 ═══════════════════════════════════════════════════════════════ */
-const buildMenuSections = (unreadCount = 0) => [
+const buildMenuSections = (unreadCount = 0, subStatus = null) => [
   {
     title: "Selling",
     items: [
       { to: "/dashboard",    Ic: Icon.dashboard, label: "Seller Dashboard" },
       { to: "/minimart/add", Ic: Icon.plus,      label: "Post a Listing",  badge: "NEW" },
+      {
+        to: "/seller/subscription",
+        Ic: Icon.crown,
+        label: "Subscription",
+        badge: subStatus?.isActive ? subStatus.planBadge || "PRO" : null,
+        badgeType: subStatus?.isActive ? "sub" : undefined,
+      },
       { to: "/leaderboard",  Ic: Icon.trending,  label: "Leaderboard" },
     ],
   },
@@ -593,13 +667,6 @@ const RecentListings = memo(function RecentListings({
   const navigate   = useNavigate();
   const scrollRef  = useDragScroll(isDesktop);
 
-  useEffect(() => {
-    console.log(
-      "[RecentListings] isDesktop:", isDesktop,
-      "listings:", listings?.length
-    );
-  }, [listings, isDesktop]);
-
   if (!listings || listings.length === 0) return null;
 
   const goTo = (item) => {
@@ -663,6 +730,7 @@ const MenuItem = memo(function MenuItem({
   const isActive = currentPath === to;
   const badgeClass =
     badgeType === "notif"         ? " pf-badge-pill--notif"
+    : badgeType === "sub"         ? " pf-badge-pill--sub"
     : badge === "WIN"             ? " pf-badge-pill--win"
     : badge === "NEW"             ? " pf-badge-pill--new"
     : badge?.startsWith?.("₦")   ? " pf-badge-pill--money"
@@ -704,6 +772,7 @@ const SidebarLink = memo(function SidebarLink({
   const isActive = currentPath === to;
   const badgeClass =
     badgeType === "notif"         ? " pf-badge-pill--notif"
+    : badgeType === "sub"         ? " pf-badge-pill--sub"
     : badge === "WIN"             ? " pf-badge-pill--win"
     : badge === "NEW"             ? " pf-badge-pill--new"
     : badge?.startsWith?.("₦")   ? " pf-badge-pill--money"
@@ -738,8 +807,10 @@ const SidebarLink = memo(function SidebarLink({
 ═══════════════════════════════════════════════════════════════ */
 const Sidebar = memo(function Sidebar({
   user, joinedLabel, onEditProfile, onLogout,
-  menuSections, currentPath, children,
+  menuSections, currentPath, subStatus, children,
 }) {
+  const navigate = useNavigate();
+
   return (
     <motion.aside
       className="pf-sidebar"
@@ -801,6 +872,13 @@ const Sidebar = memo(function Sidebar({
           {user?.verified      && <span className="pf-badge pf-badge--verified">Verified</span>}
           {user?.is_seller     && <span className="pf-badge pf-badge--seller">Seller</span>}
           {user?.is_top_seller && <span className="pf-badge pf-badge--top">Top Seller</span>}
+          {/* ── Subscription badge on identity card ── */}
+          {subStatus?.isActive && SUB_BADGE_MAP[subStatus.plan] && (
+            <span className={`pf-badge pf-sub-badge ${SUB_BADGE_MAP[subStatus.plan].className}`}>
+              <Icon.crown />
+              {SUB_BADGE_MAP[subStatus.plan].label}
+            </span>
+          )}
         </div>
 
         {user?.rating != null && (
@@ -815,6 +893,16 @@ const Sidebar = memo(function Sidebar({
           <Icon.edit /> Edit Profile
         </span>
       </div>
+
+      {/* Subscription mini-card (between identity and referral) */}
+      <SubscriptionCard
+        sub={subStatus}
+        onClick={() => navigate(
+          subStatus?.isActive
+            ? "/seller/subscription"
+            : "/seller/subscription/plans"
+        )}
+      />
 
       {/* Slot (referral banner etc.) */}
       {children}
@@ -921,7 +1009,17 @@ export default function Profile({ onLogout }) {
     refetchInterval: 60 * 1000,
   });
 
-  const menuSections = buildMenuSections(unreadCount);
+  /* ── NEW: Subscription status query ── */
+  const { data: subStatus = null } = useQuery({
+    queryKey: ["profile-subscription-status"],
+    queryFn: fetchSubscriptionStatus,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
+    retry: 1,
+    enabled: !!getToken(),
+  });
+
+  const menuSections = buildMenuSections(unreadCount, subStatus);
 
   /* ── Auth redirect ── */
   useEffect(() => {
@@ -1016,6 +1114,7 @@ export default function Profile({ onLogout }) {
             onLogout={logout}
             menuSections={menuSections}
             currentPath={currentPath}
+            subStatus={subStatus}
           >
             <ReferralBanner code={user?.referral_code} />
           </Sidebar>
@@ -1136,6 +1235,13 @@ export default function Profile({ onLogout }) {
                     {user?.verified      && <span className="pf-badge pf-badge--verified">Verified</span>}
                     {user?.is_seller     && <span className="pf-badge pf-badge--seller">Seller</span>}
                     {user?.is_top_seller && <span className="pf-badge pf-badge--top">Top Seller</span>}
+                    {/* ── Subscription badge on mobile identity ── */}
+                    {subStatus?.isActive && SUB_BADGE_MAP[subStatus.plan] && (
+                      <span className={`pf-badge pf-sub-badge ${SUB_BADGE_MAP[subStatus.plan].className}`}>
+                        <Icon.crown />
+                        {SUB_BADGE_MAP[subStatus.plan].label}
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -1205,9 +1311,19 @@ export default function Profile({ onLogout }) {
             />
           )}
 
-          {/* Mobile referral + scrollable menu */}
+          {/* Mobile: subscription card + referral + scrollable menu */}
           {!isDesktop && (
             <>
+              {/* ── Mobile subscription card ── */}
+              <SubscriptionCard
+                sub={subStatus}
+                onClick={() => navigate(
+                  subStatus?.isActive
+                    ? "/seller/subscription"
+                    : "/seller/subscription/plans"
+                )}
+              />
+
               <ReferralBanner code={user?.referral_code} />
 
               {/* ── Scrollable menu container ── */}
@@ -1263,7 +1379,6 @@ export default function Profile({ onLogout }) {
                   <Icon.logout /> Log Out
                 </motion.button>
               </div>
-              {/* ── End scrollable menu container ── */}
             </>
           )}
 
