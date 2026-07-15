@@ -1,5 +1,5 @@
 /**
- * server.js
+ * server.js — complete file with support routes added
  */
 
 import express           from "express";
@@ -161,11 +161,7 @@ import sellerProfileRouter    from "./routes/sellerprofile.js";
 import sellerPayoutRoutes     from "./routes/seller/payout.js";
 import sellerSettingsRouter   from "./routes/seller/settings.js";
 
-/* ── Seller Dashboard ─────────────────────────────────────────
-   routes/dashboard.js  →  /api/seller-dashboard/*
-   NOTE: routes/seller/dashboard.js has been REPLACED by
-         routes/dashboard.js — do not import both.
-──────────────────────────────────────────────────────────────*/
+/* ── Seller Dashboard ── */
 import sellerDashboardRouter from "./routes/dashboard.js";
 
 /* ── Products + marketplace ── */
@@ -176,7 +172,7 @@ import productDetailRouter from "./routes/productDetail.js";
 import cartRouter          from "./routes/cart/index.js";
 
 /* ── Users ── */
-import userRouter       from "./routes/users.js";
+import userRouter        from "./routes/users.js";
 import editProfileRouter from "./routes/editProfile.js";
 
 /* ── Messaging ── */
@@ -184,20 +180,29 @@ import messagesRouter      from "./routes/messages.js";
 import conversationsRouter from "./routes/conversations.js";
 
 /* ── Platform ── */
-import adminRouter        from "./routes/admin.js";
-import searchRouter       from "./routes/search.js";
-import homepageRouter     from "./routes/homepage.js";
-import notificationsRouter from "./routes/notifications.js";
-import walletRoutes       from "./routes/wallets.js";
-import p2pRouter          from "./routes/p2p.js";
-import verificationRouter from "./routes/verification.js";
-import couponsRouter      from "./routes/coupons.js";
-import spinwheelRouter    from "./routes/spinwheel.js";
-import referralRoutes     from "./routes/referrals.js";
-import leaderboardRoutes  from "./routes/leaderboard.js";
-import favoritesRouter    from "./routes/favorites.js";
-import airtimeCouponRoutes from "./routes/airtimeCoupons.js";
-import subscriptionRouter from "./routes/subscription/index.js";
+import adminRouter          from "./routes/admin.js";
+import searchRouter         from "./routes/search.js";
+import homepageRouter       from "./routes/homepage.js";
+import notificationsRouter  from "./routes/notifications.js";
+import walletRoutes         from "./routes/wallets.js";
+import p2pRouter            from "./routes/p2p.js";
+import verificationRouter   from "./routes/verification.js";
+import couponsRouter        from "./routes/coupons.js";
+import spinwheelRouter      from "./routes/spinwheel.js";
+import referralRoutes       from "./routes/referrals.js";
+import leaderboardRoutes    from "./routes/leaderboard.js";
+import favoritesRouter      from "./routes/favorites.js";
+import airtimeCouponRoutes  from "./routes/airtimeCoupons.js";
+import subscriptionRouter   from "./routes/subscription/index.js";
+
+/* ── Help & Support ─────────────────────────────────────────
+   /api/support        → routes/support.js       (user-facing)
+   /api/admin/support  → routes/admin/support.js (admin panel)
+   NOTE: adminRouter already mounts routes/admin/support.js
+   internally via router.use("/support", supportAdminRouter)
+   so we only need to mount the user-facing router here.
+──────────────────────────────────────────────────────────────*/
+import supportRouter from "./routes/support.js";
 
 /* ── Background jobs ── */
 import { startListingExpiryJob } from "./jobs/listingExpiry.js";
@@ -276,14 +281,7 @@ app.use(globalLimiter);
 app.use("/api/payment",  paymentRouter);
 app.use("/api/checkout", checkoutRouter);
 
-/* ── Auth ─────────────────────────────────────────────────────
-   All three routers mount on /api/auth
-     /register                → auth.routes.js
-     /login                   → auth.routes.js
-     /forgot-password         → forgotPassword.js
-     /forgot-password/verify  → forgotPassword.js
-     /reset-password          → resetPassword.js
-──────────────────────────────────────────────────────────────*/
+/* ── Auth ── */
 app.use("/api/auth", authRouter);
 app.use("/api/auth", forgotPasswordRouter);
 app.use("/api/auth", resetPasswordRouter);
@@ -292,14 +290,12 @@ app.use("/api/auth", resetPasswordRouter);
 app.use("/api/users",        userRouter);
 app.use("/api/edit-profile", editProfileRouter);
 
-/* ── Seller ─────────────────────────────────────────────────
-   /api/seller-dashboard/*  →  routes/dashboard.js  (new)
-──────────────────────────────────────────────────────────────*/
-app.use("/api/seller-onboarding",  sellerOnboardingRouter);
-app.use("/api/seller",             sellerProfileRouter);
-app.use("/api/seller/payout",      sellerPayoutRoutes);
-app.use("/api/seller/settings",    sellerSettingsRouter);
-app.use("/api/seller-dashboard",   sellerDashboardRouter); // ✅ routes/dashboard.js
+/* ── Seller ── */
+app.use("/api/seller-onboarding", sellerOnboardingRouter);
+app.use("/api/seller",            sellerProfileRouter);
+app.use("/api/seller/payout",     sellerPayoutRoutes);
+app.use("/api/seller/settings",   sellerSettingsRouter);
+app.use("/api/seller-dashboard",  sellerDashboardRouter);
 
 /* ── Products + marketplace ── */
 app.use("/api/products",   marketRouter);
@@ -314,20 +310,52 @@ app.use("/api/messages",        messagesRouter);
 app.use("/api/conversations",   conversationsRouter);
 
 /* ── Platform ── */
-app.use("/api/admin",         adminRouter);
-app.use("/api/search",        searchRouter);
-app.use("/api/homepage",      homepageRouter);
-app.use("/api/notifications", notificationsRouter);
-app.use("/api/v1/wallets",    walletRoutes);
-app.use("/api/p2p",           p2pRouter);
-app.use("/api/verification",  verificationRouter);
-app.use("/api/coupons",       couponsRouter);
-app.use("/api/spinwheel",     spinwheelRouter);
-app.use("/api/referrals",     referralRoutes);
-app.use("/api/leaderboard",   leaderboardRoutes);
-app.use("/api/favorites",     favoritesRouter);
+app.use("/api/admin",           adminRouter);
+app.use("/api/search",          searchRouter);
+app.use("/api/homepage",        homepageRouter);
+app.use("/api/notifications",   notificationsRouter);
+app.use("/api/v1/wallets",      walletRoutes);
+app.use("/api/p2p",             p2pRouter);
+app.use("/api/verification",    verificationRouter);
+app.use("/api/coupons",         couponsRouter);
+app.use("/api/spinwheel",       spinwheelRouter);
+app.use("/api/referrals",       referralRoutes);
+app.use("/api/leaderboard",     leaderboardRoutes);
+app.use("/api/favorites",       favoritesRouter);
 app.use("/api/airtime-coupons", airtimeCouponRoutes);
-app.use("/api/subscription", subscriptionRouter);
+app.use("/api/subscription",    subscriptionRouter);
+
+/* ── Help & Support ─────────────────────────────────────────
+   User-facing:  POST /api/support/tickets
+                 GET  /api/support/tickets
+                 GET  /api/support/tickets/:id
+                 POST /api/support/tickets/:id/messages
+                 POST /api/support/tickets/:id/reopen
+                 POST /api/support/tickets/:id/rate
+                 PATCH /api/support/tickets/:id
+                 POST /api/support/reports
+                 GET  /api/support/reports
+                 POST /api/support/disputes
+                 GET  /api/support/disputes
+                 GET  /api/support/disputes/:id
+                 POST /api/support/disputes/:id/messages
+                 POST /api/support/appeals
+                 GET  /api/support/appeals
+                 POST /api/support/feedback
+                 GET  /api/support/notifications
+                 PATCH /api/support/notifications/:id/read
+                 PATCH /api/support/notifications/read-all
+                 GET  /api/support/faq/categories
+                 GET  /api/support/faq/articles
+                 GET  /api/support/faq/articles/:slug
+                 POST /api/support/faq/articles/:id/helpful
+
+   Admin-facing: All under /api/admin/support/*
+                 Mounted inside adminRouter (routes/admin.js)
+                 via router.use("/support", supportAdminRouter)
+──────────────────────────────────────────────────────────────*/
+app.use("/api/support", supportRouter);
+
 /* ══════════════════════════════════════════════════════════════
    STATIC — sitemap + robots
 ══════════════════════════════════════════════════════════════ */
@@ -364,14 +392,14 @@ app.get("/api/health", async (_req, res) => {
   }
 
   return res.status(dbOk ? 200 : 503).json({
-    success   : true,
-    status    : dbOk ? "healthy" : "degraded",
-    timestamp : new Date().toISOString(),
-    database  : { ok: dbOk, latency_ms: dbLatency, error: dbError ?? undefined },
-    process   : {
-      uptime_s  : Math.floor(process.uptime()),
-      memory_mb : Math.round(process.memoryUsage().rss / 1_048_576),
-      node      : process.version,
+    success      : true,
+    status       : dbOk ? "healthy" : "degraded",
+    timestamp    : new Date().toISOString(),
+    database     : { ok: dbOk, latency_ms: dbLatency, error: dbError ?? undefined },
+    process      : {
+      uptime_s   : Math.floor(process.uptime()),
+      memory_mb  : Math.round(process.memoryUsage().rss / 1_048_576),
+      node       : process.version,
     },
     cache        : { size: _cache.size },
     online_users : getOnlineCount(),
@@ -408,7 +436,7 @@ if (IS_PROD) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   404  — development only (production handled above)
+   404  — development only
 ══════════════════════════════════════════════════════════════ */
 app.use((req, res) =>
   res.status(404).json({
@@ -499,26 +527,33 @@ try {
   process.exit(1);
 }
 
-/* ── Start background jobs (after DB connection confirmed, all routes registered) ── */
 startListingExpiryJob();
 startCleanupJob();
 initLeaderboardCron();
 
 server.listen(PORT, () => {
   console.log(`\n🚀 Loemart on port ${PORT} | ${process.env.NODE_ENV || "development"}`);
-  console.log(`   Auth            → /api/auth`);
-  console.log(`                      POST /register`);
-  console.log(`                      POST /login`);
-  console.log(`                      POST /forgot-password`);
-  console.log(`                      POST /forgot-password/verify`);
-  console.log(`                      POST /reset-password`);
-  console.log(`   Seller Dashboard→ /api/seller-dashboard`);
-  console.log(`                      GET  /stats`);
-  console.log(`                      GET  /products`);
-  console.log(`                      GET  /analytics`);
-  console.log(`                      GET  /overview`);
-  console.log(`                      PATCH /products/:id/toggle`);
-  console.log(`                      DELETE /products/:id\n`);
+  console.log(`   Auth             → /api/auth`);
+  console.log(`   Support (user)   → /api/support`);
+  console.log(`                        POST /tickets`);
+  console.log(`                        GET  /tickets`);
+  console.log(`                        GET  /tickets/:id`);
+  console.log(`                        POST /tickets/:id/messages`);
+  console.log(`                        POST /tickets/:id/reopen`);
+  console.log(`                        POST /tickets/:id/rate`);
+  console.log(`                        PATCH /tickets/:id`);
+  console.log(`                        POST /reports`);
+  console.log(`                        POST /disputes`);
+  console.log(`                        POST /appeals`);
+  console.log(`                        POST /feedback`);
+  console.log(`                        GET  /faq/categories`);
+  console.log(`                        GET  /faq/articles`);
+  console.log(`   Support (admin)  → /api/admin/support`);
+  console.log(`                        GET  /tickets`);
+  console.log(`                        PATCH /tickets/:id`);
+  console.log(`                        POST /tickets/:id/reply`);
+  console.log(`                        POST /tickets/:id/escalate`);
+  console.log(`                        GET  /analytics\n`);
 });
 
 export default app;
