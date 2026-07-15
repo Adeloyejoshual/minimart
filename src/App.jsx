@@ -83,14 +83,28 @@ import Leaderboard       from "./pages/Profile/Leaderboard";
 import Verification      from "./pages/Profile/Verification";
 import Wallet            from "./pages/Profile/Wallet";
 import FAQ               from "./pages/FAQ";
-import Complain          from "./pages/Complain";
-import Support           from "./pages/Support";
 import Invitation        from "./pages/Invitation";
 import PostAds           from "./pages/PostAds";
 import PaymentSuccess    from "./pages/PaymentSuccess";
 import CheckoutPage      from "./pages/CheckoutPage";
 import OrderSuccess      from "./pages/OrderSuccess";
 import OrderHistory      from "./pages/OrderHistory";
+
+/* ════════════════════════════════════════════════════════════
+   PAGES — HELP & SUPPORT
+════════════════════════════════════════════════════════════ */
+import HelpCenter         from "./pages/Help/HelpCenter";
+import HelpSearchResults  from "./pages/Help/HelpSearchResults";
+import HelpCategoryPage   from "./pages/Help/HelpCategoryPage";
+import HelpArticleDetail  from "./pages/Help/HelpArticleDetail";
+import SupportHub         from "./pages/Support/SupportHub";
+import ContactSupport     from "./pages/Support/ContactSupport";
+import SupportTickets     from "./pages/Support/SupportTickets";
+import SupportTicketDetail from "./pages/Support/SupportTicketDetail";
+import ReportCenter       from "./pages/Support/ReportCenter";
+import DisputeCenter      from "./pages/Support/DisputeCenter";
+import AppealsPage        from "./pages/Support/AppealsPage";
+import FeedbackPage       from "./pages/Support/FeedbackPage";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — PUBLIC INFO / COMMUNITY
@@ -125,7 +139,7 @@ import AdminDashboard from "./page/admin/AdminDashboard";
    COMPONENTS
 ════════════════════════════════════════════════════════════ */
 import CartPage      from "./components/Cart/CartPage";
-import DesktopHeader from "./components/DesktopHeader"; /* ← NEW */
+import DesktopHeader from "./components/DesktopHeader";
 
 /* ════════════════════════════════════════════════════════════
    CONSTANTS
@@ -154,9 +168,6 @@ const TOASTER_OPTIONS = {
 
 /* ════════════════════════════════════════════════════════════
    ROUTES WHERE THE DESKTOP HEADER IS HIDDEN
-   ─────────────────────────────────────────────────────────
-   Auth pages, admin panel and the full-screen chat on desktop
-   have their own chrome — no site header needed.
 ════════════════════════════════════════════════════════════ */
 const HEADER_HIDDEN_PREFIXES = [
   "/auth",
@@ -208,7 +219,7 @@ function ScrollToTop() {
 }
 
 /* ════════════════════════════════════════════════════════════
-   DESKTOP HOOK  (single definition shared everywhere)
+   DESKTOP HOOK
 ════════════════════════════════════════════════════════════ */
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(
@@ -227,18 +238,13 @@ function useIsDesktop() {
 
 /* ════════════════════════════════════════════════════════════
    DESKTOP HEADER WRAPPER
-   ─────────────────────────────────────────────────────────
-   Rendered inside <Router> so it has access to useLocation.
-   Hidden on auth / admin routes and on mobile viewports.
 ════════════════════════════════════════════════════════════ */
 function SiteHeader({ user, onLogout }) {
   const { pathname } = useLocation();
   const isDesktop    = useIsDesktop();
 
-  /* Hide on mobile */
   if (!isDesktop) return null;
 
-  /* Hide on auth / admin / invite routes */
   const hidden = HEADER_HIDDEN_PREFIXES.some((prefix) =>
     pathname.startsWith(prefix)
   );
@@ -247,11 +253,6 @@ function SiteHeader({ user, onLogout }) {
   return (
     <>
       <DesktopHeader user={user} onLogout={onLogout} />
-      {/*
-        .dh-spacer  (height: 64px)
-        Pushes page content below the fixed header.
-        DesktopHeader.css already defines this class.
-      */}
       <div className="dh-spacer" aria-hidden="true" />
     </>
   );
@@ -484,18 +485,6 @@ export default function App() {
       <ScrollToTop />
       <Toaster position="top-right" toastOptions={TOASTER_OPTIONS} />
 
-      {/*
-        ════════════════════════════════════════════════════════
-        SITE-WIDE DESKTOP HEADER
-        ────────────────────────────────────────────────────────
-        · Rendered inside <Router> so useLocation works.
-        · SiteHeader internally checks:
-            1. Is viewport ≥ 1024px?  (hides on mobile)
-            2. Is route in HEADER_HIDDEN_PREFIXES?  (hides on auth/admin)
-        · Passes live `user` state + `handleLogout` so the
-          account menu and badge counts are always fresh.
-        ════════════════════════════════════════════════════════
-      */}
       <SiteHeader user={user} onLogout={handleLogout} />
 
       <Routes>
@@ -735,10 +724,85 @@ export default function App() {
           }
         />
 
-        {/* ════════════ PUBLIC INFO PAGES ════════════ */}
-        <Route path="/faq"      element={<FAQ      user={user} />} />
-        <Route path="/complain" element={<Complain user={user} />} />
-        <Route path="/support"  element={<Support  user={user} />} />
+        {/* ════════════ HELP CENTER (public) ════════════ */}
+        <Route path="/help"                  element={<HelpCenter        user={user} />} />
+        <Route path="/help/search"           element={<HelpSearchResults user={user} />} />
+        <Route path="/help/category/:slug"   element={<HelpCategoryPage  user={user} />} />
+        <Route path="/help/article/:slug"    element={<HelpArticleDetail user={user} />} />
+
+        {/* ════════════ SUPPORT HUB (public entry) ════════════ */}
+        <Route path="/support"               element={<SupportHub        user={user} />} />
+
+        {/* ════════════ SUPPORT — CONTACT (protected) ════════════ */}
+        <Route
+          path="/support/contact"
+          element={
+            <ProtectedRoute user={user}>
+              <ContactSupport user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ════════════ SUPPORT — TICKETS (protected) ════════════ */}
+        <Route
+          path="/support/tickets"
+          element={
+            <ProtectedRoute user={user}>
+              <SupportTickets user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/support/tickets/:id"
+          element={
+            <ProtectedRoute user={user}>
+              <SupportTicketDetail user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ════════════ SUPPORT — REPORT (protected) ════════════ */}
+        <Route
+          path="/support/report"
+          element={
+            <ProtectedRoute user={user}>
+              <ReportCenter user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ════════════ SUPPORT — DISPUTES (protected) ════════════ */}
+        <Route
+          path="/support/disputes"
+          element={
+            <ProtectedRoute user={user}>
+              <DisputeCenter user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ════════════ SUPPORT — APPEALS (protected) ════════════ */}
+        <Route
+          path="/support/appeals"
+          element={
+            <ProtectedRoute user={user}>
+              <AppealsPage user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ════════════ SUPPORT — FEEDBACK (protected) ════════════ */}
+        <Route
+          path="/support/feedback"
+          element={
+            <ProtectedRoute user={user}>
+              <FeedbackPage user={user} />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* ════════════ FAQ (legacy, keep for backward compat) ════════════ */}
+        <Route path="/faq" element={<FAQ user={user} />} />
 
         {/* ════════════ CART / CHECKOUT / ORDERS ════════════ */}
         <Route path="/shop/cart"       element={<CartPage />} />
