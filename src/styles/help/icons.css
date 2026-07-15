@@ -1,0 +1,8 @@
+/* src/styles/help/icons.css */
+
+/* Icon base — all SVGs inherit color */
+svg {
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
+}
