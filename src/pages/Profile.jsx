@@ -13,7 +13,7 @@ import axios from "axios";
 
 import ProfileHeader from "../components/ProfileHeader.jsx";
 import BottomNav from "../components/BottomNav"; // ← Imported BottomNav directly
-import "../styles/MobileProfile.css";
+import "../styles/Profile.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
