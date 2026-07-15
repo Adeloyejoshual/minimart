@@ -1,3 +1,7 @@
+// ════════════════════════════════════════════════════════════
+// FILE: src/pages/Profile.jsx
+// ════════════════════════════════════════════════════════════
+
 import {
   useState,
   useEffect,
@@ -8,18 +12,24 @@ import {
 } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion, AnimatePresence, useScroll, useTransform, animate } from "framer-motion";
+import {
+  motion,
+  AnimatePresence,
+  useScroll,
+  useTransform,
+  animate,
+} from "framer-motion";
 import axios from "axios";
 
 import ProfileHeader from "../components/ProfileHeader.jsx";
-import BottomNav from "../components/BottomNav"; // ← Imported BottomNav directly
+import BottomNav     from "../components/BottomNav";
 import "../styles/Profile.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
 ═══════════════════════════════════════════════════════════════ */
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
-const API = `${BASE_URL}/api`;
+const API      = `${BASE_URL}/api`;
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
@@ -29,7 +39,7 @@ const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
 const fmtNum = (n) => {
   const v = Number(n || 0);
   if (v >= 1_000_000) return (v / 1_000_000).toFixed(1) + "m";
-  if (v >= 1_000) return (v / 1_000).toFixed(1) + "k";
+  if (v >= 1_000)     return (v / 1_000).toFixed(1) + "k";
   return v.toLocaleString();
 };
 
@@ -38,7 +48,7 @@ const fmtJoined = (d) => {
   try {
     return new Date(d).toLocaleDateString("en-NG", {
       month: "long",
-      year: "numeric",
+      year:  "numeric",
     });
   } catch {
     return null;
@@ -47,17 +57,17 @@ const fmtJoined = (d) => {
 
 const timeAgo = (d) => {
   if (!d) return "";
-  const diff = Date.now() - new Date(d).getTime();
-  const mins = Math.floor(diff / 60000);
+  const diff  = Date.now() - new Date(d).getTime();
+  const mins  = Math.floor(diff / 60000);
   const hours = Math.floor(diff / 3600000);
-  const days = Math.floor(diff / 86400000);
-  if (mins < 1) return "Just now";
-  if (mins < 60) return `${mins}m ago`;
+  const days  = Math.floor(diff / 86400000);
+  if (mins  < 1)  return "Just now";
+  if (mins  < 60) return `${mins}m ago`;
   if (hours < 24) return `${hours}h ago`;
-  if (days < 30) return `${days}d ago`;
+  if (days  < 30) return `${days}d ago`;
   return new Date(d).toLocaleDateString("en-NG", {
     month: "short",
-    day: "numeric",
+    day:   "numeric",
   });
 };
 
@@ -83,11 +93,9 @@ function normalizeUser(raw) {
   if (!raw) return null;
   return {
     ...raw,
-    phone: raw.phone || raw.phone_number || "",
-    location_state:
-      raw.location?.state || raw.location_state || raw.state || "",
-    location_city:
-      raw.location?.city || raw.location_city || raw.city || "",
+    phone:          raw.phone || raw.phone_number || "",
+    location_state: raw.location?.state || raw.location_state || raw.state || "",
+    location_city:  raw.location?.city  || raw.location_city  || raw.city  || "",
   };
 }
 
@@ -109,7 +117,7 @@ async function fetchUserListings() {
   try {
     const { data } = await axios.get(`${API}/seller-dashboard/products`, {
       headers: { Authorization: `Bearer ${token}` },
-      params: { limit: 8, page: 1, tab: "all" },
+      params:  { limit: 8, page: 1, tab: "all" },
     });
     return (data?.products || []).slice(0, 8);
   } catch {
@@ -151,13 +159,13 @@ function useAnimatedCounter(to, duration = 1.2) {
   const prev = useRef(0);
 
   useEffect(() => {
-    const from = prev.current;
+    const from   = prev.current;
     prev.current = to;
     if (from === to) return;
 
     const ctrl = animate(from, to, {
       duration,
-      ease: [0.16, 1, 0.3, 1],
+      ease:     [0.16, 1, 0.3, 1],
       onUpdate: (v) => setDisplay(Math.round(v * 10) / 10),
     });
 
@@ -168,10 +176,10 @@ function useAnimatedCounter(to, duration = 1.2) {
 }
 
 function usePullToRefresh(onRefresh, threshold = 80) {
-  const [pulling, setPulling] = useState(false);
-  const [pullY, setPullY] = useState(0);
+  const [pulling,    setPulling]    = useState(false);
+  const [pullY,      setPullY]      = useState(0);
   const [refreshing, setRefreshing] = useState(false);
-  const startY = useRef(null);
+  const startY       = useRef(null);
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -197,9 +205,7 @@ function usePullToRefresh(onRefresh, threshold = 80) {
       if (pullY >= threshold) {
         setRefreshing(true);
         setPullY(threshold * 0.6);
-        try { await onRefresh(); } finally {
-          setRefreshing(false);
-        }
+        try { await onRefresh(); } finally { setRefreshing(false); }
       }
       setPulling(false);
       setPullY(0);
@@ -207,13 +213,13 @@ function usePullToRefresh(onRefresh, threshold = 80) {
     };
 
     el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove", onTouchMove, { passive: true });
-    el.addEventListener("touchend", onTouchEnd);
+    el.addEventListener("touchmove",  onTouchMove,  { passive: true });
+    el.addEventListener("touchend",   onTouchEnd);
 
     return () => {
       el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove", onTouchMove);
-      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchmove",  onTouchMove);
+      el.removeEventListener("touchend",   onTouchEnd);
     };
   }, [pulling, pullY, threshold, onRefresh]);
 
@@ -221,7 +227,7 @@ function usePullToRefresh(onRefresh, threshold = 80) {
 }
 
 function useDragScroll() {
-  const ref = useRef(null);
+  const ref   = useRef(null);
   const state = useRef({ isDown: false, startX: 0, scrollLeft: 0 });
 
   useEffect(() => {
@@ -229,25 +235,25 @@ function useDragScroll() {
     if (!el) return;
 
     const onTouchStart = (e) => {
-      state.current.isDown = true;
-      state.current.startX = e.touches[0].pageX - el.offsetLeft;
+      state.current.isDown     = true;
+      state.current.startX     = e.touches[0].pageX - el.offsetLeft;
       state.current.scrollLeft = el.scrollLeft;
     };
-    const onTouchEnd = () => { state.current.isDown = false; };
+    const onTouchEnd  = () => { state.current.isDown = false; };
     const onTouchMove = (e) => {
       if (!state.current.isDown) return;
-      const x = e.touches[0].pageX - el.offsetLeft;
-      el.scrollLeft = state.current.scrollLeft - (x - state.current.startX) * 1.1;
+      const x        = e.touches[0].pageX - el.offsetLeft;
+      el.scrollLeft  = state.current.scrollLeft - (x - state.current.startX) * 1.1;
     };
 
     el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchend", onTouchEnd);
-    el.addEventListener("touchmove", onTouchMove, { passive: true });
+    el.addEventListener("touchend",   onTouchEnd);
+    el.addEventListener("touchmove",  onTouchMove,  { passive: true });
 
     return () => {
       el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchend", onTouchEnd);
-      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend",   onTouchEnd);
+      el.removeEventListener("touchmove",  onTouchMove);
     };
   }, []);
 
@@ -262,16 +268,16 @@ const softSpring = { type: "spring", stiffness: 200, damping: 24 };
 const popSpring  = { type: "spring", stiffness: 420, damping: 22 };
 const viewOnce   = { once: true, amount: 0.12 };
 
-const fadeUp   = { hidden: { opacity: 0, y: 28 }, visible: { opacity: 1, y: 0 } };
-const fadeScale= { hidden: { opacity: 0, scale: 0.88 }, visible: { opacity: 1, scale: 1 } };
+const fadeUp    = { hidden: { opacity: 0, y: 28 },           visible: { opacity: 1, y: 0 } };
+const fadeScale = { hidden: { opacity: 0, scale: 0.88 },     visible: { opacity: 1, scale: 1 } };
 
 const stagger = {
-  hidden: {},
+  hidden:  {},
   visible: { transition: { staggerChildren: 0.055, delayChildren: 0.04 } },
 };
 const cardReveal = {
-  hidden: { opacity: 0, y: 22, scale: 0.94 },
-  visible: { opacity: 1, y: 0, scale: 1 },
+  hidden:  { opacity: 0, y: 22, scale: 0.94 },
+  visible: { opacity: 1, y: 0,  scale: 1 },
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -322,8 +328,8 @@ const SUB_MAP = {
 ═══════════════════════════════════════════════════════════════ */
 const resolveImage = (item) => {
   if (!item) return null;
-  if (item.image) return item.image;
-  if (item.main_image) return item.main_image;
+  if (item.image)         return item.image;
+  if (item.main_image)    return item.main_image;
   if (item.thumbnail_url) return item.thumbnail_url;
   if (Array.isArray(item.images) && item.images.length > 0) {
     const f = item.images[0];
@@ -334,29 +340,32 @@ const resolveImage = (item) => {
 
 /* ═══════════════════════════════════════════════════════════════
    MENU CONFIG
+   ─────────────────────────────────────────────────────────────
+   /help     → HelpCenter.jsx    Browse FAQs, categories, articles
+   /support  → SupportHub.jsx    Tickets, report, dispute, appeals
 ═══════════════════════════════════════════════════════════════ */
 const buildMenuSections = (unreadCount = 0, subStatus = null) => [
   {
     title: "Selling",
-    icon: <Icon.trending />,
+    icon:  <Icon.trending />,
     color: "var(--o)",
     items: [
       { to: "/dashboard",    Ic: Icon.dashboard, label: "Seller Dashboard", desc: "Manage your store" },
       { to: "/minimart/add", Ic: Icon.plus,      label: "Post a Listing",   badge: "NEW", desc: "Create new listing" },
       {
-        to: "/seller/subscription",
-        Ic: Icon.crown,
-        label: "Subscription",
-        badge: subStatus?.isActive ? subStatus.planBadge || "PRO" : null,
+        to:        "/seller/subscription",
+        Ic:        Icon.crown,
+        label:     "Subscription",
+        badge:     subStatus?.isActive ? subStatus.planBadge || "PRO" : null,
         badgeType: subStatus?.isActive ? "sub" : undefined,
-        desc: "Manage your plan",
+        desc:      "Manage your plan",
       },
-      { to: "/leaderboard",  Ic: Icon.trending,  label: "Leaderboard",      desc: "Top sellers" },
+      { to: "/leaderboard", Ic: Icon.trending, label: "Leaderboard", desc: "Top sellers" },
     ],
   },
   {
     title: "Buying",
-    icon: <Icon.saved />,
+    icon:  <Icon.saved />,
     color: "var(--dp-pink)",
     items: [
       { to: "/saved",         Ic: Icon.saved,    label: "Saved Items", desc: "Your wishlist" },
@@ -365,42 +374,64 @@ const buildMenuSections = (unreadCount = 0, subStatus = null) => [
   },
   {
     title: "Rewards",
-    icon: <Icon.gift />,
+    icon:  <Icon.gift />,
     color: "#d97706",
     items: [
-      { to: "/spin",       Ic: Icon.zap,  label: "Spin & Win",      badge: "WIN", desc: "Try your luck" },
-      { to: "/coupons",    Ic: Icon.gift, label: "Coupons & Promos",             desc: "Available offers" },
-      { to: "/invitation", Ic: Icon.gift, label: "Refer & Earn",    badge: "₦500", desc: "Invite friends" },
+      { to: "/spin",       Ic: Icon.zap,  label: "Spin & Win",       badge: "WIN",  desc: "Try your luck" },
+      { to: "/coupons",    Ic: Icon.gift, label: "Coupons & Promos",               desc: "Available offers" },
+      { to: "/invitation", Ic: Icon.gift, label: "Refer & Earn",     badge: "₦500", desc: "Invite friends" },
     ],
   },
   {
     title: "Account",
-    icon: <Icon.settings />,
+    icon:  <Icon.settings />,
     color: "var(--gn)",
     items: [
-      { to: "/settings",     Ic: Icon.settings, label: "Settings",      desc: "App preferences" },
-      { to: "/verification", Ic: Icon.shield,   label: "Verification",  desc: "Verify your identity" },
+      { to: "/settings",     Ic: Icon.settings, label: "Settings",     desc: "App preferences" },
+      { to: "/verification", Ic: Icon.shield,   label: "Verification", desc: "Verify your identity" },
       {
-        to: "/notifications",
-        Ic: Icon.notify,
-        label: "Notifications",
-        badge: unreadCount > 0 ? (unreadCount > 99 ? "99+" : String(unreadCount)) : null,
+        to:        "/notifications",
+        Ic:        Icon.notify,
+        label:     "Notifications",
+        badge:     unreadCount > 0 ? (unreadCount > 99 ? "99+" : String(unreadCount)) : null,
         badgeType: "notif",
-        desc: "Stay updated",
+        desc:      "Stay updated",
       },
-      { to: "/support", Ic: Icon.support, label: "Help & Support", desc: "Get assistance" },
-      { to: "/faq",     Ic: Icon.help,    label: "FAQ",            desc: "Common questions" },
+      /* ── Help Center ─────────────────────────────────────
+         Navigates to HelpCenter.jsx
+         Browse FAQs, search articles, view categories
+      ──────────────────────────────────────────────────── */
+      {
+        to:    "/help",
+        Ic:    Icon.help,
+        label: "Help Center",
+        desc:  "Browse FAQs and articles",
+      },
+      /* ── Help & Support ──────────────────────────────────
+         Navigates to SupportHub.jsx
+         Submit tickets, report issues, disputes, appeals
+      ──────────────────────────────────────────────────── */
+      {
+        to:    "/support",
+        Ic:    Icon.support,
+        label: "Help & Support",
+        desc:  "Tickets, disputes, appeals",
+      },
     ],
   },
 ];
 
 /* ═══════════════════════════════════════════════════════════════
-   PULL TO REFRESH
+   PULL TO REFRESH INDICATOR
 ═══════════════════════════════════════════════════════════════ */
-const PullIndicator = memo(function PullIndicator({ pullY, refreshing, threshold = 80 }) {
-  const progress = Math.min(pullY / threshold, 1);
+const PullIndicator = memo(function PullIndicator({
+  pullY,
+  refreshing,
+  threshold = 80,
+}) {
+  const progress     = Math.min(pullY / threshold, 1);
   const circumference = 2 * Math.PI * 10;
-  const dash = circumference * progress;
+  const dash          = circumference * progress;
 
   return (
     <AnimatePresence>
@@ -467,7 +498,7 @@ const HeroProfileCard = memo(function HeroProfileCard({
   listingsCount,
 }) {
   const navigate = useNavigate();
-  const sub = subStatus?.isActive ? SUB_MAP[subStatus.plan] : null;
+  const sub      = subStatus?.isActive ? SUB_MAP[subStatus.plan] : null;
 
   return (
     <motion.section
@@ -495,10 +526,17 @@ const HeroProfileCard = memo(function HeroProfileCard({
 
       <div className="mp-avatar-section">
         <motion.div className="mp-avatar-wrap" whileTap={{ scale: 0.95 }}>
-          <div className="mp-avatar-ring" style={sub ? { background: sub.gradient } : undefined} />
+          <div
+            className="mp-avatar-ring"
+            style={sub ? { background: sub.gradient } : undefined}
+          />
           <div className="mp-avatar">
             {user?.profile_image ? (
-              <img src={user.profile_image} alt={user?.name} className="mp-avatar__img" />
+              <img
+                src={user.profile_image}
+                alt={user?.name}
+                className="mp-avatar__img"
+              />
             ) : (
               <span className="mp-avatar__letter">
                 {(user?.name || "U").charAt(0).toUpperCase()}
@@ -515,12 +553,18 @@ const HeroProfileCard = memo(function HeroProfileCard({
       <div className="mp-hero__info">
         <h1 className="mp-hero__name">
           {user?.name || "User"}
-          {user?.verified && <span className="mp-hero__verified"><Icon.chevron /></span>}
+          {user?.verified && (
+            <span className="mp-hero__verified">
+              <Icon.chevron />
+            </span>
+          )}
         </h1>
-        <p className="mp-hero__store">{user?.store_name || "Loemart Member"}</p>
+        <p className="mp-hero__store">
+          {user?.store_name || "Loemart Member"}
+        </p>
 
         <div className="mp-hero__badges">
-          {user?.is_seller && <span className="mp-chip mp-chip--seller">Seller</span>}
+          {user?.is_seller     && <span className="mp-chip mp-chip--seller">Seller</span>}
           {user?.is_top_seller && <span className="mp-chip mp-chip--top">⭐ Top Seller</span>}
           {sub && (
             <span className="mp-chip mp-chip--sub" style={{ background: sub.gradient }}>
@@ -535,30 +579,66 @@ const HeroProfileCard = memo(function HeroProfileCard({
         </div>
       </div>
 
-      {/* Stats row — Remvoed 0 values automatically */}
-      <motion.div className="mp-stats-strip" variants={stagger} initial="hidden" animate="visible">
+      <motion.div
+        className="mp-stats-strip"
+        variants={stagger}
+        initial="hidden"
+        animate="visible"
+      >
         {user?.rating != null && Number(user.rating) > 0 && (
-          <StatPill icon={<Icon.star />} value={Number(user.rating).toFixed(1)} label="Rating" delay={0.1} />
+          <StatPill
+            icon={<Icon.star />}
+            value={Number(user.rating).toFixed(1)}
+            label="Rating"
+            delay={0.1}
+          />
         )}
         {listingsCount > 0 && (
-          <StatPill icon={<Icon.package />} value={fmtNum(listingsCount)} label="Listings" delay={0.15} />
+          <StatPill
+            icon={<Icon.package />}
+            value={fmtNum(listingsCount)}
+            label="Listings"
+            delay={0.15}
+          />
         )}
         {user?.total_views != null && Number(user.total_views) > 0 && (
-          <StatPill icon={<Icon.eye />} value={fmtNum(user.total_views)} label="Views" delay={0.2} />
+          <StatPill
+            icon={<Icon.eye />}
+            value={fmtNum(user.total_views)}
+            label="Views"
+            delay={0.2}
+          />
         )}
         {user?.total_sales != null && Number(user.total_sales) > 0 && (
-          <StatPill icon={<Icon.trending />} value={fmtNum(user.total_sales)} label="Sales" delay={0.25} />
+          <StatPill
+            icon={<Icon.trending />}
+            value={fmtNum(user.total_sales)}
+            label="Sales"
+            delay={0.25}
+          />
         )}
       </motion.div>
 
       <motion.div className="mp-hero__actions">
-        <motion.button className="mp-qa mp-qa--primary" onClick={() => navigate("/minimart/add")} whileTap={{ scale: 0.95 }}>
+        <motion.button
+          className="mp-qa mp-qa--primary"
+          onClick={() => navigate("/minimart/add")}
+          whileTap={{ scale: 0.95 }}
+        >
           <Icon.plus /> <span>Post Listing</span>
         </motion.button>
-        <motion.button className="mp-qa mp-qa--ghost" onClick={() => navigate("/dashboard")} whileTap={{ scale: 0.95 }}>
+        <motion.button
+          className="mp-qa mp-qa--ghost"
+          onClick={() => navigate("/dashboard")}
+          whileTap={{ scale: 0.95 }}
+        >
           <Icon.dashboard /> <span>Dashboard</span>
         </motion.button>
-        <motion.button className="mp-qa mp-qa--ghost" onClick={() => navigate("/conversations")} whileTap={{ scale: 0.95 }}>
+        <motion.button
+          className="mp-qa mp-qa--ghost"
+          onClick={() => navigate("/conversations")}
+          whileTap={{ scale: 0.95 }}
+        >
           <Icon.messages /> <span>Messages</span>
         </motion.button>
       </motion.div>
@@ -569,10 +649,13 @@ const HeroProfileCard = memo(function HeroProfileCard({
 /* ═══════════════════════════════════════════════════════════════
    SUBSCRIPTION BANNER
 ═══════════════════════════════════════════════════════════════ */
-const MobileSubscriptionCard = memo(function MobileSubscriptionCard({ sub, onClick }) {
+const MobileSubscriptionCard = memo(function MobileSubscriptionCard({
+  sub,
+  onClick,
+}) {
   if (!sub) return null;
   const isActive = sub.isActive;
-  const info = isActive ? SUB_MAP[sub.plan] : null;
+  const info     = isActive ? SUB_MAP[sub.plan] : null;
 
   return (
     <motion.div
@@ -589,7 +672,10 @@ const MobileSubscriptionCard = memo(function MobileSubscriptionCard({ sub, onCli
       whileTap={{ scale: 0.97 }}
     >
       <div className="mp-sub-banner__glow" aria-hidden="true" />
-      <div className="mp-sub-banner__icon" style={info ? { background: info.gradient } : undefined}>
+      <div
+        className="mp-sub-banner__icon"
+        style={info ? { background: info.gradient } : undefined}
+      >
         {isActive ? <Icon.crown /> : <Icon.diamond />}
       </div>
       <div className="mp-sub-banner__body">
@@ -630,7 +716,14 @@ const MobileReferralCard = memo(function MobileReferralCard({ code }) {
   };
 
   return (
-    <motion.div className="mp-referral" variants={fadeScale} initial="hidden" whileInView="visible" viewport={viewOnce} transition={{ ...spring, delay: 0.1 }}>
+    <motion.div
+      className="mp-referral"
+      variants={fadeScale}
+      initial="hidden"
+      whileInView="visible"
+      viewport={viewOnce}
+      transition={{ ...spring, delay: 0.1 }}
+    >
       <div className="mp-referral__shine" aria-hidden="true" />
       <div className="mp-referral__top">
         <div className="mp-referral__icon"><Icon.gift /></div>
@@ -639,7 +732,11 @@ const MobileReferralCard = memo(function MobileReferralCard({ code }) {
           <p className="mp-referral__sub">Invite friends · they join · you earn</p>
         </div>
       </div>
-      <motion.button className={`mp-referral__pill${copied ? " mp-referral__pill--copied" : ""}`} onClick={copy} whileTap={{ scale: 0.95 }}>
+      <motion.button
+        className={`mp-referral__pill${copied ? " mp-referral__pill--copied" : ""}`}
+        onClick={copy}
+        whileTap={{ scale: 0.95 }}
+      >
         <span className="mp-referral__code">{code}</span>
         <AnimatePresence mode="wait">
           <motion.span key={copied ? "ok" : "cp"} className="mp-referral__icon-sm">
@@ -654,15 +751,32 @@ const MobileReferralCard = memo(function MobileReferralCard({ code }) {
 /* ═══════════════════════════════════════════════════════════════
    LISTING CARD
 ═══════════════════════════════════════════════════════════════ */
-const MobileListingCard = memo(function MobileListingCard({ item, onClick, index = 0 }) {
-  const img = resolveImage(item);
+const MobileListingCard = memo(function MobileListingCard({
+  item,
+  onClick,
+  index = 0,
+}) {
+  const img           = resolveImage(item);
   const [imgError, setImgError] = useState(false);
 
   return (
-    <motion.div className="mp-lcard" onClick={onClick} role="button" tabIndex={0} variants={cardReveal} transition={{ ...spring, delay: index * 0.04 }} whileTap={{ scale: 0.96 }}>
+    <motion.div
+      className="mp-lcard"
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      variants={cardReveal}
+      transition={{ ...spring, delay: index * 0.04 }}
+      whileTap={{ scale: 0.96 }}
+    >
       <div className="mp-lcard__img">
         {img && !imgError ? (
-          <img src={img} alt={item.title} loading="lazy" onError={() => setImgError(true)} />
+          <img
+            src={img}
+            alt={item.title}
+            loading="lazy"
+            onError={() => setImgError(true)}
+          />
         ) : (
           <div className="mp-lcard__placeholder"><Icon.package /></div>
         )}
@@ -672,7 +786,9 @@ const MobileListingCard = memo(function MobileListingCard({ item, onClick, index
           </span>
         )}
         {item.is_promoted && (
-          <span className="mp-lcard__badge mp-lcard__badge--hot"><Icon.zap /> Boosted</span>
+          <span className="mp-lcard__badge mp-lcard__badge--hot">
+            <Icon.zap /> Boosted
+          </span>
         )}
         <div className="mp-lcard__overlay" />
         <p className="mp-lcard__price-float">{naira(item.price)}</p>
@@ -691,14 +807,25 @@ const MobileListingCard = memo(function MobileListingCard({ item, onClick, index
 /* ═══════════════════════════════════════════════════════════════
    RECENT LISTINGS
 ═══════════════════════════════════════════════════════════════ */
-const MobileRecentListings = memo(function MobileRecentListings({ listings, onViewAll }) {
-  const navigate = useNavigate();
+const MobileRecentListings = memo(function MobileRecentListings({
+  listings,
+  onViewAll,
+}) {
+  const navigate  = useNavigate();
   const scrollRef = useDragScroll();
 
   if (!listings || listings.length === 0) return null;
 
   return (
-    <motion.section className="mp-listings" aria-label="Recent listings" variants={fadeUp} initial="hidden" whileInView="visible" viewport={viewOnce} transition={{ ...spring, delay: 0.08 }}>
+    <motion.section
+      className="mp-listings"
+      aria-label="Recent listings"
+      variants={fadeUp}
+      initial="hidden"
+      whileInView="visible"
+      viewport={viewOnce}
+      transition={{ ...spring, delay: 0.08 }}
+    >
       <div className="mp-section-hdr">
         <div className="mp-section-hdr__l">
           <span className="mp-section-hdr__icon"><Icon.package /></span>
@@ -707,13 +834,28 @@ const MobileRecentListings = memo(function MobileRecentListings({ listings, onVi
             <p className="mp-section-hdr__sub">{listings.length} active items</p>
           </div>
         </div>
-        <motion.button className="mp-section-hdr__btn" onClick={onViewAll} whileTap={{ scale: 0.95 }}>
+        <motion.button
+          className="mp-section-hdr__btn"
+          onClick={onViewAll}
+          whileTap={{ scale: 0.95 }}
+        >
           View All <Icon.chevron />
         </motion.button>
       </div>
       <div className="mp-listings__scroll" ref={scrollRef} role="list">
         {listings.map((item, i) => (
-          <MobileListingCard key={item.id} item={item} index={i} onClick={() => navigate(item.slug ? `/product/${item.slug}` : `/product/${item.id}`)} />
+          <MobileListingCard
+            key={item.id}
+            item={item}
+            index={i}
+            onClick={() =>
+              navigate(
+                item.slug
+                  ? `/product/${item.slug}`
+                  : `/product/${item.id}`
+              )
+            }
+          />
         ))}
       </div>
     </motion.section>
@@ -723,19 +865,35 @@ const MobileRecentListings = memo(function MobileRecentListings({ listings, onVi
 /* ═══════════════════════════════════════════════════════════════
    MENU ITEM
 ═══════════════════════════════════════════════════════════════ */
-const MobileMenuItem = memo(function MobileMenuItem({ to, Ic, label, desc, badge, badgeType, currentPath, index = 0 }) {
+const MobileMenuItem = memo(function MobileMenuItem({
+  to,
+  Ic,
+  label,
+  desc,
+  badge,
+  badgeType,
+  currentPath,
+  index = 0,
+}) {
   const isActive = currentPath === to;
+
   const pillCls =
-    badgeType === "notif" ? "mp-pill mp-pill--notif"
-    : badgeType === "sub" ? "mp-pill mp-pill--sub"
-    : badge === "WIN" ? "mp-pill mp-pill--win"
-    : badge === "NEW" ? "mp-pill mp-pill--new"
+    badgeType === "notif"    ? "mp-pill mp-pill--notif"
+    : badgeType === "sub"    ? "mp-pill mp-pill--sub"
+    : badge    === "WIN"     ? "mp-pill mp-pill--win"
+    : badge    === "NEW"     ? "mp-pill mp-pill--new"
     : badge?.startsWith?.("₦") ? "mp-pill mp-pill--money"
     : "mp-pill";
 
   return (
-    <motion.div variants={cardReveal} transition={{ ...spring, delay: index * 0.03 }}>
-      <Link to={to} className={`mp-mitem${isActive ? " mp-mitem--active" : ""}`}>
+    <motion.div
+      variants={cardReveal}
+      transition={{ ...spring, delay: index * 0.03 }}
+    >
+      <Link
+        to={to}
+        className={`mp-mitem${isActive ? " mp-mitem--active" : ""}`}
+      >
         <span className={`mp-mitem__icon${isActive ? " mp-mitem__icon--on" : ""}`}>
           <Ic />
           {badgeType === "notif" && badge && <span className="mp-mitem__dot" />}
@@ -754,9 +912,20 @@ const MobileMenuItem = memo(function MobileMenuItem({ to, Ic, label, desc, badge
 /* ═══════════════════════════════════════════════════════════════
    ERROR BANNER
 ═══════════════════════════════════════════════════════════════ */
-const MobileErrorBanner = memo(function MobileErrorBanner({ message, onRetry, isRetrying }) {
+const MobileErrorBanner = memo(function MobileErrorBanner({
+  message,
+  onRetry,
+  isRetrying,
+}) {
   return (
-    <motion.div className="mp-error" role="alert" initial={{ opacity: 0, y: -16, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -16, scale: 0.95 }} transition={spring}>
+    <motion.div
+      className="mp-error"
+      role="alert"
+      initial={{ opacity: 0, y: -16, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0,   scale: 1 }}
+      exit={{ opacity: 0,   y: -16,  scale: 0.95 }}
+      transition={spring}
+    >
       <div className="mp-error__row">
         <span className="mp-error__icon"><Icon.wifi /></span>
         <div>
@@ -764,8 +933,16 @@ const MobileErrorBanner = memo(function MobileErrorBanner({ message, onRetry, is
           <p className="mp-error__msg">{message}</p>
         </div>
       </div>
-      <motion.button className="mp-error__btn" onClick={onRetry} disabled={isRetrying} whileTap={{ scale: 0.95 }}>
-        {isRetrying ? <><span className="mp-spinner-sm" /> Refreshing…</> : <><Icon.refresh /> Tap to Retry</>}
+      <motion.button
+        className="mp-error__btn"
+        onClick={onRetry}
+        disabled={isRetrying}
+        whileTap={{ scale: 0.95 }}
+      >
+        {isRetrying
+          ? <><span className="mp-spinner-sm" /> Refreshing…</>
+          : <><Icon.refresh /> Tap to Retry</>
+        }
       </motion.button>
     </motion.div>
   );
@@ -775,59 +952,63 @@ const MobileErrorBanner = memo(function MobileErrorBanner({ message, onRetry, is
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function MobileProfile({ onLogout }) {
-  const navigate = useNavigate();
-  const location = useLocation();
+  const navigate    = useNavigate();
+  const location    = useLocation();
   const currentPath = location.pathname;
   const queryClient = useQueryClient();
 
   const menuRef = useRef(null);
   const pageRef = useRef(null);
-  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuOpen,   setMenuOpen]   = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
 
+  /* ── Data fetching ── */
   const {
-    data: user,
-    error: userError,
+    data:    user,
+    error:   userError,
     isError: userIsError,
     refetch: refetchUser,
   } = useQuery({
     queryKey: ["profile-user"],
-    queryFn: fetchUserData,
+    queryFn:  fetchUserData,
     staleTime: 2 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-    retry: (count, err) => err?.response?.status !== 401 && err?.response?.status !== 403 && count < 3,
+    gcTime:    30 * 60 * 1000,
+    retry: (count, err) =>
+      err?.response?.status !== 401 &&
+      err?.response?.status !== 403 &&
+      count < 3,
   });
 
   const {
-    data: listings = [],
+    data:      listings = [],
     isLoading: listingsLoading,
-    refetch: refetchListings,
+    refetch:   refetchListings,
   } = useQuery({
     queryKey: ["profile-listings"],
-    queryFn: fetchUserListings,
+    queryFn:  fetchUserListings,
     staleTime: 3 * 60 * 1000,
-    gcTime: 30 * 60 * 1000,
-    retry: 1,
-    enabled: !!getToken(),
+    gcTime:    30 * 60 * 1000,
+    retry:     1,
+    enabled:   !!getToken(),
   });
 
   const { data: unreadCount = 0 } = useQuery({
-    queryKey: ["profile-unread-count"],
-    queryFn: fetchUnreadCount,
-    staleTime: 60 * 1000,
-    gcTime: 5 * 60 * 1000,
-    retry: 1,
-    enabled: !!getToken(),
+    queryKey:       ["profile-unread-count"],
+    queryFn:        fetchUnreadCount,
+    staleTime:      60 * 1000,
+    gcTime:         5 * 60 * 1000,
+    retry:          1,
+    enabled:        !!getToken(),
     refetchInterval: 60 * 1000,
   });
 
   const { data: subStatus = null } = useQuery({
     queryKey: ["profile-subscription-status"],
-    queryFn: fetchSubscriptionStatus,
+    queryFn:  fetchSubscriptionStatus,
     staleTime: 2 * 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-    retry: 1,
-    enabled: !!getToken(),
+    gcTime:    10 * 60 * 1000,
+    retry:     1,
+    enabled:   !!getToken(),
   });
 
   const menuSections = useMemo(
@@ -835,6 +1016,7 @@ export default function MobileProfile({ onLogout }) {
     [unreadCount, subStatus]
   );
 
+  /* ── Pull to refresh ── */
   const handleRefresh = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["profile-user"] }),
@@ -842,8 +1024,10 @@ export default function MobileProfile({ onLogout }) {
     ]);
   }, [queryClient]);
 
-  const { containerRef, pullY, pulling, refreshing } = usePullToRefresh(handleRefresh, 80);
+  const { containerRef, pullY, pulling, refreshing } =
+    usePullToRefresh(handleRefresh, 80);
 
+  /* ── Auth guard ── */
   useEffect(() => {
     if (!getToken()) { navigate("/auth"); return; }
     if (userIsError) {
@@ -856,22 +1040,35 @@ export default function MobileProfile({ onLogout }) {
     }
   }, [userIsError, userError, navigate]);
 
+  /* ── Logout ── */
   const logout = useCallback(() => {
-    ["marketplace_token", "token", "seller_token"].forEach((k) => localStorage.removeItem(k));
+    ["marketplace_token", "token", "seller_token"].forEach((k) =>
+      localStorage.removeItem(k)
+    );
     onLogout?.();
     navigate("/auth");
   }, [navigate, onLogout]);
 
+  /* ── Retry ── */
   const handleRetry = useCallback(async () => {
     setIsRetrying(true);
-    try { await Promise.all([refetchUser(), refetchListings()]); } finally { setIsRetrying(false); }
+    try {
+      await Promise.all([refetchUser(), refetchListings()]);
+    } finally {
+      setIsRetrying(false);
+    }
   }, [refetchUser, refetchListings]);
 
   const joinedLabel = fmtJoined(user?.created_at || user?.joined_at);
 
-  const errorMessage = userIsError && userError?.response?.status !== 401 && userError?.response?.status !== 403
-    ? userError?.response?.status >= 500 ? "Server is temporarily unavailable." : "Connection error."
-    : null;
+  const errorMessage =
+    userIsError &&
+    userError?.response?.status !== 401 &&
+    userError?.response?.status !== 403
+      ? userError?.response?.status >= 500
+        ? "Server is temporarily unavailable."
+        : "Connection error."
+      : null;
 
   return (
     <div className="mp-root" role="main">
@@ -890,46 +1087,117 @@ export default function MobileProfile({ onLogout }) {
 
       <PullIndicator pullY={pullY} refreshing={refreshing} />
 
-      <div className="mp-scroll" ref={(node) => { pageRef.current = node; containerRef.current = node; }}>
+      <div
+        className="mp-scroll"
+        ref={(node) => {
+          pageRef.current      = node;
+          containerRef.current = node;
+        }}
+      >
         <AnimatePresence>
-          {errorMessage && <MobileErrorBanner message={errorMessage} onRetry={handleRetry} isRefreshing={isRefreshing} />}
+          {errorMessage && (
+            <MobileErrorBanner
+              message={errorMessage}
+              onRetry={handleRetry}
+              isRetrying={isRetrying}
+            />
+          )}
         </AnimatePresence>
 
-        <HeroProfileCard user={user} joinedLabel={joinedLabel} subStatus={subStatus} onEdit={() => navigate("/profile/edit")} listingsCount={listings.length} />
+        <HeroProfileCard
+          user={user}
+          joinedLabel={joinedLabel}
+          subStatus={subStatus}
+          onEdit={() => navigate("/profile/edit")}
+          listingsCount={listings.length}
+        />
 
         {listingsLoading ? (
-          <div className="mp-skeletons"><div className="mp-sk-card"><div className="mp-sk-img mp-shimmer" /></div></div>
+          <div className="mp-skeletons">
+            <div className="mp-sk-card">
+              <div className="mp-sk-img mp-shimmer" />
+            </div>
+          </div>
         ) : (
-          <MobileRecentListings listings={listings} onViewAll={() => navigate("/dashboard")} />
+          <MobileRecentListings
+            listings={listings}
+            onViewAll={() => navigate("/dashboard")}
+          />
         )}
 
-        <MobileSubscriptionCard sub={subStatus} onClick={() => navigate(subStatus?.isActive ? "/seller/subscription" : "/seller/subscription/plans")} />
+        <MobileSubscriptionCard
+          sub={subStatus}
+          onClick={() =>
+            navigate(
+              subStatus?.isActive
+                ? "/seller/subscription"
+                : "/seller/subscription/plans"
+            )
+          }
+        />
+
         <MobileReferralCard code={user?.referral_code} />
 
         <div className="mp-menu-wrap">
           {menuSections.map((section, si) => (
-            <motion.section key={section.title} className="mp-msection" variants={fadeUp} initial="hidden" whileInView="visible" viewport={viewOnce} transition={{ ...spring, delay: si * 0.035 }}>
+            <motion.section
+              key={section.title}
+              className="mp-msection"
+              variants={fadeUp}
+              initial="hidden"
+              whileInView="visible"
+              viewport={viewOnce}
+              transition={{ ...spring, delay: si * 0.035 }}
+            >
               <div className="mp-msection__hdr">
-                <span className="mp-msection__icon" style={{ color: section.color }}>{section.icon}</span>
+                <span
+                  className="mp-msection__icon"
+                  style={{ color: section.color }}
+                >
+                  {section.icon}
+                </span>
                 <h3 className="mp-msection__title">{section.title}</h3>
               </div>
-              <motion.div className="mp-msection__list" variants={stagger} initial="hidden" whileInView="visible" viewport={viewOnce}>
+
+              <motion.div
+                className="mp-msection__list"
+                variants={stagger}
+                initial="hidden"
+                whileInView="visible"
+                viewport={viewOnce}
+              >
                 {section.items.map((item, i) => (
-                  <MobileMenuItem key={item.to} to={item.to} Ic={item.Ic} label={item.label} desc={item.desc} badge={item.badge} badgeType={item.badgeType} currentPath={currentPath} index={i} />
+                  <MobileMenuItem
+                    key={item.to}
+                    to={item.to}
+                    Ic={item.Ic}
+                    label={item.label}
+                    desc={item.desc}
+                    badge={item.badge}
+                    badgeType={item.badgeType}
+                    currentPath={currentPath}
+                    index={i}
+                  />
                 ))}
               </motion.div>
             </motion.section>
           ))}
 
-          <motion.button className="mp-logout" onClick={logout} whileTap={{ scale: 0.96 }}>
+          <motion.button
+            className="mp-logout"
+            onClick={logout}
+            whileTap={{ scale: 0.96 }}
+          >
             <Icon.logout /> <span>Log Out</span>
           </motion.button>
         </div>
 
-        <p className="mp-footer">Loemart Technologies Ltd · {new Date().getFullYear()}</p>
+        <p className="mp-footer">
+          Loemart Technologies Ltd · {new Date().getFullYear()}
+        </p>
       </div>
 
-      <BottomNav /> {/* ← Rendered shared BottomNav cleanly here */}
+      <BottomNav />
     </div>
   );
 }
