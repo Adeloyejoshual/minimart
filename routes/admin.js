@@ -26,7 +26,10 @@ import withdrawalRouter                 from "./admin/withdrawalRoutes.js";
 import leaderboardRouter                from "./admin/leaderboard.js";
 import airtimeCouponAdminRouter         from "./admin/airtimeCoupons.js";
 import couponRedemptionRouter           from "./admin/couponRedemption.js";
-import subscriptionAdminRouter          from "./admin/subscriptionAdmin.js"; // ✅ NEW
+import subscriptionAdminRouter          from "./admin/subscriptionAdmin.js";
+
+/* ── NEW: Help & Support admin sub-router ───────────────── */
+import supportAdminRouter               from "./support/admin.js";
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
@@ -177,11 +180,22 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       verifiedReferralsRes,
       rewardedReferralsRes,
 
-      /* ── NEW: coupon stats ── */
       couponTotalRes,
       couponAvailableRes,
       couponRedeemedRes,
       couponTodayRes,
+
+      /* ── NEW: support stats ── */
+      supportTicketsTotalRes,
+      supportTicketsOpenRes,
+      supportTicketsInProgressRes,
+      supportTicketsResolvedRes,
+      supportTicketsEscalatedRes,
+      supportTicketsTodayRes,
+      supportReportsPendingRes,
+      supportDisputesOpenRes,
+      supportAppealsOpenRes,
+      supportAvgRatingRes,
     ] = await Promise.all([
       pool.query(`SELECT COUNT(*) FROM public.users`),
       pool.query(`SELECT COUNT(*) FROM public.users WHERE status != 'banned'`),
@@ -228,12 +242,46 @@ router.get("/stats", verifyAdmin, async (req, res) => {
       safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status IN ('verified','rewarded')`)),
       safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'rewarded'`)),
 
-      /* coupon stats */
       safe(pool.query(`SELECT COUNT(*) FROM public.coupons`)),
       safe(pool.query(`SELECT COUNT(*) FROM public.coupons WHERE is_active = true`)),
       safe(pool.query(`SELECT COUNT(*) FROM public.coupons WHERE is_active = false`)),
       safe(pool.query(
         `SELECT COUNT(*) FROM public.coupon_redemptions WHERE redeemed_at >= $1`, [today]
+      )),
+
+      /* ── support stats ── */
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets
+         WHERE status IN ('open', 'waiting_for_customer')`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'in_progress'`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'resolved'`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'escalated'`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE created_at >= $1`, [today]
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.reports WHERE status = 'pending'`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.disputes WHERE status IN ('open', 'under_review')`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.appeals WHERE status IN ('pending', 'under_review')`
+      )),
+      safe(pool.query(
+        `SELECT ROUND(AVG(satisfaction_rating), 2) AS avg_rating
+         FROM public.support_tickets
+         WHERE satisfaction_rating IS NOT NULL`
       )),
     ]);
 
@@ -273,12 +321,29 @@ router.get("/stats", verifyAdmin, async (req, res) => {
         rewarded: Number(rewardedReferralsRes.rows[0].count),
       },
 
-      /* ── NEW ── */
       coupons: {
         total     : Number(couponTotalRes.rows[0].count),
         available : Number(couponAvailableRes.rows[0].count),
         redeemed  : Number(couponRedeemedRes.rows[0].count),
         today     : Number(couponTodayRes.rows[0].count),
+      },
+
+      /* ── NEW: support summary on main dashboard ── */
+      support: {
+        tickets: {
+          total:       Number(supportTicketsTotalRes.rows[0].count),
+          open:        Number(supportTicketsOpenRes.rows[0].count),
+          in_progress: Number(supportTicketsInProgressRes.rows[0].count),
+          resolved:    Number(supportTicketsResolvedRes.rows[0].count),
+          escalated:   Number(supportTicketsEscalatedRes.rows[0].count),
+          today:       Number(supportTicketsTodayRes.rows[0].count),
+        },
+        reports_pending:  Number(supportReportsPendingRes.rows[0].count),
+        disputes_open:    Number(supportDisputesOpenRes.rows[0].count),
+        appeals_open:     Number(supportAppealsOpenRes.rows[0].count),
+        avg_rating:       supportAvgRatingRes.rows[0]?.avg_rating
+                            ? Number(supportAvgRatingRes.rows[0].avg_rating)
+                            : null,
       },
     });
 
@@ -522,6 +587,9 @@ router.use("/withdrawals",        withdrawalRouter);
 router.use("/leaderboard",        leaderboardRouter);
 router.use("/airtime-coupons",    airtimeCouponAdminRouter);
 router.use("/coupon-redemption",  couponRedemptionRouter);
-router.use("/subscriptions",      subscriptionAdminRouter); // ✅ NEW
+router.use("/subscriptions",      subscriptionAdminRouter);
+
+/* ── NEW: Help & Support admin panel ────────────────────── */
+router.use("/support",            supportAdminRouter);
 
 export default router;
