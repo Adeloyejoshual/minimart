@@ -22,7 +22,7 @@ import {
 import axios from "axios";
 
 import ProfileHeader from "../components/ProfileHeader.jsx";
-import "../styles/MobileProfile.css";
+import "../styles/Profile.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
