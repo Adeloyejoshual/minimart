@@ -29,7 +29,7 @@ import couponRedemptionRouter           from "./admin/couponRedemption.js";
 import subscriptionAdminRouter          from "./admin/subscriptionAdmin.js";
 
 /* ── NEW: Help & Support admin sub-router ───────────────── */
-import supportAdminRouter               from "./support/admin.js";
+import supportAdminRouter               from "./admin/support.js";
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
