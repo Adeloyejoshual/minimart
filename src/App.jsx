@@ -101,7 +101,7 @@ import HallOfFame from "./pages/HallOfFame";
    PAGES — DESKTOP
 ════════════════════════════════════════════════════════════ */
 import LeaderboardDesktop from "./desktop/LeaderboardDesktop";
-import DesktopProfile     from "./desktop/Profile";          /* ← NEW */
+import DesktopProfile     from "./desktop/Profile";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — MESSAGING DESKTOP
@@ -124,7 +124,8 @@ import AdminDashboard from "./page/admin/AdminDashboard";
 /* ════════════════════════════════════════════════════════════
    COMPONENTS
 ════════════════════════════════════════════════════════════ */
-import CartPage from "./components/Cart/CartPage";
+import CartPage      from "./components/Cart/CartPage";
+import DesktopHeader from "./components/DesktopHeader"; /* ← NEW */
 
 /* ════════════════════════════════════════════════════════════
    CONSTANTS
@@ -150,6 +151,20 @@ const TOASTER_OPTIONS = {
   success : { style: { background: "#16a34a" } },
   error   : { style: { background: "#dc2626" } },
 };
+
+/* ════════════════════════════════════════════════════════════
+   ROUTES WHERE THE DESKTOP HEADER IS HIDDEN
+   ─────────────────────────────────────────────────────────
+   Auth pages, admin panel and the full-screen chat on desktop
+   have their own chrome — no site header needed.
+════════════════════════════════════════════════════════════ */
+const HEADER_HIDDEN_PREFIXES = [
+  "/auth",
+  "/forgot-password",
+  "/reset-password",
+  "/admin",
+  "/invite/",
+];
 
 /* ════════════════════════════════════════════════════════════
    CART SYNC
@@ -193,7 +208,7 @@ function ScrollToTop() {
 }
 
 /* ════════════════════════════════════════════════════════════
-   DESKTOP HOOK
+   DESKTOP HOOK  (single definition shared everywhere)
 ════════════════════════════════════════════════════════════ */
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(
@@ -208,6 +223,38 @@ function useIsDesktop() {
   }, []);
 
   return isDesktop;
+}
+
+/* ════════════════════════════════════════════════════════════
+   DESKTOP HEADER WRAPPER
+   ─────────────────────────────────────────────────────────
+   Rendered inside <Router> so it has access to useLocation.
+   Hidden on auth / admin routes and on mobile viewports.
+════════════════════════════════════════════════════════════ */
+function SiteHeader({ user, onLogout }) {
+  const { pathname } = useLocation();
+  const isDesktop    = useIsDesktop();
+
+  /* Hide on mobile */
+  if (!isDesktop) return null;
+
+  /* Hide on auth / admin / invite routes */
+  const hidden = HEADER_HIDDEN_PREFIXES.some((prefix) =>
+    pathname.startsWith(prefix)
+  );
+  if (hidden) return null;
+
+  return (
+    <>
+      <DesktopHeader user={user} onLogout={onLogout} />
+      {/*
+        .dh-spacer  (height: 64px)
+        Pushes page content below the fixed header.
+        DesktopHeader.css already defines this class.
+      */}
+      <div className="dh-spacer" aria-hidden="true" />
+    </>
+  );
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -255,12 +302,6 @@ function LeaderboardRoute({ user }) {
     : <Leaderboard user={user} />;
 }
 
-/* ════════════════════════════════════════════════════════════
-   PROFILE RESPONSIVE ROUTE                              ← NEW
-   /profile
-     ≥ 1024px  →  desktop/Profile/index.tsx  (DesktopProfile)
-     <  1024px  →  pages/Profile.jsx          (Profile)
-════════════════════════════════════════════════════════════ */
 function ProfileRoute({ onLogout }) {
   const isDesktop = useIsDesktop();
   return isDesktop
@@ -268,9 +309,6 @@ function ProfileRoute({ onLogout }) {
     : <Profile        onLogout={onLogout} />;
 }
 
-/* ════════════════════════════════════════════════════════════
-   SUBSCRIPTION RESPONSIVE ROUTES
-════════════════════════════════════════════════════════════ */
 function SubscriptionRoute() {
   const isDesktop = useIsDesktop();
   return isDesktop
@@ -349,7 +387,7 @@ const AuthLoader = memo(function AuthLoader() {
           width        : 36,
           height       : 36,
           border       : "3px solid #e8e4de",
-          borderTop    : "3px solid #2c6fad",
+          borderTop    : "3px solid #FF5C00",
           borderRadius : "50%",
           animation    : "spin .7s linear infinite",
         }}
@@ -446,6 +484,20 @@ export default function App() {
       <ScrollToTop />
       <Toaster position="top-right" toastOptions={TOASTER_OPTIONS} />
 
+      {/*
+        ════════════════════════════════════════════════════════
+        SITE-WIDE DESKTOP HEADER
+        ────────────────────────────────────────────────────────
+        · Rendered inside <Router> so useLocation works.
+        · SiteHeader internally checks:
+            1. Is viewport ≥ 1024px?  (hides on mobile)
+            2. Is route in HEADER_HIDDEN_PREFIXES?  (hides on auth/admin)
+        · Passes live `user` state + `handleLogout` so the
+          account menu and badge counts are always fresh.
+        ════════════════════════════════════════════════════════
+      */}
+      <SiteHeader user={user} onLogout={handleLogout} />
+
       <Routes>
 
         {/* ════════════ PUBLIC ════════════ */}
@@ -522,26 +574,14 @@ export default function App() {
         />
 
         {/* ════════════ PROTECTED — PROFILE ════════════ */}
-
-        {/*
-          /profile
-          ─────────────────────────────────────────────────────
-          ≥ 1024px  →  DesktopProfile  (desktop/Profile/index.tsx)
-          <  1024px  →  Profile          (pages/Profile.jsx)
-
-          Both receive only `onLogout`.
-          The desktop variant fetches its own data via react-query.
-          The mobile variant (Profile.jsx) does the same — no user prop needed.
-        */}
         <Route
           path="/profile"
           element={
             <ProtectedRoute user={user}>
-              <ProfileRoute onLogout={handleLogout} />    {/* ← CHANGED */}
+              <ProfileRoute onLogout={handleLogout} />
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/profile/edit"
           element={
