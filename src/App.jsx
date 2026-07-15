@@ -101,6 +101,7 @@ import HallOfFame from "./pages/HallOfFame";
    PAGES — DESKTOP
 ════════════════════════════════════════════════════════════ */
 import LeaderboardDesktop from "./desktop/LeaderboardDesktop";
+import DesktopProfile     from "./desktop/Profile";          /* ← NEW */
 
 /* ════════════════════════════════════════════════════════════
    PAGES — MESSAGING DESKTOP
@@ -193,7 +194,6 @@ function ScrollToTop() {
 
 /* ════════════════════════════════════════════════════════════
    DESKTOP HOOK
-   Single definition — shared by every responsive route component.
 ════════════════════════════════════════════════════════════ */
 function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(
@@ -256,12 +256,20 @@ function LeaderboardRoute({ user }) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   SUBSCRIPTION RESPONSIVE ROUTES
-   Mobile  → src/pages/Subscription/
-   Desktop → src/desktop/Subscription/
+   PROFILE RESPONSIVE ROUTE                              ← NEW
+   /profile
+     ≥ 1024px  →  desktop/Profile/index.tsx  (DesktopProfile)
+     <  1024px  →  pages/Profile.jsx          (Profile)
+════════════════════════════════════════════════════════════ */
+function ProfileRoute({ onLogout }) {
+  const isDesktop = useIsDesktop();
+  return isDesktop
+    ? <DesktopProfile onLogout={onLogout} />
+    : <Profile        onLogout={onLogout} />;
+}
 
-   Both read the auth token from localStorage directly so they
-   do not depend on the user prop being passed down.
+/* ════════════════════════════════════════════════════════════
+   SUBSCRIPTION RESPONSIVE ROUTES
 ════════════════════════════════════════════════════════════ */
 function SubscriptionRoute() {
   const isDesktop = useIsDesktop();
@@ -279,7 +287,6 @@ function PlansRoute() {
 
 /* ════════════════════════════════════════════════════════════
    INVITE REDIRECT
-   /invite/:code  →  /auth?ref=CODE
 ════════════════════════════════════════════════════════════ */
 function InviteRedirect() {
   const { code } = useParams();
@@ -362,7 +369,7 @@ export default function App() {
 
   const { resetCache } = useProductCache();
 
-  /* ── Resolve marketplace user from stored token ── */
+  /* ── Resolve marketplace user ── */
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEYS.marketplace);
 
@@ -384,7 +391,7 @@ export default function App() {
       .finally(() => setAuthChecked(true));
   }, []);
 
-  /* ── Resolve admin from localStorage ── */
+  /* ── Resolve admin ── */
   useEffect(() => {
     const token       = localStorage.getItem(TOKEN_KEYS.admin);
     const storedAdmin = localStorage.getItem("admin_data");
@@ -398,7 +405,7 @@ export default function App() {
     }
   }, []);
 
-  /* ── Auth success handler ── */
+  /* ── Auth success ── */
   const handleAuthSuccess = useCallback(
     (userData, token, navigateFn, from) => {
       localStorage.setItem(TOKEN_KEYS.marketplace, token);
@@ -414,7 +421,7 @@ export default function App() {
     [resetCache]
   );
 
-  /* ── Logout handler ── */
+  /* ── Logout ── */
   const handleLogout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEYS.marketplace);
     setUser(null);
@@ -422,7 +429,7 @@ export default function App() {
     toast.success("Signed out");
   }, [resetCache]);
 
-  /* ── Profile update handler ── */
+  /* ── Profile update ── */
   const handleProfileUpdate = useCallback((updatedData) => {
     setUser((prev) => ({
       ...prev,
@@ -492,23 +499,7 @@ export default function App() {
         <Route path="/seller/dashboard"      element={<SellerDashboard />} />
         <Route path="/seller/dashboard/:tab" element={<SellerDashboard />} />
 
-        {/* ════════════════════════════════════════════════════════
-            SELLER SUBSCRIPTION — RESPONSIVE
-            ─────────────────────────────────────────────────────
-            /seller/subscription
-              Mobile  → Subscription.jsx
-              Desktop → DesktopSubscription.tsx
-
-            /seller/subscription/plans
-              Mobile  → Plans.jsx
-              Desktop → DesktopPlans.tsx
-
-            /subscription/callback/paystack
-              NOT wrapped in ProtectedRoute.
-              Paystack redirects the browser here — no auth header.
-              Payment.jsx reads the token from localStorage itself.
-              Same page on both mobile and desktop (simple card UI).
-        ════════════════════════════════════════════════════════ */}
+        {/* ════════════ SUBSCRIPTION ════════════ */}
         <Route
           path="/seller/subscription"
           element={
@@ -531,14 +522,26 @@ export default function App() {
         />
 
         {/* ════════════ PROTECTED — PROFILE ════════════ */}
+
+        {/*
+          /profile
+          ─────────────────────────────────────────────────────
+          ≥ 1024px  →  DesktopProfile  (desktop/Profile/index.tsx)
+          <  1024px  →  Profile          (pages/Profile.jsx)
+
+          Both receive only `onLogout`.
+          The desktop variant fetches its own data via react-query.
+          The mobile variant (Profile.jsx) does the same — no user prop needed.
+        */}
         <Route
           path="/profile"
           element={
             <ProtectedRoute user={user}>
-              <Profile user={user} onLogout={handleLogout} />
+              <ProfileRoute onLogout={handleLogout} />    {/* ← CHANGED */}
             </ProtectedRoute>
           }
         />
+
         <Route
           path="/profile/edit"
           element={
