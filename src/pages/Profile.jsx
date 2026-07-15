@@ -5,24 +5,15 @@ import {
   useCallback,
   memo,
   useMemo,
-  lazy,
-  Suspense,
 } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  motion,
-  AnimatePresence,
-  useScroll,
-  useTransform,
-  useSpring,
-  useMotionValue,
-  animate,
-} from "framer-motion";
+import { motion, AnimatePresence, useScroll, useTransform, animate } from "framer-motion";
 import axios from "axios";
 
 import ProfileHeader from "../components/ProfileHeader.jsx";
-import "../styles/Profile.css";
+import BottomNav from "../components/BottomNav"; // ← Imported BottomNav directly
+import "../styles/MobileProfile.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
@@ -155,8 +146,6 @@ async function fetchSubscriptionStatus() {
 /* ═══════════════════════════════════════════════════════════════
    HOOKS
 ═══════════════════════════════════════════════════════════════ */
-
-/* ── Animated counter ── */
 function useAnimatedCounter(to, duration = 1.2) {
   const [display, setDisplay] = useState(0);
   const prev = useRef(0);
@@ -178,7 +167,6 @@ function useAnimatedCounter(to, duration = 1.2) {
   return display;
 }
 
-/* ── Pull to refresh ── */
 function usePullToRefresh(onRefresh, threshold = 80) {
   const [pulling, setPulling] = useState(false);
   const [pullY, setPullY] = useState(0);
@@ -232,7 +220,6 @@ function usePullToRefresh(onRefresh, threshold = 80) {
   return { containerRef, pullY, pulling, refreshing };
 }
 
-/* ── Drag scroll ── */
 function useDragScroll() {
   const ref = useRef(null);
   const state = useRef({ isDown: false, startX: 0, scrollLeft: 0 });
@@ -267,11 +254,6 @@ function useDragScroll() {
   return ref;
 }
 
-/* ── Parallax scroll ── */
-function useParallax(scrollY, inputRange, outputRange) {
-  return useTransform(scrollY, inputRange, outputRange);
-}
-
 /* ═══════════════════════════════════════════════════════════════
    ANIMATION PRESETS
 ═══════════════════════════════════════════════════════════════ */
@@ -281,9 +263,7 @@ const popSpring  = { type: "spring", stiffness: 420, damping: 22 };
 const viewOnce   = { once: true, amount: 0.12 };
 
 const fadeUp   = { hidden: { opacity: 0, y: 28 }, visible: { opacity: 1, y: 0 } };
-const fadeDown = { hidden: { opacity: 0, y: -20 }, visible: { opacity: 1, y: 0 } };
 const fadeScale= { hidden: { opacity: 0, scale: 0.88 }, visible: { opacity: 1, scale: 1 } };
-const slideRight={ hidden: { opacity: 0, x: -24 }, visible: { opacity: 1, x: 0 } };
 
 const stagger = {
   hidden: {},
@@ -297,7 +277,7 @@ const cardReveal = {
 /* ═══════════════════════════════════════════════════════════════
    ICONS
 ═══════════════════════════════════════════════════════════════ */
-const I = {
+const Icon = {
   logout:    () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
   chevron:   () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>,
   dashboard: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>,
@@ -324,47 +304,17 @@ const I = {
   arrowUp:   () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>,
   eye:       () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
   sparkle:   () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0L14.59 8.41L23 11L14.59 13.59L12 22L9.41 13.59L1 11L9.41 8.41Z"/></svg>,
-  home:      () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>,
-  user:      () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>,
-  store:     () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/><path d="M2 9h20"/></svg>,
-  search:    () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>,
-  check:     () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="20 6 9 17 4 12"/></svg>,
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SUBSCRIPTION / THEME MAP
+   SUBSCRIPTION MAP
 ═══════════════════════════════════════════════════════════════ */
 const SUB_MAP = {
-  premium: {
-    label: "Premium",
-    cls: "mp-sub-badge--premium",
-    gradient: "linear-gradient(135deg,#667eea,#764ba2)",
-    glow: "rgba(102,126,234,0.35)",
-  },
-  pro: {
-    label: "Pro",
-    cls: "mp-sub-badge--pro",
-    gradient: "linear-gradient(135deg,#f093fb,#f5576c)",
-    glow: "rgba(240,147,251,0.35)",
-  },
-  business: {
-    label: "Business",
-    cls: "mp-sub-badge--business",
-    gradient: "linear-gradient(135deg,#4facfe,#00f2fe)",
-    glow: "rgba(79,172,254,0.35)",
-  },
-  elite: {
-    label: "Elite",
-    cls: "mp-sub-badge--elite",
-    gradient: "linear-gradient(135deg,#FFD700,#FFA500)",
-    glow: "rgba(255,215,0,0.35)",
-  },
-  diamond: {
-    label: "Diamond",
-    cls: "mp-sub-badge--diamond",
-    gradient: "linear-gradient(135deg,#a8edea,#fed6e3)",
-    glow: "rgba(168,237,234,0.35)",
-  },
+  premium:  { label: "Premium",  gradient: "linear-gradient(135deg,#667eea,#764ba2)" },
+  pro:      { label: "Pro",      gradient: "linear-gradient(135deg,#f093fb,#f5576c)" },
+  business: { label: "Business", gradient: "linear-gradient(135deg,#4facfe,#00f2fe)" },
+  elite:    { label: "Elite",    gradient: "linear-gradient(135deg,#d97706,#f59e0b)" },
+  diamond:  { label: "Diamond",  gradient: "linear-gradient(135deg,#6366f1,#8b5cf6)" },
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -388,64 +338,64 @@ const resolveImage = (item) => {
 const buildMenuSections = (unreadCount = 0, subStatus = null) => [
   {
     title: "Selling",
-    icon: <I.trending />,
-    color: "var(--mp-accent)",
+    icon: <Icon.trending />,
+    color: "var(--o)",
     items: [
-      { to: "/dashboard",    Ic: I.dashboard, label: "Seller Dashboard", desc: "Manage your store" },
-      { to: "/minimart/add", Ic: I.plus,      label: "Post a Listing",   badge: "NEW",  desc: "Create new listing" },
+      { to: "/dashboard",    Ic: Icon.dashboard, label: "Seller Dashboard", desc: "Manage your store" },
+      { to: "/minimart/add", Ic: Icon.plus,      label: "Post a Listing",   badge: "NEW", desc: "Create new listing" },
       {
         to: "/seller/subscription",
-        Ic: I.crown,
+        Ic: Icon.crown,
         label: "Subscription",
         badge: subStatus?.isActive ? subStatus.planBadge || "PRO" : null,
         badgeType: subStatus?.isActive ? "sub" : undefined,
         desc: "Manage your plan",
       },
-      { to: "/leaderboard",  Ic: I.trending,  label: "Leaderboard",     desc: "Top sellers" },
+      { to: "/leaderboard",  Ic: Icon.trending,  label: "Leaderboard",      desc: "Top sellers" },
     ],
   },
   {
     title: "Buying",
-    icon: <I.saved />,
-    color: "var(--mp-pink)",
+    icon: <Icon.saved />,
+    color: "var(--dp-pink)",
     items: [
-      { to: "/saved",         Ic: I.saved,    label: "Saved Items", desc: "Your wishlist" },
-      { to: "/conversations", Ic: I.messages, label: "Messages",    desc: "Chat with sellers" },
+      { to: "/saved",         Ic: Icon.saved,    label: "Saved Items", desc: "Your wishlist" },
+      { to: "/conversations", Ic: Icon.messages, label: "Messages",    desc: "Chat with sellers" },
     ],
   },
   {
     title: "Rewards",
-    icon: <I.gift />,
-    color: "var(--mp-gold)",
+    icon: <Icon.gift />,
+    color: "#d97706",
     items: [
-      { to: "/spin",       Ic: I.zap,  label: "Spin & Win",      badge: "WIN",  desc: "Try your luck" },
-      { to: "/coupons",    Ic: I.gift, label: "Coupons & Promos",              desc: "Available offers" },
-      { to: "/invitation", Ic: I.gift, label: "Refer & Earn",    badge: "₦500", desc: "Invite friends" },
+      { to: "/spin",       Ic: Icon.zap,  label: "Spin & Win",      badge: "WIN", desc: "Try your luck" },
+      { to: "/coupons",    Ic: Icon.gift, label: "Coupons & Promos",             desc: "Available offers" },
+      { to: "/invitation", Ic: Icon.gift, label: "Refer & Earn",    badge: "₦500", desc: "Invite friends" },
     ],
   },
   {
     title: "Account",
-    icon: <I.settings />,
-    color: "var(--mp-green)",
+    icon: <Icon.settings />,
+    color: "var(--gn)",
     items: [
-      { to: "/settings",     Ic: I.settings, label: "Settings",      desc: "App preferences" },
-      { to: "/verification", Ic: I.shield,   label: "Verification",  desc: "Verify your identity" },
+      { to: "/settings",     Ic: Icon.settings, label: "Settings",      desc: "App preferences" },
+      { to: "/verification", Ic: Icon.shield,   label: "Verification",  desc: "Verify your identity" },
       {
         to: "/notifications",
-        Ic: I.notify,
+        Ic: Icon.notify,
         label: "Notifications",
         badge: unreadCount > 0 ? (unreadCount > 99 ? "99+" : String(unreadCount)) : null,
         badgeType: "notif",
         desc: "Stay updated",
       },
-      { to: "/support", Ic: I.support, label: "Help & Support", desc: "Get assistance" },
-      { to: "/faq",     Ic: I.help,    label: "FAQ",            desc: "Common questions" },
+      { to: "/support", Ic: Icon.support, label: "Help & Support", desc: "Get assistance" },
+      { to: "/faq",     Ic: Icon.help,    label: "FAQ",            desc: "Common questions" },
     ],
   },
 ];
 
 /* ═══════════════════════════════════════════════════════════════
-   PULL-TO-REFRESH INDICATOR
+   PULL TO REFRESH
 ═══════════════════════════════════════════════════════════════ */
 const PullIndicator = memo(function PullIndicator({ pullY, refreshing, threshold = 80 }) {
   const progress = Math.min(pullY / threshold, 1);
@@ -468,16 +418,11 @@ const PullIndicator = memo(function PullIndicator({ pullY, refreshing, threshold
               <div className="mp-ptr__spinner" />
             ) : (
               <svg width="24" height="24" viewBox="0 0 24 24">
+                <circle cx="12" cy="12" r="10" fill="none" stroke="var(--bd)" strokeWidth="2" />
                 <circle
                   cx="12" cy="12" r="10"
                   fill="none"
-                  stroke="var(--mp-glass-border)"
-                  strokeWidth="2"
-                />
-                <circle
-                  cx="12" cy="12" r="10"
-                  fill="none"
-                  stroke="var(--mp-accent)"
+                  stroke="var(--o)"
                   strokeWidth="2"
                   strokeDasharray={`${dash} ${circumference}`}
                   strokeLinecap="round"
@@ -495,14 +440,7 @@ const PullIndicator = memo(function PullIndicator({ pullY, refreshing, threshold
 /* ═══════════════════════════════════════════════════════════════
    ANIMATED STAT PILL
 ═══════════════════════════════════════════════════════════════ */
-const StatPill = memo(function StatPill({ icon, rawValue, label, delay = 0, prefix = "", suffix = "" }) {
-  const animated = useAnimatedCounter(rawValue);
-  const display  = rawValue >= 1000
-    ? fmtNum(animated)
-    : typeof rawValue === "number" && !Number.isInteger(rawValue)
-      ? animated.toFixed(1)
-      : Math.round(animated);
-
+const StatPill = memo(function StatPill({ icon, value, label, delay = 0 }) {
   return (
     <motion.div
       className="mp-stat"
@@ -510,92 +448,26 @@ const StatPill = memo(function StatPill({ icon, rawValue, label, delay = 0, pref
       transition={{ ...spring, delay }}
     >
       <span className="mp-stat__icon">{icon}</span>
-      <span className="mp-stat__value">{prefix}{display}{suffix}</span>
-      <span className="mp-stat__label">{label}</span>
-    </motion.div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   AVATAR STACK (multiple seller trust icons)
-═══════════════════════════════════════════════════════════════ */
-const AvatarRing = memo(function AvatarRing({ user, subStatus, onEdit }) {
-  const [imgErr, setImgErr] = useState(false);
-  const sub = subStatus?.isActive ? SUB_MAP[subStatus.plan] : null;
-
-  return (
-    <motion.div
-      className="mp-avatar-wrap"
-      initial={{ scale: 0.7, opacity: 0 }}
-      animate={{ scale: 1, opacity: 1 }}
-      transition={{ ...popSpring, delay: 0.1 }}
-    >
-      {/* Rotating gradient ring */}
-      <div
-        className="mp-avatar-ring"
-        style={sub ? { background: sub.gradient } : undefined}
-      />
-
-      {/* Avatar */}
-      <div className="mp-avatar">
-        {user?.profile_image && !imgErr ? (
-          <img
-            src={user.profile_image}
-            alt={user.name}
-            onError={() => setImgErr(true)}
-            className="mp-avatar__img"
-          />
-        ) : (
-          <span className="mp-avatar__letter">
-            {(user?.name || "U").charAt(0).toUpperCase()}
-          </span>
-        )}
+      <div className="mp-stat__content">
+        <span className="mp-stat__value">{value}</span>
+        <span className="mp-stat__label">{label}</span>
       </div>
-
-      {/* Online dot */}
-      <span className="mp-avatar__online" />
-
-      {/* Edit camera button */}
-      <motion.button
-        className="mp-avatar__cam"
-        onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        aria-label="Change photo"
-        whileTap={{ scale: 0.82 }}
-        whileHover={{ scale: 1.08 }}
-      >
-        <I.camera />
-      </motion.button>
-
-      {/* Sub crown badge */}
-      {sub && (
-        <motion.div
-          className="mp-avatar__crown"
-          initial={{ scale: 0, rotate: -30 }}
-          animate={{ scale: 1, rotate: 0 }}
-          transition={{ ...popSpring, delay: 0.4 }}
-          style={{ background: sub.gradient }}
-          title={sub.label}
-        >
-          <I.crown />
-        </motion.div>
-      )}
     </motion.div>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   HERO SECTION
+   HERO CARD
 ═══════════════════════════════════════════════════════════════ */
-const HeroSection = memo(function HeroSection({
-  user, joinedLabel, subStatus, onEdit, listingsCount, scrollY,
+const HeroProfileCard = memo(function HeroProfileCard({
+  user,
+  joinedLabel,
+  subStatus,
+  onEdit,
+  listingsCount,
 }) {
   const navigate = useNavigate();
   const sub = subStatus?.isActive ? SUB_MAP[subStatus.plan] : null;
-
-  /* Parallax */
-  const orbY1 = useParallax(scrollY, [0, 300], [0, -60]);
-  const orbY2 = useParallax(scrollY, [0, 300], [0, -35]);
-  const nameY = useParallax(scrollY, [0, 200], [0, -20]);
 
   return (
     <motion.section
@@ -603,142 +475,91 @@ const HeroSection = memo(function HeroSection({
       variants={fadeUp}
       initial="hidden"
       animate="visible"
-      transition={{ ...softSpring, delay: 0.04 }}
+      transition={{ ...softSpring, delay: 0.05 }}
     >
-      {/* ── Ambient background ── */}
       <div className="mp-hero__bg" aria-hidden="true">
-        <motion.div className="mp-orb mp-orb--1" style={{ y: orbY1 }} />
-        <motion.div className="mp-orb mp-orb--2" style={{ y: orbY2 }} />
+        <div className="mp-orb mp-orb--1" />
+        <div className="mp-orb mp-orb--2" />
         <div className="mp-orb mp-orb--3" />
         <div className="mp-hero__mesh" />
       </div>
 
-      {/* ── Edit FAB ── */}
       <motion.button
         className="mp-hero__edit"
         onClick={onEdit}
         aria-label="Edit profile"
-        whileTap={{ scale: 0.88 }}
-        initial={{ opacity: 0, x: 20 }}
-        animate={{ opacity: 1, x: 0 }}
-        transition={{ ...spring, delay: 0.3 }}
+        whileTap={{ scale: 0.9 }}
       >
-        <I.edit />
-        <span>Edit</span>
+        <Icon.edit />
       </motion.button>
 
-      {/* ── Avatar ── */}
-      <AvatarRing user={user} subStatus={subStatus} onEdit={onEdit} />
+      <div className="mp-avatar-section">
+        <motion.div className="mp-avatar-wrap" whileTap={{ scale: 0.95 }}>
+          <div className="mp-avatar-ring" style={sub ? { background: sub.gradient } : undefined} />
+          <div className="mp-avatar">
+            {user?.profile_image ? (
+              <img src={user.profile_image} alt={user?.name} className="mp-avatar__img" />
+            ) : (
+              <span className="mp-avatar__letter">
+                {(user?.name || "U").charAt(0).toUpperCase()}
+              </span>
+            )}
+          </div>
+          <span className="mp-avatar__online" />
+          <motion.button className="mp-avatar__cam" onClick={onEdit}>
+            <Icon.camera />
+          </motion.button>
+        </motion.div>
+      </div>
 
-      {/* ── Name block ── */}
-      <motion.div className="mp-hero__info" style={{ y: nameY }}>
-        <motion.h1
-          className="mp-hero__name"
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ ...spring, delay: 0.18 }}
-        >
+      <div className="mp-hero__info">
+        <h1 className="mp-hero__name">
           {user?.name || "User"}
-          {user?.verified && (
-            <motion.span
-              className="mp-hero__verified"
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ ...popSpring, delay: 0.38 }}
-              title="Verified"
-            >
-              <I.check />
-            </motion.span>
-          )}
-        </motion.h1>
-
+          {user?.verified && <span className="mp-hero__verified"><Icon.chevron /></span>}
+        </h1>
         <p className="mp-hero__store">{user?.store_name || "Loemart Member"}</p>
 
-        {/* Badges */}
-        <motion.div
-          className="mp-hero__badges"
-          variants={stagger}
-          initial="hidden"
-          animate="visible"
-        >
-          {user?.is_seller && (
-            <motion.span variants={cardReveal} className="mp-chip mp-chip--seller">
-              Seller
-            </motion.span>
-          )}
-          {user?.is_top_seller && (
-            <motion.span variants={cardReveal} className="mp-chip mp-chip--top">
-              ⭐ Top Seller
-            </motion.span>
-          )}
+        <div className="mp-hero__badges">
+          {user?.is_seller && <span className="mp-chip mp-chip--seller">Seller</span>}
+          {user?.is_top_seller && <span className="mp-chip mp-chip--top">⭐ Top Seller</span>}
           {sub && (
-            <motion.span
-              variants={cardReveal}
-              className={`mp-chip mp-chip--sub ${sub.cls}`}
-              style={{ background: sub.gradient }}
-            >
-              <I.crown /> {sub.label}
-            </motion.span>
+            <span className="mp-chip mp-chip--sub" style={{ background: sub.gradient }}>
+              <Icon.crown /> {sub.label}
+            </span>
           )}
-        </motion.div>
+        </div>
 
-        {/* Meta */}
         <div className="mp-hero__meta">
-          {joinedLabel && <span>📅 {joinedLabel}</span>}
+          {joinedLabel && <span>📅 Joined {joinedLabel}</span>}
           {user?.location_state && <span>📍 {user.location_state}</span>}
         </div>
-      </motion.div>
+      </div>
 
-      {/* ── Stats strip ── */}
-      <motion.div
-        className="mp-stats-strip"
-        variants={stagger}
-        initial="hidden"
-        animate="visible"
-      >
-        {user?.rating != null && (
-          <StatPill
-            icon={<I.star />}
-            rawValue={Number(user.rating)}
-            label="Rating"
-            delay={0.12}
-          />
+      {/* Stats row — Remvoed 0 values automatically */}
+      <motion.div className="mp-stats-strip" variants={stagger} initial="hidden" animate="visible">
+        {user?.rating != null && Number(user.rating) > 0 && (
+          <StatPill icon={<Icon.star />} value={Number(user.rating).toFixed(1)} label="Rating" delay={0.1} />
         )}
-        <StatPill icon={<I.package />} rawValue={listingsCount} label="Listings" delay={0.17} />
-        <StatPill icon={<I.eye />}     rawValue={Number(user?.total_views || 0)} label="Views" delay={0.22} />
-        {user?.total_sales != null && (
-          <StatPill icon={<I.trending />} rawValue={Number(user.total_sales)} label="Sales" delay={0.27} />
+        {listingsCount > 0 && (
+          <StatPill icon={<Icon.package />} value={fmtNum(listingsCount)} label="Listings" delay={0.15} />
+        )}
+        {user?.total_views != null && Number(user.total_views) > 0 && (
+          <StatPill icon={<Icon.eye />} value={fmtNum(user.total_views)} label="Views" delay={0.2} />
+        )}
+        {user?.total_sales != null && Number(user.total_sales) > 0 && (
+          <StatPill icon={<Icon.trending />} value={fmtNum(user.total_sales)} label="Sales" delay={0.25} />
         )}
       </motion.div>
 
-      {/* ── Quick actions ── */}
-      <motion.div
-        className="mp-hero__actions"
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...spring, delay: 0.28 }}
-      >
-        <motion.button
-          className="mp-qa mp-qa--primary"
-          onClick={() => navigate("/minimart/add")}
-          whileTap={{ scale: 0.93 }}
-          whileHover={{ scale: 1.03 }}
-        >
-          <I.plus /> <span>Post Listing</span>
+      <motion.div className="mp-hero__actions">
+        <motion.button className="mp-qa mp-qa--primary" onClick={() => navigate("/minimart/add")} whileTap={{ scale: 0.95 }}>
+          <Icon.plus /> <span>Post Listing</span>
         </motion.button>
-        <motion.button
-          className="mp-qa mp-qa--ghost"
-          onClick={() => navigate("/dashboard")}
-          whileTap={{ scale: 0.93 }}
-        >
-          <I.dashboard /> <span>Dashboard</span>
+        <motion.button className="mp-qa mp-qa--ghost" onClick={() => navigate("/dashboard")} whileTap={{ scale: 0.95 }}>
+          <Icon.dashboard /> <span>Dashboard</span>
         </motion.button>
-        <motion.button
-          className="mp-qa mp-qa--ghost"
-          onClick={() => navigate("/conversations")}
-          whileTap={{ scale: 0.93 }}
-        >
-          <I.messages /> <span>Messages</span>
+        <motion.button className="mp-qa mp-qa--ghost" onClick={() => navigate("/conversations")} whileTap={{ scale: 0.95 }}>
+          <Icon.messages /> <span>Messages</span>
         </motion.button>
       </motion.div>
     </motion.section>
@@ -748,7 +569,7 @@ const HeroSection = memo(function HeroSection({
 /* ═══════════════════════════════════════════════════════════════
    SUBSCRIPTION BANNER
 ═══════════════════════════════════════════════════════════════ */
-const SubBanner = memo(function SubBanner({ sub, onClick }) {
+const MobileSubscriptionCard = memo(function MobileSubscriptionCard({ sub, onClick }) {
   if (!sub) return null;
   const isActive = sub.isActive;
   const info = isActive ? SUB_MAP[sub.plan] : null;
@@ -764,44 +585,39 @@ const SubBanner = memo(function SubBanner({ sub, onClick }) {
       initial="hidden"
       whileInView="visible"
       viewport={viewOnce}
-      transition={{ ...spring, delay: 0.06 }}
+      transition={{ ...spring, delay: 0.08 }}
       whileTap={{ scale: 0.97 }}
-      style={info ? { "--sub-glow": info.glow } : undefined}
     >
-      {isActive && <div className="mp-sub-banner__glow" />}
-
+      <div className="mp-sub-banner__glow" aria-hidden="true" />
       <div className="mp-sub-banner__icon" style={info ? { background: info.gradient } : undefined}>
-        {isActive ? <I.crown /> : <I.diamond />}
+        {isActive ? <Icon.crown /> : <Icon.diamond />}
       </div>
-
       <div className="mp-sub-banner__body">
         {isActive && info ? (
           <>
             <span className="mp-sub-banner__name">{info.label} Plan</span>
             <span className="mp-sub-banner__tag">
-              <span className="mp-sub-banner__dot" />
-              Active subscription
+              <span className="mp-sub-banner__dot" /> Active subscription
             </span>
           </>
         ) : (
           <>
             <span className="mp-sub-banner__name">Free Plan</span>
             <span className="mp-sub-banner__tag mp-sub-banner__tag--cta">
-              <I.sparkle /> Upgrade for more reach
+              <Icon.sparkle /> Upgrade now
             </span>
           </>
         )}
       </div>
-
-      <span className="mp-sub-banner__arrow"><I.chevron /></span>
+      <span className="mp-sub-banner__arrow"><Icon.chevron /></span>
     </motion.div>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   REFERRAL BANNER
+   REFERRAL CARD
 ═══════════════════════════════════════════════════════════════ */
-const ReferralBanner = memo(function ReferralBanner({ code }) {
+const MobileReferralCard = memo(function MobileReferralCard({ code }) {
   const [copied, setCopied] = useState(false);
   if (!code) return null;
 
@@ -814,41 +630,20 @@ const ReferralBanner = memo(function ReferralBanner({ code }) {
   };
 
   return (
-    <motion.div
-      className="mp-referral"
-      variants={fadeScale}
-      initial="hidden"
-      whileInView="visible"
-      viewport={viewOnce}
-      transition={{ ...spring, delay: 0.08 }}
-    >
+    <motion.div className="mp-referral" variants={fadeScale} initial="hidden" whileInView="visible" viewport={viewOnce} transition={{ ...spring, delay: 0.1 }}>
       <div className="mp-referral__shine" aria-hidden="true" />
-
       <div className="mp-referral__top">
-        <div className="mp-referral__icon"><I.gift /></div>
+        <div className="mp-referral__icon"><Icon.gift /></div>
         <div>
-          <p className="mp-referral__title">Refer & Earn ₦500</p>
+          <h3 className="mp-referral__title">Refer & Earn ₦500</h3>
           <p className="mp-referral__sub">Invite friends · they join · you earn</p>
         </div>
       </div>
-
-      <motion.button
-        className={`mp-referral__pill${copied ? " mp-referral__pill--copied" : ""}`}
-        onClick={copy}
-        aria-label="Copy referral code"
-        whileTap={{ scale: 0.94 }}
-      >
+      <motion.button className={`mp-referral__pill${copied ? " mp-referral__pill--copied" : ""}`} onClick={copy} whileTap={{ scale: 0.95 }}>
         <span className="mp-referral__code">{code}</span>
         <AnimatePresence mode="wait">
-          <motion.span
-            key={copied ? "ok" : "cp"}
-            className="mp-referral__icon-sm"
-            initial={{ opacity: 0, scale: 0.4, rotate: -90 }}
-            animate={{ opacity: 1, scale: 1, rotate: 0 }}
-            exit={{ opacity: 0, scale: 0.4, rotate: 90 }}
-            transition={{ duration: 0.18 }}
-          >
-            {copied ? <I.check /> : <I.copy />}
+          <motion.span key={copied ? "ok" : "cp"} className="mp-referral__icon-sm">
+            {copied ? "✓" : <Icon.copy />}
           </motion.span>
         </AnimatePresence>
       </motion.button>
@@ -859,56 +654,33 @@ const ReferralBanner = memo(function ReferralBanner({ code }) {
 /* ═══════════════════════════════════════════════════════════════
    LISTING CARD
 ═══════════════════════════════════════════════════════════════ */
-const ListingCard = memo(function ListingCard({ item, onClick, index = 0 }) {
+const MobileListingCard = memo(function MobileListingCard({ item, onClick, index = 0 }) {
   const img = resolveImage(item);
-  const [imgErr, setImgErr] = useState(false);
-  const [pressed, setPressed] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   return (
-    <motion.div
-      className={`mp-lcard${pressed ? " mp-lcard--pressed" : ""}`}
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-      aria-label={`View ${item.title}`}
-      onKeyDown={onActivate(onClick)}
-      onTouchStart={() => setPressed(true)}
-      onTouchEnd={() => setPressed(false)}
-      variants={cardReveal}
-      transition={{ ...spring, delay: index * 0.035 }}
-    >
+    <motion.div className="mp-lcard" onClick={onClick} role="button" tabIndex={0} variants={cardReveal} transition={{ ...spring, delay: index * 0.04 }} whileTap={{ scale: 0.96 }}>
       <div className="mp-lcard__img">
-        {img && !imgErr ? (
-          <img
-            src={img}
-            alt={item.title}
-            loading="lazy"
-            onError={() => setImgErr(true)}
-          />
+        {img && !imgError ? (
+          <img src={img} alt={item.title} loading="lazy" onError={() => setImgError(true)} />
         ) : (
-          <div className="mp-lcard__placeholder"><I.package /></div>
+          <div className="mp-lcard__placeholder"><Icon.package /></div>
         )}
-
         {item.status && !item.status.startsWith("active") && (
           <span className={`mp-lcard__badge mp-lcard__badge--${item.status.split("_")[0]}`}>
             {item.status.replace(/_/g, " ")}
           </span>
         )}
         {item.is_promoted && (
-          <span className="mp-lcard__badge mp-lcard__badge--hot">
-            <I.zap /> Hot
-          </span>
+          <span className="mp-lcard__badge mp-lcard__badge--hot"><Icon.zap /> Boosted</span>
         )}
-
-        {/* Gradient overlay */}
         <div className="mp-lcard__overlay" />
         <p className="mp-lcard__price-float">{naira(item.price)}</p>
       </div>
-
       <div className="mp-lcard__body">
         <p className="mp-lcard__title">{item.title}</p>
         <div className="mp-lcard__meta">
-          <span><I.eye /> {fmtNum(item.views || 0)}</span>
+          <span><Icon.eye /> {fmtNum(item.views || 0)}</span>
           <span>{timeAgo(item.created_at)}</span>
         </div>
       </div>
@@ -917,61 +689,33 @@ const ListingCard = memo(function ListingCard({ item, onClick, index = 0 }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   LISTINGS SECTION
+   RECENT LISTINGS
 ═══════════════════════════════════════════════════════════════ */
-const ListingsSection = memo(function ListingsSection({ listings, onViewAll }) {
-  const navigate  = useNavigate();
+const MobileRecentListings = memo(function MobileRecentListings({ listings, onViewAll }) {
+  const navigate = useNavigate();
   const scrollRef = useDragScroll();
 
-  if (!listings?.length) return null;
+  if (!listings || listings.length === 0) return null;
 
   return (
-    <motion.section
-      className="mp-listings"
-      aria-label="Recent listings"
-      variants={fadeUp}
-      initial="hidden"
-      whileInView="visible"
-      viewport={viewOnce}
-      transition={{ ...spring, delay: 0.06 }}
-    >
+    <motion.section className="mp-listings" aria-label="Recent listings" variants={fadeUp} initial="hidden" whileInView="visible" viewport={viewOnce} transition={{ ...spring, delay: 0.08 }}>
       <div className="mp-section-hdr">
         <div className="mp-section-hdr__l">
-          <span className="mp-section-hdr__icon"><I.package /></span>
+          <span className="mp-section-hdr__icon"><Icon.package /></span>
           <div>
             <h2 className="mp-section-hdr__title">My Listings</h2>
             <p className="mp-section-hdr__sub">{listings.length} active items</p>
           </div>
         </div>
-        <motion.button
-          className="mp-section-hdr__btn"
-          onClick={onViewAll}
-          whileTap={{ scale: 0.94 }}
-        >
-          View All <I.chevron />
+        <motion.button className="mp-section-hdr__btn" onClick={onViewAll} whileTap={{ scale: 0.95 }}>
+          View All <Icon.chevron />
         </motion.button>
       </div>
-
-      <motion.div
-        className="mp-listings__scroll"
-        ref={scrollRef}
-        variants={stagger}
-        initial="hidden"
-        whileInView="visible"
-        viewport={viewOnce}
-        role="list"
-      >
+      <div className="mp-listings__scroll" ref={scrollRef} role="list">
         {listings.map((item, i) => (
-          <ListingCard
-            key={item.id}
-            item={item}
-            index={i}
-            onClick={() =>
-              navigate(item.slug ? `/product/${item.slug}` : `/product/${item.id}`)
-            }
-          />
+          <MobileListingCard key={item.id} item={item} index={i} onClick={() => navigate(item.slug ? `/product/${item.slug}` : `/product/${item.id}`)} />
         ))}
-      </motion.div>
+      </div>
     </motion.section>
   );
 });
@@ -979,48 +723,29 @@ const ListingsSection = memo(function ListingsSection({ listings, onViewAll }) {
 /* ═══════════════════════════════════════════════════════════════
    MENU ITEM
 ═══════════════════════════════════════════════════════════════ */
-const MenuItem = memo(function MenuItem({
-  to, Ic, label, desc, badge, badgeType, isActive, index = 0,
-}) {
+const MobileMenuItem = memo(function MobileMenuItem({ to, Ic, label, desc, badge, badgeType, currentPath, index = 0 }) {
+  const isActive = currentPath === to;
   const pillCls =
     badgeType === "notif" ? "mp-pill mp-pill--notif"
     : badgeType === "sub" ? "mp-pill mp-pill--sub"
-    : badge === "WIN"     ? "mp-pill mp-pill--win"
-    : badge === "NEW"     ? "mp-pill mp-pill--new"
+    : badge === "WIN" ? "mp-pill mp-pill--win"
+    : badge === "NEW" ? "mp-pill mp-pill--new"
     : badge?.startsWith?.("₦") ? "mp-pill mp-pill--money"
     : "mp-pill";
 
   return (
-    <motion.div
-      variants={cardReveal}
-      transition={{ ...spring, delay: index * 0.025 }}
-    >
-      <Link
-        to={to}
-        className={`mp-mitem${isActive ? " mp-mitem--active" : ""}`}
-        aria-current={isActive ? "page" : undefined}
-      >
+    <motion.div variants={cardReveal} transition={{ ...spring, delay: index * 0.03 }}>
+      <Link to={to} className={`mp-mitem${isActive ? " mp-mitem--active" : ""}`}>
         <span className={`mp-mitem__icon${isActive ? " mp-mitem__icon--on" : ""}`}>
           <Ic />
-          {badgeType === "notif" && badge && (
-            <span className="mp-mitem__dot" aria-hidden="true" />
-          )}
+          {badgeType === "notif" && badge && <span className="mp-mitem__dot" />}
         </span>
-
         <div className="mp-mitem__body">
           <span className="mp-mitem__label">{label}</span>
           {desc && <span className="mp-mitem__desc">{desc}</span>}
         </div>
-
-        {badge && (
-          <span className={pillCls} aria-label={
-            badgeType === "notif" ? `${badge} unread` : undefined
-          }>
-            {badge}
-          </span>
-        )}
-
-        <span className="mp-mitem__arrow"><I.chevron /></span>
+        {badge && <span className={pillCls}>{badge}</span>}
+        <span className="mp-mitem__arrow"><Icon.chevron /></span>
       </Link>
     </motion.div>
   );
@@ -1029,205 +754,37 @@ const MenuItem = memo(function MenuItem({
 /* ═══════════════════════════════════════════════════════════════
    ERROR BANNER
 ═══════════════════════════════════════════════════════════════ */
-const ErrorBanner = memo(function ErrorBanner({ message, onRetry, isRetrying }) {
+const MobileErrorBanner = memo(function MobileErrorBanner({ message, onRetry, isRetrying }) {
   return (
-    <motion.div
-      className="mp-error"
-      role="alert"
-      aria-live="assertive"
-      initial={{ opacity: 0, y: -14, scale: 0.94 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -14, scale: 0.94 }}
-      transition={spring}
-    >
+    <motion.div className="mp-error" role="alert" initial={{ opacity: 0, y: -16, scale: 0.95 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: -16, scale: 0.95 }} transition={spring}>
       <div className="mp-error__row">
-        <span className="mp-error__icon"><I.wifi /></span>
+        <span className="mp-error__icon"><Icon.wifi /></span>
         <div>
-          <p className="mp-error__title">Connection issue</p>
+          <p className="mp-error__title">Connection Issue</p>
           <p className="mp-error__msg">{message}</p>
         </div>
       </div>
-      <motion.button
-        className="mp-error__btn"
-        onClick={onRetry}
-        disabled={isRetrying}
-        whileTap={isRetrying ? {} : { scale: 0.95 }}
-      >
-        {isRetrying
-          ? <><span className="mp-spinner-sm" /> Refreshing…</>
-          : <><I.refresh /> Tap to retry</>
-        }
+      <motion.button className="mp-error__btn" onClick={onRetry} disabled={isRetrying} whileTap={{ scale: 0.95 }}>
+        {isRetrying ? <><span className="mp-spinner-sm" /> Refreshing…</> : <><Icon.refresh /> Tap to Retry</>}
       </motion.button>
     </motion.div>
   );
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   SKELETON
-═══════════════════════════════════════════════════════════════ */
-const Skeleton = memo(function Skeleton() {
-  return (
-    <div className="mp-skeletons" aria-label="Loading listings">
-      {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="mp-sk-card">
-          <div className="mp-sk-img mp-shimmer" />
-          <div className="mp-sk-body">
-            <div className="mp-sk-line mp-shimmer" style={{ width: "75%" }} />
-            <div className="mp-sk-line mp-shimmer" style={{ width: "45%", height: "9px" }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   BOTTOM NAV
-═══════════════════════════════════════════════════════════════ */
-const BottomNav = memo(function BottomNav({ currentPath, unreadCount }) {
-  const navigate = useNavigate();
-
-  const tabs = useMemo(() => [
-    { to: "/",              icon: <I.home />,      label: "Home"     },
-    { to: "/minimart",      icon: <I.search />,    label: "Browse"   },
-    { to: "/minimart/add",  icon: null,            label: "Post",     isPrimary: true },
-    { to: "/conversations", icon: <I.messages />,  label: "Chat",     badge: null },
-    { to: "/profile",       icon: <I.user />,      label: "Profile"  },
-  ], []);
-
-  return (
-    <motion.nav
-      className="mp-bottom-nav"
-      aria-label="Bottom navigation"
-      initial={{ y: 80 }}
-      animate={{ y: 0 }}
-      transition={{ ...softSpring, delay: 0.5 }}
-    >
-      {tabs.map((tab) => {
-        const active = currentPath === tab.to ||
-          (tab.to === "/profile" && currentPath.startsWith("/profile"));
-
-        if (tab.isPrimary) {
-          return (
-            <motion.button
-              key="post"
-              className="mp-bottom-nav__fab"
-              onClick={() => navigate(tab.to)}
-              aria-label="Post listing"
-              whileTap={{ scale: 0.88 }}
-              whileHover={{ scale: 1.08 }}
-            >
-              <I.plus />
-            </motion.button>
-          );
-        }
-
-        return (
-          <motion.button
-            key={tab.to}
-            className={`mp-bottom-nav__tab${active ? " mp-bottom-nav__tab--active" : ""}`}
-            onClick={() => navigate(tab.to)}
-            aria-label={tab.label}
-            aria-current={active ? "page" : undefined}
-            whileTap={{ scale: 0.88 }}
-          >
-            <span className="mp-bottom-nav__icon">
-              {tab.icon}
-              {tab.to === "/conversations" && unreadCount > 0 && (
-                <span className="mp-bottom-nav__badge">
-                  {unreadCount > 9 ? "9+" : unreadCount}
-                </span>
-              )}
-            </span>
-            <span className="mp-bottom-nav__label">{tab.label}</span>
-            {active && (
-              <motion.div
-                className="mp-bottom-nav__indicator"
-                layoutId="nav-indicator"
-                transition={spring}
-              />
-            )}
-          </motion.button>
-        );
-      })}
-    </motion.nav>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   SCROLL TO TOP FAB
-═══════════════════════════════════════════════════════════════ */
-const ScrollTopFab = memo(function ScrollTopFab() {
-  const [show, setShow] = useState(false);
-
-  useEffect(() => {
-    const fn = () => setShow(window.scrollY > 500);
-    window.addEventListener("scroll", fn, { passive: true });
-    return () => window.removeEventListener("scroll", fn);
-  }, []);
-
-  return (
-    <AnimatePresence>
-      {show && (
-        <motion.button
-          className="mp-fab-top"
-          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          aria-label="Back to top"
-          initial={{ opacity: 0, scale: 0, y: 20 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0, y: 20 }}
-          transition={popSpring}
-          whileTap={{ scale: 0.86 }}
-        >
-          <I.arrowUp />
-        </motion.button>
-      )}
-    </AnimatePresence>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   TOAST
-═══════════════════════════════════════════════════════════════ */
-const Toast = memo(function Toast({ msg, visible }) {
-  return (
-    <AnimatePresence>
-      {visible && (
-        <motion.div
-          className="mp-toast"
-          role="status"
-          aria-live="polite"
-          initial={{ opacity: 0, y: 24, scale: 0.9 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 24, scale: 0.9 }}
-          transition={spring}
-        >
-          <I.check /> {msg}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   MAIN — MOBILE PROFILE
+   MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function MobileProfile({ onLogout }) {
-  const navigate     = useNavigate();
-  const location     = useLocation();
-  const currentPath  = location.pathname;
-  const queryClient  = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const currentPath = location.pathname;
+  const queryClient = useQueryClient();
 
-  const menuRef       = useRef(null);
-  const pageRef       = useRef(null);
-  const [menuOpen,    setMenuOpen]    = useState(false);
-  const [isRetrying,  setIsRetrying]  = useState(false);
-  const [toast,       setToast]       = useState({ show: false, msg: "" });
+  const menuRef = useRef(null);
+  const pageRef = useRef(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
 
-  /* ── Scroll tracking for parallax ── */
-  const { scrollY } = useScroll({ container: pageRef });
-
-  /* ── Queries ── */
   const {
     data: user,
     error: userError,
@@ -1238,10 +795,7 @@ export default function MobileProfile({ onLogout }) {
     queryFn: fetchUserData,
     staleTime: 2 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
-    retry: (count, err) => {
-      const s = err?.response?.status;
-      return s !== 401 && s !== 403 && count < 3;
-    },
+    retry: (count, err) => err?.response?.status !== 401 && err?.response?.status !== 403 && count < 3,
   });
 
   const {
@@ -1260,18 +814,18 @@ export default function MobileProfile({ onLogout }) {
   const { data: unreadCount = 0 } = useQuery({
     queryKey: ["profile-unread-count"],
     queryFn: fetchUnreadCount,
-    staleTime: 60_000,
-    gcTime: 5 * 60_000,
+    staleTime: 60 * 1000,
+    gcTime: 5 * 60 * 1000,
     retry: 1,
     enabled: !!getToken(),
-    refetchInterval: 60_000,
+    refetchInterval: 60 * 1000,
   });
 
   const { data: subStatus = null } = useQuery({
     queryKey: ["profile-subscription-status"],
     queryFn: fetchSubscriptionStatus,
-    staleTime: 2 * 60_000,
-    gcTime: 10 * 60_000,
+    staleTime: 2 * 60 * 1000,
+    gcTime: 10 * 60 * 1000,
     retry: 1,
     enabled: !!getToken(),
   });
@@ -1281,241 +835,101 @@ export default function MobileProfile({ onLogout }) {
     [unreadCount, subStatus]
   );
 
-  /* ── Pull to refresh ── */
   const handleRefresh = useCallback(async () => {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["profile-user"] }),
       queryClient.invalidateQueries({ queryKey: ["profile-listings"] }),
     ]);
-    showToast("Feed refreshed");
   }, [queryClient]);
 
-  const { containerRef, pullY, pulling, refreshing } =
-    usePullToRefresh(handleRefresh, 80);
+  const { containerRef, pullY, pulling, refreshing } = usePullToRefresh(handleRefresh, 80);
 
-  /* ── Toast helper ── */
-  const showToast = useCallback((msg) => {
-    setToast({ show: true, msg });
-    setTimeout(() => setToast({ show: false, msg: "" }), 2500);
-  }, []);
-
-  /* ── Auth redirect ── */
   useEffect(() => {
     if (!getToken()) { navigate("/auth"); return; }
     if (userIsError) {
       const s = userError?.response?.status;
       if (s === 401 || s === 403) {
-        ["marketplace_token", "token"].forEach((k) => localStorage.removeItem(k));
+        localStorage.removeItem("marketplace_token");
+        localStorage.removeItem("token");
         navigate("/auth");
       }
     }
   }, [userIsError, userError, navigate]);
 
-  /* ── Outside click (menu) ── */
-  useEffect(() => {
-    const fn = (e) => {
-      if (menuRef.current && !menuRef.current.contains(e.target))
-        setMenuOpen(false);
-    };
-    document.addEventListener("mousedown", fn);
-    document.addEventListener("touchstart", fn, { passive: true });
-    return () => {
-      document.removeEventListener("mousedown", fn);
-      document.removeEventListener("touchstart", fn);
-    };
-  }, []);
-
-  /* ── Callbacks ── */
   const logout = useCallback(() => {
-    ["marketplace_token", "token", "seller_token"].forEach((k) =>
-      localStorage.removeItem(k)
-    );
+    ["marketplace_token", "token", "seller_token"].forEach((k) => localStorage.removeItem(k));
     onLogout?.();
     navigate("/auth");
   }, [navigate, onLogout]);
 
   const handleRetry = useCallback(async () => {
     setIsRetrying(true);
-    try { await Promise.all([refetchUser(), refetchListings()]); }
-    finally { setIsRetrying(false); }
+    try { await Promise.all([refetchUser(), refetchListings()]); } finally { setIsRetrying(false); }
   }, [refetchUser, refetchListings]);
-
-  const goEdit    = useCallback(() => navigate("/profile/edit"),  [navigate]);
-  const goViewAll = useCallback(() => navigate("/dashboard"),     [navigate]);
 
   const joinedLabel = fmtJoined(user?.created_at || user?.joined_at);
 
-  const errorMessage =
-    userIsError &&
-    userError?.response?.status !== 401 &&
-    userError?.response?.status !== 403
-      ? userError?.response?.status >= 500
-        ? "Server is temporarily unavailable."
-        : !userError?.response
-        ? "Network error. Check your connection."
-        : "Something went wrong."
-      : null;
+  const errorMessage = userIsError && userError?.response?.status !== 401 && userError?.response?.status !== 403
+    ? userError?.response?.status >= 500 ? "Server is temporarily unavailable." : "Connection error."
+    : null;
 
-  /* ═══════════════════════════════════════════════════════════
-     RENDER
-  ═══════════════════════════════════════════════════════════ */
   return (
     <div className="mp-root" role="main">
-
-      {/* ── Sticky top header ── */}
-      <motion.div
-        className="mp-top-bar"
-        initial={{ y: -60 }}
-        animate={{ y: 0 }}
-        transition={softSpring}
-      >
+      <div className="mp-top-bar">
         <ProfileHeader
           title="Profile"
           menuOpen={menuOpen}
           onMenuToggle={() => setMenuOpen((v) => !v)}
           onMenuClose={() => setMenuOpen(false)}
           menuRef={menuRef}
-          onEdit={goEdit}
+          onEdit={() => navigate("/profile/edit")}
           onNotif={() => navigate("/notifications")}
           onLogout={logout}
         />
-      </motion.div>
+      </div>
 
-      {/* ── Pull-to-refresh indicator ── */}
       <PullIndicator pullY={pullY} refreshing={refreshing} />
 
-      {/* ── Scroll container ── */}
-      <div
-        className="mp-scroll"
-        ref={(node) => {
-          pageRef.current = node;
-          containerRef.current = node;
-        }}
-      >
-        {/* Error banner */}
+      <div className="mp-scroll" ref={(node) => { pageRef.current = node; containerRef.current = node; }}>
         <AnimatePresence>
-          {errorMessage && (
-            <ErrorBanner
-              message={errorMessage}
-              onRetry={handleRetry}
-              isRetrying={isRetrying}
-            />
-          )}
+          {errorMessage && <MobileErrorBanner message={errorMessage} onRetry={handleRetry} isRefreshing={isRefreshing} />}
         </AnimatePresence>
 
-        {/* Hero */}
-        <HeroSection
-          user={user}
-          joinedLabel={joinedLabel}
-          subStatus={subStatus}
-          onEdit={goEdit}
-          listingsCount={listings.length}
-          scrollY={scrollY}
-        />
+        <HeroProfileCard user={user} joinedLabel={joinedLabel} subStatus={subStatus} onEdit={() => navigate("/profile/edit")} listingsCount={listings.length} />
 
-        {/* Listings */}
         {listingsLoading ? (
-          <Skeleton />
+          <div className="mp-skeletons"><div className="mp-sk-card"><div className="mp-sk-img mp-shimmer" /></div></div>
         ) : (
-          <ListingsSection listings={listings} onViewAll={goViewAll} />
+          <MobileRecentListings listings={listings} onViewAll={() => navigate("/dashboard")} />
         )}
 
-        {/* Subscription */}
-        <SubBanner
-          sub={subStatus}
-          onClick={() =>
-            navigate(
-              subStatus?.isActive
-                ? "/seller/subscription"
-                : "/seller/subscription/plans"
-            )
-          }
-        />
+        <MobileSubscriptionCard sub={subStatus} onClick={() => navigate(subStatus?.isActive ? "/seller/subscription" : "/seller/subscription/plans")} />
+        <MobileReferralCard code={user?.referral_code} />
 
-        {/* Referral */}
-        <ReferralBanner code={user?.referral_code} />
-
-        {/* Menu sections */}
         <div className="mp-menu-wrap">
           {menuSections.map((section, si) => (
-            <motion.section
-              key={section.title}
-              className="mp-msection"
-              variants={fadeUp}
-              initial="hidden"
-              whileInView="visible"
-              viewport={viewOnce}
-              transition={{ ...spring, delay: si * 0.035 }}
-            >
+            <motion.section key={section.title} className="mp-msection" variants={fadeUp} initial="hidden" whileInView="visible" viewport={viewOnce} transition={{ ...spring, delay: si * 0.035 }}>
               <div className="mp-msection__hdr">
-                <span
-                  className="mp-msection__icon"
-                  style={{ color: section.color }}
-                >
-                  {section.icon}
-                </span>
-                <h3
-                  className="mp-msection__title"
-                  id={`sec-${section.title}`}
-                >
-                  {section.title}
-                </h3>
+                <span className="mp-msection__icon" style={{ color: section.color }}>{section.icon}</span>
+                <h3 className="mp-msection__title">{section.title}</h3>
               </div>
-
-              <motion.div
-                className="mp-msection__list"
-                role="list"
-                aria-labelledby={`sec-${section.title}`}
-                variants={stagger}
-                initial="hidden"
-                whileInView="visible"
-                viewport={viewOnce}
-              >
-                {section.items.map(({ to, Ic, label, desc, badge, badgeType }, i) => (
-                  <MenuItem
-                    key={to}
-                    to={to}
-                    Ic={Ic}
-                    label={label}
-                    desc={desc}
-                    badge={badge}
-                    badgeType={badgeType}
-                    isActive={currentPath === to}
-                    index={i}
-                  />
+              <motion.div className="mp-msection__list" variants={stagger} initial="hidden" whileInView="visible" viewport={viewOnce}>
+                {section.items.map((item, i) => (
+                  <MobileMenuItem key={item.to} to={item.to} Ic={item.Ic} label={item.label} desc={item.desc} badge={item.badge} badgeType={item.badgeType} currentPath={currentPath} index={i} />
                 ))}
               </motion.div>
             </motion.section>
           ))}
 
-          {/* Logout */}
-          <motion.button
-            className="mp-logout"
-            onClick={logout}
-            variants={fadeUp}
-            initial="hidden"
-            whileInView="visible"
-            viewport={viewOnce}
-            whileTap={{ scale: 0.96 }}
-          >
-            <I.logout />
-            <span>Log Out</span>
+          <motion.button className="mp-logout" onClick={logout} whileTap={{ scale: 0.96 }}>
+            <Icon.logout /> <span>Log Out</span>
           </motion.button>
         </div>
 
-        {/* Footer */}
-        <p className="mp-footer">
-          Loemart Technologies Ltd · {new Date().getFullYear()}
-        </p>
-
-        {/* Bottom nav spacer */}
-        <div style={{ height: "var(--mp-nav-h, 72px)" }} aria-hidden="true" />
+        <p className="mp-footer">Loemart Technologies Ltd · {new Date().getFullYear()}</p>
       </div>
 
-      {/* ── Overlays ── */}
-      <BottomNav currentPath={currentPath} unreadCount={unreadCount} />
-      <ScrollTopFab />
-      <Toast msg={toast.msg} visible={toast.show} />
+      <BottomNav /> {/* ← Rendered shared BottomNav cleanly here */}
     </div>
   );
 }
