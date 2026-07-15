@@ -1,0 +1,76 @@
+/* src/styles/help/ticket-status-badge.css */
+
+.ticket-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .3px;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 100px;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.ticket-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: block;
+}
+
+/* Open */
+.status-open {
+  background: var(--bl2);
+  color: var(--bl);
+}
+.status-open .ticket-status-dot {
+  background: var(--bl);
+}
+
+/* Waiting */
+.status-waiting {
+  background: var(--yl2);
+  color: var(--yl);
+}
+.status-waiting .ticket-status-dot {
+  background: var(--yl);
+}
+
+/* In Progress */
+.status-progress {
+  background: var(--pr2);
+  color: var(--pr);
+}
+.status-progress .ticket-status-dot {
+  background: var(--pr);
+}
+
+/* Escalated */
+.status-escalated {
+  background: var(--rd2);
+  color: var(--rd);
+}
+.status-escalated .ticket-status-dot {
+  background: var(--rd);
+}
+
+/* Resolved */
+.status-resolved {
+  background: var(--gn2);
+  color: var(--gn);
+}
+.status-resolved .ticket-status-dot {
+  background: var(--gn);
+}
+
+/* Closed */
+.status-closed {
+  background: var(--bg);
+  color: var(--ink3);
+}
+.status-closed .ticket-status-dot {
+  background: var(--ink3);
+}
