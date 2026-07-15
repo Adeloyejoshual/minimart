@@ -1,0 +1,255 @@
+/* src/styles/help/article-detail.css */
+
+.article-detail-page {
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.article-detail-container {
+  max-width: 740px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+}
+
+/* ── Breadcrumb ── */
+.article-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.article-breadcrumb-link {
+  font-size: 13px;
+  color: var(--ink3);
+  transition: color .2s;
+}
+
+.article-breadcrumb-link:hover { color: var(--o); }
+
+.article-breadcrumb-sep {
+  font-size: 12px;
+  color: var(--bd2);
+}
+
+.article-breadcrumb-current {
+  font-size: 13px;
+  color: var(--ink2);
+  font-weight: 600;
+}
+
+/* ── Article Card ── */
+.article-card {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r2);
+  padding: 36px;
+}
+
+.article-category-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  padding: 4px 12px;
+  border-radius: 100px;
+  background: var(--o-bg);
+  color: var(--o);
+  margin-bottom: 12px;
+}
+
+.article-title {
+  font-family: var(--fd);
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.25;
+  margin-bottom: 16px;
+}
+
+.article-meta {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.article-meta-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ink3);
+}
+
+.article-divider {
+  height: 1px;
+  background: var(--bd);
+  margin: 24px 0;
+}
+
+/* ── Article Content ── */
+.article-content {
+  font-size: 15px;
+  line-height: 1.75;
+  color: var(--ink2);
+}
+
+.article-content p {
+  margin-bottom: 16px;
+}
+
+.article-content p:last-child {
+  margin-bottom: 0;
+}
+
+.article-content strong {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.article-content ul,
+.article-content ol {
+  margin: 12px 0;
+  padding-left: 24px;
+}
+
+.article-content li {
+  margin-bottom: 6px;
+}
+
+.article-content a {
+  color: var(--o);
+  text-decoration: underline;
+}
+
+.article-content a:hover {
+  color: var(--o2);
+}
+
+/* ── Tags ── */
+.article-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 28px;
+  flex-wrap: wrap;
+}
+
+.article-tags-icon {
+  color: var(--ink3);
+}
+
+.article-tag {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  background: var(--bg);
+  color: var(--ink3);
+  font-weight: 500;
+}
+
+/* ── Helpful ── */
+.article-helpful {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r2);
+  padding: 28px;
+  margin-top: 12px;
+  text-align: center;
+}
+
+.article-helpful-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 16px;
+}
+
+.article-helpful-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.article-helpful-yes {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  background: var(--gn2);
+  color: var(--gn);
+  border: 1px solid rgba(21,128,61,.2);
+  border-radius: var(--r2);
+  font-size: 13px;
+  font-weight: 700;
+  transition: background .2s;
+}
+
+.article-helpful-yes:hover { background: #bbf7d0; }
+
+.article-helpful-no {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 20px;
+  background: var(--rd2);
+  color: var(--rd);
+  border: 1px solid rgba(220,38,38,.15);
+  border-radius: var(--r2);
+  font-size: 13px;
+  font-weight: 700;
+  transition: background .2s;
+}
+
+.article-helpful-no:hover { background: #fecaca; }
+
+/* ── CTA ── */
+.article-cta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px;
+  background: var(--o-bg);
+  border: 1px solid rgba(255,92,0,.15);
+  border-radius: var(--r2);
+  margin-top: 12px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.article-cta-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #9a3412;
+}
+
+.article-cta-desc {
+  font-size: 13px;
+  color: var(--o2);
+  margin-top: 2px;
+}
+
+.article-cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 20px;
+  background: var(--o);
+  color: var(--wh);
+  border-radius: var(--r2);
+  font-size: 14px;
+  font-weight: 700;
+  transition: background .2s;
+  white-space: nowrap;
+}
+
+.article-cta-btn:hover { background: var(--o2); }
+
+@media (max-width: 640px) {
+  .article-card { padding: 24px 16px; }
+  .article-title { font-size: 22px; }
+  .article-cta { flex-direction: column; text-align: center; }
+  .article-cta-btn { width: 100%; justify-content: center; }
+}
