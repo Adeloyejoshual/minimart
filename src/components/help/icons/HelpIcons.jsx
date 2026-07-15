@@ -2,7 +2,7 @@
 // FILE: src/components/help/icons/HelpIcons.jsx
 // ════════════════════════════════════════════════════════════
 
-import '../../styles/help/icons.css';
+import '../../../styles/help/icons.css';
 
 export function IconSearch({ size = 20, className = '' }) {
   return (
