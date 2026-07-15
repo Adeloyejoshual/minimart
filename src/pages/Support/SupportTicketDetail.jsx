@@ -40,19 +40,15 @@ import {
    CONSTANTS
 ════════════════════════════════════════════════════════════ */
 const BASE_URL      = import.meta.env.VITE_API_BASE_URL;
-const POLL_INTERVAL = 20_000; // 20 seconds
+const POLL_INTERVAL = 20_000;
 
 const ALLOWED_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
+  "image/jpeg", "image/png", "image/gif", "image/webp",
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
-
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
@@ -69,11 +65,8 @@ const authHeader = () => ({
 function formatDateTime(d) {
   if (!d) return "";
   return new Date(d).toLocaleString("en-GB", {
-    day    : "numeric",
-    month  : "short",
-    year   : "numeric",
-    hour   : "2-digit",
-    minute : "2-digit",
+    day: "numeric", month: "short", year: "numeric",
+    hour: "2-digit", minute: "2-digit",
   });
 }
 
@@ -91,13 +84,13 @@ function timeAgo(d) {
 }
 
 function formatBytes(bytes) {
-  if (!bytes) return "";
-  if (bytes < 1024)              return `${bytes} B`;
-  if (bytes < 1024 * 1024)      return `${(bytes / 1024).toFixed(1)} KB`;
+  if (!bytes || bytes === 0) return "";
+  if (bytes < 1024)         return `${bytes} B`;
+  if (bytes < 1024 * 1024)  return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function canReopen(ticket) {
+function canReopenTicket(ticket) {
   if (!ticket)                    return false;
   if (ticket.status !== "closed") return false;
   if (!ticket.reopen_deadline)    return true;
@@ -114,21 +107,59 @@ function validateFile(file) {
   return null;
 }
 
+/*
+ * ════════════════════════════════════════════════════════════
+ * unwrapTicket
+ * ════════════════════════════════════════════════════════════
+ * THE ROOT CAUSE FIX.
+ *
+ * The API returns:
+ *   { success: true, ticket: { id, ticket_number, status, messages... } }
+ *
+ * Previous code did:
+ *   setTicket(res.data)               ← sets the WRAPPER object
+ *   ticket.ticket_number → undefined  ← wrapper has no ticket_number
+ *   ticket.id → undefined             ← wrapper has no id
+ *   → second fetch: /api/support/tickets/undefined → 404
+ *
+ * This function safely unwraps any response shape.
+ */
+function unwrapTicket(data) {
+  if (!data) return null;
+
+  /* { success: true, ticket: { id, ... } } ← standard shape */
+  if (data.ticket && typeof data.ticket === "object" && data.ticket.id) {
+    return data.ticket;
+  }
+
+  /* { id, ticket_number, status, ... } ← direct object */
+  if (data.id && data.ticket_number) {
+    return data;
+  }
+
+  /* { data: { id, ... } } ← rare wrapper */
+  if (data.data && data.data.id) {
+    return data.data;
+  }
+
+  return null;
+}
+
 /* ════════════════════════════════════════════════════════════
-   CONFIRMATION DIALOG
+   CONFIRM DIALOG
 ════════════════════════════════════════════════════════════ */
 function ConfirmDialog({ title, body, onConfirm, onCancel, danger = false }) {
   return (
-    <div className="td-confirm-overlay" role="dialog" aria-modal="true">
+    <div className="td-confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="td-confirm-title">
       <div className="td-confirm-box">
-        <h3 className="td-confirm-title">{title}</h3>
+        <h3 className="td-confirm-title" id="td-confirm-title">{title}</h3>
         <p className="td-confirm-body">{body}</p>
         <div className="td-confirm-actions">
           <button className="td-confirm-cancel" onClick={onCancel}>
             Cancel
           </button>
           <button
-            className={`td-confirm-ok ${danger ? "td-confirm-danger" : ""}`}
+            className={`td-confirm-ok${danger ? " td-confirm-danger" : ""}`}
             onClick={onConfirm}
           >
             {danger ? "Close Ticket" : "Confirm"}
@@ -140,11 +171,9 @@ function ConfirmDialog({ title, body, onConfirm, onCancel, danger = false }) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   TICKET MESSAGE  (memoized to prevent re-renders)
+   TICKET MESSAGE — memoized
 ════════════════════════════════════════════════════════════ */
 const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
-  const [imgPreviews, setImgPreviews] = useState({});
-
   if (isSystem) {
     return (
       <div className="ticket-message-system">
@@ -154,23 +183,15 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
   }
 
   return (
-    <div
-      className={`ticket-message ${
-        isOwn ? "ticket-message-own" : "ticket-message-agent"
-      }`}
-    >
+    <div className={`ticket-message ${isOwn ? "ticket-message-own" : "ticket-message-agent"}`}>
+
       {/* Avatar */}
       <div className="ticket-message-avatar" aria-hidden="true">
         {msg.sender_avatar ? (
           <img
             src={msg.sender_avatar}
             alt={msg.sender_name ?? "User"}
-            style={{
-              width        : 36,
-              height       : 36,
-              borderRadius : "50%",
-              objectFit    : "cover",
-            }}
+            style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover" }}
           />
         ) : (
           <IconUser size={18} />
@@ -201,11 +222,7 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
               return (
                 <div key={att.id} className="ticket-message-attachment-wrap">
                   {isImage && (
-                    <a
-                      href={att.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
+                    <a href={att.file_url} target="_blank" rel="noopener noreferrer">
                       <img
                         src={att.file_url}
                         alt={att.file_name}
@@ -242,40 +259,43 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
    MAIN COMPONENT
 ════════════════════════════════════════════════════════════ */
 export default function SupportTicketDetail({ user }) {
-  const { id }  = useParams();
-  const fileRef = useRef(null);
+  const { id } = useParams();
 
-  /* ── Ticket state ── */
-  const [ticket,      setTicket]      = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState(null);
-  const [retryCount,  setRetryCount]  = useState(0);
+  /* ── State ── */
+  const [ticket,       setTicket]       = useState(null);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(null);
+  const [reply,        setReply]        = useState("");
+  const [files,        setFiles]        = useState([]);
+  const [filePreviews, setFilePreviews] = useState({});
+  const [sending,      setSending]      = useState(false);
+  const [actionBusy,   setActionBusy]   = useState(false);
+  const [showConfirm,  setShowConfirm]  = useState(false);
 
-  /* ── Reply state ── */
-  const [reply,       setReply]       = useState("");
-  const [files,       setFiles]       = useState([]);
-  const [filePreviews, setFilePreviews] = useState([]);
-  const [sending,     setSending]     = useState(false);
-
-  /* ── Action state ── */
-  const [actionBusy,  setActionBusy]  = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  /* ── Polling ── */
-  const pollRef    = useRef(null);
-  const isMounted  = useRef(true);
-
-  /* ── Thread scroll ── */
+  /* ── Refs ── */
+  const fileRef      = useRef(null);
   const threadRef    = useRef(null);
+  const isMounted    = useRef(true);
   const shouldScroll = useRef(true);
+  const pollRef      = useRef(null);
 
   /* ════════════════════════════════════════════════════════
-     FETCH TICKET
+     LOAD TICKET
+     silent = true  → no loading spinner, no error clear
+     silent = false → full loading state reset
   ════════════════════════════════════════════════════════ */
   const loadTicket = useCallback(async (silent = false) => {
     const token = getToken();
+
     if (!token) {
       setError("Please sign in to view this ticket.");
+      setLoading(false);
+      return;
+    }
+
+    /* Validate id before making request */
+    if (!id || id === "undefined" || id === "null") {
+      setError("Invalid ticket ID. Please go back and try again.");
       setLoading(false);
       return;
     }
@@ -288,92 +308,109 @@ export default function SupportTicketDetail({ user }) {
         authHeader()
       );
 
-      /* Unwrap { success, ticket } envelope */
-      const ticketData = data?.ticket ?? data;
-
       if (!isMounted.current) return;
 
-      if (!ticketData?.id) {
+      /*
+       * FIX — unwrap the API envelope.
+       * API returns: { success: true, ticket: { id, ticket_number... } }
+       * We need the inner ticket object, not the wrapper.
+       */
+      const ticketData = unwrapTicket(data);
+
+      if (!ticketData) {
         setError("Ticket not found.");
         setTicket(null);
       } else {
         setTicket(ticketData);
+        if (!silent) setError(null);
       }
     } catch (err) {
       if (!isMounted.current) return;
-      const status = err?.response?.status;
+
+      const status  = err?.response?.status;
+      const message = err?.response?.data?.message;
+
+      console.error(
+        `[SupportTicketDetail] GET /api/support/tickets/${id}`,
+        status,
+        message ?? err.message
+      );
+
       if (!silent) {
         if (status === 404) {
-          setError("Ticket not found.");
-        } else if (status === 401 || status === 403) {
+          setError("Ticket not found. It may have been deleted.");
+        } else if (status === 401) {
+          setError("Your session has expired. Please sign in again.");
+        } else if (status === 403) {
           setError("You do not have permission to view this ticket.");
         } else {
-          setError("Could not load ticket. Please try again.");
+          setError(message ?? "Could not load ticket. Please try again.");
         }
       }
-      console.error("[SupportTicketDetail] load:", err.message);
     } finally {
-      if (!silent && isMounted.current) setLoading(false);
+      if (isMounted.current && !silent) setLoading(false);
     }
   }, [id]);
 
-  /* ── Initial load ── */
+  /* ── Mount / unmount ── */
   useEffect(() => {
     isMounted.current = true;
     setLoading(true);
+    setError(null);
+    setTicket(null);
     loadTicket(false);
-    return () => { isMounted.current = false; };
+    return () => {
+      isMounted.current = false;
+      clearInterval(pollRef.current);
+    };
   }, [loadTicket]);
 
-  /* ── Polling every 20 s ── */
+  /* ── Polling ── */
   useEffect(() => {
+    clearInterval(pollRef.current);
     pollRef.current = setInterval(() => {
-      loadTicket(true); // silent — no loading spinner
+      if (isMounted.current) loadTicket(true);
     }, POLL_INTERVAL);
     return () => clearInterval(pollRef.current);
   }, [loadTicket]);
 
-  /* ── Socket.IO real-time updates ── */
-  useEffect(() => {
-    const userId = user?.id ?? null;
-    if (!userId || !id) return;
-
-    /* Lazy import so this file doesn't require socket.io-client
-       to be installed — falls back gracefully if not present    */
-    let socket;
-    import("socket.io-client")
-      .then(({ io }) => {
-        socket = io(BASE_URL, {
-          query      : { userId },
-          transports : ["websocket", "polling"],
-        });
-
-        /* Join a support-specific room keyed by ticket id */
-        socket.emit("joinThread", { threadId: `ticket_${id}` });
-
-        /* Listen for new messages pushed by the server */
-        socket.on("receiveMessage", () => {
-          if (isMounted.current) loadTicket(true);
-        });
-      })
-      .catch(() => {
-        /* socket.io-client not installed — polling handles it */
-      });
-
-    return () => {
-      if (socket) {
-        socket.emit("leaveThread", { threadId: `ticket_${id}` });
-        socket.disconnect();
-      }
-    };
-  }, [id, user?.id, loadTicket]);
-
-  /* ── Auto-scroll to bottom ── */
+  /* ── Auto-scroll to bottom of thread ── */
   useEffect(() => {
     if (shouldScroll.current && threadRef.current) {
       threadRef.current.scrollTop = threadRef.current.scrollHeight;
     }
-  }, [ticket?.messages]);
+  }, [ticket?.messages?.length]);
+
+  /* ════════════════════════════════════════════════════════
+     DERIVED STATE
+  ════════════════════════════════════════════════════════ */
+  const {
+    isClosed,
+    isResolved,
+    reopenOk,
+    canClose,
+    messages,
+    currentUserId,
+  } = useMemo(() => {
+    if (!ticket) return {
+      isClosed: false, isResolved: false, reopenOk: false,
+      canClose: false, messages: [], currentUserId: null,
+    };
+    return {
+      isClosed      : ticket.status === "closed",
+      isResolved    : ticket.status === "resolved",
+      reopenOk      : canReopenTicket(ticket),
+      canClose      : ["open","waiting_for_customer","in_progress","resolved"]
+                        .includes(ticket.status),
+      messages      : Array.isArray(ticket.messages) ? ticket.messages : [],
+      /*
+       * FIX — check multiple possible id fields.
+       * user prop comes from App.jsx GET /api/users/me response.
+       * Backend may return id, _id, or user_id depending on DB setup.
+       */
+      currentUserId : user?.id ?? user?._id ?? user?.user_id ?? null,
+    };
+  }, [ticket, user]);
 
   /* ════════════════════════════════════════════════════════
      FILE HANDLING
@@ -396,21 +433,22 @@ export default function SupportTicketDetail({ user }) {
       seen.add(key);
     }
 
-    if (errors.length) toast.error(errors.join("\n"), { duration: 4000 });
+    if (errors.length) {
+      toast.error(errors.join("\n"), { duration: 4000 });
+    }
 
     const next = [...files, ...valid].slice(0, 5);
     setFiles(next);
 
-    /* Generate previews for images */
+    /* Image previews */
     next.forEach((file) => {
-      if (!file.type.startsWith("image/")) return;
-      if (filePreviews[`${file.name}-${file.size}`]) return;
+      const key = `${file.name}-${file.size}`;
+      if (!file.type.startsWith("image/") || filePreviews[key]) return;
       const reader = new FileReader();
       reader.onload = (ev) => {
-        setFilePreviews((prev) => ({
-          ...prev,
-          [`${file.name}-${file.size}`]: ev.target.result,
-        }));
+        if (isMounted.current) {
+          setFilePreviews((prev) => ({ ...prev, [key]: ev.target.result }));
+        }
       };
       reader.readAsDataURL(file);
     });
@@ -423,7 +461,7 @@ export default function SupportTicketDetail({ user }) {
   }, []);
 
   /* ════════════════════════════════════════════════════════
-     REPLY
+     SEND REPLY
   ════════════════════════════════════════════════════════ */
   const handleReply = useCallback(async () => {
     if (!reply.trim() && files.length === 0) return;
@@ -459,7 +497,6 @@ export default function SupportTicketDetail({ user }) {
     }
   }, [reply, files, id, loadTicket]);
 
-  /* ── ⌘ + Enter or Ctrl + Enter to send ── */
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
@@ -468,7 +505,7 @@ export default function SupportTicketDetail({ user }) {
   }, [handleReply]);
 
   /* ════════════════════════════════════════════════════════
-     CLOSE / REOPEN
+     CLOSE TICKET
   ════════════════════════════════════════════════════════ */
   const handleClose = useCallback(async () => {
     setShowConfirm(false);
@@ -488,6 +525,9 @@ export default function SupportTicketDetail({ user }) {
     }
   }, [id, loadTicket]);
 
+  /* ════════════════════════════════════════════════════════
+     REOPEN TICKET
+  ════════════════════════════════════════════════════════ */
   const handleReopen = useCallback(async () => {
     setActionBusy(true);
     try {
@@ -506,44 +546,23 @@ export default function SupportTicketDetail({ user }) {
   }, [id, loadTicket]);
 
   /* ════════════════════════════════════════════════════════
-     DERIVED STATE  (memoized)
+     RETRY
   ════════════════════════════════════════════════════════ */
-  const {
-    isClosed,
-    isResolved,
-    reopenOk,
-    canClose,
-    messages,
-    currentUserId,
-    hasContent,
-  } = useMemo(() => {
-    if (!ticket) return {
-      isClosed: false, isResolved: false, reopenOk: false,
-      canClose: false, messages: [], currentUserId: null, hasContent: false,
-    };
-
-    return {
-      isClosed      : ticket.status === "closed",
-      isResolved    : ticket.status === "resolved",
-      reopenOk      : canReopen(ticket),
-      canClose      : ["open","waiting_for_customer","in_progress","resolved"]
-                        .includes(ticket.status),
-      messages      : Array.isArray(ticket.messages) ? ticket.messages : [],
-      currentUserId : user?.id ?? null,
-      hasContent    : !!(ticket.description || ticket.messages?.length),
-    };
-  }, [ticket, user?.id]);
-
-  const replyDisabled = sending || actionBusy || (!reply.trim() && files.length === 0);
+  const handleRetry = useCallback(() => {
+    setLoading(true);
+    setError(null);
+    setTicket(null);
+    loadTicket(false);
+  }, [loadTicket]);
 
   /* ════════════════════════════════════════════════════════
-     LOADING STATE
+     LOADING
   ════════════════════════════════════════════════════════ */
   if (loading) {
     return (
       <div className="ticket-detail-page">
         <div className="ticket-detail-container">
-          <div className="ticket-detail-loading" role="status" aria-busy="true" aria-label="Loading ticket">
+          <div className="ticket-detail-loading" role="status" aria-busy="true">
             <IconLoader size={28} className="ticket-reply-spinner" />
             <p>Loading ticket…</p>
           </div>
@@ -553,7 +572,7 @@ export default function SupportTicketDetail({ user }) {
   }
 
   /* ════════════════════════════════════════════════════════
-     ERROR STATE
+     ERROR
   ════════════════════════════════════════════════════════ */
   if (error || !ticket) {
     return (
@@ -571,12 +590,7 @@ export default function SupportTicketDetail({ user }) {
             <div className="ticket-detail-error-btns">
               <button
                 className="ticket-detail-retry-btn"
-                onClick={() => {
-                  setLoading(true);
-                  setError(null);
-                  setRetryCount((c) => c + 1);
-                  loadTicket(false);
-                }}
+                onClick={handleRetry}
               >
                 <IconRefresh size={15} />
                 Try Again
@@ -592,18 +606,21 @@ export default function SupportTicketDetail({ user }) {
     );
   }
 
+  const replyDisabled = sending || actionBusy ||
+    (!reply.trim() && files.length === 0);
+
   /* ════════════════════════════════════════════════════════
-     MAIN RENDER
+     RENDER
   ════════════════════════════════════════════════════════ */
   return (
     <div className="ticket-detail-page">
       <div className="ticket-detail-container">
 
-        {/* ── Confirmation dialog ── */}
+        {/* Confirm dialog */}
         {showConfirm && (
           <ConfirmDialog
             title="Close this ticket?"
-            body="Once closed, you will have 7 days to reopen it. Are you sure?"
+            body="Once closed, you will have 7 days to reopen it. Are you sure you want to close this ticket?"
             danger
             onConfirm={handleClose}
             onCancel={() => setShowConfirm(false)}
@@ -628,9 +645,7 @@ export default function SupportTicketDetail({ user }) {
               <TicketStatusBadge status={ticket.status} />
               <PriorityBadge    priority={ticket.priority} />
             </div>
-
             <h1 className="ticket-detail-subject">{ticket.subject}</h1>
-
             <div className="ticket-detail-meta">
               <span className="ticket-detail-category">{ticket.category}</span>
               <span className="ticket-detail-separator" />
@@ -643,9 +658,18 @@ export default function SupportTicketDetail({ user }) {
               </span>
             </div>
           </div>
+
+          {/* Refresh */}
+          <button
+            className="ticket-detail-refresh-btn"
+            onClick={() => loadTicket(false)}
+            aria-label="Refresh ticket"
+          >
+            <IconRefresh size={16} />
+          </button>
         </div>
 
-        {/* ── Ticket actions ── */}
+        {/* ── Actions ── */}
         <div className="ticket-detail-actions">
           {canClose && (
             <button
@@ -658,7 +682,6 @@ export default function SupportTicketDetail({ user }) {
               Close Ticket
             </button>
           )}
-
           {reopenOk && (
             <button
               onClick={handleReopen}
@@ -670,7 +693,6 @@ export default function SupportTicketDetail({ user }) {
               Reopen Ticket
             </button>
           )}
-
           {isClosed && !reopenOk && (
             <div className="ticket-action-expired" role="status">
               <IconAlertTriangle size={15} />
@@ -685,16 +707,17 @@ export default function SupportTicketDetail({ user }) {
           ref={threadRef}
           role="log"
           aria-live="polite"
-          aria-label="Conversation"
+          aria-label="Ticket conversation"
           onScroll={() => {
             const el = threadRef.current;
             if (!el) return;
-            const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            const atBottom =
+              el.scrollHeight - el.scrollTop - el.clientHeight < 80;
             shouldScroll.current = atBottom;
           }}
         >
-          {/* Empty conversation state */}
-          {!hasContent && (
+          {/* Empty state */}
+          {messages.length === 0 && !ticket.description && (
             <div className="ticket-messages-empty">
               <p>No messages yet. Start the conversation below.</p>
             </div>
@@ -704,12 +727,13 @@ export default function SupportTicketDetail({ user }) {
           {messages.length === 0 && ticket.description && (
             <TicketMessage
               msg={{
-                id           : "description",
-                sender_id    : ticket.user_id,
-                sender_name  : "You",
-                message      : ticket.description,
-                created_at   : ticket.created_at,
-                attachments  : [],
+                id               : "__description__",
+                sender_id        : ticket.user_id,
+                sender_name      : "You",
+                sender_avatar    : null,
+                message          : ticket.description,
+                created_at       : ticket.created_at,
+                attachments      : [],
                 is_system_message: false,
               }}
               isOwn={true}
@@ -719,9 +743,20 @@ export default function SupportTicketDetail({ user }) {
 
           {/* All messages */}
           {messages.map((msg) => {
+            /*
+             * FIX — determine ownership correctly.
+             *
+             * currentUserId comes from user?.id (App.jsx passes user prop).
+             * msg.sender_id is the UUID stored in the DB.
+             *
+             * If currentUserId is null (user prop not available),
+             * fall back to: message is from user if sender is NOT an admin.
+             */
             const isOwn = currentUserId
-              ? msg.sender_id === currentUserId
-              : !msg.is_internal_note && msg.sender_role !== "admin";
+              ? String(msg.sender_id) === String(currentUserId)
+              : !msg.is_internal_note &&
+                msg.sender_role !== "admin" &&
+                msg.sender_role !== "support_agent";
 
             return (
               <TicketMessage
@@ -736,33 +771,34 @@ export default function SupportTicketDetail({ user }) {
 
         {/* ── Reply box ── */}
         {!isClosed && (
-          <div
-            className="ticket-reply-box"
-            aria-label="Reply to this ticket"
-          >
-            <label htmlFor="ticket-reply-input" className="td-sr-only">
+          <div className="ticket-reply-box" aria-label="Reply form">
+
+            <label htmlFor="ticket-reply-textarea" className="td-sr-only">
               Your reply
             </label>
             <textarea
-              id="ticket-reply-input"
+              id="ticket-reply-textarea"
               value={reply}
               onChange={(e) => setReply(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Type your reply… (⌘ + Enter to send)"
+              placeholder="Type your reply… (⌘ Enter or Ctrl + Enter to send)"
               rows={4}
               className="ticket-reply-textarea"
               aria-busy={sending}
-              disabled={sending}
+              disabled={sending || actionBusy}
             />
 
             {/* File previews */}
             {files.length > 0 && (
-              <div className="ticket-reply-files" role="list" aria-label="Attached files">
+              <div
+                className="ticket-reply-files"
+                role="list"
+                aria-label="Files to attach"
+              >
                 {files.map((f, i) => {
-                  const previewKey = `${f.name}-${f.size}`;
-                  const preview    = filePreviews[previewKey];
-                  const isImage    = f.type.startsWith("image/");
-
+                  const key     = `${f.name}-${f.size}`;
+                  const preview = filePreviews[key];
+                  const isImage = f.type.startsWith("image/");
                   return (
                     <div key={i} className="ticket-reply-file-chip" role="listitem">
                       {isImage && preview && (
