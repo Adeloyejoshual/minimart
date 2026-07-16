@@ -93,18 +93,18 @@ import OrderHistory      from "./pages/OrderHistory";
 /* ════════════════════════════════════════════════════════════
    PAGES — HELP & SUPPORT
 ════════════════════════════════════════════════════════════ */
-import HelpCenter         from "./pages/Help/HelpCenter";
-import HelpSearchResults  from "./pages/Help/HelpSearchResults";
-import HelpCategoryPage   from "./pages/Help/HelpCategoryPage";
-import HelpArticleDetail  from "./pages/Help/HelpArticleDetail";
-import SupportHub         from "./pages/Support/SupportHub";
-import ContactSupport     from "./pages/Support/ContactSupport";
-import SupportTickets     from "./pages/Support/SupportTickets";
+import HelpCenter          from "./pages/Help/HelpCenter";
+import HelpSearchResults   from "./pages/Help/HelpSearchResults";
+import HelpCategoryPage    from "./pages/Help/HelpCategoryPage";
+import HelpArticleDetail   from "./pages/Help/HelpArticleDetail";
+import SupportHub          from "./pages/Support/SupportHub";
+import ContactSupport      from "./pages/Support/ContactSupport";
+import SupportTickets      from "./pages/Support/SupportTickets";
 import SupportTicketDetail from "./pages/Support/SupportTicketDetail";
-import ReportCenter       from "./pages/Support/ReportCenter";
-import DisputeCenter      from "./pages/Support/DisputeCenter";
-import AppealsPage        from "./pages/Support/AppealsPage";
-import FeedbackPage       from "./pages/Support/FeedbackPage";
+import ReportCenter        from "./pages/Support/ReportCenter";
+import DisputeCenter       from "./pages/Support/DisputeCenter";
+import AppealsPage         from "./pages/Support/AppealsPage";
+import FeedbackPage        from "./pages/Support/FeedbackPage";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — PUBLIC INFO / COMMUNITY
@@ -116,6 +116,7 @@ import HallOfFame from "./pages/HallOfFame";
 ════════════════════════════════════════════════════════════ */
 import LeaderboardDesktop from "./desktop/LeaderboardDesktop";
 import DesktopProfile     from "./desktop/Profile";
+import CouponsDesktop     from "./desktop/CouponsDesktop";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — MESSAGING DESKTOP
@@ -322,6 +323,13 @@ function PlansRoute() {
   return isDesktop
     ? <DesktopPlans />
     : <Plans />;
+}
+
+function CouponsRoute({ user }) {
+  const isDesktop = useIsDesktop();
+  return isDesktop
+    ? <CouponsDesktop user={user} />
+    : <Coupons        user={user} />;
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -651,7 +659,7 @@ export default function App() {
           path="/coupons"
           element={
             <ProtectedRoute user={user}>
-              <Coupons user={user} />
+              <CouponsRoute user={user} />
             </ProtectedRoute>
           }
         />
@@ -725,13 +733,13 @@ export default function App() {
         />
 
         {/* ════════════ HELP CENTER (public) ════════════ */}
-        <Route path="/help"                  element={<HelpCenter        user={user} />} />
-        <Route path="/help/search"           element={<HelpSearchResults user={user} />} />
-        <Route path="/help/category/:slug"   element={<HelpCategoryPage  user={user} />} />
-        <Route path="/help/article/:slug"    element={<HelpArticleDetail user={user} />} />
+        <Route path="/help"                element={<HelpCenter        user={user} />} />
+        <Route path="/help/search"         element={<HelpSearchResults user={user} />} />
+        <Route path="/help/category/:slug" element={<HelpCategoryPage  user={user} />} />
+        <Route path="/help/article/:slug"  element={<HelpArticleDetail user={user} />} />
 
         {/* ════════════ SUPPORT HUB (public entry) ════════════ */}
-        <Route path="/support"               element={<SupportHub        user={user} />} />
+        <Route path="/support" element={<SupportHub user={user} />} />
 
         {/* ════════════ SUPPORT — CONTACT (protected) ════════════ */}
         <Route
