@@ -2,38 +2,21 @@
 // FILE: src/pages/Support/SupportTicketDetail.jsx
 // ════════════════════════════════════════════════════════════
 
-import "../../styles/help/ticket-detail-page.css";
-import "../../styles/help/ticket-detail.css";
-import "../../styles/help/ticket-status-badge.css";
-import "../../styles/help/priority-badge.css";
+import "../../styles/help/SupportTicketDetail.css";
 
 import {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  memo,
-  useMemo,
+  useState, useEffect, useRef,
+  useCallback, memo, useMemo,
 } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 
-import TicketStatusBadge from "../../components/help/TicketStatusBadge";
-import PriorityBadge     from "../../components/help/PriorityBadge";
 import {
-  IconArrowLeft,
-  IconSend,
-  IconPaperclip,
-  IconX,
-  IconLock,
-  IconCheckCircle,
-  IconRotateCcw,
-  IconAlertTriangle,
-  IconClock,
-  IconUser,
-  IconLoader,
-  IconRefresh,
+  IconArrowLeft, IconSend, IconPaperclip, IconX,
+  IconLock, IconCheckCircle, IconRotateCcw,
+  IconAlertTriangle, IconClock, IconUser,
+  IconLoader, IconRefresh,
 } from "../../components/help/icons/HelpIcons";
 
 /* ════════════════════════════════════════════════════════════
@@ -48,7 +31,7 @@ const ALLOWED_TYPES = [
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 /* ════════════════════════════════════════════════════════════
    AUTH
@@ -88,8 +71,8 @@ function timeAgo(d) {
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return "";
-  if (bytes < 1024)          return `${bytes} B`;
-  if (bytes < 1024 * 1024)   return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024)        return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
@@ -113,90 +96,57 @@ function validateFile(file) {
 ════════════════════════════════════════════════════════════ */
 function unwrapTicket(data) {
   if (!data) return null;
-  if (data.ticket && typeof data.ticket === "object" && data.ticket.id)
-    return data.ticket;
-  if (data.id)       return data;
-  if (data.data?.id) return data.data;
+  if (data.ticket?.id) return data.ticket;
+  if (data.id)         return data;
+  if (data.data?.id)   return data.data;
   return null;
 }
 
 /* ════════════════════════════════════════════════════════════
-   EXTRACT REAL ERROR — deep inspection of server response
-   ─────────────────────────────────────────────────────────
-   Returns {
-     title      : string  — short headline
-     detail     : string  — full server message / reason
-     hint       : string? — actionable suggestion
-     httpStatus : number?
-     url        : string?
-     serverRaw  : any     — raw server response body for devs
-   }
+   EXTRACT API ERROR
 ════════════════════════════════════════════════════════════ */
 function extractApiError(err, url) {
-  /* Axios cancel — not a real error */
   if (axios.isCancel(err)) return null;
 
-  /* ── No response (network / offline / timeout) ── */
   if (!err.response) {
     if (err.code === "ECONNABORTED" || err.message?.includes("timeout"))
       return {
-        title      : "Request timed out",
-        detail     : "The server took too long to respond.",
-        hint       : "Check your internet connection and try again.",
-        httpStatus : null,
-        url,
-        serverRaw  : null,
+        title: "Request timed out",
+        detail: "The server took too long to respond.",
+        hint: "Check your internet connection and try again.",
+        httpStatus: null, url, serverRaw: null,
       };
 
     if (typeof navigator !== "undefined" && !navigator.onLine)
       return {
-        title      : "You are offline",
-        detail     : "No internet connection was detected.",
-        hint       : "Please connect to the internet and try again.",
-        httpStatus : null,
-        url,
-        serverRaw  : null,
+        title: "You are offline",
+        detail: "No internet connection detected.",
+        hint: "Please connect to the internet and try again.",
+        httpStatus: null, url, serverRaw: null,
       };
 
     return {
-      title      : "Network error",
-      detail     : err.message || "Could not reach the server.",
-      hint       : "Check your connection or try again in a moment.",
-      httpStatus : null,
-      url,
-      serverRaw  : null,
+      title: "Network error",
+      detail: err.message || "Could not reach the server.",
+      hint: "Check your connection or try again in a moment.",
+      httpStatus: null, url, serverRaw: null,
     };
   }
 
-  /* ── Server responded ── */
   const { status, data, config } = err.response;
   const actualUrl = config?.url ?? url;
 
-  /*
-   * Deep-extract the server message.
-   * We try every common API response shape:
-   *   { message }
-   *   { error }
-   *   { error: { message } }
-   *   { detail }
-   *   { errors: [{ message }] }
-   *   { msg }
-   *   plain string body
-   *   HTML error page (extract first <p> or <title>)
-   */
   let serverMsg = null;
-
-  if (typeof data === "string" && data.trim().length > 0) {
+  if (typeof data === "string" && data.trim()) {
     if (data.trim().startsWith("<")) {
-      /* HTML error page — try to pull <title> or first <p> */
-      const titleMatch = data.match(/<title[^>]*>([^<]+)<\/title>/i);
-      const pMatch     = data.match(/<p[^>]*>([^<]{10,300})<\/p>/i);
-      serverMsg = titleMatch?.[1]?.trim() || pMatch?.[1]?.trim() || "Server returned an HTML error page.";
+      const t = data.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const p = data.match(/<p[^>]*>([^<]{10,300})<\/p>/i);
+      serverMsg = t?.[1]?.trim() || p?.[1]?.trim() || "Server returned an HTML error page.";
     } else if (data.length < 500) {
       serverMsg = data.trim();
     }
   } else if (data && typeof data === "object") {
-    serverMsg =
+    const raw =
       data.message             ||
       data.error?.message      ||
       (typeof data.error === "string" ? data.error : null) ||
@@ -207,74 +157,96 @@ function extractApiError(err, url) {
       data.reason              ||
       data.description         ||
       null;
-
-    /* Handle object error shapes */
-    if (serverMsg && typeof serverMsg === "object") {
-      serverMsg = JSON.stringify(serverMsg);
-    }
+    serverMsg = raw && typeof raw === "object" ? JSON.stringify(raw) : raw;
   }
 
-  /* Build hint per status */
-  const hintMap = {
-    400 : "Check your input and try again.",
-    401 : "Please sign in again.",
-    403 : "This ticket may belong to a different account.",
-    404 : "The ticket may have been deleted.",
-    422 : "The ticket ID format may be invalid.",
-    429 : "Wait a moment before trying again.",
-    500 : "This is a server-side issue. Our team has been notified. Try again shortly.",
-    502 : "The server gateway is down. Try again in a few minutes.",
-    503 : "The server is temporarily under maintenance.",
-    504 : "The server gateway timed out. Try again in a few minutes.",
-  };
-
   const titleMap = {
-    400 : "Bad request",
-    401 : "Authentication required",
-    403 : "Access denied",
-    404 : "Ticket not found",
-    410 : "Ticket removed",
-    422 : "Invalid request",
-    429 : "Too many requests",
-    500 : "Server error",
-    502 : "Bad gateway",
-    503 : "Service unavailable",
-    504 : "Gateway timeout",
+    400: "Bad request",        401: "Authentication required",
+    403: "Access denied",      404: "Ticket not found",
+    410: "Ticket removed",     422: "Invalid request",
+    429: "Too many requests",  500: "Server error",
+    502: "Bad gateway",        503: "Service unavailable",
+    504: "Gateway timeout",
+  };
+  const hintMap = {
+    400: "Check your input and try again.",
+    401: "Please sign in again.",
+    403: "This ticket may belong to a different account.",
+    404: "The ticket may have been deleted.",
+    422: "The ticket ID format may be invalid.",
+    429: "Wait a moment before trying again.",
+    500: "This is a server-side issue. Try again shortly.",
+    502: "The server gateway is down. Try again in a few minutes.",
+    503: "The server is temporarily under maintenance.",
+    504: "The server gateway timed out. Try again in a few minutes.",
   };
 
   return {
-    title      : `${titleMap[status] ?? "Error"} (${status})`,
-    detail     : serverMsg || `The server returned HTTP ${status} with no further detail.`,
-    hint       : hintMap[status] || "Please try again.",
-    httpStatus : status,
-    url        : actualUrl,
-    serverRaw  : data,   /* full raw body — shown in dev mode */
+    title:      `${titleMap[status] ?? "Error"} (${status})`,
+    detail:     serverMsg || `The server returned HTTP ${status} with no further detail.`,
+    hint:       hintMap[status] || "Please try again.",
+    httpStatus: status,
+    url:        actualUrl,
+    serverRaw:  data,
   };
 }
+
+/* ════════════════════════════════════════════════════════════
+   STATUS BADGE  (inline — no separate import)
+════════════════════════════════════════════════════════════ */
+const STATUS_META = {
+  open:                     { label: "Open" },
+  in_progress:              { label: "In Progress" },
+  waiting_for_customer:     { label: "Waiting" },
+  resolved:                 { label: "Resolved" },
+  closed:                   { label: "Closed" },
+};
+
+const StatusBadge = memo(function StatusBadge({ status }) {
+  const key = status ?? "open";
+  const meta = STATUS_META[key] ?? { label: key };
+  const cls  = key === "waiting_for_customer" ? "waiting" : key;
+  return (
+    <span className={`stdp-status-badge stdp-status-${cls}`}>
+      {meta.label}
+    </span>
+  );
+});
+
+/* ════════════════════════════════════════════════════════════
+   PRIORITY BADGE  (inline)
+════════════════════════════════════════════════════════════ */
+const PriorityBadge = memo(function PriorityBadge({ priority }) {
+  if (!priority) return null;
+  return (
+    <span className={`stdp-priority-badge stdp-priority-${priority}`}>
+      {priority.charAt(0).toUpperCase() + priority.slice(1)}
+    </span>
+  );
+});
 
 /* ════════════════════════════════════════════════════════════
    CONFIRM DIALOG
 ════════════════════════════════════════════════════════════ */
 const ConfirmDialog = memo(function ConfirmDialog({
-  title, body, onConfirm, onCancel, danger = false,
+  title, body, onConfirm, onCancel,
 }) {
   return (
     <div
-      className="td-confirm-overlay"
+      className="stdp-overlay"
       role="dialog"
       aria-modal="true"
-      aria-labelledby="td-confirm-title"
+      aria-labelledby="stdp-dlg-title"
     >
-      <div className="td-confirm-box">
-        <h3 className="td-confirm-title" id="td-confirm-title">{title}</h3>
-        <p className="td-confirm-body">{body}</p>
-        <div className="td-confirm-actions">
-          <button className="td-confirm-cancel" onClick={onCancel}>Cancel</button>
-          <button
-            className={`td-confirm-ok${danger ? " td-confirm-danger" : ""}`}
-            onClick={onConfirm}
-          >
-            {danger ? "Close Ticket" : "Confirm"}
+      <div className="stdp-dialog">
+        <h3 className="stdp-dialog-title" id="stdp-dlg-title">{title}</h3>
+        <p className="stdp-dialog-body">{body}</p>
+        <div className="stdp-dialog-actions">
+          <button className="stdp-dialog-cancel" onClick={onCancel}>
+            Cancel
+          </button>
+          <button className="stdp-dialog-confirm" onClick={onConfirm}>
+            Close Ticket
           </button>
         </div>
       </div>
@@ -288,49 +260,50 @@ const ConfirmDialog = memo(function ConfirmDialog({
 const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
   if (isSystem) {
     return (
-      <div className="ticket-message-system">
+      <div className="stdp-msg-system">
         <span>{msg.message}</span>
       </div>
     );
   }
 
+  const side = isOwn ? "stdp-msg--own" : "stdp-msg--agent";
+
   return (
-    <div className={`ticket-message ${isOwn ? "ticket-message-own" : "ticket-message-agent"}`}>
-      <div className="ticket-message-avatar" aria-hidden="true">
-        {msg.sender_avatar ? (
-          <img
-            src={msg.sender_avatar}
-            alt={msg.sender_name ?? "User"}
-            style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover" }}
-          />
-        ) : (
-          <IconUser size={18} />
-        )}
+    <div className={`stdp-msg ${side}`}>
+      {/* Avatar */}
+      <div className="stdp-msg-avatar" aria-hidden="true">
+        {msg.sender_avatar
+          ? <img src={msg.sender_avatar} alt={msg.sender_name ?? "User"} />
+          : <IconUser size={18} />
+        }
       </div>
 
-      <div className="ticket-message-content">
-        <div className="ticket-message-header">
-          <span className="ticket-message-sender">
-            {isOwn ? "You" : msg.sender_name ?? "Support Agent"}
+      {/* Content */}
+      <div className="stdp-msg-content">
+        <div className="stdp-msg-header">
+          <span className="stdp-msg-sender">
+            {isOwn ? "You" : (msg.sender_name ?? "Support Agent")}
           </span>
-          <span className="ticket-message-time" title={formatDateTime(msg.created_at)}>
+          <span className="stdp-msg-time" title={formatDateTime(msg.created_at)}>
             {timeAgo(msg.created_at)}
           </span>
         </div>
-        <div className="ticket-message-bubble">{msg.message}</div>
 
+        <div className="stdp-msg-bubble">{msg.message}</div>
+
+        {/* Attachments */}
         {msg.attachments?.length > 0 && (
-          <div className="ticket-message-attachments">
+          <div className="stdp-msg-attachments">
             {msg.attachments.map((att) => {
-              const isImage = att.file_type?.startsWith("image/");
+              const isImg = att.file_type?.startsWith("image/");
               return (
-                <div key={att.id} className="ticket-message-attachment-wrap">
-                  {isImage && (
+                <div key={att.id}>
+                  {isImg && (
                     <a href={att.file_url} target="_blank" rel="noopener noreferrer">
                       <img
                         src={att.file_url}
                         alt={att.file_name}
-                        className="ticket-attachment-preview"
+                        className="stdp-att-preview"
                         onError={(e) => { e.currentTarget.style.display = "none"; }}
                       />
                     </a>
@@ -339,12 +312,12 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
                     href={att.file_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="ticket-message-attachment"
+                    className="stdp-att-link"
                   >
                     <IconPaperclip size={12} />
-                    <span className="ticket-att-name">{att.file_name}</span>
+                    <span className="stdp-att-name">{att.file_name}</span>
                     {att.file_size && (
-                      <span className="ticket-att-size">{formatBytes(att.file_size)}</span>
+                      <span className="stdp-att-size">{formatBytes(att.file_size)}</span>
                     )}
                   </a>
                 </div>
@@ -359,123 +332,109 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
 
 /* ════════════════════════════════════════════════════════════
    ERROR STATE
-   ─────────────────────────────────────────────────────────
-   Shows real server error with expandable raw response panel.
 ════════════════════════════════════════════════════════════ */
 const ErrorState = memo(function ErrorState({ id, error, onRetry }) {
-  const navigate = useNavigate();
-  const [showRaw, setShowRaw] = useState(false);
+  const navigate  = useNavigate();
+  const [raw, setRaw] = useState(false);
 
   const noRetry = [403, 404, 410].includes(error?.httpStatus);
-  const is500   = error?.httpStatus >= 500;
+  const is500   = (error?.httpStatus ?? 0) >= 500;
 
   return (
-    <div className="ticket-detail-page">
-      <div className="ticket-detail-container">
-        <div className="ticket-detail-error" role="alert" aria-live="assertive">
+    <div className="stdp-page">
+      <div className="stdp-container">
+        <div className="stdp-error" role="alert" aria-live="assertive">
 
-          {/* Icon */}
-          <div className="td-err-icon-wrap">
-            <IconAlertTriangle size={40} className="ticket-detail-error-icon" />
+          <div className="stdp-error-icon" aria-hidden="true">
+            <IconAlertTriangle size={26} />
           </div>
 
-          {/* Title */}
-          <h2 className="td-err-title">
+          <h2 className="stdp-error-title">
             {error?.title ?? "Could not load ticket"}
           </h2>
 
-          {/* Server message — the REAL error */}
-          <p className="td-err-detail">
+          <p className="stdp-error-detail">
             {error?.detail ?? "An unexpected error occurred."}
           </p>
 
-          {/* Actionable hint */}
           {error?.hint && (
-            <p className="td-err-hint">
-              💡 {error.hint}
-            </p>
+            <p className="stdp-error-hint">💡 {error.hint}</p>
           )}
 
           {/* Info table */}
-          <div className="td-err-table">
-            {id && (
-              <div className="td-err-row">
-                <span className="td-err-key">Ticket ID</span>
-                <code className="td-err-val">{id}</code>
-              </div>
-            )}
-            {error?.httpStatus && (
-              <div className="td-err-row">
-                <span className="td-err-key">HTTP Status</span>
-                <code className={`td-err-val ${is500 ? "td-err-val--red" : ""}`}>
-                  {error.httpStatus}
-                </code>
-              </div>
-            )}
-            {error?.url && (
-              <div className="td-err-row">
-                <span className="td-err-key">API Endpoint</span>
-                <code className="td-err-val td-err-val--url">{error.url}</code>
-              </div>
-            )}
-          </div>
+          {(id || error?.httpStatus || error?.url) && (
+            <div className="stdp-error-table">
+              {id && (
+                <div className="stdp-error-row">
+                  <span className="stdp-error-key">Ticket ID</span>
+                  <code className="stdp-error-val">{id}</code>
+                </div>
+              )}
+              {error?.httpStatus && (
+                <div className="stdp-error-row">
+                  <span className="stdp-error-key">HTTP Status</span>
+                  <code className={`stdp-error-val${is500 ? " stdp-error-val--red" : ""}`}>
+                    {error.httpStatus}
+                  </code>
+                </div>
+              )}
+              {error?.url && (
+                <div className="stdp-error-row">
+                  <span className="stdp-error-key">Endpoint</span>
+                  <code className="stdp-error-val stdp-error-val--url">{error.url}</code>
+                </div>
+              )}
+            </div>
+          )}
 
-          {/* Raw server response (expandable) */}
+          {/* Raw response */}
           {error?.serverRaw != null && (
-            <div className="td-err-raw-wrap">
+            <>
               <button
-                className="td-err-raw-toggle"
-                onClick={() => setShowRaw((v) => !v)}
-                aria-expanded={showRaw}
+                className="stdp-error-raw-toggle"
+                onClick={() => setRaw((v) => !v)}
+                aria-expanded={raw}
               >
-                {showRaw ? "▾ Hide" : "▸ Show"} server response
+                {raw ? "▾ Hide" : "▸ Show"} server response
               </button>
-              {showRaw && (
-                <pre className="td-err-raw">
+              {raw && (
+                <pre className="stdp-error-raw">
                   {typeof error.serverRaw === "string"
                     ? error.serverRaw
                     : JSON.stringify(error.serverRaw, null, 2)}
                 </pre>
               )}
-            </div>
+            </>
           )}
 
-          {/* Actions */}
-          <div className="ticket-detail-error-btns">
+          {/* Action buttons */}
+          <div className="stdp-error-actions">
             {!noRetry && (
-              <button className="ticket-detail-retry-btn" onClick={onRetry}>
+              <button className="stdp-error-btn-primary" onClick={onRetry}>
                 <IconRefresh size={15} /> Try Again
               </button>
             )}
-
             {error?.httpStatus === 401 && (
               <button
-                className="ticket-detail-retry-btn"
+                className="stdp-error-btn-primary"
                 onClick={() =>
-                  navigate(
-                    "/auth?redirect=" +
-                      encodeURIComponent(window.location.pathname)
-                  )
+                  navigate("/auth?redirect=" + encodeURIComponent(window.location.pathname))
                 }
               >
                 Sign In
               </button>
             )}
-
-            <Link to="/support/tickets" className="ticket-detail-error-btn">
+            <Link to="/support/tickets" className="stdp-error-btn-ghost">
               <IconArrowLeft size={16} /> Back to Tickets
             </Link>
           </div>
 
-          {/* 500-specific message */}
           {is500 && (
-            <p className="td-err-500-note">
+            <p className="stdp-error-500-note">
               This is a backend server error — not something you did wrong.
-              If it keeps happening, please{" "}
-              <Link to="/support" className="td-err-link">
-                contact support
-              </Link>{" "}
-              and share the Ticket ID and API endpoint above.
+              If it persists, please{" "}
+              <Link to="/support" className="stdp-error-link">contact support</Link>{" "}
+              and share the Ticket ID and endpoint above.
             </p>
           )}
 
@@ -486,14 +445,14 @@ const ErrorState = memo(function ErrorState({ id, error, onRetry }) {
 });
 
 /* ════════════════════════════════════════════════════════════
-   LOADING
+   LOADING STATE
 ════════════════════════════════════════════════════════════ */
 const LoadingState = memo(function LoadingState() {
   return (
-    <div className="ticket-detail-page">
-      <div className="ticket-detail-container">
-        <div className="ticket-detail-loading" role="status" aria-busy="true">
-          <IconLoader size={28} className="ticket-reply-spinner" />
+    <div className="stdp-page">
+      <div className="stdp-container">
+        <div className="stdp-loading" role="status" aria-busy="true">
+          <IconLoader size={30} className="stdp-spinner" />
           <p>Loading ticket…</p>
         </div>
       </div>
@@ -505,38 +464,34 @@ const LoadingState = memo(function LoadingState() {
    MAIN COMPONENT
 ════════════════════════════════════════════════════════════ */
 export default function SupportTicketDetail({ user }) {
-  const params = useParams();
+  const params   = useParams();
 
   /* ── Resolve ticket ID ── */
   const id = useMemo(() => {
     const fromParams =
-      params.id ||
-      params.ticketId ||
-      params.ticket_id ||
-      null;
+      params.id || params.ticketId || params.ticket_id || null;
 
     if (fromParams && fromParams !== "undefined" && fromParams !== "null")
       return fromParams;
 
-    /* Fallback: extract UUID from URL path */
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     const parts = window.location.pathname.split("/").filter(Boolean);
-    const UUID  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    for (let i = parts.length - 1; i >= 0; i--) {
+    for (let i = parts.length - 1; i >= 0; i--)
       if (UUID.test(parts[i])) return parts[i];
-    }
+
     return null;
   }, [params]);
 
   /* ── State ── */
-  const [ticket,       setTicket]       = useState(null);
-  const [loading,      setLoading]      = useState(true);
-  const [apiError,     setApiError]     = useState(null);
-  const [reply,        setReply]        = useState("");
-  const [files,        setFiles]        = useState([]);
-  const [filePreviews, setFilePreviews] = useState({});
-  const [sending,      setSending]      = useState(false);
-  const [actionBusy,   setActionBusy]   = useState(false);
-  const [showConfirm,  setShowConfirm]  = useState(false);
+  const [ticket,      setTicket]      = useState(null);
+  const [loading,     setLoading]     = useState(true);
+  const [apiError,    setApiError]    = useState(null);
+  const [reply,       setReply]       = useState("");
+  const [files,       setFiles]       = useState([]);
+  const [previews,    setPreviews]    = useState({});   // key → dataURL
+  const [sending,     setSending]     = useState(false);
+  const [actionBusy,  setActionBusy]  = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   /* ── Refs ── */
   const fileRef      = useRef(null);
@@ -545,6 +500,7 @@ export default function SupportTicketDetail({ user }) {
   const shouldScroll = useRef(true);
   const pollRef      = useRef(null);
   const abortRef     = useRef(null);
+  const lastToastKey = useRef(null);    // FIX #9 — toast deduplication
 
   /* ════════════════════════════════════════════════════════
      LOAD TICKET
@@ -553,55 +509,59 @@ export default function SupportTicketDetail({ user }) {
     const token = getToken();
     const url   = `${BASE_URL}/api/support/tickets/${id}`;
 
-    /* ── Guards ── */
+    /* ── Auth guard ── */
     if (!token) {
-      setApiError({
-        title: "Authentication required",
-        detail: "Please sign in to view support tickets.",
-        hint: "Tap Sign In below.",
-        httpStatus: 401, url: null, serverRaw: null,
-      });
-      setLoading(false);
+      if (!silent) {
+        setApiError({
+          title: "Authentication required",
+          detail: "Please sign in to view support tickets.",
+          hint: "Tap Sign In below.",
+          httpStatus: 401, url: null, serverRaw: null,
+        });
+        setLoading(false);
+      }
       return;
     }
 
+    /* ── ID present? ── */
     if (!id) {
-      setApiError({
-        title: "Missing ticket ID",
-        detail: "No ticket ID was found in the URL.",
-        hint: "Go back and select a ticket from the list.",
-        httpStatus: null, url: null, serverRaw: null,
-      });
-      setLoading(false);
+      if (!silent) {
+        setApiError({
+          title: "Missing ticket ID",
+          detail: "No ticket ID was found in the URL.",
+          hint: "Go back and select a ticket from the list.",
+          httpStatus: null, url: null, serverRaw: null,
+        });
+        setLoading(false);
+      }
       return;
     }
 
-    const UUID_RE =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
+    /* ── UUID format ── */
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     if (!UUID_RE.test(id)) {
-      setApiError({
-        title: "Invalid ticket ID",
-        detail: `"${id}" is not a valid UUID.`,
-        hint: "Check the URL and try again.",
-        httpStatus: 422, url: null, serverRaw: null,
-      });
-      setLoading(false);
+      if (!silent) {
+        setApiError({
+          title: "Invalid ticket ID",
+          detail: `"${id}" is not a valid UUID.`,
+          hint: "Check the URL and try again.",
+          httpStatus: 422, url: null, serverRaw: null,
+        });
+        setLoading(false);
+      }
       return;
     }
 
     /* ── Abort previous request ── */
     abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
+    const ctrl = new AbortController();
+    abortRef.current = ctrl;
 
     try {
-      if (!silent) setApiError(null);
-
       const { data } = await axios.get(url, {
-        headers : { Authorization: `Bearer ${token}` },
-        signal  : controller.signal,
-        timeout : 15_000,
+        headers: { Authorization: `Bearer ${token}` },
+        signal:  ctrl.signal,
+        timeout: 15_000,
       });
 
       if (!isMounted.current) return;
@@ -612,36 +572,33 @@ export default function SupportTicketDetail({ user }) {
         if (!silent) {
           setApiError({
             title: "Empty response",
-            detail: "The server returned a successful response but no ticket data.",
-            hint: "This may be a temporary issue. Please try again.",
+            detail: "The server returned success but no ticket data.",
+            hint: "This may be temporary. Please try again.",
             httpStatus: null, url, serverRaw: data,
           });
         }
       } else {
+        // FIX #1 — always clear error on success (silent or not)
         setTicket(ticketData);
-        if (!silent) setApiError(null);
+        setApiError(null);
       }
     } catch (err) {
       if (!isMounted.current) return;
       if (axios.isCancel(err))  return;
 
-      /*
-       * Always log the FULL error in console.
-       * This gives backend developers exactly what they need.
-       */
+      /* Always log full error details for developers */
       console.group(`%c[Ticket ${id}] API Error`, "color:red;font-weight:bold");
-      console.error("URL       :", url);
-      console.error("Status    :", err?.response?.status ?? "no response");
-      console.error("Headers   :", err?.response?.headers);
-      console.error("Body      :", err?.response?.data);
-      console.error("Axios msg :", err.message);
-      console.error("Full err  :", err);
+      console.error("URL    :", url);
+      console.error("Status :", err?.response?.status ?? "no response");
+      console.error("Body   :", err?.response?.data);
+      console.error("Axios  :", err.message);
       console.groupEnd();
 
       if (!silent) {
         setApiError(extractApiError(err, url));
       }
     } finally {
+      // FIX #2 — always hide spinner on non-silent, regardless of abort
       if (isMounted.current && !silent) setLoading(false);
     }
   }, [id]);
@@ -660,13 +617,20 @@ export default function SupportTicketDetail({ user }) {
     };
   }, [loadTicket]);
 
-  /* ── Polling ── */
+  /* ── Polling — FIX #6: skip when tab hidden ── */
   useEffect(() => {
-    clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => {
-      if (isMounted.current) loadTicket(true);
-    }, POLL_INTERVAL);
-    return () => clearInterval(pollRef.current);
+    const start = () => {
+      clearInterval(pollRef.current);
+      pollRef.current = setInterval(() => {
+        if (isMounted.current && !document.hidden) loadTicket(true);
+      }, POLL_INTERVAL);
+    };
+    start();
+    document.addEventListener("visibilitychange", start);
+    return () => {
+      clearInterval(pollRef.current);
+      document.removeEventListener("visibilitychange", start);
+    };
   }, [loadTicket]);
 
   /* ── Auto-scroll ── */
@@ -678,35 +642,33 @@ export default function SupportTicketDetail({ user }) {
   /* ════════════════════════════════════════════════════════
      DERIVED STATE
   ════════════════════════════════════════════════════════ */
-  const {
-    isClosed, isResolved, reopenOk,
-    canClose, messages, currentUserId,
-  } = useMemo(() => {
-    if (!ticket) return {
-      isClosed: false, isResolved: false,
-      reopenOk: false, canClose: false,
-      messages: [], currentUserId: null,
-    };
-    return {
-      isClosed   : ticket.status === "closed",
-      isResolved : ticket.status === "resolved",
-      reopenOk   : canReopenTicket(ticket),
-      canClose   : ["open","waiting_for_customer","in_progress","resolved"]
+  const { isClosed, isResolved, reopenOk, canClose, messages, currentUserId } =
+    useMemo(() => {
+      if (!ticket) return {
+        isClosed: false, isResolved: false,
+        reopenOk: false, canClose: false,
+        messages: [], currentUserId: null,
+      };
+      return {
+        isClosed:  ticket.status === "closed",
+        isResolved: ticket.status === "resolved",
+        reopenOk:  canReopenTicket(ticket),
+        canClose:  ["open","waiting_for_customer","in_progress","resolved"]
                      .includes(ticket.status),
-      messages   : Array.isArray(ticket.messages) ? ticket.messages : [],
-      currentUserId:
-        user?.id ?? user?._id ?? user?.user_id ?? user?.uuid ?? null,
-    };
-  }, [ticket, user]);
+        messages:  Array.isArray(ticket.messages) ? ticket.messages : [],
+        currentUserId:
+          user?.id ?? user?._id ?? user?.user_id ?? user?.uuid ?? null,
+      };
+    }, [ticket, user]);
 
   /* ════════════════════════════════════════════════════════
-     FILE HANDLING
+     FILE HANDLING — FIX #4: clean up previews on remove
   ════════════════════════════════════════════════════════ */
   const handleFileChange = useCallback((e) => {
     const selected = Array.from(e.target.files || []);
-    const errors = [];
-    const valid  = [];
-    const seen   = new Set(files.map((f) => `${f.name}-${f.size}`));
+    const errors   = [];
+    const valid    = [];
+    const seen     = new Set(files.map((f) => `${f.name}-${f.size}`));
 
     for (const file of selected) {
       const key = `${file.name}-${file.size}`;
@@ -718,57 +680,111 @@ export default function SupportTicketDetail({ user }) {
     }
 
     if (errors.length) toast.error(errors.join("\n"), { duration: 4000 });
+
     const next = [...files, ...valid].slice(0, 5);
     setFiles(next);
 
     next.forEach((file) => {
       const key = `${file.name}-${file.size}`;
-      if (!file.type.startsWith("image/") || filePreviews[key]) return;
+      if (!file.type.startsWith("image/") || previews[key]) return;
       const reader = new FileReader();
       reader.onload = (ev) => {
         if (isMounted.current)
-          setFilePreviews((p) => ({ ...p, [key]: ev.target.result }));
+          setPreviews((p) => ({ ...p, [key]: ev.target.result }));
       };
       reader.readAsDataURL(file);
     });
-    e.target.value = "";
-  }, [files, filePreviews]);
 
-  const removeFile = useCallback(
-    (i) => setFiles((p) => p.filter((_, idx) => idx !== i)),
-    []
-  );
+    e.target.value = "";
+  }, [files, previews]);
+
+  // FIX #4 — delete preview key when file is removed
+  const removeFile = useCallback((i) => {
+    setFiles((prev) => {
+      const removed = prev[i];
+      if (removed) {
+        const key = `${removed.name}-${removed.size}`;
+        setPreviews((p) => {
+          const next = { ...p };
+          delete next[key];
+          return next;
+        });
+      }
+      return prev.filter((_, idx) => idx !== i);
+    });
+  }, []);
 
   /* ════════════════════════════════════════════════════════
-     SEND REPLY
+     RESET POLL — FIX #10: restart poll after reply
+  ════════════════════════════════════════════════════════ */
+  const resetPoll = useCallback(() => {
+    clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => {
+      if (isMounted.current && !document.hidden) loadTicket(true);
+    }, POLL_INTERVAL);
+  }, [loadTicket]);
+
+  /* ════════════════════════════════════════════════════════
+     SEND REPLY — FIX #8: optimistic update
   ════════════════════════════════════════════════════════ */
   const handleReply = useCallback(async () => {
     if (!reply.trim() && files.length === 0) return;
     setSending(true);
     shouldScroll.current = true;
 
+    const optimistic = {
+      id:               `optimistic-${Date.now()}`,
+      sender_id:        currentUserId,
+      sender_name:      "You",
+      sender_avatar:    null,
+      message:          reply.trim(),
+      created_at:       new Date().toISOString(),
+      attachments:      [],
+      is_system_message: false,
+      _optimistic:      true,
+    };
+
+    /* Show immediately */
+    setTicket((prev) => prev
+      ? { ...prev, messages: [...(prev.messages ?? []), optimistic] }
+      : prev
+    );
+
+    const replyText = reply.trim();
+    const replyFiles = [...files];
+    setReply("");
+    setFiles([]);
+    setPreviews({});
+
     try {
       const fd = new FormData();
-      fd.append("message", reply.trim());
-      files.forEach((f) => fd.append("attachments", f));
+      fd.append("message", replyText);
+      replyFiles.forEach((f) => fd.append("attachments", f));
 
       await axios.post(
         `${BASE_URL}/api/support/tickets/${id}/messages`,
         fd,
         {
           headers: {
-            Authorization : `Bearer ${getToken()}`,
+            Authorization: `Bearer ${getToken()}`,
             "Content-Type": "multipart/form-data",
           },
         }
       );
 
       toast.success("Reply sent");
-      setReply("");
-      setFiles([]);
-      setFilePreviews({});
-      await loadTicket(true);
+      resetPoll();           // FIX #10 — restart poll timer
+      await loadTicket(true); // replace optimistic with server data
     } catch (err) {
+      /* Remove optimistic message on failure */
+      setTicket((prev) => prev
+        ? { ...prev, messages: (prev.messages ?? []).filter((m) => !m._optimistic) }
+        : prev
+      );
+      /* Restore draft */
+      setReply(replyText);
+      setFiles(replyFiles);
+
       const parsed = extractApiError(
         err, `${BASE_URL}/api/support/tickets/${id}/messages`
       );
@@ -776,7 +792,7 @@ export default function SupportTicketDetail({ user }) {
     } finally {
       setSending(false);
     }
-  }, [reply, files, id, loadTicket]);
+  }, [reply, files, id, currentUserId, loadTicket, resetPoll]);
 
   const handleKeyDown = useCallback((e) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -818,14 +834,18 @@ export default function SupportTicketDetail({ user }) {
       toast.success("Ticket reopened.");
       await loadTicket(false);
     } catch (err) {
-      const parsed = extractApiError(err, `${BASE_URL}/api/support/tickets/${id}/reopen`);
+      const parsed = extractApiError(
+        err, `${BASE_URL}/api/support/tickets/${id}/reopen`
+      );
       toast.error(parsed?.detail ?? "Failed to reopen ticket.");
     } finally {
       setActionBusy(false);
     }
   }, [id, loadTicket]);
 
+  // FIX #3 — abort before retry to prevent race condition
   const handleRetry = useCallback(() => {
+    abortRef.current?.abort();
     setLoading(true);
     setApiError(null);
     setTicket(null);
@@ -836,49 +856,50 @@ export default function SupportTicketDetail({ user }) {
      RENDER GUARDS
   ════════════════════════════════════════════════════════ */
   if (loading) return <LoadingState />;
-
-  if (apiError || !ticket) {
+  if (apiError || !ticket)
     return <ErrorState id={id} error={apiError} onRetry={handleRetry} />;
-  }
-
-  const replyDisabled =
-    sending || actionBusy || (!reply.trim() && files.length === 0);
 
   /* ════════════════════════════════════════════════════════
-     RENDER — TICKET
+     RENDER
   ════════════════════════════════════════════════════════ */
-  return (
-    <div className="ticket-detail-page">
-      <div className="ticket-detail-container">
+  const replyDisabled = sending || actionBusy || (!reply.trim() && files.length === 0);
 
+  return (
+    <div className="stdp-page">
+      <div className="stdp-container">
+
+        {/* ── Confirm dialog ── */}
         {showConfirm && (
           <ConfirmDialog
             title="Close this ticket?"
             body="Once closed, you have 7 days to reopen it. Are you sure?"
-            danger
             onConfirm={handleClose}
             onCancel={() => setShowConfirm(false)}
           />
         )}
 
-        {/* ── Header ── */}
-        <div className="ticket-detail-header">
-          <Link to="/support/tickets" className="ticket-detail-back">
+        {/* ════════════════════════════════════════════════
+            HEADER
+        ════════════════════════════════════════════════ */}
+        <div className="stdp-header">
+          <Link to="/support/tickets" className="stdp-back" aria-label="Back to tickets">
             <IconArrowLeft size={20} />
           </Link>
 
-          <div className="ticket-detail-header-info">
-            <div className="ticket-detail-header-badges">
-              <span className="ticket-detail-number">{ticket.ticket_number}</span>
-              <TicketStatusBadge status={ticket.status} />
-              <PriorityBadge    priority={ticket.priority} />
+          <div className="stdp-header-info">
+            <div className="stdp-header-badges">
+              <span className="stdp-ticket-number">{ticket.ticket_number}</span>
+              <StatusBadge   status={ticket.status} />
+              <PriorityBadge priority={ticket.priority} />
             </div>
-            <h1 className="ticket-detail-subject">{ticket.subject}</h1>
-            <div className="ticket-detail-meta">
-              <span className="ticket-detail-category">{ticket.category}</span>
-              <span className="ticket-detail-separator" />
+            <h1 className="stdp-subject">{ticket.subject}</h1>
+            <div className="stdp-meta">
+              {ticket.category && (
+                <span className="stdp-category">{ticket.category}</span>
+              )}
+              {ticket.category && <span className="stdp-dot" aria-hidden="true" />}
               <span
-                className="ticket-detail-date"
+                className="stdp-date"
                 title={formatDateTime(ticket.created_at)}
               >
                 <IconClock size={12} />
@@ -888,21 +909,24 @@ export default function SupportTicketDetail({ user }) {
           </div>
 
           <button
-            className="ticket-detail-refresh-btn"
+            className="stdp-refresh-btn"
             onClick={() => loadTicket(false)}
-            aria-label="Refresh"
+            aria-label="Refresh ticket"
+            disabled={actionBusy || sending}
           >
             <IconRefresh size={16} />
           </button>
         </div>
 
-        {/* ── Actions ── */}
-        <div className="ticket-detail-actions">
+        {/* ════════════════════════════════════════════════
+            ACTIONS
+        ════════════════════════════════════════════════ */}
+        <div className="stdp-actions">
           {canClose && (
             <button
               onClick={() => setShowConfirm(true)}
               disabled={actionBusy || sending}
-              className="ticket-action-btn ticket-action-close"
+              className="stdp-action-btn stdp-action-close"
             >
               <IconLock size={16} /> Close Ticket
             </button>
@@ -911,25 +935,28 @@ export default function SupportTicketDetail({ user }) {
             <button
               onClick={handleReopen}
               disabled={actionBusy || sending}
-              className="ticket-action-btn ticket-action-reopen"
+              className="stdp-action-btn stdp-action-reopen"
             >
               <IconRotateCcw size={16} /> Reopen Ticket
             </button>
           )}
           {isClosed && !reopenOk && (
-            <div className="ticket-action-expired" role="status">
+            <div className="stdp-action-expired" role="status">
               <IconAlertTriangle size={15} />
               Reopen period has expired
             </div>
           )}
         </div>
 
-        {/* ── Thread ── */}
+        {/* ════════════════════════════════════════════════
+            MESSAGE THREAD
+        ════════════════════════════════════════════════ */}
         <div
-          className="ticket-messages"
+          className="stdp-thread"
           ref={threadRef}
           role="log"
           aria-live="polite"
+          aria-label="Conversation"
           onScroll={() => {
             const el = threadRef.current;
             if (!el) return;
@@ -937,22 +964,24 @@ export default function SupportTicketDetail({ user }) {
               el.scrollHeight - el.scrollTop - el.clientHeight < 80;
           }}
         >
+          {/* Empty state */}
           {messages.length === 0 && !ticket.description && (
-            <div className="ticket-messages-empty">
-              <p>No messages yet. Start the conversation below.</p>
+            <div className="stdp-thread-empty">
+              No messages yet. Start the conversation below.
             </div>
           )}
 
+          {/* Show description as first message if no messages array */}
           {messages.length === 0 && ticket.description && (
             <TicketMessage
               msg={{
-                id               : "__description__",
-                sender_id        : ticket.user_id,
-                sender_name      : "You",
-                sender_avatar    : null,
-                message          : ticket.description,
-                created_at       : ticket.created_at,
-                attachments      : [],
+                id:                "__desc__",
+                sender_id:         ticket.user_id,
+                sender_name:       "You",
+                sender_avatar:     null,
+                message:           ticket.description,
+                created_at:        ticket.created_at,
+                attachments:       [],
                 is_system_message: false,
               }}
               isOwn={true}
@@ -960,12 +989,12 @@ export default function SupportTicketDetail({ user }) {
             />
           )}
 
+          {/* Messages */}
           {messages.map((msg) => {
+            // FIX #5 — better isOwn fallback logic
             const isOwn = currentUserId
               ? String(msg.sender_id) === String(currentUserId)
-              : !msg.is_internal_note &&
-                msg.sender_role !== "admin" &&
-                msg.sender_role !== "support_agent";
+              : (msg.sender_role === "customer" || msg.sender_role === "user");
 
             return (
               <TicketMessage
@@ -978,40 +1007,47 @@ export default function SupportTicketDetail({ user }) {
           })}
         </div>
 
-        {/* ── Reply box ── */}
+        {/* ════════════════════════════════════════════════
+            REPLY BOX
+        ════════════════════════════════════════════════ */}
         {!isClosed && (
-          <div className="ticket-reply-box">
-            <label htmlFor="ticket-reply-textarea" className="td-sr-only">
+          <div className="stdp-reply-box">
+            <label htmlFor="stdp-reply-ta" className="stdp-sr-only">
               Your reply
             </label>
             <textarea
-              id="ticket-reply-textarea"
+              id="stdp-reply-ta"
               value={reply}
               onChange={(e) => setReply(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Type your reply… (⌘ Enter or Ctrl + Enter to send)"
               rows={4}
-              className="ticket-reply-textarea"
+              className="stdp-reply-textarea"
               disabled={sending || actionBusy}
             />
 
+            {/* File chips */}
             {files.length > 0 && (
-              <div className="ticket-reply-files" role="list">
+              <div className="stdp-reply-files" role="list">
                 {files.map((f, i) => {
                   const key     = `${f.name}-${f.size}`;
-                  const preview = filePreviews[key];
+                  const preview = previews[key];
                   return (
-                    <div key={i} className="ticket-reply-file-chip" role="listitem">
+                    <div key={`${key}-${i}`} className="stdp-reply-chip" role="listitem">
                       {f.type.startsWith("image/") && preview && (
-                        <img src={preview} alt={f.name} className="ticket-reply-file-thumb" />
+                        <img
+                          src={preview}
+                          alt={f.name}
+                          className="stdp-reply-chip-thumb"
+                        />
                       )}
                       <IconPaperclip size={12} aria-hidden="true" />
-                      <span className="ticket-reply-file-name">{f.name}</span>
-                      <span className="ticket-reply-file-size">{formatBytes(f.size)}</span>
+                      <span className="stdp-reply-chip-name">{f.name}</span>
+                      <span className="stdp-reply-chip-size">{formatBytes(f.size)}</span>
                       <button
                         type="button"
                         onClick={() => removeFile(i)}
-                        className="ticket-reply-file-remove"
+                        className="stdp-reply-chip-remove"
                         aria-label={`Remove ${f.name}`}
                       >
                         <IconX size={12} />
@@ -1022,12 +1058,14 @@ export default function SupportTicketDetail({ user }) {
               </div>
             )}
 
-            <div className="ticket-reply-toolbar">
+            {/* Toolbar */}
+            <div className="stdp-reply-toolbar">
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
-                className="ticket-reply-attach-btn"
+                className="stdp-attach-btn"
                 disabled={sending || files.length >= 5}
+                aria-label="Attach files"
               >
                 <IconPaperclip size={16} />
                 {files.length >= 5 ? "Max 5 files" : "Attach files"}
@@ -1039,18 +1077,19 @@ export default function SupportTicketDetail({ user }) {
                 multiple
                 accept="image/*,.pdf,.doc,.docx"
                 onChange={handleFileChange}
-                className="ticket-reply-file-hidden"
+                className="stdp-file-hidden"
                 tabIndex={-1}
+                aria-hidden="true"
               />
 
               <button
                 onClick={handleReply}
                 disabled={replyDisabled}
-                className="ticket-reply-send-btn"
+                className="stdp-send-btn"
                 aria-busy={sending}
               >
                 {sending
-                  ? <><IconLoader size={16} className="ticket-reply-spinner" /> Sending…</>
+                  ? <><IconLoader size={16} className="stdp-spinner" /> Sending…</>
                   : <><IconSend size={16} /> Send Reply</>
                 }
               </button>
@@ -1058,19 +1097,18 @@ export default function SupportTicketDetail({ user }) {
           </div>
         )}
 
+        {/* ════════════════════════════════════════════════
+            BANNERS
+        ════════════════════════════════════════════════ */}
         {isResolved && (
-          <div className="ticket-resolved-banner" role="status">
+          <div className="stdp-banner stdp-banner--resolved" role="status">
             <IconCheckCircle size={20} />
             <span>This ticket has been resolved</span>
           </div>
         )}
 
         {isClosed && (
-          <div
-            className="ticket-resolved-banner"
-            style={{ background: "#F3F4F6", color: "#6B7280" }}
-            role="status"
-          >
+          <div className="stdp-banner stdp-banner--closed" role="status">
             <IconLock size={18} />
             <span>
               This ticket is closed
@@ -1078,6 +1116,7 @@ export default function SupportTicketDetail({ user }) {
             </span>
           </div>
         )}
+
       </div>
     </div>
   );
