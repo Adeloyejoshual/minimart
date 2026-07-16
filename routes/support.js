@@ -3,386 +3,100 @@
 // Mount: /api/support
 // ════════════════════════════════════════════════════════════
 
-import express        from "express";
-import { pool }       from "../server.js";
+import express from "express";
+import { pool } from "../server.js";
 import { authenticate } from "../middleware/auth.js";
-import multer         from "multer";
-import path           from "path";
-import crypto         from "crypto";
-import helmet         from "helmet";
-import cors           from "cors";
-import rateLimit      from "express-rate-limit";
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
-import { fileTypeFromBuffer } from "file-type";   /* real MIME from bytes */
-import nodemailer     from "nodemailer";
-import { WebSocketServer } from "ws";             /* live updates          */
+import multer from "multer";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import crypto from "crypto";
+import path from "path";
 
 const router = express.Router();
 
 /* ════════════════════════════════════════════════════════════
-   SECURITY MIDDLEWARE
-════════════════════════════════════════════════════════════ */
-
-/* Helmet — security headers */
-router.use(helmet({
-  contentSecurityPolicy : false,   /* adjust per your needs */
-  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
-}));
-
-/* CORS — whitelist only your domain */
-router.use(cors({
-  origin      : [
-    process.env.FRONTEND_URL ?? "https://www.loemart.com",
-    "https://loemart.com",
-  ],
-  methods     : ["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-  credentials : true,
-}));
-
-/* ════════════════════════════════════════════════════════════
-   RATE LIMITERS
-════════════════════════════════════════════════════════════ */
-
-const makeLimit = (windowMin, max, message) =>
-  rateLimit({
-    windowMs        : windowMin * 60 * 1000,
-    max,
-    standardHeaders : true,
-    legacyHeaders   : false,
-    keyGenerator    : (req) => req.user?.id ?? req.ip,
-    message         : { success: false, message },
-  });
-
-/* Ticket creation  — 5 per hour */
-const ticketCreateLimit = makeLimit(60, 5,
-  "You can only open 5 tickets per hour. Please wait before submitting another.");
-
-/* Message replies  — 20 per hour */
-const messageLimit = makeLimit(60, 20,
-  "You can only send 20 messages per hour. Please slow down.");
-
-/* Report / dispute / appeal — 3 per hour */
-const reportLimit = makeLimit(60, 3,
-  "You can only submit 3 reports per hour.");
-
-/* General read endpoints — 120 per minute */
-const readLimit = makeLimit(1, 120,
-  "Too many requests. Please slow down.");
-
-/* ════════════════════════════════════════════════════════════
    CLOUDFLARE R2
 ════════════════════════════════════════════════════════════ */
-const r2 = new S3Client({
-  region    : process.env.R2_REGION ?? "auto",
-  endpoint  : process.env.R2_ENDPOINT,
+const s3 = new S3Client({
+  region  : "auto",
+  endpoint: process.env.R2_ENDPOINT,
   credentials: {
-    accessKeyId     : process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey : process.env.R2_SECRET_ACCESS_KEY,
+    accessKeyId    : process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
   },
 });
 
-const R2_BUCKET     = process.env.R2_BUCKET_NAME;
-const R2_PUBLIC_URL = (process.env.R2_PUBLIC_URL ?? "").replace(/\/$/, "");
-
-/* ────────────────────────────────────────────────────────────
-   UPLOAD CONFIG
-──────────────────────────────────────────────────────────── */
-const ALLOWED_MIME = new Set([
-  "image/jpeg", "image/png", "image/gif", "image/webp",
-  "video/mp4", "video/webm", "video/quicktime",          /* short videos */
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-]);
-
-/* Magic-byte signatures for real content validation */
-const MAGIC = {
-  "image/jpeg"  : [Buffer.from([0xFF, 0xD8, 0xFF])],
-  "image/png"   : [Buffer.from([0x89, 0x50, 0x4E, 0x47])],
-  "image/gif"   : [Buffer.from("GIF8")],
-  "image/webp"  : [Buffer.from("RIFF")],               /* also check bytes 8-11 */
-  "video/mp4"   : [Buffer.from("ftyp", "ascii")],      /* at offset 4 */
-  "application/pdf": [Buffer.from("%PDF")],
-};
-
-const MAX_IMAGE_SIZE = 10  * 1024 * 1024;  /* 10 MB  */
-const MAX_VIDEO_SIZE = 50  * 1024 * 1024;  /* 50 MB  */
-const MAX_FILE_SIZE  = 10  * 1024 * 1024;  /* 10 MB  */
-const MAX_VIDEO_DURATION_S = 60;            /* 60 sec — enforced server-side via metadata */
+const BUCKET    = process.env.R2_BUCKET_NAME;
+const R2_PUBLIC = process.env.R2_PUBLIC_URL;
 
 const upload = multer({
   storage   : multer.memoryStorage(),
-  limits    : { fileSize: MAX_VIDEO_SIZE, files: 5 },
+  limits    : { fileSize: 10 * 1024 * 1024, files: 5 },
   fileFilter(_req, file, cb) {
-    if (ALLOWED_MIME.has(file.mimetype)) return cb(null, true);
-    cb(new Error(`File type "${file.mimetype}" is not allowed.`));
+    const ALLOWED = [
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
+      "application/pdf",
+      "application/msword",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
+    if (ALLOWED.includes(file.mimetype)) return cb(null, true);
+    cb(new Error(`File type "${file.mimetype}" is not allowed`));
   },
 });
 
-/* ────────────────────────────────────────────────────────────
-   REAL CONTENT VALIDATION  (don't trust MIME type alone)
-──────────────────────────────────────────────────────────── */
-async function validateFileContent(buffer, declaredMime) {
-  /* Use file-type library to detect real type from bytes */
-  const detected = await fileTypeFromBuffer(buffer);
-
-  if (!detected) {
-    /* For plain text / PDF that may not have magic bytes */
-    if (declaredMime === "application/pdf") {
-      if (buffer.slice(0, 4).toString() !== "%PDF") {
-        throw new Error("File does not appear to be a valid PDF.");
-      }
-      return;
-    }
-    /* Unknown — reject */
-    throw new Error(`Could not determine file type from content.`);
-  }
-
-  /* The detected MIME must match the declared MIME */
-  if (detected.mime !== declaredMime) {
-    throw new Error(
-      `File content mismatch: declared "${declaredMime}" but detected "${detected.mime}". ` +
-      `Potential spoofing attempt blocked.`
-    );
-  }
-
-  /* Reject dangerous types even if MIME somehow slipped through */
-  const BLOCKED = [
-    "application/x-executable",
-    "application/x-msdownload",
-    "application/x-sh",
-    "text/javascript",
-    "application/javascript",
-  ];
-  if (BLOCKED.includes(detected.mime)) {
-    throw new Error(`File type "${detected.mime}" is not permitted.`);
-  }
-}
-
-/* ────────────────────────────────────────────────────────────
-   UPLOAD TO R2  (with content validation + progress)
-──────────────────────────────────────────────────────────── */
 async function uploadToR2(file, folder = "support") {
-  /* 1. Real size limits per type */
-  const isVideo = file.mimetype.startsWith("video/");
-  const limit   = isVideo ? MAX_VIDEO_SIZE : MAX_FILE_SIZE;
+  const ext = path.extname(file.originalname).toLowerCase();
+  const key = `${folder}/${crypto.randomUUID()}${ext}`;
 
-  if (file.size > limit) {
-    throw new Error(
-      `"${file.originalname}" is ${(file.size / 1024 / 1024).toFixed(1)} MB. ` +
-      `${isVideo ? "Videos" : "Files"} must be under ${limit / 1024 / 1024} MB.`
-    );
-  }
-
-  /* 2. Real content validation */
-  await validateFileContent(file.buffer, file.mimetype);
-
-  /* 3. Upload */
-  const ext = path.extname(file.originalname || "file").toLowerCase() || ".bin";
-  const key = `${folder}/${Date.now()}-${crypto.randomUUID()}${ext}`;
-
-  await r2.send(new PutObjectCommand({
-    Bucket            : R2_BUCKET,
-    Key               : key,
-    Body              : file.buffer,
-    ContentType       : file.mimetype,
-    ContentDisposition: "inline",
-    Metadata: {
-      originalName: file.originalname,
-      uploadedAt  : new Date().toISOString(),
-    },
-  }));
+  await s3.send(
+    new PutObjectCommand({
+      Bucket            : BUCKET,
+      Key               : key,
+      Body              : file.buffer,
+      ContentType       : file.mimetype,
+      ContentDisposition: "inline",
+      Metadata: {
+        originalName: file.originalname,
+        uploadedAt  : new Date().toISOString(),
+      },
+    })
+  );
 
   return {
     key,
-    url      : `${R2_PUBLIC_URL}/${key}`,
-    fileName : file.originalname,
-    fileType : file.mimetype,
-    fileSize : file.size,
-    isVideo,
+    url     : `${R2_PUBLIC}/${key}`,
+    fileName: file.originalname,
+    fileType: file.mimetype,
+    fileSize: file.size,
   };
 }
 
-/* ────────────────────────────────────────────────────────────
-   SIGNED URL  (for sensitive attachments — expires in 1 hour)
-──────────────────────────────────────────────────────────── */
-async function getSignedAttachmentUrl(key, expiresInSeconds = 3600) {
-  const command = new GetObjectCommand({ Bucket: R2_BUCKET, Key: key });
-  return getSignedUrl(r2, command, { expiresIn: expiresInSeconds });
-}
-
 /* ════════════════════════════════════════════════════════════
-   EMAIL  (nodemailer)
+   SHARED HELPERS
 ════════════════════════════════════════════════════════════ */
-const mailer = nodemailer.createTransport({
-  host   : process.env.SMTP_HOST,
-  port   : Number(process.env.SMTP_PORT ?? 587),
-  secure : process.env.SMTP_SECURE === "true",
-  auth   : {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS,
-  },
-});
 
-async function sendEmail({ to, subject, html, text }) {
-  if (!process.env.SMTP_HOST) return;   /* skip if not configured */
-  try {
-    await mailer.sendMail({
-      from    : `"Loemart Support" <${process.env.SMTP_FROM ?? "support@loemart.com"}>`,
-      to,
-      subject,
-      html,
-      text    : text ?? html.replace(/<[^>]+>/g, ""),
-    });
-  } catch (err) {
-    console.warn("[support] ⚠️  email send failed:", err.message);
-  }
-}
-
-function buildTicketEmail(type, ticket, extra = {}) {
-  const base = `https://www.loemart.com/support/tickets/${ticket.id}`;
-
-  const templates = {
-    ticket_created: {
-      subject : `[${ticket.ticket_number}] Your support ticket has been received`,
-      html    : `
-        <h2>We've received your ticket</h2>
-        <p><strong>Ticket:</strong> ${ticket.ticket_number}</p>
-        <p><strong>Subject:</strong> ${ticket.subject}</p>
-        <p><strong>Priority:</strong> ${ticket.priority}</p>
-        <p>Our team will respond shortly.
-           <a href="${base}">View ticket →</a></p>`,
-    },
-    agent_replied: {
-      subject : `[${ticket.ticket_number}] New reply from support`,
-      html    : `
-        <h2>Support replied to your ticket</h2>
-        <p><strong>Ticket:</strong> ${ticket.ticket_number}</p>
-        <p><strong>Agent:</strong> ${extra.agentName ?? "Support Agent"}</p>
-        <p><a href="${base}">View reply →</a></p>`,
-    },
-    ticket_resolved: {
-      subject : `[${ticket.ticket_number}] Your ticket has been resolved`,
-      html    : `
-        <h2>Ticket resolved</h2>
-        <p>Your ticket <strong>${ticket.ticket_number}</strong> has been marked as resolved.</p>
-        <p>If your issue is not resolved, you can reopen it within 7 days.
-           <a href="${base}">View ticket →</a></p>`,
-    },
-    ticket_closed: {
-      subject : `[${ticket.ticket_number}] Ticket closed`,
-      html    : `
-        <h2>Ticket closed</h2>
-        <p>Your ticket <strong>${ticket.ticket_number}</strong> has been closed.</p>
-        <p>You have 7 days to reopen it if needed.
-           <a href="${base}">View ticket →</a></p>`,
-    },
-  };
-
-  return templates[type] ?? null;
-}
-
-/* ════════════════════════════════════════════════════════════
-   WEBSOCKET  (live updates)
-   Attach to HTTP server in server.js:
-     import { initSupportWS } from "./routes/support.js";
-     initSupportWS(server);
-════════════════════════════════════════════════════════════ */
-const wsClients = new Map();   /* userId → Set<WebSocket> */
-
-export function initSupportWS(server) {
-  const wss = new WebSocketServer({ noServer: true });
-
-  server.on("upgrade", (req, socket, head) => {
-    if (!req.url.startsWith("/ws/support")) return;
-    wss.handleUpgrade(req, socket, head, (ws) => {
-      wss.emit("connection", ws, req);
-    });
-  });
-
-  wss.on("connection", (ws, req) => {
-    /* Expect ?token=JWT in query string */
-    const url    = new URL(req.url, "http://x");
-    const token  = url.searchParams.get("token");
-
-    if (!token) { ws.close(4001, "No token"); return; }
-
-    /* Verify token using your existing auth logic */
-    import("../middleware/auth.js").then(({ verifyToken }) => {
-      try {
-        const user = verifyToken(token);
-        const uid  = String(user.id);
-
-        if (!wsClients.has(uid)) wsClients.set(uid, new Set());
-        wsClients.get(uid).add(ws);
-
-        ws.on("close", () => {
-          wsClients.get(uid)?.delete(ws);
-          if (wsClients.get(uid)?.size === 0) wsClients.delete(uid);
-        });
-
-        ws.on("message", (data) => {
-          try {
-            const msg = JSON.parse(data.toString());
-            /* Handle typing indicator from client */
-            if (msg.type === "typing" && msg.ticketId) {
-              broadcastToTicketAgents(msg.ticketId, {
-                type    : "typing",
-                userId  : uid,
-                ticketId: msg.ticketId,
-              });
-            }
-          } catch { /* ignore malformed */ }
-        });
-
-        ws.send(JSON.stringify({ type: "connected", userId: uid }));
-      } catch {
-        ws.close(4001, "Invalid token");
-      }
-    });
-  });
-}
-
-function broadcastToUser(userId, payload) {
-  const conns = wsClients.get(String(userId));
-  if (!conns) return;
-  const msg = JSON.stringify(payload);
-  for (const ws of conns) {
-    if (ws.readyState === 1 /* OPEN */) ws.send(msg);
-  }
-}
-
-async function broadcastToTicketAgents(ticketId, payload) {
-  /* Find the agent assigned to this ticket and broadcast to them */
-  try {
-    const { rows } = await pool.query(
-      `SELECT assigned_to FROM public.support_tickets WHERE id = $1`,
-      [ticketId]
-    );
-    if (rows[0]?.assigned_to) {
-      broadcastToUser(rows[0].assigned_to, payload);
-    }
-  } catch { /* non-fatal */ }
-}
-
-/* ════════════════════════════════════════════════════════════
-   HELPERS
-════════════════════════════════════════════════════════════ */
 function generateNumber(prefix) {
   const ts     = Date.now().toString().slice(-8);
   const random = Math.floor(Math.random() * 9000 + 1000);
   return `${prefix}-${ts}-${random}`;
 }
 
+/**
+ * Validate UUID v4 format.
+ */
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function isValidUUID(v) {
-  return typeof v === "string" && UUID_RE.test(v);
+function isValidUUID(value) {
+  return typeof value === "string" && UUID_RE.test(value);
 }
 
-/** Return real pg error details in the response — never swallow. */
+/**
+ * Build a structured 500 response from a pg error.
+ * Always includes the real pg error message, code, detail, hint.
+ */
 function pgError(res, err, step, extra = {}) {
   console.error(`[support] ❌ ${step}`);
   console.error("  message :", err.message);
@@ -393,7 +107,7 @@ function pgError(res, err, step, extra = {}) {
 
   return res.status(500).json({
     success : false,
-    message : err.message,
+    message : err.message,            /* real DB error — never swallowed */
     pgCode  : err.code   ?? null,
     detail  : err.detail ?? null,
     hint    : err.hint   ?? null,
@@ -402,10 +116,16 @@ function pgError(res, err, step, extra = {}) {
   });
 }
 
-/** Non-fatal notification insert. */
+/**
+ * Insert a support notification (non-fatal — logs on failure).
+ */
 async function createNotification(client, {
-  userId, type, title, message,
-  referenceId = null, referenceType = null,
+  userId,
+  type,
+  title,
+  message,
+  referenceId   = null,
+  referenceType = null,
 }) {
   try {
     await client.query(
@@ -416,14 +136,21 @@ async function createNotification(client, {
       [userId, type, title, message, referenceId, referenceType]
     );
   } catch (err) {
-    console.warn("[support] ⚠️  createNotification:", err.message);
+    /* Non-fatal — ticket must not fail because of a notification error */
+    console.warn("[support] ⚠️  createNotification failed:", err.message);
   }
 }
 
-/** Non-fatal activity log insert. */
+/**
+ * Insert an activity log entry (non-fatal).
+ */
 async function logActivity(client, {
-  ticketId, performedBy, action,
-  oldValue = null, newValue = null, description = null,
+  ticketId,
+  performedBy,
+  action,
+  oldValue    = null,
+  newValue    = null,
+  description = null,
 }) {
   try {
     await client.query(
@@ -434,123 +161,9 @@ async function logActivity(client, {
       [ticketId, performedBy, action, oldValue, newValue, description]
     );
   } catch (err) {
-    console.warn("[support] ⚠️  logActivity:", err.message);
+    /* Non-fatal */
+    console.warn("[support] ⚠️  logActivity failed:", err.message);
   }
-}
-
-/** Detect spam / repeated content. */
-async function isSpam(userId, content, windowMinutes = 10) {
-  try {
-    const { rows } = await pool.query(
-      `SELECT COUNT(*) AS cnt
-       FROM public.ticket_messages
-       WHERE sender_id  = $1
-         AND message    = $2
-         AND created_at > NOW() - INTERVAL '${windowMinutes} minutes'`,
-      [userId, content]
-    );
-    return Number(rows[0].cnt) > 0;
-  } catch {
-    return false;
-  }
-}
-
-/** Detect scam/insult patterns. */
-const SPAM_PATTERNS = [
-  /bit\.ly\//i,
-  /tinyurl\.com\//i,
-  /\bt\.me\//i,
-  /\bwhatsapp\.com\/\b/i,
-  /send.*bitcoin/i,
-  /click.*here.*to.*claim/i,
-];
-
-function containsSpamLinks(text) {
-  return SPAM_PATTERNS.some((re) => re.test(text));
-}
-
-/** Auto-close tickets resolved for > 7 days with no reply. */
-export async function runAutoClose() {
-  try {
-    const { rows } = await pool.query(
-      `UPDATE public.support_tickets
-       SET status          = 'closed',
-           closed_at       = NOW(),
-           reopen_deadline = NOW() + INTERVAL '7 days',
-           updated_at      = NOW()
-       WHERE status    = 'resolved'
-         AND updated_at < NOW() - INTERVAL '7 days'
-       RETURNING id, ticket_number, user_id, subject`
-    );
-
-    for (const ticket of rows) {
-      /* Get user email */
-      const { rows: users } = await pool.query(
-        `SELECT email FROM public.users WHERE id = $1`,
-        [ticket.user_id]
-      );
-      if (users[0]?.email) {
-        const tpl = buildTicketEmail("ticket_closed", ticket);
-        if (tpl) await sendEmail({ to: users[0].email, ...tpl });
-      }
-
-      await pool.query(
-        `INSERT INTO public.ticket_activity_logs
-           (ticket_id, action, description)
-         VALUES ($1,'auto_closed',
-           'Ticket auto-closed after 7 days with no reply following resolution.')`,
-        [ticket.id]
-      ).catch(() => {});
-    }
-
-    if (rows.length > 0) {
-      console.log(`[support] auto-closed ${rows.length} ticket(s)`);
-    }
-  } catch (err) {
-    console.error("[support] runAutoClose:", err.message);
-  }
-}
-
-/* Run auto-close every hour */
-setInterval(runAutoClose, 60 * 60 * 1000);
-
-/* ════════════════════════════════════════════════════════════
-   COLUMN PROBE CACHE
-   Avoid querying information_schema on every request.
-════════════════════════════════════════════════════════════ */
-let _colCache = null;
-
-async function getColumnSets() {
-  if (_colCache) return _colCache;
-
-  const { rows: msgCols } = await pool.query(
-    `SELECT column_name FROM information_schema.columns
-     WHERE table_schema='public' AND table_name='ticket_messages'`
-  );
-  const { rows: usrCols } = await pool.query(
-    `SELECT column_name FROM information_schema.columns
-     WHERE table_schema='public' AND table_name='users'`
-  );
-
-  const msgSet = new Set(msgCols.map((r) => r.column_name));
-  const usrSet = new Set(usrCols.map((r) => r.column_name));
-
-  /* Find the avatar column name */
-  const avatarCol =
-    ["avatar_url", "profile_image", "photo_url", "picture"]
-      .find((c) => usrSet.has(c)) ?? null;
-
-  _colCache = {
-    hasInternalNote  : msgSet.has("is_internal_note"),
-    hasSystemMessage : msgSet.has("is_system_message"),
-    hasIsRead        : msgSet.has("is_read"),
-    hasSeenAt        : msgSet.has("seen_at"),
-    hasDeletedAt     : msgSet.has("deleted_at"),
-    hasSenderRole    : usrSet.has("role"),
-    avatarCol,
-  };
-
-  return _colCache;
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -560,16 +173,22 @@ async function getColumnSets() {
 ════════════════════════════════════════════════════════════ */
 
 /* ────────────────────────────────────────────────────────────
-   POST /api/support/tickets   [5/hr]
+   POST /api/support/tickets
+   Create a new support ticket.
 ──────────────────────────────────────────────────────────── */
 router.post(
   "/tickets",
   authenticate,
-  ticketCreateLimit,
   upload.array("attachments", 5),
   async (req, res) => {
-    const { category, subject, description, priority = "medium" } = req.body;
+    const {
+      category,
+      subject,
+      description,
+      priority = "medium",
+    } = req.body;
 
+    /* ── Validation ── */
     if (!category || !subject || !description) {
       return res.status(400).json({
         success : false,
@@ -585,46 +204,28 @@ router.post(
       });
     }
 
-    /* Spam detection */
-    if (containsSpamLinks(description)) {
-      return res.status(400).json({
-        success : false,
-        message : "Your message contains suspicious links and could not be submitted.",
-      });
-    }
-
-    /* Duplicate detection — same subject within 1 hour */
-    try {
-      const { rows: dupes } = await pool.query(
-        `SELECT id FROM public.support_tickets
-         WHERE user_id    = $1
-           AND subject    = $2
-           AND created_at > NOW() - INTERVAL '1 hour'
-         LIMIT 1`,
-        [req.user.id, subject]
-      );
-      if (dupes.length > 0) {
-        return res.status(409).json({
-          success : false,
-          message : "A ticket with this subject was already submitted in the last hour.",
-        });
-      }
-    } catch { /* non-fatal */ }
-
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
-      /* Insert ticket */
+      /* ── Insert ticket ── */
       let ticket;
       try {
+        const ticketNumber = generateNumber("TKT");
         const { rows } = await client.query(
           `INSERT INTO public.support_tickets
              (ticket_number, user_id, category, subject,
               description, priority, status)
            VALUES ($1,$2,$3,$4,$5,$6,'open')
            RETURNING *`,
-          [generateNumber("TKT"), req.user.id, category, subject, description, priority]
+          [
+            ticketNumber,
+            req.user.id,
+            category,
+            subject,
+            description,
+            priority,
+          ]
         );
         ticket = rows[0];
       } catch (err) {
@@ -632,12 +233,14 @@ router.post(
         return pgError(res, err, "create_ticket_insert");
       }
 
-      /* Insert opening message */
+      /* ── Insert opening message ── */
       let msgId;
       try {
         const { rows } = await client.query(
-          `INSERT INTO public.ticket_messages (ticket_id, sender_id, message)
-           VALUES ($1,$2,$3) RETURNING id`,
+          `INSERT INTO public.ticket_messages
+             (ticket_id, sender_id, message)
+           VALUES ($1,$2,$3)
+           RETURNING id`,
           [ticket.id, req.user.id, description]
         );
         msgId = rows[0].id;
@@ -646,64 +249,56 @@ router.post(
         return pgError(res, err, "create_ticket_message", { ticketId: ticket.id });
       }
 
-      /* Upload attachments */
+      /* ── Upload attachments (if any) ── */
       const uploadedFiles = [];
       if (req.files?.length) {
         for (const file of req.files) {
           try {
-            const uploaded = await uploadToR2(file, `support/tickets/${ticket.id}`);
+            const uploaded = await uploadToR2(
+              file,
+              `support/tickets/${ticket.id}`
+            );
             await client.query(
               `INSERT INTO public.ticket_attachments
                  (ticket_id, message_id, uploaded_by,
-                  file_name, file_url, file_type, file_size, file_key)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+                  file_name, file_url, file_type, file_size)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)`,
               [
-                ticket.id, msgId, req.user.id,
-                uploaded.fileName, uploaded.url,
-                uploaded.fileType, uploaded.fileSize,
-                uploaded.key,
+                ticket.id,
+                msgId,
+                req.user.id,
+                uploaded.fileName,
+                uploaded.url,
+                uploaded.fileType,
+                uploaded.fileSize,
               ]
             );
             uploadedFiles.push(uploaded);
           } catch (err) {
+            /* Non-fatal — continue without this attachment */
             console.warn("[support] ⚠️  attachment upload failed:", err.message);
           }
         }
       }
 
+      /* ── Activity log + notification (both non-fatal) ── */
       await logActivity(client, {
         ticketId    : ticket.id,
         performedBy : req.user.id,
         action      : "ticket_created",
-        description : `Ticket ${ticket.ticket_number} created`,
+        description : `Ticket ${ticket.ticket_number} created with ${priority} priority`,
       });
 
       await createNotification(client, {
         userId        : req.user.id,
         type          : "ticket_created",
         title         : "Support Ticket Created",
-        message       : `Ticket ${ticket.ticket_number} submitted. We will respond shortly.`,
+        message       : `Your ticket ${ticket.ticket_number} has been submitted. We will respond shortly.`,
         referenceId   : ticket.id,
         referenceType : "ticket",
       });
 
       await client.query("COMMIT");
-
-      /* Email notification */
-      const { rows: [usr] } = await pool.query(
-        `SELECT email, name FROM public.users WHERE id = $1`, [req.user.id]
-      ).catch(() => ({ rows: [] }));
-
-      if (usr?.email) {
-        const tpl = buildTicketEmail("ticket_created", ticket);
-        if (tpl) await sendEmail({ to: usr.email, ...tpl });
-      }
-
-      /* WebSocket broadcast */
-      broadcastToUser(req.user.id, {
-        type  : "ticket_created",
-        ticket: { id: ticket.id, ticket_number: ticket.ticket_number },
-      });
 
       return res.status(201).json({
         success      : true,
@@ -722,46 +317,55 @@ router.post(
 );
 
 /* ────────────────────────────────────────────────────────────
-   GET /api/support/tickets   [120/min]
+   GET /api/support/tickets
+   List tickets for the authenticated user.
 ──────────────────────────────────────────────────────────── */
-router.get("/tickets", authenticate, readLimit, async (req, res) => {
-  const { status, priority, search, page = 1, limit = 20 } = req.query;
+router.get("/tickets", authenticate, async (req, res) => {
+  const {
+    status,
+    priority,
+    search,
+    page  = 1,
+    limit = 20,
+  } = req.query;
 
   const offset     = (Number(page) - 1) * Number(limit);
   const conditions = ["t.user_id = $1"];
   const params     = [req.user.id];
   let   p          = 2;
 
-  if (status)   { conditions.push(`t.status = $${p++}`);    params.push(status);   }
-  if (priority) { conditions.push(`t.priority = $${p++}`);  params.push(priority); }
-  if (search)   {
-    conditions.push(`(t.ticket_number ILIKE $${p} OR t.subject ILIKE $${p})`);
+  if (status) {
+    conditions.push(`t.status = $${p++}`);
+    params.push(status);
+  }
+  if (priority) {
+    conditions.push(`t.priority = $${p++}`);
+    params.push(priority);
+  }
+  if (search) {
+    conditions.push(
+      `(t.ticket_number ILIKE $${p} OR t.subject ILIKE $${p})`
+    );
     params.push(`%${search}%`);
     p++;
   }
 
   const where = conditions.join(" AND ");
 
-  let tickets = [];
-  let total   = 0;
-
+  /* ── Tickets ── */
+  let tickets;
   try {
     const { rows } = await pool.query(
       `SELECT
          t.*,
          u.name  AS assigned_agent_name,
          u.email AS assigned_agent_email,
-         (SELECT COUNT(*) FROM public.ticket_messages m
-          WHERE m.ticket_id = t.id AND m.is_system_message = false
-         ) AS message_count,
-         /* SLA: first_response_at vs created_at */
-         EXTRACT(EPOCH FROM (
-           COALESCE(t.first_response_at, NOW()) - t.created_at
-         )) / 60 AS response_minutes,
-         /* remaining SLA in minutes — target 60 min first response */
-         GREATEST(0,
-           60 - EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 60
-         ) AS sla_remaining_minutes
+         (
+           SELECT COUNT(*)
+           FROM public.ticket_messages m
+           WHERE m.ticket_id = t.id
+             AND m.is_system_message = false
+         ) AS message_count
        FROM public.support_tickets t
        LEFT JOIN public.users u ON u.id = t.assigned_to
        WHERE ${where}
@@ -771,17 +375,22 @@ router.get("/tickets", authenticate, readLimit, async (req, res) => {
     );
     tickets = rows;
   } catch (err) {
-    return pgError(res, err, "list_tickets");
+    return pgError(res, err, "list_tickets_query");
   }
 
+  /* ── Count ── */
+  let total = 0;
   try {
     const { rows } = await pool.query(
-      `SELECT COUNT(*) AS count FROM public.support_tickets t WHERE ${where}`,
+      `SELECT COUNT(*) AS count
+       FROM public.support_tickets t
+       WHERE ${where}`,
       params
     );
     total = Number(rows[0].count);
   } catch (err) {
-    console.warn("[support] ⚠️  ticket count:", err.message);
+    /* Non-fatal — return tickets without pagination total */
+    console.warn("[support] ⚠️  ticket count failed:", err.message);
   }
 
   return res.json({
@@ -797,67 +406,46 @@ router.get("/tickets", authenticate, readLimit, async (req, res) => {
 });
 
 /* ────────────────────────────────────────────────────────────
-   GET /api/support/tickets/search?ticket=TKT-12345
+   GET /api/support/tickets/:id
+   Fetch a single ticket with messages, attachments, activity.
+   Every query is its own try/catch — crash step is identified
+   and the real pg error is returned to the client.
 ──────────────────────────────────────────────────────────── */
-router.get("/tickets/search", authenticate, readLimit, async (req, res) => {
-  const { ticket: ticketNumber } = req.query;
+router.get("/tickets/:id", authenticate, async (req, res) => {
+  const { id }   = req.params;
+  const userId   = req.user?.id;
 
-  if (!ticketNumber?.trim()) {
+  /* ── Guard: missing / invalid ID ── */
+  if (!id || id === "undefined" || id === "null") {
     return res.status(400).json({
       success : false,
-      message : "ticket query parameter is required. Example: ?ticket=TKT-12345",
+      message : "No ticket ID was provided.",
     });
   }
 
+  if (!isValidUUID(id)) {
+    return res.status(400).json({
+      success : false,
+      message : `"${id}" is not a valid ticket ID.`,
+    });
+  }
+
+  console.log(`[getTicket] → id=${id}  userId=${userId}`);
+
+  /* ══════════════════════════════════════════════════════
+     STEP 1 — ticket row
+  ══════════════════════════════════════════════════════ */
+  let ticket;
   try {
     const { rows } = await pool.query(
-      `SELECT t.*,
+      `SELECT
+         t.*,
          u.name  AS assigned_agent_name,
          u.email AS assigned_agent_email
        FROM public.support_tickets t
        LEFT JOIN public.users u ON u.id = t.assigned_to
-       WHERE t.user_id       = $1
-         AND t.ticket_number ILIKE $2`,
-      [req.user.id, `%${ticketNumber.trim()}%`]
-    );
-
-    return res.json({ success: true, tickets: rows });
-  } catch (err) {
-    return pgError(res, err, "search_ticket_by_number");
-  }
-});
-
-/* ────────────────────────────────────────────────────────────
-   GET /api/support/tickets/:id
-──────────────────────────────────────────────────────────── */
-router.get("/tickets/:id", authenticate, readLimit, async (req, res) => {
-  const { id }  = req.params;
-  const userId  = req.user?.id;
-
-  if (!id || id === "undefined" || id === "null") {
-    return res.status(400).json({ success: false, message: "No ticket ID provided." });
-  }
-  if (!isValidUUID(id)) {
-    return res.status(400).json({ success: false, message: `Invalid ticket ID: "${id}"` });
-  }
-
-  /* ── Step 1: ticket row ── */
-  let ticket;
-  try {
-    const { rows } = await pool.query(
-      `SELECT t.*,
-         u.name  AS assigned_agent_name,
-         u.email AS assigned_agent_email,
-         /* SLA */
-         EXTRACT(EPOCH FROM (
-           COALESCE(t.first_response_at, NOW()) - t.created_at
-         )) / 60 AS response_minutes,
-         GREATEST(0,
-           60 - EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 60
-         ) AS sla_remaining_minutes
-       FROM public.support_tickets t
-       LEFT JOIN public.users u ON u.id = t.assigned_to
-       WHERE t.id = $1 AND t.user_id = $2`,
+       WHERE t.id = $1
+         AND t.user_id = $2`,
       [id, userId]
     );
     ticket = rows[0] ?? null;
@@ -866,100 +454,154 @@ router.get("/tickets/:id", authenticate, readLimit, async (req, res) => {
   }
 
   if (!ticket) {
+    console.warn(`[getTicket] 404 — ticket ${id} not found for user ${userId}`);
     return res.status(404).json({
       success : false,
-      message : "Ticket not found. It may have been deleted or belong to a different account.",
+      message :
+        "Ticket not found. It may have been deleted or belong to a different account.",
     });
   }
 
-  /* ── Step 2: probe columns (cached) ── */
-  const cols = await getColumnSets().catch(() => ({
-    hasInternalNote: false, hasSystemMessage: false,
-    hasSeenAt: false, hasDeletedAt: false,
-    hasSenderRole: false, avatarCol: null,
-  }));
+  console.log(`[getTicket] ✓ ticket found — status=${ticket.status}`);
 
-  const avatarSelect  = cols.avatarCol ? `u.${cols.avatarCol} AS sender_avatar` : "NULL AS sender_avatar";
-  const roleSelect    = cols.hasSenderRole ? "u.role AS sender_role" : "'user' AS sender_role";
+  /* ══════════════════════════════════════════════════════
+     STEP 2 — messages
+     We probe for optional columns (is_internal_note,
+     is_system_message) before using them, so the query
+     never crashes on a missing column.
+  ══════════════════════════════════════════════════════ */
 
-  const msgWhere = ["m.ticket_id = $1"];
-  const msgParams = [ticket.id];
-  if (cols.hasInternalNote)  { msgWhere.push("(m.is_internal_note = false OR m.sender_id = $2)"); msgParams.push(userId); }
-  if (cols.hasSystemMessage) { msgWhere.push("m.is_system_message = false"); }
-  if (cols.hasDeletedAt)     { msgWhere.push("m.deleted_at IS NULL"); }
+  /*
+   * Check which optional columns exist on ticket_messages.
+   * We do this once and cache the result.
+   */
+  let hasInternalNote   = false;
+  let hasSystemMessage  = false;
+  let hasSenderAvatar   = false;
+  let hasSenderRole     = false;
 
-  /* ── Step 3: messages ── */
+  try {
+    const { rows: cols } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'ticket_messages'`,
+    );
+    const colNames = new Set(cols.map((c) => c.column_name));
+    hasInternalNote  = colNames.has("is_internal_note");
+    hasSystemMessage = colNames.has("is_system_message");
+
+    /* Check users table for avatar column */
+    const { rows: userCols } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'users'`,
+    );
+    const userColNames = new Set(userCols.map((c) => c.column_name));
+    hasSenderAvatar = userColNames.has("avatar_url") ||
+                      userColNames.has("profile_image") ||
+                      userColNames.has("photo_url");
+    hasSenderRole   = userColNames.has("role");
+
+    console.log(
+      `[getTicket] columns — is_internal_note=${hasInternalNote}`,
+      `is_system_message=${hasSystemMessage}`,
+      `avatar=${hasSenderAvatar}`,
+      `role=${hasSenderRole}`
+    );
+  } catch (err) {
+    /* Non-fatal — carry on with safe defaults */
+    console.warn("[getTicket] ⚠️  column probe failed:", err.message);
+  }
+
+  /* Build avatar SELECT safely */
+  let avatarSelect = "NULL AS sender_avatar";
+  try {
+    const { rows: userCols } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'users'
+         AND column_name  IN ('avatar_url','profile_image','photo_url','picture')`,
+    );
+    if (userCols.length > 0) {
+      avatarSelect = `u.${userCols[0].column_name} AS sender_avatar`;
+    }
+  } catch {
+    /* stay with NULL */
+  }
+
+  const roleSelect = hasSenderRole ? "u.role AS sender_role" : "'user' AS sender_role";
+
+  /* Build WHERE clause for messages */
+  const msgWhereParts = ["m.ticket_id = $1"];
+  if (hasInternalNote)  msgWhereParts.push(`(m.is_internal_note = false OR m.sender_id = $2)`);
+  if (hasSystemMessage) msgWhereParts.push(`m.is_system_message = false`);
+  const msgWhere = msgWhereParts.join(" AND ");
+  const msgParams = hasInternalNote ? [ticket.id, userId] : [ticket.id];
+
   let messages = [];
   try {
-    const seenSelect = cols.hasSeenAt ? ", m.seen_at" : "";
     const { rows } = await pool.query(
-      `SELECT m.*, u.name AS sender_name,
-         ${avatarSelect}, ${roleSelect}${seenSelect}
+      `SELECT
+         m.*,
+         u.name       AS sender_name,
+         ${avatarSelect},
+         ${roleSelect}
        FROM public.ticket_messages m
        LEFT JOIN public.users u ON u.id = m.sender_id
-       WHERE ${msgWhere.join(" AND ")}
+       WHERE ${msgWhere}
        ORDER BY m.created_at ASC`,
       msgParams
     );
     messages = rows;
+    console.log(`[getTicket] ✓ ${messages.length} message(s)`);
   } catch (err) {
     return pgError(res, err, "get_ticket_messages", { ticketId: id });
   }
 
-  /* Mark messages as seen (read receipts) */
-  if (cols.hasSeenAt && messages.length > 0) {
-    const unseenIds = messages
-      .filter((m) => !m.seen_at && String(m.sender_id) !== String(userId))
-      .map((m) => m.id);
-
-    if (unseenIds.length > 0) {
-      pool.query(
-        `UPDATE public.ticket_messages
-         SET seen_at = NOW()
-         WHERE id = ANY($1)`,
-        [unseenIds]
-      ).catch(() => {});
-    }
-  }
-
-  /* ── Step 4: attachments (with signed URLs for private files) ── */
+  /* ══════════════════════════════════════════════════════
+     STEP 3 — attachments
+  ══════════════════════════════════════════════════════ */
   let attachments = [];
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM public.ticket_attachments
-       WHERE ticket_id = $1 ORDER BY created_at ASC`,
+      `SELECT *
+       FROM public.ticket_attachments
+       WHERE ticket_id = $1
+       ORDER BY created_at ASC`,
       [ticket.id]
     );
-
-    /* Sign URLs for private content if key is available */
-    attachments = await Promise.all(
-      rows.map(async (att) => {
-        if (att.file_key && process.env.R2_SIGN_URLS === "true") {
-          try {
-            att.signed_url = await getSignedAttachmentUrl(att.file_key);
-          } catch { /* fall back to public url */ }
-        }
-        return att;
-      })
-    );
+    attachments = rows;
+    console.log(`[getTicket] ✓ ${attachments.length} attachment(s)`);
   } catch (err) {
     return pgError(res, err, "get_ticket_attachments", { ticketId: id });
   }
 
-  /* ── Step 5: activity log (non-fatal) ── */
+  /* ══════════════════════════════════════════════════════
+     STEP 4 — activity log (NON-FATAL)
+  ══════════════════════════════════════════════════════ */
   let activity = [];
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM public.ticket_activity_logs
-       WHERE ticket_id = $1 ORDER BY created_at ASC`,
+      `SELECT *
+       FROM public.ticket_activity_logs
+       WHERE ticket_id = $1
+       ORDER BY created_at ASC`,
       [ticket.id]
     );
     activity = rows;
   } catch (err) {
-    console.warn("[getTicket] ⚠️  activity log:", err.message);
+    /* Non-fatal — activity log missing or broken; still return ticket */
+    console.warn("[getTicket] ⚠️  activity log unavailable:", err.message);
   }
 
-  /* ── Step 6: assemble ── */
+  /* ══════════════════════════════════════════════════════
+     STEP 5 — assemble & respond
+  ══════════════════════════════════════════════════════ */
+
+  /* Group attachments by message_id */
   const attMap = {};
   for (const att of attachments) {
     const key = att.message_id ?? "__ticket__";
@@ -968,43 +610,39 @@ router.get("/tickets/:id", authenticate, readLimit, async (req, res) => {
 
   const messagesWithAtt = messages.map((m) => ({
     ...m,
-    attachments: attMap[m.id] ?? [],
+    attachments : attMap[m.id] ?? [],
   }));
 
-  /* SLA summary */
-  const sla = {
-    response_minutes     : Math.round(Number(ticket.response_minutes ?? 0)),
-    sla_remaining_minutes: Math.round(Number(ticket.sla_remaining_minutes ?? 0)),
-    first_response_at    : ticket.first_response_at ?? null,
-    target_minutes       : 60,
-  };
+  console.log(`[getTicket] ✓ returning ticket ${id}`);
 
-  return res.json({
+  return res.status(200).json({
     success : true,
     ticket  : {
       ...ticket,
       messages    : messagesWithAtt,
       activity,
       attachments,
-      sla,
     },
   });
 });
 
 /* ────────────────────────────────────────────────────────────
-   POST /api/support/tickets/:id/messages   [20/hr]
+   POST /api/support/tickets/:id/messages
+   Add a reply to a ticket.
 ──────────────────────────────────────────────────────────── */
 router.post(
   "/tickets/:id/messages",
   authenticate,
-  messageLimit,
   upload.array("attachments", 5),
   async (req, res) => {
-    const { id }      = req.params;
+    const { id }    = req.params;
     const { message } = req.body;
 
     if (!isValidUUID(id)) {
-      return res.status(400).json({ success: false, message: `Invalid ticket ID: "${id}"` });
+      return res.status(400).json({
+        success : false,
+        message : `Invalid ticket ID: "${id}"`,
+      });
     }
 
     if (!message?.trim() && !req.files?.length) {
@@ -1014,29 +652,15 @@ router.post(
       });
     }
 
-    /* Spam checks */
-    if (message?.trim() && containsSpamLinks(message)) {
-      return res.status(400).json({
-        success : false,
-        message : "Your message contains suspicious links.",
-      });
-    }
-
-    if (message?.trim() && await isSpam(req.user.id, message.trim())) {
-      return res.status(429).json({
-        success : false,
-        message : "Duplicate message detected. Please wait before sending the same message again.",
-      });
-    }
-
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
+      /* ── Verify ticket exists & belongs to user ── */
       let ticket;
       try {
         const { rows } = await client.query(
-          `SELECT id, status, ticket_number, user_id, assigned_to
+          `SELECT id, status, ticket_number, user_id
            FROM public.support_tickets
            WHERE id = $1 AND user_id = $2`,
           [id, req.user.id]
@@ -1049,7 +673,10 @@ router.post(
 
       if (!ticket) {
         await client.query("ROLLBACK");
-        return res.status(404).json({ success: false, message: "Ticket not found." });
+        return res.status(404).json({
+          success : false,
+          message : "Ticket not found.",
+        });
       }
 
       if (ticket.status === "closed") {
@@ -1060,12 +687,14 @@ router.post(
         });
       }
 
-      /* Insert message */
+      /* ── Insert message ── */
       let msg;
       try {
         const { rows } = await client.query(
-          `INSERT INTO public.ticket_messages (ticket_id, sender_id, message)
-           VALUES ($1,$2,$3) RETURNING *`,
+          `INSERT INTO public.ticket_messages
+             (ticket_id, sender_id, message)
+           VALUES ($1,$2,$3)
+           RETURNING *`,
           [ticket.id, req.user.id, message?.trim() || ""]
         );
         msg = rows[0];
@@ -1074,41 +703,48 @@ router.post(
         return pgError(res, err, "reply_insert_message", { ticketId: id });
       }
 
-      /* Upload attachments */
+      /* ── Upload attachments ── */
       const uploadedFiles = [];
       if (req.files?.length) {
         for (const file of req.files) {
           try {
-            const uploaded = await uploadToR2(file, `support/tickets/${ticket.id}`);
+            const uploaded = await uploadToR2(
+              file,
+              `support/tickets/${ticket.id}`
+            );
             await client.query(
               `INSERT INTO public.ticket_attachments
                  (ticket_id, message_id, uploaded_by,
-                  file_name, file_url, file_type, file_size, file_key)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+                  file_name, file_url, file_type, file_size)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)`,
               [
-                ticket.id, msg.id, req.user.id,
-                uploaded.fileName, uploaded.url,
-                uploaded.fileType, uploaded.fileSize,
-                uploaded.key,
+                ticket.id,
+                msg.id,
+                req.user.id,
+                uploaded.fileName,
+                uploaded.url,
+                uploaded.fileType,
+                uploaded.fileSize,
               ]
             );
             uploadedFiles.push(uploaded);
           } catch (err) {
-            console.warn("[support] ⚠️  reply attachment upload:", err.message);
+            console.warn("[support] ⚠️  attachment upload failed:", err.message);
           }
         }
       }
 
-      /* Auto-reopen if waiting_for_customer */
+      /* ── Reopen if waiting_for_customer ── */
       if (ticket.status === "waiting_for_customer") {
         try {
           await client.query(
             `UPDATE public.support_tickets
-             SET status = 'open', updated_at = NOW() WHERE id = $1`,
+             SET status = 'open', updated_at = NOW()
+             WHERE id = $1`,
             [ticket.id]
           );
         } catch (err) {
-          console.warn("[support] ⚠️  status reopen:", err.message);
+          console.warn("[support] ⚠️  status reopen failed:", err.message);
         }
       }
 
@@ -1121,40 +757,9 @@ router.post(
 
       await client.query("COMMIT");
 
-      /* Email agent */
-      if (ticket.assigned_to) {
-        const { rows: [agent] } = await pool.query(
-          `SELECT email, name FROM public.users WHERE id = $1`, [ticket.assigned_to]
-        ).catch(() => ({ rows: [] }));
-
-        if (agent?.email) {
-          await sendEmail({
-            to      : agent.email,
-            subject : `[${ticket.ticket_number}] New user reply`,
-            html    : `<p>The user has replied to ticket <strong>${ticket.ticket_number}</strong>.</p>
-                       <p><a href="https://www.loemart.com/admin/support/${ticket.id}">View →</a></p>`,
-          });
-        }
-      }
-
-      /* WebSocket — broadcast new message to ticket participants */
-      broadcastToUser(req.user.id, {
-        type    : "new_message",
-        ticketId: ticket.id,
-        message : { ...msg, attachments: uploadedFiles },
-      });
-
-      if (ticket.assigned_to) {
-        broadcastToUser(ticket.assigned_to, {
-          type    : "new_message",
-          ticketId: ticket.id,
-          message : { ...msg, attachments: uploadedFiles },
-        });
-      }
-
       return res.status(201).json({
         success     : true,
-        message     : { ...msg, attachments: uploadedFiles },
+        message     : msg,
         attachments : uploadedFiles,
       });
     } catch (err) {
@@ -1167,70 +772,8 @@ router.post(
 );
 
 /* ────────────────────────────────────────────────────────────
-   PATCH /api/support/tickets/:id/messages/:messageId
-   Soft delete a message (sender only, within 5 minutes).
-──────────────────────────────────────────────────────────── */
-router.patch(
-  "/tickets/:id/messages/:messageId",
-  authenticate,
-  async (req, res) => {
-    const { id, messageId } = req.params;
-    const { action } = req.body;   /* "delete" */
-
-    if (!isValidUUID(id) || !isValidUUID(messageId)) {
-      return res.status(400).json({ success: false, message: "Invalid ID format." });
-    }
-
-    if (action !== "delete") {
-      return res.status(400).json({ success: false, message: "Only action='delete' is supported." });
-    }
-
-    const cols = await getColumnSets().catch(() => ({ hasDeletedAt: false }));
-
-    if (!cols.hasDeletedAt) {
-      return res.status(501).json({
-        success : false,
-        message : "Message deletion is not enabled. Add deleted_at column to ticket_messages.",
-      });
-    }
-
-    try {
-      /* Only sender can delete, only within 5 minutes */
-      const { rows } = await pool.query(
-        `UPDATE public.ticket_messages
-         SET deleted_at = NOW()
-         WHERE id        = $1
-           AND ticket_id = $2
-           AND sender_id = $3
-           AND created_at > NOW() - INTERVAL '5 minutes'
-           AND deleted_at IS NULL
-         RETURNING id`,
-        [messageId, id, req.user.id]
-      );
-
-      if (!rows[0]) {
-        return res.status(403).json({
-          success : false,
-          message : "Cannot delete this message. You can only delete your own messages within 5 minutes of sending.",
-        });
-      }
-
-      /* Broadcast deletion */
-      broadcastToUser(req.user.id, {
-        type      : "message_deleted",
-        ticketId  : id,
-        messageId,
-      });
-
-      return res.json({ success: true, message: "Message deleted." });
-    } catch (err) {
-      return pgError(res, err, "delete_message", { ticketId: id, messageId });
-    }
-  }
-);
-
-/* ────────────────────────────────────────────────────────────
-   PATCH /api/support/tickets/:id   (close)
+   PATCH /api/support/tickets/:id
+   Close a ticket.
 ──────────────────────────────────────────────────────────── */
 router.patch("/tickets/:id", authenticate, async (req, res) => {
   const { id }     = req.params;
@@ -1239,8 +782,12 @@ router.patch("/tickets/:id", authenticate, async (req, res) => {
   if (!isValidUUID(id)) {
     return res.status(400).json({ success: false, message: `Invalid ticket ID: "${id}"` });
   }
+
   if (status !== "closed") {
-    return res.status(400).json({ success: false, message: "Users may only set status to: closed" });
+    return res.status(400).json({
+      success : false,
+      message : "Users may only set status to: closed",
+    });
   }
 
   const client = await pool.connect();
@@ -1251,7 +798,8 @@ router.patch("/tickets/:id", authenticate, async (req, res) => {
     try {
       const { rows } = await client.query(
         `SELECT id, status, ticket_number, user_id
-         FROM public.support_tickets WHERE id = $1 AND user_id = $2`,
+         FROM public.support_tickets
+         WHERE id = $1 AND user_id = $2`,
         [id, req.user.id]
       );
       ticket = rows[0] ?? null;
@@ -1264,22 +812,26 @@ router.patch("/tickets/:id", authenticate, async (req, res) => {
       await client.query("ROLLBACK");
       return res.status(404).json({ success: false, message: "Ticket not found." });
     }
+
     if (ticket.status === "closed") {
       await client.query("ROLLBACK");
       return res.status(400).json({ success: false, message: "Ticket is already closed." });
     }
 
-    const deadline = new Date();
-    deadline.setDate(deadline.getDate() + 7);
+    const reopenDeadline = new Date();
+    reopenDeadline.setDate(reopenDeadline.getDate() + 7);
 
     let updated;
     try {
       const { rows } = await client.query(
         `UPDATE public.support_tickets
-         SET status = 'closed', closed_at = NOW(),
-             reopen_deadline = $1, updated_at = NOW()
-         WHERE id = $2 RETURNING *`,
-        [deadline.toISOString(), ticket.id]
+         SET status          = 'closed',
+             closed_at       = NOW(),
+             reopen_deadline = $1,
+             updated_at      = NOW()
+         WHERE id = $2
+         RETURNING *`,
+        [reopenDeadline.toISOString(), ticket.id]
       );
       updated = rows[0];
     } catch (err) {
@@ -1298,17 +850,6 @@ router.patch("/tickets/:id", authenticate, async (req, res) => {
 
     await client.query("COMMIT");
 
-    /* Email */
-    const { rows: [usr] } = await pool.query(
-      `SELECT email FROM public.users WHERE id = $1`, [req.user.id]
-    ).catch(() => ({ rows: [] }));
-    if (usr?.email) {
-      const tpl = buildTicketEmail("ticket_closed", ticket);
-      if (tpl) await sendEmail({ to: usr.email, ...tpl });
-    }
-
-    broadcastToUser(req.user.id, { type: "ticket_closed", ticketId: id });
-
     return res.json({ success: true, ticket: updated });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -1320,6 +861,7 @@ router.patch("/tickets/:id", authenticate, async (req, res) => {
 
 /* ────────────────────────────────────────────────────────────
    POST /api/support/tickets/:id/reopen
+   Reopen a closed ticket within the deadline.
 ──────────────────────────────────────────────────────────── */
 router.post("/tickets/:id/reopen", authenticate, async (req, res) => {
   const { id } = req.params;
@@ -1336,7 +878,8 @@ router.post("/tickets/:id/reopen", authenticate, async (req, res) => {
     try {
       const { rows } = await client.query(
         `SELECT id, status, ticket_number, reopen_deadline, user_id
-         FROM public.support_tickets WHERE id = $1 AND user_id = $2`,
+         FROM public.support_tickets
+         WHERE id = $1 AND user_id = $2`,
         [id, req.user.id]
       );
       ticket = rows[0] ?? null;
@@ -1349,6 +892,7 @@ router.post("/tickets/:id/reopen", authenticate, async (req, res) => {
       await client.query("ROLLBACK");
       return res.status(404).json({ success: false, message: "Ticket not found." });
     }
+
     if (ticket.status !== "closed") {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -1356,6 +900,7 @@ router.post("/tickets/:id/reopen", authenticate, async (req, res) => {
         message : `Ticket is not closed — current status is "${ticket.status}".`,
       });
     }
+
     if (ticket.reopen_deadline && new Date(ticket.reopen_deadline) < new Date()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
@@ -1368,8 +913,11 @@ router.post("/tickets/:id/reopen", authenticate, async (req, res) => {
     try {
       const { rows } = await client.query(
         `UPDATE public.support_tickets
-         SET status = 'open', closed_at = NULL, updated_at = NOW()
-         WHERE id = $1 RETURNING *`,
+         SET status     = 'open',
+             closed_at  = NULL,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
         [ticket.id]
       );
       updated = rows[0];
@@ -1389,8 +937,6 @@ router.post("/tickets/:id/reopen", authenticate, async (req, res) => {
 
     await client.query("COMMIT");
 
-    broadcastToUser(req.user.id, { type: "ticket_reopened", ticketId: id });
-
     return res.json({ success: true, ticket: updated });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
@@ -1402,23 +948,30 @@ router.post("/tickets/:id/reopen", authenticate, async (req, res) => {
 
 /* ────────────────────────────────────────────────────────────
    POST /api/support/tickets/:id/rate
+   Rate a resolved or closed ticket.
 ──────────────────────────────────────────────────────────── */
 router.post("/tickets/:id/rate", authenticate, async (req, res) => {
-  const { id }             = req.params;
+  const { id }      = req.params;
   const { rating, comment } = req.body;
-  const ratingNum           = Number(rating);
+  const ratingNum   = Number(rating);
 
   if (!isValidUUID(id)) {
     return res.status(400).json({ success: false, message: `Invalid ticket ID: "${id}"` });
   }
+
   if (!rating || isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
-    return res.status(400).json({ success: false, message: "rating must be 1–5." });
+    return res.status(400).json({
+      success : false,
+      message : "rating must be a number between 1 and 5.",
+    });
   }
 
   let ticket;
   try {
     const { rows } = await pool.query(
-      `SELECT id, status FROM public.support_tickets WHERE id = $1 AND user_id = $2`,
+      `SELECT id, status
+       FROM public.support_tickets
+       WHERE id = $1 AND user_id = $2`,
       [id, req.user.id]
     );
     ticket = rows[0] ?? null;
@@ -1426,11 +979,18 @@ router.post("/tickets/:id/rate", authenticate, async (req, res) => {
     return pgError(res, err, "rate_ticket_lookup", { ticketId: id });
   }
 
-  if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
-  if (!["resolved", "closed"].includes(ticket.status)) {
-    return res.status(400).json({ success: false, message: "Can only rate resolved or closed tickets." });
+  if (!ticket) {
+    return res.status(404).json({ success: false, message: "Ticket not found." });
   }
 
+  if (!["resolved", "closed"].includes(ticket.status)) {
+    return res.status(400).json({
+      success : false,
+      message : "You can only rate resolved or closed tickets.",
+    });
+  }
+
+  let updated;
   try {
     const { rows } = await pool.query(
       `UPDATE public.support_tickets
@@ -1441,45 +1001,12 @@ router.post("/tickets/:id/rate", authenticate, async (req, res) => {
        RETURNING satisfaction_rating, satisfaction_comment`,
       [ratingNum, comment ?? null, ticket.id]
     );
-    return res.json({ success: true, rating: rows[0] });
+    updated = rows[0];
   } catch (err) {
     return pgError(res, err, "rate_ticket_update", { ticketId: id });
   }
-});
 
-/* ────────────────────────────────────────────────────────────
-   GET /api/support/tickets/analytics/satisfaction
-──────────────────────────────────────────────────────────── */
-router.get("/tickets/analytics/satisfaction", authenticate, readLimit, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT
-         COUNT(*) FILTER (WHERE satisfaction_rating IS NOT NULL)     AS total_rated,
-         ROUND(AVG(satisfaction_rating)::numeric, 2)                 AS average_rating,
-         COUNT(*) FILTER (WHERE satisfaction_rating = 5)             AS five_star,
-         COUNT(*) FILTER (WHERE satisfaction_rating = 4)             AS four_star,
-         COUNT(*) FILTER (WHERE satisfaction_rating = 3)             AS three_star,
-         COUNT(*) FILTER (WHERE satisfaction_rating = 2)             AS two_star,
-         COUNT(*) FILTER (WHERE satisfaction_rating = 1)             AS one_star,
-         COUNT(*) FILTER (WHERE status IN ('resolved','closed'))      AS total_resolved,
-         ROUND(
-           AVG(EXTRACT(EPOCH FROM (first_response_at - created_at)) / 60)
-           ::numeric, 1
-         ) AS avg_first_response_minutes,
-         ROUND(
-           AVG(EXTRACT(EPOCH FROM (
-             CASE WHEN status IN ('resolved','closed')
-               THEN updated_at ELSE NULL END - created_at
-           )) / 3600)::numeric, 2
-         ) AS avg_resolution_hours
-       FROM public.support_tickets
-       WHERE user_id = $1`,
-      [req.user.id]
-    );
-    return res.json({ success: true, analytics: rows[0] });
-  } catch (err) {
-    return pgError(res, err, "satisfaction_analytics");
-  }
+  return res.json({ success: true, rating: updated });
 });
 
 /* ════════════════════════════════════════════════════════════
@@ -1489,25 +1016,26 @@ router.get("/tickets/analytics/satisfaction", authenticate, readLimit, async (re
 ════════════════════════════════════════════════════════════ */
 
 /* ────────────────────────────────────────────────────────────
-   POST /api/support/reports   [3/hr]
+   POST /api/support/reports
 ──────────────────────────────────────────────────────────── */
 router.post(
   "/reports",
   authenticate,
-  reportLimit,
   upload.array("evidence", 5),
   async (req, res) => {
     const {
-      report_type, subject, description,
+      report_type,
+      subject,
+      description,
       reported_user_id    = null,
       reported_listing_id = null,
       reported_order_id   = null,
     } = req.body;
 
     const VALID_TYPES = [
-      "scam","fraud","fake_product","fake_seller","fake_buyer",
-      "offensive_content","copyright_violation",
-      "payment_issue","delivery_issue","technical_bug","other",
+      "scam", "fraud", "fake_product", "fake_seller", "fake_buyer",
+      "offensive_content", "copyright_violation",
+      "payment_issue", "delivery_issue", "technical_bug", "other",
     ];
 
     if (!report_type || !VALID_TYPES.includes(report_type)) {
@@ -1518,56 +1046,53 @@ router.post(
     }
 
     if (!subject || !description) {
-      return res.status(400).json({ success: false, message: "subject and description are required." });
+      return res.status(400).json({
+        success : false,
+        message : "subject and description are required.",
+      });
     }
-
-    /* Duplicate detection — same report type + reported user/listing within 24h */
-    try {
-      const { rows } = await pool.query(
-        `SELECT id FROM public.reports
-         WHERE reporter_id          = $1
-           AND report_type          = $2
-           AND reported_user_id     IS NOT DISTINCT FROM $3
-           AND reported_listing_id  IS NOT DISTINCT FROM $4
-           AND created_at           > NOW() - INTERVAL '24 hours'
-         LIMIT 1`,
-        [req.user.id, report_type, reported_user_id, reported_listing_id]
-      );
-      if (rows.length > 0) {
-        return res.status(409).json({
-          success : false,
-          message : "You have already submitted this report in the last 24 hours.",
-        });
-      }
-    } catch { /* non-fatal */ }
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
+      /* ── Upload evidence ── */
       const evidenceUrls = [];
       if (req.files?.length) {
         for (const file of req.files) {
           try {
-            const uploaded = await uploadToR2(file, `support/reports/${req.user.id}`);
-            evidenceUrls.push({ url: uploaded.url, key: uploaded.key });
+            const uploaded = await uploadToR2(
+              file,
+              `support/reports/${req.user.id}`
+            );
+            evidenceUrls.push(uploaded.url);
           } catch (err) {
-            console.warn("[support] ⚠️  evidence upload:", err.message);
+            console.warn("[support] ⚠️  evidence upload failed:", err.message);
           }
         }
       }
 
+      /* ── Insert report ── */
       let report;
       try {
+        const reportNumber = generateNumber("RPT");
         const { rows } = await client.query(
           `INSERT INTO public.reports
              (report_number, reporter_id, report_type, subject, description,
-              reported_user_id, reported_listing_id, reported_order_id, evidence_urls)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+              reported_user_id, reported_listing_id, reported_order_id,
+              evidence_urls)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           RETURNING *`,
           [
-            generateNumber("RPT"), req.user.id, report_type, subject, description,
-            reported_user_id, reported_listing_id, reported_order_id,
-            evidenceUrls.map((e) => e.url),
+            reportNumber,
+            req.user.id,
+            report_type,
+            subject,
+            description,
+            reported_user_id,
+            reported_listing_id,
+            reported_order_id,
+            evidenceUrls,
           ]
         );
         report = rows[0];
@@ -1580,12 +1105,16 @@ router.post(
         userId  : req.user.id,
         type    : "report_submitted",
         title   : "Report Submitted",
-        message : `Report ${report.report_number} received. Our safety team will review it.`,
+        message : `Your report ${report.report_number} has been received. Our safety team will review it.`,
       });
 
       await client.query("COMMIT");
 
-      return res.status(201).json({ success: true, reportNumber: report.report_number, report });
+      return res.status(201).json({
+        success      : true,
+        reportNumber : report.report_number,
+        report,
+      });
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       return pgError(res, err, "create_report_unexpected");
@@ -1595,10 +1124,15 @@ router.post(
   }
 );
 
-router.get("/reports", authenticate, readLimit, async (req, res) => {
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/reports
+──────────────────────────────────────────────────────────── */
+router.get("/reports", authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM public.reports WHERE reporter_id = $1 ORDER BY created_at DESC`,
+      `SELECT * FROM public.reports
+       WHERE reporter_id = $1
+       ORDER BY created_at DESC`,
       [req.user.id]
     );
     return res.json({ success: true, reports: rows });
@@ -1613,22 +1147,35 @@ router.get("/reports", authenticate, readLimit, async (req, res) => {
    ╚══════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/disputes
+──────────────────────────────────────────────────────────── */
 router.post(
   "/disputes",
   authenticate,
-  reportLimit,
   upload.array("evidence", 5),
   async (req, res) => {
-    const { order_id, seller_id, dispute_type, subject, description } = req.body;
+    const {
+      order_id,
+      seller_id,
+      dispute_type,
+      subject,
+      description,
+    } = req.body;
 
     const VALID_TYPES = [
-      "wrong_item","item_not_received","damaged_item",
-      "refund_request","delivery_dispute","other",
+      "wrong_item", "item_not_received", "damaged_item",
+      "refund_request", "delivery_dispute", "other",
     ];
 
     if (!order_id || !seller_id || !dispute_type || !subject || !description) {
-      return res.status(400).json({ success: false, message: "All fields are required." });
+      return res.status(400).json({
+        success : false,
+        message :
+          "order_id, seller_id, dispute_type, subject, and description are required.",
+      });
     }
+
     if (!VALID_TYPES.includes(dispute_type)) {
       return res.status(400).json({
         success : false,
@@ -1640,28 +1187,45 @@ router.post(
     try {
       await client.query("BEGIN");
 
+      /* ── Upload evidence ── */
       const evidenceUrls = [];
-      for (const file of (req.files ?? [])) {
-        try {
-          const up = await uploadToR2(file, `support/disputes/${req.user.id}`);
-          evidenceUrls.push(up.url);
-        } catch (err) {
-          console.warn("[support] ⚠️  dispute evidence:", err.message);
+      if (req.files?.length) {
+        for (const file of req.files) {
+          try {
+            const uploaded = await uploadToR2(
+              file,
+              `support/disputes/${req.user.id}`
+            );
+            evidenceUrls.push(uploaded.url);
+          } catch (err) {
+            console.warn("[support] ⚠️  evidence upload failed:", err.message);
+          }
         }
       }
 
+      /* ── Insert dispute ── */
       let dispute;
       try {
+        const disputeNumber = generateNumber("DSP");
         const deadline = new Date();
         deadline.setDate(deadline.getDate() + 14);
+
         const { rows } = await client.query(
           `INSERT INTO public.disputes
              (dispute_number, order_id, buyer_id, seller_id, dispute_type,
               subject, description, evidence_urls, deadline)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           RETURNING *`,
           [
-            generateNumber("DSP"), order_id, req.user.id, seller_id, dispute_type,
-            subject, description, evidenceUrls, deadline.toISOString(),
+            disputeNumber,
+            order_id,
+            req.user.id,
+            seller_id,
+            dispute_type,
+            subject,
+            description,
+            evidenceUrls,
+            deadline.toISOString(),
           ]
         );
         dispute = rows[0];
@@ -1671,23 +1235,30 @@ router.post(
       }
 
       await createNotification(client, {
-        userId: req.user.id, type: "dispute_created", title: "Dispute Filed",
-        message: `Dispute ${dispute.dispute_number} filed. Both parties have 14 days to resolve.`,
-        referenceId: dispute.id, referenceType: "dispute",
+        userId        : req.user.id,
+        type          : "dispute_created",
+        title         : "Dispute Filed",
+        message       : `Your dispute ${dispute.dispute_number} has been filed. Both parties have 14 days to resolve.`,
+        referenceId   : dispute.id,
+        referenceType : "dispute",
       });
 
       await createNotification(client, {
-        userId: seller_id, type: "dispute_received", title: "Dispute Filed Against You",
-        message: `A dispute has been filed regarding order ${order_id}. Please respond within 14 days.`,
-        referenceId: dispute.id, referenceType: "dispute",
+        userId        : seller_id,
+        type          : "dispute_received",
+        title         : "Dispute Filed Against You",
+        message       : `A dispute ${dispute.dispute_number} has been filed regarding order ${order_id}. Please respond within 14 days.`,
+        referenceId   : dispute.id,
+        referenceType : "dispute",
       });
 
       await client.query("COMMIT");
 
-      broadcastToUser(seller_id, { type: "dispute_received", disputeId: dispute.id });
-
       return res.status(201).json({
-        success: true, disputeNumber: dispute.dispute_number, disputeId: dispute.id, dispute,
+        success       : true,
+        disputeNumber : dispute.dispute_number,
+        disputeId     : dispute.id,
+        dispute,
       });
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
@@ -1698,7 +1269,10 @@ router.post(
   }
 );
 
-router.get("/disputes", authenticate, readLimit, async (req, res) => {
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/disputes
+──────────────────────────────────────────────────────────── */
+router.get("/disputes", authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT * FROM public.disputes
@@ -1712,20 +1286,32 @@ router.get("/disputes", authenticate, readLimit, async (req, res) => {
   }
 });
 
-router.get("/disputes/:id", authenticate, readLimit, async (req, res) => {
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/disputes/:id
+──────────────────────────────────────────────────────────── */
+router.get("/disputes/:id", authenticate, async (req, res) => {
   const { id } = req.params;
-  if (!isValidUUID(id)) return res.status(400).json({ success: false, message: `Invalid dispute ID.` });
+
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ success: false, message: `Invalid dispute ID: "${id}"` });
+  }
 
   let dispute;
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM public.disputes WHERE id = $1 AND (buyer_id = $2 OR seller_id = $2)`,
+      `SELECT * FROM public.disputes
+       WHERE id = $1
+         AND (buyer_id = $2 OR seller_id = $2)`,
       [id, req.user.id]
     );
     dispute = rows[0] ?? null;
-  } catch (err) { return pgError(res, err, "get_dispute_row", { disputeId: id }); }
+  } catch (err) {
+    return pgError(res, err, "get_dispute_row", { disputeId: id });
+  }
 
-  if (!dispute) return res.status(404).json({ success: false, message: "Dispute not found." });
+  if (!dispute) {
+    return res.status(404).json({ success: false, message: "Dispute not found." });
+  }
 
   let messages = [];
   try {
@@ -1733,25 +1319,36 @@ router.get("/disputes/:id", authenticate, readLimit, async (req, res) => {
       `SELECT m.*, u.name AS sender_name
        FROM public.dispute_messages m
        LEFT JOIN public.users u ON u.id = m.sender_id
-       WHERE m.dispute_id = $1 AND m.is_internal = false
+       WHERE m.dispute_id = $1
+         AND m.is_internal = false
        ORDER BY m.created_at ASC`,
       [dispute.id]
     );
     messages = rows;
-  } catch (err) { return pgError(res, err, "get_dispute_messages", { disputeId: id }); }
+  } catch (err) {
+    return pgError(res, err, "get_dispute_messages", { disputeId: id });
+  }
 
   return res.json({ success: true, dispute: { ...dispute, messages } });
 });
 
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/disputes/:id/messages
+──────────────────────────────────────────────────────────── */
 router.post(
   "/disputes/:id/messages",
   authenticate,
-  messageLimit,
   upload.array("attachments", 5),
   async (req, res) => {
     const { id }      = req.params;
     const { message } = req.body;
-    if (!isValidUUID(id)) return res.status(400).json({ success: false, message: "Invalid dispute ID." });
+
+    if (!isValidUUID(id)) {
+      return res.status(400).json({
+        success : false,
+        message : `Invalid dispute ID: "${id}"`,
+      });
+    }
 
     const client = await pool.connect();
     try {
@@ -1760,8 +1357,10 @@ router.post(
       let dispute;
       try {
         const { rows } = await client.query(
-          `SELECT id, status, buyer_id, seller_id FROM public.disputes
-           WHERE id = $1 AND (buyer_id = $2 OR seller_id = $2)`,
+          `SELECT id, status, buyer_id, seller_id
+           FROM public.disputes
+           WHERE id = $1
+             AND (buyer_id = $2 OR seller_id = $2)`,
           [id, req.user.id]
         );
         dispute = rows[0] ?? null;
@@ -1770,25 +1369,42 @@ router.post(
         return pgError(res, err, "dispute_message_lookup", { disputeId: id });
       }
 
-      if (!dispute) { await client.query("ROLLBACK"); return res.status(404).json({ success: false, message: "Dispute not found." }); }
-      if (["resolved","closed"].includes(dispute.status)) {
+      if (!dispute) {
         await client.query("ROLLBACK");
-        return res.status(400).json({ success: false, message: "Cannot reply to a resolved or closed dispute." });
+        return res.status(404).json({ success: false, message: "Dispute not found." });
       }
 
+      if (["resolved", "closed"].includes(dispute.status)) {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          success : false,
+          message : "Cannot reply to a resolved or closed dispute.",
+        });
+      }
+
+      /* ── Upload attachments ── */
       const attachmentUrls = [];
-      for (const file of (req.files ?? [])) {
-        try {
-          const up = await uploadToR2(file, `support/disputes/${dispute.id}`);
-          attachmentUrls.push(up.url);
-        } catch (err) { console.warn("[support] ⚠️  dispute attach:", err.message); }
+      if (req.files?.length) {
+        for (const file of req.files) {
+          try {
+            const uploaded = await uploadToR2(
+              file,
+              `support/disputes/${dispute.id}`
+            );
+            attachmentUrls.push(uploaded.url);
+          } catch (err) {
+            console.warn("[support] ⚠️  dispute attachment upload failed:", err.message);
+          }
+        }
       }
 
       let msg;
       try {
         const { rows } = await client.query(
-          `INSERT INTO public.dispute_messages (dispute_id, sender_id, message, attachments)
-           VALUES ($1,$2,$3,$4) RETURNING *`,
+          `INSERT INTO public.dispute_messages
+             (dispute_id, sender_id, message, attachments)
+           VALUES ($1,$2,$3,$4)
+           RETURNING *`,
           [dispute.id, req.user.id, message?.trim() || "", attachmentUrls]
         );
         msg = rows[0];
@@ -1797,16 +1413,20 @@ router.post(
         return pgError(res, err, "dispute_message_insert", { disputeId: id });
       }
 
-      const notifyId = dispute.buyer_id === req.user.id ? dispute.seller_id : dispute.buyer_id;
+      /* Notify the other party */
+      const notifyId =
+        dispute.buyer_id === req.user.id ? dispute.seller_id : dispute.buyer_id;
+
       await createNotification(client, {
-        userId: notifyId, type: "dispute_message", title: "New Dispute Reply",
-        message: "A new message has been added to your dispute.",
-        referenceId: dispute.id, referenceType: "dispute",
+        userId        : notifyId,
+        type          : "dispute_message",
+        title         : "New Dispute Reply",
+        message       : "A new message has been added to your dispute.",
+        referenceId   : dispute.id,
+        referenceType : "dispute",
       });
 
       await client.query("COMMIT");
-
-      broadcastToUser(notifyId, { type: "new_dispute_message", disputeId: id, message: msg });
 
       return res.status(201).json({ success: true, message: msg });
     } catch (err) {
@@ -1824,22 +1444,38 @@ router.post(
    ╚══════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/appeals
+──────────────────────────────────────────────────────────── */
 router.post(
   "/appeals",
   authenticate,
-  reportLimit,
   upload.array("evidence", 5),
   async (req, res) => {
-    const { appeal_type, subject, description, reference_id = null } = req.body;
+    const {
+      appeal_type,
+      subject,
+      description,
+      reference_id = null,
+    } = req.body;
+
     const VALID_TYPES = [
-      "suspended_account","removed_listing","rejected_listing","enforcement_action","other",
+      "suspended_account", "removed_listing", "rejected_listing",
+      "enforcement_action", "other",
     ];
 
     if (!appeal_type || !VALID_TYPES.includes(appeal_type)) {
-      return res.status(400).json({ success: false, message: `appeal_type must be one of: ${VALID_TYPES.join(", ")}` });
+      return res.status(400).json({
+        success : false,
+        message : `appeal_type must be one of: ${VALID_TYPES.join(", ")}`,
+      });
     }
+
     if (!subject || !description) {
-      return res.status(400).json({ success: false, message: "subject and description are required." });
+      return res.status(400).json({
+        success : false,
+        message : "subject and description are required.",
+      });
     }
 
     const client = await pool.connect();
@@ -1847,21 +1483,38 @@ router.post(
       await client.query("BEGIN");
 
       const evidenceUrls = [];
-      for (const file of (req.files ?? [])) {
-        try {
-          const up = await uploadToR2(file, `support/appeals/${req.user.id}`);
-          evidenceUrls.push(up.url);
-        } catch (err) { console.warn("[support] ⚠️  appeal evidence:", err.message); }
+      if (req.files?.length) {
+        for (const file of req.files) {
+          try {
+            const uploaded = await uploadToR2(
+              file,
+              `support/appeals/${req.user.id}`
+            );
+            evidenceUrls.push(uploaded.url);
+          } catch (err) {
+            console.warn("[support] ⚠️  appeal evidence upload failed:", err.message);
+          }
+        }
       }
 
       let appeal;
       try {
+        const appealNumber = generateNumber("APL");
         const { rows } = await client.query(
           `INSERT INTO public.appeals
              (appeal_number, user_id, appeal_type, subject, description,
               reference_id, evidence_urls)
-           VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-          [generateNumber("APL"), req.user.id, appeal_type, subject, description, reference_id, evidenceUrls]
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           RETURNING *`,
+          [
+            appealNumber,
+            req.user.id,
+            appeal_type,
+            subject,
+            description,
+            reference_id,
+            evidenceUrls,
+          ]
         );
         appeal = rows[0];
       } catch (err) {
@@ -1870,13 +1523,19 @@ router.post(
       }
 
       await createNotification(client, {
-        userId: req.user.id, type: "appeal_submitted", title: "Appeal Submitted",
-        message: `Appeal ${appeal.appeal_number} submitted. We respond within 3–5 business days.`,
+        userId  : req.user.id,
+        type    : "appeal_submitted",
+        title   : "Appeal Submitted",
+        message : `Your appeal ${appeal.appeal_number} has been submitted. We will respond within 3–5 business days.`,
       });
 
       await client.query("COMMIT");
 
-      return res.status(201).json({ success: true, appealNumber: appeal.appeal_number, appeal });
+      return res.status(201).json({
+        success      : true,
+        appealNumber : appeal.appeal_number,
+        appeal,
+      });
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       return pgError(res, err, "create_appeal_unexpected");
@@ -1886,10 +1545,15 @@ router.post(
   }
 );
 
-router.get("/appeals", authenticate, readLimit, async (req, res) => {
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/appeals
+──────────────────────────────────────────────────────────── */
+router.get("/appeals", authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM public.appeals WHERE user_id = $1 ORDER BY created_at DESC`,
+      `SELECT * FROM public.appeals
+       WHERE user_id = $1
+       ORDER BY created_at DESC`,
       [req.user.id]
     );
     return res.json({ success: true, appeals: rows });
@@ -1904,17 +1568,36 @@ router.get("/appeals", authenticate, readLimit, async (req, res) => {
    ╚══════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
-router.post("/feedback", authenticate, makeLimit(60, 5, "Too many feedback submissions."), async (req, res) => {
-  const { feedback_type, rating = null, comment = null, suggestion = null, ticket_id = null } = req.body;
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/feedback
+──────────────────────────────────────────────────────────── */
+router.post("/feedback", authenticate, async (req, res) => {
+  const {
+    feedback_type,
+    rating     = null,
+    comment    = null,
+    suggestion = null,
+    ticket_id  = null,
+  } = req.body;
 
-  const VALID_TYPES = ["support_rating","feature_suggestion","bug_report","general"];
+  const VALID_TYPES = [
+    "support_rating", "feature_suggestion", "bug_report", "general",
+  ];
+
   if (!feedback_type || !VALID_TYPES.includes(feedback_type)) {
-    return res.status(400).json({ success: false, message: `feedback_type must be one of: ${VALID_TYPES.join(", ")}` });
+    return res.status(400).json({
+      success : false,
+      message : `feedback_type must be one of: ${VALID_TYPES.join(", ")}`,
+    });
   }
+
   if (rating !== null) {
     const r = Number(rating);
     if (isNaN(r) || r < 1 || r > 5) {
-      return res.status(400).json({ success: false, message: "rating must be 1–5." });
+      return res.status(400).json({
+        success : false,
+        message : "rating must be between 1 and 5.",
+      });
     }
   }
 
@@ -1922,8 +1605,16 @@ router.post("/feedback", authenticate, makeLimit(60, 5, "Too many feedback submi
     const { rows } = await pool.query(
       `INSERT INTO public.support_feedback
          (user_id, ticket_id, feedback_type, rating, comment, suggestion)
-       VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
-      [req.user.id, ticket_id, feedback_type, rating ? Number(rating) : null, comment, suggestion]
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING *`,
+      [
+        req.user.id,
+        ticket_id,
+        feedback_type,
+        rating ? Number(rating) : null,
+        comment,
+        suggestion,
+      ]
     );
     return res.status(201).json({ success: true, feedback: rows[0] });
   } catch (err) {
@@ -1934,14 +1625,21 @@ router.post("/feedback", authenticate, makeLimit(60, 5, "Too many feedback submi
 /* ════════════════════════════════════════════════════════════
    ╔══════════════════════════════════════════════════════╗
    ║   N O T I F I C A T I O N S                        ║
-   ║   read-all MUST be before /:id/read                 ║
+   ║                                                      ║
+   ║   IMPORTANT — route order matters:                   ║
+   ║   "read-all" MUST be registered BEFORE "/:id/read"   ║
+   ║   or Express matches "read-all" as :id.              ║
    ╚══════════════════════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
+/* ────────────────────────────────────────────────────────────
+   PATCH /api/support/notifications/read-all      ← FIRST
+──────────────────────────────────────────────────────────── */
 router.patch("/notifications/read-all", authenticate, async (req, res) => {
   try {
     const { rowCount } = await pool.query(
-      `UPDATE public.support_notifications SET is_read = true
+      `UPDATE public.support_notifications
+       SET is_read = true
        WHERE user_id = $1 AND is_read = false`,
       [req.user.id]
     );
@@ -1951,21 +1649,33 @@ router.patch("/notifications/read-all", authenticate, async (req, res) => {
   }
 });
 
-router.get("/notifications", authenticate, readLimit, async (req, res) => {
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/notifications
+──────────────────────────────────────────────────────────── */
+router.get("/notifications", authenticate, async (req, res) => {
   const { page = 1, limit = 20, unread_only } = req.query;
-  const offset = (Number(page) - 1) * Number(limit);
-  const where  = unread_only === "true"
-    ? "user_id = $1 AND is_read = false"
-    : "user_id = $1";
+  const offset     = (Number(page) - 1) * Number(limit);
+  const conditions = ["user_id = $1"];
+  const params     = [req.user.id];
+  let   p          = 2;
 
-  let notifications = [], total = 0, unreadCount = 0;
+  if (unread_only === "true") {
+    conditions.push("is_read = false");
+  }
+
+  const where = conditions.join(" AND ");
+
+  let notifications = [];
+  let total         = 0;
+  let unreadCount   = 0;
 
   try {
     const { rows } = await pool.query(
       `SELECT * FROM public.support_notifications
-       WHERE ${where} ORDER BY created_at DESC
-       LIMIT $2 OFFSET $3`,
-      [req.user.id, Number(limit), offset]
+       WHERE ${where}
+       ORDER BY created_at DESC
+       LIMIT $${p} OFFSET $${p + 1}`,
+      [...params, Number(limit), offset]
     );
     notifications = rows;
   } catch (err) {
@@ -1974,42 +1684,71 @@ router.get("/notifications", authenticate, readLimit, async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT COUNT(*) AS count FROM public.support_notifications WHERE ${where}`,
-      [req.user.id]
+      `SELECT COUNT(*) AS count
+       FROM public.support_notifications
+       WHERE ${where}`,
+      params
     );
     total = Number(rows[0].count);
-  } catch { /* non-fatal */ }
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT COUNT(*) AS unread FROM public.support_notifications
-       WHERE user_id = $1 AND is_read = false`,
-      [req.user.id]
-    );
-    unreadCount = Number(rows[0].unread);
-  } catch { /* non-fatal */ }
-
-  return res.json({
-    success      : true,
-    notifications,
-    unread_count : unreadCount,
-    pagination   : { total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) },
-  });
-});
-
-router.patch("/notifications/:id/read", authenticate, async (req, res) => {
-  const { id } = req.params;
-  if (id === "read-all") {
-    return res.status(400).json({ success: false, message: "Use PATCH /notifications/read-all." });
+  } catch (err) {
+    console.warn("[support] ⚠️  notification count failed:", err.message);
   }
 
   try {
     const { rows } = await pool.query(
-      `UPDATE public.support_notifications SET is_read = true
-       WHERE id = $1 AND user_id = $2 RETURNING *`,
+      `SELECT COUNT(*) AS unread
+       FROM public.support_notifications
+       WHERE user_id = $1 AND is_read = false`,
+      [req.user.id]
+    );
+    unreadCount = Number(rows[0].unread);
+  } catch (err) {
+    console.warn("[support] ⚠️  unread count failed:", err.message);
+  }
+
+  return res.json({
+    success       : true,
+    notifications,
+    unread_count  : unreadCount,
+    pagination    : {
+      total,
+      page  : Number(page),
+      limit : Number(limit),
+      pages : Math.ceil(total / Number(limit)),
+    },
+  });
+});
+
+/* ────────────────────────────────────────────────────────────
+   PATCH /api/support/notifications/:id/read     ← AFTER read-all
+──────────────────────────────────────────────────────────── */
+router.patch("/notifications/:id/read", authenticate, async (req, res) => {
+  const { id } = req.params;
+
+  /* Prevent "read-all" being treated as an :id */
+  if (id === "read-all") {
+    return res.status(400).json({
+      success : false,
+      message : "Use PATCH /notifications/read-all to mark all as read.",
+    });
+  }
+
+  try {
+    const { rows } = await pool.query(
+      `UPDATE public.support_notifications
+       SET is_read = true
+       WHERE id = $1 AND user_id = $2
+       RETURNING *`,
       [id, req.user.id]
     );
-    if (!rows[0]) return res.status(404).json({ success: false, message: "Notification not found." });
+
+    if (!rows[0]) {
+      return res.status(404).json({
+        success : false,
+        message : "Notification not found.",
+      });
+    }
+
     return res.json({ success: true, notification: rows[0] });
   } catch (err) {
     return pgError(res, err, "notification_read_one", { notificationId: id });
@@ -2022,155 +1761,166 @@ router.patch("/notifications/:id/read", authenticate, async (req, res) => {
    ╚══════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/faq/categories
+──────────────────────────────────────────────────────────── */
 router.get("/faq/categories", async (_req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT c.*,
+      `SELECT
+         c.*,
          COUNT(a.id) FILTER (WHERE a.is_published = true) AS article_count
        FROM public.faq_categories c
        LEFT JOIN public.faq_articles a ON a.category_id = c.id
        WHERE c.is_active = true
-       GROUP BY c.id ORDER BY c.display_order ASC`
+       GROUP BY c.id
+       ORDER BY c.display_order ASC`
     );
     return res.json({ success: true, categories: rows });
-  } catch (err) { return pgError(res, err, "faq_categories"); }
+  } catch (err) {
+    return pgError(res, err, "faq_categories");
+  }
 });
 
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/faq/articles
+──────────────────────────────────────────────────────────── */
 router.get("/faq/articles", async (req, res) => {
   const { search, category, page = 1, limit = 20 } = req.query;
-  const offset = (Number(page) - 1) * Number(limit);
-  const conds  = ["a.is_published = true"];
-  const params = [];
-  let p = 1;
+  const offset     = (Number(page) - 1) * Number(limit);
+  const conditions = ["a.is_published = true"];
+  const params     = [];
+  let   p          = 1;
 
-  if (category) { conds.push(`c.slug = $${p++}`); params.push(category); }
-  if (search)   { conds.push(`(a.title ILIKE $${p} OR a.content ILIKE $${p})`); params.push(`%${search}%`); p++; }
+  if (category) {
+    conditions.push(`c.slug = $${p++}`);
+    params.push(category);
+  }
+  if (search) {
+    conditions.push(`(a.title ILIKE $${p} OR a.content ILIKE $${p})`);
+    params.push(`%${search}%`);
+    p++;
+  }
 
-  const where = conds.join(" AND ");
+  const where = conditions.join(" AND ");
 
-  let articles = [], total = 0;
+  let articles = [];
+  let total    = 0;
+
   try {
     const { rows } = await pool.query(
-      `SELECT a.*, c.name AS category_name, c.slug AS category_slug
+      `SELECT
+         a.*,
+         c.name AS category_name,
+         c.slug AS category_slug
        FROM public.faq_articles a
        JOIN public.faq_categories c ON c.id = a.category_id
        WHERE ${where}
        ORDER BY a.display_order ASC, a.view_count DESC
-       LIMIT $${p} OFFSET $${p+1}`,
+       LIMIT $${p} OFFSET $${p + 1}`,
       [...params, Number(limit), offset]
     );
     articles = rows;
-  } catch (err) { return pgError(res, err, "faq_articles_list"); }
+  } catch (err) {
+    return pgError(res, err, "faq_articles_list");
+  }
 
   try {
     const { rows } = await pool.query(
-      `SELECT COUNT(*) AS count FROM public.faq_articles a
-       JOIN public.faq_categories c ON c.id = a.category_id WHERE ${where}`,
+      `SELECT COUNT(*) AS count
+       FROM public.faq_articles a
+       JOIN public.faq_categories c ON c.id = a.category_id
+       WHERE ${where}`,
       params
     );
     total = Number(rows[0].count);
-  } catch { /* non-fatal */ }
+  } catch (err) {
+    console.warn("[support] ⚠️  faq article count failed:", err.message);
+  }
 
-  return res.json({ success: true, articles, pagination: { total, page: Number(page), limit: Number(limit), pages: Math.ceil(total / Number(limit)) } });
+  return res.json({
+    success    : true,
+    articles,
+    pagination : {
+      total,
+      page  : Number(page),
+      limit : Number(limit),
+      pages : Math.ceil(total / Number(limit)),
+    },
+  });
 });
 
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/faq/articles/:slug
+──────────────────────────────────────────────────────────── */
 router.get("/faq/articles/:slug", async (req, res) => {
+  let article;
   try {
     const { rows } = await pool.query(
-      `SELECT a.*, c.name AS category_name, c.slug AS category_slug
+      `SELECT
+         a.*,
+         c.name AS category_name,
+         c.slug AS category_slug
        FROM public.faq_articles a
        JOIN public.faq_categories c ON c.id = a.category_id
        WHERE a.slug = $1 AND a.is_published = true`,
       [req.params.slug]
     );
-    if (!rows[0]) return res.status(404).json({ success: false, message: "Article not found." });
-    pool.query(`UPDATE public.faq_articles SET view_count = view_count + 1 WHERE id = $1`, [rows[0].id]).catch(() => {});
-    return res.json({ success: true, article: rows[0] });
-  } catch (err) { return pgError(res, err, "faq_article_by_slug"); }
+    article = rows[0] ?? null;
+  } catch (err) {
+    return pgError(res, err, "faq_article_by_slug");
+  }
+
+  if (!article) {
+    return res.status(404).json({ success: false, message: "Article not found." });
+  }
+
+  /* Fire-and-forget view count increment */
+  pool.query(
+    `UPDATE public.faq_articles
+     SET view_count = view_count + 1
+     WHERE id = $1`,
+    [article.id]
+  ).catch(() => {});
+
+  return res.json({ success: true, article });
 });
 
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/faq/articles/:id/helpful
+──────────────────────────────────────────────────────────── */
 router.post("/faq/articles/:id/helpful", async (req, res) => {
   const { helpful } = req.body;
+
   if (typeof helpful !== "boolean") {
-    return res.status(400).json({ success: false, message: "helpful must be true or false." });
+    return res.status(400).json({
+      success : false,
+      message : "helpful must be a boolean (true or false).",
+    });
   }
+
   const field = helpful ? "helpful_count" : "not_helpful_count";
+
   try {
     const { rows } = await pool.query(
-      `UPDATE public.faq_articles SET ${field} = ${field} + 1
+      `UPDATE public.faq_articles
+       SET ${field} = ${field} + 1
        WHERE id = $1 AND is_published = true
        RETURNING helpful_count, not_helpful_count`,
       [req.params.id]
     );
-    if (!rows[0]) return res.status(404).json({ success: false, message: "Article not found." });
+
+    if (!rows[0]) {
+      return res.status(404).json({ success: false, message: "Article not found." });
+    }
+
     return res.json({ success: true, ...rows[0] });
-  } catch (err) { return pgError(res, err, "faq_article_helpful"); }
+  } catch (err) {
+    return pgError(res, err, "faq_article_helpful");
+  }
 });
 
 /* ════════════════════════════════════════════════════════════
-   SQL INDEXES  (run once — safe to re-run)
-   Call this at startup: await createSupportIndexes()
+   EXPORT
 ════════════════════════════════════════════════════════════ */
-export async function createSupportIndexes() {
-  const indexes = [
-    /* Tickets */
-    `CREATE INDEX IF NOT EXISTS idx_support_tickets_user_id
-       ON public.support_tickets (user_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_support_tickets_status
-       ON public.support_tickets (status)`,
-    `CREATE INDEX IF NOT EXISTS idx_support_tickets_created_at
-       ON public.support_tickets (created_at DESC)`,
-    `CREATE INDEX IF NOT EXISTS idx_support_tickets_ticket_number
-       ON public.support_tickets (ticket_number)`,
-    `CREATE INDEX IF NOT EXISTS idx_support_tickets_user_status
-       ON public.support_tickets (user_id, status)`,
-
-    /* Messages */
-    `CREATE INDEX IF NOT EXISTS idx_ticket_messages_ticket_id
-       ON public.ticket_messages (ticket_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_ticket_messages_sender_id
-       ON public.ticket_messages (sender_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_ticket_messages_created_at
-       ON public.ticket_messages (created_at ASC)`,
-
-    /* Attachments */
-    `CREATE INDEX IF NOT EXISTS idx_ticket_attachments_ticket_id
-       ON public.ticket_attachments (ticket_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_ticket_attachments_message_id
-       ON public.ticket_attachments (message_id)`,
-
-    /* Notifications */
-    `CREATE INDEX IF NOT EXISTS idx_support_notifs_user_id
-       ON public.support_notifications (user_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_support_notifs_user_unread
-       ON public.support_notifications (user_id, is_read)`,
-
-    /* Activity log */
-    `CREATE INDEX IF NOT EXISTS idx_ticket_activity_ticket_id
-       ON public.ticket_activity_logs (ticket_id)`,
-
-    /* Reports */
-    `CREATE INDEX IF NOT EXISTS idx_reports_reporter_id
-       ON public.reports (reporter_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_reports_created_at
-       ON public.reports (created_at DESC)`,
-
-    /* Disputes */
-    `CREATE INDEX IF NOT EXISTS idx_disputes_buyer_id
-       ON public.disputes (buyer_id)`,
-    `CREATE INDEX IF NOT EXISTS idx_disputes_seller_id
-       ON public.disputes (seller_id)`,
-  ];
-
-  for (const sql of indexes) {
-    try {
-      await pool.query(sql);
-    } catch (err) {
-      console.warn("[support] index creation warning:", err.message);
-    }
-  }
-
-  console.log("[support] ✓ indexes verified");
-}
-
 export default router;
