@@ -1,0 +1,1053 @@
+/* ═══════════════════════════════════════════════════════════════
+   CouponsDesktop.css
+   Mirrors the mobile Coupons.css design language:
+   – Warm #f7f4ef background
+   – DM Sans font
+   – #e8630a orange accent
+   – Ticket-style cards
+   – Soft borders (#ede9e3)
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Tokens ─────────────────────────────────────────────────── */
+:root {
+  --cpd-bg         : #f7f4ef;
+  --cpd-surface    : #ffffff;
+  --cpd-border     : #ede9e3;
+  --cpd-border-soft: #f5f3ef;
+  --cpd-orange     : #e8630a;
+  --cpd-orange-bg  : #fff0e6;
+  --cpd-orange-pale: #fff7ed;
+  --cpd-text       : #111111;
+  --cpd-muted      : #888888;
+  --cpd-faint      : #aaaaaa;
+  --cpd-green      : #16a34a;
+  --cpd-green-bg   : #f0fdf4;
+  --cpd-green-border: #bbf7d0;
+  --cpd-red        : #dc2626;
+  --cpd-red-bg     : #fef2f2;
+  --cpd-red-border : #fecaca;
+  --cpd-radius     : 16px;
+  --cpd-radius-sm  : 10px;
+  --cpd-shadow     : 0 2px 8px rgba(0, 0, 0, 0.05);
+  --cpd-shadow-md  : 0 4px 16px rgba(0, 0, 0, 0.08);
+  --cpd-shadow-lg  : 0 6px 28px rgba(0, 0, 0, 0.10);
+  --cpd-font       : 'DM Sans', system-ui, sans-serif;
+  --cpd-max        : 1320px;
+  --cpd-gap        : 20px;
+  --cpd-sidebar-w  : 308px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PAGE SHELL
+═══════════════════════════════════════════════════════════════ */
+.cpd-page {
+  min-height  : 100vh;
+  background  : var(--cpd-bg);
+  font-family : var(--cpd-font);
+  padding     : 28px 36px 96px;
+  box-sizing  : border-box;
+  max-width   : var(--cpd-max);
+  margin      : 0 auto;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PAGE HEADER
+═══════════════════════════════════════════════════════════════ */
+.cpd-header {
+  display        : flex;
+  align-items    : center;
+  justify-content: space-between;
+  margin-bottom  : 24px;
+}
+
+.cpd-header-left {
+  display    : flex;
+  align-items: center;
+  gap        : 16px;
+}
+
+/* Back button — matches mobile .cp-back */
+.cpd-back {
+  width          : 40px;
+  height         : 40px;
+  border-radius  : 50%;
+  border         : 1.5px solid var(--cpd-border);
+  background     : var(--cpd-surface);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  cursor         : pointer;
+  color          : #555;
+  flex-shrink    : 0;
+  transition     : border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.cpd-back:hover {
+  border-color: var(--cpd-orange);
+  color       : var(--cpd-orange);
+  box-shadow  : 0 2px 8px rgba(232, 99, 10, 0.12);
+}
+
+.cpd-title {
+  font-size  : 1.55rem;
+  font-weight: 800;
+  color      : var(--cpd-text);
+  margin     : 0 0 2px;
+  line-height: 1.15;
+}
+
+.cpd-subtitle {
+  font-size : 0.83rem;
+  color     : var(--cpd-faint);
+  margin    : 0;
+}
+
+/* Refresh button */
+.cpd-refresh-btn {
+  display      : flex;
+  align-items  : center;
+  gap          : 7px;
+  padding      : 10px 18px;
+  border       : 1.5px solid var(--cpd-border);
+  border-radius: 22px;
+  background   : var(--cpd-surface);
+  color        : #555;
+  font-family  : var(--cpd-font);
+  font-size    : 0.85rem;
+  font-weight  : 700;
+  cursor       : pointer;
+  transition   : border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.cpd-refresh-btn:hover:not(:disabled) {
+  border-color: var(--cpd-orange);
+  color       : var(--cpd-orange);
+  box-shadow  : 0 2px 8px rgba(232, 99, 10, 0.12);
+}
+.cpd-refresh-btn:disabled {
+  opacity: 0.45;
+  cursor : not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   VALIDATE PANEL  (full-width strip)
+═══════════════════════════════════════════════════════════════ */
+.cpd-validate {
+  background   : var(--cpd-surface);
+  border       : 1px solid var(--cpd-border);
+  border-radius: var(--cpd-radius);
+  padding      : 20px 24px;
+  margin-bottom: var(--cpd-gap);
+  box-shadow   : var(--cpd-shadow);
+}
+
+.cpd-validate-head {
+  display      : flex;
+  align-items  : flex-start;
+  gap          : 12px;
+  margin-bottom: 16px;
+}
+
+.cpd-validate-head-icon {
+  width          : 38px;
+  height         : 38px;
+  border-radius  : 10px;
+  background     : var(--cpd-orange-bg);
+  color          : var(--cpd-orange);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+}
+
+.cpd-validate-title {
+  font-size  : 0.97rem;
+  font-weight: 800;
+  color      : var(--cpd-text);
+  margin     : 0 0 2px;
+}
+
+.cpd-validate-sub {
+  font-size: 0.8rem;
+  color    : var(--cpd-faint);
+  margin   : 0;
+}
+
+/* Row of inputs + button */
+.cpd-validate-row {
+  display  : flex;
+  gap      : 10px;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.cpd-validate-input {
+  flex         : 1 1 180px;
+  padding      : 11px 14px;
+  border       : 1.5px solid var(--cpd-border);
+  border-radius: var(--cpd-radius-sm);
+  font-family  : var(--cpd-font);
+  font-size    : 0.9rem;
+  color        : var(--cpd-text);
+  background   : #faf8f4;
+  outline      : none;
+  box-sizing   : border-box;
+  letter-spacing: 0.4px;
+  transition   : border-color 0.15s, background 0.15s, box-shadow 0.15s;
+}
+.cpd-validate-input:focus {
+  border-color: var(--cpd-orange);
+  background  : var(--cpd-surface);
+  box-shadow  : 0 0 0 3px rgba(232, 99, 10, 0.10);
+}
+.cpd-validate-input::placeholder { color: var(--cpd-faint); }
+
+.cpd-validate-btn {
+  padding      : 11px 26px;
+  background   : var(--cpd-orange);
+  color        : #fff;
+  border       : none;
+  border-radius: var(--cpd-radius-sm);
+  font-family  : var(--cpd-font);
+  font-size    : 0.9rem;
+  font-weight  : 700;
+  cursor       : pointer;
+  white-space  : nowrap;
+  transition   : opacity 0.15s, transform 0.15s;
+}
+.cpd-validate-btn:hover:not(:disabled) {
+  opacity  : 0.88;
+  transform: translateY(-1px);
+}
+.cpd-validate-btn:disabled {
+  opacity: 0.48;
+  cursor : not-allowed;
+}
+
+/* Feedback banners */
+.cpd-validate-error {
+  display      : flex;
+  align-items  : center;
+  gap          : 8px;
+  margin-top   : 12px;
+  padding      : 10px 14px;
+  background   : var(--cpd-red-bg);
+  border       : 1px solid var(--cpd-red-border);
+  border-radius: 8px;
+  font-size    : 0.84rem;
+  color        : var(--cpd-red);
+}
+
+.cpd-validate-ok {
+  display      : flex;
+  align-items  : center;
+  gap          : 14px;
+  flex-wrap    : wrap;
+  margin-top   : 12px;
+  padding      : 12px 16px;
+  background   : var(--cpd-green-bg);
+  border       : 1px solid var(--cpd-green-border);
+  border-radius: 8px;
+  font-size    : 0.85rem;
+  color        : #166534;
+}
+
+.cpd-validate-ok-label {
+  display    : flex;
+  align-items: center;
+  gap        : 6px;
+  font-weight: 800;
+  color      : var(--cpd-green);
+  white-space: nowrap;
+}
+
+.cpd-validate-ok-save {
+  margin-left: auto;
+  font-weight: 800;
+  font-size  : 0.92rem;
+  color      : var(--cpd-green);
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TWO-COLUMN LAYOUT
+═══════════════════════════════════════════════════════════════ */
+.cpd-layout {
+  display              : grid;
+  grid-template-columns: 1fr var(--cpd-sidebar-w);
+  gap                  : var(--cpd-gap);
+  align-items          : start;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN PANEL
+═══════════════════════════════════════════════════════════════ */
+.cpd-main {
+  background   : var(--cpd-surface);
+  border       : 1px solid var(--cpd-border);
+  border-radius: var(--cpd-radius);
+  padding      : 20px 20px 24px;
+  box-shadow   : var(--cpd-shadow);
+}
+
+/* ── Tabs ── */
+.cpd-tabs {
+  display      : flex;
+  background   : var(--cpd-bg);
+  border-radius: 12px;
+  border       : 1px solid var(--cpd-border);
+  overflow     : hidden;
+  margin-bottom: 20px;
+}
+
+.cpd-tab {
+  flex           : 1;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  gap            : 6px;
+  padding        : 11px 8px;
+  border         : none;
+  background     : none;
+  font-family    : var(--cpd-font);
+  font-size      : 0.85rem;
+  font-weight    : 600;
+  color          : var(--cpd-faint);
+  cursor         : pointer;
+  border-bottom  : 2.5px solid transparent;
+  transition     : color 0.15s, background 0.15s, border-color 0.15s;
+}
+.cpd-tab:hover:not(.cpd-tab--active) {
+  color     : var(--cpd-text);
+  background: #faf8f4;
+}
+.cpd-tab--active {
+  color             : var(--cpd-text);
+  border-bottom-color: var(--cpd-orange);
+  background        : var(--cpd-surface);
+  font-weight       : 800;
+}
+
+.cpd-tab-badge {
+  display        : inline-flex;
+  align-items    : center;
+  justify-content: center;
+  min-width      : 20px;
+  height         : 20px;
+  padding        : 0 5px;
+  background     : var(--cpd-border-soft);
+  color          : var(--cpd-muted);
+  border-radius  : 20px;
+  font-size      : 0.7rem;
+  font-weight    : 700;
+}
+.cpd-tab--active .cpd-tab-badge {
+  background: var(--cpd-orange-bg);
+  color     : var(--cpd-orange);
+}
+
+/* ── Error banner ── */
+.cpd-error {
+  display      : flex;
+  align-items  : center;
+  gap          : 10px;
+  padding      : 12px 14px;
+  background   : var(--cpd-red-bg);
+  border       : 1px solid var(--cpd-red-border);
+  border-radius: var(--cpd-radius-sm);
+  color        : var(--cpd-red);
+  font-size    : 0.86rem;
+  margin-bottom: 18px;
+}
+.cpd-error span { flex: 1; }
+.cpd-error button {
+  padding      : 5px 13px;
+  background   : var(--cpd-red);
+  color        : #fff;
+  border       : none;
+  border-radius: 6px;
+  font-family  : var(--cpd-font);
+  font-size    : 0.78rem;
+  font-weight  : 700;
+  cursor       : pointer;
+  flex-shrink  : 0;
+}
+
+/* ── Skeleton grid ── */
+.cpd-sk-grid {
+  display              : grid;
+  grid-template-columns: 1fr 1fr;
+  gap                  : 14px;
+}
+
+.cpd-sk {
+  height       : 120px;
+  border-radius: var(--cpd-radius);
+  background   : linear-gradient(
+    90deg,
+    #ede9e3 25%,
+    #f5f3ef 50%,
+    #ede9e3 75%
+  );
+  background-size: 400px 100%;
+  animation      : cpd-shimmer 1.4s infinite linear;
+}
+
+@keyframes cpd-shimmer {
+  from { background-position: -400px 0; }
+  to   { background-position:  400px 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COUPON GRID
+═══════════════════════════════════════════════════════════════ */
+.cpd-grid {
+  display              : grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap                  : 14px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   COUPON CARD  — ticket style matching mobile
+═══════════════════════════════════════════════════════════════ */
+.cpd-card {
+  background   : var(--cpd-surface);
+  border       : 1px solid var(--cpd-border);
+  border-radius: var(--cpd-radius);
+  overflow     : hidden;
+  display      : flex;
+  align-items  : stretch;
+  box-shadow   : var(--cpd-shadow);
+  transition   : transform 0.15s, box-shadow 0.15s;
+}
+.cpd-card:hover {
+  transform : translateY(-2px);
+  box-shadow: var(--cpd-shadow-md);
+}
+.cpd-card--used {
+  opacity : 0.58;
+  filter  : grayscale(0.3);
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* Colored left accent strip — same as mobile .cp-card-strip but wider */
+.cpd-accent {
+  width          : 64px;
+  display        : flex;
+  flex-direction : column;
+  align-items    : center;
+  justify-content: center;
+  gap            : 6px;
+  color          : #fff;
+  flex-shrink    : 0;
+  padding        : 14px 0;
+}
+
+.cpd-accent-icon { opacity: 0.92; }
+
+.cpd-accent-label {
+  font-size     : 0.58rem;
+  font-weight   : 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align    : center;
+  line-height   : 1.25;
+  padding       : 0 6px;
+  opacity       : 0.9;
+}
+
+/* Card body */
+.cpd-body {
+  flex   : 1;
+  padding: 14px 12px;
+  min-width: 0;
+}
+
+.cpd-body-top {
+  display        : flex;
+  justify-content: space-between;
+  align-items    : flex-start;
+  gap            : 8px;
+  margin-bottom  : 6px;
+}
+
+/* Discount badge — mirrors mobile .cp-discount-badge */
+.cpd-badge {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 6px;
+  padding      : 5px 12px;
+  border-radius: 20px;
+  font-weight  : 800;
+  font-size    : 0.9rem;
+}
+
+.cpd-status {
+  font-size  : 0.68rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.cpd-desc {
+  font-size         : 0.82rem;
+  color             : #555;
+  line-height       : 1.45;
+  margin            : 0 0 8px;
+  display           : -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow          : hidden;
+}
+
+/* Meta chips — mirrors mobile .cp-detail */
+.cpd-meta {
+  display  : flex;
+  flex-wrap: wrap;
+  gap      : 5px;
+}
+
+.cpd-meta-chip {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 3px;
+  padding      : 2px 8px;
+  background   : var(--cpd-border-soft);
+  border-radius: 20px;
+  font-size    : 0.7rem;
+  font-weight  : 600;
+  color        : var(--cpd-muted);
+}
+.cpd-meta-chip--date { color: #d97706; }
+
+/* ── Ticket divider — matches mobile exactly ── */
+.cpd-divider {
+  width          : 20px;
+  flex-shrink    : 0;
+  display        : flex;
+  flex-direction : column;
+  align-items    : center;
+  background     : var(--cpd-bg);
+}
+
+.cpd-dashes {
+  flex       : 1;
+  width      : 1px;
+  background : repeating-linear-gradient(
+    to bottom,
+    #ddd 0,
+    #ddd 4px,
+    transparent 4px,
+    transparent 8px
+  );
+}
+
+.cpd-notch {
+  width        : 16px;
+  height       : 16px;
+  border-radius: 50%;
+  background   : var(--cpd-bg);
+  flex-shrink  : 0;
+  border       : 1px solid var(--cpd-border);
+}
+.cpd-notch--top {
+  margin-top : -8px;
+  border-top : none;
+}
+.cpd-notch--bottom {
+  margin-bottom: -8px;
+  border-bottom: none;
+}
+
+/* ── Code section — matches mobile .cp-card-code ── */
+.cpd-code-section {
+  padding        : 14px 14px;
+  display        : flex;
+  flex-direction : column;
+  align-items    : center;
+  justify-content: center;
+  gap            : 6px;
+  min-width      : 108px;
+  flex-shrink    : 0;
+}
+
+.cpd-code-label {
+  font-size     : 0.62rem;
+  color         : var(--cpd-faint);
+  font-weight   : 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin        : 0;
+}
+
+.cpd-code {
+  font-size     : 0.82rem;
+  font-weight   : 900;
+  color         : var(--cpd-text);
+  letter-spacing: 0.08em;
+  text-align    : center;
+  word-break    : break-all;
+  margin        : 0;
+}
+
+/* Copy button — mirrors mobile .cp-copy-btn */
+.cpd-copy {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 4px;
+  padding      : 6px 13px;
+  background   : var(--cpd-orange);
+  color        : #fff;
+  border       : none;
+  border-radius: 20px;
+  font-family  : var(--cpd-font);
+  font-size    : 0.75rem;
+  font-weight  : 700;
+  cursor       : pointer;
+  white-space  : nowrap;
+  transition   : background 0.15s, transform 0.12s;
+}
+.cpd-copy:hover:not(:disabled) {
+  background: #cf560a;
+  transform : scale(1.04);
+}
+.cpd-copy--done {
+  background: var(--cpd-green);
+}
+.cpd-copy--done:hover:not(:disabled) {
+  background: #15803d;
+}
+.cpd-copy:disabled {
+  background: #ddd;
+  color     : var(--cpd-faint);
+  cursor    : not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EMPTY STATE
+═══════════════════════════════════════════════════════════════ */
+.cpd-empty {
+  text-align    : center;
+  padding       : 56px 24px;
+  display       : flex;
+  flex-direction: column;
+  align-items   : center;
+  gap           : 10px;
+}
+
+.cpd-empty-icon {
+  width          : 64px;
+  height         : 64px;
+  border-radius  : 50%;
+  background     : var(--cpd-border-soft);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  color          : #ccc;
+}
+.cpd-empty-icon svg { width: 28px; height: 28px; }
+
+.cpd-empty p {
+  font-size  : 0.95rem;
+  font-weight: 700;
+  color      : #333;
+  margin     : 0;
+}
+.cpd-empty small {
+  font-size: 0.8rem;
+  color    : var(--cpd-faint);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HISTORY TABLE
+═══════════════════════════════════════════════════════════════ */
+.cpd-history-wrap {
+  display       : flex;
+  flex-direction: column;
+}
+
+.cpd-history-list {
+  border       : 1px solid var(--cpd-border);
+  border-radius: var(--cpd-radius);
+  overflow     : hidden;
+  background   : var(--cpd-surface);
+  margin-bottom: 12px;
+}
+
+/* Column header row */
+.cpd-history-list::before {
+  content       : '';
+  display       : block;
+}
+
+.cpd-history-row {
+  display      : flex;
+  align-items  : center;
+  gap          : 14px;
+  padding      : 14px 18px;
+  border-bottom: 1px solid var(--cpd-border-soft);
+  transition   : background 0.12s;
+}
+.cpd-history-row:last-child { border-bottom: none; }
+.cpd-history-row:hover      { background: #faf8f4; }
+
+.cpd-history-icon {
+  width          : 40px;
+  height         : 40px;
+  border-radius  : 11px;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+}
+
+.cpd-history-info {
+  flex      : 1;
+  min-width : 0;
+  display   : flex;
+  flex-direction: column;
+  gap       : 2px;
+}
+
+.cpd-history-code {
+  font-size     : 0.9rem;
+  font-weight   : 800;
+  color         : var(--cpd-text);
+  letter-spacing: 0.04em;
+}
+
+.cpd-history-desc {
+  font-size    : 0.78rem;
+  color        : var(--cpd-muted);
+  overflow     : hidden;
+  white-space  : nowrap;
+  text-overflow: ellipsis;
+}
+
+.cpd-history-time {
+  font-size : 0.75rem;
+  color     : var(--cpd-faint);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.cpd-history-save {
+  font-size  : 0.95rem;
+  font-weight: 800;
+  color      : var(--cpd-green);
+  white-space: nowrap;
+  flex-shrink: 0;
+  min-width  : 72px;
+  text-align : right;
+}
+
+/* Footer total — matches mobile .cp-history-total */
+.cpd-history-footer {
+  display        : flex;
+  justify-content: space-between;
+  align-items    : center;
+  padding        : 14px 18px;
+  background     : var(--cpd-green-bg);
+  border         : 1px solid var(--cpd-green-border);
+  border-radius  : var(--cpd-radius-sm);
+  font-size      : 0.84rem;
+  color          : #166534;
+  font-weight    : 600;
+}
+
+.cpd-history-total {
+  font-size  : 1.15rem;
+  font-weight: 900;
+  color      : var(--cpd-green);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SIDEBAR
+═══════════════════════════════════════════════════════════════ */
+.cpd-sidebar {
+  display       : flex;
+  flex-direction: column;
+  gap           : 16px;
+  position      : sticky;
+  top           : 24px;
+}
+
+/* ── Stats card ── */
+.cpd-stats {
+  background   : var(--cpd-surface);
+  border       : 1px solid var(--cpd-border);
+  border-radius: var(--cpd-radius);
+  padding      : 18px;
+  box-shadow   : var(--cpd-shadow);
+}
+
+.cpd-stats-title {
+  font-size    : 0.9rem;
+  font-weight  : 800;
+  color        : var(--cpd-text);
+  margin       : 0 0 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--cpd-border);
+}
+
+.cpd-stat {
+  display        : flex;
+  justify-content: space-between;
+  align-items    : center;
+  padding        : 9px 0;
+  border-bottom  : 1px solid var(--cpd-border-soft);
+}
+.cpd-stat:last-of-type { border-bottom: none; }
+
+.cpd-stat-label {
+  font-size: 0.82rem;
+  color    : var(--cpd-muted);
+}
+
+.cpd-stat-val {
+  font-size  : 1rem;
+  font-weight: 800;
+  color      : var(--cpd-text);
+}
+.cpd-stat-val--green { color: var(--cpd-green); }
+
+/* Savings pill — mirrors mobile .cp-savings-banner */
+.cpd-savings {
+  display      : flex;
+  align-items  : center;
+  gap          : 12px;
+  margin-top   : 14px;
+  padding      : 13px;
+  background   : linear-gradient(135deg, var(--cpd-orange-pale), #ffecd8);
+  border       : 1px solid #ffd4a8;
+  border-radius: 12px;
+}
+
+.cpd-savings-icon {
+  width          : 40px;
+  height         : 40px;
+  border-radius  : 10px;
+  background     : #fef3c7;
+  color          : var(--cpd-orange);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+}
+
+.cpd-savings-label {
+  font-size  : 0.72rem;
+  color      : #a16207;
+  font-weight: 600;
+  margin     : 0 0 2px;
+}
+
+.cpd-savings-amount {
+  font-size  : 1.1rem;
+  font-weight: 900;
+  color      : var(--cpd-orange);
+  margin     : 0;
+}
+
+/* ── Tips card ── */
+.cpd-tips {
+  background   : var(--cpd-surface);
+  border       : 1px solid var(--cpd-border);
+  border-radius: var(--cpd-radius);
+  padding      : 18px;
+  box-shadow   : var(--cpd-shadow);
+}
+
+.cpd-tips-head {
+  display      : flex;
+  align-items  : center;
+  gap          : 8px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--cpd-border);
+  color        : var(--cpd-orange);
+}
+
+.cpd-tips-head h3 {
+  font-size  : 0.9rem;
+  font-weight: 800;
+  color      : var(--cpd-text);
+  margin     : 0;
+}
+
+.cpd-tip {
+  display      : flex;
+  align-items  : flex-start;
+  gap          : 10px;
+  padding      : 8px 0;
+  border-bottom: 1px solid var(--cpd-border-soft);
+}
+.cpd-tip:last-child { border-bottom: none; padding-bottom: 0; }
+
+.cpd-tip-num {
+  width          : 22px;
+  height         : 22px;
+  border-radius  : 50%;
+  background     : var(--cpd-orange-bg);
+  color          : var(--cpd-orange);
+  font-size      : 0.7rem;
+  font-weight    : 800;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  flex-shrink    : 0;
+  margin-top     : 2px;
+}
+
+/* Tip icon box — matches mobile .cp-tip-icon */
+.cpd-tip-icon {
+  width          : 26px;
+  height         : 26px;
+  border-radius  : 7px;
+  background     : var(--cpd-border-soft);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  color          : var(--cpd-muted);
+  flex-shrink    : 0;
+}
+
+.cpd-tip p {
+  font-size  : 0.8rem;
+  color      : #555;
+  line-height: 1.5;
+  margin     : 0;
+  padding-top: 3px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TOAST  — matches mobile .cp-toast
+═══════════════════════════════════════════════════════════════ */
+.cpd-toast {
+  position     : fixed;
+  bottom       : 36px;
+  left         : 50%;
+  transform    : translateX(-50%);
+  background   : #111;
+  color        : #fff;
+  padding      : 11px 20px;
+  border-radius: 24px;
+  font-family  : var(--cpd-font);
+  font-size    : 0.86rem;
+  font-weight  : 600;
+  display      : flex;
+  align-items  : center;
+  gap          : 7px;
+  box-shadow   : 0 6px 28px rgba(0, 0, 0, 0.22);
+  z-index      : 9999;
+  white-space  : nowrap;
+  animation    : cpd-toast-in 0.22s ease;
+}
+
+@keyframes cpd-toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0);    }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Narrow desktop / large tablet (1024–1200 px) ── */
+@media (max-width: 1200px) {
+  :root { --cpd-sidebar-w: 272px; }
+
+  .cpd-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cpd-page {
+    padding-left : 24px;
+    padding-right: 24px;
+  }
+}
+
+/* ── Tablet (768–1023 px): single column, sidebar moves below ── */
+@media (max-width: 1023px) {
+  .cpd-page {
+    padding: 20px 20px 88px;
+  }
+
+  .cpd-layout {
+    grid-template-columns: 1fr;
+  }
+
+  /* Sidebar becomes a horizontal strip of cards */
+  .cpd-sidebar {
+    position      : static;
+    flex-direction: row;
+    flex-wrap     : wrap;
+  }
+  .cpd-stats,
+  .cpd-tips {
+    flex: 1 1 260px;
+  }
+
+  .cpd-grid {
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  }
+
+  /* Validate row stacks but keeps button inline */
+  .cpd-validate-row {
+    flex-wrap: nowrap;
+  }
+}
+
+/* ── Small tablet / large phone (600–767 px) ── */
+@media (max-width: 767px) {
+  .cpd-page {
+    padding: 16px 16px 88px;
+  }
+
+  .cpd-title    { font-size: 1.3rem; }
+  .cpd-subtitle { display: none; }
+
+  .cpd-validate-row {
+    flex-direction: column;
+  }
+  .cpd-validate-input { flex: unset; width: 100%; }
+  .cpd-validate-btn   { width: 100%; text-align: center; justify-content: center; }
+
+  .cpd-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .cpd-sidebar {
+    flex-direction: column;
+  }
+
+  .cpd-sk-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Phone (< 480 px) ── */
+@media (max-width: 480px) {
+  .cpd-page {
+    padding-left : 12px;
+    padding-right: 12px;
+  }
+
+  .cpd-title { font-size: 1.15rem; }
+
+  /* Card: shrink accent band on very small screens */
+  .cpd-accent {
+    width: 52px;
+  }
+  .cpd-accent-label { display: none; }
+
+  .cpd-code-section {
+    min-width: 88px;
+    padding  : 12px 10px;
+  }
+
+  .cpd-toast {
+    left      : 12px;
+    right     : 12px;
+    transform : none;
+    white-space: normal;
+  }
+}
