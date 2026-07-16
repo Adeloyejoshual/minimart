@@ -3,16 +3,13 @@
 // Mount: /api/support
 // ════════════════════════════════════════════════════════════
 
-import express          from "express";
-import { pool }         from "../server.js";
+import express from "express";
+import { pool } from "../server.js";
 import { authenticate } from "../middleware/auth.js";
-import multer           from "multer";
-import {
-  S3Client,
-  PutObjectCommand,
-} from "@aws-sdk/client-s3";
+import multer from "multer";
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 import crypto from "crypto";
-import path   from "path";
+import path from "path";
 
 const router = express.Router();
 
@@ -20,11 +17,11 @@ const router = express.Router();
    CLOUDFLARE R2
 ════════════════════════════════════════════════════════════ */
 const s3 = new S3Client({
-  region   : "auto",
-  endpoint : process.env.R2_ENDPOINT,
+  region  : "auto",
+  endpoint: process.env.R2_ENDPOINT,
   credentials: {
-    accessKeyId     : process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey : process.env.R2_SECRET_ACCESS_KEY,
+    accessKeyId    : process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
   },
 });
 
@@ -32,17 +29,20 @@ const BUCKET    = process.env.R2_BUCKET_NAME;
 const R2_PUBLIC = process.env.R2_PUBLIC_URL;
 
 const upload = multer({
-  storage    : multer.memoryStorage(),
-  limits     : { fileSize: 10 * 1024 * 1024, files: 5 },
+  storage   : multer.memoryStorage(),
+  limits    : { fileSize: 10 * 1024 * 1024, files: 5 },
   fileFilter(_req, file, cb) {
     const ALLOWED = [
-      "image/jpeg", "image/png", "image/gif", "image/webp",
+      "image/jpeg",
+      "image/png",
+      "image/gif",
+      "image/webp",
       "application/pdf",
       "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ];
     if (ALLOWED.includes(file.mimetype)) return cb(null, true);
-    cb(new Error(`File type ${file.mimetype} is not allowed`));
+    cb(new Error(`File type "${file.mimetype}" is not allowed`));
   },
 });
 
@@ -50,36 +50,75 @@ async function uploadToR2(file, folder = "support") {
   const ext = path.extname(file.originalname).toLowerCase();
   const key = `${folder}/${crypto.randomUUID()}${ext}`;
 
-  await s3.send(new PutObjectCommand({
-    Bucket             : BUCKET,
-    Key                : key,
-    Body               : file.buffer,
-    ContentType        : file.mimetype,
-    ContentDisposition : "inline",
-    Metadata: {
-      originalName : file.originalname,
-      uploadedAt   : new Date().toISOString(),
-    },
-  }));
+  await s3.send(
+    new PutObjectCommand({
+      Bucket            : BUCKET,
+      Key               : key,
+      Body              : file.buffer,
+      ContentType       : file.mimetype,
+      ContentDisposition: "inline",
+      Metadata: {
+        originalName: file.originalname,
+        uploadedAt  : new Date().toISOString(),
+      },
+    })
+  );
 
   return {
     key,
-    url      : `${R2_PUBLIC}/${key}`,
-    fileName : file.originalname,
-    fileType : file.mimetype,
-    fileSize : file.size,
+    url     : `${R2_PUBLIC}/${key}`,
+    fileName: file.originalname,
+    fileType: file.mimetype,
+    fileSize: file.size,
   };
 }
 
 /* ════════════════════════════════════════════════════════════
-   HELPERS
+   SHARED HELPERS
 ════════════════════════════════════════════════════════════ */
+
 function generateNumber(prefix) {
   const ts     = Date.now().toString().slice(-8);
   const random = Math.floor(Math.random() * 9000 + 1000);
   return `${prefix}-${ts}-${random}`;
 }
 
+/**
+ * Validate UUID v4 format.
+ */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidUUID(value) {
+  return typeof value === "string" && UUID_RE.test(value);
+}
+
+/**
+ * Build a structured 500 response from a pg error.
+ * Always includes the real pg error message, code, detail, hint.
+ */
+function pgError(res, err, step, extra = {}) {
+  console.error(`[support] ❌ ${step}`);
+  console.error("  message :", err.message);
+  console.error("  pg code :", err.code   ?? "(none)");
+  console.error("  detail  :", err.detail ?? "(none)");
+  console.error("  hint    :", err.hint   ?? "(none)");
+  console.error("  stack   :", err.stack);
+
+  return res.status(500).json({
+    success : false,
+    message : err.message,            /* real DB error — never swallowed */
+    pgCode  : err.code   ?? null,
+    detail  : err.detail ?? null,
+    hint    : err.hint   ?? null,
+    step,
+    ...extra,
+  });
+}
+
+/**
+ * Insert a support notification (non-fatal — logs on failure).
+ */
 async function createNotification(client, {
   userId,
   type,
@@ -88,14 +127,23 @@ async function createNotification(client, {
   referenceId   = null,
   referenceType = null,
 }) {
-  await client.query(
-    `INSERT INTO public.support_notifications
-       (user_id, notification_type, title, message, reference_id, reference_type)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [userId, type, title, message, referenceId, referenceType]
-  );
+  try {
+    await client.query(
+      `INSERT INTO public.support_notifications
+         (user_id, notification_type, title, message,
+          reference_id, reference_type)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [userId, type, title, message, referenceId, referenceType]
+    );
+  } catch (err) {
+    /* Non-fatal — ticket must not fail because of a notification error */
+    console.warn("[support] ⚠️  createNotification failed:", err.message);
+  }
 }
 
+/**
+ * Insert an activity log entry (non-fatal).
+ */
 async function logActivity(client, {
   ticketId,
   performedBy,
@@ -104,19 +152,30 @@ async function logActivity(client, {
   newValue    = null,
   description = null,
 }) {
-  await client.query(
-    `INSERT INTO public.ticket_activity_logs
-       (ticket_id, performed_by, action, old_value, new_value, description)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [ticketId, performedBy, action, oldValue, newValue, description]
-  );
+  try {
+    await client.query(
+      `INSERT INTO public.ticket_activity_logs
+         (ticket_id, performed_by, action,
+          old_value, new_value, description)
+       VALUES ($1,$2,$3,$4,$5,$6)`,
+      [ticketId, performedBy, action, oldValue, newValue, description]
+    );
+  } catch (err) {
+    /* Non-fatal */
+    console.warn("[support] ⚠️  logActivity failed:", err.message);
+  }
 }
 
 /* ════════════════════════════════════════════════════════════
-   TICKETS
+   ╔══════════════════════════════════════╗
+   ║          T I C K E T S              ║
+   ╚══════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
-/* ── POST /api/support/tickets ── */
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/tickets
+   Create a new support ticket.
+──────────────────────────────────────────────────────────── */
 router.post(
   "/tickets",
   authenticate,
@@ -129,10 +188,11 @@ router.post(
       priority = "medium",
     } = req.body;
 
+    /* ── Validation ── */
     if (!category || !subject || !description) {
       return res.status(400).json({
         success : false,
-        message : "category, subject and description are required",
+        message : "category, subject, and description are required.",
       });
     }
 
@@ -148,58 +208,92 @@ router.post(
     try {
       await client.query("BEGIN");
 
-      const ticketNumber = generateNumber("TKT");
+      /* ── Insert ticket ── */
+      let ticket;
+      try {
+        const ticketNumber = generateNumber("TKT");
+        const { rows } = await client.query(
+          `INSERT INTO public.support_tickets
+             (ticket_number, user_id, category, subject,
+              description, priority, status)
+           VALUES ($1,$2,$3,$4,$5,$6,'open')
+           RETURNING *`,
+          [
+            ticketNumber,
+            req.user.id,
+            category,
+            subject,
+            description,
+            priority,
+          ]
+        );
+        ticket = rows[0];
+      } catch (err) {
+        await client.query("ROLLBACK");
+        return pgError(res, err, "create_ticket_insert");
+      }
 
-      const { rows: [ticket] } = await client.query(
-        `INSERT INTO public.support_tickets
-           (ticket_number, user_id, category, subject, description, priority, status)
-         VALUES ($1, $2, $3, $4, $5, $6, 'open')
-         RETURNING *`,
-        [ticketNumber, req.user.id, category, subject, description, priority]
-      );
+      /* ── Insert opening message ── */
+      let msgId;
+      try {
+        const { rows } = await client.query(
+          `INSERT INTO public.ticket_messages
+             (ticket_id, sender_id, message)
+           VALUES ($1,$2,$3)
+           RETURNING id`,
+          [ticket.id, req.user.id, description]
+        );
+        msgId = rows[0].id;
+      } catch (err) {
+        await client.query("ROLLBACK");
+        return pgError(res, err, "create_ticket_message", { ticketId: ticket.id });
+      }
 
-      const { rows: [msg] } = await client.query(
-        `INSERT INTO public.ticket_messages
-           (ticket_id, sender_id, message)
-         VALUES ($1, $2, $3)
-         RETURNING id`,
-        [ticket.id, req.user.id, description]
-      );
-
+      /* ── Upload attachments (if any) ── */
       const uploadedFiles = [];
       if (req.files?.length) {
         for (const file of req.files) {
-          const uploaded = await uploadToR2(
-            file,
-            `support/tickets/${ticket.id}`
-          );
-          await client.query(
-            `INSERT INTO public.ticket_attachments
-               (ticket_id, message_id, uploaded_by,
-                file_name, file_url, file_type, file_size)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [
-              ticket.id, msg.id, req.user.id,
-              uploaded.fileName, uploaded.url,
-              uploaded.fileType, uploaded.fileSize,
-            ]
-          );
-          uploadedFiles.push(uploaded);
+          try {
+            const uploaded = await uploadToR2(
+              file,
+              `support/tickets/${ticket.id}`
+            );
+            await client.query(
+              `INSERT INTO public.ticket_attachments
+                 (ticket_id, message_id, uploaded_by,
+                  file_name, file_url, file_type, file_size)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+              [
+                ticket.id,
+                msgId,
+                req.user.id,
+                uploaded.fileName,
+                uploaded.url,
+                uploaded.fileType,
+                uploaded.fileSize,
+              ]
+            );
+            uploadedFiles.push(uploaded);
+          } catch (err) {
+            /* Non-fatal — continue without this attachment */
+            console.warn("[support] ⚠️  attachment upload failed:", err.message);
+          }
         }
       }
 
+      /* ── Activity log + notification (both non-fatal) ── */
       await logActivity(client, {
         ticketId    : ticket.id,
         performedBy : req.user.id,
         action      : "ticket_created",
-        description : `Ticket ${ticketNumber} created with ${priority} priority`,
+        description : `Ticket ${ticket.ticket_number} created with ${priority} priority`,
       });
 
       await createNotification(client, {
         userId        : req.user.id,
         type          : "ticket_created",
         title         : "Support Ticket Created",
-        message       : `Your ticket ${ticketNumber} has been submitted. Our team will respond shortly.`,
+        message       : `Your ticket ${ticket.ticket_number} has been submitted. We will respond shortly.`,
         referenceId   : ticket.id,
         referenceType : "ticket",
       });
@@ -214,19 +308,18 @@ router.post(
         attachments  : uploadedFiles,
       });
     } catch (err) {
-      await client.query("ROLLBACK");
-      console.error("[support] createTicket:", err.message);
-      return res.status(500).json({
-        success : false,
-        message : "Failed to create ticket",
-      });
+      await client.query("ROLLBACK").catch(() => {});
+      return pgError(res, err, "create_ticket_unexpected");
     } finally {
       client.release();
     }
   }
 );
 
-/* ── GET /api/support/tickets ── */
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/tickets
+   List tickets for the authenticated user.
+──────────────────────────────────────────────────────────── */
 router.get("/tickets", authenticate, async (req, res) => {
   const {
     status,
@@ -241,7 +334,7 @@ router.get("/tickets", authenticate, async (req, res) => {
   const params     = [req.user.id];
   let   p          = 2;
 
-  if (status)   {
+  if (status) {
     conditions.push(`t.status = $${p++}`);
     params.push(status);
   }
@@ -249,7 +342,7 @@ router.get("/tickets", authenticate, async (req, res) => {
     conditions.push(`t.priority = $${p++}`);
     params.push(priority);
   }
-  if (search)   {
+  if (search) {
     conditions.push(
       `(t.ticket_number ILIKE $${p} OR t.subject ILIKE $${p})`
     );
@@ -259,8 +352,10 @@ router.get("/tickets", authenticate, async (req, res) => {
 
   const where = conditions.join(" AND ");
 
+  /* ── Tickets ── */
+  let tickets;
   try {
-    const { rows: tickets } = await pool.query(
+    const { rows } = await pool.query(
       `SELECT
          t.*,
          u.name  AS assigned_agent_name,
@@ -278,143 +373,282 @@ router.get("/tickets", authenticate, async (req, res) => {
        LIMIT $${p} OFFSET $${p + 1}`,
       [...params, Number(limit), offset]
     );
+    tickets = rows;
+  } catch (err) {
+    return pgError(res, err, "list_tickets_query");
+  }
 
-    const { rows: [{ count }] } = await pool.query(
-      `SELECT COUNT(*) FROM public.support_tickets t WHERE ${where}`,
+  /* ── Count ── */
+  let total = 0;
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) AS count
+       FROM public.support_tickets t
+       WHERE ${where}`,
       params
     );
-
-    return res.json({
-      success    : true,
-      tickets,
-      pagination : {
-        total : Number(count),
-        page  : Number(page),
-        limit : Number(limit),
-        pages : Math.ceil(Number(count) / Number(limit)),
-      },
-    });
+    total = Number(rows[0].count);
   } catch (err) {
-    console.error("[support] getTickets:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to fetch tickets",
-    });
+    /* Non-fatal — return tickets without pagination total */
+    console.warn("[support] ⚠️  ticket count failed:", err.message);
   }
+
+  return res.json({
+    success    : true,
+    tickets,
+    pagination : {
+      total,
+      page  : Number(page),
+      limit : Number(limit),
+      pages : Math.ceil(total / Number(limit)),
+    },
+  });
 });
 
-/* ── GET /api/support/tickets/:id ── */
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/tickets/:id
+   Fetch a single ticket with messages, attachments, activity.
+   Every query is its own try/catch — crash step is identified
+   and the real pg error is returned to the client.
+──────────────────────────────────────────────────────────── */
 router.get("/tickets/:id", authenticate, async (req, res) => {
-  const { id } = req.params;
+  const { id }   = req.params;
+  const userId   = req.user?.id;
 
-  /* Guard: reject obviously invalid IDs immediately */
+  /* ── Guard: missing / invalid ID ── */
   if (!id || id === "undefined" || id === "null") {
     return res.status(400).json({
       success : false,
-      message : "Invalid ticket ID",
+      message : "No ticket ID was provided.",
     });
   }
 
+  if (!isValidUUID(id)) {
+    return res.status(400).json({
+      success : false,
+      message : `"${id}" is not a valid ticket ID.`,
+    });
+  }
+
+  console.log(`[getTicket] → id=${id}  userId=${userId}`);
+
+  /* ══════════════════════════════════════════════════════
+     STEP 1 — ticket row
+  ══════════════════════════════════════════════════════ */
+  let ticket;
   try {
-    const { rows: [ticket] } = await pool.query(
+    const { rows } = await pool.query(
       `SELECT
          t.*,
          u.name  AS assigned_agent_name,
          u.email AS assigned_agent_email
        FROM public.support_tickets t
        LEFT JOIN public.users u ON u.id = t.assigned_to
-       WHERE t.id = $1 AND t.user_id = $2`,
-      [id, req.user.id]
+       WHERE t.id = $1
+         AND t.user_id = $2`,
+      [id, userId]
     );
+    ticket = rows[0] ?? null;
+  } catch (err) {
+    return pgError(res, err, "get_ticket_row", { ticketId: id });
+  }
 
-    if (!ticket) {
-      return res.status(404).json({
-        success : false,
-        message : "Ticket not found",
-      });
+  if (!ticket) {
+    console.warn(`[getTicket] 404 — ticket ${id} not found for user ${userId}`);
+    return res.status(404).json({
+      success : false,
+      message :
+        "Ticket not found. It may have been deleted or belong to a different account.",
+    });
+  }
+
+  console.log(`[getTicket] ✓ ticket found — status=${ticket.status}`);
+
+  /* ══════════════════════════════════════════════════════
+     STEP 2 — messages
+     We probe for optional columns (is_internal_note,
+     is_system_message) before using them, so the query
+     never crashes on a missing column.
+  ══════════════════════════════════════════════════════ */
+
+  /*
+   * Check which optional columns exist on ticket_messages.
+   * We do this once and cache the result.
+   */
+  let hasInternalNote   = false;
+  let hasSystemMessage  = false;
+  let hasSenderAvatar   = false;
+  let hasSenderRole     = false;
+
+  try {
+    const { rows: cols } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'ticket_messages'`,
+    );
+    const colNames = new Set(cols.map((c) => c.column_name));
+    hasInternalNote  = colNames.has("is_internal_note");
+    hasSystemMessage = colNames.has("is_system_message");
+
+    /* Check users table for avatar column */
+    const { rows: userCols } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'users'`,
+    );
+    const userColNames = new Set(userCols.map((c) => c.column_name));
+    hasSenderAvatar = userColNames.has("avatar_url") ||
+                      userColNames.has("profile_image") ||
+                      userColNames.has("photo_url");
+    hasSenderRole   = userColNames.has("role");
+
+    console.log(
+      `[getTicket] columns — is_internal_note=${hasInternalNote}`,
+      `is_system_message=${hasSystemMessage}`,
+      `avatar=${hasSenderAvatar}`,
+      `role=${hasSenderRole}`
+    );
+  } catch (err) {
+    /* Non-fatal — carry on with safe defaults */
+    console.warn("[getTicket] ⚠️  column probe failed:", err.message);
+  }
+
+  /* Build avatar SELECT safely */
+  let avatarSelect = "NULL AS sender_avatar";
+  try {
+    const { rows: userCols } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'users'
+         AND column_name  IN ('avatar_url','profile_image','photo_url','picture')`,
+    );
+    if (userCols.length > 0) {
+      avatarSelect = `u.${userCols[0].column_name} AS sender_avatar`;
     }
+  } catch {
+    /* stay with NULL */
+  }
 
-    /* Messages — exclude internal notes from user view */
-    const { rows: messages } = await pool.query(
+  const roleSelect = hasSenderRole ? "u.role AS sender_role" : "'user' AS sender_role";
+
+  /* Build WHERE clause for messages */
+  const msgWhereParts = ["m.ticket_id = $1"];
+  if (hasInternalNote)  msgWhereParts.push(`(m.is_internal_note = false OR m.sender_id = $2)`);
+  if (hasSystemMessage) msgWhereParts.push(`m.is_system_message = false`);
+  const msgWhere = msgWhereParts.join(" AND ");
+  const msgParams = hasInternalNote ? [ticket.id, userId] : [ticket.id];
+
+  let messages = [];
+  try {
+    const { rows } = await pool.query(
       `SELECT
          m.*,
          u.name       AS sender_name,
-         u.avatar_url AS sender_avatar,
-         u.role       AS sender_role
+         ${avatarSelect},
+         ${roleSelect}
        FROM public.ticket_messages m
        LEFT JOIN public.users u ON u.id = m.sender_id
-       WHERE m.ticket_id = $1
-         AND (m.is_internal_note = false OR m.sender_id = $2)
-         AND m.is_system_message = false
+       WHERE ${msgWhere}
        ORDER BY m.created_at ASC`,
-      [ticket.id, req.user.id]
+      msgParams
     );
-
-    /* Attachments */
-    const { rows: attachments } = await pool.query(
-      `SELECT * FROM public.ticket_attachments
-       WHERE ticket_id = $1
-       ORDER BY created_at ASC`,
-      [ticket.id]
-    );
-
-    /* Group attachments by message_id */
-    const attMap = {};
-    for (const att of attachments) {
-      const key = att.message_id ?? "__ticket__";
-      if (!attMap[key]) attMap[key] = [];
-      attMap[key].push(att);
-    }
-
-    const messagesWithAtt = messages.map((m) => ({
-      ...m,
-      attachments : attMap[m.id] || [],
-    }));
-
-    /* Activity log */
-    const { rows: activity } = await pool.query(
-      `SELECT * FROM public.ticket_activity_logs
-       WHERE ticket_id = $1
-       ORDER BY created_at ASC`,
-      [ticket.id]
-    );
-
-    /*
-     * Response shape:
-     * { success: true, ticket: { id, ticket_number, status, messages, ... } }
-     *
-     * Frontend unwraps:  const ticketData = data?.ticket ?? data
-     */
-    return res.json({
-      success : true,
-      ticket  : {
-        ...ticket,
-        messages    : messagesWithAtt,
-        activity,
-        attachments,
-      },
-    });
+    messages = rows;
+    console.log(`[getTicket] ✓ ${messages.length} message(s)`);
   } catch (err) {
-    console.error("[support] getTicketDetail:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to fetch ticket",
-    });
+    return pgError(res, err, "get_ticket_messages", { ticketId: id });
   }
+
+  /* ══════════════════════════════════════════════════════
+     STEP 3 — attachments
+  ══════════════════════════════════════════════════════ */
+  let attachments = [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT *
+       FROM public.ticket_attachments
+       WHERE ticket_id = $1
+       ORDER BY created_at ASC`,
+      [ticket.id]
+    );
+    attachments = rows;
+    console.log(`[getTicket] ✓ ${attachments.length} attachment(s)`);
+  } catch (err) {
+    return pgError(res, err, "get_ticket_attachments", { ticketId: id });
+  }
+
+  /* ══════════════════════════════════════════════════════
+     STEP 4 — activity log (NON-FATAL)
+  ══════════════════════════════════════════════════════ */
+  let activity = [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT *
+       FROM public.ticket_activity_logs
+       WHERE ticket_id = $1
+       ORDER BY created_at ASC`,
+      [ticket.id]
+    );
+    activity = rows;
+  } catch (err) {
+    /* Non-fatal — activity log missing or broken; still return ticket */
+    console.warn("[getTicket] ⚠️  activity log unavailable:", err.message);
+  }
+
+  /* ══════════════════════════════════════════════════════
+     STEP 5 — assemble & respond
+  ══════════════════════════════════════════════════════ */
+
+  /* Group attachments by message_id */
+  const attMap = {};
+  for (const att of attachments) {
+    const key = att.message_id ?? "__ticket__";
+    (attMap[key] ??= []).push(att);
+  }
+
+  const messagesWithAtt = messages.map((m) => ({
+    ...m,
+    attachments : attMap[m.id] ?? [],
+  }));
+
+  console.log(`[getTicket] ✓ returning ticket ${id}`);
+
+  return res.status(200).json({
+    success : true,
+    ticket  : {
+      ...ticket,
+      messages    : messagesWithAtt,
+      activity,
+      attachments,
+    },
+  });
 });
 
-/* ── POST /api/support/tickets/:id/messages ── */
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/tickets/:id/messages
+   Add a reply to a ticket.
+──────────────────────────────────────────────────────────── */
 router.post(
   "/tickets/:id/messages",
   authenticate,
   upload.array("attachments", 5),
   async (req, res) => {
+    const { id }    = req.params;
     const { message } = req.body;
+
+    if (!isValidUUID(id)) {
+      return res.status(400).json({
+        success : false,
+        message : `Invalid ticket ID: "${id}"`,
+      });
+    }
 
     if (!message?.trim() && !req.files?.length) {
       return res.status(400).json({
         success : false,
-        message : "message or at least one attachment is required",
+        message : "A message or at least one attachment is required.",
       });
     }
 
@@ -422,18 +656,26 @@ router.post(
     try {
       await client.query("BEGIN");
 
-      const { rows: [ticket] } = await client.query(
-        `SELECT id, status, ticket_number, user_id
-         FROM public.support_tickets
-         WHERE id = $1 AND user_id = $2`,
-        [req.params.id, req.user.id]
-      );
+      /* ── Verify ticket exists & belongs to user ── */
+      let ticket;
+      try {
+        const { rows } = await client.query(
+          `SELECT id, status, ticket_number, user_id
+           FROM public.support_tickets
+           WHERE id = $1 AND user_id = $2`,
+          [id, req.user.id]
+        );
+        ticket = rows[0] ?? null;
+      } catch (err) {
+        await client.query("ROLLBACK");
+        return pgError(res, err, "reply_ticket_lookup", { ticketId: id });
+      }
 
       if (!ticket) {
         await client.query("ROLLBACK");
         return res.status(404).json({
           success : false,
-          message : "Ticket not found",
+          message : "Ticket not found.",
         });
       }
 
@@ -441,47 +683,69 @@ router.post(
         await client.query("ROLLBACK");
         return res.status(400).json({
           success : false,
-          message : "Cannot reply to a closed ticket",
+          message : "Cannot reply to a closed ticket. Please reopen it first.",
         });
       }
 
-      const { rows: [msg] } = await client.query(
-        `INSERT INTO public.ticket_messages
-           (ticket_id, sender_id, message)
-         VALUES ($1, $2, $3)
-         RETURNING *`,
-        [ticket.id, req.user.id, message?.trim() || ""]
-      );
+      /* ── Insert message ── */
+      let msg;
+      try {
+        const { rows } = await client.query(
+          `INSERT INTO public.ticket_messages
+             (ticket_id, sender_id, message)
+           VALUES ($1,$2,$3)
+           RETURNING *`,
+          [ticket.id, req.user.id, message?.trim() || ""]
+        );
+        msg = rows[0];
+      } catch (err) {
+        await client.query("ROLLBACK");
+        return pgError(res, err, "reply_insert_message", { ticketId: id });
+      }
 
+      /* ── Upload attachments ── */
       const uploadedFiles = [];
       if (req.files?.length) {
         for (const file of req.files) {
-          const uploaded = await uploadToR2(
-            file,
-            `support/tickets/${ticket.id}`
-          );
-          await client.query(
-            `INSERT INTO public.ticket_attachments
-               (ticket_id, message_id, uploaded_by,
-                file_name, file_url, file_type, file_size)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-            [
-              ticket.id, msg.id, req.user.id,
-              uploaded.fileName, uploaded.url,
-              uploaded.fileType, uploaded.fileSize,
-            ]
-          );
-          uploadedFiles.push(uploaded);
+          try {
+            const uploaded = await uploadToR2(
+              file,
+              `support/tickets/${ticket.id}`
+            );
+            await client.query(
+              `INSERT INTO public.ticket_attachments
+                 (ticket_id, message_id, uploaded_by,
+                  file_name, file_url, file_type, file_size)
+               VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+              [
+                ticket.id,
+                msg.id,
+                req.user.id,
+                uploaded.fileName,
+                uploaded.url,
+                uploaded.fileType,
+                uploaded.fileSize,
+              ]
+            );
+            uploadedFiles.push(uploaded);
+          } catch (err) {
+            console.warn("[support] ⚠️  attachment upload failed:", err.message);
+          }
         }
       }
 
+      /* ── Reopen if waiting_for_customer ── */
       if (ticket.status === "waiting_for_customer") {
-        await client.query(
-          `UPDATE public.support_tickets
-           SET status = 'open', updated_at = NOW()
-           WHERE id = $1`,
-          [ticket.id]
-        );
+        try {
+          await client.query(
+            `UPDATE public.support_tickets
+             SET status = 'open', updated_at = NOW()
+             WHERE id = $1`,
+            [ticket.id]
+          );
+        } catch (err) {
+          console.warn("[support] ⚠️  status reopen failed:", err.message);
+        }
       }
 
       await logActivity(client, {
@@ -499,27 +763,30 @@ router.post(
         attachments : uploadedFiles,
       });
     } catch (err) {
-      await client.query("ROLLBACK");
-      console.error("[support] replyTicket:", err.message);
-      return res.status(500).json({
-        success : false,
-        message : "Failed to send reply",
-      });
+      await client.query("ROLLBACK").catch(() => {});
+      return pgError(res, err, "reply_ticket_unexpected", { ticketId: id });
     } finally {
       client.release();
     }
   }
 );
 
-/* ── PATCH /api/support/tickets/:id ── */
+/* ────────────────────────────────────────────────────────────
+   PATCH /api/support/tickets/:id
+   Close a ticket.
+──────────────────────────────────────────────────────────── */
 router.patch("/tickets/:id", authenticate, async (req, res) => {
+  const { id }     = req.params;
   const { status } = req.body;
 
-  const ALLOWED = ["closed"];
-  if (!status || !ALLOWED.includes(status)) {
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ success: false, message: `Invalid ticket ID: "${id}"` });
+  }
+
+  if (status !== "closed") {
     return res.status(400).json({
       success : false,
-      message : "Users can only set status to: closed",
+      message : "Users may only set status to: closed",
     });
   }
 
@@ -527,42 +794,50 @@ router.patch("/tickets/:id", authenticate, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    const { rows: [ticket] } = await client.query(
-      `SELECT id, status, ticket_number, user_id
-       FROM public.support_tickets
-       WHERE id = $1 AND user_id = $2`,
-      [req.params.id, req.user.id]
-    );
+    let ticket;
+    try {
+      const { rows } = await client.query(
+        `SELECT id, status, ticket_number, user_id
+         FROM public.support_tickets
+         WHERE id = $1 AND user_id = $2`,
+        [id, req.user.id]
+      );
+      ticket = rows[0] ?? null;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      return pgError(res, err, "close_ticket_lookup", { ticketId: id });
+    }
 
     if (!ticket) {
       await client.query("ROLLBACK");
-      return res.status(404).json({
-        success : false,
-        message : "Ticket not found",
-      });
+      return res.status(404).json({ success: false, message: "Ticket not found." });
     }
 
     if (ticket.status === "closed") {
       await client.query("ROLLBACK");
-      return res.status(400).json({
-        success : false,
-        message : "Ticket is already closed",
-      });
+      return res.status(400).json({ success: false, message: "Ticket is already closed." });
     }
 
     const reopenDeadline = new Date();
     reopenDeadline.setDate(reopenDeadline.getDate() + 7);
 
-    const { rows: [updated] } = await client.query(
-      `UPDATE public.support_tickets
-       SET status          = 'closed',
-           closed_at       = NOW(),
-           reopen_deadline = $1,
-           updated_at      = NOW()
-       WHERE id = $2
-       RETURNING *`,
-      [reopenDeadline.toISOString(), ticket.id]
-    );
+    let updated;
+    try {
+      const { rows } = await client.query(
+        `UPDATE public.support_tickets
+         SET status          = 'closed',
+             closed_at       = NOW(),
+             reopen_deadline = $1,
+             updated_at      = NOW()
+         WHERE id = $2
+         RETURNING *`,
+        [reopenDeadline.toISOString(), ticket.id]
+      );
+      updated = rows[0];
+    } catch (err) {
+      await client.query("ROLLBACK");
+      return pgError(res, err, "close_ticket_update", { ticketId: id });
+    }
 
     await logActivity(client, {
       ticketId    : ticket.id,
@@ -577,66 +852,79 @@ router.patch("/tickets/:id", authenticate, async (req, res) => {
 
     return res.json({ success: true, ticket: updated });
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("[support] closeTicket:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to close ticket",
-    });
+    await client.query("ROLLBACK").catch(() => {});
+    return pgError(res, err, "close_ticket_unexpected", { ticketId: id });
   } finally {
     client.release();
   }
 });
 
-/* ── POST /api/support/tickets/:id/reopen ── */
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/tickets/:id/reopen
+   Reopen a closed ticket within the deadline.
+──────────────────────────────────────────────────────────── */
 router.post("/tickets/:id/reopen", authenticate, async (req, res) => {
+  const { id } = req.params;
+
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ success: false, message: `Invalid ticket ID: "${id}"` });
+  }
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    const { rows: [ticket] } = await client.query(
-      `SELECT id, status, ticket_number, reopen_deadline, user_id
-       FROM public.support_tickets
-       WHERE id = $1 AND user_id = $2`,
-      [req.params.id, req.user.id]
-    );
+    let ticket;
+    try {
+      const { rows } = await client.query(
+        `SELECT id, status, ticket_number, reopen_deadline, user_id
+         FROM public.support_tickets
+         WHERE id = $1 AND user_id = $2`,
+        [id, req.user.id]
+      );
+      ticket = rows[0] ?? null;
+    } catch (err) {
+      await client.query("ROLLBACK");
+      return pgError(res, err, "reopen_ticket_lookup", { ticketId: id });
+    }
 
     if (!ticket) {
       await client.query("ROLLBACK");
-      return res.status(404).json({
-        success : false,
-        message : "Ticket not found",
-      });
+      return res.status(404).json({ success: false, message: "Ticket not found." });
     }
 
     if (ticket.status !== "closed") {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success : false,
-        message : "Ticket is not closed",
+        message : `Ticket is not closed — current status is "${ticket.status}".`,
       });
     }
 
-    if (
-      ticket.reopen_deadline &&
-      new Date(ticket.reopen_deadline) < new Date()
-    ) {
+    if (ticket.reopen_deadline && new Date(ticket.reopen_deadline) < new Date()) {
       await client.query("ROLLBACK");
       return res.status(400).json({
         success : false,
-        message : "Reopen window has expired. Please create a new ticket.",
+        message : "The reopen window has expired. Please create a new ticket.",
       });
     }
 
-    const { rows: [updated] } = await client.query(
-      `UPDATE public.support_tickets
-       SET status     = 'open',
-           closed_at  = NULL,
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [ticket.id]
-    );
+    let updated;
+    try {
+      const { rows } = await client.query(
+        `UPDATE public.support_tickets
+         SET status     = 'open',
+             closed_at  = NULL,
+             updated_at = NOW()
+         WHERE id = $1
+         RETURNING *`,
+        [ticket.id]
+      );
+      updated = rows[0];
+    } catch (err) {
+      await client.query("ROLLBACK");
+      return pgError(res, err, "reopen_ticket_update", { ticketId: id });
+    }
 
     await logActivity(client, {
       ticketId    : ticket.id,
@@ -651,75 +939,85 @@ router.post("/tickets/:id/reopen", authenticate, async (req, res) => {
 
     return res.json({ success: true, ticket: updated });
   } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("[support] reopenTicket:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to reopen ticket",
-    });
+    await client.query("ROLLBACK").catch(() => {});
+    return pgError(res, err, "reopen_ticket_unexpected", { ticketId: id });
   } finally {
     client.release();
   }
 });
 
-/* ── POST /api/support/tickets/:id/rate ── */
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/tickets/:id/rate
+   Rate a resolved or closed ticket.
+──────────────────────────────────────────────────────────── */
 router.post("/tickets/:id/rate", authenticate, async (req, res) => {
+  const { id }      = req.params;
   const { rating, comment } = req.body;
-  const ratingNum = Number(rating);
+  const ratingNum   = Number(rating);
 
-  if (!rating || ratingNum < 1 || ratingNum > 5) {
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ success: false, message: `Invalid ticket ID: "${id}"` });
+  }
+
+  if (!rating || isNaN(ratingNum) || ratingNum < 1 || ratingNum > 5) {
     return res.status(400).json({
       success : false,
-      message : "rating must be between 1 and 5",
+      message : "rating must be a number between 1 and 5.",
     });
   }
 
+  let ticket;
   try {
-    const { rows: [ticket] } = await pool.query(
-      `SELECT id, status FROM public.support_tickets
+    const { rows } = await pool.query(
+      `SELECT id, status
+       FROM public.support_tickets
        WHERE id = $1 AND user_id = $2`,
-      [req.params.id, req.user.id]
+      [id, req.user.id]
     );
+    ticket = rows[0] ?? null;
+  } catch (err) {
+    return pgError(res, err, "rate_ticket_lookup", { ticketId: id });
+  }
 
-    if (!ticket) {
-      return res.status(404).json({
-        success : false,
-        message : "Ticket not found",
-      });
-    }
+  if (!ticket) {
+    return res.status(404).json({ success: false, message: "Ticket not found." });
+  }
 
-    if (!["resolved", "closed"].includes(ticket.status)) {
-      return res.status(400).json({
-        success : false,
-        message : "You can only rate resolved or closed tickets",
-      });
-    }
+  if (!["resolved", "closed"].includes(ticket.status)) {
+    return res.status(400).json({
+      success : false,
+      message : "You can only rate resolved or closed tickets.",
+    });
+  }
 
-    const { rows: [updated] } = await pool.query(
+  let updated;
+  try {
+    const { rows } = await pool.query(
       `UPDATE public.support_tickets
        SET satisfaction_rating  = $1,
            satisfaction_comment = $2,
            updated_at           = NOW()
        WHERE id = $3
        RETURNING satisfaction_rating, satisfaction_comment`,
-      [ratingNum, comment || null, ticket.id]
+      [ratingNum, comment ?? null, ticket.id]
     );
-
-    return res.json({ success: true, rating: updated });
+    updated = rows[0];
   } catch (err) {
-    console.error("[support] rateTicket:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to submit rating",
-    });
+    return pgError(res, err, "rate_ticket_update", { ticketId: id });
   }
+
+  return res.json({ success: true, rating: updated });
 });
 
 /* ════════════════════════════════════════════════════════════
-   REPORTS
+   ╔══════════════════════════════════════╗
+   ║          R E P O R T S              ║
+   ╚══════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
-/* ── POST /api/support/reports ── */
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/reports
+──────────────────────────────────────────────────────────── */
 router.post(
   "/reports",
   authenticate,
@@ -750,7 +1048,7 @@ router.post(
     if (!subject || !description) {
       return res.status(400).json({
         success : false,
-        message : "subject and description are required",
+        message : "subject and description are required.",
       });
     }
 
@@ -758,38 +1056,56 @@ router.post(
     try {
       await client.query("BEGIN");
 
+      /* ── Upload evidence ── */
       const evidenceUrls = [];
       if (req.files?.length) {
         for (const file of req.files) {
-          const uploaded = await uploadToR2(
-            file,
-            `support/reports/${req.user.id}`
-          );
-          evidenceUrls.push(uploaded.url);
+          try {
+            const uploaded = await uploadToR2(
+              file,
+              `support/reports/${req.user.id}`
+            );
+            evidenceUrls.push(uploaded.url);
+          } catch (err) {
+            console.warn("[support] ⚠️  evidence upload failed:", err.message);
+          }
         }
       }
 
-      const reportNumber = generateNumber("RPT");
-
-      const { rows: [report] } = await client.query(
-        `INSERT INTO public.reports
-           (report_number, reporter_id, report_type, subject, description,
-            reported_user_id, reported_listing_id, reported_order_id,
-            evidence_urls)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING *`,
-        [
-          reportNumber, req.user.id, report_type, subject, description,
-          reported_user_id, reported_listing_id, reported_order_id,
-          evidenceUrls,
-        ]
-      );
+      /* ── Insert report ── */
+      let report;
+      try {
+        const reportNumber = generateNumber("RPT");
+        const { rows } = await client.query(
+          `INSERT INTO public.reports
+             (report_number, reporter_id, report_type, subject, description,
+              reported_user_id, reported_listing_id, reported_order_id,
+              evidence_urls)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           RETURNING *`,
+          [
+            reportNumber,
+            req.user.id,
+            report_type,
+            subject,
+            description,
+            reported_user_id,
+            reported_listing_id,
+            reported_order_id,
+            evidenceUrls,
+          ]
+        );
+        report = rows[0];
+      } catch (err) {
+        await client.query("ROLLBACK");
+        return pgError(res, err, "create_report_insert");
+      }
 
       await createNotification(client, {
         userId  : req.user.id,
         type    : "report_submitted",
         title   : "Report Submitted",
-        message : `Your report ${reportNumber} has been received. Our safety team will review it.`,
+        message : `Your report ${report.report_number} has been received. Our safety team will review it.`,
       });
 
       await client.query("COMMIT");
@@ -800,19 +1116,17 @@ router.post(
         report,
       });
     } catch (err) {
-      await client.query("ROLLBACK");
-      console.error("[support] createReport:", err.message);
-      return res.status(500).json({
-        success : false,
-        message : "Failed to submit report",
-      });
+      await client.query("ROLLBACK").catch(() => {});
+      return pgError(res, err, "create_report_unexpected");
     } finally {
       client.release();
     }
   }
 );
 
-/* ── GET /api/support/reports ── */
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/reports
+──────────────────────────────────────────────────────────── */
 router.get("/reports", authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -823,19 +1137,19 @@ router.get("/reports", authenticate, async (req, res) => {
     );
     return res.json({ success: true, reports: rows });
   } catch (err) {
-    console.error("[support] getReports:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to fetch reports",
-    });
+    return pgError(res, err, "list_reports");
   }
 });
 
 /* ════════════════════════════════════════════════════════════
-   DISPUTES
+   ╔══════════════════════════════════════╗
+   ║        D I S P U T E S             ║
+   ╚══════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
-/* ── POST /api/support/disputes ── */
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/disputes
+──────────────────────────────────────────────────────────── */
 router.post(
   "/disputes",
   authenticate,
@@ -857,7 +1171,8 @@ router.post(
     if (!order_id || !seller_id || !dispute_type || !subject || !description) {
       return res.status(400).json({
         success : false,
-        message : "order_id, seller_id, dispute_type, subject and description are required",
+        message :
+          "order_id, seller_id, dispute_type, subject, and description are required.",
       });
     }
 
@@ -872,38 +1187,58 @@ router.post(
     try {
       await client.query("BEGIN");
 
+      /* ── Upload evidence ── */
       const evidenceUrls = [];
       if (req.files?.length) {
         for (const file of req.files) {
-          const uploaded = await uploadToR2(
-            file,
-            `support/disputes/${req.user.id}`
-          );
-          evidenceUrls.push(uploaded.url);
+          try {
+            const uploaded = await uploadToR2(
+              file,
+              `support/disputes/${req.user.id}`
+            );
+            evidenceUrls.push(uploaded.url);
+          } catch (err) {
+            console.warn("[support] ⚠️  evidence upload failed:", err.message);
+          }
         }
       }
 
-      const disputeNumber = generateNumber("DSP");
-      const deadline      = new Date();
-      deadline.setDate(deadline.getDate() + 14);
+      /* ── Insert dispute ── */
+      let dispute;
+      try {
+        const disputeNumber = generateNumber("DSP");
+        const deadline = new Date();
+        deadline.setDate(deadline.getDate() + 14);
 
-      const { rows: [dispute] } = await client.query(
-        `INSERT INTO public.disputes
-           (dispute_number, order_id, buyer_id, seller_id, dispute_type,
-            subject, description, evidence_urls, deadline)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-         RETURNING *`,
-        [
-          disputeNumber, order_id, req.user.id, seller_id, dispute_type,
-          subject, description, evidenceUrls, deadline.toISOString(),
-        ]
-      );
+        const { rows } = await client.query(
+          `INSERT INTO public.disputes
+             (dispute_number, order_id, buyer_id, seller_id, dispute_type,
+              subject, description, evidence_urls, deadline)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           RETURNING *`,
+          [
+            disputeNumber,
+            order_id,
+            req.user.id,
+            seller_id,
+            dispute_type,
+            subject,
+            description,
+            evidenceUrls,
+            deadline.toISOString(),
+          ]
+        );
+        dispute = rows[0];
+      } catch (err) {
+        await client.query("ROLLBACK");
+        return pgError(res, err, "create_dispute_insert");
+      }
 
       await createNotification(client, {
         userId        : req.user.id,
         type          : "dispute_created",
         title         : "Dispute Filed",
-        message       : `Your dispute ${disputeNumber} has been filed. Both parties have 14 days to resolve.`,
+        message       : `Your dispute ${dispute.dispute_number} has been filed. Both parties have 14 days to resolve.`,
         referenceId   : dispute.id,
         referenceType : "dispute",
       });
@@ -912,7 +1247,7 @@ router.post(
         userId        : seller_id,
         type          : "dispute_received",
         title         : "Dispute Filed Against You",
-        message       : `A dispute ${disputeNumber} has been filed regarding order ${order_id}. Please respond within 14 days.`,
+        message       : `A dispute ${dispute.dispute_number} has been filed regarding order ${order_id}. Please respond within 14 days.`,
         referenceId   : dispute.id,
         referenceType : "dispute",
       });
@@ -926,19 +1261,17 @@ router.post(
         dispute,
       });
     } catch (err) {
-      await client.query("ROLLBACK");
-      console.error("[support] createDispute:", err.message);
-      return res.status(500).json({
-        success : false,
-        message : "Failed to file dispute",
-      });
+      await client.query("ROLLBACK").catch(() => {});
+      return pgError(res, err, "create_dispute_unexpected");
     } finally {
       client.release();
     }
   }
 );
 
-/* ── GET /api/support/disputes ── */
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/disputes
+──────────────────────────────────────────────────────────── */
 router.get("/disputes", authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -949,31 +1282,40 @@ router.get("/disputes", authenticate, async (req, res) => {
     );
     return res.json({ success: true, disputes: rows });
   } catch (err) {
-    console.error("[support] getDisputes:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to fetch disputes",
-    });
+    return pgError(res, err, "list_disputes");
   }
 });
 
-/* ── GET /api/support/disputes/:id ── */
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/disputes/:id
+──────────────────────────────────────────────────────────── */
 router.get("/disputes/:id", authenticate, async (req, res) => {
+  const { id } = req.params;
+
+  if (!isValidUUID(id)) {
+    return res.status(400).json({ success: false, message: `Invalid dispute ID: "${id}"` });
+  }
+
+  let dispute;
   try {
-    const { rows: [dispute] } = await pool.query(
+    const { rows } = await pool.query(
       `SELECT * FROM public.disputes
-       WHERE id = $1 AND (buyer_id = $2 OR seller_id = $2)`,
-      [req.params.id, req.user.id]
+       WHERE id = $1
+         AND (buyer_id = $2 OR seller_id = $2)`,
+      [id, req.user.id]
     );
+    dispute = rows[0] ?? null;
+  } catch (err) {
+    return pgError(res, err, "get_dispute_row", { disputeId: id });
+  }
 
-    if (!dispute) {
-      return res.status(404).json({
-        success : false,
-        message : "Dispute not found",
-      });
-    }
+  if (!dispute) {
+    return res.status(404).json({ success: false, message: "Dispute not found." });
+  }
 
-    const { rows: messages } = await pool.query(
+  let messages = [];
+  try {
+    const { rows } = await pool.query(
       `SELECT m.*, u.name AS sender_name
        FROM public.dispute_messages m
        LEFT JOIN public.users u ON u.id = m.sender_id
@@ -982,77 +1324,98 @@ router.get("/disputes/:id", authenticate, async (req, res) => {
        ORDER BY m.created_at ASC`,
       [dispute.id]
     );
-
-    return res.json({
-      success : true,
-      dispute : { ...dispute, messages },
-    });
+    messages = rows;
   } catch (err) {
-    console.error("[support] getDisputeDetail:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to fetch dispute",
-    });
+    return pgError(res, err, "get_dispute_messages", { disputeId: id });
   }
+
+  return res.json({ success: true, dispute: { ...dispute, messages } });
 });
 
-/* ── POST /api/support/disputes/:id/messages ── */
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/disputes/:id/messages
+──────────────────────────────────────────────────────────── */
 router.post(
   "/disputes/:id/messages",
   authenticate,
   upload.array("attachments", 5),
   async (req, res) => {
+    const { id }      = req.params;
     const { message } = req.body;
+
+    if (!isValidUUID(id)) {
+      return res.status(400).json({
+        success : false,
+        message : `Invalid dispute ID: "${id}"`,
+      });
+    }
 
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
-      const { rows: [dispute] } = await client.query(
-        `SELECT id, status, buyer_id, seller_id
-         FROM public.disputes
-         WHERE id = $1 AND (buyer_id = $2 OR seller_id = $2)`,
-        [req.params.id, req.user.id]
-      );
+      let dispute;
+      try {
+        const { rows } = await client.query(
+          `SELECT id, status, buyer_id, seller_id
+           FROM public.disputes
+           WHERE id = $1
+             AND (buyer_id = $2 OR seller_id = $2)`,
+          [id, req.user.id]
+        );
+        dispute = rows[0] ?? null;
+      } catch (err) {
+        await client.query("ROLLBACK");
+        return pgError(res, err, "dispute_message_lookup", { disputeId: id });
+      }
 
       if (!dispute) {
         await client.query("ROLLBACK");
-        return res.status(404).json({
-          success : false,
-          message : "Dispute not found",
-        });
+        return res.status(404).json({ success: false, message: "Dispute not found." });
       }
 
       if (["resolved", "closed"].includes(dispute.status)) {
         await client.query("ROLLBACK");
         return res.status(400).json({
           success : false,
-          message : "Cannot reply to a resolved or closed dispute",
+          message : "Cannot reply to a resolved or closed dispute.",
         });
       }
 
+      /* ── Upload attachments ── */
       const attachmentUrls = [];
       if (req.files?.length) {
         for (const file of req.files) {
-          const uploaded = await uploadToR2(
-            file,
-            `support/disputes/${dispute.id}`
-          );
-          attachmentUrls.push(uploaded.url);
+          try {
+            const uploaded = await uploadToR2(
+              file,
+              `support/disputes/${dispute.id}`
+            );
+            attachmentUrls.push(uploaded.url);
+          } catch (err) {
+            console.warn("[support] ⚠️  dispute attachment upload failed:", err.message);
+          }
         }
       }
 
-      const { rows: [msg] } = await client.query(
-        `INSERT INTO public.dispute_messages
-           (dispute_id, sender_id, message, attachments)
-         VALUES ($1, $2, $3, $4)
-         RETURNING *`,
-        [dispute.id, req.user.id, message?.trim() || "", attachmentUrls]
-      );
+      let msg;
+      try {
+        const { rows } = await client.query(
+          `INSERT INTO public.dispute_messages
+             (dispute_id, sender_id, message, attachments)
+           VALUES ($1,$2,$3,$4)
+           RETURNING *`,
+          [dispute.id, req.user.id, message?.trim() || "", attachmentUrls]
+        );
+        msg = rows[0];
+      } catch (err) {
+        await client.query("ROLLBACK");
+        return pgError(res, err, "dispute_message_insert", { disputeId: id });
+      }
 
-      const notifyId = dispute.buyer_id === req.user.id
-        ? dispute.seller_id
-        : dispute.buyer_id;
+      /* Notify the other party */
+      const notifyId =
+        dispute.buyer_id === req.user.id ? dispute.seller_id : dispute.buyer_id;
 
       await createNotification(client, {
         userId        : notifyId,
@@ -1067,12 +1430,8 @@ router.post(
 
       return res.status(201).json({ success: true, message: msg });
     } catch (err) {
-      await client.query("ROLLBACK");
-      console.error("[support] disputeMessage:", err.message);
-      return res.status(500).json({
-        success : false,
-        message : "Failed to send message",
-      });
+      await client.query("ROLLBACK").catch(() => {});
+      return pgError(res, err, "dispute_message_unexpected", { disputeId: id });
     } finally {
       client.release();
     }
@@ -1080,10 +1439,14 @@ router.post(
 );
 
 /* ════════════════════════════════════════════════════════════
-   APPEALS
+   ╔══════════════════════════════════════╗
+   ║         A P P E A L S              ║
+   ╚══════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
-/* ── POST /api/support/appeals ── */
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/appeals
+──────────────────────────────────────────────────────────── */
 router.post(
   "/appeals",
   authenticate,
@@ -1111,7 +1474,7 @@ router.post(
     if (!subject || !description) {
       return res.status(400).json({
         success : false,
-        message : "subject and description are required",
+        message : "subject and description are required.",
       });
     }
 
@@ -1122,33 +1485,48 @@ router.post(
       const evidenceUrls = [];
       if (req.files?.length) {
         for (const file of req.files) {
-          const uploaded = await uploadToR2(
-            file,
-            `support/appeals/${req.user.id}`
-          );
-          evidenceUrls.push(uploaded.url);
+          try {
+            const uploaded = await uploadToR2(
+              file,
+              `support/appeals/${req.user.id}`
+            );
+            evidenceUrls.push(uploaded.url);
+          } catch (err) {
+            console.warn("[support] ⚠️  appeal evidence upload failed:", err.message);
+          }
         }
       }
 
-      const appealNumber = generateNumber("APL");
-
-      const { rows: [appeal] } = await client.query(
-        `INSERT INTO public.appeals
-           (appeal_number, user_id, appeal_type, subject, description,
-            reference_id, evidence_urls)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING *`,
-        [
-          appealNumber, req.user.id, appeal_type, subject, description,
-          reference_id, evidenceUrls,
-        ]
-      );
+      let appeal;
+      try {
+        const appealNumber = generateNumber("APL");
+        const { rows } = await client.query(
+          `INSERT INTO public.appeals
+             (appeal_number, user_id, appeal_type, subject, description,
+              reference_id, evidence_urls)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)
+           RETURNING *`,
+          [
+            appealNumber,
+            req.user.id,
+            appeal_type,
+            subject,
+            description,
+            reference_id,
+            evidenceUrls,
+          ]
+        );
+        appeal = rows[0];
+      } catch (err) {
+        await client.query("ROLLBACK");
+        return pgError(res, err, "create_appeal_insert");
+      }
 
       await createNotification(client, {
         userId  : req.user.id,
         type    : "appeal_submitted",
         title   : "Appeal Submitted",
-        message : `Your appeal ${appealNumber} has been submitted. Our team will respond within 3 to 5 business days.`,
+        message : `Your appeal ${appeal.appeal_number} has been submitted. We will respond within 3–5 business days.`,
       });
 
       await client.query("COMMIT");
@@ -1159,19 +1537,17 @@ router.post(
         appeal,
       });
     } catch (err) {
-      await client.query("ROLLBACK");
-      console.error("[support] createAppeal:", err.message);
-      return res.status(500).json({
-        success : false,
-        message : "Failed to submit appeal",
-      });
+      await client.query("ROLLBACK").catch(() => {});
+      return pgError(res, err, "create_appeal_unexpected");
     } finally {
       client.release();
     }
   }
 );
 
-/* ── GET /api/support/appeals ── */
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/appeals
+──────────────────────────────────────────────────────────── */
 router.get("/appeals", authenticate, async (req, res) => {
   try {
     const { rows } = await pool.query(
@@ -1182,19 +1558,19 @@ router.get("/appeals", authenticate, async (req, res) => {
     );
     return res.json({ success: true, appeals: rows });
   } catch (err) {
-    console.error("[support] getAppeals:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to fetch appeals",
-    });
+    return pgError(res, err, "list_appeals");
   }
 });
 
 /* ════════════════════════════════════════════════════════════
-   FEEDBACK
+   ╔══════════════════════════════════════╗
+   ║       F E E D B A C K              ║
+   ╚══════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
-/* ── POST /api/support/feedback ── */
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/feedback
+──────────────────────────────────────────────────────────── */
 router.post("/feedback", authenticate, async (req, res) => {
   const {
     feedback_type,
@@ -1220,16 +1596,16 @@ router.post("/feedback", authenticate, async (req, res) => {
     if (isNaN(r) || r < 1 || r > 5) {
       return res.status(400).json({
         success : false,
-        message : "rating must be between 1 and 5",
+        message : "rating must be between 1 and 5.",
       });
     }
   }
 
   try {
-    const { rows: [feedback] } = await pool.query(
+    const { rows } = await pool.query(
       `INSERT INTO public.support_feedback
          (user_id, ticket_id, feedback_type, rating, comment, suggestion)
-       VALUES ($1, $2, $3, $4, $5, $6)
+       VALUES ($1,$2,$3,$4,$5,$6)
        RETURNING *`,
       [
         req.user.id,
@@ -1240,27 +1616,25 @@ router.post("/feedback", authenticate, async (req, res) => {
         suggestion,
       ]
     );
-
-    return res.status(201).json({ success: true, feedback });
+    return res.status(201).json({ success: true, feedback: rows[0] });
   } catch (err) {
-    console.error("[support] createFeedback:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to submit feedback",
-    });
+    return pgError(res, err, "create_feedback");
   }
 });
 
 /* ════════════════════════════════════════════════════════════
-   NOTIFICATIONS
-   ─────────────────────────────────────────────────────────
-   IMPORTANT: "read-all" must come BEFORE "/:id/read"
-   Otherwise Express matches "read-all" as :id and the
-   /:id/read handler receives id="read-all" → 404.
+   ╔══════════════════════════════════════════════════════╗
+   ║   N O T I F I C A T I O N S                        ║
+   ║                                                      ║
+   ║   IMPORTANT — route order matters:                   ║
+   ║   "read-all" MUST be registered BEFORE "/:id/read"   ║
+   ║   or Express matches "read-all" as :id.              ║
+   ╚══════════════════════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
-/* ── PATCH /api/support/notifications/read-all ── */
-/* FIX: this MUST be registered before /:id/read  */
+/* ────────────────────────────────────────────────────────────
+   PATCH /api/support/notifications/read-all      ← FIRST
+──────────────────────────────────────────────────────────── */
 router.patch("/notifications/read-all", authenticate, async (req, res) => {
   try {
     const { rowCount } = await pool.query(
@@ -1271,15 +1645,13 @@ router.patch("/notifications/read-all", authenticate, async (req, res) => {
     );
     return res.json({ success: true, updated: rowCount });
   } catch (err) {
-    console.error("[support] markAllRead:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to mark notifications",
-    });
+    return pgError(res, err, "notifications_read_all");
   }
 });
 
-/* ── GET /api/support/notifications ── */
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/notifications
+──────────────────────────────────────────────────────────── */
 router.get("/notifications", authenticate, async (req, res) => {
   const { page = 1, limit = 20, unread_only } = req.query;
   const offset     = (Number(page) - 1) * Number(limit);
@@ -1293,80 +1665,105 @@ router.get("/notifications", authenticate, async (req, res) => {
 
   const where = conditions.join(" AND ");
 
+  let notifications = [];
+  let total         = 0;
+  let unreadCount   = 0;
+
   try {
-    const { rows: notifications } = await pool.query(
+    const { rows } = await pool.query(
       `SELECT * FROM public.support_notifications
        WHERE ${where}
        ORDER BY created_at DESC
        LIMIT $${p} OFFSET $${p + 1}`,
       [...params, Number(limit), offset]
     );
+    notifications = rows;
+  } catch (err) {
+    return pgError(res, err, "list_notifications");
+  }
 
-    const { rows: [{ count }] } = await pool.query(
-      `SELECT COUNT(*) FROM public.support_notifications WHERE ${where}`,
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) AS count
+       FROM public.support_notifications
+       WHERE ${where}`,
       params
     );
+    total = Number(rows[0].count);
+  } catch (err) {
+    console.warn("[support] ⚠️  notification count failed:", err.message);
+  }
 
-    const { rows: [{ unread }] } = await pool.query(
+  try {
+    const { rows } = await pool.query(
       `SELECT COUNT(*) AS unread
        FROM public.support_notifications
        WHERE user_id = $1 AND is_read = false`,
       [req.user.id]
     );
-
-    return res.json({
-      success      : true,
-      notifications,
-      unread_count : Number(unread),
-      pagination   : {
-        total : Number(count),
-        page  : Number(page),
-        limit : Number(limit),
-        pages : Math.ceil(Number(count) / Number(limit)),
-      },
-    });
+    unreadCount = Number(rows[0].unread);
   } catch (err) {
-    console.error("[support] getNotifications:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to fetch notifications",
-    });
+    console.warn("[support] ⚠️  unread count failed:", err.message);
   }
+
+  return res.json({
+    success       : true,
+    notifications,
+    unread_count  : unreadCount,
+    pagination    : {
+      total,
+      page  : Number(page),
+      limit : Number(limit),
+      pages : Math.ceil(total / Number(limit)),
+    },
+  });
 });
 
-/* ── PATCH /api/support/notifications/:id/read ── */
+/* ────────────────────────────────────────────────────────────
+   PATCH /api/support/notifications/:id/read     ← AFTER read-all
+──────────────────────────────────────────────────────────── */
 router.patch("/notifications/:id/read", authenticate, async (req, res) => {
+  const { id } = req.params;
+
+  /* Prevent "read-all" being treated as an :id */
+  if (id === "read-all") {
+    return res.status(400).json({
+      success : false,
+      message : "Use PATCH /notifications/read-all to mark all as read.",
+    });
+  }
+
   try {
-    const { rows: [notif] } = await pool.query(
+    const { rows } = await pool.query(
       `UPDATE public.support_notifications
        SET is_read = true
        WHERE id = $1 AND user_id = $2
        RETURNING *`,
-      [req.params.id, req.user.id]
+      [id, req.user.id]
     );
 
-    if (!notif) {
+    if (!rows[0]) {
       return res.status(404).json({
         success : false,
-        message : "Notification not found",
+        message : "Notification not found.",
       });
     }
 
-    return res.json({ success: true, notification: notif });
+    return res.json({ success: true, notification: rows[0] });
   } catch (err) {
-    console.error("[support] markRead:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to mark notification",
-    });
+    return pgError(res, err, "notification_read_one", { notificationId: id });
   }
 });
 
 /* ════════════════════════════════════════════════════════════
-   FAQ  (public — no auth required)
+   ╔══════════════════════════════════════╗
+   ║     F A Q  (public — no auth)       ║
+   ╚══════════════════════════════════════╝
 ════════════════════════════════════════════════════════════ */
 
-/* ── GET /api/support/faq/categories ── */
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/faq/categories
+──────────────────────────────────────────────────────────── */
 router.get("/faq/categories", async (_req, res) => {
   try {
     const { rows } = await pool.query(
@@ -1381,15 +1778,13 @@ router.get("/faq/categories", async (_req, res) => {
     );
     return res.json({ success: true, categories: rows });
   } catch (err) {
-    console.error("[support] faqCategories:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to fetch categories",
-    });
+    return pgError(res, err, "faq_categories");
   }
 });
 
-/* ── GET /api/support/faq/articles ── */
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/faq/articles
+──────────────────────────────────────────────────────────── */
 router.get("/faq/articles", async (req, res) => {
   const { search, category, page = 1, limit = 20 } = req.query;
   const offset     = (Number(page) - 1) * Number(limit);
@@ -1409,8 +1804,11 @@ router.get("/faq/articles", async (req, res) => {
 
   const where = conditions.join(" AND ");
 
+  let articles = [];
+  let total    = 0;
+
   try {
-    const { rows: articles } = await pool.query(
+    const { rows } = await pool.query(
       `SELECT
          a.*,
          c.name AS category_name,
@@ -1422,38 +1820,43 @@ router.get("/faq/articles", async (req, res) => {
        LIMIT $${p} OFFSET $${p + 1}`,
       [...params, Number(limit), offset]
     );
+    articles = rows;
+  } catch (err) {
+    return pgError(res, err, "faq_articles_list");
+  }
 
-    const { rows: [{ count }] } = await pool.query(
-      `SELECT COUNT(*)
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*) AS count
        FROM public.faq_articles a
        JOIN public.faq_categories c ON c.id = a.category_id
        WHERE ${where}`,
       params
     );
-
-    return res.json({
-      success    : true,
-      articles,
-      pagination : {
-        total : Number(count),
-        page  : Number(page),
-        limit : Number(limit),
-        pages : Math.ceil(Number(count) / Number(limit)),
-      },
-    });
+    total = Number(rows[0].count);
   } catch (err) {
-    console.error("[support] faqArticles:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to fetch articles",
-    });
+    console.warn("[support] ⚠️  faq article count failed:", err.message);
   }
+
+  return res.json({
+    success    : true,
+    articles,
+    pagination : {
+      total,
+      page  : Number(page),
+      limit : Number(limit),
+      pages : Math.ceil(total / Number(limit)),
+    },
+  });
 });
 
-/* ── GET /api/support/faq/articles/:slug ── */
+/* ────────────────────────────────────────────────────────────
+   GET /api/support/faq/articles/:slug
+──────────────────────────────────────────────────────────── */
 router.get("/faq/articles/:slug", async (req, res) => {
+  let article;
   try {
-    const { rows: [article] } = await pool.query(
+    const { rows } = await pool.query(
       `SELECT
          a.*,
          c.name AS category_name,
@@ -1463,47 +1866,43 @@ router.get("/faq/articles/:slug", async (req, res) => {
        WHERE a.slug = $1 AND a.is_published = true`,
       [req.params.slug]
     );
-
-    if (!article) {
-      return res.status(404).json({
-        success : false,
-        message : "Article not found",
-      });
-    }
-
-    /* Fire-and-forget view count */
-    pool.query(
-      `UPDATE public.faq_articles
-       SET view_count = view_count + 1
-       WHERE id = $1`,
-      [article.id]
-    ).catch(() => {});
-
-    return res.json({ success: true, article });
+    article = rows[0] ?? null;
   } catch (err) {
-    console.error("[support] faqArticle:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to fetch article",
-    });
+    return pgError(res, err, "faq_article_by_slug");
   }
+
+  if (!article) {
+    return res.status(404).json({ success: false, message: "Article not found." });
+  }
+
+  /* Fire-and-forget view count increment */
+  pool.query(
+    `UPDATE public.faq_articles
+     SET view_count = view_count + 1
+     WHERE id = $1`,
+    [article.id]
+  ).catch(() => {});
+
+  return res.json({ success: true, article });
 });
 
-/* ── POST /api/support/faq/articles/:id/helpful ── */
+/* ────────────────────────────────────────────────────────────
+   POST /api/support/faq/articles/:id/helpful
+──────────────────────────────────────────────────────────── */
 router.post("/faq/articles/:id/helpful", async (req, res) => {
   const { helpful } = req.body;
 
   if (typeof helpful !== "boolean") {
     return res.status(400).json({
       success : false,
-      message : "helpful must be a boolean",
+      message : "helpful must be a boolean (true or false).",
     });
   }
 
-  try {
-    const field = helpful ? "helpful_count" : "not_helpful_count";
+  const field = helpful ? "helpful_count" : "not_helpful_count";
 
-    const { rows: [article] } = await pool.query(
+  try {
+    const { rows } = await pool.query(
       `UPDATE public.faq_articles
        SET ${field} = ${field} + 1
        WHERE id = $1 AND is_published = true
@@ -1511,21 +1910,17 @@ router.post("/faq/articles/:id/helpful", async (req, res) => {
       [req.params.id]
     );
 
-    if (!article) {
-      return res.status(404).json({
-        success : false,
-        message : "Article not found",
-      });
+    if (!rows[0]) {
+      return res.status(404).json({ success: false, message: "Article not found." });
     }
 
-    return res.json({ success: true, ...article });
+    return res.json({ success: true, ...rows[0] });
   } catch (err) {
-    console.error("[support] articleHelpful:", err.message);
-    return res.status(500).json({
-      success : false,
-      message : "Failed to record feedback",
-    });
+    return pgError(res, err, "faq_article_helpful");
   }
 });
 
+/* ════════════════════════════════════════════════════════════
+   EXPORT
+════════════════════════════════════════════════════════════ */
 export default router;
