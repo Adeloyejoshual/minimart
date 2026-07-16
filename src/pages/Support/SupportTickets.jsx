@@ -9,15 +9,9 @@ import { Link }                                            from "react-router-do
 import axios                                               from "axios";
 
 import {
-  IconPlus,
-  IconSearch,
-  IconChevronRight,
-  IconClock,
-  IconMessageSquare,
-  IconArrowLeft,
-  IconLoader,
-  IconRefresh,
-  IconAlertTriangle,
+  IconPlus, IconSearch, IconChevronRight, IconClock,
+  IconMessageSquare, IconArrowLeft, IconLoader,
+  IconRefresh, IconAlertTriangle,
 } from "../../components/help/icons/HelpIcons";
 
 /* ════════════════════════════════════════════════════════════
@@ -65,10 +59,6 @@ function timeAgo(d) {
   return formatDate(d);
 }
 
-/*
- * Deep-extract the most useful error message from an Axios error.
- * Returns a structured object so the UI can render full detail.
- */
 function extractApiError(err, url) {
   if (axios.isCancel(err)) return null;
 
@@ -77,10 +67,9 @@ function extractApiError(err, url) {
       return {
         title: "Request timed out",
         detail: "The server took too long to respond.",
-        hint: "Check your internet connection and try again.",
+        hint: "Check your connection and try again.",
         httpStatus: null, url, serverRaw: null,
       };
-
     if (typeof navigator !== "undefined" && !navigator.onLine)
       return {
         title: "You are offline",
@@ -88,7 +77,6 @@ function extractApiError(err, url) {
         hint: "Please reconnect and try again.",
         httpStatus: null, url, serverRaw: null,
       };
-
     return {
       title: "Network error",
       detail: err.message || "Could not reach the server.",
@@ -111,15 +99,10 @@ function extractApiError(err, url) {
     }
   } else if (data && typeof data === "object") {
     const raw =
-      data.message             ||
-      data.error?.message      ||
+      data.message || data.error?.message ||
       (typeof data.error === "string" ? data.error : null) ||
-      data.detail              ||
-      data.errors?.[0]?.message ||
-      data.errors?.[0]         ||
-      data.msg                 ||
-      data.reason              ||
-      null;
+      data.detail || data.errors?.[0]?.message ||
+      data.errors?.[0] || data.msg || data.reason || null;
     serverMsg = raw && typeof raw === "object" ? JSON.stringify(raw) : raw;
   }
 
@@ -136,15 +119,15 @@ function extractApiError(err, url) {
     403: "You may not have permission to view these tickets.",
     404: "The tickets endpoint was not found.",
     429: "Wait a moment before trying again.",
-    500: "This is a server-side issue. Try again shortly.",
-    502: "The server gateway is down. Try in a few minutes.",
-    503: "Server is under maintenance. Try again soon.",
-    504: "The server timed out. Try in a few minutes.",
+    500: "Server-side issue. Try again shortly.",
+    502: "Server gateway is down. Try in a few minutes.",
+    503: "Server under maintenance. Try again soon.",
+    504: "Server timed out. Try in a few minutes.",
   };
 
   return {
     title:      `${titleMap[status] ?? "Error"} (${status})`,
-    detail:     serverMsg || `The server returned HTTP ${status} with no further detail.`,
+    detail:     serverMsg || `HTTP ${status} with no further detail.`,
     hint:       hintMap[status] || "Please try again.",
     httpStatus: status,
     url:        actualUrl,
@@ -153,29 +136,22 @@ function extractApiError(err, url) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   STATUS BADGE  (inline — no separate import)
+   STATUS BADGE
 ════════════════════════════════════════════════════════════ */
 const STATUS_META = {
-  open:                 "Open",
-  in_progress:          "In Progress",
-  waiting_for_customer: "Waiting",
-  resolved:             "Resolved",
-  closed:               "Closed",
+  open: "Open", in_progress: "In Progress",
+  waiting_for_customer: "Waiting", resolved: "Resolved", closed: "Closed",
 };
 
 const StatusBadge = memo(function StatusBadge({ status }) {
   const key   = status ?? "open";
   const label = STATUS_META[key] ?? key;
   const mod   = key === "waiting_for_customer" ? "waiting" : key;
-  return (
-    <span className={`stp-badge stp-badge--${mod}`}>
-      {label}
-    </span>
-  );
+  return <span className={`stp-badge stp-badge--${mod}`}>{label}</span>;
 });
 
 /* ════════════════════════════════════════════════════════════
-   PRIORITY BADGE  (inline)
+   PRIORITY BADGE
 ════════════════════════════════════════════════════════════ */
 const PriorityBadge = memo(function PriorityBadge({ priority }) {
   if (!priority) return null;
@@ -191,33 +167,23 @@ const PriorityBadge = memo(function PriorityBadge({ priority }) {
 ════════════════════════════════════════════════════════════ */
 const ErrorState = memo(function ErrorState({ error, onRetry, onSignIn }) {
   const [raw, setRaw] = useState(false);
-  const is500  = (error?.httpStatus ?? 0) >= 500;
+  const is500   = (error?.httpStatus ?? 0) >= 500;
   const noRetry = [403, 404].includes(error?.httpStatus);
 
   return (
     <div className="stp-error" role="alert" aria-live="assertive">
       <div className="stp-error-icon" aria-hidden="true">
-        <IconAlertTriangle size={24} />
+        <IconAlertTriangle size={22} />
       </div>
+      <h2 className="stp-error-title">{error?.title ?? "Could not load tickets"}</h2>
+      <p className="stp-error-detail">{error?.detail ?? "An unexpected error occurred."}</p>
+      {error?.hint && <p className="stp-error-hint">💡 {error.hint}</p>}
 
-      <h2 className="stp-error-title">
-        {error?.title ?? "Could not load tickets"}
-      </h2>
-
-      <p className="stp-error-detail">
-        {error?.detail ?? "An unexpected error occurred."}
-      </p>
-
-      {error?.hint && (
-        <p className="stp-error-hint">💡 {error.hint}</p>
-      )}
-
-      {/* Info table */}
       {(error?.httpStatus || error?.url) && (
         <div className="stp-error-table">
           {error.httpStatus && (
             <div className="stp-error-row">
-              <span className="stp-error-key">HTTP Status</span>
+              <span className="stp-error-key">HTTP</span>
               <code className={`stp-error-val${is500 ? " stp-error-val--red" : ""}`}>
                 {error.httpStatus}
               </code>
@@ -232,7 +198,6 @@ const ErrorState = memo(function ErrorState({ error, onRetry, onSignIn }) {
         </div>
       )}
 
-      {/* Raw response toggle */}
       {error?.serverRaw != null && (
         <>
           <button
@@ -255,7 +220,7 @@ const ErrorState = memo(function ErrorState({ error, onRetry, onSignIn }) {
       <div className="stp-error-actions">
         {!noRetry && (
           <button className="stp-error-btn-primary" onClick={onRetry}>
-            <IconRefresh size={15} /> Try Again
+            <IconRefresh size={14} /> Try Again
           </button>
         )}
         {error?.httpStatus === 401 && (
@@ -264,15 +229,14 @@ const ErrorState = memo(function ErrorState({ error, onRetry, onSignIn }) {
           </button>
         )}
         <Link to="/support" className="stp-error-btn-ghost">
-          <IconArrowLeft size={16} /> Back to Support
+          <IconArrowLeft size={14} /> Support
         </Link>
       </div>
 
       {is500 && (
         <p className="stp-error-500-note">
-          This is a server-side error — not something you did wrong.
-          If it persists, please{" "}
-          <Link to="/support" className="stp-error-link">contact support</Link>.
+          Server-side error — not your fault.{" "}
+          <Link to="/support" className="stp-error-link">Contact support</Link> if it persists.
         </p>
       )}
     </div>
@@ -292,16 +256,13 @@ const TicketCard = memo(function TicketCard({ ticket }) {
       aria-label={`Ticket ${ticket.ticket_number}: ${ticket.subject}`}
     >
       <div className="stp-card-body">
-        {/* Top: number + status */}
         <div className="stp-card-top">
           <span className="stp-card-number">{ticket.ticket_number}</span>
           <StatusBadge status={ticket.status} />
         </div>
 
-        {/* Subject */}
         <h3 className="stp-card-subject">{ticket.subject}</h3>
 
-        {/* Meta */}
         <div className="stp-card-meta">
           {ticket.category && (
             <>
@@ -309,27 +270,23 @@ const TicketCard = memo(function TicketCard({ ticket }) {
               <span className="stp-card-dot" aria-hidden="true" />
             </>
           )}
-          <span
-            className="stp-card-date"
-            title={formatDate(ticket.created_at)}
-          >
-            <IconClock size={12} />
+          <span className="stp-card-date" title={formatDate(ticket.created_at)}>
+            <IconClock size={11} />
             {timeAgo(ticket.created_at)}
           </span>
           <PriorityBadge priority={ticket.priority} />
         </div>
 
-        {/* Message count */}
         {ticket.message_count > 0 && (
           <div className="stp-card-messages">
-            <IconMessageSquare size={12} />
+            <IconMessageSquare size={11} />
             {ticket.message_count}{" "}
             {ticket.message_count === 1 ? "message" : "messages"}
           </div>
         )}
       </div>
 
-      <IconChevronRight size={20} className="stp-card-arrow" />
+      <IconChevronRight size={18} className="stp-card-arrow" />
     </Link>
   );
 });
@@ -344,22 +301,19 @@ export default function SupportTickets() {
   const [search,       setSearch]       = useState("");
   const [statusFilter, setStatusFilter] = useState("");
 
-  const isMounted  = useRef(true);
-  const abortRef   = useRef(null);
-  const searchRef  = useRef(null);
+  const isMounted = useRef(true);
+  const abortRef  = useRef(null);
+  const searchRef = useRef(null);
 
-  /* ════════════════════════════════════════════════════════
-     FETCH
-  ════════════════════════════════════════════════════════ */
+  /* ── Fetch ── */
   const loadTickets = useCallback(async () => {
     const token = getToken();
     const url   = `${BASE_URL}/api/support/tickets`;
 
-    /* ── Auth guard ── */
     if (!token) {
       setApiError({
         title: "Authentication required",
-        detail: "Please sign in to view your support tickets.",
+        detail: "Please sign in to view your tickets.",
         hint: "Tap Sign In below.",
         httpStatus: 401, url: null, serverRaw: null,
       });
@@ -367,42 +321,34 @@ export default function SupportTickets() {
       return;
     }
 
-    /* ── Abort previous ── */
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
     try {
       setApiError(null);
-
       const { data } = await axios.get(url, {
         headers: { Authorization: `Bearer ${token}` },
-        signal:  ctrl.signal,
+        signal: ctrl.signal,
         timeout: 15_000,
       });
-
       if (!isMounted.current) return;
 
-      /* Guard all response shapes */
       const list = Array.isArray(data)
         ? data
-        : Array.isArray(data?.tickets)
-        ? data.tickets
-        : Array.isArray(data?.data)
-        ? data.data
+        : Array.isArray(data?.tickets) ? data.tickets
+        : Array.isArray(data?.data) ? data.data
         : [];
 
       setTickets(list);
       setApiError(null);
     } catch (err) {
-      if (!isMounted.current) return;
-      if (axios.isCancel(err))  return;
+      if (!isMounted.current || axios.isCancel(err)) return;
 
       console.group("%c[SupportTickets] API Error", "color:red;font-weight:bold");
-      console.error("URL    :", url);
-      console.error("Status :", err?.response?.status ?? "no response");
-      console.error("Body   :", err?.response?.data);
-      console.error("Axios  :", err.message);
+      console.error("URL   :", url);
+      console.error("Status:", err?.response?.status ?? "no response");
+      console.error("Body  :", err?.response?.data);
       console.groupEnd();
 
       setApiError(extractApiError(err, url));
@@ -412,7 +358,6 @@ export default function SupportTickets() {
     }
   }, []);
 
-  /* ── Mount / unmount ── */
   useEffect(() => {
     isMounted.current = true;
     loadTickets();
@@ -422,7 +367,6 @@ export default function SupportTickets() {
     };
   }, [loadTickets]);
 
-  /* ── Retry handler ── */
   const handleRetry = useCallback(() => {
     abortRef.current?.abort();
     setLoading(true);
@@ -431,21 +375,18 @@ export default function SupportTickets() {
     loadTickets();
   }, [loadTickets]);
 
-  /* ── Sign-in redirect ── */
   const handleSignIn = useCallback(() => {
     window.location.href =
       "/auth?redirect=" + encodeURIComponent(window.location.pathname);
   }, []);
 
-  /* ════════════════════════════════════════════════════════
-     DERIVED — filtered list + counts
-  ════════════════════════════════════════════════════════ */
+  /* ── Derived ── */
   const filtered = tickets.filter((t) => {
-    const q     = search.toLowerCase();
+    const q = search.toLowerCase();
     const matchSearch = !q ||
       (t.ticket_number ?? "").toLowerCase().includes(q) ||
-      (t.subject       ?? "").toLowerCase().includes(q) ||
-      (t.category      ?? "").toLowerCase().includes(q);
+      (t.subject ?? "").toLowerCase().includes(q) ||
+      (t.category ?? "").toLowerCase().includes(q);
     const matchStatus = !statusFilter || t.status === statusFilter;
     return matchSearch && matchStatus;
   });
@@ -455,15 +396,13 @@ export default function SupportTickets() {
     return acc;
   }, {});
 
-  /* ════════════════════════════════════════════════════════
-     LOADING
-  ════════════════════════════════════════════════════════ */
+  /* ── Loading ── */
   if (loading) {
     return (
       <div className="stp-page">
         <div className="stp-container">
           <div className="stp-loading" role="status" aria-busy="true">
-            <IconLoader size={28} className="stp-spinner" />
+            <IconLoader size={26} className="stp-spinner" />
             <p>Loading your tickets…</p>
           </div>
         </div>
@@ -471,75 +410,59 @@ export default function SupportTickets() {
     );
   }
 
-  /* ════════════════════════════════════════════════════════
-     ERROR
-  ════════════════════════════════════════════════════════ */
+  /* ── Error ── */
   if (apiError) {
     return (
       <div className="stp-page">
         <div className="stp-container">
-          <ErrorState
-            error={apiError}
-            onRetry={handleRetry}
-            onSignIn={handleSignIn}
-          />
+          <ErrorState error={apiError} onRetry={handleRetry} onSignIn={handleSignIn} />
         </div>
       </div>
     );
   }
 
-  /* ════════════════════════════════════════════════════════
-     MAIN RENDER
-  ════════════════════════════════════════════════════════ */
+  /* ── Main ── */
   return (
     <div className="stp-page">
       <div className="stp-container">
 
-        {/* ════════════════════════════════════════════════
-            HEADER
-        ════════════════════════════════════════════════ */}
+        {/* Header */}
         <div className="stp-header">
           <div className="stp-header-left">
-            <Link to="/support" className="stp-back" aria-label="Back to support hub">
-              <IconArrowLeft size={20} />
+            <Link to="/support" className="stp-back" aria-label="Back to support">
+              <IconArrowLeft size={18} />
             </Link>
             <div>
               <h1 className="stp-title">My Tickets</h1>
               <p className="stp-subtitle">
-                {tickets.length}{" "}
-                {tickets.length === 1 ? "request" : "requests"}
+                {tickets.length} {tickets.length === 1 ? "request" : "requests"}
               </p>
             </div>
           </div>
-
           <div className="stp-header-right">
             <button
               className="stp-refresh-btn"
               onClick={handleRetry}
-              aria-label="Refresh tickets"
+              aria-label="Refresh"
               disabled={loading}
             >
-              <IconRefresh size={16} />
+              <IconRefresh size={15} />
             </button>
             <Link to="/support/contact" className="stp-new-btn">
-              <IconPlus size={16} />
+              <IconPlus size={14} />
               <span>New Ticket</span>
             </Link>
           </div>
         </div>
 
-        {/* ════════════════════════════════════════════════
-            FILTERS
-        ════════════════════════════════════════════════ */}
+        {/* Filters */}
         <div className="stp-filters">
-
-          {/* Search */}
           <div className="stp-search-wrap">
-            <IconSearch size={16} className="stp-search-icon" aria-hidden="true" />
+            <IconSearch size={15} className="stp-search-icon" aria-hidden="true" />
             <input
               ref={searchRef}
               type="text"
-              placeholder="Search by number, subject or category…"
+              placeholder="Search tickets…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="stp-search-input"
@@ -548,10 +471,7 @@ export default function SupportTickets() {
             {search && (
               <button
                 className="stp-search-clear"
-                onClick={() => {
-                  setSearch("");
-                  searchRef.current?.focus();
-                }}
+                onClick={() => { setSearch(""); searchRef.current?.focus(); }}
                 aria-label="Clear search"
               >
                 ×
@@ -559,12 +479,7 @@ export default function SupportTickets() {
             )}
           </div>
 
-          {/* Status pills */}
-          <div
-            className="stp-status-filters"
-            role="group"
-            aria-label="Filter by status"
-          >
+          <div className="stp-status-filters" role="group" aria-label="Filter by status">
             {STATUS_FILTERS.map((f) => {
               const count    = f.value ? (counts[f.value] ?? 0) : tickets.length;
               const isActive = statusFilter === f.value;
@@ -576,35 +491,28 @@ export default function SupportTickets() {
                   aria-pressed={isActive}
                 >
                   {f.label}
-                  {count > 0 && (
-                    <span className="stp-status-count">{count}</span>
-                  )}
+                  {count > 0 && <span className="stp-status-count">{count}</span>}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* ════════════════════════════════════════════════
-            EMPTY STATE
-        ════════════════════════════════════════════════ */}
+        {/* Empty */}
         {filtered.length === 0 ? (
           <div className="stp-empty" role="status">
-            <IconMessageSquare size={48} className="stp-empty-icon" />
+            <IconMessageSquare size={40} className="stp-empty-icon" />
             <h3 className="stp-empty-title">
-              {tickets.length === 0
-                ? "No support requests yet"
-                : "No tickets match your filters"}
+              {tickets.length === 0 ? "No support requests yet" : "No matches"}
             </h3>
             <p className="stp-empty-desc">
               {tickets.length === 0
-                ? "When you submit a support request, it will appear here."
-                : "Try adjusting your search or clearing the filter."}
+                ? "Submit a request and it will appear here."
+                : "Try adjusting your search or filter."}
             </p>
             {tickets.length === 0 && (
               <Link to="/support/contact" className="stp-empty-btn">
-                <IconPlus size={16} />
-                Create Your First Ticket
+                <IconPlus size={14} /> Create Your First Ticket
               </Link>
             )}
             {tickets.length > 0 && (
@@ -617,10 +525,7 @@ export default function SupportTickets() {
             )}
           </div>
         ) : (
-
-        /* ════════════════════════════════════════════════
-            TICKET CARDS
-        ════════════════════════════════════════════════ */
+          /* Cards */
           <div className="stp-cards" role="list">
             {filtered.map((ticket) => (
               <TicketCard key={ticket.id} ticket={ticket} />
@@ -628,9 +533,7 @@ export default function SupportTickets() {
           </div>
         )}
 
-        {/* ════════════════════════════════════════════════
-            FOOTER HINT
-        ════════════════════════════════════════════════ */}
+        {/* Footer */}
         {tickets.length > 0 && (
           <p className="stp-footer-hint" aria-live="polite">
             Showing {filtered.length} of {tickets.length}{" "}
