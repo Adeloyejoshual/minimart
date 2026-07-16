@@ -51,7 +51,7 @@ const ALLOWED_TYPES = [
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
+const MAX_FILE_SIZE = 10 * 1024 * 1024;
 
 /* ════════════════════════════════════════════════════════════
    AUTH
@@ -113,49 +113,64 @@ function validateFile(file) {
 
 /* ════════════════════════════════════════════════════════════
    UNWRAP TICKET
-   ─────────────────────────────────────────────────────────
-   API returns  { success: true, ticket: { id, ticket_number… } }
-   We need the inner ticket, not the envelope.
-   Falls back gracefully for { id, ticket_number } direct shapes.
 ════════════════════════════════════════════════════════════ */
 function unwrapTicket(data) {
   if (!data) return null;
-
-  // Standard envelope: { success, ticket: { id, … } }
   if (data.ticket && typeof data.ticket === "object" && data.ticket.id)
     return data.ticket;
-
-  // Direct object: { id, ticket_number, … }
-  if (data.id)
-    return data;
-
-  // Rare: { data: { id, … } }
-  if (data.data?.id)
-    return data.data;
-
+  if (data.id)       return data;
+  if (data.data?.id) return data.data;
   return null;
 }
 
 /* ════════════════════════════════════════════════════════════
-   EXTRACT REAL ERROR MESSAGE FROM AXIOS ERROR
+   EXTRACT REAL ERROR
    ─────────────────────────────────────────────────────────
-   Reads the actual server message from err.response.data
-   instead of swallowing it with a generic fallback.
+   Returns an object { title, detail, httpStatus, url }
+   so the UI can show exactly what went wrong.
 ════════════════════════════════════════════════════════════ */
-function extractApiError(err, ticketId) {
-  // No response — network / offline / timeout
+function extractApiError(err, url) {
+  /* ── No response at all ── */
   if (!err.response) {
-    if (err.code === "ECONNABORTED" || err.message?.includes("timeout"))
-      return "The request timed out. Please check your connection and try again.";
-    if (typeof navigator !== "undefined" && !navigator.onLine)
-      return "You appear to be offline. Please check your internet connection.";
-    return "Network error — could not reach the server.";
+    /* Axios cancelled (component unmounted) — not a real error */
+    if (axios.isCancel(err)) return null;
+
+    if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+      return {
+        title      : "Request timed out",
+        detail     : "The server took too long to respond. Please check your connection and try again.",
+        httpStatus : null,
+        url,
+      };
+    }
+
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      return {
+        title  : "You appear to be offline",
+        detail : "Please check your internet connection and try again.",
+        httpStatus : null,
+        url,
+      };
+    }
+
+    /* Real network failure — show the actual Axios message */
+    return {
+      title  : "Network error",
+      detail : err.message
+        ? `Could not reach the server: ${err.message}`
+        : "Could not reach the server. Please check your connection.",
+      httpStatus : null,
+      url,
+    };
   }
 
-  const { status, data } = err.response;
+  /* ── Server responded ── */
+  const { status, data, config } = err.response;
+  const actualUrl = config?.url ?? url;
 
-  // Pull real message from every common API shape
+  /* Pull real server message from every common API shape */
   const serverMsg =
+    (typeof data === "string" && data.length < 300 ? data : null) ||
     data?.message ||
     data?.error?.message ||
     data?.error ||
@@ -166,29 +181,79 @@ function extractApiError(err, ticketId) {
 
   switch (status) {
     case 400:
-      return serverMsg || "Bad request. Please try again.";
+      return {
+        title      : "Bad request (400)",
+        detail     : serverMsg || "The server rejected the request. Please try again.",
+        httpStatus : status,
+        url        : actualUrl,
+      };
     case 401:
-      return serverMsg || "Your session has expired. Please sign in again.";
+      return {
+        title      : "Session expired (401)",
+        detail     : serverMsg || "Your session has expired. Please sign in again.",
+        httpStatus : status,
+        url        : actualUrl,
+      };
     case 403:
-      return serverMsg ||
-        "You don't have permission to view this ticket. It may belong to another account.";
+      return {
+        title      : "Access denied (403)",
+        detail     : serverMsg ||
+          "You don't have permission to view this ticket. It may belong to a different account.",
+        httpStatus : status,
+        url        : actualUrl,
+      };
     case 404:
-      return serverMsg ||
-        `Ticket #${ticketId?.slice(0, 8) ?? "?"} was not found. It may have been deleted.`;
+      return {
+        title      : "Ticket not found (404)",
+        detail     : serverMsg ||
+          "This ticket does not exist or may have been deleted.",
+        httpStatus : status,
+        url        : actualUrl,
+      };
     case 410:
-      return serverMsg || "This ticket has been permanently deleted.";
+      return {
+        title      : "Ticket removed (410)",
+        detail     : serverMsg || "This ticket has been permanently deleted.",
+        httpStatus : status,
+        url        : actualUrl,
+      };
     case 422:
-      return serverMsg || "The ticket ID format is invalid.";
+      return {
+        title      : "Validation error (422)",
+        detail     : serverMsg || "The ticket ID format is invalid.",
+        httpStatus : status,
+        url        : actualUrl,
+      };
     case 429:
-      return serverMsg || "Too many requests. Please wait a moment and try again.";
+      return {
+        title      : "Too many requests (429)",
+        detail     : serverMsg || "Please wait a moment and try again.",
+        httpStatus : status,
+        url        : actualUrl,
+      };
     case 500:
-      return serverMsg || "Server error — our team has been notified. Please try again shortly.";
+      return {
+        title      : "Server error (500)",
+        detail     : serverMsg || "Something went wrong on our end. Please try again shortly.",
+        httpStatus : status,
+        url        : actualUrl,
+      };
     case 502:
     case 503:
     case 504:
-      return serverMsg || "Service temporarily unavailable. Please try again in a few minutes.";
+      return {
+        title      : `Service unavailable (${status})`,
+        detail     : serverMsg || "The server is temporarily unavailable. Please try again in a few minutes.",
+        httpStatus : status,
+        url        : actualUrl,
+      };
     default:
-      return serverMsg || `Unexpected error (HTTP ${status}). Please try again.`;
+      return {
+        title      : `Unexpected error (${status})`,
+        detail     : serverMsg || `HTTP ${status} — please try again.`,
+        httpStatus : status,
+        url        : actualUrl,
+      };
   }
 }
 
@@ -196,11 +261,7 @@ function extractApiError(err, ticketId) {
    CONFIRM DIALOG
 ════════════════════════════════════════════════════════════ */
 const ConfirmDialog = memo(function ConfirmDialog({
-  title,
-  body,
-  onConfirm,
-  onCancel,
-  danger = false,
+  title, body, onConfirm, onCancel, danger = false,
 }) {
   return (
     <div
@@ -210,14 +271,10 @@ const ConfirmDialog = memo(function ConfirmDialog({
       aria-labelledby="td-confirm-title"
     >
       <div className="td-confirm-box">
-        <h3 className="td-confirm-title" id="td-confirm-title">
-          {title}
-        </h3>
+        <h3 className="td-confirm-title" id="td-confirm-title">{title}</h3>
         <p className="td-confirm-body">{body}</p>
         <div className="td-confirm-actions">
-          <button className="td-confirm-cancel" onClick={onCancel}>
-            Cancel
-          </button>
+          <button className="td-confirm-cancel" onClick={onCancel}>Cancel</button>
           <button
             className={`td-confirm-ok${danger ? " td-confirm-danger" : ""}`}
             onClick={onConfirm}
@@ -243,28 +300,19 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
   }
 
   return (
-    <div
-      className={`ticket-message ${
-        isOwn ? "ticket-message-own" : "ticket-message-agent"
-      }`}
-    >
-      {/* Avatar */}
+    <div className={`ticket-message ${isOwn ? "ticket-message-own" : "ticket-message-agent"}`}>
       <div className="ticket-message-avatar" aria-hidden="true">
         {msg.sender_avatar ? (
           <img
             src={msg.sender_avatar}
             alt={msg.sender_name ?? "User"}
-            style={{
-              width: 36, height: 36,
-              borderRadius: "50%", objectFit: "cover",
-            }}
+            style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover" }}
           />
         ) : (
           <IconUser size={18} />
         )}
       </div>
 
-      {/* Content */}
       <div className="ticket-message-content">
         <div className="ticket-message-header">
           <span className="ticket-message-sender">
@@ -280,7 +328,6 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
 
         <div className="ticket-message-bubble">{msg.message}</div>
 
-        {/* Attachments */}
         {msg.attachments?.length > 0 && (
           <div className="ticket-message-attachments">
             {msg.attachments.map((att) => {
@@ -288,18 +335,12 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
               return (
                 <div key={att.id} className="ticket-message-attachment-wrap">
                   {isImage && (
-                    <a
-                      href={att.file_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                    >
+                    <a href={att.file_url} target="_blank" rel="noopener noreferrer">
                       <img
                         src={att.file_url}
                         alt={att.file_name}
                         className="ticket-attachment-preview"
-                        onError={(e) => {
-                          e.currentTarget.style.display = "none";
-                        }}
+                        onError={(e) => { e.currentTarget.style.display = "none"; }}
                       />
                     </a>
                   )}
@@ -312,9 +353,7 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
                     <IconPaperclip size={12} />
                     <span className="ticket-att-name">{att.file_name}</span>
                     {att.file_size && (
-                      <span className="ticket-att-size">
-                        {formatBytes(att.file_size)}
-                      </span>
+                      <span className="ticket-att-size">{formatBytes(att.file_size)}</span>
                     )}
                   </a>
                 </div>
@@ -328,9 +367,92 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
 });
 
 /* ════════════════════════════════════════════════════════════
-   LOADING SKELETON
+   ERROR STATE — shows full real error details
 ════════════════════════════════════════════════════════════ */
-const LoadingSkeleton = memo(function LoadingSkeleton() {
+const ErrorState = memo(function ErrorState({ id, error, onRetry }) {
+  const navigate = useNavigate();
+
+  /* Don't show retry for errors that won't change */
+  const noRetry = error?.httpStatus === 403 ||
+                  error?.httpStatus === 404 ||
+                  error?.httpStatus === 410;
+
+  return (
+    <div className="ticket-detail-page">
+      <div className="ticket-detail-container">
+        <div className="ticket-detail-error" role="alert" aria-live="assertive">
+
+          <IconAlertTriangle size={44} className="ticket-detail-error-icon" />
+
+          {/* Real error title */}
+          <p className="ticket-detail-error-title">
+            {error?.title ?? "Could not load ticket"}
+          </p>
+
+          {/* Real error detail from server */}
+          <p className="ticket-detail-error-msg">
+            {error?.detail ?? "An unexpected error occurred."}
+          </p>
+
+          {/* Debug info — always visible so user can report it */}
+          <div className="ticket-detail-error-debug">
+            {id && (
+              <p>
+                <strong>Ticket ID:</strong>
+                <code>{id}</code>
+              </p>
+            )}
+            {error?.httpStatus && (
+              <p>
+                <strong>HTTP Status:</strong>
+                <code>{error.httpStatus}</code>
+              </p>
+            )}
+            {error?.url && (
+              <p>
+                <strong>URL:</strong>
+                <code>{error.url}</code>
+              </p>
+            )}
+          </div>
+
+          <div className="ticket-detail-error-btns">
+            {!noRetry && (
+              <button className="ticket-detail-retry-btn" onClick={onRetry}>
+                <IconRefresh size={15} />
+                Try Again
+              </button>
+            )}
+
+            {error?.httpStatus === 401 && (
+              <button
+                className="ticket-detail-retry-btn"
+                onClick={() =>
+                  navigate(
+                    "/auth?redirect=" +
+                      encodeURIComponent(window.location.pathname)
+                  )
+                }
+              >
+                Sign In
+              </button>
+            )}
+
+            <Link to="/support/tickets" className="ticket-detail-error-btn">
+              <IconArrowLeft size={16} />
+              Back to Tickets
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/* ════════════════════════════════════════════════════════════
+   LOADING
+════════════════════════════════════════════════════════════ */
+const LoadingState = memo(function LoadingState() {
   return (
     <div className="ticket-detail-page">
       <div className="ticket-detail-container">
@@ -344,98 +466,40 @@ const LoadingSkeleton = memo(function LoadingSkeleton() {
 });
 
 /* ════════════════════════════════════════════════════════════
-   ERROR STATE
-════════════════════════════════════════════════════════════ */
-const ErrorState = memo(function ErrorState({
-  ticketId,
-  errorMessage,
-  onRetry,
-}) {
-  const navigate = useNavigate();
-
-  return (
-    <div className="ticket-detail-page">
-      <div className="ticket-detail-container">
-        <div className="ticket-detail-error" role="alert">
-          <IconAlertTriangle size={44} className="ticket-detail-error-icon" />
-
-          <p className="ticket-detail-error-title">Could not load ticket</p>
-
-          {/*
-            THE FIX:
-            Show the REAL error message from the server / network.
-            No more generic "Please try again" — users see exactly
-            what went wrong (403 permission, 404 not found, 500 server, etc.)
-          */}
-          <p className="ticket-detail-error-msg">{errorMessage}</p>
-
-          {/* Show ticket ID so user knows which one failed */}
-          {ticketId && ticketId !== "undefined" && (
-            <p className="ticket-detail-error-tid">
-              Ticket ID: <code>{ticketId}</code>
-            </p>
-          )}
-
-          <div className="ticket-detail-error-btns">
-            <button className="ticket-detail-retry-btn" onClick={onRetry}>
-              <IconRefresh size={15} />
-              Try Again
-            </button>
-
-            <Link
-              to="/support/tickets"
-              className="ticket-detail-error-btn"
-            >
-              <IconArrowLeft size={16} />
-              Back to Tickets
-            </Link>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-});
-
-/* ════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ════════════════════════════════════════════════════════════ */
 export default function SupportTicketDetail({ user }) {
-  /* ── useParams() — id matches <Route path="/support/tickets/:id"> ── */
   const params = useParams();
 
-  /*
-   * DEFENSIVE param reading.
-   * Covers all possible route param names so it never resolves
-   * to the string "undefined":
-   *   /support/tickets/:id          → params.id
-   *   /support/tickets/:ticketId    → params.ticketId
-   *   /support/tickets/:ticket_id   → params.ticket_id
-   */
-  const rawId =
-    params.id ||
-    params.ticketId ||
-    params.ticket_id ||
-    null;
+  /* ── Resolve ticket ID defensively ── */
+  const id = useMemo(() => {
+    /* 1. Standard param names */
+    const fromParams =
+      params.id ||
+      params.ticketId ||
+      params.ticket_id ||
+      null;
 
-  /*
-   * If the URL contains an actual UUID, use it directly.
-   * e.g. /support/tickets/f485f5d8-7138-46eb-97b4-1d944aecfb82
-   * Even if useParams() returns {}  we can pull it from the path.
-   */
-  const uuidFromPath = useMemo(() => {
+    /* Reject literal "undefined" / "null" strings */
+    if (fromParams && fromParams !== "undefined" && fromParams !== "null")
+      return fromParams;
+
+    /* 2. Extract UUID directly from the URL path */
     const parts = window.location.pathname.split("/").filter(Boolean);
-    const last  = parts[parts.length - 1];
     const uuid  =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    return uuid.test(last) ? last : null;
-  }, []);
 
-  const id = rawId && rawId !== "undefined" ? rawId : uuidFromPath;
+    for (let i = parts.length - 1; i >= 0; i--) {
+      if (uuid.test(parts[i])) return parts[i];
+    }
+
+    return null;
+  }, [params]);
 
   /* ── State ── */
   const [ticket,       setTicket]       = useState(null);
   const [loading,      setLoading]      = useState(true);
-  const [errorMsg,     setErrorMsg]     = useState(null);
+  const [apiError,     setApiError]     = useState(null); // { title, detail, httpStatus, url }
   const [reply,        setReply]        = useState("");
   const [files,        setFiles]        = useState([]);
   const [filePreviews, setFilePreviews] = useState({});
@@ -449,94 +513,116 @@ export default function SupportTicketDetail({ user }) {
   const isMounted    = useRef(true);
   const shouldScroll = useRef(true);
   const pollRef      = useRef(null);
+  const abortRef     = useRef(null);
 
   /* ════════════════════════════════════════════════════════
      LOAD TICKET
   ════════════════════════════════════════════════════════ */
-  const loadTicket = useCallback(
-    async (silent = false) => {
-      const token = getToken();
+  const loadTicket = useCallback(async (silent = false) => {
 
-      /* ── No token ── */
-      if (!token) {
-        setErrorMsg("Please sign in to view this ticket.");
-        setLoading(false);
-        return;
-      }
+    /* ── Guard: no token ── */
+    const token = getToken();
+    if (!token) {
+      setApiError({
+        title      : "Authentication required",
+        detail     : "Please sign in to view support tickets.",
+        httpStatus : 401,
+        url        : null,
+      });
+      setLoading(false);
+      return;
+    }
 
-      /* ── No valid ID ── */
-      if (!id) {
-        setErrorMsg(
-          "No ticket ID found in the URL. Please go back and select a ticket."
-        );
-        setLoading(false);
-        return;
-      }
+    /* ── Guard: no ID ── */
+    if (!id) {
+      setApiError({
+        title  : "Missing ticket ID",
+        detail : "No ticket ID was found in the URL. Please go back and select a ticket.",
+        httpStatus : null,
+        url        : null,
+      });
+      setLoading(false);
+      return;
+    }
 
-      /* ── Validate UUID format ── */
-      const uuidRegex =
-        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    /* ── Guard: validate UUID ── */
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (!UUID_RE.test(id)) {
+      setApiError({
+        title  : "Invalid ticket ID",
+        detail : `"${id}" is not a valid UUID. Please check the URL.`,
+        httpStatus : 422,
+        url        : null,
+      });
+      setLoading(false);
+      return;
+    }
 
-      if (!uuidRegex.test(id)) {
-        setErrorMsg(
-          `"${id}" is not a valid ticket identifier. Please check the URL.`
-        );
-        setLoading(false);
-        return;
-      }
+    /* ── Abort previous in-flight request ── */
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
-      try {
-        if (!silent) setErrorMsg(null);
+    const url = `${BASE_URL}/api/support/tickets/${id}`;
 
-        const { data } = await axios.get(
-          `${BASE_URL}/api/support/tickets/${id}`,
-          authHeader()
-        );
+    try {
+      if (!silent) setApiError(null);
 
-        if (!isMounted.current) return;
+      const { data } = await axios.get(url, {
+        headers : { Authorization: `Bearer ${token}` },
+        signal  : controller.signal,
+        timeout : 15_000,
+      });
 
-        /* Unwrap { success, ticket: { … } } envelope */
-        const ticketData = unwrapTicket(data);
+      if (!isMounted.current) return;
 
-        if (!ticketData) {
-          if (!silent) setErrorMsg("Ticket data was empty. Please try again.");
-        } else {
-          setTicket(ticketData);
-          if (!silent) setErrorMsg(null);
-        }
-      } catch (err) {
-        if (!isMounted.current) return;
+      const ticketData = unwrapTicket(data);
 
-        /* Log full error in dev for debugging */
-        if (import.meta.env.DEV) {
-          console.error("[SupportTicketDetail] fetch error", {
-            id,
-            status : err?.response?.status,
-            data   : err?.response?.data,
-            message: err.message,
+      if (!ticketData) {
+        if (!silent) {
+          setApiError({
+            title  : "Empty response",
+            detail : "The server returned a response with no ticket data. Please try again.",
+            httpStatus : null,
+            url,
           });
         }
-
-        /* Only update error UI for non-silent fetches */
-        if (!silent) {
-          setErrorMsg(extractApiError(err, id));
-        }
-      } finally {
-        if (isMounted.current && !silent) setLoading(false);
+      } else {
+        setTicket(ticketData);
+        if (!silent) setApiError(null);
       }
-    },
-    [id]
-  );
+    } catch (err) {
+      if (!isMounted.current) return;
+      if (axios.isCancel(err)) return;   /* Abort — not an error */
 
-  /* ── Mount / unmount ── */
+      /* Always log full error in console for debugging */
+      console.group(`[SupportTicketDetail] ❌ GET ${url}`);
+      console.error("HTTP status :", err?.response?.status ?? "no response");
+      console.error("Server data :", err?.response?.data ?? "(none)");
+      console.error("Axios error :", err.message);
+      console.error("Full error  :", err);
+      console.groupEnd();
+
+      if (!silent) {
+        setApiError(extractApiError(err, url));
+      }
+    } finally {
+      if (isMounted.current && !silent) setLoading(false);
+    }
+  }, [id]);
+
+  /* ── Mount ── */
   useEffect(() => {
     isMounted.current = true;
     setLoading(true);
-    setErrorMsg(null);
+    setApiError(null);
     setTicket(null);
     loadTicket(false);
+
     return () => {
       isMounted.current = false;
+      abortRef.current?.abort();
       clearInterval(pollRef.current);
     };
   }, [loadTicket]);
@@ -550,7 +636,7 @@ export default function SupportTicketDetail({ user }) {
     return () => clearInterval(pollRef.current);
   }, [loadTicket]);
 
-  /* ── Auto-scroll to bottom ── */
+  /* ── Auto-scroll ── */
   useEffect(() => {
     if (shouldScroll.current && threadRef.current) {
       threadRef.current.scrollTop = threadRef.current.scrollHeight;
@@ -561,82 +647,64 @@ export default function SupportTicketDetail({ user }) {
      DERIVED STATE
   ════════════════════════════════════════════════════════ */
   const {
-    isClosed,
-    isResolved,
-    reopenOk,
-    canClose,
-    messages,
-    currentUserId,
+    isClosed, isResolved, reopenOk,
+    canClose, messages, currentUserId,
   } = useMemo(() => {
-    if (!ticket)
-      return {
-        isClosed: false, isResolved: false, reopenOk: false,
-        canClose: false, messages: [], currentUserId: null,
-      };
-
+    if (!ticket) return {
+      isClosed: false, isResolved: false,
+      reopenOk: false, canClose:   false,
+      messages: [], currentUserId: null,
+    };
     return {
-      isClosed   : ticket.status === "closed",
-      isResolved : ticket.status === "resolved",
-      reopenOk   : canReopenTicket(ticket),
-      canClose   : ["open", "waiting_for_customer", "in_progress", "resolved"].includes(
-        ticket.status
-      ),
-      messages   : Array.isArray(ticket.messages) ? ticket.messages : [],
-      /*
-       * currentUserId — read every possible id field the API might return.
-       * user prop comes from App.jsx → GET /api/users/me.
-       */
-      currentUserId:
-        user?.id ?? user?._id ?? user?.user_id ?? user?.uuid ?? null,
+      isClosed      : ticket.status === "closed",
+      isResolved    : ticket.status === "resolved",
+      reopenOk      : canReopenTicket(ticket),
+      canClose      : ["open","waiting_for_customer","in_progress","resolved"]
+                        .includes(ticket.status),
+      messages      : Array.isArray(ticket.messages) ? ticket.messages : [],
+      currentUserId : user?.id ?? user?._id ?? user?.user_id ?? user?.uuid ?? null,
     };
   }, [ticket, user]);
 
   /* ════════════════════════════════════════════════════════
      FILE HANDLING
   ════════════════════════════════════════════════════════ */
-  const handleFileChange = useCallback(
-    (e) => {
-      const selected = Array.from(e.target.files || []);
-      const errors   = [];
-      const valid    = [];
-      const seen     = new Set(files.map((f) => `${f.name}-${f.size}`));
+  const handleFileChange = useCallback((e) => {
+    const selected = Array.from(e.target.files || []);
+    const errors = [];
+    const valid  = [];
+    const seen   = new Set(files.map((f) => `${f.name}-${f.size}`));
 
-      for (const file of selected) {
-        const key = `${file.name}-${file.size}`;
-        if (seen.has(key)) {
-          errors.push(`"${file.name}" is already attached.`);
-          continue;
-        }
-        const err = validateFile(file);
-        if (err) { errors.push(err); continue; }
-        valid.push(file);
-        seen.add(key);
-      }
+    for (const file of selected) {
+      const key = `${file.name}-${file.size}`;
+      if (seen.has(key)) { errors.push(`"${file.name}" is already attached.`); continue; }
+      const err = validateFile(file);
+      if (err) { errors.push(err); continue; }
+      valid.push(file);
+      seen.add(key);
+    }
 
-      if (errors.length) toast.error(errors.join("\n"), { duration: 4000 });
+    if (errors.length) toast.error(errors.join("\n"), { duration: 4000 });
 
-      const next = [...files, ...valid].slice(0, 5);
-      setFiles(next);
+    const next = [...files, ...valid].slice(0, 5);
+    setFiles(next);
 
-      /* Image previews */
-      next.forEach((file) => {
-        const key = `${file.name}-${file.size}`;
-        if (!file.type.startsWith("image/") || filePreviews[key]) return;
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          if (isMounted.current)
-            setFilePreviews((prev) => ({ ...prev, [key]: ev.target.result }));
-        };
-        reader.readAsDataURL(file);
-      });
+    next.forEach((file) => {
+      const key = `${file.name}-${file.size}`;
+      if (!file.type.startsWith("image/") || filePreviews[key]) return;
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        if (isMounted.current)
+          setFilePreviews((p) => ({ ...p, [key]: ev.target.result }));
+      };
+      reader.readAsDataURL(file);
+    });
 
-      e.target.value = "";
-    },
-    [files, filePreviews]
-  );
+    e.target.value = "";
+  }, [files, filePreviews]);
 
   const removeFile = useCallback(
-    (index) => setFiles((prev) => prev.filter((_, i) => i !== index)),
+    (i) => setFiles((p) => p.filter((_, idx) => idx !== i)),
     []
   );
 
@@ -649,13 +717,13 @@ export default function SupportTicketDetail({ user }) {
     shouldScroll.current = true;
 
     try {
-      const formData = new FormData();
-      formData.append("message", reply.trim());
-      files.forEach((f) => formData.append("attachments", f));
+      const fd = new FormData();
+      fd.append("message", reply.trim());
+      files.forEach((f) => fd.append("attachments", f));
 
       await axios.post(
         `${BASE_URL}/api/support/tickets/${id}/messages`,
-        formData,
+        fd,
         {
           headers: {
             Authorization : `Bearer ${getToken()}`,
@@ -670,25 +738,22 @@ export default function SupportTicketDetail({ user }) {
       setFilePreviews({});
       await loadTicket(true);
     } catch (err) {
-      const msg = extractApiError(err, id);
-      toast.error(msg);
+      const parsed = extractApiError(err, `${BASE_URL}/api/support/tickets/${id}/messages`);
+      toast.error(parsed?.detail ?? "Failed to send reply.");
     } finally {
       setSending(false);
     }
   }, [reply, files, id, loadTicket]);
 
-  const handleKeyDown = useCallback(
-    (e) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        handleReply();
-      }
-    },
-    [handleReply]
-  );
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      handleReply();
+    }
+  }, [handleReply]);
 
   /* ════════════════════════════════════════════════════════
-     CLOSE TICKET
+     CLOSE / REOPEN
   ════════════════════════════════════════════════════════ */
   const handleClose = useCallback(async () => {
     setShowConfirm(false);
@@ -702,15 +767,13 @@ export default function SupportTicketDetail({ user }) {
       toast.success("Ticket closed.");
       await loadTicket(false);
     } catch (err) {
-      toast.error(extractApiError(err, id));
+      const parsed = extractApiError(err, `${BASE_URL}/api/support/tickets/${id}`);
+      toast.error(parsed?.detail ?? "Failed to close ticket.");
     } finally {
       setActionBusy(false);
     }
   }, [id, loadTicket]);
 
-  /* ════════════════════════════════════════════════════════
-     REOPEN TICKET
-  ════════════════════════════════════════════════════════ */
   const handleReopen = useCallback(async () => {
     setActionBusy(true);
     try {
@@ -722,35 +785,30 @@ export default function SupportTicketDetail({ user }) {
       toast.success("Ticket reopened.");
       await loadTicket(false);
     } catch (err) {
-      toast.error(extractApiError(err, id));
+      const parsed = extractApiError(err, `${BASE_URL}/api/support/tickets/${id}/reopen`);
+      toast.error(parsed?.detail ?? "Failed to reopen ticket.");
     } finally {
       setActionBusy(false);
     }
   }, [id, loadTicket]);
 
-  /* ── Retry ── */
   const handleRetry = useCallback(() => {
     setLoading(true);
-    setErrorMsg(null);
+    setApiError(null);
     setTicket(null);
     loadTicket(false);
   }, [loadTicket]);
 
   /* ════════════════════════════════════════════════════════
-     RENDER — LOADING
+     RENDER GUARDS
   ════════════════════════════════════════════════════════ */
-  if (loading) return <LoadingSkeleton />;
+  if (loading) return <LoadingState />;
 
-  /* ════════════════════════════════════════════════════════
-     RENDER — ERROR
-  ════════════════════════════════════════════════════════ */
-  if (errorMsg || !ticket) {
+  if (apiError || !ticket) {
     return (
       <ErrorState
-        ticketId={id}
-        errorMessage={
-          errorMsg ?? "Ticket not found. It may have been deleted."
-        }
+        id={id}
+        error={apiError}
         onRetry={handleRetry}
       />
     );
@@ -760,17 +818,16 @@ export default function SupportTicketDetail({ user }) {
     sending || actionBusy || (!reply.trim() && files.length === 0);
 
   /* ════════════════════════════════════════════════════════
-     RENDER — TICKET
+     RENDER
   ════════════════════════════════════════════════════════ */
   return (
     <div className="ticket-detail-page">
       <div className="ticket-detail-container">
 
-        {/* Confirm dialog */}
         {showConfirm && (
           <ConfirmDialog
             title="Close this ticket?"
-            body="Once closed, you will have 7 days to reopen it. Are you sure?"
+            body="Once closed, you have 7 days to reopen it. Are you sure?"
             danger
             onConfirm={handleClose}
             onCancel={() => setShowConfirm(false)}
@@ -779,41 +836,31 @@ export default function SupportTicketDetail({ user }) {
 
         {/* ── Header ── */}
         <div className="ticket-detail-header">
-          <Link
-            to="/support/tickets"
-            className="ticket-detail-back"
-            aria-label="Back to tickets"
-          >
+          <Link to="/support/tickets" className="ticket-detail-back" aria-label="Back">
             <IconArrowLeft size={20} />
           </Link>
 
           <div className="ticket-detail-header-info">
             <div className="ticket-detail-header-badges">
-              <span className="ticket-detail-number">
-                {ticket.ticket_number}
-              </span>
+              <span className="ticket-detail-number">{ticket.ticket_number}</span>
               <TicketStatusBadge status={ticket.status} />
-              <PriorityBadge priority={ticket.priority} />
+              <PriorityBadge    priority={ticket.priority} />
             </div>
             <h1 className="ticket-detail-subject">{ticket.subject}</h1>
             <div className="ticket-detail-meta">
               <span className="ticket-detail-category">{ticket.category}</span>
               <span className="ticket-detail-separator" />
-              <span
-                className="ticket-detail-date"
-                title={formatDateTime(ticket.created_at)}
-              >
+              <span className="ticket-detail-date" title={formatDateTime(ticket.created_at)}>
                 <IconClock size={12} />
                 {timeAgo(ticket.created_at)}
               </span>
             </div>
           </div>
 
-          {/* Manual refresh */}
           <button
             className="ticket-detail-refresh-btn"
             onClick={() => loadTicket(false)}
-            aria-label="Refresh ticket"
+            aria-label="Refresh"
             disabled={loading}
           >
             <IconRefresh size={16} />
@@ -828,8 +875,7 @@ export default function SupportTicketDetail({ user }) {
               disabled={actionBusy || sending}
               className="ticket-action-btn ticket-action-close"
             >
-              <IconLock size={16} />
-              Close Ticket
+              <IconLock size={16} /> Close Ticket
             </button>
           )}
           {reopenOk && (
@@ -838,8 +884,7 @@ export default function SupportTicketDetail({ user }) {
               disabled={actionBusy || sending}
               className="ticket-action-btn ticket-action-reopen"
             >
-              <IconRotateCcw size={16} />
-              Reopen Ticket
+              <IconRotateCcw size={16} /> Reopen Ticket
             </button>
           )}
           {isClosed && !reopenOk && (
@@ -860,19 +905,16 @@ export default function SupportTicketDetail({ user }) {
           onScroll={() => {
             const el = threadRef.current;
             if (!el) return;
-            const atBottom =
+            shouldScroll.current =
               el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-            shouldScroll.current = atBottom;
           }}
         >
-          {/* Empty */}
           {messages.length === 0 && !ticket.description && (
             <div className="ticket-messages-empty">
               <p>No messages yet. Start the conversation below.</p>
             </div>
           )}
 
-          {/* Original description when no messages */}
           {messages.length === 0 && ticket.description && (
             <TicketMessage
               msg={{
@@ -890,13 +932,7 @@ export default function SupportTicketDetail({ user }) {
             />
           )}
 
-          {/* All messages */}
           {messages.map((msg) => {
-            /*
-             * Determine ownership.
-             * If currentUserId is known, compare directly.
-             * Fallback: treat as own if not from admin/support_agent role.
-             */
             const isOwn = currentUserId
               ? String(msg.sender_id) === String(currentUserId)
               : !msg.is_internal_note &&
@@ -928,39 +964,22 @@ export default function SupportTicketDetail({ user }) {
               placeholder="Type your reply… (⌘ Enter or Ctrl + Enter to send)"
               rows={4}
               className="ticket-reply-textarea"
-              aria-busy={sending}
               disabled={sending || actionBusy}
             />
 
-            {/* File chips */}
             {files.length > 0 && (
-              <div
-                className="ticket-reply-files"
-                role="list"
-                aria-label="Files to attach"
-              >
+              <div className="ticket-reply-files" role="list">
                 {files.map((f, i) => {
                   const key     = `${f.name}-${f.size}`;
                   const preview = filePreviews[key];
-                  const isImage = f.type.startsWith("image/");
                   return (
-                    <div
-                      key={i}
-                      className="ticket-reply-file-chip"
-                      role="listitem"
-                    >
-                      {isImage && preview && (
-                        <img
-                          src={preview}
-                          alt={f.name}
-                          className="ticket-reply-file-thumb"
-                        />
+                    <div key={i} className="ticket-reply-file-chip" role="listitem">
+                      {f.type.startsWith("image/") && preview && (
+                        <img src={preview} alt={f.name} className="ticket-reply-file-thumb" />
                       )}
                       <IconPaperclip size={12} aria-hidden="true" />
                       <span className="ticket-reply-file-name">{f.name}</span>
-                      <span className="ticket-reply-file-size">
-                        {formatBytes(f.size)}
-                      </span>
+                      <span className="ticket-reply-file-size">{formatBytes(f.size)}</span>
                       <button
                         type="button"
                         onClick={() => removeFile(i)}
@@ -975,13 +994,11 @@ export default function SupportTicketDetail({ user }) {
               </div>
             )}
 
-            {/* Toolbar */}
             <div className="ticket-reply-toolbar">
               <button
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 className="ticket-reply-attach-btn"
-                aria-label="Attach files"
                 disabled={sending || files.length >= 5}
               >
                 <IconPaperclip size={16} />
@@ -995,7 +1012,6 @@ export default function SupportTicketDetail({ user }) {
                 accept="image/*,.pdf,.doc,.docx"
                 onChange={handleFileChange}
                 className="ticket-reply-file-hidden"
-                aria-label="Select files to attach"
                 tabIndex={-1}
               />
 
@@ -1003,21 +1019,17 @@ export default function SupportTicketDetail({ user }) {
                 onClick={handleReply}
                 disabled={replyDisabled}
                 className="ticket-reply-send-btn"
-                aria-label="Send reply"
                 aria-busy={sending}
               >
-                {sending ? (
-                  <IconLoader size={16} className="ticket-reply-spinner" />
-                ) : (
-                  <IconSend size={16} />
-                )}
-                {sending ? "Sending…" : "Send Reply"}
+                {sending
+                  ? <><IconLoader size={16} className="ticket-reply-spinner" /> Sending…</>
+                  : <><IconSend size={16} /> Send Reply</>
+                }
               </button>
             </div>
           </div>
         )}
 
-        {/* ── Resolved banner ── */}
         {isResolved && (
           <div className="ticket-resolved-banner" role="status">
             <IconCheckCircle size={20} />
@@ -1025,7 +1037,6 @@ export default function SupportTicketDetail({ user }) {
           </div>
         )}
 
-        {/* ── Closed banner ── */}
         {isClosed && (
           <div
             className="ticket-resolved-banner"
@@ -1039,7 +1050,6 @@ export default function SupportTicketDetail({ user }) {
             </span>
           </div>
         )}
-
       </div>
     </div>
   );
