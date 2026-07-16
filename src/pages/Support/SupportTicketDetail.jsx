@@ -43,10 +43,7 @@ const BASE_URL      = import.meta.env.VITE_API_BASE_URL;
 const POLL_INTERVAL = 20_000;
 
 const ALLOWED_TYPES = [
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
+  "image/jpeg", "image/png", "image/gif", "image/webp",
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -124,43 +121,50 @@ function unwrapTicket(data) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   EXTRACT REAL ERROR
+   EXTRACT REAL ERROR — deep inspection of server response
    ─────────────────────────────────────────────────────────
-   Returns an object { title, detail, httpStatus, url }
-   so the UI can show exactly what went wrong.
+   Returns {
+     title      : string  — short headline
+     detail     : string  — full server message / reason
+     hint       : string? — actionable suggestion
+     httpStatus : number?
+     url        : string?
+     serverRaw  : any     — raw server response body for devs
+   }
 ════════════════════════════════════════════════════════════ */
 function extractApiError(err, url) {
-  /* ── No response at all ── */
-  if (!err.response) {
-    /* Axios cancelled (component unmounted) — not a real error */
-    if (axios.isCancel(err)) return null;
+  /* Axios cancel — not a real error */
+  if (axios.isCancel(err)) return null;
 
-    if (err.code === "ECONNABORTED" || err.message?.includes("timeout")) {
+  /* ── No response (network / offline / timeout) ── */
+  if (!err.response) {
+    if (err.code === "ECONNABORTED" || err.message?.includes("timeout"))
       return {
         title      : "Request timed out",
-        detail     : "The server took too long to respond. Please check your connection and try again.",
+        detail     : "The server took too long to respond.",
+        hint       : "Check your internet connection and try again.",
         httpStatus : null,
         url,
+        serverRaw  : null,
       };
-    }
 
-    if (typeof navigator !== "undefined" && !navigator.onLine) {
+    if (typeof navigator !== "undefined" && !navigator.onLine)
       return {
-        title  : "You appear to be offline",
-        detail : "Please check your internet connection and try again.",
+        title      : "You are offline",
+        detail     : "No internet connection was detected.",
+        hint       : "Please connect to the internet and try again.",
         httpStatus : null,
         url,
+        serverRaw  : null,
       };
-    }
 
-    /* Real network failure — show the actual Axios message */
     return {
-      title  : "Network error",
-      detail : err.message
-        ? `Could not reach the server: ${err.message}`
-        : "Could not reach the server. Please check your connection.",
+      title      : "Network error",
+      detail     : err.message || "Could not reach the server.",
+      hint       : "Check your connection or try again in a moment.",
       httpStatus : null,
       url,
+      serverRaw  : null,
     };
   }
 
@@ -168,93 +172,84 @@ function extractApiError(err, url) {
   const { status, data, config } = err.response;
   const actualUrl = config?.url ?? url;
 
-  /* Pull real server message from every common API shape */
-  const serverMsg =
-    (typeof data === "string" && data.length < 300 ? data : null) ||
-    data?.message ||
-    data?.error?.message ||
-    data?.error ||
-    data?.detail ||
-    data?.errors?.[0]?.message ||
-    data?.msg ||
-    null;
+  /*
+   * Deep-extract the server message.
+   * We try every common API response shape:
+   *   { message }
+   *   { error }
+   *   { error: { message } }
+   *   { detail }
+   *   { errors: [{ message }] }
+   *   { msg }
+   *   plain string body
+   *   HTML error page (extract first <p> or <title>)
+   */
+  let serverMsg = null;
 
-  switch (status) {
-    case 400:
-      return {
-        title      : "Bad request (400)",
-        detail     : serverMsg || "The server rejected the request. Please try again.",
-        httpStatus : status,
-        url        : actualUrl,
-      };
-    case 401:
-      return {
-        title      : "Session expired (401)",
-        detail     : serverMsg || "Your session has expired. Please sign in again.",
-        httpStatus : status,
-        url        : actualUrl,
-      };
-    case 403:
-      return {
-        title      : "Access denied (403)",
-        detail     : serverMsg ||
-          "You don't have permission to view this ticket. It may belong to a different account.",
-        httpStatus : status,
-        url        : actualUrl,
-      };
-    case 404:
-      return {
-        title      : "Ticket not found (404)",
-        detail     : serverMsg ||
-          "This ticket does not exist or may have been deleted.",
-        httpStatus : status,
-        url        : actualUrl,
-      };
-    case 410:
-      return {
-        title      : "Ticket removed (410)",
-        detail     : serverMsg || "This ticket has been permanently deleted.",
-        httpStatus : status,
-        url        : actualUrl,
-      };
-    case 422:
-      return {
-        title      : "Validation error (422)",
-        detail     : serverMsg || "The ticket ID format is invalid.",
-        httpStatus : status,
-        url        : actualUrl,
-      };
-    case 429:
-      return {
-        title      : "Too many requests (429)",
-        detail     : serverMsg || "Please wait a moment and try again.",
-        httpStatus : status,
-        url        : actualUrl,
-      };
-    case 500:
-      return {
-        title      : "Server error (500)",
-        detail     : serverMsg || "Something went wrong on our end. Please try again shortly.",
-        httpStatus : status,
-        url        : actualUrl,
-      };
-    case 502:
-    case 503:
-    case 504:
-      return {
-        title      : `Service unavailable (${status})`,
-        detail     : serverMsg || "The server is temporarily unavailable. Please try again in a few minutes.",
-        httpStatus : status,
-        url        : actualUrl,
-      };
-    default:
-      return {
-        title      : `Unexpected error (${status})`,
-        detail     : serverMsg || `HTTP ${status} — please try again.`,
-        httpStatus : status,
-        url        : actualUrl,
-      };
+  if (typeof data === "string" && data.trim().length > 0) {
+    if (data.trim().startsWith("<")) {
+      /* HTML error page — try to pull <title> or first <p> */
+      const titleMatch = data.match(/<title[^>]*>([^<]+)<\/title>/i);
+      const pMatch     = data.match(/<p[^>]*>([^<]{10,300})<\/p>/i);
+      serverMsg = titleMatch?.[1]?.trim() || pMatch?.[1]?.trim() || "Server returned an HTML error page.";
+    } else if (data.length < 500) {
+      serverMsg = data.trim();
+    }
+  } else if (data && typeof data === "object") {
+    serverMsg =
+      data.message             ||
+      data.error?.message      ||
+      (typeof data.error === "string" ? data.error : null) ||
+      data.detail              ||
+      data.errors?.[0]?.message ||
+      data.errors?.[0]         ||
+      data.msg                 ||
+      data.reason              ||
+      data.description         ||
+      null;
+
+    /* Handle object error shapes */
+    if (serverMsg && typeof serverMsg === "object") {
+      serverMsg = JSON.stringify(serverMsg);
+    }
   }
+
+  /* Build hint per status */
+  const hintMap = {
+    400 : "Check your input and try again.",
+    401 : "Please sign in again.",
+    403 : "This ticket may belong to a different account.",
+    404 : "The ticket may have been deleted.",
+    422 : "The ticket ID format may be invalid.",
+    429 : "Wait a moment before trying again.",
+    500 : "This is a server-side issue. Our team has been notified. Try again shortly.",
+    502 : "The server gateway is down. Try again in a few minutes.",
+    503 : "The server is temporarily under maintenance.",
+    504 : "The server gateway timed out. Try again in a few minutes.",
+  };
+
+  const titleMap = {
+    400 : "Bad request",
+    401 : "Authentication required",
+    403 : "Access denied",
+    404 : "Ticket not found",
+    410 : "Ticket removed",
+    422 : "Invalid request",
+    429 : "Too many requests",
+    500 : "Server error",
+    502 : "Bad gateway",
+    503 : "Service unavailable",
+    504 : "Gateway timeout",
+  };
+
+  return {
+    title      : `${titleMap[status] ?? "Error"} (${status})`,
+    detail     : serverMsg || `The server returned HTTP ${status} with no further detail.`,
+    hint       : hintMap[status] || "Please try again.",
+    httpStatus : status,
+    url        : actualUrl,
+    serverRaw  : data,   /* full raw body — shown in dev mode */
+  };
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -318,14 +313,10 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
           <span className="ticket-message-sender">
             {isOwn ? "You" : msg.sender_name ?? "Support Agent"}
           </span>
-          <span
-            className="ticket-message-time"
-            title={formatDateTime(msg.created_at)}
-          >
+          <span className="ticket-message-time" title={formatDateTime(msg.created_at)}>
             {timeAgo(msg.created_at)}
           </span>
         </div>
-
         <div className="ticket-message-bubble">{msg.message}</div>
 
         {msg.attachments?.length > 0 && (
@@ -367,60 +358,93 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
 });
 
 /* ════════════════════════════════════════════════════════════
-   ERROR STATE — shows full real error details
+   ERROR STATE
+   ─────────────────────────────────────────────────────────
+   Shows real server error with expandable raw response panel.
 ════════════════════════════════════════════════════════════ */
 const ErrorState = memo(function ErrorState({ id, error, onRetry }) {
   const navigate = useNavigate();
+  const [showRaw, setShowRaw] = useState(false);
 
-  /* Don't show retry for errors that won't change */
-  const noRetry = error?.httpStatus === 403 ||
-                  error?.httpStatus === 404 ||
-                  error?.httpStatus === 410;
+  const noRetry = [403, 404, 410].includes(error?.httpStatus);
+  const is500   = error?.httpStatus >= 500;
 
   return (
     <div className="ticket-detail-page">
       <div className="ticket-detail-container">
         <div className="ticket-detail-error" role="alert" aria-live="assertive">
 
-          <IconAlertTriangle size={44} className="ticket-detail-error-icon" />
+          {/* Icon */}
+          <div className="td-err-icon-wrap">
+            <IconAlertTriangle size={40} className="ticket-detail-error-icon" />
+          </div>
 
-          {/* Real error title */}
-          <p className="ticket-detail-error-title">
+          {/* Title */}
+          <h2 className="td-err-title">
             {error?.title ?? "Could not load ticket"}
-          </p>
+          </h2>
 
-          {/* Real error detail from server */}
-          <p className="ticket-detail-error-msg">
+          {/* Server message — the REAL error */}
+          <p className="td-err-detail">
             {error?.detail ?? "An unexpected error occurred."}
           </p>
 
-          {/* Debug info — always visible so user can report it */}
-          <div className="ticket-detail-error-debug">
+          {/* Actionable hint */}
+          {error?.hint && (
+            <p className="td-err-hint">
+              💡 {error.hint}
+            </p>
+          )}
+
+          {/* Info table */}
+          <div className="td-err-table">
             {id && (
-              <p>
-                <strong>Ticket ID:</strong>
-                <code>{id}</code>
-              </p>
+              <div className="td-err-row">
+                <span className="td-err-key">Ticket ID</span>
+                <code className="td-err-val">{id}</code>
+              </div>
             )}
             {error?.httpStatus && (
-              <p>
-                <strong>HTTP Status:</strong>
-                <code>{error.httpStatus}</code>
-              </p>
+              <div className="td-err-row">
+                <span className="td-err-key">HTTP Status</span>
+                <code className={`td-err-val ${is500 ? "td-err-val--red" : ""}`}>
+                  {error.httpStatus}
+                </code>
+              </div>
             )}
             {error?.url && (
-              <p>
-                <strong>URL:</strong>
-                <code>{error.url}</code>
-              </p>
+              <div className="td-err-row">
+                <span className="td-err-key">API Endpoint</span>
+                <code className="td-err-val td-err-val--url">{error.url}</code>
+              </div>
             )}
           </div>
 
+          {/* Raw server response (expandable) */}
+          {error?.serverRaw != null && (
+            <div className="td-err-raw-wrap">
+              <button
+                className="td-err-raw-toggle"
+                onClick={() => setShowRaw((v) => !v)}
+                aria-expanded={showRaw}
+              >
+                {showRaw ? "▾ Hide" : "▸ Show"} server response
+              </button>
+              {showRaw && (
+                <pre className="td-err-raw">
+                  {typeof error.serverRaw === "string"
+                    ? error.serverRaw
+                    : JSON.stringify(error.serverRaw, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {/* Actions */}
           <div className="ticket-detail-error-btns">
             {!noRetry && (
               <button className="ticket-detail-retry-btn" onClick={onRetry}>
-                <IconRefresh size={15} />
-                Try Again
+                <IconRefresh size={15} /> Try Again
               </button>
             )}
 
@@ -439,10 +463,22 @@ const ErrorState = memo(function ErrorState({ id, error, onRetry }) {
             )}
 
             <Link to="/support/tickets" className="ticket-detail-error-btn">
-              <IconArrowLeft size={16} />
-              Back to Tickets
+              <IconArrowLeft size={16} /> Back to Tickets
             </Link>
           </div>
+
+          {/* 500-specific message */}
+          {is500 && (
+            <p className="td-err-500-note">
+              This is a backend server error — not something you did wrong.
+              If it keeps happening, please{" "}
+              <Link to="/support" className="td-err-link">
+                contact support
+              </Link>{" "}
+              and share the Ticket ID and API endpoint above.
+            </p>
+          )}
+
         </div>
       </div>
     </div>
@@ -471,35 +507,30 @@ const LoadingState = memo(function LoadingState() {
 export default function SupportTicketDetail({ user }) {
   const params = useParams();
 
-  /* ── Resolve ticket ID defensively ── */
+  /* ── Resolve ticket ID ── */
   const id = useMemo(() => {
-    /* 1. Standard param names */
     const fromParams =
       params.id ||
       params.ticketId ||
       params.ticket_id ||
       null;
 
-    /* Reject literal "undefined" / "null" strings */
     if (fromParams && fromParams !== "undefined" && fromParams !== "null")
       return fromParams;
 
-    /* 2. Extract UUID directly from the URL path */
+    /* Fallback: extract UUID from URL path */
     const parts = window.location.pathname.split("/").filter(Boolean);
-    const uuid  =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
+    const UUID  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
     for (let i = parts.length - 1; i >= 0; i--) {
-      if (uuid.test(parts[i])) return parts[i];
+      if (UUID.test(parts[i])) return parts[i];
     }
-
     return null;
   }, [params]);
 
   /* ── State ── */
   const [ticket,       setTicket]       = useState(null);
   const [loading,      setLoading]      = useState(true);
-  const [apiError,     setApiError]     = useState(null); // { title, detail, httpStatus, url }
+  const [apiError,     setApiError]     = useState(null);
   const [reply,        setReply]        = useState("");
   const [files,        setFiles]        = useState([]);
   const [filePreviews, setFilePreviews] = useState({});
@@ -519,52 +550,50 @@ export default function SupportTicketDetail({ user }) {
      LOAD TICKET
   ════════════════════════════════════════════════════════ */
   const loadTicket = useCallback(async (silent = false) => {
-
-    /* ── Guard: no token ── */
     const token = getToken();
+    const url   = `${BASE_URL}/api/support/tickets/${id}`;
+
+    /* ── Guards ── */
     if (!token) {
       setApiError({
-        title      : "Authentication required",
-        detail     : "Please sign in to view support tickets.",
-        httpStatus : 401,
-        url        : null,
+        title: "Authentication required",
+        detail: "Please sign in to view support tickets.",
+        hint: "Tap Sign In below.",
+        httpStatus: 401, url: null, serverRaw: null,
       });
       setLoading(false);
       return;
     }
 
-    /* ── Guard: no ID ── */
     if (!id) {
       setApiError({
-        title  : "Missing ticket ID",
-        detail : "No ticket ID was found in the URL. Please go back and select a ticket.",
-        httpStatus : null,
-        url        : null,
+        title: "Missing ticket ID",
+        detail: "No ticket ID was found in the URL.",
+        hint: "Go back and select a ticket from the list.",
+        httpStatus: null, url: null, serverRaw: null,
       });
       setLoading(false);
       return;
     }
 
-    /* ── Guard: validate UUID ── */
     const UUID_RE =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
     if (!UUID_RE.test(id)) {
       setApiError({
-        title  : "Invalid ticket ID",
-        detail : `"${id}" is not a valid UUID. Please check the URL.`,
-        httpStatus : 422,
-        url        : null,
+        title: "Invalid ticket ID",
+        detail: `"${id}" is not a valid UUID.`,
+        hint: "Check the URL and try again.",
+        httpStatus: 422, url: null, serverRaw: null,
       });
       setLoading(false);
       return;
     }
 
-    /* ── Abort previous in-flight request ── */
+    /* ── Abort previous request ── */
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
-
-    const url = `${BASE_URL}/api/support/tickets/${id}`;
 
     try {
       if (!silent) setApiError(null);
@@ -582,10 +611,10 @@ export default function SupportTicketDetail({ user }) {
       if (!ticketData) {
         if (!silent) {
           setApiError({
-            title  : "Empty response",
-            detail : "The server returned a response with no ticket data. Please try again.",
-            httpStatus : null,
-            url,
+            title: "Empty response",
+            detail: "The server returned a successful response but no ticket data.",
+            hint: "This may be a temporary issue. Please try again.",
+            httpStatus: null, url, serverRaw: data,
           });
         }
       } else {
@@ -594,14 +623,19 @@ export default function SupportTicketDetail({ user }) {
       }
     } catch (err) {
       if (!isMounted.current) return;
-      if (axios.isCancel(err)) return;   /* Abort — not an error */
+      if (axios.isCancel(err))  return;
 
-      /* Always log full error in console for debugging */
-      console.group(`[SupportTicketDetail] ❌ GET ${url}`);
-      console.error("HTTP status :", err?.response?.status ?? "no response");
-      console.error("Server data :", err?.response?.data ?? "(none)");
-      console.error("Axios error :", err.message);
-      console.error("Full error  :", err);
+      /*
+       * Always log the FULL error in console.
+       * This gives backend developers exactly what they need.
+       */
+      console.group(`%c[Ticket ${id}] API Error`, "color:red;font-weight:bold");
+      console.error("URL       :", url);
+      console.error("Status    :", err?.response?.status ?? "no response");
+      console.error("Headers   :", err?.response?.headers);
+      console.error("Body      :", err?.response?.data);
+      console.error("Axios msg :", err.message);
+      console.error("Full err  :", err);
       console.groupEnd();
 
       if (!silent) {
@@ -612,14 +646,13 @@ export default function SupportTicketDetail({ user }) {
     }
   }, [id]);
 
-  /* ── Mount ── */
+  /* ── Mount / unmount ── */
   useEffect(() => {
     isMounted.current = true;
     setLoading(true);
     setApiError(null);
     setTicket(null);
     loadTicket(false);
-
     return () => {
       isMounted.current = false;
       abortRef.current?.abort();
@@ -638,9 +671,8 @@ export default function SupportTicketDetail({ user }) {
 
   /* ── Auto-scroll ── */
   useEffect(() => {
-    if (shouldScroll.current && threadRef.current) {
+    if (shouldScroll.current && threadRef.current)
       threadRef.current.scrollTop = threadRef.current.scrollHeight;
-    }
   }, [ticket?.messages?.length]);
 
   /* ════════════════════════════════════════════════════════
@@ -652,17 +684,18 @@ export default function SupportTicketDetail({ user }) {
   } = useMemo(() => {
     if (!ticket) return {
       isClosed: false, isResolved: false,
-      reopenOk: false, canClose:   false,
+      reopenOk: false, canClose: false,
       messages: [], currentUserId: null,
     };
     return {
-      isClosed      : ticket.status === "closed",
-      isResolved    : ticket.status === "resolved",
-      reopenOk      : canReopenTicket(ticket),
-      canClose      : ["open","waiting_for_customer","in_progress","resolved"]
-                        .includes(ticket.status),
-      messages      : Array.isArray(ticket.messages) ? ticket.messages : [],
-      currentUserId : user?.id ?? user?._id ?? user?.user_id ?? user?.uuid ?? null,
+      isClosed   : ticket.status === "closed",
+      isResolved : ticket.status === "resolved",
+      reopenOk   : canReopenTicket(ticket),
+      canClose   : ["open","waiting_for_customer","in_progress","resolved"]
+                     .includes(ticket.status),
+      messages   : Array.isArray(ticket.messages) ? ticket.messages : [],
+      currentUserId:
+        user?.id ?? user?._id ?? user?.user_id ?? user?.uuid ?? null,
     };
   }, [ticket, user]);
 
@@ -677,7 +710,7 @@ export default function SupportTicketDetail({ user }) {
 
     for (const file of selected) {
       const key = `${file.name}-${file.size}`;
-      if (seen.has(key)) { errors.push(`"${file.name}" is already attached.`); continue; }
+      if (seen.has(key)) { errors.push(`"${file.name}" already attached.`); continue; }
       const err = validateFile(file);
       if (err) { errors.push(err); continue; }
       valid.push(file);
@@ -685,7 +718,6 @@ export default function SupportTicketDetail({ user }) {
     }
 
     if (errors.length) toast.error(errors.join("\n"), { duration: 4000 });
-
     const next = [...files, ...valid].slice(0, 5);
     setFiles(next);
 
@@ -699,7 +731,6 @@ export default function SupportTicketDetail({ user }) {
       };
       reader.readAsDataURL(file);
     });
-
     e.target.value = "";
   }, [files, filePreviews]);
 
@@ -738,7 +769,9 @@ export default function SupportTicketDetail({ user }) {
       setFilePreviews({});
       await loadTicket(true);
     } catch (err) {
-      const parsed = extractApiError(err, `${BASE_URL}/api/support/tickets/${id}/messages`);
+      const parsed = extractApiError(
+        err, `${BASE_URL}/api/support/tickets/${id}/messages`
+      );
       toast.error(parsed?.detail ?? "Failed to send reply.");
     } finally {
       setSending(false);
@@ -805,20 +838,14 @@ export default function SupportTicketDetail({ user }) {
   if (loading) return <LoadingState />;
 
   if (apiError || !ticket) {
-    return (
-      <ErrorState
-        id={id}
-        error={apiError}
-        onRetry={handleRetry}
-      />
-    );
+    return <ErrorState id={id} error={apiError} onRetry={handleRetry} />;
   }
 
   const replyDisabled =
     sending || actionBusy || (!reply.trim() && files.length === 0);
 
   /* ════════════════════════════════════════════════════════
-     RENDER
+     RENDER — TICKET
   ════════════════════════════════════════════════════════ */
   return (
     <div className="ticket-detail-page">
@@ -836,7 +863,7 @@ export default function SupportTicketDetail({ user }) {
 
         {/* ── Header ── */}
         <div className="ticket-detail-header">
-          <Link to="/support/tickets" className="ticket-detail-back" aria-label="Back">
+          <Link to="/support/tickets" className="ticket-detail-back">
             <IconArrowLeft size={20} />
           </Link>
 
@@ -850,7 +877,10 @@ export default function SupportTicketDetail({ user }) {
             <div className="ticket-detail-meta">
               <span className="ticket-detail-category">{ticket.category}</span>
               <span className="ticket-detail-separator" />
-              <span className="ticket-detail-date" title={formatDateTime(ticket.created_at)}>
+              <span
+                className="ticket-detail-date"
+                title={formatDateTime(ticket.created_at)}
+              >
                 <IconClock size={12} />
                 {timeAgo(ticket.created_at)}
               </span>
@@ -861,7 +891,6 @@ export default function SupportTicketDetail({ user }) {
             className="ticket-detail-refresh-btn"
             onClick={() => loadTicket(false)}
             aria-label="Refresh"
-            disabled={loading}
           >
             <IconRefresh size={16} />
           </button>
@@ -901,7 +930,6 @@ export default function SupportTicketDetail({ user }) {
           ref={threadRef}
           role="log"
           aria-live="polite"
-          aria-label="Ticket conversation"
           onScroll={() => {
             const el = threadRef.current;
             if (!el) return;
@@ -952,7 +980,7 @@ export default function SupportTicketDetail({ user }) {
 
         {/* ── Reply box ── */}
         {!isClosed && (
-          <div className="ticket-reply-box" aria-label="Reply form">
+          <div className="ticket-reply-box">
             <label htmlFor="ticket-reply-textarea" className="td-sr-only">
               Your reply
             </label>
