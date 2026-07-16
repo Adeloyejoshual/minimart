@@ -15,9 +15,9 @@ import {
   memo,
   useMemo,
 } from "react";
-import { useParams, Link } from "react-router-dom";
-import axios               from "axios";
-import toast               from "react-hot-toast";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import axios from "axios";
+import toast from "react-hot-toast";
 
 import TicketStatusBadge from "../../components/help/TicketStatusBadge";
 import PriorityBadge     from "../../components/help/PriorityBadge";
@@ -43,15 +43,18 @@ const BASE_URL      = import.meta.env.VITE_API_BASE_URL;
 const POLL_INTERVAL = 20_000;
 
 const ALLOWED_TYPES = [
-  "image/jpeg", "image/png", "image/gif", "image/webp",
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
   "application/pdf",
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
 /* ════════════════════════════════════════════════════════════
-   HELPERS
+   AUTH
 ════════════════════════════════════════════════════════════ */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
@@ -62,6 +65,9 @@ const authHeader = () => ({
   headers: { Authorization: `Bearer ${getToken()}` },
 });
 
+/* ════════════════════════════════════════════════════════════
+   HELPERS
+════════════════════════════════════════════════════════════ */
 function formatDateTime(d) {
   if (!d) return "";
   return new Date(d).toLocaleString("en-GB", {
@@ -85,9 +91,9 @@ function timeAgo(d) {
 
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return "";
-  if (bytes < 1024)         return `${bytes} B`;
-  if (bytes < 1024 * 1024)  return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+  if (bytes < 1024)          return `${bytes} B`;
+  if (bytes < 1024 * 1024)   return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function canReopenTicket(ticket) {
@@ -98,61 +104,115 @@ function canReopenTicket(ticket) {
 }
 
 function validateFile(file) {
-  if (file.size > MAX_FILE_SIZE) {
+  if (file.size > MAX_FILE_SIZE)
     return `"${file.name}" exceeds the 10 MB limit.`;
-  }
-  if (!ALLOWED_TYPES.includes(file.type)) {
+  if (!ALLOWED_TYPES.includes(file.type))
     return `"${file.name}" has an unsupported file type.`;
-  }
   return null;
 }
 
-/*
- * ════════════════════════════════════════════════════════════
- * unwrapTicket
- * ════════════════════════════════════════════════════════════
- * THE ROOT CAUSE FIX.
- *
- * The API returns:
- *   { success: true, ticket: { id, ticket_number, status, messages... } }
- *
- * Previous code did:
- *   setTicket(res.data)               ← sets the WRAPPER object
- *   ticket.ticket_number → undefined  ← wrapper has no ticket_number
- *   ticket.id → undefined             ← wrapper has no id
- *   → second fetch: /api/support/tickets/undefined → 404
- *
- * This function safely unwraps any response shape.
- */
+/* ════════════════════════════════════════════════════════════
+   UNWRAP TICKET
+   ─────────────────────────────────────────────────────────
+   API returns  { success: true, ticket: { id, ticket_number… } }
+   We need the inner ticket, not the envelope.
+   Falls back gracefully for { id, ticket_number } direct shapes.
+════════════════════════════════════════════════════════════ */
 function unwrapTicket(data) {
   if (!data) return null;
 
-  /* { success: true, ticket: { id, ... } } ← standard shape */
-  if (data.ticket && typeof data.ticket === "object" && data.ticket.id) {
+  // Standard envelope: { success, ticket: { id, … } }
+  if (data.ticket && typeof data.ticket === "object" && data.ticket.id)
     return data.ticket;
-  }
 
-  /* { id, ticket_number, status, ... } ← direct object */
-  if (data.id && data.ticket_number) {
+  // Direct object: { id, ticket_number, … }
+  if (data.id)
     return data;
-  }
 
-  /* { data: { id, ... } } ← rare wrapper */
-  if (data.data && data.data.id) {
+  // Rare: { data: { id, … } }
+  if (data.data?.id)
     return data.data;
-  }
 
   return null;
 }
 
 /* ════════════════════════════════════════════════════════════
+   EXTRACT REAL ERROR MESSAGE FROM AXIOS ERROR
+   ─────────────────────────────────────────────────────────
+   Reads the actual server message from err.response.data
+   instead of swallowing it with a generic fallback.
+════════════════════════════════════════════════════════════ */
+function extractApiError(err, ticketId) {
+  // No response — network / offline / timeout
+  if (!err.response) {
+    if (err.code === "ECONNABORTED" || err.message?.includes("timeout"))
+      return "The request timed out. Please check your connection and try again.";
+    if (typeof navigator !== "undefined" && !navigator.onLine)
+      return "You appear to be offline. Please check your internet connection.";
+    return "Network error — could not reach the server.";
+  }
+
+  const { status, data } = err.response;
+
+  // Pull real message from every common API shape
+  const serverMsg =
+    data?.message ||
+    data?.error?.message ||
+    data?.error ||
+    data?.detail ||
+    data?.errors?.[0]?.message ||
+    data?.msg ||
+    null;
+
+  switch (status) {
+    case 400:
+      return serverMsg || "Bad request. Please try again.";
+    case 401:
+      return serverMsg || "Your session has expired. Please sign in again.";
+    case 403:
+      return serverMsg ||
+        "You don't have permission to view this ticket. It may belong to another account.";
+    case 404:
+      return serverMsg ||
+        `Ticket #${ticketId?.slice(0, 8) ?? "?"} was not found. It may have been deleted.`;
+    case 410:
+      return serverMsg || "This ticket has been permanently deleted.";
+    case 422:
+      return serverMsg || "The ticket ID format is invalid.";
+    case 429:
+      return serverMsg || "Too many requests. Please wait a moment and try again.";
+    case 500:
+      return serverMsg || "Server error — our team has been notified. Please try again shortly.";
+    case 502:
+    case 503:
+    case 504:
+      return serverMsg || "Service temporarily unavailable. Please try again in a few minutes.";
+    default:
+      return serverMsg || `Unexpected error (HTTP ${status}). Please try again.`;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
    CONFIRM DIALOG
 ════════════════════════════════════════════════════════════ */
-function ConfirmDialog({ title, body, onConfirm, onCancel, danger = false }) {
+const ConfirmDialog = memo(function ConfirmDialog({
+  title,
+  body,
+  onConfirm,
+  onCancel,
+  danger = false,
+}) {
   return (
-    <div className="td-confirm-overlay" role="dialog" aria-modal="true" aria-labelledby="td-confirm-title">
+    <div
+      className="td-confirm-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="td-confirm-title"
+    >
       <div className="td-confirm-box">
-        <h3 className="td-confirm-title" id="td-confirm-title">{title}</h3>
+        <h3 className="td-confirm-title" id="td-confirm-title">
+          {title}
+        </h3>
         <p className="td-confirm-body">{body}</p>
         <div className="td-confirm-actions">
           <button className="td-confirm-cancel" onClick={onCancel}>
@@ -168,10 +228,10 @@ function ConfirmDialog({ title, body, onConfirm, onCancel, danger = false }) {
       </div>
     </div>
   );
-}
+});
 
 /* ════════════════════════════════════════════════════════════
-   TICKET MESSAGE — memoized
+   TICKET MESSAGE
 ════════════════════════════════════════════════════════════ */
 const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
   if (isSystem) {
@@ -183,15 +243,21 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
   }
 
   return (
-    <div className={`ticket-message ${isOwn ? "ticket-message-own" : "ticket-message-agent"}`}>
-
+    <div
+      className={`ticket-message ${
+        isOwn ? "ticket-message-own" : "ticket-message-agent"
+      }`}
+    >
       {/* Avatar */}
       <div className="ticket-message-avatar" aria-hidden="true">
         {msg.sender_avatar ? (
           <img
             src={msg.sender_avatar}
             alt={msg.sender_name ?? "User"}
-            style={{ width: 36, height: 36, borderRadius: "50%", objectFit: "cover" }}
+            style={{
+              width: 36, height: 36,
+              borderRadius: "50%", objectFit: "cover",
+            }}
           />
         ) : (
           <IconUser size={18} />
@@ -202,7 +268,7 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
       <div className="ticket-message-content">
         <div className="ticket-message-header">
           <span className="ticket-message-sender">
-            {isOwn ? "You" : (msg.sender_name ?? "Support Agent")}
+            {isOwn ? "You" : msg.sender_name ?? "Support Agent"}
           </span>
           <span
             className="ticket-message-time"
@@ -222,12 +288,18 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
               return (
                 <div key={att.id} className="ticket-message-attachment-wrap">
                   {isImage && (
-                    <a href={att.file_url} target="_blank" rel="noopener noreferrer">
+                    <a
+                      href={att.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
                       <img
                         src={att.file_url}
                         alt={att.file_name}
                         className="ticket-attachment-preview"
-                        onError={(e) => { e.currentTarget.style.display = "none"; }}
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
                       />
                     </a>
                   )}
@@ -256,15 +328,114 @@ const TicketMessage = memo(function TicketMessage({ msg, isOwn, isSystem }) {
 });
 
 /* ════════════════════════════════════════════════════════════
+   LOADING SKELETON
+════════════════════════════════════════════════════════════ */
+const LoadingSkeleton = memo(function LoadingSkeleton() {
+  return (
+    <div className="ticket-detail-page">
+      <div className="ticket-detail-container">
+        <div className="ticket-detail-loading" role="status" aria-busy="true">
+          <IconLoader size={28} className="ticket-reply-spinner" />
+          <p>Loading ticket…</p>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/* ════════════════════════════════════════════════════════════
+   ERROR STATE
+════════════════════════════════════════════════════════════ */
+const ErrorState = memo(function ErrorState({
+  ticketId,
+  errorMessage,
+  onRetry,
+}) {
+  const navigate = useNavigate();
+
+  return (
+    <div className="ticket-detail-page">
+      <div className="ticket-detail-container">
+        <div className="ticket-detail-error" role="alert">
+          <IconAlertTriangle size={44} className="ticket-detail-error-icon" />
+
+          <p className="ticket-detail-error-title">Could not load ticket</p>
+
+          {/*
+            THE FIX:
+            Show the REAL error message from the server / network.
+            No more generic "Please try again" — users see exactly
+            what went wrong (403 permission, 404 not found, 500 server, etc.)
+          */}
+          <p className="ticket-detail-error-msg">{errorMessage}</p>
+
+          {/* Show ticket ID so user knows which one failed */}
+          {ticketId && ticketId !== "undefined" && (
+            <p className="ticket-detail-error-tid">
+              Ticket ID: <code>{ticketId}</code>
+            </p>
+          )}
+
+          <div className="ticket-detail-error-btns">
+            <button className="ticket-detail-retry-btn" onClick={onRetry}>
+              <IconRefresh size={15} />
+              Try Again
+            </button>
+
+            <Link
+              to="/support/tickets"
+              className="ticket-detail-error-btn"
+            >
+              <IconArrowLeft size={16} />
+              Back to Tickets
+            </Link>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/* ════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ════════════════════════════════════════════════════════════ */
 export default function SupportTicketDetail({ user }) {
-  const { id } = useParams();
+  /* ── useParams() — id matches <Route path="/support/tickets/:id"> ── */
+  const params = useParams();
+
+  /*
+   * DEFENSIVE param reading.
+   * Covers all possible route param names so it never resolves
+   * to the string "undefined":
+   *   /support/tickets/:id          → params.id
+   *   /support/tickets/:ticketId    → params.ticketId
+   *   /support/tickets/:ticket_id   → params.ticket_id
+   */
+  const rawId =
+    params.id ||
+    params.ticketId ||
+    params.ticket_id ||
+    null;
+
+  /*
+   * If the URL contains an actual UUID, use it directly.
+   * e.g. /support/tickets/f485f5d8-7138-46eb-97b4-1d944aecfb82
+   * Even if useParams() returns {}  we can pull it from the path.
+   */
+  const uuidFromPath = useMemo(() => {
+    const parts = window.location.pathname.split("/").filter(Boolean);
+    const last  = parts[parts.length - 1];
+    const uuid  =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    return uuid.test(last) ? last : null;
+  }, []);
+
+  const id = rawId && rawId !== "undefined" ? rawId : uuidFromPath;
 
   /* ── State ── */
   const [ticket,       setTicket]       = useState(null);
   const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState(null);
+  const [errorMsg,     setErrorMsg]     = useState(null);
   const [reply,        setReply]        = useState("");
   const [files,        setFiles]        = useState([]);
   const [filePreviews, setFilePreviews] = useState({});
@@ -281,82 +452,87 @@ export default function SupportTicketDetail({ user }) {
 
   /* ════════════════════════════════════════════════════════
      LOAD TICKET
-     silent = true  → no loading spinner, no error clear
-     silent = false → full loading state reset
   ════════════════════════════════════════════════════════ */
-  const loadTicket = useCallback(async (silent = false) => {
-    const token = getToken();
+  const loadTicket = useCallback(
+    async (silent = false) => {
+      const token = getToken();
 
-    if (!token) {
-      setError("Please sign in to view this ticket.");
-      setLoading(false);
-      return;
-    }
-
-    /* Validate id before making request */
-    if (!id || id === "undefined" || id === "null") {
-      setError("Invalid ticket ID. Please go back and try again.");
-      setLoading(false);
-      return;
-    }
-
-    try {
-      if (!silent) setError(null);
-
-      const { data } = await axios.get(
-        `${BASE_URL}/api/support/tickets/${id}`,
-        authHeader()
-      );
-
-      if (!isMounted.current) return;
-
-      /*
-       * FIX — unwrap the API envelope.
-       * API returns: { success: true, ticket: { id, ticket_number... } }
-       * We need the inner ticket object, not the wrapper.
-       */
-      const ticketData = unwrapTicket(data);
-
-      if (!ticketData) {
-        setError("Ticket not found.");
-        setTicket(null);
-      } else {
-        setTicket(ticketData);
-        if (!silent) setError(null);
+      /* ── No token ── */
+      if (!token) {
+        setErrorMsg("Please sign in to view this ticket.");
+        setLoading(false);
+        return;
       }
-    } catch (err) {
-      if (!isMounted.current) return;
 
-      const status  = err?.response?.status;
-      const message = err?.response?.data?.message;
+      /* ── No valid ID ── */
+      if (!id) {
+        setErrorMsg(
+          "No ticket ID found in the URL. Please go back and select a ticket."
+        );
+        setLoading(false);
+        return;
+      }
 
-      console.error(
-        `[SupportTicketDetail] GET /api/support/tickets/${id}`,
-        status,
-        message ?? err.message
-      );
+      /* ── Validate UUID format ── */
+      const uuidRegex =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-      if (!silent) {
-        if (status === 404) {
-          setError("Ticket not found. It may have been deleted.");
-        } else if (status === 401) {
-          setError("Your session has expired. Please sign in again.");
-        } else if (status === 403) {
-          setError("You do not have permission to view this ticket.");
+      if (!uuidRegex.test(id)) {
+        setErrorMsg(
+          `"${id}" is not a valid ticket identifier. Please check the URL.`
+        );
+        setLoading(false);
+        return;
+      }
+
+      try {
+        if (!silent) setErrorMsg(null);
+
+        const { data } = await axios.get(
+          `${BASE_URL}/api/support/tickets/${id}`,
+          authHeader()
+        );
+
+        if (!isMounted.current) return;
+
+        /* Unwrap { success, ticket: { … } } envelope */
+        const ticketData = unwrapTicket(data);
+
+        if (!ticketData) {
+          if (!silent) setErrorMsg("Ticket data was empty. Please try again.");
         } else {
-          setError(message ?? "Could not load ticket. Please try again.");
+          setTicket(ticketData);
+          if (!silent) setErrorMsg(null);
         }
+      } catch (err) {
+        if (!isMounted.current) return;
+
+        /* Log full error in dev for debugging */
+        if (import.meta.env.DEV) {
+          console.error("[SupportTicketDetail] fetch error", {
+            id,
+            status : err?.response?.status,
+            data   : err?.response?.data,
+            message: err.message,
+          });
+        }
+
+        /* Only update error UI for non-silent fetches */
+        if (!silent) {
+          setErrorMsg(extractApiError(err, id));
+        }
+      } finally {
+        if (isMounted.current && !silent) setLoading(false);
       }
-    } finally {
-      if (isMounted.current && !silent) setLoading(false);
-    }
-  }, [id]);
+    },
+    [id]
+  );
 
   /* ── Mount / unmount ── */
   useEffect(() => {
     isMounted.current = true;
     setLoading(true);
-    setError(null);
+    setErrorMsg(null);
     setTicket(null);
     loadTicket(false);
     return () => {
@@ -374,7 +550,7 @@ export default function SupportTicketDetail({ user }) {
     return () => clearInterval(pollRef.current);
   }, [loadTicket]);
 
-  /* ── Auto-scroll to bottom of thread ── */
+  /* ── Auto-scroll to bottom ── */
   useEffect(() => {
     if (shouldScroll.current && threadRef.current) {
       threadRef.current.scrollTop = threadRef.current.scrollHeight;
@@ -392,73 +568,77 @@ export default function SupportTicketDetail({ user }) {
     messages,
     currentUserId,
   } = useMemo(() => {
-    if (!ticket) return {
-      isClosed: false, isResolved: false, reopenOk: false,
-      canClose: false, messages: [], currentUserId: null,
-    };
+    if (!ticket)
+      return {
+        isClosed: false, isResolved: false, reopenOk: false,
+        canClose: false, messages: [], currentUserId: null,
+      };
+
     return {
-      isClosed      : ticket.status === "closed",
-      isResolved    : ticket.status === "resolved",
-      reopenOk      : canReopenTicket(ticket),
-      canClose      : ["open","waiting_for_customer","in_progress","resolved"]
-                        .includes(ticket.status),
-      messages      : Array.isArray(ticket.messages) ? ticket.messages : [],
+      isClosed   : ticket.status === "closed",
+      isResolved : ticket.status === "resolved",
+      reopenOk   : canReopenTicket(ticket),
+      canClose   : ["open", "waiting_for_customer", "in_progress", "resolved"].includes(
+        ticket.status
+      ),
+      messages   : Array.isArray(ticket.messages) ? ticket.messages : [],
       /*
-       * FIX — check multiple possible id fields.
-       * user prop comes from App.jsx GET /api/users/me response.
-       * Backend may return id, _id, or user_id depending on DB setup.
+       * currentUserId — read every possible id field the API might return.
+       * user prop comes from App.jsx → GET /api/users/me.
        */
-      currentUserId : user?.id ?? user?._id ?? user?.user_id ?? null,
+      currentUserId:
+        user?.id ?? user?._id ?? user?.user_id ?? user?.uuid ?? null,
     };
   }, [ticket, user]);
 
   /* ════════════════════════════════════════════════════════
      FILE HANDLING
   ════════════════════════════════════════════════════════ */
-  const handleFileChange = useCallback((e) => {
-    const selected = Array.from(e.target.files || []);
-    const errors   = [];
-    const valid    = [];
-    const seen     = new Set(files.map((f) => `${f.name}-${f.size}`));
+  const handleFileChange = useCallback(
+    (e) => {
+      const selected = Array.from(e.target.files || []);
+      const errors   = [];
+      const valid    = [];
+      const seen     = new Set(files.map((f) => `${f.name}-${f.size}`));
 
-    for (const file of selected) {
-      const key = `${file.name}-${file.size}`;
-      if (seen.has(key)) {
-        errors.push(`"${file.name}" is already attached.`);
-        continue;
-      }
-      const err = validateFile(file);
-      if (err) { errors.push(err); continue; }
-      valid.push(file);
-      seen.add(key);
-    }
-
-    if (errors.length) {
-      toast.error(errors.join("\n"), { duration: 4000 });
-    }
-
-    const next = [...files, ...valid].slice(0, 5);
-    setFiles(next);
-
-    /* Image previews */
-    next.forEach((file) => {
-      const key = `${file.name}-${file.size}`;
-      if (!file.type.startsWith("image/") || filePreviews[key]) return;
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        if (isMounted.current) {
-          setFilePreviews((prev) => ({ ...prev, [key]: ev.target.result }));
+      for (const file of selected) {
+        const key = `${file.name}-${file.size}`;
+        if (seen.has(key)) {
+          errors.push(`"${file.name}" is already attached.`);
+          continue;
         }
-      };
-      reader.readAsDataURL(file);
-    });
+        const err = validateFile(file);
+        if (err) { errors.push(err); continue; }
+        valid.push(file);
+        seen.add(key);
+      }
 
-    e.target.value = "";
-  }, [files, filePreviews]);
+      if (errors.length) toast.error(errors.join("\n"), { duration: 4000 });
 
-  const removeFile = useCallback((index) => {
-    setFiles((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+      const next = [...files, ...valid].slice(0, 5);
+      setFiles(next);
+
+      /* Image previews */
+      next.forEach((file) => {
+        const key = `${file.name}-${file.size}`;
+        if (!file.type.startsWith("image/") || filePreviews[key]) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+          if (isMounted.current)
+            setFilePreviews((prev) => ({ ...prev, [key]: ev.target.result }));
+        };
+        reader.readAsDataURL(file);
+      });
+
+      e.target.value = "";
+    },
+    [files, filePreviews]
+  );
+
+  const removeFile = useCallback(
+    (index) => setFiles((prev) => prev.filter((_, i) => i !== index)),
+    []
+  );
 
   /* ════════════════════════════════════════════════════════
      SEND REPLY
@@ -478,8 +658,8 @@ export default function SupportTicketDetail({ user }) {
         formData,
         {
           headers: {
-            Authorization  : `Bearer ${getToken()}`,
-            "Content-Type" : "multipart/form-data",
+            Authorization : `Bearer ${getToken()}`,
+            "Content-Type": "multipart/form-data",
           },
         }
       );
@@ -490,19 +670,22 @@ export default function SupportTicketDetail({ user }) {
       setFilePreviews({});
       await loadTicket(true);
     } catch (err) {
-      console.error("[SupportTicketDetail] reply:", err.message);
-      toast.error(err?.response?.data?.message ?? "Failed to send reply.");
+      const msg = extractApiError(err, id);
+      toast.error(msg);
     } finally {
       setSending(false);
     }
   }, [reply, files, id, loadTicket]);
 
-  const handleKeyDown = useCallback((e) => {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-      e.preventDefault();
-      handleReply();
-    }
-  }, [handleReply]);
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleReply();
+      }
+    },
+    [handleReply]
+  );
 
   /* ════════════════════════════════════════════════════════
      CLOSE TICKET
@@ -519,7 +702,7 @@ export default function SupportTicketDetail({ user }) {
       toast.success("Ticket closed.");
       await loadTicket(false);
     } catch (err) {
-      toast.error(err?.response?.data?.message ?? "Failed to close ticket.");
+      toast.error(extractApiError(err, id));
     } finally {
       setActionBusy(false);
     }
@@ -539,78 +722,45 @@ export default function SupportTicketDetail({ user }) {
       toast.success("Ticket reopened.");
       await loadTicket(false);
     } catch (err) {
-      toast.error(err?.response?.data?.message ?? "Failed to reopen ticket.");
+      toast.error(extractApiError(err, id));
     } finally {
       setActionBusy(false);
     }
   }, [id, loadTicket]);
 
-  /* ════════════════════════════════════════════════════════
-     RETRY
-  ════════════════════════════════════════════════════════ */
+  /* ── Retry ── */
   const handleRetry = useCallback(() => {
     setLoading(true);
-    setError(null);
+    setErrorMsg(null);
     setTicket(null);
     loadTicket(false);
   }, [loadTicket]);
 
   /* ════════════════════════════════════════════════════════
-     LOADING
+     RENDER — LOADING
   ════════════════════════════════════════════════════════ */
-  if (loading) {
+  if (loading) return <LoadingSkeleton />;
+
+  /* ════════════════════════════════════════════════════════
+     RENDER — ERROR
+  ════════════════════════════════════════════════════════ */
+  if (errorMsg || !ticket) {
     return (
-      <div className="ticket-detail-page">
-        <div className="ticket-detail-container">
-          <div className="ticket-detail-loading" role="status" aria-busy="true">
-            <IconLoader size={28} className="ticket-reply-spinner" />
-            <p>Loading ticket…</p>
-          </div>
-        </div>
-      </div>
+      <ErrorState
+        ticketId={id}
+        errorMessage={
+          errorMsg ?? "Ticket not found. It may have been deleted."
+        }
+        onRetry={handleRetry}
+      />
     );
   }
 
-  /* ════════════════════════════════════════════════════════
-     ERROR
-  ════════════════════════════════════════════════════════ */
-  if (error || !ticket) {
-    return (
-      <div className="ticket-detail-page">
-        <div className="ticket-detail-container">
-          <div className="ticket-detail-error" role="alert">
-            <IconAlertTriangle size={40} className="ticket-detail-error-icon" />
-            <p className="ticket-detail-error-title">
-              {error ?? "Ticket not found."}
-            </p>
-            <p className="ticket-detail-error-sub">
-              The ticket may have been removed or you may not have
-              permission to view it.
-            </p>
-            <div className="ticket-detail-error-btns">
-              <button
-                className="ticket-detail-retry-btn"
-                onClick={handleRetry}
-              >
-                <IconRefresh size={15} />
-                Try Again
-              </button>
-              <Link to="/support/tickets" className="ticket-detail-error-btn">
-                <IconArrowLeft size={16} />
-                Back to Tickets
-              </Link>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const replyDisabled = sending || actionBusy ||
-    (!reply.trim() && files.length === 0);
+  const replyDisabled =
+    sending || actionBusy || (!reply.trim() && files.length === 0);
 
   /* ════════════════════════════════════════════════════════
-     RENDER
+     RENDER — TICKET
   ════════════════════════════════════════════════════════ */
   return (
     <div className="ticket-detail-page">
@@ -620,7 +770,7 @@ export default function SupportTicketDetail({ user }) {
         {showConfirm && (
           <ConfirmDialog
             title="Close this ticket?"
-            body="Once closed, you will have 7 days to reopen it. Are you sure you want to close this ticket?"
+            body="Once closed, you will have 7 days to reopen it. Are you sure?"
             danger
             onConfirm={handleClose}
             onCancel={() => setShowConfirm(false)}
@@ -643,7 +793,7 @@ export default function SupportTicketDetail({ user }) {
                 {ticket.ticket_number}
               </span>
               <TicketStatusBadge status={ticket.status} />
-              <PriorityBadge    priority={ticket.priority} />
+              <PriorityBadge priority={ticket.priority} />
             </div>
             <h1 className="ticket-detail-subject">{ticket.subject}</h1>
             <div className="ticket-detail-meta">
@@ -659,11 +809,12 @@ export default function SupportTicketDetail({ user }) {
             </div>
           </div>
 
-          {/* Refresh */}
+          {/* Manual refresh */}
           <button
             className="ticket-detail-refresh-btn"
             onClick={() => loadTicket(false)}
             aria-label="Refresh ticket"
+            disabled={loading}
           >
             <IconRefresh size={16} />
           </button>
@@ -676,7 +827,6 @@ export default function SupportTicketDetail({ user }) {
               onClick={() => setShowConfirm(true)}
               disabled={actionBusy || sending}
               className="ticket-action-btn ticket-action-close"
-              aria-label="Close this ticket"
             >
               <IconLock size={16} />
               Close Ticket
@@ -687,7 +837,6 @@ export default function SupportTicketDetail({ user }) {
               onClick={handleReopen}
               disabled={actionBusy || sending}
               className="ticket-action-btn ticket-action-reopen"
-              aria-label="Reopen this ticket"
             >
               <IconRotateCcw size={16} />
               Reopen Ticket
@@ -701,7 +850,7 @@ export default function SupportTicketDetail({ user }) {
           )}
         </div>
 
-        {/* ── Messages thread ── */}
+        {/* ── Thread ── */}
         <div
           className="ticket-messages"
           ref={threadRef}
@@ -716,14 +865,14 @@ export default function SupportTicketDetail({ user }) {
             shouldScroll.current = atBottom;
           }}
         >
-          {/* Empty state */}
+          {/* Empty */}
           {messages.length === 0 && !ticket.description && (
             <div className="ticket-messages-empty">
               <p>No messages yet. Start the conversation below.</p>
             </div>
           )}
 
-          {/* Original description (only if no messages yet) */}
+          {/* Original description when no messages */}
           {messages.length === 0 && ticket.description && (
             <TicketMessage
               msg={{
@@ -744,13 +893,9 @@ export default function SupportTicketDetail({ user }) {
           {/* All messages */}
           {messages.map((msg) => {
             /*
-             * FIX — determine ownership correctly.
-             *
-             * currentUserId comes from user?.id (App.jsx passes user prop).
-             * msg.sender_id is the UUID stored in the DB.
-             *
-             * If currentUserId is null (user prop not available),
-             * fall back to: message is from user if sender is NOT an admin.
+             * Determine ownership.
+             * If currentUserId is known, compare directly.
+             * Fallback: treat as own if not from admin/support_agent role.
              */
             const isOwn = currentUserId
               ? String(msg.sender_id) === String(currentUserId)
@@ -772,7 +917,6 @@ export default function SupportTicketDetail({ user }) {
         {/* ── Reply box ── */}
         {!isClosed && (
           <div className="ticket-reply-box" aria-label="Reply form">
-
             <label htmlFor="ticket-reply-textarea" className="td-sr-only">
               Your reply
             </label>
@@ -788,7 +932,7 @@ export default function SupportTicketDetail({ user }) {
               disabled={sending || actionBusy}
             />
 
-            {/* File previews */}
+            {/* File chips */}
             {files.length > 0 && (
               <div
                 className="ticket-reply-files"
@@ -800,7 +944,11 @@ export default function SupportTicketDetail({ user }) {
                   const preview = filePreviews[key];
                   const isImage = f.type.startsWith("image/");
                   return (
-                    <div key={i} className="ticket-reply-file-chip" role="listitem">
+                    <div
+                      key={i}
+                      className="ticket-reply-file-chip"
+                      role="listitem"
+                    >
                       {isImage && preview && (
                         <img
                           src={preview}
