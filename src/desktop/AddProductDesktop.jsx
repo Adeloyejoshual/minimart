@@ -5,7 +5,7 @@
 
 import { useAddProduct }        from "../hooks/useAddProduct.js";
 import { AddProductProvider }   from "../hooks/useAddProductContext.jsx";
-import DesktopShell             from "../product/DesktopShell.jsx";
+import DesktopShell             from "./DesktopShell.jsx";
 
 export default function AddProductDesktop({ user }) {
   const logic = useAddProduct({ user });
