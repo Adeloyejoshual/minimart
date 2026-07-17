@@ -3,7 +3,7 @@
  * State · City · GPS detect · Delivery toggle · Delivery details
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAddProductContext } from "../../hooks/useAddProductContext.js";
+import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import DropdownModal from "../../components/DropdownModal.jsx";
 import SectionDot    from "../components/SectionDot.jsx";
 import CharCounter   from "../components/CharCounter.jsx";
