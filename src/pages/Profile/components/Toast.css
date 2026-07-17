@@ -1,0 +1,47 @@
+/* src/pages/Profile/components/Toast.css */
+
+.toast-stack {
+  position: fixed;
+  bottom: 140px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 600;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  border-radius: 99px;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: var(--s2);
+  font-family: var(--fb);
+  animation: toast-in 0.2s ease;
+}
+
+.toast-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.toast-msg {
+  flex: 1;
+}
+
+.toast--success { background: var(--gn);  color: var(--wh); }
+.toast--error   { background: #dc2626;    color: var(--wh); }
+.toast--info    { background: #2563eb;    color: var(--wh); }
+.toast--warn    { background: #f59e0b;    color: var(--wh); }
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
