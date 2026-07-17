@@ -1,28 +1,34 @@
 /**
  * src/pages/product/components.jsx
- * v2 — Edit mode + design tokens + external CSS
- *
- * Changes:
- *  ─ Edit mode: shows existing images, different title/button text
- *  ─ ExistingImageGrid: displays server images with remove button
- *  ─ INITIAL_FORM removed from props (imported directly)
- *  ─ Design tokens used throughout (--o, --ink, --bd, etc.)
- *  ─ Styles moved to AddProduct.css
- *  ─ moveImage now handles both existing + new (moveAllImages)
- *  ─ totalImageCount prop used for image limit display
- *  ─ Submit button / page title adapt to edit mode
- *  ─ Payment plan section hidden in edit mode
- *  ─ Terms checkbox hidden in edit mode (auto-agreed)
+ * Main shell — imports all sub-components, owns page-level logic only
  */
-
 import {
-  useMemo, useState, useEffect, useCallback, useRef, memo,
+  useMemo, useState, useEffect, useCallback, useRef,
 } from "react";
 import { Link }           from "react-router-dom";
 import DropdownModal      from "../../components/DropdownModal.jsx";
 import AddProductHeader   from "../../components/AddProductHeader.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
 import { INITIAL_FORM }   from "../../hooks/useFormState.js";
+
+import {
+  SectionDot,
+  CharCounter,
+  PaymentCountdown,
+  ExistingImageGrid,
+  ImageGrid,
+  VerificationUpsellModal,
+  VerificationNudgeBanner,
+  WarningIcon,
+  CheckCircleIcon,
+  CardIcon,
+  LocationPinIcon,
+  SpinnerIcon,
+  CheckIcon,
+  StarIcon,
+} from "./components/index.jsx";
+
+import "../../styles/AddProduct.css";
 
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
@@ -48,17 +54,13 @@ function getSelectedCategory(categories, id) {
   return categories.find((item) => String(item.id) === String(id)) ?? null;
 }
 
-const toArray = (v) => (Array.isArray(v) ? v : []);
-const safeStr = (v) => (typeof v === "string" ? v : String(v ?? ""));
-
-const deepClone = (obj) =>
-  typeof structuredClone === "function"
-    ? structuredClone(obj)
-    : JSON.parse(JSON.stringify(obj));
-
+const toArray  = (v) => (Array.isArray(v) ? v : []);
+const safeStr  = (v) => (typeof v === "string" ? v : String(v ?? ""));
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token");
+
+const deepClone = (obj) => structuredClone(obj);
 
 async function hashImageFile(file) {
   try {
@@ -71,538 +73,6 @@ async function hashImageFile(file) {
     return `${file.name}-${file.size}-${file.lastModified}`;
   }
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   SVG ICONS
-═══════════════════════════════════════════════════════════════ */
-const LocationPinIcon = () => (
-  <svg viewBox="0 0 20 20" width="15" height="15" fill="none"
-       stroke="currentColor" strokeWidth="1.7"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M10 2a6 6 0 016 6c0 4-6 10-6 10S4 12 4 8a6 6 0 016-6z"/>
-    <circle cx="10" cy="8" r="2"/>
-  </svg>
-);
-
-const SpinnerIcon = () => (
-  <svg className="btn-spin-svg" viewBox="0 0 20 20" width="15" height="15"
-       fill="none" stroke="currentColor" strokeWidth="2.2"
-       strokeLinecap="round" aria-hidden="true">
-    <circle cx="10" cy="10" r="7" strokeOpacity="0.25"/>
-    <path d="M10 3a7 7 0 017 7"/>
-  </svg>
-);
-
-const WarningIcon = () => (
-  <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
-       stroke="currentColor" strokeWidth="1.7"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M9.26 3.23L2.02 15.5A.9.9 0 002.76 17h14.48a.9.9 0 00.74-1.5L10.74 3.23a.9.9 0 00-1.48 0z"/>
-    <line x1="10" y1="8" x2="10" y2="12"/>
-    <circle cx="10" cy="14.5" r="0.5" fill="currentColor" stroke="none"/>
-  </svg>
-);
-
-const CheckCircleIcon = () => (
-  <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
-       stroke="currentColor" strokeWidth="1.7"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <circle cx="10" cy="10" r="8"/>
-    <polyline points="6 10 9 13 14 7"/>
-  </svg>
-);
-
-const CardIcon = () => (
-  <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
-       stroke="currentColor" strokeWidth="1.7"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="2" y="4" width="16" height="12" rx="2"/>
-    <line x1="2" y1="9" x2="18" y2="9"/>
-  </svg>
-);
-
-const ClockIcon = () => (
-  <svg viewBox="0 0 20 20" width="13" height="13" fill="none"
-       stroke="currentColor" strokeWidth="1.7"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <circle cx="10" cy="10" r="8"/>
-    <polyline points="10 6 10 10 13 12"/>
-  </svg>
-);
-
-const ShieldIcon = () => (
-  <svg viewBox="0 0 20 20" width="16" height="16" fill="none"
-       stroke="currentColor" strokeWidth="1.7"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M10 2L4 5v5c0 4.4 2.6 8.2 6 9.6 3.4-1.4 6-5.2 6-9.6V5l-6-3z"/>
-  </svg>
-);
-
-const ImageIcon = () => (
-  <svg viewBox="0 0 20 20" width="22" height="22" fill="none"
-       stroke="currentColor" strokeWidth="1.4"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <rect x="2" y="3" width="16" height="14" rx="2"/>
-    <circle cx="7" cy="8" r="1.5"/>
-    <polyline points="2 14 6 10 9 13 12 10 18 15"/>
-  </svg>
-);
-
-const CheckIcon = () => (
-  <svg viewBox="0 0 16 16" width="12" height="12" fill="none"
-       stroke="currentColor" strokeWidth="2.2"
-       strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <polyline points="2 8 6 12 14 4"/>
-  </svg>
-);
-
-const StarIcon = () => (
-  <svg viewBox="0 0 20 20" width="12" height="12" fill="currentColor" aria-hidden="true">
-    <polygon points="10 1 12.9 7 19.5 7.6 14.5 12 16.2 18.5 10 15 3.8 18.5 5.5 12 0.5 7.6 7.1 7"/>
-  </svg>
-);
-
-/* ═══════════════════════════════════════════════════════════════
-   PAYMENT COUNTDOWN
-═══════════════════════════════════════════════════════════════ */
-function PaymentCountdown({ createdAt, maxAgeMs }) {
-  const compute = useCallback(
-    () => Math.max(0, maxAgeMs - (Date.now() - createdAt)),
-    [createdAt, maxAgeMs]
-  );
-  const [remaining, setRemaining] = useState(compute);
-
-  useEffect(() => {
-    const id = setInterval(() => setRemaining(compute()), 1_000);
-    return () => clearInterval(id);
-  }, [compute]);
-
-  const mins = Math.floor(remaining / 60_000);
-  const secs = Math.floor((remaining % 60_000) / 1_000);
-
-  if (remaining <= 0) {
-    return (
-      <p className="payment-expired">
-        <WarningIcon /> Payment link expired — resubmit to get a new one.
-      </p>
-    );
-  }
-  return (
-    <p>
-      Complete it to make your listing live.{" "}
-      <strong>
-        <ClockIcon /> Expires in {mins}:{String(secs).padStart(2, "0")}
-      </strong>
-    </p>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   CHARACTER COUNTER
-═══════════════════════════════════════════════════════════════ */
-function CharCounter({ value, max, min = 0 }) {
-  const len      = String(value ?? "").length;
-  const tooShort = min > 0 && len < min && len > 0;
-  const nearMax  = len > max * 0.9;
-  const atMax    = len >= max;
-  return (
-    <span
-      className={[
-        "char-counter",
-        tooShort ? "char-counter--short" : "",
-        nearMax  ? "char-counter--warn"  : "",
-        atMax    ? "char-counter--max"   : "",
-      ].filter(Boolean).join(" ")}
-      aria-live="polite"
-    >
-      {tooShort
-        ? `${min - len} more character${min - len !== 1 ? "s" : ""} needed`
-        : `${len}/${max}`}
-    </span>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   SECTION DOT
-═══════════════════════════════════════════════════════════════ */
-function SectionDot({ filled }) {
-  return (
-    <span
-      className={`section-dot${filled ? " section-dot--filled" : ""}`}
-      aria-hidden="true"
-    />
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   VERIFICATION UPSELL MODAL
-═══════════════════════════════════════════════════════════════ */
-function VerificationUpsellModal({ onClose, trialRemaining = null }) {
-  const modalRef         = useRef(null);
-  const previousFocusRef = useRef(null);
-
-  useEffect(() => {
-    previousFocusRef.current = document.activeElement;
-    const focusable = modalRef.current?.querySelectorAll(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
-    if (focusable?.length) focusable[0].focus();
-
-    const handleKeyDown = (e) => {
-      if (e.key === "Escape") { onClose(); return; }
-      if (e.key !== "Tab" || !modalRef.current) return;
-      const els = [...modalRef.current.querySelectorAll(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-      )].filter((el) => !el.disabled && el.offsetParent !== null);
-      if (!els.length) return;
-      const first = els[0];
-      const last  = els[els.length - 1];
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault(); last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault(); first.focus();
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-    document.body.style.overflow = "hidden";
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "";
-      previousFocusRef.current?.focus?.();
-    };
-  }, [onClose]);
-
-  return (
-    <div className="upsell-overlay" role="dialog" aria-modal="true"
-         aria-label="Identity verification benefits" onClick={onClose}>
-      <div ref={modalRef} className="upsell-modal"
-           onClick={(e) => e.stopPropagation()}>
-        <button type="button" className="upsell-close"
-                onClick={onClose} aria-label="Close">
-          <svg viewBox="0 0 14 14" width="14" height="14" fill="none"
-               stroke="currentColor" strokeWidth="2.2"
-               strokeLinecap="round" aria-hidden="true">
-            <line x1="1" y1="1" x2="13" y2="13"/>
-            <line x1="13" y1="1" x2="1"  y2="13"/>
-          </svg>
-        </button>
-        <div className="upsell-icon" aria-hidden="true">
-          <svg viewBox="0 0 40 40" width="40" height="40" fill="none"
-               stroke="currentColor" strokeWidth="1.8"
-               strokeLinecap="round" strokeLinejoin="round">
-            <path d="M20 4L8 9v9c0 8.8 5.2 16.4 12 19.2C27.8 34.4 32 26.8 32 18V9L20 4z"/>
-            <polyline points="14 20 18 24 26 16"/>
-          </svg>
-        </div>
-        <h2 className="upsell-title">Unlock Full Seller Access</h2>
-        <p className="upsell-subtitle">
-          {trialRemaining !== null && trialRemaining <= 0
-            ? "You have used all 3 free trial listings. Verify your identity to continue posting."
-            : "Verify your identity once — sell without restrictions forever."}
-        </p>
-        <ul className="upsell-benefits" role="list">
-          {[
-            { icon: "∞", label: "Permanent listings — your posts never expire"    },
-            { icon: "↑", label: "100 products per day (vs 3 trial listings)"      },
-            { icon: "☑", label: "500 active listings at once (vs 3 trial)"        },
-            { icon: "⚡", label: "No cooldown between posts"                       },
-            { icon: "★", label: "Higher trust score · more buyer confidence"       },
-          ].map(({ icon, label }) => (
-            <li key={label} className="upsell-benefit">
-              <span className="upsell-benefit-icon" aria-hidden="true">{icon}</span>
-              <span>{label}</span>
-            </li>
-          ))}
-        </ul>
-        <Link to="/verification" className="primary-btn upsell-cta" onClick={onClose}>
-          Start Identity Verification
-        </Link>
-        <p className="upsell-footer">
-          Free &middot; Takes about 2 minutes &middot; Reviewed within 24 hours
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   VERIFICATION NUDGE BANNER (post-creation)
-═══════════════════════════════════════════════════════════════ */
-function VerificationNudgeBanner({ verificationData }) {
-  if (!verificationData) return null;
-  const { daysRemaining = 7, message } = verificationData;
-  return (
-    <div className="verification-nudge-banner" role="status">
-      <div className="verification-nudge-icon"><ShieldIcon /></div>
-      <div className="verification-nudge-content">
-        <strong>
-          Your listing is live for {daysRemaining} day{daysRemaining !== 1 ? "s" : ""}
-        </strong>
-        <p>
-          {message ??
-            "Complete identity verification to make your listings permanent."}
-        </p>
-        <Link to="/verification" className="primary-btn verification-nudge-btn">
-          Complete Verification
-        </Link>
-      </div>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   IMAGE UPLOAD RULES
-═══════════════════════════════════════════════════════════════ */
-const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_BYTES     = 3 * 1024 * 1024;
-
-function ImageUploadRules() {
-  return (
-    <div className="image-upload-rules" aria-label="Upload requirements">
-      {[
-        { ok: true,  label: "JPEG / PNG / WebP"  },
-        { ok: true,  label: "Max 3 MB per image" },
-        { ok: false, label: "No GIF or HEIC"     },
-      ].map(({ ok, label }) => (
-        <span key={label} className={`image-rule image-rule--${ok ? "ok" : "no"}`}>
-          {ok ? "✓" : "✗"} {label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   EXISTING IMAGE GRID  (edit mode — server images)
-═══════════════════════════════════════════════════════════════ */
-const ExistingImageGrid = memo(function ExistingImageGrid({
-  existingImages,
-  onRemove,
-}) {
-  if (!existingImages || existingImages.length === 0) return null;
-
-  return (
-    <div className="existing-images-wrap">
-      <p className="existing-images-label">
-        Current Images
-        <span className="existing-images-hint">
-          — tap × to remove
-        </span>
-      </p>
-      <div className="existing-images-grid">
-        {existingImages.map((img, index) => (
-          <div key={img.id} className="existing-thumb">
-            <img
-              src={img.url}
-              alt={`Existing image ${index + 1}`}
-              loading="lazy"
-              decoding="async"
-            />
-            {img.is_primary && (
-              <span className="preview-primary-badge">Main</span>
-            )}
-            <button
-              type="button"
-              className="preview-remove-btn"
-              aria-label={`Remove existing image ${index + 1}`}
-              onClick={() => onRemove(img.id)}
-            >
-              <svg viewBox="0 0 14 14" width="10" height="10" fill="none"
-                   stroke="currentColor" strokeWidth="2.2"
-                   strokeLinecap="round" aria-hidden="true">
-                <line x1="1" y1="1" x2="13" y2="13"/>
-                <line x1="13" y1="1" x2="1"  y2="13"/>
-              </svg>
-            </button>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   IMAGE GRID  (new uploads)
-═══════════════════════════════════════════════════════════════ */
-const ImageGrid = memo(function ImageGrid({
-  images, imageErrors, MAX_IMAGES, canAddMore,
-  isDragging, dropZoneRef,
-  onDragEnter, onDragOver, onDragLeave, onDrop,
-  onRemove, onMove, onAdd,
-}) {
-  const dragItem      = useRef(null);
-  const dragOver      = useRef(null);
-  const touchItem     = useRef(null);
-  const touchCloneRef = useRef(null);
-
-  useEffect(() => () => {
-    if (touchCloneRef.current) {
-      try { document.body.removeChild(touchCloneRef.current); } catch {}
-      touchCloneRef.current = null;
-    }
-  }, []);
-
-  const handleSortStart = (i) => { dragItem.current = i; };
-  const handleSortEnter = (i) => { dragOver.current = i; };
-  const handleSortEnd   = () => {
-    const from = dragItem.current;
-    const to   = dragOver.current;
-    if (from !== null && to !== null && from !== to) onMove(from, to);
-    dragItem.current = null;
-    dragOver.current = null;
-  };
-
-  const handleTouchStart = useCallback((e, index) => {
-    touchItem.current = index;
-    const rect  = e.currentTarget.getBoundingClientRect();
-    const clone = e.currentTarget.cloneNode(true);
-    Object.assign(clone.style, {
-      position: "fixed", top: `${rect.top}px`, left: `${rect.left}px`,
-      width: `${rect.width}px`, height: `${rect.height}px`,
-      opacity: "0.85", zIndex: "9999", pointerEvents: "none",
-      borderRadius: "12px", boxShadow: "0 8px 24px rgba(0,0,0,.3)",
-      transform: "scale(1.05)", transition: "none",
-    });
-    document.body.appendChild(clone);
-    touchCloneRef.current = clone;
-  }, []);
-
-  const handleTouchMove = useCallback((e) => {
-    e.preventDefault();
-    if (!touchCloneRef.current) return;
-    const touch = e.touches[0];
-    const rect  = touchCloneRef.current.getBoundingClientRect();
-    touchCloneRef.current.style.top  = `${touch.clientY - rect.height / 2}px`;
-    touchCloneRef.current.style.left = `${touch.clientX - rect.width  / 2}px`;
-    touchCloneRef.current.style.display = "none";
-    const el = document.elementFromPoint(touch.clientX, touch.clientY);
-    touchCloneRef.current.style.display = "";
-    const thumb = el?.closest("[data-image-index]");
-    if (thumb) {
-      const idx = parseInt(thumb.dataset.imageIndex, 10);
-      if (!Number.isNaN(idx)) dragOver.current = idx;
-    }
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    if (touchCloneRef.current) {
-      try { document.body.removeChild(touchCloneRef.current); } catch {}
-      touchCloneRef.current = null;
-    }
-    const from = touchItem.current;
-    const to   = dragOver.current;
-    if (from !== null && to !== null && from !== to) onMove(from, to);
-    touchItem.current = null;
-    dragOver.current  = null;
-  }, [onMove]);
-
-  return (
-    <div>
-      <ImageUploadRules />
-      <div
-        ref={dropZoneRef}
-        className={[
-          "preview-grid-modern image-upload-box ap-image-box",
-          isDragging ? "ap-image-box--dragging" : "",
-        ].filter(Boolean).join(" ")}
-        onDragEnter={onDragEnter}
-        onDragOver={onDragOver}
-        onDragLeave={onDragLeave}
-        onDrop={onDrop}
-        aria-label={isDragging ? "Drop images here" : "Image upload area"}
-      >
-        {images.map((img, index) => {
-          const err = imageErrors[img.id];
-          return (
-            <div
-              key={img.id}
-              className={`preview-thumb${err ? " preview-thumb--error" : ""}`}
-              data-image-index={index}
-              draggable
-              onDragStart={() => handleSortStart(index)}
-              onDragEnter={() => handleSortEnter(index)}
-              onDragEnd={handleSortEnd}
-              onDragOver={(e) => e.preventDefault()}
-              onTouchStart={(e) => handleTouchStart(e, index)}
-              onTouchMove={handleTouchMove}
-              onTouchEnd={handleTouchEnd}
-              aria-label={`Image ${index + 1}${index === 0 ? " — main photo" : ""}${err ? ` — ${err}` : ""}`}
-              style={{ cursor: "grab", touchAction: "none" }}
-            >
-              <img
-                src={img.preview}
-                alt={`Product image ${index + 1}`}
-                loading="lazy"
-                decoding="async"
-                draggable={false}
-                style={{ opacity: err ? 0.4 : 1 }}
-              />
-              {err && (
-                <div className="preview-error-overlay" role="alert">
-                  <WarningIcon /><span>{err}</span>
-                </div>
-              )}
-              <button
-                type="button"
-                className="preview-remove-btn"
-                aria-label={`Remove image ${index + 1}`}
-                onClick={() => onRemove(img.id)}
-              >
-                <svg viewBox="0 0 14 14" width="10" height="10" fill="none"
-                     stroke="currentColor" strokeWidth="2.2"
-                     strokeLinecap="round" aria-hidden="true">
-                  <line x1="1" y1="1" x2="13" y2="13"/>
-                  <line x1="13" y1="1" x2="1"  y2="13"/>
-                </svg>
-              </button>
-              <span className="preview-drag-handle" aria-hidden="true">
-                <svg viewBox="0 0 20 20" width="14" height="14" fill="none"
-                     stroke="currentColor" strokeWidth="1.7"
-                     strokeLinecap="round" aria-hidden="true">
-                  <line x1="4" y1="6"  x2="16" y2="6"/>
-                  <line x1="4" y1="10" x2="16" y2="10"/>
-                  <line x1="4" y1="14" x2="16" y2="14"/>
-                </svg>
-              </span>
-              {index === 0 && !err && (
-                <span className="preview-primary-badge">Main</span>
-              )}
-              <div className="preview-reorder">
-                {index > 0 && (
-                  <button type="button" aria-label="Move left"
-                          onClick={() => onMove(index, index - 1)}>&#8592;</button>
-                )}
-                {index < images.length - 1 && (
-                  <button type="button" aria-label="Move right"
-                          onClick={() => onMove(index, index + 1)}>&#8594;</button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-
-        {canAddMore && (
-          <label
-            className={[
-              "add-image-box add-image-btn",
-              isDragging ? "add-image-btn--dragging" : "",
-            ].filter(Boolean).join(" ")}
-          >
-            <input
-              hidden multiple type="file"
-              accept="image/jpeg,image/png,image/webp"
-              onChange={(e) => { onAdd(e.target.files); e.target.value = ""; }}
-            />
-            <ImageIcon />
-            <span>{isDragging ? "Drop here" : "Add Images"}</span>
-            <small>or drag &amp; drop</small>
-          </label>
-        )}
-      </div>
-    </div>
-  );
-});
 
 /* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
@@ -633,11 +103,11 @@ export default function ProductComponents({
   plansLoading      = false,
 
   /* ─ edit mode ─ */
-  isEditMode           = false,
-  editId               = null,
-  existingImages       = [],
+  isEditMode        = false,
+  editId            = null,
+  existingImages    = [],
   removeExistingImage,
-  totalImageCount      = 0,
+  totalImageCount   = 0,
 
   /* ─ seller limits ─ */
   sellerLimits      = null,
@@ -696,55 +166,55 @@ export default function ProductComponents({
   const [imageErrors,        setImageErrors]        = useState({});
 
   const sessionHashMap  = useRef(new Map());
+  const validationQueue = useRef(Promise.resolve());
   const validatedIdsRef = useRef(new Set());
   const dropZoneRef     = useRef(null);
   const dragCounterRef  = useRef(0);
-  const cardRefs        = useRef([]);
-  const cardIndexRef    = useRef(0);
-  const planRefs        = useRef([]);
 
-  cardIndexRef.current = 0;
-  const nextCardRef = () => {
-    const i = cardIndexRef.current++;
-    return (el) => { if (el) cardRefs.current[i] = el; };
-  };
+  /* Static section refs — avoids mutation during render */
+  const sec0 = useRef(null); const sec1 = useRef(null);
+  const sec2 = useRef(null); const sec3 = useRef(null);
+  const sec4 = useRef(null); const sec5 = useRef(null);
+  const sectionRefs = useMemo(
+    () => [sec0, sec1, sec2, sec3, sec4, sec5],
+    []
+  );
 
+  const planRefs = useRef([]);
+
+  /* ── Card entrance animation ── */
   useEffect(() => {
-    const timers = cardRefs.current.map((card, i) =>
-      setTimeout(() => card?.classList.add("ap-entered"), 420 + i * 60)
+    const timers = sectionRefs.map((ref, i) =>
+      setTimeout(() => ref.current?.classList.add("ap-entered"), 420 + i * 60)
     );
     return () => timers.forEach(clearTimeout);
-  }, []);
+  }, [sectionRefs]);
 
-  /* Auto-open upsell when trial exhausted */
+  /* ── Auto-open upsell when trial exhausted ── */
   useEffect(() => {
     if (trialExhausted && !isEditMode) setShowUpsellModal(true);
   }, [trialExhausted, isEditMode]);
 
-  /* ── Image validation ── */
-  const validateAndHashImages = useCallback(async (incomingImages) => {
+  /* ── Image validation (serialized queue — no race condition) ── */
+  const _validateImages = useCallback(async (incomingImages) => {
     const errors = {};
     const newMap = new Map(sessionHashMap.current);
 
     for (const img of incomingImages) {
-      if (!ALLOWED_TYPES.has(img.file.type)) {
-        errors[img.id] = "Wrong type — use JPEG, PNG or WebP";
-        continue;
+      if (!["image/jpeg","image/png","image/webp"].includes(img.file.type)) {
+        errors[img.id] = "Wrong type — use JPEG, PNG or WebP"; continue;
       }
-      if (img.file.size > MAX_BYTES) {
-        errors[img.id] = `Too large (${(img.file.size / 1_048_576).toFixed(1)} MB) — max 3 MB`;
-        continue;
+      if (img.file.size > 3 * 1024 * 1024) {
+        errors[img.id] = `Too large (${(img.file.size / 1_048_576).toFixed(1)} MB) — max 3 MB`; continue;
       }
       if (validatedIdsRef.current.has(img.id)) continue;
 
-      const hash = await hashImageFile(img.file);
+      const hash        = await hashImageFile(img.file);
       const isDuplicate = [...newMap.entries()].some(
-        ([existingId, existingHash]) =>
-          existingHash === hash && existingId !== img.id
+        ([id, h]) => h === hash && id !== img.id
       );
       if (isDuplicate) {
-        errors[img.id] = "Duplicate — this photo is already added";
-        continue;
+        errors[img.id] = "Duplicate — this photo is already added"; continue;
       }
       newMap.set(img.id, hash);
       validatedIdsRef.current.add(img.id);
@@ -761,13 +231,22 @@ export default function ProductComponents({
     });
   }, []);
 
+  const validateAndHashImages = useCallback((incomingImages) => {
+    validationQueue.current = validationQueue.current
+      .then(() => _validateImages(incomingImages))
+      .catch((err) => {
+        if (import.meta.env.DEV) console.warn("[ImageValidation]", err);
+      });
+  }, [_validateImages]);
+
   useEffect(() => {
     if (!images.length) return;
     const newImages = images.filter((img) => !validatedIdsRef.current.has(img.id));
     if (!newImages.length) return;
-    validateAndHashImages(newImages).catch(() => {});
+    validateAndHashImages(newImages);
   }, [images, validateAndHashImages]);
 
+  /* Clean up removed image hashes */
   useEffect(() => {
     const currentIds = new Set(images.map((img) => img.id));
     for (const id of validatedIdsRef.current) {
@@ -778,7 +257,7 @@ export default function ProductComponents({
     }
   }, [images]);
 
-  /* ── Server duplicate check (skip in edit mode) ── */
+  /* ── Server duplicate check ── */
   const checkServerDuplicate = useCallback(async () => {
     if (isEditMode) return;
     if (!form.title?.trim() || !form.price || !form.category_id) return;
@@ -801,8 +280,11 @@ export default function ProductComponents({
       if (!res.ok) return;
       const data = await res.json();
       setDupWarning(data.isDuplicate ? (data.message ?? "A similar listing already exists.") : "");
-    } catch {}
-    finally { setDupChecking(false); }
+    } catch (err) {
+      if (import.meta.env.DEV) console.warn("[DupCheck]", err.message);
+    } finally {
+      setDupChecking(false);
+    }
   }, [isEditMode, form.title, form.price, form.category_id, images, apiBase]);
 
   useEffect(() => {
@@ -912,13 +394,31 @@ export default function ProductComponents({
     );
   }, [attributes?.brand, options]);
 
+  /* ── Single consolidated options memo ── */
+  const normalizedOptions = useMemo(() => ({
+    brand           : normalizeOptions(options?.brands),
+    color           : normalizeOptions(options?.colors),
+    condition       : normalizeOptions(options?.conditions),
+    used_detail     : normalizeOptions(options?.used_details ?? options?.usedDetails ?? []),
+    ram             : normalizeOptions(options?.ram),
+    storage         : normalizeOptions(options?.storage),
+    sim             : normalizeOptions(options?.sim),
+    year            : normalizeOptions(options?.years),
+    engine          : normalizeOptions(options?.engine ?? options?.engines ?? []),
+    fuel_type       : normalizeOptions(options?.fuelType ?? options?.fuel_types ?? []),
+    size            : normalizeOptions(options?.size),
+    age_range       : normalizeOptions(options?.age_range),
+    bedrooms        : normalizeOptions(options?.bedrooms),
+    bathrooms       : normalizeOptions(options?.bathrooms),
+    experience_level: normalizeOptions(options?.experience_level),
+    skills          : normalizeOptions(options?.skills),
+    features        : Array.isArray(options?.features) ? options.features : [],
+  }), [options]);
+
   const showModelField = !!attributes?.brand;
   const isFreePlan     = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
 
-  const allFeatures = useMemo(
-    () => (Array.isArray(options?.features) ? options.features : []),
-    [options?.features]
-  );
+  const allFeatures = normalizedOptions.features;
   const visibleFeatures = useMemo(
     () => (showAllFeatures ? allFeatures : allFeatures.slice(0, 12)),
     [allFeatures, showAllFeatures]
@@ -928,47 +428,6 @@ export default function ProductComponents({
     () => new Set(toArray(attributes?.features)),
     [attributes?.features]
   );
-
-  const brandOptions      = useMemo(() => normalizeOptions(options?.brands),     [options?.brands]);
-  const colorOptions      = useMemo(() => normalizeOptions(options?.colors),     [options?.colors]);
-  const conditionOptions  = useMemo(() => normalizeOptions(options?.conditions), [options?.conditions]);
-  const usedDetailOptions = useMemo(() => normalizeOptions(options?.used_details ?? options?.usedDetails ?? []), [options?.used_details, options?.usedDetails]);
-  const ramOptions        = useMemo(() => normalizeOptions(options?.ram),        [options?.ram]);
-  const storageOptions    = useMemo(() => normalizeOptions(options?.storage),    [options?.storage]);
-  const simOptions        = useMemo(() => normalizeOptions(options?.sim),        [options?.sim]);
-  const yearOptions       = useMemo(() => normalizeOptions(options?.years),      [options?.years]);
-  const engineOptions     = useMemo(() => normalizeOptions(options?.engine ?? options?.engines ?? []), [options?.engine, options?.engines]);
-  const fuelTypeOptions   = useMemo(() => normalizeOptions(options?.fuelType ?? options?.fuel_types ?? []), [options?.fuelType, options?.fuel_types]);
-  const sizeOptions       = useMemo(() => normalizeOptions(options?.size),       [options?.size]);
-  const ageRangeOptions   = useMemo(() => normalizeOptions(options?.age_range),  [options?.age_range]);
-  const bedroomOptions    = useMemo(() => normalizeOptions(options?.bedrooms),   [options?.bedrooms]);
-  const bathroomOptions   = useMemo(() => normalizeOptions(options?.bathrooms),  [options?.bathrooms]);
-  const expLevelOptions   = useMemo(() => normalizeOptions(options?.experience_level), [options?.experience_level]);
-  const skillsOptions     = useMemo(() => normalizeOptions(options?.skills),     [options?.skills]);
-
-  const optionsMap = {
-    brand: brandOptions, color: colorOptions, condition: conditionOptions,
-    used_detail: usedDetailOptions, ram: ramOptions, storage: storageOptions,
-    sim: simOptions, year: yearOptions, engine: engineOptions,
-    fuel_type: fuelTypeOptions, size: sizeOptions, age_range: ageRangeOptions,
-    bedrooms: bedroomOptions, bathrooms: bathroomOptions,
-    experience_level: expLevelOptions, skills: skillsOptions,
-    features: allFeatures,
-  };
-
-  /* ── Section completion ── */
-  const basicFilled    = !!(form.title?.trim() && form.description?.trim() && form.price);
-  const detailsFilled  = !!form.category_id;
-  const contactFilled  = !!(form.contact?.email && form.contact?.phone);
-  const locationFilled = !!(state && city);
-  const hasImageErrors = Object.keys(imageErrors).length > 0;
-
-  /* In edit mode, existing images count toward imagesFilled */
-  const imagesFilled   = totalImageCount > 0 && !hasImageErrors;
-
-  const sectionsComplete = [
-    basicFilled, detailsFilled, contactFilled, locationFilled, imagesFilled,
-  ].filter(Boolean).length;
 
   /* ── Best value plan ── */
   const bestValuePlanId = useMemo(() => {
@@ -986,10 +445,9 @@ export default function ProductComponents({
     const discount = Number(plan.discount_percent ?? 0);
     if (price === 0) return "Free";
     if (discount > 0) {
-      const apiEffective  = Number(plan.effective_price);
-      const calcEffective = price * (1 - discount / 100);
-      const effective     = Number.isFinite(apiEffective) && apiEffective > 0
-        ? apiEffective : calcEffective;
+      const effective = Number(plan.effective_price) > 0
+        ? Number(plan.effective_price)
+        : price * (1 - discount / 100);
       return (
         <>
           <span className="plan-price-original">&#8358;{displayPrice(price)}</span>{" "}
@@ -1004,11 +462,10 @@ export default function ProductComponents({
   const clampDay = useCallback((val) => {
     const n = parseInt(String(val).replace(/[^0-9]/g, ""), 10);
     if (Number.isNaN(n) || n < 1) return "";
-    if (n > 30) return "30";
-    return String(n);
+    return String(Math.min(n, 30));
   }, []);
 
-  /* ── Title suggestions (skip in edit mode) ── */
+  /* ── Title suggestions ── */
   useEffect(() => {
     if (isEditMode) return;
     if (!form.description || form.description.length < 30 || form.title?.trim().length >= 10) {
@@ -1024,10 +481,20 @@ export default function ProductComponents({
     return () => clearTimeout(t);
   }, [isEditMode, form.description, form.title]);
 
-  /* ── Can add more images ── */
-  const canAddMore = totalImageCount < MAX_IMAGES;
+  /* ── Derived UI state ── */
+  const canAddMore     = totalImageCount < MAX_IMAGES;
+  const hasImageErrors = Object.keys(imageErrors).length > 0;
 
-  /* ── Submit state ── */
+  const basicFilled    = !!(form.title?.trim() && form.description?.trim() && form.price);
+  const detailsFilled  = !!form.category_id;
+  const contactFilled  = !!(form.contact?.email && form.contact?.phone);
+  const locationFilled = !!(state && city);
+  const imagesFilled   = totalImageCount > 0 && !hasImageErrors;
+
+  const sectionsComplete = [
+    basicFilled, detailsFilled, contactFilled, locationFilled, imagesFilled,
+  ].filter(Boolean).length;
+
   const submitBlocked =
     loading || (!isEditMode && !agreedToTerms) ||
     (!isEditMode && plansLoading) ||
@@ -1040,18 +507,14 @@ export default function ProductComponents({
     : hasImageErrors              ? "Fix image errors before submitting"
     : undefined;
 
-  /* ── Submit button label ── */
   const submitLabel = (() => {
-    if (loading)           return isEditMode ? "Saving…" : "Processing…";
+    if (loading)            return isEditMode ? "Saving…" : "Processing…";
     if (deliveryRangeError) return "Fix Delivery Dates";
-    if (hasImageErrors)    return "Fix Image Errors";
-    if (isEditMode)        return "Save Changes";
-    if (isFreePlan)        return "Post Ad";
+    if (hasImageErrors)     return "Fix Image Errors";
+    if (isEditMode)         return "Save Changes";
+    if (isFreePlan)         return "Post Ad";
     return "Post Ad & Pay";
   })();
-
-  /* ── Page title ── */
-  const pageTitle = isEditMode ? "Edit Listing" : "Post a Listing";
 
   /* ═══════════════════════════════════════════════════════════
      RENDER
@@ -1059,7 +522,7 @@ export default function ProductComponents({
   return (
     <>
       <AddProductHeader
-        title={pageTitle}
+        title={isEditMode ? "Edit Listing" : "Post a Listing"}
         onClearDraft={isEditMode ? null : clearDraft}
       />
 
@@ -1071,17 +534,15 @@ export default function ProductComponents({
       )}
 
       {/* Progress bar (create mode only) */}
-      {!isEditMode && (
+      {!isEditMode && sectionsComplete < 5 && (
         <div className="ap-top-bar">
-          {sectionsComplete < 5 && (
-            <div className="form-progress" aria-label="Form completion">
-              <div className="form-progress-bar"
-                   style={{ width: `${(sectionsComplete / 5) * 100}%` }} />
-              <span className="form-progress-label">
-                {sectionsComplete}/5 sections complete
-              </span>
-            </div>
-          )}
+          <div className="form-progress" aria-label="Form completion">
+            <div className="form-progress-bar"
+                 style={{ width: `${(sectionsComplete / 5) * 100}%` }} />
+            <span className="form-progress-label">
+              {sectionsComplete}/5 sections complete
+            </span>
+          </div>
         </div>
       )}
 
@@ -1093,7 +554,7 @@ export default function ProductComponents({
         </div>
       )}
 
-      {/* Duplicate warning (create mode only) */}
+      {/* Duplicate warning */}
       {!isEditMode && dupWarning && (
         <div className="duplicate-warning" role="alert">
           <WarningIcon />
@@ -1127,7 +588,7 @@ export default function ProductComponents({
         <VerificationNudgeBanner verificationData={verificationData} />
       )}
 
-      {/* Incomplete payment (create mode only) */}
+      {/* Incomplete payment */}
       {!isEditMode && paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
@@ -1152,7 +613,7 @@ export default function ProductComponents({
       )}
 
       {/* ── BASIC INFORMATION ── */}
-      <section ref={nextCardRef()} className="section form-card">
+      <section ref={sec0} className="section form-card">
         <h3 className="section-title">
           Basic Information <SectionDot filled={basicFilled} />
         </h3>
@@ -1173,8 +634,8 @@ export default function ProductComponents({
           {!isEditMode && titleSuggestions.length > 0 && (
             <div className="title-suggestions">
               <span className="title-suggestions-label">Suggestion:</span>
-              {titleSuggestions.map((s, i) => (
-                <button key={i} type="button" className="title-suggestion-chip"
+              {titleSuggestions.map((s) => (
+                <button key={s} type="button" className="title-suggestion-chip"
                         onClick={() => { updateForm("title", s); setTitleSuggestions([]); }}>
                   {s}
                 </button>
@@ -1210,7 +671,7 @@ export default function ProductComponents({
       </section>
 
       {/* ── PRODUCT DETAILS ── */}
-      <section ref={nextCardRef()} className="section form-card">
+      <section ref={sec1} className="section form-card">
         <h3 className="section-title">
           Product Details <SectionDot filled={detailsFilled} />
         </h3>
@@ -1225,7 +686,6 @@ export default function ProductComponents({
               if (normValue(value) === normValue(form.category_id)) return;
               updateForm("category_id",    value);
               updateForm("subcategory_id", "");
-              /* Only reset attributes in create mode */
               if (!isEditMode) {
                 updateForm("attributes", deepClone(INITIAL_FORM.attributes));
               }
@@ -1245,12 +705,12 @@ export default function ProductComponents({
           </div>
         )}
 
-        {optionsMap.brand.length > 0 && (
+        {normalizedOptions.brand.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
             <DropdownModal
               value={attributes?.brand ?? ""}
-              options={optionsMap.brand}
+              options={normalizedOptions.brand}
               onChange={(v) => updateAttribute("brand", v)}
             />
           </div>
@@ -1280,7 +740,7 @@ export default function ProductComponents({
         )}
 
         {fields.map((field) => {
-          const fieldOptions = optionsMap[field] ?? [];
+          const fieldOptions = normalizedOptions[field] ?? [];
           if (!fieldOptions.length) return null;
           if (field === "used_detail" && attributes?.condition !== "Used") return null;
           return (
@@ -1323,7 +783,7 @@ export default function ProductComponents({
       </section>
 
       {/* ── CONTACT INFORMATION ── */}
-      <section ref={nextCardRef()} className="section form-card">
+      <section ref={sec2} className="section form-card">
         <h3 className="section-title">
           Contact Information <SectionDot filled={contactFilled} />
         </h3>
@@ -1372,7 +832,7 @@ export default function ProductComponents({
       </section>
 
       {/* ── LOCATION & DELIVERY ── */}
-      <section ref={nextCardRef()} className="section form-card">
+      <section ref={sec3} className="section form-card">
         <h3 className="section-title">
           Location &amp; Delivery <SectionDot filled={locationFilled} />
         </h3>
@@ -1474,12 +934,11 @@ export default function ProductComponents({
       </section>
 
       {/* ── PRODUCT IMAGES ── */}
-      <section ref={nextCardRef()} className="section form-card">
+      <section ref={sec4} className="section form-card">
         <h3 className="section-title">
           Product Images * <SectionDot filled={imagesFilled} />
         </h3>
 
-        {/* Image count status */}
         <div className="image-count-status">
           <span className={`image-count-badge${totalImageCount >= MAX_IMAGES ? " image-count-badge--full" : ""}`}>
             {totalImageCount}/{MAX_IMAGES} images
@@ -1500,7 +959,6 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* Existing images (edit mode) */}
         {isEditMode && (
           <ExistingImageGrid
             existingImages={existingImages}
@@ -1508,7 +966,6 @@ export default function ProductComponents({
           />
         )}
 
-        {/* New uploads */}
         {canAddMore && (
           <ImageGrid
             images={images}
@@ -1534,7 +991,6 @@ export default function ProductComponents({
           />
         )}
 
-        {/* Upload hint when all slots used */}
         {!canAddMore && (
           <p className="image-limit-reached">
             Maximum {MAX_IMAGES} images reached.
@@ -1544,9 +1000,7 @@ export default function ProductComponents({
 
         {totalImageCount > 0 && (
           <div className="image-footer">
-            <small className="image-count">
-              {totalImageCount}/{MAX_IMAGES} images
-            </small>
+            <small className="image-count">{totalImageCount}/{MAX_IMAGES} images</small>
             <small className="field-hint">
               {isEditMode
                 ? "Remove existing images above or add new ones below"
@@ -1558,7 +1012,7 @@ export default function ProductComponents({
 
       {/* ── PROMOTION PLAN (create mode only) ── */}
       {!isEditMode && (
-        <section ref={nextCardRef()} className="section form-card">
+        <section ref={sec5} className="section form-card">
           <h3 className="section-title">Promotion Plan</h3>
 
           {plansLoading && (
@@ -1598,15 +1052,16 @@ export default function ProductComponents({
                         setSelectedPlan(isSelected ? null : plan);
                         return;
                       }
+                      const total = promotionPlans.length;
                       if (e.key === "ArrowRight" || e.key === "ArrowDown") {
                         e.preventDefault();
-                        const next = (planIndex + 1) % promotionPlans.length;
+                        const next = (planIndex + 1) % total;
                         setSelectedPlan(promotionPlans[next]);
                         planRefs.current[next]?.focus();
                       }
                       if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
                         e.preventDefault();
-                        const prev = (planIndex - 1 + promotionPlans.length) % promotionPlans.length;
+                        const prev = (planIndex - 1 + total) % total;
                         setSelectedPlan(promotionPlans[prev]);
                         planRefs.current[prev]?.focus();
                       }
@@ -1626,8 +1081,8 @@ export default function ProductComponents({
                     </div>
                     {Array.isArray(plan.features) && plan.features.length > 0 && (
                       <ul className="plan-features">
-                        {plan.features.map((f, i) => (
-                          <li key={i}><CheckIcon /> {safeStr(f)}</li>
+                        {plan.features.map((f) => (
+                          <li key={safeStr(f)}><CheckIcon /> {safeStr(f)}</li>
                         ))}
                       </ul>
                     )}
@@ -1640,12 +1095,9 @@ export default function ProductComponents({
       )}
 
       {/* ── TERMS + SUBMIT ── */}
-      <div ref={nextCardRef()} className="button-section section form-card">
-
-        {/* Terms checkbox (create mode only — edit auto-agrees) */}
+      <div className="button-section section form-card">
         {!isEditMode && TermsCheckbox}
 
-        {/* Edit mode: back link */}
         {isEditMode && (
           <p className="edit-back-hint">
             Changes are saved to your listing immediately.{" "}
@@ -1653,20 +1105,22 @@ export default function ProductComponents({
           </p>
         )}
 
+        {/* Screen-reader live region for submit state */}
+        <span className="sr-only" aria-live="polite" aria-atomic="true">
+          {loading ? (isEditMode ? "Saving changes" : "Processing submission") : ""}
+        </span>
+
         <button
           type="button"
           disabled={submitBlocked}
           className="primary-btn full-width"
           onClick={handleSubmit}
           aria-busy={loading}
-          aria-live="polite"
           title={submitTitle}
         >
-          {loading ? (
-            <><SpinnerIcon />{" "}{isEditMode ? "Saving…" : "Processing…"}</>
-          ) : (
-            submitLabel
-          )}
+          {loading
+            ? <><SpinnerIcon />{" "}{isEditMode ? "Saving…" : "Processing…"}</>
+            : submitLabel}
         </button>
       </div>
     </>
