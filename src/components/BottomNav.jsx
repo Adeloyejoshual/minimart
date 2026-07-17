@@ -1,7 +1,10 @@
-// src/components/BottomNav.jsx
+// ════════════════════════════════════════════════════════════
+// FILE: src/components/BottomNav.jsx
+// ════════════════════════════════════════════════════════════
+
 import { memo } from "react";
-import { NavLink } from "react-router-dom";
-import { motion } from "framer-motion";
+import { useNavigate, useLocation } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   FaHome,
   FaShoppingCart,
@@ -10,80 +13,130 @@ import {
   FaUser,
 } from "react-icons/fa";
 
-import "./BottomNav.css";
+import "../styles/BottomNav.css";
 
-const spring = { type: "spring", stiffness: 420, damping: 30 };
-
+/* ═══════════════════════════════════════════════════════════════
+   NAV CONFIG
+═══════════════════════════════════════════════════════════════ */
 const NAV_ITEMS = [
-  { label: "Home", Icon: FaHome, path: "/", end: true },
-  { label: "Market", Icon: FaShoppingCart, path: "/minimart" },
-  { label: "P2P", Icon: FaHandshake, path: "/P2P" },
-  { label: "Messages", Icon: FaComments, path: "/conversations", badgeKey: "messages" },
-  { label: "Profile", Icon: FaUser, path: "/profile" },
+  {
+    label: "Home",
+    Icon:  FaHome,
+    path:  "/",
+    exact: true,
+  },
+  {
+    label: "Market",
+    Icon:  FaShoppingCart,
+    path:  "/minimart",
+  },
+  {
+    label: "P2P",
+    Icon:  FaHandshake,
+    path:  "/P2P",
+  },
+  {
+    label: "Messages",
+    Icon:  FaComments,
+    path:  "/conversations",
+    badgeKey: "messages",
+  },
+  {
+    label: "Profile",
+    Icon:  FaUser,
+    path:  "/profile",
+  },
 ];
 
-const BottomNavItem = memo(function BottomNavItem({
+/* ═══════════════════════════════════════════════════════════════
+   BADGE HELPER
+═══════════════════════════════════════════════════════════════ */
+function resolveBadge(value) {
+  if (value == null || value === 0 || value === false) return null;
+  const n = Number(value);
+  if (Number.isFinite(n)) return n > 99 ? "99+" : String(n);
+  return String(value);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SINGLE NAV ITEM
+═══════════════════════════════════════════════════════════════ */
+const NavItem = memo(function NavItem({
   label,
   Icon,
   path,
-  end = false,
+  exact = false,
+  active,
   badge,
+  onClick,
 }) {
-  const badgeText =
-    badge == null || badge === 0
-      ? null
-      : Number.isFinite(Number(badge))
-        ? Number(badge) > 99
-          ? "99+"
-          : String(Number(badge))
-        : String(badge);
+  const badgeText = resolveBadge(badge);
 
   return (
-    <NavLink
-      to={path}
-      end={end}
-      className={({ isActive }) => `bn-item${isActive ? " active" : ""}`}
+    <motion.button
+      className={`bn-item${active ? " active" : ""}`}
+      onClick={onClick}
       aria-label={label}
+      aria-current={active ? "page" : undefined}
+      whileTap={{ scale: 0.88 }}
+      transition={{ type: "spring", stiffness: 400, damping: 22 }}
     >
-      {({ isActive }) => (
-        <motion.span className="bn-item__inner" whileTap={{ scale: 0.94 }}>
-          <span className="bn-icon-wrap">
-            {isActive && (
-              <motion.span
-                layoutId="bn-active-pill"
-                className="bn-active-pill"
-                transition={spring}
-              />
-            )}
+      {/* Icon + Badge wrapper */}
+      <span className="bn-icon" style={{ position: "relative" }}>
+        <Icon />
 
-            <span className="bn-icon">
-              <Icon />
-            </span>
+        {/* Badge dot / count */}
+        <AnimatePresence>
+          {badgeText && (
+            <motion.span
+              className="bn-badge"
+              key="badge"
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{   scale: 0, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 500, damping: 24 }}
+            >
+              {badgeText}
+            </motion.span>
+          )}
+        </AnimatePresence>
+      </span>
 
-            {badgeText && <span className="bn-badge">{badgeText}</span>}
-          </span>
-
-          <span className="bn-label">{label}</span>
-        </motion.span>
-      )}
-    </NavLink>
+      <span className="bn-label">{label}</span>
+    </motion.button>
   );
 });
 
+/* ═══════════════════════════════════════════════════════════════
+   BOTTOM NAV
+═══════════════════════════════════════════════════════════════ */
 const BottomNav = memo(function BottomNav({ badges = {} }) {
+  const navigate       = useNavigate();
+  const { pathname }   = useLocation();
+
+  const isActive = (path, exact) =>
+    exact
+      ? pathname === path
+      : pathname === path || pathname.startsWith(path + "/");
+
   return (
     <motion.nav
       className="bn-wrap"
       aria-label="Main navigation"
-      initial={{ y: 18, opacity: 0 }}
-      animate={{ y: 0, opacity: 1 }}
-      transition={{ type: "spring", stiffness: 300, damping: 26 }}
+      initial={{ y: 60, opacity: 0 }}
+      animate={{ y: 0,  opacity: 1 }}
+      transition={{ type: "spring", stiffness: 280, damping: 26, delay: 0.08 }}
     >
       {NAV_ITEMS.map((item) => (
-        <BottomNavItem
+        <NavItem
           key={item.path}
-          {...item}
+          label={item.label}
+          Icon={item.Icon}
+          path={item.path}
+          exact={item.exact}
+          active={isActive(item.path, item.exact)}
           badge={item.badgeKey ? badges[item.badgeKey] : null}
+          onClick={() => navigate(item.path)}
         />
       ))}
     </motion.nav>
