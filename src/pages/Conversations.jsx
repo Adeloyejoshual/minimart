@@ -1,58 +1,50 @@
-/**
- * src/pages/Conversations.jsx
- * Route: /conversations or /messages
- *
- * Features:
- * - Threaded conversation list
- * - Unread badge + tab filter
- * - Search by name / message / product
- * - Silent 15s polling for new messages
- * - Online indicator
- * - Product thumbnail preview
- */
+// ════════════════════════════════════════════════════════════
+// FILE: src/pages/Conversations.jsx
+// Route: /conversations
+// ════════════════════════════════════════════════════════════
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useState, useCallback, useMemo, memo } from "react";
 import { useNavigate } from "react-router-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion, AnimatePresence } from "framer-motion";
+import axios from "axios";
+
+import BottomNav from "../components/BottomNav";
+import "../styles/Conversations.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
 ═══════════════════════════════════════════════════════════════ */
-const API = `${import.meta.env.VITE_API_BASE_URL}/api`;
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API      = `${BASE_URL}/api`;
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const POLL_INTERVAL   = 15_000; // 15 seconds
-const FETCH_TIMEOUT   = 10_000; // 10 seconds
+const POLL_INTERVAL   = 15_000;
 const PREVIEW_MAX_LEN = 55;
 const MAX_UNREAD_DISP = 99;
 
 /* ═══════════════════════════════════════════════════════════════
-   AUTH HELPERS
+   AUTH
 ═══════════════════════════════════════════════════════════════ */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("token")             ||
-  sessionStorage.getItem("token")           || "";
-
-const authH = () => {
-  const t = getToken();
-  return t ? { Authorization: `Bearer ${t}` } : {};
-};
+  localStorage.getItem("token") ||
+  null;
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const timeLabel = (dateStr) => {
   if (!dateStr) return "";
-
   const d    = new Date(dateStr);
   const now  = new Date();
-  const diff = Math.floor((now - d) / 1_000);
+  const diff = Math.floor((now - d) / 1000);
 
-  if (diff < 60)    return "now";
-  if (diff < 3_600) return `${Math.floor(diff / 60)}m`;
-  if (diff < 86_400) return `${Math.floor(diff / 3_600)}h`;
+  if (diff < 60)     return "now";
+  if (diff < 3600)   return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400)  return `${Math.floor(diff / 3600)}h`;
 
   const today     = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const yesterday = new Date(today);
@@ -60,176 +52,203 @@ const timeLabel = (dateStr) => {
 
   if (d >= today)     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (d >= yesterday) return "Yesterday";
-
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 };
 
 const truncate = (str, len = PREVIEW_MAX_LEN) =>
   str.length > len ? str.slice(0, len) + "…" : str;
 
-const fmtUnread = (n) => (n > MAX_UNREAD_DISP ? `${MAX_UNREAD_DISP}+` : n);
+const fmtUnread = (n) =>
+  n > MAX_UNREAD_DISP ? `${MAX_UNREAD_DISP}+` : String(n);
 
 /* ═══════════════════════════════════════════════════════════════
-   STYLES
+   ANIMATION PRESETS
 ═══════════════════════════════════════════════════════════════ */
-const STYLES = `
-  .cv-wrap {
-    display: flex; flex-direction: column;
-    height: 100dvh; max-width: 700px;
-    margin: 0 auto; background: #fff;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-  }
-  .cv-header {
-    padding: 16px 16px 0;
-    background: #fff;
-    position: sticky; top: 0; z-index: 10;
-    border-bottom: 1px solid #f0f0f0;
-  }
-  .cv-header-top {
-    display: flex; align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-  .cv-title {
-    font-size: 22px; font-weight: 900;
-    color: #111; letter-spacing: -0.5px;
-  }
-  .cv-unread-badge {
-    background: #111; color: #fff;
-    font-size: 12px; font-weight: 700;
-    padding: 2px 8px; border-radius: 10px;
-    margin-left: 8px;
-  }
-  .cv-back {
-    background: none; border: none; cursor: pointer;
-    padding: 6px; display: flex; align-items: center;
-    border-radius: 50%; transition: background .15s;
-  }
-  .cv-back:hover { background: #f5f5f5; }
-  .cv-search {
-    width: 100%; padding: 10px 14px;
-    border-radius: 12px; border: 1.5px solid #eee;
-    font-size: 14px; background: #f8f8f8;
-    outline: none; transition: border-color .15s;
-    box-sizing: border-box; margin-bottom: 12px;
-    font-family: inherit;
-  }
-  .cv-search:focus { border-color: #999; }
-  .cv-tabs { display: flex; gap: 0; }
-  .cv-tab {
-    flex: 1; padding: 10px 0;
-    text-align: center; font-size: 13px; font-weight: 700;
-    color: #999; cursor: pointer;
-    border-bottom: 2.5px solid transparent;
-    background: none; border-top: none;
-    border-left: none; border-right: none;
-    transition: color .15s, border-color .15s;
-    font-family: inherit;
-  }
-  .cv-tab.active { color: #111; border-bottom-color: #111; }
-  .cv-list { flex: 1; overflow-y: auto; }
-  .cv-error {
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    gap: 12px; padding: 60px 24px; text-align: center;
-  }
-  @keyframes cspin { to { transform: rotate(360deg); } }
-`;
+const spring = { type: "spring", stiffness: 320, damping: 28 };
+
+const fadeUp = {
+  hidden:  { opacity: 0, y: 18 },
+  visible: { opacity: 1, y: 0 },
+};
+
+const stagger = {
+  hidden:  {},
+  visible: { transition: { staggerChildren: 0.04, delayChildren: 0.02 } },
+};
+
+const threadReveal = {
+  hidden:  { opacity: 0, y: 14, scale: 0.97 },
+  visible: { opacity: 1, y: 0,  scale: 1 },
+  exit:    { opacity: 0, x: -30, transition: { duration: 0.2 } },
+};
 
 /* ═══════════════════════════════════════════════════════════════
-   SPINNER
+   ICONS
 ═══════════════════════════════════════════════════════════════ */
-function Spinner() {
-  return (
-    <div style={{
-      width        : 28,
-      height       : 28,
-      border       : "3px solid #eee",
-      borderTop    : "3px solid #111",
-      borderRadius : "50%",
-      animation    : "cspin .75s linear infinite",
-    }} />
+const Icons = {
+  back: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="15 18 9 12 15 6" />
+    </svg>
+  ),
+  refresh: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 4 23 10 17 10" />
+      <polyline points="1 20 1 14 7 14" />
+      <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64
+              4.36A9 9 0 0020.49 15" />
+    </svg>
+  ),
+  search: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round">
+      <circle cx="11" cy="11" r="8" />
+      <line x1="21" y1="21" x2="16.65" y2="16.65" />
+    </svg>
+  ),
+  chat: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03
+             8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4
+             15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+    </svg>
+  ),
+  error: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="1.5" strokeLinecap="round">
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 8v4m0 4h.01" />
+    </svg>
+  ),
+  lock: () => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" />
+      <path d="M7 11V7a5 5 0 0110 0v4" />
+    </svg>
+  ),
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   FETCHER
+═══════════════════════════════════════════════════════════════ */
+async function fetchConversations(userId) {
+  const token = getToken();
+  if (!token || !userId) return [];
+
+  const { data } = await axios.get(`${API}/conversations`, {
+    headers: { Authorization: `Bearer ${token}` },
+    params:  { userId, limit: 50, page: 1 },
+    timeout: 10000,
+  });
+
+  const list = Array.isArray(data) ? data : [];
+  list.sort(
+    (a, b) =>
+      new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0)
   );
+  return list;
 }
 
 /* ═══════════════════════════════════════════════════════════════
    AVATAR
 ═══════════════════════════════════════════════════════════════ */
-function Avatar({ src, name, online, size = 52 }) {
+const Avatar = memo(function Avatar({ src, name, online, size = 52 }) {
   const fallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(
     name || "U"
   )}&background=111&color=fff&size=${size * 2}`;
 
   return (
-    <div style={{ position: "relative", flexShrink: 0, width: size, height: size }}>
+    <div className="cv-avatar" style={{ width: size, height: size }}>
       <img
         src={src || fallback}
         alt={name || "User"}
-        style={{
-          width        : size,
-          height       : size,
-          borderRadius : "50%",
-          objectFit    : "cover",
-          background   : "#eee",
-          display      : "block",
-        }}
+        className="cv-avatar__img"
+        style={{ width: size, height: size }}
         onError={(e) => { e.target.src = fallback; }}
       />
-      {online && (
-        <span style={{
-          position     : "absolute",
-          bottom       : 1,
-          right        : 1,
-          width        : 12,
-          height       : 12,
-          background   : "#22c55e",
-          borderRadius : "50%",
-          border       : "2.5px solid #fff",
-        }} />
-      )}
+      {online && <span className="cv-avatar__online" />}
     </div>
   );
-}
+});
 
 /* ═══════════════════════════════════════════════════════════════
    EMPTY STATE
 ═══════════════════════════════════════════════════════════════ */
-function EmptyState() {
+const EmptyState = memo(function EmptyState({ filtered = false, search = "" }) {
+  if (filtered) {
+    return (
+      <motion.div
+        className="cv-empty"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.25 }}
+      >
+        <p className="cv-empty__title">
+          {search ? `No results for "${search}"` : "🎉 All caught up!"}
+        </p>
+        <p className="cv-empty__sub">
+          {search
+            ? "Try a different search term"
+            : "No unread messages — nice work!"}
+        </p>
+      </motion.div>
+    );
+  }
+
   return (
-    <div style={{
-      flex           : 1,
-      display        : "flex",
-      flexDirection  : "column",
-      alignItems     : "center",
-      justifyContent : "center",
-      gap            : 12,
-      padding        : "80px 24px 0",
-      textAlign      : "center",
-    }}>
-      <svg width="64" height="64" fill="none" viewBox="0 0 24 24"
-        stroke="#ddd" strokeWidth={1.1}>
-        <path strokeLinecap="round" strokeLinejoin="round"
-          d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03
-             8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4
-             15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-      </svg>
-      <p style={{ margin: 0, fontSize: 16, fontWeight: 700, color: "#bbb" }}>
-        No conversations yet
+    <motion.div
+      className="cv-empty"
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={spring}
+    >
+      <div className="cv-empty__icon">
+        <Icons.chat />
+      </div>
+      <p className="cv-empty__title">No conversations yet</p>
+      <p className="cv-empty__sub">
+        When you message a seller or someone messages you, your conversations
+        will appear here.
       </p>
-      <p style={{ margin: 0, fontSize: 13, color: "#ccc", lineHeight: 1.5, maxWidth: 260 }}>
-        When you message a seller or someone messages you,
-        your conversations will appear here.
-      </p>
+    </motion.div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   SKELETON LOADER
+═══════════════════════════════════════════════════════════════ */
+const SkeletonThread = memo(function SkeletonThread() {
+  return (
+    <div className="cv-skeleton">
+      <div className="cv-skeleton__avatar cv-shimmer" />
+      <div className="cv-skeleton__body">
+        <div className="cv-skeleton__line cv-skeleton__line--name cv-shimmer" />
+        <div className="cv-skeleton__line cv-skeleton__line--msg cv-shimmer" />
+      </div>
     </div>
   );
-}
+});
+
+const SkeletonList = memo(function SkeletonList() {
+  return (
+    <div className="cv-skeleton-list">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <SkeletonThread key={i} />
+      ))}
+    </div>
+  );
+});
 
 /* ═══════════════════════════════════════════════════════════════
    THREAD ITEM
 ═══════════════════════════════════════════════════════════════ */
-function ThreadItem({ thread, userId, onClick }) {
-  const isMine   = thread.last_sender_id === userId;
-  const unread   = Number(thread.unread_count || 0);
+const ThreadItem = memo(function ThreadItem({ thread, userId, onClick, index }) {
+  const isMine    = thread.last_sender_id === userId;
+  const unread    = Number(thread.unread_count || 0);
   const hasUnread = unread > 0;
 
   const preview    = thread.last_message || "";
@@ -237,457 +256,394 @@ function ThreadItem({ thread, userId, onClick }) {
   const truncated  = truncate(displayMsg);
 
   return (
-    <div
+    <motion.div
+      className={`cv-thread${hasUnread ? " cv-thread--unread" : ""}`}
       onClick={onClick}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => e.key === "Enter" && onClick()}
-      style={{
-        display       : "flex",
-        alignItems    : "center",
-        gap           : 12,
-        padding       : "14px 16px",
-        background    : hasUnread ? "#fafafa" : "#fff",
-        borderBottom  : "1px solid #f5f5f5",
-        cursor        : "pointer",
-        transition    : "background .15s",
-      }}
-      onMouseEnter={(e) => (e.currentTarget.style.background = "#f8f8f8")}
-      onMouseLeave={(e) => (e.currentTarget.style.background = hasUnread ? "#fafafa" : "#fff")}
+      variants={threadReveal}
+      transition={{ ...spring, delay: index * 0.03 }}
+      whileTap={{ scale: 0.98 }}
+      layout
     >
-      {/* Avatar */}
       <Avatar
         src={thread.other_user_image}
         name={thread.other_user_name}
         online={thread.other_user_online}
       />
 
-      {/* Content */}
-      <div style={{ flex: 1, minWidth: 0 }}>
-
-        {/* Name + time */}
-        <div style={{
-          display        : "flex",
-          justifyContent : "space-between",
-          alignItems     : "center",
-          gap            : 8,
-          marginBottom   : 3,
-        }}>
-          <span style={{
-            fontWeight   : hasUnread ? 800 : 600,
-            fontSize     : 15,
-            color        : "#111",
-            whiteSpace   : "nowrap",
-            overflow     : "hidden",
-            textOverflow : "ellipsis",
-            flex         : 1,
-          }}>
+      <div className="cv-thread__content">
+        {/* Row 1: Name + Time */}
+        <div className="cv-thread__row">
+          <span className={`cv-thread__name${hasUnread ? " cv-thread__name--bold" : ""}`}>
             {thread.other_user_name || "User"}
           </span>
-          <span style={{
-            fontSize   : 11,
-            color      : hasUnread ? "#111" : "#aaa",
-            fontWeight : hasUnread ? 700    : 400,
-            flexShrink : 0,
-          }}>
+          <span className={`cv-thread__time${hasUnread ? " cv-thread__time--bold" : ""}`}>
             {timeLabel(thread.last_message_at)}
           </span>
         </div>
 
-        {/* Preview + badge */}
-        <div style={{
-          display        : "flex",
-          justifyContent : "space-between",
-          alignItems     : "center",
-          gap            : 8,
-        }}>
-          <span style={{
-            fontSize     : 13,
-            color        : hasUnread ? "#333" : "#999",
-            fontWeight   : hasUnread ? 600   : 400,
-            whiteSpace   : "nowrap",
-            overflow     : "hidden",
-            textOverflow : "ellipsis",
-            flex         : 1,
-          }}>
+        {/* Row 2: Preview + Product + Badge */}
+        <div className="cv-thread__row">
+          <span className={`cv-thread__preview${hasUnread ? " cv-thread__preview--bold" : ""}`}>
             {truncated || "No messages yet"}
           </span>
 
-          {/* Product thumbnail */}
-          {thread.product_image && (
-            <img
-              src={thread.product_image}
-              alt=""
-              style={{
-                width        : 28,
-                height       : 28,
-                borderRadius : 6,
-                objectFit    : "cover",
-                flexShrink   : 0,
-                border       : "1px solid #eee",
-              }}
-            />
-          )}
+          <div className="cv-thread__meta">
+            {thread.product_image && (
+              <img
+                src={thread.product_image}
+                alt=""
+                className="cv-thread__product-img"
+              />
+            )}
 
-          {/* Unread badge */}
-          {hasUnread && (
-            <span style={{
-              minWidth       : 20,
-              height         : 20,
-              borderRadius   : 10,
-              background     : "#111",
-              color          : "#fff",
-              fontSize       : 11,
-              fontWeight     : 700,
-              display        : "flex",
-              alignItems     : "center",
-              justifyContent : "center",
-              padding        : "0 6px",
-              flexShrink     : 0,
-            }}>
-              {fmtUnread(unread)}
-            </span>
-          )}
+            <AnimatePresence>
+              {hasUnread && (
+                <motion.span
+                  className="cv-thread__badge"
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  exit={{ scale: 0 }}
+                  transition={{ type: "spring", stiffness: 500, damping: 24 }}
+                >
+                  {fmtUnread(unread)}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
 
-        {/* Product title */}
+        {/* Row 3: Product title */}
         {thread.product_title && (
-          <div style={{
-            fontSize     : 11,
-            color        : "#bbb",
-            marginTop    : 3,
-            whiteSpace   : "nowrap",
-            overflow     : "hidden",
-            textOverflow : "ellipsis",
-          }}>
+          <span className="cv-thread__product-title">
             re: {thread.product_title}
-          </div>
+          </span>
         )}
       </div>
-    </div>
+    </motion.div>
   );
-}
+});
 
 /* ═══════════════════════════════════════════════════════════════
-   CONVERSATIONS PAGE
+   ERROR STATE
+═══════════════════════════════════════════════════════════════ */
+const ErrorState = memo(function ErrorState({ message, onRetry, isRetrying }) {
+  return (
+    <motion.div
+      className="cv-error"
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={spring}
+    >
+      <div className="cv-error__icon">
+        <Icons.error />
+      </div>
+      <p className="cv-error__title">Could not load messages</p>
+      <p className="cv-error__msg">{message}</p>
+      <motion.button
+        className="cv-error__btn"
+        onClick={onRetry}
+        disabled={isRetrying}
+        whileTap={{ scale: 0.95 }}
+      >
+        {isRetrying ? (
+          <>
+            <span className="cv-spinner-sm" /> Refreshing…
+          </>
+        ) : (
+          <>
+            <Icons.refresh /> Retry
+          </>
+        )}
+      </motion.button>
+    </motion.div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   NOT LOGGED IN
+═══════════════════════════════════════════════════════════════ */
+const NotLoggedIn = memo(function NotLoggedIn({ onLogin }) {
+  return (
+    <motion.div
+      className="cv-noauth"
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={spring}
+    >
+      <div className="cv-noauth__icon">
+        <Icons.lock />
+      </div>
+      <p className="cv-noauth__title">Log in to see your messages</p>
+      <p className="cv-noauth__sub">
+        Your conversations with buyers and sellers will appear here
+      </p>
+      <motion.button
+        className="cv-noauth__btn"
+        onClick={onLogin}
+        whileTap={{ scale: 0.95 }}
+      >
+        Log in
+      </motion.button>
+    </motion.div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function Conversations({ user }) {
-  const navigate = useNavigate();
+  const navigate    = useNavigate();
+  const queryClient = useQueryClient();
 
-  const [threads, setThreads] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const [search,  setSearch]  = useState("");
-  const [tab,     setTab]     = useState("all"); // all | unread
+  const [search,     setSearch]     = useState("");
+  const [tab,        setTab]        = useState("all");
+  const [isRetrying, setIsRetrying] = useState(false);
 
-  const pollRef  = useRef(null);
-  const mounted  = useRef(true);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-
-  const safe = useCallback((fn) => {
-    if (mounted.current) fn();
-  }, []);
-
-  // ── Fetch conversations ───────────────────────────────────
-  const fetchConversations = useCallback(async (showLoading = true) => {
-    if (!user?.id) return;
-    if (showLoading) safe(() => { setLoading(true); setError(null); });
-
-    try {
-      const controller = new AbortController();
-      const timeoutId  = setTimeout(() => controller.abort(), FETCH_TIMEOUT);
-
-      const res = await fetch(
-        `${API}/conversations?userId=${user.id}`,
-        { headers: authH(), signal: controller.signal }
-      );
-
-      clearTimeout(timeoutId);
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || `HTTP ${res.status}`);
-      }
-
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : [];
-
-      // Sort by last_message_at descending
-      list.sort((a, b) =>
-        new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0)
-      );
-
-      safe(() => setThreads(list));
-
-    } catch (err) {
-      if (err.name === "AbortError") return; // ignore timeout
-      console.error("[Conversations] fetch:", err.message);
-      if (showLoading) safe(() => setError(err.message));
-    } finally {
-      if (showLoading) safe(() => setLoading(false));
-    }
-  }, [user?.id, safe]);
-
-  // ── Initial load ──────────────────────────────────────────
-  useEffect(() => {
-    fetchConversations(true);
-  }, [fetchConversations]);
-
-  // ── Poll every 15s (silent refresh) ──────────────────────
-  useEffect(() => {
-    if (!user?.id) return;
-    pollRef.current = setInterval(() => {
-      fetchConversations(false);
-    }, POLL_INTERVAL);
-    return () => clearInterval(pollRef.current);
-  }, [user?.id, fetchConversations]);
-
-  // ── Open thread ───────────────────────────────────────────
-  const openThread = useCallback((thread) => {
-    const threadId = thread.thread_id || thread.id;
-    navigate(`/chat/${threadId}`);
-  }, [navigate]);
-
-  // ── Filtered threads ──────────────────────────────────────
-  const filtered = threads.filter((t) => {
-    if (tab === "unread" && Number(t.unread_count || 0) === 0) return false;
-
-    if (search.trim()) {
-      const q       = search.toLowerCase();
-      const name    = (t.other_user_name || "").toLowerCase();
-      const msg     = (t.last_message    || "").toLowerCase();
-      const product = (t.product_title   || "").toLowerCase();
-      if (!name.includes(q) && !msg.includes(q) && !product.includes(q)) return false;
-    }
-
-    return true;
+  /* ── Fetch conversations ── */
+  const {
+    data:      threads = [],
+    isLoading: loading,
+    isError,
+    error,
+    refetch,
+  } = useQuery({
+    queryKey:  ["conversations", user?.id],
+    queryFn:   () => fetchConversations(user?.id),
+    enabled:   !!user?.id && !!getToken(),
+    staleTime: 30 * 1000,
+    gcTime:    10 * 60 * 1000,
+    refetchInterval: POLL_INTERVAL,
+    refetchIntervalInBackground: false,
+    retry: 2,
   });
 
-  const totalUnread = threads.reduce(
-    (sum, t) => sum + Number(t.unread_count || 0), 0
+  /* ── Invalidate unread count when page loads ── */
+  // This clears the BottomNav badge when user views messages
+  useState(() => {
+    queryClient.invalidateQueries({ queryKey: ["unread-message-count"] });
+  });
+
+  /* ── Filtered threads ── */
+  const filtered = useMemo(() => {
+    return threads.filter((t) => {
+      if (tab === "unread" && Number(t.unread_count || 0) === 0) return false;
+
+      if (search.trim()) {
+        const q       = search.toLowerCase();
+        const name    = (t.other_user_name || "").toLowerCase();
+        const msg     = (t.last_message || "").toLowerCase();
+        const product = (t.product_title || "").toLowerCase();
+        if (!name.includes(q) && !msg.includes(q) && !product.includes(q))
+          return false;
+      }
+
+      return true;
+    });
+  }, [threads, tab, search]);
+
+  const totalUnread = useMemo(
+    () => threads.reduce((sum, t) => sum + Number(t.unread_count || 0), 0),
+    [threads]
   );
 
-  /* ════════════════════════════════════════════════════════════
+  /* ── Handlers ── */
+  const openThread = useCallback(
+    (thread) => {
+      const threadId = thread.thread_id || thread.id;
+      navigate(`/chat/${threadId}`);
+    },
+    [navigate]
+  );
+
+  const handleRetry = useCallback(async () => {
+    setIsRetrying(true);
+    try {
+      await refetch();
+    } finally {
+      setIsRetrying(false);
+    }
+  }, [refetch]);
+
+  const handleRefresh = useCallback(() => {
+    refetch();
+  }, [refetch]);
+
+  /* ═══════════════════════════════════════════════════════════
      NOT LOGGED IN
-  ════════════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════════ */
   if (!user?.id) {
     return (
-      <div style={{
-        display        : "flex",
-        flexDirection  : "column",
-        alignItems     : "center",
-        justifyContent : "center",
-        height         : "100dvh",
-        gap            : 16,
-        fontFamily     : "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-        padding        : 24,
-        textAlign      : "center",
-      }}>
-        <svg width="56" height="56" fill="none" viewBox="0 0 24 24"
-          stroke="#ccc" strokeWidth={1.2}>
-          <path strokeLinecap="round" strokeLinejoin="round"
-            d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03
-               8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4
-               15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-        </svg>
-        <p style={{ fontSize: 16, fontWeight: 700, color: "#555" }}>
-          Log in to see your messages
-        </p>
-        <button
-          onClick={() => navigate("/auth")}
-          style={{
-            padding      : "11px 32px",
-            borderRadius : 24,
-            border       : "none",
-            background   : "#111",
-            color        : "#fff",
-            fontSize     : 14,
-            fontWeight   : 700,
-            cursor       : "pointer",
-          }}
-        >
-          Log in
-        </button>
+      <div className="cv-root">
+        <NotLoggedIn onLogin={() => navigate("/auth")} />
+        <BottomNav />
       </div>
     );
   }
 
-  /* ════════════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════════
      RENDER
-  ════════════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════════ */
   return (
-    <>
-      <style>{STYLES}</style>
-
-      <div className="cv-wrap">
-
-        {/* ══════════════════════════════════════════════
-            HEADER
-        ══════════════════════════════════════════════ */}
-        <div className="cv-header">
-          <div className="cv-header-top">
-            <div style={{ display: "flex", alignItems: "center" }}>
-              <button
-                className="cv-back"
-                onClick={() => navigate(-1)}
-                aria-label="Back"
-              >
-                <svg width="20" height="20" fill="none" viewBox="0 0 24 24"
-                  stroke="#111" strokeWidth={2.2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/>
-                </svg>
-              </button>
-              <span className="cv-title">
-                Messages
-                {totalUnread > 0 && (
-                  <span className="cv-unread-badge">
-                    {fmtUnread(totalUnread)}
-                  </span>
-                )}
-              </span>
-            </div>
-
-            {/* Refresh button */}
-            <button
-              onClick={() => fetchConversations(true)}
-              aria-label="Refresh conversations"
-              style={{
-                background   : "none",
-                border       : "none",
-                cursor       : "pointer",
-                padding      : 8,
-                borderRadius : "50%",
-                display      : "flex",
-                alignItems   : "center",
-                transition   : "background .15s",
-              }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "#f5f5f5")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "none")}
+    <div className="cv-root">
+      {/* ── Header ── */}
+      <header className="cv-header">
+        <div className="cv-header__top">
+          <div className="cv-header__left">
+            <motion.button
+              className="cv-header__back"
+              onClick={() => navigate(-1)}
+              aria-label="Go back"
+              whileTap={{ scale: 0.85, x: -3 }}
             >
-              <svg width="20" height="20" fill="none" viewBox="0 0 24 24"
-                stroke="#555" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round"
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582
-                     9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0
-                     01-15.357-2m15.357 2H15"/>
-              </svg>
-            </button>
+              <Icons.back />
+            </motion.button>
+
+            <motion.h1
+              className="cv-header__title"
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={spring}
+            >
+              Messages
+              <AnimatePresence>
+                {totalUnread > 0 && (
+                  <motion.span
+                    className="cv-header__badge"
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    exit={{ scale: 0 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                  >
+                    {fmtUnread(totalUnread)}
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </motion.h1>
           </div>
 
-          {/* Search — only shown when there are enough threads */}
-          {threads.length > 3 && (
+          <motion.button
+            className="cv-header__action"
+            onClick={handleRefresh}
+            aria-label="Refresh"
+            whileTap={{ scale: 0.85, rotate: -45 }}
+          >
+            <Icons.refresh />
+          </motion.button>
+        </div>
+
+        {/* Search */}
+        {threads.length > 3 && (
+          <motion.div
+            className="cv-search-wrap"
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ ...spring, delay: 0.06 }}
+          >
+            <span className="cv-search__icon">
+              <Icons.search />
+            </span>
             <input
-              className="cv-search"
+              className="cv-search__input"
               type="text"
               placeholder="Search conversations…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
+            <AnimatePresence>
+              {search && (
+                <motion.button
+                  className="cv-search__clear"
+                  onClick={() => setSearch("")}
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  exit={{ scale: 0 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 20 }}
+                >
+                  ×
+                </motion.button>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        )}
+
+        {/* Tabs */}
+        {threads.length > 0 && (
+          <div className="cv-tabs">
+            <button
+              className={`cv-tab${tab === "all" ? " cv-tab--active" : ""}`}
+              onClick={() => setTab("all")}
+            >
+              All
+              <span className="cv-tab__count">{threads.length}</span>
+            </button>
+            <button
+              className={`cv-tab${tab === "unread" ? " cv-tab--active" : ""}`}
+              onClick={() => setTab("unread")}
+            >
+              Unread
+              {totalUnread > 0 && (
+                <span className="cv-tab__count cv-tab__count--unread">
+                  {fmtUnread(totalUnread)}
+                </span>
+              )}
+            </button>
+          </div>
+        )}
+      </header>
+
+      {/* ── Body ── */}
+      <div className="cv-body">
+        {/* Loading */}
+        {loading && <SkeletonList />}
+
+        {/* Error */}
+        {!loading && isError && (
+          <ErrorState
+            message={error?.message || "Connection error"}
+            onRetry={handleRetry}
+            isRetrying={isRetrying}
+          />
+        )}
+
+        {/* Empty — no conversations */}
+        {!loading && !isError && threads.length === 0 && <EmptyState />}
+
+        {/* Empty — filter returned nothing */}
+        {!loading &&
+          !isError &&
+          threads.length > 0 &&
+          filtered.length === 0 && (
+            <EmptyState filtered search={tab === "all" ? search : ""} />
           )}
 
-          {/* Tabs */}
-          {threads.length > 0 && (
-            <div className="cv-tabs">
-              <button
-                className={`cv-tab${tab === "all" ? " active" : ""}`}
-                onClick={() => setTab("all")}
-              >
-                All ({threads.length})
-              </button>
-              <button
-                className={`cv-tab${tab === "unread" ? " active" : ""}`}
-                onClick={() => setTab("unread")}
-              >
-                Unread ({totalUnread})
-              </button>
-            </div>
-          )}
-        </div>
+        {/* Thread list */}
+        {!loading && !isError && filtered.length > 0 && (
+          <motion.div
+            className="cv-thread-list"
+            variants={stagger}
+            initial="hidden"
+            animate="visible"
+          >
+            {filtered.map((thread, i) => (
+              <ThreadItem
+                key={thread.thread_id || thread.id}
+                thread={thread}
+                userId={user.id}
+                onClick={() => openThread(thread)}
+                index={i}
+              />
+            ))}
+          </motion.div>
+        )}
 
-        {/* ══════════════════════════════════════════════
-            BODY
-        ══════════════════════════════════════════════ */}
-        <div className="cv-list">
-
-          {/* Loading */}
-          {loading && (
-            <div style={{ display: "flex", justifyContent: "center", paddingTop: 80 }}>
-              <Spinner />
-            </div>
-          )}
-
-          {/* Error */}
-          {!loading && error && (
-            <div className="cv-error">
-              <svg width="40" height="40" fill="none" viewBox="0 0 24 24"
-                stroke="#f87171" strokeWidth={1.5}>
-                <circle cx="12" cy="12" r="10"/>
-                <path strokeLinecap="round" d="M12 8v4m0 4h.01"/>
-              </svg>
-              <p style={{ margin: 0, fontSize: 14, color: "#888" }}>
-                Could not load messages
-              </p>
-              <p style={{
-                margin       : 0,
-                fontSize     : 11,
-                color        : "#f87171",
-                fontFamily   : "monospace",
-                background   : "#fef2f2",
-                padding      : "4px 10px",
-                borderRadius : 6,
-              }}>
-                {error}
-              </p>
-              <button
-                onClick={() => fetchConversations(true)}
-                style={{
-                  padding      : "9px 28px",
-                  borderRadius : 20,
-                  border       : "none",
-                  background   : "#111",
-                  color        : "#fff",
-                  fontSize     : 13,
-                  fontWeight   : 700,
-                  cursor       : "pointer",
-                }}
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          {/* Empty — no conversations at all */}
-          {!loading && !error && threads.length === 0 && <EmptyState />}
-
-          {/* Empty — filter returned nothing */}
-          {!loading && !error && threads.length > 0 && filtered.length === 0 && (
-            <div style={{ textAlign: "center", padding: "60px 24px", color: "#aaa", fontSize: 14 }}>
-              {tab === "unread"
-                ? "🎉 All caught up — no unread messages!"
-                : `No results for "${search}"`
-              }
-            </div>
-          )}
-
-          {/* Thread list */}
-          {!loading && !error && filtered.map((thread) => (
-            <ThreadItem
-              key={thread.thread_id || thread.id}
-              thread={thread}
-              userId={user.id}
-              onClick={() => openThread(thread)}
-            />
-          ))}
-
-          {/* Bottom spacer */}
-          <div style={{ height: 80 }} />
-
-        </div>
+        {/* Bottom spacer for BottomNav */}
+        <div className="cv-spacer" />
       </div>
-    </>
+
+      <BottomNav />
+    </div>
   );
 }
