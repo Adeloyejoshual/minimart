@@ -4,7 +4,7 @@
 
 import "../../styles/help/support-hub.css";
 
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import {
   IconMessageCircle,
   IconFileText,
@@ -13,6 +13,7 @@ import {
   IconMegaphone,
   IconStar,
   IconArrowRight,
+  IconArrowLeft,
   IconHelpCircle,
   IconBookOpen,
   IconClock,
@@ -35,9 +36,21 @@ const RESPONSE_TIMES = [
 ];
 
 export default function SupportHub() {
+  const navigate = useNavigate();
+
   return (
     <div className="support-hub-page">
       <div className="support-hub-container">
+        <button
+          type="button"
+          onClick={() => navigate(-1)}
+          className="support-hub-back-btn"
+          aria-label="Go back"
+        >
+          <IconArrowLeft size={18} />
+          <span>Back</span>
+        </button>
+
         <div className="support-hub-header">
           <div className="support-hub-icon-wrapper">
             <IconHelpCircle size={32} />
