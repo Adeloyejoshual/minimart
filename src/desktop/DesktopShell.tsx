@@ -5,7 +5,7 @@
  *   RIGHT — sticky ListingPreview + PromotionPlan + Submit
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAddProductContext } from "../hooks/useAddProductContext.js";
+import { useAddProductContext } from "../hooks/useAddProductContext.jsx";
 
 import AddProductHeader   from "../components/AddProductHeader.jsx";
 import ProgressOverlay    from "../components/ProgressOverlay.jsx";
