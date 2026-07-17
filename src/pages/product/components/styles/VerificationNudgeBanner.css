@@ -1,0 +1,63 @@
+/* src/pages/product/components/styles/VerificationNudgeBanner.css */
+
+.verification-nudge-banner {
+  margin: var(--gap-md) var(--pad) 0;
+  padding: 20px 18px;
+  background: linear-gradient(135deg, var(--gn2) 0%, #BBFFD8 100%);
+  border: 1.5px solid rgba(21,128,61,.2);
+  border-radius: var(--r-md);
+  display: flex;
+  gap: var(--gap-md);
+  align-items: flex-start;
+}
+
+.verification-nudge-icon {
+  flex-shrink: 0;
+  color: var(--gn);
+  margin-top: 2px;
+}
+
+.verification-nudge-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-sm);
+}
+
+.verification-nudge-content strong {
+  font-size: 0.95rem;
+  color: var(--gn);
+}
+
+.verification-nudge-content p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--ink2);
+  line-height: 1.45;
+}
+
+.verification-nudge-btn {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 18px;
+  font-size: 0.88rem;
+  width: fit-content;
+  text-decoration: none;
+  background: var(--gn);
+  color: var(--wh);
+  border-radius: var(--r-sm);
+  font-weight: 700;
+  transition: background var(--tr);
+}
+
+.verification-nudge-btn:hover         { background: #166534; }
+.verification-nudge-btn:focus-visible { outline: 2px solid var(--gn); outline-offset: 2px; }
+
+/* ── Dark mode ── */
+@media (prefers-color-scheme: dark) {
+  .verification-nudge-banner { background: rgba(21,128,61,.12); }
+}
+
+/* ── Small screens ── */
+@media (max-width: 480px) {
+  .verification-nudge-banner { flex-direction: column; }
+}
