@@ -1,0 +1,14 @@
+/* src/pages/product/components/styles/CharCounter.css */
+
+.char-counter {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  transition: color var(--tr);
+}
+
+.char-counter--short { color: var(--rd);           }
+.char-counter--warn  { color: var(--am);           }
+.char-counter--max   { color: var(--rd); font-weight: 700; }
