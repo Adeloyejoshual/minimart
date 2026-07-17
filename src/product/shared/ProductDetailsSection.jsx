@@ -3,7 +3,7 @@
  * Category · Subcategory · Brand · Model · Fields · Features
  */
 import { useMemo, useState } from "react";
-import { useAddProductContext } from "../../hooks/useAddProductContext.js";
+import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import DropdownModal   from "../../components/DropdownModal.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
 import { INITIAL_FORM } from "../../hooks/useFormState.js";
