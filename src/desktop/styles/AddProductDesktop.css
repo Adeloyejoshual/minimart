@@ -1,0 +1,175 @@
+/* src/desktop/styles/AddProductDesktop.css
+   Desktop 2-column layout for AddProduct page.
+   Only kicks in ≥1024px — mobile CSS handles smaller screens.
+*/
+
+/* ═══════════════════════════════════════════════════════════════
+   PAGE OVERRIDES (desktop only)
+═══════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) {
+  .apd-page {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 0 24px 60px;
+  }
+
+  /* Full-width banners span the whole page width */
+  .apd-page .form-error,
+  .apd-page .form-success,
+  .apd-page .ap-error-banner,
+  .apd-page .payment-resume-banner,
+  .apd-page .verification-nudge-banner,
+  .apd-page .duplicate-warning,
+  .apd-page .compression-progress,
+  .apd-page .ap-edit-mode-bar {
+    margin-left: 0;
+    margin-right: 0;
+  }
+
+  /* ═════════════════════════════════════════════════════════
+     GRID
+  ═════════════════════════════════════════════════════════ */
+  .apd-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
+    gap: 32px;
+    margin-top: 20px;
+    align-items: start;
+  }
+
+  /* ═════════════════════════════════════════════════════════
+     LEFT COLUMN (form)
+  ═════════════════════════════════════════════════════════ */
+  .apd-left {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    min-width: 0;                /* prevents overflow */
+  }
+
+  .apd-left .section,
+  .apd-left .form-card {
+    margin: 0;                    /* reset mobile margins */
+    padding: 32px 32px;
+    border-radius: var(--r-xl);
+  }
+
+  /* Wider inputs on desktop */
+  .apd-left .form-group input[type="text"],
+  .apd-left .form-group input[type="email"],
+  .apd-left .form-group input[type="tel"],
+  .apd-left .form-group input[type="url"],
+  .apd-left .form-group input[type="number"],
+  .apd-left .form-group textarea {
+    padding: 14px 16px;
+    font-size: 0.95rem;
+  }
+
+  .apd-left #ap-title {
+    padding: 20px 22px;
+    font-size: 1.15rem;
+    min-height: 62px;
+  }
+
+  /* Bigger section titles */
+  .apd-left .section-title {
+    font-size: 1.15rem;
+    margin-bottom: 20px;
+  }
+
+  /* ═════════════════════════════════════════════════════════
+     RIGHT COLUMN (sticky preview + plan + submit)
+  ═════════════════════════════════════════════════════════ */
+  .apd-right {
+    min-width: 0;
+  }
+
+  .apd-sticky {
+    position: sticky;
+    top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-height: calc(100vh - 40px);
+    overflow-y: auto;
+    /* Custom scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: var(--bd2) transparent;
+    padding-right: 4px;           /* leave room for scrollbar */
+  }
+
+  .apd-sticky::-webkit-scrollbar        { width: 6px; }
+  .apd-sticky::-webkit-scrollbar-track  { background: transparent; }
+  .apd-sticky::-webkit-scrollbar-thumb {
+    background: var(--bd2);
+    border-radius: var(--r-full);
+  }
+
+  /* Reset margins on children of sticky */
+  .apd-sticky > * {
+    margin: 0 !important;
+  }
+
+  /* Compact promotion plan in sidebar */
+  .apd-sticky .section,
+  .apd-sticky .form-card {
+    padding: 20px;
+  }
+
+  .apd-sticky .section-title {
+    font-size: 0.95rem;
+    margin-bottom: 12px;
+  }
+
+  .apd-sticky .plans-grid {
+    grid-template-columns: 1fr;   /* stack plans vertically in sidebar */
+    gap: 10px;
+  }
+
+  .apd-sticky .plan-card {
+    padding: 14px;
+  }
+
+  /* Submit section — no sticky needed inside sticky wrapper */
+  .apd-sticky .button-section {
+    position: static;
+    bottom: auto;
+    padding: 20px;
+    border-radius: var(--r-xl);
+    background: var(--wh);
+    box-shadow: var(--sh-sm);
+    border: 1px solid var(--bd);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EXTRA LARGE — bigger gap, more room for preview
+═══════════════════════════════════════════════════════════════ */
+@media (min-width: 1440px) {
+  .apd-grid {
+    grid-template-columns: minmax(0, 1fr) 460px;
+    gap: 40px;
+  }
+
+  .apd-left .section,
+  .apd-left .form-card {
+    padding: 36px 40px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE — sticky column
+═══════════════════════════════════════════════════════════════ */
+@media (min-width: 1024px) and (prefers-color-scheme: dark) {
+  .apd-sticky::-webkit-scrollbar-thumb { background: var(--bd); }
+  .apd-sticky .button-section          { background: var(--wh); border-color: var(--bd); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REDUCED MOTION
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  .apd-sticky { scroll-behavior: auto; }
+}
