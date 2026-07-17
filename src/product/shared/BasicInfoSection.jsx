@@ -2,7 +2,7 @@
  * src/product/shared/BasicInfoSection.jsx
  * Title · Description · Price
  */
-import { useAddProductContext } from "../../hooks/useAddProductContext.js";
+import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import SectionDot   from "../components/SectionDot.jsx";
 import CharCounter  from "../components/CharCounter.jsx";
 import { useEffect, useState } from "react";
