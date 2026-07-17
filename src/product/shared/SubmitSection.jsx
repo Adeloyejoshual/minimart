@@ -4,7 +4,7 @@
  */
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { useAddProductContext } from "../../hooks/useAddProductContext.js";
+import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import { SpinnerIcon } from "../components/icons/index.jsx";
 
 export default function SubmitSection() {
