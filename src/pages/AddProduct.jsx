@@ -2,17 +2,6 @@
  * src/pages/AddProduct.jsx
  * Route: /minimart/add
  *       /minimart/add?edit=:productId  ← EDIT MODE
- *
- * Changes from v10:
- *  ─ Edit mode fully integrated
- *  ─ Extracted: useFormState, useImageManager, useSellerLimits
- *  ─ Extracted: utils/location.js (GPS)
- *  ─ buildBaseFormData() shared between create + edit
- *  ─ FIX: totalImageCount checked inside updater (no stale closure)
- *  ─ FIX: categoriesLoaded flag (no infinite load on category error)
- *  ─ FIX: email regex validation
- *  ─ FIX: moveAllImages() orders existing + new together
- *  ─ INITIAL_FORM removed from props (module-level constant)
  */
 
 import {
@@ -20,36 +9,38 @@ import {
 } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import ProductComponents   from "./product/components.jsx";
-import ProgressOverlay     from "../components/ProgressOverlay.jsx";
-import { locationsByState } from "../config/locationsByState.js";
-import { apiFetch, ApiError } from "../utils/apiFetch.js";
-import { detectUserLocation } from "../utils/location.js";
+import ProductComponents          from "./product/components.jsx";
+import ProgressOverlay            from "../components/ProgressOverlay.jsx";
+import { locationsByState }       from "../config/locationsByState.js";
+import { apiFetch, ApiError }     from "../utils/apiFetch.js";
+import { detectUserLocation }     from "../utils/location.js";
 import { useFormState, INITIAL_FORM, freshForm } from "../hooks/useFormState.js";
-import { useImageManager } from "../hooks/useImageManager.js";
-import { useSellerLimits  } from "../hooks/useSellerLimits.js";
+import { useImageManager }        from "../hooks/useImageManager.js";
+import { useSellerLimits }        from "../hooks/useSellerLimits.js";
+
 import "../styles/AddProduct.css";
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
 ═══════════════════════════════════════════════════════════════ */
-const API_BASE = `${import.meta.env.VITE_API_BASE_URL}/api`;
-
-const STORAGE_PAYMENT = "payment_retry";
-const DRAFT_VERSION   = 3;
-const MAX_IMAGES      = 6;
-const UPLOAD_TIMEOUT  = 120_000;
-const PAYMENT_MAX_AGE = 30 * 60 * 1_000;
-const DRAFT_DELAY_MS  = 1_200;
-const BRAND_NAME      = "Loemart";
-const DESCRIPTION_MIN = 10;
+const API_BASE          = `${import.meta.env.VITE_API_BASE_URL}/api`;
+const STORAGE_PAYMENT   = "payment_retry";
+const DRAFT_VERSION     = 3;
+const MAX_IMAGES        = 6;
+const UPLOAD_TIMEOUT    = 120_000;
+const PAYMENT_MAX_AGE   = 30 * 60 * 1_000;
+const DRAFT_DELAY_MS    = 1_200;
+const BRAND_NAME        = "Loemart";
+const DESCRIPTION_MIN   = 10;
+const REDIRECT_DELAY_MS = 1_500;
+const VERIFY_DELAY_MS   = 2_000;
+const STEP_DELAY_MS     = 400;
 
 const ALLOWED_PAYMENT_HOSTS = new Set([
   "checkout.paystack.com",
   "standard.paystack.com",
 ]);
 
-/* FIX #5: proper email regex */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^\+?[0-9]{7,15}$/;
 
@@ -72,9 +63,11 @@ const ERROR_SELECTOR_MAP = [
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
 ═══════════════════════════════════════════════════════════════ */
-const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
-const onlyDigits  = (v = "") => v.replace(/[^0-9]/g,  "");
-const toArray     = (v)      => (Array.isArray(v) ? v : []);
+const onlyNumbers     = (v = "") => v.replace(/[^0-9.]/g, "");
+const onlyDigits      = (v = "") => v.replace(/[^0-9]/g,  "");
+const toArray         = (v)      => (Array.isArray(v) ? v : []);
+const sanitizePhone   = (v = "") => v.replace(/[\s\-().]/g, "");
+const isValidPhone    = (v)      => !!v && PHONE_RE.test(sanitizePhone(String(v)));
 
 const displayPrice = (v) => {
   const n = Number(v);
@@ -90,15 +83,23 @@ const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token");
 
+/* ═══════════════════════════════════════════════════════════════
+   AUTH HELPER
+═══════════════════════════════════════════════════════════════ */
 const getTokenOrRedirect = (navigate, returnPath) => {
   const token = getToken();
   if (!token) {
-    navigate(`/login?redirect=${encodeURIComponent(returnPath ?? window.location.pathname)}`);
-    throw new ApiError("Session expired", 401);
+    navigate(
+      `/login?redirect=${encodeURIComponent(returnPath ?? window.location.pathname)}`
+    );
+    return null;
   }
   return token;
 };
 
+/* ═══════════════════════════════════════════════════════════════
+   PAYMENT HELPERS
+═══════════════════════════════════════════════════════════════ */
 const safeOpenPayment = (url, onError) => {
   try {
     const parsed = new URL(url);
@@ -122,10 +123,9 @@ const isValidPaymentSession = (obj) =>
   typeof obj.authUrl   === "string" && obj.authUrl.startsWith("https://") &&
   typeof obj.createdAt === "number";
 
-const sanitizePhone = (v = "") => v.replace(/[\s\-().]/g, "");
-const isValidPhone  = (v)      =>
-  !!v && PHONE_RE.test(sanitizePhone(String(v)));
-
+/* ═══════════════════════════════════════════════════════════════
+   IDEMPOTENCY HELPERS
+═══════════════════════════════════════════════════════════════ */
 const getOrCreateIdempotencyKey = (storageKey) => {
   const existing = sessionStorage.getItem(storageKey);
   if (existing) return existing;
@@ -137,6 +137,9 @@ const getOrCreateIdempotencyKey = (storageKey) => {
 const clearIdempotencyKey = (storageKey) =>
   sessionStorage.removeItem(storageKey);
 
+/* ═══════════════════════════════════════════════════════════════
+   NETWORK HELPER
+═══════════════════════════════════════════════════════════════ */
 const multipartRequest = async (
   url, method = "POST", formData, token, timeoutMs = UPLOAD_TIMEOUT
 ) => {
@@ -163,6 +166,9 @@ const multipartRequest = async (
   return data;
 };
 
+/* ═══════════════════════════════════════════════════════════════
+   SCROLL TO ERROR
+═══════════════════════════════════════════════════════════════ */
 const scrollToError = (msg) => {
   if (!msg) return;
   const entry = ERROR_SELECTOR_MAP.find((e) => msg.includes(e.match));
@@ -177,7 +183,9 @@ const scrollToError = (msg) => {
       }
       el.classList.add("ap-field-flash");
       setTimeout(() => el.classList.remove("ap-field-flash"), 2_000);
-    } catch { /* scroll is nice-to-have */ }
+    } catch {
+      if (import.meta.env.DEV) console.warn("[scrollToError] failed");
+    }
   });
 };
 
@@ -191,8 +199,14 @@ export default function AddProduct({ user }) {
   const editId     = searchParams.get("edit") || null;
   const isEditMode = !!editId;
 
-  const STORAGE_DRAFT     = useMemo(() => `product_draft_v3_${user?.id ?? "anon"}`, [user?.id]);
-  const IDEMPOTENCY_STORE = useMemo(() => `idempotency_${user?.id ?? "anon"}`,      [user?.id]);
+  const STORAGE_DRAFT     = useMemo(
+    () => `product_draft_v3_${user?.id ?? "anon"}`,
+    [user?.id]
+  );
+  const IDEMPOTENCY_STORE = useMemo(
+    () => `idempotency_${user?.id ?? "anon"}`,
+    [user?.id]
+  );
 
   /* ── Custom hooks ── */
   const {
@@ -206,7 +220,6 @@ export default function AddProduct({ user }) {
     compressingCount, compressingTotal,
     loadExistingImages, handleImages, removeImage,
     removeExistingImage, moveImage, moveAllImages, resetImages,
-    sessionHashSet,
   } = useImageManager({ showError: _showError, showSuccess: _showSuccess });
 
   const {
@@ -217,7 +230,7 @@ export default function AddProduct({ user }) {
 
   /* ── Local state ── */
   const [categories,        setCategories]        = useState([]);
-  const [categoriesLoaded,  setCategoriesLoaded]  = useState(false); // FIX #4
+  const [categoriesLoaded,  setCategoriesLoaded]  = useState(false);
   const [promotionPlans,    setPromotionPlans]    = useState([]);
   const [plansLoading,      setPlansLoading]      = useState(!isEditMode);
   const [locationState,     setLocationState]     = useState("");
@@ -240,28 +253,49 @@ export default function AddProduct({ user }) {
   const mountedRef      = useRef(true);
   const isSubmittingRef = useRef(false);
   const autoSaveTimer   = useRef(null);
+  const timeoutIdsRef   = useRef(new Set());
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      /* Clear all tracked timeouts on unmount */
+      timeoutIdsRef.current.forEach(clearTimeout);
+    };
   }, []);
 
-  /* ── Feedback — defined early so hooks can use them ── */
-  function _showError(msg) {
+  /* ═══════════════════════════════════════════════════════════
+     FEEDBACK
+  ═══════════════════════════════════════════════════════════ */
+  const showError = useCallback((msg) => {
     if (!mountedRef.current) return;
     setError(msg);
     scrollToError(msg);
-    setTimeout(() => { if (mountedRef.current) setError(""); }, 7_000);
-  }
+    const id = setTimeout(() => {
+      if (mountedRef.current) setError("");
+      timeoutIdsRef.current.delete(id);
+    }, 7_000);
+    timeoutIdsRef.current.add(id);
+  }, []);
 
-  function _showSuccess(msg) {
+  const showSuccess = useCallback((msg) => {
     if (!mountedRef.current) return;
     setSuccess(msg);
-    setTimeout(() => { if (mountedRef.current) setSuccess(""); }, 5_000);
-  }
+    const id = setTimeout(() => {
+      if (mountedRef.current) setSuccess("");
+      timeoutIdsRef.current.delete(id);
+    }, 5_000);
+    timeoutIdsRef.current.add(id);
+  }, []);
 
-  const showError   = useCallback(_showError,   []); // eslint-disable-line react-hooks/exhaustive-deps
-  const showSuccess = useCallback(_showSuccess, []); // eslint-disable-line react-hooks/exhaustive-deps
+  /* ── Safe redirect with tracked timeout ── */
+  const safeRedirect = useCallback((path, delayMs = REDIRECT_DELAY_MS) => {
+    const id = setTimeout(() => {
+      if (mountedRef.current) navigate(path);
+      timeoutIdsRef.current.delete(id);
+    }, delayMs);
+    timeoutIdsRef.current.add(id);
+  }, [navigate]);
 
   /* ── Derived ── */
   const selectedCategory = useMemo(
@@ -269,31 +303,39 @@ export default function AddProduct({ user }) {
     [categories, form.category_id]
   );
   const options    = useMemo(() => selectedCategory?.dynamicOptions ?? {}, [selectedCategory]);
-  const attributes = useMemo(() => form.attributes ?? INITIAL_FORM.attributes, [form.attributes]);
-  const states     = useMemo(() => Object.keys(locationsByState ?? {}), []);
-  const cities     = useMemo(
+  const attributes = useMemo(
+    () => form.attributes ?? INITIAL_FORM.attributes,
+    [form.attributes]
+  );
+  const states = useMemo(() => Object.keys(locationsByState ?? {}), []);
+  const cities = useMemo(
     () => locationState ? (locationsByState[locationState] ?? []) : [],
     [locationState]
   );
+
   const isSelectedPlanPaid = !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
-  /* ── Load categories ── */
+  /* ═══════════════════════════════════════════════════════════
+     LOAD CATEGORIES
+  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     apiFetch(`${API_BASE}/addproduct/categories`)
       .then((data) => {
         if (!mountedRef.current) return;
         setCategories(Array.isArray(data) ? data : []);
-        setCategoriesLoaded(true); // FIX #4: always set true even if empty
+        setCategoriesLoaded(true);
       })
       .catch((err) => {
         if (!mountedRef.current) return;
         setCategories([]);
-        setCategoriesLoaded(true); // FIX #4: don't hang on error
+        setCategoriesLoaded(true);
         showError(err.message ?? "Failed to load categories");
       });
   }, [showError]);
 
-  /* ── Load plans (skip edit mode) ── */
+  /* ═══════════════════════════════════════════════════════════
+     LOAD PLANS (skip edit mode)
+  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) { setPlansLoading(false); return; }
     setPlansLoading(true);
@@ -308,11 +350,13 @@ export default function AddProduct({ user }) {
       .finally(() => { if (mountedRef.current) setPlansLoading(false); });
   }, [isEditMode]);
 
-  /* ── Load product for edit ── */
+  /* ═══════════════════════════════════════════════════════════
+     LOAD PRODUCT FOR EDIT
+  ═══════════════════════════════════════════════════════════ */
   const loadProductForEdit = useCallback(async () => {
     if (!editId) return;
-    const token = getToken();
-    if (!token) { navigate("/auth?redirect=/dashboard"); return; }
+    const token = getTokenOrRedirect(navigate, "/auth?redirect=/dashboard");
+    if (!token) return;
 
     setEditLoading(true);
     setEditError(null);
@@ -320,10 +364,14 @@ export default function AddProduct({ user }) {
     try {
       const res = await fetch(
         `${API_BASE}/seller-dashboard/products/${editId}`,
-        { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+        {
+          headers: {
+            Authorization  : `Bearer ${token}`,
+            "Content-Type" : "application/json",
+          },
+        }
       );
       const d = await res.json();
-
       if (!res.ok || !d.success) throw new Error(d.message || "Product not found");
 
       const p = d.product;
@@ -375,7 +423,7 @@ export default function AddProduct({ user }) {
         }]);
       }
 
-      setAgreedToTerms(true); // auto-agree in edit mode
+      setAgreedToTerms(true);
 
     } catch (err) {
       console.error("[AddProduct] edit load:", err);
@@ -385,22 +433,30 @@ export default function AddProduct({ user }) {
     }
   }, [editId, navigate, user?.email, loadForm, loadExistingImages]);
 
-  /* FIX #4: use categoriesLoaded instead of categories.length > 0 */
   useEffect(() => {
     if (isEditMode && categoriesLoaded) loadProductForEdit();
   }, [isEditMode, categoriesLoaded, loadProductForEdit]);
 
-  /* ── Resume stale payment (skip edit mode) ── */
+  /* ═══════════════════════════════════════════════════════════
+     RESUME STALE PAYMENT (skip edit mode)
+  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
     const check = async () => {
       try {
         const saved = localStorage.getItem(STORAGE_PAYMENT);
         if (!saved) return;
-        let session;
-        try { session = JSON.parse(saved); } catch { localStorage.removeItem(STORAGE_PAYMENT); return; }
 
-        if (!isValidPaymentSession(session)) { localStorage.removeItem(STORAGE_PAYMENT); return; }
+        let session;
+        try {
+          session = JSON.parse(saved);
+        } catch {
+          localStorage.removeItem(STORAGE_PAYMENT); return;
+        }
+
+        if (!isValidPaymentSession(session)) {
+          localStorage.removeItem(STORAGE_PAYMENT); return;
+        }
 
         const ageMs = Date.now() - session.createdAt;
         if (ageMs <= PAYMENT_MAX_AGE) {
@@ -409,36 +465,46 @@ export default function AddProduct({ user }) {
           return;
         }
 
+        /* Try to verify expired session */
         if (session.reference) {
           const token = getToken();
           if (token) {
             try {
               const result = await apiFetch(`${API_BASE}/payment/verify`, {
                 method  : "POST",
-                headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-                body    : JSON.stringify({ reference: session.reference }),
+                headers : {
+                  "Content-Type" : "application/json",
+                  Authorization  : `Bearer ${token}`,
+                },
+                body: JSON.stringify({ reference: session.reference }),
               });
               if (!mountedRef.current) return;
               if (result.status === "success") {
-                showSuccess(result.needs_verification
-                  ? "Payment confirmed. Redirecting to verification…"
-                  : "Your previous payment was confirmed — product is live!"
+                showSuccess(
+                  result.needs_verification
+                    ? "Payment confirmed. Redirecting to verification…"
+                    : "Your previous payment was confirmed — product is live!"
                 );
                 if (result.needs_verification) {
-                  setTimeout(() => { if (mountedRef.current) navigate("/verification"); }, 2_000);
+                  safeRedirect("/verification", VERIFY_DELAY_MS);
                 }
               }
             } catch { /* non-critical */ }
           }
         }
+
         localStorage.removeItem(STORAGE_PAYMENT);
         if (mountedRef.current) setPaymentData(null);
-      } catch { localStorage.removeItem(STORAGE_PAYMENT); }
+      } catch {
+        localStorage.removeItem(STORAGE_PAYMENT);
+      }
     };
     check();
-  }, [isEditMode, showSuccess, navigate]);
+  }, [isEditMode, showSuccess, safeRedirect]);
 
-  /* ── Restore draft (skip edit mode) ── */
+  /* ═══════════════════════════════════════════════════════════
+     RESTORE DRAFT (skip edit mode)
+  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
     if (!categoriesLoaded || plansLoading) return;
@@ -456,7 +522,9 @@ export default function AddProduct({ user }) {
       setCity(draft.city ?? "");
 
       if (draft.selectedPlan) {
-        const matched = promotionPlans.find((p) => String(p.id) === String(draft.selectedPlan));
+        const matched = promotionPlans.find(
+          (p) => String(p.id) === String(draft.selectedPlan)
+        );
         setSelectedPlan(matched ?? null);
       }
     } catch (err) {
@@ -464,7 +532,9 @@ export default function AddProduct({ user }) {
     }
   }, [isEditMode, categoriesLoaded, plansLoading, STORAGE_DRAFT, loadForm, promotionPlans]);
 
-  /* ── Auto-save draft (skip edit mode) ── */
+  /* ═══════════════════════════════════════════════════════════
+     AUTO-SAVE DRAFT (skip edit mode)
+  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
     if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
@@ -489,9 +559,8 @@ export default function AddProduct({ user }) {
   const detectLocation = useCallback(async () => {
     if (mountedRef.current) setDetectingLocation(true);
     try {
-      const result = await detectUserLocation(); // from utils/location.js
+      const result = await detectUserLocation();
       if (!mountedRef.current) return;
-
       if (result.state) setLocationState(result.state);
       if (result.city)  setCity(result.city);
       setDetectedCoords({ latitude: result.latitude, longitude: result.longitude });
@@ -523,7 +592,6 @@ export default function AddProduct({ user }) {
     if (Number(form.price) > 1_000_000_000)     return "Price exceeds maximum.";
     if (!form.category_id)                       return "Category required.";
 
-    /* FIX #5: proper email regex */
     if (!EMAIL_RE.test(form.contact?.email ?? ""))
       return "Enter a valid email address.";
 
@@ -533,7 +601,6 @@ export default function AddProduct({ user }) {
     if (form.contact?.whatsapp && !isValidPhone(form.contact.whatsapp))
       return "WhatsApp number must be 7–15 digits.";
 
-    /* FIX #1: count existing + new */
     if (totalImageCount === 0) return "At least one image is required.";
 
     if (!locationState || !city) return "Select your state and city.";
@@ -554,7 +621,7 @@ export default function AddProduct({ user }) {
   }, [form, totalImageCount, locationState, city, agreedToTerms, isEditMode]);
 
   /* ═══════════════════════════════════════════════════════════
-     FIX #3: SHARED buildBaseFormData
+     BUILD FORM DATA
   ═══════════════════════════════════════════════════════════ */
   const buildBaseFormData = useCallback(() => {
     const fd = new FormData();
@@ -569,7 +636,10 @@ export default function AddProduct({ user }) {
     fd.append("whatsapp",       sanitizePhone(form.contact.whatsapp ?? ""));
     fd.append("whatsapp_link",  form.contact.whatsapp_link ?? "");
     fd.append("seller_name",    user?.store_name || user?.name || BRAND_NAME);
-    fd.append("attributes",     JSON.stringify({ ...attributes, features: toArray(attributes.features) }));
+    fd.append("attributes",     JSON.stringify({
+      ...attributes,
+      features: toArray(attributes.features),
+    }));
     fd.append("delivery",       JSON.stringify(form.delivery));
     fd.append("contact",        JSON.stringify(form.contact));
     if (detectedCoords) {
@@ -579,22 +649,20 @@ export default function AddProduct({ user }) {
     return fd;
   }, [form, attributes, locationState, city, detectedCoords, user]);
 
-  /* ── Create FormData ── */
   const buildCreateFormData = useCallback((isFreePlan) => {
     const fd = buildBaseFormData();
-    fd.append("status",           isFreePlan ? "active" : "draft");
-    fd.append("is_active",        isFreePlan ? "true"   : "false");
-    fd.append("idempotency_key",  getOrCreateIdempotencyKey(IDEMPOTENCY_STORE));
+    fd.append("status",          isFreePlan ? "active" : "draft");
+    fd.append("is_active",       isFreePlan ? "true"   : "false");
+    fd.append("idempotency_key", getOrCreateIdempotencyKey(IDEMPOTENCY_STORE));
     const imageHashes = images.map((img) => img.hash).filter(Boolean);
     if (imageHashes.length) fd.append("image_hashes", JSON.stringify(imageHashes));
     images.forEach((img) => fd.append("images", img.file));
     return fd;
   }, [buildBaseFormData, images, IDEMPOTENCY_STORE]);
 
-  /* ── Edit FormData ── */
   const buildEditFormData = useCallback(() => {
     const fd = buildBaseFormData();
-    fd.append("keep_image_ids",    JSON.stringify(existingImages.map((img) => img.id)));
+    fd.append("keep_image_ids",   JSON.stringify(existingImages.map((img) => img.id)));
     if (removedImageKeys.length)
       fd.append("remove_image_keys", JSON.stringify(removedImageKeys));
     images.forEach((img) => fd.append("images", img.file));
@@ -602,7 +670,7 @@ export default function AddProduct({ user }) {
   }, [buildBaseFormData, existingImages, removedImageKeys, images]);
 
   /* ═══════════════════════════════════════════════════════════
-     PAYMENT HELPERS
+     PAYMENT ACTIONS
   ═══════════════════════════════════════════════════════════ */
   const resumePayment = useCallback(() => {
     if (!paymentData?.authUrl) return;
@@ -620,8 +688,11 @@ export default function AddProduct({ user }) {
       if (token) {
         await apiFetch(`${API_BASE}/payment/verify`, {
           method  : "POST",
-          headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body    : JSON.stringify({ reference: paymentData.reference }),
+          headers : {
+            "Content-Type" : "application/json",
+            Authorization  : `Bearer ${token}`,
+          },
+          body: JSON.stringify({ reference: paymentData.reference }),
         });
       }
     } catch { /* non-critical */ }
@@ -632,6 +703,9 @@ export default function AddProduct({ user }) {
     }
   }, [paymentData, showSuccess]);
 
+  /* ═══════════════════════════════════════════════════════════
+     CLEAR DRAFT
+  ═══════════════════════════════════════════════════════════ */
   const clearDraft = useCallback(() => {
     if (!mountedRef.current) return;
     resetForm();
@@ -674,7 +748,9 @@ export default function AddProduct({ user }) {
 
     try {
       const token = getTokenOrRedirect(navigate, `/minimart/add?edit=${editId}`);
-      const fd    = buildEditFormData();
+      if (!token) return;
+
+      const fd = buildEditFormData();
       await multipartRequest(
         `${API_BASE}/seller-dashboard/products/${editId}`,
         "PATCH",
@@ -683,14 +759,13 @@ export default function AddProduct({ user }) {
       );
 
       if (!mountedRef.current) return;
-
       setProgressStep("finalizing");
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, STEP_DELAY_MS));
       if (!mountedRef.current) return;
 
       setProgressVisible(false);
       showSuccess("Listing updated! Redirecting…");
-      setTimeout(() => { if (mountedRef.current) navigate("/dashboard"); }, 1_500);
+      safeRedirect("/dashboard");
 
     } catch (err) {
       if (mountedRef.current) setProgressVisible(false);
@@ -699,7 +774,10 @@ export default function AddProduct({ user }) {
       if (mountedRef.current) setLoading(false);
       isSubmittingRef.current = false;
     }
-  }, [editId, validateForm, buildEditFormData, navigate, showError, showSuccess]);
+  }, [
+    editId, validateForm, buildEditFormData,
+    navigate, showError, showSuccess, safeRedirect,
+  ]);
 
   /* ═══════════════════════════════════════════════════════════
      CREATE SUBMIT
@@ -713,20 +791,20 @@ export default function AddProduct({ user }) {
 
     if (verificationNeeded) {
       setVerificationData({
-        productId     : responseData.product?.id,
-        activeUntil   : responseData.active_until,
+        productId   : responseData.product?.id,
+        activeUntil : responseData.active_until,
         daysRemaining,
-        message       : responseData.verification_message,
-        limits        : responseData.limits,
+        message     : responseData.verification_message,
+        limits      : responseData.limits,
       });
       setNeedsVerification(true);
       showSuccess(`Listing live for ${daysRemaining} days. Redirecting…`);
-      setTimeout(() => { if (mountedRef.current) navigate("/verification"); }, 2_000);
+      safeRedirect("/verification", VERIFY_DELAY_MS);
     } else {
       showSuccess("Product live! Redirecting…");
-      setTimeout(() => { if (mountedRef.current) navigate("/"); }, 1_500);
+      safeRedirect("/");
     }
-  }, [navigate, IDEMPOTENCY_STORE, showSuccess]);
+  }, [IDEMPOTENCY_STORE, showSuccess, safeRedirect]);
 
   const handleCreateSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
@@ -747,23 +825,31 @@ export default function AddProduct({ user }) {
     setProgressStep("compressing");
     setError("");
 
-    let product = null;
+    let product          = null;
     let paymentInitiated = false;
 
     try {
-      const finalPlan = selectedPlan ?? promotionPlans.find((p) => Number(p.price) === 0) ?? null;
+      const finalPlan = selectedPlan ??
+        promotionPlans.find((p) => Number(p.price) === 0) ?? null;
+
       if (!finalPlan)
-        throw new ApiError(plansLoading ? "Plans are still loading" : "No plan available.", 400);
+        throw new ApiError(
+          plansLoading ? "Plans are still loading" : "No plan available.",
+          400
+        );
 
       const isFreePlan = Number(finalPlan.price) === 0;
       const token      = getTokenOrRedirect(navigate, "/minimart/add");
+      if (!token) return;
 
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, STEP_DELAY_MS));
       if (!mountedRef.current) return;
 
       setProgressStep("uploading");
       const fd         = buildCreateFormData(isFreePlan);
-      const uploadData = await multipartRequest(`${API_BASE}/addproduct/products`, "POST", fd, token);
+      const uploadData = await multipartRequest(
+        `${API_BASE}/addproduct/products`, "POST", fd, token
+      );
       if (!mountedRef.current) return;
       if (!uploadData.product?.id) throw new ApiError("Product creation failed", 500);
       product = uploadData.product;
@@ -774,19 +860,30 @@ export default function AddProduct({ user }) {
         setProgressStep("activating");
         const activateRes = await apiFetch(
           `${API_BASE}/addproduct/products/${product.id}/activate`,
-          { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` }, body: JSON.stringify({ promotion_id: null }) }
+          {
+            method  : "POST",
+            headers : {
+              "Content-Type" : "application/json",
+              Authorization  : `Bearer ${token}`,
+            },
+            body: JSON.stringify({ promotion_id: null }),
+          }
         );
         if (!mountedRef.current) return;
         setProgressStep("finalizing");
         await new Promise((r) => setTimeout(r, 600));
         if (!mountedRef.current) return;
         setProgressVisible(false);
-        handlePostSuccess({ ...uploadData, ...activateRes, product: activateRes.product ?? uploadData.product });
+        handlePostSuccess({
+          ...uploadData,
+          ...activateRes,
+          product: activateRes.product ?? uploadData.product,
+        });
         clearDraft();
         return;
       }
 
-      /* Paid plan */
+      /* ── Paid plan ── */
       setProgressStep("payment");
       const rawPrice     = Number(finalPlan.price);
       const discount     = Number(finalPlan.discount_percent ?? 0);
@@ -794,8 +891,11 @@ export default function AddProduct({ user }) {
 
       const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
         method  : "POST",
-        headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body    : JSON.stringify({
+        headers : {
+          "Content-Type" : "application/json",
+          Authorization  : `Bearer ${token}`,
+        },
+        body: JSON.stringify({
           email           : form.contact.email,
           amount          : effectiveAmt,
           plan_id         : String(finalPlan.id),
@@ -804,26 +904,29 @@ export default function AddProduct({ user }) {
         }),
       });
 
-      if (!payData.authorization_url) throw new ApiError("Payment setup failed", 500);
+      if (!payData.authorization_url)
+        throw new ApiError("Payment setup failed", 500);
+
       paymentInitiated = true;
 
       const session = {
-        reference     : payData.reference,
-        authUrl       : payData.authorization_url,
-        planId        : String(finalPlan.id),
-        productId     : product.id,
-        email         : form.contact.email,
-        amount        : effectiveAmt,
-        createdAt     : Date.now(),
+        reference         : payData.reference,
+        authUrl           : payData.authorization_url,
+        planId            : String(finalPlan.id),
+        productId         : product.id,
+        email             : form.contact.email,
+        amount            : effectiveAmt,
+        createdAt         : Date.now(),
         needsVerification : uploadData.needs_verification ?? false,
-        activeUntil   : uploadData.active_until       ?? null,
-        daysRemaining : uploadData.days_remaining      ?? null,
+        activeUntil       : uploadData.active_until       ?? null,
+        daysRemaining     : uploadData.days_remaining      ?? null,
       };
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
 
       setProgressStep("finalizing");
-      await new Promise((r) => setTimeout(r, 400));
+      await new Promise((r) => setTimeout(r, STEP_DELAY_MS));
       if (!mountedRef.current) return;
+
       setProgressVisible(false);
       setPaymentData(session);
       showSuccess("Redirecting to payment…");
@@ -833,13 +936,20 @@ export default function AddProduct({ user }) {
       console.error("[AddProduct] create submit:", err);
       if (mountedRef.current) setProgressVisible(false);
 
+      /* Clean up orphaned product */
       if (product?.id && !paymentInitiated) {
         const token = getToken();
-        if (token) fetch(`${API_BASE}/addproduct/products/${product.id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+        if (token) {
+          fetch(
+            `${API_BASE}/addproduct/products/${product.id}`,
+            { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
+          ).catch((e) => console.error("[AddProduct] cleanup failed:", e));
+        }
       }
 
       showError(err.message ?? "Submission failed — please try again");
       if (err.status === 403) fetchLimits();
+
     } finally {
       if (mountedRef.current) setLoading(false);
       isSubmittingRef.current = false;
@@ -847,7 +957,7 @@ export default function AddProduct({ user }) {
   }, [
     validateForm, selectedPlan, promotionPlans, plansLoading,
     buildCreateFormData, clearDraft, showError, showSuccess,
-    handlePostSuccess, fetchLimits, navigate,
+    handlePostSuccess, fetchLimits, navigate, safeRedirect,
     form.contact.email, IDEMPOTENCY_STORE,
   ]);
 
@@ -884,18 +994,28 @@ export default function AddProduct({ user }) {
         >
           {agreedToTerms && (
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                 stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+                 stroke="#fff" strokeWidth="3"
+                 strokeLinecap="round" strokeLinejoin="round">
               <polyline points="20 6 9 17 4 12"/>
             </svg>
           )}
         </span>
-        <input type="checkbox" checked={agreedToTerms} onChange={() => {}}
-               style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
-               aria-hidden="true" tabIndex={-1} />
+        <input
+          type="checkbox"
+          checked={agreedToTerms}
+          onChange={() => {}}
+          style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+          aria-hidden="true"
+          tabIndex={-1}
+        />
         <span className="ap-terms-text">
           I agree to the{" "}
-          <Link to="/terms" target="_blank" rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}>
+          <Link
+            to="/terms"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+          >
             Terms &amp; Conditions
           </Link>
         </span>
@@ -904,7 +1024,7 @@ export default function AddProduct({ user }) {
   ), [agreedToTerms]);
 
   /* ═══════════════════════════════════════════════════════════
-     EDIT LOADING / ERROR
+     EDIT LOADING / ERROR STATES
   ═══════════════════════════════════════════════════════════ */
   if (isEditMode && editLoading) {
     return (
@@ -924,7 +1044,9 @@ export default function AddProduct({ user }) {
           <span>⚠️</span>
           <h2>Could not load listing</h2>
           <p>{editError}</p>
-          <button onClick={() => navigate("/dashboard")}>← Back to Dashboard</button>
+          <button onClick={() => navigate("/dashboard")}>
+            ← Back to Dashboard
+          </button>
         </div>
       </div>
     );
@@ -1007,7 +1129,7 @@ export default function AddProduct({ user }) {
         setSelectedPlan={setSelectedPlan}
         handleImages={handleImages}
         removeImage={removeImage}
-        moveImage={moveAllImages}          /* FIX #8: moves all images */
+        moveImage={moveAllImages}
         handleSubmit={handleSubmit}
         clearDraft={isEditMode ? null : clearDraft}
         detectLocation={detectLocation}
