@@ -4,7 +4,7 @@
  */
 
 import { useAddProduct }      from "../hooks/useAddProduct.js";
-import { AddProductProvider } from "../hooks/useAddProductContext.js";
+import { AddProductProvider } from "../hooks/useAddProductContext.jsx";
 import DesktopShell           from "./DesktopShell";
 
 /* ═══════════════════════════════════════════════════════════════
