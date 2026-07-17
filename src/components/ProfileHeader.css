@@ -1,0 +1,257 @@
+/* ════════════════════════════════════════════════════════════
+   PROFILE HEADER  —  ph-*
+   Scoped styles for ProfileHeader.jsx
+════════════════════════════════════════════════════════════ */
+
+/* ── Root / Sticky Bar ── */
+.ph-root {
+  position: sticky;
+  top: 0;
+  z-index: 120;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 6px;
+  height: 56px;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid var(--bd, #f0f0f0);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* ── Left Section ── */
+.ph-left {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* ── Back Button ── */
+.ph-back-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--tx, #111);
+  cursor: pointer;
+  transition: background 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+  flex-shrink: 0;
+}
+
+.ph-back-btn svg {
+  width: 22px;
+  height: 22px;
+}
+
+.ph-back-btn:hover {
+  background: var(--bd, #f0f0f0);
+}
+
+.ph-back-btn:active {
+  background: var(--bd, #e4e4e4);
+}
+
+/* ── Title ── */
+.ph-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--tx, #111);
+  margin: 0;
+  letter-spacing: -0.3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Right Section ── */
+.ph-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+/* ── Icon Button (shared) ── */
+.ph-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--tx, #111);
+  cursor: pointer;
+  transition: background 0.18s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ph-icon-btn svg {
+  width: 20px;
+  height: 20px;
+}
+
+.ph-icon-btn:hover,
+.ph-icon-btn--active {
+  background: var(--bd, #f0f0f0);
+}
+
+/* ── Menu Wrapper (positions dropdown) ── */
+.ph-menu-wrap {
+  position: relative;
+}
+
+/* ── Dropdown Panel ── */
+.ph-drop {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 210px;
+  background: var(--bg, #fff);
+  border: 1px solid var(--bd, #ececec);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+  z-index: 200;
+  padding: 6px;
+}
+
+/* ── Dropdown Arrow ── */
+.ph-drop__arrow {
+  position: absolute;
+  top: -6px;
+  right: 14px;
+  width: 12px;
+  height: 12px;
+  background: var(--bg, #fff);
+  border-left: 1px solid var(--bd, #ececec);
+  border-top: 1px solid var(--bd, #ececec);
+  transform: rotate(45deg);
+  border-radius: 2px 0 0 0;
+}
+
+/* ── Dropdown Item ── */
+.ph-drop__item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 11px 14px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ph-drop__item:hover {
+  background: var(--bd, #f5f5f5);
+}
+
+.ph-drop__item--danger {
+  color: #ef4444;
+}
+
+.ph-drop__item--danger:hover {
+  background: #fef2f2;
+}
+
+/* ── Dropdown Item Icon ── */
+.ph-drop__item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  background: var(--bd, #f5f5f5);
+  flex-shrink: 0;
+}
+
+.ph-drop__item--danger .ph-drop__item-icon {
+  background: #fef2f2;
+}
+
+.ph-drop__item-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ── Dropdown Item Label ── */
+.ph-drop__item-label {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: inherit;
+}
+
+/* ── Dropdown Divider ── */
+.ph-drop__divider {
+  height: 1px;
+  background: var(--bd, #f0f0f0);
+  margin: 4px 0;
+}
+
+/* ── Dark Mode Support ── */
+@media (prefers-color-scheme: dark) {
+  .ph-root {
+    background: rgba(18, 18, 18, 0.92);
+    border-bottom-color: rgba(255, 255, 255, 0.08);
+  }
+
+  .ph-title,
+  .ph-back-btn,
+  .ph-icon-btn {
+    color: #f5f5f5;
+  }
+
+  .ph-back-btn:hover,
+  .ph-icon-btn:hover,
+  .ph-icon-btn--active {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .ph-drop {
+    background: #1e1e1e;
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow:
+      0 8px 32px rgba(0, 0, 0, 0.4),
+      0 2px 8px rgba(0, 0, 0, 0.3);
+  }
+
+  .ph-drop__arrow {
+    background: #1e1e1e;
+    border-color: rgba(255, 255, 255, 0.1);
+  }
+
+  .ph-drop__item:hover {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .ph-drop__item--danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+  }
+
+  .ph-drop__item-icon {
+    background: rgba(255, 255, 255, 0.06);
+  }
+
+  .ph-drop__item--danger .ph-drop__item-icon {
+    background: rgba(239, 68, 68, 0.1);
+  }
+
+  .ph-drop__divider {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
