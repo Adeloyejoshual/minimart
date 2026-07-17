@@ -1,6 +1,9 @@
 /**
  * src/pages/product/components.jsx
  * Main shell — imports all sub-components, owns page-level logic only
+ *
+ * FIX: Button-section no longer uses .section/.form-card classes
+ *      → avoids opacity:0 + sticky-positioning conflict on mobile
  */
 import {
   useMemo, useState, useEffect, useCallback, useRef,
@@ -171,7 +174,7 @@ export default function ProductComponents({
   const dropZoneRef     = useRef(null);
   const dragCounterRef  = useRef(0);
 
-  /* Static section refs — avoids mutation during render */
+  /* Static section refs — 6 form sections only (button-section excluded) */
   const sec0 = useRef(null); const sec1 = useRef(null);
   const sec2 = useRef(null); const sec3 = useRef(null);
   const sec4 = useRef(null); const sec5 = useRef(null);
@@ -1094,8 +1097,12 @@ export default function ProductComponents({
         </section>
       )}
 
-      {/* ── TERMS + SUBMIT ── */}
-      <div className="button-section section form-card">
+      {/* ── TERMS + SUBMIT ──
+           NOTE: no .section / .form-card class here.
+           Those classes have opacity:0 animation which conflicts with
+           position:sticky on mobile, hiding the button entirely.
+      */}
+      <div className="button-section">
         {!isEditMode && TermsCheckbox}
 
         {isEditMode && (
