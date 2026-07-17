@@ -1,0 +1,279 @@
+/* src/pages/product/components/styles/ImageGrid.css */
+
+/* ── Upload rules ── */
+.image-upload-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.image-rule {
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--r-full);
+}
+
+.image-rule--ok {
+  background: var(--gn-dim);
+  color: var(--gn);
+  border: 1px solid rgba(21,128,61,.2);
+}
+
+.image-rule--no {
+  background: var(--rd-dim);
+  color: var(--rd);
+  border: 1px solid rgba(220,38,38,.15);
+}
+
+/* ── Drop zone ── */
+.image-upload-box,
+.ap-image-box {
+  border: 2px dashed var(--bd2);
+  border-radius: var(--r-md);
+  transition: border-color var(--tr), background var(--tr);
+}
+
+.ap-image-box--dragging {
+  border-color: var(--o);
+  background: var(--o-dim);
+}
+
+/* ── Image grid ── */
+.preview-grid-modern {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 12px;
+}
+
+/* ── Individual thumbnail ── */
+.preview-thumb {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--r-sm);
+  overflow: hidden;
+  box-shadow: var(--sh-xs);
+  transition: transform var(--tr), box-shadow var(--tr);
+}
+
+.preview-thumb:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--sh-md);
+}
+
+.preview-img {
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform var(--tr);
+}
+
+.preview-thumb:hover .preview-img { transform: scale(1.03); }
+
+.preview-img--error { opacity: 0.4; }
+
+.preview-thumb--error { border: 2px solid var(--rd); }
+
+/* ── Error overlay ── */
+.preview-error-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(220,38,38,.12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--rd);
+  font-size: 0.7rem;
+  font-weight: 700;
+  padding: 6px;
+  text-align: center;
+}
+
+/* ── Remove button ── */
+.preview-remove-btn {
+  position: absolute;
+  top: 5px; right: 5px;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: rgba(0,0,0,.55);
+  border: none;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transform: scale(0.8);
+  transition:
+    opacity var(--tr),
+    transform var(--tr-bounce),
+    background var(--tr);
+}
+
+.preview-thumb:hover .preview-remove-btn,
+.preview-thumb:focus-within .preview-remove-btn {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.preview-remove-btn:hover         { background: var(--rd); }
+.preview-remove-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+
+/* ── Drag handle ── */
+.preview-drag-handle {
+  position: absolute;
+  bottom: 5px; left: 5px;
+  background: rgba(0,0,0,.45);
+  border-radius: var(--r-xs);
+  color: #fff;
+  padding: 3px 4px;
+  cursor: grab;
+  opacity: 0;
+  transition: opacity var(--tr);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.preview-thumb:hover .preview-drag-handle { opacity: 1; }
+
+/* ── Main badge ── */
+.preview-primary-badge {
+  position: absolute;
+  bottom: 5px; right: 5px;
+  background: var(--o);
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: var(--r-full);
+  letter-spacing: 0.02em;
+}
+
+/* ── Arrow reorder buttons ── */
+.preview-reorder {
+  position: absolute;
+  top: 5px; left: 5px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--tr);
+}
+
+.preview-thumb:hover .preview-reorder { opacity: 1; }
+
+.preview-reorder button {
+  width: 22px; height: 22px;
+  background: rgba(0,0,0,.5);
+  border: none;
+  border-radius: var(--r-xs);
+  color: #fff;
+  font-size: 0.75rem;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--tr);
+}
+
+.preview-reorder button:hover         { background: var(--o); }
+.preview-reorder button:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+
+/* ── Add image tile ── */
+.add-image-box,
+.add-image-btn {
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 2px dashed var(--bd2);
+  border-radius: var(--r-sm);
+  background: var(--wh2);
+  cursor: pointer;
+  color: var(--ink3);
+  font-size: 0.75rem;
+  font-weight: 600;
+  transition:
+    background var(--tr),
+    border-color var(--tr),
+    color var(--tr);
+}
+
+.add-image-btn:hover,
+.add-image-btn--dragging {
+  background: var(--o-dim);
+  border-color: var(--o);
+  color: var(--o);
+}
+
+.add-image-btn:focus-within { outline: 2px solid var(--o); outline-offset: 2px; }
+
+/* ── Dark mode ── */
+@media (prefers-color-scheme: dark) {
+  .preview-thumb button          { background: rgba(0,0,0,.65); }
+  .add-image-btn                 { background: rgba(255,92,0,.05); border-color: rgba(255,92,0,.2); }
+  .add-image-btn:hover           { background: rgba(255,92,0,.1); }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .preview-thumb:hover,
+  .preview-thumb:hover .preview-img { transform: none; }
+}
+
+/* ── Touch devices ── */
+@media (hover: none) and (pointer: coarse) {
+  .preview-remove-btn,
+  .preview-drag-handle,
+  .preview-reorder               { opacity: 1; }
+  .preview-remove-btn            { width: 22px; height: 22px; top: 4px; right: 4px; transform: scale(1); }
+  .preview-thumb:hover           { transform: none; box-shadow: var(--sh-sm); }
+  .preview-thumb:hover .preview-img { transform: none; }
+}
+
+/* ── Small screens ── */
+@media (max-width: 480px) {
+  .preview-grid-modern           { grid-template-columns: repeat(3,1fr); gap: 6px; }
+  .preview-remove-btn,
+  .preview-drag-handle,
+  .preview-reorder               { opacity: 1 !important; }
+  .preview-remove-btn            { width: 22px; height: 22px; top: 4px; right: 4px; transform: scale(1); }
+}
+
+/* ── Medium screens ── */
+@media (min-width: 520px) {
+  .preview-grid-modern           { grid-template-columns: repeat(4,1fr); }
+}
+
+/* ── Large screens ── */
+@media (min-width: 768px) {
+  .preview-grid-modern           { grid-template-columns: repeat(6,1fr); }
+}
+
+/* ── Container queries ── */
+@supports (container-type: inline-size) {
+  @container ap-page (min-width: 520px) {
+    .preview-grid-modern         { grid-template-columns: repeat(4,1fr); }
+  }
+
+  @container ap-page (min-width: 720px) {
+    .preview-grid-modern         { grid-template-columns: repeat(6,1fr); }
+  }
+}
+
+/* ── High contrast ── */
+@media (forced-colors: active) {
+  .preview-remove-btn            { border: 1px solid ButtonText; }
+}
+
+/* ── Print ── */
+@media print {
+  .add-image-btn                 { display: none !important; }
+  .preview-thumb button          { display: none; }
+}
