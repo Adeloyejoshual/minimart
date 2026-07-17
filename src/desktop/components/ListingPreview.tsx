@@ -3,7 +3,7 @@
  * Live preview of the listing as buyers will see it.
  * Reads from useAddProductContext.
  */
-import { useAddProductContext } from "../../hooks/useAddProductContext.js";
+import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import { LocationPinIcon } from "../../product/components/icons/index.jsx";
 import "./ListingPreview.css";
 
