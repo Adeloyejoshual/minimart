@@ -1,0 +1,212 @@
+/* src/pages/Profile/components/Overview.css */
+
+.overview {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Quick actions ── */
+.overview__quick-actions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.quick-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 12px 6px;
+  background: var(--wh);
+  border: 1.5px solid var(--bd);
+  border-radius: var(--r2);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink2);
+  cursor: pointer;
+  transition: all 0.15s;
+  text-decoration: none;
+  font-family: var(--fb);
+}
+.quick-action:hover {
+  border-color: var(--o);
+  color: var(--o);
+  transform: translateY(-1px);
+}
+.quick-action--primary {
+  background: var(--o);
+  color: var(--wh);
+  border-color: var(--o);
+}
+.quick-action--primary:hover {
+  background: var(--o2);
+  color: var(--wh);
+  border-color: var(--o2);
+  transform: translateY(-1px);
+}
+
+.quick-action__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Stats grid ── */
+.overview__stats-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+/* ── Generic card ── */
+.overview__card {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r3);
+  padding: 16px;
+  box-shadow: var(--s1);
+}
+
+.overview__card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.overview__card-title {
+  font-size: 15px;
+  font-weight: 800;
+  font-family: var(--fd);
+  color: var(--ink);
+  margin: 0;
+}
+
+.overview__card-link {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--o);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--fb);
+  padding: 0;
+}
+
+/* ── Insights ── */
+.overview__insights {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.insight {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r1);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.insight__icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.insight--good {
+  background: var(--gn2);
+  border: 1px solid #bbf7d0;
+  color: var(--gn);
+}
+.insight--warn {
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  color: #92400e;
+}
+.insight--info {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+}
+
+/* ── Products list ── */
+.overview__products-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Tips ── */
+.overview__tips {
+  background: linear-gradient(135deg, var(--o-bg), var(--wh));
+}
+
+.overview__tips-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--o);
+  background: var(--o-bg);
+  padding: 3px 8px;
+  border-radius: 20px;
+}
+
+.overview__tips-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.tip {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.tip__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r1);
+  background: var(--o-bg);
+  color: var(--o);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tip__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0 0 2px;
+}
+
+.tip__desc {
+  font-size: 12px;
+  color: var(--ink3);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* ── Responsive ── */
+@media (max-width: 360px) {
+  .overview__quick-actions {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .overview__stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
