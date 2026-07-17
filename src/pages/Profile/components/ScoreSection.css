@@ -1,0 +1,109 @@
+/* src/pages/Profile/components/ScoreSection.css */
+
+/* ── Card wrapper ── */
+.score-section-card {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r3);
+  padding: 16px;
+  box-shadow: var(--s1);
+}
+
+.score-section-card__header {
+  margin-bottom: 14px;
+}
+
+.score-section-card__title {
+  font-size: 15px;
+  font-weight: 800;
+  font-family: var(--fd);
+  color: var(--ink);
+  margin: 0 0 2px;
+}
+
+.score-section-card__subtitle {
+  font-size: 11px;
+  color: var(--ink3);
+  margin: 0;
+}
+
+/* ── Row ── */
+.score-section {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+/* ── Ring ── */
+.score-ring {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.score-ring__arc {
+  transition: stroke-dashoffset 1s ease;
+}
+
+.score-ring__badge {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* ── Metrics ── */
+.score-section__metrics {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.score-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.score-metric__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.score-metric__label {
+  font-size: 11px;
+  color: var(--ink3);
+  font-weight: 500;
+}
+
+.score-metric__value {
+  font-size: 11px;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.score-metric__bar {
+  height: 6px;
+  background: var(--bg);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.score-metric__fill {
+  height: 100%;
+  border-radius: 99px;
+  transition: width 0.8s ease;
+}
+
+/* ── Responsive ── */
+@media (max-width: 360px) {
+  .score-section {
+    flex-direction: column;
+    align-items: center;
+  }
+  .score-section__metrics {
+    width: 100%;
+  }
+}
