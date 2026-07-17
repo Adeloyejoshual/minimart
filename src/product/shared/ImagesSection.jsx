@@ -3,7 +3,7 @@
  * Existing images (edit mode) + new uploads with drag/drop, reorder
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAddProductContext } from "../../hooks/useAddProductContext.js";
+import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import SectionDot         from "../components/SectionDot.jsx";
 import ExistingImageGrid  from "../components/ExistingImageGrid.jsx";
 import ImageGrid          from "../components/ImageGrid.jsx";
