@@ -1,0 +1,197 @@
+/* src/pages/Profile/components/PromoteModal.css */
+
+.promote-modal {
+  background: var(--wh);
+  border-radius: var(--r3);
+  padding: 24px;
+  max-width: 480px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--s3);
+}
+
+/* ── Header ── */
+.promote-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.promote-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  font-family: var(--fd);
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.promote-modal__subtitle {
+  font-size: 13px;
+  color: var(--ink3);
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+
+.promote-modal__close {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bd);
+  background: var(--bg);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink2);
+  flex-shrink: 0;
+  transition: all 0.15s;
+}
+.promote-modal__close:hover {
+  border-color: var(--o);
+  color: var(--o);
+}
+
+/* ── Plans grid ── */
+.promote-modal__plans {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+/* ── Plan card ── */
+.plan-card {
+  border: 2px solid var(--bd);
+  border-radius: var(--r2);
+  padding: 14px;
+  cursor: pointer;
+  transition: all 0.15s;
+  position: relative;
+}
+.plan-card:hover {
+  border-color: var(--o);
+}
+.plan-card--active {
+  border-color: var(--o);
+  background: var(--o-bg);
+}
+.plan-card--free {
+  border-color: var(--gn);
+  background: var(--gn2);
+}
+
+.plan-card__ribbon {
+  position: absolute;
+  top: -1px;
+  left: 14px;
+  font-size: 9px;
+  font-weight: 800;
+  background: var(--gn);
+  color: var(--wh);
+  padding: 2px 8px;
+  border-radius: 0 0 6px 6px;
+  letter-spacing: 0.5px;
+}
+
+.plan-card__discount {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  font-size: 10px;
+  font-weight: 700;
+  background: #dc2626;
+  color: var(--wh);
+  padding: 2px 6px;
+  border-radius: 20px;
+}
+
+.plan-card__name {
+  font-size: 15px;
+  font-weight: 800;
+  font-family: var(--fd);
+  color: var(--ink);
+  margin: 0 0 2px;
+}
+
+.plan-card__price {
+  font-size: 16px;
+  font-weight: 900;
+  font-family: var(--fd);
+  color: var(--o);
+  margin: 0 0 2px;
+}
+.plan-card--free .plan-card__price {
+  color: var(--gn);
+}
+
+.plan-card__duration {
+  font-size: 12px;
+  color: var(--ink3);
+  margin: 0 0 4px;
+}
+
+.plan-card__desc {
+  font-size: 12px;
+  color: var(--ink2);
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+
+.plan-card__features {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.plan-card__features li {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--ink2);
+}
+
+.plan-card__check {
+  color: var(--gn);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.plan-card__selected-ring {
+  position: absolute;
+  inset: -2px;
+  border-radius: calc(var(--r2) + 2px);
+  border: 2px solid var(--o);
+  pointer-events: none;
+}
+
+/* ── Error ── */
+.promote-modal__error {
+  font-size: 13px;
+  color: #dc2626;
+  margin: 0 0 12px;
+}
+
+/* ── Footer ── */
+.promote-modal__footer {
+  display: flex;
+  gap: 10px;
+}
+.promote-modal__footer .btn {
+  flex: 1;
+  justify-content: center;
+  padding: 14px;
+  font-size: 14px;
+}
