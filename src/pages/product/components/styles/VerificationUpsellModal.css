@@ -1,0 +1,148 @@
+/* src/pages/product/components/styles/VerificationUpsellModal.css */
+
+/* ── Overlay ── */
+.upsell-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  backdrop-filter: blur(10px) saturate(0.8);
+  -webkit-backdrop-filter: blur(10px) saturate(0.8);
+  background: rgba(20,18,16,.55);
+  animation: ap-fade-in .2s ease both;
+}
+
+/* ── Modal ── */
+.upsell-modal {
+  position: relative;
+  background: var(--wh);
+  border-radius: var(--r-xl);
+  padding: 36px 28px 28px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow:
+    0 24px 60px rgba(0,0,0,.18),
+    0 4px 16px rgba(0,0,0,.08);
+  animation: ap-card-enter .28s cubic-bezier(.34,1.3,.64,1) both;
+  text-align: center;
+}
+
+/* ── Close button ── */
+.upsell-close {
+  position: absolute;
+  top: 14px; right: 14px;
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bd);
+  background: var(--wh2);
+  color: var(--ink2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--tr);
+}
+
+.upsell-close:hover         { background: var(--wh3); }
+.upsell-close:focus-visible { outline: 2px solid var(--o); outline-offset: 2px; }
+
+/* ── Shield icon ── */
+.upsell-icon {
+  width: 72px; height: 72px;
+  border-radius: 20px;
+  background: var(--o-dim);
+  color: var(--o);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+}
+
+/* ── Title ── */
+.upsell-title {
+  margin: 0 0 8px;
+  font-family: var(--font-d);
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+
+/* ── Subtitle ── */
+.upsell-subtitle {
+  margin: 0 0 20px;
+  font-size: 0.88rem;
+  color: var(--ink2);
+  line-height: 1.45;
+}
+
+/* ── Benefits list ── */
+.upsell-benefits {
+  list-style: none;
+  margin: 0 0 24px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  text-align: left;
+}
+
+.upsell-benefit {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.88rem;
+  color: var(--ink);
+  line-height: 1.4;
+}
+
+.upsell-benefit-icon {
+  width: 28px; height: 28px;
+  border-radius: 8px;
+  background: var(--o-dim);
+  color: var(--o);
+  font-size: 0.9rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ── CTA button ── */
+.upsell-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-bottom: 12px;
+  text-decoration: none;
+  font-size: 0.95rem;
+}
+
+/* ── Footer ── */
+.upsell-footer {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--ink3);
+}
+
+/* ── Dark mode ── */
+@media (prefers-color-scheme: dark) {
+  .upsell-modal { background: var(--wh); }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .upsell-overlay,
+  .upsell-modal  { animation: none; }
+}
+
+/* ── Small screens ── */
+@media (max-width: 480px) {
+  .upsell-modal  { padding: 28px 20px 22px; border-radius: var(--r-lg); }
+  .upsell-title  { font-size: 1.05rem; }
+}
