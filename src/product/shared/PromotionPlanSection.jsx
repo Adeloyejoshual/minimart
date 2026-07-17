@@ -3,7 +3,7 @@
  * Plan cards — create mode only
  */
 import { useCallback, useMemo, useRef } from "react";
-import { useAddProductContext } from "../../hooks/useAddProductContext.js";
+import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import { WarningIcon, SpinnerIcon, CheckIcon, StarIcon }
   from "../components/icons/index.jsx";
 
