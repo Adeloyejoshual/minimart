@@ -1,0 +1,299 @@
+/* src/desktop/styles/ListingPreview.css
+   Live preview card in the desktop right column.
+*/
+
+.listing-preview {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r-xl);
+  overflow: hidden;
+  box-shadow: var(--sh-sm);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HEADER
+═══════════════════════════════════════════════════════════════ */
+.listing-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, var(--o-bg) 0%, #FFF8F3 100%);
+  border-bottom: 1px solid var(--bd);
+}
+
+.listing-preview-title {
+  font-family: var(--font-d);
+  font-size: 1rem;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.listing-preview-badge {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--o);
+  background: var(--wh);
+  padding: 4px 10px;
+  border-radius: var(--r-full);
+  border: 1px solid var(--o-20);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CARD
+═══════════════════════════════════════════════════════════════ */
+.listing-preview-card {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   IMAGES
+═══════════════════════════════════════════════════════════════ */
+.preview-image-wrap {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--wh3);
+}
+
+.preview-main-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.preview-image-placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--ink3);
+}
+
+.preview-image-placeholder span {
+  font-size: 2.5rem;
+  opacity: 0.5;
+}
+
+.preview-image-placeholder p {
+  font-size: 0.85rem;
+  font-weight: 600;
+  margin: 0;
+}
+
+/* ── Thumbnail strip ── */
+.preview-thumbs {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.preview-thumbs::-webkit-scrollbar { display: none; }
+
+.preview-thumb-img {
+  width: 50px;
+  height: 50px;
+  object-fit: cover;
+  border-radius: var(--r-xs);
+  border: 2px solid var(--wh);
+  box-shadow: 0 2px 6px rgba(0,0,0,.2);
+  flex-shrink: 0;
+}
+
+.preview-thumb-more {
+  width: 50px;
+  height: 50px;
+  border-radius: var(--r-xs);
+  background: rgba(0,0,0,.65);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  border: 2px solid var(--wh);
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TITLE
+═══════════════════════════════════════════════════════════════ */
+.preview-title-row {
+  padding: 4px 0 0;
+}
+
+.preview-title {
+  font-family: var(--font-d);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.35;
+  margin: 0;
+  letter-spacing: -0.01em;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PRICE
+═══════════════════════════════════════════════════════════════ */
+.preview-price-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.preview-price {
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--o);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LOCATION
+═══════════════════════════════════════════════════════════════ */
+.preview-location {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.82rem;
+  color: var(--ink2);
+  font-weight: 500;
+}
+
+.preview-location svg {
+  color: var(--ink3);
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DESCRIPTION
+═══════════════════════════════════════════════════════════════ */
+.preview-description {
+  border-top: 1px solid var(--bd);
+  padding-top: 10px;
+}
+
+.preview-description p {
+  font-size: 0.85rem;
+  color: var(--ink2);
+  line-height: 1.55;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SELLER
+═══════════════════════════════════════════════════════════════ */
+.preview-seller {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--bd);
+}
+
+.preview-seller-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--o) 0%, var(--o2) 100%);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+  flex-shrink: 0;
+}
+
+.preview-seller-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.preview-seller-info strong {
+  font-size: 0.85rem;
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.preview-seller-info small {
+  font-size: 0.7rem;
+  color: var(--ink3);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DELIVERY
+═══════════════════════════════════════════════════════════════ */
+.preview-delivery {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--gn-dim);
+  border: 1px solid rgba(21,128,61,.15);
+  border-radius: var(--r-sm);
+}
+
+.preview-delivery-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--gn);
+}
+
+.preview-delivery small {
+  font-size: 0.72rem;
+  color: var(--ink2);
+  padding-left: 20px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   EMPTY STATE
+═══════════════════════════════════════════════════════════════ */
+.preview-empty {
+  color: var(--ink3) !important;
+  font-style: italic;
+  font-weight: 400 !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  .listing-preview-header {
+    background: linear-gradient(135deg, #2A2420 0%, #302820 100%);
+  }
+
+  .preview-seller-avatar {
+    box-shadow: 0 2px 8px rgba(255,92,0,.2);
+  }
+}
