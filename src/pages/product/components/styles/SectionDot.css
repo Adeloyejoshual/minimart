@@ -1,0 +1,16 @@
+/* src/pages/product/components/styles/SectionDot.css */
+
+.section-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--bd2);
+  transition: background var(--tr), transform var(--tr-bounce);
+  flex-shrink: 0;
+}
+
+.section-dot--filled {
+  background: var(--gn);
+  transform: scale(1.1);
+}
