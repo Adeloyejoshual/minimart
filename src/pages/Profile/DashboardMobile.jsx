@@ -19,7 +19,7 @@ import ConfirmDialog  from "./components/ConfirmDialog";
 import PromoteModal   from "./components/PromoteModal";
 import Toast          from "./components/Toast";
 
-import "./Dashboard.css";
+import "../../styles/Dashboard.css";
 
 export default function Dashboard({ user }) {
   const navigate = useNavigate();
