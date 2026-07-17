@@ -1,14 +1,11 @@
 /**
  * src/pages/AddProduct.jsx
- * Route: /minimart/add
- *       /minimart/add?edit=:productId
- *
- * Device switcher — renders mobile or desktop version based on viewport.
+ * Device switcher — picks mobile or desktop version.
  */
 
 import { useState, useEffect } from "react";
-import AddProductMobile        from "./AddProductMobile.jsx";
-import AddProductDesktop       from "./AddProductDesktop.jsx";
+import AddProductMobile        from "./AddProductMobile";
+import AddProductDesktop       from "../desktop/AddProductDesktop";
 
 /* ═══════════════════════════════════════════════════════════════
    DEVICE HOOK
