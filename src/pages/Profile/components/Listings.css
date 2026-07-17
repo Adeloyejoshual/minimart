@@ -1,0 +1,155 @@
+/* src/pages/Profile/components/Listings.css */
+
+.listings {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Card wrapper ── */
+.listings__card {
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r3);
+  padding: 16px;
+  box-shadow: var(--s1);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Header ── */
+.listings__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.listings__title {
+  font-size: 15px;
+  font-weight: 800;
+  font-family: var(--fd);
+  color: var(--ink);
+  margin: 0;
+}
+
+/* ── Filter tabs ── */
+.listings__tabs {
+  display: flex;
+  border-bottom: 1px solid var(--bd);
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 0 -16px;
+  padding: 0 16px;
+}
+.listings__tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.listings__tab {
+  padding: 10px 12px;
+  border: none;
+  background: none;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink3);
+  cursor: pointer;
+  border-bottom: 2.5px solid transparent;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: color 0.15s;
+  font-family: var(--fb);
+}
+.listings__tab--active {
+  color: var(--ink);
+  border-bottom-color: var(--o);
+}
+
+.listings__tab-count {
+  background: var(--bg);
+  color: var(--ink3);
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 20px;
+}
+.listings__tab--active .listings__tab-count {
+  background: var(--o-bg);
+  color: var(--o);
+}
+
+/* ── Search ── */
+.listings__search {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.listings__search > svg {
+  position: absolute;
+  left: 11px;
+  pointer-events: none;
+  color: var(--ink3);
+  flex-shrink: 0;
+}
+
+.listings__search-input {
+  width: 100%;
+  padding: 10px 36px;
+  border: 1.5px solid var(--bd);
+  border-radius: var(--r1);
+  font-size: 13px;
+  background: var(--bg);
+  box-sizing: border-box;
+  outline: none;
+  font-family: var(--fb);
+  color: var(--ink);
+  transition: border-color 0.15s;
+}
+.listings__search-input:focus {
+  border-color: var(--o);
+  background: var(--wh);
+}
+.listings__search-input::placeholder {
+  color: var(--ink3);
+}
+
+.listings__search-clear {
+  position: absolute;
+  right: 10px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--ink3);
+  display: flex;
+  align-items: center;
+  padding: 0;
+  transition: color 0.15s;
+}
+.listings__search-clear:hover {
+  color: var(--o);
+}
+
+/* ── Product list ── */
+.listings__list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Load more ── */
+.listings__load-more {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+/* ── Result count ── */
+.listings__count {
+  font-size: 12px;
+  color: var(--ink3);
+  text-align: center;
+  margin: 0;
+  padding-top: 4px;
+}
