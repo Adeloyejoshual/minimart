@@ -14,7 +14,7 @@ import ProgressOverlay            from "../components/ProgressOverlay.jsx";
 import { locationsByState }       from "../config/locationsByState.js";
 import { apiFetch, ApiError }     from "../utils/apiFetch.js";
 import { detectUserLocation }     from "../utils/location.js";
-import { useFormState, INITIAL_FORM, freshForm } from "../hooks/useFormState.js";
+import { useFormState, INITIAL_FORM } from "../hooks/useFormState.js";
 import { useImageManager }        from "../hooks/useImageManager.js";
 import { useSellerLimits }        from "../hooks/useSellerLimits.js";
 
@@ -208,7 +208,30 @@ export default function AddProduct({ user }) {
     [user?.id]
   );
 
-  /* ── Custom hooks ── */
+  /* ═══════════════════════════════════════════════════════════
+     REFS (declared FIRST — hooks below can use them)
+  ═══════════════════════════════════════════════════════════ */
+  const mountedRef      = useRef(true);
+  const isSubmittingRef = useRef(false);
+  const autoSaveTimer   = useRef(null);
+  const timeoutIdsRef   = useRef(new Set());
+
+  /* Feedback refs — allow useImageManager to call showError/showSuccess
+     even though those functions are defined later in the file */
+  const showErrorRef    = useRef(() => {});
+  const showSuccessRef  = useRef(() => {});
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      timeoutIdsRef.current.forEach(clearTimeout);
+    };
+  }, []);
+
+  /* ═══════════════════════════════════════════════════════════
+     CUSTOM HOOKS
+  ═══════════════════════════════════════════════════════════ */
   const {
     form, updateForm, updateAttribute, updateContact,
     updateDelivery, updateDeliveryDuration, toggleFeature,
@@ -220,7 +243,10 @@ export default function AddProduct({ user }) {
     compressingCount, compressingTotal,
     loadExistingImages, handleImages, removeImage,
     removeExistingImage, moveImage, moveAllImages, resetImages,
-  } = useImageManager({ showError: _showError, showSuccess: _showSuccess });
+  } = useImageManager({
+    showError  : (msg) => showErrorRef.current(msg),
+    showSuccess: (msg) => showSuccessRef.current(msg),
+  });
 
   const {
     sellerLimits, limitsLoading, fetchLimits,
@@ -228,7 +254,9 @@ export default function AddProduct({ user }) {
     dailyRemaining, activeRemaining, cooldownSecs, canPost,
   } = useSellerLimits(API_BASE, isEditMode);
 
-  /* ── Local state ── */
+  /* ═══════════════════════════════════════════════════════════
+     LOCAL STATE
+  ═══════════════════════════════════════════════════════════ */
   const [categories,        setCategories]        = useState([]);
   const [categoriesLoaded,  setCategoriesLoaded]  = useState(false);
   const [promotionPlans,    setPromotionPlans]    = useState([]);
@@ -249,20 +277,6 @@ export default function AddProduct({ user }) {
   const [editError,         setEditError]         = useState(null);
   const [needsVerification, setNeedsVerification] = useState(false);
   const [verificationData,  setVerificationData]  = useState(null);
-
-  const mountedRef      = useRef(true);
-  const isSubmittingRef = useRef(false);
-  const autoSaveTimer   = useRef(null);
-  const timeoutIdsRef   = useRef(new Set());
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      /* Clear all tracked timeouts on unmount */
-      timeoutIdsRef.current.forEach(clearTimeout);
-    };
-  }, []);
 
   /* ═══════════════════════════════════════════════════════════
      FEEDBACK
@@ -288,7 +302,13 @@ export default function AddProduct({ user }) {
     timeoutIdsRef.current.add(id);
   }, []);
 
-  /* ── Safe redirect with tracked timeout ── */
+  /* Keep refs pointing to latest versions — useImageManager uses these */
+  useEffect(() => {
+    showErrorRef.current   = showError;
+    showSuccessRef.current = showSuccess;
+  }, [showError, showSuccess]);
+
+  /* Safe redirect with tracked timeout */
   const safeRedirect = useCallback((path, delayMs = REDIRECT_DELAY_MS) => {
     const id = setTimeout(() => {
       if (mountedRef.current) navigate(path);
@@ -297,7 +317,9 @@ export default function AddProduct({ user }) {
     timeoutIdsRef.current.add(id);
   }, [navigate]);
 
-  /* ── Derived ── */
+  /* ═══════════════════════════════════════════════════════════
+     DERIVED
+  ═══════════════════════════════════════════════════════════ */
   const selectedCategory = useMemo(
     () => categories.find((c) => String(c.id) === String(form.category_id)) ?? null,
     [categories, form.category_id]
@@ -377,19 +399,15 @@ export default function AddProduct({ user }) {
       const p = d.product;
       if (!mountedRef.current) return;
 
-      /* Pre-fill form */
       loadForm({ ...p, email: p.contact?.email || user?.email || "" });
 
-      /* Pre-fill location */
       if (p.location_state) setLocationState(p.location_state);
       if (p.location_city)  setCity(p.location_city);
 
-      /* Pre-fill coords */
       if (p.latitude && p.longitude) {
         setDetectedCoords({ latitude: p.latitude, longitude: p.longitude });
       }
 
-      /* Pre-fill existing images */
       if (p.product_images?.length > 0) {
         loadExistingImages(
           p.product_images.map((img) => ({
@@ -465,7 +483,6 @@ export default function AddProduct({ user }) {
           return;
         }
 
-        /* Try to verify expired session */
         if (session.reference) {
           const token = getToken();
           if (token) {
@@ -957,11 +974,11 @@ export default function AddProduct({ user }) {
   }, [
     validateForm, selectedPlan, promotionPlans, plansLoading,
     buildCreateFormData, clearDraft, showError, showSuccess,
-    handlePostSuccess, fetchLimits, navigate, safeRedirect,
+    handlePostSuccess, fetchLimits, navigate,
     form.contact.email, IDEMPOTENCY_STORE,
   ]);
 
-  /* ── Route to correct submit ── */
+  /* Route to correct submit */
   const handleSubmit = useCallback(
     () => isEditMode ? handleEditSubmit() : handleCreateSubmit(),
     [isEditMode, handleEditSubmit, handleCreateSubmit]
