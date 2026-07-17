@@ -6,6 +6,8 @@ import { useEffect, useRef, memo } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
+import "./ProfileHeader.css";
+
 /* ═══════════════════════════════════════════════════════════════
    ANIMATION PRESETS
 ═══════════════════════════════════════════════════════════════ */
@@ -156,8 +158,8 @@ const ProfileHeader = memo(function ProfileHeader({
   showBack = true,
   fallbackPath = "/",
 }) {
-  const navigate   = useNavigate();
-  const dropRef    = useRef(null);
+  const navigate = useNavigate();
+  const dropRef = useRef(null);
   const triggerRef = useRef(null);
 
   /* ── Go back to previous page ── */
@@ -252,7 +254,6 @@ const ProfileHeader = memo(function ProfileHeader({
 
       {/* ── Right: Action Buttons ── */}
       <div className="ph-right">
-        {/* Notifications */}
         <motion.button
           className="ph-icon-btn"
           onClick={onNotif}
@@ -265,7 +266,6 @@ const ProfileHeader = memo(function ProfileHeader({
           <Icons.bell />
         </motion.button>
 
-        {/* More / Dots menu */}
         <div className="ph-menu-wrap">
           <motion.button
             ref={triggerRef}
