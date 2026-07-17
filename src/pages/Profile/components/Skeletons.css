@@ -1,0 +1,106 @@
+/* src/pages/Profile/components/Skeletons.css */
+
+@keyframes shimmer {
+  from { background-position: -400px 0; }
+  to   { background-position:  400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--bd) 25%,
+    var(--bg) 50%,
+    var(--bd) 75%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.4s infinite linear;
+  border-radius: var(--r2);
+}
+
+/* ── Stats skeleton ── */
+.stats-skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.stats-skeleton__card {
+  height: 88px;
+  border-radius: var(--r2);
+}
+
+/* ── Product skeleton ── */
+.prod-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prod-skeleton__card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--r2);
+  min-height: 72px;
+  background: var(--wh);
+  border: 1px solid var(--bd);
+}
+
+.skeleton__img {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--r1);
+  flex-shrink: 0;
+  background: linear-gradient(
+    90deg,
+    var(--bd) 25%,
+    var(--bg) 50%,
+    var(--bd) 75%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+
+.skeleton__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.skeleton__line {
+  border-radius: 99px;
+  background: linear-gradient(
+    90deg,
+    var(--bd) 25%,
+    var(--bg) 50%,
+    var(--bd) 75%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.4s infinite linear;
+}
+.skeleton__line--lg { height: 14px; width: 70%; }
+.skeleton__line--md { height: 11px; width: 50%; }
+.skeleton__line--sm { height: 10px; width: 35%; }
+
+.skeleton__circle {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(
+    90deg,
+    var(--bd) 25%,
+    var(--bg) 50%,
+    var(--bd) 75%
+  );
+  background-size: 400px 100%;
+  animation: shimmer 1.4s infinite linear;
+  flex-shrink: 0;
+}
+
+@media (max-width: 360px) {
+  .stats-skeleton-grid {
+    grid-template-columns: 1fr;
+  }
+}
