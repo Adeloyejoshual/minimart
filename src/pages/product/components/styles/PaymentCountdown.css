@@ -1,0 +1,106 @@
+/* src/pages/product/components/styles/PaymentCountdown.css */
+
+.payment-expired {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--rd);
+  font-weight: 600;
+  font-size: 0.84rem;
+}
+
+.payment-resume-banner {
+  margin: var(--gap-md) var(--pad) 0;
+  padding: 20px 18px;
+  background: linear-gradient(
+    135deg,
+    var(--o-bg)   0%,
+    #FFF1E6      50%,
+    #FFE8D8     100%
+  );
+  border: 1.5px solid var(--o-20);
+  border-radius: var(--r-lg);
+  box-shadow: var(--sh-sm);
+  animation: ap-card-enter .35s ease both;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Animated top-edge gradient stripe */
+.payment-resume-banner::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--o), var(--o2), var(--o));
+  background-size: 200% 100%;
+  animation: ap-gradient-shift 3s ease infinite;
+}
+
+.payment-resume-info {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--gap-md);
+  margin-bottom: var(--gap-lg);
+}
+
+.payment-resume-info > svg {
+  flex-shrink: 0;
+  width: 20px; height: 20px;
+  color: var(--o);
+  margin-top: 2px;
+}
+
+.payment-resume-info strong {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+}
+
+.payment-resume-info p {
+  margin: 0;
+  font-size: 0.84rem;
+  color: var(--ink2);
+  line-height: 1.5;
+}
+
+.payment-resume-info p strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: inherit;
+  color: var(--o-deep);
+}
+
+.payment-resume-actions {
+  display: flex;
+  gap: var(--gap-sm);
+  flex-wrap: wrap;
+}
+
+/* ── Dark mode ── */
+@media (prefers-color-scheme: dark) {
+  .payment-resume-banner {
+    background: linear-gradient(
+      135deg,
+      #2A2420 0%,
+      #2E2520 50%,
+      #332A22 100%
+    );
+  }
+}
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .payment-resume-banner::before { animation: none; }
+}
+
+/* ── Small screens ── */
+@media (max-width: 480px) {
+  .payment-resume-actions                        { flex-direction: column; }
+  .payment-resume-actions .primary-btn,
+  .payment-resume-actions .outline-btn           { width: 100%; justify-content: center; }
+}
