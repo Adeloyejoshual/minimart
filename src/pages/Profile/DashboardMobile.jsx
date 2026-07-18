@@ -12,66 +12,62 @@ import { API, authH, getToken } from "./components/helpers";
 import { useToast } from "./components/useToast";
 import { Ic } from "./components/icons";
 
-import Overview   from "./components/Overview";
-import Listings   from "./components/Listings";
-import Analytics  from "./components/Analytics";
-import ConfirmDialog  from "./components/ConfirmDialog";
-import PromoteModal   from "./components/PromoteModal";
-import Toast          from "./components/Toast";
+import Overview      from "./components/Overview";
+import Listings      from "./components/Listings";
+import Analytics     from "./components/Analytics";
+import ConfirmDialog from "./components/ConfirmDialog";
+import PromoteModal  from "./components/PromoteModal";
+import Toast         from "./components/Toast";
 
 import "../../styles/Dashboard.css";
 
-export default function Dashboard({ user }) {
-  const navigate = useNavigate();
-  const { toasts, show: showToast } = useToast();
+/* ─────────────────────────────────────────────
+   Constants
+───────────────────────────────────────────── */
+const NAV_ITEMS = [
+  { key: "overview",  label: "Overview",  icon: "Chart"   },
+  { key: "products",  label: "Listings",  icon: "Package" },
+  { key: "analytics", label: "Analytics", icon: "TrendUp" },
+];
 
-  /* ── state ── */
-  const [stats,       setStats]       = useState(null);
-  const [products,    setProducts]    = useState([]);
-  const [analytics,   setAnalytics]   = useState(null);
-  const [plans,       setPlans]       = useState([]);
+const GREETING = (() => {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 17) return "Good afternoon";
+  return "Good evening";
+})();
+
+/* ─────────────────────────────────────────────
+   Custom hook — all dashboard data & actions
+───────────────────────────────────────────── */
+function useDashboard(showToast) {
+  /* ── data ── */
+  const [stats,     setStats]     = useState(null);
+  const [products,  setProducts]  = useState([]);
+  const [analytics, setAnalytics] = useState(null);
+  const [plans,     setPlans]     = useState([]);
+
+  /* ── loading / error ── */
   const [loading,     setLoading]     = useState(true);
   const [prodLoading, setProdLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [error,       setError]       = useState(null);
-  const [tab,         setTab]         = useState("all");
-  const [search,      setSearch]      = useState("");
-  const [deleting,    setDeleting]    = useState(null);
-  const [confirm,     setConfirm]     = useState(null);
-  const [promoting,   setPromoting]   = useState(null);
-  const [section,     setSection]     = useState("overview");
-  const [greeting,    setGreeting]    = useState("Dashboard");
-  const [hasMore,     setHasMore]     = useState(false);
-  const [nextCursor,  setNextCursor]  = useState(null);
   const [refreshing,  setRefreshing]  = useState(false);
+  const [error,       setError]       = useState(null);
+  const [deleting,    setDeleting]    = useState(null);
 
-  const pendingDelete = useRef(null);
+  /* ── pagination / filters ── */
+  const [tab,        setTab]        = useState("all");
+  const [search,     setSearch]     = useState("");
+  const [hasMore,    setHasMore]    = useState(false);
+  const [nextCursor, setNextCursor] = useState(null);
+
+  /* ── refs ── */
   const abortRef      = useRef(null);
   const searchTimer   = useRef(null);
+  const pendingDelete = useRef(null);
 
-  /* ── greeting ── */
-  useEffect(() => {
-    const h = new Date().getHours();
-    setGreeting(
-      h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening"
-    );
-  }, []);
-
-  /* ── auth guard ── */
-  useEffect(() => {
-    if (!getToken()) navigate("/auth?redirect=/dashboard");
-  }, [navigate]);
-
-  /* ── plans ── */
-  useEffect(() => {
-    fetch(`${API}/payment/plans`)
-      .then((r) => r.json())
-      .then((d) => { if (d.success) setPlans(d.plans || []); })
-      .catch(() => {});
-  }, []);
-
-  /* ── data loaders ── */
-  const loadStats = useCallback(async () => {
+  /* ── fetch helpers ── */
+  const fetchStats = useCallback(async () => {
     try {
       const res = await fetch(`${API}/seller-dashboard/stats`, {
         headers: authH(),
@@ -79,27 +75,40 @@ export default function Dashboard({ user }) {
       const d = await res.json();
       if (res.ok && d.success) setStats(d.stats);
     } catch (err) {
-      console.error("[dashboard] loadStats:", err);
+      console.error("[dashboard] fetchStats:", err);
     }
   }, []);
 
-  const loadProducts = useCallback(
-    async (currentTab = "all", cursor = null, searchQuery = "") => {
-      if (abortRef.current) abortRef.current.abort();
+  const fetchAnalytics = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `${API}/seller-dashboard/analytics?days=7`,
+        { headers: authH() }
+      );
+      const d = await res.json();
+      if (res.ok && d.success) setAnalytics(d);
+    } catch (err) {
+      console.error("[dashboard] fetchAnalytics:", err);
+    }
+  }, []);
+
+  const fetchProducts = useCallback(
+    async (currentTab = "all", cursor = null, query = "") => {
+      /* cancel in-flight request */
+      abortRef.current?.abort();
       abortRef.current = new AbortController();
 
-      if (cursor) setLoadingMore(true);
-      else setProdLoading(true);
+      cursor ? setLoadingMore(true) : setProdLoading(true);
 
       try {
-        let url = `${API}/seller-dashboard/products?tab=${currentTab}&limit=20`;
-        if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
-        if (searchQuery) url += `&search=${encodeURIComponent(searchQuery)}`;
+        const params = new URLSearchParams({ tab: currentTab, limit: 20 });
+        if (cursor) params.set("cursor", cursor);
+        if (query)  params.set("search", query);
 
-        const res = await fetch(url, {
-          headers: authH(),
-          signal: abortRef.current.signal,
-        });
+        const res = await fetch(
+          `${API}/seller-dashboard/products?${params}`,
+          { headers: authH(), signal: abortRef.current.signal }
+        );
         const d = await res.json();
 
         if (!res.ok) {
@@ -108,14 +117,13 @@ export default function Dashboard({ user }) {
         }
 
         const list = Array.isArray(d.products) ? d.products : [];
-        if (cursor) setProducts((prev) => [...prev, ...list]);
-        else setProducts(list);
-
+        setProducts((prev) => (cursor ? [...prev, ...list] : list));
         setHasMore(!!d.has_more);
-        setNextCursor(d.next_cursor || null);
+        setNextCursor(d.next_cursor ?? null);
       } catch (err) {
-        if (err.name === "AbortError") return;
-        showToast("Failed to load listings.", "error");
+        if (err.name !== "AbortError") {
+          showToast("Failed to load listings.", "error");
+        }
       } finally {
         setProdLoading(false);
         setLoadingMore(false);
@@ -124,46 +132,51 @@ export default function Dashboard({ user }) {
     [showToast]
   );
 
-  const loadAnalytics = useCallback(async () => {
+  /* ── bootstrap ── */
+  const fetchPlans = useCallback(async () => {
     try {
-      const res = await fetch(`${API}/seller-dashboard/analytics?days=7`, {
-        headers: authH(),
-      });
-      const d = await res.json();
-      if (res.ok && d.success) setAnalytics(d);
-    } catch (err) {
-      console.error("[dashboard] loadAnalytics:", err);
+      const res = await fetch(`${API}/payment/plans`);
+      const d   = await res.json();
+      if (d.success) setPlans(d.plans ?? []);
+    } catch {
+      /* non-critical */
     }
   }, []);
 
   const loadAll = useCallback(
     async (silent = false) => {
-      if (!silent) setLoading(true);
-      else setRefreshing(true);
+      silent ? setRefreshing(true) : setLoading(true);
       setError(null);
       try {
-        await Promise.all([loadStats(), loadProducts("all"), loadAnalytics()]);
+        await Promise.all([
+          fetchStats(),
+          fetchProducts("all"),
+          fetchAnalytics(),
+        ]);
       } catch {
-        setError("Failed to load dashboard.");
+        setError("Failed to load dashboard. Please try again.");
       } finally {
         setLoading(false);
         setRefreshing(false);
       }
     },
-    [loadStats, loadProducts, loadAnalytics]
+    [fetchStats, fetchProducts, fetchAnalytics]
   );
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  useEffect(() => {
+    fetchPlans();
+    loadAll();
+  }, [fetchPlans, loadAll]);
 
-  /* ── tab / search ── */
+  /* ── tab / search handlers ── */
   const handleTabChange = useCallback(
     (newTab) => {
       setTab(newTab);
       setSearch("");
       setNextCursor(null);
-      loadProducts(newTab);
+      fetchProducts(newTab);
     },
-    [loadProducts]
+    [fetchProducts]
   );
 
   const handleSearch = useCallback(
@@ -172,59 +185,54 @@ export default function Dashboard({ user }) {
       clearTimeout(searchTimer.current);
       searchTimer.current = setTimeout(() => {
         setNextCursor(null);
-        loadProducts(tab, null, value);
+        fetchProducts(tab, null, value);
       }, 400);
     },
-    [tab, loadProducts]
+    [tab, fetchProducts]
   );
 
   const handleLoadMore = useCallback(() => {
     if (!hasMore || loadingMore || !nextCursor) return;
-    loadProducts(tab, nextCursor, search);
-  }, [hasMore, loadingMore, nextCursor, tab, search, loadProducts]);
+    fetchProducts(tab, nextCursor, search);
+  }, [hasMore, loadingMore, nextCursor, tab, search, fetchProducts]);
 
-  /* ── product actions ── */
-  const handleDelete = useCallback((product) => {
-    pendingDelete.current = product;
-    setConfirm({
-      message: `Delete "${product.title}"? This action cannot be undone.`,
-    });
-  }, []);
+  /* ── product mutations ── */
+  const deleteProduct = useCallback(
+    async (product) => {
+      setDeleting(product.id);
+      /* optimistic remove */
+      setProducts((prev) => prev.filter((p) => p.id !== product.id));
 
-  const confirmDelete = useCallback(async () => {
-    const product = pendingDelete.current;
-    if (!product) return;
-    pendingDelete.current = null;
-    setConfirm(null);
-    setDeleting(product.id);
-    setProducts((prev) => prev.filter((p) => p.id !== product.id));
-
-    try {
-      const res = await fetch(
-        `${API}/seller-dashboard/products/${product.id}`,
-        { method: "DELETE", headers: authH() }
-      );
-      const d = await res.json();
-      if (res.ok && d.success) {
-        loadStats();
-        showToast(
-          `Deleted — recoverable for ${d.hold_days || 30} days`,
-          "info",
-          5000
+      try {
+        const res = await fetch(
+          `${API}/seller-dashboard/products/${product.id}`,
+          { method: "DELETE", headers: authH() }
         );
-      } else {
-        setProducts((prev) => [product, ...prev]);
-        showToast(d.message || "Could not delete.", "error");
-      }
-    } catch {
-      setProducts((prev) => [product, ...prev]);
-      showToast("Network error.", "error");
-    } finally {
-      setDeleting(null);
-    }
-  }, [loadStats, showToast]);
+        const d = await res.json();
 
-  const handleToggle = useCallback(
+        if (res.ok && d.success) {
+          fetchStats();
+          showToast(
+            `Deleted — recoverable for ${d.hold_days ?? 30} days`,
+            "info",
+            5000
+          );
+        } else {
+          /* rollback */
+          setProducts((prev) => [product, ...prev]);
+          showToast(d.message || "Could not delete.", "error");
+        }
+      } catch {
+        setProducts((prev) => [product, ...prev]);
+        showToast("Network error.", "error");
+      } finally {
+        setDeleting(null);
+      }
+    },
+    [fetchStats, showToast]
+  );
+
+  const toggleProduct = useCallback(
     async (product) => {
       try {
         const res = await fetch(
@@ -232,6 +240,7 @@ export default function Dashboard({ user }) {
           { method: "PATCH", headers: authH() }
         );
         const d = await res.json();
+
         if (res.ok && d.success) {
           setProducts((prev) =>
             prev.map((p) =>
@@ -240,7 +249,7 @@ export default function Dashboard({ user }) {
                 : p
             )
           );
-          loadStats();
+          fetchStats();
           showToast(
             d.is_active ? "Listing activated" : "Listing paused",
             d.is_active ? "success" : "info"
@@ -252,10 +261,10 @@ export default function Dashboard({ user }) {
         showToast("Network error.", "error");
       }
     },
-    [loadStats, showToast]
+    [fetchStats, showToast]
   );
 
-  const handleRenew = useCallback(
+  const renewProduct = useCallback(
     async (product) => {
       try {
         const res = await fetch(
@@ -263,6 +272,7 @@ export default function Dashboard({ user }) {
           { method: "POST", headers: authH() }
         );
         const d = await res.json();
+
         if (res.ok && d.success) {
           setProducts((prev) =>
             prev.map((p) =>
@@ -270,13 +280,13 @@ export default function Dashboard({ user }) {
                 ? {
                     ...p,
                     active_until: d.active_until,
-                    status: d.status,
-                    is_active: true,
+                    status:       d.status,
+                    is_active:    true,
                   }
                 : p
             )
           );
-          loadStats();
+          fetchStats();
           showToast(`Renewed for ${d.days_added} days`, "success");
         } else {
           showToast(d.message || "Could not renew.", "error");
@@ -285,16 +295,7 @@ export default function Dashboard({ user }) {
         showToast("Network error.", "error");
       }
     },
-    [loadStats, showToast]
-  );
-
-  const handleEdit    = useCallback(
-    (product) => navigate(`/minimart/add?edit=${product.id}`),
-    [navigate]
-  );
-  const handlePromote = useCallback(
-    (product) => setPromoting(product),
-    []
+    [fetchStats, showToast]
   );
 
   /* ── derived ── */
@@ -306,154 +307,270 @@ export default function Dashboard({ user }) {
       paused:  stats?.paused          ?? 0,
       pending: stats?.pending_payment ?? 0,
     }),
-    [stats, products]
+    [stats, products.length]
   );
 
-  const userName =
-    user?.name || user?.full_name || user?.username || "Seller";
+  return {
+    /* data */
+    stats, products, analytics, plans,
+    /* loading */
+    loading, prodLoading, loadingMore, refreshing, error, deleting,
+    /* filters */
+    tab, search, hasMore,
+    /* refs */
+    pendingDelete,
+    /* actions */
+    loadAll, handleTabChange, handleSearch, handleLoadMore,
+    deleteProduct, toggleProduct, renewProduct,
+    /* setters needed by UI */
+    setProducts,
+    /* tab counts */
+    tabCounts,
+  };
+}
 
-  /* ── render ── */
+/* ─────────────────────────────────────────────
+   Sub-components
+───────────────────────────────────────────── */
+function DashboardHeader({
+  greeting, userName, userId,
+  section, setSection,
+  tabCounts, refreshing,
+  onRefresh, onNavigate,
+}) {
   return (
-    <div className="dashboard">
-      {/* Header */}
-      <header className="dashboard__header">
-        <div className="dashboard__header-inner">
-          <div className="dashboard__header-left">
-            <button
-              className="dashboard__back-btn"
-              onClick={() => navigate(-1)}
-            >
-              <Ic.Back />
-            </button>
-            <div className="dashboard__header-text">
-              <span className="dashboard__greeting">{greeting}</span>
-              <h1 className="dashboard__title">{userName}</h1>
-            </div>
-          </div>
+    <header className="dashboard__header">
+      <div className="dashboard__header-inner">
 
-          <div className="dashboard__header-right">
-            <button
-              className={`dashboard__action-btn${
-                refreshing ? " dashboard__action-btn--spinning" : ""
-              }`}
-              onClick={() => loadAll(true)}
-              title="Refresh"
-            >
-              <Ic.Refresh />
-            </button>
-            <button
-              className="dashboard__action-btn"
-              onClick={() => navigate("/notifications")}
-              title="Notifications"
-            >
-              <Ic.Bell />
-            </button>
-            <Link
-              to={`/seller/${user?.id || ""}`}
-              className="dashboard__avatar"
-              title="View Store"
-            >
-              {userName.charAt(0).toUpperCase()}
-            </Link>
+        {/* Left */}
+        <div className="dashboard__header-left">
+          <button
+            className="dashboard__back-btn"
+            onClick={() => onNavigate(-1)}
+            aria-label="Go back"
+          >
+            <Ic.Back />
+          </button>
+          <div className="dashboard__header-text">
+            <span className="dashboard__greeting">{greeting}</span>
+            <h1 className="dashboard__title">{userName}</h1>
           </div>
         </div>
 
-        {/* Nav */}
-        <nav className="dashboard__nav">
-          {[
-            { key: "overview",  label: "Overview",  icon: <Ic.Chart /> },
-            { key: "products",  label: "Listings",  icon: <Ic.Package /> },
-            { key: "analytics", label: "Analytics", icon: <Ic.TrendUp /> },
-          ].map((n) => (
+        {/* Right */}
+        <div className="dashboard__header-right">
+          <button
+            className={`dashboard__action-btn${
+              refreshing ? " dashboard__action-btn--spinning" : ""
+            }`}
+            onClick={onRefresh}
+            title="Refresh"
+            aria-label="Refresh dashboard"
+          >
+            <Ic.Refresh />
+          </button>
+          <button
+            className="dashboard__action-btn"
+            onClick={() => onNavigate("/notifications")}
+            title="Notifications"
+            aria-label="Notifications"
+          >
+            <Ic.Bell />
+          </button>
+          <Link
+            to={`/seller/${userId ?? ""}`}
+            className="dashboard__avatar"
+            title="View Store"
+            aria-label="View your store"
+          >
+            {userName.charAt(0).toUpperCase()}
+          </Link>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <nav className="dashboard__nav" aria-label="Dashboard sections">
+        {NAV_ITEMS.map(({ key, label, icon }) => {
+          const Icon = Ic[icon];
+          return (
             <button
-              key={n.key}
+              key={key}
               className={`dashboard__nav-item${
-                section === n.key ? " dashboard__nav-item--active" : ""
+                section === key ? " dashboard__nav-item--active" : ""
               }`}
-              onClick={() => setSection(n.key)}
+              onClick={() => setSection(key)}
+              aria-current={section === key ? "page" : undefined}
             >
-              {n.icon}
-              <span>{n.label}</span>
-              {n.key === "products" && tabCounts.all > 0 && (
+              <Icon />
+              <span>{label}</span>
+              {key === "products" && tabCounts.all > 0 && (
                 <span className="dashboard__nav-badge">
                   {tabCounts.all}
                 </span>
               )}
             </button>
-          ))}
-        </nav>
-      </header>
+          );
+        })}
+      </nav>
+    </header>
+  );
+}
 
-      {/* Main */}
+function ErrorBanner({ message, onRetry }) {
+  return (
+    <div className="dashboard__error-banner" role="alert">
+      <Ic.AlertTriangle />
+      <span>{message}</span>
+      <button className="btn btn--sm" onClick={onRetry}>
+        Retry
+      </button>
+    </div>
+  );
+}
+
+/* ─────────────────────────────────────────────
+   Dashboard
+───────────────────────────────────────────── */
+export default function Dashboard({ user }) {
+  const navigate          = useNavigate();
+  const { toasts, show: showToast } = useToast();
+
+  /* ── section ── */
+  const [section,   setSection]   = useState("overview");
+  const [confirm,   setConfirm]   = useState(null);
+  const [promoting, setPromoting] = useState(null);
+
+  /* ── all data / logic via hook ── */
+  const db = useDashboard(showToast);
+
+  /* ── auth guard ── */
+  useEffect(() => {
+    if (!getToken()) navigate("/auth?redirect=/dashboard");
+  }, [navigate]);
+
+  /* ── delete flow ── */
+  const handleDeleteRequest = useCallback(
+    (product) => {
+      db.pendingDelete.current = product;
+      setConfirm({
+        message: `Delete "${product.title}"? This cannot be undone.`,
+      });
+    },
+    [db.pendingDelete]
+  );
+
+  const handleDeleteConfirm = useCallback(async () => {
+    const product = db.pendingDelete.current;
+    if (!product) return;
+    db.pendingDelete.current = null;
+    setConfirm(null);
+    await db.deleteProduct(product);
+  }, [db]);
+
+  const handleDeleteCancel = useCallback(() => {
+    db.pendingDelete.current = null;
+    setConfirm(null);
+  }, [db]);
+
+  /* ── edit / promote ── */
+  const handleEdit    = useCallback(
+    (product) => navigate(`/minimart/add?edit=${product.id}`),
+    [navigate]
+  );
+  const handlePromote = useCallback((product) => setPromoting(product), []);
+
+  /* ── shared product action props ── */
+  const productActions = useMemo(
+    () => ({
+      onEdit:    handleEdit,
+      onDelete:  handleDeleteRequest,
+      onToggle:  db.toggleProduct,
+      onRenew:   db.renewProduct,
+      onPromote: handlePromote,
+    }),
+    [handleEdit, handleDeleteRequest, db.toggleProduct, db.renewProduct, handlePromote]
+  );
+
+  /* ── derived ── */
+  const userName = user?.name || user?.full_name || user?.username || "Seller";
+
+  /* ── section components map ── */
+  const sections = useMemo(
+    () => ({
+      overview: (
+        <Overview
+          stats={db.stats}
+          analytics={db.analytics}
+          products={db.products}
+          loading={db.loading}
+          userId={user?.id}
+          deleting={db.deleting}
+          onNavigate={navigate}
+          onSetSection={setSection}
+          {...productActions}
+        />
+      ),
+      products: (
+        <Listings
+          products={db.products}
+          prodLoading={db.prodLoading}
+          loadingMore={db.loadingMore}
+          hasMore={db.hasMore}
+          tab={db.tab}
+          search={db.search}
+          tabCounts={db.tabCounts}
+          deleting={db.deleting}
+          onTabChange={db.handleTabChange}
+          onSearch={db.handleSearch}
+          onLoadMore={db.handleLoadMore}
+          onNavigate={navigate}
+          {...productActions}
+        />
+      ),
+      analytics: (
+        <Analytics
+          stats={db.stats}
+          analytics={db.analytics}
+          loading={db.loading}
+          onSetSection={setSection}
+          onTabChange={db.handleTabChange}
+        />
+      ),
+    }),
+    [db, user?.id, navigate, productActions, setSection]
+  );
+
+  /* ─── render ─── */
+  return (
+    <div className="dashboard">
+
+      <DashboardHeader
+        greeting={GREETING}
+        userName={userName}
+        userId={user?.id}
+        section={section}
+        setSection={setSection}
+        tabCounts={db.tabCounts}
+        refreshing={db.refreshing}
+        onRefresh={() => db.loadAll(true)}
+        onNavigate={navigate}
+      />
+
       <main className="dashboard__main">
-        {error && (
-          <div className="dashboard__error-banner">
-            <Ic.AlertTriangle />
-            <span>{error}</span>
-            <button
-              className="btn btn--sm"
-              onClick={() => loadAll()}
-            >
-              Retry
-            </button>
-          </div>
+
+        {db.error && (
+          <ErrorBanner
+            message={db.error}
+            onRetry={() => db.loadAll()}
+          />
         )}
 
-        {section === "overview" && (
-          <div className="dashboard__section dashboard__fade-in">
-            <Overview
-              stats={stats}
-              analytics={analytics}
-              products={products}
-              loading={loading}
-              userId={user?.id}
-              deleting={deleting}
-              onNavigate={navigate}
-              onSetSection={setSection}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onToggle={handleToggle}
-              onRenew={handleRenew}
-              onPromote={handlePromote}
-            />
-          </div>
-        )}
-
-        {section === "products" && (
-          <div className="dashboard__section dashboard__fade-in">
-            <Listings
-              products={products}
-              prodLoading={prodLoading}
-              loadingMore={loadingMore}
-              hasMore={hasMore}
-              tab={tab}
-              search={search}
-              tabCounts={tabCounts}
-              deleting={deleting}
-              onTabChange={handleTabChange}
-              onSearch={handleSearch}
-              onLoadMore={handleLoadMore}
-              onNavigate={navigate}
-              onEdit={handleEdit}
-              onDelete={handleDelete}
-              onToggle={handleToggle}
-              onRenew={handleRenew}
-              onPromote={handlePromote}
-            />
-          </div>
-        )}
-
-        {section === "analytics" && (
-          <div className="dashboard__section dashboard__fade-in">
-            <Analytics
-              stats={stats}
-              analytics={analytics}
-              loading={loading}
-              onSetSection={setSection}
-              onTabChange={handleTabChange}
-            />
-          </div>
-        )}
+        <div
+          key={section}
+          className="dashboard__section dashboard__fade-in"
+        >
+          {sections[section]}
+        </div>
 
         <footer className="dashboard__footer">
           <p>© {new Date().getFullYear()} Loemart Technologies</p>
@@ -465,6 +582,7 @@ export default function Dashboard({ user }) {
         className="dashboard__fab"
         onClick={() => navigate("/minimart/add")}
         title="Create Listing"
+        aria-label="Create new listing"
       >
         <Ic.Plus />
       </button>
@@ -473,18 +591,16 @@ export default function Dashboard({ user }) {
       {confirm && (
         <ConfirmDialog
           message={confirm.message}
-          onConfirm={confirmDelete}
-          onCancel={() => {
-            pendingDelete.current = null;
-            setConfirm(null);
-          }}
+          onConfirm={handleDeleteConfirm}
+          onCancel={handleDeleteCancel}
         />
       )}
 
       {promoting && (
         <PromoteModal
           product={promoting}
-          plans={plans}
+          plans={db.plans}
+          userEmail={user?.email}
           onClose={() => setPromoting(null)}
         />
       )}
