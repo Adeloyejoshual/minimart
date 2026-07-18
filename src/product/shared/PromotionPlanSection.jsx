@@ -4,8 +4,9 @@
  */
 import { useCallback, useMemo, useRef } from "react";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
-import { WarningIcon, SpinnerIcon, CheckIcon, StarIcon }
-  from "../components/icons/index.jsx";
+import {
+  WarningIcon, SpinnerIcon, CheckIcon, StarIcon,
+} from "../../pages/product/components/icons/index.jsx";
 
 const safeStr = (v) => (typeof v === "string" ? v : String(v ?? ""));
 
