@@ -4,7 +4,7 @@
  */
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import SectionDot   from "../components/SectionDot.jsx";
-import CharCounter  from "../../components/CharCounter.jsx";
+import CharCounter  from "../components/CharCounter.jsx";
 import { useEffect, useState } from "react";
 
 export default function BasicInfoSection({ innerRef }) {
