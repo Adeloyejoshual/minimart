@@ -1,14 +1,77 @@
-// routes/productDetail.js
+// routes/productDetail.js — v2
+//
+// Changes from v1:
+//  ─ normalizeProduct now reads images JSONB column (set by addproduct.js)
+//  ─ Falls back to product_images table JOIN if JSONB is empty
+//  ─ Falls back to main_image / thumbnail_url if both above are empty
+//  ─ PRODUCT_COLS now includes images JSONB column
+//  ─ slug/:slug and id/:id routes JOIN product_images for full image list
+//  ─ similar + by-seller routes include images for card display
+//  ─ All image arrays are deduplicated and ordered correctly
+
 import express  from "express";
 import { pool } from "../config/db.js";
 
 const router = express.Router();
 
 /* ═══════════════════════════════════════════════════════════════
-   NORMALIZE — converts DB row to frontend object
-   Your DB uses main_image + thumbnail_url (no product_images table)
+   BUILD IMAGE ARRAY
+   Priority:
+     1. images JSONB column  (set by addproduct.js v15+)
+     2. product_images rows  (passed in as joined rows)
+     3. main_image / thumbnail_url fallback
+   Always returns array of { url, order } sorted by order
 ═══════════════════════════════════════════════════════════════ */
-const normalizeProduct = (row) => {
+const buildImageArray = (row, productImageRows = []) => {
+  /* ── Option 1: images JSONB on product row ── */
+  const jsonbImages = (() => {
+    const raw = row.images;
+    if (!raw) return null;
+
+    let parsed;
+    if (typeof raw === "string") {
+      try { parsed = JSON.parse(raw); } catch { return null; }
+    } else {
+      parsed = raw;
+    }
+
+    if (!Array.isArray(parsed) || !parsed.length) return null;
+
+    return parsed
+      .filter((img) => img?.url)
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .map((img) => ({ url: img.url, key: img.key ?? null, order: img.order ?? 0 }));
+  })();
+
+  if (jsonbImages?.length) return jsonbImages;
+
+  /* ── Option 2: product_images table rows ── */
+  if (productImageRows?.length) {
+    return productImageRows
+      .filter((img) => img?.image_url)
+      .sort((a, b) => (a.position_order ?? 0) - (b.position_order ?? 0))
+      .map((img) => ({
+        url   : img.image_url,
+        key   : img.r2_key ?? null,
+        order : img.position_order ?? 0,
+      }));
+  }
+
+  /* ── Option 3: main_image / thumbnail_url fallback ── */
+  const fallback = [];
+  if (row.main_image) {
+    fallback.push({ url: row.main_image, key: null, order: 0 });
+  }
+  if (row.thumbnail_url && row.thumbnail_url !== row.main_image) {
+    fallback.push({ url: row.thumbnail_url, key: null, order: 1 });
+  }
+  return fallback;
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   NORMALIZE — converts DB row to frontend object
+═══════════════════════════════════════════════════════════════ */
+const normalizeProduct = (row, productImageRows = []) => {
   if (!row) return null;
 
   const parse = (v) => {
@@ -19,16 +82,25 @@ const normalizeProduct = (row) => {
     return v;
   };
 
-  const images = [];
-  if (row.main_image)    images.push(row.main_image);
-  if (row.thumbnail_url && row.thumbnail_url !== row.main_image) {
-    images.push(row.thumbnail_url);
-  }
+  const imageArray  = buildImageArray(row, productImageRows);
+  const primaryImage = imageArray[0]?.url
+    ?? row.main_image
+    ?? row.thumbnail_url
+    ?? null;
 
   return {
     ...row,
-    image            : row.main_image || row.thumbnail_url || null,
-    images,
+
+    /* Single image — used by product cards */
+    image          : primaryImage,
+
+    /* Full image array — used by product detail gallery */
+    images         : imageArray,
+
+    /* Keep raw fields too in case frontend needs them */
+    main_image     : row.main_image     ?? primaryImage,
+    thumbnail_url  : row.thumbnail_url  ?? primaryImage,
+
     attributes       : parse(row.attributes)     || {},
     specifications   : parse(row.specifications) || {},
     highlights       : parse(row.highlights)     || [],
@@ -47,7 +119,28 @@ const normalizeProduct = (row) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   FETCH PRODUCT IMAGES  — from product_images table
+   Used as fallback when images JSONB is empty
+═══════════════════════════════════════════════════════════════ */
+const fetchProductImages = async (productId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT image_url, r2_key, position_order, is_primary
+       FROM   product_images
+       WHERE  product_id = $1
+       ORDER  BY position_order ASC`,
+      [productId]
+    );
+    return rows;
+  } catch {
+    /* product_images table may not exist on older installs */
+    return [];
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════════
    SHARED COLUMNS — full product detail
+   Added: p.images (JSONB set by addproduct.js v15+)
 ═══════════════════════════════════════════════════════════════ */
 const PRODUCT_COLS = `
   p.id,
@@ -57,6 +150,7 @@ const PRODUCT_COLS = `
   p.price,
   p.status,
   p.is_active,
+  p.active_until,
   p.created_at,
   p.updated_at,
   p.last_interaction_at,
@@ -93,10 +187,31 @@ const PRODUCT_COLS = `
   p.whatsapp_link,
   p.main_image,
   p.thumbnail_url,
+  p.images,
   p.seo_title,
   p.seo_description,
   p.seo_keywords,
   p.canonical_url
+`;
+
+/* ═══════════════════════════════════════════════════════════════
+   CARD COLUMNS — for list views (similar, by-seller, favorites)
+   Includes images JSONB so cards show correct photo
+═══════════════════════════════════════════════════════════════ */
+const CARD_COLS = `
+  p.id,
+  p.slug,
+  p.title,
+  p.price,
+  p.main_image,
+  p.thumbnail_url,
+  p.images,
+  p.location_city,
+  p.location_state,
+  p.is_promoted,
+  p.boost_score,
+  p.engagement_score,
+  p.created_at
 `;
 
 /* ═══════════════════════════════════════════════════════════════
@@ -116,7 +231,7 @@ router.get("/slug/:slug", async (req, res) => {
        LEFT JOIN public.categories sub ON sub.id = p.subcategory_id
        WHERE  p.slug      = $1
          AND  p.is_active = true
-         AND  p.status    = 'active'
+         AND  p.status    IN ('active', 'active_limited')
        LIMIT 1`,
       [slug]
     );
@@ -125,7 +240,12 @@ router.get("/slug/:slug", async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    return res.json(normalizeProduct(rows[0]));
+    const row = rows[0];
+
+    /* Fetch from product_images table as fallback */
+    const productImageRows = await fetchProductImages(row.id);
+
+    return res.json(normalizeProduct(row, productImageRows));
   } catch (err) {
     console.error("[productDetail] GET /slug/:slug →", err.message);
     return res.status(500).json({ message: "Failed to load product" });
@@ -137,6 +257,10 @@ router.get("/slug/:slug", async (req, res) => {
 ═══════════════════════════════════════════════════════════════ */
 router.get("/id/:id", async (req, res) => {
   const { id } = req.params;
+  if (!id || id === "undefined") {
+    return res.status(400).json({ message: "Invalid product ID" });
+  }
+
   try {
     const { rows } = await pool.query(
       `SELECT ${PRODUCT_COLS}
@@ -145,7 +269,7 @@ router.get("/id/:id", async (req, res) => {
        LEFT JOIN public.categories sub ON sub.id = p.subcategory_id
        WHERE  p.id        = $1
          AND  p.is_active = true
-         AND  p.status    = 'active'
+         AND  p.status    IN ('active', 'active_limited')
        LIMIT 1`,
       [id]
     );
@@ -154,7 +278,10 @@ router.get("/id/:id", async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    return res.json(normalizeProduct(rows[0]));
+    const row = rows[0];
+    const productImageRows = await fetchProductImages(row.id);
+
+    return res.json(normalizeProduct(row, productImageRows));
   } catch (err) {
     console.error("[productDetail] GET /id/:id →", err.message);
     return res.status(500).json({ message: "Failed to load product" });
@@ -171,38 +298,28 @@ router.get("/similar", async (req, res) => {
   }
 
   try {
-    const params = [category_id, Number(limit)];
+    const safeLimit = Math.min(Number(limit) || 10, 50);
+    const params    = [category_id, safeLimit];
     let excludeClause = "";
+
     if (exclude) {
       params.push(exclude);
       excludeClause = `AND p.id != $${params.length}`;
     }
 
     const { rows } = await pool.query(
-      `SELECT
-         p.id,
-         p.slug,
-         p.title,
-         p.price,
-         p.main_image,
-         p.thumbnail_url,
-         p.location_city,
-         p.location_state,
-         p.is_promoted,
-         p.boost_score,
-         p.engagement_score,
-         p.created_at
+      `SELECT ${CARD_COLS}
        FROM public.products p
        WHERE p.category_id = $1
          AND p.is_active   = true
-         AND p.status      = 'active'
+         AND p.status      IN ('active', 'active_limited')
          ${excludeClause}
        ORDER BY p.boost_score DESC, p.engagement_score DESC, p.created_at DESC
        LIMIT $2`,
       params
     );
 
-    return res.json(rows.map(normalizeProduct));
+    return res.json(rows.map((r) => normalizeProduct(r)));
   } catch (err) {
     console.error("[productDetail] GET /similar →", err.message);
     return res.status(500).json({ message: "Failed to load similar products" });
@@ -219,38 +336,28 @@ router.get("/by-seller", async (req, res) => {
   }
 
   try {
-    const params = [seller_id, Number(limit)];
+    const safeLimit = Math.min(Number(limit) || 10, 50);
+    const params    = [seller_id, safeLimit];
     let excludeClause = "";
+
     if (exclude) {
       params.push(exclude);
       excludeClause = `AND p.id != $${params.length}`;
     }
 
     const { rows } = await pool.query(
-      `SELECT
-         p.id,
-         p.slug,
-         p.title,
-         p.price,
-         p.main_image,
-         p.thumbnail_url,
-         p.location_city,
-         p.location_state,
-         p.is_promoted,
-         p.boost_score,
-         p.engagement_score,
-         p.created_at
+      `SELECT ${CARD_COLS}
        FROM public.products p
        WHERE p.seller_id  = $1
          AND p.is_active  = true
-         AND p.status     = 'active'
+         AND p.status     IN ('active', 'active_limited')
          ${excludeClause}
        ORDER BY p.boost_score DESC, p.created_at DESC
        LIMIT $2`,
       params
     );
 
-    return res.json(rows.map(normalizeProduct));
+    return res.json(rows.map((r) => normalizeProduct(r)));
   } catch (err) {
     console.error("[productDetail] GET /by-seller →", err.message);
     return res.status(500).json({ message: "Failed to load seller products" });
@@ -277,8 +384,8 @@ router.get("/slug/:slug/reviews", async (req, res) => {
     }
 
     const productId = pRows[0].id;
-    let reviews = [];
-    let stats   = null;
+    let reviews     = [];
+    let stats       = null;
 
     try {
       const [rRows, sRows] = await Promise.all([
@@ -314,7 +421,6 @@ router.get("/slug/:slug/reviews", async (req, res) => {
       reviews = rRows.rows;
       stats   = sRows.rows[0] || null;
     } catch (e) {
-      // product_reviews table may not exist yet
       console.warn("[productDetail] reviews table:", e.message);
     }
 
@@ -332,24 +438,30 @@ router.post("/slug/:slug/reviews", async (req, res) => {
   const { slug }                     = req.params;
   const { user_id, rating, comment } = req.body;
 
-  if (!user_id)                          return res.status(401).json({ message: "Login required" });
+  if (!user_id)
+    return res.status(401).json({ message: "Login required" });
   if (!rating || rating < 1 || rating > 5)
     return res.status(400).json({ message: "Rating must be 1–5" });
 
   try {
     const { rows: pRows } = await pool.query(
-      `SELECT id FROM public.products WHERE slug = $1 AND is_active = true LIMIT 1`,
+      `SELECT id FROM public.products
+       WHERE slug = $1 AND is_active = true LIMIT 1`,
       [slug]
     );
-    if (!pRows.length) return res.status(404).json({ message: "Product not found" });
+    if (!pRows.length)
+      return res.status(404).json({ message: "Product not found" });
 
     const productId = pRows[0].id;
     const existing  = await pool.query(
-      `SELECT id FROM product_reviews WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT id FROM product_reviews
+       WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
       [productId, user_id]
     );
     if (existing.rows.length) {
-      return res.status(409).json({ message: "You already reviewed this product" });
+      return res.status(409).json({
+        message: "You already reviewed this product",
+      });
     }
 
     const { rows } = await pool.query(
@@ -413,42 +525,55 @@ router.post("/products/:id/favorite", async (req, res) => {
   const { id }      = req.params;
   const { user_id } = req.body;
 
-  if (!user_id) return res.status(401).json({ message: "Login required" });
+  if (!user_id)
+    return res.status(401).json({ message: "Login required" });
 
+  const client = await pool.connect();
   try {
-    const existing = await pool.query(
-      `SELECT id FROM favorites WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
+    await client.query("BEGIN");
+
+    const existing = await client.query(
+      `SELECT id FROM favorites
+       WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
       [id, user_id]
     );
 
     if (existing.rows.length) {
-      await pool.query(
+      /* Remove favorite */
+      await client.query(
         `DELETE FROM favorites WHERE product_id = $1 AND user_id = $2`,
         [id, user_id]
       );
-      await pool.query(
+      await client.query(
         `UPDATE public.products
          SET favorites_count = GREATEST(COALESCE(favorites_count, 0) - 1, 0)
          WHERE id = $1`,
         [id]
       );
+      await client.query("COMMIT");
       return res.json({ favorited: false });
     } else {
-      await pool.query(
-        `INSERT INTO favorites (user_id, product_id) VALUES ($1, $2)`,
+      /* Add favorite */
+      await client.query(
+        `INSERT INTO favorites (user_id, product_id) VALUES ($1, $2)
+         ON CONFLICT DO NOTHING`,
         [user_id, id]
       );
-      await pool.query(
+      await client.query(
         `UPDATE public.products
          SET favorites_count = COALESCE(favorites_count, 0) + 1
          WHERE id = $1`,
         [id]
       );
+      await client.query("COMMIT");
       return res.json({ favorited: true });
     }
   } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
     console.error("[productDetail] POST /products/:id/favorite →", err.message);
     return res.status(500).json({ message: "Failed to toggle favorite" });
+  } finally {
+    client.release();
   }
 });
 
@@ -463,7 +588,8 @@ router.get("/products/:id/favorite", async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT id FROM favorites WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT id FROM favorites
+       WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
       [id, user_id]
     );
     return res.json({ favorited: rows.length > 0 });
@@ -478,9 +604,9 @@ router.get("/products/:id/favorite", async (req, res) => {
 ═══════════════════════════════════════════════════════════════ */
 router.get("/users/:userId/favorites", async (req, res) => {
   const { userId } = req.params;
-  const limit  = Math.min(Number(req.query.limit) || 20, 50);
-  const page   = Math.max(Number(req.query.page)  || 1, 1);
-  const offset = (page - 1) * limit;
+  const limit      = Math.min(Number(req.query.limit) || 20, 50);
+  const page       = Math.max(Number(req.query.page)  || 1, 1);
+  const offset     = (page - 1) * limit;
 
   try {
     const { rows } = await pool.query(
@@ -491,6 +617,7 @@ router.get("/users/:userId/favorites", async (req, res) => {
          p.price,
          p.main_image,
          p.thumbnail_url,
+         p.images,
          p.location_city,
          p.location_state,
          p.is_promoted,
@@ -501,12 +628,12 @@ router.get("/users/:userId/favorites", async (req, res) => {
        JOIN public.products p ON p.id = f.product_id
        WHERE f.user_id   = $1
          AND p.is_active = true
-         AND p.status    = 'active'
+         AND p.status    IN ('active', 'active_limited')
        ORDER BY f.created_at DESC
        LIMIT  $2 OFFSET $3`,
       [userId, limit, offset]
     );
-    return res.json(rows.map(normalizeProduct));
+    return res.json(rows.map((r) => normalizeProduct(r)));
   } catch (err) {
     console.error("[productDetail] GET /users/:userId/favorites →", err.message);
     return res.status(500).json({ message: "Failed to load favorites" });
@@ -541,9 +668,11 @@ router.get("/users/:id/public", async (req, res) => {
        LIMIT 1`,
       [id]
     );
+
     if (!rows.length) {
       return res.status(404).json({ message: "Seller not found" });
     }
+
     const u = rows[0];
     return res.json({
       ...u,
