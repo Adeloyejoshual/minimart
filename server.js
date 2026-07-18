@@ -194,6 +194,7 @@ import leaderboardRoutes    from "./routes/leaderboard.js";
 import favoritesRouter      from "./routes/favorites.js";
 import airtimeCouponRoutes  from "./routes/airtimeCoupons.js";
 import subscriptionRouter   from "./routes/subscription/index.js";
+import editproductRouter from "./routes/editproduct.js";
 
 /* ── Help & Support ─────────────────────────────────────────
    /api/support        → routes/support.js       (user-facing)
@@ -324,6 +325,7 @@ app.use("/api/leaderboard",     leaderboardRoutes);
 app.use("/api/favorites",       favoritesRouter);
 app.use("/api/airtime-coupons", airtimeCouponRoutes);
 app.use("/api/subscription",    subscriptionRouter);
+app.use("/api/addproduct", editproductRouter);
 
 /* ── Help & Support ─────────────────────────────────────────
    User-facing:  POST /api/support/tickets
