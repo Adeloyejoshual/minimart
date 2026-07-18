@@ -1,5 +1,13 @@
 // ════════════════════════════════════════════════════════════
-// FILE: src/App.jsx
+// FILE: src/App.jsx — v2
+//
+// Changes from v1:
+//  ─ syncFavouritesOnLogin  — pulls DB favs into localStorage on login
+//  ─ clearFavouritesOnLogout — wipes localStorage favs on logout
+//  ─ Both called in handleAuthSuccess, handleLogout, auth useEffect
+//  ─ Prevents favourite bleed-over between users on same device
+//  ─ Restores favourites on new device / cleared storage
+//  ─ Guest saves pushed to DB on login
 // ════════════════════════════════════════════════════════════
 
 import { useEffect, useState, useCallback, memo } from "react";
@@ -148,12 +156,15 @@ import DesktopHeader from "./components/DesktopHeader";
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL;
 const USERS_API = `${BASE_URL}/api/users`;
 const CART_API  = `${BASE_URL}/api/cart`;
+const FAVS_API  = `${BASE_URL}/api/favorites`;
 
 export const TOKEN_KEYS = {
   marketplace : "marketplace_token",
   seller      : "seller_token",
   admin       : "admin_token",
 };
+
+const FAV_KEY = "loemart_favs";
 
 const TOASTER_OPTIONS = {
   duration : 3500,
@@ -177,6 +188,89 @@ const HEADER_HIDDEN_PREFIXES = [
   "/admin",
   "/invite/",
 ];
+
+/* ════════════════════════════════════════════════════════════
+   FAVOURITES UTILS
+════════════════════════════════════════════════════════════ */
+const loadFavs = () => {
+  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); }
+  catch { return {}; }
+};
+
+const saveFavs = (f) => {
+  try { localStorage.setItem(FAV_KEY, JSON.stringify(f)); } catch {}
+};
+
+/**
+ * Called on LOGIN and page reload when already logged in.
+ *
+ * Flow:
+ *  1. Fetch all saved product IDs from DB for this user
+ *  2. Find any guest saves in localStorage not yet in DB
+ *  3. Push guest saves up to DB (fire and forget)
+ *  4. Overwrite localStorage with ONLY this user's items
+ *
+ * This prevents:
+ *  - User A's saves appearing for User B on same device
+ *  - Saves disappearing on new device / cleared storage
+ */
+const syncFavouritesOnLogin = async (token, userId) => {
+  if (!token || !userId) return;
+
+  try {
+    /* Step 1 — fetch this user's saved IDs from DB */
+    const res = await fetch(`${FAVS_API}/ids`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!res.ok) return;
+
+    const { ids: dbIds = [] } = await res.json();
+
+    /* Step 2 — check localStorage for guest saves */
+    const localFavs  = loadFavs();
+    const localIds   = Object.keys(localFavs);
+    const dbIdSet    = new Set(dbIds);
+    const guestOnly  = localIds.filter((id) => !dbIdSet.has(id));
+
+    /* Step 3 — build merged object starting with DB items */
+    const merged = {};
+    dbIds.forEach((id) => { merged[id] = true; });
+
+    /* Step 4 — push guest saves to DB in background */
+    if (guestOnly.length > 0) {
+      Promise.allSettled(
+        guestOnly.map((productId) =>
+          fetch(`${FAVS_API}/${productId}`, {
+            method  : "POST",
+            headers : {
+              "Content-Type" : "application/json",
+              Authorization  : `Bearer ${token}`,
+            },
+          }).then((r) => {
+            /* Add to merged only if server confirmed */
+            if (r.ok) merged[productId] = true;
+          })
+        )
+      ).catch(() => {});
+    }
+
+    /* Step 5 — overwrite localStorage with this user's favs only */
+    saveFavs(merged);
+
+  } catch {
+    /* Non-critical — fail silently */
+  }
+};
+
+/**
+ * Called on LOGOUT.
+ * Wipes localStorage favs so next user on same device
+ * starts with a clean slate.
+ */
+const clearFavouritesOnLogout = () => {
+  try { localStorage.removeItem(FAV_KEY); } catch {}
+};
 
 /* ════════════════════════════════════════════════════════════
    CART SYNC
@@ -416,7 +510,10 @@ export default function App() {
 
   const { resetCache } = useProductCache();
 
-  /* ── Resolve marketplace user ── */
+  /* ══════════════════════════════════════════════════════════
+     AUTH CHECK — runs once on mount
+     Validates stored token + syncs favourites if logged in
+  ══════════════════════════════════════════════════════════ */
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEYS.marketplace);
 
@@ -430,9 +527,27 @@ export default function App() {
         headers : { Authorization: `Bearer ${token}` },
         timeout : 8_000,
       })
-      .then((res) => setUser(res.data))
+      .then((res) => {
+        const userData = res.data;
+        setUser(userData);
+
+        /*
+          Sync favourites from DB on every page load.
+          Handles:
+            - New device with empty localStorage
+            - Page reload — keep favs in sync with DB
+        */
+        syncFavouritesOnLogin(token, userData.id);
+      })
       .catch(() => {
         localStorage.removeItem(TOKEN_KEYS.marketplace);
+
+        /*
+          Token invalid — clear any stale favs left over
+          from a previous session that didn't log out cleanly
+        */
+        clearFavouritesOnLogout();
+
         setUser(null);
       })
       .finally(() => setAuthChecked(true));
@@ -452,27 +567,54 @@ export default function App() {
     }
   }, []);
 
-  /* ── Auth success ── */
+  /* ══════════════════════════════════════════════════════════
+     AUTH SUCCESS
+     Called by AuthPage and ResetPassword after login/register
+  ══════════════════════════════════════════════════════════ */
   const handleAuthSuccess = useCallback(
     (userData, token, navigateFn, from) => {
       localStorage.setItem(TOKEN_KEYS.marketplace, token);
       resetCache();
+
+      /* Clear location cache — user may be in different city */
       ["lastLocation", "active_location", "cacheTime"].forEach((k) =>
         localStorage.removeItem(k)
       );
+
       setUser(userData);
+
+      /* Sync cart (guest → DB) */
       syncCartAfterLogin(token);
+
+      /*
+        Sync favourites:
+          - Pulls DB favs for this user into localStorage
+          - Pushes any guest saves up to DB
+          - Overwrites any other user's saves that were in localStorage
+      */
+      syncFavouritesOnLogin(token, userData.id);
+
       toast.success(`Welcome, ${userData.name}!`);
       navigateFn(from || "/", { replace: true });
     },
     [resetCache]
   );
 
-  /* ── Logout ── */
+  /* ══════════════════════════════════════════════════════════
+     LOGOUT
+  ══════════════════════════════════════════════════════════ */
   const handleLogout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEYS.marketplace);
     setUser(null);
     resetCache();
+
+    /*
+      Clear localStorage favs immediately on logout.
+      Without this, the next user on the same device
+      would see this user's saved items.
+    */
+    clearFavouritesOnLogout();
+
     toast.success("Signed out");
   }, [resetCache]);
 
@@ -486,6 +628,7 @@ export default function App() {
     }));
   }, []);
 
+  /* ── Show loader until auth check completes ── */
   if (!authChecked) return <AuthLoader />;
 
   return (
@@ -809,7 +952,7 @@ export default function App() {
           }
         />
 
-        {/* ════════════ FAQ (legacy, keep for backward compat) ════════════ */}
+        {/* ════════════ FAQ (legacy) ════════════ */}
         <Route path="/faq" element={<FAQ user={user} />} />
 
         {/* ════════════ CART / CHECKOUT / ORDERS ════════════ */}
