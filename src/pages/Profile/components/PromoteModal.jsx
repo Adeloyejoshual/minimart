@@ -5,7 +5,7 @@ import { API, authH } from "./helpers";
 import "./PromoteModal.css";
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPERS
+   CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
 const PLAIN_EMAIL_KEYS = [
   "user_email",
@@ -22,11 +22,17 @@ const JSON_USER_KEYS = [
   "currentUser",
 ];
 
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════ */
 const isValidEmail = (v) =>
-  typeof v === "string" && v.includes("@") && v.includes(".");
+  typeof v === "string" &&
+  v.includes("@") &&
+  v.includes(".") &&
+  v.length > 5;
 
 const resolveEmail = (propEmail) => {
-  /* 1. Prop — most reliable, comes from user object in React state */
+  /* 1. Prop — from Dashboard: user?.email */
   if (isValidEmail(propEmail)) return propEmail;
 
   /* 2. Plain localStorage string keys */
@@ -54,18 +60,17 @@ const resolveEmail = (propEmail) => {
   return null;
 };
 
-const formatNaira = (n) =>
-  Number(n).toLocaleString("en-NG", {
-    style    : "currency",
-    currency : "NGN",
-    maximumFractionDigits: 0,
-  });
+const formatNaira = (n) => {
+  const num = Number(n);
+  if (!Number.isFinite(num)) return "₦0";
+  return `₦${num.toLocaleString("en-NG")}`;
+};
 
 /* ═══════════════════════════════════════════════════════════════
-   SUB-COMPONENTS
+   PLAN CARD
 ═══════════════════════════════════════════════════════════════ */
 function PlanCard({ plan, isSelected, onSelect }) {
-  const planPrice = Number(plan.effective_price || plan.price || 0);
+  const planPrice = Number(plan.effective_price ?? plan.price ?? 0);
   const isFree    = planPrice === 0;
 
   return (
@@ -77,10 +82,10 @@ function PlanCard({ plan, isSelected, onSelect }) {
       ]
         .filter(Boolean)
         .join(" ")}
-      onClick={() => onSelect(plan)}
       role="button"
       tabIndex={0}
       aria-pressed={isSelected}
+      onClick={() => onSelect(plan)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
@@ -88,89 +93,99 @@ function PlanCard({ plan, isSelected, onSelect }) {
         }
       }}
     >
-      {/* Ribbons */}
+      {/* ── Badges ── */}
       {isFree && (
         <span className="plan-card__ribbon">FREE</span>
       )}
-      {plan.discount_percent > 0 && (
+      {Number(plan.discount_percent) > 0 && (
         <span className="plan-card__discount">
           -{plan.discount_percent}%
         </span>
       )}
 
-      {/* Info */}
+      {/* ── Info ── */}
       <h4 className="plan-card__name">{plan.name}</h4>
+
       <p className="plan-card__price">
         {isFree ? "Free" : formatNaira(planPrice)}
       </p>
+
       {plan.duration && (
         <p className="plan-card__duration">{plan.duration}</p>
       )}
+
       {plan.description && (
         <p className="plan-card__desc">{plan.description}</p>
       )}
 
-      {/* Features */}
+      {/* ── Features ── */}
       {Array.isArray(plan.features) && plan.features.length > 0 && (
         <ul className="plan-card__features">
           {plan.features.map((f, i) => (
             <li key={i}>
               <span className="plan-card__check">
                 <Ic.Check />
-              </span>{" "}
+              </span>
               {f}
             </li>
           ))}
         </ul>
       )}
 
-      {/* Selected ring */}
+      {/* ── Selected ring ── */}
       {isSelected && <div className="plan-card__selected-ring" />}
     </div>
   );
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   EMPTY STATE
+═══════════════════════════════════════════════════════════════ */
 function EmptyPlans() {
   return (
     <div className="promote-modal__empty">
       <Ic.Package />
-      <p>No promotion plans available.</p>
+      <p>No promotion plans available</p>
       <span>Please check back later.</span>
     </div>
   );
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   MAIN COMPONENT
+   PROMOTE MODAL
 ═══════════════════════════════════════════════════════════════ */
 export default function PromoteModal({
   product,
-  plans  = [],
+  plans    = [],
   onClose,
-  userEmail,   // from Dashboard: user?.email
+  userEmail,
 }) {
   const [selected, setSelected] = useState(null);
   const [loading,  setLoading]  = useState(false);
   const [error,    setError]    = useState(null);
 
-  /* ── Resolved email — computed once ── */
+  /* Resolved email — computed once on mount */
   const email = useMemo(() => resolveEmail(userEmail), [userEmail]);
 
-  /* ── Button label ── */
-  const price = Number(selected?.effective_price || selected?.price || 0);
+  /* Price of selected plan */
+  const price = useMemo(
+    () => Number(selected?.effective_price ?? selected?.price ?? 0),
+    [selected]
+  );
 
-  const buttonLabel = useMemo(() => {
-    if (loading)       return "Processing…";
-    if (!selected)     return "Select a Plan";
-    if (price === 0)   return "Activate Free Boost";
+  /* CTA button label */
+  const btnLabel = useMemo(() => {
+    if (loading)     return "Processing…";
+    if (!selected)   return "Select a Plan";
+    if (price === 0) return "Activate Free Boost";
     return `Pay ${formatNaira(price)}`;
   }, [loading, selected, price]);
 
-  /* ── Submit ── */
+  /* ── Handle promote ── */
   const handlePromote = useCallback(async () => {
     if (!selected || loading) return;
 
-    /* Email guard — clear message explaining what to do */
+    /* Email guard */
     if (!email) {
       setError(
         "Your account email could not be found. " +
@@ -183,27 +198,36 @@ export default function PromoteModal({
     setError(null);
 
     try {
-      const res = await fetch(`${API}/payment/initiate`, {
+      console.log("[PromoteModal] initiating promotion:", {
+        product_id : product.id,
+        plan_id    : selected.id,
+        email,
+        endpoint   : `${API}/promoteplans/initiate`,
+      });
+
+      const res = await fetch(`${API}/promoteplans/initiate`, {
         method  : "POST",
         headers : authH(),
         body    : JSON.stringify({
           product_id : product.id,
-          plan_id    : selected.id,
+          plan_id    : String(selected.id),
           email,
         }),
       });
 
       const d = await res.json();
 
+      console.log("[PromoteModal] response:", res.status, d);
+
       if (res.ok && d.authorization_url) {
-        /* Redirect to Paystack */
         window.location.href = d.authorization_url;
         return;
       }
 
       setError(d.message || "Could not initiate payment. Please try again.");
 
-    } catch {
+    } catch (err) {
+      console.error("[PromoteModal] network error:", err);
       setError("Network error. Please check your connection and try again.");
     } finally {
       setLoading(false);
@@ -211,57 +235,67 @@ export default function PromoteModal({
   }, [selected, loading, email, product.id]);
 
   /* ── Close on Escape ── */
-  const handleKeyDown = useCallback(
+  const handleOverlayKeyDown = useCallback(
     (e) => { if (e.key === "Escape") onClose(); },
     [onClose]
   );
 
+  /* ── Render ── */
   return (
     <div
       className="overlay"
-      onClick={onClose}
-      onKeyDown={handleKeyDown}
       role="dialog"
       aria-modal="true"
       aria-label="Promote listing"
+      onClick={onClose}
+      onKeyDown={handleOverlayKeyDown}
     >
       <div
         className="promote-modal"
         onClick={(e) => e.stopPropagation()}
       >
 
-        {/* ── Header ── */}
+        {/* ════════════════════════════════
+            HEADER
+        ════════════════════════════════ */}
         <div className="promote-modal__header">
-          <div>
+          <div className="promote-modal__header-text">
             <h2 className="promote-modal__title">
               <Ic.Zap />
               Promote Listing
             </h2>
-            <p className="promote-modal__subtitle">
+            <p className="promote-modal__subtitle" title={product.title}>
               &ldquo;{product.title}&rdquo;
             </p>
           </div>
           <button
             className="promote-modal__close"
             onClick={onClose}
-            aria-label="Close promotion modal"
+            aria-label="Close"
           >
             <Ic.X />
           </button>
         </div>
 
-        {/* ── Email warning — shown when email cannot be found ── */}
+        {/* ════════════════════════════════
+            EMAIL WARNING
+        ════════════════════════════════ */}
         {!email && (
           <div className="promote-modal__warn" role="alert">
             <Ic.AlertTriangle />
-            <span>
-              We could not find your account email.
-              Please <strong>log out and log back in</strong> before promoting.
-            </span>
+            <div>
+              <strong>Email not found</strong>
+              <p>
+                Please <strong>log out and log back in</strong> before
+                promoting your listing.
+              </p>
+            </div>
           </div>
         )}
 
-        {/* ── Plans ── */}
+        {/* ════════════════════════════════
+            PLANS
+        ════════════════════════════════ */}
         <div className="promote-modal__plans">
           {plans.length === 0 ? (
             <EmptyPlans />
@@ -277,7 +311,33 @@ export default function PromoteModal({
           )}
         </div>
 
-        {/* ── Error ── */}
+        {/* ════════════════════════════════
+            SELECTED PLAN SUMMARY
+        ════════════════════════════════ */}
+        {selected && (
+          <div className="promote-modal__summary">
+            <div className="promote-modal__summary-row">
+              <span>Plan</span>
+              <strong>{selected.name}</strong>
+            </div>
+            {selected.duration && (
+              <div className="promote-modal__summary-row">
+                <span>Duration</span>
+                <strong>{selected.duration}</strong>
+              </div>
+            )}
+            <div className="promote-modal__summary-row">
+              <span>Total</span>
+              <strong className="promote-modal__summary-price">
+                {price === 0 ? "Free" : formatNaira(price)}
+              </strong>
+            </div>
+          </div>
+        )}
+
+        {/* ════════════════════════════════
+            ERROR
+        ════════════════════════════════ */}
         {error && (
           <div className="promote-modal__error" role="alert">
             <Ic.AlertTriangle />
@@ -285,7 +345,9 @@ export default function PromoteModal({
           </div>
         )}
 
-        {/* ── Footer ── */}
+        {/* ════════════════════════════════
+            FOOTER
+        ════════════════════════════════ */}
         <div className="promote-modal__footer">
           <button
             className="btn btn--ghost"
@@ -300,7 +362,8 @@ export default function PromoteModal({
             disabled={!selected || loading || !email}
             aria-busy={loading}
           >
-            {buttonLabel}
+            {loading && <span className="promote-modal__spinner" />}
+            {btnLabel}
           </button>
         </div>
 
