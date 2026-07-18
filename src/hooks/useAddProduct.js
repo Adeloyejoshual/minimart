@@ -1,5 +1,5 @@
 /**
- * src/hooks/useAddProduct.ts
+ * src/hooks/useAddProduct.js
  * All logic for AddProduct — state, effects, handlers, submit.
  * Returns everything the shells (mobile/desktop) need to render.
  */
@@ -15,19 +15,6 @@ import { detectUserLocation }         from "../utils/location.js";
 import { useFormState, INITIAL_FORM } from "./useFormState.js";
 import { useImageManager }            from "./useImageManager.js";
 import { useSellerLimits }            from "./useSellerLimits.js";
-
-import type {
-  AddProductContextValue,
-  Contact,
-  DeliveryDuration,
-  ExistingImage,
-  NewImage,
-  PaymentSession,
-  ProductForm,
-  PromotionPlan,
-  SellerLimits,
-  VerificationData,
-} from "./useAddProductContext.jsx";
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -53,12 +40,7 @@ const ALLOWED_PAYMENT_HOSTS = new Set([
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const PHONE_RE = /^\+?[0-9]{7,15}$/;
 
-interface ErrorSelectorEntry {
-  match : string;
-  sel   : string;
-}
-
-const ERROR_SELECTOR_MAP: ErrorSelectorEntry[] = [
+const ERROR_SELECTOR_MAP = [
   { match: "Title",          sel: "#ap-title"               },
   { match: "Description",    sel: "#ap-desc"                },
   { match: "price",          sel: "#ap-price"               },
@@ -77,32 +59,27 @@ const ERROR_SELECTOR_MAP: ErrorSelectorEntry[] = [
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
 ═══════════════════════════════════════════════════════════════ */
-export const onlyNumbers = (v = ""): string => v.replace(/[^0-9.]/g, "");
-export const onlyDigits  = (v = ""): string => v.replace(/[^0-9]/g, "");
+export const onlyNumbers   = (v = "") => v.replace(/[^0-9.]/g, "");
+export const onlyDigits    = (v = "") => v.replace(/[^0-9]/g, "");
+const toArray              = (v)      => (Array.isArray(v) ? v : []);
+const sanitizePhone        = (v = "") => v.replace(/[\s\-().]/g, "");
+const isValidPhone         = (v)      => !!v && PHONE_RE.test(sanitizePhone(String(v)));
 
-const toArray       = <T>(v: T | T[]): T[] => (Array.isArray(v) ? v : []);
-const sanitizePhone = (v = ""):  string    => v.replace(/[\s\-().]/g, "");
-const isValidPhone  = (v: unknown): boolean =>
-  !!v && PHONE_RE.test(sanitizePhone(String(v)));
-
-export const displayPrice = (v: number | string): string => {
+export const displayPrice = (v) => {
   const n = Number(v);
   return Number.isNaN(n) || n <= 0
     ? ""
     : new Intl.NumberFormat("en-NG").format(n);
 };
 
-export const formatLabel = (t: string): string =>
+export const formatLabel = (t) =>
   t.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
-const getToken = (): string | null =>
+const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token");
 
-const getTokenOrRedirect = (
-  navigate  : (path: string) => void,
-  returnPath: string
-): string | null => {
+const getTokenOrRedirect = (navigate, returnPath) => {
   const token = getToken();
   if (!token) {
     navigate(
@@ -115,7 +92,7 @@ const getTokenOrRedirect = (
   return token;
 };
 
-const safeOpenPayment = (url: string, onError?: (msg: string) => void): void => {
+const safeOpenPayment = (url, onError) => {
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:") throw new Error("Non-HTTPS URL");
@@ -127,21 +104,18 @@ const safeOpenPayment = (url: string, onError?: (msg: string) => void): void => 
     if (!hostAllowed) throw new Error(`Untrusted host: ${parsed.hostname}`);
     window.open(url, "_blank", "noopener,noreferrer");
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("[Payment] Blocked unsafe URL:", msg);
+    console.error("[Payment] Blocked unsafe URL:", err.message);
     onError?.("Payment URL invalid — please contact support");
   }
 };
 
-const isValidPaymentSession = (obj: unknown): obj is PaymentSession =>
-  !!obj &&
-  typeof (obj as PaymentSession).reference === "string" &&
-  (obj as PaymentSession).reference.length > 0 &&
-  typeof (obj as PaymentSession).authUrl === "string" &&
-  (obj as PaymentSession).authUrl.startsWith("https://") &&
-  typeof (obj as PaymentSession).createdAt === "number";
+const isValidPaymentSession = (obj) =>
+  obj &&
+  typeof obj.reference === "string" && obj.reference.length > 0 &&
+  typeof obj.authUrl   === "string" && obj.authUrl.startsWith("https://") &&
+  typeof obj.createdAt === "number";
 
-const getOrCreateIdempotencyKey = (storageKey: string): string => {
+const getOrCreateIdempotencyKey = (storageKey) => {
   const existing = sessionStorage.getItem(storageKey);
   if (existing) return existing;
   const id = crypto.randomUUID();
@@ -149,19 +123,15 @@ const getOrCreateIdempotencyKey = (storageKey: string): string => {
   return id;
 };
 
-const clearIdempotencyKey = (storageKey: string): void =>
+const clearIdempotencyKey = (storageKey) =>
   sessionStorage.removeItem(storageKey);
 
 const multipartRequest = async (
-  url      : string,
-  method   : string = "POST",
-  formData : FormData,
-  token    : string,
-  timeoutMs: number = UPLOAD_TIMEOUT
-): Promise<Record<string, unknown>> => {
+  url, method = "POST", formData, token, timeoutMs = UPLOAD_TIMEOUT
+) => {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
-  let res: Response;
+  let res;
   try {
     res = await fetch(url, {
       method,
@@ -170,7 +140,7 @@ const multipartRequest = async (
       signal  : ctrl.signal,
     });
   } catch (err) {
-    if ((err as Error).name === "AbortError")
+    if (err.name === "AbortError")
       throw new ApiError("Upload timed out — check your connection", 0);
     throw new ApiError("Cannot reach the server. Check your connection.", 0);
   } finally {
@@ -179,14 +149,13 @@ const multipartRequest = async (
   const data = await res.json().catch(() => ({}));
   if (!res.ok)
     throw new ApiError(
-      (data as Record<string, string>)?.message ??
-        `Request failed (${res.status})`,
+      data?.message ?? `Request failed (${res.status})`,
       res.status
     );
-  return data as Record<string, unknown>;
+  return data;
 };
 
-const scrollToError = (msg: string): void => {
+const scrollToError = (msg) => {
   if (!msg) return;
   const entry = ERROR_SELECTOR_MAP.find((e) => msg.includes(e.match));
   const sel   = entry?.sel ?? ".ap-error-banner";
@@ -195,11 +164,8 @@ const scrollToError = (msg: string): void => {
       const el = document.querySelector(sel);
       if (!el) return;
       el.scrollIntoView({ behavior: "smooth", block: "center" });
-      if (["INPUT", "TEXTAREA", "SELECT"].includes((el as HTMLElement).tagName)) {
-        setTimeout(
-          () => (el as HTMLElement).focus({ preventScroll: true }),
-          350
-        );
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(el.tagName)) {
+        setTimeout(() => el.focus({ preventScroll: true }), 350);
       }
       el.classList.add("ap-field-flash");
       setTimeout(() => el.classList.remove("ap-field-flash"), 2_000);
@@ -210,25 +176,9 @@ const scrollToError = (msg: string): void => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   HOOK PROPS
-═══════════════════════════════════════════════════════════════ */
-interface User {
-  id?         : string | number;
-  email?      : string;
-  name?       : string;
-  store_name? : string;
-}
-
-interface UseAddProductProps {
-  user?: User;
-}
-
-/* ═══════════════════════════════════════════════════════════════
    MAIN HOOK
 ═══════════════════════════════════════════════════════════════ */
-export function useAddProduct({
-  user,
-}: UseAddProductProps): AddProductContextValue {
+export function useAddProduct({ user }) {
   const navigate       = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -244,17 +194,13 @@ export function useAddProduct({
     [user?.id]
   );
 
-  /* ═══════════════════════════════════════════════════════════
-     REFS
-  ═══════════════════════════════════════════════════════════ */
+  /* ─── Refs ─── */
   const mountedRef      = useRef(true);
   const isSubmittingRef = useRef(false);
-  const autoSaveTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const timeoutIdsRef   = useRef<Set<ReturnType<typeof setTimeout>>>(
-    new Set()
-  );
-  const showErrorRef   = useRef<(msg: string) => void>(() => {});
-  const showSuccessRef = useRef<(msg: string) => void>(() => {});
+  const autoSaveTimer   = useRef(null);
+  const timeoutIdsRef   = useRef(new Set());
+  const showErrorRef    = useRef(() => {});
+  const showSuccessRef  = useRef(() => {});
 
   useEffect(() => {
     mountedRef.current = true;
@@ -264,9 +210,7 @@ export function useAddProduct({
     };
   }, []);
 
-  /* ═══════════════════════════════════════════════════════════
-     CUSTOM HOOKS
-  ═══════════════════════════════════════════════════════════ */
+  /* ─── Custom hooks ─── */
   const {
     form, updateForm, updateAttribute, updateContact,
     updateDelivery, updateDeliveryDuration, toggleFeature,
@@ -279,8 +223,8 @@ export function useAddProduct({
     loadExistingImages, handleImages, removeImage,
     removeExistingImage, moveImage, moveAllImages, resetImages,
   } = useImageManager({
-    showError  : (msg: string) => showErrorRef.current(msg),
-    showSuccess: (msg: string) => showSuccessRef.current(msg),
+    showError  : (msg) => showErrorRef.current(msg),
+    showSuccess: (msg) => showSuccessRef.current(msg),
   });
 
   const {
@@ -289,37 +233,30 @@ export function useAddProduct({
     dailyRemaining, activeRemaining, cooldownSecs, canPost,
   } = useSellerLimits(API_BASE, isEditMode);
 
-  /* ═══════════════════════════════════════════════════════════
-     LOCAL STATE
-  ═══════════════════════════════════════════════════════════ */
-  const [categories,        setCategories]        = useState<unknown[]>([]);
+  /* ─── Local state ─── */
+  const [categories,        setCategories]        = useState([]);
   const [categoriesLoaded,  setCategoriesLoaded]  = useState(false);
-  const [promotionPlans,    setPromotionPlans]    = useState<PromotionPlan[]>([]);
+  const [promotionPlans,    setPromotionPlans]    = useState([]);
   const [plansLoading,      setPlansLoading]      = useState(!isEditMode);
   const [locationState,     setLocationState]     = useState("");
   const [city,              setCity]              = useState("");
   const [loading,           setLoading]           = useState(false);
-  const [selectedPlan,      setSelectedPlan]      = useState<PromotionPlan | null>(null);
-  const [paymentData,       setPaymentData]       = useState<PaymentSession | null>(null);
+  const [selectedPlan,      setSelectedPlan]      = useState(null);
+  const [paymentData,       setPaymentData]       = useState(null);
   const [error,             setError]             = useState("");
   const [success,           setSuccess]           = useState("");
   const [agreedToTerms,     setAgreedToTerms]     = useState(false);
   const [detectingLocation, setDetectingLocation] = useState(false);
-  const [detectedCoords,    setDetectedCoords]    = useState<{
-    latitude : number;
-    longitude: number;
-  } | null>(null);
+  const [detectedCoords,    setDetectedCoords]    = useState(null);
   const [progressVisible,   setProgressVisible]   = useState(false);
   const [progressStep,      setProgressStep]      = useState("compressing");
   const [editLoading,       setEditLoading]       = useState(isEditMode);
-  const [editError,         setEditError]         = useState<string | null>(null);
+  const [editError,         setEditError]         = useState(null);
   const [needsVerification, setNeedsVerification] = useState(false);
-  const [verificationData,  setVerificationData]  = useState<VerificationData | null>(null);
+  const [verificationData,  setVerificationData]  = useState(null);
 
-  /* ═══════════════════════════════════════════════════════════
-     FEEDBACK
-  ═══════════════════════════════════════════════════════════ */
-  const showError = useCallback((msg: string) => {
+  /* ─── Feedback ─── */
+  const showError = useCallback((msg) => {
     if (!mountedRef.current) return;
     setError(msg);
     scrollToError(msg);
@@ -330,7 +267,7 @@ export function useAddProduct({
     timeoutIdsRef.current.add(id);
   }, []);
 
-  const showSuccess = useCallback((msg: string) => {
+  const showSuccess = useCallback((msg) => {
     if (!mountedRef.current) return;
     setSuccess(msg);
     const id = setTimeout(() => {
@@ -346,7 +283,7 @@ export function useAddProduct({
   }, [showError, showSuccess]);
 
   const safeRedirect = useCallback(
-    (path: string, delayMs: number = REDIRECT_DELAY_MS) => {
+    (path, delayMs = REDIRECT_DELAY_MS) => {
       const id = setTimeout(() => {
         if (mountedRef.current) navigate(path);
         timeoutIdsRef.current.delete(id);
@@ -356,33 +293,24 @@ export function useAddProduct({
     [navigate]
   );
 
-  /* ═══════════════════════════════════════════════════════════
-     DERIVED
-  ═══════════════════════════════════════════════════════════ */
+  /* ─── Derived ─── */
   const selectedCategory = useMemo(
     () =>
-      (categories as Array<{ id: string | number; dynamicOptions?: Record<string, unknown> }>)
-        .find((c) => String(c.id) === String(form.category_id)) ?? null,
+      categories.find((c) => String(c.id) === String(form.category_id)) ??
+      null,
     [categories, form.category_id]
   );
-
   const options = useMemo(
     () => selectedCategory?.dynamicOptions ?? {},
     [selectedCategory]
   );
-
   const attributes = useMemo(
     () => form.attributes ?? INITIAL_FORM.attributes,
     [form.attributes]
   );
-
   const states = useMemo(() => Object.keys(locationsByState ?? {}), []);
-
   const cities = useMemo(
-    () =>
-      locationState
-        ? (locationsByState as Record<string, string[]>)[locationState] ?? []
-        : [],
+    () => (locationState ? locationsByState[locationState] ?? [] : []),
     [locationState]
   );
 
@@ -399,7 +327,7 @@ export function useAddProduct({
         setCategories(Array.isArray(data) ? data : []);
         setCategoriesLoaded(true);
       })
-      .catch((err: Error) => {
+      .catch((err) => {
         if (!mountedRef.current) return;
         setCategories([]);
         setCategoriesLoaded(true);
@@ -414,11 +342,10 @@ export function useAddProduct({
     if (isEditMode) { setPlansLoading(false); return; }
     setPlansLoading(true);
     apiFetch(`${API_BASE}/payment/plans`)
-      .then((data: unknown) => {
+      .then((data) => {
         if (!mountedRef.current) return;
-        const d = data as { success: boolean; plans?: PromotionPlan[] };
         setPromotionPlans(
-          d.success && Array.isArray(d.plans) ? d.plans : []
+          data.success && Array.isArray(data.plans) ? data.plans : []
         );
       })
       .catch(() => { if (mountedRef.current) setPromotionPlans([]); })
@@ -446,79 +373,55 @@ export function useAddProduct({
           },
         }
       );
-      const d = await res.json() as {
-        success : boolean;
-        message?: string;
-        product : Record<string, unknown>;
-      };
+      const d = await res.json();
       if (!res.ok || !d.success)
         throw new Error(d.message || "Product not found");
 
       const p = d.product;
       if (!mountedRef.current) return;
 
-      loadForm({
-        ...(p as Partial<ProductForm>),
-        contact: {
-          ...((p.contact as Contact) ?? {}),
-          email:
-            (p.contact as Contact)?.email ||
-            user?.email ||
-            "",
-        },
-      });
+      loadForm({ ...p, email: p.contact?.email || user?.email || "" });
 
-      if (p.location_state) setLocationState(p.location_state as string);
-      if (p.location_city)  setCity(p.location_city as string);
+      if (p.location_state) setLocationState(p.location_state);
+      if (p.location_city)  setCity(p.location_city);
 
       if (p.latitude && p.longitude) {
         setDetectedCoords({
-          latitude : p.latitude  as number,
-          longitude: p.longitude as number,
+          latitude : p.latitude,
+          longitude: p.longitude,
         });
       }
 
-      /* Load existing images */
-      const productImages = p.product_images as Array<{
-        id             : string;
-        image_url      : string;
-        r2_key?        : string;
-        position_order?: number;
-        is_primary?    : boolean;
-      }>;
-
-      if (productImages?.length > 0) {
+      if (p.product_images?.length > 0) {
         loadExistingImages(
-          productImages.map((img) => ({
+          p.product_images.map((img) => ({
             id        : img.id,
             url       : img.image_url,
-            r2_key    : img.r2_key    ?? null,
+            r2_key    : img.r2_key       ?? null,
             position  : img.position_order ?? 0,
-            is_primary: img.is_primary     ?? false,
-            isExisting: true as const,
+            is_primary: img.is_primary   ?? false,
+            isExisting: true,
           }))
         );
-      } else if (Array.isArray(p.images) && (p.images as unknown[]).length > 0) {
+      } else if (Array.isArray(p.images) && p.images.length > 0) {
         loadExistingImages(
-          (p.images as Array<string | { url?: string; key?: string }>).map(
-            (img, i) => ({
-              id        : `existing-${i}`,
-              url       : typeof img === "string" ? img : img?.url ?? "",
-              r2_key    : typeof img === "string" ? null : img?.key ?? null,
-              position  : i,
-              is_primary: i === 0,
-              isExisting: true as const,
-            })
-          )
+          p.images.map((img, i) => ({
+            id        : `existing-${i}`,
+            url       : typeof img === "string" ? img : img?.url ?? "",
+            r2_key    : img?.key ?? null,
+            position  : i,
+            is_primary: i === 0,
+            isExisting: true,
+          }))
         );
       } else if (p.main_image || p.thumbnail_url) {
         loadExistingImages([{
           id        : "existing-main",
-          url       : (p.main_image ?? p.thumbnail_url) as string,
+          url       : p.main_image ?? p.thumbnail_url,
           r2_key    : null,
           position  : 0,
           is_primary: true,
-          isExisting: true as const,
+          isExisting: true,
         }]);
       }
 
@@ -527,7 +430,7 @@ export function useAddProduct({
     } catch (err) {
       console.error("[useAddProduct] edit load:", err);
       if (mountedRef.current)
-        setEditError((err as Error).message || "Failed to load product");
+        setEditError(err.message || "Failed to load product");
     } finally {
       if (mountedRef.current) setEditLoading(false);
     }
@@ -547,7 +450,7 @@ export function useAddProduct({
         const saved = localStorage.getItem(STORAGE_PAYMENT);
         if (!saved) return;
 
-        let session: unknown;
+        let session;
         try { session = JSON.parse(saved); }
         catch { localStorage.removeItem(STORAGE_PAYMENT); return; }
 
@@ -575,8 +478,7 @@ export function useAddProduct({
                   Authorization  : `Bearer ${token}`,
                 },
                 body: JSON.stringify({ reference: session.reference }),
-              }) as { status: string; needs_verification?: boolean };
-
+              });
               if (!mountedRef.current) return;
               if (result.status === "success") {
                 showSuccess(
@@ -609,13 +511,7 @@ export function useAddProduct({
     try {
       const raw = localStorage.getItem(STORAGE_DRAFT);
       if (!raw) return;
-      const draft = JSON.parse(raw) as {
-        version      : number;
-        form         : Partial<ProductForm>;
-        locationState: string;
-        city         : string;
-        selectedPlan : string | null;
-      };
+      const draft = JSON.parse(raw);
       if (!draft.version || draft.version < DRAFT_VERSION) {
         localStorage.removeItem(STORAGE_DRAFT); return;
       }
@@ -632,7 +528,7 @@ export function useAddProduct({
         setSelectedPlan(matched ?? null);
       }
     } catch (err) {
-      console.warn("[useAddProduct] draft restore:", (err as Error).message);
+      console.warn("[useAddProduct] draft restore:", err.message);
     }
   }, [
     isEditMode, categoriesLoaded, plansLoading,
@@ -671,12 +567,7 @@ export function useAddProduct({
   const detectLocation = useCallback(async () => {
     if (mountedRef.current) setDetectingLocation(true);
     try {
-      const result = await detectUserLocation() as {
-        state?    : string;
-        city?     : string;
-        latitude  : number;
-        longitude : number;
-      };
+      const result = await detectUserLocation();
       if (!mountedRef.current) return;
       if (result.state) setLocationState(result.state);
       if (result.city)  setCity(result.city);
@@ -691,7 +582,7 @@ export function useAddProduct({
       );
     } catch (err) {
       if (!mountedRef.current) return;
-      showError((err as Error).message || "Location detection failed");
+      showError(err.message || "Location detection failed");
     } finally {
       if (mountedRef.current) setDetectingLocation(false);
     }
@@ -700,7 +591,7 @@ export function useAddProduct({
   /* ═══════════════════════════════════════════════════════════
      VALIDATION
   ═══════════════════════════════════════════════════════════ */
-  const validateForm = useCallback((): string | null => {
+  const validateForm = useCallback(() => {
     const t = form.title?.trim() ?? "";
     if (!t)             return "Title required.";
     if (t.length > 120) return "Title must be at most 120 characters.";
@@ -751,14 +642,14 @@ export function useAddProduct({
   /* ═══════════════════════════════════════════════════════════
      BUILD FORM DATA
   ═══════════════════════════════════════════════════════════ */
-  const buildBaseFormData = useCallback((): FormData => {
+  const buildBaseFormData = useCallback(() => {
     const fd = new FormData();
     fd.append("title",          form.title.trim());
     fd.append("description",    form.description.trim());
     fd.append("price",          Number(form.price).toFixed(2));
-    fd.append("category_id",    String(form.category_id));
+    fd.append("category_id",    form.category_id);
     if (form.subcategory_id)
-      fd.append("subcategory_id", String(form.subcategory_id));
+      fd.append("subcategory_id", form.subcategory_id);
     fd.append("location_state", locationState ?? "");
     fd.append("location_city",  city ?? "");
     fd.append("phone",          sanitizePhone(form.contact.phone    ?? ""));
@@ -767,7 +658,7 @@ export function useAddProduct({
     fd.append("seller_name",    user?.store_name || user?.name || BRAND_NAME);
     fd.append("attributes",     JSON.stringify({
       ...attributes,
-      features: toArray((attributes as { features?: unknown }).features),
+      features: toArray(attributes.features),
     }));
     fd.append("delivery", JSON.stringify(form.delivery));
     fd.append("contact",  JSON.stringify(form.contact));
@@ -779,34 +670,29 @@ export function useAddProduct({
   }, [form, attributes, locationState, city, detectedCoords, user]);
 
   const buildCreateFormData = useCallback(
-    (isFreePlan: boolean): FormData => {
+    (isFreePlan) => {
       const fd = buildBaseFormData();
       fd.append("status",          isFreePlan ? "active" : "draft");
       fd.append("is_active",       isFreePlan ? "true"   : "false");
       fd.append("idempotency_key", getOrCreateIdempotencyKey(IDEMPOTENCY_STORE));
-      const imageHashes = (images as NewImage[])
-        .map((img) => img.hash)
-        .filter(Boolean) as string[];
+      const imageHashes = images.map((img) => img.hash).filter(Boolean);
       if (imageHashes.length)
         fd.append("image_hashes", JSON.stringify(imageHashes));
-      (images as NewImage[]).forEach((img) => fd.append("images", img.file));
+      images.forEach((img) => fd.append("images", img.file));
       return fd;
     },
     [buildBaseFormData, images, IDEMPOTENCY_STORE]
   );
 
-  const buildEditFormData = useCallback((): FormData => {
+  const buildEditFormData = useCallback(() => {
     const fd = buildBaseFormData();
     fd.append(
       "keep_image_ids",
-      JSON.stringify((existingImages as ExistingImage[]).map((img) => img.id))
+      JSON.stringify(existingImages.map((img) => img.id))
     );
-    if ((removedImageKeys as string[]).length)
-      fd.append(
-        "remove_image_keys",
-        JSON.stringify(removedImageKeys)
-      );
-    (images as NewImage[]).forEach((img) => fd.append("images", img.file));
+    if (removedImageKeys.length)
+      fd.append("remove_image_keys", JSON.stringify(removedImageKeys));
+    images.forEach((img) => fd.append("images", img.file));
     return fd;
   }, [buildBaseFormData, existingImages, removedImageKeys, images]);
 
@@ -866,7 +752,7 @@ export function useAddProduct({
 
   /* ═══════════════════════════════════════════════════════════
      EDIT SUBMIT
-     PATCH /api/addproduct/products/:id  ← routes/editproduct.js
+     PATCH /api/addproduct/products/:id  ← routes/editproduct.js ✓
   ═══════════════════════════════════════════════════════════ */
   const handleEditSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
@@ -897,7 +783,7 @@ export function useAddProduct({
       const fd = buildEditFormData();
 
       await multipartRequest(
-        `${API_BASE}/addproduct/products/${editId}`,   // ✅ correct
+        `${API_BASE}/addproduct/products/${editId}`,  // ✅ correct URL
         "PATCH",
         fd,
         token
@@ -915,13 +801,12 @@ export function useAddProduct({
     } catch (err) {
       if (mountedRef.current) setProgressVisible(false);
 
-      const e     = err as ApiError & { status?: number };
       const msg =
-        e?.status === 404 ? "Listing not found — it may have been deleted."
-        : e?.status === 403 ? "You don't have permission to edit this listing."
-        : e?.status === 409 ? e.message
-        : e?.status === 413 ? "Images are too large. Please compress and retry."
-        : e.message ?? "Update failed — please try again.";
+        err?.status === 404 ? "Listing not found — it may have been deleted."
+        : err?.status === 403 ? "You don't have permission to edit this listing."
+        : err?.status === 409 ? err.message
+        : err?.status === 413 ? "Images are too large. Please compress and retry."
+        : err.message ?? "Update failed — please try again.";
 
       showError(msg);
     } finally {
@@ -936,32 +821,29 @@ export function useAddProduct({
   /* ═══════════════════════════════════════════════════════════
      CREATE SUBMIT
   ═══════════════════════════════════════════════════════════ */
-  const handlePostSuccess = useCallback(
-    (responseData: Record<string, unknown>) => {
-      if (!mountedRef.current) return;
-      clearIdempotencyKey(IDEMPOTENCY_STORE);
+  const handlePostSuccess = useCallback((responseData) => {
+    if (!mountedRef.current) return;
+    clearIdempotencyKey(IDEMPOTENCY_STORE);
 
-      const verificationNeeded = responseData?.needs_verification === true;
-      const daysRemaining      = (responseData?.days_remaining as number) ?? 7;
+    const verificationNeeded = responseData?.needs_verification === true;
+    const daysRemaining      = responseData?.days_remaining ?? 7;
 
-      if (verificationNeeded) {
-        setVerificationData({
-          productId    : (responseData.product as { id: string })?.id,
-          activeUntil  : (responseData.active_until as string) ?? null,
-          daysRemaining,
-          message      : responseData.verification_message as string | undefined,
-          limits       : responseData.limits as Record<string, unknown> | undefined,
-        });
-        setNeedsVerification(true);
-        showSuccess(`Listing live for ${daysRemaining} days. Redirecting…`);
-        safeRedirect("/verification", VERIFY_DELAY_MS);
-      } else {
-        showSuccess("Product live! Redirecting…");
-        safeRedirect("/");
-      }
-    },
-    [IDEMPOTENCY_STORE, showSuccess, safeRedirect]
-  );
+    if (verificationNeeded) {
+      setVerificationData({
+        productId    : responseData.product?.id,
+        activeUntil  : responseData.active_until  ?? null,
+        daysRemaining,
+        message      : responseData.verification_message,
+        limits       : responseData.limits,
+      });
+      setNeedsVerification(true);
+      showSuccess(`Listing live for ${daysRemaining} days. Redirecting…`);
+      safeRedirect("/verification", VERIFY_DELAY_MS);
+    } else {
+      showSuccess("Product live! Redirecting…");
+      safeRedirect("/");
+    }
+  }, [IDEMPOTENCY_STORE, showSuccess, safeRedirect]);
 
   const handleCreateSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
@@ -982,7 +864,7 @@ export function useAddProduct({
     setProgressStep("compressing");
     setError("");
 
-    let product: { id: string } | null = null;
+    let product          = null;
     let paymentInitiated = false;
 
     try {
@@ -1013,9 +895,9 @@ export function useAddProduct({
         token
       );
       if (!mountedRef.current) return;
-      if (!(uploadData.product as { id?: string })?.id)
+      if (!uploadData.product?.id)
         throw new ApiError("Product creation failed", 500);
-      product = uploadData.product as { id: string };
+      product = uploadData.product;
 
       fetchLimits();
 
@@ -1031,19 +913,16 @@ export function useAddProduct({
             },
             body: JSON.stringify({ promotion_id: null }),
           }
-        ) as Record<string, unknown>;
-
+        );
         if (!mountedRef.current) return;
         setProgressStep("finalizing");
         await new Promise((r) => setTimeout(r, 600));
         if (!mountedRef.current) return;
-
         setProgressVisible(false);
         handlePostSuccess({
           ...uploadData,
           ...activateRes,
-          product: (activateRes.product as Record<string, unknown>) ??
-            uploadData.product,
+          product: activateRes.product ?? uploadData.product,
         });
         clearDraft();
         return;
@@ -1070,24 +949,24 @@ export function useAddProduct({
           product_id      : product.id,
           idempotency_key : getOrCreateIdempotencyKey(IDEMPOTENCY_STORE),
         }),
-      }) as { authorization_url?: string; reference?: string };
+      });
 
       if (!payData.authorization_url)
         throw new ApiError("Payment setup failed", 500);
 
       paymentInitiated = true;
 
-      const session: PaymentSession = {
-        reference        : payData.reference ?? "",
+      const session = {
+        reference        : payData.reference,
         authUrl          : payData.authorization_url,
         planId           : String(finalPlan.id),
         productId        : product.id,
         email            : form.contact.email,
         amount           : effectiveAmt,
         createdAt        : Date.now(),
-        needsVerification: (uploadData.needs_verification as boolean) ?? false,
-        activeUntil      : (uploadData.active_until as string)   ?? null,
-        daysRemaining    : (uploadData.days_remaining as number)  ?? null,
+        needsVerification: uploadData.needs_verification ?? false,
+        activeUntil      : uploadData.active_until       ?? null,
+        daysRemaining    : uploadData.days_remaining      ?? null,
       };
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
 
@@ -1104,21 +983,20 @@ export function useAddProduct({
       console.error("[useAddProduct] create submit:", err);
       if (mountedRef.current) setProgressVisible(false);
 
-      /* Clean up orphaned product */
       if (product?.id && !paymentInitiated) {
         const token = getToken();
         if (token) {
           fetch(`${API_BASE}/addproduct/products/${product.id}`, {
             method  : "DELETE",
             headers : { Authorization: `Bearer ${token}` },
-          }).catch((e: Error) =>
+          }).catch((e) =>
             console.error("[useAddProduct] cleanup failed:", e)
           );
         }
       }
 
-      showError((err as Error).message ?? "Submission failed — please try again");
-      if ((err as ApiError).status === 403) fetchLimits();
+      showError(err.message ?? "Submission failed — please try again");
+      if (err.status === 403) fetchLimits();
 
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -1205,7 +1083,7 @@ export function useAddProduct({
     resetImages,
 
     /* seller limits */
-    sellerLimits      : sellerLimits as SellerLimits | null,
+    sellerLimits,
     limitsLoading,
     fetchLimits,
     isVerifiedSeller,
@@ -1251,5 +1129,5 @@ export function useAddProduct({
     formatLabel,
     onlyNumbers,
     onlyDigits,
-  } satisfies AddProductContextValue;
+  };
 }
