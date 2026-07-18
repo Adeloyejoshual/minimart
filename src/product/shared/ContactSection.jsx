@@ -4,7 +4,7 @@
  */
 import { useCallback, useMemo, useState } from "react";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
-import SectionDot from "../../components/SectionDot.jsx";
+import SectionDot from "../components/SectionDot.jsx";
 
 export default function ContactSection({ innerRef }) {
   const {
