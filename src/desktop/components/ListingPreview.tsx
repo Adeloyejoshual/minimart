@@ -5,7 +5,7 @@
  */
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import { LocationPinIcon } from "../../pages/product/components/icons/index.jsx";
-import "./ListingPreview.css";
+import "../styles/ListingPreview.css";
 
 export default function ListingPreview() {
   const {
