@@ -1,15 +1,14 @@
 /**
  * src/product/shared/ImagesSection.jsx
- * Existing images (edit mode) + new uploads with drag/drop, reorder
+ * Existing images + new uploads
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
-import SectionDot         from "../components/SectionDot.jsx";
-import ExistingImageGrid  from "../components/ExistingImageGrid.jsx";
-import ImageGrid          from "../components/ImageGrid.jsx";
-import { WarningIcon }    from "../components/icons/index.jsx";
+import SectionDot         from "../../pages/product/components/SectionDot.jsx";
+import ExistingImageGrid  from "../../pages/product/components/ExistingImageGrid.jsx";
+import ImageGrid          from "../../pages/product/components/ImageGrid.jsx";
+import { WarningIcon }    from "../../pages/product/components/icons/index.jsx";
 
-/* Hash file for duplicate detection */
 async function hashImageFile(file) {
   try {
     const buffer = await file.arrayBuffer();
@@ -39,7 +38,6 @@ export default function ImagesSection({ innerRef }) {
   const dropZoneRef     = useRef(null);
   const dragCounterRef  = useRef(0);
 
-  /* ── Validation ── */
   const _validateImages = useCallback(async (incoming) => {
     const errors = {};
     const newMap = new Map(sessionHashMap.current);
@@ -103,7 +101,6 @@ export default function ImagesSection({ innerRef }) {
     }
   }, [images]);
 
-  /* ── Drag/drop ── */
   const handleDragEnter = useCallback((e) => {
     e.preventDefault(); dragCounterRef.current += 1; setIsDragging(true);
   }, []);
