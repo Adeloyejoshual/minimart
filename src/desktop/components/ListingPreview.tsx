@@ -4,7 +4,7 @@
  * Reads from useAddProductContext.
  */
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
-import { LocationPinIcon } from "../../product/components/icons/index.jsx";
+import { LocationPinIcon } from "../../pages/product/components/icons/index.jsx";
 import "./ListingPreview.css";
 
 export default function ListingPreview() {
