@@ -1,22 +1,14 @@
 // ════════════════════════════════════════════════════════════════
-// FILE: routes/addproduct.js — v17
+// FILE: routes/addproduct.js — v16
 //
-// Changes from v16:
-//  ─ Fix #1  : Added watermark.padding to IMAGE_CONFIG (was undefined → NaN SVG)
-//  ─ Fix #2  : SQL interval uses ($n * INTERVAL '1 day') — no string concat
-//  ─ Fix #3  : await getWatermarkLogo() resolved BEFORE console.log template
-//  ─ Fix #4  : R2 orphan mitigation via r2_upload_staging table + cron helper
-//  ─ Fix #5  : Soft-delete uses status <> 'deleted' consistently (no is_deleted)
-//  ─ Fix #6  : Sentry.init() removed — must be called once in server entry point
-//  ─ Fix #7  : pg_advisory_xact_lock per seller prevents concurrent policy bypass
-//  ─ Fix #8  : Redis ZADD value always String(productId)
-//  ─ Fix #9  : validateCategory() replaces two near-identical functions
-//  ─ Fix #10 : DELETE auto-deactivates active listings instead of 409 block
-//  ─ Fix #11 : getSellerContextPreUpload documented as intentionally using pool
-//  ─ Fix #12 : image_hashes uses safeParseGuarded (size-guarded)
-//  ─ Fix #13 : daysUntilExpiry / computeActiveUntil imported from utils/dateUtils
-//  ─ Fix #14 : withImageUpload returns JSON for ALL error types (no HTML leaks)
-//  ─ Fix #15 : ALLOWED_STATUSES → REQUESTABLE_STATUSES with clarifying comment
+// Changes from v15:
+//  ─ Multer input limit lowered back to 5 MB (sweet spot)
+//  ─ Output after compression targets ~500 KB max
+//  ─ Added progressive quality reduction to hit 500 KB target
+//  ─ MIN_DIMENSION check: rejects images below 300×300
+//  ─ pLimit(2) concurrency on compress+upload
+//  ─ Sentry error tracking on all unexpected errors
+//  ─ IMAGE_CONFIG updated to reflect new limits
 // ════════════════════════════════════════════════════════════════
 
 import express   from "express";
@@ -49,29 +41,24 @@ import {
   generateBaseSlug,
   generateSlugWithId,
 } from "../utils/slug.js";
-import {
-  daysUntilExpiry,
-  computeActiveUntilDate,
-} from "../utils/dateUtils.js";
-
-/* ─────────────────────────────────────────────────────────────
-   NOTE: Sentry must be initialized ONCE in your server entry
-   point (server.js / app.js) BEFORE any routes are mounted:
-
-     import * as Sentry from "@sentry/node";
-     Sentry.init({
-       dsn             : process.env.SENTRY_DSN,
-       environment     : process.env.NODE_ENV ?? "development",
-       tracesSampleRate: 0.2,
-     });
-     app.use(Sentry.Handlers.requestHandler());
-
-   This file only calls Sentry.captureException() — never init().
-───────────────────────────────────────────────────────────── */
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router    = express.Router();
 const IS_PROD   = process.env.NODE_ENV === "production";
+
+/* ═══════════════════════════════════════════════════════════════
+   SENTRY
+═══════════════════════════════════════════════════════════════ */
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn              : process.env.SENTRY_DSN,
+    environment      : process.env.NODE_ENV ?? "development",
+    tracesSampleRate : 0.2,
+  });
+  console.log("[addproduct] Sentry initialized");
+} else {
+  console.warn("[addproduct] SENTRY_DSN not set — error tracking disabled");
+}
 
 /* ═══════════════════════════════════════════════════════════════
    R2 CLIENT
@@ -93,11 +80,11 @@ const uploadToR2 = async (buffer, mimetype) => {
 
   await r2.send(
     new PutObjectCommand({
-      Bucket      : R2_BUCKET,
-      Key         : key,
-      Body        : buffer,
-      ContentType : mimetype,
-      CacheControl: "public, max-age=31536000, immutable",
+      Bucket       : R2_BUCKET,
+      Key          : key,
+      Body         : buffer,
+      ContentType  : mimetype,
+      CacheControl : "public, max-age=31536000, immutable",
     })
   );
 
@@ -117,29 +104,23 @@ const destroyR2Assets = async (keys) => {
       })
     );
     console.log(
-      "[addproduct] ✓ R2 cleanup:", keys.length, "image(s) deleted"
+      "[addproduct] ✓ R2 cleanup:",
+      keys.length,
+      "image(s) deleted"
     );
   } catch (e) {
     console.error("[addproduct] R2 cleanup failed:", e.message);
-    Sentry.captureException?.(e, { tags: { area: "r2_cleanup" } });
   }
 };
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const FREE_LISTING_DAYS = 30;
-
-/**
- * Statuses a client may REQUEST.
- * "active_limited" is an internal server-assigned status —
- * it is never accepted directly from a client request body.
- */
-const REQUESTABLE_STATUSES = new Set(["active", "draft", "pending_payment"]);
-
-const ALLOWED_IMAGE_TYPES  = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_IMAGES            = 6;
-const MAX_JSON_BYTES        = 8_192;
+const FREE_LISTING_DAYS   = 30;
+const ALLOWED_STATUSES    = new Set(["active", "draft", "pending_payment"]);
+const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+const MAX_IMAGES          = 6;
+const MAX_JSON_BYTES      = 8_192;
 
 const ALLOWED_WA_HOSTS = [
   "wa.me",
@@ -153,17 +134,17 @@ const ALLOWED_WA_HOSTS = [
    IMAGE CONFIG
    ─ Input : up to 5 MB per image (multer gate)
    ─ Output: targets 500 KB max after compression
-   ─ Strategy: resize → WebP encode → reduce quality in steps
-                until ≤ 500 KB or quality floor reached
+   ─ Strategy: resize first → if still > 500 KB, reduce quality
+               in steps until target hit or floor reached
 ═══════════════════════════════════════════════════════════════ */
 const IMAGE_CONFIG = Object.freeze({
-  maxInputBytes   : 5 * 1_048_576,  // 5 MB
-  maxOutputBytes  : 500_000,        // 500 KB target
-  maxWidth        : 1_200,
-  webpQualityInit : 82,
-  webpQualityMin  : 55,
-  webpQualityStep : 8,
-  minDimension    : 300,
+  maxInputBytes   : 5 * 1_048_576,    // 5 MB  — multer rejects above this
+  maxOutputBytes  : 500_000,          // 500 KB — target stored size
+  maxWidth        : 1_200,            // resize to max 1200px (either axis)
+  webpQualityInit : 82,               // start quality
+  webpQualityMin  : 55,               // never go below this
+  webpQualityStep : 8,                // reduce by 8 each attempt
+  minDimension    : 300,              // reject images smaller than 300×300
   watermark: Object.freeze({
     enabled       : true,
     logoPath      : path.join(__dirname, "../assets/watermark-logo.png"),
@@ -172,12 +153,11 @@ const IMAGE_CONFIG = Object.freeze({
     logoMaxRatio  : 0.25,
     fontSizeRatio : 0.045,
     shadowOpacity : 0.60,
-    padding       : 20,             // ← Fix #1: was missing, caused NaN coords
   }),
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   IMAGE CONCURRENCY
+   IMAGE CONCURRENCY  — max 2 compress+upload jobs at once
    6 images × ~80 MB RAM = 480 MB without limit
    With pLimit(2) → max ~160 MB peak
 ═══════════════════════════════════════════════════════════════ */
@@ -186,14 +166,16 @@ const imageLimit = pLimit(2);
 /* ═══════════════════════════════════════════════════════════════
    WATERMARK — load logo once at startup
 ═══════════════════════════════════════════════════════════════ */
-let _watermarkLogo  = null;
-let _logoLoadTried  = false;
+let _watermarkLogo = null;
+let _logoLoadTried = false;
 
 const getWatermarkLogo = async () => {
   if (_logoLoadTried) return _watermarkLogo;
   _logoLoadTried = true;
   try {
-    _watermarkLogo = await fs.promises.readFile(IMAGE_CONFIG.watermark.logoPath);
+    _watermarkLogo = await fs.promises.readFile(
+      IMAGE_CONFIG.watermark.logoPath
+    );
     console.log("[watermark] ✓ Logo loaded from disk");
   } catch {
     console.warn(
@@ -206,14 +188,12 @@ const getWatermarkLogo = async () => {
   return _watermarkLogo;
 };
 
-/* ── SVG text watermark (fallback) ── */
+/* ─── SVG text watermark (fallback) ─── */
 const buildTextWatermarkSvg = (imgW, imgH) => {
   const wm       = IMAGE_CONFIG.watermark;
   const fontSize = Math.max(14, Math.round(imgW * wm.fontSizeRatio));
-  // Fix #1: padding is now defined in IMAGE_CONFIG.watermark
-  const padding  = wm.padding;
-  const textX    = imgW - padding;
-  const textY    = imgH - padding;
+  const textX    = imgW - wm.padding ?? 20;
+  const textY    = imgH - wm.padding ?? 20;
 
   return Buffer.from(`
     <svg width="${imgW}" height="${imgH}"
@@ -244,17 +224,22 @@ const buildTextWatermarkSvg = (imgW, imgH) => {
   `);
 };
 
-/* ── Logo watermark composite ── */
+/* ─── Logo watermark composite ─── */
 const buildLogoComposite = async (logoBuffer, imgW) => {
   const wm        = IMAGE_CONFIG.watermark;
   const logoWidth = Math.round(imgW * wm.logoMaxRatio);
 
   const resizedLogo = await sharp(logoBuffer)
-    .resize({ width: logoWidth, fit: "inside", withoutEnlargement: true })
+    .resize({
+      width             : logoWidth,
+      fit               : "inside",
+      withoutEnlargement: true,
+    })
     .ensureAlpha()
     .webp({ quality: 90 })
     .toBuffer();
 
+  /* Apply opacity per-pixel on alpha channel */
   const { data, info } = await sharp(resizedLogo)
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -264,16 +249,31 @@ const buildLogoComposite = async (logoBuffer, imgW) => {
   }
 
   const logoWithOpacity = await sharp(data, {
-    raw: { width: info.width, height: info.height, channels: 4 },
+    raw: {
+      width    : info.width,
+      height   : info.height,
+      channels : 4,
+    },
   })
     .webp({ quality: 90 })
     .toBuffer();
 
-  return { input: logoWithOpacity, gravity: "southeast", blend: "over" };
+  return {
+    input   : logoWithOpacity,
+    gravity : "southeast",
+    blend   : "over",
+  };
 };
 
 /* ═══════════════════════════════════════════════════════════════
    COMPRESS + WATERMARK
+   Flow:
+     1. Validate (corrupt / dimensions too small)
+     2. Resize to maxWidth
+     3. Apply watermark (logo or text SVG)
+     4. Encode WebP at init quality
+     5. If output > 500 KB → reduce quality in steps until ≤ 500 KB
+        or quality floor reached (whichever comes first)
 ═══════════════════════════════════════════════════════════════ */
 const compressImage = async (buffer, mimetype) => {
   /* ── 1. Validate ── */
@@ -307,14 +307,14 @@ const compressImage = async (buffer, mimetype) => {
   let resizedBuffer;
   try {
     resizedBuffer = await sharp(buffer)
-      .rotate()
+      .rotate()                              // fix EXIF orientation
       .resize({
         width             : IMAGE_CONFIG.maxWidth,
         height            : IMAGE_CONFIG.maxWidth,
-        fit               : "inside",
-        withoutEnlargement: true,
+        fit               : "inside",        // preserve aspect ratio
+        withoutEnlargement: true,            // never upscale
       })
-      .toBuffer();
+      .toBuffer();                           // raw, not yet encoded
   } catch (err) {
     Sentry.captureException?.(err, {
       tags : { area: "image_compression", step: "resize" },
@@ -364,14 +364,24 @@ const compressImage = async (buffer, mimetype) => {
   while (quality >= IMAGE_CONFIG.webpQualityMin) {
     try {
       const pipeline = sharp(resizedBuffer);
-      if (composite) pipeline.composite([composite]);
 
-      const candidate = await pipeline.webp({ quality }).toBuffer();
-      finalBuffer     = candidate;
+      if (composite) {
+        pipeline.composite([composite]);
+      }
 
-      if (candidate.length <= IMAGE_CONFIG.maxOutputBytes) break;
+      const candidate = await pipeline
+        .webp({ quality })
+        .toBuffer();
+
+      finalBuffer = candidate;
+
+      if (candidate.length <= IMAGE_CONFIG.maxOutputBytes) {
+        /* ✓ Under 500 KB — done */
+        break;
+      }
 
       if (quality <= IMAGE_CONFIG.webpQualityMin) {
+        /* Hit the floor — accept whatever size we got */
         console.warn(
           `[addproduct] image hit quality floor at ${quality}q, ` +
           `final size: ${(candidate.length / 1_024).toFixed(0)} KB`
@@ -379,6 +389,7 @@ const compressImage = async (buffer, mimetype) => {
         break;
       }
 
+      /* Reduce and try again */
       quality -= IMAGE_CONFIG.webpQualityStep;
       quality  = Math.max(quality, IMAGE_CONFIG.webpQualityMin);
 
@@ -391,17 +402,14 @@ const compressImage = async (buffer, mimetype) => {
     }
   }
 
-  // Fix #3: resolve watermark type BEFORE template literal (no async in template)
-  const logoBuffer    = await getWatermarkLogo();
-  const watermarkType = !IMAGE_CONFIG.watermark.enabled
-    ? "no watermark"
-    : logoBuffer ? "logo watermark" : "text watermark";
-
   console.log(
     `[addproduct] compress+watermark:` +
     ` ${(buffer.length / 1_024).toFixed(0)} KB input` +
     ` → ${(finalBuffer.length / 1_024).toFixed(0)} KB output` +
-    ` @ quality ${quality} (${watermarkType})`
+    ` @ quality ${quality}` +
+    ` (${IMAGE_CONFIG.watermark.enabled
+        ? (await getWatermarkLogo() ? "logo" : "text") + " watermark"
+        : "no watermark"})`
   );
 
   return { buffer: finalBuffer, mimetype: "image/webp" };
@@ -412,26 +420,26 @@ const compressImage = async (buffer, mimetype) => {
 ═══════════════════════════════════════════════════════════════ */
 const POLICY = Object.freeze({
   unverified: Object.freeze({
-    dailyLimit      :   3,
-    activeLimit     :   3,
-    cooldownMinutes :  10,
-    expiryDays      :   7,
-    canReactivate   : false,
-    totalLifetimeMax:   3,
+    dailyLimit       :   3,
+    activeLimit      :   3,
+    cooldownMinutes  :  10,
+    expiryDays       :   7,
+    canReactivate    : false,
+    totalLifetimeMax :   3,
   }),
   verified: Object.freeze({
-    dailyLimit      : 100,
-    activeLimit     : 500,
-    cooldownMinutes :   0,
-    expiryDays      :   0,
-    freeListingDays :  30,
-    canReactivate   : true,
-    totalLifetimeMax: null,
+    dailyLimit       : 100,
+    activeLimit      : 500,
+    cooldownMinutes  :   0,
+    expiryDays       :   0,
+    freeListingDays  :  30,
+    canReactivate    : true,
+    totalLifetimeMax : null,
   }),
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   REDIS (trending only — non-critical)
+   REDIS  (trending only — non-critical)
 ═══════════════════════════════════════════════════════════════ */
 const TRENDING_WINDOW_SECS = 24 * 60 * 60;
 const TRENDING_TTL_SECS    = TRENDING_WINDOW_SECS + 3_600;
@@ -463,8 +471,7 @@ const trackTrending = async (productId) => {
     const nowSecs  = Math.floor(Date.now() / 1_000);
     const cutoff   = nowSecs - TRENDING_WINDOW_SECS;
     const pipeline = redis.multi();
-    // Fix #8: always String — Redis ZADD value must be a string
-    pipeline.zAdd(TRENDING_KEY, { score: nowSecs, value: String(productId) });
+    pipeline.zAdd(TRENDING_KEY, { score: nowSecs, value: productId });
     pipeline.zRemRangeByScore(TRENDING_KEY, "-inf", cutoff);
     pipeline.expire(TRENDING_KEY, TRENDING_TTL_SECS);
     await pipeline.exec();
@@ -474,15 +481,16 @@ const trackTrending = async (productId) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   MULTER — 5 MB input limit
+   MULTER  — 5 MB input limit
+   Server compresses to ≤ 500 KB output before storing
 ═══════════════════════════════════════════════════════════════ */
 const upload = multer({
-  storage   : multer.memoryStorage(),
-  limits    : {
-    fileSize: IMAGE_CONFIG.maxInputBytes,
-    files   : MAX_IMAGES,
+  storage    : multer.memoryStorage(),
+  limits     : {
+    fileSize : IMAGE_CONFIG.maxInputBytes,   // 5 MB
+    files    : MAX_IMAGES,
   },
-  fileFilter: (_req, file, cb) => {
+  fileFilter : (_req, file, cb) => {
     if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
       const err  = new Error(
         `Invalid image type "${file.mimetype}". Only JPEG, PNG, WebP allowed.`
@@ -494,35 +502,16 @@ const upload = multer({
   },
 });
 
-/**
- * Fix #14: wraps multer handler and guarantees a JSON response
- * for ALL error types — multer errors, busboy errors, and unknowns.
- * Prevents Express from falling through to an HTML error page.
- */
 const withImageUpload = (handler) => (req, res, next) =>
   handler(req, res, (err) => {
     if (!err) return next();
-
-    // Known multer / validation errors → 400
-    if (["LIMIT_FILE_SIZE", "LIMIT_FILE_COUNT", "INVALID_MIME"].includes(err.code)) {
+    if (
+      ["LIMIT_FILE_SIZE", "LIMIT_FILE_COUNT", "INVALID_MIME"].includes(
+        err.code
+      )
+    )
       return res.status(400).json({ success: false, message: err.message });
-    }
-
-    // Any other multer / busboy error → 400 with generic message
-    if (err.name === "MulterError" || err.type === "entity.too.large") {
-      return res.status(400).json({
-        success : false,
-        message : "File upload error. Please check your images and try again.",
-      });
-    }
-
-    // Unknown error — log, track, return JSON (never HTML)
-    console.error("[addproduct] upload middleware unexpected error:", err.message);
-    Sentry.captureException?.(err, { tags: { area: "multer_upload" } });
-    return res.status(500).json({
-      success : false,
-      message : "Upload failed. Please try again.",
-    });
+    return next(err);
   });
 
 /* ═══════════════════════════════════════════════════════════════
@@ -530,12 +519,12 @@ const withImageUpload = (handler) => (req, res, next) =>
 ═══════════════════════════════════════════════════════════════ */
 const makeLimiter = ({ windowMin, max, message }) =>
   rateLimit({
-    windowMs       : windowMin * 60 * 1_000,
+    windowMs        : windowMin * 60 * 1_000,
     max,
-    standardHeaders: true,
-    legacyHeaders  : false,
-    keyGenerator   : (req) => String(req.user?.id ?? req.ip),
-    handler        : (_req, res) =>
+    standardHeaders : true,
+    legacyHeaders   : false,
+    keyGenerator    : (req) => String(req.user?.id ?? req.ip),
+    handler         : (_req, res) =>
       res.status(429).json({ success: false, message }),
   });
 
@@ -624,7 +613,8 @@ const sanitizeWhatsAppLink = (raw) => {
     const url = new URL(String(raw).trim());
     if (url.protocol !== "https:") return null;
     const allowed = ALLOWED_WA_HOSTS.some(
-      (host) => url.hostname === host || url.hostname.endsWith(`.${host}`)
+      (host) =>
+        url.hostname === host || url.hostname.endsWith(`.${host}`)
     );
     return allowed ? url.href : null;
   } catch { return null; }
@@ -637,60 +627,89 @@ const validateImageHashes = (raw) => {
     .slice(0, MAX_IMAGES);
 };
 
-/**
- * Fix #7: Convert seller UUID/int to a stable bigint for use
- * as a PostgreSQL advisory lock key. Advisory locks are per-session
- * and prevent two concurrent requests from both passing policy
- * enforcement when the seller is at limit - 1.
- */
-const sellerAdvisoryLockId = (sellerId) => {
-  const hex = String(sellerId).replace(/-/g, "").slice(0, 15);
-  return BigInt(`0x${hex}`) % BigInt(Number.MAX_SAFE_INTEGER);
+/* ═══════════════════════════════════════════════════════════════
+   ACTIVE UNTIL
+═══════════════════════════════════════════════════════════════ */
+const computeActiveUntil = (isVerified) => {
+  const days = isVerified
+    ? FREE_LISTING_DAYS
+    : POLICY.unverified.expiryDays;
+
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+};
+
+const daysUntilExpiry = (activeUntil) => {
+  if (!activeUntil) return null;
+  return Math.ceil(
+    (new Date(activeUntil).getTime() - Date.now()) / 86_400_000
+  );
 };
 
 /* ═══════════════════════════════════════════════════════════════
    CATEGORY VALIDATION
-   Fix #9: Single function replaces the two near-identical
-   validateCategoryEarly / validateCategoryRelationship functions.
-   Pass pool.query.bind(pool) or client.query.bind(client).
 ═══════════════════════════════════════════════════════════════ */
-const validateCategory = async (queryFn, categoryId, subcategoryId) => {
-  const { rows: catRows } = await queryFn(
+const validateCategoryEarly = async (categoryId, subcategoryId) => {
+  const { rows: catRows } = await pool.query(
     "SELECT id FROM categories WHERE id = $1 AND is_active = TRUE",
     [categoryId]
   );
-  if (!catRows.length) {
+  if (!catRows.length)
     return {
       valid   : false,
       message : "Selected category does not exist or is inactive.",
     };
-  }
 
   if (subcategoryId) {
-    const { rows: subRows } = await queryFn(
+    const { rows: subRows } = await pool.query(
       `SELECT id FROM categories
        WHERE id = $1 AND parent_id = $2 AND is_active = TRUE`,
       [subcategoryId, categoryId]
     );
-    if (!subRows.length) {
+    if (!subRows.length)
       return {
         valid   : false,
         message : "Selected subcategory does not belong to the chosen category.",
       };
-    }
   }
+  return { valid: true };
+};
 
+const validateCategoryRelationship = async (client, categoryId, subcategoryId) => {
+  const { rows: catRows } = await client.query(
+    "SELECT id FROM categories WHERE id = $1 AND is_active = TRUE",
+    [categoryId]
+  );
+  if (!catRows.length)
+    return {
+      valid   : false,
+      message : "Selected category does not exist or is inactive.",
+    };
+
+  if (subcategoryId) {
+    const { rows: subRows } = await client.query(
+      `SELECT id FROM categories
+       WHERE id = $1 AND parent_id = $2 AND is_active = TRUE`,
+      [subcategoryId, categoryId]
+    );
+    if (!subRows.length)
+      return {
+        valid   : false,
+        message : "Selected subcategory does not belong to the chosen category.",
+      };
+  }
   return { valid: true };
 };
 
 /* ═══════════════════════════════════════════════════════════════
    SELLER CONTEXT
 ═══════════════════════════════════════════════════════════════ */
-const fetchSellerStats = (queryable, sellerId) => {
+const fetchSellerStats = (client, sellerId) => {
   const today    = getTodayUTC();
   const tomorrow = getTomorrowUTC();
 
-  return queryable.query(
+  return client.query(
     `SELECT
        COUNT(*) FILTER (
          WHERE created_at >= $2::timestamptz
@@ -750,10 +769,6 @@ const buildContext = (isVerified, stats) => {
   };
 };
 
-/**
- * Used INSIDE a transaction — acquires FOR NO KEY UPDATE on the
- * user row to prevent concurrent modifications to seller state.
- */
 const getSellerContext = async (client, sellerId) => {
   const { rows: userRows } = await client.query(
     "SELECT identity_verified FROM public.users WHERE id = $1 FOR NO KEY UPDATE",
@@ -765,10 +780,6 @@ const getSellerContext = async (client, sellerId) => {
   return buildContext(isVerified, stats[0]);
 };
 
-/**
- * Read-only version — used for the /seller/limits endpoint.
- * No row lock needed; just reading.
- */
 const getSellerContextReadOnly = async (client, sellerId) => {
   const { rows: userRows } = await client.query(
     "SELECT identity_verified FROM public.users WHERE id = $1",
@@ -780,15 +791,6 @@ const getSellerContextReadOnly = async (client, sellerId) => {
   return buildContext(isVerified, stats[0]);
 };
 
-/**
- * Fix #11: Pre-upload optimistic check (BEFORE images are compressed/
- * uploaded to R2). Uses pool directly — intentionally no transaction.
- *
- * IMPORTANT: Stats here may be slightly stale because we read outside
- * a transaction. This is acceptable — the pre-upload check is an
- * optimistic gate only. The authoritative, locked check still runs
- * inside the transaction at Phase 2.
- */
 const getSellerContextPreUpload = async (sellerId) => {
   const { rows: userRows } = await pool.query(
     "SELECT identity_verified FROM public.users WHERE id = $1",
@@ -917,77 +919,6 @@ const storeImageHashes = async (productId, hashes) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   R2 UPLOAD STAGING — Fix #4
-   Tracks every R2 key uploaded before the DB transaction opens.
-   A cron job (cleanupOrphanedR2Uploads) deletes keys that were
-   never claimed by a committed product row.
-
-   Required table:
-     CREATE TABLE r2_upload_staging (
-       id           BIGSERIAL PRIMARY KEY,
-       key          TEXT        NOT NULL UNIQUE,
-       url          TEXT        NOT NULL,
-       seller_id    TEXT        NOT NULL,
-       product_id   TEXT,
-       uploaded_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-     );
-═══════════════════════════════════════════════════════════════ */
-const stageR2Upload = async (key, url, sellerId) => {
-  try {
-    await pool.query(
-      `INSERT INTO r2_upload_staging (key, url, seller_id)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (key) DO NOTHING`,
-      [key, url, String(sellerId)]
-    );
-  } catch (err) {
-    // Non-fatal — staging is best-effort; the transaction cleanup
-    // (destroyR2Assets) is the primary safety net.
-    console.warn("[addproduct] stageR2Upload error:", err.message);
-  }
-};
-
-const claimR2Uploads = async (productId, keys) => {
-  if (!keys?.length) return;
-  try {
-    await pool.query(
-      `UPDATE r2_upload_staging
-       SET product_id = $1
-       WHERE key = ANY($2::text[])`,
-      [String(productId), keys]
-    );
-  } catch (err) {
-    console.warn("[addproduct] claimR2Uploads error:", err.message);
-  }
-};
-
-/**
- * Exported for use by a scheduled cron job.
- * Finds R2 keys uploaded > 1 hour ago that were never claimed
- * by a product row, deletes them from R2, then removes the
- * staging records.
- */
-export const cleanupOrphanedR2Uploads = async () => {
-  try {
-    const { rows } = await pool.query(
-      `DELETE FROM r2_upload_staging
-       WHERE product_id  IS NULL
-         AND uploaded_at < NOW() - INTERVAL '1 hour'
-       RETURNING key`
-    );
-    if (!rows.length) return;
-    const keys = rows.map((r) => r.key);
-    await destroyR2Assets(keys);
-    console.log(
-      `[addproduct] cleanupOrphanedR2Uploads: removed ${keys.length} orphan(s)`
-    );
-  } catch (err) {
-    console.error("[addproduct] cleanupOrphanedR2Uploads error:", err.message);
-    Sentry.captureException?.(err, { tags: { area: "r2_orphan_cleanup" } });
-  }
-};
-
-/* ═══════════════════════════════════════════════════════════════
    TRIAL INFO BUILDER
 ═══════════════════════════════════════════════════════════════ */
 const buildTrialInfo = (ctx) => {
@@ -1007,12 +938,11 @@ const buildTrialInfo = (ctx) => {
 export const reactivateLimitedListings = async (sellerId) => {
   const client = await pool.connect();
   try {
-    // Fix #2: use interval multiplication instead of string concat
     const { rows, rowCount } = await client.query(
       `UPDATE products
        SET    status       = 'active',
               is_active    = TRUE,
-              active_until = NOW() + ($2 * INTERVAL '1 day'),
+              active_until = NOW() + ($2 || ' days')::INTERVAL,
               updated_at   = NOW()
        WHERE  seller_id    = $1
          AND  status       = 'active_limited'
@@ -1064,7 +994,8 @@ export const pauseExpiredListings = async () => {
          AND  seller_id IN (
            SELECT id FROM public.users WHERE identity_verified = FALSE
          )
-       RETURNING id, seller_id, title`
+       RETURNING id, seller_id, title`,
+      []
     );
 
     if (rowCount > 0) {
@@ -1176,23 +1107,23 @@ router.get(
     try {
       const ctx = await getSellerContextReadOnly(client, sellerId);
       return res.json({
-        success          : true,
-        seller_verified  : ctx.isVerified,
-        daily_limit      : ctx.policy.dailyLimit,
-        daily_used       : ctx.todayCount,
-        daily_remaining  : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount),
-        active_limit     : ctx.policy.activeLimit,
-        active_count     : ctx.activeCount,
-        active_remaining : Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
-        cooldown_seconds : ctx.cooldownSecsLeft,
-        expiry_days      : ctx.isVerified
+        success           : true,
+        seller_verified   : ctx.isVerified,
+        daily_limit       : ctx.policy.dailyLimit,
+        daily_used        : ctx.todayCount,
+        daily_remaining   : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount),
+        active_limit      : ctx.policy.activeLimit,
+        active_count      : ctx.activeCount,
+        active_remaining  : Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
+        cooldown_seconds  : ctx.cooldownSecsLeft,
+        expiry_days       : ctx.isVerified
           ? FREE_LISTING_DAYS
           : ctx.policy.expiryDays,
-        can_reactivate   : ctx.policy.canReactivate,
-        trial_exhausted  : ctx.trialExhausted,
-        trial_remaining  : ctx.trialRemaining,
-        lifetime_used    : ctx.lifetimeCount,
-        lifetime_max     : ctx.isVerified
+        can_reactivate    : ctx.policy.canReactivate,
+        trial_exhausted   : ctx.trialExhausted,
+        trial_remaining   : ctx.trialRemaining,
+        lifetime_used     : ctx.lifetimeCount,
+        lifetime_max      : ctx.isVerified
           ? null
           : POLICY.unverified.totalLifetimeMax,
       });
@@ -1213,13 +1144,9 @@ router.post(
   authenticate,
   dupCheckLimiter,
   async (req, res) => {
-    const sellerId  = req.user?.id;
-    const { title } = req.body;
-
-    // Fix #12: use safeParseGuarded for image_hashes (size-guarded)
-    const image_hashes = validateImageHashes(
-      safeParseGuarded(req.body.image_hashes, [])
-    );
+    const sellerId     = req.user?.id;
+    const { title }    = req.body;
+    const image_hashes = validateImageHashes(req.body.image_hashes);
 
     if (!sellerId || !title) return res.json({ isDuplicate: false });
 
@@ -1245,7 +1172,9 @@ router.post(
 
       if (image_hashes.length > 0) {
         const hashMatches = await checkImageHashDuplicates(
-          client, sellerId, image_hashes
+          client,
+          sellerId,
+          image_hashes
         );
         if (hashMatches.length > 0) {
           return res.json({
@@ -1297,7 +1226,8 @@ router.get(
 
       const p         = rows[0];
       const isLimited = p.status === "active_limited";
-      const isExpired = p.active_until && new Date(p.active_until) < new Date();
+      const isExpired =
+        p.active_until && new Date(p.active_until) < new Date();
       const days      = daysUntilExpiry(p.active_until);
 
       return res.json({
@@ -1319,7 +1249,7 @@ router.get(
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /products — Create product
+   POST /products  — Create product
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/products",
@@ -1347,15 +1277,15 @@ router.post(
     const phone          = cleanText(req.body.phone);
     const whatsapp       = cleanText(req.body.whatsapp);
     const idempotencyKey = cleanText(req.body.idempotency_key);
-
-    // Fix #12: all JSON body fields use safeParseGuarded
-    const imageHashes  = validateImageHashes(
-      safeParseGuarded(req.body.image_hashes, [])
+    const imageHashes    = validateImageHashes(
+      safeParse(req.body.image_hashes, [])
     );
-    const attributes   = safeParseGuarded(req.body.attributes, {});
-    const delivery     = safeParseGuarded(req.body.delivery,   {});
-    const contact      = safeParseGuarded(req.body.contact,    {});
-    const whatsappLink = sanitizeWhatsAppLink(cleanText(req.body.whatsapp_link));
+    const attributes  = safeParseGuarded(req.body.attributes, {});
+    const delivery    = safeParseGuarded(req.body.delivery,   {});
+    const contact     = safeParseGuarded(req.body.contact,    {});
+    const whatsappLink = sanitizeWhatsAppLink(
+      cleanText(req.body.whatsapp_link)
+    );
 
     /* ── Validation ── */
     if (!title)             return fail(res, 400, "Title required.");
@@ -1384,11 +1314,8 @@ router.post(
     const files = req.files ?? [];
     if (!files.length) return fail(res, 400, "At least one image is required.");
 
-    // Fix #15: use REQUESTABLE_STATUSES
     const rawStatus       = cleanText(req.body.status) ?? "draft";
-    const requestedStatus = REQUESTABLE_STATUSES.has(rawStatus)
-      ? rawStatus
-      : "draft";
+    const requestedStatus = ALLOWED_STATUSES.has(rawStatus) ? rawStatus : "draft";
 
     /* ── Idempotency guard ── */
     if (idempotencyKey) {
@@ -1422,7 +1349,7 @@ router.post(
       });
     }
 
-    /* ── PHASE 1: Pre-upload optimistic policy check ── */
+    /* ── PHASE 1: Pre-upload policy check ── */
     if (requestedStatus === "active") {
       try {
         const preCtx   = await getSellerContextPreUpload(sellerId);
@@ -1439,19 +1366,15 @@ router.post(
     }
 
     /* ── Early category validation ── */
-    const earlyCategory = await validateCategory(
-      pool.query.bind(pool), categoryId, subcategoryId
-    );
+    const earlyCategory = await validateCategoryEarly(categoryId, subcategoryId);
     if (!earlyCategory.valid) return fail(res, 400, earlyCategory.message);
 
     /* ══════════════════════════════════════════════════════════
        COMPRESS + WATERMARK + UPLOAD
        - Max 2 images processed concurrently (pLimit)
+       - Each image: resize → watermark → quality loop → R2
        - Input:  up to 5 MB per image (multer)
        - Output: targets ≤ 500 KB per image stored in R2
-       - Fix #4: each uploaded key is staged in r2_upload_staging
-                 BEFORE the DB transaction opens, so a cron job can
-                 clean up any keys that never get claimed
     ══════════════════════════════════════════════════════════ */
     console.log(
       "[addproduct] processing", files.length, "image(s) — max 2 concurrent"
@@ -1467,10 +1390,6 @@ router.post(
               file.mimetype
             );
             const { url, key } = await uploadToR2(buffer, mimetype);
-
-            // Fix #4: stage key immediately after upload
-            await stageR2Upload(key, url, sellerId);
-
             console.log(
               `[addproduct] image ${i + 1}/${files.length} uploaded` +
               ` — ${(buffer.length / 1_024).toFixed(0)} KB → ${key}`
@@ -1494,10 +1413,6 @@ router.post(
         });
       }
 
-      // Attempt cleanup of any keys that were staged before the error
-      const stagedKeys = (uploaded ?? []).map((u) => u.key);
-      if (stagedKeys.length) await destroyR2Assets(stagedKeys);
-
       return fail(
         res,
         isUserError ? 400 : 500,
@@ -1510,18 +1425,10 @@ router.post(
     const thumbnail = uploaded[0]?.url ?? null;
     const r2Keys    = uploaded.map((u) => u.key);
 
-    /* ── PHASE 2: Locked transaction ──
-       Fix #7: acquire a per-seller advisory lock inside the transaction
-       so that two concurrent requests for the same seller cannot both
-       pass policy enforcement when the seller is at limit - 1.
-    ── */
+    /* ── PHASE 2: Locked transaction ── */
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-
-      // Fix #7: advisory lock scoped to this transaction
-      const lockId = sellerAdvisoryLockId(sellerId);
-      await client.query("SELECT pg_advisory_xact_lock($1)", [lockId]);
 
       const ctx = await getSellerContext(client, sellerId);
 
@@ -1534,9 +1441,8 @@ router.post(
         trialRemaining : ctx.trialRemaining,
       });
 
-      // Fix #9: unified validateCategory — pass client.query
-      const catCheck = await validateCategory(
-        client.query.bind(client), categoryId, subcategoryId
+      const catCheck = await validateCategoryRelationship(
+        client, categoryId, subcategoryId
       );
       if (!catCheck.valid) {
         await client.query("ROLLBACK");
@@ -1562,12 +1468,11 @@ router.post(
         if (!ctx.isVerified) {
           finalStatus = "active_limited";
           finalActive = true;
-          // Fix #13: use shared utility
-          activeUntil = computeActiveUntilDate(POLICY.unverified.expiryDays);
+          activeUntil = computeActiveUntil(false);
         } else {
           finalStatus = "active";
           finalActive = true;
-          activeUntil = computeActiveUntilDate(FREE_LISTING_DAYS);
+          activeUntil = computeActiveUntil(true);
         }
       }
 
@@ -1626,9 +1531,7 @@ router.post(
           firstErr.code === "23505" &&
           firstErr.constraint?.includes("slug")
         ) {
-          console.warn(
-            "[addproduct] slug collision — retrying with UUID fallback"
-          );
+          console.warn("[addproduct] slug collision — retrying with UUID fallback");
           product = await insertProduct(
             `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`
           );
@@ -1641,13 +1544,10 @@ router.post(
       if (!product) {
         await client.query("ROLLBACK");
         await destroyR2Assets(r2Keys);
-        return fail(
-          res, 500,
-          "Failed to create product record. Please try again."
-        );
+        return fail(res, 500, "Failed to create product record. Please try again.");
       }
 
-      /* ── Insert product_images rows ── */
+      /* ── Insert product_images ── */
       await Promise.all(
         uploaded.map((img) =>
           client.query(
@@ -1660,21 +1560,21 @@ router.post(
         )
       );
 
-      /* ── Update images JSONB on products row ── */
+      /* ── Update images JSONB ── */
       const imagesJson = JSON.stringify(
-        uploaded.map((img) => ({ url: img.url, key: img.key, order: img.order }))
+        uploaded.map((img) => ({
+          url   : img.url,
+          key   : img.key,
+          order : img.order,
+        }))
       );
       await client.query(
-        "UPDATE products SET images = $1 WHERE id = $2",
+        `UPDATE products SET images = $1 WHERE id = $2`,
         [imagesJson, product.id]
       );
       product.images = JSON.parse(imagesJson);
 
       await client.query("COMMIT");
-
-      // Fix #4: claim staged keys now that the product row is committed
-      await claimR2Uploads(product.id, r2Keys);
-
       console.log(
         "[addproduct] ✓ created  id:", product.id,
         " status:", finalStatus,
@@ -1710,9 +1610,11 @@ router.post(
 
         trackTrending(product.id).catch(() => {});
 
+        /* Notifications */
         const needsVerification = finalStatus === "active_limited";
         const isFreeListing     = finalStatus === "active" && activeUntil !== null;
         const trialInfo         = buildTrialInfo(ctx);
+        const expiryDays        = daysUntilExpiry(activeUntil);
 
         if (needsVerification) {
           const remaining = trialInfo?.trial_remaining ?? 0;
@@ -1729,6 +1631,7 @@ router.post(
                 `You have ${remaining} free trial listing(s) remaining. ` +
                 "Verify your identity for unlimited posting.",
           }).catch(() => {});
+
         } else if (isFreeListing) {
           createNotification({
             userId  : sellerId,
@@ -1870,7 +1773,8 @@ router.post(
       ) {
         await client.query("ROLLBACK");
         return fail(
-          res, 403,
+          res,
+          403,
           "Expired listings cannot be reactivated for unverified sellers. " +
           "Complete identity verification to restore this listing.",
           { upgrade_required: true }
@@ -1884,11 +1788,16 @@ router.post(
         return fail(res, policyErr.status, policyErr.message, policyErr.extra);
       }
 
-      // Fix #13: use shared computeActiveUntilDate
-      const finalStatus = isVerified ? "active" : "active_limited";
-      const activeUntil = isVerified
-        ? computeActiveUntilDate(FREE_LISTING_DAYS)
-        : computeActiveUntilDate(POLICY.unverified.expiryDays);
+      let finalStatus = "active";
+      let activeUntil = null;
+
+      if (!isVerified) {
+        finalStatus = "active_limited";
+        activeUntil = computeActiveUntil(false);
+      } else {
+        finalStatus = "active";
+        activeUntil = computeActiveUntil(true);
+      }
 
       const { rows: updated } = await client.query(
         `UPDATE products
@@ -1915,6 +1824,7 @@ router.post(
           metadata   : { status: finalStatus, active_until: activeUntil },
           ipAddress  : ip,
         }).catch(() => {});
+
         trackTrending(productId).catch(() => {});
       });
 
@@ -1949,7 +1859,8 @@ router.post(
         tags: { area: "product_activate", seller_id: sellerId },
       });
       return fail(
-        res, 500,
+        res,
+        500,
         IS_PROD ? "Activation failed. Please try again." : err.message
       );
     } finally {
@@ -1959,12 +1870,7 @@ router.post(
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   DELETE /products/:id — Soft delete
-   Fix #10: No longer blocks active listings with a 409.
-            The UPDATE simply sets is_active=false and status='deleted'
-            regardless of current status, using status <> 'deleted'
-            as the only guard (idempotency).
-   Fix #5 : Consistent use of status <> 'deleted' — no is_deleted column.
+   DELETE /products/:id  — Soft delete
 ═══════════════════════════════════════════════════════════════ */
 router.delete(
   "/products/:id",
@@ -1982,9 +1888,8 @@ router.delete(
     if (!sellerId) return fail(res, 401, "Not authenticated.");
 
     try {
-      // Fix #5: single consistent status check — no is_deleted column
       const { rows: check } = await pool.query(
-        `SELECT id, status
+        `SELECT id, status, is_deleted
          FROM public.products
          WHERE id = $1 AND seller_id = $2
          LIMIT 1`,
@@ -1994,27 +1899,32 @@ router.delete(
       if (!check.length)
         return fail(res, 404, "Product not found or not owned by you.");
 
-      // Fix #5: use status consistently
-      if (check[0].status === "deleted")
+      if (check[0].is_deleted)
         return fail(res, 400, "Product already deleted.");
 
-      // Fix #10: allow deletion of active listings directly
-      // (no longer require pausing first)
+      if (check[0].status === "active") {
+        return fail(
+          res,
+          409,
+          "Active listings must be paused before deleting. " +
+          "Tap the pause button first, then delete."
+        );
+      }
+
       const { rows } = await pool.query(
         `UPDATE products
          SET
-           is_active             = FALSE,
+           is_active             = false,
            status                = 'deleted',
            deletion_requested_at = NOW(),
            deletion_reason       = 'user_deleted',
-           permanent_delete_at   = NOW() + ($1 * INTERVAL '1 day'),
+           permanent_delete_at   = NOW() + ($1 || ' days')::INTERVAL,
            deleted_at            = NOW(),
            updated_at            = NOW()
          WHERE id        = $2
            AND seller_id = $3
-           AND status   <> 'deleted'
+           AND is_deleted = false
          RETURNING id, title`,
-        // Fix #2: interval multiplication, no string concat
         [HOLD_DAYS, productId, sellerId]
       );
 
@@ -2056,7 +1966,8 @@ router.delete(
         tags: { area: "product_delete", seller_id: sellerId },
       });
       return fail(
-        res, 500,
+        res,
+        500,
         IS_PROD ? "Delete failed. Please try again." : err.message
       );
     }
