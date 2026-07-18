@@ -1,197 +1,435 @@
 /* src/pages/Profile/components/PromoteModal.css */
 
-.promote-modal {
-  background: var(--wh);
-  border-radius: var(--r3);
-  padding: 24px;
-  max-width: 480px;
-  width: 100%;
-  max-height: 90vh;
-  overflow-y: auto;
-  box-shadow: var(--s3);
+/* ════════════════════════════════════════════
+   OVERLAY
+════════════════════════════════════════════ */
+.overlay {
+  position        : fixed;
+  inset           : 0;
+  background      : rgba(0, 0, 0, 0.5);
+  backdrop-filter : blur(4px);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  z-index         : 9000;
+  padding         : 16px;
+  animation       : overlay-in 0.2s ease;
 }
 
-/* ── Header ── */
+@keyframes overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ════════════════════════════════════════════
+   MODAL
+════════════════════════════════════════════ */
+.promote-modal {
+  background     : var(--wh, #fff);
+  border-radius  : 18px;
+  box-shadow     : 0 24px 80px rgba(0, 0, 0, 0.2);
+  width          : 100%;
+  max-width      : 560px;
+  max-height     : 92vh;
+  overflow-y     : auto;
+  display        : flex;
+  flex-direction : column;
+  animation      : modal-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes modal-in {
+  from { opacity: 0; transform: translateY(28px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ════════════════════════════════════════════
+   HEADER
+════════════════════════════════════════════ */
 .promote-modal__header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 16px;
+  display         : flex;
+  align-items     : flex-start;
+  justify-content : space-between;
+  gap             : 12px;
+  padding         : 20px 20px 16px;
+  border-bottom   : 1px solid var(--bd, #e5e7eb);
+  position        : sticky;
+  top             : 0;
+  background      : var(--wh, #fff);
+  z-index         : 2;
+}
+
+.promote-modal__header-text {
+  flex     : 1;
+  min-width: 0;
 }
 
 .promote-modal__title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 18px;
-  font-weight: 800;
-  font-family: var(--fd);
-  color: var(--ink);
-  margin: 0 0 4px;
+  display     : flex;
+  align-items : center;
+  gap         : 8px;
+  font-size   : 1.05rem;
+  font-weight : 700;
+  color       : var(--ink, #111);
+  margin      : 0 0 5px;
+}
+.promote-modal__title svg {
+  color      : var(--o, #ea580c);
+  width      : 18px;
+  height     : 18px;
+  flex-shrink: 0;
 }
 
 .promote-modal__subtitle {
-  font-size: 13px;
-  color: var(--ink3);
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  max-width: 280px;
+  font-size     : 0.82rem;
+  color         : var(--ink3, #6b7280);
+  margin        : 0;
+  overflow      : hidden;
+  text-overflow : ellipsis;
+  white-space   : nowrap;
 }
 
 .promote-modal__close {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  border: 1.5px solid var(--bd);
-  background: var(--bg);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ink2);
-  flex-shrink: 0;
-  transition: all 0.15s;
+  width           : 34px;
+  height          : 34px;
+  border-radius   : 50%;
+  border          : 1.5px solid var(--bd, #e5e7eb);
+  background      : var(--bg, #f9fafb);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  cursor          : pointer;
+  color           : var(--ink3, #6b7280);
+  flex-shrink     : 0;
+  transition      : all 0.15s;
 }
 .promote-modal__close:hover {
-  border-color: var(--o);
-  color: var(--o);
+  border-color : var(--o, #ea580c);
+  color        : var(--o, #ea580c);
+  background   : #fff7ed;
 }
 
-/* ── Plans grid ── */
+/* ════════════════════════════════════════════
+   EMAIL WARNING
+════════════════════════════════════════════ */
+.promote-modal__warn {
+  display       : flex;
+  align-items   : flex-start;
+  gap           : 10px;
+  margin        : 16px 20px 0;
+  padding       : 13px 15px;
+  background    : #fffbeb;
+  border        : 1px solid #fde68a;
+  border-radius : 10px;
+  font-size     : 0.82rem;
+  color         : #78350f;
+  line-height   : 1.5;
+}
+.promote-modal__warn svg {
+  width      : 18px;
+  height     : 18px;
+  flex-shrink: 0;
+  margin-top : 1px;
+  color      : #d97706;
+}
+.promote-modal__warn strong {
+  display       : block;
+  margin-bottom : 2px;
+  font-size     : 0.85rem;
+}
+.promote-modal__warn p {
+  margin: 0;
+}
+
+/* ════════════════════════════════════════════
+   PLANS GRID
+════════════════════════════════════════════ */
 .promote-modal__plans {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 16px;
+  display               : grid;
+  grid-template-columns : repeat(auto-fill, minmax(148px, 1fr));
+  gap                   : 12px;
+  padding               : 20px;
 }
 
-/* ── Plan card ── */
+/* ════════════════════════════════════════════
+   EMPTY STATE
+════════════════════════════════════════════ */
+.promote-modal__empty {
+  grid-column    : 1 / -1;
+  display        : flex;
+  flex-direction : column;
+  align-items    : center;
+  gap            : 8px;
+  padding        : 36px 0;
+  color          : var(--ink3, #9ca3af);
+  text-align     : center;
+}
+.promote-modal__empty svg {
+  width  : 40px;
+  height : 40px;
+  opacity: 0.35;
+}
+.promote-modal__empty p {
+  font-size   : 0.9rem;
+  font-weight : 600;
+  color       : var(--ink, #111);
+  margin      : 0;
+}
+.promote-modal__empty span {
+  font-size: 0.78rem;
+}
+
+/* ════════════════════════════════════════════
+   PLAN CARD
+════════════════════════════════════════════ */
 .plan-card {
-  border: 2px solid var(--bd);
-  border-radius: var(--r2);
-  padding: 14px;
-  cursor: pointer;
-  transition: all 0.15s;
-  position: relative;
+  position      : relative;
+  border        : 2px solid var(--bd, #e5e7eb);
+  border-radius : 12px;
+  padding       : 16px 14px 14px;
+  cursor        : pointer;
+  transition    : all 0.18s;
+  background    : var(--wh, #fff);
+  outline       : none;
+  user-select   : none;
 }
 .plan-card:hover {
-  border-color: var(--o);
+  border-color : var(--o, #ea580c);
+  box-shadow   : 0 4px 18px rgba(0, 0, 0, 0.08);
+  transform    : translateY(-2px);
 }
+.plan-card:focus-visible {
+  box-shadow: 0 0 0 3px rgba(234, 88, 12, 0.25);
+}
+
 .plan-card--active {
-  border-color: var(--o);
-  background: var(--o-bg);
+  border-color : var(--o, #ea580c);
+  background   : #fff7ed;
+  box-shadow   : 0 6px 24px rgba(234, 88, 12, 0.12);
 }
+
 .plan-card--free {
-  border-color: var(--gn);
-  background: var(--gn2);
+  border-style: dashed;
 }
 
+/* Ribbon */
 .plan-card__ribbon {
-  position: absolute;
-  top: -1px;
-  left: 14px;
-  font-size: 9px;
-  font-weight: 800;
-  background: var(--gn);
-  color: var(--wh);
-  padding: 2px 8px;
-  border-radius: 0 0 6px 6px;
-  letter-spacing: 0.5px;
+  position      : absolute;
+  top           : -1px;
+  right         : -1px;
+  background    : var(--gn, #16a34a);
+  color         : #fff;
+  font-size     : 9px;
+  font-weight   : 800;
+  letter-spacing: 0.6px;
+  padding       : 3px 9px;
+  border-radius : 0 10px 0 8px;
 }
 
+/* Discount */
 .plan-card__discount {
-  position: absolute;
-  top: 12px;
-  right: 12px;
-  font-size: 10px;
-  font-weight: 700;
-  background: #dc2626;
-  color: var(--wh);
-  padding: 2px 6px;
-  border-radius: 20px;
+  display       : inline-block;
+  background    : #fef3c7;
+  color         : #92400e;
+  font-size     : 10px;
+  font-weight   : 700;
+  padding       : 2px 8px;
+  border-radius : 20px;
+  margin-bottom : 7px;
 }
 
 .plan-card__name {
-  font-size: 15px;
-  font-weight: 800;
-  font-family: var(--fd);
-  color: var(--ink);
-  margin: 0 0 2px;
+  font-size   : 0.85rem;
+  font-weight : 700;
+  color       : var(--ink, #111);
+  margin      : 0 0 5px;
 }
 
 .plan-card__price {
-  font-size: 16px;
-  font-weight: 900;
-  font-family: var(--fd);
-  color: var(--o);
-  margin: 0 0 2px;
-}
-.plan-card--free .plan-card__price {
-  color: var(--gn);
+  font-size   : 1.15rem;
+  font-weight : 800;
+  color       : var(--o, #ea580c);
+  margin      : 0 0 3px;
+  font-family : var(--fd, inherit);
 }
 
 .plan-card__duration {
-  font-size: 12px;
-  color: var(--ink3);
-  margin: 0 0 4px;
+  font-size  : 0.74rem;
+  color      : var(--ink3, #6b7280);
+  margin     : 0 0 6px;
 }
 
 .plan-card__desc {
-  font-size: 12px;
-  color: var(--ink2);
-  margin: 0 0 8px;
-  line-height: 1.4;
+  font-size   : 0.74rem;
+  color       : var(--ink3, #6b7280);
+  margin      : 0 0 10px;
+  line-height : 1.4;
 }
 
+/* Features */
 .plan-card__features {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
+  list-style     : none;
+  padding        : 0;
+  margin         : 0;
+  display        : flex;
+  flex-direction : column;
+  gap            : 5px;
 }
 .plan-card__features li {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--ink2);
+  display     : flex;
+  align-items : flex-start;
+  gap         : 5px;
+  font-size   : 0.74rem;
+  color       : var(--ink, #111);
+  line-height : 1.35;
 }
-
 .plan-card__check {
-  color: var(--gn);
-  display: flex;
-  align-items: center;
+  color      : var(--gn, #16a34a);
   flex-shrink: 0;
+  margin-top : 1px;
+}
+.plan-card__check svg {
+  width : 12px;
+  height: 12px;
 }
 
+/* Selected ring */
 .plan-card__selected-ring {
-  position: absolute;
-  inset: -2px;
-  border-radius: calc(var(--r2) + 2px);
-  border: 2px solid var(--o);
+  position      : absolute;
+  inset         : -2px;
+  border-radius : 12px;
+  border        : 2.5px solid var(--o, #ea580c);
   pointer-events: none;
+  animation     : ring-pop 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes ring-pop {
+  from { transform: scale(0.93); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
 }
 
-/* ── Error ── */
+/* ════════════════════════════════════════════
+   SUMMARY
+════════════════════════════════════════════ */
+.promote-modal__summary {
+  margin        : 0 20px;
+  padding       : 14px 16px;
+  background    : var(--bg, #f9fafb);
+  border-radius : 10px;
+  border        : 1px solid var(--bd, #e5e7eb);
+  display       : flex;
+  flex-direction: column;
+  gap           : 8px;
+}
+
+.promote-modal__summary-row {
+  display         : flex;
+  justify-content : space-between;
+  align-items     : center;
+  font-size       : 0.82rem;
+}
+.promote-modal__summary-row span {
+  color: var(--ink3, #6b7280);
+}
+.promote-modal__summary-row strong {
+  color      : var(--ink, #111);
+  font-weight: 600;
+}
+
+.promote-modal__summary-price {
+  color       : var(--o, #ea580c) !important;
+  font-size   : 1rem !important;
+  font-weight : 800 !important;
+}
+
+/* ════════════════════════════════════════════
+   ERROR
+════════════════════════════════════════════ */
 .promote-modal__error {
-  font-size: 13px;
-  color: #dc2626;
-  margin: 0 0 12px;
+  display       : flex;
+  align-items   : flex-start;
+  gap           : 8px;
+  margin        : 12px 20px 0;
+  padding       : 11px 14px;
+  background    : #fef2f2;
+  border        : 1px solid #fecaca;
+  border-radius : 10px;
+  font-size     : 0.82rem;
+  color         : #991b1b;
+  line-height   : 1.45;
+}
+.promote-modal__error svg {
+  width      : 15px;
+  height     : 15px;
+  flex-shrink: 0;
+  margin-top : 2px;
+  color      : #dc2626;
 }
 
-/* ── Footer ── */
+/* ════════════════════════════════════════════
+   FOOTER
+════════════════════════════════════════════ */
 .promote-modal__footer {
-  display: flex;
-  gap: 10px;
+  display         : flex;
+  align-items     : center;
+  justify-content : flex-end;
+  gap             : 10px;
+  padding         : 16px 20px;
+  margin-top      : 16px;
+  border-top      : 1px solid var(--bd, #e5e7eb);
+  position        : sticky;
+  bottom          : 0;
+  background      : var(--wh, #fff);
+  z-index         : 2;
 }
-.promote-modal__footer .btn {
-  flex: 1;
-  justify-content: center;
-  padding: 14px;
-  font-size: 14px;
+
+/* ════════════════════════════════════════════
+   SPINNER (inside button)
+════════════════════════════════════════════ */
+.promote-modal__spinner {
+  display      : inline-block;
+  width        : 14px;
+  height       : 14px;
+  border       : 2px solid rgba(255, 255, 255, 0.4);
+  border-top   : 2px solid #fff;
+  border-radius: 50%;
+  animation    : spin 0.7s linear infinite;
+  flex-shrink  : 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ════════════════════════════════════════════
+   RESPONSIVE
+════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .promote-modal {
+    border-radius: 16px 16px 0 0;
+    max-height   : 95vh;
+    margin-top   : auto;
+  }
+
+  .overlay {
+    align-items: flex-end;
+    padding    : 0;
+  }
+
+  .promote-modal__plans {
+    grid-template-columns: 1fr 1fr;
+    gap    : 10px;
+    padding: 16px;
+  }
+
+  .promote-modal__footer {
+    flex-direction: column-reverse;
+    gap           : 8px;
+  }
+  .promote-modal__footer .btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 320px) {
+  .promote-modal__plans {
+    grid-template-columns: 1fr;
+  }
 }
