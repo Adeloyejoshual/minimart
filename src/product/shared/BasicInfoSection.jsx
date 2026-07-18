@@ -2,10 +2,10 @@
  * src/product/shared/BasicInfoSection.jsx
  * Title · Description · Price
  */
-import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
-import SectionDot   from "../components/SectionDot.jsx";
-import CharCounter  from "../components/CharCounter.jsx";
 import { useEffect, useState } from "react";
+import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
+import SectionDot  from "../../pages/product/components/SectionDot.jsx";
+import CharCounter from "../../pages/product/components/CharCounter.jsx";
 
 export default function BasicInfoSection({ innerRef }) {
   const {
@@ -14,7 +14,6 @@ export default function BasicInfoSection({ innerRef }) {
 
   const [titleSuggestions, setTitleSuggestions] = useState([]);
 
-  /* ── Auto-suggest title from description ── */
   useEffect(() => {
     if (isEditMode) return;
     if (!form.description || form.description.length < 30
