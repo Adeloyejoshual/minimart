@@ -1,30 +1,36 @@
 /* src/pages/Profile/components/ProductCard.css */
 
-/* ── Card ── */
+/* ─────────────────────────────────────────────
+   Card
+───────────────────────────────────────────── */
 .product-card {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--bg);
+  border-bottom: 1px solid var(--bd);
   transition: opacity 0.3s;
 }
-.product-card:last-child {
-  border-bottom: none;
-}
+.product-card:last-child { border-bottom: none; }
+
 .product-card--deleting {
   opacity: 0.3;
   pointer-events: none;
 }
 .product-card--expired {
-  opacity: 0.6;
+  opacity: 0.65;
 }
 .product-card--expired .product-card__title {
   text-decoration: line-through;
   color: var(--ink3);
 }
+.product-card--pending {
+  opacity: 1; /* never dim pending — user needs to act */
+}
 
-/* ── Image ── */
+/* ─────────────────────────────────────────────
+   Image
+───────────────────────────────────────────── */
 .product-card__img-wrap {
   position: relative;
   width: 56px;
@@ -35,7 +41,6 @@
   background: var(--bg);
   border: 1px solid var(--bd);
 }
-
 .product-card__img {
   width: 100%;
   height: 100%;
@@ -43,6 +48,7 @@
   display: block;
 }
 
+/* Promoted badge */
 .product-card__promoted-badge {
   position: absolute;
   top: 2px;
@@ -58,7 +64,24 @@
   gap: 2px;
 }
 
-/* ── Body ── */
+/* Pending overlay lock icon */
+.product-card__pending-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(37, 99, 235, 0.18);
+  color: #2563eb;
+}
+.product-card__pending-overlay svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* ─────────────────────────────────────────────
+   Body
+───────────────────────────────────────────── */
 .product-card__body {
   flex: 1;
   min-width: 0;
@@ -94,7 +117,9 @@
   flex-wrap: wrap;
 }
 
-/* ── Context menu ── */
+/* ─────────────────────────────────────────────
+   Context Menu
+───────────────────────────────────────────── */
 .product-card__menu-wrap {
   position: relative;
   flex-shrink: 0;
@@ -127,14 +152,14 @@
   border: 1.5px solid var(--bd);
   border-radius: var(--r2);
   box-shadow: var(--s2);
-  min-width: 140px;
+  min-width: 190px;
   overflow: hidden;
 }
 
 .product-card__dropdown button {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
   width: 100%;
   padding: 10px 14px;
   border: none;
@@ -147,18 +172,37 @@
   font-family: var(--fb);
   transition: background 0.1s;
 }
-.product-card__dropdown button:hover {
+.product-card__dropdown button:hover:not(:disabled) {
   background: var(--bg);
+}
+.product-card__dropdown button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+/* Info item (non-clickable hint) */
+.product-card__dropdown-info {
+  color: #2563eb !important;
+  font-size: 12px !important;
+  font-style: italic;
+}
+
+.product-card__dropdown-divider {
+  height: 1px;
+  background: var(--bd);
+  margin: 2px 0;
 }
 
 .product-card__dropdown-danger {
   color: #dc2626 !important;
 }
-.product-card__dropdown-danger:hover {
+.product-card__dropdown-danger:hover:not(:disabled) {
   background: #fef2f2 !important;
 }
 
-/* ── Meta ── */
+/* ─────────────────────────────────────────────
+   Meta
+───────────────────────────────────────────── */
 .product-card__meta {
   display: flex;
   align-items: center;
@@ -190,7 +234,9 @@
   color: var(--ink3);
 }
 
-/* ── Stats ── */
+/* ─────────────────────────────────────────────
+   Stats
+───────────────────────────────────────────── */
 .product-card__stats {
   display: flex;
   align-items: center;
@@ -205,6 +251,7 @@
   gap: 3px;
 }
 
+/* Renew shortcut */
 .product-card__renew {
   display: flex;
   align-items: center;
@@ -225,7 +272,101 @@
   color: var(--wh);
 }
 
-/* ── Status badge ── */
+/* Boost shortcut */
+.product-card__boost {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 8px;
+  background: var(--o-bg);
+  color: var(--o);
+  border: 1px solid var(--o);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: var(--fb);
+}
+.product-card__boost:hover {
+  background: var(--o);
+  color: var(--wh);
+}
+
+/* ─────────────────────────────────────────────
+   Pending Payment Banner
+───────────────────────────────────────────── */
+.product-card__pending-banner {
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: var(--r1);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.product-card__pending-banner-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #1d4ed8;
+}
+.product-card__pending-banner-text svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.product-card__pending-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Pay Now button */
+.product-card__pending-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 11px;
+  border-radius: 20px;
+  border: none;
+  cursor: pointer;
+  font-family: var(--fb);
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.product-card__pending-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.product-card__pending-btn--pay {
+  background: #2563eb;
+  color: #fff;
+}
+.product-card__pending-btn--pay:hover:not(:disabled) {
+  background: #1d4ed8;
+}
+
+.product-card__pending-btn--check {
+  background: transparent;
+  color: #2563eb;
+  border: 1.5px solid #93c5fd;
+}
+.product-card__pending-btn--check:hover:not(:disabled) {
+  background: #dbeafe;
+}
+
+/* ─────────────────────────────────────────────
+   Status Badge
+───────────────────────────────────────────── */
 .status-badge {
   display: inline-flex;
   align-items: center;
@@ -234,21 +375,23 @@
   font-weight: 700;
   padding: 2px 7px;
   border-radius: 20px;
-  text-transform: capitalize;
 }
 .status-badge__dot {
   width: 5px;
   height: 5px;
   border-radius: 50%;
   background: currentColor;
+  flex-shrink: 0;
 }
-.status-badge--active  { background: var(--gn2); color: var(--gn); }
-.status-badge--draft   { background: var(--bg);  color: var(--ink3); }
-.status-badge--paused  { background: #fef9c3;    color: #a16207; }
-.status-badge--pending { background: #eff6ff;    color: #2563eb; }
-.status-badge--unknown { background: var(--bg);  color: var(--ink3); }
+.status-badge--active  { background: var(--gn2);  color: var(--gn);   }
+.status-badge--draft   { background: var(--bg);   color: var(--ink3); }
+.status-badge--paused  { background: #fef9c3;     color: #a16207;     }
+.status-badge--pending { background: #eff6ff;     color: #2563eb;     }
+.status-badge--expired { background: #fef2f2;     color: #dc2626;     }
 
-/* ── Expiry badge ── */
+/* ─────────────────────────────────────────────
+   Expiry Badge
+───────────────────────────────────────────── */
 .expiry-badge {
   display: inline-flex;
   align-items: center;
@@ -258,9 +401,9 @@
   padding: 2px 7px;
   border-radius: 20px;
 }
-.expiry-badge--ok       { background: var(--gn2);  color: var(--gn); }
-.expiry-badge--promoted { background: var(--o-bg); color: var(--o); }
-.expiry-badge--warn     { background: #fffbeb;     color: #a16207; }
+.expiry-badge--ok       { background: var(--gn2);  color: var(--gn);  }
+.expiry-badge--promoted { background: var(--o-bg); color: var(--o);   }
+.expiry-badge--warn     { background: #fffbeb;     color: #a16207;    }
 .expiry-badge--critical {
   background: #fef2f2;
   color: #dc2626;
@@ -269,6 +412,23 @@
 .expiry-badge--expired  { background: var(--bg); color: var(--ink3); }
 
 @keyframes expiry-pulse {
-  0%, 100% { opacity: 1; }
+  0%, 100% { opacity: 1;   }
   50%       { opacity: 0.5; }
+}
+
+/* ─────────────────────────────────────────────
+   Spinner
+───────────────────────────────────────────── */
+.spinner--xs {
+  display: inline-block;
+  width: 11px;
+  height: 11px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
