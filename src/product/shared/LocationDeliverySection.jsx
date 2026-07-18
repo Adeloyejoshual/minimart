@@ -1,15 +1,15 @@
 /**
  * src/product/shared/LocationDeliverySection.jsx
- * State · City · GPS detect · Delivery toggle · Delivery details
+ * State · City · GPS · Delivery
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import DropdownModal from "../../components/DropdownModal.jsx";
-import SectionDot    from "../components/SectionDot.jsx";
-import CharCounter   from "../components/CharCounter.jsx";
+import SectionDot    from "../../pages/product/components/SectionDot.jsx";
+import CharCounter   from "../../pages/product/components/CharCounter.jsx";
 import {
   WarningIcon, SpinnerIcon, LocationPinIcon,
-} from "../components/icons/index.jsx";
+} from "../../pages/product/components/icons/index.jsx";
 
 export default function LocationDeliverySection({ innerRef }) {
   const {
