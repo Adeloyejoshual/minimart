@@ -4,13 +4,11 @@
  */
 import { useMemo, useState } from "react";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
-import DropdownModal   from "../../components/DropdownModal.jsx";
+import DropdownModal      from "../../components/DropdownModal.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
-import { INITIAL_FORM } from "../../hooks/useFormState.js";
-import SectionDot      from "../components/SectionDot.jsx";
+import { INITIAL_FORM }   from "../../hooks/useFormState.js";
+import SectionDot         from "../../pages/product/components/SectionDot.jsx";
 
-/* helpers */
-const normValue = (v) => (v ?? "") + "" ? String(v).trim() : "";
 const safeStr   = (v) => (typeof v === "string" ? v : String(v ?? ""));
 const toArray   = (v) => (Array.isArray(v) ? v : []);
 const deepClone = (o) => structuredClone(o);
