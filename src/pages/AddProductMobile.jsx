@@ -9,14 +9,14 @@ import {
 } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import ProductComponents          from "./product/components.jsx";
-import ProgressOverlay            from "../components/ProgressOverlay.jsx";
-import { locationsByState }       from "../config/locationsByState.js";
-import { apiFetch, ApiError }     from "../utils/apiFetch.js";
-import { detectUserLocation }     from "../utils/location.js";
+import ProductComponents              from "./product/components.jsx";
+import ProgressOverlay                from "../components/ProgressOverlay.jsx";
+import { locationsByState }           from "../config/locationsByState.js";
+import { apiFetch, ApiError }         from "../utils/apiFetch.js";
+import { detectUserLocation }         from "../utils/location.js";
 import { useFormState, INITIAL_FORM } from "../hooks/useFormState.js";
-import { useImageManager }        from "../hooks/useImageManager.js";
-import { useSellerLimits }        from "../hooks/useSellerLimits.js";
+import { useImageManager }            from "../hooks/useImageManager.js";
+import { useSellerLimits }            from "../hooks/useSellerLimits.js";
 
 import "../styles/AddProduct.css";
 
@@ -63,11 +63,11 @@ const ERROR_SELECTOR_MAP = [
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
 ═══════════════════════════════════════════════════════════════ */
-const onlyNumbers     = (v = "") => v.replace(/[^0-9.]/g, "");
-const onlyDigits      = (v = "") => v.replace(/[^0-9]/g,  "");
-const toArray         = (v)      => (Array.isArray(v) ? v : []);
-const sanitizePhone   = (v = "") => v.replace(/[\s\-().]/g, "");
-const isValidPhone    = (v)      => !!v && PHONE_RE.test(sanitizePhone(String(v)));
+const onlyNumbers   = (v = "") => v.replace(/[^0-9.]/g, "");
+const onlyDigits    = (v = "") => v.replace(/[^0-9]/g, "");
+const toArray       = (v)      => (Array.isArray(v) ? v : []);
+const sanitizePhone = (v = "") => v.replace(/[\s\-().]/g, "");
+const isValidPhone  = (v)      => !!v && PHONE_RE.test(sanitizePhone(String(v)));
 
 const displayPrice = (v) => {
   const n = Number(v);
@@ -90,7 +90,9 @@ const getTokenOrRedirect = (navigate, returnPath) => {
   const token = getToken();
   if (!token) {
     navigate(
-      `/login?redirect=${encodeURIComponent(returnPath ?? window.location.pathname)}`
+      `/login?redirect=${encodeURIComponent(
+        returnPath ?? window.location.pathname
+      )}`
     );
     return null;
   }
@@ -106,8 +108,7 @@ const safeOpenPayment = (url, onError) => {
     if (parsed.protocol !== "https:") throw new Error("Non-HTTPS URL");
     const hostAllowed = [...ALLOWED_PAYMENT_HOSTS].some(
       (host) =>
-        parsed.hostname === host ||
-        parsed.hostname.endsWith(`.${host}`)
+        parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
     );
     if (!hostAllowed) throw new Error(`Untrusted host: ${parsed.hostname}`);
     window.open(url, "_blank", "noopener,noreferrer");
@@ -141,7 +142,11 @@ const clearIdempotencyKey = (storageKey) =>
    NETWORK HELPER
 ═══════════════════════════════════════════════════════════════ */
 const multipartRequest = async (
-  url, method = "POST", formData, token, timeoutMs = UPLOAD_TIMEOUT
+  url,
+  method = "POST",
+  formData,
+  token,
+  timeoutMs = UPLOAD_TIMEOUT
 ) => {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -162,7 +167,10 @@ const multipartRequest = async (
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok)
-    throw new ApiError(data?.message ?? `Request failed (${res.status})`, res.status);
+    throw new ApiError(
+      data?.message ?? `Request failed (${res.status})`,
+      res.status
+    );
   return data;
 };
 
@@ -199,7 +207,7 @@ export default function AddProduct({ user }) {
   const editId     = searchParams.get("edit") || null;
   const isEditMode = !!editId;
 
-  const STORAGE_DRAFT     = useMemo(
+  const STORAGE_DRAFT = useMemo(
     () => `product_draft_v3_${user?.id ?? "anon"}`,
     [user?.id]
   );
@@ -208,16 +216,11 @@ export default function AddProduct({ user }) {
     [user?.id]
   );
 
-  /* ═══════════════════════════════════════════════════════════
-     REFS (declared FIRST — hooks below can use them)
-  ═══════════════════════════════════════════════════════════ */
+  /* ─── Refs ─── */
   const mountedRef      = useRef(true);
   const isSubmittingRef = useRef(false);
   const autoSaveTimer   = useRef(null);
   const timeoutIdsRef   = useRef(new Set());
-
-  /* Feedback refs — allow useImageManager to call showError/showSuccess
-     even though those functions are defined later in the file */
   const showErrorRef    = useRef(() => {});
   const showSuccessRef  = useRef(() => {});
 
@@ -229,9 +232,7 @@ export default function AddProduct({ user }) {
     };
   }, []);
 
-  /* ═══════════════════════════════════════════════════════════
-     CUSTOM HOOKS
-  ═══════════════════════════════════════════════════════════ */
+  /* ─── Custom hooks ─── */
   const {
     form, updateForm, updateAttribute, updateContact,
     updateDelivery, updateDeliveryDuration, toggleFeature,
@@ -254,9 +255,7 @@ export default function AddProduct({ user }) {
     dailyRemaining, activeRemaining, cooldownSecs, canPost,
   } = useSellerLimits(API_BASE, isEditMode);
 
-  /* ═══════════════════════════════════════════════════════════
-     LOCAL STATE
-  ═══════════════════════════════════════════════════════════ */
+  /* ─── Local state ─── */
   const [categories,        setCategories]        = useState([]);
   const [categoriesLoaded,  setCategoriesLoaded]  = useState(false);
   const [promotionPlans,    setPromotionPlans]    = useState([]);
@@ -278,9 +277,7 @@ export default function AddProduct({ user }) {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [verificationData,  setVerificationData]  = useState(null);
 
-  /* ═══════════════════════════════════════════════════════════
-     FEEDBACK
-  ═══════════════════════════════════════════════════════════ */
+  /* ─── Feedback ─── */
   const showError = useCallback((msg) => {
     if (!mountedRef.current) return;
     setError(msg);
@@ -302,40 +299,45 @@ export default function AddProduct({ user }) {
     timeoutIdsRef.current.add(id);
   }, []);
 
-  /* Keep refs pointing to latest versions — useImageManager uses these */
   useEffect(() => {
     showErrorRef.current   = showError;
     showSuccessRef.current = showSuccess;
   }, [showError, showSuccess]);
 
-  /* Safe redirect with tracked timeout */
-  const safeRedirect = useCallback((path, delayMs = REDIRECT_DELAY_MS) => {
-    const id = setTimeout(() => {
-      if (mountedRef.current) navigate(path);
-      timeoutIdsRef.current.delete(id);
-    }, delayMs);
-    timeoutIdsRef.current.add(id);
-  }, [navigate]);
+  const safeRedirect = useCallback(
+    (path, delayMs = REDIRECT_DELAY_MS) => {
+      const id = setTimeout(() => {
+        if (mountedRef.current) navigate(path);
+        timeoutIdsRef.current.delete(id);
+      }, delayMs);
+      timeoutIdsRef.current.add(id);
+    },
+    [navigate]
+  );
 
-  /* ═══════════════════════════════════════════════════════════
-     DERIVED
-  ═══════════════════════════════════════════════════════════ */
+  /* ─── Derived ─── */
   const selectedCategory = useMemo(
-    () => categories.find((c) => String(c.id) === String(form.category_id)) ?? null,
+    () =>
+      categories.find((c) => String(c.id) === String(form.category_id)) ??
+      null,
     [categories, form.category_id]
   );
-  const options    = useMemo(() => selectedCategory?.dynamicOptions ?? {}, [selectedCategory]);
+  const options    = useMemo(
+    () => selectedCategory?.dynamicOptions ?? {},
+    [selectedCategory]
+  );
   const attributes = useMemo(
     () => form.attributes ?? INITIAL_FORM.attributes,
     [form.attributes]
   );
   const states = useMemo(() => Object.keys(locationsByState ?? {}), []);
   const cities = useMemo(
-    () => locationState ? (locationsByState[locationState] ?? []) : [],
+    () => (locationState ? locationsByState[locationState] ?? [] : []),
     [locationState]
   );
 
-  const isSelectedPlanPaid = !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
+  const isSelectedPlanPaid =
+    !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
   /* ═══════════════════════════════════════════════════════════
      LOAD CATEGORIES
@@ -356,7 +358,7 @@ export default function AddProduct({ user }) {
   }, [showError]);
 
   /* ═══════════════════════════════════════════════════════════
-     LOAD PLANS (skip edit mode)
+     LOAD PLANS  (skip in edit mode)
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) { setPlansLoading(false); return; }
@@ -374,6 +376,7 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      LOAD PRODUCT FOR EDIT
+     GET /api/seller-dashboard/products/:id  ← this route EXISTS ✓
   ═══════════════════════════════════════════════════════════ */
   const loadProductForEdit = useCallback(async () => {
     if (!editId) return;
@@ -394,7 +397,8 @@ export default function AddProduct({ user }) {
         }
       );
       const d = await res.json();
-      if (!res.ok || !d.success) throw new Error(d.message || "Product not found");
+      if (!res.ok || !d.success)
+        throw new Error(d.message || "Product not found");
 
       const p = d.product;
       if (!mountedRef.current) return;
@@ -408,14 +412,15 @@ export default function AddProduct({ user }) {
         setDetectedCoords({ latitude: p.latitude, longitude: p.longitude });
       }
 
+      /* ── Load existing images ── */
       if (p.product_images?.length > 0) {
         loadExistingImages(
           p.product_images.map((img) => ({
             id        : img.id,
             url       : img.image_url,
-            r2_key    : img.r2_key    || null,
+            r2_key    : img.r2_key       || null,
             position  : img.position_order ?? 0,
-            is_primary: img.is_primary ?? false,
+            is_primary: img.is_primary   ?? false,
             isExisting: true,
           }))
         );
@@ -445,7 +450,8 @@ export default function AddProduct({ user }) {
 
     } catch (err) {
       console.error("[AddProduct] edit load:", err);
-      if (mountedRef.current) setEditError(err.message || "Failed to load product");
+      if (mountedRef.current)
+        setEditError(err.message || "Failed to load product");
     } finally {
       if (mountedRef.current) setEditLoading(false);
     }
@@ -456,7 +462,7 @@ export default function AddProduct({ user }) {
   }, [isEditMode, categoriesLoaded, loadProductForEdit]);
 
   /* ═══════════════════════════════════════════════════════════
-     RESUME STALE PAYMENT (skip edit mode)
+     RESUME STALE PAYMENT  (skip in edit mode)
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -466,11 +472,8 @@ export default function AddProduct({ user }) {
         if (!saved) return;
 
         let session;
-        try {
-          session = JSON.parse(saved);
-        } catch {
-          localStorage.removeItem(STORAGE_PAYMENT); return;
-        }
+        try { session = JSON.parse(saved); }
+        catch { localStorage.removeItem(STORAGE_PAYMENT); return; }
 
         if (!isValidPaymentSession(session)) {
           localStorage.removeItem(STORAGE_PAYMENT); return;
@@ -479,7 +482,9 @@ export default function AddProduct({ user }) {
         const ageMs = Date.now() - session.createdAt;
         if (ageMs <= PAYMENT_MAX_AGE) {
           if (mountedRef.current) setPaymentData(session);
-          showSuccess("Incomplete payment found — tap 'Complete Payment' to finish");
+          showSuccess(
+            "Incomplete payment found — tap 'Complete Payment' to finish"
+          );
           return;
         }
 
@@ -502,9 +507,8 @@ export default function AddProduct({ user }) {
                     ? "Payment confirmed. Redirecting to verification…"
                     : "Your previous payment was confirmed — product is live!"
                 );
-                if (result.needs_verification) {
+                if (result.needs_verification)
                   safeRedirect("/verification", VERIFY_DELAY_MS);
-                }
               }
             } catch { /* non-critical */ }
           }
@@ -520,7 +524,7 @@ export default function AddProduct({ user }) {
   }, [isEditMode, showSuccess, safeRedirect]);
 
   /* ═══════════════════════════════════════════════════════════
-     RESTORE DRAFT (skip edit mode)
+     RESTORE DRAFT  (skip in edit mode)
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -547,10 +551,13 @@ export default function AddProduct({ user }) {
     } catch (err) {
       console.warn("[AddProduct] draft restore:", err.message);
     }
-  }, [isEditMode, categoriesLoaded, plansLoading, STORAGE_DRAFT, loadForm, promotionPlans]);
+  }, [
+    isEditMode, categoriesLoaded, plansLoading,
+    STORAGE_DRAFT, loadForm, promotionPlans,
+  ]);
 
   /* ═══════════════════════════════════════════════════════════
-     AUTO-SAVE DRAFT (skip edit mode)
+     AUTO-SAVE DRAFT  (skip in edit mode)
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -558,16 +565,21 @@ export default function AddProduct({ user }) {
     autoSaveTimer.current = setTimeout(() => {
       if (!mountedRef.current) return;
       try {
-        localStorage.setItem(STORAGE_DRAFT, JSON.stringify({
-          version     : DRAFT_VERSION,
-          form,
-          locationState,
-          city,
-          selectedPlan: selectedPlan?.id ?? null,
-        }));
+        localStorage.setItem(
+          STORAGE_DRAFT,
+          JSON.stringify({
+            version     : DRAFT_VERSION,
+            form,
+            locationState,
+            city,
+            selectedPlan: selectedPlan?.id ?? null,
+          })
+        );
       } catch { /* non-critical */ }
     }, DRAFT_DELAY_MS);
-    return () => { if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current); };
+    return () => {
+      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+    };
   }, [isEditMode, form, locationState, city, selectedPlan, STORAGE_DRAFT]);
 
   /* ═══════════════════════════════════════════════════════════
@@ -580,9 +592,14 @@ export default function AddProduct({ user }) {
       if (!mountedRef.current) return;
       if (result.state) setLocationState(result.state);
       if (result.city)  setCity(result.city);
-      setDetectedCoords({ latitude: result.latitude, longitude: result.longitude });
+      setDetectedCoords({
+        latitude : result.latitude,
+        longitude: result.longitude,
+      });
       showSuccess(
-        result.state ? "Location detected" : "GPS captured — fill state/city manually"
+        result.state
+          ? "Location detected"
+          : "GPS captured — fill state/city manually"
       );
     } catch (err) {
       if (!mountedRef.current) return;
@@ -603,11 +620,15 @@ export default function AddProduct({ user }) {
     const d = form.description?.trim() ?? "";
     if (d.length < DESCRIPTION_MIN)
       return `Description must be at least ${DESCRIPTION_MIN} characters.`;
-    if (d.length > 2000) return "Description must be at most 2000 characters.";
+    if (d.length > 2000)
+      return "Description must be at most 2000 characters.";
 
-    if (!form.price || Number(form.price) <= 0) return "Enter a valid price.";
-    if (Number(form.price) > 1_000_000_000)     return "Price exceeds maximum.";
-    if (!form.category_id)                       return "Category required.";
+    if (!form.price || Number(form.price) <= 0)
+      return "Enter a valid price.";
+    if (Number(form.price) > 1_000_000_000)
+      return "Price exceeds maximum.";
+    if (!form.category_id)
+      return "Category required.";
 
     if (!EMAIL_RE.test(form.contact?.email ?? ""))
       return "Enter a valid email address.";
@@ -618,18 +639,24 @@ export default function AddProduct({ user }) {
     if (form.contact?.whatsapp && !isValidPhone(form.contact.whatsapp))
       return "WhatsApp number must be 7–15 digits.";
 
-    if (totalImageCount === 0) return "At least one image is required.";
+    if (totalImageCount === 0)
+      return "At least one image is required.";
 
-    if (!locationState || !city) return "Select your state and city.";
+    if (!locationState || !city)
+      return "Select your state and city.";
 
-    if (!isEditMode && !agreedToTerms) return "Please accept the Terms & Conditions.";
+    if (!isEditMode && !agreedToTerms)
+      return "Please accept the Terms & Conditions.";
 
     if (form.delivery.available) {
       const from = Number(form.delivery.duration.from);
       const to   = Number(form.delivery.duration.to);
-      if (!Number.isFinite(from) || from < 1) return "Enter valid delivery start days.";
-      if (!Number.isFinite(to)   || to   < 1) return "Enter valid delivery end days.";
-      if (to < from)                           return "Delivery end must be after start.";
+      if (!Number.isFinite(from) || from < 1)
+        return "Enter valid delivery start days.";
+      if (!Number.isFinite(to) || to < 1)
+        return "Enter valid delivery end days.";
+      if (to < from)
+        return "Delivery end must be after start.";
       if (!form.delivery.fee || Number(form.delivery.fee) <= 0)
         return "Enter a valid delivery fee.";
     }
@@ -646,7 +673,8 @@ export default function AddProduct({ user }) {
     fd.append("description",    form.description.trim());
     fd.append("price",          Number(form.price).toFixed(2));
     fd.append("category_id",    form.category_id);
-    if (form.subcategory_id)    fd.append("subcategory_id", form.subcategory_id);
+    if (form.subcategory_id)
+      fd.append("subcategory_id", form.subcategory_id);
     fd.append("location_state", locationState ?? "");
     fd.append("location_city",  city ?? "");
     fd.append("phone",          sanitizePhone(form.contact.phone    ?? ""));
@@ -657,8 +685,8 @@ export default function AddProduct({ user }) {
       ...attributes,
       features: toArray(attributes.features),
     }));
-    fd.append("delivery",       JSON.stringify(form.delivery));
-    fd.append("contact",        JSON.stringify(form.contact));
+    fd.append("delivery",  JSON.stringify(form.delivery));
+    fd.append("contact",   JSON.stringify(form.contact));
     if (detectedCoords) {
       fd.append("latitude",  String(detectedCoords.latitude));
       fd.append("longitude", String(detectedCoords.longitude));
@@ -666,20 +694,27 @@ export default function AddProduct({ user }) {
     return fd;
   }, [form, attributes, locationState, city, detectedCoords, user]);
 
-  const buildCreateFormData = useCallback((isFreePlan) => {
-    const fd = buildBaseFormData();
-    fd.append("status",          isFreePlan ? "active" : "draft");
-    fd.append("is_active",       isFreePlan ? "true"   : "false");
-    fd.append("idempotency_key", getOrCreateIdempotencyKey(IDEMPOTENCY_STORE));
-    const imageHashes = images.map((img) => img.hash).filter(Boolean);
-    if (imageHashes.length) fd.append("image_hashes", JSON.stringify(imageHashes));
-    images.forEach((img) => fd.append("images", img.file));
-    return fd;
-  }, [buildBaseFormData, images, IDEMPOTENCY_STORE]);
+  const buildCreateFormData = useCallback(
+    (isFreePlan) => {
+      const fd = buildBaseFormData();
+      fd.append("status",          isFreePlan ? "active" : "draft");
+      fd.append("is_active",       isFreePlan ? "true"   : "false");
+      fd.append("idempotency_key", getOrCreateIdempotencyKey(IDEMPOTENCY_STORE));
+      const imageHashes = images.map((img) => img.hash).filter(Boolean);
+      if (imageHashes.length)
+        fd.append("image_hashes", JSON.stringify(imageHashes));
+      images.forEach((img) => fd.append("images", img.file));
+      return fd;
+    },
+    [buildBaseFormData, images, IDEMPOTENCY_STORE]
+  );
 
   const buildEditFormData = useCallback(() => {
     const fd = buildBaseFormData();
-    fd.append("keep_image_ids",   JSON.stringify(existingImages.map((img) => img.id)));
+    fd.append(
+      "keep_image_ids",
+      JSON.stringify(existingImages.map((img) => img.id))
+    );
     if (removedImageKeys.length)
       fd.append("remove_image_keys", JSON.stringify(removedImageKeys));
     images.forEach((img) => fd.append("images", img.file));
@@ -712,8 +747,7 @@ export default function AddProduct({ user }) {
           body: JSON.stringify({ reference: paymentData.reference }),
         });
       }
-    } catch { /* non-critical */ }
-    finally {
+    } catch { /* non-critical */ } finally {
       localStorage.removeItem(STORAGE_PAYMENT);
       if (mountedRef.current) setPaymentData(null);
       showSuccess("Payment cancelled — listing saved as draft");
@@ -743,10 +777,14 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      EDIT SUBMIT
+     PATCH /api/addproduct/products/:id  ← editproduct.js ✓
   ═══════════════════════════════════════════════════════════ */
   const handleEditSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
-    if (!navigator.onLine) { showError("You appear to be offline."); return; }
+    if (!navigator.onLine) {
+      showError("You appear to be offline.");
+      return;
+    }
 
     isSubmittingRef.current = true;
     setLoading(true);
@@ -764,18 +802,25 @@ export default function AddProduct({ user }) {
     setError("");
 
     try {
-      const token = getTokenOrRedirect(navigate, `/minimart/add?edit=${editId}`);
+      const token = getTokenOrRedirect(
+        navigate,
+        `/minimart/add?edit=${editId}`
+      );
       if (!token) return;
 
       const fd = buildEditFormData();
+
+      /* ✅ Correct URL — matches PATCH /api/addproduct/products/:id
+            in routes/editproduct.js mounted at /api/addproduct        */
       await multipartRequest(
-        `${API_BASE}/seller-dashboard/products/${editId}`,
+        `${API_BASE}/addproduct/products/${editId}`,
         "PATCH",
         fd,
         token
       );
 
       if (!mountedRef.current) return;
+
       setProgressStep("finalizing");
       await new Promise((r) => setTimeout(r, STEP_DELAY_MS));
       if (!mountedRef.current) return;
@@ -786,7 +831,19 @@ export default function AddProduct({ user }) {
 
     } catch (err) {
       if (mountedRef.current) setProgressVisible(false);
-      showError(err.message ?? "Update failed — please try again");
+
+      const msg =
+        err?.status === 404
+          ? "Listing not found — it may have been deleted."
+          : err?.status === 403
+          ? "You don't have permission to edit this listing."
+          : err?.status === 409
+          ? err.message
+          : err?.status === 413
+          ? "Images are too large. Please compress and retry."
+          : err.message ?? "Update failed — please try again.";
+
+      showError(msg);
     } finally {
       if (mountedRef.current) setLoading(false);
       isSubmittingRef.current = false;
@@ -799,33 +856,39 @@ export default function AddProduct({ user }) {
   /* ═══════════════════════════════════════════════════════════
      CREATE SUBMIT
   ═══════════════════════════════════════════════════════════ */
-  const handlePostSuccess = useCallback((responseData) => {
-    if (!mountedRef.current) return;
-    clearIdempotencyKey(IDEMPOTENCY_STORE);
+  const handlePostSuccess = useCallback(
+    (responseData) => {
+      if (!mountedRef.current) return;
+      clearIdempotencyKey(IDEMPOTENCY_STORE);
 
-    const verificationNeeded = responseData?.needs_verification === true;
-    const daysRemaining      = responseData?.days_remaining ?? 7;
+      const verificationNeeded = responseData?.needs_verification === true;
+      const daysRemaining      = responseData?.days_remaining ?? 7;
 
-    if (verificationNeeded) {
-      setVerificationData({
-        productId   : responseData.product?.id,
-        activeUntil : responseData.active_until,
-        daysRemaining,
-        message     : responseData.verification_message,
-        limits      : responseData.limits,
-      });
-      setNeedsVerification(true);
-      showSuccess(`Listing live for ${daysRemaining} days. Redirecting…`);
-      safeRedirect("/verification", VERIFY_DELAY_MS);
-    } else {
-      showSuccess("Product live! Redirecting…");
-      safeRedirect("/");
-    }
-  }, [IDEMPOTENCY_STORE, showSuccess, safeRedirect]);
+      if (verificationNeeded) {
+        setVerificationData({
+          productId    : responseData.product?.id,
+          activeUntil  : responseData.active_until,
+          daysRemaining,
+          message      : responseData.verification_message,
+          limits       : responseData.limits,
+        });
+        setNeedsVerification(true);
+        showSuccess(`Listing live for ${daysRemaining} days. Redirecting…`);
+        safeRedirect("/verification", VERIFY_DELAY_MS);
+      } else {
+        showSuccess("Product live! Redirecting…");
+        safeRedirect("/");
+      }
+    },
+    [IDEMPOTENCY_STORE, showSuccess, safeRedirect]
+  );
 
   const handleCreateSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
-    if (!navigator.onLine) { showError("You appear to be offline."); return; }
+    if (!navigator.onLine) {
+      showError("You appear to be offline.");
+      return;
+    }
 
     isSubmittingRef.current = true;
     setLoading(true);
@@ -846,8 +909,10 @@ export default function AddProduct({ user }) {
     let paymentInitiated = false;
 
     try {
-      const finalPlan = selectedPlan ??
-        promotionPlans.find((p) => Number(p.price) === 0) ?? null;
+      const finalPlan =
+        selectedPlan ??
+        promotionPlans.find((p) => Number(p.price) === 0) ??
+        null;
 
       if (!finalPlan)
         throw new ApiError(
@@ -865,10 +930,14 @@ export default function AddProduct({ user }) {
       setProgressStep("uploading");
       const fd         = buildCreateFormData(isFreePlan);
       const uploadData = await multipartRequest(
-        `${API_BASE}/addproduct/products`, "POST", fd, token
+        `${API_BASE}/addproduct/products`,
+        "POST",
+        fd,
+        token
       );
       if (!mountedRef.current) return;
-      if (!uploadData.product?.id) throw new ApiError("Product creation failed", 500);
+      if (!uploadData.product?.id)
+        throw new ApiError("Product creation failed", 500);
       product = uploadData.product;
 
       fetchLimits();
@@ -904,7 +973,9 @@ export default function AddProduct({ user }) {
       setProgressStep("payment");
       const rawPrice     = Number(finalPlan.price);
       const discount     = Number(finalPlan.discount_percent ?? 0);
-      const effectiveAmt = Number((rawPrice * (1 - discount / 100)).toFixed(2));
+      const effectiveAmt = Number(
+        (rawPrice * (1 - discount / 100)).toFixed(2)
+      );
 
       const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
         method  : "POST",
@@ -927,16 +998,16 @@ export default function AddProduct({ user }) {
       paymentInitiated = true;
 
       const session = {
-        reference         : payData.reference,
-        authUrl           : payData.authorization_url,
-        planId            : String(finalPlan.id),
-        productId         : product.id,
-        email             : form.contact.email,
-        amount            : effectiveAmt,
-        createdAt         : Date.now(),
-        needsVerification : uploadData.needs_verification ?? false,
-        activeUntil       : uploadData.active_until       ?? null,
-        daysRemaining     : uploadData.days_remaining      ?? null,
+        reference        : payData.reference,
+        authUrl          : payData.authorization_url,
+        planId           : String(finalPlan.id),
+        productId        : product.id,
+        email            : form.contact.email,
+        amount           : effectiveAmt,
+        createdAt        : Date.now(),
+        needsVerification: uploadData.needs_verification ?? false,
+        activeUntil      : uploadData.active_until       ?? null,
+        daysRemaining    : uploadData.days_remaining      ?? null,
       };
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
 
@@ -957,10 +1028,12 @@ export default function AddProduct({ user }) {
       if (product?.id && !paymentInitiated) {
         const token = getToken();
         if (token) {
-          fetch(
-            `${API_BASE}/addproduct/products/${product.id}`,
-            { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }
-          ).catch((e) => console.error("[AddProduct] cleanup failed:", e));
+          fetch(`${API_BASE}/addproduct/products/${product.id}`, {
+            method  : "DELETE",
+            headers : { Authorization: `Bearer ${token}` },
+          }).catch((e) =>
+            console.error("[AddProduct] cleanup failed:", e)
+          );
         }
       }
 
@@ -980,65 +1053,70 @@ export default function AddProduct({ user }) {
 
   /* Route to correct submit */
   const handleSubmit = useCallback(
-    () => isEditMode ? handleEditSubmit() : handleCreateSubmit(),
+    () => (isEditMode ? handleEditSubmit() : handleCreateSubmit()),
     [isEditMode, handleEditSubmit, handleCreateSubmit]
   );
 
   /* ═══════════════════════════════════════════════════════════
      TERMS CHECKBOX
   ═══════════════════════════════════════════════════════════ */
-  const TermsCheckbox = useMemo(() => (
-    <div className="ap-terms-row">
-      <label
-        className="ap-terms-label"
-        onClick={(e) => {
-          if (e.target.tagName === "A") return;
-          e.preventDefault();
-          setAgreedToTerms((v) => !v);
-        }}
-      >
-        <span
-          className={`ap-terms-box ${agreedToTerms ? "ap-terms-box--on" : ""}`}
-          role="checkbox"
-          aria-checked={agreedToTerms}
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              setAgreedToTerms((v) => !v);
-            }
+  const TermsCheckbox = useMemo(
+    () => (
+      <div className="ap-terms-row">
+        <label
+          className="ap-terms-label"
+          onClick={(e) => {
+            if (e.target.tagName === "A") return;
+            e.preventDefault();
+            setAgreedToTerms((v) => !v);
           }}
         >
-          {agreedToTerms && (
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                 stroke="#fff" strokeWidth="3"
-                 strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
-          )}
-        </span>
-        <input
-          type="checkbox"
-          checked={agreedToTerms}
-          onChange={() => {}}
-          style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
-          aria-hidden="true"
-          tabIndex={-1}
-        />
-        <span className="ap-terms-text">
-          I agree to the{" "}
-          <Link
-            to="/terms"
-            target="_blank"
-            rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
+          <span
+            className={`ap-terms-box ${agreedToTerms ? "ap-terms-box--on" : ""}`}
+            role="checkbox"
+            aria-checked={agreedToTerms}
+            tabIndex={0}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                setAgreedToTerms((v) => !v);
+              }
+            }}
           >
-            Terms &amp; Conditions
-          </Link>
-        </span>
-      </label>
-    </div>
-  ), [agreedToTerms]);
+            {agreedToTerms && (
+              <svg
+                width="11" height="11" viewBox="0 0 24 24"
+                fill="none" stroke="#fff" strokeWidth="3"
+                strokeLinecap="round" strokeLinejoin="round"
+              >
+                <polyline points="20 6 9 17 4 12" />
+              </svg>
+            )}
+          </span>
+          <input
+            type="checkbox"
+            checked={agreedToTerms}
+            onChange={() => {}}
+            style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
+            aria-hidden="true"
+            tabIndex={-1}
+          />
+          <span className="ap-terms-text">
+            I agree to the{" "}
+            <Link
+              to="/terms"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+            >
+              Terms &amp; Conditions
+            </Link>
+          </span>
+        </label>
+      </div>
+    ),
+    [agreedToTerms]
+  );
 
   /* ═══════════════════════════════════════════════════════════
      EDIT LOADING / ERROR STATES
@@ -1111,14 +1189,12 @@ export default function AddProduct({ user }) {
         promotionPlans={promotionPlans}
         plansLoading={plansLoading}
         MAX_IMAGES={MAX_IMAGES}
-
         /* ─ edit mode ─ */
         isEditMode={isEditMode}
         editId={editId}
         existingImages={existingImages}
         removeExistingImage={removeExistingImage}
         totalImageCount={totalImageCount}
-
         /* ─ seller limits ─ */
         sellerLimits={sellerLimits}
         limitsLoading={limitsLoading}
@@ -1129,11 +1205,9 @@ export default function AddProduct({ user }) {
         cooldownSecs={cooldownSecs}
         trialExhausted={trialExhausted}
         trialRemaining={trialRemaining}
-
         /* ─ post-creation ─ */
         needsVerification={needsVerification}
         verificationData={verificationData}
-
         /* ─ handlers ─ */
         updateForm={updateForm}
         updateAttribute={updateAttribute}
@@ -1152,13 +1226,11 @@ export default function AddProduct({ user }) {
         detectLocation={detectLocation}
         resumePayment={isEditMode ? null : resumePayment}
         cancelPendingPayment={isEditMode ? null : cancelPendingPayment}
-
         /* ─ formatters ─ */
         displayPrice={displayPrice}
         formatLabel={formatLabel}
         onlyNumbers={onlyNumbers}
         onlyDigits={onlyDigits}
-
         /* ─ API base ─ */
         apiBase={API_BASE}
       />
