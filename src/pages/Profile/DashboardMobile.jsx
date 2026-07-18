@@ -38,24 +38,52 @@ const GREETING = (() => {
 })();
 
 /* ─────────────────────────────────────────────
-   Custom hook — all dashboard data & actions
+   Helper — resolve user email from any storage
 ───────────────────────────────────────────── */
-function useDashboard(showToast) {
+const resolveEmail = (propEmail) => {
+  if (propEmail && propEmail.includes("@")) return propEmail;
+
+  const plainKeys = ["user_email", "userEmail", "email", "marketplace_email"];
+  for (const key of plainKeys) {
+    const val = localStorage.getItem(key);
+    if (val && val.includes("@")) return val;
+  }
+
+  const jsonKeys = ["user", "userData", "marketplace_user", "auth_user", "currentUser"];
+  for (const key of jsonKeys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const email  = parsed?.email || parsed?.user?.email;
+      if (email && email.includes("@")) return email;
+    } catch { /* skip */ }
+  }
+
+  return "";
+};
+
+/* ─────────────────────────────────────────────
+   useDashboard — all data & mutations
+───────────────────────────────────────────── */
+function useDashboard(showToast, userEmail) {
+
   /* ── data ── */
   const [stats,     setStats]     = useState(null);
   const [products,  setProducts]  = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [plans,     setPlans]     = useState([]);
 
-  /* ── loading / error ── */
+  /* ── ui state ── */
   const [loading,     setLoading]     = useState(true);
   const [prodLoading, setProdLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing,  setRefreshing]  = useState(false);
   const [error,       setError]       = useState(null);
   const [deleting,    setDeleting]    = useState(null);
+  const [verifying,   setVerifying]   = useState(null);
 
-  /* ── pagination / filters ── */
+  /* ── filters / pagination ── */
   const [tab,        setTab]        = useState("all");
   const [search,     setSearch]     = useState("");
   const [hasMore,    setHasMore]    = useState(false);
@@ -66,7 +94,9 @@ function useDashboard(showToast) {
   const searchTimer   = useRef(null);
   const pendingDelete = useRef(null);
 
-  /* ── fetch helpers ── */
+  /* ────────────────────────────────────────
+     Fetchers
+  ──────────────────────────────────────── */
   const fetchStats = useCallback(async () => {
     try {
       const res = await fetch(`${API}/seller-dashboard/stats`, {
@@ -94,7 +124,6 @@ function useDashboard(showToast) {
 
   const fetchProducts = useCallback(
     async (currentTab = "all", cursor = null, query = "") => {
-      /* cancel in-flight request */
       abortRef.current?.abort();
       abortRef.current = new AbortController();
 
@@ -132,17 +161,17 @@ function useDashboard(showToast) {
     [showToast]
   );
 
-  /* ── bootstrap ── */
   const fetchPlans = useCallback(async () => {
     try {
       const res = await fetch(`${API}/payment/plans`);
       const d   = await res.json();
       if (d.success) setPlans(d.plans ?? []);
-    } catch {
-      /* non-critical */
-    }
+    } catch { /* non-critical */ }
   }, []);
 
+  /* ────────────────────────────────────────
+     Bootstrap
+  ──────────────────────────────────────── */
   const loadAll = useCallback(
     async (silent = false) => {
       silent ? setRefreshing(true) : setLoading(true);
@@ -168,7 +197,9 @@ function useDashboard(showToast) {
     loadAll();
   }, [fetchPlans, loadAll]);
 
-  /* ── tab / search handlers ── */
+  /* ────────────────────────────────────────
+     Filter / pagination handlers
+  ──────────────────────────────────────── */
   const handleTabChange = useCallback(
     (newTab) => {
       setTab(newTab);
@@ -196,11 +227,12 @@ function useDashboard(showToast) {
     fetchProducts(tab, nextCursor, search);
   }, [hasMore, loadingMore, nextCursor, tab, search, fetchProducts]);
 
-  /* ── product mutations ── */
+  /* ────────────────────────────────────────
+     Product mutations
+  ──────────────────────────────────────── */
   const deleteProduct = useCallback(
     async (product) => {
       setDeleting(product.id);
-      /* optimistic remove */
       setProducts((prev) => prev.filter((p) => p.id !== product.id));
 
       try {
@@ -218,7 +250,6 @@ function useDashboard(showToast) {
             5000
           );
         } else {
-          /* rollback */
           setProducts((prev) => [product, ...prev]);
           showToast(d.message || "Could not delete.", "error");
         }
@@ -234,6 +265,15 @@ function useDashboard(showToast) {
 
   const toggleProduct = useCallback(
     async (product) => {
+      /* guard: pending_payment products must not be toggled */
+      if (product.status === "pending_payment") {
+        showToast(
+          "Complete payment before activating this listing.",
+          "warning"
+        );
+        return;
+      }
+
       try {
         const res = await fetch(
           `${API}/seller-dashboard/products/${product.id}/toggle`,
@@ -298,7 +338,94 @@ function useDashboard(showToast) {
     [fetchStats, showToast]
   );
 
-  /* ── derived ── */
+  /* ────────────────────────────────────────
+     Payment handlers
+  ──────────────────────────────────────── */
+  const handlePayNow = useCallback(
+    async (product) => {
+      const email = resolveEmail(userEmail);
+
+      if (!email) {
+        showToast(
+          "We couldn't find your email. Please log out and log in again.",
+          "error"
+        );
+        return;
+      }
+
+      try {
+        const res = await fetch(`${API}/payment/initiate`, {
+          method: "POST",
+          headers: authH(),
+          body: JSON.stringify({
+            product_id: product.id,
+            email,
+          }),
+        });
+        const d = await res.json();
+
+        if (res.ok && d.authorization_url) {
+          window.location.href = d.authorization_url;
+        } else {
+          showToast(d.message || "Could not initiate payment.", "error");
+        }
+      } catch {
+        showToast("Network error. Try again.", "error");
+      }
+    },
+    [userEmail, showToast]
+  );
+
+  const verifyPayment = useCallback(
+    async (product) => {
+      setVerifying(product.id);
+      try {
+        const res = await fetch(
+          `${API}/seller-dashboard/products/${product.id}/verify-payment`,
+          { method: "POST", headers: authH() }
+        );
+        const d = await res.json();
+
+        if (res.ok && d.success) {
+          if (d.status === "active") {
+            setProducts((prev) =>
+              prev.map((p) =>
+                p.id === product.id
+                  ? { ...p, status: "active", is_active: true }
+                  : p
+              )
+            );
+            fetchStats();
+            showToast(
+              "Payment verified! Your listing is now live.",
+              "success"
+            );
+          } else if (d.status === "pending") {
+            showToast(
+              "Payment is still processing. Please wait a few minutes.",
+              "info"
+            );
+          } else {
+            showToast(
+              d.message || "Payment not confirmed. Please complete payment.",
+              "warning"
+            );
+          }
+        } else {
+          showToast(d.message || "Could not verify payment.", "error");
+        }
+      } catch {
+        showToast("Network error. Try again.", "error");
+      } finally {
+        setVerifying(null);
+      }
+    },
+    [fetchStats, showToast]
+  );
+
+  /* ────────────────────────────────────────
+     Derived
+  ──────────────────────────────────────── */
   const tabCounts = useMemo(
     () => ({
       all:     stats?.total_products  ?? products.length,
@@ -313,30 +440,41 @@ function useDashboard(showToast) {
   return {
     /* data */
     stats, products, analytics, plans,
-    /* loading */
-    loading, prodLoading, loadingMore, refreshing, error, deleting,
+    /* ui */
+    loading, prodLoading, loadingMore, refreshing, error,
+    deleting, verifying,
     /* filters */
     tab, search, hasMore,
     /* refs */
     pendingDelete,
     /* actions */
-    loadAll, handleTabChange, handleSearch, handleLoadMore,
-    deleteProduct, toggleProduct, renewProduct,
-    /* setters needed by UI */
-    setProducts,
-    /* tab counts */
+    loadAll,
+    handleTabChange,
+    handleSearch,
+    handleLoadMore,
+    deleteProduct,
+    toggleProduct,
+    renewProduct,
+    handlePayNow,
+    verifyPayment,
+    /* counts */
     tabCounts,
   };
 }
 
 /* ─────────────────────────────────────────────
-   Sub-components
+   DashboardHeader
 ───────────────────────────────────────────── */
 function DashboardHeader({
-  greeting, userName, userId,
-  section, setSection,
-  tabCounts, refreshing,
-  onRefresh, onNavigate,
+  greeting,
+  userName,
+  userId,
+  section,
+  setSection,
+  tabCounts,
+  refreshing,
+  onRefresh,
+  onNavigate,
 }) {
   return (
     <header className="dashboard__header">
@@ -366,6 +504,7 @@ function DashboardHeader({
             onClick={onRefresh}
             title="Refresh"
             aria-label="Refresh dashboard"
+            disabled={refreshing}
           >
             <Ic.Refresh />
           </button>
@@ -416,6 +555,9 @@ function DashboardHeader({
   );
 }
 
+/* ─────────────────────────────────────────────
+   ErrorBanner
+───────────────────────────────────────────── */
 function ErrorBanner({ message, onRetry }) {
   return (
     <div className="dashboard__error-banner" role="alert">
@@ -432,23 +574,25 @@ function ErrorBanner({ message, onRetry }) {
    Dashboard
 ───────────────────────────────────────────── */
 export default function Dashboard({ user }) {
-  const navigate          = useNavigate();
+  const navigate               = useNavigate();
   const { toasts, show: showToast } = useToast();
 
-  /* ── section ── */
+  /* ── ui-only state ── */
   const [section,   setSection]   = useState("overview");
   const [confirm,   setConfirm]   = useState(null);
   const [promoting, setPromoting] = useState(null);
-
-  /* ── all data / logic via hook ── */
-  const db = useDashboard(showToast);
 
   /* ── auth guard ── */
   useEffect(() => {
     if (!getToken()) navigate("/auth?redirect=/dashboard");
   }, [navigate]);
 
-  /* ── delete flow ── */
+  /* ── all data & logic ── */
+  const db = useDashboard(showToast, user?.email);
+
+  /* ────────────────────────────────────────
+     Delete flow
+  ──────────────────────────────────────── */
   const handleDeleteRequest = useCallback(
     (product) => {
       db.pendingDelete.current = product;
@@ -472,29 +616,47 @@ export default function Dashboard({ user }) {
     setConfirm(null);
   }, [db]);
 
-  /* ── edit / promote ── */
+  /* ────────────────────────────────────────
+     Edit / Promote
+  ──────────────────────────────────────── */
   const handleEdit    = useCallback(
     (product) => navigate(`/minimart/add?edit=${product.id}`),
     [navigate]
   );
-  const handlePromote = useCallback((product) => setPromoting(product), []);
-
-  /* ── shared product action props ── */
-  const productActions = useMemo(
-    () => ({
-      onEdit:    handleEdit,
-      onDelete:  handleDeleteRequest,
-      onToggle:  db.toggleProduct,
-      onRenew:   db.renewProduct,
-      onPromote: handlePromote,
-    }),
-    [handleEdit, handleDeleteRequest, db.toggleProduct, db.renewProduct, handlePromote]
+  const handlePromote = useCallback(
+    (product) => setPromoting(product),
+    []
   );
 
-  /* ── derived ── */
+  /* ────────────────────────────────────────
+     Shared action props (memoised object)
+  ──────────────────────────────────────── */
+  const productActions = useMemo(
+    () => ({
+      onEdit:          handleEdit,
+      onDelete:        handleDeleteRequest,
+      onToggle:        db.toggleProduct,
+      onRenew:         db.renewProduct,
+      onPromote:       handlePromote,
+      onPayNow:        db.handlePayNow,
+      onVerifyPayment: db.verifyPayment,
+    }),
+    [
+      handleEdit,
+      handleDeleteRequest,
+      db.toggleProduct,
+      db.renewProduct,
+      handlePromote,
+      db.handlePayNow,
+      db.verifyPayment,
+    ]
+  );
+
+  /* ────────────────────────────────────────
+     Sections map
+  ──────────────────────────────────────── */
   const userName = user?.name || user?.full_name || user?.username || "Seller";
 
-  /* ── section components map ── */
   const sections = useMemo(
     () => ({
       overview: (
@@ -505,6 +667,7 @@ export default function Dashboard({ user }) {
           loading={db.loading}
           userId={user?.id}
           deleting={db.deleting}
+          verifying={db.verifying}
           onNavigate={navigate}
           onSetSection={setSection}
           {...productActions}
@@ -520,6 +683,7 @@ export default function Dashboard({ user }) {
           search={db.search}
           tabCounts={db.tabCounts}
           deleting={db.deleting}
+          verifying={db.verifying}
           onTabChange={db.handleTabChange}
           onSearch={db.handleSearch}
           onLoadMore={db.handleLoadMore}
@@ -537,7 +701,7 @@ export default function Dashboard({ user }) {
         />
       ),
     }),
-    [db, user?.id, navigate, productActions, setSection]
+    [db, user?.id, navigate, productActions]
   );
 
   /* ─── render ─── */
@@ -565,6 +729,7 @@ export default function Dashboard({ user }) {
           />
         )}
 
+        {/* key forces clean remount on section switch */}
         <div
           key={section}
           className="dashboard__section dashboard__fade-in"
@@ -587,7 +752,7 @@ export default function Dashboard({ user }) {
         <Ic.Plus />
       </button>
 
-      {/* Modals */}
+      {/* Confirm delete */}
       {confirm && (
         <ConfirmDialog
           message={confirm.message}
@@ -596,6 +761,7 @@ export default function Dashboard({ user }) {
         />
       )}
 
+      {/* Promote modal */}
       {promoting && (
         <PromoteModal
           product={promoting}
