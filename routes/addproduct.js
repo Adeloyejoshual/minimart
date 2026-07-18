@@ -1,13 +1,14 @@
 // ════════════════════════════════════════════════════════════════
-// FILE: routes/addproduct.js — v14
+// FILE: routes/addproduct.js — v16
 //
-// Changes from v13:
-//  ─ All listings now get active_until (30 days verified, 7 days unverified)
-//  ─ computeActiveUntil updated for both verified + unverified
-//  ─ Removed cleanupStuckPendingPayments (belongs to payment.js)
-//  ─ FREE_LISTING_DAYS constant added
-//  ─ Expiry messages for all active listings
-//  ─ Notifications for both trial + free listings
+// Changes from v15:
+//  ─ Multer input limit lowered back to 5 MB (sweet spot)
+//  ─ Output after compression targets ~500 KB max
+//  ─ Added progressive quality reduction to hit 500 KB target
+//  ─ MIN_DIMENSION check: rejects images below 300×300
+//  ─ pLimit(2) concurrency on compress+upload
+//  ─ Sentry error tracking on all unexpected errors
+//  ─ IMAGE_CONFIG updated to reflect new limits
 // ════════════════════════════════════════════════════════════════
 
 import express   from "express";
@@ -15,6 +16,11 @@ import multer    from "multer";
 import rateLimit from "express-rate-limit";
 import crypto    from "crypto";
 import path      from "path";
+import fs        from "fs";
+import sharp     from "sharp";
+import pLimit    from "p-limit";
+import * as Sentry from "@sentry/node";
+import { fileURLToPath } from "url";
 
 import {
   S3Client,
@@ -36,8 +42,23 @@ import {
   generateSlugWithId,
 } from "../utils/slug.js";
 
-const router  = express.Router();
-const IS_PROD = process.env.NODE_ENV === "production";
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const router    = express.Router();
+const IS_PROD   = process.env.NODE_ENV === "production";
+
+/* ═══════════════════════════════════════════════════════════════
+   SENTRY
+═══════════════════════════════════════════════════════════════ */
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn              : process.env.SENTRY_DSN,
+    environment      : process.env.NODE_ENV ?? "development",
+    tracesSampleRate : 0.2,
+  });
+  console.log("[addproduct] Sentry initialized");
+} else {
+  console.warn("[addproduct] SENTRY_DSN not set — error tracking disabled");
+}
 
 /* ═══════════════════════════════════════════════════════════════
    R2 CLIENT
@@ -54,16 +75,16 @@ const r2 = new S3Client({
 const R2_BUCKET     = process.env.R2_BUCKET_NAME;
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL?.replace(/\/$/, "");
 
-const uploadToR2 = async (buffer, originalName, mimetype) => {
-  const ext = path.extname(originalName || "file.jpg") || ".jpg";
-  const key = `products/${Date.now()}-${crypto.randomUUID()}${ext}`;
+const uploadToR2 = async (buffer, mimetype) => {
+  const key = `products/${Date.now()}-${crypto.randomUUID()}.webp`;
 
   await r2.send(
     new PutObjectCommand({
-      Bucket      : R2_BUCKET,
-      Key         : key,
-      Body        : buffer,
-      ContentType : mimetype,
+      Bucket       : R2_BUCKET,
+      Key          : key,
+      Body         : buffer,
+      ContentType  : mimetype,
+      CacheControl : "public, max-age=31536000, immutable",
     })
   );
 
@@ -95,10 +116,11 @@ const destroyR2Assets = async (keys) => {
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const FREE_LISTING_DAYS   = 30; // verified seller listing lifespan
+const FREE_LISTING_DAYS   = 30;
 const ALLOWED_STATUSES    = new Set(["active", "draft", "pending_payment"]);
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_IMAGES          = 6;
+const MAX_JSON_BYTES      = 8_192;
 
 const ALLOWED_WA_HOSTS = [
   "wa.me",
@@ -109,17 +131,299 @@ const ALLOWED_WA_HOSTS = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════
+   IMAGE CONFIG
+   ─ Input : up to 5 MB per image (multer gate)
+   ─ Output: targets 500 KB max after compression
+   ─ Strategy: resize first → if still > 500 KB, reduce quality
+               in steps until target hit or floor reached
+═══════════════════════════════════════════════════════════════ */
+const IMAGE_CONFIG = Object.freeze({
+  maxInputBytes   : 5 * 1_048_576,    // 5 MB  — multer rejects above this
+  maxOutputBytes  : 500_000,          // 500 KB — target stored size
+  maxWidth        : 1_200,            // resize to max 1200px (either axis)
+  webpQualityInit : 82,               // start quality
+  webpQualityMin  : 55,               // never go below this
+  webpQualityStep : 8,                // reduce by 8 each attempt
+  minDimension    : 300,              // reject images smaller than 300×300
+  watermark: Object.freeze({
+    enabled       : true,
+    logoPath      : path.join(__dirname, "../assets/watermark-logo.png"),
+    text          : "Loemart.com",
+    opacity       : 0.40,
+    logoMaxRatio  : 0.25,
+    fontSizeRatio : 0.045,
+    shadowOpacity : 0.60,
+  }),
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   IMAGE CONCURRENCY  — max 2 compress+upload jobs at once
+   6 images × ~80 MB RAM = 480 MB without limit
+   With pLimit(2) → max ~160 MB peak
+═══════════════════════════════════════════════════════════════ */
+const imageLimit = pLimit(2);
+
+/* ═══════════════════════════════════════════════════════════════
+   WATERMARK — load logo once at startup
+═══════════════════════════════════════════════════════════════ */
+let _watermarkLogo = null;
+let _logoLoadTried = false;
+
+const getWatermarkLogo = async () => {
+  if (_logoLoadTried) return _watermarkLogo;
+  _logoLoadTried = true;
+  try {
+    _watermarkLogo = await fs.promises.readFile(
+      IMAGE_CONFIG.watermark.logoPath
+    );
+    console.log("[watermark] ✓ Logo loaded from disk");
+  } catch {
+    console.warn(
+      "[watermark] Logo not found at",
+      IMAGE_CONFIG.watermark.logoPath,
+      "— will use text watermark"
+    );
+    _watermarkLogo = null;
+  }
+  return _watermarkLogo;
+};
+
+/* ─── SVG text watermark (fallback) ─── */
+const buildTextWatermarkSvg = (imgW, imgH) => {
+  const wm       = IMAGE_CONFIG.watermark;
+  const fontSize = Math.max(14, Math.round(imgW * wm.fontSizeRatio));
+  const textX    = imgW - wm.padding ?? 20;
+  const textY    = imgH - wm.padding ?? 20;
+
+  return Buffer.from(`
+    <svg width="${imgW}" height="${imgH}"
+         xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+          <feDropShadow
+            dx="1" dy="1"
+            stdDeviation="2"
+            flood-color="black"
+            flood-opacity="${wm.shadowOpacity}"
+          />
+        </filter>
+      </defs>
+      <text
+        x="${textX}"
+        y="${textY}"
+        font-family="Arial, sans-serif"
+        font-size="${fontSize}px"
+        font-weight="bold"
+        fill="white"
+        fill-opacity="${wm.opacity}"
+        text-anchor="end"
+        dominant-baseline="auto"
+        filter="url(#shadow)"
+      >${wm.text}</text>
+    </svg>
+  `);
+};
+
+/* ─── Logo watermark composite ─── */
+const buildLogoComposite = async (logoBuffer, imgW) => {
+  const wm        = IMAGE_CONFIG.watermark;
+  const logoWidth = Math.round(imgW * wm.logoMaxRatio);
+
+  const resizedLogo = await sharp(logoBuffer)
+    .resize({
+      width             : logoWidth,
+      fit               : "inside",
+      withoutEnlargement: true,
+    })
+    .ensureAlpha()
+    .webp({ quality: 90 })
+    .toBuffer();
+
+  /* Apply opacity per-pixel on alpha channel */
+  const { data, info } = await sharp(resizedLogo)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  for (let i = 3; i < data.length; i += 4) {
+    data[i] = Math.round(data[i] * wm.opacity);
+  }
+
+  const logoWithOpacity = await sharp(data, {
+    raw: {
+      width    : info.width,
+      height   : info.height,
+      channels : 4,
+    },
+  })
+    .webp({ quality: 90 })
+    .toBuffer();
+
+  return {
+    input   : logoWithOpacity,
+    gravity : "southeast",
+    blend   : "over",
+  };
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   COMPRESS + WATERMARK
+   Flow:
+     1. Validate (corrupt / dimensions too small)
+     2. Resize to maxWidth
+     3. Apply watermark (logo or text SVG)
+     4. Encode WebP at init quality
+     5. If output > 500 KB → reduce quality in steps until ≤ 500 KB
+        or quality floor reached (whichever comes first)
+═══════════════════════════════════════════════════════════════ */
+const compressImage = async (buffer, mimetype) => {
+  /* ── 1. Validate ── */
+  let meta;
+  try {
+    meta = await sharp(buffer).metadata();
+  } catch (err) {
+    Sentry.captureException?.(err, {
+      tags: { area: "image_compression", step: "metadata" },
+    });
+    throw new Error("Invalid or corrupt image file.");
+  }
+
+  if (!meta.width || !meta.height) {
+    throw new Error("Image has invalid dimensions.");
+  }
+
+  if (
+    meta.width  < IMAGE_CONFIG.minDimension ||
+    meta.height < IMAGE_CONFIG.minDimension
+  ) {
+    throw new Error(
+      `Image is too small (${meta.width}×${meta.height}px). ` +
+      `Minimum accepted size is ${IMAGE_CONFIG.minDimension}×` +
+      `${IMAGE_CONFIG.minDimension}px. ` +
+      `Please use a clearer, higher-quality photo.`
+    );
+  }
+
+  /* ── 2. Resize + strip EXIF + auto-rotate ── */
+  let resizedBuffer;
+  try {
+    resizedBuffer = await sharp(buffer)
+      .rotate()                              // fix EXIF orientation
+      .resize({
+        width             : IMAGE_CONFIG.maxWidth,
+        height            : IMAGE_CONFIG.maxWidth,
+        fit               : "inside",        // preserve aspect ratio
+        withoutEnlargement: true,            // never upscale
+      })
+      .toBuffer();                           // raw, not yet encoded
+  } catch (err) {
+    Sentry.captureException?.(err, {
+      tags : { area: "image_compression", step: "resize" },
+      extra: { width: meta.width, height: meta.height, mimetype },
+    });
+    throw new Error("Failed to process image. Please try a different photo.");
+  }
+
+  /* ── 3. Build watermark composite ── */
+  let composite = null;
+
+  if (IMAGE_CONFIG.watermark.enabled) {
+    const resizedMeta = await sharp(resizedBuffer).metadata();
+    const imgW        = resizedMeta.width;
+    const imgH        = resizedMeta.height;
+    const logoBuffer  = await getWatermarkLogo();
+
+    if (logoBuffer) {
+      try {
+        composite = await buildLogoComposite(logoBuffer, imgW);
+      } catch (logoErr) {
+        console.warn("[watermark] Logo failed, using text:", logoErr.message);
+        Sentry.captureException?.(logoErr, {
+          tags: { area: "watermark", step: "logo_composite" },
+        });
+        composite = {
+          input : buildTextWatermarkSvg(imgW, imgH),
+          top   : 0,
+          left  : 0,
+          blend : "over",
+        };
+      }
+    } else {
+      composite = {
+        input : buildTextWatermarkSvg(imgW, imgH),
+        top   : 0,
+        left  : 0,
+        blend : "over",
+      };
+    }
+  }
+
+  /* ── 4 + 5. Encode WebP, reduce quality until ≤ 500 KB ── */
+  let quality     = IMAGE_CONFIG.webpQualityInit;
+  let finalBuffer = null;
+
+  while (quality >= IMAGE_CONFIG.webpQualityMin) {
+    try {
+      const pipeline = sharp(resizedBuffer);
+
+      if (composite) {
+        pipeline.composite([composite]);
+      }
+
+      const candidate = await pipeline
+        .webp({ quality })
+        .toBuffer();
+
+      finalBuffer = candidate;
+
+      if (candidate.length <= IMAGE_CONFIG.maxOutputBytes) {
+        /* ✓ Under 500 KB — done */
+        break;
+      }
+
+      if (quality <= IMAGE_CONFIG.webpQualityMin) {
+        /* Hit the floor — accept whatever size we got */
+        console.warn(
+          `[addproduct] image hit quality floor at ${quality}q, ` +
+          `final size: ${(candidate.length / 1_024).toFixed(0)} KB`
+        );
+        break;
+      }
+
+      /* Reduce and try again */
+      quality -= IMAGE_CONFIG.webpQualityStep;
+      quality  = Math.max(quality, IMAGE_CONFIG.webpQualityMin);
+
+    } catch (encodeErr) {
+      Sentry.captureException?.(encodeErr, {
+        tags : { area: "image_compression", step: "encode_webp" },
+        extra: { quality },
+      });
+      throw new Error("Failed to encode image. Please try a different photo.");
+    }
+  }
+
+  console.log(
+    `[addproduct] compress+watermark:` +
+    ` ${(buffer.length / 1_024).toFixed(0)} KB input` +
+    ` → ${(finalBuffer.length / 1_024).toFixed(0)} KB output` +
+    ` @ quality ${quality}` +
+    ` (${IMAGE_CONFIG.watermark.enabled
+        ? (await getWatermarkLogo() ? "logo" : "text") + " watermark"
+        : "no watermark"})`
+  );
+
+  return { buffer: finalBuffer, mimetype: "image/webp" };
+};
+
+/* ═══════════════════════════════════════════════════════════════
    POLICY TABLE
-   unverified → 3 trial listings, 7-day expiry, cooldown
-   verified   → unlimited, 30-day expiry, no cooldown
 ═══════════════════════════════════════════════════════════════ */
 const POLICY = Object.freeze({
   unverified: Object.freeze({
     dailyLimit       :   3,
     activeLimit      :   3,
     cooldownMinutes  :  10,
-    expiryDays       :   7,   // trial listing expiry
-    freeListingDays  :  30,   // renewal window (not used for unverified)
+    expiryDays       :   7,
     canReactivate    : false,
     totalLifetimeMax :   3,
   }),
@@ -128,7 +432,7 @@ const POLICY = Object.freeze({
     activeLimit      : 500,
     cooldownMinutes  :   0,
     expiryDays       :   0,
-    freeListingDays  :  30,   // listing expires after 30 days, renewable
+    freeListingDays  :  30,
     canReactivate    : true,
     totalLifetimeMax : null,
   }),
@@ -177,11 +481,15 @@ const trackTrending = async (productId) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   MULTER
+   MULTER  — 5 MB input limit
+   Server compresses to ≤ 500 KB output before storing
 ═══════════════════════════════════════════════════════════════ */
 const upload = multer({
   storage    : multer.memoryStorage(),
-  limits     : { fileSize: 3 * 1_048_576, files: MAX_IMAGES },
+  limits     : {
+    fileSize : IMAGE_CONFIG.maxInputBytes,   // 5 MB
+    files    : MAX_IMAGES,
+  },
   fileFilter : (_req, file, cb) => {
     if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
       const err  = new Error(
@@ -264,6 +572,14 @@ const safeParse = (v, fallback) => {
   catch { return fallback; }
 };
 
+const safeParseGuarded = (v, fallback) => {
+  if (v && String(v).length > MAX_JSON_BYTES) {
+    console.warn("[addproduct] JSON field too large, using fallback");
+    return fallback;
+  }
+  return safeParse(v, fallback);
+};
+
 const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
@@ -312,14 +628,12 @@ const validateImageHashes = (raw) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   ACTIVE UNTIL  —  expiry date for all active listings
-   unverified → 7-day trial
-   verified   → 30-day free listing
+   ACTIVE UNTIL
 ═══════════════════════════════════════════════════════════════ */
 const computeActiveUntil = (isVerified) => {
   const days = isVerified
-    ? FREE_LISTING_DAYS                    // 30 days
-    : POLICY.unverified.expiryDays;        // 7 days
+    ? FREE_LISTING_DAYS
+    : POLICY.unverified.expiryDays;
 
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + days);
@@ -328,9 +642,8 @@ const computeActiveUntil = (isVerified) => {
 
 const daysUntilExpiry = (activeUntil) => {
   if (!activeUntil) return null;
-  return Math.max(
-    0,
-    Math.ceil((new Date(activeUntil).getTime() - Date.now()) / 86_400_000)
+  return Math.ceil(
+    (new Date(activeUntil).getTime() - Date.now()) / 86_400_000
   );
 };
 
@@ -458,7 +771,7 @@ const buildContext = (isVerified, stats) => {
 
 const getSellerContext = async (client, sellerId) => {
   const { rows: userRows } = await client.query(
-    "SELECT identity_verified FROM public.users WHERE id = $1 FOR UPDATE",
+    "SELECT identity_verified FROM public.users WHERE id = $1 FOR NO KEY UPDATE",
     [sellerId]
   );
   if (!userRows.length) throw new Error("Seller account not found.");
@@ -485,8 +798,7 @@ const getSellerContextPreUpload = async (sellerId) => {
   );
   if (!userRows.length) throw new Error("Seller account not found.");
   const isVerified      = Boolean(userRows[0].identity_verified);
-  const client          = { query: (...a) => pool.query(...a) };
-  const { rows: stats } = await fetchSellerStats(client, sellerId);
+  const { rows: stats } = await fetchSellerStats(pool, sellerId);
   return buildContext(isVerified, stats[0]);
 };
 
@@ -622,14 +934,7 @@ const buildTrialInfo = (ctx) => {
 
 /* ═══════════════════════════════════════════════════════════════
    EXPORTED CRON UTILITIES
-   These are used by server.js cron jobs — they belong here
-   because they relate to listing lifecycle (not payments)
 ═══════════════════════════════════════════════════════════════ */
-
-/**
- * Called after a seller completes identity verification.
- * Upgrades all their active_limited listings to permanent active.
- */
 export const reactivateLimitedListings = async (sellerId) => {
   const client = await pool.connect();
   try {
@@ -637,20 +942,19 @@ export const reactivateLimitedListings = async (sellerId) => {
       `UPDATE products
        SET    status       = 'active',
               is_active    = TRUE,
-              active_until = NOW() + INTERVAL '${FREE_LISTING_DAYS} days',
+              active_until = NOW() + ($2 || ' days')::INTERVAL,
               updated_at   = NOW()
        WHERE  seller_id    = $1
          AND  status       = 'active_limited'
          AND  (active_until IS NULL OR active_until > NOW())
        RETURNING id, title`,
-      [sellerId]
+      [sellerId, FREE_LISTING_DAYS]
     );
 
     if (rowCount > 0) {
       console.log(
         `[addproduct] reactivated ${rowCount} listing(s) for seller ${sellerId}`
       );
-
       createNotification({
         userId  : sellerId,
         type    : "listings_reactivated",
@@ -669,16 +973,13 @@ export const reactivateLimitedListings = async (sellerId) => {
     return rowCount;
   } catch (err) {
     console.error("[addproduct] reactivateLimitedListings error:", err.message);
+    Sentry.captureException?.(err, { tags: { area: "cron_reactivate" } });
     return 0;
   } finally {
     client.release();
   }
 };
 
-/**
- * Cron: pause expired trial listings for unverified sellers.
- * Called by jobs/listingExpiry.js every hour.
- */
 export const pauseExpiredListings = async () => {
   const client = await pool.connect();
   try {
@@ -722,6 +1023,7 @@ export const pauseExpiredListings = async () => {
     return rows;
   } catch (err) {
     console.error("[addproduct] pauseExpiredListings error:", err.message);
+    Sentry.captureException?.(err, { tags: { area: "cron_pause_expired" } });
     return [];
   } finally {
     client.release();
@@ -850,7 +1152,6 @@ router.post(
 
     const client = await pool.connect();
     try {
-      /* Title match */
       const { rows: titleMatches } = await client.query(
         `SELECT id FROM products
          WHERE  seller_id  = $1
@@ -869,7 +1170,6 @@ router.post(
         });
       }
 
-      /* Image hash match */
       if (image_hashes.length > 0) {
         const hashMatches = await checkImageHashDuplicates(
           client,
@@ -977,11 +1277,15 @@ router.post(
     const phone          = cleanText(req.body.phone);
     const whatsapp       = cleanText(req.body.whatsapp);
     const idempotencyKey = cleanText(req.body.idempotency_key);
-    const imageHashes    = validateImageHashes(safeParse(req.body.image_hashes, []));
-    const attributes     = safeParse(req.body.attributes, {});
-    const delivery       = safeParse(req.body.delivery, {});
-    const contact        = safeParse(req.body.contact, {});
-    const whatsappLink   = sanitizeWhatsAppLink(cleanText(req.body.whatsapp_link));
+    const imageHashes    = validateImageHashes(
+      safeParse(req.body.image_hashes, [])
+    );
+    const attributes  = safeParseGuarded(req.body.attributes, {});
+    const delivery    = safeParseGuarded(req.body.delivery,   {});
+    const contact     = safeParseGuarded(req.body.contact,    {});
+    const whatsappLink = sanitizeWhatsAppLink(
+      cleanText(req.body.whatsapp_link)
+    );
 
     /* ── Validation ── */
     if (!title)             return fail(res, 400, "Title required.");
@@ -1045,17 +1349,19 @@ router.post(
       });
     }
 
-    /* ── PHASE 1: Pre-upload policy check (saves R2 costs) ── */
+    /* ── PHASE 1: Pre-upload policy check ── */
     if (requestedStatus === "active") {
       try {
         const preCtx   = await getSellerContextPreUpload(sellerId);
-        const earlyErr = enforcePolicyLimits({ ...preCtx, activeCount: 0 });
+        const earlyErr = enforcePolicyLimits(preCtx);
         if (earlyErr) {
           console.log("[addproduct] pre-upload block:", earlyErr.message);
           return fail(res, earlyErr.status, earlyErr.message, earlyErr.extra);
         }
       } catch (preErr) {
-        console.warn("[addproduct] pre-upload check failed (non-fatal):", preErr.message);
+        console.warn(
+          "[addproduct] pre-upload check failed (non-fatal):", preErr.message
+        );
       }
     }
 
@@ -1063,20 +1369,57 @@ router.post(
     const earlyCategory = await validateCategoryEarly(categoryId, subcategoryId);
     if (!earlyCategory.valid) return fail(res, 400, earlyCategory.message);
 
-    /* ── Upload images to R2 ── */
-    console.log("[addproduct] uploading", files.length, "image(s) to R2…");
+    /* ══════════════════════════════════════════════════════════
+       COMPRESS + WATERMARK + UPLOAD
+       - Max 2 images processed concurrently (pLimit)
+       - Each image: resize → watermark → quality loop → R2
+       - Input:  up to 5 MB per image (multer)
+       - Output: targets ≤ 500 KB per image stored in R2
+    ══════════════════════════════════════════════════════════ */
+    console.log(
+      "[addproduct] processing", files.length, "image(s) — max 2 concurrent"
+    );
+
     let uploaded;
     try {
       uploaded = await Promise.all(
         files.map((file, i) =>
-          uploadToR2(file.buffer, file.originalname, file.mimetype).then(
-            (r) => ({ url: r.url, key: r.key, order: i })
-          )
+          imageLimit(async () => {
+            const { buffer, mimetype } = await compressImage(
+              file.buffer,
+              file.mimetype
+            );
+            const { url, key } = await uploadToR2(buffer, mimetype);
+            console.log(
+              `[addproduct] image ${i + 1}/${files.length} uploaded` +
+              ` — ${(buffer.length / 1_024).toFixed(0)} KB → ${key}`
+            );
+            return { url, key, order: i };
+          })
         )
       );
     } catch (uploadErr) {
-      console.error("[addproduct] R2 upload failed:", uploadErr.message);
-      return fail(res, 500, "Image upload failed. Please try again.");
+      console.error("[addproduct] compress/upload failed:", uploadErr.message);
+
+      const isUserError =
+        uploadErr.message.includes("too small") ||
+        uploadErr.message.includes("Invalid") ||
+        uploadErr.message.includes("corrupt");
+
+      if (!isUserError) {
+        Sentry.captureException?.(uploadErr, {
+          tags  : { area: "image_upload", seller_id: sellerId },
+          extra : { fileCount: files.length },
+        });
+      }
+
+      return fail(
+        res,
+        isUserError ? 400 : 500,
+        isUserError
+          ? uploadErr.message
+          : "Image upload failed. Please try again."
+      );
     }
 
     const thumbnail = uploaded[0]?.url ?? null;
@@ -1123,20 +1466,17 @@ router.post(
 
       if (requestedStatus === "active") {
         if (!ctx.isVerified) {
-          /* Unverified — trial listing, 7 days */
           finalStatus = "active_limited";
           finalActive = true;
           activeUntil = computeActiveUntil(false);
         } else {
-          /* Verified — free listing, 30 days */
           finalStatus = "active";
           finalActive = true;
           activeUntil = computeActiveUntil(true);
         }
       }
-      /* draft — no expiry */
 
-      /* ── Slug generation ── */
+      /* ── Slug — SAVEPOINT retry on collision ── */
       const shortId   = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
       const baseSlug  = generateBaseSlug(title).slice(0, 60);
       const firstSlug = generateSlugWithId(title, shortId);
@@ -1182,19 +1522,24 @@ router.post(
         return rows[0];
       };
 
+      await client.query("SAVEPOINT before_insert");
       try {
         product = await insertProduct(firstSlug);
       } catch (firstErr) {
+        await client.query("ROLLBACK TO SAVEPOINT before_insert");
         if (
           firstErr.code === "23505" &&
           firstErr.constraint?.includes("slug")
         ) {
-          console.warn("[addproduct] slug collision — retrying with timestamp");
-          product = await insertProduct(`${baseSlug}-${Date.now()}`);
+          console.warn("[addproduct] slug collision — retrying with UUID fallback");
+          product = await insertProduct(
+            `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`
+          );
         } else {
           throw firstErr;
         }
       }
+      await client.query("RELEASE SAVEPOINT before_insert");
 
       if (!product) {
         await client.query("ROLLBACK");
@@ -1215,9 +1560,13 @@ router.post(
         )
       );
 
-      /* ── Update images JSONB on product row ── */
+      /* ── Update images JSONB ── */
       const imagesJson = JSON.stringify(
-        uploaded.map((img) => ({ url: img.url, key: img.key, order: img.order }))
+        uploaded.map((img) => ({
+          url   : img.url,
+          key   : img.key,
+          order : img.order,
+        }))
       );
       await client.query(
         `UPDATE products SET images = $1 WHERE id = $2`,
@@ -1232,67 +1581,74 @@ router.post(
         " expires:", activeUntil?.toISOString() ?? "never"
       );
 
-      /* ── Post-commit (fire-and-forget) ── */
-      if (imageHashes.length > 0)
-        storeImageHashes(product.id, imageHashes).catch(() => {});
+      /* ── Post-commit side effects ── */
+      setImmediate(() => {
+        if (imageHashes.length > 0)
+          storeImageHashes(product.id, imageHashes).catch(() => {});
 
-      writeAudit({
-        actorId    : sellerId,
-        action     : "product_created",
-        targetType : "product",
-        targetId   : product.id,
-        metadata   : {
-          title,
-          status          : finalStatus,
-          active_until    : activeUntil,
-          is_verified     : ctx.isVerified,
-          lifetime_count  : ctx.lifetimeCount + 1,
-          trial_remaining : ctx.trialRemaining !== null
-            ? Math.max(0, ctx.trialRemaining - 1)
-            : null,
-        },
-        ipAddress : ip,
-      }).catch(() => {});
+        writeAudit({
+          actorId    : sellerId,
+          action     : "product_created",
+          targetType : "product",
+          targetId   : product.id,
+          metadata   : {
+            title,
+            status          : finalStatus,
+            active_until    : activeUntil,
+            is_verified     : ctx.isVerified,
+            lifetime_count  : ctx.lifetimeCount + 1,
+            trial_remaining : ctx.trialRemaining !== null
+              ? Math.max(0, ctx.trialRemaining - 1)
+              : null,
+          },
+          ipAddress : ip,
+        }).catch(() => {});
 
-      updateSellerTrust(sellerId).catch((e) =>
-        console.warn("[addproduct] updateSellerTrust:", e.message)
-      );
-      trackTrending(product.id).catch(() => {});
+        updateSellerTrust(sellerId).catch((e) =>
+          console.warn("[addproduct] updateSellerTrust:", e.message)
+        );
 
-      /* ── Notifications ── */
+        trackTrending(product.id).catch(() => {});
+
+        /* Notifications */
+        const needsVerification = finalStatus === "active_limited";
+        const isFreeListing     = finalStatus === "active" && activeUntil !== null;
+        const trialInfo         = buildTrialInfo(ctx);
+        const expiryDays        = daysUntilExpiry(activeUntil);
+
+        if (needsVerification) {
+          const remaining = trialInfo?.trial_remaining ?? 0;
+          createNotification({
+            userId  : sellerId,
+            type    : "listing_limited",
+            title   : remaining === 0
+              ? "Last Free Trial Listing Posted"
+              : "Listing Posted — Trial Listing",
+            message : remaining === 0
+              ? `"${title}" is your last free trial listing. ` +
+                "Verify your identity now to keep posting on Loemart."
+              : `"${title}" is live for ${POLICY.unverified.expiryDays} days. ` +
+                `You have ${remaining} free trial listing(s) remaining. ` +
+                "Verify your identity for unlimited posting.",
+          }).catch(() => {});
+
+        } else if (isFreeListing) {
+          createNotification({
+            userId  : sellerId,
+            type    : "listing_posted",
+            title   : "Listing Posted ✓",
+            message :
+              `"${title}" is now live for ${FREE_LISTING_DAYS} days. ` +
+              "You'll be notified 3 days before it expires so you can renew for free.",
+          }).catch(() => {});
+        }
+      });
+
+      /* ── Response ── */
       const needsVerification = finalStatus === "active_limited";
-      const isFreeListing     = finalStatus === "active" && activeUntil !== null;
       const trialInfo         = buildTrialInfo(ctx);
       const expiryDays        = daysUntilExpiry(activeUntil);
 
-      if (needsVerification) {
-        const remaining = trialInfo?.trial_remaining ?? 0;
-        createNotification({
-          userId  : sellerId,
-          type    : "listing_limited",
-          title   : remaining === 0
-            ? "Last Free Trial Listing Posted"
-            : "Listing Posted — Trial Listing",
-          message : remaining === 0
-            ? `"${title}" is your last free trial listing. ` +
-              "Verify your identity now to keep posting on Loemart."
-            : `"${title}" is live for ${POLICY.unverified.expiryDays} days. ` +
-              `You have ${remaining} free trial listing(s) remaining. ` +
-              "Verify your identity for unlimited posting.",
-        }).catch(() => {});
-
-      } else if (isFreeListing) {
-        createNotification({
-          userId  : sellerId,
-          type    : "listing_posted",
-          title   : "Listing Posted ✓",
-          message :
-            `"${title}" is now live for ${FREE_LISTING_DAYS} days. ` +
-            "You'll be notified 3 days before it expires so you can renew for free.",
-        }).catch(() => {});
-      }
-
-      /* ── Response ── */
       return res.status(201).json({
         success            : true,
         product,
@@ -1309,8 +1665,6 @@ router.post(
           active_limit : ctx.policy.activeLimit,
           active_count : ctx.activeCount + 1,
         },
-
-        /* Expiry message for ALL active listings */
         ...(activeUntil && {
           expiry_message: needsVerification
             ? `Your listing is live for ${expiryDays} days (trial). ` +
@@ -1318,7 +1672,6 @@ router.post(
             : `Your listing is live for ${expiryDays} days. ` +
               "You can renew it for free before it expires.",
         }),
-
         ...(needsVerification && {
           verification_message: trialInfo?.trial_exhausted
             ? "You have used all your free trial listings. " +
@@ -1333,8 +1686,16 @@ router.post(
       await client.query("ROLLBACK").catch(() => {});
       await destroyR2Assets(r2Keys);
       console.error("[addproduct] CREATE ERROR:", err.message, "\n", err.stack);
+
+      if (!["LIMIT_FILE_SIZE", "23505", "INVALID_MIME"].includes(err.code)) {
+        Sentry.captureException?.(err, {
+          tags  : { area: "product_create", seller_id: sellerId },
+          extra : { title, categoryId, fileCount: files.length },
+        });
+      }
+
       if (err.code === "LIMIT_FILE_SIZE")
-        return fail(res, 400, "Image too large — maximum 3 MB per image.");
+        return fail(res, 400, "Image too large — maximum 5 MB per image.");
       if (err.code === "23505")
         return fail(res, 409, "This product was already submitted recently.");
       return fail(
@@ -1362,7 +1723,10 @@ router.post(
     const productId = req.params.id;
     const ip        = getIp(req);
 
-    console.log("\n[addproduct] ▶ ACTIVATE  product:", productId, " seller:", sellerId);
+    console.log(
+      "\n[addproduct] ▶ ACTIVATE  product:", productId,
+      " seller:", sellerId
+    );
     if (!sellerId)  return fail(res, 401, "Not authenticated.");
     if (!productId) return fail(res, 400, "Product ID required.");
 
@@ -1397,7 +1761,7 @@ router.post(
       }
 
       const { rows: userRows } = await client.query(
-        "SELECT identity_verified FROM public.users WHERE id = $1 FOR UPDATE",
+        "SELECT identity_verified FROM public.users WHERE id = $1 FOR NO KEY UPDATE",
         [sellerId]
       );
       const isVerified = Boolean(userRows[0]?.identity_verified);
@@ -1424,16 +1788,13 @@ router.post(
         return fail(res, policyErr.status, policyErr.message, policyErr.extra);
       }
 
-      /* ── Determine status + expiry ── */
       let finalStatus = "active";
       let activeUntil = null;
 
       if (!isVerified) {
-        /* Unverified — trial listing, 7 days */
         finalStatus = "active_limited";
         activeUntil = computeActiveUntil(false);
       } else {
-        /* Verified — free listing, 30 days */
         finalStatus = "active";
         activeUntil = computeActiveUntil(true);
       }
@@ -1454,16 +1815,18 @@ router.post(
       const expiryDays        = daysUntilExpiry(activeUntil);
       const needsVerification = finalStatus === "active_limited";
 
-      writeAudit({
-        actorId    : sellerId,
-        action     : "product_activated",
-        targetType : "product",
-        targetId   : productId,
-        metadata   : { status: finalStatus, active_until: activeUntil },
-        ipAddress  : ip,
-      }).catch(() => {});
+      setImmediate(() => {
+        writeAudit({
+          actorId    : sellerId,
+          action     : "product_activated",
+          targetType : "product",
+          targetId   : productId,
+          metadata   : { status: finalStatus, active_until: activeUntil },
+          ipAddress  : ip,
+        }).catch(() => {});
 
-      trackTrending(productId).catch(() => {});
+        trackTrending(productId).catch(() => {});
+      });
 
       console.log(
         "[addproduct] ✓ activated  status:", finalStatus,
@@ -1492,6 +1855,9 @@ router.post(
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       console.error("[addproduct] ACTIVATE ERROR:", err.message);
+      Sentry.captureException?.(err, {
+        tags: { area: "product_activate", seller_id: sellerId },
+      });
       return fail(
         res,
         500,
@@ -1505,8 +1871,6 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE /products/:id  — Soft delete
-   Note: active (verified) listings must be paused before delete.
-         Scam protection: row stays in DB, just hidden from feed.
 ═══════════════════════════════════════════════════════════════ */
 router.delete(
   "/products/:id",
@@ -1515,13 +1879,15 @@ router.delete(
     const sellerId  = req.user?.id;
     const productId = req.params.id;
     const ip        = getIp(req);
-    const HOLD_DAYS = 30; // days before permanent deletion
+    const HOLD_DAYS = 30;
 
-    console.log("\n[addproduct] ▶ SOFT DELETE  product:", productId, " seller:", sellerId);
+    console.log(
+      "\n[addproduct] ▶ SOFT DELETE  product:", productId,
+      " seller:", sellerId
+    );
     if (!sellerId) return fail(res, 401, "Not authenticated.");
 
     try {
-      /* Check ownership first */
       const { rows: check } = await pool.query(
         `SELECT id, status, is_deleted
          FROM public.products
@@ -1530,15 +1896,12 @@ router.delete(
         [productId, sellerId]
       );
 
-      if (!check.length) {
+      if (!check.length)
         return fail(res, 404, "Product not found or not owned by you.");
-      }
 
-      if (check[0].is_deleted) {
+      if (check[0].is_deleted)
         return fail(res, 400, "Product already deleted.");
-      }
 
-      /* active (verified) listings must be paused first */
       if (check[0].status === "active") {
         return fail(
           res,
@@ -1548,7 +1911,6 @@ router.delete(
         );
       }
 
-      /* Soft delete — stays in DB for HOLD_DAYS for scam investigation */
       const { rows } = await pool.query(
         `UPDATE products
          SET
@@ -1566,22 +1928,23 @@ router.delete(
         [HOLD_DAYS, productId, sellerId]
       );
 
-      if (!rows.length) {
+      if (!rows.length)
         return fail(res, 404, "Product not found or already deleted.");
-      }
 
-      writeAudit({
-        actorId    : sellerId,
-        action     : "product_soft_deleted",
-        targetType : "product",
-        targetId   : productId,
-        metadata   : {
-          title       : rows[0].title,
-          hold_days   : HOLD_DAYS,
-          recoverable : true,
-        },
-        ipAddress : ip,
-      }).catch(() => {});
+      setImmediate(() => {
+        writeAudit({
+          actorId    : sellerId,
+          action     : "product_soft_deleted",
+          targetType : "product",
+          targetId   : productId,
+          metadata   : {
+            title       : rows[0].title,
+            hold_days   : HOLD_DAYS,
+            recoverable : true,
+          },
+          ipAddress : ip,
+        }).catch(() => {});
+      });
 
       console.log(
         "[addproduct] ✓ soft-deleted  id:", productId,
@@ -1593,12 +1956,15 @@ router.delete(
         message             : "Listing deleted",
         hold_days           : HOLD_DAYS,
         permanent_delete_at : new Date(
-          Date.now() + HOLD_DAYS * 24 * 60 * 60 * 1000
+          Date.now() + HOLD_DAYS * 24 * 60 * 60 * 1_000
         ).toISOString(),
       });
 
     } catch (err) {
       console.error("[addproduct] DELETE ERROR:", err.message);
+      Sentry.captureException?.(err, {
+        tags: { area: "product_delete", seller_id: sellerId },
+      });
       return fail(
         res,
         500,
