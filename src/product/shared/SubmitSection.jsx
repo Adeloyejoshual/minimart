@@ -1,11 +1,11 @@
 /**
  * src/product/shared/SubmitSection.jsx
- * Terms checkbox + Submit button
+ * Terms + Submit button
  */
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
-import { SpinnerIcon } from "../components/icons/index.jsx";
+import { SpinnerIcon } from "../../pages/product/components/icons/index.jsx";
 
 export default function SubmitSection() {
   const {
@@ -35,7 +35,6 @@ export default function SubmitSection() {
     return "Post Ad & Pay";
   })();
 
-  /* Terms checkbox JSX */
   const TermsCheckbox = useMemo(() => (
     <div className="ap-terms-row">
       <label
