@@ -18,12 +18,12 @@ import ImagesSection             from "../product/shared/ImagesSection.jsx";
 import PromotionPlanSection      from "../product/shared/PromotionPlanSection.jsx";
 import SubmitSection             from "../product/shared/SubmitSection.jsx";
 
-import PaymentCountdown          from "../product/components/PaymentCountdown.jsx";
-import VerificationUpsellModal   from "../product/components/VerificationUpsellModal.jsx";
-import VerificationNudgeBanner   from "../product/components/VerificationNudgeBanner.jsx";
+import PaymentCountdown          from "../pages/product/components/PaymentCountdown.jsx";
+import VerificationUpsellModal   from "../pages/product/components/VerificationUpsellModal.jsx";
+import VerificationNudgeBanner   from "../pages/product/components/VerificationNudgeBanner.jsx";
 import {
   WarningIcon, CheckCircleIcon, CardIcon,
-} from "../product/components/icons/index.jsx";
+} from "../pages/product/components/icons/index.jsx";
 
 import ListingPreview from "./components/ListingPreview";
 
