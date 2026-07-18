@@ -4,6 +4,44 @@ import { Ic } from "./icons";
 import { API, authH } from "./helpers";
 import "./PromoteModal.css";
 
+// ─── Helper: resolve email from localStorage ──────────────────────────────────
+const resolveEmail = () => {
+  // 1. Plain string keys (most common)
+  const plainKeys = [
+    "user_email",
+    "userEmail",
+    "email",
+    "marketplace_email",
+  ];
+  for (const key of plainKeys) {
+    const val = localStorage.getItem(key);
+    if (val && val.includes("@")) return val;
+  }
+
+  // 2. JSON object keys
+  const jsonKeys = [
+    "user",
+    "userData",
+    "marketplace_user",
+    "auth_user",
+    "currentUser",
+  ];
+  for (const key of jsonKeys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const email = parsed?.email || parsed?.user?.email;
+      if (email && email.includes("@")) return email;
+    } catch {
+      // not valid JSON, skip
+    }
+  }
+
+  return "";
+};
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function PromoteModal({ product, plans, onClose }) {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -11,8 +49,20 @@ export default function PromoteModal({ product, plans, onClose }) {
 
   const handlePromote = async () => {
     if (!selected) return;
+
+    const email = resolveEmail();
+
+    // Guard before even hitting the API
+    if (!email) {
+      setError(
+        "We couldn't find your email. Please log out and log in again."
+      );
+      return;
+    }
+
     setLoading(true);
     setError(null);
+
     try {
       const res = await fetch(`${API}/payment/initiate`, {
         method: "POST",
@@ -20,10 +70,12 @@ export default function PromoteModal({ product, plans, onClose }) {
         body: JSON.stringify({
           product_id: product.id,
           plan_id: selected.id,
-          email: localStorage.getItem("user_email") || "",
+          email,
         }),
       });
+
       const d = await res.json();
+
       if (res.ok && d.authorization_url) {
         window.location.href = d.authorization_url;
       } else {
@@ -55,11 +107,10 @@ export default function PromoteModal({ product, plans, onClose }) {
 
         <div className="promote-modal__plans">
           {plans.map((plan) => {
-            const planPrice = Number(
-              plan.effective_price || plan.price || 0
-            );
+            const planPrice = Number(plan.effective_price || plan.price || 0);
             const isFree = planPrice === 0;
             const isSelected = selected?.id === plan.id;
+
             return (
               <div
                 key={plan.id}
@@ -78,28 +129,25 @@ export default function PromoteModal({ product, plans, onClose }) {
                 )}
                 <h4 className="plan-card__name">{plan.name}</h4>
                 <p className="plan-card__price">
-                  {isFree
-                    ? "Free"
-                    : `₦${planPrice.toLocaleString("en-NG")}`}
+                  {isFree ? "Free" : `₦${planPrice.toLocaleString("en-NG")}`}
                 </p>
                 <p className="plan-card__duration">{plan.duration}</p>
                 <p className="plan-card__desc">{plan.description}</p>
-                {Array.isArray(plan.features) &&
-                  plan.features.length > 0 && (
-                    <ul className="plan-card__features">
-                      {plan.features.map((f, i) => (
-                        <li key={i}>
-                          <span className="plan-card__check">
-                            <Ic.Check />
-                          </span>{" "}
-                          {f}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                {isSelected && (
-                  <div className="plan-card__selected-ring" />
+
+                {Array.isArray(plan.features) && plan.features.length > 0 && (
+                  <ul className="plan-card__features">
+                    {plan.features.map((f, i) => (
+                      <li key={i}>
+                        <span className="plan-card__check">
+                          <Ic.Check />
+                        </span>{" "}
+                        {f}
+                      </li>
+                    ))}
+                  </ul>
                 )}
+
+                {isSelected && <div className="plan-card__selected-ring" />}
               </div>
             );
           })}
