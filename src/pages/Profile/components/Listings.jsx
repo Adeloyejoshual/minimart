@@ -22,6 +22,7 @@ export default function Listings({
   search,
   tabCounts,
   deleting,
+  verifying,
   onTabChange,
   onSearch,
   onLoadMore,
@@ -31,11 +32,14 @@ export default function Listings({
   onToggle,
   onRenew,
   onPromote,
+  onPayNow,
+  onVerifyPayment,
 }) {
   return (
     <div className="listings">
       <div className="listings__card">
-        {/* Header */}
+
+        {/* ── Header ── */}
         <div className="listings__header">
           <h2 className="listings__title">My Listings</h2>
           <button
@@ -46,7 +50,7 @@ export default function Listings({
           </button>
         </div>
 
-        {/* Filter tabs */}
+        {/* ── Filter Tabs ── */}
         <div className="listings__tabs">
           {TABS.map((t) => (
             <button
@@ -64,7 +68,7 @@ export default function Listings({
           ))}
         </div>
 
-        {/* Search */}
+        {/* ── Search ── */}
         <div className="listings__search">
           <Ic.Search />
           <input
@@ -78,33 +82,58 @@ export default function Listings({
             <button
               className="listings__search-clear"
               onClick={() => onSearch("")}
+              aria-label="Clear search"
             >
               <Ic.X />
             </button>
           )}
         </div>
 
-        {/* Content */}
+        {/* ── Pending Payment Info Banner ── */}
+        {tab === "pending" && !prodLoading && products.length > 0 && (
+          <div className="listings__info-banner">
+            <Ic.AlertCircle />
+            <div>
+              <strong>Payment required</strong>
+              <p>
+                These listings are waiting for payment to go live.
+                Complete payment to activate them.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Loading ── */}
         {prodLoading && <ProdSkeleton />}
 
+        {/* ── Empty State ── */}
         {!prodLoading && products.length === 0 && (
           <EmptyState
             icon={<Ic.Search />}
             title={
               search
                 ? `No results for "${search}"`
+                : tab === "pending"
+                ? "No pending payments"
                 : `No ${tab === "all" ? "" : tab + " "}listings`
             }
             description={
               search
                 ? "Try a different search term."
+                : tab === "pending"
+                ? "All your listings are paid up!"
                 : "Start selling by creating your first listing."
             }
-            action={!search && tab === "all" ? "Create Listing" : null}
+            action={
+              !search && (tab === "all" || tab === "active")
+                ? "Create Listing"
+                : null
+            }
             onAction={() => onNavigate("/minimart/add")}
           />
         )}
 
+        {/* ── Product List ── */}
         {!prodLoading && products.length > 0 && (
           <div className="listings__list">
             {products.map((p) => (
@@ -116,13 +145,16 @@ export default function Listings({
                 onToggle={onToggle}
                 onRenew={onRenew}
                 onPromote={onPromote}
+                onPayNow={onPayNow}
+                onVerifyPayment={onVerifyPayment}
                 isDeleting={deleting === p.id}
+                isVerifying={verifying === p.id}
               />
             ))}
           </div>
         )}
 
-        {/* Load more */}
+        {/* ── Load More ── */}
         {!prodLoading && hasMore && (
           <div className="listings__load-more">
             <button
@@ -141,6 +173,7 @@ export default function Listings({
           </div>
         )}
 
+        {/* ── Count ── */}
         {!prodLoading && products.length > 0 && (
           <p className="listings__count">
             Showing {products.length} listing
