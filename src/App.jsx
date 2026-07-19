@@ -1,13 +1,10 @@
 // ════════════════════════════════════════════════════════════
-// FILE: src/App.jsx — v2
+// FILE: src/App.jsx — v3
 //
-// Changes from v1:
-//  ─ syncFavouritesOnLogin  — pulls DB favs into localStorage on login
-//  ─ clearFavouritesOnLogout — wipes localStorage favs on logout
-//  ─ Both called in handleAuthSuccess, handleLogout, auth useEffect
-//  ─ Prevents favourite bleed-over between users on same device
-//  ─ Restores favourites on new device / cleared storage
-//  ─ Guest saves pushed to DB on login
+// Changes from v2:
+//  ─ Imports global design tokens (tokens.css)
+//  ─ Applies saved theme on mount via applyTheme()
+//  ─ Dark/light/system theme persists across page reloads
 // ════════════════════════════════════════════════════════════
 
 import { useEffect, useState, useCallback, memo } from "react";
@@ -22,6 +19,34 @@ import {
 import axios              from "axios";
 import toast, { Toaster } from "react-hot-toast";
 import { useProductCache } from "./context/ProductCacheContext";
+
+/* ── Global design tokens — must be first CSS import ── */
+import "./styles/tokens.css";
+
+/* ════════════════════════════════════════════════════════════
+   THEME BOOTSTRAP
+   Reads saved theme from localStorage and applies it to <html>
+   before any component renders — prevents flash of wrong theme.
+════════════════════════════════════════════════════════════ */
+const THEME_KEY = "loemart_theme";
+
+const getSystemTheme = () =>
+  window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+
+const applyTheme = (theme) => {
+  const resolved = theme === "system" ? getSystemTheme() : theme;
+  document.documentElement.setAttribute("data-theme", resolved);
+};
+
+/* Apply immediately — before React renders anything */
+applyTheme(
+  (() => {
+    try { return localStorage.getItem(THEME_KEY) ?? "system"; }
+    catch { return "system"; }
+  })()
+);
 
 /* ════════════════════════════════════════════════════════════
    PAGES — PUBLIC
@@ -173,9 +198,10 @@ const TOASTER_OPTIONS = {
     borderRadius : 8,
     color        : "#fff",
     fontSize     : "0.9rem",
+    fontFamily   : "var(--fb)",
   },
-  success : { style: { background: "#16a34a" } },
-  error   : { style: { background: "#dc2626" } },
+  success : { style: { background: "#15803D" } },
+  error   : { style: { background: "#DC2626" } },
 };
 
 /* ════════════════════════════════════════════════════════════
@@ -201,43 +227,20 @@ const saveFavs = (f) => {
   try { localStorage.setItem(FAV_KEY, JSON.stringify(f)); } catch {}
 };
 
-/**
- * Called on LOGIN and page reload when already logged in.
- *
- * Flow:
- *  1. Fetch all saved product IDs from DB for this user
- *  2. Find any guest saves in localStorage not yet in DB
- *  3. Push guest saves up to DB (fire and forget)
- *  4. Overwrite localStorage with ONLY this user's items
- *
- * This prevents:
- *  - User A's saves appearing for User B on same device
- *  - Saves disappearing on new device / cleared storage
- */
 const syncFavouritesOnLogin = async (token, userId) => {
   if (!token || !userId) return;
-
   try {
-    /* Step 1 — fetch this user's saved IDs from DB */
     const res = await fetch(`${FAVS_API}/ids`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-
     if (!res.ok) return;
-
     const { ids: dbIds = [] } = await res.json();
-
-    /* Step 2 — check localStorage for guest saves */
-    const localFavs  = loadFavs();
-    const localIds   = Object.keys(localFavs);
-    const dbIdSet    = new Set(dbIds);
-    const guestOnly  = localIds.filter((id) => !dbIdSet.has(id));
-
-    /* Step 3 — build merged object starting with DB items */
-    const merged = {};
+    const localFavs = loadFavs();
+    const localIds  = Object.keys(localFavs);
+    const dbIdSet   = new Set(dbIds);
+    const guestOnly = localIds.filter((id) => !dbIdSet.has(id));
+    const merged    = {};
     dbIds.forEach((id) => { merged[id] = true; });
-
-    /* Step 4 — push guest saves to DB in background */
     if (guestOnly.length > 0) {
       Promise.allSettled(
         guestOnly.map((productId) =>
@@ -247,27 +250,14 @@ const syncFavouritesOnLogin = async (token, userId) => {
               "Content-Type" : "application/json",
               Authorization  : `Bearer ${token}`,
             },
-          }).then((r) => {
-            /* Add to merged only if server confirmed */
-            if (r.ok) merged[productId] = true;
-          })
+          }).then((r) => { if (r.ok) merged[productId] = true; })
         )
       ).catch(() => {});
     }
-
-    /* Step 5 — overwrite localStorage with this user's favs only */
     saveFavs(merged);
-
-  } catch {
-    /* Non-critical — fail silently */
-  }
+  } catch { /* non-critical */ }
 };
 
-/**
- * Called on LOGOUT.
- * Wipes localStorage favs so next user on same device
- * starts with a clean slate.
- */
 const clearFavouritesOnLogout = () => {
   try { localStorage.removeItem(FAV_KEY); } catch {}
 };
@@ -280,7 +270,6 @@ async function syncCartAfterLogin(token) {
     const raw       = localStorage.getItem("mm_cart");
     const localCart = JSON.parse(raw || "[]");
     if (!Array.isArray(localCart) || localCart.length === 0) return;
-
     await Promise.allSettled(
       localCart.map((item) =>
         axios.post(
@@ -294,12 +283,26 @@ async function syncCartAfterLogin(token) {
         )
       )
     );
-
     localStorage.removeItem("mm_cart");
     window.dispatchEvent(new Event("cart-updated"));
-  } catch {
-    /* silently ignore */
-  }
+  } catch { /* silently ignore */ }
+}
+
+/* ════════════════════════════════════════════════════════════
+   SYSTEM THEME WATCHER
+   Listens for OS dark/light toggle and re-applies when the
+   user has chosen "system" preference.
+════════════════════════════════════════════════════════════ */
+function useSystemThemeWatcher() {
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const handler = () => {
+      const saved = localStorage.getItem(THEME_KEY) ?? "system";
+      if (saved === "system") applyTheme("system");
+    };
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -320,14 +323,12 @@ function useIsDesktop() {
   const [isDesktop, setIsDesktop] = useState(
     () => window.matchMedia("(min-width: 1024px)").matches
   );
-
   useEffect(() => {
     const mq      = window.matchMedia("(min-width: 1024px)");
     const handler = (e) => setIsDesktop(e.matches);
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, []);
-
   return isDesktop;
 }
 
@@ -337,14 +338,11 @@ function useIsDesktop() {
 function SiteHeader({ user, onLogout }) {
   const { pathname } = useLocation();
   const isDesktop    = useIsDesktop();
-
   if (!isDesktop) return null;
-
   const hidden = HEADER_HIDDEN_PREFIXES.some((prefix) =>
     pathname.startsWith(prefix)
   );
   if (hidden) return null;
-
   return (
     <>
       <DesktopHeader user={user} onLogout={onLogout} />
@@ -358,72 +356,43 @@ function SiteHeader({ user, onLogout }) {
 ════════════════════════════════════════════════════════════ */
 function HomeRoute({ user }) {
   const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <HomepageDesktop user={user} />
-    : <Homepage        user={user} />;
+  return isDesktop ? <HomepageDesktop user={user} /> : <Homepage user={user} />;
 }
-
 function ProductRoute({ user }) {
   const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <ProductDetailDesktop user={user} />
-    : <ProductDetail        user={user} />;
+  return isDesktop ? <ProductDetailDesktop user={user} /> : <ProductDetail user={user} />;
 }
-
 function NearbyRoute({ user }) {
   const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <NearbyPageDesktop user={user} />
-    : <NearbyPage        user={user} />;
+  return isDesktop ? <NearbyPageDesktop user={user} /> : <NearbyPage user={user} />;
 }
-
 function MessagesRoute({ user }) {
   const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <MessagingDesktop user={user} />
-    : <Conversations    user={user} />;
+  return isDesktop ? <MessagingDesktop user={user} /> : <Conversations user={user} />;
 }
-
 function ChatRoute({ user }) {
   const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <MessagingDesktop user={user} />
-    : <Chat             user={user} />;
+  return isDesktop ? <MessagingDesktop user={user} /> : <Chat user={user} />;
 }
-
 function LeaderboardRoute({ user }) {
   const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <LeaderboardDesktop />
-    : <Leaderboard user={user} />;
+  return isDesktop ? <LeaderboardDesktop /> : <Leaderboard user={user} />;
 }
-
 function ProfileRoute({ onLogout }) {
   const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <DesktopProfile onLogout={onLogout} />
-    : <Profile        onLogout={onLogout} />;
+  return isDesktop ? <DesktopProfile onLogout={onLogout} /> : <Profile onLogout={onLogout} />;
 }
-
 function SubscriptionRoute() {
   const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <DesktopSubscription />
-    : <Subscription />;
+  return isDesktop ? <DesktopSubscription /> : <Subscription />;
 }
-
 function PlansRoute() {
   const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <DesktopPlans />
-    : <Plans />;
+  return isDesktop ? <DesktopPlans /> : <Plans />;
 }
-
 function CouponsRoute({ user }) {
   const isDesktop = useIsDesktop();
-  return isDesktop
-    ? <CouponsDesktop user={user} />
-    : <Coupons        user={user} />;
+  return isDesktop ? <CouponsDesktop user={user} /> : <Coupons user={user} />;
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -431,16 +400,11 @@ function CouponsRoute({ user }) {
 ════════════════════════════════════════════════════════════ */
 function InviteRedirect() {
   const { code } = useParams();
-
   const safe = (code ?? "")
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "")
     .slice(0, 20);
-
-  if (!safe || safe.length < 4) {
-    return <Navigate to="/auth" replace />;
-  }
-
+  if (!safe || safe.length < 4) return <Navigate to="/auth" replace />;
   return <Navigate to={`/auth?ref=${safe}`} replace />;
 }
 
@@ -449,7 +413,6 @@ function InviteRedirect() {
 ════════════════════════════════════════════════════════════ */
 function ProtectedRoute({ user, children }) {
   const location = useLocation();
-
   if (!user) {
     return (
       <Navigate
@@ -459,7 +422,6 @@ function ProtectedRoute({ user, children }) {
       />
     );
   }
-
   return children;
 }
 
@@ -479,7 +441,7 @@ const AuthLoader = memo(function AuthLoader() {
         alignItems     : "center",
         justifyContent : "center",
         minHeight      : "100vh",
-        background     : "#faf9f7",
+        background     : "var(--bg)",
       }}
       role="status"
       aria-label="Loading"
@@ -489,8 +451,8 @@ const AuthLoader = memo(function AuthLoader() {
         style={{
           width        : 36,
           height       : 36,
-          border       : "3px solid #e8e4de",
-          borderTop    : "3px solid #FF5C00",
+          border       : "3px solid var(--bd)",
+          borderTop    : "3px solid var(--o)",
           borderRadius : "50%",
           animation    : "spin .7s linear infinite",
         }}
@@ -510,17 +472,13 @@ export default function App() {
 
   const { resetCache } = useProductCache();
 
-  /* ══════════════════════════════════════════════════════════
-     AUTH CHECK — runs once on mount
-     Validates stored token + syncs favourites if logged in
-  ══════════════════════════════════════════════════════════ */
+  /* Watch for OS theme changes when user has chosen "system" */
+  useSystemThemeWatcher();
+
+  /* ── Auth check ── */
   useEffect(() => {
     const token = localStorage.getItem(TOKEN_KEYS.marketplace);
-
-    if (!token) {
-      setAuthChecked(true);
-      return;
-    }
+    if (!token) { setAuthChecked(true); return; }
 
     axios
       .get(`${USERS_API}/me`, {
@@ -530,91 +488,51 @@ export default function App() {
       .then((res) => {
         const userData = res.data;
         setUser(userData);
-
-        /*
-          Sync favourites from DB on every page load.
-          Handles:
-            - New device with empty localStorage
-            - Page reload — keep favs in sync with DB
-        */
         syncFavouritesOnLogin(token, userData.id);
       })
       .catch(() => {
         localStorage.removeItem(TOKEN_KEYS.marketplace);
-
-        /*
-          Token invalid — clear any stale favs left over
-          from a previous session that didn't log out cleanly
-        */
         clearFavouritesOnLogout();
-
         setUser(null);
       })
       .finally(() => setAuthChecked(true));
   }, []);
 
-  /* ── Resolve admin ── */
+  /* ── Admin ── */
   useEffect(() => {
     const token       = localStorage.getItem(TOKEN_KEYS.admin);
     const storedAdmin = localStorage.getItem("admin_data");
     if (!token || !storedAdmin) return;
-
-    try {
-      setAdmin(JSON.parse(storedAdmin));
-    } catch {
+    try { setAdmin(JSON.parse(storedAdmin)); }
+    catch {
       localStorage.removeItem("admin_data");
       localStorage.removeItem(TOKEN_KEYS.admin);
     }
   }, []);
 
-  /* ══════════════════════════════════════════════════════════
-     AUTH SUCCESS
-     Called by AuthPage and ResetPassword after login/register
-  ══════════════════════════════════════════════════════════ */
+  /* ── Auth success ── */
   const handleAuthSuccess = useCallback(
     (userData, token, navigateFn, from) => {
       localStorage.setItem(TOKEN_KEYS.marketplace, token);
       resetCache();
-
-      /* Clear location cache — user may be in different city */
       ["lastLocation", "active_location", "cacheTime"].forEach((k) =>
         localStorage.removeItem(k)
       );
-
       setUser(userData);
-
-      /* Sync cart (guest → DB) */
       syncCartAfterLogin(token);
-
-      /*
-        Sync favourites:
-          - Pulls DB favs for this user into localStorage
-          - Pushes any guest saves up to DB
-          - Overwrites any other user's saves that were in localStorage
-      */
       syncFavouritesOnLogin(token, userData.id);
-
       toast.success(`Welcome, ${userData.name}!`);
       navigateFn(from || "/", { replace: true });
     },
     [resetCache]
   );
 
-  /* ══════════════════════════════════════════════════════════
-     LOGOUT
-  ══════════════════════════════════════════════════════════ */
+  /* ── Logout ── */
   const handleLogout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEYS.marketplace);
     setUser(null);
     resetCache();
-
-    /*
-      Clear localStorage favs immediately on logout.
-      Without this, the next user on the same device
-      would see this user's saved items.
-    */
     clearFavouritesOnLogout();
-
     toast.success("Signed out");
   }, [resetCache]);
 
@@ -628,7 +546,6 @@ export default function App() {
     }));
   }, []);
 
-  /* ── Show loader until auth check completes ── */
   if (!authChecked) return <AuthLoader />;
 
   return (
@@ -641,18 +558,15 @@ export default function App() {
       <Routes>
 
         {/* ════════════ PUBLIC ════════════ */}
-        <Route
-          path="/"
-          element={<HomeRoute key={user?.id ?? "guest"} user={user} />}
-        />
-        <Route path="/search"        element={<SearchPage    user={user} />} />
-        <Route path="/product/:slug" element={<ProductRoute  user={user} />} />
-        <Route path="/shop/:slug"    element={<MarketDetail  user={user} />} />
-        <Route path="/seller/:id"    element={<SellerProfile user={user} />} />
-        <Route path="/terms"         element={<TermsAndConditions />} />
-        <Route path="/minimart"      element={<MinimartPage  user={user} />} />
-        <Route path="/p2p"           element={<P2P           user={user} />} />
-        <Route path="/menu"          element={<MenuPage      user={user} />} />
+        <Route path="/"           element={<HomeRoute key={user?.id ?? "guest"} user={user} />} />
+        <Route path="/search"     element={<SearchPage    user={user} />} />
+        <Route path="/product/:slug" element={<ProductRoute user={user} />} />
+        <Route path="/shop/:slug" element={<MarketDetail  user={user} />} />
+        <Route path="/seller/:id" element={<SellerProfile user={user} />} />
+        <Route path="/terms"      element={<TermsAndConditions />} />
+        <Route path="/minimart"   element={<MinimartPage  user={user} />} />
+        <Route path="/p2p"        element={<P2P           user={user} />} />
+        <Route path="/menu"       element={<MenuPage      user={user} />} />
 
         {/* ════════════ HOMEPAGE SUB-PAGES ════════════ */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
@@ -663,27 +577,21 @@ export default function App() {
         <Route
           path="/auth"
           element={
-            user
-              ? <Navigate to="/" replace />
-              : <AuthPage setUser={handleAuthSuccess} />
+            user ? <Navigate to="/" replace /> : <AuthPage setUser={handleAuthSuccess} />
           }
         />
         <Route
           path="/forgot-password"
-          element={
-            user ? <Navigate to="/" replace /> : <ForgotPassword />
-          }
+          element={user ? <Navigate to="/" replace /> : <ForgotPassword />}
         />
         <Route
           path="/reset-password"
           element={
-            user
-              ? <Navigate to="/" replace />
-              : <ResetPassword setUser={handleAuthSuccess} />
+            user ? <Navigate to="/" replace /> : <ResetPassword setUser={handleAuthSuccess} />
           }
         />
 
-        {/* ════════════ INVITE REDIRECT ════════════ */}
+        {/* ════════════ INVITE ════════════ */}
         <Route path="/invite/:code" element={<InviteRedirect />} />
 
         {/* ════════════ SELLER ════════════ */}
@@ -692,296 +600,59 @@ export default function App() {
         <Route path="/seller/dashboard/:tab" element={<SellerDashboard />} />
 
         {/* ════════════ SUBSCRIPTION ════════════ */}
-        <Route
-          path="/seller/subscription"
-          element={
-            <ProtectedRoute user={user}>
-              <SubscriptionRoute />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/seller/subscription/plans"
-          element={
-            <ProtectedRoute user={user}>
-              <PlansRoute />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/subscription/callback/paystack"
-          element={<Payment />}
-        />
+        <Route path="/seller/subscription"        element={<ProtectedRoute user={user}><SubscriptionRoute /></ProtectedRoute>} />
+        <Route path="/seller/subscription/plans"  element={<ProtectedRoute user={user}><PlansRoute /></ProtectedRoute>} />
+        <Route path="/subscription/callback/paystack" element={<Payment />} />
 
-        {/* ════════════ PROTECTED — PROFILE ════════════ */}
-        <Route
-          path="/profile"
-          element={
-            <ProtectedRoute user={user}>
-              <ProfileRoute onLogout={handleLogout} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/profile/edit"
-          element={
-            <ProtectedRoute user={user}>
-              <EditProfile onProfileUpdate={handleProfileUpdate} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/saved"
-          element={
-            <ProtectedRoute user={user}>
-              <SavedItems user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/notifications"
-          element={
-            <ProtectedRoute user={user}>
-              <NotificationsPage user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ProtectedRoute user={user}>
-              <SettingsPage user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/minimart/add"
-          element={
-            <ProtectedRoute user={user}>
-              <AddProduct user={user} />
-            </ProtectedRoute>
-          }
-        />
+        {/* ════════════ PROFILE ════════════ */}
+        <Route path="/profile"      element={<ProtectedRoute user={user}><ProfileRoute onLogout={handleLogout} /></ProtectedRoute>} />
+        <Route path="/profile/edit" element={<ProtectedRoute user={user}><EditProfile onProfileUpdate={handleProfileUpdate} /></ProtectedRoute>} />
+        <Route path="/saved"        element={<ProtectedRoute user={user}><SavedItems user={user} /></ProtectedRoute>} />
+        <Route path="/notifications" element={<ProtectedRoute user={user}><NotificationsPage user={user} /></ProtectedRoute>} />
+        <Route path="/settings"     element={<ProtectedRoute user={user}><SettingsPage user={user} /></ProtectedRoute>} />
+        <Route path="/minimart/add" element={<ProtectedRoute user={user}><AddProduct user={user} /></ProtectedRoute>} />
 
         {/* ════════════ MESSAGING ════════════ */}
-        <Route
-          path="/conversations"
-          element={
-            <ProtectedRoute user={user}>
-              <MessagesRoute user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/messages"
-          element={
-            <ProtectedRoute user={user}>
-              <MessagesRoute user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/messages/:threadId"
-          element={
-            <ProtectedRoute user={user}>
-              <ChatRoute user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/chat/:threadId"
-          element={
-            <ProtectedRoute user={user}>
-              <ChatRoute user={user} />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/conversations"      element={<ProtectedRoute user={user}><MessagesRoute user={user} /></ProtectedRoute>} />
+        <Route path="/messages"           element={<ProtectedRoute user={user}><MessagesRoute user={user} /></ProtectedRoute>} />
+        <Route path="/messages/:threadId" element={<ProtectedRoute user={user}><ChatRoute user={user} /></ProtectedRoute>} />
+        <Route path="/chat/:threadId"     element={<ProtectedRoute user={user}><ChatRoute user={user} /></ProtectedRoute>} />
 
         {/* ════════════ OTHER PROTECTED ════════════ */}
-        <Route
-          path="/coupons"
-          element={
-            <ProtectedRoute user={user}>
-              <CouponsRoute user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/airtime-coupons"
-          element={
-            <ProtectedRoute user={user}>
-              <AirtimeCoupons user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/dashboard"
-          element={
-            <ProtectedRoute user={user}>
-              <Dashboard user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/spin"
-          element={
-            <ProtectedRoute user={user}>
-              <SpinWheel user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/leaderboard"
-          element={
-            <ProtectedRoute user={user}>
-              <LeaderboardRoute user={user} />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/coupons"        element={<ProtectedRoute user={user}><CouponsRoute user={user} /></ProtectedRoute>} />
+        <Route path="/airtime-coupons" element={<ProtectedRoute user={user}><AirtimeCoupons user={user} /></ProtectedRoute>} />
+        <Route path="/dashboard"      element={<ProtectedRoute user={user}><Dashboard user={user} /></ProtectedRoute>} />
+        <Route path="/spin"           element={<ProtectedRoute user={user}><SpinWheel user={user} /></ProtectedRoute>} />
+        <Route path="/leaderboard"    element={<ProtectedRoute user={user}><LeaderboardRoute user={user} /></ProtectedRoute>} />
+        <Route path="/hall-of-fame"   element={<HallOfFame />} />
+        <Route path="/verification"   element={<ProtectedRoute user={user}><Verification user={user} /></ProtectedRoute>} />
+        <Route path="/wallet"         element={<ProtectedRoute user={user}><Wallet user={user} /></ProtectedRoute>} />
+        <Route path="/invitation"     element={<ProtectedRoute user={user}><Invitation user={user} /></ProtectedRoute>} />
+        <Route path="/minimart/post-ad" element={<ProtectedRoute user={user}><PostAds user={user} /></ProtectedRoute>} />
 
-        {/* ════════════ HALL OF FAME (public) ════════════ */}
-        <Route path="/hall-of-fame" element={<HallOfFame />} />
-
-        <Route
-          path="/verification"
-          element={
-            <ProtectedRoute user={user}>
-              <Verification user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/wallet"
-          element={
-            <ProtectedRoute user={user}>
-              <Wallet user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/invitation"
-          element={
-            <ProtectedRoute user={user}>
-              <Invitation user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/minimart/post-ad"
-          element={
-            <ProtectedRoute user={user}>
-              <PostAds user={user} />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* ════════════ HELP CENTER (public) ════════════ */}
+        {/* ════════════ HELP CENTER ════════════ */}
         <Route path="/help"                element={<HelpCenter        user={user} />} />
         <Route path="/help/search"         element={<HelpSearchResults user={user} />} />
         <Route path="/help/category/:slug" element={<HelpCategoryPage  user={user} />} />
         <Route path="/help/article/:slug"  element={<HelpArticleDetail user={user} />} />
 
-        {/* ════════════ SUPPORT HUB (public entry) ════════════ */}
-        <Route path="/support" element={<SupportHub user={user} />} />
-
-        {/* ════════════ SUPPORT — CONTACT (protected) ════════════ */}
-        <Route
-          path="/support/contact"
-          element={
-            <ProtectedRoute user={user}>
-              <ContactSupport user={user} />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* ════════════ SUPPORT — TICKETS (protected) ════════════ */}
-        <Route
-          path="/support/tickets"
-          element={
-            <ProtectedRoute user={user}>
-              <SupportTickets user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/support/tickets/:id"
-          element={
-            <ProtectedRoute user={user}>
-              <SupportTicketDetail user={user} />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* ════════════ SUPPORT — REPORT (protected) ════════════ */}
-        <Route
-          path="/support/report"
-          element={
-            <ProtectedRoute user={user}>
-              <ReportCenter user={user} />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* ════════════ SUPPORT — DISPUTES (protected) ════════════ */}
-        <Route
-          path="/support/disputes"
-          element={
-            <ProtectedRoute user={user}>
-              <DisputeCenter user={user} />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* ════════════ SUPPORT — APPEALS (protected) ════════════ */}
-        <Route
-          path="/support/appeals"
-          element={
-            <ProtectedRoute user={user}>
-              <AppealsPage user={user} />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* ════════════ SUPPORT — FEEDBACK (protected) ════════════ */}
-        <Route
-          path="/support/feedback"
-          element={
-            <ProtectedRoute user={user}>
-              <FeedbackPage user={user} />
-            </ProtectedRoute>
-          }
-        />
-
-        {/* ════════════ FAQ (legacy) ════════════ */}
-        <Route path="/faq" element={<FAQ user={user} />} />
+        {/* ════════════ SUPPORT ════════════ */}
+        <Route path="/support"             element={<SupportHub user={user} />} />
+        <Route path="/support/contact"     element={<ProtectedRoute user={user}><ContactSupport user={user} /></ProtectedRoute>} />
+        <Route path="/support/tickets"     element={<ProtectedRoute user={user}><SupportTickets user={user} /></ProtectedRoute>} />
+        <Route path="/support/tickets/:id" element={<ProtectedRoute user={user}><SupportTicketDetail user={user} /></ProtectedRoute>} />
+        <Route path="/support/report"      element={<ProtectedRoute user={user}><ReportCenter user={user} /></ProtectedRoute>} />
+        <Route path="/support/disputes"    element={<ProtectedRoute user={user}><DisputeCenter user={user} /></ProtectedRoute>} />
+        <Route path="/support/appeals"     element={<ProtectedRoute user={user}><AppealsPage user={user} /></ProtectedRoute>} />
+        <Route path="/support/feedback"    element={<ProtectedRoute user={user}><FeedbackPage user={user} /></ProtectedRoute>} />
+        <Route path="/faq"                 element={<FAQ user={user} />} />
 
         {/* ════════════ CART / CHECKOUT / ORDERS ════════════ */}
-        <Route path="/shop/cart"       element={<CartPage />} />
-        <Route path="/payment/success" element={<PaymentSuccess />} />
-        <Route
-          path="/shop/checkout"
-          element={
-            <ProtectedRoute user={user}>
-              <CheckoutPage user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/shop/orders/:orderGroupId"
-          element={
-            <ProtectedRoute user={user}>
-              <OrderSuccess user={user} />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/shop/orders"
-          element={
-            <ProtectedRoute user={user}>
-              <OrderHistory user={user} />
-            </ProtectedRoute>
-          }
-        />
+        <Route path="/shop/cart"             element={<CartPage />} />
+        <Route path="/payment/success"       element={<PaymentSuccess />} />
+        <Route path="/shop/checkout"         element={<ProtectedRoute user={user}><CheckoutPage user={user} /></ProtectedRoute>} />
+        <Route path="/shop/orders/:orderGroupId" element={<ProtectedRoute user={user}><OrderSuccess user={user} /></ProtectedRoute>} />
+        <Route path="/shop/orders"           element={<ProtectedRoute user={user}><OrderHistory user={user} /></ProtectedRoute>} />
 
         {/* ════════════ PAYMENT FLOW ════════════ */}
         <Route path="/payment/callback"        element={<FlutterwaveRedirect />} />
@@ -989,39 +660,10 @@ export default function App() {
         <Route path="/payment-failed/:orderId" element={<PaymentFailedPage />} />
 
         {/* ════════════ ADMIN ════════════ */}
-        <Route
-          path="/admin"
-          element={
-            <Navigate
-              to={admin ? "/admin/dashboard" : "/admin/login"}
-              replace
-            />
-          }
-        />
-        <Route
-          path="/admin/login"
-          element={
-            admin
-              ? <Navigate to="/admin/dashboard" replace />
-              : <AdminLogin setAdmin={setAdmin} />
-          }
-        />
-        <Route
-          path="/admin/dashboard"
-          element={
-            <AdminProtectedRoute admin={admin}>
-              <AdminDashboard admin={admin} />
-            </AdminProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/dashboard/:tab"
-          element={
-            <AdminProtectedRoute admin={admin}>
-              <AdminDashboard admin={admin} />
-            </AdminProtectedRoute>
-          }
-        />
+        <Route path="/admin" element={<Navigate to={admin ? "/admin/dashboard" : "/admin/login"} replace />} />
+        <Route path="/admin/login"          element={admin ? <Navigate to="/admin/dashboard" replace /> : <AdminLogin setAdmin={setAdmin} />} />
+        <Route path="/admin/dashboard"      element={<AdminProtectedRoute admin={admin}><AdminDashboard admin={admin} /></AdminProtectedRoute>} />
+        <Route path="/admin/dashboard/:tab" element={<AdminProtectedRoute admin={admin}><AdminDashboard admin={admin} /></AdminProtectedRoute>} />
 
         {/* ════════════ FALLBACK ════════════ */}
         <Route path="*" element={<Navigate to="/" replace />} />
