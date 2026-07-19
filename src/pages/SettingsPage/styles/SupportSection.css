@@ -1,0 +1,163 @@
+/* ════════════════════════════════════════════════════════════
+   FILE: src/pages/SettingsPage/styles/SupportSection.css
+════════════════════════════════════════════════════════════ */
+
+.support-dd {
+  display        : flex;
+  flex-direction : column;
+}
+
+.support-dd__item {
+  border-bottom : 1px solid var(--bd);
+  background    : var(--wh);
+}
+
+.support-dd__item--last {
+  border-bottom : none;
+}
+
+.support-dd__trigger {
+  width           : 100%;
+  border          : none;
+  background      : transparent;
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  gap             : 12px;
+  padding         : 14px 16px;
+  cursor          : pointer;
+  text-align      : left;
+  color           : var(--ink);
+  transition      : background var(--t1, 0.15s ease);
+}
+
+.support-dd__trigger:hover {
+  background : var(--bg);
+}
+
+.support-dd__left {
+  display     : flex;
+  align-items : center;
+  gap         : 12px;
+  min-width   : 0;
+  flex        : 1;
+}
+
+.support-dd__icon {
+  width           : 38px;
+  height          : 38px;
+  border-radius   : var(--r1);
+  background      : var(--o-bg);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  color           : var(--o);
+  flex-shrink     : 0;
+}
+
+.support-dd__icon svg {
+  width  : 18px;
+  height : 18px;
+}
+
+.support-dd__text {
+  min-width       : 0;
+  display         : flex;
+  flex-direction  : column;
+  gap             : 2px;
+}
+
+.support-dd__label {
+  font-size   : 0.95rem;
+  font-weight : 600;
+  color       : var(--ink);
+}
+
+.support-dd__desc {
+  font-size   : 0.80rem;
+  color       : var(--ink2);
+}
+
+.support-dd__right {
+  flex-shrink : 0;
+  color       : var(--ink3);
+}
+
+.support-dd__chevron {
+  width      : 18px;
+  height     : 18px;
+  transition : transform var(--t2, 0.25s ease);
+}
+
+.support-dd__chevron--open {
+  transform : rotate(180deg);
+}
+
+/* ── Dropdown panel ── */
+.support-dd__panel {
+  display    : grid;
+  grid-template-rows : 0fr;
+  transition : grid-template-rows var(--t2, 0.25s ease);
+}
+
+.support-dd__panel--open {
+  grid-template-rows : 1fr;
+}
+
+.support-dd__panel-inner {
+  overflow      : hidden;
+  padding       : 0 16px;
+}
+
+.support-dd__item--open .support-dd__panel-inner {
+  padding-bottom : 16px;
+}
+
+.support-dd__body {
+  font-size   : 0.84rem;
+  line-height : 1.6;
+  color       : var(--ink2);
+  margin      : 0 0 12px;
+}
+
+.support-dd__action {
+  border        : none;
+  background    : var(--o);
+  color         : #fff;
+  border-radius : var(--r1);
+  padding       : 10px 14px;
+  font-size     : 0.86rem;
+  font-weight   : 600;
+  font-family   : var(--fb);
+  cursor        : pointer;
+  transition    : background var(--t1, 0.15s ease), transform var(--t1, 0.15s ease);
+}
+
+.support-dd__action:hover {
+  background : var(--o2);
+}
+
+.support-dd__action:active {
+  transform : translateY(1px);
+}
+
+/* ── Mobile ── */
+@media (max-width: 480px) {
+  .support-dd__trigger {
+    padding : 13px 14px;
+  }
+
+  .support-dd__panel-inner {
+    padding-left  : 14px;
+    padding-right : 14px;
+  }
+
+  .support-dd__label {
+    font-size : 0.92rem;
+  }
+
+  .support-dd__desc,
+  .support-dd__body {
+    font-size : 0.79rem;
+  }
+}
