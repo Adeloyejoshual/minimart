@@ -1,14 +1,13 @@
 // ════════════════════════════════════════════════════════════════
-// FILE: routes/addproduct.js — v16
+// FILE: routes/addproduct.js — v17
 //
-// Changes from v15:
-//  ─ Multer input limit lowered back to 5 MB (sweet spot)
-//  ─ Output after compression targets ~500 KB max
-//  ─ Added progressive quality reduction to hit 500 KB target
-//  ─ MIN_DIMENSION check: rejects images below 300×300
-//  ─ pLimit(2) concurrency on compress+upload
-//  ─ Sentry error tracking on all unexpected errors
-//  ─ IMAGE_CONFIG updated to reflect new limits
+// Changes from v16:
+//  ─ Watermark detection integrated (watermarkDetector.js)
+//  ─ OCR-only triggers warn/block — color is supporting evidence only
+//  ─ Screenshot detection blocks before compress+upload
+//  ─ Warn verdict attached to response, does not block listing
+//  ─ Block verdict rejects before compress+upload (saves R2 cost)
+//  ─ watermark_warnings included in 201 response
 // ════════════════════════════════════════════════════════════════
 
 import express   from "express";
@@ -41,6 +40,9 @@ import {
   generateBaseSlug,
   generateSlugWithId,
 } from "../utils/slug.js";
+import {
+  analyzeImageBatch,
+} from "../utils/watermarkDetector.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router    = express.Router();
@@ -150,6 +152,7 @@ const IMAGE_CONFIG = Object.freeze({
     logoPath      : path.join(__dirname, "../assets/watermark-logo.png"),
     text          : "Loemart.com",
     opacity       : 0.40,
+    padding       : 20,               // px from edge for text watermark
     logoMaxRatio  : 0.25,
     fontSizeRatio : 0.045,
     shadowOpacity : 0.60,
@@ -158,16 +161,15 @@ const IMAGE_CONFIG = Object.freeze({
 
 /* ═══════════════════════════════════════════════════════════════
    IMAGE CONCURRENCY  — max 2 compress+upload jobs at once
-   6 images × ~80 MB RAM = 480 MB without limit
-   With pLimit(2) → max ~160 MB peak
 ═══════════════════════════════════════════════════════════════ */
 const imageLimit = pLimit(2);
 
 /* ═══════════════════════════════════════════════════════════════
-   WATERMARK — load logo once at startup
+   WATERMARK LOGO — load once at startup
 ═══════════════════════════════════════════════════════════════ */
-let _watermarkLogo = null;
-let _logoLoadTried = false;
+let _watermarkLogo   = null;
+let _logoLoadTried   = false;
+let _usingLogoWm     = false;  // cached boolean — avoids async in log
 
 const getWatermarkLogo = async () => {
   if (_logoLoadTried) return _watermarkLogo;
@@ -176,6 +178,7 @@ const getWatermarkLogo = async () => {
     _watermarkLogo = await fs.promises.readFile(
       IMAGE_CONFIG.watermark.logoPath
     );
+    _usingLogoWm = true;
     console.log("[watermark] ✓ Logo loaded from disk");
   } catch {
     console.warn(
@@ -184,6 +187,7 @@ const getWatermarkLogo = async () => {
       "— will use text watermark"
     );
     _watermarkLogo = null;
+    _usingLogoWm   = false;
   }
   return _watermarkLogo;
 };
@@ -192,8 +196,8 @@ const getWatermarkLogo = async () => {
 const buildTextWatermarkSvg = (imgW, imgH) => {
   const wm       = IMAGE_CONFIG.watermark;
   const fontSize = Math.max(14, Math.round(imgW * wm.fontSizeRatio));
-  const textX    = imgW - wm.padding ?? 20;
-  const textY    = imgH - wm.padding ?? 20;
+  const textX    = imgW - wm.padding;
+  const textY    = imgH - wm.padding;
 
   return Buffer.from(`
     <svg width="${imgW}" height="${imgH}"
@@ -239,7 +243,6 @@ const buildLogoComposite = async (logoBuffer, imgW) => {
     .webp({ quality: 90 })
     .toBuffer();
 
-  /* Apply opacity per-pixel on alpha channel */
   const { data, info } = await sharp(resizedLogo)
     .raw()
     .toBuffer({ resolveWithObject: true });
@@ -267,13 +270,6 @@ const buildLogoComposite = async (logoBuffer, imgW) => {
 
 /* ═══════════════════════════════════════════════════════════════
    COMPRESS + WATERMARK
-   Flow:
-     1. Validate (corrupt / dimensions too small)
-     2. Resize to maxWidth
-     3. Apply watermark (logo or text SVG)
-     4. Encode WebP at init quality
-     5. If output > 500 KB → reduce quality in steps until ≤ 500 KB
-        or quality floor reached (whichever comes first)
 ═══════════════════════════════════════════════════════════════ */
 const compressImage = async (buffer, mimetype) => {
   /* ── 1. Validate ── */
@@ -281,7 +277,7 @@ const compressImage = async (buffer, mimetype) => {
   try {
     meta = await sharp(buffer).metadata();
   } catch (err) {
-    Sentry.captureException?.(err, {
+    Sentry.captureException(err, {
       tags: { area: "image_compression", step: "metadata" },
     });
     throw new Error("Invalid or corrupt image file.");
@@ -307,16 +303,16 @@ const compressImage = async (buffer, mimetype) => {
   let resizedBuffer;
   try {
     resizedBuffer = await sharp(buffer)
-      .rotate()                              // fix EXIF orientation
+      .rotate()
       .resize({
         width             : IMAGE_CONFIG.maxWidth,
         height            : IMAGE_CONFIG.maxWidth,
-        fit               : "inside",        // preserve aspect ratio
-        withoutEnlargement: true,            // never upscale
+        fit               : "inside",
+        withoutEnlargement: true,
       })
-      .toBuffer();                           // raw, not yet encoded
+      .toBuffer();
   } catch (err) {
-    Sentry.captureException?.(err, {
+    Sentry.captureException(err, {
       tags : { area: "image_compression", step: "resize" },
       extra: { width: meta.width, height: meta.height, mimetype },
     });
@@ -337,7 +333,7 @@ const compressImage = async (buffer, mimetype) => {
         composite = await buildLogoComposite(logoBuffer, imgW);
       } catch (logoErr) {
         console.warn("[watermark] Logo failed, using text:", logoErr.message);
-        Sentry.captureException?.(logoErr, {
+        Sentry.captureException(logoErr, {
           tags: { area: "watermark", step: "logo_composite" },
         });
         composite = {
@@ -376,12 +372,10 @@ const compressImage = async (buffer, mimetype) => {
       finalBuffer = candidate;
 
       if (candidate.length <= IMAGE_CONFIG.maxOutputBytes) {
-        /* ✓ Under 500 KB — done */
         break;
       }
 
       if (quality <= IMAGE_CONFIG.webpQualityMin) {
-        /* Hit the floor — accept whatever size we got */
         console.warn(
           `[addproduct] image hit quality floor at ${quality}q, ` +
           `final size: ${(candidate.length / 1_024).toFixed(0)} KB`
@@ -389,12 +383,11 @@ const compressImage = async (buffer, mimetype) => {
         break;
       }
 
-      /* Reduce and try again */
       quality -= IMAGE_CONFIG.webpQualityStep;
       quality  = Math.max(quality, IMAGE_CONFIG.webpQualityMin);
 
     } catch (encodeErr) {
-      Sentry.captureException?.(encodeErr, {
+      Sentry.captureException(encodeErr, {
         tags : { area: "image_compression", step: "encode_webp" },
         extra: { quality },
       });
@@ -402,14 +395,15 @@ const compressImage = async (buffer, mimetype) => {
     }
   }
 
+  const wmType = !IMAGE_CONFIG.watermark.enabled
+    ? "no watermark"
+    : _usingLogoWm ? "logo watermark" : "text watermark";
+
   console.log(
-    `[addproduct] compress+watermark:` +
-    ` ${(buffer.length / 1_024).toFixed(0)} KB input` +
+    `[addproduct] compress: ` +
+    `${(buffer.length / 1_024).toFixed(0)} KB input` +
     ` → ${(finalBuffer.length / 1_024).toFixed(0)} KB output` +
-    ` @ quality ${quality}` +
-    ` (${IMAGE_CONFIG.watermark.enabled
-        ? (await getWatermarkLogo() ? "logo" : "text") + " watermark"
-        : "no watermark"})`
+    ` @ quality ${quality} (${wmType})`
   );
 
   return { buffer: finalBuffer, mimetype: "image/webp" };
@@ -482,12 +476,11 @@ const trackTrending = async (productId) => {
 
 /* ═══════════════════════════════════════════════════════════════
    MULTER  — 5 MB input limit
-   Server compresses to ≤ 500 KB output before storing
 ═══════════════════════════════════════════════════════════════ */
 const upload = multer({
   storage    : multer.memoryStorage(),
   limits     : {
-    fileSize : IMAGE_CONFIG.maxInputBytes,   // 5 MB
+    fileSize : IMAGE_CONFIG.maxInputBytes,
     files    : MAX_IMAGES,
   },
   fileFilter : (_req, file, cb) => {
@@ -557,9 +550,11 @@ const cleanText = (v) => {
   return s || null;
 };
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const cleanUuid = (v) => {
   const s = String(v ?? "").trim();
-  return s && s !== "null" && s !== "undefined" ? s : null;
+  return UUID_RE.test(s) ? s : null;
 };
 
 const toNumberOrNull = (v) => {
@@ -973,7 +968,7 @@ export const reactivateLimitedListings = async (sellerId) => {
     return rowCount;
   } catch (err) {
     console.error("[addproduct] reactivateLimitedListings error:", err.message);
-    Sentry.captureException?.(err, { tags: { area: "cron_reactivate" } });
+    Sentry.captureException(err, { tags: { area: "cron_reactivate" } });
     return 0;
   } finally {
     client.release();
@@ -1023,7 +1018,7 @@ export const pauseExpiredListings = async () => {
     return rows;
   } catch (err) {
     console.error("[addproduct] pauseExpiredListings error:", err.message);
-    Sentry.captureException?.(err, { tags: { area: "cron_pause_expired" } });
+    Sentry.captureException(err, { tags: { area: "cron_pause_expired" } });
     return [];
   } finally {
     client.release();
@@ -1280,9 +1275,9 @@ router.post(
     const imageHashes    = validateImageHashes(
       safeParse(req.body.image_hashes, [])
     );
-    const attributes  = safeParseGuarded(req.body.attributes, {});
-    const delivery    = safeParseGuarded(req.body.delivery,   {});
-    const contact     = safeParseGuarded(req.body.contact,    {});
+    const attributes   = safeParseGuarded(req.body.attributes, {});
+    const delivery     = safeParseGuarded(req.body.delivery,   {});
+    const contact      = safeParseGuarded(req.body.contact,    {});
     const whatsappLink = sanitizeWhatsAppLink(
       cleanText(req.body.whatsapp_link)
     );
@@ -1349,18 +1344,21 @@ router.post(
       });
     }
 
-    /* ── PHASE 1: Pre-upload policy check ── */
+    /* ── PHASE 1: Hard pre-upload policy check ── */
+    /* Run before ANY expensive work (watermark scan, compress, upload) */
     if (requestedStatus === "active") {
       try {
         const preCtx   = await getSellerContextPreUpload(sellerId);
         const earlyErr = enforcePolicyLimits(preCtx);
         if (earlyErr) {
-          console.log("[addproduct] pre-upload block:", earlyErr.message);
+          console.log("[addproduct] pre-upload policy block:", earlyErr.message);
           return fail(res, earlyErr.status, earlyErr.message, earlyErr.extra);
         }
       } catch (preErr) {
+        /* DB error on pre-check — log and continue, transaction will re-check */
         console.warn(
-          "[addproduct] pre-upload check failed (non-fatal):", preErr.message
+          "[addproduct] pre-upload policy check failed (non-fatal):",
+          preErr.message
         );
       }
     }
@@ -1370,9 +1368,65 @@ router.post(
     if (!earlyCategory.valid) return fail(res, 400, earlyCategory.message);
 
     /* ══════════════════════════════════════════════════════════
+       WATERMARK ANALYSIS
+       Runs on raw uploaded buffers before compression or R2 upload.
+       Keeps analysis cost low — no R2 spend on blocked images.
+
+       Verdict meanings:
+         "accept"  → clean, proceed normally
+         "loemart" → our own watermark, proceed normally
+         "warn"    → competitor watermark found (OCR confirmed),
+                     listing is allowed but warnings attached to response
+         "block"   → screenshot OR heavily covered competitor image,
+                     reject immediately with clear user message
+    ══════════════════════════════════════════════════════════ */
+    let wmAnalysis = null;
+
+    try {
+      wmAnalysis = await analyzeImageBatch(
+        files.map((f) => f.buffer)
+      );
+
+      console.log(
+        "[addproduct] watermark scan:",
+        `${wmAnalysis.summary.clean} clean,`,
+        `${wmAnalysis.summary.loemart} loemart,`,
+        `${wmAnalysis.summary.warned} warned,`,
+        `${wmAnalysis.summary.blocked} blocked`
+      );
+
+      if (wmAnalysis.overallVerdict === "block") {
+        /* Find the first blocked image's message to surface to the user */
+        const firstBlock = wmAnalysis.results.find(
+          (r) => r.verdict === "block"
+        );
+        console.warn(
+          "[addproduct] watermark block — seller:", sellerId,
+          "reason:", firstBlock?.reason
+        );
+        return fail(res, 400, firstBlock?.message ?? "One or more images were rejected.", {
+          blocked_images : wmAnalysis.blockedImages,
+          reason         : firstBlock?.reason ?? "watermark_policy",
+        });
+      }
+
+    } catch (wmErr) {
+      /* Analysis failure is non-fatal — log it, do not block the listing */
+      console.warn(
+        "[addproduct] watermark analysis error (non-fatal):", wmErr.message
+      );
+      Sentry.captureException(wmErr, {
+        tags  : { area: "watermark_analysis", seller_id: sellerId },
+        extra : { fileCount: files.length },
+      });
+      wmAnalysis = null;
+    }
+
+    /* ══════════════════════════════════════════════════════════
        COMPRESS + WATERMARK + UPLOAD
+       Only reached if watermark analysis passed (accept/loemart/warn).
        - Max 2 images processed concurrently (pLimit)
-       - Each image: resize → watermark → quality loop → R2
+       - Each image: resize → Loemart watermark → quality loop → R2
        - Input:  up to 5 MB per image (multer)
        - Output: targets ≤ 500 KB per image stored in R2
     ══════════════════════════════════════════════════════════ */
@@ -1403,11 +1457,11 @@ router.post(
 
       const isUserError =
         uploadErr.message.includes("too small") ||
-        uploadErr.message.includes("Invalid") ||
+        uploadErr.message.includes("Invalid")   ||
         uploadErr.message.includes("corrupt");
 
       if (!isUserError) {
-        Sentry.captureException?.(uploadErr, {
+        Sentry.captureException(uploadErr, {
           tags  : { area: "image_upload", seller_id: sellerId },
           extra : { fileCount: files.length },
         });
@@ -1429,6 +1483,13 @@ router.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+
+      /* Advisory lock — prevents concurrent submissions from the same
+         seller racing past the policy check simultaneously            */
+      await client.query(
+        "SELECT pg_advisory_xact_lock(hashtext($1::text))",
+        [sellerId]
+      );
 
       const ctx = await getSellerContext(client, sellerId);
 
@@ -1600,6 +1661,9 @@ router.post(
             trial_remaining : ctx.trialRemaining !== null
               ? Math.max(0, ctx.trialRemaining - 1)
               : null,
+            watermark_warnings : wmAnalysis?.warnings?.length
+              ? wmAnalysis.warnings.map((w) => w.competitor)
+              : [],
           },
           ipAddress : ip,
         }).catch(() => {});
@@ -1614,7 +1678,6 @@ router.post(
         const needsVerification = finalStatus === "active_limited";
         const isFreeListing     = finalStatus === "active" && activeUntil !== null;
         const trialInfo         = buildTrialInfo(ctx);
-        const expiryDays        = daysUntilExpiry(activeUntil);
 
         if (needsVerification) {
           const remaining = trialInfo?.trial_remaining ?? 0;
@@ -1644,10 +1707,17 @@ router.post(
         }
       });
 
-      /* ── Response ── */
+      /* ── Build response ── */
       const needsVerification = finalStatus === "active_limited";
       const trialInfo         = buildTrialInfo(ctx);
       const expiryDays        = daysUntilExpiry(activeUntil);
+
+      /* Watermark warnings — included when OCR found competitor text
+         but coverage was below the block threshold.
+         The listing is posted; seller is encouraged to replace photos. */
+      const hasWatermarkWarnings =
+        wmAnalysis?.overallVerdict === "warn" &&
+        wmAnalysis.warnings?.length > 0;
 
       return res.status(201).json({
         success            : true,
@@ -1680,6 +1750,13 @@ router.post(
               `You have ${trialInfo?.trial_remaining ?? 0} free trial listing(s) remaining. ` +
               "Verify your identity for unlimited posting.",
         }),
+        /* Watermark section — only present when warnings exist */
+        ...(hasWatermarkWarnings && {
+          watermark_warnings : wmAnalysis.warnings,
+          watermark_notice   :
+            "One or more photos may contain a third-party marketplace watermark. " +
+            "Consider replacing them with original photos for better buyer trust on Loemart.",
+        }),
       });
 
     } catch (err) {
@@ -1688,7 +1765,7 @@ router.post(
       console.error("[addproduct] CREATE ERROR:", err.message, "\n", err.stack);
 
       if (!["LIMIT_FILE_SIZE", "23505", "INVALID_MIME"].includes(err.code)) {
-        Sentry.captureException?.(err, {
+        Sentry.captureException(err, {
           tags  : { area: "product_create", seller_id: sellerId },
           extra : { title, categoryId, fileCount: files.length },
         });
@@ -1760,6 +1837,7 @@ router.post(
         return res.json({ success: true, message: "Already active." });
       }
 
+      /* Lock user row AFTER product to maintain consistent lock order */
       const { rows: userRows } = await client.query(
         "SELECT identity_verified FROM public.users WHERE id = $1 FOR NO KEY UPDATE",
         [sellerId]
@@ -1855,7 +1933,7 @@ router.post(
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       console.error("[addproduct] ACTIVATE ERROR:", err.message);
-      Sentry.captureException?.(err, {
+      Sentry.captureException(err, {
         tags: { area: "product_activate", seller_id: sellerId },
       });
       return fail(
@@ -1899,7 +1977,7 @@ router.delete(
       if (!check.length)
         return fail(res, 404, "Product not found or not owned by you.");
 
-      if (check[0].is_deleted)
+      if (check[0].is_deleted || check[0].status === "deleted")
         return fail(res, 400, "Product already deleted.");
 
       if (check[0].status === "active") {
@@ -1915,6 +1993,7 @@ router.delete(
         `UPDATE products
          SET
            is_active             = false,
+           is_deleted            = true,
            status                = 'deleted',
            deletion_requested_at = NOW(),
            deletion_reason       = 'user_deleted',
@@ -1923,7 +2002,7 @@ router.delete(
            updated_at            = NOW()
          WHERE id        = $2
            AND seller_id = $3
-           AND is_deleted = false
+           AND (is_deleted = false OR is_deleted IS NULL)
          RETURNING id, title`,
         [HOLD_DAYS, productId, sellerId]
       );
@@ -1962,7 +2041,7 @@ router.delete(
 
     } catch (err) {
       console.error("[addproduct] DELETE ERROR:", err.message);
-      Sentry.captureException?.(err, {
+      Sentry.captureException(err, {
         tags: { area: "product_delete", seller_id: sellerId },
       });
       return fail(
