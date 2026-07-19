@@ -1,0 +1,536 @@
+/* ════════════════════════════════════════════════════════════
+   SETTINGS PAGE
+   Tokens pulled from the existing Loemart design system.
+   Light / Dark / System themes via [data-theme] on <html>.
+════════════════════════════════════════════════════════════ */
+
+/* ── Token defaults (light) ── */
+:root {
+  --s-bg          : #f5f5f7;
+  --s-surface     : #ffffff;
+  --s-border      : #e5e5ea;
+  --s-text        : #1c1c1e;
+  --s-text-sub    : #6c6c70;
+  --s-accent      : #007aff;
+  --s-danger      : #ff3b30;
+  --s-danger-bg   : #fff1f0;
+  --s-badge-bg    : #e5e5ea;
+  --s-badge-text  : #6c6c70;
+  --s-toggle-off  : #d1d1d6;
+  --s-toggle-on   : #34c759;
+  --s-shadow      : 0 1px 3px rgba(0, 0, 0, 0.07);
+  --s-radius      : 14px;
+  --s-item-h      : 52px;
+}
+
+/* ── Dark tokens ── */
+[data-theme="dark"] {
+  --s-bg          : #000000;
+  --s-surface     : #1c1c1e;
+  --s-border      : #2c2c2e;
+  --s-text        : #f2f2f7;
+  --s-text-sub    : #8e8e93;
+  --s-accent      : #0a84ff;
+  --s-danger      : #ff453a;
+  --s-danger-bg   : #2c1010;
+  --s-badge-bg    : #2c2c2e;
+  --s-badge-text  : #8e8e93;
+  --s-toggle-off  : #3a3a3c;
+  --s-shadow      : 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+
+/* ════════════════════════════════════════════════════════════
+   PAGE
+════════════════════════════════════════════════════════════ */
+.settings-page {
+  min-height       : 100dvh;
+  background       : var(--s-bg);
+  color            : var(--s-text);
+  font-family      : -apple-system, BlinkMacSystemFont, "Segoe UI",
+                     Roboto, Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.settings-main {
+  max-width  : 680px;
+  margin     : 0 auto;
+  padding    : 8px 16px 48px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   HEADER
+════════════════════════════════════════════════════════════ */
+.settings-header {
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  padding         : 14px 16px 10px;
+  background      : var(--s-surface);
+  border-bottom   : 1px solid var(--s-border);
+  position        : sticky;
+  top             : 0;
+  z-index         : 10;
+}
+
+.settings-header__back {
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  width           : 36px;
+  height          : 36px;
+  border          : none;
+  background      : none;
+  cursor          : pointer;
+  color           : var(--s-accent);
+  border-radius   : 50%;
+  transition      : background 0.15s;
+  flex-shrink     : 0;
+}
+
+.settings-header__back:hover {
+  background : var(--s-border);
+}
+
+.settings-header__back:focus-visible {
+  outline        : 2px solid var(--s-accent);
+  outline-offset : 2px;
+}
+
+.settings-header__title {
+  font-size   : 1.05rem;
+  font-weight : 700;
+  margin      : 0;
+  color       : var(--s-text);
+  flex        : 1;
+  text-align  : center;
+}
+
+.settings-header__spacer {
+  width : 36px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   SECTION
+════════════════════════════════════════════════════════════ */
+.settings-section {
+  margin-bottom : 28px;
+}
+
+.settings-section__title {
+  font-size     : 0.75rem;
+  font-weight   : 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color         : var(--s-text-sub);
+  margin        : 0 0 6px 4px;
+}
+
+.settings-section__card {
+  background    : var(--s-surface);
+  border-radius : var(--s-radius);
+  box-shadow    : var(--s-shadow);
+  overflow      : hidden;
+}
+
+/* Danger section card border */
+.settings-section--danger .settings-section__card {
+  border : 1.5px solid var(--s-danger);
+}
+
+/* ════════════════════════════════════════════════════════════
+   ITEM
+════════════════════════════════════════════════════════════ */
+.settings-item {
+  display         : flex;
+  align-items     : center;
+  gap             : 12px;
+  min-height      : var(--s-item-h);
+  padding         : 10px 16px;
+  width           : 100%;
+  background      : none;
+  border          : none;
+  border-bottom   : 1px solid var(--s-border);
+  cursor          : pointer;
+  text-align      : left;
+  text-decoration : none;
+  color           : var(--s-text);
+  transition      : background 0.12s;
+  box-sizing      : border-box;
+}
+
+.settings-item:last-child,
+.settings-item--last {
+  border-bottom : none;
+}
+
+.settings-item:hover:not(.settings-item--disabled) {
+  background : var(--s-bg);
+}
+
+.settings-item:active:not(.settings-item--disabled) {
+  background : var(--s-border);
+}
+
+.settings-item:focus-visible {
+  outline        : 2px solid var(--s-accent);
+  outline-offset : -2px;
+}
+
+.settings-item--danger {
+  color : var(--s-danger);
+}
+
+.settings-item--disabled {
+  cursor  : default;
+  opacity : 0.45;
+}
+
+.settings-item__icon {
+  font-size   : 1.15rem;
+  flex-shrink : 0;
+  width       : 24px;
+  text-align  : center;
+  line-height : 1;
+}
+
+.settings-item__body {
+  flex        : 1;
+  min-width   : 0;
+  display     : flex;
+  flex-direction: column;
+  gap         : 1px;
+}
+
+.settings-item__label {
+  font-size   : 0.95rem;
+  font-weight : 500;
+  white-space : nowrap;
+  overflow    : hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-item__sublabel {
+  font-size : 0.80rem;
+  color     : var(--s-text-sub);
+  white-space: nowrap;
+  overflow   : hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-item__badge {
+  font-size     : 0.70rem;
+  font-weight   : 600;
+  padding       : 2px 8px;
+  border-radius : 20px;
+  background    : var(--s-badge-bg);
+  color         : var(--s-badge-text);
+  white-space   : nowrap;
+  flex-shrink   : 0;
+}
+
+.settings-item__chevron {
+  color       : var(--s-text-sub);
+  flex-shrink : 0;
+  display     : flex;
+  align-items : center;
+}
+
+.settings-item__control {
+  flex-shrink : 0;
+}
+
+/* ════════════════════════════════════════════════════════════
+   SELECT
+════════════════════════════════════════════════════════════ */
+.settings-select {
+  appearance    : none;
+  -webkit-appearance: none;
+  background    : var(--s-bg);
+  color         : var(--s-text);
+  border        : 1px solid var(--s-border);
+  border-radius : 8px;
+  padding       : 5px 28px 5px 10px;
+  font-size     : 0.85rem;
+  font-family   : inherit;
+  cursor        : pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236c6c70' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat  : no-repeat;
+  background-position: right 8px center;
+  max-width     : 130px;
+}
+
+.settings-select:focus {
+  outline       : 2px solid var(--s-accent);
+  outline-offset: 1px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   TOGGLE
+════════════════════════════════════════════════════════════ */
+.settings-toggle {
+  display    : inline-flex;
+  cursor     : pointer;
+  flex-shrink: 0;
+}
+
+.settings-toggle__input {
+  position : absolute;
+  opacity  : 0;
+  width    : 0;
+  height   : 0;
+}
+
+.settings-toggle__track {
+  display         : flex;
+  align-items     : center;
+  width           : 48px;
+  height          : 28px;
+  border-radius   : 14px;
+  background      : var(--s-toggle-off);
+  padding         : 2px;
+  transition      : background 0.2s ease;
+  box-sizing      : border-box;
+}
+
+.settings-toggle--on .settings-toggle__track {
+  background : var(--s-toggle-on);
+}
+
+.settings-toggle__thumb {
+  width         : 24px;
+  height        : 24px;
+  border-radius : 50%;
+  background    : #ffffff;
+  box-shadow    : 0 1px 3px rgba(0, 0, 0, 0.25);
+  transform     : translateX(0);
+  transition    : transform 0.2s ease;
+  flex-shrink   : 0;
+}
+
+.settings-toggle--on .settings-toggle__thumb {
+  transform : translateX(20px);
+}
+
+.settings-toggle:focus-within .settings-toggle__track {
+  outline        : 2px solid var(--s-accent);
+  outline-offset : 2px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   DELETE CONFIRM
+════════════════════════════════════════════════════════════ */
+.settings-delete-confirm {
+  padding    : 16px;
+  border-top : 1px solid var(--s-border);
+}
+
+.settings-delete-confirm__warning {
+  font-size     : 0.88rem;
+  color         : var(--s-danger);
+  background    : var(--s-danger-bg);
+  border        : 1px solid var(--s-danger);
+  border-radius : 8px;
+  padding       : 10px 12px;
+  margin        : 0 0 14px;
+  line-height   : 1.5;
+}
+
+.settings-delete-confirm__label {
+  display     : block;
+  font-size   : 0.85rem;
+  color       : var(--s-text-sub);
+  margin-bottom: 6px;
+}
+
+.settings-delete-confirm__input {
+  width         : 100%;
+  padding       : 10px 12px;
+  border        : 1.5px solid var(--s-border);
+  border-radius : 8px;
+  background    : var(--s-bg);
+  color         : var(--s-text);
+  font-size     : 0.95rem;
+  font-family   : inherit;
+  box-sizing    : border-box;
+  margin-bottom : 12px;
+  transition    : border-color 0.15s;
+}
+
+.settings-delete-confirm__input:focus {
+  outline      : none;
+  border-color : var(--s-danger);
+}
+
+.settings-delete-confirm__actions {
+  display : flex;
+  gap     : 10px;
+}
+
+.settings-delete-confirm__cancel {
+  flex          : 1;
+  padding       : 10px;
+  border        : 1.5px solid var(--s-border);
+  border-radius : 8px;
+  background    : none;
+  color         : var(--s-text);
+  font-size     : 0.90rem;
+  font-family   : inherit;
+  cursor        : pointer;
+  transition    : background 0.15s;
+}
+
+.settings-delete-confirm__cancel:hover:not(:disabled) {
+  background : var(--s-border);
+}
+
+.settings-delete-confirm__submit {
+  flex           : 1;
+  padding        : 10px;
+  border         : none;
+  border-radius  : 8px;
+  background     : var(--s-danger);
+  color          : #ffffff;
+  font-size      : 0.90rem;
+  font-weight    : 600;
+  font-family    : inherit;
+  cursor         : pointer;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  gap            : 6px;
+  transition     : opacity 0.15s;
+}
+
+.settings-delete-confirm__submit:disabled {
+  opacity : 0.45;
+  cursor  : not-allowed;
+}
+
+/* ════════════════════════════════════════════════════════════
+   SPINNER (delete loading state)
+════════════════════════════════════════════════════════════ */
+.settings-spinner {
+  display      : inline-block;
+  width        : 14px;
+  height       : 14px;
+  border       : 2px solid rgba(255, 255, 255, 0.35);
+  border-top   : 2px solid #ffffff;
+  border-radius: 50%;
+  animation    : settings-spin 0.7s linear infinite;
+  flex-shrink  : 0;
+}
+
+@keyframes settings-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ════════════════════════════════════════════════════════════
+   TOAST
+════════════════════════════════════════════════════════════ */
+.settings-toast {
+  position      : fixed;
+  bottom        : 24px;
+  left          : 50%;
+  transform     : translateX(-50%);
+  display       : flex;
+  align-items   : center;
+  gap           : 8px;
+  padding       : 11px 20px;
+  border-radius : 24px;
+  font-size     : 0.88rem;
+  font-weight   : 500;
+  z-index       : 9999;
+  white-space   : nowrap;
+  box-shadow    : 0 4px 20px rgba(0, 0, 0, 0.18);
+  animation     : settings-toast-in 0.22s ease;
+}
+
+.settings-toast--success {
+  background : #1c1c1e;
+  color      : #ffffff;
+}
+
+.settings-toast--error {
+  background : var(--s-danger);
+  color      : #ffffff;
+}
+
+.settings-toast__icon {
+  font-weight : 700;
+  font-size   : 0.95rem;
+}
+
+@keyframes settings-toast-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0);    }
+}
+
+/* ════════════════════════════════════════════════════════════
+   SKELETON (suspense fallback)
+════════════════════════════════════════════════════════════ */
+.settings-skeleton {
+  padding    : 16px;
+  max-width  : 680px;
+  margin     : 0 auto;
+}
+
+.settings-skeleton__block {
+  height        : 120px;
+  border-radius : var(--s-radius);
+  background    : linear-gradient(
+    90deg,
+    var(--s-border) 25%,
+    var(--s-bg)     50%,
+    var(--s-border) 75%
+  );
+  background-size : 200% 100%;
+  animation       : settings-shimmer 1.4s infinite;
+  margin-bottom   : 20px;
+}
+
+@keyframes settings-shimmer {
+  from { background-position: 200% 0; }
+  to   { background-position: -200% 0; }
+}
+
+/* ════════════════════════════════════════════════════════════
+   RESPONSIVE
+════════════════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .settings-main {
+    padding : 6px 12px 40px;
+  }
+
+  .settings-section {
+    margin-bottom : 22px;
+  }
+
+  .settings-item {
+    padding : 10px 14px;
+  }
+
+  .settings-header {
+    padding : 12px 12px 8px;
+  }
+
+  .settings-delete-confirm__actions {
+    flex-direction : column;
+  }
+
+  .settings-toast {
+    bottom    : 16px;
+    max-width : calc(100vw - 32px);
+    white-space: normal;
+    text-align: center;
+  }
+}
+
+@media (min-width: 768px) {
+  .settings-main {
+    padding : 16px 24px 64px;
+  }
+
+  .settings-header {
+    padding : 16px 24px 12px;
+  }
+}
