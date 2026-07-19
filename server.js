@@ -1,5 +1,5 @@
 /**
- * server.js — complete file with support routes added
+ * server.js — complete file
  */
 
 import express           from "express";
@@ -145,6 +145,8 @@ const uploadLimiter = rateLimit({
 /* ══════════════════════════════════════════════════════════════
    ROUTE IMPORTS
 ══════════════════════════════════════════════════════════════ */
+
+/* ── Payments ── */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
 import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
 import checkoutWebhookRouter            from "./routes/checkout/webhook.js";
@@ -166,6 +168,8 @@ import sellerDashboardRouter from "./routes/dashboard.js";
 
 /* ── Products + marketplace ── */
 import addproductRouter    from "./routes/addproduct.js";
+import editproductRouter   from "./routes/editproduct.js";
+import promotePlansRouter  from "./routes/promoteplans.js";
 import marketRouter        from "./routes/market/index.js";
 import marketDetailRouter  from "./routes/marketDetail/index.js";
 import productDetailRouter from "./routes/productDetail.js";
@@ -180,22 +184,22 @@ import messagesRouter      from "./routes/messages.js";
 import conversationsRouter from "./routes/conversations.js";
 
 /* ── Platform ── */
-import adminRouter          from "./routes/admin.js";
-import searchRouter         from "./routes/search.js";
-import homepageRouter       from "./routes/homepage.js";
-import notificationsRouter  from "./routes/notifications.js";
-import walletRoutes         from "./routes/wallets.js";
-import p2pRouter            from "./routes/p2p.js";
-import verificationRouter   from "./routes/verification.js";
-import couponsRouter        from "./routes/coupons.js";
-import spinwheelRouter      from "./routes/spinwheel.js";
-import referralRoutes       from "./routes/referrals.js";
-import leaderboardRoutes    from "./routes/leaderboard.js";
-import favoritesRouter      from "./routes/favorites.js";
-import airtimeCouponRoutes  from "./routes/airtimeCoupons.js";
-import subscriptionRouter   from "./routes/subscription/index.js";
-import editproductRouter from "./routes/editproduct.js";
-import promotePlansRouter from "./routes/promoteplans.js";
+import adminRouter         from "./routes/admin.js";
+import searchRouter        from "./routes/search.js";
+import homepageRouter      from "./routes/homepage.js";
+import notificationsRouter from "./routes/notifications.js";
+import walletRoutes        from "./routes/wallets.js";
+import p2pRouter           from "./routes/p2p.js";
+import verificationRouter  from "./routes/verification.js";
+import couponsRouter       from "./routes/coupons.js";
+import spinwheelRouter     from "./routes/spinwheel.js";
+import referralRoutes      from "./routes/referrals.js";
+import leaderboardRoutes   from "./routes/leaderboard.js";
+import favoritesRouter     from "./routes/favorites.js";
+import airtimeCouponRoutes from "./routes/airtimeCoupons.js";
+import subscriptionRouter  from "./routes/subscription/index.js";
+
+/* ── Settings ── */
 import settingsRouter from "./routes/settings.js";
 
 /* ── Help & Support ─────────────────────────────────────────
@@ -208,9 +212,10 @@ import settingsRouter from "./routes/settings.js";
 import supportRouter from "./routes/support.js";
 
 /* ── Background jobs ── */
-import { startListingExpiryJob } from "./jobs/listingExpiry.js";
-import { startCleanupJob }       from "./jobs/cleanupDeletedProducts.js";
-import { initLeaderboardCron }   from "./services/leaderboardCron.js";
+import { startListingExpiryJob }    from "./jobs/listingExpiry.js";
+import { startCleanupJob }          from "./jobs/cleanupDeletedProducts.js";
+import { initLeaderboardCron }      from "./services/leaderboardCron.js";
+import { purgeDeletedAccounts }     from "./crons/purgeDeletedAccounts.js";
 
 /* ══════════════════════════════════════════════════════════════
    WEBHOOKS  — must be BEFORE body parsers
@@ -301,11 +306,13 @@ app.use("/api/seller/settings",   sellerSettingsRouter);
 app.use("/api/seller-dashboard",  sellerDashboardRouter);
 
 /* ── Products + marketplace ── */
-app.use("/api/products",   marketRouter);
-app.use("/api/shop",       marketDetailRouter);
-app.use("/api/cart",       cartRouter);
-app.use("/api/addproduct", addproductRouter);
-app.use("/api/product",    productDetailRouter);
+app.use("/api/products",     marketRouter);
+app.use("/api/shop",         marketDetailRouter);
+app.use("/api/cart",         cartRouter);
+app.use("/api/addproduct",   addproductRouter);
+app.use("/api/addproduct",   editproductRouter);
+app.use("/api/product",      productDetailRouter);
+app.use("/api/promoteplans", promotePlansRouter);
 
 /* ── Messaging ── */
 app.use("/api/messages/upload", uploadLimiter);
@@ -327,8 +334,8 @@ app.use("/api/leaderboard",     leaderboardRoutes);
 app.use("/api/favorites",       favoritesRouter);
 app.use("/api/airtime-coupons", airtimeCouponRoutes);
 app.use("/api/subscription",    subscriptionRouter);
-app.use("/api/addproduct", editproductRouter);
-app.use("/api/promoteplans", promotePlansRouter);
+
+/* ── Settings ── */
 app.use("/api/settings", settingsRouter);
 
 /* ── Help & Support ─────────────────────────────────────────
@@ -533,13 +540,53 @@ try {
   process.exit(1);
 }
 
+/* ── Background jobs ── */
 startListingExpiryJob();
 startCleanupJob();
 initLeaderboardCron();
 
+/* ── Account purge cron — runs daily at 02:00 UTC ── */
+(async () => {
+  try {
+    const { default: cron } = await import("node-cron");
+    cron.schedule("0 2 * * *", () => {
+      purgeDeletedAccounts().catch((err) =>
+        console.error("[cron] purgeDeletedAccounts error:", err.message)
+      );
+    });
+    console.log("✅ Account purge cron scheduled (daily 02:00 UTC)");
+  } catch (err) {
+    /* node-cron not installed — log and continue, purge won't run */
+    console.warn(
+      "[cron] node-cron not available — account purge disabled.",
+      "Run: npm install node-cron"
+    );
+  }
+})();
+
 server.listen(PORT, () => {
   console.log(`\n🚀 Loemart on port ${PORT} | ${process.env.NODE_ENV || "development"}`);
   console.log(`   Auth             → /api/auth`);
+  console.log(`   Settings         → /api/settings`);
+  console.log(`                        GET  /profile`);
+  console.log(`                        PATCH /profile`);
+  console.log(`                        POST /change-password`);
+  console.log(`                        PATCH /email`);
+  console.log(`                        PATCH /phone`);
+  console.log(`                        GET  /preferences`);
+  console.log(`                        PATCH /preferences`);
+  console.log(`                        GET  /notifications`);
+  console.log(`                        PATCH /notifications`);
+  console.log(`                        GET  /blocked-users`);
+  console.log(`                        POST /blocked-users`);
+  console.log(`                        DELETE /blocked-users/:id`);
+  console.log(`                        GET  /login-activity`);
+  console.log(`                        GET  /sessions`);
+  console.log(`                        DELETE /sessions/:id`);
+  console.log(`                        DELETE /sessions`);
+  console.log(`                        POST /logout`);
+  console.log(`                        DELETE /delete-account`);
+  console.log(`                        POST /restore-account`);
   console.log(`   Support (user)   → /api/support`);
   console.log(`                        POST /tickets`);
   console.log(`                        GET  /tickets`);
