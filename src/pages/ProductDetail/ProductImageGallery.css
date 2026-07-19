@@ -1,0 +1,279 @@
+/* ═══════════════════════════════════════════════════════════
+   ProductImageGallery — fast progressive loading
+═══════════════════════════════════════════════════════════ */
+
+.pig {
+  width:         100%;
+  background:    var(--bg);
+  border-bottom: 1px solid var(--bd);
+  position:      relative;
+}
+
+/* ── Main image area ───────────────────────────────────── */
+.pig-main {
+  position:    relative;
+  width:       100%;
+  aspect-ratio: 4 / 3;
+  overflow:    hidden;
+  background:  var(--bg);
+  cursor:      pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: pan-y;
+}
+
+@media (min-width: 480px)  { .pig-main { aspect-ratio: 16 / 10; } }
+@media (min-width: 768px)  { .pig-main { aspect-ratio: 16 / 9;  } }
+@media (min-width: 1024px) { .pig-main { max-height: 460px; aspect-ratio: unset; } }
+
+/* Blur placeholder */
+.pig-blur {
+  position:   absolute;
+  inset:      0;
+  width:      100%;
+  height:     100%;
+  object-fit: cover;
+  filter:     blur(20px);
+  transform:  scale(1.1);
+  z-index:    1;
+}
+
+/* Shimmer (fallback when no tiny URL) */
+.pig-shimmer {
+  position:        absolute;
+  inset:           0;
+  z-index:         1;
+  background:      linear-gradient(
+    110deg,
+    var(--bd) 8%,
+    var(--bg) 18%,
+    var(--bd) 33%
+  );
+  background-size: 200% 100%;
+  animation:       pig-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes pig-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Full image */
+.pig-img {
+  position:   relative;
+  width:      100%;
+  height:     100%;
+  object-fit: contain;
+  display:    block;
+  background: var(--bg);
+  opacity:    0;
+  z-index:    2;
+  transition: opacity 300ms ease;
+}
+
+.pig-img--loaded {
+  opacity: 1;
+}
+
+/* Tap hint */
+.pig-tap-hint {
+  position:        absolute;
+  bottom:          12px;
+  left:            50%;
+  transform:       translateX(-50%);
+  z-index:         4;
+  display:         flex;
+  align-items:     center;
+  gap:             5px;
+  font-size:       11px;
+  font-weight:     600;
+  color:           rgba(255, 255, 255, .80);
+  background:      rgba(20, 18, 16, .45);
+  padding:         5px 14px;
+  border-radius:   var(--r-pill, 999px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events:  none;
+  opacity:         1;
+  transition:      opacity 300ms ease;
+}
+
+.pig-main:hover .pig-tap-hint {
+  opacity: 0;
+}
+
+.pig-tap-hint svg {
+  opacity: .80;
+}
+
+/* Arrows */
+.pig-arrow {
+  position:        absolute;
+  top:             50%;
+  transform:       translateY(-50%);
+  z-index:         5;
+  width:           40px;
+  height:          40px;
+  border-radius:   50%;
+  border:          none;
+  background:      var(--glass-strong, rgba(255,255,255,.90));
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color:           var(--ink);
+  font-size:       22px;
+  font-weight:     300;
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  cursor:          pointer;
+  box-shadow:      0 2px 12px rgba(0, 0, 0, .14);
+  transition:      background 160ms ease,
+                   box-shadow 160ms ease,
+                   transform  120ms ease,
+                   color      160ms ease;
+  line-height:     1;
+}
+
+.pig-arrow:hover {
+  background: var(--wh, #fff);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, .20);
+  color:      var(--o);
+}
+
+.pig-arrow:active {
+  transform: translateY(-50%) scale(0.92);
+}
+
+.pig-arrow--left  { left: 12px;  }
+.pig-arrow--right { right: 12px; }
+
+@media (min-width: 768px) {
+  .pig-arrow { width: 44px; height: 44px; font-size: 26px; }
+}
+
+/* Counter */
+.pig-counter {
+  position:        absolute;
+  top:             12px;
+  right:           12px;
+  z-index:         4;
+  font-size:       11px;
+  font-weight:     600;
+  color:           var(--wh, #fff);
+  background:      rgba(20, 18, 16, .50);
+  padding:         3px 10px;
+  border-radius:   var(--r-pill, 999px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  letter-spacing:  .3px;
+}
+
+/* Dots */
+.pig-dots {
+  position:    absolute;
+  bottom:      40px;
+  left:        50%;
+  transform:   translateX(-50%);
+  z-index:     4;
+  display:     flex;
+  gap:         6px;
+  align-items: center;
+}
+
+.pig-dot {
+  width:         7px;
+  height:        7px;
+  border-radius: 50%;
+  background:    rgba(255, 255, 255, .45);
+  border:        none;
+  cursor:        pointer;
+  padding:       0;
+  transition:    all 240ms ease;
+  flex-shrink:   0;
+}
+
+.pig-dot--active {
+  background:    var(--wh, #fff);
+  width:         20px;
+  border-radius: var(--r-pill, 999px);
+  box-shadow:    0 1px 4px rgba(0, 0, 0, .20);
+}
+
+/* ── Thumbnails ────────────────────────────────────────── */
+.pig-thumbs {
+  display:    flex;
+  gap:        7px;
+  padding:    10px 14px;
+  overflow-x: auto;
+  background: var(--wh);
+  border-top: 1px solid var(--bd);
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.pig-thumbs::-webkit-scrollbar { display: none; }
+
+@media (min-width: 768px)  { .pig-thumbs { padding: 10px 20px; gap: 8px; } }
+@media (min-width: 1024px) { .pig-thumbs { padding: 10px 24px; } }
+
+.pig-thumb {
+  flex-shrink:   0;
+  width:         54px;
+  height:        54px;
+  border-radius: var(--r-sm, 8px);
+  overflow:      hidden;
+  border:        2px solid transparent;
+  cursor:        pointer;
+  padding:       0;
+  background:    var(--bg);
+  opacity:       .55;
+  transition:    border-color 160ms ease,
+                 opacity      160ms ease,
+                 box-shadow   160ms ease;
+}
+
+@media (min-width: 768px) { .pig-thumb { width: 62px; height: 62px; } }
+
+.pig-thumb:hover:not(.pig-thumb--active) { opacity: .80; }
+
+.pig-thumb--active {
+  border-color: var(--o);
+  opacity:      1;
+  box-shadow:   0 0 0 2px var(--o-soft, rgba(255,92,0,.10));
+}
+
+.pig-thumb img {
+  width:      100%;
+  height:     100%;
+  object-fit: cover;
+  display:    block;
+}
+
+/* ── Empty state ───────────────────────────────────────── */
+.pig-empty {
+  display:         flex;
+  flex-direction:  column;
+  align-items:     center;
+  justify-content: center;
+  gap:             10px;
+  height:          220px;
+  background:      linear-gradient(135deg, var(--bg), var(--bd));
+  color:           var(--ink3);
+  font-size:       13px;
+  font-weight:     500;
+  border-bottom:   1px solid var(--bd);
+}
+
+.pig-empty svg { opacity: .40; }
+
+/* ── Dark mode ─────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  .pig-blur { filter: blur(20px) brightness(.6); }
+}
+
+/* ── Reduced motion ────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .pig-img,
+  .pig-tap-hint { transition: none; }
+  .pig-shimmer  { animation: none; }
+}
