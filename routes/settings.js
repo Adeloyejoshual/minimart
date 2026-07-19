@@ -24,7 +24,7 @@
 // ════════════════════════════════════════════════════════════════
 
 import express     from "express";
-import bcrypt      from "bcryptjs";
+import bcrypt      from "bcrypt";
 import crypto      from "crypto";
 import rateLimit   from "express-rate-limit";
 import * as Sentry from "@sentry/node";
