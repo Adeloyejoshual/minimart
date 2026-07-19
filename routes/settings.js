@@ -20,13 +20,14 @@
 //  DELETE /api/settings/sessions          (all except current)
 //  POST   /api/settings/logout
 //  DELETE /api/settings/delete-account
+//  POST   /api/settings/restore-account
 // ════════════════════════════════════════════════════════════════
 
-import express      from "express";
-import bcrypt       from "bcrypt";
-import crypto       from "crypto";
-import rateLimit    from "express-rate-limit";
-import * as Sentry  from "@sentry/node";
+import express     from "express";
+import bcrypt      from "bcryptjs";
+import crypto      from "crypto";
+import rateLimit   from "express-rate-limit";
+import * as Sentry from "@sentry/node";
 
 import { pool }         from "../config/db.js";
 import { authenticate } from "../middleware/auth.js";
@@ -38,13 +39,14 @@ const IS_PROD = process.env.NODE_ENV === "production";
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const BCRYPT_ROUNDS       = 12;
-const MAX_BIO_LENGTH      = 300;
-const MAX_NAME_LENGTH     = 60;
-const MAX_USERNAME_LENGTH = 30;
+const BCRYPT_ROUNDS        = 12;
+const MAX_BIO_LENGTH       = 300;
+const MAX_NAME_LENGTH      = 60;
+const MAX_USERNAME_LENGTH  = 30;
 const LOGIN_ACTIVITY_LIMIT = 50;
 const SESSIONS_LIMIT       = 20;
 const BLOCKED_USERS_LIMIT  = 100;
+const DELETION_GRACE_DAYS  = 60;   // days before hard purge
 
 const ALLOWED_LANGUAGES = new Set([
   "en", "yo", "ha", "ig", "pcm",
@@ -78,26 +80,23 @@ const isValidUuid = (v) => UUID_RE.test(String(v ?? ""));
 const sanitizePhone = (v = "") =>
   String(v).replace(/[\s\-().]/g, "");
 
-/* Hash a token for storage — never store raw JWTs */
 const hashToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
 
-/* Extract Bearer token from Authorization header */
 const extractToken = (req) => {
   const header = req.headers.authorization ?? "";
   if (!header.startsWith("Bearer ")) return null;
   return header.slice(7).trim() || null;
 };
 
-/* Derive a human-readable device name from User-Agent */
 const parseDeviceName = (ua = "") => {
-  if (!ua) return "Unknown device";
-  if (/iPhone/i.test(ua))     return "iPhone";
-  if (/iPad/i.test(ua))       return "iPad";
-  if (/Android/i.test(ua))    return "Android device";
-  if (/Windows/i.test(ua))    return "Windows PC";
-  if (/Macintosh/i.test(ua))  return "Mac";
-  if (/Linux/i.test(ua))      return "Linux device";
+  if (!ua)                        return "Unknown device";
+  if (/iPhone/i.test(ua))         return "iPhone";
+  if (/iPad/i.test(ua))           return "iPad";
+  if (/Android/i.test(ua))        return "Android device";
+  if (/Windows/i.test(ua))        return "Windows PC";
+  if (/Macintosh/i.test(ua))      return "Mac";
+  if (/Linux/i.test(ua))          return "Linux device";
   return "Unknown device";
 };
 
@@ -112,6 +111,22 @@ const getIp = (req) =>
   req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
   req.socket?.remoteAddress ??
   null;
+
+const daysFromNow = (days) => {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+};
+
+const daysRemaining = (futureDate) => {
+  if (!futureDate) return null;
+  return Math.max(
+    0,
+    Math.ceil(
+      (new Date(futureDate).getTime() - Date.now()) / 86_400_000
+    )
+  );
+};
 
 /* ═══════════════════════════════════════════════════════════════
    RATE LIMITERS
@@ -151,10 +166,14 @@ const deleteLimiter = makeLimiter({
   message   : "Too many delete requests.",
 });
 
+const restoreLimiter = makeLimiter({
+  windowMin : 60,
+  max       : IS_PROD ? 5 : 50,
+  message   : "Too many restore attempts.",
+});
+
 /* ═══════════════════════════════════════════════════════════════
-   SESSION UPSERT HELPER
-   Called on login from your auth route to register the session.
-   Exported so your auth router can import and call it.
+   SESSION UPSERT — call this from your auth/login route
 ═══════════════════════════════════════════════════════════════ */
 export const upsertSession = async (userId, token, req) => {
   try {
@@ -163,8 +182,6 @@ export const upsertSession = async (userId, token, req) => {
     const ip         = getIp(req);
     const deviceName = parseDeviceName(ua);
     const deviceType = parseDeviceType(ua);
-
-    /* JWT expiry — default 30 days if not set */
     const expiryDays = Number(process.env.JWT_EXPIRY_DAYS ?? 30);
     const expiresAt  = new Date(Date.now() + expiryDays * 86_400_000);
 
@@ -179,14 +196,12 @@ export const upsertSession = async (userId, token, req) => {
       [userId, tokenHash, deviceName, deviceType, ip, ua, expiresAt]
     );
   } catch (err) {
-    /* Non-fatal — session tracking should never break login */
     console.warn("[settings] upsertSession error:", err.message);
   }
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   PROFILE COLUMNS WE EXPOSE
-   Explicit allowlist — never expose password_hash, etc.
+   PROFILE COLUMNS ALLOWLIST
 ═══════════════════════════════════════════════════════════════ */
 const PROFILE_COLS = `
   id, name, first_name, last_name, username, email,
@@ -202,6 +217,7 @@ const PROFILE_COLS = `
   followers_count, following_count, profile_views,
   active_products_count, products_count,
   social_links, business_hours,
+  status, deletion_scheduled_at, deletion_requested_at,
   created_at, last_login, last_seen
 `.trim();
 
@@ -224,7 +240,21 @@ router.get(
 
       if (!rows.length) return fail(res, 404, "User not found.");
 
-      return ok(res, { profile: rows[0] });
+      const profile = rows[0];
+
+      /* Surface pending deletion info if applicable */
+      const pendingDeletion =
+        profile.status === "pending_deletion" &&
+        profile.deletion_scheduled_at
+          ? {
+              scheduled_at  : profile.deletion_scheduled_at,
+              days_remaining: daysRemaining(profile.deletion_scheduled_at),
+              can_restore   : true,
+            }
+          : null;
+
+      return ok(res, { profile, pending_deletion: pendingDeletion });
+
     } catch (err) {
       console.error("[settings] GET /profile:", err.message);
       Sentry.captureException(err, { tags: { route: "settings_profile_get" } });
@@ -235,10 +265,6 @@ router.get(
 
 /* ═══════════════════════════════════════════════════════════════
    PATCH /api/settings/profile
-   Fields: first_name, last_name, username, bio, gender,
-           date_of_birth, profile_image, cover_image,
-           store_name, store_description, country, state, city,
-           address, social_links
 ═══════════════════════════════════════════════════════════════ */
 router.patch(
   "/profile",
@@ -290,14 +316,11 @@ router.patch(
     }
 
     if (date_of_birth !== undefined && date_of_birth !== null) {
-      const d = new Date(date_of_birth);
-      if (isNaN(d.getTime()))
-        return fail(res, 400, "Invalid date of birth.");
+      const d   = new Date(date_of_birth);
       const age = (Date.now() - d.getTime()) / (365.25 * 86_400_000);
-      if (age < 13)
-        return fail(res, 400, "You must be at least 13 years old.");
-      if (age > 120)
-        return fail(res, 400, "Invalid date of birth.");
+      if (isNaN(d.getTime()))  return fail(res, 400, "Invalid date of birth.");
+      if (age < 13)            return fail(res, 400, "You must be at least 13 years old.");
+      if (age > 120)           return fail(res, 400, "Invalid date of birth.");
     }
 
     if (social_links !== undefined && social_links !== null) {
@@ -309,7 +332,6 @@ router.patch(
     try {
       await client.query("BEGIN");
 
-      /* Username uniqueness check */
       if (username !== undefined) {
         const uname = cleanText(username);
         const { rows: existing } = await client.query(
@@ -317,11 +339,9 @@ router.patch(
            WHERE LOWER(username) = LOWER($1) AND id <> $2`,
           [uname, userId]
         );
-        if (existing.length)
-          return fail(res, 409, "Username already taken.");
+        if (existing.length) return fail(res, 409, "Username already taken.");
       }
 
-      /* Build SET clause dynamically — only update provided fields */
       const updates = [];
       const values  = [];
       let   idx     = 1;
@@ -331,27 +351,25 @@ router.patch(
         values.push(val);
       };
 
-      if (first_name    !== undefined) addField("first_name",    cleanText(first_name));
-      if (last_name     !== undefined) addField("last_name",     cleanText(last_name));
-      if (username      !== undefined) addField("username",      cleanText(username));
-      if (bio           !== undefined) addField("bio",           cleanText(bio));
-      if (gender        !== undefined) addField("gender",        gender ?? null);
-      if (date_of_birth !== undefined) addField("date_of_birth", date_of_birth ?? null);
-      if (profile_image !== undefined) addField("profile_image", cleanText(profile_image));
-      if (cover_image   !== undefined) addField("cover_image",   cleanText(cover_image));
-      if (store_name    !== undefined) addField("store_name",    cleanText(store_name));
-      if (store_description !== undefined)
-        addField("store_description", cleanText(store_description));
-      if (country  !== undefined) addField("country",  cleanText(country));
-      if (state    !== undefined) addField("state",    cleanText(state));
-      if (city     !== undefined) addField("city",     cleanText(city));
-      if (address  !== undefined) addField("address",  cleanText(address));
-      if (social_links !== undefined)
+      if (first_name        !== undefined) addField("first_name",        cleanText(first_name));
+      if (last_name         !== undefined) addField("last_name",         cleanText(last_name));
+      if (username          !== undefined) addField("username",          cleanText(username));
+      if (bio               !== undefined) addField("bio",               cleanText(bio));
+      if (gender            !== undefined) addField("gender",            gender ?? null);
+      if (date_of_birth     !== undefined) addField("date_of_birth",     date_of_birth ?? null);
+      if (profile_image     !== undefined) addField("profile_image",     cleanText(profile_image));
+      if (cover_image       !== undefined) addField("cover_image",       cleanText(cover_image));
+      if (store_name        !== undefined) addField("store_name",        cleanText(store_name));
+      if (store_description !== undefined) addField("store_description", cleanText(store_description));
+      if (country           !== undefined) addField("country",           cleanText(country));
+      if (state             !== undefined) addField("state",             cleanText(state));
+      if (city              !== undefined) addField("city",              cleanText(city));
+      if (address           !== undefined) addField("address",           cleanText(address));
+      if (social_links      !== undefined)
         addField("social_links", social_links ? JSON.stringify(social_links) : null);
 
-      /* Sync name from first+last if provided */
+      /* Sync composite name */
       if (first_name !== undefined || last_name !== undefined) {
-        /* Fetch current values to build composite name */
         const { rows: cur } = await client.query(
           "SELECT first_name, last_name FROM public.users WHERE id = $1",
           [userId]
@@ -409,8 +427,8 @@ router.post(
   authenticate,
   sensitiveWriteLimiter,
   async (req, res) => {
-    const userId    = req.user?.id;
-    const ip        = getIp(req);
+    const userId = req.user?.id;
+    const ip     = getIp(req);
     if (!userId) return fail(res, 401, "Not authenticated.");
 
     const { current_password, new_password, confirm_password } = req.body;
@@ -449,7 +467,6 @@ router.post(
         [newHash, userId]
       );
 
-      /* Invalidate all other sessions — force re-login on other devices */
       const currentTokenHash = hashToken(extractToken(req) ?? "");
       await pool.query(
         `DELETE FROM user_sessions
@@ -482,7 +499,6 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    PATCH /api/settings/email
-   Changes email — marks as unverified until re-confirmed.
 ═══════════════════════════════════════════════════════════════ */
 router.patch(
   "/email",
@@ -515,21 +531,19 @@ router.patch(
       const valid = await bcrypt.compare(password, rows[0].password_hash);
       if (!valid) return fail(res, 401, "Password is incorrect.");
 
-      /* Check uniqueness */
       const { rows: taken } = await pool.query(
         `SELECT id FROM public.users
          WHERE LOWER(email) = $1 AND id <> $2`,
         [newEmail, userId]
       );
-      if (taken.length)
-        return fail(res, 409, "This email is already in use.");
+      if (taken.length) return fail(res, 409, "This email is already in use.");
 
       await pool.query(
         `UPDATE public.users
-         SET email           = $1,
-             email_verified  = FALSE,
+         SET email             = $1,
+             email_verified    = FALSE,
              email_verified_at = NULL,
-             updated_at      = NOW()
+             updated_at        = NOW()
          WHERE id = $2`,
         [newEmail, userId]
       );
@@ -595,14 +609,12 @@ router.patch(
       if (rows[0].phone === cleaned)
         return fail(res, 400, "This is already your current phone number.");
 
-      /* Uniqueness */
       const { rows: taken } = await pool.query(
         `SELECT id FROM public.users
          WHERE phone = $1 AND id <> $2`,
         [cleaned, userId]
       );
-      if (taken.length)
-        return fail(res, 409, "This phone number is already in use.");
+      if (taken.length) return fail(res, 409, "This phone number is already in use.");
 
       await pool.query(
         `UPDATE public.users
@@ -653,18 +665,16 @@ router.get(
     try {
       const { rows } = await pool.query(
         `SELECT preferred_language, preferred_currency, locale
-         FROM public.users
-         WHERE id = $1`,
+         FROM public.users WHERE id = $1`,
         [userId]
       );
       if (!rows.length) return fail(res, 404, "User not found.");
 
-      /* Theme lives client-side — not stored in DB */
       return ok(res, {
         preferences: {
           language : rows[0].preferred_language ?? "en",
           currency : rows[0].preferred_currency ?? "NGN",
-          locale   : rows[0].locale ?? "en-NG",
+          locale   : rows[0].locale             ?? "en-NG",
         },
       });
 
@@ -690,7 +700,10 @@ router.patch(
 
     if (language !== undefined) {
       if (!ALLOWED_LANGUAGES.has(String(language)))
-        return fail(res, 400, `Invalid language. Allowed: ${[...ALLOWED_LANGUAGES].join(", ")}`);
+        return fail(
+          res, 400,
+          `Invalid language. Allowed: ${[...ALLOWED_LANGUAGES].join(", ")}`
+        );
     }
 
     const updates = [];
@@ -710,12 +723,9 @@ router.patch(
 
     try {
       await pool.query(
-        `UPDATE public.users
-         SET ${updates.join(", ")}
-         WHERE id = $${idx}`,
+        `UPDATE public.users SET ${updates.join(", ")} WHERE id = $${idx}`,
         values
       );
-
       return ok(res, { message: "Preferences updated.", language });
 
     } catch (err) {
@@ -744,7 +754,6 @@ router.get(
         [userId]
       );
 
-      /* Row may not exist yet — return defaults */
       const prefs = rows[0] ?? {
         push_enabled      : true,
         email_enabled     : true,
@@ -779,11 +788,7 @@ router.patch(
       marketing_enabled,
     } = req.body;
 
-    /* All fields are optional booleans */
-    const toBool = (v) => {
-      if (v === undefined) return undefined;
-      return Boolean(v);
-    };
+    const toBool = (v) => (v === undefined ? undefined : Boolean(v));
 
     const push      = toBool(push_enabled);
     const email     = toBool(email_enabled);
@@ -791,19 +796,17 @@ router.patch(
     const marketing = toBool(marketing_enabled);
 
     if (
-      push === undefined &&
-      email === undefined &&
-      sms === undefined &&
+      push      === undefined &&
+      email     === undefined &&
+      sms       === undefined &&
       marketing === undefined
-    ) {
-      return fail(res, 400, "No notification preferences provided.");
-    }
+    ) return fail(res, 400, "No notification preferences provided.");
 
     try {
-      /* UPSERT — create row if first time */
       await pool.query(
         `INSERT INTO notification_preferences
-           (user_id, push_enabled, email_enabled, sms_enabled, marketing_enabled, updated_at)
+           (user_id, push_enabled, email_enabled,
+            sms_enabled, marketing_enabled, updated_at)
          VALUES ($1,
            COALESCE($2, TRUE),
            COALESCE($3, TRUE),
@@ -817,16 +820,9 @@ router.patch(
            sms_enabled       = COALESCE($4, notification_preferences.sms_enabled),
            marketing_enabled = COALESCE($5, notification_preferences.marketing_enabled),
            updated_at        = NOW()`,
-        [
-          userId,
-          push      ?? null,
-          email     ?? null,
-          sms       ?? null,
-          marketing ?? null,
-        ]
+        [userId, push ?? null, email ?? null, sms ?? null, marketing ?? null]
       );
 
-      /* Return updated state */
       const { rows } = await pool.query(
         `SELECT push_enabled, email_enabled, sms_enabled, marketing_enabled
          FROM notification_preferences WHERE user_id = $1`,
@@ -888,7 +884,6 @@ router.get(
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/settings/blocked-users
-   Body: { user_id, reason? }
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/blocked-users",
@@ -908,7 +903,6 @@ router.post(
       return fail(res, 400, "You cannot block yourself.");
 
     try {
-      /* Check target user exists */
       const { rows: target } = await pool.query(
         "SELECT id, name FROM public.users WHERE id = $1 AND status <> 'deleted'",
         [user_id]
@@ -945,7 +939,6 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE /api/settings/blocked-users/:id
-   :id is the block_id (blocked_users.id UUID)
 ═══════════════════════════════════════════════════════════════ */
 router.delete(
   "/blocked-users/:id",
@@ -990,7 +983,6 @@ router.delete(
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/settings/login-activity
-   Reads from audit_logs where action = 'login'
 ═══════════════════════════════════════════════════════════════ */
 router.get(
   "/login-activity",
@@ -1002,28 +994,28 @@ router.get(
 
     try {
       const { rows } = await pool.query(
-        `SELECT
-           id,
-           action,
-           ip_address,
-           metadata,
-           created_at
+        `SELECT id, action, ip_address, metadata, created_at
          FROM audit_logs
          WHERE actor_id = $1
-           AND action IN ('login', 'login_failed', 'logout', 'password_changed')
+           AND action IN (
+             'login', 'login_failed', 'logout',
+             'password_changed', 'email_changed',
+             'phone_changed', 'session_revoked',
+             'all_sessions_revoked'
+           )
          ORDER BY created_at DESC
          LIMIT $2`,
         [userId, LOGIN_ACTIVITY_LIMIT]
       );
 
       const activity = rows.map((r) => ({
-        id          : r.id,
-        action      : r.action,
-        ip_address  : r.ip_address ?? "Unknown",
-        device      : r.metadata?.device      ?? "Unknown device",
-        location    : r.metadata?.location    ?? null,
-        user_agent  : r.metadata?.user_agent  ?? null,
-        created_at  : r.created_at,
+        id         : r.id,
+        action     : r.action,
+        ip_address : r.ip_address ?? "Unknown",
+        device     : r.metadata?.device     ?? "Unknown device",
+        location   : r.metadata?.location   ?? null,
+        user_agent : r.metadata?.user_agent ?? null,
+        created_at : r.created_at,
       }));
 
       return ok(res, { login_activity: activity });
@@ -1050,7 +1042,6 @@ router.get(
     const currentHash = currentToken ? hashToken(currentToken) : null;
 
     try {
-      /* Expire old sessions before fetching */
       await pool.query(
         `DELETE FROM user_sessions
          WHERE user_id = $1 AND expires_at < NOW()`,
@@ -1058,10 +1049,8 @@ router.get(
       );
 
       const { rows } = await pool.query(
-        `SELECT
-           id, device_name, device_type,
-           ip_address, last_active, created_at, expires_at,
-           token_hash
+        `SELECT id, device_name, device_type, ip_address,
+                last_active, created_at, expires_at, token_hash
          FROM user_sessions
          WHERE user_id = $1
          ORDER BY last_active DESC
@@ -1073,7 +1062,7 @@ router.get(
         id          : s.id,
         device_name : s.device_name,
         device_type : s.device_type,
-        ip_address  : s.ip_address  ?? "Unknown",
+        ip_address  : s.ip_address ?? "Unknown",
         last_active : s.last_active,
         created_at  : s.created_at,
         expires_at  : s.expires_at,
@@ -1113,8 +1102,7 @@ router.delete(
         [sessionId, userId]
       );
 
-      if (!rows.length)
-        return fail(res, 404, "Session not found.");
+      if (!rows.length) return fail(res, 404, "Session not found.");
 
       if (rows[0].token_hash === currentHash)
         return fail(
@@ -1199,10 +1187,9 @@ router.post(
 
     try {
       if (token) {
-        const hash = hashToken(token);
         await pool.query(
           "DELETE FROM user_sessions WHERE token_hash = $1",
-          [hash]
+          [hashToken(token)]
         );
       }
 
@@ -1220,7 +1207,6 @@ router.post(
 
     } catch (err) {
       console.error("[settings] POST /logout:", err.message);
-      /* Still return 200 — client should clear tokens regardless */
       return ok(res, { message: "Logged out." });
     }
   }
@@ -1228,8 +1214,20 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE /api/settings/delete-account
-   Soft-delete: marks user as deleted, schedules hard purge.
-   Requires password confirmation.
+
+   Flow:
+     1. Verify password
+     2. Verify confirm = "delete"
+     3. Mark status = 'pending_deletion'
+     4. Set deletion_scheduled_at = NOW() + 60 days
+     5. Pause all active listings
+     6. Revoke all sessions → forces logout
+     7. Audit log
+     8. Return 200 with grace period info
+
+   The user is NOT hard-deleted here.
+   A cron job handles hard deletion after 60 days.
+   If they log in within 60 days, offer restore.
 ═══════════════════════════════════════════════════════════════ */
 router.delete(
   "/delete-account",
@@ -1253,72 +1251,231 @@ router.delete(
       await client.query("BEGIN");
 
       const { rows } = await client.query(
-        "SELECT password_hash, email, name FROM public.users WHERE id = $1",
+        `SELECT password_hash, email, name, status
+         FROM public.users WHERE id = $1
+         FOR UPDATE`,
         [userId]
       );
+
       if (!rows.length) return fail(res, 404, "User not found.");
 
+      /* Already scheduled — return current state */
+      if (rows[0].status === "pending_deletion") {
+        await client.query("ROLLBACK");
+        const { rows: cur } = await pool.query(
+          "SELECT deletion_scheduled_at FROM public.users WHERE id = $1",
+          [userId]
+        );
+        return fail(
+          res, 409,
+          "Your account is already scheduled for deletion.",
+          {
+            scheduled_at   : cur[0]?.deletion_scheduled_at,
+            days_remaining : daysRemaining(cur[0]?.deletion_scheduled_at),
+          }
+        );
+      }
+
       const valid = await bcrypt.compare(password, rows[0].password_hash);
-      if (!valid) return fail(res, 401, "Password is incorrect.");
+      if (!valid) {
+        await client.query("ROLLBACK");
+        return fail(res, 401, "Password is incorrect.");
+      }
 
-      const PURGE_DAYS    = 30;
-      const purgeAt       = new Date(Date.now() + PURGE_DAYS * 86_400_000);
+      const scheduledAt = daysFromNow(DELETION_GRACE_DAYS);
 
-      /* Soft-delete the user */
+      /* Mark account pending deletion */
       await client.query(
         `UPDATE public.users
-         SET status     = 'deleted',
-             banned_at  = NOW(),
-             updated_at = NOW()
-         WHERE id = $1`,
-        [userId]
+         SET status                  = 'pending_deletion',
+             deletion_requested_at   = NOW(),
+             deletion_scheduled_at   = $1,
+             updated_at              = NOW()
+         WHERE id = $2`,
+        [scheduledAt, userId]
       );
 
-      /* Deactivate all their products */
+      /* Pause all active listings — they stay in DB during grace period */
       await client.query(
         `UPDATE products
          SET is_active  = FALSE,
-             status     = 'deleted',
+             status     = 'paused',
              updated_at = NOW()
          WHERE seller_id = $1
-           AND status   <> 'deleted'`,
+           AND status NOT IN ('deleted', 'paused')`,
         [userId]
       );
 
-      /* Revoke all sessions */
+      /* Revoke ALL sessions — logs the user out everywhere */
       await client.query(
         "DELETE FROM user_sessions WHERE user_id = $1",
         [userId]
       );
 
-      /* Audit record */
-      await client.query(
-        `INSERT INTO audit_logs
-           (actor_id, action, target_type, target_id, metadata, ip_address)
-         VALUES ($1, 'account_deleted', 'user', $1, $2, $3)`,
-        [
-          userId,
-          JSON.stringify({
-            email   : rows[0].email,
-            name    : rows[0].name,
-            purge_at: purgeAt.toISOString(),
-          }),
-          ip,
-        ]
-      );
-
       await client.query("COMMIT");
 
+      setImmediate(() => {
+        writeAudit({
+          actorId    : userId,
+          action     : "account_deletion_requested",
+          targetType : "user",
+          targetId   : userId,
+          metadata   : {
+            email        : rows[0].email,
+            scheduled_at : scheduledAt.toISOString(),
+            grace_days   : DELETION_GRACE_DAYS,
+          },
+          ipAddress  : ip,
+        }).catch(() => {});
+      });
+
       return ok(res, {
-        message  : "Account deleted. Your data will be permanently removed within 30 days.",
-        purge_at : purgeAt.toISOString(),
+        message:
+          `Your account has been scheduled for deletion. ` +
+          `It will be permanently removed after ${DELETION_GRACE_DAYS} days. ` +
+          `You can restore it by logging in before the deletion date.`,
+        scheduled_at   : scheduledAt.toISOString(),
+        days_remaining : DELETION_GRACE_DAYS,
+        can_restore    : true,
+        logged_out     : true,
       });
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       console.error("[settings] DELETE /delete-account:", err.message);
-      Sentry.captureException(err, { tags: { route: "settings_delete_account" } });
+      Sentry.captureException(err, {
+        tags: { route: "settings_delete_account" },
+      });
       return fail(res, 500, "Account deletion failed. Please try again.");
+    } finally {
+      client.release();
+    }
+  }
+);
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/settings/restore-account
+
+   Called when a user with status = 'pending_deletion' logs in
+   and taps "Restore Account".
+
+   Flow:
+     1. Confirm account is in pending_deletion state
+     2. Confirm grace period has not expired
+     3. Restore status to 'active'
+     4. Clear deletion fields
+     5. Restore paused listings
+     6. Audit log
+═══════════════════════════════════════════════════════════════ */
+router.post(
+  "/restore-account",
+  authenticate,
+  restoreLimiter,
+  async (req, res) => {
+    const userId = req.user?.id;
+    const ip     = getIp(req);
+    if (!userId) return fail(res, 401, "Not authenticated.");
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const { rows } = await client.query(
+        `SELECT status, deletion_scheduled_at, restore_count
+         FROM public.users
+         WHERE id = $1
+         FOR UPDATE`,
+        [userId]
+      );
+
+      if (!rows.length) return fail(res, 404, "User not found.");
+
+      const user = rows[0];
+
+      /* Not pending deletion */
+      if (user.status !== "pending_deletion") {
+        await client.query("ROLLBACK");
+        return fail(res, 400, "Your account is not scheduled for deletion.");
+      }
+
+      /* Grace period already passed — too late to restore */
+      if (
+        user.deletion_scheduled_at &&
+        new Date(user.deletion_scheduled_at) <= new Date()
+      ) {
+        await client.query("ROLLBACK");
+        return fail(
+          res, 410,
+          "The restoration window has passed. " +
+          "Your account can no longer be recovered."
+        );
+      }
+
+      /* Restore account */
+      await client.query(
+        `UPDATE public.users
+         SET status                 = 'active',
+             deletion_requested_at  = NULL,
+             deletion_scheduled_at  = NULL,
+             deletion_reason        = NULL,
+             restored_at            = NOW(),
+             restore_count          = restore_count + 1,
+             updated_at             = NOW()
+         WHERE id = $1`,
+        [userId]
+      );
+
+      /* Restore listings that were paused at deletion request time.
+         We only restore listings paused AFTER deletion_requested_at
+         to avoid accidentally re-activating listings paused for
+         other reasons (e.g. policy violations).                     */
+      const { rowCount: restoredListings } = await client.query(
+        `UPDATE products
+         SET is_active  = TRUE,
+             status     = 'active',
+             updated_at = NOW()
+         WHERE seller_id  = $1
+           AND status     = 'paused'
+           AND updated_at >= (
+             SELECT deletion_requested_at
+             FROM public.users
+             WHERE id = $1
+           )`,
+        [userId]
+      );
+
+      await client.query("COMMIT");
+
+      setImmediate(() => {
+        writeAudit({
+          actorId    : userId,
+          action     : "account_restored",
+          targetType : "user",
+          targetId   : userId,
+          metadata   : {
+            restore_count      : (user.restore_count ?? 0) + 1,
+            listings_restored  : restoredListings,
+          },
+          ipAddress  : ip,
+        }).catch(() => {});
+      });
+
+      return ok(res, {
+        message:
+          "Welcome back! Your account has been fully restored. " +
+          `${restoredListings} listing${restoredListings !== 1 ? "s" : ""} ` +
+          "have been reactivated.",
+        listings_restored : restoredListings,
+        restore_count     : (user.restore_count ?? 0) + 1,
+      });
+
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      console.error("[settings] POST /restore-account:", err.message);
+      Sentry.captureException(err, {
+        tags: { route: "settings_restore_account" },
+      });
+      return fail(res, 500, "Account restoration failed. Please try again.");
     } finally {
       client.release();
     }
