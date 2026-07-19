@@ -3,6 +3,8 @@
  * Desktop 2-column layout:
  *   LEFT  — form sections
  *   RIGHT — sticky ListingPreview + PromotionPlan + Submit
+ *
+ * v2 — watermark warning/block banner integrated
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -10,6 +12,7 @@ import { useAddProductContext }                  from "../hooks/useAddProductCon
 
 import AddProductHeader         from "../components/AddProductHeader.jsx";
 import ProgressOverlay          from "../components/ProgressOverlay.jsx";
+import WatermarkWarningBanner   from "../components/WatermarkWarningBanner.jsx";
 
 import BasicInfoSection         from "../product/shared/BasicInfoSection.jsx";
 import ProductDetailsSection    from "../product/shared/ProductDetailsSection.jsx";
@@ -36,10 +39,10 @@ import "./styles/AddProductDesktop.css";
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const PAYMENT_MAX_AGE_MS  = 30 * 60 * 1_000;
-const SECTION_BASE_DELAY  = 420;
-const SECTION_STEP_DELAY  = 60;
-const SECTION_COUNT       = 6;
+const PAYMENT_MAX_AGE_MS = 30 * 60 * 1_000;
+const SECTION_BASE_DELAY = 420;
+const SECTION_STEP_DELAY = 60;
+const SECTION_COUNT      = 6;
 
 /* ═══════════════════════════════════════════════════════════════
    EDIT LOADING STATE
@@ -194,6 +197,10 @@ export default function DesktopShell() {
     trialRemaining,
     /* draft */
     clearDraft,
+    /* watermark */
+    watermarkWarnings,
+    watermarkNotice,
+    dismissWatermarkWarnings,
   } = useAddProductContext();
 
   const [showUpsellModal, setShowUpsellModal] = useState(false);
@@ -207,6 +214,16 @@ export default function DesktopShell() {
     if (trialExhausted && !isEditMode) setShowUpsellModal(true);
   }, [trialExhausted, isEditMode]);
 
+  /* Scroll watermark banner into view whenever new warnings arrive */
+  useEffect(() => {
+    if (!watermarkWarnings?.length) return;
+    requestAnimationFrame(() => {
+      document
+        .querySelector(".wm-banner")
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }, [watermarkWarnings]);
+
   /* ── Early returns ── */
   if (isEditMode && editLoading) return <EditLoading />;
 
@@ -218,6 +235,10 @@ export default function DesktopShell() {
       />
     );
   }
+
+  /* Derived — only show dismiss on warn verdict (no blocked images) */
+  const wmHasBlock     = watermarkWarnings?.some((w: any) => w.isBlocked) ?? false;
+  const wmShowDismiss  = !wmHasBlock && !!dismissWatermarkWarnings;
 
   /* ── Full render ── */
   return (
@@ -267,6 +288,23 @@ export default function DesktopShell() {
       {/* Feedback banners */}
       {error   && <ErrorBanner   message={error}   />}
       {success && <SuccessBanner message={success} />}
+
+      {/* ── Watermark banner ──────────────────────────────────
+          Rendered between feedback banners and the main grid
+          so it's prominent without interrupting the form flow.
+
+          warn  → yellow, dismissible — listing accepted,
+                  seller encouraged to replace photos
+          block → red, not dismissible — listing rejected,
+                  seller must replace photos and resubmit
+      ─────────────────────────────────────────────────────── */}
+      {!!watermarkWarnings?.length && (
+        <WatermarkWarningBanner
+          warnings={watermarkWarnings}
+          notice={watermarkNotice ?? ""}
+          onDismiss={wmShowDismiss ? dismissWatermarkWarnings : undefined}
+        />
+      )}
 
       {/* Verification nudge */}
       {needsVerification && verificationData && (
