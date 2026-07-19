@@ -1,0 +1,193 @@
+/* ═══════════════════════════════════════════════════════════
+   ProductImageViewer — full-screen image viewer
+═══════════════════════════════════════════════════════════ */
+
+.piv {
+  position:        fixed;
+  inset:           0;
+  z-index:         500;
+  background:      rgba(8, 6, 4, .97);
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  animation:       piv-in 200ms ease;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+@keyframes piv-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* Close */
+.piv-close {
+  position:        absolute;
+  top:             16px;
+  right:           16px;
+  z-index:         10;
+  width:           44px;
+  height:          44px;
+  border-radius:   50%;
+  border:          none;
+  background:      rgba(255, 255, 255, .10);
+  color:           #fff;
+  cursor:          pointer;
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition:      background 150ms ease, transform 100ms ease;
+}
+
+.piv-close:hover  { background: rgba(255, 255, 255, .22); }
+.piv-close:active { transform: scale(.90); }
+
+/* Counter */
+.piv-counter {
+  position:        absolute;
+  top:             20px;
+  left:            50%;
+  transform:       translateX(-50%);
+  z-index:         10;
+  font-size:       13px;
+  font-weight:     600;
+  color:           rgba(255, 255, 255, .75);
+  background:      rgba(0, 0, 0, .40);
+  padding:         5px 16px;
+  border-radius:   999px;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  letter-spacing:  .5px;
+}
+
+/* Title */
+.piv-title {
+  position:       absolute;
+  top:             20px;
+  left:            16px;
+  z-index:        10;
+  font-size:       13px;
+  font-weight:     600;
+  color:           rgba(255, 255, 255, .60);
+  max-width:       40%;
+  white-space:     nowrap;
+  overflow:        hidden;
+  text-overflow:   ellipsis;
+}
+
+/* Image wrap */
+.piv-img-wrap {
+  max-width:       95vw;
+  max-height:      80dvh;
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  cursor:          zoom-in;
+  transition:      transform 300ms ease;
+}
+
+.piv-img-wrap--zoomed {
+  transform: scale(1.8);
+  cursor:    zoom-out;
+}
+
+.piv-img {
+  max-width:     100%;
+  max-height:    80dvh;
+  object-fit:    contain;
+  border-radius: 8px;
+  animation:     piv-img-in 200ms ease;
+}
+
+@keyframes piv-img-in {
+  from { transform: scale(.95); opacity: 0; }
+  to   { transform: scale(1);   opacity: 1; }
+}
+
+/* Nav arrows */
+.piv-nav {
+  position:        absolute;
+  top:             50%;
+  transform:       translateY(-50%);
+  z-index:         10;
+  width:           48px;
+  height:          48px;
+  border-radius:   50%;
+  border:          none;
+  background:      rgba(255, 255, 255, .08);
+  color:           #fff;
+  cursor:          pointer;
+  display:         flex;
+  align-items:     center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition:      background 150ms ease, transform 100ms ease;
+}
+
+.piv-nav:hover   { background: rgba(255, 255, 255, .18); }
+.piv-nav:active  { transform: translateY(-50%) scale(.92); }
+
+.piv-nav--prev { left: 14px;  }
+.piv-nav--next { right: 14px; }
+
+/* Bottom strip */
+.piv-strip {
+  position:    absolute;
+  bottom:      20px;
+  left:        50%;
+  transform:   translateX(-50%);
+  z-index:     10;
+  display:     flex;
+  gap:         6px;
+  padding:     6px 10px;
+  background:  rgba(0, 0, 0, .40);
+  border-radius: 12px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  max-width:   90vw;
+  overflow-x:  auto;
+  scrollbar-width: none;
+}
+
+.piv-strip::-webkit-scrollbar { display: none; }
+
+.piv-strip-thumb {
+  flex-shrink:   0;
+  width:         44px;
+  height:        44px;
+  border-radius: 6px;
+  overflow:      hidden;
+  border:        2px solid transparent;
+  cursor:        pointer;
+  padding:       0;
+  background:    rgba(255, 255, 255, .06);
+  opacity:       .50;
+  transition:    border-color 160ms ease,
+                 opacity      160ms ease;
+}
+
+.piv-strip-thumb:hover { opacity: .75; }
+
+.piv-strip-thumb--active {
+  border-color: var(--o, #ff5c00);
+  opacity:      1;
+}
+
+.piv-strip-thumb img {
+  width:      100%;
+  height:     100%;
+  object-fit: cover;
+  display:    block;
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .piv,
+  .piv-img,
+  .piv-img-wrap { animation: none; transition: none; }
+}
