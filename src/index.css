@@ -1,35 +1,148 @@
+/* ════════════════════════════════════════════════════════════
+   FILE: src/styles/tokens.css
+   Global design tokens — imported once in main.jsx / index.jsx
+   Every component reads from these variables.
+════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
 :root {
-  --o:    #FF5C00;
-  --o2:   #FF8040;
-  --o-bg: #FFF3EE;
-  --ink:  #141210;
-  --ink2: #5A5650;
-  --ink3: #A8A39D;
-  --bg:   #F7F4EF;
-  --wh:   #FFFFFF;
-  --bd:   #EAE6E0;
-  --bd2:  #D8D4CE;
-  --gn:   #15803D;
-  --gn2:  #DCFCE7;
-  --r1: 8px;
-  --r2: 16px;
-  --r3: 24px;
-  --s1: 0 1px 3px rgba(0,0,0,.06);
-  --s2: 0 4px 20px rgba(0,0,0,.08);
-  --s3: 0 16px 48px rgba(0,0,0,.12);
-  --fd: 'Fraunces', Georgia, serif;
-  --fb: 'Plus Jakarta Sans', system-ui, sans-serif;
+  /* ── Brand colours ── */
+  --o    : #FF5C00;
+  --o2   : #FF8040;
+  --o-bg : #FFF3EE;
+
+  /* ── Ink (text) ── */
+  --ink  : #141210;
+  --ink2 : #5A5650;
+  --ink3 : #A8A39D;
+
+  /* ── Surfaces ── */
+  --bg   : #F7F4EF;
+  --wh   : #FFFFFF;
+
+  /* ── Borders ── */
+  --bd   : #EAE6E0;
+  --bd2  : #D8D4CE;
+
+  /* ── Semantic ── */
+  --gn   : #15803D;
+  --gn2  : #DCFCE7;
+  --rd   : #DC2626;
+  --rd2  : #FEE2E2;
+  --am   : #D97706;
+  --am2  : #FEF3C7;
+
+  /* ── Radius ── */
+  --r1   : 8px;
+  --r2   : 16px;
+  --r3   : 24px;
+
+  /* ── Shadows ── */
+  --s1   : 0 1px 3px rgba(0, 0, 0, .06);
+  --s2   : 0 4px 20px rgba(0, 0, 0, .08);
+  --s3   : 0 16px 48px rgba(0, 0, 0, .12);
+
+  /* ── Typography ── */
+  --fd   : 'Fraunces', Georgia, serif;
+  --fb   : 'Plus Jakarta Sans', system-ui, sans-serif;
+
+  /* ── Transitions ── */
+  --t1   : 0.15s ease;
+  --t2   : 0.25s ease;
 }
 
+/* ── Dark mode overrides ── */
+[data-theme="dark"] {
+  --o-bg : #2A1500;
+  --ink  : #F2EFE9;
+  --ink2 : #B0AA9F;
+  --ink3 : #6B655E;
+  --bg   : #0E0D0C;
+  --wh   : #1A1917;
+  --bd   : #2C2925;
+  --bd2  : #3A3733;
+  --gn2  : #052E16;
+  --rd2  : #450A0A;
+  --am2  : #431407;
+  --s1   : 0 1px 3px rgba(0, 0, 0, .25);
+  --s2   : 0 4px 20px rgba(0, 0, 0, .35);
+  --s3   : 0 16px 48px rgba(0, 0, 0, .50);
+}
+
+/* ════════════════════════════════════════════════════════════
+   GLOBAL RESET + BASE
+════════════════════════════════════════════════════════════ */
 *, *::before, *::after {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+  box-sizing : border-box;
+  margin     : 0;
+  padding    : 0;
 }
+
+html {
+  font-size              : 16px;
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior        : smooth;
+}
+
 body {
-  background: var(--bg);
-  font-family: var(--fb);
-  color: var(--ink);
-  -webkit-font-smoothing: antialiased;
+  background             : var(--bg);
+  font-family            : var(--fb);
+  color                  : var(--ink);
+  -webkit-font-smoothing : antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height            : 1.5;
+  min-height             : 100dvh;
 }
-button { font-family: var(--fb); }
+
+button, input, select, textarea {
+  font-family : var(--fb);
+  font-size   : inherit;
+}
+
+a {
+  color           : var(--o);
+  text-decoration : none;
+}
+
+a:hover {
+  text-decoration : underline;
+}
+
+img, video {
+  max-width : 100%;
+  display   : block;
+}
+
+/* ── Focus ring — consistent across all interactive elements ── */
+:focus-visible {
+  outline        : 2px solid var(--o);
+  outline-offset : 2px;
+}
+
+/* ── Scrollbar — subtle, on-brand ── */
+::-webkit-scrollbar       { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background    : var(--bd2);
+  border-radius : 99px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--ink3); }
+
+/* ── Selection ── */
+::selection {
+  background : var(--o-bg);
+  color      : var(--o);
+}
+
+/* ── Utility: visually hidden (for screen readers) ── */
+.sr-only {
+  position : absolute;
+  width    : 1px;
+  height   : 1px;
+  padding  : 0;
+  margin   : -1px;
+  overflow : hidden;
+  clip     : rect(0,0,0,0);
+  border   : 0;
+}
