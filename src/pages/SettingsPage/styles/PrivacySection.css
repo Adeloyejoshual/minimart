@@ -1,0 +1,649 @@
+/* ════════════════════════════════════════════════════════════
+   FILE: src/pages/SettingsPage/styles/PrivacySection.css
+════════════════════════════════════════════════════════════ */
+
+/* ── Drawer overlay ── */
+.privacy-drawer-overlay {
+  position        : fixed;
+  inset           : 0;
+  background      : rgba(0, 0, 0, 0.50);
+  z-index         : 1000;
+  display         : flex;
+  align-items     : flex-end;
+  justify-content : center;
+  animation       : privacy-overlay-in 0.2s ease;
+}
+
+@media (min-width: 640px) {
+  .privacy-drawer-overlay { align-items: center; }
+}
+
+@keyframes privacy-overlay-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Drawer panel ── */
+.privacy-drawer {
+  background    : var(--wh);
+  width         : 100%;
+  max-width     : 480px;
+  max-height    : 88dvh;
+  border-radius : var(--r3) var(--r3) 0 0;
+  display       : flex;
+  flex-direction: column;
+  animation     : privacy-sheet-up 0.26s ease;
+  box-shadow    : var(--s3);
+}
+
+@media (min-width: 640px) {
+  .privacy-drawer {
+    border-radius : var(--r2);
+    max-height    : 80dvh;
+    animation     : privacy-sheet-scale 0.2s ease;
+  }
+}
+
+@keyframes privacy-sheet-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0);    }
+}
+
+@keyframes privacy-sheet-scale {
+  from { opacity: 0; transform: scale(0.95); }
+  to   { opacity: 1; transform: scale(1);    }
+}
+
+/* ── Drawer header ── */
+.privacy-drawer__header {
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  padding         : 20px 20px 16px;
+  border-bottom   : 1px solid var(--bd);
+  flex-shrink     : 0;
+}
+
+.privacy-drawer__title {
+  font-size   : 1.02rem;
+  font-weight : 700;
+  color       : var(--ink);
+}
+
+.privacy-drawer__close {
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  width           : 32px;
+  height          : 32px;
+  border          : none;
+  background      : var(--bg);
+  border-radius   : 50%;
+  cursor          : pointer;
+  color           : var(--ink2);
+  transition      : background var(--t1);
+  flex-shrink     : 0;
+}
+
+.privacy-drawer__close:hover { background: var(--bd); }
+
+.privacy-drawer__close svg {
+  width  : 16px;
+  height : 16px;
+}
+
+/* ── Drawer body ── */
+.privacy-drawer__body {
+  flex       : 1;
+  overflow-y : auto;
+  padding    : 8px 0;
+}
+
+/* ── Drawer footer ── */
+.privacy-drawer__footer {
+  display   : flex;
+  gap       : 10px;
+  padding   : 16px 20px;
+  flex-shrink: 0;
+}
+
+.privacy-drawer__footer--border {
+  border-top : 1px solid var(--bd);
+}
+
+/* ── Loading ── */
+.privacy-loading {
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  gap             : 10px;
+  padding         : 40px 20px;
+  color           : var(--ink2);
+  font-size       : 0.9rem;
+}
+
+/* ── Spinner ── */
+.privacy-spinner {
+  display       : inline-block;
+  width         : 20px;
+  height        : 20px;
+  border        : 2px solid var(--bd);
+  border-top    : 2px solid var(--o);
+  border-radius : 50%;
+  animation     : privacy-spin 0.7s linear infinite;
+  flex-shrink   : 0;
+}
+
+.privacy-spinner--sm {
+  width  : 13px;
+  height : 13px;
+}
+
+@keyframes privacy-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Empty state ── */
+.privacy-empty {
+  display         : flex;
+  flex-direction  : column;
+  align-items     : center;
+  justify-content : center;
+  gap             : 10px;
+  padding         : 48px 20px;
+  color           : var(--ink3);
+  font-size       : 0.88rem;
+}
+
+.privacy-empty svg {
+  width   : 32px;
+  height  : 32px;
+  opacity : 0.4;
+}
+
+/* ── Buttons ── */
+.privacy-btn {
+  flex            : 1;
+  padding         : 11px 16px;
+  border          : none;
+  border-radius   : var(--r1);
+  font-size       : 0.90rem;
+  font-weight     : 600;
+  font-family     : var(--fb);
+  cursor          : pointer;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  gap             : 6px;
+  transition      : opacity var(--t1), background var(--t1);
+}
+
+.privacy-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.privacy-btn--cancel {
+  background : var(--bg);
+  color      : var(--ink);
+  border     : 1.5px solid var(--bd);
+}
+
+.privacy-btn--cancel:hover:not(:disabled) { background: var(--bd); }
+
+.privacy-btn--save {
+  background : var(--o);
+  color      : #FFFFFF;
+}
+
+.privacy-btn--save:hover:not(:disabled) { background: var(--o2); }
+
+.privacy-btn--danger {
+  background : var(--rd);
+  color      : #FFFFFF;
+}
+
+.privacy-btn--danger:hover:not(:disabled) { opacity: 0.88; }
+
+.privacy-btn--full { flex: unset; width: 100%; }
+
+/* ════════════════════════════════════════════════════════════
+   PRIVACY SETTINGS
+════════════════════════════════════════════════════════════ */
+.privacy-toggle-row {
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  gap             : 12px;
+  padding         : 14px 20px;
+  border-bottom   : 1px solid var(--bd);
+}
+
+.privacy-toggle-row:last-of-type { border-bottom: none; }
+
+.privacy-toggle-row__left {
+  display     : flex;
+  align-items : center;
+  gap         : 12px;
+  min-width   : 0;
+}
+
+.privacy-toggle-row__icon {
+  width           : 34px;
+  height          : 34px;
+  border-radius   : var(--r1);
+  background      : var(--o-bg);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  flex-shrink     : 0;
+  color           : var(--o);
+}
+
+.privacy-toggle-row__icon svg {
+  width  : 17px;
+  height : 17px;
+}
+
+.privacy-toggle-row__label {
+  font-size   : 0.93rem;
+  font-weight : 500;
+  color       : var(--ink);
+}
+
+.privacy-toggle-row__sub {
+  font-size  : 0.78rem;
+  color      : var(--ink3);
+  margin-top : 1px;
+}
+
+/* ── Toggle switch ── */
+.privacy-toggle {
+  display    : inline-flex;
+  cursor     : pointer;
+  flex-shrink: 0;
+}
+
+.privacy-toggle__track {
+  display       : flex;
+  align-items   : center;
+  width         : 46px;
+  height        : 26px;
+  border-radius : 13px;
+  background    : var(--bd2);
+  padding       : 2px;
+  transition    : background var(--t2);
+  box-sizing    : border-box;
+}
+
+.privacy-toggle--on .privacy-toggle__track {
+  background : var(--o);
+}
+
+.privacy-toggle__thumb {
+  width         : 22px;
+  height        : 22px;
+  border-radius : 50%;
+  background    : #FFFFFF;
+  box-shadow    : var(--s1);
+  transform     : translateX(0);
+  transition    : transform var(--t2);
+  flex-shrink   : 0;
+}
+
+.privacy-toggle--on .privacy-toggle__thumb {
+  transform : translateX(20px);
+}
+
+.privacy-toggle:focus-within .privacy-toggle__track {
+  outline        : 2px solid var(--o);
+  outline-offset : 2px;
+}
+
+/* ── Select rows ── */
+.privacy-select-row {
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  gap             : 12px;
+  padding         : 14px 20px;
+  border-bottom   : 1px solid var(--bd);
+}
+
+.privacy-select-row--last { border-bottom: none; }
+
+.privacy-select-row__left {
+  display     : flex;
+  align-items : center;
+  gap         : 12px;
+  min-width   : 0;
+}
+
+.privacy-select-row__icon {
+  width           : 34px;
+  height          : 34px;
+  border-radius   : var(--r1);
+  background      : var(--o-bg);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  flex-shrink     : 0;
+  color           : var(--o);
+}
+
+.privacy-select-row__icon svg {
+  width  : 17px;
+  height : 17px;
+}
+
+.privacy-select-row__label {
+  font-size   : 0.93rem;
+  font-weight : 500;
+  color       : var(--ink);
+}
+
+.privacy-select-row__sub {
+  font-size  : 0.78rem;
+  color      : var(--ink3);
+  margin-top : 1px;
+}
+
+.privacy-select {
+  appearance        : none;
+  -webkit-appearance: none;
+  background        : var(--bg);
+  color             : var(--ink);
+  border            : 1.5px solid var(--bd);
+  border-radius     : var(--r1);
+  padding           : 6px 28px 6px 10px;
+  font-size         : 0.83rem;
+  font-family       : var(--fb);
+  cursor            : pointer;
+  background-image  : url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23A8A39D' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat : no-repeat;
+  background-position: right 8px center;
+  white-space       : nowrap;
+  flex-shrink       : 0;
+}
+
+.privacy-select:focus {
+  outline      : 2px solid var(--o);
+  outline-offset: 1px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   BLOCKED USERS
+════════════════════════════════════════════════════════════ */
+.blocked-user-row {
+  display     : flex;
+  align-items : center;
+  gap         : 12px;
+  padding     : 12px 20px;
+  border-bottom: 1px solid var(--bd);
+}
+
+.blocked-user-row:last-child { border-bottom: none; }
+
+.blocked-user-row__avatar {
+  width           : 42px;
+  height          : 42px;
+  border-radius   : 50%;
+  background      : var(--o-bg);
+  color           : var(--o);
+  font-size       : 1rem;
+  font-weight     : 700;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  overflow        : hidden;
+  flex-shrink     : 0;
+}
+
+.blocked-user-row__avatar img {
+  width      : 100%;
+  height     : 100%;
+  object-fit : cover;
+}
+
+.blocked-user-row__info {
+  flex      : 1;
+  min-width : 0;
+}
+
+.blocked-user-row__name {
+  font-size   : 0.93rem;
+  font-weight : 600;
+  color       : var(--ink);
+  white-space : nowrap;
+  overflow    : hidden;
+  text-overflow: ellipsis;
+}
+
+.blocked-user-row__username {
+  font-size : 0.80rem;
+  color     : var(--ink3);
+}
+
+.blocked-user-row__date {
+  font-size  : 0.78rem;
+  color      : var(--ink3);
+  margin-top : 1px;
+}
+
+.blocked-user-row__btn {
+  padding       : 6px 14px;
+  border        : 1.5px solid var(--bd);
+  border-radius : var(--r1);
+  background    : var(--bg);
+  color         : var(--ink);
+  font-size     : 0.82rem;
+  font-weight   : 600;
+  font-family   : var(--fb);
+  cursor        : pointer;
+  flex-shrink   : 0;
+  display       : flex;
+  align-items   : center;
+  gap           : 4px;
+  transition    : background var(--t1), border-color var(--t1);
+}
+
+.blocked-user-row__btn:hover:not(:disabled) {
+  background   : var(--bd);
+  border-color : var(--bd2);
+}
+
+.blocked-user-row__btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ════════════════════════════════════════════════════════════
+   LOGIN ACTIVITY TIMELINE
+════════════════════════════════════════════════════════════ */
+.activity-timeline {
+  padding : 8px 0;
+}
+
+.activity-row {
+  display      : flex;
+  align-items  : flex-start;
+  gap          : 12px;
+  padding      : 12px 20px;
+  border-bottom: 1px solid var(--bd);
+  position     : relative;
+}
+
+.activity-row--last  { border-bottom: none; }
+.activity-row--warn  { background: var(--rd2); }
+
+/* Dot */
+.activity-row__dot {
+  width           : 34px;
+  height          : 34px;
+  border-radius   : 50%;
+  background      : var(--o-bg);
+  color           : var(--o);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  flex-shrink     : 0;
+  margin-top      : 2px;
+}
+
+.activity-row__dot--warn {
+  background : var(--rd2);
+  color      : var(--rd);
+}
+
+.activity-row__dot svg {
+  width  : 15px;
+  height : 15px;
+}
+
+.activity-row__content {
+  flex      : 1;
+  min-width : 0;
+}
+
+.activity-row__action {
+  font-size   : 0.90rem;
+  font-weight : 600;
+  color       : var(--ink);
+}
+
+.activity-row--warn .activity-row__action {
+  color : var(--rd);
+}
+
+.activity-row__meta {
+  font-size  : 0.78rem;
+  color      : var(--ink2);
+  margin-top : 2px;
+}
+
+.activity-row__time {
+  font-size  : 0.75rem;
+  color      : var(--ink3);
+  margin-top : 1px;
+}
+
+.activity-row__ago {
+  font-size   : 0.75rem;
+  color       : var(--ink3);
+  flex-shrink : 0;
+  white-space : nowrap;
+  margin-top  : 4px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   ACTIVE SESSIONS
+════════════════════════════════════════════════════════════ */
+.session-row {
+  display      : flex;
+  align-items  : center;
+  gap          : 12px;
+  padding      : 14px 20px;
+  border-bottom: 1px solid var(--bd);
+}
+
+.session-row:last-of-type { border-bottom: none; }
+
+.session-row--current {
+  background : var(--o-bg);
+}
+
+.session-row__icon {
+  width           : 40px;
+  height          : 40px;
+  border-radius   : var(--r1);
+  background      : var(--bg);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  flex-shrink     : 0;
+  color           : var(--ink2);
+}
+
+.session-row__icon--current {
+  background : var(--wh);
+  color      : var(--o);
+}
+
+.session-row__icon svg {
+  width  : 20px;
+  height : 20px;
+}
+
+.session-row__info {
+  flex      : 1;
+  min-width : 0;
+}
+
+.session-row__name-row {
+  display     : flex;
+  align-items : center;
+  gap         : 6px;
+  flex-wrap   : wrap;
+}
+
+.session-row__name {
+  font-size   : 0.92rem;
+  font-weight : 600;
+  color       : var(--ink);
+}
+
+.session-row__badge {
+  font-size     : 0.68rem;
+  font-weight   : 700;
+  padding       : 2px 7px;
+  border-radius : 20px;
+  background    : var(--o);
+  color         : #FFFFFF;
+}
+
+.session-row__meta {
+  font-size  : 0.78rem;
+  color      : var(--ink2);
+  margin-top : 2px;
+}
+
+.session-row__time {
+  font-size  : 0.75rem;
+  color      : var(--ink3);
+  margin-top : 1px;
+}
+
+.session-row__btn {
+  padding       : 6px 14px;
+  border        : 1.5px solid var(--bd);
+  border-radius : var(--r1);
+  background    : var(--bg);
+  color         : var(--rd);
+  font-size     : 0.82rem;
+  font-weight   : 600;
+  font-family   : var(--fb);
+  cursor        : pointer;
+  flex-shrink   : 0;
+  display       : flex;
+  align-items   : center;
+  gap           : 4px;
+  transition    : background var(--t1), border-color var(--t1);
+}
+
+.session-row__btn:hover:not(:disabled) {
+  background   : var(--rd2);
+  border-color : var(--rd);
+}
+
+.session-row__btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* ════════════════════════════════════════════════════════════
+   RESPONSIVE
+════════════════════════════════════════════════════════════ */
+@media (max-width: 380px) {
+  .privacy-drawer__header,
+  .privacy-toggle-row,
+  .privacy-select-row,
+  .blocked-user-row,
+  .activity-row,
+  .session-row {
+    padding-left  : 16px;
+    padding-right : 16px;
+  }
+
+  .privacy-select { font-size: 0.78rem; }
+}
