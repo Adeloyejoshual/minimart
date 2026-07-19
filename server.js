@@ -196,6 +196,7 @@ import airtimeCouponRoutes  from "./routes/airtimeCoupons.js";
 import subscriptionRouter   from "./routes/subscription/index.js";
 import editproductRouter from "./routes/editproduct.js";
 import promotePlansRouter from "./routes/promoteplans.js";
+import settingsRouter from "./routes/settings.js";
 
 /* ── Help & Support ─────────────────────────────────────────
    /api/support        → routes/support.js       (user-facing)
@@ -328,6 +329,7 @@ app.use("/api/airtime-coupons", airtimeCouponRoutes);
 app.use("/api/subscription",    subscriptionRouter);
 app.use("/api/addproduct", editproductRouter);
 app.use("/api/promoteplans", promotePlansRouter);
+app.use("/api/settings", settingsRouter);
 
 /* ── Help & Support ─────────────────────────────────────────
    User-facing:  POST /api/support/tickets
