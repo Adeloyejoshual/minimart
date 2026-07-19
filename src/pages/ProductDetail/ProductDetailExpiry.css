@@ -1,0 +1,52 @@
+.pde-banner {
+  margin: 0 16px 4px;
+  padding: 12px 14px;
+  background: #fef9c3;
+  border: 1px solid #fcd34d;
+  border-radius: 10px;
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.pde-banner--urgent {
+  background: #fff1f2;
+  border-color: #fca5a5;
+}
+
+.pde-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  margin-top: 1px;
+  line-height: 1;
+}
+
+.pde-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.pde-text strong {
+  color: #78350f;
+}
+
+.pde-banner--urgent .pde-text strong {
+  color: #991b1b;
+}
+
+.pde-text span {
+  color: #92400e;
+}
+
+.pde-banner--urgent .pde-text span {
+  color: #b91c1c;
+}
+
+@media (min-width: 640px) {
+  .pde-banner {
+    margin: 0 20px 6px;
+  }
+}
