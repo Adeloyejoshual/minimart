@@ -2,6 +2,8 @@
  * src/pages/AddProduct.jsx
  * Route: /minimart/add
  *       /minimart/add?edit=:productId  ← EDIT MODE
+ *
+ * v2 — watermark warning/block handling integrated
  */
 
 import {
@@ -11,6 +13,7 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import ProductComponents              from "./product/components.jsx";
 import ProgressOverlay                from "../components/ProgressOverlay.jsx";
+import WatermarkWarningBanner         from "../components/WatermarkWarningBanner.jsx";
 import { locationsByState }           from "../config/locationsByState.js";
 import { apiFetch, ApiError }         from "../utils/apiFetch.js";
 import { detectUserLocation }         from "../utils/location.js";
@@ -35,6 +38,9 @@ const DESCRIPTION_MIN   = 10;
 const REDIRECT_DELAY_MS = 1_500;
 const VERIFY_DELAY_MS   = 2_000;
 const STEP_DELAY_MS     = 400;
+
+/* Extra delay when watermark warnings are present so seller can read them */
+const WM_WARN_EXTRA_DELAY_MS = 3_000;
 
 const ALLOWED_PAYMENT_HOSTS = new Set([
   "checkout.paystack.com",
@@ -165,12 +171,17 @@ const multipartRequest = async (
   } finally {
     clearTimeout(tid);
   }
+
+  /* Always parse body so error responses expose reason / blocked_images */
   const data = await res.json().catch(() => ({}));
+
   if (!res.ok)
     throw new ApiError(
       data?.message ?? `Request failed (${res.status})`,
-      res.status
+      res.status,
+      data   // full body passed through — catch blocks can read data.reason etc.
     );
+
   return data;
 };
 
@@ -277,6 +288,12 @@ export default function AddProduct({ user }) {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [verificationData,  setVerificationData]  = useState(null);
 
+  /* ─── Watermark state ─── */
+  /* warnings : array of { imageIndex, competitor, message, isBlocked? } */
+  /* notice   : string shown below the warning list                       */
+  const [watermarkWarnings, setWatermarkWarnings] = useState([]);
+  const [watermarkNotice,   setWatermarkNotice]   = useState("");
+
   /* ─── Feedback ─── */
   const showError = useCallback((msg) => {
     if (!mountedRef.current) return;
@@ -314,6 +331,11 @@ export default function AddProduct({ user }) {
     },
     [navigate]
   );
+
+  const dismissWatermarkWarnings = useCallback(() => {
+    setWatermarkWarnings([]);
+    setWatermarkNotice("");
+  }, []);
 
   /* ─── Derived ─── */
   const selectedCategory = useMemo(
@@ -376,7 +398,6 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      LOAD PRODUCT FOR EDIT
-     GET /api/seller-dashboard/products/:id  ← this route EXISTS ✓
   ═══════════════════════════════════════════════════════════ */
   const loadProductForEdit = useCallback(async () => {
     if (!editId) return;
@@ -769,6 +790,8 @@ export default function AddProduct({ user }) {
     setAgreedToTerms(false);
     setNeedsVerification(false);
     setVerificationData(null);
+    setWatermarkWarnings([]);
+    setWatermarkNotice("");
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
     clearIdempotencyKey(IDEMPOTENCY_STORE);
@@ -776,8 +799,70 @@ export default function AddProduct({ user }) {
   }, [STORAGE_DRAFT, IDEMPOTENCY_STORE, resetForm, resetImages, showSuccess]);
 
   /* ═══════════════════════════════════════════════════════════
+     POST SUCCESS HANDLER
+     Called after a successful product create + activate cycle.
+     Reads watermark_warnings from the response and adjusts the
+     redirect delay so sellers have time to read the warning.
+  ═══════════════════════════════════════════════════════════ */
+  const handlePostSuccess = useCallback(
+    (responseData) => {
+      if (!mountedRef.current) return;
+      clearIdempotencyKey(IDEMPOTENCY_STORE);
+
+      const verificationNeeded = responseData?.needs_verification === true;
+      const daysRemaining      = responseData?.days_remaining ?? 7;
+
+      /* ── Watermark warnings ──────────────────────────────────
+         The listing was accepted but OCR found a competitor
+         watermark on one or more images. The backend sends:
+           watermark_warnings : [{ imageIndex, competitor, message }]
+           watermark_notice   : string
+         We show the banner and give the seller extra time before
+         redirecting so they can read the tip.
+      ─────────────────────────────────────────────────────────*/
+      const warnings = Array.isArray(responseData?.watermark_warnings)
+        ? responseData.watermark_warnings
+        : [];
+      const notice = responseData?.watermark_notice ?? "";
+
+      if (warnings.length > 0) {
+        setWatermarkWarnings(warnings);
+        setWatermarkNotice(notice);
+      }
+
+      /* Extra delay when there are warnings so seller can read them */
+      const extraDelay = warnings.length > 0 ? WM_WARN_EXTRA_DELAY_MS : 0;
+
+      if (verificationNeeded) {
+        setVerificationData({
+          productId    : responseData.product?.id,
+          activeUntil  : responseData.active_until,
+          daysRemaining,
+          message      : responseData.verification_message,
+          limits       : responseData.limits,
+        });
+        setNeedsVerification(true);
+        showSuccess(
+          warnings.length > 0
+            ? `Listing live for ${daysRemaining} days. Review the photo tip below.`
+            : `Listing live for ${daysRemaining} days. Redirecting…`
+        );
+        safeRedirect("/verification", VERIFY_DELAY_MS + extraDelay);
+      } else {
+        showSuccess(
+          warnings.length > 0
+            ? "Product live! Review the photo tip below."
+            : "Product live! Redirecting…"
+        );
+        safeRedirect("/", REDIRECT_DELAY_MS + extraDelay);
+      }
+    },
+    [IDEMPOTENCY_STORE, showSuccess, safeRedirect]
+  );
+
+  /* ═══════════════════════════════════════════════════════════
      EDIT SUBMIT
-     PATCH /api/addproduct/products/:id  ← editproduct.js ✓
+     PATCH /api/addproduct/products/:id
   ═══════════════════════════════════════════════════════════ */
   const handleEditSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
@@ -810,8 +895,6 @@ export default function AddProduct({ user }) {
 
       const fd = buildEditFormData();
 
-      /* ✅ Correct URL — matches PATCH /api/addproduct/products/:id
-            in routes/editproduct.js mounted at /api/addproduct        */
       await multipartRequest(
         `${API_BASE}/addproduct/products/${editId}`,
         "PATCH",
@@ -856,33 +939,6 @@ export default function AddProduct({ user }) {
   /* ═══════════════════════════════════════════════════════════
      CREATE SUBMIT
   ═══════════════════════════════════════════════════════════ */
-  const handlePostSuccess = useCallback(
-    (responseData) => {
-      if (!mountedRef.current) return;
-      clearIdempotencyKey(IDEMPOTENCY_STORE);
-
-      const verificationNeeded = responseData?.needs_verification === true;
-      const daysRemaining      = responseData?.days_remaining ?? 7;
-
-      if (verificationNeeded) {
-        setVerificationData({
-          productId    : responseData.product?.id,
-          activeUntil  : responseData.active_until,
-          daysRemaining,
-          message      : responseData.verification_message,
-          limits       : responseData.limits,
-        });
-        setNeedsVerification(true);
-        showSuccess(`Listing live for ${daysRemaining} days. Redirecting…`);
-        safeRedirect("/verification", VERIFY_DELAY_MS);
-      } else {
-        showSuccess("Product live! Redirecting…");
-        safeRedirect("/");
-      }
-    },
-    [IDEMPOTENCY_STORE, showSuccess, safeRedirect]
-  );
-
   const handleCreateSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
     if (!navigator.onLine) {
@@ -900,6 +956,10 @@ export default function AddProduct({ user }) {
       setLoading(false);
       return;
     }
+
+    /* Clear any stale watermark state from a previous attempt */
+    setWatermarkWarnings([]);
+    setWatermarkNotice("");
 
     setProgressVisible(true);
     setProgressStep("compressing");
@@ -1024,7 +1084,57 @@ export default function AddProduct({ user }) {
       console.error("[AddProduct] create submit:", err);
       if (mountedRef.current) setProgressVisible(false);
 
-      /* Clean up orphaned product */
+      /* ── Watermark block — backend rejected one or more images ──
+         err.status === 400 && err.data.reason === "watermark_policy"
+         Surface the blocked image indexes in the banner so the
+         seller knows exactly which photos to replace.
+      ─────────────────────────────────────────────────────────────*/
+      if (
+        err?.status === 400 &&
+        err?.data?.reason === "watermark_policy"
+      ) {
+        const blockedIndexes = Array.isArray(err.data?.blocked_images)
+          ? err.data.blocked_images
+          : [];
+
+        setWatermarkWarnings(
+          blockedIndexes.length > 0
+            ? blockedIndexes.map((index) => ({
+                imageIndex : index,
+                competitor : null,
+                message    : err.message,
+                isBlocked  : true,
+              }))
+            : [{
+                imageIndex : null,
+                competitor : null,
+                message    : err.message,
+                isBlocked  : true,
+              }]
+        );
+        setWatermarkNotice(
+          "Please replace the flagged photo(s) with original images " +
+          "and try again."
+        );
+
+        /* Scroll to the banner so seller sees it */
+        requestAnimationFrame(() => {
+          document
+            .querySelector(".wm-banner")
+            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        });
+
+        showError(
+          err.message ??
+          "One or more photos were rejected. Please replace them and try again."
+        );
+
+      } else {
+        /* All other errors */
+        showError(err.message ?? "Submission failed — please try again");
+      }
+
+      /* Clean up orphaned product if upload created one before the error */
       if (product?.id && !paymentInitiated) {
         const token = getToken();
         if (token) {
@@ -1037,8 +1147,7 @@ export default function AddProduct({ user }) {
         }
       }
 
-      showError(err.message ?? "Submission failed — please try again");
-      if (err.status === 403) fetchLimits();
+      if (err?.status === 403) fetchLimits();
 
     } finally {
       if (mountedRef.current) setLoading(false);
@@ -1152,6 +1261,7 @@ export default function AddProduct({ user }) {
   ═══════════════════════════════════════════════════════════ */
   return (
     <div className="ap-page">
+
       <ProgressOverlay
         visible={progressVisible}
         step={progressStep}
@@ -1163,6 +1273,26 @@ export default function AddProduct({ user }) {
           <span className="btn-spin-svg" aria-hidden="true" />
           Compressing image {compressingCount + 1} of {compressingTotal}…
         </div>
+      )}
+
+      {/* ── Watermark banner ────────────────────────────────────
+          Rendered here (above ProductComponents) so it is always
+          visible regardless of scroll position.
+
+          warn  → yellow, dismissible, listing was accepted
+          block → red, not dismissible, seller must replace photo
+      ─────────────────────────────────────────────────────────*/}
+      {watermarkWarnings.length > 0 && (
+        <WatermarkWarningBanner
+          warnings={watermarkWarnings}
+          notice={watermarkNotice}
+          onDismiss={
+            /* Only show dismiss button if none of the warnings are blocks */
+            watermarkWarnings.some((w) => w.isBlocked)
+              ? undefined
+              : dismissWatermarkWarnings
+          }
+        />
       )}
 
       <ProductComponents
@@ -1208,6 +1338,9 @@ export default function AddProduct({ user }) {
         /* ─ post-creation ─ */
         needsVerification={needsVerification}
         verificationData={verificationData}
+        /* ─ watermark ─ */
+        watermarkWarnings={watermarkWarnings}
+        watermarkNotice={watermarkNotice}
         /* ─ handlers ─ */
         updateForm={updateForm}
         updateAttribute={updateAttribute}
