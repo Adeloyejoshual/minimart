@@ -1,23 +1,33 @@
-import {
-  useState,
-  useEffect,
-  useCallback,
-  useMemo,
-  useRef,
-  memo,
-} from "react";
+/**
+ * src/pages/ProductDetail.jsx
+ *
+ * Route: /product/:slug
+ *
+ * Main product detail page — all sub-sections are separate components.
+ * This file handles:
+ *   ─ Data fetching (product, reviews, similar, more-from-seller)
+ *   ─ Auth / user ID resolution
+ *   ─ Favourites (optimistic + server sync)
+ *   ─ Chat, WhatsApp, Call actions
+ *   ─ Wiring all sub-components together
+ */
+
+import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
 
-import ProductDetailTopBar from "./ProductDetail/ProductDetailTopBar";
-import ProductDetailExpiry from "./ProductDetail/ProductDetailExpiry";
-import ProductDetailInfo   from "./ProductDetail/ProductDetailInfo";
-import ContactStrip        from "./ProductDetail/ContactStrip";
-import ReviewSection       from "./ProductDetail/Review";
-import SafetyTips          from "./ProductDetail/SafetyTips";
-import SimilarProducts     from "./ProductDetail/SimilarProducts";
-import MoreFromSeller      from "./ProductDetail/MoreFromSeller";
+/* ── Sub-components ────────────────────────────────────────── */
+import ProductDetailTopBar   from "./ProductDetail/ProductDetailTopBar";
+import ProductDetailExpiry   from "./ProductDetail/ProductDetailExpiry";
+import ProductImageGallery   from "./ProductDetail/ProductImageGallery";
+import ProductDetailInfo     from "./ProductDetail/ProductDetailInfo";
+import ContactStrip          from "./ProductDetail/ContactStrip";
+import ReviewSection         from "./ProductDetail/Review";
+import SafetyTips            from "./ProductDetail/SafetyTips";
+import SimilarProducts       from "./ProductDetail/SimilarProducts";
+import MoreFromSeller        from "./ProductDetail/MoreFromSeller";
 
+/* ── Styles ────────────────────────────────────────────────── */
 import "../styles/ProductDetail.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -30,14 +40,14 @@ const REVIEWS_LIMIT = 5;
 const FAV_DEBOUNCE  = 400;
 
 /* ═══════════════════════════════════════════════════════════════
-   AUTH UTILS
+   AUTH HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token") ||
   null;
 
-const authH = () => {
+const authHeaders = () => {
   const t = getToken();
   return t ? { Authorization: `Bearer ${t}` } : {};
 };
@@ -75,7 +85,7 @@ const readUserId = () => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   FAVOURITES
+   FAVOURITES HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const loadFavs = () => {
   try { return JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); }
@@ -107,151 +117,12 @@ const Skeleton = memo(function Skeleton() {
       aria-label="Loading product">
       <div className="pd-sk-hero" />
       <div className="pd-sk-body">
-        <div className="pd-sk-line" style={{ width: "35%", height: 11 }} />
-        <div className="pd-sk-line" style={{ width: "90%", height: 24, marginTop: 8 }} />
-        <div className="pd-sk-line" style={{ width: "45%", height: 32, marginTop: 10 }} />
+        <div className="pd-sk-line" style={{ width: "35%",  height: 11 }} />
+        <div className="pd-sk-line" style={{ width: "90%",  height: 24, marginTop: 8 }} />
+        <div className="pd-sk-line" style={{ width: "45%",  height: 32, marginTop: 10 }} />
         <div className="pd-sk-line" style={{ width: "100%", height: 90, marginTop: 20, borderRadius: 12 }} />
         <div className="pd-sk-line" style={{ width: "100%", height: 120, marginTop: 12, borderRadius: 12 }} />
       </div>
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   IMAGE GALLERY — lives here, tightly coupled to main page
-═══════════════════════════════════════════════════════════════ */
-const useSwipe = (onLeft, onRight, threshold = 50) => {
-  const startX = useRef(null);
-  const startY = useRef(null);
-
-  const onTouchStart = useCallback((e) => {
-    startX.current = e.touches[0].clientX;
-    startY.current = e.touches[0].clientY;
-  }, []);
-
-  const onTouchEnd = useCallback(
-    (e) => {
-      if (startX.current == null) return;
-      const dx = e.changedTouches[0].clientX - startX.current;
-      const dy = e.changedTouches[0].clientY - startY.current;
-
-      if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > threshold) {
-        if (dx < 0) onLeft?.();
-        else onRight?.();
-      }
-      startX.current = null;
-      startY.current = null;
-    },
-    [onLeft, onRight, threshold]
-  );
-
-  return { onTouchStart, onTouchEnd };
-};
-
-const ImageGallery = memo(function ImageGallery({ images, title }) {
-  const [active, setActive] = useState(0);
-  const [loaded, setLoaded] = useState(false);
-
-  const urls = useMemo(() => {
-    if (!Array.isArray(images) || !images.length) return [];
-    return images
-      .map((img) => (typeof img === "string" ? img : img?.url))
-      .filter(Boolean);
-  }, [images]);
-
-  useEffect(() => {
-    setActive(0);
-    setLoaded(false);
-  }, [urls]);
-
-  const prev = useCallback(() => {
-    setLoaded(false);
-    setActive((i) => (i - 1 + urls.length) % urls.length);
-  }, [urls.length]);
-
-  const next = useCallback(() => {
-    setLoaded(false);
-    setActive((i) => (i + 1) % urls.length);
-  }, [urls.length]);
-
-  const swipe = useSwipe(next, prev);
-
-  if (!urls.length) {
-    return (
-      <div className="pd-gallery-empty" aria-label="No image available">
-        <span>📷</span>
-        <span className="pd-gallery-empty-text">No photos</span>
-      </div>
-    );
-  }
-
-  return (
-    <div className="pd-gallery" {...swipe}>
-      <div className="pd-gallery-main">
-        {!loaded && <div className="pd-gallery-shimmer" />}
-
-        <img
-          key={urls[active]}
-          src={urls[active]}
-          alt={`${title} — image ${active + 1}`}
-          className={`pd-gallery-img${loaded ? " pd-gallery-img--loaded" : ""}`}
-          loading="eager"
-          draggable={false}
-          onLoad={() => setLoaded(true)}
-          onError={(e) => {
-            e.currentTarget.src =
-              "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'" +
-              " width='400' height='300'%3E%3Crect fill='%23f3f4f6' width='400'" +
-              " height='300'/%3E%3Ctext x='50%25' y='50%25'" +
-              " dominant-baseline='middle' text-anchor='middle'" +
-              " fill='%23999' font-size='14'%3ENo image%3C/text%3E%3C/svg%3E";
-            setLoaded(true);
-          }}
-        />
-
-        {urls.length > 1 && (
-          <>
-            <button className="pd-gallery-arrow pd-gallery-arrow--left"
-              onClick={prev} aria-label="Previous image">‹</button>
-            <button className="pd-gallery-arrow pd-gallery-arrow--right"
-              onClick={next} aria-label="Next image">›</button>
-
-            <div className="pd-gallery-dots" aria-label="Image navigation">
-              {urls.map((_, i) => (
-                <button
-                  key={i}
-                  className={`pd-gallery-dot${i === active ? " pd-gallery-dot--active" : ""}`}
-                  onClick={() => { setLoaded(false); setActive(i); }}
-                  aria-label={`Image ${i + 1}`}
-                  aria-current={i === active}
-                />
-              ))}
-            </div>
-
-            <span className="pd-gallery-counter" aria-hidden="true">
-              {active + 1}/{urls.length}
-            </span>
-          </>
-        )}
-      </div>
-
-      {urls.length > 1 && (
-        <div className="pd-gallery-thumbs" role="list" aria-label="All images">
-          {urls.map((url, i) => (
-            <button
-              key={i}
-              role="listitem"
-              className={`pd-gallery-thumb${i === active ? " pd-gallery-thumb--active" : ""}`}
-              onClick={() => { setLoaded(false); setActive(i); }}
-              aria-label={`View image ${i + 1}`}
-              aria-current={i === active}
-            >
-              <img src={url} alt="" loading="lazy" draggable={false}
-                onError={(e) => { e.currentTarget.style.opacity = "0.25"; }} />
-            </button>
-          ))}
-        </div>
-      )}
     </div>
   );
 });
@@ -270,10 +141,13 @@ const Description = memo(function Description({ text }) {
   return (
     <section className="pd-section" aria-label="Description">
       <h3 className="pd-section-h">Description</h3>
-      <p className="pd-description" style={{ whiteSpace: "pre-wrap" }}>{shown}</p>
+      <p className="pd-description">{shown}</p>
       {isLong && (
-        <button className="pd-expand-btn"
-          onClick={() => setExpanded((v) => !v)} aria-expanded={expanded}>
+        <button
+          className="pd-expand-btn"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+        >
           {expanded ? "Show less ▲" : "Read more ▼"}
         </button>
       )}
@@ -337,7 +211,8 @@ const Highlights = memo(function Highlights({ highlights }) {
       <ul className="pd-highlights-list">
         {highlights.map((h, i) => (
           <li key={i} className="pd-highlights-item">
-            <span aria-hidden="true">⚡</span>{h}
+            <span aria-hidden="true">⚡</span>
+            {h}
           </li>
         ))}
       </ul>
@@ -360,13 +235,18 @@ const FAQ = memo(function FAQ({ faq }) {
           const isOpen = openIdx === i;
           return (
             <div key={i} className="pd-faq-item">
-              <button className="pd-faq-q"
-                onClick={() => setOpenIdx(isOpen ? null : i)} aria-expanded={isOpen}>
+              <button
+                className="pd-faq-q"
+                onClick={() => setOpenIdx(isOpen ? null : i)}
+                aria-expanded={isOpen}
+              >
                 <span>{item.question || item.q}</span>
                 <span aria-hidden="true">{isOpen ? "▲" : "▼"}</span>
               </button>
               {isOpen && (
-                <div className="pd-faq-a" role="region">{item.answer || item.a}</div>
+                <div className="pd-faq-a" role="region">
+                  {item.answer || item.a}
+                </div>
               )}
             </div>
           );
@@ -448,14 +328,22 @@ const SellerCard = memo(function SellerCard({ product, onNavigate }) {
   return (
     <section className="pd-section" aria-label="Seller information">
       <h3 className="pd-section-h">Seller</h3>
-      <div className="pd-seller-card" onClick={onNavigate}
-        role="button" tabIndex={0} aria-label={`View seller profile for ${name}`}
-        onKeyDown={onEnter(onNavigate)}>
-
+      <div
+        className="pd-seller-card"
+        onClick={onNavigate}
+        role="button"
+        tabIndex={0}
+        aria-label={`View seller profile for ${name}`}
+        onKeyDown={onEnter(onNavigate)}
+      >
         <div className="pd-seller-avatar">
           {avatar ? (
-            <img src={avatar} alt={name} loading="lazy"
-              onError={(e) => { e.currentTarget.style.display = "none"; }} />
+            <img
+              src={avatar}
+              alt={name}
+              loading="lazy"
+              onError={(e) => { e.currentTarget.style.display = "none"; }}
+            />
           ) : (
             <span aria-hidden="true">{name.charAt(0).toUpperCase()}</span>
           )}
@@ -466,17 +354,23 @@ const SellerCard = memo(function SellerCard({ product, onNavigate }) {
           <div className="pd-seller-name-row">
             <span className="pd-seller-name">{name}</span>
             {verified && (
-              <span className="pd-seller-badge" aria-label="Verified">✔ Verified</span>
+              <span className="pd-seller-badge" aria-label="Verified">
+                ✔ Verified
+              </span>
             )}
           </div>
+
           <div className="pd-seller-stats">
             {rating > 0 && <span>{Number(rating).toFixed(1)}★</span>}
           </div>
+
           {trust != null && (
             <div className="pd-trust" aria-label={`Trust: ${trust}%`}>
               <div className="pd-trust-bar" role="presentation">
-                <div className="pd-trust-fill"
-                  style={{ width: `${Math.min(100, trust)}%` }} />
+                <div
+                  className="pd-trust-fill"
+                  style={{ width: `${Math.min(100, trust)}%` }}
+                />
               </div>
               <span className="pd-trust-label">{trust}%</span>
             </div>
@@ -494,10 +388,21 @@ const SellerCard = memo(function SellerCard({ product, onNavigate }) {
 ═══════════════════════════════════════════════════════════════ */
 const Toast = memo(function Toast({ message, onDismiss, type = "error" }) {
   if (!message) return null;
+
   return (
-    <div className={`pd-toast pd-toast--${type}`} role="alert" aria-live="assertive">
+    <div
+      className={`pd-toast pd-toast--${type}`}
+      role="alert"
+      aria-live="assertive"
+    >
       <span>{message}</span>
-      <button className="pd-toast-close" onClick={onDismiss} aria-label="Dismiss">✕</button>
+      <button
+        className="pd-toast-close"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+      >
+        ✕
+      </button>
     </div>
   );
 });
@@ -510,6 +415,7 @@ export default function ProductDetail({ user }) {
   const navigate             = useNavigate();
   const { addSingleProduct } = useProductCache();
 
+  /* ── State ──────────────────────────────────────────── */
   const [product,     setProduct]     = useState(null);
   const [similar,     setSimilar]     = useState([]);
   const [moreSeller,  setMoreSeller]  = useState([]);
@@ -523,9 +429,11 @@ export default function ProductDetail({ user }) {
   const [chatBusy,    setChatBusy]    = useState(false);
   const [toast,       setToast]       = useState(null);
 
+  /* ── Refs ───────────────────────────────────────────── */
   const favTimerRef = useRef(null);
   const abortRef    = useRef(null);
 
+  /* ── Derived ────────────────────────────────────────── */
   const userId = useMemo(() => user?.id || readUserId(), [user]);
 
   const isOwn = useMemo(
@@ -533,10 +441,12 @@ export default function ProductDetail({ user }) {
     [userId, product?.seller_id]
   );
 
-  const showToast   = useCallback((message, type = "error") => setToast({ message, type }), []);
+  const showToast    = useCallback((message, type = "error") => setToast({ message, type }), []);
   const dismissToast = useCallback(() => setToast(null), []);
 
-  /* ── Fetch product ──────────────────────────────────── */
+  /* ═════════════════════════════════════════════════════
+     FETCH — PRODUCT
+  ═════════════════════════════════════════════════════ */
   const loadProduct = useCallback(async () => {
     if (!slug || slug === "undefined") {
       setError("Invalid product link.");
@@ -579,7 +489,9 @@ export default function ProductDetail({ user }) {
     };
   }, [loadProduct]);
 
-  /* ── Fetch secondary ────────────────────────────────── */
+  /* ═════════════════════════════════════════════════════
+     FETCH — SECONDARY DATA
+  ═════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!product?.id) return;
 
@@ -587,16 +499,24 @@ export default function ProductDetail({ user }) {
 
     const fetches = [
       seller_id &&
-        fetch(`${API}/product/by-seller?${new URLSearchParams({
-          seller_id, exclude: id, limit: "8",
-        })}`)
+        fetch(
+          `${API}/product/by-seller?${new URLSearchParams({
+            seller_id,
+            exclude: id,
+            limit: "8",
+          })}`
+        )
           .then((r) => (r.ok ? r.json() : []))
           .then((d) => setMoreSeller(Array.isArray(d) ? d : [])),
 
       category_id &&
-        fetch(`${API}/product/similar?${new URLSearchParams({
-          category_id, exclude: id, limit: "8",
-        })}`)
+        fetch(
+          `${API}/product/similar?${new URLSearchParams({
+            category_id,
+            exclude: id,
+            limit: "8",
+          })}`
+        )
           .then((r) => (r.ok ? r.json() : []))
           .then((d) => setSimilar(Array.isArray(d) ? d : [])),
     ].filter(Boolean);
@@ -604,7 +524,9 @@ export default function ProductDetail({ user }) {
     Promise.allSettled(fetches);
   }, [product]);
 
-  /* ── Fetch reviews ──────────────────────────────────── */
+  /* ═════════════════════════════════════════════════════
+     FETCH — REVIEWS
+  ═════════════════════════════════════════════════════ */
   useEffect(() => {
     setReviews([]);
     setReviewPage(1);
@@ -612,25 +534,37 @@ export default function ProductDetail({ user }) {
     setReviewTotal(0);
   }, [slug]);
 
-  const loadReviews = useCallback(async (page = 1) => {
-    if (!slug) return;
-    try {
-      const res = await fetch(
-        `${API}/product/slug/${encodeURIComponent(slug)}/reviews?limit=${REVIEWS_LIMIT}&page=${page}`
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      setReviews((prev) => page === 1 ? data.reviews || [] : [...prev, ...(data.reviews || [])]);
-      if (data.stats) {
-        setReviewStats(data.stats);
-        setReviewTotal(data.stats.total || 0);
-      }
-    } catch {}
-  }, [slug]);
+  const loadReviews = useCallback(
+    async (page = 1) => {
+      if (!slug) return;
+      try {
+        const res = await fetch(
+          `${API}/product/slug/${encodeURIComponent(slug)}/reviews` +
+            `?limit=${REVIEWS_LIMIT}&page=${page}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        setReviews((prev) =>
+          page === 1 ? data.reviews || [] : [...prev, ...(data.reviews || [])]
+        );
+        if (data.stats) {
+          setReviewStats(data.stats);
+          setReviewTotal(data.stats.total || 0);
+        }
+      } catch {}
+    },
+    [slug]
+  );
 
-  useEffect(() => { loadReviews(1); }, [loadReviews]);
+  useEffect(() => {
+    loadReviews(1);
+  }, [loadReviews]);
 
-  /* ── Actions ────────────────────────────────────────── */
+  /* ═════════════════════════════════════════════════════
+     ACTIONS
+  ═════════════════════════════════════════════════════ */
+
+  /* ── Favourite ──────────────────────────────────────── */
   const toggleFav = useCallback(() => {
     if (!product?.id) return;
     const next = !fav;
@@ -647,7 +581,7 @@ export default function ProductDetail({ user }) {
     favTimerRef.current = setTimeout(() => {
       fetch(`${API}/product/products/${product.id}/favorite`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authH() },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ user_id: userId }),
       }).catch(() => {
         setFav(!next);
@@ -659,30 +593,45 @@ export default function ProductDetail({ user }) {
     }, FAV_DEBOUNCE);
   }, [fav, product, userId]);
 
+  /* ── WhatsApp ───────────────────────────────────────── */
   const openWhatsApp = useCallback(() => {
     if (!product || isOwn) return;
 
-    fetch(`${API}/product/products/${product.id}/click`, { method: "POST" }).catch(() => {});
+    fetch(`${API}/product/products/${product.id}/click`, {
+      method: "POST",
+    }).catch(() => {});
 
     const waNumber = product.whatsapp || product.contact?.whatsapp;
     const waLink   = product.whatsapp_link || product.contact?.whatsapp_link;
-    const msg = encodeURIComponent(
+    const msg      = encodeURIComponent(
       `Hi, I'm interested in: ${product.title} — ${window.location.href}`
     );
-    const url = waLink ||
-      (waNumber ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${msg}` : null);
 
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
-    else showToast("No WhatsApp contact available.", "info");
+    const url =
+      waLink ||
+      (waNumber
+        ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${msg}`
+        : null);
+
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    } else {
+      showToast("No WhatsApp contact available.", "info");
+    }
   }, [product, isOwn, showToast]);
 
+  /* ── Call ────────────────────────────────────────────── */
   const openCall = useCallback(() => {
     if (isOwn) return;
     const phone = product?.phone || product?.contact?.phone;
-    if (phone) window.location.href = `tel:${phone}`;
-    else showToast("No phone number available.", "info");
+    if (phone) {
+      window.location.href = `tel:${phone}`;
+    } else {
+      showToast("No phone number available.", "info");
+    }
   }, [product, isOwn, showToast]);
 
+  /* ── Chat ────────────────────────────────────────────── */
   const openChat = useCallback(async () => {
     if (!userId) {
       navigate(`/auth?redirect=/product/${encodeURIComponent(slug)}`);
@@ -696,17 +645,20 @@ export default function ProductDetail({ user }) {
     try {
       const res = await fetch(`${API}/conversations`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", ...authH() },
+        headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({
           buyerId: userId,
           sellerId: product.seller_id,
           productId: product.id,
         }),
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.message || "Server error");
+
       const threadId = data.thread_id || data.id;
       if (!threadId) throw new Error("No thread ID returned");
+
       navigate(`/chat/${threadId}`);
     } catch (err) {
       showToast(err.message || "Could not open chat.");
@@ -715,12 +667,16 @@ export default function ProductDetail({ user }) {
     }
   }, [userId, isOwn, product, slug, navigate, showToast]);
 
+  /* ── Navigate to product ────────────────────────────── */
   const goProduct = useCallback(
     (p) => navigate(`/product/${p.slug || p.id}`),
     [navigate]
   );
 
-  /* ── Render ─────────────────────────────────────────── */
+  /* ═════════════════════════════════════════════════════
+     RENDER
+  ═════════════════════════════════════════════════════ */
+
   if (loading) return <Skeleton />;
 
   if (error) {
@@ -732,7 +688,9 @@ export default function ProductDetail({ user }) {
           <p className="pd-error-sub">
             This listing may have been removed or the link is incorrect.
           </p>
-          <Link to="/" className="pd-error-btn">Browse Marketplace</Link>
+          <Link to="/" className="pd-error-btn">
+            Browse Marketplace
+          </Link>
         </div>
       </div>
     );
@@ -743,7 +701,12 @@ export default function ProductDetail({ user }) {
   return (
     <div className="pd-page" role="main">
 
-      <Toast message={toast?.message} type={toast?.type} onDismiss={dismissToast} />
+      {/* ── Toast ────────────────────────────────────── */}
+      <Toast
+        message={toast?.message}
+        type={toast?.type}
+        onDismiss={dismissToast}
+      />
 
       {/* ── Top bar: Back · Fav · Share ──────────────── */}
       <ProductDetailTopBar
@@ -756,8 +719,12 @@ export default function ProductDetail({ user }) {
       {/* ── Trial expiry banner ──────────────────────── */}
       <ProductDetailExpiry product={product} isOwn={isOwn} />
 
-      {/* ── Image gallery ────────────────────────────── */}
-      <ImageGallery images={product.images} title={product.title} />
+      {/* ── Image gallery (progressive + tap to view) ── */}
+      <ProductImageGallery
+        images={product.images}
+        title={product.title}
+        productSlug={slug}
+      />
 
       {/* ── Info: breadcrumb · title · engagement · price · meta ── */}
       <ProductDetailInfo product={product} />
@@ -765,14 +732,17 @@ export default function ProductDetail({ user }) {
       {/* ── Edit (own listing) ───────────────────────── */}
       {isOwn && (
         <div className="pd-edit-wrap">
-          <button className="pd-edit-btn"
-            onClick={() => navigate(`/listings/edit/${product.id}`)}>
+          <button
+            className="pd-edit-btn"
+            onClick={() => navigate(`/listings/edit/${product.id}`)}
+            aria-label="Edit this listing"
+          >
             Edit Listing
           </button>
         </div>
       )}
 
-      {/* ── Contact ──────────────────────────────────── */}
+      {/* ── Contact strip ────────────────────────────── */}
       <ContactStrip
         product={product}
         userId={userId}
@@ -783,16 +753,28 @@ export default function ProductDetail({ user }) {
         onCall={openCall}
       />
 
-      {/* ── Body sections ────────────────────────────── */}
-      <Description    text={product.description}             />
-      <Features       features={product.features}            />
-      <Highlights     highlights={product.highlights}        />
-      <Specifications specifications={product.specifications} />
-      <Attributes     attributes={product.attributes}        />
-      <DeliveryInfo   delivery={product.delivery}            />
-      <FAQ            faq={product.faq}                      />
+      {/* ── Description ──────────────────────────────── */}
+      <Description text={product.description} />
 
-      {/* ── Seller ───────────────────────────────────── */}
+      {/* ── Features ─────────────────────────────────── */}
+      <Features features={product.features} />
+
+      {/* ── Highlights ───────────────────────────────── */}
+      <Highlights highlights={product.highlights} />
+
+      {/* ── Specifications ───────────────────────────── */}
+      <Specifications specifications={product.specifications} />
+
+      {/* ── Attributes ───────────────────────────────── */}
+      <Attributes attributes={product.attributes} />
+
+      {/* ── Delivery ─────────────────────────────────── */}
+      <DeliveryInfo delivery={product.delivery} />
+
+      {/* ── FAQ ──────────────────────────────────────── */}
+      <FAQ faq={product.faq} />
+
+      {/* ── Seller card ──────────────────────────────── */}
       <SellerCard
         product={product}
         onNavigate={() => navigate(`/seller/${product.seller_id}`)}
@@ -817,8 +799,10 @@ export default function ProductDetail({ user }) {
         }}
       />
 
+      {/* ── Safety tips ──────────────────────────────── */}
       <SafetyTips />
 
+      {/* ── More from seller ─────────────────────────── */}
       <MoreFromSeller
         products={moreSeller}
         seller={{
@@ -829,7 +813,12 @@ export default function ProductDetail({ user }) {
         onProductClick={goProduct}
       />
 
-      <SimilarProducts products={similar} onProductClick={goProduct} />
+      {/* ── Similar products ─────────────────────────── */}
+      <SimilarProducts
+        products={similar}
+        onProductClick={goProduct}
+      />
+
     </div>
   );
 }
