@@ -21,7 +21,7 @@ import toast, { Toaster } from "react-hot-toast";
 import { useProductCache } from "./context/ProductCacheContext";
 
 /* ── Global design tokens — must be first CSS import ── */
-import "./styles/tokens.css";
+import "./index.css";
 
 /* ════════════════════════════════════════════════════════════
    THEME BOOTSTRAP
