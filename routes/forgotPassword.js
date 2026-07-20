@@ -1,28 +1,25 @@
 /**
- * routes/resetPassword.js
+ * routes/forgotPassword.js
  *
- * POST /api/auth/reset-password
- *
- * Consumes the reset_token JWT issued by forgotPassword.js
- * after OTP verification, validates the new password, and
- * updates the user's password_hash.
- *
- * Guards:
- *   ✓ JWT must be valid + not expired
- *   ✓ JWT purpose must be "password_reset"
- *   ✓ OTP record must be verified = true, used = false
- *   ✓ OTP must not be expired
- *   ✓ New password must pass strength rules
- *   ✓ New password must NOT match the current password
- *   ✓ Token is single-use — OTP row marked used = true on success
+ * POST /api/auth/forgot-password          — send 6-digit OTP to email
+ * POST /api/auth/forgot-password/verify   — verify OTP → return reset_token
  */
 
 import express   from "express";
-import bcrypt    from "bcrypt";
+import crypto    from "crypto";
 import jwt       from "jsonwebtoken";
 import rateLimit from "express-rate-limit";
-import { pool }  from "../config/db.js";
+
+/*
+  ⚠️  Import pool from config/db.js — NOT from server.js.
+  Importing from server.js creates a circular ESM dependency.
+  ESM resolves circular imports as `undefined` at execution time,
+  which makes pool undefined, which makes ensureOtpTable() throw,
+  which silently prevents this router from mounting.
+*/
+import { pool }       from "../config/db.js";
 import { writeAudit } from "../lib/audit.js";
+import { sendPasswordResetEmail } from "../services/email.js";
 
 const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -30,254 +27,414 @@ const IS_PROD = process.env.NODE_ENV === "production";
 /* ════════════════════════════════════════════════════════════
    CONFIG
 ════════════════════════════════════════════════════════════ */
-const HASH_ROUNDS = Math.max(
-  10,
-  parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
-);
-
-const JWT_SECRET = process.env.JWT_SECRET;
+const OTP_EXPIRY_MINUTES  = 15;
+const OTP_MAX_ATTEMPTS    = 5;
+const RESEND_COOLDOWN_S   = 60;
+const MAX_RESENDS_PER_DAY = 5;
+const JWT_SECRET          = process.env.JWT_SECRET;
 
 if (!JWT_SECRET) {
-  throw new Error("[resetPassword] FATAL: JWT_SECRET is not set.");
+  /* Throw at import time — server.js will catch this and exit cleanly */
+  throw new Error("[forgotPassword] FATAL: JWT_SECRET is not set.");
 }
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════════════════════════ */
+const getIp = (req) =>
+  (req.ip ??
+   req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
+   req.socket?.remoteAddress ??
+   "unknown").replace(/^::ffff:/, "");
+
 const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
-const getIp = (req) => {
-  const raw =
-    req.ip ??
-    req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
-    req.socket?.remoteAddress ??
-    null;
-  return raw?.replace(/^::ffff:/, "") ?? null;
+const normalizeEmail = (raw = "") => raw.trim().toLowerCase();
+
+const EMAIL_RE     = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const isValidEmail = (e) => EMAIL_RE.test(e);
+
+const generateOtp = () => String(crypto.randomInt(100_000, 999_999));
+
+/*
+  SHA-256 is appropriate here — OTPs are:
+    • Short-lived (15 min expiry)
+    • Already rate-limited (5 attempts max, then locked)
+    • Random 6-digit values (not user-chosen secrets)
+  bcrypt would add ~100 ms latency per attempt for no security gain.
+*/
+const hashOtp = (raw) =>
+  crypto.createHash("sha256").update(String(raw)).digest("hex");
+
+const SAFE_RESPONSE = {
+  success : true,
+  message : "If an account exists for that email, a 6-digit code has been sent.",
 };
 
 /* ════════════════════════════════════════════════════════════
-   PASSWORD RULES
-   Must stay in sync with the frontend strength checker so the
-   server and client agree on what is "strong enough".
+   AUTO-MIGRATION
+   Runs AFTER the router is defined so a table-creation failure
+   never prevents the router from mounting.  The server starts
+   and serves traffic even if this fails — worst case: OTP
+   inserts will fail at request time and return a 500, which
+   is recoverable.
 ════════════════════════════════════════════════════════════ */
-const PASSWORD_RULES = [
-  { test: (p) => p.length >= 8,          msg: "Password must be at least 8 characters."              },
-  { test: (p) => /[A-Z]/.test(p),        msg: "Password must contain at least one uppercase letter." },
-  { test: (p) => /[0-9]/.test(p),        msg: "Password must contain at least one number."           },
-  { test: (p) => /[^A-Za-z0-9]/.test(p), msg: "Password must contain at least one special character."},
-];
-
-const validatePassword = (pw) => {
-  for (const rule of PASSWORD_RULES) {
-    if (!rule.test(pw)) return rule.msg;
+async function ensureOtpTable() {
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS password_reset_otps (
+        id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+        user_id     UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        otp_hash    TEXT        NOT NULL,
+        expires_at  TIMESTAMPTZ NOT NULL,
+        attempts    INT         NOT NULL DEFAULT 0,
+        verified    BOOLEAN     NOT NULL DEFAULT false,
+        used        BOOLEAN     NOT NULL DEFAULT false,
+        used_at     TIMESTAMPTZ,
+        ip_address  TEXT,
+        created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )
+    `);
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_pro_user_id
+        ON password_reset_otps (user_id)
+        WHERE used = false
+    `);
+    console.log("[forgotPassword] ✓ password_reset_otps table ready");
+  } catch (err) {
+    /*
+      Non-fatal — log and continue.  If the table already exists
+      (common in production) CockroachDB returns no error because
+      of IF NOT EXISTS.  Any other error is a schema/permission
+      issue that should be fixed via migration, not by crashing
+      the server.
+    */
+    console.error("[forgotPassword] ensureOtpTable failed (non-fatal):", err.message);
   }
-  return null;
-};
+}
 
 /* ════════════════════════════════════════════════════════════
-   RATE LIMITER
-   Tight window — reset tokens are short-lived and precious.
+   RATE LIMITERS
 ════════════════════════════════════════════════════════════ */
-const resetLimiter = rateLimit({
-  windowMs        : 15 * 60 * 1_000,
-  max             : IS_PROD ? 5 : 100,
+const forgotLimiter = rateLimit({
+  windowMs        : 60 * 60 * 1_000,
+  max             : IS_PROD ? 5 : 250,
   standardHeaders : true,
   legacyHeaders   : false,
-  keyGenerator    : (req) => {
-    const raw =
-      req.headers["x-forwarded-for"]?.split(",")[0]?.trim() ??
-      req.socket?.remoteAddress ??
-      "unknown";
-    return raw.replace(/^::ffff:/, "");
-  },
-  handler : (_req, res) =>
+  keyGenerator    : (req) => getIp(req),
+  handler         : (_req, res) =>
     res.status(429).json({
       success : false,
-      message : "Too many reset attempts. Please try again later.",
+      message : "Too many reset requests. Please try again in an hour.",
+    }),
+});
+
+const verifyLimiter = rateLimit({
+  windowMs        : 15 * 60 * 1_000,
+  max             : IS_PROD ? 10 : 500,
+  standardHeaders : true,
+  legacyHeaders   : false,
+  keyGenerator    : (req) => getIp(req),
+  handler         : (_req, res) =>
+    res.status(429).json({
+      success : false,
+      message : "Too many verification attempts. Please try again later.",
     }),
 });
 
 /* ════════════════════════════════════════════════════════════
-   POST /api/auth/reset-password
+   POST /api/auth/forgot-password
+   Step 1 — Send OTP to email
 ════════════════════════════════════════════════════════════ */
-router.post("/reset-password", resetLimiter, async (req, res, next) => {
-  const ip          = getIp(req);
-  const resetToken  = String(req.body?.reset_token  ?? "").trim();
-  const newPassword = String(req.body?.new_password ?? "");
+router.post("/forgot-password", forgotLimiter, async (req, res, next) => {
+  const ip         = getIp(req);
+  const cleanEmail = normalizeEmail(req.body?.email ?? "");
 
-  /* ── 1. Presence check ── */
-  if (!resetToken)  return fail(res, 400, "Reset token is required.");
-  if (!newPassword) return fail(res, 400, "New password is required.");
-
-  /* ── 2. Password strength ── */
-  const strengthError = validatePassword(newPassword);
-  if (strengthError) return fail(res, 400, strengthError);
-
-  /* ── 3. Verify JWT ── */
-  let payload;
-  try {
-    payload = jwt.verify(resetToken, JWT_SECRET);
-  } catch (err) {
-    const isExpired = err.name === "TokenExpiredError";
-    return fail(
-      res,
-      401,
-      isExpired
-        ? "Reset link has expired. Please request a new one."
-        : "Invalid reset token.",
-      { code: isExpired ? "TOKEN_EXPIRED" : "TOKEN_INVALID" }
-    );
+  if (!cleanEmail || !isValidEmail(cleanEmail)) {
+    return fail(res, 400, "A valid email address is required.");
   }
-
-  /* ── 4. Purpose check ── */
-  if (payload.purpose !== "password_reset") {
-    return fail(res, 401, "Invalid reset token.", { code: "TOKEN_INVALID" });
-  }
-
-  const userId = payload.sub;
-  const otpId  = payload.otp_id;
-
-  if (!userId || !otpId) {
-    return fail(res, 401, "Invalid reset token.", { code: "TOKEN_INVALID" });
-  }
-
-  const client = await pool.connect();
 
   try {
-    await client.query("BEGIN");
-
-    /* ── 5. Validate OTP record ──
-       Must be: verified = true, used = false, not expired.
-       This is the single-use gate — once we mark used = true
-       the token can never be replayed.
-    ── */
-    const { rows: otpRows } = await client.query(
-      `SELECT id
-       FROM   password_reset_otps
-       WHERE  id         = $1
-         AND  user_id    = $2
-         AND  verified   = true
-         AND  used       = false
-         AND  expires_at > NOW()
-       LIMIT  1`,
-      [otpId, userId]
-    );
-
-    if (!otpRows.length) {
-      await client.query("ROLLBACK");
-      return fail(
-        res,
-        401,
-        "Reset link has expired. Please request a new one.",
-        { code: "TOKEN_EXPIRED" }
-      );
-    }
-
-    /* ── 6. Fetch current password hash ── */
-    const { rows: userRows } = await client.query(
-      `SELECT id, email, name, password_hash, status
+    /* Always return SAFE_RESPONSE — never reveal if email exists */
+    const { rows: userRows } = await pool.query(
+      `SELECT id, name, email
        FROM   users
-       WHERE  id = $1
+       WHERE  email = $1
        LIMIT  1`,
-      [userId]
+      [cleanEmail]
     );
 
     if (!userRows.length) {
-      await client.query("ROLLBACK");
-      return fail(res, 404, "Account not found.");
+      console.log(`[forgotPassword] no account — ${cleanEmail}`);
+      return res.json(SAFE_RESPONSE);
     }
 
     const user = userRows[0];
 
-    if (["banned", "suspended"].includes(user.status)) {
-      await client.query("ROLLBACK");
-      return fail(res, 403,
-        "Your account has been suspended. Please contact support.",
-        { code: "ACCOUNT_SUSPENDED" }
-      );
+    /* ── Resend cooldown ── */
+    const { rows: recentRows } = await pool.query(
+      `SELECT created_at
+       FROM   password_reset_otps
+       WHERE  user_id = $1
+       ORDER  BY created_at DESC
+       LIMIT  1`,
+      [user.id]
+    );
+
+    if (recentRows.length) {
+      const secondsSinceLast =
+        (Date.now() - new Date(recentRows[0].created_at).getTime()) / 1_000;
+
+      if (secondsSinceLast < RESEND_COOLDOWN_S) {
+        const wait = Math.ceil(RESEND_COOLDOWN_S - secondsSinceLast);
+        return res.status(429).json({
+          success : false,
+          message : `Please wait ${wait}s before requesting a new code.`,
+          wait,
+        });
+      }
     }
 
-    /* ── 7. Reject if same as current password ──────────────────
-       This is the core fix.
-       bcrypt.compare() checks the plaintext new password against
-       the stored hash of the OLD password.  If they match it means
-       the user typed their existing password — reject it clearly.
-    ─────────────────────────────────────────────────────────── */
-    const isSamePassword = await bcrypt.compare(
-      newPassword,
-      user.password_hash
+    /* ── Daily resend limit ── */
+    const { rows: dailyRows } = await pool.query(
+      `SELECT COUNT(*) AS cnt
+       FROM   password_reset_otps
+       WHERE  user_id    = $1
+         AND  created_at > NOW() - INTERVAL '24 hours'`,
+      [user.id]
     );
 
-    if (isSamePassword) {
-      await client.query("ROLLBACK");
-      return fail(
-        res,
-        400,
-        "Your new password cannot be the same as your current password. Please choose a different one.",
-        { code: "SAME_PASSWORD" }
-      );
+    if (parseInt(dailyRows[0].cnt, 10) >= MAX_RESENDS_PER_DAY) {
+      return res.status(429).json({
+        success : false,
+        message : "Daily reset limit reached. Please try again tomorrow.",
+        code    : "DAILY_LIMIT",
+      });
     }
 
-    /* ── 8. Hash new password ── */
-    const newHash = await bcrypt.hash(newPassword, HASH_ROUNDS);
-
-    /* ── 9. Update password ── */
-    await client.query(
-      `UPDATE users
-       SET    password_hash      = $1,
-              updated_at         = NOW(),
-              password_changed_at = NOW()
-       WHERE  id = $2`,
-      [newHash, userId]
-    );
-
-    /* ── 10. Consume the OTP record — prevents replay ── */
-    await client.query(
-      `UPDATE password_reset_otps
-       SET    used    = true,
-              used_at = NOW()
-       WHERE  id = $1`,
-      [otpId]
-    );
-
-    /* ── 11. Invalidate all other unused reset OTPs for this user ── */
-    await client.query(
+    /* ── Invalidate previous unused OTPs ── */
+    await pool.query(
       `UPDATE password_reset_otps
        SET    used = true
        WHERE  user_id = $1
-         AND  used   = false
-         AND  id     != $2`,
-      [userId, otpId]
+         AND  used   = false`,
+      [user.id]
     );
 
-    await client.query("COMMIT");
+    /* ── Generate + store OTP ── */
+    const rawOtp  = generateOtp();
+    const otpHash = hashOtp(rawOtp);
 
-    /* ── 12. Audit ── */
+    await pool.query(
+      `INSERT INTO password_reset_otps
+         (user_id, otp_hash, expires_at, ip_address)
+       VALUES
+         ($1, $2, NOW() + ($3 || ' minutes')::INTERVAL, $4)`,
+      [user.id, otpHash, String(OTP_EXPIRY_MINUTES), ip]
+    );
+
+    /* ── Dev console ── */
+    if (!IS_PROD) {
+      console.log("\n" + "═".repeat(60));
+      console.log("[forgotPassword] 🔑  PASSWORD RESET OTP (dev mode)");
+      console.log(`   Email : ${user.email}`);
+      console.log(`   OTP   : ${rawOtp}`);
+      console.log(`   Exp   : ${OTP_EXPIRY_MINUTES} minutes`);
+      console.log("═".repeat(60) + "\n");
+    }
+
+    /* ── Send email ── */
+    let emailSent = true;
+    try {
+      await sendPasswordResetEmail({
+        to     : user.email,
+        name   : user.name,
+        otp    : rawOtp,
+        expiry : OTP_EXPIRY_MINUTES,
+      });
+      console.log(`[forgotPassword] ✓ OTP sent → ${user.email}`);
+    } catch (mailErr) {
+      emailSent = false;
+      console.error("[forgotPassword] email failed:", mailErr.message);
+    }
+
+    /* In production, if email fails invalidate the OTP and surface the error */
+    if (IS_PROD && !emailSent) {
+      await pool.query(
+        `UPDATE password_reset_otps
+         SET    used = true
+         WHERE  otp_hash = $1`,
+        [otpHash]
+      ).catch(() => {});
+
+      return fail(res, 500, "Failed to send reset code. Please try again.");
+    }
+
+    /* ── Audit ── */
+    writeAudit({
+      actorId    : user.id,
+      action     : "password_reset_otp_sent",
+      targetType : "user",
+      targetId   : user.id,
+      ipAddress  : ip,
+    }).catch(console.error);
+
+    if (!IS_PROD && !emailSent) {
+      return res.json({
+        ...SAFE_RESPONSE,
+        dev_otp  : rawOtp,
+        dev_hint : "Email failed in dev — use the OTP from the server console.",
+      });
+    }
+
+    return res.json(SAFE_RESPONSE);
+
+  } catch (err) {
+    console.error("[forgotPassword] sendOtp error:", err.message);
+    console.error(err.stack);
+    next(err);
+  }
+});
+
+/* ════════════════════════════════════════════════════════════
+   POST /api/auth/forgot-password/verify
+   Step 2 — Verify OTP → return JWT reset_token
+════════════════════════════════════════════════════════════ */
+router.post("/forgot-password/verify", verifyLimiter, async (req, res, next) => {
+  const cleanEmail = normalizeEmail(req.body?.email ?? "");
+  const otp        = String(req.body?.otp ?? "").trim();
+
+  if (!cleanEmail || !otp)
+    return fail(res, 400, "Email and code are required.");
+  if (!isValidEmail(cleanEmail))
+    return fail(res, 400, "Please enter a valid email address.");
+  if (!/^\d{6}$/.test(otp))
+    return fail(res, 400, "Code must be exactly 6 digits.");
+
+  try {
+    const { rows: userRows } = await pool.query(
+      `SELECT id FROM users WHERE email = $1 LIMIT 1`,
+      [cleanEmail]
+    );
+
+    if (!userRows.length)
+      return fail(res, 400, "Invalid request.", { code: "OTP_INVALID" });
+
+    const userId  = userRows[0].id;
+    const otpHash = hashOtp(otp);
+
+    /* ── Find matching valid OTP ── */
+    const { rows: otpRows } = await pool.query(
+      `SELECT id, attempts, expires_at
+       FROM   password_reset_otps
+       WHERE  user_id    = $1
+         AND  otp_hash   = $2
+         AND  used       = false
+         AND  verified   = false
+         AND  expires_at > NOW()
+       LIMIT  1`,
+      [userId, otpHash]
+    );
+
+    /* ── Wrong OTP — increment attempts ── */
+    if (!otpRows.length) {
+      await pool.query(
+        `UPDATE password_reset_otps
+         SET    attempts = attempts + 1
+         WHERE  user_id    = $1
+           AND  used       = false
+           AND  verified   = false
+           AND  expires_at > NOW()`,
+        [userId]
+      ).catch(() => {});
+
+      const { rows: attemptRows } = await pool.query(
+        `SELECT attempts
+         FROM   password_reset_otps
+         WHERE  user_id    = $1
+           AND  used       = false
+           AND  expires_at > NOW()
+         ORDER  BY created_at DESC
+         LIMIT  1`,
+        [userId]
+      ).catch(() => ({ rows: [] }));
+
+      const attempts     = attemptRows[0]?.attempts ?? 0;
+      const attemptsLeft = Math.max(0, OTP_MAX_ATTEMPTS - attempts);
+
+      /* ── Lock after max attempts ── */
+      if (attemptsLeft === 0) {
+        await pool.query(
+          `UPDATE password_reset_otps
+           SET    used = true
+           WHERE  user_id = $1
+             AND  used   = false`,
+          [userId]
+        ).catch(() => {});
+
+        return fail(res, 429,
+          "Too many incorrect attempts. Please request a new code.",
+          { code: "OTP_LOCKED", attemptsLeft: 0 }
+        );
+      }
+
+      return fail(res, 400,
+        `Incorrect code. ${attemptsLeft} attempt${attemptsLeft !== 1 ? "s" : ""} remaining.`,
+        { code: "OTP_INVALID", attemptsLeft }
+      );
+    }
+
+    /* ── OTP correct — mark verified ── */
+    const otpRecord = otpRows[0];
+
+    await pool.query(
+      `UPDATE password_reset_otps
+       SET    verified = true
+       WHERE  id = $1`,
+      [otpRecord.id]
+    );
+
+    /* ── Issue short-lived JWT reset_token ── */
+    const resetToken = jwt.sign(
+      {
+        sub     : userId,
+        otp_id  : otpRecord.id,
+        purpose : "password_reset",
+      },
+      JWT_SECRET,
+      { expiresIn: "15m" }
+    );
+
     writeAudit({
       actorId    : userId,
-      action     : "password_reset",
+      action     : "password_reset_otp_verified",
       targetType : "user",
       targetId   : userId,
-      ipAddress  : ip,
-    }).catch((e) => console.error("[resetPassword] audit failed:", e.message));
+    }).catch(console.error);
 
-    console.log(
-      `[resetPassword] ✓ password reset  user=${userId}  ip=${ip}`
-    );
+    console.log(`[forgotPassword] ✓ OTP verified  user=${userId}`);
 
     return res.json({
-      success : true,
-      message : "Password reset successfully. You can now log in.",
+      success     : true,
+      message     : "Code verified. You can now set your new password.",
+      reset_token : resetToken,
     });
 
   } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error("[resetPassword] error:", err.message, "\n", err.stack);
+    console.error("[forgotPassword] verifyOtp error:", err.message);
+    console.error(err.stack);
     next(err);
-  } finally {
-    client.release();
   }
 });
+
+/* ════════════════════════════════════════════════════════════
+   MOUNT-TIME INIT
+   Called AFTER the router is fully defined so a table-creation
+   failure never blocks the router from exporting.
+════════════════════════════════════════════════════════════ */
+ensureOtpTable();
+
+console.log("[forgotPassword] ✓ router mounted — POST /forgot-password, POST /forgot-password/verify");
 
 export default router;
