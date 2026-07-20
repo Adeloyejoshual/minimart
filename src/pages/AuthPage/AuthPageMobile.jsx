@@ -12,7 +12,7 @@ import "../../styles/AuthPage.css";
 
 import {
   Ic,
-} from "./constants";
+} from "./constants.jsx";
 
 import {
   OtpPanel,
