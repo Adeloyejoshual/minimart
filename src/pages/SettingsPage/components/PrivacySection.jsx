@@ -1,19 +1,13 @@
 /**
  * src/pages/SettingsPage/components/PrivacySection.jsx
  *
- * Privacy & Security section with inline panels for:
- *   - Privacy Settings   → inline toggles (no separate page needed)
- *   - Blocked Users      → inline list with unblock action
- *   - Login Activity     → inline timeline
- *   - Active Sessions    → inline list with revoke action
- *
- * All icons are transparent SVGs using design tokens.
- * Own scoped stylesheet imported below.
+ * Dropdown accordion — click to expand, show 4 action rows inside.
+ * Each row opens a drawer panel when clicked.
+ * SVG icons, design tokens, own scoped stylesheet.
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import SettingsSection from "./SettingsSection.jsx";
-import SettingsItem    from "./SettingsItem.jsx";
 import "../styles/PrivacySection.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -46,7 +40,7 @@ const MonitorIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-    <line x1="8"  y1="21" x2="16" y2="21" />
+    <line x1="8" y1="21" x2="16" y2="21" />
     <line x1="12" y1="17" x2="12" y2="21" />
   </svg>
 );
@@ -54,8 +48,8 @@ const MonitorIcon = () => (
 const CloseIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="6"  x2="6"  y2="18" />
-    <line x1="6"  y1="6"  x2="18" y2="18" />
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
   </svg>
 );
 
@@ -71,7 +65,7 @@ const DesktopIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
     strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="2" y="3" width="20" height="14" rx="2" />
-    <line x1="8"  y1="21" x2="16" y2="21" />
+    <line x1="8" y1="21" x2="16" y2="21" />
     <line x1="12" y1="17" x2="12" y2="21" />
   </svg>
 );
@@ -89,17 +83,6 @@ const EyeIcon = () => (
     strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
     <circle cx="12" cy="12" r="3" />
-  </svg>
-);
-
-const EyeOffIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8
-             a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0
-             1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72
-             -1.07a3 3 0 1 1-4.24-4.24" />
-    <line x1="1" y1="1" x2="23" y2="23" />
   </svg>
 );
 
@@ -146,6 +129,31 @@ const KeyIcon = () => (
   </svg>
 );
 
+const ShieldIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+);
+
+const ChevronIcon = ({ open }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"
+    className={`priv-dd__chevron ${open ? "priv-dd__chevron--open" : ""}`}
+    aria-hidden="true">
+    <polyline points="6 9 12 15 18 9" />
+  </svg>
+);
+
+const ArrowRightIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true">
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+);
+
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════════════════════ */
@@ -157,11 +165,11 @@ const getToken = () =>
 
 const apiFetch = async (path, options = {}) => {
   const token = getToken();
-  const res   = await fetch(`${API_BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
-      "Content-Type" : "application/json",
-      Authorization  : `Bearer ${token}`,
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
       ...options.headers,
     },
   });
@@ -172,14 +180,14 @@ const apiFetch = async (path, options = {}) => {
 
 const timeAgo = (dateStr) => {
   if (!dateStr) return "Unknown";
-  const diff  = Date.now() - new Date(dateStr).getTime();
-  const mins  = Math.floor(diff / 60_000);
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60_000);
   const hours = Math.floor(diff / 3_600_000);
-  const days  = Math.floor(diff / 86_400_000);
-  if (mins  < 2)  return "Just now";
-  if (mins  < 60) return `${mins}m ago`;
+  const days = Math.floor(diff / 86_400_000);
+  if (mins < 2) return "Just now";
+  if (mins < 60) return `${mins}m ago`;
   if (hours < 24) return `${hours}h ago`;
-  if (days  < 30) return `${days}d ago`;
+  if (days < 30) return `${days}d ago`;
   return new Date(dateStr).toLocaleDateString("en-NG", {
     day: "numeric", month: "short", year: "numeric",
   });
@@ -194,33 +202,61 @@ const formatDate = (dateStr) => {
 };
 
 const DeviceIcon = ({ type }) => {
-  if (type === "mobile")  return <MobileIcon  />;
-  if (type === "tablet")  return <TabletIcon  />;
+  if (type === "mobile") return <MobileIcon />;
+  if (type === "tablet") return <TabletIcon />;
   return <DesktopIcon />;
 };
 
 const actionLabel = (action) => {
   const map = {
-    login                : "Signed in",
-    login_failed         : "Failed sign-in attempt",
-    logout               : "Signed out",
-    password_changed     : "Password changed",
-    email_changed        : "Email changed",
-    phone_changed        : "Phone number changed",
-    session_revoked      : "Session revoked",
-    all_sessions_revoked : "All other sessions revoked",
+    login: "Signed in",
+    login_failed: "Failed sign-in attempt",
+    logout: "Signed out",
+    password_changed: "Password changed",
+    email_changed: "Email changed",
+    phone_changed: "Phone number changed",
+    session_revoked: "Session revoked",
+    all_sessions_revoked: "All other sessions revoked",
   };
   return map[action] ?? action.replace(/_/g, " ");
 };
 
 const actionIcon = (action) => {
-  if (action === "login")               return <LogInIcon  />;
-  if (action === "logout")              return <LogOutIcon />;
-  if (action === "login_failed")        return <BlockIcon  />;
-  if (action.includes("password"))      return <KeyIcon    />;
-  if (action.includes("session"))       return <MonitorIcon />;
+  if (action === "login") return <LogInIcon />;
+  if (action === "logout") return <LogOutIcon />;
+  if (action === "login_failed") return <BlockIcon />;
+  if (action.includes("password")) return <KeyIcon />;
+  if (action.includes("session")) return <MonitorIcon />;
   return <ShieldCheckIcon />;
 };
+
+/* Action items inside the dropdown */
+const PRIVACY_ITEMS = [
+  {
+    key: "privacy",
+    Icon: LockIcon,
+    label: "Privacy Settings",
+    desc: "Control who sees your profile",
+  },
+  {
+    key: "blocked",
+    Icon: BlockIcon,
+    label: "Blocked Users",
+    desc: "Manage blocked accounts",
+  },
+  {
+    key: "activity",
+    Icon: ActivityIcon,
+    label: "Login Activity",
+    desc: "Recent sign-ins and events",
+  },
+  {
+    key: "sessions",
+    Icon: MonitorIcon,
+    label: "Active Sessions",
+    desc: "Devices signed in to your account",
+  },
+];
 
 /* ═══════════════════════════════════════════════════════════════
    DRAWER — reusable slide-up panel
@@ -231,7 +267,6 @@ function Drawer({ title, onClose, children, loading }) {
   useEffect(() => {
     const handler = (e) => { if (e.key === "Escape") onClose(); };
     document.addEventListener("keydown", handler);
-    /* Prevent body scroll while open */
     document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", handler);
@@ -239,15 +274,11 @@ function Drawer({ title, onClose, children, loading }) {
     };
   }, [onClose]);
 
-  const handleOverlay = (e) => {
-    if (e.target === overlayRef.current) onClose();
-  };
-
   return (
     <div
       className="privacy-drawer-overlay"
       ref={overlayRef}
-      onClick={handleOverlay}
+      onClick={(e) => { if (e.target === overlayRef.current) onClose(); }}
       role="dialog"
       aria-modal="true"
       aria-label={title}
@@ -264,7 +295,6 @@ function Drawer({ title, onClose, children, loading }) {
             <CloseIcon />
           </button>
         </div>
-
         <div className="privacy-drawer__body">
           {loading ? (
             <div className="privacy-loading" role="status">
@@ -279,138 +309,86 @@ function Drawer({ title, onClose, children, loading }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PRIVACY SETTINGS PANEL
+   PRIVACY SETTINGS DRAWER
 ═══════════════════════════════════════════════════════════════ */
 function PrivacySettingsDrawer({ onClose }) {
   const [prefs, setPrefs] = useState({
-    show_online_status   : true,
-    show_last_seen       : true,
-    show_profile_to      : "everyone",  // "everyone" | "followers" | "none"
-    show_phone           : false,
-    allow_messages_from  : "everyone",  // "everyone" | "followers" | "none"
+    show_online_status: true,
+    show_last_seen: true,
+    show_profile_to: "everyone",
+    show_phone: false,
+    allow_messages_from: "everyone",
   });
   const [saving, setSaving] = useState(false);
-  const [saved,  setSaved]  = useState(false);
+  const [saved, setSaved] = useState(false);
 
-  const toggle = (key) =>
-    setPrefs((p) => ({ ...p, [key]: !p[key] }));
+  const toggle = (key) => setPrefs((p) => ({ ...p, [key]: !p[key] }));
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      /* Your preferences endpoint — fire and forget for now */
       await apiFetch("/settings/preferences", {
-        method : "PATCH",
-        body   : JSON.stringify({ privacy: prefs }),
+        method: "PATCH",
+        body: JSON.stringify({ privacy: prefs }),
       });
       setSaved(true);
       setTimeout(() => { setSaved(false); onClose(); }, 1_200);
-    } catch {
-      /* non-critical */
-    } finally {
-      setSaving(false);
-    }
+    } catch { /* non-critical */ }
+    finally { setSaving(false); }
   };
 
   return (
     <Drawer title="Privacy Settings" onClose={onClose}>
-
-      {/* Online status */}
-      <PrivacyToggleRow
-        icon={<MonitorIcon />}
-        label="Show online status"
+      <PrivacyToggleRow icon={<MonitorIcon />} label="Show online status"
         sublabel="Let others see when you're active"
-        checked={prefs.show_online_status}
-        onChange={() => toggle("show_online_status")}
-      />
+        checked={prefs.show_online_status} onChange={() => toggle("show_online_status")} />
 
-      {/* Last seen */}
-      <PrivacyToggleRow
-        icon={<ActivityIcon />}
-        label="Show last seen"
+      <PrivacyToggleRow icon={<ActivityIcon />} label="Show last seen"
         sublabel="Let others see when you were last active"
-        checked={prefs.show_last_seen}
-        onChange={() => toggle("show_last_seen")}
-      />
+        checked={prefs.show_last_seen} onChange={() => toggle("show_last_seen")} />
 
-      {/* Phone visibility */}
-      <PrivacyToggleRow
-        icon={<MobileIcon />}
-        label="Show phone number"
+      <PrivacyToggleRow icon={<MobileIcon />} label="Show phone number"
         sublabel="Display your number on your profile"
-        checked={prefs.show_phone}
-        onChange={() => toggle("show_phone")}
-      />
+        checked={prefs.show_phone} onChange={() => toggle("show_phone")} />
 
-      {/* Profile visibility */}
       <div className="privacy-select-row">
         <div className="privacy-select-row__left">
-          <span className="privacy-select-row__icon">
-            <UserIcon />
-          </span>
+          <span className="privacy-select-row__icon"><UserIcon /></span>
           <div>
             <p className="privacy-select-row__label">Profile visible to</p>
             <p className="privacy-select-row__sub">Who can view your profile</p>
           </div>
         </div>
-        <select
-          className="privacy-select"
-          value={prefs.show_profile_to}
-          onChange={(e) =>
-            setPrefs((p) => ({ ...p, show_profile_to: e.target.value }))
-          }
-        >
+        <select className="privacy-select" value={prefs.show_profile_to}
+          onChange={(e) => setPrefs((p) => ({ ...p, show_profile_to: e.target.value }))}>
           <option value="everyone">Everyone</option>
           <option value="followers">Followers</option>
           <option value="none">Only me</option>
         </select>
       </div>
 
-      {/* Messages from */}
       <div className="privacy-select-row privacy-select-row--last">
         <div className="privacy-select-row__left">
-          <span className="privacy-select-row__icon">
-            <EyeIcon />
-          </span>
+          <span className="privacy-select-row__icon"><EyeIcon /></span>
           <div>
             <p className="privacy-select-row__label">Receive messages from</p>
             <p className="privacy-select-row__sub">Control who can message you</p>
           </div>
         </div>
-        <select
-          className="privacy-select"
-          value={prefs.allow_messages_from}
-          onChange={(e) =>
-            setPrefs((p) => ({ ...p, allow_messages_from: e.target.value }))
-          }
-        >
+        <select className="privacy-select" value={prefs.allow_messages_from}
+          onChange={(e) => setPrefs((p) => ({ ...p, allow_messages_from: e.target.value }))}>
           <option value="everyone">Everyone</option>
           <option value="followers">Followers</option>
           <option value="none">No one</option>
         </select>
       </div>
 
-      {/* Save */}
       <div className="privacy-drawer__footer">
-        <button
-          type="button"
-          className="privacy-btn privacy-btn--cancel"
-          onClick={onClose}
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="privacy-btn privacy-btn--save"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? (
-            <><span className="privacy-spinner privacy-spinner--sm" />Saving…</>
-          ) : saved ? "✓ Saved" : "Save"}
+        <button type="button" className="privacy-btn privacy-btn--cancel" onClick={onClose}>Cancel</button>
+        <button type="button" className="privacy-btn privacy-btn--save" onClick={handleSave} disabled={saving}>
+          {saving ? <><span className="privacy-spinner privacy-spinner--sm" />Saving…</> : saved ? "✓ Saved" : "Save"}
         </button>
       </div>
-
     </Drawer>
   );
 }
@@ -422,18 +400,11 @@ function PrivacyToggleRow({ icon, label, sublabel, checked, onChange }) {
         <span className="privacy-toggle-row__icon">{icon}</span>
         <div>
           <p className="privacy-toggle-row__label">{label}</p>
-          {sublabel && (
-            <p className="privacy-toggle-row__sub">{sublabel}</p>
-          )}
+          {sublabel && <p className="privacy-toggle-row__sub">{sublabel}</p>}
         </div>
       </div>
       <label className={`privacy-toggle ${checked ? "privacy-toggle--on" : ""}`}>
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={onChange}
-          className="sr-only"
-        />
+        <input type="checkbox" checked={checked} onChange={onChange} className="sr-only" />
         <span className="privacy-toggle__track">
           <span className="privacy-toggle__thumb" />
         </span>
@@ -443,11 +414,11 @@ function PrivacyToggleRow({ icon, label, sublabel, checked, onChange }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   BLOCKED USERS PANEL
+   BLOCKED USERS DRAWER
 ═══════════════════════════════════════════════════════════════ */
 function BlockedUsersDrawer({ onClose }) {
-  const [blocked,    setBlocked]    = useState([]);
-  const [loading,    setLoading]    = useState(true);
+  const [blocked, setBlocked] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [unblocking, setUnblocking] = useState(null);
 
   const load = useCallback(async () => {
@@ -455,11 +426,8 @@ function BlockedUsersDrawer({ onClose }) {
     try {
       const data = await apiFetch("/settings/blocked-users");
       setBlocked(data.blocked_users ?? []);
-    } catch {
-      setBlocked([]);
-    } finally {
-      setLoading(false);
-    }
+    } catch { setBlocked([]); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -470,48 +438,30 @@ function BlockedUsersDrawer({ onClose }) {
     try {
       await apiFetch(`/settings/blocked-users/${blockId}`, { method: "DELETE" });
       setBlocked((prev) => prev.filter((b) => b.block_id !== blockId));
-    } catch { /* non-critical */ }
+    } catch { /* */ }
     finally { setUnblocking(null); }
   };
 
   return (
     <Drawer title="Blocked Users" onClose={onClose} loading={loading}>
       {!loading && blocked.length === 0 && (
-        <div className="privacy-empty">
-          <BlockIcon />
-          <p>No blocked users</p>
-        </div>
+        <div className="privacy-empty"><BlockIcon /><p>No blocked users</p></div>
       )}
-
       {blocked.map((b) => (
         <div key={b.block_id} className="blocked-user-row">
           <div className="blocked-user-row__avatar">
             {b.profile_image
               ? <img src={b.profile_image} alt={b.name} />
-              : <span>{(b.name ?? "?")[0].toUpperCase()}</span>
-            }
+              : <span>{(b.name ?? "?")[0].toUpperCase()}</span>}
           </div>
-
           <div className="blocked-user-row__info">
             <p className="blocked-user-row__name">{b.name ?? "Unknown user"}</p>
-            {b.username && (
-              <p className="blocked-user-row__username">@{b.username}</p>
-            )}
-            <p className="blocked-user-row__date">
-              Blocked {timeAgo(b.blocked_at)}
-            </p>
+            {b.username && <p className="blocked-user-row__username">@{b.username}</p>}
+            <p className="blocked-user-row__date">Blocked {timeAgo(b.blocked_at)}</p>
           </div>
-
-          <button
-            type="button"
-            className="blocked-user-row__btn"
-            onClick={() => handleUnblock(b.block_id, b.name)}
-            disabled={unblocking === b.block_id}
-          >
-            {unblocking === b.block_id
-              ? <span className="privacy-spinner privacy-spinner--sm" />
-              : "Unblock"
-            }
+          <button type="button" className="blocked-user-row__btn"
+            onClick={() => handleUnblock(b.block_id, b.name)} disabled={unblocking === b.block_id}>
+            {unblocking === b.block_id ? <span className="privacy-spinner privacy-spinner--sm" /> : "Unblock"}
           </button>
         </div>
       ))}
@@ -520,68 +470,44 @@ function BlockedUsersDrawer({ onClose }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   LOGIN ACTIVITY PANEL
+   LOGIN ACTIVITY DRAWER
 ═══════════════════════════════════════════════════════════════ */
 function LoginActivityDrawer({ onClose }) {
   const [activity, setActivity] = useState([]);
-  const [loading,  setLoading]  = useState(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
         const data = await apiFetch("/settings/login-activity");
         setActivity(data.login_activity ?? []);
-      } catch {
-        setActivity([]);
-      } finally {
-        setLoading(false);
-      }
+      } catch { setActivity([]); }
+      finally { setLoading(false); }
     })();
   }, []);
 
   return (
     <Drawer title="Login Activity" onClose={onClose} loading={loading}>
       {!loading && activity.length === 0 && (
-        <div className="privacy-empty">
-          <ActivityIcon />
-          <p>No recent activity</p>
-        </div>
+        <div className="privacy-empty"><ActivityIcon /><p>No recent activity</p></div>
       )}
-
       <div className="activity-timeline">
         {activity.map((item, i) => {
-          const isLast    = i === activity.length - 1;
-          const isFailed  = item.action === "login_failed";
-
+          const isLast = i === activity.length - 1;
+          const isFailed = item.action === "login_failed";
           return (
-            <div
-              key={item.id}
-              className={[
-                "activity-row",
-                isFailed ? "activity-row--warn" : "",
-                isLast   ? "activity-row--last"  : "",
-              ].filter(Boolean).join(" ")}
-            >
+            <div key={item.id}
+              className={["activity-row", isFailed ? "activity-row--warn" : "",
+                isLast ? "activity-row--last" : ""].filter(Boolean).join(" ")}>
               <div className={`activity-row__dot ${isFailed ? "activity-row__dot--warn" : ""}`}>
                 <span>{actionIcon(item.action)}</span>
               </div>
-
               <div className="activity-row__content">
-                <p className="activity-row__action">
-                  {actionLabel(item.action)}
-                </p>
-                <p className="activity-row__meta">
-                  {item.ip_address}
-                  {item.device ? ` · ${item.device}` : ""}
-                </p>
-                <p className="activity-row__time">
-                  {formatDate(item.created_at)}
-                </p>
+                <p className="activity-row__action">{actionLabel(item.action)}</p>
+                <p className="activity-row__meta">{item.ip_address}{item.device ? ` · ${item.device}` : ""}</p>
+                <p className="activity-row__time">{formatDate(item.created_at)}</p>
               </div>
-
-              <span className="activity-row__ago">
-                {timeAgo(item.created_at)}
-              </span>
+              <span className="activity-row__ago">{timeAgo(item.created_at)}</span>
             </div>
           );
         })}
@@ -591,12 +517,12 @@ function LoginActivityDrawer({ onClose }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ACTIVE SESSIONS PANEL
+   ACTIVE SESSIONS DRAWER
 ═══════════════════════════════════════════════════════════════ */
 function ActiveSessionsDrawer({ onClose }) {
-  const [sessions,  setSessions]  = useState([]);
-  const [loading,   setLoading]   = useState(true);
-  const [revoking,  setRevoking]  = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [revoking, setRevoking] = useState(null);
   const [revokeAll, setRevokeAll] = useState(false);
 
   const load = useCallback(async () => {
@@ -604,11 +530,8 @@ function ActiveSessionsDrawer({ onClose }) {
     try {
       const data = await apiFetch("/settings/sessions");
       setSessions(data.sessions ?? []);
-    } catch {
-      setSessions([]);
-    } finally {
-      setLoading(false);
-    }
+    } catch { setSessions([]); }
+    finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
@@ -618,7 +541,7 @@ function ActiveSessionsDrawer({ onClose }) {
     try {
       await apiFetch(`/settings/sessions/${id}`, { method: "DELETE" });
       setSessions((prev) => prev.filter((s) => s.id !== id));
-    } catch { /* non-critical */ }
+    } catch { /* */ }
     finally { setRevoking(null); }
   };
 
@@ -628,7 +551,7 @@ function ActiveSessionsDrawer({ onClose }) {
     try {
       await apiFetch("/settings/sessions", { method: "DELETE" });
       setSessions((prev) => prev.filter((s) => s.is_current));
-    } catch { /* non-critical */ }
+    } catch { /* */ }
     finally { setRevokeAll(false); }
   };
 
@@ -637,68 +560,38 @@ function ActiveSessionsDrawer({ onClose }) {
   return (
     <Drawer title="Active Sessions" onClose={onClose} loading={loading}>
       {!loading && sessions.length === 0 && (
-        <div className="privacy-empty">
-          <MonitorIcon />
-          <p>No active sessions</p>
-        </div>
+        <div className="privacy-empty"><MonitorIcon /><p>No active sessions</p></div>
       )}
-
       {sessions.map((s) => (
-        <div
-          key={s.id}
-          className={`session-row ${s.is_current ? "session-row--current" : ""}`}
-        >
+        <div key={s.id} className={`session-row ${s.is_current ? "session-row--current" : ""}`}>
           <span className={`session-row__icon ${s.is_current ? "session-row__icon--current" : ""}`}>
             <DeviceIcon type={s.device_type} />
           </span>
-
           <div className="session-row__info">
             <div className="session-row__name-row">
               <p className="session-row__name">{s.device_name ?? "Unknown device"}</p>
-              {s.is_current && (
-                <span className="session-row__badge">This device</span>
-              )}
+              {s.is_current && <span className="session-row__badge">This device</span>}
             </div>
-            <p className="session-row__meta">
-              {s.ip_address ?? "Unknown IP"}
-            </p>
+            <p className="session-row__meta">{s.ip_address ?? "Unknown IP"}</p>
             <p className="session-row__time">
-              {s.is_current
-                ? "Active now"
-                : `Last active ${timeAgo(s.last_active)}`
-              }
+              {s.is_current ? "Active now" : `Last active ${timeAgo(s.last_active)}`}
             </p>
           </div>
-
           {!s.is_current && (
-            <button
-              type="button"
-              className="session-row__btn"
-              onClick={() => handleRevoke(s.id)}
-              disabled={revoking === s.id}
-            >
-              {revoking === s.id
-                ? <span className="privacy-spinner privacy-spinner--sm" />
-                : "Revoke"
-              }
+            <button type="button" className="session-row__btn"
+              onClick={() => handleRevoke(s.id)} disabled={revoking === s.id}>
+              {revoking === s.id ? <span className="privacy-spinner privacy-spinner--sm" /> : "Revoke"}
             </button>
           )}
         </div>
       ))}
-
-      {/* Revoke all other sessions */}
       {others.length > 1 && (
         <div className="privacy-drawer__footer privacy-drawer__footer--border">
-          <button
-            type="button"
-            className="privacy-btn privacy-btn--danger privacy-btn--full"
-            onClick={handleRevokeAll}
-            disabled={revokeAll}
-          >
+          <button type="button" className="privacy-btn privacy-btn--danger privacy-btn--full"
+            onClick={handleRevokeAll} disabled={revokeAll}>
             {revokeAll
               ? <><span className="privacy-spinner privacy-spinner--sm" />Logging out…</>
-              : `Log out of ${others.length} other device${others.length !== 1 ? "s" : ""}`
-            }
+              : `Log out of ${others.length} other device${others.length !== 1 ? "s" : ""}`}
           </button>
         </div>
       )}
@@ -707,50 +600,78 @@ function ActiveSessionsDrawer({ onClose }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PRIVACY SECTION
+   PRIVACY SECTION — dropdown accordion
 ═══════════════════════════════════════════════════════════════ */
 export default function PrivacySection() {
+  const [open, setOpen]   = useState(false);
   const [panel, setPanel] = useState(null);
-  // panel: null | "privacy" | "blocked" | "activity" | "sessions"
 
   const close = useCallback(() => setPanel(null), []);
 
   return (
     <>
       <SettingsSection title="Privacy & Security">
+        <div className="priv-dd">
 
-        <SettingsItem
-          icon={<LockIcon />}
-          label="Privacy Settings"
-          sublabel="Control who sees your profile and activity"
-          onClick={() => setPanel("privacy")}
-        />
+          {/* Trigger */}
+          <button
+            type="button"
+            className="priv-dd__trigger"
+            onClick={() => setOpen((v) => !v)}
+            aria-expanded={open}
+            aria-controls="priv-dd-panel"
+          >
+            <div className="priv-dd__left">
+              <span className="priv-dd__icon">
+                <ShieldIcon />
+              </span>
+              <div className="priv-dd__text">
+                <span className="priv-dd__label">Privacy & Security</span>
+                <span className="priv-dd__desc">
+                  Manage your privacy, sessions and activity
+                </span>
+              </div>
+            </div>
+            <span className="priv-dd__right">
+              <ChevronIcon open={open} />
+            </span>
+          </button>
 
-        <SettingsItem
-          icon={<BlockIcon />}
-          label="Blocked Users"
-          sublabel="Manage accounts you have blocked"
-          onClick={() => setPanel("blocked")}
-        />
+          {/* Panel */}
+          <div
+            id="priv-dd-panel"
+            className={`priv-dd__panel ${open ? "priv-dd__panel--open" : ""}`}
+          >
+            <div className="priv-dd__panel-inner">
+              {PRIVACY_ITEMS.map((item, i) => {
+                const Icon   = item.Icon;
+                const isLast = i === PRIVACY_ITEMS.length - 1;
 
-        <SettingsItem
-          icon={<ActivityIcon />}
-          label="Login Activity"
-          sublabel="Recent sign-ins and security events"
-          onClick={() => setPanel("activity")}
-        />
-
-        <SettingsItem
-          icon={<MonitorIcon />}
-          label="Active Sessions"
-          sublabel="Devices currently signed in to your account"
-          onClick={() => setPanel("sessions")}
-          last
-        />
-
+                return (
+                  <button
+                    key={item.key}
+                    type="button"
+                    className={`priv-dd__action ${isLast ? "priv-dd__action--last" : ""}`}
+                    onClick={() => setPanel(item.key)}
+                  >
+                    <span className="priv-dd__action-icon">
+                      <Icon />
+                    </span>
+                    <div className="priv-dd__action-text">
+                      <span className="priv-dd__action-label">{item.label}</span>
+                      <span className="priv-dd__action-desc">{item.desc}</span>
+                    </div>
+                    <span className="priv-dd__action-arrow">
+                      <ArrowRightIcon />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
       </SettingsSection>
 
-      {/* ── Panels ── */}
       {panel === "privacy"  && <PrivacySettingsDrawer onClose={close} />}
       {panel === "blocked"  && <BlockedUsersDrawer    onClose={close} />}
       {panel === "activity" && <LoginActivityDrawer   onClose={close} />}
