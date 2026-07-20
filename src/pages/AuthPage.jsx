@@ -30,7 +30,7 @@ function useIsDesktop() {
    InviteRedirect is re-exported here so the router only
    needs to import from "pages/AuthPage" — one entry point.
 ════════════════════════════════════════════════════════════ */
-export { InviteRedirect } from "./AuthPageDesktop";
+export { InviteRedirect } from "./AuthPage/AuthPageDesktop";
 
 /* ════════════════════════════════════════════════════════════
    SWITCHER
