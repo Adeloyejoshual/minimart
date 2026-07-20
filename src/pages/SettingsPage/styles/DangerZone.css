@@ -2,13 +2,14 @@
    FILE: src/pages/SettingsPage/styles/DangerZone.css
 ════════════════════════════════════════════════════════════ */
 
+/* ── Card ─────────────────────────────────────────────────── */
 .dz-card {
   background    : var(--wh);
   border-radius : var(--r2);
   overflow      : hidden;
 }
 
-/* ── Trigger ── */
+/* ── Trigger ──────────────────────────────────────────────── */
 .dz-trigger {
   width           : 100%;
   border          : none;
@@ -24,14 +25,8 @@
   transition      : background var(--t1);
 }
 
-.dz-trigger:hover {
-  background : var(--bg);
-}
-
-.dz-trigger:focus-visible {
-  outline        : 2px solid var(--o);
-  outline-offset : -2px;
-}
+.dz-trigger:hover         { background : var(--bg); }
+.dz-trigger:focus-visible { outline: 2px solid var(--o); outline-offset: -2px; }
 
 .dz-trigger__left {
   display     : flex;
@@ -46,17 +41,14 @@
   height          : 38px;
   border-radius   : var(--r1);
   background      : var(--rd2, #FEE2E2);
-  color           : var(--rd, #DC2626);
+  color           : var(--rd,  #DC2626);
   display         : flex;
   align-items     : center;
   justify-content : center;
   flex-shrink     : 0;
 }
 
-.dz-trigger__icon svg {
-  width  : 18px;
-  height : 18px;
-}
+.dz-trigger__icon svg { width: 18px; height: 18px; }
 
 .dz-trigger__text {
   display        : flex;
@@ -76,10 +68,7 @@
   color     : var(--ink2);
 }
 
-.dz-trigger__right {
-  flex-shrink : 0;
-  color       : var(--ink3);
-}
+.dz-trigger__right { flex-shrink: 0; color: var(--ink3); }
 
 .dz-chevron {
   width      : 18px;
@@ -87,58 +76,51 @@
   transition : transform var(--t2);
 }
 
-.dz-chevron--open {
-  transform : rotate(180deg);
-}
+.dz-chevron--open { transform: rotate(180deg); }
 
-/* ── Dropdown panel ── */
+/* ── Dropdown panel ───────────────────────────────────────── */
 .dz-panel {
   display            : grid;
   grid-template-rows : 0fr;
   transition         : grid-template-rows var(--t2);
 }
 
-.dz-panel--open {
-  grid-template-rows : 1fr;
-}
+.dz-panel--open { grid-template-rows: 1fr; }
 
 .dz-panel__inner {
-  overflow   : hidden;
-  padding    : 0 16px;
+  overflow : hidden;
+  padding  : 0 16px;
 }
 
-.dz-panel--open .dz-panel__inner {
-  padding-bottom : 16px;
+.dz-panel--open .dz-panel__inner { padding-bottom: 16px; }
+
+/* ── Action group (logout + its confirm) ──────────────────── */
+.dz-action-group {
+  display        : flex;
+  flex-direction : column;
+  gap            : 0;
 }
 
-/* ── Actions inside dropdown ── */
+/* ── Action buttons ───────────────────────────────────────── */
 .dz-action {
-  width           : 100%;
-  border          : 1px solid var(--bd);
-  background      : var(--bg);
-  border-radius   : var(--r1);
-  display         : flex;
-  align-items     : center;
-  gap             : 12px;
-  padding         : 13px 14px;
-  margin-top      : 10px;
-  text-align      : left;
-  cursor          : pointer;
-  transition      : background var(--t1), border-color var(--t1);
+  width         : 100%;
+  border        : 1px solid var(--bd);
+  background    : var(--bg);
+  border-radius : var(--r1);
+  display       : flex;
+  align-items   : center;
+  gap           : 12px;
+  padding       : 13px 14px;
+  margin-top    : 10px;
+  text-align    : left;
+  cursor        : pointer;
+  transition    : background var(--t1), border-color var(--t1);
 }
 
-.dz-action:hover {
-  background : var(--wh);
-}
-
-.dz-action--logout:hover {
-  border-color : var(--o);
-}
-
-.dz-action--delete:hover {
-  border-color : var(--rd, #DC2626);
-  background   : var(--rd2, #FEE2E2);
-}
+.dz-action:hover                { background: var(--wh); }
+.dz-action--logout:hover        { border-color: var(--o); }
+.dz-action--delete:hover        { border-color: var(--rd, #DC2626); background: var(--rd2, #FEE2E2); }
+.dz-action:disabled             { opacity: 0.55; cursor: not-allowed; }
 
 .dz-action__icon {
   width           : 36px;
@@ -150,37 +132,138 @@
   flex-shrink     : 0;
 }
 
-.dz-action--logout .dz-action__icon {
-  background : var(--o-bg);
-  color      : var(--o);
-}
-
-.dz-action--delete .dz-action__icon {
-  background : var(--rd2, #FEE2E2);
-  color      : var(--rd, #DC2626);
-}
-
-.dz-action__icon svg {
-  width  : 17px;
-  height : 17px;
-}
+.dz-action--logout .dz-action__icon { background: var(--o-bg); color: var(--o); }
+.dz-action--delete .dz-action__icon { background: var(--rd2, #FEE2E2); color: var(--rd, #DC2626); }
+.dz-action__icon svg { width: 17px; height: 17px; }
 
 .dz-action__text {
   display        : flex;
   flex-direction : column;
   gap            : 2px;
   min-width      : 0;
+  flex           : 1;
 }
 
-.dz-action__label {
-  font-size   : 0.92rem;
-  font-weight : 600;
-  color       : var(--ink);
+.dz-action__label { font-size: 0.92rem; font-weight: 600; color: var(--ink); }
+.dz-action__desc  { font-size: 0.79rem; color: var(--ink2); }
+
+/* Arrow indicator on action rows */
+.dz-action__arrow {
+  margin-left : auto;
+  flex-shrink : 0;
+  color       : var(--ink3);
+  display     : flex;
+  align-items : center;
+  transition  : color var(--t1), transform var(--t1);
 }
 
-.dz-action__desc {
-  font-size : 0.79rem;
-  color     : var(--ink2);
+.dz-action:hover .dz-action__arrow { color: var(--o); transform: translateX(2px); }
+.dz-action--delete:hover .dz-action__arrow { color: var(--rd, #DC2626); }
+
+/* ── Logout inline confirmation ───────────────────────────── */
+.dz-logout-confirm {
+  margin        : 6px 0 0;
+  padding       : 14px 16px;
+  border-radius : var(--r1);
+  background    : #FFF8F5;
+  border        : 1px solid rgba(255, 92, 0, 0.2);
+  animation     : dz-fade-in 0.18s ease both;
+}
+
+@keyframes dz-fade-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+
+.dz-logout-confirm__msg {
+  font-size     : 0.88rem;
+  font-weight   : 600;
+  color         : var(--ink);
+  margin        : 0 0 12px;
+  line-height   : 1.4;
+}
+
+.dz-logout-confirm__actions {
+  display : flex;
+  gap     : 8px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   BUTTONS
+════════════════════════════════════════════════════════════ */
+.dz-btn {
+  flex            : 1;
+  padding         : 11px 16px;
+  border-radius   : var(--r1);
+  border          : none;
+  font-size       : 0.90rem;
+  font-weight     : 600;
+  font-family     : var(--fb);
+  cursor          : pointer;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  gap             : 6px;
+  transition      : background var(--t1), opacity var(--t1);
+}
+
+.dz-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Size modifier — used in inline confirm */
+.dz-btn--sm {
+  padding   : 8px 14px;
+  font-size : 0.84rem;
+  flex      : unset;
+}
+
+.dz-btn--cancel {
+  background : var(--bg);
+  color      : var(--ink);
+  border     : 1.5px solid var(--bd);
+}
+
+.dz-btn--cancel:hover { background: var(--wh); }
+
+.dz-btn--danger {
+  background : var(--rd, #DC2626);
+  color      : #fff;
+}
+
+.dz-btn--danger:hover:not(:disabled) { background: #B91C1C; }
+
+/* Logout confirm button */
+.dz-btn--logout {
+  background : var(--o, #FF5C00);
+  color      : #fff;
+  border     : none;
+  flex       : unset;
+}
+
+.dz-btn--logout:hover:not(:disabled) { background: #E85200; }
+
+/* ════════════════════════════════════════════════════════════
+   SPINNERS
+════════════════════════════════════════════════════════════ */
+.dz-spinner {
+  width         : 14px;
+  height        : 14px;
+  border        : 2px solid rgba(255, 255, 255, 0.35);
+  border-top    : 2px solid #fff;
+  border-radius : 50%;
+  animation     : dz-spin 0.7s linear infinite;
+  flex-shrink   : 0;
+}
+
+/* Small variant — used on the logout action button */
+.dz-spinner--sm {
+  width      : 13px;
+  height     : 13px;
+  border     : 2px solid rgba(255, 92, 0, 0.25);
+  border-top : 2px solid var(--o, #FF5C00);
+}
+
+@keyframes dz-spin {
+  to { transform: rotate(360deg); }
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -195,6 +278,7 @@
   align-items     : center;
   justify-content : center;
   padding         : 16px;
+  animation       : dz-fade-in 0.15s ease both;
 }
 
 .dz-modal {
@@ -204,6 +288,12 @@
   border-radius : var(--r2);
   box-shadow    : var(--s3);
   overflow      : hidden;
+  animation     : dz-slide-up 0.22s ease both;
+}
+
+@keyframes dz-slide-up {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
 }
 
 .dz-modal__header {
@@ -226,17 +316,14 @@
   height          : 34px;
   border-radius   : 50%;
   background      : var(--rd2, #FEE2E2);
-  color           : var(--rd, #DC2626);
+  color           : var(--rd,  #DC2626);
   display         : flex;
   align-items     : center;
   justify-content : center;
   flex-shrink     : 0;
 }
 
-.dz-modal__alert svg {
-  width  : 18px;
-  height : 18px;
-}
+.dz-modal__alert svg { width: 18px; height: 18px; }
 
 .dz-modal__title {
   font-size   : 1rem;
@@ -256,16 +343,14 @@
   justify-content : center;
   cursor          : pointer;
   flex-shrink     : 0;
+  transition      : background var(--t1);
 }
 
-.dz-modal__close svg {
-  width  : 16px;
-  height : 16px;
-}
+.dz-modal__close:hover  { background: var(--bd); }
+.dz-modal__close svg    { width: 16px; height: 16px; }
 
-.dz-modal__warning {
-  padding : 16px 18px 4px;
-}
+/* Warning block */
+.dz-modal__warning { padding: 16px 18px 4px; }
 
 .dz-modal__warning-title {
   font-size     : 0.90rem;
@@ -281,13 +366,10 @@
   line-height  : 1.6;
 }
 
-.dz-modal__warning-list li {
-  margin-bottom : 5px;
-}
+.dz-modal__warning-list li { margin-bottom: 5px; }
 
-.dz-modal__field {
-  padding : 10px 18px 0;
-}
+/* Fields */
+.dz-modal__field  { padding: 10px 18px 0; }
 
 .dz-modal__label {
   display       : block;
@@ -310,15 +392,11 @@
   transition    : border-color var(--t1);
 }
 
-.dz-modal__input:focus {
-  border-color : var(--rd, #DC2626);
-}
+.dz-modal__input:focus         { border-color: var(--rd, #DC2626); }
+.dz-modal__input--valid        { border-color: var(--rd, #DC2626); background: var(--rd2, #FEE2E2); }
+.dz-modal__input:disabled      { opacity: 0.55; cursor: not-allowed; }
 
-.dz-modal__input--valid {
-  border-color : var(--rd, #DC2626);
-  background   : var(--rd2, #FEE2E2);
-}
-
+/* Error */
 .dz-modal__error {
   padding     : 10px 18px 0;
   font-size   : 0.80rem;
@@ -326,63 +404,15 @@
   line-height : 1.4;
 }
 
+/* Actions row */
 .dz-modal__actions {
   display : flex;
   gap     : 10px;
   padding : 18px;
 }
 
-/* ── Buttons ── */
-.dz-btn {
-  flex            : 1;
-  padding         : 11px 16px;
-  border-radius   : var(--r1);
-  border          : none;
-  font-size       : 0.90rem;
-  font-weight     : 600;
-  font-family     : var(--fb);
-  cursor          : pointer;
-  display         : flex;
-  align-items     : center;
-  justify-content : center;
-  gap             : 6px;
-}
-
-.dz-btn:disabled {
-  opacity : 0.45;
-  cursor  : not-allowed;
-}
-
-.dz-btn--cancel {
-  background : var(--bg);
-  color      : var(--ink);
-  border     : 1.5px solid var(--bd);
-}
-
-.dz-btn--danger {
-  background : var(--rd, #DC2626);
-  color      : #fff;
-}
-
-/* ── Spinner ── */
-.dz-spinner {
-  width         : 14px;
-  height        : 14px;
-  border        : 2px solid rgba(255,255,255,0.35);
-  border-top    : 2px solid #fff;
-  border-radius : 50%;
-  animation     : dz-spin 0.7s linear infinite;
-  flex-shrink   : 0;
-}
-
-@keyframes dz-spin {
-  to { transform: rotate(360deg); }
-}
-
-/* ── Success ── */
-.dz-modal__success {
-  padding : 20px 18px 22px;
-}
+/* Success state */
+.dz-modal__success        { padding: 20px 18px 22px; }
 
 .dz-modal__success-title {
   font-size     : 0.95rem;
@@ -392,9 +422,9 @@
 }
 
 .dz-modal__success-text {
-  font-size   : 0.84rem;
-  line-height : 1.6;
-  color       : var(--ink2);
+  font-size     : 0.84rem;
+  line-height   : 1.6;
+  color         : var(--ink2);
   margin-bottom : 8px;
 }
 
@@ -403,7 +433,9 @@
   color     : var(--ink3);
 }
 
-/* ── Mobile ── */
+/* ════════════════════════════════════════════════════════════
+   MOBILE
+════════════════════════════════════════════════════════════ */
 @media (max-width: 480px) {
   .dz-trigger {
     padding : 13px 14px;
@@ -426,5 +458,38 @@
 
   .dz-modal__actions {
     flex-direction : column;
+  }
+
+  .dz-logout-confirm__actions {
+    flex-direction : column;
+  }
+
+  .dz-btn--sm {
+    width     : 100%;
+    flex      : 1;
+    text-align: center;
+    justify-content: center;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   REDUCED MOTION
+════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  .dz-modal,
+  .dz-modal__overlay,
+  .dz-logout-confirm,
+  .dz-chevron,
+  .dz-panel,
+  .dz-action,
+  .dz-action__arrow,
+  .dz-trigger {
+    animation  : none !important;
+    transition : none !important;
+  }
+
+  .dz-spinner,
+  .dz-spinner--sm {
+    animation-duration : 1.5s;
   }
 }
