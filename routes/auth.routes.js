@@ -5,15 +5,14 @@
  * POST /api/auth/login
  */
 
-import express        from "express";
-import bcrypt         from "bcrypt";
-import jwt            from "jsonwebtoken";
-import rateLimit      from "express-rate-limit";
-import nodeCrypto     from "crypto";
-import { pool }       from "../config/db.js";
-import { writeAudit } from "../lib/audit.js";
-import { sendEmailVerificationOtp }   from "../services/email.js";
+import express    from "express";
+import bcrypt     from "bcrypt";
+import jwt        from "jsonwebtoken";
+import rateLimit  from "express-rate-limit";
+import { pool }   from "../config/db.js";
+import { writeAudit }                 from "../lib/audit.js";
 import { generateUniqueReferralCode } from "../lib/generateReferralCode.js";
+import { sendEmailOtp }               from "../lib/sendEmailOtp.js";
 
 const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -28,36 +27,19 @@ if (!process.env.JWT_SECRET) {
 /* ════════════════════════════════════════════════════════════
    CONSTANTS
 ════════════════════════════════════════════════════════════ */
-
-/*
-  FIX #12 — HASH_ROUNDS is now environment-configurable so it
-  can be increased without a code deploy.  Floor at 10 so a
-  misconfigured env value cannot weaken security.
-*/
 const HASH_ROUNDS = Math.max(
   10,
   parseInt(process.env.BCRYPT_ROUNDS ?? "12", 10)
 );
-
-const OTP_EXPIRY_MINUTES = 15;
-const OTP_LENGTH         = 6;
-const OTP_MIN            = 10 ** (OTP_LENGTH - 1);
-const OTP_RANGE          = 10 **  OTP_LENGTH - OTP_MIN;
 
 const BANNED_STATUSES = Object.freeze(["banned", "suspended", "flagged"]);
 const INVITE_CODE_RE  = /^[A-Z0-9]{4,20}$/;
 const EMAIL_RE        = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 /*
-  FIX #5 — Two projections instead of one.
-  AUTH_FIELDS  : returned on every login / register response.
-                 Contains only what the client needs to render
-                 the UI and make authenticated requests.
-  SAFE_FIELDS  : used internally for the INSERT RETURNING clause
-                 so the new user row is fully hydrated in one
-                 round-trip, but the full object is never sent
-                 directly to the client — only AUTH_FIELDS are
-                 extracted before the response is built.
+  AUTH_FIELDS — the only columns sent to the client.
+  SAFE_FIELDS — full projection used for INSERT RETURNING only;
+                never serialised directly into a response.
 */
 const AUTH_FIELDS = `
   id, name, email, phone_number,
@@ -71,11 +53,6 @@ const AUTH_FIELDS = `
   created_at
 `;
 
-/*
-  Full projection — used for INSERT RETURNING only so we have
-  everything in memory without a second SELECT.  This object
-  is NEVER serialised and sent to the client directly.
-*/
 const SAFE_FIELDS = `
   ${AUTH_FIELDS},
   store_description,
@@ -88,12 +65,6 @@ const SAFE_FIELDS = `
 /* ════════════════════════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════════════════════════ */
-
-/*
-  FIX #11 — Normalise IPv6-mapped IPv4 addresses
-  ("::ffff:1.2.3.4" → "1.2.3.4") so rate-limit buckets and
-  audit logs are consistent across dual-stack systems.
-*/
 const getIp = (req) => {
   const raw =
     req.ip ??
@@ -117,30 +88,8 @@ const makeJwt = (user) =>
   );
 
 /*
-  FIX #7 — Rejection-sampling eliminates modulo bias.
-  Previous: buf[0] % OTP_RANGE
-    → lower values marginally more likely when OTP_RANGE
-      doesn't divide 2^32 evenly (~0.004 % skew).
-  Fix: discard samples above the largest multiple of OTP_RANGE
-       that fits in a Uint32 and redraw.  Statistically this
-       redraws at most once in ~4 772 calls.
-*/
-const generateOtp = () => {
-  const MAX_SAFE = Math.floor(0xFFFF_FFFF / OTP_RANGE) * OTP_RANGE;
-  const buf      = new Uint32Array(1);
-  do {
-    globalThis.crypto.getRandomValues(buf);
-  } while (buf[0] > MAX_SAFE);
-  return String(OTP_MIN + (buf[0] % OTP_RANGE));
-};
-
-const hashOtp = (raw) =>
-  nodeCrypto.createHash("sha256").update(String(raw)).digest("hex");
-
-/*
-  FIX #5 helper — strip everything that is not in AUTH_FIELDS
-  before building the response body so newly-added DB columns
-  can never accidentally leak to the client.
+  toPublicUser — strips every column that is not in AUTH_FIELDS
+  so newly-added DB columns can never accidentally leak.
 */
 const AUTH_FIELD_NAMES = new Set([
   "id", "name", "email", "phone_number",
@@ -161,15 +110,14 @@ const toPublicUser = (row) =>
 
 /* ════════════════════════════════════════════════════════════
    STRUCTURED LOGGER
-   FIX #13 — PII (invite codes, user IDs) is logged only in
-   development.  In production only warnings and errors are
-   emitted, keeping logs clean and audit-friendly.
+   info / dev  → silent in production (no PII in prod logs)
+   warn / error → always emitted
 ════════════════════════════════════════════════════════════ */
 const log = {
-  info  : (...a) => { if (!IS_PROD) console.log(...a);   },
+  info  : (...a) => { if (!IS_PROD) console.log(...a);  },
   warn  : (...a) =>               console.warn(...a),
   error : (...a) =>               console.error(...a),
-  dev   : (...a) => { if (!IS_PROD) console.log(...a);   },
+  dev   : (...a) => { if (!IS_PROD) console.log(...a);  },
 };
 
 /* ════════════════════════════════════════════════════════════
@@ -208,19 +156,18 @@ const validateLoginBody = (body) => {
 };
 
 /* ════════════════════════════════════════════════════════════
-   DUMMY HASH  (FIX #1 — timing-safe login)
-   Pre-computed at startup so the cost of bcrypt.compare()
-   is always paid regardless of whether the email exists.
-   This prevents an attacker from distinguishing "no account"
-   from "wrong password" via response-time measurement.
+   DUMMY HASH — timing-safe login
+   Always run bcrypt.compare() so an attacker cannot
+   distinguish "no account" from "wrong password" by measuring
+   response time.
 ════════════════════════════════════════════════════════════ */
 const DUMMY_HASH =
   "$2b$12$invalidsaltinvalidsaltininvalidhashpadding000000000000";
 
 /* ════════════════════════════════════════════════════════════
    REFERRAL — recordReferral
-
    Runs INSIDE the registration transaction (same pg client).
+
    Schema:
      inviter_id   UUID NOT NULL
      invitee_id   UUID NOT NULL  ← legacy NOT NULL col
@@ -233,18 +180,12 @@ const DUMMY_HASH =
    Both invitee_id AND referee_id are written so the NOT NULL
    constraint is satisfied and new queries work on referee_id.
 
-   FIX #9 — Individual try/catch blocks removed from the core
-   INSERT path.  Steps that are genuinely optional (referred_by
-   column, total_referrals counter, event log) keep their own
-   catches because they target columns/tables that may not yet
-   exist.  The INSERT itself and the self-referral guard are
-   not wrapped — errors propagate to the caller so the outer
-   try/catch in the route handler can decide how to proceed.
+   TODO: once this migration is applied, replace the SELECT
+   duplicate check with ON CONFLICT (referee_id) DO NOTHING:
+     ALTER TABLE referrals
+       ADD CONSTRAINT referrals_referee_unique UNIQUE (referee_id);
 ════════════════════════════════════════════════════════════ */
 async function recordReferral(client, inviteCode, newUserId) {
-  log.info("[referral] recordReferral() called",
-           { invite_code: inviteCode, new_user_id: newUserId });
-
   if (!inviteCode || !newUserId) {
     log.warn("[referral] missing inviteCode or newUserId — aborting");
     return;
@@ -277,21 +218,7 @@ async function recordReferral(client, inviteCode, newUserId) {
     return;
   }
 
-  /*
-    FIX #6 — TOCTOU race condition.
-    The SELECT + INSERT gap is unavoidable without a unique
-    constraint.  We keep the SELECT as a fast early-exit, but
-    the real protection is the ON CONFLICT clause added to the
-    INSERT once the unique index exists.  Until the migration
-    is applied, the SELECT check still prevents the common case.
-
-    TODO: add migration:
-      ALTER TABLE referrals
-        ADD CONSTRAINT referrals_referee_unique UNIQUE (referee_id);
-    Then change the INSERT below to use ON CONFLICT DO NOTHING.
-  */
-
-  /* ── 3. Duplicate check ── */
+  /* ── 3. Duplicate check (TOCTOU gap — see TODO above) ── */
   const { rows: existing } = await client.query(
     `SELECT id
      FROM   referrals
@@ -309,7 +236,7 @@ async function recordReferral(client, inviteCode, newUserId) {
   /* ── 4. Insert referral ── */
   const { rows: [referral] } = await client.query(
     `INSERT INTO referrals
-       (inviter_id,  invitee_id, referee_id,
+       (inviter_id, invitee_id, referee_id,
         invite_code, status,
         reward_type, reward_value)
      VALUES
@@ -321,15 +248,13 @@ async function recordReferral(client, inviteCode, newUserId) {
   );
 
   if (!referral) {
-    /* Should never happen — INSERT without ON CONFLICT either
-       inserts or throws, never silently returns nothing.        */
     log.error("[referral] INSERT returned no row — unexpected");
     return;
   }
 
   log.info(`[referral] referral row inserted: id=${referral.id}`);
 
-  /* ── 5. Store referred_by on new user (column may not exist) ── */
+  /* ── 5. referred_by (column may not exist yet) ── */
   try {
     await client.query(
       `UPDATE users
@@ -342,7 +267,7 @@ async function recordReferral(client, inviteCode, newUserId) {
     log.warn(`[referral] referred_by update skipped: ${e.message}`);
   }
 
-  /* ── 6. Increment inviter's total_referrals ── */
+  /* ── 6. Increment total_referrals ── */
   try {
     await client.query(
       `UPDATE users
@@ -354,7 +279,7 @@ async function recordReferral(client, inviteCode, newUserId) {
     log.warn(`[referral] total_referrals update skipped: ${e.message}`);
   }
 
-  /* ── 7. Log signed_up event (table may not exist) ── */
+  /* ── 7. signed_up event (table may not exist yet) ── */
   try {
     await client.query(
       `INSERT INTO referral_events
@@ -402,11 +327,13 @@ async function grantReferralRewardOnVerify(verifiedUserId) {
     );
 
     if (!referral) {
-      log.info(`[referral] no pending referral for user=${verifiedUserId} — skipping`);
+      log.info(
+        `[referral] no pending referral for user=${verifiedUserId} — skipping`
+      );
       return;
     }
 
-    /* Atomic transition — only succeeds once */
+    /* Atomic pending → verified (only succeeds once) */
     const { rowCount } = await pool.query(
       `UPDATE referrals
        SET    status      = 'verified',
@@ -421,7 +348,7 @@ async function grantReferralRewardOnVerify(verifiedUserId) {
       return;
     }
 
-    /* Log email_verified event */
+    /* email_verified event */
     try {
       await pool.query(
         `INSERT INTO referral_events
@@ -503,18 +430,10 @@ async function grantBonusSpin(referralId, inviterId, refereeId) {
 
 /* ════════════════════════════════════════════════════════════
    RATE LIMITERS
-
-   FIX #4 — Key by normalised email + IP rather than IP alone.
-   Rationale:
-     • Keying on IP alone means all users behind a shared NAT
-       or corporate proxy share one bucket and can lock each
-       other out.
-     • Keying on email alone lets an attacker enumerate which
-       emails exist by observing which attempts consume quota.
-     • email + IP is a good balance: a legitimate user on a
-       shared network gets their own per-email bucket, while
-       an attacker probing many emails from one IP still gets
-       rate-limited per (email, IP) pair.
+   Key: normalised email + IP
+     • IP-only  → shared NAT blocks innocent users
+     • email-only → attacker can enumerate existing accounts
+     • email + IP → fair to legitimate users, hard to abuse
 ════════════════════════════════════════════════════════════ */
 const mkLimiter = ({ windowMin, max, message }) =>
   rateLimit({
@@ -543,7 +462,6 @@ const authLimiter = mkLimiter({
 router.post("/register", authLimiter, async (req, res, next) => {
   const ip = getIp(req);
 
-  /* Dev-only body dump — never runs in production (FIX #13) */
   log.dev("[auth] register body received:", {
     name         : req.body.name,
     email        : req.body.email,
@@ -603,7 +521,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
       );
 
       if (!codeValid) {
-        log.warn(`[auth] invite code ${cleanInviteCode} not found in users`);
+        log.warn(`[auth] invite code ${cleanInviteCode} not found`);
         await client.query("ROLLBACK");
         return fail(res, 400, "Invalid or expired invite code.", {
           code: "INVALID_INVITE_CODE",
@@ -614,7 +532,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
     /* ── 4. Hash password ── */
     const password_hash = await bcrypt.hash(password, HASH_ROUNDS);
 
-    /* ── 5. Generate referral code for new user ── */
+    /* ── 5. Generate referral code ── */
     let newReferralCode = null;
     try {
       newReferralCode = await generateUniqueReferralCode();
@@ -648,7 +566,6 @@ router.post("/register", authLimiter, async (req, res, next) => {
       try {
         await recordReferral(client, cleanInviteCode, userRow.id);
       } catch (refErr) {
-        /* Non-fatal — user is registered even if referral fails */
         log.error(
           `[auth] recordReferral threw (non-fatal): ` +
           `${refErr.message}\n${refErr.stack}`
@@ -663,67 +580,46 @@ router.post("/register", authLimiter, async (req, res, next) => {
     /* ── 9. JWT ── */
     const token = makeJwt(userRow);
 
-    /*
-      FIX #2 / FIX #3 — OTP ordering.
-      Email is attempted FIRST.  The OTP hash is written to the
-      DB only when the email succeeds (or when we want a resend
-      path to work).  If both fail the response flag tells the
-      client to call /send-email-otp explicitly.
+    /* ── 10. OTP — delegate to shared sender ──────────────────
+       KEY FIX:
+       The previous version generated an OTP here, hashed it
+       with SHA-256, and stored it in email_verification_otps.
 
-      Why store even on failure? The /send-email-otp endpoint
-      will upsert a fresh OTP anyway, so storing here is a
-      convenience shortcut.  The flag `requires_otp_resend`
-      lets the frontend decide.
-    */
-    const rawOtp  = generateOtp();
-    const otpHash = hashOtp(rawOtp);
+       The /verify-email-otp endpoint reads from email_verifications
+       and compares with bcrypt — a completely different table and
+       a completely different hashing algorithm.  That mismatch
+       caused every registration OTP to be silently unverifiable.
 
-    let emailSent    = false;
-    let otpStored    = false;
+       Fix: call sendEmailOtp() from lib/sendEmailOtp.js which
+       writes bcrypt-hashed rows to email_verifications — the
+       exact same table and algorithm that /verify-email-otp reads.
+    ─────────────────────────────────────────────────────────── */
+    const otpResult = await sendEmailOtp({
+      userId : userRow.id,
+      email  : userRow.email,
+      name   : userRow.name,
+      req,
+      ip,
+    });
 
-    /* Try to send first */
-    try {
-      await sendEmailVerificationOtp({
-        to     : userRow.email,
-        name   : userRow.name,
-        otp    : rawOtp,
-        expiry : OTP_EXPIRY_MINUTES,
-      });
-      emailSent = true;
-      log.info(`[auth] ✓ OTP email sent → ${userRow.email}`);
-    } catch (mailErr) {
-      log.error(`[auth] OTP email failed: ${mailErr.message}`);
-    }
+    const emailSent = otpResult.success;
 
-    /* Store OTP hash regardless — needed for /send-email-otp resend path */
-    try {
-      await pool.query(
-        `INSERT INTO email_verification_otps
-           (user_id, otp_hash, expires_at)
-         VALUES ($1, $2, now() + ($3 || ' minutes')::INTERVAL)`,
-        [userRow.id, otpHash, String(OTP_EXPIRY_MINUTES)]
-      );
-      otpStored = true;
-    } catch (otpErr) {
-      log.error(`[auth] OTP store failed: ${otpErr.message}`);
-    }
-
-    /* ── 10. Dev console output ── */
+    /* ── 11. Dev console output ── */
     log.dev(
       "\n" + "═".repeat(60) + "\n" +
       "[auth] 🔑  DEV — EMAIL VERIFICATION OTP\n" +
       `   User ID     : ${userRow.id}\n` +
       `   Email       : ${userRow.email}\n` +
-      `   OTP         : ${rawOtp}\n` +
-      `   Expiry      : ${OTP_EXPIRY_MINUTES} minutes\n` +
+      `   OTP         : ${otpResult.dev_otp ?? "(check email)"}\n` +
+      `   Expiry      : 10 minutes\n` +
       `   Referral    : ${newReferralCode  ?? "(none — gen failed)"}\n` +
       `   Invite Code : ${cleanInviteCode  ?? "(none)"}\n` +
       `   Email sent  : ${emailSent}\n` +
-      `   OTP stored  : ${otpStored}\n` +
+      (otpResult.error ? `   OTP error   : ${otpResult.error}\n` : "") +
       "═".repeat(60)
     );
 
-    /* ── 11. Audit ── */
+    /* ── 12. Audit ── */
     writeAudit({
       actorId    : userRow.id,
       action     : "user_registered",
@@ -734,7 +630,6 @@ router.post("/register", authLimiter, async (req, res, next) => {
         invite_code   : cleanInviteCode ?? null,
         referral_code : newReferralCode ?? null,
         email_sent    : emailSent,
-        otp_stored    : otpStored,
       },
     }).catch((e) => log.error(`[auth] audit failed: ${e.message}`));
 
@@ -744,31 +639,20 @@ router.post("/register", authLimiter, async (req, res, next) => {
       (newReferralCode ? `  referral=${newReferralCode}` : "")
     );
 
-    /* ── 12. Response ── */
-    /*
-      FIX #5 — Only AUTH_FIELDS are sent to the client.
-      The full userRow (which includes business metrics, trust
-      scores, etc.) stays server-side.
-    */
+    /* ── 13. Response ── */
     const publicUser = toPublicUser(userRow);
 
     const body = {
-      success : true,
-      message : "Account created successfully.",
+      success             : true,
+      message             : "Account created successfully.",
       token,
-      user    : publicUser,
-      /*
-        FIX #3 — Signal when the client must call /send-email-otp
-        because both email delivery and OTP storage failed.
-      */
-      requires_otp_resend : !emailSent && !otpStored,
+      user                : publicUser,
+      requires_otp_resend : !emailSent,
     };
 
-    /* Dev-only: surface OTP in response when email failed */
-    if (!IS_PROD && !emailSent) {
-      body.dev_otp  = rawOtp;
-      body.dev_hint =
-        "Email delivery failed — use the OTP in the server console.";
+    if (!IS_PROD) {
+      if (otpResult.dev_otp) body.dev_otp  = otpResult.dev_otp;
+      if (!emailSent)        body.dev_hint = otpResult.error ?? "OTP send failed.";
     }
 
     return res.status(201).json(body);
@@ -776,40 +660,22 @@ router.post("/register", authLimiter, async (req, res, next) => {
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
 
-    /*
-      FIX #10 — Constraint-name matching instead of fragile
-      message-text inspection.
-
-      Requires constraints to be named in migrations, e.g.:
-        CONSTRAINT users_email_key        UNIQUE (email)
-        CONSTRAINT users_phone_key        UNIQUE (phone_number)
-        CONSTRAINT users_referral_code_key UNIQUE (referral_code)
-        CONSTRAINT referrals_referee_unique UNIQUE (referee_id)
-
-      Falls back to message-text scan for CockroachDB, which
-      sets err.code = "23505" but may not populate err.constraint.
-    */
     const isDuplicate =
       err.code === "23505" ||
       err.message?.toLowerCase().includes("duplicate key");
 
     if (isDuplicate) {
       const CONSTRAINT_MAP = {
-        users_email_key         : { status: 409, msg: "An account with this email already exists.", code: "EMAIL_TAKEN"            },
-        users_phone_key         : { status: 409, msg: "Phone number already registered.",           code: "PHONE_TAKEN"            },
-        users_referral_code_key : { status: 500, msg: "Could not generate a unique referral code. Please try again.", code: "REFERRAL_CODE_CONFLICT" },
-        referrals_referee_unique: { status: 200, msg: null /* non-fatal */ },
+        users_email_key          : { status: 409, msg: "An account with this email already exists.", code: "EMAIL_TAKEN"             },
+        users_phone_key          : { status: 409, msg: "Phone number already registered.",           code: "PHONE_TAKEN"             },
+        users_referral_code_key  : { status: 500, msg: "Could not generate a unique referral code. Please try again.", code: "REFERRAL_CODE_CONFLICT" },
+        referrals_referee_unique : { status: 200, msg: null },
       };
 
-      /* Named constraint — O(1) lookup */
       const mapped = CONSTRAINT_MAP[err.constraint];
       if (mapped) {
         if (!mapped.msg) {
-          /* Duplicate referee — referral skipped but registration OK.
-             This branch should never be reached because we check first,
-             but acts as a safety net for the TOCTOU gap.             */
           log.warn("[auth] duplicate referee constraint hit — referral skipped");
-          /* Registration already committed — respond with success */
           return res.status(201).json({
             success : true,
             message : "Account created successfully.",
@@ -818,7 +684,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
         return fail(res, mapped.status, mapped.msg, { code: mapped.code });
       }
 
-      /* Fallback text-scan for CockroachDB / unnamed constraints */
+      /* CockroachDB fallback — unnamed constraints */
       const detail = (err.detail ?? err.message ?? "").toLowerCase();
       if (detail.includes("phone"))
         return fail(res, 409, "Phone number already registered.", { code: "PHONE_TAKEN" });
@@ -853,12 +719,6 @@ router.post("/login", authLimiter, async (req, res, next) => {
 
   try {
     const { rows } = await pool.query(
-      /*
-        FIX #5 — Select only AUTH_FIELDS + password_hash.
-        Business metrics (total_sales, trust_score, etc.) are
-        not needed for a login response and should not be
-        returned here.  Use a dedicated /me endpoint for those.
-      */
       `SELECT ${AUTH_FIELDS}, password_hash
        FROM   users
        WHERE  email = $1`,
@@ -866,19 +726,15 @@ router.post("/login", authLimiter, async (req, res, next) => {
     );
 
     /*
-      FIX #1 — Timing-safe path.
-      Always run bcrypt.compare() regardless of whether the
-      email was found.  This prevents an attacker from
-      distinguishing "no account" from "wrong password" via
-      response-time measurement (bcrypt is ~100 ms; an early
-      return would be ~1 ms and trivially detectable).
+      Timing-safe: always run bcrypt even when email not found.
+      An early return here would be ~1 ms vs ~100 ms for bcrypt
+      and trivially detectable via response-time measurement.
     */
     const row         = rows[0] ?? null;
     const hashToCheck = row ? row.password_hash : DUMMY_HASH;
     const valid       = await bcrypt.compare(req.body.password, hashToCheck);
 
     if (!row || !valid) {
-      /* Same message and same code path for both failure modes */
       return fail(res, 401, "Invalid email or password.");
     }
 
@@ -890,7 +746,6 @@ router.post("/login", authLimiter, async (req, res, next) => {
       );
     }
 
-    /* Fire-and-forget last_login update */
     pool.query(
       `UPDATE users
        SET    last_login = now(),
@@ -899,7 +754,6 @@ router.post("/login", authLimiter, async (req, res, next) => {
       [row.id]
     ).catch((e) => log.error(`[auth] last_login update failed: ${e.message}`));
 
-    /* FIX #5 — Strip password_hash and internal fields */
     const { password_hash, ...fullRow } = row;
     const publicUser = toPublicUser(fullRow);
     const token      = makeJwt(publicUser);
