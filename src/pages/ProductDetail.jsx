@@ -3,8 +3,7 @@
  *
  * Route: /product/:slug
  *
- * Main product detail page — all sub-sections are separate components.
- * This file handles:
+ * Handles:
  *   ─ Data fetching (product, reviews, similar, more-from-seller)
  *   ─ Auth / user ID resolution
  *   ─ Favourites (optimistic + server sync)
@@ -12,36 +11,43 @@
  *   ─ Wiring all sub-components together
  */
 
-import { useState, useEffect, useCallback, useMemo, useRef, memo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  memo,
+} from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
 
-/* ── Sub-components ────────────────────────────────────────── */
-import ProductDetailTopBar   from "./ProductDetail/ProductDetailTopBar";
-import ProductDetailExpiry   from "./ProductDetail/ProductDetailExpiry";
-import ProductImageGallery   from "./ProductDetail/ProductImageGallery";
-import ProductDetailInfo     from "./ProductDetail/ProductDetailInfo";
-import ContactStrip          from "./ProductDetail/ContactStrip";
-import ReviewSection         from "./ProductDetail/Review";
-import SafetyTips            from "./ProductDetail/SafetyTips";
-import SimilarProducts       from "./ProductDetail/SimilarProducts";
-import MoreFromSeller        from "./ProductDetail/MoreFromSeller";
+/* ── Sub-components ─────────────────────────────────────── */
+import ProductDetailTopBar from "./ProductDetail/ProductDetailTopBar";
+import ProductDetailExpiry from "./ProductDetail/ProductDetailExpiry";
+import ProductImageGallery from "./ProductDetail/ProductImageGallery";
+import ProductDetailInfo   from "./ProductDetail/ProductDetailInfo";
+import ContactStrip        from "./ProductDetail/ContactStrip";
+import ReviewSection       from "./ProductDetail/Review";
+import SafetyTips          from "./ProductDetail/SafetyTips";
+import SimilarProducts     from "./ProductDetail/SimilarProducts";
+import MoreFromSeller      from "./ProductDetail/MoreFromSeller";
 
-/* ── Styles ────────────────────────────────────────────────── */
+/* ── Styles ─────────────────────────────────────────────── */
 import "../styles/ProductDetail.css";
 
-/* ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
    CONSTANTS
-═══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 const BASE_URL      = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API           = `${BASE_URL}/api`;
 const FAV_KEY       = "loemart_favs";
 const REVIEWS_LIMIT = 5;
 const FAV_DEBOUNCE  = 400;
 
-/* ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
    AUTH HELPERS
-═══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token") ||
@@ -84,59 +90,166 @@ const readUserId = () => {
   }
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
    FAVOURITES HELPERS
-═══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 const loadFavs = () => {
-  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); }
-  catch { return {}; }
+  try {
+    return JSON.parse(localStorage.getItem(FAV_KEY) || "{}");
+  } catch {
+    return {};
+  }
 };
 
 const saveFavs = (f) => {
-  try { localStorage.setItem(FAV_KEY, JSON.stringify(f)); } catch {}
+  try {
+    localStorage.setItem(FAV_KEY, JSON.stringify(f));
+  } catch {}
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   HELPERS
-═══════════════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════════
+   MISC HELPERS
+═══════════════════════════════════════════════════════════ */
 const onEnter = (fn) => (e) => {
   if (e.key === "Enter" || e.key === " ") fn();
 };
+
+const prettify = (k) =>
+  String(k)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
 const formatDeliveryValue = (v) => {
   if (typeof v === "boolean") return v ? "Yes" : "No";
   return String(v);
 };
 
-/* ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
+   NORMALIZE IMAGES
+   Backend returns: [{ url, key, order }] or []
+   Gallery expects: same — but we also accept legacy shapes
+═══════════════════════════════════════════════════════════ */
+const normalizeImages = (raw) => {
+  /* Already an array */
+  if (Array.isArray(raw) && raw.length) {
+    return raw
+      .map((img) => {
+        if (typeof img === "string") return img;
+        if (img?.url)        return img.url;
+        if (img?.src)        return img.src;
+        if (img?.image_url)  return img.image_url;
+        return null;
+      })
+      .filter(Boolean);
+  }
+  /* Single string */
+  if (typeof raw === "string" && raw) return [raw];
+  return [];
+};
+
+/* ═══════════════════════════════════════════════════════════
    SKELETON
-═══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 const Skeleton = memo(function Skeleton() {
   return (
-    <div className="pd-page" aria-busy="true" aria-live="polite"
-      aria-label="Loading product">
+    <div
+      className="pd-page"
+      aria-busy="true"
+      aria-live="polite"
+      aria-label="Loading product"
+    >
       <div className="pd-sk-hero" />
       <div className="pd-sk-body">
-        <div className="pd-sk-line" style={{ width: "35%",  height: 11 }} />
-        <div className="pd-sk-line" style={{ width: "90%",  height: 24, marginTop: 8 }} />
-        <div className="pd-sk-line" style={{ width: "45%",  height: 32, marginTop: 10 }} />
-        <div className="pd-sk-line" style={{ width: "100%", height: 90, marginTop: 20, borderRadius: 12 }} />
-        <div className="pd-sk-line" style={{ width: "100%", height: 120, marginTop: 12, borderRadius: 12 }} />
+        {[
+          { w: "35%",  h: 11,  mt: 0  },
+          { w: "90%",  h: 24,  mt: 8  },
+          { w: "45%",  h: 32,  mt: 10 },
+          { w: "100%", h: 90,  mt: 20, r: 12 },
+          { w: "100%", h: 120, mt: 12, r: 12 },
+        ].map(({ w, h, mt, r }, i) => (
+          <div
+            key={i}
+            className="pd-sk-line"
+            style={{
+              width: w,
+              height: h,
+              marginTop: mt,
+              ...(r ? { borderRadius: r } : {}),
+            }}
+          />
+        ))}
       </div>
     </div>
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
+   ERROR STATE
+═══════════════════════════════════════════════════════════ */
+const ErrorState = memo(function ErrorState({ message, onRetry }) {
+  return (
+    <div className="pd-page" role="main">
+      <div className="pd-error-wrap" role="alert">
+        <span className="pd-error-emoji" aria-hidden="true">🔍</span>
+        <h2 className="pd-error-title">{message}</h2>
+        <p className="pd-error-sub">
+          This listing may have been removed or the link is incorrect.
+        </p>
+        <div className="pd-error-actions">
+          {onRetry && (
+            <button className="pd-error-btn pd-error-btn--secondary" onClick={onRetry}>
+              Try Again
+            </button>
+          )}
+          <Link to="/" className="pd-error-btn">
+            Browse Marketplace
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════════════════════ */
+const Toast = memo(function Toast({ message, type = "error", onDismiss }) {
+  useEffect(() => {
+    if (!message) return;
+    const id = setTimeout(onDismiss, 4000);
+    return () => clearTimeout(id);
+  }, [message, onDismiss]);
+
+  if (!message) return null;
+
+  return (
+    <div
+      className={`pd-toast pd-toast--${type}`}
+      role="alert"
+      aria-live="assertive"
+    >
+      <span>{message}</span>
+      <button
+        className="pd-toast-close"
+        onClick={onDismiss}
+        aria-label="Dismiss notification"
+      >
+        ✕
+      </button>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════
    DESCRIPTION
-═══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 const Description = memo(function Description({ text }) {
   const [expanded, setExpanded] = useState(false);
-  if (!text) return null;
+  if (!text?.trim()) return null;
 
-  const LIMIT = 300;
+  const LIMIT  = 300;
   const isLong = text.length > LIMIT;
-  const shown = !isLong || expanded ? text : `${text.slice(0, LIMIT)}…`;
+  const shown  = !isLong || expanded ? text : `${text.slice(0, LIMIT)}…`;
 
   return (
     <section className="pd-section" aria-label="Description">
@@ -155,12 +268,11 @@ const Description = memo(function Description({ text }) {
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
    FEATURES
-═══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 const Features = memo(function Features({ features }) {
   if (!Array.isArray(features) || !features.length) return null;
-
   return (
     <section className="pd-section" aria-label="Features">
       <h3 className="pd-section-h">Features</h3>
@@ -176,12 +288,31 @@ const Features = memo(function Features({ features }) {
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
+   HIGHLIGHTS
+═══════════════════════════════════════════════════════════ */
+const Highlights = memo(function Highlights({ highlights }) {
+  if (!Array.isArray(highlights) || !highlights.length) return null;
+  return (
+    <section className="pd-section" aria-label="Highlights">
+      <h3 className="pd-section-h">Highlights</h3>
+      <ul className="pd-highlights-list">
+        {highlights.map((h, i) => (
+          <li key={i} className="pd-highlights-item">
+            <span aria-hidden="true">⚡</span>
+            {h}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════
    SPECIFICATIONS
-═══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 const Specifications = memo(function Specifications({ specifications }) {
   if (!Array.isArray(specifications) || !specifications.length) return null;
-
   return (
     <section className="pd-section" aria-label="Specifications">
       <h3 className="pd-section-h">Specifications</h3>
@@ -199,105 +330,20 @@ const Specifications = memo(function Specifications({ specifications }) {
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   HIGHLIGHTS
-═══════════════════════════════════════════════════════════════ */
-const Highlights = memo(function Highlights({ highlights }) {
-  if (!Array.isArray(highlights) || !highlights.length) return null;
-
-  return (
-    <section className="pd-section" aria-label="Highlights">
-      <h3 className="pd-section-h">Highlights</h3>
-      <ul className="pd-highlights-list">
-        {highlights.map((h, i) => (
-          <li key={i} className="pd-highlights-item">
-            <span aria-hidden="true">⚡</span>
-            {h}
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   FAQ
-═══════════════════════════════════════════════════════════════ */
-const FAQ = memo(function FAQ({ faq }) {
-  const [openIdx, setOpenIdx] = useState(null);
-  if (!Array.isArray(faq) || !faq.length) return null;
-
-  return (
-    <section className="pd-section" aria-label="FAQ">
-      <h3 className="pd-section-h">FAQ</h3>
-      <div className="pd-faq">
-        {faq.map((item, i) => {
-          const isOpen = openIdx === i;
-          return (
-            <div key={i} className="pd-faq-item">
-              <button
-                className="pd-faq-q"
-                onClick={() => setOpenIdx(isOpen ? null : i)}
-                aria-expanded={isOpen}
-              >
-                <span>{item.question || item.q}</span>
-                <span aria-hidden="true">{isOpen ? "▲" : "▼"}</span>
-              </button>
-              {isOpen && (
-                <div className="pd-faq-a" role="region">
-                  {item.answer || item.a}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-    </section>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   DELIVERY
-═══════════════════════════════════════════════════════════════ */
-const DeliveryInfo = memo(function DeliveryInfo({ delivery }) {
-  if (!delivery || typeof delivery !== "object") return null;
-
-  const rows = Object.entries(delivery).filter(
-    ([, v]) => v !== null && v !== undefined && String(v).trim() !== ""
-  );
-  if (!rows.length) return null;
-
-  const prettify = (k) =>
-    k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-
-  return (
-    <section className="pd-section" aria-label="Delivery information">
-      <h3 className="pd-section-h">Delivery &amp; Shipping</h3>
-      <div className="pd-delivery-grid">
-        {rows.map(([k, v]) => (
-          <div key={k} className="pd-delivery-row">
-            <span className="pd-delivery-label">{prettify(k)}</span>
-            <span className="pd-delivery-value">{formatDeliveryValue(v)}</span>
-          </div>
-        ))}
-      </div>
-    </section>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
    ATTRIBUTES
-═══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 const Attributes = memo(function Attributes({ attributes }) {
   if (!attributes || typeof attributes !== "object") return null;
 
   const rows = Object.entries(attributes).filter(
-    ([, v]) => v !== null && v !== undefined && String(v).trim() !== ""
+    ([k, v]) =>
+      k !== "features" &&
+      v !== null &&
+      v !== undefined &&
+      String(v).trim() !== ""
   );
   if (!rows.length) return null;
-
-  const prettify = (k) =>
-    k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
   return (
     <section className="pd-section" aria-label="Additional details">
@@ -314,15 +360,88 @@ const Attributes = memo(function Attributes({ attributes }) {
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
+   DELIVERY
+═══════════════════════════════════════════════════════════ */
+const DeliveryInfo = memo(function DeliveryInfo({ delivery }) {
+  if (!delivery || typeof delivery !== "object") return null;
+
+  const rows = Object.entries(delivery).filter(
+    ([, v]) =>
+      v !== null &&
+      v !== undefined &&
+      String(v).trim() !== ""
+  );
+  if (!rows.length) return null;
+
+  return (
+    <section className="pd-section" aria-label="Delivery information">
+      <h3 className="pd-section-h">Delivery &amp; Shipping</h3>
+      <div className="pd-delivery-grid">
+        {rows.map(([k, v]) => (
+          <div key={k} className="pd-delivery-row">
+            <span className="pd-delivery-label">{prettify(k)}</span>
+            <span className="pd-delivery-value">{formatDeliveryValue(v)}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════
+   FAQ
+═══════════════════════════════════════════════════════════ */
+const FAQ = memo(function FAQ({ faq }) {
+  const [openIdx, setOpenIdx] = useState(null);
+  if (!Array.isArray(faq) || !faq.length) return null;
+
+  return (
+    <section className="pd-section" aria-label="FAQ">
+      <h3 className="pd-section-h">FAQ</h3>
+      <div className="pd-faq">
+        {faq.map((item, i) => {
+          const isOpen   = openIdx === i;
+          const question = item.question || item.q || "";
+          const answer   = item.answer   || item.a || "";
+          return (
+            <div key={i} className="pd-faq-item">
+              <button
+                className="pd-faq-q"
+                onClick={() => setOpenIdx(isOpen ? null : i)}
+                aria-expanded={isOpen}
+                aria-controls={`faq-answer-${i}`}
+              >
+                <span>{question}</span>
+                <span aria-hidden="true">{isOpen ? "▲" : "▼"}</span>
+              </button>
+              {isOpen && (
+                <div
+                  id={`faq-answer-${i}`}
+                  className="pd-faq-a"
+                  role="region"
+                  aria-label={question}
+                >
+                  {answer}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════
    SELLER CARD
-═══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 const SellerCard = memo(function SellerCard({ product, onNavigate }) {
   const name     = product.seller_store || product.seller_name || "Seller";
   const avatar   = product.seller_image ?? null;
   const verified = product.seller_verified;
-  const trust    = product.seller_trust;
   const rating   = product.seller_rating;
+  const trust    = product.seller_trust;
   const online   = product.seller_online;
 
   return (
@@ -336,40 +455,50 @@ const SellerCard = memo(function SellerCard({ product, onNavigate }) {
         aria-label={`View seller profile for ${name}`}
         onKeyDown={onEnter(onNavigate)}
       >
+        {/* Avatar */}
         <div className="pd-seller-avatar">
           {avatar ? (
             <img
               src={avatar}
               alt={name}
               loading="lazy"
-              onError={(e) => { e.currentTarget.style.display = "none"; }}
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
             />
           ) : (
-            <span aria-hidden="true">{name.charAt(0).toUpperCase()}</span>
+            <span aria-hidden="true">
+              {name.charAt(0).toUpperCase()}
+            </span>
           )}
-          {online && <span className="pd-seller-online" aria-label="Online" />}
+          {online && (
+            <span className="pd-seller-online" aria-label="Currently online" />
+          )}
         </div>
 
+        {/* Info */}
         <div className="pd-seller-info">
           <div className="pd-seller-name-row">
             <span className="pd-seller-name">{name}</span>
             {verified && (
-              <span className="pd-seller-badge" aria-label="Verified">
+              <span className="pd-seller-badge" aria-label="Verified seller">
                 ✔ Verified
               </span>
             )}
           </div>
 
-          <div className="pd-seller-stats">
-            {rating > 0 && <span>{Number(rating).toFixed(1)}★</span>}
-          </div>
+          {rating > 0 && (
+            <div className="pd-seller-stats">
+              <span>{Number(rating).toFixed(1)}★</span>
+            </div>
+          )}
 
           {trust != null && (
-            <div className="pd-trust" aria-label={`Trust: ${trust}%`}>
+            <div className="pd-trust" aria-label={`Trust score: ${trust}%`}>
               <div className="pd-trust-bar" role="presentation">
                 <div
                   className="pd-trust-fill"
-                  style={{ width: `${Math.min(100, trust)}%` }}
+                  style={{ width: `${Math.min(100, Number(trust))}%` }}
                 />
               </div>
               <span className="pd-trust-label">{trust}%</span>
@@ -383,39 +512,63 @@ const SellerCard = memo(function SellerCard({ product, onNavigate }) {
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   TOAST
-═══════════════════════════════════════════════════════════════ */
-const Toast = memo(function Toast({ message, onDismiss, type = "error" }) {
-  if (!message) return null;
+/* ═══════════════════════════════════════════════════════════
+   SWAP / P2P BADGE
+═══════════════════════════════════════════════════════════ */
+const SwapBadge = memo(function SwapBadge({ product }) {
+  if (!product.is_p2p && !product.offer_type) return null;
 
   return (
-    <div
-      className={`pd-toast pd-toast--${type}`}
-      role="alert"
-      aria-live="assertive"
-    >
-      <span>{message}</span>
-      <button
-        className="pd-toast-close"
-        onClick={onDismiss}
-        aria-label="Dismiss"
-      >
-        ✕
-      </button>
+    <div className="pd-section pd-swap-wrap" aria-label="Offer type">
+      {product.offer_type && (
+        <span className="pd-swap-badge">
+          {product.offer_type === "swap"   ? "🔄 Swap"   :
+           product.offer_type === "free"   ? "🎁 Free"   :
+           product.offer_type === "rent"   ? "🏠 Rent"   :
+           product.offer_type}
+        </span>
+      )}
+      {product.swap_for && (
+        <p className="pd-swap-for">
+          <strong>Looking for:</strong> {product.swap_for}
+        </p>
+      )}
     </div>
   );
 });
 
-/* ═══════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════
+   STOCK STATUS
+═══════════════════════════════════════════════════════════ */
+const StockStatus = memo(function StockStatus({ product }) {
+  const { stock_status, stock_quantity } = product;
+  if (!stock_status && stock_quantity == null) return null;
+
+  const isLow  = stock_quantity != null && stock_quantity <= 5 && stock_quantity > 0;
+  const isOut  = stock_status === "out_of_stock" || stock_quantity === 0;
+
+  return (
+    <div className="pd-stock" aria-live="polite">
+      {isOut ? (
+        <span className="pd-stock--out">Out of Stock</span>
+      ) : isLow ? (
+        <span className="pd-stock--low">Only {stock_quantity} left!</span>
+      ) : stock_status === "in_stock" ? (
+        <span className="pd-stock--in">In Stock</span>
+      ) : null}
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════
    MAIN COMPONENT
-═══════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════ */
 export default function ProductDetail({ user }) {
   const { slug }             = useParams();
   const navigate             = useNavigate();
   const { addSingleProduct } = useProductCache();
 
-  /* ── State ──────────────────────────────────────────── */
+  /* ── State ────────────────────────────────────────────── */
   const [product,     setProduct]     = useState(null);
   const [similar,     setSimilar]     = useState([]);
   const [moreSeller,  setMoreSeller]  = useState([]);
@@ -427,26 +580,43 @@ export default function ProductDetail({ user }) {
   const [error,       setError]       = useState(null);
   const [fav,         setFav]         = useState(false);
   const [chatBusy,    setChatBusy]    = useState(false);
-  const [toast,       setToast]       = useState(null);
+  const [toast,       setToast]       = useState(null); // { message, type }
 
-  /* ── Refs ───────────────────────────────────────────── */
+  /* ── Refs ─────────────────────────────────────────────── */
   const favTimerRef = useRef(null);
   const abortRef    = useRef(null);
 
-  /* ── Derived ────────────────────────────────────────── */
-  const userId = useMemo(() => user?.id || readUserId(), [user]);
+  /* ── Derived ──────────────────────────────────────────── */
+  const userId = useMemo(
+    () => user?.id ? String(user.id) : readUserId(),
+    [user]
+  );
 
   const isOwn = useMemo(
     () => !!(userId && product?.seller_id && userId === String(product.seller_id)),
     [userId, product?.seller_id]
   );
 
-  const showToast    = useCallback((message, type = "error") => setToast({ message, type }), []);
+  /*
+   * Normalize images once here — gallery + viewer both get clean string[]
+   * Backend sends: [{ url, key, order }]
+   * normalizeImages() → string[]
+   */
+  const productImages = useMemo(
+    () => normalizeImages(product?.images ?? product?.image ?? null),
+    [product]
+  );
+
+  /* ── Toast helpers ────────────────────────────────────── */
+  const showToast    = useCallback(
+    (message, type = "error") => setToast({ message, type }),
+    []
+  );
   const dismissToast = useCallback(() => setToast(null), []);
 
-  /* ═════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      FETCH — PRODUCT
-  ═════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
   const loadProduct = useCallback(async () => {
     if (!slug || slug === "undefined") {
       setError("Invalid product link.");
@@ -455,27 +625,35 @@ export default function ProductDetail({ user }) {
     }
 
     abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
+    const controller  = new AbortController();
+    abortRef.current  = controller;
+
+    setLoading(true);
+    setError(null);
 
     try {
-      setLoading(true);
-      setError(null);
-
       const res = await fetch(
         `${API}/product/slug/${encodeURIComponent(slug)}`,
         { signal: controller.signal }
       );
 
       if (res.status === 404) throw new Error("Product not found");
-      if (!res.ok) throw new Error("Could not load product");
+      if (!res.ok)            throw new Error("Could not load product");
 
       const data = await res.json();
+
+      /* Sanity-check: log image shape once in dev */
+      if (import.meta.env.DEV) {
+        console.log("[ProductDetail] images from API:", data.images);
+      }
+
       setProduct(data);
       addSingleProduct?.(data);
       setFav(!!loadFavs()[data.id]);
     } catch (err) {
-      if (err.name !== "AbortError") setError(err.message);
+      if (err.name !== "AbortError") {
+        setError(err.message || "Something went wrong");
+      }
     } finally {
       setLoading(false);
     }
@@ -489,44 +667,46 @@ export default function ProductDetail({ user }) {
     };
   }, [loadProduct]);
 
-  /* ═════════════════════════════════════════════════════
-     FETCH — SECONDARY DATA
-  ═════════════════════════════════════════════════════ */
+  /* ═══════════════════════════════════════════════════════
+     FETCH — SECONDARY (similar + more from seller)
+  ═══════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!product?.id) return;
 
     const { id, seller_id, category_id } = product;
 
-    const fetches = [
+    const jobs = [
       seller_id &&
         fetch(
           `${API}/product/by-seller?${new URLSearchParams({
             seller_id,
             exclude: id,
-            limit: "8",
+            limit  : "8",
           })}`
         )
           .then((r) => (r.ok ? r.json() : []))
-          .then((d) => setMoreSeller(Array.isArray(d) ? d : [])),
+          .then((d) => setMoreSeller(Array.isArray(d) ? d : []))
+          .catch(() => {}),
 
       category_id &&
         fetch(
           `${API}/product/similar?${new URLSearchParams({
             category_id,
             exclude: id,
-            limit: "8",
+            limit  : "8",
           })}`
         )
           .then((r) => (r.ok ? r.json() : []))
-          .then((d) => setSimilar(Array.isArray(d) ? d : [])),
+          .then((d) => setSimilar(Array.isArray(d) ? d : []))
+          .catch(() => {}),
     ].filter(Boolean);
 
-    Promise.allSettled(fetches);
+    Promise.allSettled(jobs);
   }, [product]);
 
-  /* ═════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      FETCH — REVIEWS
-  ═════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
   useEffect(() => {
     setReviews([]);
     setReviewPage(1);
@@ -545,7 +725,9 @@ export default function ProductDetail({ user }) {
         if (!res.ok) return;
         const data = await res.json();
         setReviews((prev) =>
-          page === 1 ? data.reviews || [] : [...prev, ...(data.reviews || [])]
+          page === 1
+            ? data.reviews || []
+            : [...prev, ...(data.reviews || [])]
         );
         if (data.stats) {
           setReviewStats(data.stats);
@@ -560,9 +742,9 @@ export default function ProductDetail({ user }) {
     loadReviews(1);
   }, [loadReviews]);
 
-  /* ═════════════════════════════════════════════════════
+  /* ═══════════════════════════════════════════════════════
      ACTIONS
-  ═════════════════════════════════════════════════════ */
+  ═══════════════════════════════════════════════════════ */
 
   /* ── Favourite ──────────────────────────────────────── */
   const toggleFav = useCallback(() => {
@@ -580,15 +762,16 @@ export default function ProductDetail({ user }) {
     clearTimeout(favTimerRef.current);
     favTimerRef.current = setTimeout(() => {
       fetch(`${API}/product/products/${product.id}/favorite`, {
-        method: "POST",
+        method : "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ user_id: userId }),
+        body   : JSON.stringify({ user_id: userId }),
       }).catch(() => {
+        /* Rollback on network error */
         setFav(!next);
-        const rollback = loadFavs();
-        if (next) delete rollback[product.id];
-        else rollback[product.id] = true;
-        saveFavs(rollback);
+        const rb = loadFavs();
+        if (next) delete rb[product.id];
+        else rb[product.id] = true;
+        saveFavs(rb);
       });
     }, FAV_DEBOUNCE);
   }, [fav, product, userId]);
@@ -597,20 +780,20 @@ export default function ProductDetail({ user }) {
   const openWhatsApp = useCallback(() => {
     if (!product || isOwn) return;
 
+    /* Fire-and-forget click tracking */
     fetch(`${API}/product/products/${product.id}/click`, {
       method: "POST",
     }).catch(() => {});
 
-    const waNumber = product.whatsapp || product.contact?.whatsapp;
+    const waNumber = product.whatsapp      || product.contact?.whatsapp;
     const waLink   = product.whatsapp_link || product.contact?.whatsapp_link;
     const msg      = encodeURIComponent(
       `Hi, I'm interested in: ${product.title} — ${window.location.href}`
     );
-
     const url =
       waLink ||
       (waNumber
-        ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${msg}`
+        ? `https://wa.me/${String(waNumber).replace(/\D/g, "")}?text=${msg}`
         : null);
 
     if (url) {
@@ -620,7 +803,7 @@ export default function ProductDetail({ user }) {
     }
   }, [product, isOwn, showToast]);
 
-  /* ── Call ────────────────────────────────────────────── */
+  /* ── Call ───────────────────────────────────────────── */
   const openCall = useCallback(() => {
     if (isOwn) return;
     const phone = product?.phone || product?.contact?.phone;
@@ -631,7 +814,7 @@ export default function ProductDetail({ user }) {
     }
   }, [product, isOwn, showToast]);
 
-  /* ── Chat ────────────────────────────────────────────── */
+  /* ── Chat ───────────────────────────────────────────── */
   const openChat = useCallback(async () => {
     if (!userId) {
       navigate(`/auth?redirect=/product/${encodeURIComponent(slug)}`);
@@ -644,11 +827,11 @@ export default function ProductDetail({ user }) {
 
     try {
       const res = await fetch(`${API}/conversations`, {
-        method: "POST",
+        method : "POST",
         headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({
-          buyerId: userId,
-          sellerId: product.seller_id,
+        body   : JSON.stringify({
+          buyerId  : userId,
+          sellerId : product.seller_id,
           productId: product.id,
         }),
       });
@@ -667,48 +850,54 @@ export default function ProductDetail({ user }) {
     }
   }, [userId, isOwn, product, slug, navigate, showToast]);
 
-  /* ── Navigate to product ────────────────────────────── */
+  /* ── Navigate to product card ───────────────────────── */
   const goProduct = useCallback(
     (p) => navigate(`/product/${p.slug || p.id}`),
     [navigate]
   );
 
-  /* ═════════════════════════════════════════════════════
-     RENDER
-  ═════════════════════════════════════════════════════ */
+  /* ── Navigate to seller profile ─────────────────────── */
+  const goSeller = useCallback(
+    () => navigate(`/seller/${product?.seller_id}`),
+    [navigate, product?.seller_id]
+  );
 
+  /* ── Edit listing ───────────────────────────────────── */
+  const goEdit = useCallback(
+    () => navigate(`/listings/edit/${product?.id}`),
+    [navigate, product?.id]
+  );
+
+  /* ═══════════════════════════════════════════════════════
+     RENDER GUARDS
+  ═══════════════════════════════════════════════════════ */
   if (loading) return <Skeleton />;
 
   if (error) {
     return (
-      <div className="pd-page" role="main">
-        <div className="pd-error-wrap" role="alert">
-          <span className="pd-error-emoji" aria-hidden="true">🔍</span>
-          <h2 className="pd-error-title">{error}</h2>
-          <p className="pd-error-sub">
-            This listing may have been removed or the link is incorrect.
-          </p>
-          <Link to="/" className="pd-error-btn">
-            Browse Marketplace
-          </Link>
-        </div>
-      </div>
+      <ErrorState
+        message={error}
+        onRetry={error !== "Invalid product link." ? loadProduct : null}
+      />
     );
   }
 
   if (!product) return null;
 
+  /* ═══════════════════════════════════════════════════════
+     RENDER
+  ═══════════════════════════════════════════════════════ */
   return (
     <div className="pd-page" role="main">
 
-      {/* ── Toast ────────────────────────────────────── */}
+      {/* ── Toast ─────────────────────────────────────── */}
       <Toast
         message={toast?.message}
         type={toast?.type}
         onDismiss={dismissToast}
       />
 
-      {/* ── Top bar: Back · Fav · Share ──────────────── */}
+      {/* ── Top bar: Back · Fav · Share ───────────────── */}
       <ProductDetailTopBar
         product={product}
         fav={fav}
@@ -716,33 +905,39 @@ export default function ProductDetail({ user }) {
         onToggleFav={toggleFav}
       />
 
-      {/* ── Trial expiry banner ──────────────────────── */}
+      {/* ── Trial / expiry banner ─────────────────────── */}
       <ProductDetailExpiry product={product} isOwn={isOwn} />
 
-      {/* ── Image gallery (progressive + tap to view) ── */}
+      {/* ── Image gallery ─────────────────────────────── */}
       <ProductImageGallery
-        images={product.images}
+        images={productImages}
         title={product.title}
         productSlug={slug}
       />
 
-      {/* ── Info: breadcrumb · title · engagement · price · meta ── */}
+      {/* ── Stock status ──────────────────────────────── */}
+      <StockStatus product={product} />
+
+      {/* ── Swap / P2P badge ──────────────────────────── */}
+      <SwapBadge product={product} />
+
+      {/* ── Core info ─────────────────────────────────── */}
       <ProductDetailInfo product={product} />
 
-      {/* ── Edit (own listing) ───────────────────────── */}
+      {/* ── Edit (own listing) ────────────────────────── */}
       {isOwn && (
         <div className="pd-edit-wrap">
           <button
             className="pd-edit-btn"
-            onClick={() => navigate(`/listings/edit/${product.id}`)}
+            onClick={goEdit}
             aria-label="Edit this listing"
           >
-            Edit Listing
+            ✏️ Edit Listing
           </button>
         </div>
       )}
 
-      {/* ── Contact strip ────────────────────────────── */}
+      {/* ── Contact strip ─────────────────────────────── */}
       <ContactStrip
         product={product}
         userId={userId}
@@ -753,34 +948,31 @@ export default function ProductDetail({ user }) {
         onCall={openCall}
       />
 
-      {/* ── Description ──────────────────────────────── */}
+      {/* ── Description ───────────────────────────────── */}
       <Description text={product.description} />
 
-      {/* ── Features ─────────────────────────────────── */}
+      {/* ── Features ──────────────────────────────────── */}
       <Features features={product.features} />
 
-      {/* ── Highlights ───────────────────────────────── */}
+      {/* ── Highlights ────────────────────────────────── */}
       <Highlights highlights={product.highlights} />
 
-      {/* ── Specifications ───────────────────────────── */}
+      {/* ── Specifications ────────────────────────────── */}
       <Specifications specifications={product.specifications} />
 
-      {/* ── Attributes ───────────────────────────────── */}
+      {/* ── Attributes ────────────────────────────────── */}
       <Attributes attributes={product.attributes} />
 
-      {/* ── Delivery ─────────────────────────────────── */}
+      {/* ── Delivery ──────────────────────────────────── */}
       <DeliveryInfo delivery={product.delivery} />
 
-      {/* ── FAQ ──────────────────────────────────────── */}
+      {/* ── FAQ ───────────────────────────────────────── */}
       <FAQ faq={product.faq} />
 
-      {/* ── Seller card ──────────────────────────────── */}
-      <SellerCard
-        product={product}
-        onNavigate={() => navigate(`/seller/${product.seller_id}`)}
-      />
+      {/* ── Seller card ───────────────────────────────── */}
+      <SellerCard product={product} onNavigate={goSeller} />
 
-      {/* ── Reviews ──────────────────────────────────── */}
+      {/* ── Reviews ───────────────────────────────────── */}
       <ReviewSection
         slug={slug}
         userId={userId}
@@ -799,21 +991,21 @@ export default function ProductDetail({ user }) {
         }}
       />
 
-      {/* ── Safety tips ──────────────────────────────── */}
+      {/* ── Safety tips ───────────────────────────────── */}
       <SafetyTips />
 
-      {/* ── More from seller ─────────────────────────── */}
+      {/* ── More from seller ──────────────────────────── */}
       <MoreFromSeller
         products={moreSeller}
         seller={{
-          name: product.seller_store || product.seller_name,
+          name : product.seller_store || product.seller_name,
           image: product.seller_image,
         }}
         sellerId={product.seller_id}
         onProductClick={goProduct}
       />
 
-      {/* ── Similar products ─────────────────────────── */}
+      {/* ── Similar products ──────────────────────────── */}
       <SimilarProducts
         products={similar}
         onProductClick={goProduct}
