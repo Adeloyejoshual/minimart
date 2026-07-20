@@ -1,0 +1,428 @@
+/* ════════════════════════════════════════════════════════════
+   FILE: src/pages/CommunityGuidelines/CommunityGuidelines.css
+════════════════════════════════════════════════════════════ */
+
+.cg-page {
+  min-height  : 100dvh;
+  background  : var(--bg);
+  color       : var(--ink);
+  font-family : var(--fb);
+}
+
+/* ════════════════════════════════════════════════════════════
+   HEADER
+════════════════════════════════════════════════════════════ */
+.cg-header {
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  padding         : 14px 16px 10px;
+  background      : var(--wh);
+  border-bottom   : 1px solid var(--bd);
+  position        : sticky;
+  top             : 0;
+  z-index         : 10;
+}
+
+.cg-header__back {
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  width           : 36px;
+  height          : 36px;
+  border          : none;
+  background      : none;
+  cursor          : pointer;
+  color           : var(--o);
+  border-radius   : 50%;
+  transition      : background var(--t1);
+  flex-shrink     : 0;
+}
+
+.cg-header__back:hover { background: var(--bd); }
+
+.cg-header__back svg { width: 20px; height: 20px; }
+
+.cg-header__title {
+  font-size   : 1.05rem;
+  font-weight : 700;
+  margin      : 0;
+  flex        : 1;
+  text-align  : center;
+}
+
+.cg-header__spacer { width: 36px; }
+
+/* ════════════════════════════════════════════════════════════
+   MAIN
+════════════════════════════════════════════════════════════ */
+.cg-main {
+  max-width : 720px;
+  margin    : 0 auto;
+  padding   : 16px 16px 48px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   HERO
+════════════════════════════════════════════════════════════ */
+.cg-hero {
+  text-align    : center;
+  padding       : 28px 16px 24px;
+  background    : var(--wh);
+  border-radius : var(--r2);
+  box-shadow    : var(--s1);
+  margin-bottom : 20px;
+}
+
+.cg-hero__icon-wrap {
+  width           : 56px;
+  height          : 56px;
+  border-radius   : 50%;
+  background      : var(--o-bg);
+  color           : var(--o);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  margin          : 0 auto 14px;
+}
+
+.cg-hero__icon-wrap svg { width: 26px; height: 26px; }
+
+.cg-hero__title {
+  font-size     : 1.15rem;
+  font-weight   : 700;
+  margin        : 0 0 8px;
+  font-family   : var(--fd);
+}
+
+.cg-hero__desc {
+  font-size   : 0.88rem;
+  color       : var(--ink2);
+  line-height : 1.6;
+  margin      : 0;
+  max-width   : 480px;
+  margin       : 0 auto;
+}
+
+/* ════════════════════════════════════════════════════════════
+   TABLE OF CONTENTS
+════════════════════════════════════════════════════════════ */
+.cg-toc {
+  margin-bottom : 16px;
+}
+
+.cg-toc__label {
+  font-size     : 0.75rem;
+  font-weight   : 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color         : var(--ink2);
+  margin        : 0 0 8px 2px;
+}
+
+.cg-toc__chips {
+  display   : flex;
+  flex-wrap : wrap;
+  gap       : 6px;
+}
+
+.cg-toc__chip {
+  display       : inline-flex;
+  align-items   : center;
+  gap           : 5px;
+  padding       : 5px 10px;
+  border        : 1px solid var(--bd);
+  border-radius : var(--r3);
+  background    : var(--wh);
+  color         : var(--ink);
+  font-size     : 0.76rem;
+  font-weight   : 500;
+  font-family   : var(--fb);
+  cursor        : pointer;
+  transition    : background var(--t1), border-color var(--t1);
+  white-space   : nowrap;
+}
+
+.cg-toc__chip:hover {
+  background   : var(--o-bg);
+  border-color : var(--o);
+  color        : var(--o);
+}
+
+.cg-toc__chip-num {
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  width           : 16px;
+  height          : 16px;
+  border-radius   : 50%;
+  background      : var(--bd);
+  color           : var(--ink2);
+  font-size       : 0.65rem;
+  font-weight     : 700;
+  flex-shrink     : 0;
+}
+
+.cg-toc__chip:hover .cg-toc__chip-num {
+  background : var(--o);
+  color      : #fff;
+}
+
+/* ════════════════════════════════════════════════════════════
+   TOOLBAR
+════════════════════════════════════════════════════════════ */
+.cg-toolbar {
+  display         : flex;
+  justify-content : flex-end;
+  margin-bottom   : 12px;
+}
+
+.cg-toolbar__btn {
+  border        : none;
+  background    : none;
+  color         : var(--o);
+  font-size     : 0.82rem;
+  font-weight   : 600;
+  font-family   : var(--fb);
+  cursor        : pointer;
+  padding       : 4px 8px;
+  border-radius : var(--r1);
+  transition    : background var(--t1);
+}
+
+.cg-toolbar__btn:hover { background: var(--o-bg); }
+
+/* ════════════════════════════════════════════════════════════
+   SECTIONS (accordion list)
+════════════════════════════════════════════════════════════ */
+.cg-sections {
+  display        : flex;
+  flex-direction : column;
+  gap            : 8px;
+}
+
+/* ── Individual item ── */
+.cg-item {
+  background    : var(--wh);
+  border-radius : var(--r2);
+  box-shadow    : var(--s1);
+  overflow      : hidden;
+  transition    : box-shadow var(--t2);
+}
+
+.cg-item--open {
+  box-shadow : var(--s2);
+}
+
+/* ── Trigger ── */
+.cg-item__trigger {
+  width           : 100%;
+  border          : none;
+  background      : transparent;
+  display         : flex;
+  align-items     : center;
+  gap             : 12px;
+  padding         : 14px 16px;
+  cursor          : pointer;
+  text-align      : left;
+  color           : var(--ink);
+  transition      : background var(--t1);
+}
+
+.cg-item__trigger:hover { background: var(--bg); }
+
+.cg-item__trigger:focus-visible {
+  outline        : 2px solid var(--o);
+  outline-offset : -2px;
+}
+
+.cg-item__num {
+  width           : 28px;
+  height          : 28px;
+  border-radius   : 50%;
+  color           : #fff;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  font-size       : 0.75rem;
+  font-weight     : 700;
+  flex-shrink     : 0;
+}
+
+.cg-item__icon {
+  width       : 20px;
+  height      : 20px;
+  flex-shrink : 0;
+  display     : flex;
+  align-items : center;
+}
+
+.cg-item__icon svg { width: 100%; height: 100%; }
+
+.cg-item__title {
+  flex        : 1;
+  font-size   : 0.95rem;
+  font-weight : 600;
+  min-width   : 0;
+}
+
+.cg-item__chevron {
+  flex-shrink : 0;
+  color       : var(--ink3);
+}
+
+.cg-chevron {
+  width      : 18px;
+  height     : 18px;
+  transition : transform var(--t2);
+}
+
+.cg-chevron--open { transform: rotate(180deg); }
+
+/* ── Panel (accordion body) ── */
+.cg-item__panel {
+  display            : grid;
+  grid-template-rows : 0fr;
+  transition         : grid-template-rows var(--t2);
+}
+
+.cg-item__panel--open {
+  grid-template-rows : 1fr;
+}
+
+.cg-item__panel-inner {
+  overflow       : hidden;
+  padding        : 0 16px;
+}
+
+.cg-item--open .cg-item__panel-inner {
+  padding-bottom : 18px;
+}
+
+.cg-item__intro {
+  font-size    : 0.86rem;
+  color        : var(--ink2);
+  margin       : 0 0 10px;
+  line-height  : 1.5;
+  padding-left : 40px;
+}
+
+.cg-item__list {
+  list-style  : none;
+  margin      : 0;
+  padding     : 0;
+  padding-left: 40px;
+}
+
+.cg-item__point {
+  display     : flex;
+  align-items : flex-start;
+  gap         : 10px;
+  font-size   : 0.86rem;
+  line-height : 1.6;
+  color       : var(--ink);
+  margin-bottom: 6px;
+}
+
+.cg-item__point:last-child { margin-bottom: 0; }
+
+.cg-item__bullet {
+  width         : 6px;
+  height        : 6px;
+  border-radius : 50%;
+  flex-shrink   : 0;
+  margin-top    : 7px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   FOOTER
+════════════════════════════════════════════════════════════ */
+.cg-footer {
+  text-align  : center;
+  padding     : 32px 16px 0;
+}
+
+.cg-footer__text {
+  font-size   : 0.82rem;
+  color       : var(--ink2);
+  line-height : 1.55;
+  margin      : 0 0 8px;
+}
+
+.cg-footer__copy {
+  font-size : 0.75rem;
+  color     : var(--ink3);
+  margin    : 0;
+}
+
+/* ════════════════════════════════════════════════════════════
+   RESPONSIVE
+════════════════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .cg-main {
+    padding : 12px 12px 40px;
+  }
+
+  .cg-hero {
+    padding : 22px 14px 20px;
+  }
+
+  .cg-item__trigger {
+    padding : 12px 14px;
+    gap     : 10px;
+  }
+
+  .cg-item__panel-inner {
+    padding-left  : 14px;
+    padding-right : 14px;
+  }
+
+  .cg-item__intro,
+  .cg-item__list {
+    padding-left : 38px;
+  }
+
+  .cg-item__title {
+    font-size : 0.90rem;
+  }
+
+  .cg-item__point {
+    font-size : 0.83rem;
+  }
+
+  .cg-toc__chips {
+    gap : 5px;
+  }
+
+  .cg-toc__chip {
+    font-size : 0.72rem;
+    padding   : 4px 8px;
+  }
+}
+
+@media (min-width: 768px) {
+  .cg-main {
+    padding : 24px 24px 64px;
+  }
+
+  .cg-hero {
+    padding : 36px 24px 32px;
+  }
+
+  .cg-hero__title {
+    font-size : 1.3rem;
+  }
+
+  .cg-hero__desc {
+    font-size : 0.92rem;
+  }
+
+  .cg-item__trigger {
+    padding : 16px 20px;
+  }
+
+  .cg-item__panel-inner {
+    padding-left  : 20px;
+    padding-right : 20px;
+  }
+}
