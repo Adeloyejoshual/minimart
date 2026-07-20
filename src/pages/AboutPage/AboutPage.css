@@ -1,0 +1,658 @@
+/* ════════════════════════════════════════════════════════════
+   FILE: src/pages/AboutPage/AboutPage.css
+════════════════════════════════════════════════════════════ */
+
+.ab-page {
+  min-height  : 100dvh;
+  background  : var(--bg);
+  color       : var(--ink);
+  font-family : var(--fb);
+}
+
+/* ════════════════════════════════════════════════════════════
+   HEADER
+════════════════════════════════════════════════════════════ */
+.ab-header {
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  padding         : 14px 16px 10px;
+  background      : var(--wh);
+  border-bottom   : 1px solid var(--bd);
+  position        : sticky;
+  top             : 0;
+  z-index         : 10;
+}
+
+.ab-header__back {
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  width           : 36px;
+  height          : 36px;
+  border          : none;
+  background      : none;
+  cursor          : pointer;
+  color           : var(--o);
+  border-radius   : 50%;
+  transition      : background var(--t1);
+  flex-shrink     : 0;
+}
+
+.ab-header__back:hover { background: var(--bd); }
+.ab-header__back svg   { width: 20px; height: 20px; }
+
+.ab-header__title {
+  font-size   : 1.05rem;
+  font-weight : 700;
+  margin      : 0;
+  flex        : 1;
+  text-align  : center;
+}
+
+.ab-header__spacer { width: 36px; }
+
+/* ════════════════════════════════════════════════════════════
+   MAIN
+════════════════════════════════════════════════════════════ */
+.ab-main {
+  max-width : 720px;
+  margin    : 0 auto;
+  padding   : 16px 16px 48px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   HERO
+════════════════════════════════════════════════════════════ */
+.ab-hero {
+  position      : relative;
+  padding       : 32px 20px 24px;
+  background    : var(--wh);
+  border-radius : var(--r2);
+  box-shadow    : var(--s1);
+  margin-bottom : 16px;
+  overflow      : hidden;
+}
+
+.ab-hero__orb {
+  position      : absolute;
+  border-radius : 50%;
+  pointer-events: none;
+  opacity       : 0.07;
+}
+
+.ab-hero__orb--1 {
+  width      : 200px;
+  height     : 200px;
+  background : var(--o);
+  top        : -60px;
+  right      : -60px;
+}
+
+.ab-hero__orb--2 {
+  width      : 140px;
+  height     : 140px;
+  background : #6366F1;
+  bottom     : -40px;
+  left       : -40px;
+}
+
+.ab-hero__content {
+  position   : relative;
+  text-align : center;
+}
+
+.ab-hero__icon-wrap {
+  width           : 58px;
+  height          : 58px;
+  border-radius   : var(--r2);
+  background      : var(--o-bg);
+  color           : var(--o);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  margin          : 0 auto 16px;
+  box-shadow      : 0 2px 12px rgba(255, 92, 0, 0.18);
+}
+
+.ab-hero__icon-wrap svg { width: 28px; height: 28px; }
+
+.ab-hero__title {
+  font-size   : 1.25rem;
+  font-weight : 800;
+  margin      : 0 0 10px;
+  font-family : var(--fd);
+  color       : var(--ink);
+}
+
+.ab-hero__desc {
+  font-size   : 0.88rem;
+  color       : var(--ink2);
+  line-height : 1.65;
+  max-width   : 500px;
+  margin      : 0 auto 20px;
+}
+
+/* ── Stat strip ── */
+.ab-hero__stats {
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  gap             : 0;
+  background      : var(--bg);
+  border-radius   : var(--r1);
+  overflow        : hidden;
+  position        : relative;
+}
+
+.ab-hero__stat {
+  flex            : 1;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  gap             : 6px;
+  padding         : 12px 8px;
+  font-size       : 0.78rem;
+  font-weight     : 600;
+  color           : var(--ink);
+}
+
+.ab-hero__stat-icon {
+  width       : 18px;
+  height      : 18px;
+  flex-shrink : 0;
+  display     : flex;
+  align-items : center;
+}
+
+.ab-hero__stat-icon svg { width: 100%; height: 100%; }
+
+.ab-hero__stat-divider {
+  width      : 1px;
+  height     : 32px;
+  background : var(--bd);
+  flex-shrink: 0;
+}
+
+/* ════════════════════════════════════════════════════════════
+   TABLE OF CONTENTS
+════════════════════════════════════════════════════════════ */
+.ab-toc {
+  margin-bottom : 16px;
+}
+
+.ab-toc__label {
+  font-size      : 0.75rem;
+  font-weight    : 600;
+  text-transform : uppercase;
+  letter-spacing : 0.04em;
+  color          : var(--ink2);
+  margin         : 0 0 8px 2px;
+}
+
+.ab-toc__chips {
+  display   : flex;
+  flex-wrap : wrap;
+  gap       : 6px;
+}
+
+.ab-toc__chip {
+  display       : inline-flex;
+  align-items   : center;
+  gap           : 5px;
+  padding       : 5px 10px;
+  border        : 1px solid var(--bd);
+  border-radius : var(--r3);
+  background    : var(--wh);
+  color         : var(--ink);
+  font-size     : 0.76rem;
+  font-weight   : 500;
+  font-family   : var(--fb);
+  cursor        : pointer;
+  transition    : background var(--t1), border-color var(--t1);
+  white-space   : nowrap;
+}
+
+.ab-toc__chip:hover {
+  background   : var(--o-bg);
+  border-color : var(--o);
+  color        : var(--o);
+}
+
+.ab-toc__chip-num {
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  width           : 16px;
+  height          : 16px;
+  border-radius   : 50%;
+  background      : var(--bd);
+  color           : var(--ink2);
+  font-size       : 0.65rem;
+  font-weight     : 700;
+  flex-shrink     : 0;
+}
+
+.ab-toc__chip:hover .ab-toc__chip-num {
+  background : var(--o);
+  color      : #fff;
+}
+
+/* ════════════════════════════════════════════════════════════
+   TOOLBAR
+════════════════════════════════════════════════════════════ */
+.ab-toolbar {
+  display         : flex;
+  justify-content : flex-end;
+  margin-bottom   : 12px;
+}
+
+.ab-toolbar__btn {
+  border        : none;
+  background    : none;
+  color         : var(--o);
+  font-size     : 0.82rem;
+  font-weight   : 600;
+  font-family   : var(--fb);
+  cursor        : pointer;
+  padding       : 4px 8px;
+  border-radius : var(--r1);
+  transition    : background var(--t1);
+}
+
+.ab-toolbar__btn:hover { background: var(--o-bg); }
+
+/* ════════════════════════════════════════════════════════════
+   SECTIONS
+════════════════════════════════════════════════════════════ */
+.ab-sections {
+  display        : flex;
+  flex-direction : column;
+  gap            : 8px;
+}
+
+/* ── Item ── */
+.ab-item {
+  background    : var(--wh);
+  border-radius : var(--r2);
+  box-shadow    : var(--s1);
+  overflow      : hidden;
+  transition    : box-shadow var(--t2);
+}
+
+.ab-item--open { box-shadow: var(--s2); }
+
+/* ── Trigger ── */
+.ab-item__trigger {
+  width           : 100%;
+  border          : none;
+  background      : transparent;
+  display         : flex;
+  align-items     : center;
+  gap             : 12px;
+  padding         : 14px 16px;
+  cursor          : pointer;
+  text-align      : left;
+  color           : var(--ink);
+  transition      : background var(--t1);
+}
+
+.ab-item__trigger:hover { background: var(--bg); }
+
+.ab-item__trigger:focus-visible {
+  outline        : 2px solid var(--o);
+  outline-offset : -2px;
+}
+
+.ab-item__num {
+  width           : 28px;
+  height          : 28px;
+  border-radius   : 50%;
+  color           : #fff;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  font-size       : 0.75rem;
+  font-weight     : 700;
+  flex-shrink     : 0;
+}
+
+.ab-item__icon {
+  width       : 20px;
+  height      : 20px;
+  flex-shrink : 0;
+  display     : flex;
+  align-items : center;
+}
+
+.ab-item__icon svg { width: 100%; height: 100%; }
+
+.ab-item__title {
+  flex        : 1;
+  font-size   : 0.95rem;
+  font-weight : 600;
+  min-width   : 0;
+}
+
+.ab-item__chevron {
+  flex-shrink : 0;
+  color       : var(--ink3);
+}
+
+.ab-chevron {
+  width      : 18px;
+  height     : 18px;
+  transition : transform var(--t2);
+}
+
+.ab-chevron--open { transform: rotate(180deg); }
+
+/* ── Panel ── */
+.ab-item__panel {
+  display            : grid;
+  grid-template-rows : 0fr;
+  transition         : grid-template-rows var(--t2);
+}
+
+.ab-item__panel--open { grid-template-rows: 1fr; }
+
+.ab-item__panel-inner {
+  overflow : hidden;
+  padding  : 0 16px;
+}
+
+.ab-item--open .ab-item__panel-inner {
+  padding-bottom : 18px;
+}
+
+/* ── Content ── */
+.ab-item__body {
+  font-size   : 0.86rem;
+  line-height : 1.65;
+  color       : var(--ink2);
+  margin      : 0;
+  padding-left: 40px;
+}
+
+.ab-item__intro {
+  font-size   : 0.86rem;
+  color       : var(--ink2);
+  margin      : 0 0 10px;
+  line-height : 1.5;
+  padding-left: 40px;
+}
+
+.ab-item__list {
+  list-style   : none;
+  margin       : 0;
+  padding      : 0;
+  padding-left : 40px;
+}
+
+.ab-item__point {
+  display      : flex;
+  align-items  : flex-start;
+  gap          : 10px;
+  font-size    : 0.86rem;
+  line-height  : 1.6;
+  color        : var(--ink);
+  margin-bottom: 6px;
+}
+
+.ab-item__point:last-child { margin-bottom: 0; }
+
+.ab-item__bullet {
+  width         : 6px;
+  height        : 6px;
+  border-radius : 50%;
+  flex-shrink   : 0;
+  margin-top    : 7px;
+}
+
+.ab-item__note {
+  display       : flex;
+  align-items   : flex-start;
+  gap           : 10px;
+  margin-top    : 12px;
+  padding       : 10px 12px;
+  background    : var(--bg);
+  border-left   : 3px solid;
+  border-radius : 0 var(--r1) var(--r1) 0;
+  margin-left   : 40px;
+}
+
+.ab-item__note-dot {
+  width         : 8px;
+  height        : 8px;
+  border-radius : 50%;
+  flex-shrink   : 0;
+  margin-top    : 5px;
+}
+
+.ab-item__note p {
+  font-size  : 0.82rem;
+  line-height: 1.55;
+  color      : var(--ink2);
+  margin     : 0;
+  font-style : italic;
+}
+
+.ab-item__link {
+  display      : inline-block;
+  font-size    : 0.84rem;
+  font-weight  : 600;
+  margin-top   : 12px;
+  margin-left  : 40px;
+  text-decoration: none;
+  transition   : opacity var(--t1);
+}
+
+.ab-item__link:hover { opacity: 0.75; text-decoration: underline; }
+
+.ab-item__links {
+  display        : flex;
+  flex-direction : column;
+  gap            : 6px;
+  margin-top     : 12px;
+  padding-left   : 40px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   CARD GRID — Why / Values sections
+════════════════════════════════════════════════════════════ */
+.ab-card-grid {
+  display               : grid;
+  grid-template-columns : 1fr 1fr;
+  gap                   : 10px;
+  padding-left          : 40px;
+}
+
+.ab-card {
+  background    : var(--bg);
+  border        : 1px solid var(--bd);
+  border-radius : var(--r1);
+  padding       : 13px 12px;
+  transition    : background var(--t1), box-shadow var(--t2);
+}
+
+.ab-card:hover {
+  background : var(--wh);
+  box-shadow : var(--s1);
+}
+
+.ab-card__icon {
+  width       : 22px;
+  height      : 22px;
+  display     : flex;
+  align-items : center;
+  margin-bottom: 8px;
+}
+
+.ab-card__icon svg { width: 100%; height: 100%; }
+
+.ab-card__title {
+  font-size     : 0.86rem;
+  font-weight   : 700;
+  color         : var(--ink);
+  margin        : 0 0 5px;
+}
+
+.ab-card__desc {
+  font-size   : 0.78rem;
+  color       : var(--ink2);
+  line-height : 1.5;
+  margin      : 0;
+}
+
+/* ════════════════════════════════════════════════════════════
+   THANK YOU BANNER
+════════════════════════════════════════════════════════════ */
+.ab-thanks {
+  position      : relative;
+  display       : flex;
+  align-items   : flex-start;
+  gap           : 14px;
+  padding       : 20px 18px;
+  background    : linear-gradient(135deg, var(--o-bg), #fff3ee);
+  border        : 1.5px solid var(--o);
+  border-radius : var(--r2);
+  margin-top    : 20px;
+  overflow      : hidden;
+}
+
+.ab-thanks__shine {
+  position   : absolute;
+  inset      : 0;
+  background : linear-gradient(135deg, rgba(255,255,255,0.6) 0%, transparent 60%);
+  pointer-events: none;
+}
+
+.ab-thanks__icon {
+  width           : 38px;
+  height          : 38px;
+  border-radius   : 50%;
+  background      : var(--o);
+  color           : #fff;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  flex-shrink     : 0;
+}
+
+.ab-thanks__icon svg { width: 18px; height: 18px; }
+
+.ab-thanks__title {
+  font-size   : 0.95rem;
+  font-weight : 700;
+  color       : var(--o);
+  margin      : 0 0 6px;
+  font-family : var(--fd);
+}
+
+.ab-thanks__body {
+  font-size   : 0.83rem;
+  color       : var(--ink2);
+  line-height : 1.6;
+  margin      : 0;
+}
+
+/* ════════════════════════════════════════════════════════════
+   FOOTER
+════════════════════════════════════════════════════════════ */
+.ab-footer {
+  text-align : center;
+  padding    : 28px 16px 0;
+}
+
+.ab-footer__copy {
+  font-size   : 0.75rem;
+  color       : var(--ink3);
+  margin      : 0 0 10px;
+}
+
+.ab-footer__links {
+  display     : flex;
+  align-items : center;
+  justify-content: center;
+  gap         : 6px;
+  flex-wrap   : wrap;
+}
+
+.ab-footer__links a {
+  font-size   : 0.78rem;
+  color       : var(--o);
+  font-weight : 500;
+}
+
+.ab-footer__links a:hover { text-decoration: underline; }
+
+.ab-footer__links span {
+  color     : var(--ink3);
+  font-size : 0.78rem;
+}
+
+/* ════════════════════════════════════════════════════════════
+   RESPONSIVE
+════════════════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .ab-main    { padding: 12px 12px 40px; }
+  .ab-hero    { padding: 24px 14px 20px; }
+
+  .ab-item__trigger {
+    padding : 12px 14px;
+    gap     : 10px;
+  }
+
+  .ab-item__panel-inner {
+    padding-left  : 14px;
+    padding-right : 14px;
+  }
+
+  .ab-item__body,
+  .ab-item__intro,
+  .ab-item__list,
+  .ab-item__links {
+    padding-left : 38px;
+  }
+
+  .ab-item__note  { margin-left: 38px; }
+  .ab-item__link  { margin-left: 38px; }
+
+  .ab-item__title { font-size: 0.90rem; }
+  .ab-item__point { font-size: 0.83rem; }
+
+  .ab-card-grid {
+    grid-template-columns : 1fr;
+    padding-left          : 38px;
+  }
+
+  .ab-hero__stat-label { font-size: 0.72rem; }
+
+  .ab-toc__chip {
+    font-size : 0.72rem;
+    padding   : 4px 8px;
+  }
+
+  .ab-thanks { padding: 16px 14px; }
+}
+
+@media (min-width: 768px) {
+  .ab-main  { padding: 24px 24px 64px; }
+  .ab-hero  { padding: 40px 28px 28px; }
+
+  .ab-hero__title { font-size: 1.4rem; }
+  .ab-hero__desc  { font-size: 0.93rem; }
+
+  .ab-item__trigger {
+    padding : 16px 20px;
+  }
+
+  .ab-item__panel-inner {
+    padding-left  : 20px;
+    padding-right : 20px;
+  }
+
+  .ab-card-grid {
+    grid-template-columns : 1fr 1fr 1fr;
+  }
+}
