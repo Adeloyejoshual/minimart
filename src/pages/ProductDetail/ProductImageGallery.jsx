@@ -1,12 +1,12 @@
 /**
  * src/pages/ProductDetail/ProductImageGallery.jsx
  *
- * Self-contained gallery + full-screen viewer.
- * ─ No routing needed for the viewer (renders as portal-style overlay)
- * ─ Blur / shimmer placeholder while loading
- * ─ Swipe, keyboard, dots, thumbnails
- * ─ Tap to open, ESC / swipe-down / X to close
- * ─ Body scroll lock while viewer is open
+ * Fast progressive loading strategy:
+ *   1. Thumbnail (120px) → shown INSTANTLY, scaled up as placeholder
+ *   2. Tiny blur (40px)   → for CDN-supported URLs
+ *   3. Full image         → loads on top when ready
+ *   4. Preload link       → tells browser to fetch main image ASAP
+ *   5. fetchpriority=high → main image gets network priority
  */
 
 import {
@@ -30,14 +30,30 @@ const FALLBACK_SVG =
   " fill='%23aaa' font-size='14' font-family='sans-serif'" +
   "%3EImage unavailable%3C/text%3E%3C/svg%3E";
 
-const SWIPE_THRESHOLD    = 50;
-const DOTS_MAX_COUNT     = 10;
+const SWIPE_THRESHOLD = 50;
+const DOTS_MAX_COUNT  = 10;
 
 /* ═══════════════════════════════════════════════════════════
-   URL HELPERS  (fixed regex — only touches known CDN patterns)
+   URL HELPERS — safe for Cloudinary / Cloudflare / R2 / S3
 ═══════════════════════════════════════════════════════════ */
 
-/** Tiny 40px placeholder — only Cloudinary + explicit Cloudflare `/public` */
+/** Small thumbnail (120px) — used as instant blur-up placeholder */
+const thumbUrl = (url) => {
+  if (!url || typeof url !== "string") return url;
+
+  if (url.includes("res.cloudinary.com") && url.includes("/upload/")) {
+    if (url.includes("/upload/w_")) return url;
+    return url.replace("/upload/", "/upload/w_120,q_30,f_auto/");
+  }
+
+  if (url.includes("imagedelivery.net") && url.endsWith("/public")) {
+    return url.replace(/\/public$/, "/w=120,q=30");
+  }
+
+  return url;
+};
+
+/** Tiny 40px blur placeholder */
 const tinyUrl = (url) => {
   if (!url || typeof url !== "string") return null;
 
@@ -50,11 +66,10 @@ const tinyUrl = (url) => {
     return url.replace(/\/public$/, "/w=40,q=10");
   }
 
-  /* Unknown CDN — no tiny available (shimmer will show) */
   return null;
 };
 
-/** Optimized display URL — returns original if CDN unknown */
+/** Main display image (800px optimized) */
 const optimizedUrl = (url, width = 800) => {
   if (!url || typeof url !== "string") return url;
 
@@ -67,8 +82,21 @@ const optimizedUrl = (url, width = 800) => {
     return url.replace(/\/public$/, `/w=${width},q=80`);
   }
 
-  /* Return as-is for R2, S3, custom CDNs, direct URLs */
   return url;
+};
+
+/* ═══════════════════════════════════════════════════════════
+   PRELOAD HELPER — injects <link rel="preload"> for critical img
+═══════════════════════════════════════════════════════════ */
+const preloadImage = (src, priority = "auto") => {
+  if (!src) return null;
+  const link = document.createElement("link");
+  link.rel   = "preload";
+  link.as    = "image";
+  link.href  = src;
+  if (priority === "high") link.fetchPriority = "high";
+  document.head.appendChild(link);
+  return link;
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -107,19 +135,15 @@ const IconExpand = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2" strokeLinecap="round"
     strokeLinejoin="round" aria-hidden="true">
-    <path d="M15 3h6v6" />
-    <path d="M9 21H3v-6" />
-    <path d="M21 3l-7 7" />
-    <path d="M3 21l7-7" />
+    <path d="M15 3h6v6" /><path d="M9 21H3v-6" />
+    <path d="M21 3l-7 7" /><path d="M3 21l7-7" />
   </svg>
 );
 
 const IconClose = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-    aria-hidden="true">
-    <path d="M18 6L6 18" />
-    <path d="M6 6l12 12" />
+    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+    <path d="M18 6L6 18" /><path d="M6 6l12 12" />
   </svg>
 );
 
@@ -161,16 +185,38 @@ const EmptyGallery = memo(function EmptyGallery() {
 });
 
 /* ═══════════════════════════════════════════════════════════
-   MAIN IMAGE (with blur + shimmer states)
+   MAIN IMAGE — 3-layer progressive load
+   Layer 1: 120px thumb (instant, already cached from strip)
+   Layer 2: 40px blur    (if CDN supports it)
+   Layer 3: 800px full   (progressive)
 ═══════════════════════════════════════════════════════════ */
 const MainImage = memo(function MainImage({
-  src, tiny, alt, loaded, onLoad, onError,
+  fullSrc,
+  thumbSrc,
+  tinySrc,
+  alt,
+  loaded,
+  onLoad,
+  onError,
+  isFirst,
 }) {
   return (
     <div className="pig-img-slot">
-      {tiny && !loaded && (
+      {/* Layer 1: thumbnail scaled up (INSTANT — already cached) */}
+      {!loaded && thumbSrc && (
         <img
-          src={tiny}
+          src={thumbSrc}
+          alt=""
+          className="pig-thumb-preview"
+          aria-hidden="true"
+          draggable={false}
+        />
+      )}
+
+      {/* Layer 2: tiny blur (only shows if no thumb available) */}
+      {!loaded && !thumbSrc && tinySrc && (
+        <img
+          src={tinySrc}
           alt=""
           className="pig-blur"
           aria-hidden="true"
@@ -178,16 +224,19 @@ const MainImage = memo(function MainImage({
         />
       )}
 
-      {!tiny && !loaded && (
+      {/* Layer 3: shimmer fallback (only if neither above) */}
+      {!loaded && !thumbSrc && !tinySrc && (
         <div className="pig-shimmer" aria-hidden="true" />
       )}
 
+      {/* Full image */}
       <img
-        key={src}
-        src={src}
+        key={fullSrc}
+        src={fullSrc}
         alt={alt}
         className={`pig-img${loaded ? " pig-img--loaded" : ""}`}
         loading="eager"
+        fetchpriority={isFirst ? "high" : "auto"}
         decoding="async"
         draggable={false}
         onLoad={onLoad}
@@ -198,7 +247,7 @@ const MainImage = memo(function MainImage({
 });
 
 /* ═══════════════════════════════════════════════════════════
-   FULL-SCREEN VIEWER (rendered inline as overlay)
+   VIEWER (uses cache — instant open!)
 ═══════════════════════════════════════════════════════════ */
 const ImageViewer = memo(function ImageViewer({
   urls,
@@ -211,11 +260,7 @@ const ImageViewer = memo(function ImageViewer({
   const [zoomed, setZoomed] = useState(false);
   const stripRef            = useRef(null);
 
-  /* Reset load on image change */
-  useEffect(() => {
-    setLoaded(false);
-    setZoomed(false);
-  }, [active]);
+  useEffect(() => { setLoaded(false); setZoomed(false); }, [active]);
 
   /* Body scroll lock */
   useEffect(() => {
@@ -224,7 +269,6 @@ const ImageViewer = memo(function ImageViewer({
     return () => { document.body.style.overflow = prev; };
   }, []);
 
-  /* Center active thumb in strip */
   useEffect(() => {
     stripRef.current
       ?.querySelector(".pig-viewer-thumb--active")
@@ -240,7 +284,6 @@ const ImageViewer = memo(function ImageViewer({
     [urls.length]
   );
 
-  /* Keyboard */
   useEffect(() => {
     const handler = (e) => {
       if (e.key === "Escape")     onClose();
@@ -259,7 +302,11 @@ const ImageViewer = memo(function ImageViewer({
     setLoaded(true);
   }, []);
 
-  const count = urls.length;
+  const count       = urls.length;
+  /* IMPORTANT: viewer uses the SAME optimized URL as gallery
+     so browser cache serves it instantly — no re-download */
+  const currentSrc  = optimizedUrl(urls[active], 1600); // higher res in viewer
+  const currentThumb = thumbUrl(urls[active]);
 
   return (
     <div
@@ -269,28 +316,19 @@ const ImageViewer = memo(function ImageViewer({
       aria-label={`Image viewer — ${title || "Product"}`}
       {...swipe}
     >
-      {/* Header */}
       <div className="pig-viewer-header">
-        <button
-          className="pig-viewer-close"
-          onClick={onClose}
-          aria-label="Close image viewer"
-          type="button"
-        >
+        <button className="pig-viewer-close" onClick={onClose}
+          aria-label="Close image viewer" type="button">
           <IconClose />
         </button>
-
         <span className="pig-viewer-counter" aria-live="polite">
           {active + 1} / {count}
         </span>
-
         <div className="pig-viewer-spacer" aria-hidden="true" />
       </div>
 
-      {/* Title */}
       {title && <div className="pig-viewer-title">{title}</div>}
 
-      {/* Stage */}
       <div
         className={`pig-viewer-stage${zoomed ? " pig-viewer-stage--zoomed" : ""}`}
         onClick={() => setZoomed((z) => !z)}
@@ -301,50 +339,49 @@ const ImageViewer = memo(function ImageViewer({
           if (e.key === "Enter" || e.key === " ") setZoomed((z) => !z);
         }}
       >
-        {!loaded && <div className="pig-viewer-shimmer" aria-hidden="true" />}
+        {/* Instant preview using thumb (already cached) */}
+        {!loaded && currentThumb && (
+          <img
+            src={currentThumb}
+            alt=""
+            className="pig-viewer-thumb-preview"
+            aria-hidden="true"
+            draggable={false}
+          />
+        )}
+
+        {!loaded && !currentThumb && (
+          <div className="pig-viewer-shimmer" aria-hidden="true" />
+        )}
 
         <img
-          key={urls[active]}
-          src={urls[active]}
+          key={currentSrc}
+          src={currentSrc}
           alt={`${title || "Product"} — image ${active + 1} of ${count}`}
           className={`pig-viewer-img${loaded ? " pig-viewer-img--loaded" : ""}`}
           draggable={false}
+          fetchpriority="high"
           onLoad={() => setLoaded(true)}
           onError={handleError}
         />
       </div>
 
-      {/* Prev / Next */}
       {count > 1 && (
         <>
-          <button
-            className="pig-viewer-nav pig-viewer-nav--prev"
-            onClick={prev}
-            aria-label="Previous image"
-            type="button"
-          >
+          <button className="pig-viewer-nav pig-viewer-nav--prev"
+            onClick={prev} aria-label="Previous image" type="button">
             <IconChevronLeft />
           </button>
-
-          <button
-            className="pig-viewer-nav pig-viewer-nav--next"
-            onClick={next}
-            aria-label="Next image"
-            type="button"
-          >
+          <button className="pig-viewer-nav pig-viewer-nav--next"
+            onClick={next} aria-label="Next image" type="button">
             <IconChevronRight />
           </button>
         </>
       )}
 
-      {/* Thumbnail strip */}
       {count > 1 && (
-        <div
-          className="pig-viewer-strip"
-          ref={stripRef}
-          role="list"
-          aria-label="All images"
-        >
+        <div className="pig-viewer-strip" ref={stripRef}
+          role="list" aria-label="All images">
           {urls.map((url, i) => (
             <button
               key={i}
@@ -358,7 +395,7 @@ const ImageViewer = memo(function ImageViewer({
               onClick={() => setActive(i)}
             >
               <img
-                src={optimizedUrl(url, 120)}
+                src={thumbUrl(url)}
                 alt=""
                 loading="lazy"
                 decoding="async"
@@ -377,15 +414,23 @@ const ImageViewer = memo(function ImageViewer({
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════ */
 function ProductImageGallery({ images, title }) {
-  /* Clean string[] — already normalized upstream in ProductDetail */
   const urls = useMemo(() => {
     if (!Array.isArray(images) || !images.length) return [];
     return images.filter((u) => typeof u === "string" && u.trim() !== "");
   }, [images]);
 
-  const [active,       setActive]       = useState(0);
-  const [loaded,       setLoaded]       = useState(false);
-  const [viewerOpen,   setViewerOpen]   = useState(false);
+  const [active,     setActive]     = useState(0);
+  const [loaded,     setLoaded]     = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+
+  /* ── Preload first image ASAP (before React even mounts <img>) */
+  useEffect(() => {
+    if (!urls.length) return;
+    const link = preloadImage(optimizedUrl(urls[0]), "high");
+    return () => {
+      try { link && document.head.removeChild(link); } catch {}
+    };
+  }, [urls]);
 
   /* Reset on product change */
   useEffect(() => {
@@ -394,10 +439,9 @@ function ProductImageGallery({ images, title }) {
     setViewerOpen(false);
   }, [urls]);
 
-  /* Reset load state on active change */
   useEffect(() => { setLoaded(false); }, [active]);
 
-  /* Prefetch next image */
+  /* Prefetch next image (low priority) */
   useEffect(() => {
     if (urls.length <= 1) return;
     const nextIdx = (active + 1) % urls.length;
@@ -420,14 +464,11 @@ function ProductImageGallery({ images, title }) {
     [urls.length]
   );
 
-  const swipe = useSwipe(next, prev);
-
+  const swipe       = useSwipe(next, prev);
   const openViewer  = useCallback(() => {
     if (urls.length) setViewerOpen(true);
   }, [urls.length]);
-
   const closeViewer = useCallback(() => setViewerOpen(false), []);
-
   const handleLoad  = useCallback(() => setLoaded(true), []);
 
   const handleError = useCallback((e) => {
@@ -446,18 +487,16 @@ function ProductImageGallery({ images, title }) {
     [openViewer, prev, next]
   );
 
-  /* ── Early exit ─────────────────────────────────────── */
   if (!urls.length) return <EmptyGallery />;
 
-  const currentSrc  = optimizedUrl(urls[active]);
-  const currentTiny = tinyUrl(urls[active]);
-  const count       = urls.length;
+  const currentSrc   = optimizedUrl(urls[active], 800);
+  const currentThumb = thumbUrl(urls[active]);
+  const currentTiny  = tinyUrl(urls[active]);
+  const count        = urls.length;
 
   return (
     <>
       <div className="pig" role="region" aria-label="Product images">
-
-        {/* ── Main display ───────────────────────────── */}
         <div
           className="pig-main"
           role="button"
@@ -468,28 +507,27 @@ function ProductImageGallery({ images, title }) {
           {...swipe}
         >
           <MainImage
-            src={currentSrc}
-            tiny={currentTiny}
+            fullSrc={currentSrc}
+            thumbSrc={currentThumb}
+            tinySrc={currentTiny}
             alt={`${title || "Product"} — photo ${active + 1} of ${count}`}
             loaded={loaded}
+            isFirst={active === 0}
             onLoad={handleLoad}
             onError={handleError}
           />
 
-          {/* Expand hint */}
           <div className="pig-tap-hint" aria-hidden="true">
             <IconExpand />
             <span>Tap to expand</span>
           </div>
 
-          {/* Counter */}
           {count > 1 && (
             <span className="pig-counter" aria-hidden="true">
               {active + 1}/{count}
             </span>
           )}
 
-          {/* Arrows */}
           {count > 1 && (
             <>
               <button
@@ -498,22 +536,17 @@ function ProductImageGallery({ images, title }) {
                 aria-label="Previous image"
                 tabIndex={-1}
                 type="button"
-              >
-                ‹
-              </button>
+              >‹</button>
               <button
                 className="pig-arrow pig-arrow--right"
                 onClick={(e) => { e.stopPropagation(); next(); }}
                 aria-label="Next image"
                 tabIndex={-1}
                 type="button"
-              >
-                ›
-              </button>
+              >›</button>
             </>
           )}
 
-          {/* Dots (≤ 10 images) */}
           {count > 1 && count <= DOTS_MAX_COUNT && (
             <div
               className="pig-dots"
@@ -537,7 +570,6 @@ function ProductImageGallery({ images, title }) {
           )}
         </div>
 
-        {/* ── Thumbnails ─────────────────────────────── */}
         {count > 1 && (
           <div className="pig-thumbs" role="list" aria-label="All product images">
             {urls.map((url, i) => (
@@ -551,7 +583,7 @@ function ProductImageGallery({ images, title }) {
                 onClick={() => setActive(i)}
               >
                 <img
-                  src={optimizedUrl(url, 120)}
+                  src={thumbUrl(url)}
                   alt=""
                   loading="lazy"
                   decoding="async"
@@ -564,10 +596,9 @@ function ProductImageGallery({ images, title }) {
         )}
       </div>
 
-      {/* ── Full-screen viewer (inline overlay — no route) ── */}
       {viewerOpen && (
         <ImageViewer
-          urls={urls}
+          urls={urls.map((u) => optimizedUrl(u, 1600))}
           title={title}
           startIndex={active}
           onClose={closeViewer}
