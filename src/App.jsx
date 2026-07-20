@@ -1,10 +1,9 @@
 // ════════════════════════════════════════════════════════════
-// FILE: src/App.jsx — v3
+// FILE: src/App.jsx — v4
 //
-// Changes from v2:
-//  ─ Imports global design tokens (tokens.css)
-//  ─ Applies saved theme on mount via applyTheme()
-//  ─ Dark/light/system theme persists across page reloads
+// Changes from v3:
+//  ─ Added CommunityGuidelines route  /community-guidelines
+//  ─ Added PrivacyPolicy route        /privacy
 // ════════════════════════════════════════════════════════════
 
 import { useEffect, useState, useCallback, memo } from "react";
@@ -25,22 +24,17 @@ import "./index.css";
 
 /* ════════════════════════════════════════════════════════════
    THEME BOOTSTRAP
-   Reads saved theme from localStorage and applies it to <html>
-   before any component renders — prevents flash of wrong theme.
 ════════════════════════════════════════════════════════════ */
 const THEME_KEY = "loemart_theme";
 
 const getSystemTheme = () =>
-  window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 
 const applyTheme = (theme) => {
   const resolved = theme === "system" ? getSystemTheme() : theme;
   document.documentElement.setAttribute("data-theme", resolved);
 };
 
-/* Apply immediately — before React renders anything */
 applyTheme(
   (() => {
     try { return localStorage.getItem(THEME_KEY) ?? "system"; }
@@ -62,6 +56,13 @@ import TermsAndConditions   from "./pages/TermsAndConditions";
 import MinimartPage         from "./pages/MinimartPage";
 import P2P                  from "./pages/P2P";
 import MenuPage             from "./pages/MenuPage";
+
+/* ════════════════════════════════════════════════════════════
+   PAGES — PUBLIC INFO / LEGAL
+════════════════════════════════════════════════════════════ */
+import CommunityGuidelines from "./pages/CommunityGuidelines/CommunityGuidelines";
+import PrivacyPolicy       from "./pages/PrivacyPolicy/PrivacyPolicy";
+import HallOfFame          from "./pages/HallOfFame";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — HOMEPAGE SUB-PAGES
@@ -138,11 +139,6 @@ import ReportCenter        from "./pages/Support/ReportCenter";
 import DisputeCenter       from "./pages/Support/DisputeCenter";
 import AppealsPage         from "./pages/Support/AppealsPage";
 import FeedbackPage        from "./pages/Support/FeedbackPage";
-
-/* ════════════════════════════════════════════════════════════
-   PAGES — PUBLIC INFO / COMMUNITY
-════════════════════════════════════════════════════════════ */
-import HallOfFame from "./pages/HallOfFame";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — DESKTOP
@@ -290,8 +286,6 @@ async function syncCartAfterLogin(token) {
 
 /* ════════════════════════════════════════════════════════════
    SYSTEM THEME WATCHER
-   Listens for OS dark/light toggle and re-applies when the
-   user has chosen "system" preference.
 ════════════════════════════════════════════════════════════ */
 function useSystemThemeWatcher() {
   useEffect(() => {
@@ -472,7 +466,6 @@ export default function App() {
 
   const { resetCache } = useProductCache();
 
-  /* Watch for OS theme changes when user has chosen "system" */
   useSystemThemeWatcher();
 
   /* ── Auth check ── */
@@ -558,15 +551,20 @@ export default function App() {
       <Routes>
 
         {/* ════════════ PUBLIC ════════════ */}
-        <Route path="/"           element={<HomeRoute key={user?.id ?? "guest"} user={user} />} />
-        <Route path="/search"     element={<SearchPage    user={user} />} />
-        <Route path="/product/:slug" element={<ProductRoute user={user} />} />
-        <Route path="/shop/:slug" element={<MarketDetail  user={user} />} />
-        <Route path="/seller/:id" element={<SellerProfile user={user} />} />
-        <Route path="/terms"      element={<TermsAndConditions />} />
-        <Route path="/minimart"   element={<MinimartPage  user={user} />} />
-        <Route path="/p2p"        element={<P2P           user={user} />} />
-        <Route path="/menu"       element={<MenuPage      user={user} />} />
+        <Route path="/"              element={<HomeRoute key={user?.id ?? "guest"} user={user} />} />
+        <Route path="/search"        element={<SearchPage    user={user} />} />
+        <Route path="/product/:slug" element={<ProductRoute  user={user} />} />
+        <Route path="/shop/:slug"    element={<MarketDetail  user={user} />} />
+        <Route path="/seller/:id"    element={<SellerProfile user={user} />} />
+        <Route path="/terms"         element={<TermsAndConditions />} />
+        <Route path="/minimart"      element={<MinimartPage  user={user} />} />
+        <Route path="/p2p"           element={<P2P           user={user} />} />
+        <Route path="/menu"          element={<MenuPage      user={user} />} />
+
+        {/* ════════════ PUBLIC INFO / LEGAL ════════════ */}
+        <Route path="/privacy"               element={<PrivacyPolicy />} />
+        <Route path="/community-guidelines"  element={<CommunityGuidelines />} />
+        <Route path="/hall-of-fame"          element={<HallOfFame />} />
 
         {/* ════════════ HOMEPAGE SUB-PAGES ════════════ */}
         <Route path="/trending" element={<TrendingPage user={user} />} />
@@ -600,17 +598,17 @@ export default function App() {
         <Route path="/seller/dashboard/:tab" element={<SellerDashboard />} />
 
         {/* ════════════ SUBSCRIPTION ════════════ */}
-        <Route path="/seller/subscription"        element={<ProtectedRoute user={user}><SubscriptionRoute /></ProtectedRoute>} />
-        <Route path="/seller/subscription/plans"  element={<ProtectedRoute user={user}><PlansRoute /></ProtectedRoute>} />
+        <Route path="/seller/subscription"            element={<ProtectedRoute user={user}><SubscriptionRoute /></ProtectedRoute>} />
+        <Route path="/seller/subscription/plans"      element={<ProtectedRoute user={user}><PlansRoute /></ProtectedRoute>} />
         <Route path="/subscription/callback/paystack" element={<Payment />} />
 
         {/* ════════════ PROFILE ════════════ */}
-        <Route path="/profile"      element={<ProtectedRoute user={user}><ProfileRoute onLogout={handleLogout} /></ProtectedRoute>} />
-        <Route path="/profile/edit" element={<ProtectedRoute user={user}><EditProfile onProfileUpdate={handleProfileUpdate} /></ProtectedRoute>} />
-        <Route path="/saved"        element={<ProtectedRoute user={user}><SavedItems user={user} /></ProtectedRoute>} />
+        <Route path="/profile"       element={<ProtectedRoute user={user}><ProfileRoute onLogout={handleLogout} /></ProtectedRoute>} />
+        <Route path="/profile/edit"  element={<ProtectedRoute user={user}><EditProfile onProfileUpdate={handleProfileUpdate} /></ProtectedRoute>} />
+        <Route path="/saved"         element={<ProtectedRoute user={user}><SavedItems user={user} /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute user={user}><NotificationsPage user={user} /></ProtectedRoute>} />
-        <Route path="/settings"     element={<ProtectedRoute user={user}><SettingsPage user={user} /></ProtectedRoute>} />
-        <Route path="/minimart/add" element={<ProtectedRoute user={user}><AddProduct user={user} /></ProtectedRoute>} />
+        <Route path="/settings"      element={<ProtectedRoute user={user}><SettingsPage user={user} /></ProtectedRoute>} />
+        <Route path="/minimart/add"  element={<ProtectedRoute user={user}><AddProduct user={user} /></ProtectedRoute>} />
 
         {/* ════════════ MESSAGING ════════════ */}
         <Route path="/conversations"      element={<ProtectedRoute user={user}><MessagesRoute user={user} /></ProtectedRoute>} />
@@ -619,15 +617,14 @@ export default function App() {
         <Route path="/chat/:threadId"     element={<ProtectedRoute user={user}><ChatRoute user={user} /></ProtectedRoute>} />
 
         {/* ════════════ OTHER PROTECTED ════════════ */}
-        <Route path="/coupons"        element={<ProtectedRoute user={user}><CouponsRoute user={user} /></ProtectedRoute>} />
-        <Route path="/airtime-coupons" element={<ProtectedRoute user={user}><AirtimeCoupons user={user} /></ProtectedRoute>} />
-        <Route path="/dashboard"      element={<ProtectedRoute user={user}><Dashboard user={user} /></ProtectedRoute>} />
-        <Route path="/spin"           element={<ProtectedRoute user={user}><SpinWheel user={user} /></ProtectedRoute>} />
-        <Route path="/leaderboard"    element={<ProtectedRoute user={user}><LeaderboardRoute user={user} /></ProtectedRoute>} />
-        <Route path="/hall-of-fame"   element={<HallOfFame />} />
-        <Route path="/verification"   element={<ProtectedRoute user={user}><Verification user={user} /></ProtectedRoute>} />
-        <Route path="/wallet"         element={<ProtectedRoute user={user}><Wallet user={user} /></ProtectedRoute>} />
-        <Route path="/invitation"     element={<ProtectedRoute user={user}><Invitation user={user} /></ProtectedRoute>} />
+        <Route path="/coupons"          element={<ProtectedRoute user={user}><CouponsRoute user={user} /></ProtectedRoute>} />
+        <Route path="/airtime-coupons"  element={<ProtectedRoute user={user}><AirtimeCoupons user={user} /></ProtectedRoute>} />
+        <Route path="/dashboard"        element={<ProtectedRoute user={user}><Dashboard user={user} /></ProtectedRoute>} />
+        <Route path="/spin"             element={<ProtectedRoute user={user}><SpinWheel user={user} /></ProtectedRoute>} />
+        <Route path="/leaderboard"      element={<ProtectedRoute user={user}><LeaderboardRoute user={user} /></ProtectedRoute>} />
+        <Route path="/verification"     element={<ProtectedRoute user={user}><Verification user={user} /></ProtectedRoute>} />
+        <Route path="/wallet"           element={<ProtectedRoute user={user}><Wallet user={user} /></ProtectedRoute>} />
+        <Route path="/invitation"       element={<ProtectedRoute user={user}><Invitation user={user} /></ProtectedRoute>} />
         <Route path="/minimart/post-ad" element={<ProtectedRoute user={user}><PostAds user={user} /></ProtectedRoute>} />
 
         {/* ════════════ HELP CENTER ════════════ */}
@@ -648,11 +645,11 @@ export default function App() {
         <Route path="/faq"                 element={<FAQ user={user} />} />
 
         {/* ════════════ CART / CHECKOUT / ORDERS ════════════ */}
-        <Route path="/shop/cart"             element={<CartPage />} />
-        <Route path="/payment/success"       element={<PaymentSuccess />} />
-        <Route path="/shop/checkout"         element={<ProtectedRoute user={user}><CheckoutPage user={user} /></ProtectedRoute>} />
+        <Route path="/shop/cart"                 element={<CartPage />} />
+        <Route path="/payment/success"           element={<PaymentSuccess />} />
+        <Route path="/shop/checkout"             element={<ProtectedRoute user={user}><CheckoutPage user={user} /></ProtectedRoute>} />
         <Route path="/shop/orders/:orderGroupId" element={<ProtectedRoute user={user}><OrderSuccess user={user} /></ProtectedRoute>} />
-        <Route path="/shop/orders"           element={<ProtectedRoute user={user}><OrderHistory user={user} /></ProtectedRoute>} />
+        <Route path="/shop/orders"               element={<ProtectedRoute user={user}><OrderHistory user={user} /></ProtectedRoute>} />
 
         {/* ════════════ PAYMENT FLOW ════════════ */}
         <Route path="/payment/callback"        element={<FlutterwaveRedirect />} />
@@ -660,7 +657,7 @@ export default function App() {
         <Route path="/payment-failed/:orderId" element={<PaymentFailedPage />} />
 
         {/* ════════════ ADMIN ════════════ */}
-        <Route path="/admin" element={<Navigate to={admin ? "/admin/dashboard" : "/admin/login"} replace />} />
+        <Route path="/admin"                element={<Navigate to={admin ? "/admin/dashboard" : "/admin/login"} replace />} />
         <Route path="/admin/login"          element={admin ? <Navigate to="/admin/dashboard" replace /> : <AdminLogin setAdmin={setAdmin} />} />
         <Route path="/admin/dashboard"      element={<AdminProtectedRoute admin={admin}><AdminDashboard admin={admin} /></AdminProtectedRoute>} />
         <Route path="/admin/dashboard/:tab" element={<AdminProtectedRoute admin={admin}><AdminDashboard admin={admin} /></AdminProtectedRoute>} />
