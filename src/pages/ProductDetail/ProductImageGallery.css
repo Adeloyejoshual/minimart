@@ -1,7 +1,9 @@
 /* ═══════════════════════════════════════════════════════════
-   ProductImageGallery — fast progressive loading
+   ProductImageGallery.css
+   Progressive image loading gallery
 ═══════════════════════════════════════════════════════════ */
 
+/* ── Root ──────────────────────────────────────────────── */
 .pig {
   width:         100%;
   background:    var(--bg);
@@ -11,22 +13,42 @@
 
 /* ── Main image area ───────────────────────────────────── */
 .pig-main {
-  position:    relative;
-  width:       100%;
-  aspect-ratio: 4 / 3;
-  overflow:    hidden;
-  background:  var(--bg);
-  cursor:      pointer;
+  position:      relative;
+  width:         100%;
+  aspect-ratio:  4 / 3;
+  overflow:      hidden;
+  background:    var(--bg);
+  cursor:        pointer;
+  outline:       none;
   -webkit-user-select: none;
-  user-select: none;
-  touch-action: pan-y;
+  user-select:   none;
+  touch-action:  pan-y;
 }
 
 @media (min-width: 480px)  { .pig-main { aspect-ratio: 16 / 10; } }
 @media (min-width: 768px)  { .pig-main { aspect-ratio: 16 / 9;  } }
-@media (min-width: 1024px) { .pig-main { max-height: 460px; aspect-ratio: unset; } }
+@media (min-width: 1024px) {
+  .pig-main {
+    max-height:   460px;
+    aspect-ratio: unset;
+  }
+}
 
-/* Blur placeholder */
+/* Focus ring — keyboard only */
+.pig-main:focus-visible {
+  outline:        2px solid var(--o);
+  outline-offset: -2px;
+}
+
+/* ── Image slot (positions blur + full image) ──────────── */
+.pig-img-slot {
+  position: absolute;
+  inset:    0;
+  width:    100%;
+  height:   100%;
+}
+
+/* ── Blur placeholder ──────────────────────────────────── */
 .pig-blur {
   position:   absolute;
   inset:      0;
@@ -34,11 +56,11 @@
   height:     100%;
   object-fit: cover;
   filter:     blur(20px);
-  transform:  scale(1.1);
+  transform:  scale(1.1);   /* hide blur edge artefacts */
   z-index:    1;
 }
 
-/* Shimmer (fallback when no tiny URL) */
+/* ── Shimmer (no tiny URL available — R2 / S3 / custom CDN) */
 .pig-shimmer {
   position:        absolute;
   inset:           0;
@@ -54,84 +76,89 @@
 }
 
 @keyframes pig-shimmer {
-  0%   { background-position: 200% 0; }
+  0%   { background-position:  200% 0; }
   100% { background-position: -200% 0; }
 }
 
-/* Full image */
+/* ── Full image ────────────────────────────────────────── */
 .pig-img {
-  position:   relative;
+  position:   absolute;
+  inset:      0;
   width:      100%;
   height:     100%;
   object-fit: contain;
   display:    block;
-  background: var(--bg);
+  background: transparent;
   opacity:    0;
   z-index:    2;
-  transition: opacity 300ms ease;
+  transition: opacity 320ms ease;
 }
 
 .pig-img--loaded {
   opacity: 1;
 }
 
-/* Tap hint */
+/* ── Tap hint ──────────────────────────────────────────── */
 .pig-tap-hint {
-  position:        absolute;
-  bottom:          12px;
-  left:            50%;
-  transform:       translateX(-50%);
-  z-index:         4;
-  display:         flex;
-  align-items:     center;
-  gap:             5px;
-  font-size:       11px;
-  font-weight:     600;
-  color:           rgba(255, 255, 255, .80);
-  background:      rgba(20, 18, 16, .45);
-  padding:         5px 14px;
-  border-radius:   var(--r-pill, 999px);
-  backdrop-filter: blur(6px);
+  position:             absolute;
+  bottom:               12px;
+  left:                 50%;
+  transform:            translateX(-50%);
+  z-index:              4;
+  display:              flex;
+  align-items:          center;
+  gap:                  5px;
+  font-size:            11px;
+  font-weight:          600;
+  color:                rgba(255, 255, 255, .85);
+  background:           rgba(20, 18, 16, .48);
+  padding:              5px 14px;
+  border-radius:        var(--r-pill, 999px);
+  backdrop-filter:      blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  pointer-events:  none;
-  opacity:         1;
-  transition:      opacity 300ms ease;
+  pointer-events:       none;
+  white-space:          nowrap;
+  opacity:              1;
+  transition:           opacity 280ms ease;
 }
 
+/* Hide hint on hover (desktop) */
 .pig-main:hover .pig-tap-hint {
   opacity: 0;
 }
 
 .pig-tap-hint svg {
-  opacity: .80;
+  flex-shrink: 0;
+  opacity:     .85;
 }
 
-/* Arrows */
+/* ── Arrows ────────────────────────────────────────────── */
 .pig-arrow {
-  position:        absolute;
-  top:             50%;
-  transform:       translateY(-50%);
-  z-index:         5;
-  width:           40px;
-  height:          40px;
-  border-radius:   50%;
-  border:          none;
-  background:      var(--glass-strong, rgba(255,255,255,.90));
-  backdrop-filter: blur(10px);
+  position:             absolute;
+  top:                  50%;
+  transform:            translateY(-50%);
+  z-index:              5;
+  width:                40px;
+  height:               40px;
+  border-radius:        50%;
+  border:               none;
+  background:           var(--glass-strong, rgba(255, 255, 255, .90));
+  backdrop-filter:      blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  color:           var(--ink);
-  font-size:       22px;
-  font-weight:     300;
-  display:         flex;
-  align-items:     center;
-  justify-content: center;
-  cursor:          pointer;
-  box-shadow:      0 2px 12px rgba(0, 0, 0, .14);
-  transition:      background 160ms ease,
-                   box-shadow 160ms ease,
-                   transform  120ms ease,
-                   color      160ms ease;
-  line-height:     1;
+  color:                var(--ink);
+  font-size:            22px;
+  font-weight:          300;
+  display:              flex;
+  align-items:          center;
+  justify-content:      center;
+  cursor:               pointer;
+  box-shadow:           0 2px 12px rgba(0, 0, 0, .14);
+  line-height:          1;
+  transition:
+    background  160ms ease,
+    box-shadow  160ms ease,
+    transform   120ms ease,
+    color       160ms ease;
 }
 
 .pig-arrow:hover {
@@ -141,34 +168,49 @@
 }
 
 .pig-arrow:active {
-  transform: translateY(-50%) scale(0.92);
+  transform: translateY(-50%) scale(.92);
 }
 
-.pig-arrow--left  { left: 12px;  }
+.pig-arrow:focus-visible {
+  outline:        2px solid var(--o);
+  outline-offset: 2px;
+}
+
+.pig-arrow--left  { left:  12px; }
 .pig-arrow--right { right: 12px; }
 
 @media (min-width: 768px) {
-  .pig-arrow { width: 44px; height: 44px; font-size: 26px; }
+  .pig-arrow {
+    width:     44px;
+    height:    44px;
+    font-size: 26px;
+  }
 }
 
-/* Counter */
+/* Hide arrows on small touch screens — use swipe instead */
+@media (max-width: 479px) {
+  .pig-arrow { display: none; }
+}
+
+/* ── Counter badge ─────────────────────────────────────── */
 .pig-counter {
-  position:        absolute;
-  top:             12px;
-  right:           12px;
-  z-index:         4;
-  font-size:       11px;
-  font-weight:     600;
-  color:           var(--wh, #fff);
-  background:      rgba(20, 18, 16, .50);
-  padding:         3px 10px;
-  border-radius:   var(--r-pill, 999px);
-  backdrop-filter: blur(6px);
+  position:             absolute;
+  top:                  12px;
+  right:                12px;
+  z-index:              4;
+  font-size:            11px;
+  font-weight:          600;
+  color:                var(--wh, #fff);
+  background:           rgba(20, 18, 16, .52);
+  padding:              3px 10px;
+  border-radius:        var(--r-pill, 999px);
+  backdrop-filter:      blur(6px);
   -webkit-backdrop-filter: blur(6px);
-  letter-spacing:  .3px;
+  letter-spacing:       .3px;
+  pointer-events:       none;
 }
 
-/* Dots */
+/* ── Dot navigation ────────────────────────────────────── */
 .pig-dots {
   position:    absolute;
   bottom:      40px;
@@ -188,27 +230,37 @@
   border:        none;
   cursor:        pointer;
   padding:       0;
-  transition:    all 240ms ease;
   flex-shrink:   0;
+  transition:
+    width       240ms ease,
+    background  240ms ease,
+    border-radius 240ms ease;
 }
 
 .pig-dot--active {
   background:    var(--wh, #fff);
   width:         20px;
   border-radius: var(--r-pill, 999px);
-  box-shadow:    0 1px 4px rgba(0, 0, 0, .20);
+  box-shadow:    0 1px 4px rgba(0, 0, 0, .22);
 }
 
-/* ── Thumbnails ────────────────────────────────────────── */
+.pig-dot:focus-visible {
+  outline:        2px solid var(--wh, #fff);
+  outline-offset: 2px;
+}
+
+/* ── Thumbnail strip ───────────────────────────────────── */
 .pig-thumbs {
-  display:    flex;
-  gap:        7px;
-  padding:    10px 14px;
-  overflow-x: auto;
-  background: var(--wh);
-  border-top: 1px solid var(--bd);
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  display:             flex;
+  gap:                 7px;
+  padding:             10px 14px;
+  overflow-x:          auto;
+  background:          var(--wh, #fff);
+  border-top:          1px solid var(--bd);
+  scroll-snap-type:    x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width:     none;
+  -ms-overflow-style:  none;
 }
 
 .pig-thumbs::-webkit-scrollbar { display: none; }
@@ -216,37 +268,50 @@
 @media (min-width: 768px)  { .pig-thumbs { padding: 10px 20px; gap: 8px; } }
 @media (min-width: 1024px) { .pig-thumbs { padding: 10px 24px; } }
 
+/* ── Thumbnail button ──────────────────────────────────── */
 .pig-thumb {
-  flex-shrink:   0;
-  width:         54px;
-  height:        54px;
-  border-radius: var(--r-sm, 8px);
-  overflow:      hidden;
-  border:        2px solid transparent;
-  cursor:        pointer;
-  padding:       0;
-  background:    var(--bg);
-  opacity:       .55;
-  transition:    border-color 160ms ease,
-                 opacity      160ms ease,
-                 box-shadow   160ms ease;
+  flex-shrink:      0;
+  width:            54px;
+  height:           54px;
+  border-radius:    var(--r-sm, 8px);
+  overflow:         hidden;
+  border:           2px solid transparent;
+  cursor:           pointer;
+  padding:          0;
+  background:       var(--bg);
+  opacity:          .55;
+  scroll-snap-align: center;
+  transition:
+    border-color  160ms ease,
+    opacity       160ms ease,
+    box-shadow    160ms ease;
 }
 
-@media (min-width: 768px) { .pig-thumb { width: 62px; height: 62px; } }
+@media (min-width: 768px) {
+  .pig-thumb { width: 62px; height: 62px; }
+}
 
-.pig-thumb:hover:not(.pig-thumb--active) { opacity: .80; }
+.pig-thumb:hover:not(.pig-thumb--active) {
+  opacity: .82;
+}
 
 .pig-thumb--active {
   border-color: var(--o);
   opacity:      1;
-  box-shadow:   0 0 0 2px var(--o-soft, rgba(255,92,0,.10));
+  box-shadow:   0 0 0 2px var(--o-soft, rgba(255, 92, 0, .12));
+}
+
+.pig-thumb:focus-visible {
+  outline:        2px solid var(--o);
+  outline-offset: 2px;
 }
 
 .pig-thumb img {
-  width:      100%;
-  height:     100%;
-  object-fit: cover;
-  display:    block;
+  width:          100%;
+  height:         100%;
+  object-fit:     cover;
+  display:        block;
+  pointer-events: none;
 }
 
 /* ── Empty state ───────────────────────────────────────── */
@@ -264,16 +329,33 @@
   border-bottom:   1px solid var(--bd);
 }
 
-.pig-empty svg { opacity: .40; }
+.pig-empty svg { opacity: .38; }
 
 /* ── Dark mode ─────────────────────────────────────────── */
 @media (prefers-color-scheme: dark) {
-  .pig-blur { filter: blur(20px) brightness(.6); }
+  .pig-blur {
+    filter: blur(20px) brightness(.55);
+  }
+
+  .pig-arrow {
+    background: rgba(30, 30, 30, .88);
+    color:      var(--wh, #fff);
+  }
+
+  .pig-arrow:hover {
+    background: rgba(40, 40, 40, .96);
+  }
+
+  .pig-thumbs {
+    background: var(--bg);
+  }
 }
 
 /* ── Reduced motion ────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .pig-img,
-  .pig-tap-hint { transition: none; }
-  .pig-shimmer  { animation: none; }
+  .pig-tap-hint,
+  .pig-dot,
+  .pig-thumb       { transition: none; }
+  .pig-shimmer     { animation:  none; }
 }
