@@ -268,8 +268,8 @@ const softSpring = { type: "spring", stiffness: 200, damping: 24 };
 const popSpring  = { type: "spring", stiffness: 420, damping: 22 };
 const viewOnce   = { once: true, amount: 0.12 };
 
-const fadeUp    = { hidden: { opacity: 0, y: 28 },           visible: { opacity: 1, y: 0 } };
-const fadeScale = { hidden: { opacity: 0, scale: 0.88 },     visible: { opacity: 1, scale: 1 } };
+const fadeUp    = { hidden: { opacity: 0, y: 28 },       visible: { opacity: 1, y: 0 } };
+const fadeScale = { hidden: { opacity: 0, scale: 0.88 }, visible: { opacity: 1, scale: 1 } };
 
 const stagger = {
   hidden:  {},
@@ -284,7 +284,6 @@ const cardReveal = {
    ICONS
 ═══════════════════════════════════════════════════════════════ */
 const Icon = {
-  logout:    () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
   chevron:   () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><polyline points="9 18 15 12 9 6"/></svg>,
   dashboard: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/></svg>,
   plus:      () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>,
@@ -310,6 +309,9 @@ const Icon = {
   arrowUp:   () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>,
   eye:       () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
   sparkle:   () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0L14.59 8.41L23 11L14.59 13.59L12 22L9.41 13.59L1 11L9.41 8.41Z"/></svg>,
+  /* ── Meta row icons (replaced emojis) ── */
+  calendar:  () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
+  mapPin:    () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -340,9 +342,6 @@ const resolveImage = (item) => {
 
 /* ═══════════════════════════════════════════════════════════════
    MENU CONFIG
-   ─────────────────────────────────────────────────────────────
-   /help     → HelpCenter.jsx    Browse FAQs, categories, articles
-   /support  → SupportHub.jsx    Tickets, report, dispute, appeals
 ═══════════════════════════════════════════════════════════════ */
 const buildMenuSections = (unreadCount = 0, subStatus = null) => [
   {
@@ -397,20 +396,12 @@ const buildMenuSections = (unreadCount = 0, subStatus = null) => [
         badgeType: "notif",
         desc:      "Stay updated",
       },
-      /* ── Help Center ─────────────────────────────────────
-         Navigates to HelpCenter.jsx
-         Browse FAQs, search articles, view categories
-      ──────────────────────────────────────────────────── */
       {
         to:    "/help",
         Ic:    Icon.help,
         label: "Help Center",
         desc:  "Browse FAQs and articles",
       },
-      /* ── Help & Support ──────────────────────────────────
-         Navigates to SupportHub.jsx
-         Submit tickets, report issues, disputes, appeals
-      ──────────────────────────────────────────────────── */
       {
         to:    "/support",
         Ic:    Icon.support,
@@ -429,7 +420,7 @@ const PullIndicator = memo(function PullIndicator({
   refreshing,
   threshold = 80,
 }) {
-  const progress     = Math.min(pullY / threshold, 1);
+  const progress      = Math.min(pullY / threshold, 1);
   const circumference = 2 * Math.PI * 10;
   const dash          = circumference * progress;
 
@@ -573,9 +564,20 @@ const HeroProfileCard = memo(function HeroProfileCard({
           )}
         </div>
 
+        {/* Meta row — SVG icons instead of emoji */}
         <div className="mp-hero__meta">
-          {joinedLabel && <span>📅 Joined {joinedLabel}</span>}
-          {user?.location_state && <span>📍 {user.location_state}</span>}
+          {joinedLabel && (
+            <span className="mp-hero__meta-item">
+              <span className="mp-hero__meta-icon"><Icon.calendar /></span>
+              Joined {joinedLabel}
+            </span>
+          )}
+          {user?.location_state && (
+            <span className="mp-hero__meta-item">
+              <span className="mp-hero__meta-icon"><Icon.mapPin /></span>
+              {user.location_state}
+            </span>
+          )}
         </div>
       </div>
 
@@ -756,7 +758,7 @@ const MobileListingCard = memo(function MobileListingCard({
   onClick,
   index = 0,
 }) {
-  const img           = resolveImage(item);
+  const img = resolveImage(item);
   const [imgError, setImgError] = useState(false);
 
   return (
@@ -878,11 +880,11 @@ const MobileMenuItem = memo(function MobileMenuItem({
   const isActive = currentPath === to;
 
   const pillCls =
-    badgeType === "notif"    ? "mp-pill mp-pill--notif"
-    : badgeType === "sub"    ? "mp-pill mp-pill--sub"
-    : badge    === "WIN"     ? "mp-pill mp-pill--win"
-    : badge    === "NEW"     ? "mp-pill mp-pill--new"
-    : badge?.startsWith?.("₦") ? "mp-pill mp-pill--money"
+    badgeType === "notif"        ? "mp-pill mp-pill--notif"
+    : badgeType === "sub"        ? "mp-pill mp-pill--sub"
+    : badge    === "WIN"         ? "mp-pill mp-pill--win"
+    : badge    === "NEW"         ? "mp-pill mp-pill--new"
+    : badge?.startsWith?.("₦")  ? "mp-pill mp-pill--money"
     : "mp-pill";
 
   return (
@@ -969,11 +971,11 @@ export default function MobileProfile({ onLogout }) {
     isError: userIsError,
     refetch: refetchUser,
   } = useQuery({
-    queryKey: ["profile-user"],
-    queryFn:  fetchUserData,
+    queryKey : ["profile-user"],
+    queryFn  : fetchUserData,
     staleTime: 2 * 60 * 1000,
-    gcTime:    30 * 60 * 1000,
-    retry: (count, err) =>
+    gcTime   : 30 * 60 * 1000,
+    retry    : (count, err) =>
       err?.response?.status !== 401 &&
       err?.response?.status !== 403 &&
       count < 3,
@@ -984,31 +986,31 @@ export default function MobileProfile({ onLogout }) {
     isLoading: listingsLoading,
     refetch:   refetchListings,
   } = useQuery({
-    queryKey: ["profile-listings"],
-    queryFn:  fetchUserListings,
+    queryKey : ["profile-listings"],
+    queryFn  : fetchUserListings,
     staleTime: 3 * 60 * 1000,
-    gcTime:    30 * 60 * 1000,
-    retry:     1,
-    enabled:   !!getToken(),
+    gcTime   : 30 * 60 * 1000,
+    retry    : 1,
+    enabled  : !!getToken(),
   });
 
   const { data: unreadCount = 0 } = useQuery({
-    queryKey:       ["profile-unread-count"],
-    queryFn:        fetchUnreadCount,
-    staleTime:      60 * 1000,
-    gcTime:         5 * 60 * 1000,
-    retry:          1,
-    enabled:        !!getToken(),
-    refetchInterval: 60 * 1000,
+    queryKey        : ["profile-unread-count"],
+    queryFn         : fetchUnreadCount,
+    staleTime       : 60 * 1000,
+    gcTime          : 5 * 60 * 1000,
+    retry           : 1,
+    enabled         : !!getToken(),
+    refetchInterval : 60 * 1000,
   });
 
   const { data: subStatus = null } = useQuery({
-    queryKey: ["profile-subscription-status"],
-    queryFn:  fetchSubscriptionStatus,
+    queryKey : ["profile-subscription-status"],
+    queryFn  : fetchSubscriptionStatus,
     staleTime: 2 * 60 * 1000,
-    gcTime:    10 * 60 * 1000,
-    retry:     1,
-    enabled:   !!getToken(),
+    gcTime   : 10 * 60 * 1000,
+    retry    : 1,
+    enabled  : !!getToken(),
   });
 
   const menuSections = useMemo(
@@ -1040,15 +1042,6 @@ export default function MobileProfile({ onLogout }) {
     }
   }, [userIsError, userError, navigate]);
 
-  /* ── Logout ── */
-  const logout = useCallback(() => {
-    ["marketplace_token", "token", "seller_token"].forEach((k) =>
-      localStorage.removeItem(k)
-    );
-    onLogout?.();
-    navigate("/auth");
-  }, [navigate, onLogout]);
-
   /* ── Retry ── */
   const handleRetry = useCallback(async () => {
     setIsRetrying(true);
@@ -1059,7 +1052,7 @@ export default function MobileProfile({ onLogout }) {
     }
   }, [refetchUser, refetchListings]);
 
-  const joinedLabel = fmtJoined(user?.created_at || user?.joined_at);
+  const joinedLabel   = fmtJoined(user?.created_at || user?.joined_at);
 
   const errorMessage =
     userIsError &&
@@ -1081,7 +1074,6 @@ export default function MobileProfile({ onLogout }) {
           menuRef={menuRef}
           onEdit={() => navigate("/profile/edit")}
           onNotif={() => navigate("/notifications")}
-          onLogout={logout}
         />
       </div>
 
@@ -1182,14 +1174,6 @@ export default function MobileProfile({ onLogout }) {
               </motion.div>
             </motion.section>
           ))}
-
-          <motion.button
-            className="mp-logout"
-            onClick={logout}
-            whileTap={{ scale: 0.96 }}
-          >
-            <Icon.logout /> <span>Log Out</span>
-          </motion.button>
         </div>
 
         <p className="mp-footer">
