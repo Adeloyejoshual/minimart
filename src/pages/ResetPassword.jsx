@@ -20,7 +20,7 @@ import "../styles/ResetPassword.css";
 ════════════════════════════════════════════════════════════ */
 const API                = `${import.meta.env.VITE_API_BASE_URL}/api/auth`;
 const AUTO_LOGIN_SECONDS = 3;
-const MIN_STRENGTH_SCORE = 4; // all 4 checks must pass
+const MIN_STRENGTH_SCORE = 3; // matches isStrongEnough() in resetPassword.js
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
@@ -30,12 +30,16 @@ function maskEmail(email) {
   const [local, domain] = email.split("@");
   if (local.length <= 2)
     return `${local[0]}${"•".repeat(Math.max(local.length - 1, 1))}@${domain}`;
-  return `${local[0]}${"•".repeat(Math.min(local.length - 2, 5))}${local[local.length - 1]}@${domain}`;
+  return (
+    `${local[0]}${"•".repeat(Math.min(local.length - 2, 5))}` +
+    `${local[local.length - 1]}@${domain}`
+  );
 }
 
 /* ════════════════════════════════════════════════════════════
    PASSWORD STRENGTH
-   Rules must match validatePassword() in resetPassword.js
+   Mirrors isStrongEnough() in resetPassword.js:
+     8+ chars + uppercase + number = score 3 = "Good"
 ════════════════════════════════════════════════════════════ */
 const STRENGTH_LEVELS = [
   { score: 0, label: "",       color: "transparent" },
@@ -59,53 +63,95 @@ function getStrength(pw) {
 }
 
 /* ════════════════════════════════════════════════════════════
+   ERROR CLASSIFIER
+   Maps server response → what to show the user.
+
+   This backend (resetPassword.js) uses these codes:
+     RESET_TOKEN_INVALID  → JWT bad/expired
+     RESET_SESSION_INVALID → OTP already used / expired
+     (no code)            → same password, strength, etc.
+
+   Rule: NEVER show a "request new code" link for same-password
+   or strength errors — those are fixable on the current form.
+════════════════════════════════════════════════════════════ */
+function classifyError(err) {
+  const status  = err.response?.status  ?? 0;
+  const code    = err.response?.data?.code ?? "";
+  const message = err.response?.data?.message ?? "Reset failed. Please try again.";
+
+  const isSessionGone =
+    code === "RESET_TOKEN_INVALID"   ||
+    code === "RESET_SESSION_INVALID" ||
+    status === 401;
+
+  /*
+    "same password" detection — backend sends a plain 400 with no
+    error code; we match on message text as a fallback.
+  */
+  const isSamePassword =
+    message.toLowerCase().includes("different from your current");
+
+  return { message, isSessionGone, isSamePassword };
+}
+
+/* ════════════════════════════════════════════════════════════
    ICONS
 ════════════════════════════════════════════════════════════ */
 const Ic = {
   Lock: ({ s = 17, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+         stroke={c} strokeWidth="1.6" strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
       <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
       <path d="M7 11V7a5 5 0 0110 0v4"/>
     </svg>
   ),
   Eye: ({ s = 17 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
       <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
       <circle cx="12" cy="12" r="3"/>
     </svg>
   ),
   EyeOff: ({ s = 17 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+         stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8
+               a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4
+               c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07
+               a3 3 0 11-4.24-4.24"/>
       <line x1="1" y1="1" x2="23" y2="23"/>
     </svg>
   ),
   Check: ({ s = 14, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+         stroke={c} strokeWidth="2.5" strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
       <polyline points="20 6 9 17 4 12"/>
     </svg>
   ),
   ArrowRight: ({ s = 17 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
       <line x1="5" y1="12" x2="19" y2="12"/>
       <polyline points="12 5 19 12 12 19"/>
     </svg>
   ),
   ArrowLeft: ({ s = 16 }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+         stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
       <line x1="19" y1="12" x2="5" y2="12"/>
       <polyline points="12 19 5 12 12 5"/>
     </svg>
   ),
   Key: ({ s = 26, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+         stroke={c} strokeWidth="1.6" strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
       <circle cx="7.5" cy="15.5" r="5.5"/>
       <path d="M21 2l-9.6 9.6"/>
       <path d="M15.5 7.5l3 3L22 7l-3-3"/>
@@ -113,7 +159,8 @@ const Ic = {
   ),
   Shield: ({ s = 12, c = "currentColor" }) => (
     <svg width={s} height={s} viewBox="0 0 24 24" fill="none"
-         stroke={c} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+         stroke={c} strokeWidth="1.6" strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
     </svg>
   ),
@@ -151,6 +198,9 @@ function SecurityBadges() {
 ════════════════════════════════════════════════════════════ */
 function StrengthMeter({ pw }) {
   const strength = useMemo(() => getStrength(pw), [pw]);
+  const checks   = strength.checks.length > 0
+    ? strength.checks
+    : PASSWORD_CHECKS.map((c) => ({ label: c.label, met: false }));
 
   return (
     <div className="rp-strength" role="status" aria-live="polite">
@@ -165,14 +215,17 @@ function StrengthMeter({ pw }) {
       </div>
 
       {pw && (
-        <span className="rp-strength__label" style={{ color: strength.color }}
-              aria-label={`Password strength: ${strength.label}`}>
+        <span
+          className="rp-strength__label"
+          style={{ color: strength.color }}
+          aria-label={`Password strength: ${strength.label}`}
+        >
           {strength.label}
         </span>
       )}
 
       <div className="rp-strength__checks" role="list">
-        {(strength.checks.length > 0 ? strength.checks : PASSWORD_CHECKS.map((c) => ({ label: c.label, met: false }))).map((c) => (
+        {checks.map((c) => (
           <span
             key={c.label}
             role="listitem"
@@ -214,7 +267,9 @@ function PasswordField({
     <div className="rp-field">
       <label className="rp-field__label" htmlFor={id}>{label}</label>
 
-      <div className={`rp-field__wrap${matchState === false ? " rp-field__wrap--error" : ""}`}>
+      <div
+        className={`rp-field__wrap${matchState === false ? " rp-field__wrap--error" : ""}`}
+      >
         <span className="rp-field__icon"><Ic.Lock /></span>
         <input
           id={id}
@@ -222,7 +277,12 @@ function PasswordField({
           type={visible ? "text" : "password"}
           value={value}
           onChange={onChange}
-          onKeyDown={(e) => { if (e.key === "Enter" && onEnter) { e.preventDefault(); onEnter(); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && onEnter) {
+              e.preventDefault();
+              onEnter();
+            }
+          }}
           placeholder={placeholder}
           autoComplete={autoComplete}
           autoCapitalize="none"
@@ -250,7 +310,11 @@ function PasswordField({
         </p>
       )}
       {matchState === false && (
-        <p className="rp-field__match rp-field__match--error" role="alert" id={describedBy}>
+        <p
+          className="rp-field__match rp-field__match--error"
+          role="alert"
+          id={describedBy}
+        >
           Passwords do not match
         </p>
       )}
@@ -281,7 +345,9 @@ function LeftPanel() {
           <div className="rp-illustration__circle">
             <Ic.Key s={80} c="#FF5C00" />
           </div>
-          <h2 className="rp-illustration__title">Almost<br /><em>there!</em></h2>
+          <h2 className="rp-illustration__title">
+            Almost<br /><em>there!</em>
+          </h2>
           <p className="rp-illustration__text">
             Create a strong new password to secure your Loemart account.
             You'll be logged in automatically when you're done.
@@ -327,10 +393,19 @@ export default function ResetPassword({ setUser }) {
   const [showPassword,    setShowPassword]    = useState(false);
   const [showConfirm,     setShowConfirm]     = useState(false);
   const [loading,         setLoading]         = useState(false);
-  const [error,           setError]           = useState("");
-  const [errorCode,       setErrorCode]       = useState("");   // ← tracks server error code
-  const [loginCountdown,  setLoginCountdown]  = useState(AUTO_LOGIN_SECONDS);
-  const [authResult,      setAuthResult]      = useState(null);
+
+  /*
+    error state is now an object so we can carry both the
+    message and the classification without extra useState calls.
+  */
+  const [errorState, setErrorState] = useState({
+    message        : "",
+    isSessionGone  : false,   // token/session invalid → need new code
+    isSamePassword : false,   // same-password rejection → just retype
+  });
+
+  const [loginCountdown, setLoginCountdown] = useState(AUTO_LOGIN_SECONDS);
+  const [authResult,     setAuthResult]     = useState(null);
 
   /* ── Refs ── */
   const countdownRef  = useRef(null);
@@ -341,6 +416,10 @@ export default function ResetPassword({ setUser }) {
   const strength     = useMemo(() => getStrength(password), [password]);
   const allChecksMet = strength.checks.length > 0 && strength.checks.every((c) => c.met);
   const matchState   = confirmPassword ? password === confirmPassword : null;
+
+  const clearError = useCallback(() => {
+    setErrorState({ message: "", isSessionGone: false, isSamePassword: false });
+  }, []);
 
   /* ── Guard: no token → back to forgot-password ── */
   useEffect(() => {
@@ -391,31 +470,38 @@ export default function ResetPassword({ setUser }) {
 
   /* ════════════════════════════════════════════════════════
      SUBMIT
-     Key fixes:
-       1. Field name: `new_password` (matches backend)
-       2. Error code: read `err.response.data.code` to
-          distinguish SAME_PASSWORD from TOKEN_EXPIRED
-          instead of treating every 400 as "expired"
+
+     Backend field name : `password`  (not `new_password`)
+     Backend returns    : { success, message, token, user }
+
+     Error code mapping (matches resetPassword.js exactly):
+       RESET_TOKEN_INVALID   → session gone
+       RESET_SESSION_INVALID → session gone
+       no code, "different"  → same-password rejection
+       anything else         → generic server message
   ════════════════════════════════════════════════════════ */
   const handleSubmit = useCallback(async () => {
-    setError("");
-    setErrorCode("");
+    clearError();
 
-    /* ── Client-side validation ── */
+    /* Client-side guards */
     if (!password) {
-      setError("Please enter a new password.");
+      setErrorState({ message: "Please enter a new password.", isSessionGone: false, isSamePassword: false });
       return;
     }
     if (strength.score < MIN_STRENGTH_SCORE) {
-      setError("Password is too weak. Please meet all the requirements.");
+      setErrorState({
+        message        : "Password is too weak. Please include an uppercase letter and a number.",
+        isSessionGone  : false,
+        isSamePassword : false,
+      });
       return;
     }
     if (!confirmPassword) {
-      setError("Please confirm your new password.");
+      setErrorState({ message: "Please confirm your new password.", isSessionGone: false, isSamePassword: false });
       return;
     }
     if (password !== confirmPassword) {
-      setError("Passwords do not match.");
+      setErrorState({ message: "Passwords do not match.", isSessionGone: false, isSamePassword: false });
       return;
     }
 
@@ -423,43 +509,28 @@ export default function ResetPassword({ setUser }) {
 
     try {
       const { data } = await axios.post(`${API}/reset-password`, {
-        reset_token  : resetToken,
-        new_password : password,   // ✅ FIX 1 — was `password`, must be `new_password`
+        reset_token : resetToken,
+        password,           // ← this backend uses `password` (not `new_password`)
       });
 
       toast.success("Password reset successfully!");
       setStep("done");
 
-      /* Backend returns { success, message } only — auto-login
-         not yet implemented server-side, navigate to /auth */
       if (data.user && data.token) {
         startLoginCountdown(data.user, data.token);
       } else {
-        /* Redirect to login after short delay */
         setTimeout(() => navigate("/auth", { replace: true }), 2_500);
       }
 
     } catch (err) {
-      const msg  = err.response?.data?.message ?? "Reset failed. Please try again.";
-      const code = err.response?.data?.code    ?? "";
-
-      setErrorCode(code);
-
-      /*
-        ✅ FIX 2 — Previously every 400 was shown as "Reset link has expired".
-        Now we read the `code` field from the server response so each error
-        gets the right message:
-
-          SAME_PASSWORD  → "Your new password cannot be the same…"
-          TOKEN_EXPIRED  → redirect CTA to /forgot-password
-          TOKEN_INVALID  → redirect CTA to /forgot-password
-          anything else  → show server message verbatim
-      */
-      setError(msg);
+      setErrorState(classifyError(err));
     } finally {
       setLoading(false);
     }
-  }, [password, confirmPassword, strength.score, resetToken, startLoginCountdown, navigate]);
+  }, [
+    password, confirmPassword, strength.score,
+    resetToken, startLoginCountdown, navigate, clearError,
+  ]);
 
   const handleFormSubmit = (e) => { e.preventDefault(); handleSubmit(); };
 
@@ -485,7 +556,8 @@ export default function ResetPassword({ setUser }) {
                   Your password has been reset successfully.
                   {authResult && (
                     <>
-                      <br />Logging you in in{" "}
+                      <br />
+                      Logging you in in{" "}
                       <strong aria-live="polite">{loginCountdown}s</strong>…
                     </>
                   )}
@@ -511,7 +583,11 @@ export default function ResetPassword({ setUser }) {
               <button
                 type="button"
                 className="rp-submit"
-                onClick={authResult ? handleSkipCountdown : () => navigate("/auth", { replace: true })}
+                onClick={
+                  authResult
+                    ? handleSkipCountdown
+                    : () => navigate("/auth", { replace: true })
+                }
               >
                 {authResult ? "Continue to Loemart" : "Go to login"}
                 <Ic.ArrowRight s={17} />
@@ -531,16 +607,20 @@ export default function ResetPassword({ setUser }) {
 
   /* ════════════════════════════════════════════════════════
      PASSWORD STEP
-     Error rendering:
-       SAME_PASSWORD  → red banner, no redirect CTA (stay on form)
-       TOKEN_EXPIRED
-       TOKEN_INVALID  → red banner + "Request another reset code" link
-       anything else  → red banner only
-  ════════════════════════════════════════════════════════ */
-  const isExpiredOrInvalid =
-    errorCode === "TOKEN_EXPIRED" || errorCode === "TOKEN_INVALID";
 
-  const isSamePassword = errorCode === "SAME_PASSWORD";
+     Error banner rules:
+     ┌──────────────────────┬────────────────────────────────────────┐
+     │ isSessionGone        │ message + "Request new code" → /forgot │
+     │ isSamePassword       │ message only — stay on form, retype    │
+     │ neither              │ message only                           │
+     └──────────────────────┴────────────────────────────────────────┘
+
+     The "Request another reset code" link is shown ONLY when the
+     session is genuinely gone (token expired / already used).
+     It is NOT shown for same-password or strength errors because
+     the user can fix those without a new code.
+  ════════════════════════════════════════════════════════ */
+  const { message: errorMsg, isSessionGone, isSamePassword } = errorState;
 
   return (
     <div className="rp">
@@ -573,13 +653,13 @@ export default function ResetPassword({ setUser }) {
             </header>
 
             {/* Error banner */}
-            {error && (
+            {errorMsg && (
               <div className="rp-error" role="alert" aria-live="assertive">
-                <span className="rp-error__text">{error}</span>
+                <span className="rp-error__text">{errorMsg}</span>
 
                 {/*
-                  Same-password hint — stay on form, no redirect.
-                  User just needs to type a different password.
+                  Same-password: tell user what to do without
+                  sending them away from the form.
                 */}
                 {isSamePassword && (
                   <span className="rp-error__hint">
@@ -588,11 +668,12 @@ export default function ResetPassword({ setUser }) {
                 )}
 
                 {/*
-                  Expired / invalid token — offer a fresh reset link.
+                  Session gone: only now do we offer a new-code link.
+                  This will NOT appear for same-password errors.
                 */}
-                {isExpiredOrInvalid && (
+                {isSessionGone && (
                   <Link to="/forgot-password" className="rp-error__cta">
-                    Request another reset code
+                    Request a new reset code
                     <Ic.ArrowRight s={13} />
                   </Link>
                 )}
@@ -601,12 +682,11 @@ export default function ResetPassword({ setUser }) {
 
             {/* Form */}
             <form onSubmit={handleFormSubmit} className="rp-form" noValidate>
-
               <PasswordField
                 id="rp-new-password"
                 label="New password"
                 value={password}
-                onChange={(e) => { setPassword(e.target.value); setError(""); setErrorCode(""); }}
+                onChange={(e) => { setPassword(e.target.value); clearError(); }}
                 visible={showPassword}
                 onToggleVisible={() => setShowPassword((v) => !v)}
                 showStrength
@@ -619,7 +699,7 @@ export default function ResetPassword({ setUser }) {
                 id="rp-confirm-password"
                 label="Confirm new password"
                 value={confirmPassword}
-                onChange={(e) => { setConfirmPassword(e.target.value); setError(""); setErrorCode(""); }}
+                onChange={(e) => { setConfirmPassword(e.target.value); clearError(); }}
                 visible={showConfirm}
                 onToggleVisible={() => setShowConfirm((v) => !v)}
                 placeholder="Repeat new password"
@@ -635,11 +715,10 @@ export default function ResetPassword({ setUser }) {
                 disabled={loading || !password || !confirmPassword}
                 aria-busy={loading}
               >
-                {loading ? (
-                  <><Spinner /> Updating password…</>
-                ) : (
-                  <>Update password <Ic.ArrowRight s={17} /></>
-                )}
+                {loading
+                  ? <><Spinner /> Updating password…</>
+                  : <>Update password <Ic.ArrowRight s={17} /></>
+                }
               </button>
             </form>
 
