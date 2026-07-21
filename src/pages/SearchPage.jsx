@@ -9,6 +9,12 @@ import {
 } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import TopNav from "../components/TopNav";
+import MasonryCard, {
+  naira,
+  getImageUrl,
+  formatCity,
+  PinIcon,
+} from "../components/MasonryCard";
 import "../styles/SearchPage.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -35,19 +41,8 @@ const SORT_OPTIONS = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPERS
+   HELPERS  — naira, getImageUrl, formatCity come from MasonryCard
    ═══════════════════════════════════════════════════════════════ */
-const naira = (v) => `₦${Number(v).toLocaleString("en-NG")}`;
-
-const getImageUrl = (p) => {
-  if (p.images?.length) return p.images[0];
-  if (p.image) return p.image;
-  return "/placeholder.webp";
-};
-
-const formatCity = (city, state) =>
-  [city, state].filter(Boolean).join(", ");
-
 const timeAgo = (iso) => {
   if (!iso) return "";
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -138,16 +133,6 @@ function SvgChevronRight({ size = 16 }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M9 18l6-6-6-6" />
-    </svg>
-  );
-}
-
-function SvgPin({ size = 12 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
-      <circle cx="12" cy="10" r="3" />
     </svg>
   );
 }
@@ -399,11 +384,12 @@ const SkeletonCard = memo(function SkeletonCard({ view, index }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   PRODUCT CARD
+   PRODUCT CARD — uses naira, getImageUrl, formatCity, PinIcon
+                  from MasonryCard
    ═══════════════════════════════════════════════════════════════ */
 const ProductCard = memo(function ProductCard({ product: p, index, view, active, onHover, onClick }) {
   const disc = calcDiscount(p);
-  const loc = formatCity(p.city, p.state);
+  const loc = formatCity(p);                          // ← from MasonryCard
   const imgCount = p.images?.length || 0;
   const isList = view === "list";
 
@@ -425,7 +411,7 @@ const ProductCard = memo(function ProductCard({ product: p, index, view, active,
       style={{ animationDelay: `${index * 40}ms` }}
       tabIndex={0}
       role="button"
-      aria-label={`${p.title} — ${naira(p.price)}`}
+      aria-label={`${p.title} — ${naira(p.price)}`}       // ← naira from MasonryCard
       onMouseEnter={() => onHover(p)}
       onFocus={() => onHover(p)}
       onClick={() => onClick(p)}
@@ -435,7 +421,7 @@ const ProductCard = memo(function ProductCard({ product: p, index, view, active,
       <div className="sp-card__img-wrap">
         <img
           className="sp-card__img"
-          src={getImageUrl(p)}
+          src={getImageUrl(p)}                              // ← from MasonryCard
           alt={p.title}
           loading="lazy"
           decoding="async"
@@ -481,9 +467,9 @@ const ProductCard = memo(function ProductCard({ product: p, index, view, active,
         )}
 
         <div className="sp-card__price-row">
-          <span className="sp-card__price">{naira(p.price)}</span>
+          <span className="sp-card__price">{naira(p.price)}</span>  {/* ← from MasonryCard */}
           {p.original_price && p.original_price > p.price && (
-            <span className="sp-card__orig">{naira(p.original_price)}</span>
+            <span className="sp-card__orig">{naira(p.original_price)}</span>  {/* ← from MasonryCard */}
           )}
         </div>
 
@@ -499,7 +485,7 @@ const ProductCard = memo(function ProductCard({ product: p, index, view, active,
         <div className="sp-card__foot">
           {loc && (
             <span className="sp-card__loc">
-              <SvgPin size={10} />
+              <PinIcon size={10} />                          {/* ← from MasonryCard */}
               {loc}
             </span>
           )}
@@ -696,7 +682,7 @@ const FilterPanel = memo(function FilterPanel({
         {states.length > 0 && (
           <section className="sp-panel__section">
             <h3 className="sp-panel__label">
-              <SvgPin size={11} />
+              <PinIcon size={11} />                          {/* ← from MasonryCard */}
               Location
             </h3>
             <div className="sp-panel__select-wrap">
@@ -744,7 +730,7 @@ const PreviewPane = memo(function PreviewPane({ product: p, onClose, onNavigate 
   }
 
   const disc = calcDiscount(p);
-  const loc = formatCity(p.city, p.state);
+  const loc = formatCity(p);                              // ← from MasonryCard
 
   return (
     <aside
@@ -767,7 +753,7 @@ const PreviewPane = memo(function PreviewPane({ product: p, onClose, onNavigate 
       <div className="sp-preview__gallery">
         <img
           className="sp-preview__img"
-          src={getImageUrl(p)}
+          src={getImageUrl(p)}                              // ← from MasonryCard
           alt={p.title}
           key={p.id}
         />
@@ -795,10 +781,10 @@ const PreviewPane = memo(function PreviewPane({ product: p, onClose, onNavigate 
         <h2 className="sp-preview__title">{p.title}</h2>
 
         <div className="sp-preview__price-block">
-          <span className="sp-preview__price">{naira(p.price)}</span>
+          <span className="sp-preview__price">{naira(p.price)}</span>  {/* ← from MasonryCard */}
           {p.original_price && p.original_price > p.price && (
             <span className="sp-preview__orig">
-              {naira(p.original_price)}
+              {naira(p.original_price)}                    {/* ← from MasonryCard */}
             </span>
           )}
         </div>
@@ -828,7 +814,7 @@ const PreviewPane = memo(function PreviewPane({ product: p, onClose, onNavigate 
           )}
           {loc && (
             <span className="sp-preview__meta-item">
-              <SvgPin size={11} />
+              <PinIcon size={11} />                        {/* ← from MasonryCard */}
               {loc}
             </span>
           )}
@@ -909,18 +895,10 @@ function EmptyState({ query, onReset }) {
         We searched everywhere but couldn't find a match.
       </p>
       <ul className="sp-empty__tips">
-        <li>
-          <SvgSparkle size={10} /> Try different or fewer keywords
-        </li>
-        <li>
-          <SvgSparkle size={10} /> Check for spelling mistakes
-        </li>
-        <li>
-          <SvgSparkle size={10} /> Remove active filters
-        </li>
-        <li>
-          <SvgSparkle size={10} /> Use broader search terms
-        </li>
+        <li><SvgSparkle size={10} /> Try different or fewer keywords</li>
+        <li><SvgSparkle size={10} /> Check for spelling mistakes</li>
+        <li><SvgSparkle size={10} /> Remove active filters</li>
+        <li><SvgSparkle size={10} /> Use broader search terms</li>
       </ul>
       <button className="sp-empty__btn" onClick={onReset} type="button">
         <SvgClose size={12} />
@@ -1004,15 +982,7 @@ export default function SearchPage({ user }) {
 
   useEffect(() => {
     if (!filterOpenRef.current) {
-      setDraft({
-        sort,
-        category_id,
-        min_price,
-        max_price,
-        condition,
-        state,
-        city,
-      });
+      setDraft({ sort, category_id, min_price, max_price, condition, state, city });
     }
   }, [sort, category_id, min_price, max_price, condition, state, city]);
 
@@ -1071,17 +1041,7 @@ export default function SearchPage({ user }) {
     } finally {
       setLoading(false);
     }
-  }, [
-    query,
-    page,
-    sort,
-    category_id,
-    min_price,
-    max_price,
-    condition,
-    state,
-    city,
-  ]);
+  }, [query, page, sort, category_id, min_price, max_price, condition, state, city]);
 
   useEffect(() => {
     fetchResults();
@@ -1152,9 +1112,7 @@ export default function SearchPage({ user }) {
   );
 
   const handleProductClick = useCallback(
-    (p) => {
-      navigate(`/product/${p.id}`);
-    },
+    (p) => navigate(`/product/${p.id}`),
     [navigate]
   );
 
@@ -1168,62 +1126,28 @@ export default function SearchPage({ user }) {
       rating: "Top Rated",
     };
     if (sort && sort !== "relevance")
-      chips.push({
-        key: "sort",
-        label: SORT_LABELS[sort] || sort,
-        remove: () => removeFilter("sort"),
-      });
+      chips.push({ key: "sort", label: SORT_LABELS[sort] || sort, remove: () => removeFilter("sort") });
     if (condition)
-      chips.push({
-        key: "condition",
-        label: condition,
-        remove: () => removeFilter("condition"),
-      });
+      chips.push({ key: "condition", label: condition, remove: () => removeFilter("condition") });
     if (state)
-      chips.push({
-        key: "state",
-        label: state,
-        remove: () => removeFilter("state"),
-      });
+      chips.push({ key: "state", label: state, remove: () => removeFilter("state") });
     if (city)
-      chips.push({
-        key: "city",
-        label: city,
-        remove: () => removeFilter("city"),
-      });
+      chips.push({ key: "city", label: city, remove: () => removeFilter("city") });
     if (min_price || max_price) {
       const label =
         min_price && max_price
-          ? `${naira(min_price)} – ${naira(max_price)}`
+          ? `${naira(min_price)} – ${naira(max_price)}`      // ← naira from MasonryCard
           : min_price
-          ? `From ${naira(min_price)}`
-          : `Up to ${naira(max_price)}`;
-      chips.push({
-        key: `price-${min_price}-${max_price}`,
-        label,
-        remove: () => removeFilter("min_price", "max_price"),
-      });
+          ? `From ${naira(min_price)}`                        // ← naira from MasonryCard
+          : `Up to ${naira(max_price)}`;                      // ← naira from MasonryCard
+      chips.push({ key: `price-${min_price}-${max_price}`, label, remove: () => removeFilter("min_price", "max_price") });
     }
     if (category_id) {
       const cat = aggregations.categories?.find((c) => c.id === category_id);
-      chips.push({
-        key: "category_id",
-        label: cat?.name || "Category",
-        remove: () => removeFilter("category_id"),
-      });
+      chips.push({ key: "category_id", label: cat?.name || "Category", remove: () => removeFilter("category_id") });
     }
     return chips;
-  }, [
-    sort,
-    condition,
-    state,
-    city,
-    min_price,
-    max_price,
-    category_id,
-    aggregations,
-    removeFilter,
-  ]);
+  }, [sort, condition, state, city, min_price, max_price, category_id, aggregations, removeFilter]);
 
   const totalPages = meta?.total ? Math.ceil(meta.total / PAGE_SIZE) : null;
 
@@ -1239,23 +1163,14 @@ export default function SearchPage({ user }) {
         <div className="sp__header-inner">
           {/* Breadcrumb */}
           <nav className="sp__crumb" aria-label="Breadcrumb">
-            <button
-              className="sp__crumb-link"
-              onClick={() => navigate("/")}
-              type="button"
-            >
-              <SvgHome size={11} />
-              Home
+            <button className="sp__crumb-link" onClick={() => navigate("/")} type="button">
+              <SvgHome size={11} /> Home
             </button>
-            <span className="sp__crumb-sep" aria-hidden="true">
-              <SvgChevronRight size={10} />
-            </span>
+            <span className="sp__crumb-sep" aria-hidden="true"><SvgChevronRight size={10} /></span>
             <span className="sp__crumb-current">Search</span>
             {query && (
               <>
-                <span className="sp__crumb-sep" aria-hidden="true">
-                  <SvgChevronRight size={10} />
-                </span>
+                <span className="sp__crumb-sep" aria-hidden="true"><SvgChevronRight size={10} /></span>
                 <span className="sp__crumb-query">"{query}"</span>
               </>
             )}
@@ -1267,24 +1182,16 @@ export default function SearchPage({ user }) {
               {loading ? (
                 <>
                   Searching <span className="sp__title-q">"{query}"</span>
-                  <span className="sp__dots">
-                    <span>.</span>
-                    <span>.</span>
-                    <span>.</span>
-                  </span>
+                  <span className="sp__dots"><span>.</span><span>.</span><span>.</span></span>
                 </>
               ) : meta && meta.total > 0 ? (
                 <>
-                  <span className="sp__title-count">
-                    {meta.total.toLocaleString()}
-                  </span>{" "}
+                  <span className="sp__title-count">{meta.total.toLocaleString()}</span>{" "}
                   result{meta.total !== 1 ? "s" : ""} for{" "}
                   <span className="sp__title-q">"{query}"</span>
                 </>
               ) : query ? (
-                <>
-                  No results for <span className="sp__title-q">"{query}"</span>
-                </>
+                <>No results for <span className="sp__title-q">"{query}"</span></>
               ) : (
                 "Search"
               )}
@@ -1292,12 +1199,7 @@ export default function SearchPage({ user }) {
 
             {/* Controls */}
             <div className="sp__controls">
-              {/* View toggle */}
-              <div
-                className="sp__view-group"
-                role="group"
-                aria-label="View mode"
-              >
+              <div className="sp__view-group" role="group" aria-label="View mode">
                 {[
                   { v: "grid", icon: <SvgGrid />, label: "Grid" },
                   { v: "masonry", icon: <SvgMasonry />, label: "Masonry" },
@@ -1305,9 +1207,7 @@ export default function SearchPage({ user }) {
                 ].map(({ v, icon, label }) => (
                   <button
                     key={v}
-                    className={`sp__view-btn ${
-                      view === v ? "sp__view-btn--active" : ""
-                    }`}
+                    className={`sp__view-btn ${view === v ? "sp__view-btn--active" : ""}`}
                     onClick={() => setView(v)}
                     aria-label={label}
                     aria-pressed={view === v}
@@ -1318,16 +1218,11 @@ export default function SearchPage({ user }) {
                 ))}
               </div>
 
-              {/* Collapse filter panel */}
               <button
-                className={`sp__toggle-panel ${
-                  filterCollapsed ? "sp__toggle-panel--collapsed" : ""
-                }`}
+                className={`sp__toggle-panel ${filterCollapsed ? "sp__toggle-panel--collapsed" : ""}`}
                 onClick={() => setFilterCollapsed((v) => !v)}
                 type="button"
-                aria-label={
-                  filterCollapsed ? "Show filters" : "Hide filters"
-                }
+                aria-label={filterCollapsed ? "Show filters" : "Hide filters"}
               >
                 <SvgFilter />
                 {filterCollapsed ? "Show Filters" : "Hide Filters"}
@@ -1337,28 +1232,16 @@ export default function SearchPage({ user }) {
 
           {/* Active chips */}
           {activeChips.length > 0 && (
-            <div
-              className="sp__chips"
-              role="list"
-              aria-label="Active filters"
-            >
+            <div className="sp__chips" role="list" aria-label="Active filters">
               {activeChips.map((chip) => (
                 <span key={chip.key} className="sp__chip" role="listitem">
                   {chip.label}
-                  <button
-                    onClick={chip.remove}
-                    type="button"
-                    aria-label={`Remove ${chip.label}`}
-                  >
+                  <button onClick={chip.remove} type="button" aria-label={`Remove ${chip.label}`}>
                     <SvgClose size={10} />
                   </button>
                 </span>
               ))}
-              <button
-                className="sp__chips-clear"
-                onClick={handleReset}
-                type="button"
-              >
+              <button className="sp__chips-clear" onClick={handleReset} type="button">
                 Clear all
               </button>
             </div>
@@ -1367,11 +1250,7 @@ export default function SearchPage({ user }) {
       </header>
 
       {/* ── 3-COLUMN LAYOUT ── */}
-      <div
-        className={`sp__layout ${
-          filterCollapsed ? "sp__layout--collapsed" : ""
-        }`}
-      >
+      <div className={`sp__layout ${filterCollapsed ? "sp__layout--collapsed" : ""}`}>
         {/* Left: Filters */}
         {!filterCollapsed && (
           <FilterPanel
@@ -1385,20 +1264,13 @@ export default function SearchPage({ user }) {
         )}
 
         {/* Center: Results */}
-        <main
-          className="sp__main"
-          aria-live="polite"
-          aria-busy={loading}
-          aria-label="Search results"
-        >
+        <main className="sp__main" aria-live="polite" aria-busy={loading} aria-label="Search results">
           {/* No query */}
           {!query && !loading && (
             <div className="sp__placeholder">
               <SvgSearch size={44} />
               <h2>Start searching</h2>
-              <p>
-                Use the search bar above to find products, brands, and more.
-              </p>
+              <p>Use the search bar above to find products, brands, and more.</p>
             </div>
           )}
 
@@ -1408,11 +1280,7 @@ export default function SearchPage({ user }) {
               <SvgError size={52} />
               <h3>Something went wrong</h3>
               <p>{error}</p>
-              <button
-                className="sp__error-btn"
-                onClick={fetchResults}
-                type="button"
-              >
+              <button className="sp__error-btn" onClick={fetchResults} type="button">
                 Try again
               </button>
             </div>
@@ -1459,12 +1327,7 @@ export default function SearchPage({ user }) {
 
                 <span className="sp__page-info">
                   Page <strong>{page + 1}</strong>
-                  {totalPages && (
-                    <>
-                      {" "}
-                      of <strong>{totalPages}</strong>
-                    </>
-                  )}
+                  {totalPages && <> of <strong>{totalPages}</strong></>}
                 </span>
 
                 <button
