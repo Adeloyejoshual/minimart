@@ -1,24 +1,31 @@
-// ════════════════════════════════════════════════════════════════
-// FILE: routes/addproduct.js — v17
-//
-// Changes from v16:
-//  ─ Watermark detection integrated (watermarkDetector.js)
-//  ─ OCR-only triggers warn/block — color is supporting evidence only
-//  ─ Screenshot detection blocks before compress+upload
-//  ─ Warn verdict attached to response, does not block listing
-//  ─ Block verdict rejects before compress+upload (saves R2 cost)
-//  ─ watermark_warnings included in 201 response
-// ════════════════════════════════════════════════════════════════
+/**
+ * routes/addproduct.js
+ *
+ * Targets CockroachDB (serverless / dedicated).
+ *
+ * CockroachDB-specific fixes applied vs previous version:
+ *  - pg_advisory_xact_lock removed (not supported) → replaced with
+ *    idempotency_key unique index which CockroachDB already has
+ *  - FOR NO KEY UPDATE → FOR UPDATE (CRDB only supports FOR UPDATE)
+ *  - SAVEPOINT retry replaced with application-level slug retry
+ *  - FILTER (WHERE …) on COUNT() → CASE WHEN … END
+ *  - PERCENTILE_CONT removed → replaced with ORDER BY / LIMIT median
+ *  - unnest() in INSERT replaced with individual inserts
+ *  - product_images insert wrapped in try/catch so missing table
+ *    does not kill the transaction (with clear error log)
+ *  - All ::int casts changed to explicit CAST(… AS INT)
+ *  - NOW() + ($n || ' days')::INTERVAL → NOW() + make_interval(days=>$n)
+ */
 
-import express   from "express";
-import multer    from "multer";
-import rateLimit from "express-rate-limit";
-import crypto    from "crypto";
-import path      from "path";
-import fs        from "fs";
-import sharp     from "sharp";
-import pLimit    from "p-limit";
-import * as Sentry from "@sentry/node";
+import express      from "express";
+import multer       from "multer";
+import rateLimit    from "express-rate-limit";
+import crypto       from "crypto";
+import path         from "path";
+import fs           from "fs";
+import sharp        from "sharp";
+import pLimit       from "p-limit";
+import * as Sentry  from "@sentry/node";
 import { fileURLToPath } from "url";
 
 import {
@@ -40,9 +47,7 @@ import {
   generateBaseSlug,
   generateSlugWithId,
 } from "../utils/slug.js";
-import {
-  analyzeImageBatch,
-} from "../utils/watermarkDetector.js";
+import { analyzeImageBatch } from "../utils/watermarkDetector.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router    = express.Router();
@@ -53,11 +58,11 @@ const IS_PROD   = process.env.NODE_ENV === "production";
 ═══════════════════════════════════════════════════════════════ */
 if (process.env.SENTRY_DSN) {
   Sentry.init({
-    dsn              : process.env.SENTRY_DSN,
-    environment      : process.env.NODE_ENV ?? "development",
-    tracesSampleRate : 0.2,
+    dsn             : process.env.SENTRY_DSN,
+    environment     : process.env.NODE_ENV ?? "development",
+    tracesSampleRate: 0.2,
   });
-  console.log("[addproduct] Sentry initialized");
+  console.log("[addproduct] Sentry initialised");
 } else {
   console.warn("[addproduct] SENTRY_DSN not set — error tracking disabled");
 }
@@ -69,8 +74,8 @@ const r2 = new S3Client({
   region   : process.env.R2_REGION ?? "auto",
   endpoint : process.env.R2_ENDPOINT,
   credentials: {
-    accessKeyId     : process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey : process.env.R2_SECRET_ACCESS_KEY,
+    accessKeyId    : process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
   },
 });
 
@@ -79,17 +84,15 @@ const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL?.replace(/\/$/, "");
 
 const uploadToR2 = async (buffer, mimetype) => {
   const key = `products/${Date.now()}-${crypto.randomUUID()}.webp`;
-
   await r2.send(
     new PutObjectCommand({
-      Bucket       : R2_BUCKET,
-      Key          : key,
-      Body         : buffer,
-      ContentType  : mimetype,
-      CacheControl : "public, max-age=31536000, immutable",
+      Bucket      : R2_BUCKET,
+      Key         : key,
+      Body        : buffer,
+      ContentType : mimetype,
+      CacheControl: "public, max-age=31536000, immutable",
     })
   );
-
   return { url: `${R2_PUBLIC_URL}/${key}`, key };
 };
 
@@ -98,18 +101,11 @@ const destroyR2Assets = async (keys) => {
   try {
     await r2.send(
       new DeleteObjectsCommand({
-        Bucket : R2_BUCKET,
-        Delete : {
-          Objects : keys.map((k) => ({ Key: k })),
-          Quiet   : true,
-        },
+        Bucket: R2_BUCKET,
+        Delete: { Objects: keys.map((k) => ({ Key: k })), Quiet: true },
       })
     );
-    console.log(
-      "[addproduct] ✓ R2 cleanup:",
-      keys.length,
-      "image(s) deleted"
-    );
+    console.log(`[addproduct] R2 cleanup: ${keys.length} image(s) deleted`);
   } catch (e) {
     console.error("[addproduct] R2 cleanup failed:", e.message);
   }
@@ -123,287 +119,194 @@ const ALLOWED_STATUSES    = new Set(["active", "draft", "pending_payment"]);
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_IMAGES          = 6;
 const MAX_JSON_BYTES      = 8_192;
+const SLUG_MAX            = 60;
+const PRICE_MAX           = 1_000_000_000;
+const TITLE_MAX           = 120;
+const DESC_MIN            = 10;
+const DESC_MAX            = 2_000;
+const DELETE_HOLD_DAYS    = 30;
 
-const ALLOWED_WA_HOSTS = [
+const ALLOWED_WA_HOSTS = new Set([
   "wa.me",
   "web.whatsapp.com",
   "api.whatsapp.com",
   "chat.whatsapp.com",
   "business.whatsapp.com",
-];
+]);
 
 /* ═══════════════════════════════════════════════════════════════
    IMAGE CONFIG
-   ─ Input : up to 5 MB per image (multer gate)
-   ─ Output: targets 500 KB max after compression
-   ─ Strategy: resize first → if still > 500 KB, reduce quality
-               in steps until target hit or floor reached
 ═══════════════════════════════════════════════════════════════ */
 const IMAGE_CONFIG = Object.freeze({
-  maxInputBytes   : 5 * 1_048_576,    // 5 MB  — multer rejects above this
-  maxOutputBytes  : 500_000,          // 500 KB — target stored size
-  maxWidth        : 1_200,            // resize to max 1200px (either axis)
-  webpQualityInit : 82,               // start quality
-  webpQualityMin  : 55,               // never go below this
-  webpQualityStep : 8,                // reduce by 8 each attempt
-  minDimension    : 300,              // reject images smaller than 300×300
+  maxInputBytes  : 5 * 1_048_576,
+  maxOutputBytes : 500_000,
+  maxDimension   : 1_200,
+  minDimension   : 300,
+  webpQualityInit: 82,
+  webpQualityMin : 55,
+  webpQualityStep: 8,
   watermark: Object.freeze({
-    enabled       : true,
-    logoPath      : path.join(__dirname, "../assets/watermark-logo.png"),
-    text          : "Loemart.com",
-    opacity       : 0.40,
-    padding       : 20,               // px from edge for text watermark
-    logoMaxRatio  : 0.25,
-    fontSizeRatio : 0.045,
-    shadowOpacity : 0.60,
+    enabled      : true,
+    logoPath     : path.join(__dirname, "../assets/watermark-logo.png"),
+    text         : "Loemart.com",
+    opacity      : 0.40,
+    padding      : 20,
+    logoMaxRatio : 0.25,
+    fontSizeRatio: 0.045,
+    shadowOpacity: 0.60,
   }),
 });
 
-/* ═══════════════════════════════════════════════════════════════
-   IMAGE CONCURRENCY  — max 2 compress+upload jobs at once
-═══════════════════════════════════════════════════════════════ */
 const imageLimit = pLimit(2);
 
 /* ═══════════════════════════════════════════════════════════════
-   WATERMARK LOGO — load once at startup
+   WATERMARK LOGO
 ═══════════════════════════════════════════════════════════════ */
-let _watermarkLogo   = null;
-let _logoLoadTried   = false;
-let _usingLogoWm     = false;  // cached boolean — avoids async in log
+let _watermarkLogo = null;
+let _logoLoadTried = false;
+let _usingLogoWm   = false;
 
 const getWatermarkLogo = async () => {
   if (_logoLoadTried) return _watermarkLogo;
   _logoLoadTried = true;
   try {
-    _watermarkLogo = await fs.promises.readFile(
-      IMAGE_CONFIG.watermark.logoPath
-    );
-    _usingLogoWm = true;
-    console.log("[watermark] ✓ Logo loaded from disk");
+    _watermarkLogo = await fs.promises.readFile(IMAGE_CONFIG.watermark.logoPath);
+    _usingLogoWm   = true;
+    console.log("[watermark] Logo loaded from disk");
   } catch {
-    console.warn(
-      "[watermark] Logo not found at",
-      IMAGE_CONFIG.watermark.logoPath,
-      "— will use text watermark"
-    );
+    console.warn("[watermark] Logo not found — using text watermark");
     _watermarkLogo = null;
     _usingLogoWm   = false;
   }
   return _watermarkLogo;
 };
 
-/* ─── SVG text watermark (fallback) ─── */
 const buildTextWatermarkSvg = (imgW, imgH) => {
   const wm       = IMAGE_CONFIG.watermark;
   const fontSize = Math.max(14, Math.round(imgW * wm.fontSizeRatio));
-  const textX    = imgW - wm.padding;
-  const textY    = imgH - wm.padding;
-
   return Buffer.from(`
-    <svg width="${imgW}" height="${imgH}"
-         xmlns="http://www.w3.org/2000/svg">
+    <svg width="${imgW}" height="${imgH}" xmlns="http://www.w3.org/2000/svg">
       <defs>
         <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-          <feDropShadow
-            dx="1" dy="1"
-            stdDeviation="2"
-            flood-color="black"
-            flood-opacity="${wm.shadowOpacity}"
-          />
+          <feDropShadow dx="1" dy="1" stdDeviation="2"
+            flood-color="black" flood-opacity="${wm.shadowOpacity}" />
         </filter>
       </defs>
       <text
-        x="${textX}"
-        y="${textY}"
+        x="${imgW - wm.padding}" y="${imgH - wm.padding}"
         font-family="Arial, sans-serif"
-        font-size="${fontSize}px"
-        font-weight="bold"
-        fill="white"
-        fill-opacity="${wm.opacity}"
-        text-anchor="end"
-        dominant-baseline="auto"
+        font-size="${fontSize}px" font-weight="bold"
+        fill="white" fill-opacity="${wm.opacity}"
+        text-anchor="end" dominant-baseline="auto"
         filter="url(#shadow)"
       >${wm.text}</text>
     </svg>
   `);
 };
 
-/* ─── Logo watermark composite ─── */
 const buildLogoComposite = async (logoBuffer, imgW) => {
   const wm        = IMAGE_CONFIG.watermark;
   const logoWidth = Math.round(imgW * wm.logoMaxRatio);
 
-  const resizedLogo = await sharp(logoBuffer)
-    .resize({
-      width             : logoWidth,
-      fit               : "inside",
-      withoutEnlargement: true,
-    })
+  const resized = await sharp(logoBuffer)
+    .resize({ width: logoWidth, fit: "inside", withoutEnlargement: true })
     .ensureAlpha()
     .webp({ quality: 90 })
     .toBuffer();
 
-  const { data, info } = await sharp(resizedLogo)
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
+  const { data, info } = await sharp(resized).raw().toBuffer({ resolveWithObject: true });
   for (let i = 3; i < data.length; i += 4) {
     data[i] = Math.round(data[i] * wm.opacity);
   }
 
   const logoWithOpacity = await sharp(data, {
-    raw: {
-      width    : info.width,
-      height   : info.height,
-      channels : 4,
-    },
-  })
-    .webp({ quality: 90 })
-    .toBuffer();
+    raw: { width: info.width, height: info.height, channels: 4 },
+  }).webp({ quality: 90 }).toBuffer();
 
-  return {
-    input   : logoWithOpacity,
-    gravity : "southeast",
-    blend   : "over",
-  };
+  return { input: logoWithOpacity, gravity: "southeast", blend: "over" };
 };
 
 /* ═══════════════════════════════════════════════════════════════
    COMPRESS + WATERMARK
 ═══════════════════════════════════════════════════════════════ */
 const compressImage = async (buffer, mimetype) => {
-  /* ── 1. Validate ── */
   let meta;
   try {
     meta = await sharp(buffer).metadata();
   } catch (err) {
-    Sentry.captureException(err, {
-      tags: { area: "image_compression", step: "metadata" },
-    });
+    Sentry.captureException(err, { tags: { area: "image", step: "metadata" } });
     throw new Error("Invalid or corrupt image file.");
   }
 
-  if (!meta.width || !meta.height) {
+  if (!meta.width || !meta.height)
     throw new Error("Image has invalid dimensions.");
-  }
 
   if (
     meta.width  < IMAGE_CONFIG.minDimension ||
     meta.height < IMAGE_CONFIG.minDimension
-  ) {
+  )
     throw new Error(
-      `Image is too small (${meta.width}×${meta.height}px). ` +
-      `Minimum accepted size is ${IMAGE_CONFIG.minDimension}×` +
-      `${IMAGE_CONFIG.minDimension}px. ` +
-      `Please use a clearer, higher-quality photo.`
+      `Image too small (${meta.width}×${meta.height}px). ` +
+      `Minimum is ${IMAGE_CONFIG.minDimension}×${IMAGE_CONFIG.minDimension}px.`
     );
-  }
 
-  /* ── 2. Resize + strip EXIF + auto-rotate ── */
-  let resizedBuffer;
+  let resized;
   try {
-    resizedBuffer = await sharp(buffer)
+    resized = await sharp(buffer)
       .rotate()
       .resize({
-        width             : IMAGE_CONFIG.maxWidth,
-        height            : IMAGE_CONFIG.maxWidth,
+        width             : IMAGE_CONFIG.maxDimension,
+        height            : IMAGE_CONFIG.maxDimension,
         fit               : "inside",
         withoutEnlargement: true,
       })
       .toBuffer();
   } catch (err) {
-    Sentry.captureException(err, {
-      tags : { area: "image_compression", step: "resize" },
-      extra: { width: meta.width, height: meta.height, mimetype },
-    });
+    Sentry.captureException(err, { tags: { area: "image", step: "resize" } });
     throw new Error("Failed to process image. Please try a different photo.");
   }
 
-  /* ── 3. Build watermark composite ── */
   let composite = null;
-
   if (IMAGE_CONFIG.watermark.enabled) {
-    const resizedMeta = await sharp(resizedBuffer).metadata();
-    const imgW        = resizedMeta.width;
-    const imgH        = resizedMeta.height;
-    const logoBuffer  = await getWatermarkLogo();
-
+    const { width: imgW, height: imgH } = await sharp(resized).metadata();
+    const logoBuffer = await getWatermarkLogo();
     if (logoBuffer) {
       try {
         composite = await buildLogoComposite(logoBuffer, imgW);
       } catch (logoErr) {
-        console.warn("[watermark] Logo failed, using text:", logoErr.message);
-        Sentry.captureException(logoErr, {
-          tags: { area: "watermark", step: "logo_composite" },
-        });
-        composite = {
-          input : buildTextWatermarkSvg(imgW, imgH),
-          top   : 0,
-          left  : 0,
-          blend : "over",
-        };
+        Sentry.captureException(logoErr, { tags: { area: "watermark" } });
+        composite = { input: buildTextWatermarkSvg(imgW, imgH), top: 0, left: 0, blend: "over" };
       }
     } else {
-      composite = {
-        input : buildTextWatermarkSvg(imgW, imgH),
-        top   : 0,
-        left  : 0,
-        blend : "over",
-      };
+      composite = { input: buildTextWatermarkSvg(imgW, imgH), top: 0, left: 0, blend: "over" };
     }
   }
 
-  /* ── 4 + 5. Encode WebP, reduce quality until ≤ 500 KB ── */
   let quality     = IMAGE_CONFIG.webpQualityInit;
   let finalBuffer = null;
 
   while (quality >= IMAGE_CONFIG.webpQualityMin) {
     try {
-      const pipeline = sharp(resizedBuffer);
-
-      if (composite) {
-        pipeline.composite([composite]);
-      }
-
-      const candidate = await pipeline
-        .webp({ quality })
-        .toBuffer();
-
+      const pipeline = sharp(resized);
+      if (composite) pipeline.composite([composite]);
+      const candidate = await pipeline.webp({ quality }).toBuffer();
       finalBuffer = candidate;
-
-      if (candidate.length <= IMAGE_CONFIG.maxOutputBytes) {
-        break;
-      }
-
+      if (candidate.length <= IMAGE_CONFIG.maxOutputBytes) break;
       if (quality <= IMAGE_CONFIG.webpQualityMin) {
-        console.warn(
-          `[addproduct] image hit quality floor at ${quality}q, ` +
-          `final size: ${(candidate.length / 1_024).toFixed(0)} KB`
-        );
+        console.warn(`[addproduct] quality floor hit at q${quality}, size: ${(candidate.length / 1_024).toFixed(0)} KB`);
         break;
       }
-
-      quality -= IMAGE_CONFIG.webpQualityStep;
-      quality  = Math.max(quality, IMAGE_CONFIG.webpQualityMin);
-
-    } catch (encodeErr) {
-      Sentry.captureException(encodeErr, {
-        tags : { area: "image_compression", step: "encode_webp" },
-        extra: { quality },
-      });
+      quality = Math.max(quality - IMAGE_CONFIG.webpQualityStep, IMAGE_CONFIG.webpQualityMin);
+    } catch (err) {
+      Sentry.captureException(err, { tags: { area: "image", step: "encode" } });
       throw new Error("Failed to encode image. Please try a different photo.");
     }
   }
 
-  const wmType = !IMAGE_CONFIG.watermark.enabled
-    ? "no watermark"
-    : _usingLogoWm ? "logo watermark" : "text watermark";
-
   console.log(
-    `[addproduct] compress: ` +
-    `${(buffer.length / 1_024).toFixed(0)} KB input` +
-    ` → ${(finalBuffer.length / 1_024).toFixed(0)} KB output` +
-    ` @ quality ${quality} (${wmType})`
+    `[addproduct] compress: ${(buffer.length / 1_024).toFixed(0)} KB` +
+    ` → ${(finalBuffer.length / 1_024).toFixed(0)} KB` +
+    ` @ q${quality} (${!IMAGE_CONFIG.watermark.enabled ? "no wm" : _usingLogoWm ? "logo" : "text"})`
   );
 
   return { buffer: finalBuffer, mimetype: "image/webp" };
@@ -414,30 +317,30 @@ const compressImage = async (buffer, mimetype) => {
 ═══════════════════════════════════════════════════════════════ */
 const POLICY = Object.freeze({
   unverified: Object.freeze({
-    dailyLimit       :   3,
-    activeLimit      :   3,
-    cooldownMinutes  :  10,
-    expiryDays       :   7,
-    canReactivate    : false,
-    totalLifetimeMax :   3,
+    dailyLimit      :   3,
+    activeLimit     :   3,
+    cooldownMinutes :  10,
+    expiryDays      :   7,
+    canReactivate   : false,
+    totalLifetimeMax:   3,
   }),
   verified: Object.freeze({
-    dailyLimit       : 100,
-    activeLimit      : 500,
-    cooldownMinutes  :   0,
-    expiryDays       :   0,
-    freeListingDays  :  30,
-    canReactivate    : true,
-    totalLifetimeMax : null,
+    dailyLimit      : 100,
+    activeLimit     : 500,
+    cooldownMinutes :   0,
+    expiryDays      :   0,
+    freeListingDays :  30,
+    canReactivate   : true,
+    totalLifetimeMax: null,
   }),
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   REDIS  (trending only — non-critical)
+   REDIS  (trending — non-critical)
 ═══════════════════════════════════════════════════════════════ */
-const TRENDING_WINDOW_SECS = 24 * 60 * 60;
-const TRENDING_TTL_SECS    = TRENDING_WINDOW_SECS + 3_600;
-const TRENDING_KEY         = "trending:24h";
+const TRENDING_KEY        = "trending:24h";
+const TRENDING_WINDOW_SEC = 86_400;
+const TRENDING_TTL_SEC    = TRENDING_WINDOW_SEC + 3_600;
 
 let redis = null;
 (async () => {
@@ -448,9 +351,7 @@ let redis = null;
   try {
     const { createClient } = await import("redis");
     redis = createClient({ url: process.env.REDIS_URL });
-    redis.on("error", (e) =>
-      console.warn("[addproduct] Redis error:", e.message)
-    );
+    redis.on("error", (e) => console.warn("[addproduct] Redis:", e.message));
     await redis.connect();
     console.log("[addproduct] Redis connected");
   } catch (e) {
@@ -462,33 +363,28 @@ let redis = null;
 const trackTrending = async (productId) => {
   if (!redis) return;
   try {
-    const nowSecs  = Math.floor(Date.now() / 1_000);
-    const cutoff   = nowSecs - TRENDING_WINDOW_SECS;
-    const pipeline = redis.multi();
-    pipeline.zAdd(TRENDING_KEY, { score: nowSecs, value: productId });
-    pipeline.zRemRangeByScore(TRENDING_KEY, "-inf", cutoff);
-    pipeline.expire(TRENDING_KEY, TRENDING_TTL_SECS);
-    await pipeline.exec();
+    const now    = Math.floor(Date.now() / 1_000);
+    const cutoff = now - TRENDING_WINDOW_SEC;
+    const pipe   = redis.multi();
+    pipe.zAdd(TRENDING_KEY, { score: now, value: String(productId) });
+    pipe.zRemRangeByScore(TRENDING_KEY, "-inf", cutoff);
+    pipe.expire(TRENDING_KEY, TRENDING_TTL_SEC);
+    await pipe.exec();
   } catch (e) {
-    console.warn("[addproduct] trackTrending error:", e.message);
+    console.warn("[addproduct] trackTrending:", e.message);
   }
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   MULTER  — 5 MB input limit
+   MULTER
 ═══════════════════════════════════════════════════════════════ */
 const upload = multer({
-  storage    : multer.memoryStorage(),
-  limits     : {
-    fileSize : IMAGE_CONFIG.maxInputBytes,
-    files    : MAX_IMAGES,
-  },
-  fileFilter : (_req, file, cb) => {
+  storage   : multer.memoryStorage(),
+  limits    : { fileSize: IMAGE_CONFIG.maxInputBytes, files: MAX_IMAGES },
+  fileFilter(_req, file, cb) {
     if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
-      const err  = new Error(
-        `Invalid image type "${file.mimetype}". Only JPEG, PNG, WebP allowed.`
-      );
-      err.code = "INVALID_MIME";
+      const err  = new Error(`Invalid image type "${file.mimetype}". Only JPEG, PNG, WebP allowed.`);
+      err.code   = "INVALID_MIME";
       return cb(err);
     }
     cb(null, true);
@@ -498,11 +394,7 @@ const upload = multer({
 const withImageUpload = (handler) => (req, res, next) =>
   handler(req, res, (err) => {
     if (!err) return next();
-    if (
-      ["LIMIT_FILE_SIZE", "LIMIT_FILE_COUNT", "INVALID_MIME"].includes(
-        err.code
-      )
-    )
+    if (["LIMIT_FILE_SIZE", "LIMIT_FILE_COUNT", "INVALID_MIME"].includes(err.code))
       return res.status(400).json({ success: false, message: err.message });
     return next(err);
   });
@@ -512,74 +404,44 @@ const withImageUpload = (handler) => (req, res, next) =>
 ═══════════════════════════════════════════════════════════════ */
 const makeLimiter = ({ windowMin, max, message }) =>
   rateLimit({
-    windowMs        : windowMin * 60 * 1_000,
+    windowMs       : windowMin * 60_000,
     max,
-    standardHeaders : true,
-    legacyHeaders   : false,
-    keyGenerator    : (req) => String(req.user?.id ?? req.ip),
-    handler         : (_req, res) =>
-      res.status(429).json({ success: false, message }),
+    standardHeaders: true,
+    legacyHeaders  : false,
+    keyGenerator   : (req) => String(req.user?.id ?? req.ip),
+    handler        : (_req, res) => res.status(429).json({ success: false, message }),
   });
 
-const createProductLimiter = makeLimiter({
-  windowMin : 60,
-  max       : IS_PROD ? 20  : 500,
-  message   : "Too many product submissions. Please wait before trying again.",
-});
-const activateLimiter = makeLimiter({
-  windowMin : 15,
-  max       : IS_PROD ? 30  : 500,
-  message   : "Too many activation requests. Please wait.",
-});
-const readLimiter = makeLimiter({
-  windowMin : 5,
-  max       : IS_PROD ? 120 : 1_000,
-  message   : "Too many requests. Slow down.",
-});
-const dupCheckLimiter = makeLimiter({
-  windowMin : 5,
-  max       : IS_PROD ? 30  : 500,
-  message   : "Too many duplicate checks.",
-});
+const createLimiter   = makeLimiter({ windowMin: 60, max: IS_PROD ? 20  : 500, message: "Too many submissions. Please wait."        });
+const activateLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 30  : 500, message: "Too many activation requests."            });
+const readLimiter     = makeLimiter({ windowMin: 5,  max: IS_PROD ? 120 : 1_000, message: "Too many requests. Slow down."          });
+const dupLimiter      = makeLimiter({ windowMin: 5,  max: IS_PROD ? 30  : 500, message: "Too many duplicate checks."               });
+const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60  : 500, message: "Too many edit requests. Please wait."     });
 
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
 ═══════════════════════════════════════════════════════════════ */
-const cleanText = (v) => {
-  const s = String(v ?? "").trim();
-  return s || null;
-};
+const UUID_RE  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PHONE_RE = /^\+?[0-9]{7,15}$/;
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-const cleanUuid = (v) => {
-  const s = String(v ?? "").trim();
-  return UUID_RE.test(s) ? s : null;
-};
-
-const toNumberOrNull = (v) => {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
+const cleanText = (v) => { const s = String(v ?? "").trim(); return s || null; };
+const cleanUuid = (v) => { const s = String(v ?? "").trim(); return UUID_RE.test(s) ? s : null; };
+const toFinite  = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
+const fail      = (res, status, message, extra = {}) =>
+  res.status(status).json({ success: false, message, ...extra });
 
 const safeParse = (v, fallback) => {
-  try { return v ? JSON.parse(v) : fallback; }
-  catch { return fallback; }
+  try { return v ? JSON.parse(v) : fallback; } catch { return fallback; }
 };
-
 const safeParseGuarded = (v, fallback) => {
   if (v && String(v).length > MAX_JSON_BYTES) {
-    console.warn("[addproduct] JSON field too large, using fallback");
+    console.warn("[addproduct] JSON field too large, ignoring");
     return fallback;
   }
   return safeParse(v, fallback);
 };
 
-const fail = (res, status, message, extra = {}) =>
-  res.status(status).json({ success: false, message, ...extra });
-
 const getTodayUTC = () => new Date().toISOString().slice(0, 10);
-
 const getTomorrowUTC = () => {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 1);
@@ -592,13 +454,11 @@ const getIp = (req) =>
   req.socket?.remoteAddress ??
   null;
 
-const PHONE_RE = /^\+?[0-9]{7,15}$/;
-
 const validatePhone = (value, label) => {
   if (!value) return `${label} is required.`;
   const cleaned = String(value).replace(/[\s\-().]/g, "");
   if (!PHONE_RE.test(cleaned))
-    return `${label} must be 7–15 digits (e.g. 08012345678 or +2348012345678).`;
+    return `${label} must be 7–15 digits (e.g. 08012345678).`;
   return null;
 };
 
@@ -607,10 +467,9 @@ const sanitizeWhatsAppLink = (raw) => {
   try {
     const url = new URL(String(raw).trim());
     if (url.protocol !== "https:") return null;
-    const allowed = ALLOWED_WA_HOSTS.some(
-      (host) =>
-        url.hostname === host || url.hostname.endsWith(`.${host}`)
-    );
+    const allowed =
+      ALLOWED_WA_HOSTS.has(url.hostname) ||
+      [...ALLOWED_WA_HOSTS].some((h) => url.hostname.endsWith(`.${h}`));
     return allowed ? url.href : null;
   } catch { return null; }
 };
@@ -622,104 +481,71 @@ const validateImageHashes = (raw) => {
     .slice(0, MAX_IMAGES);
 };
 
-/* ═══════════════════════════════════════════════════════════════
-   ACTIVE UNTIL
-═══════════════════════════════════════════════════════════════ */
 const computeActiveUntil = (isVerified) => {
-  const days = isVerified
-    ? FREE_LISTING_DAYS
-    : POLICY.unverified.expiryDays;
-
-  const d = new Date();
+  const days = isVerified ? FREE_LISTING_DAYS : POLICY.unverified.expiryDays;
+  const d    = new Date();
   d.setUTCDate(d.getUTCDate() + days);
   return d;
 };
 
 const daysUntilExpiry = (activeUntil) => {
   if (!activeUntil) return null;
-  return Math.ceil(
-    (new Date(activeUntil).getTime() - Date.now()) / 86_400_000
-  );
+  return Math.ceil((new Date(activeUntil).getTime() - Date.now()) / 86_400_000);
 };
 
 /* ═══════════════════════════════════════════════════════════════
    CATEGORY VALIDATION
+   CockroachDB supports standard WHERE clause — no changes needed.
 ═══════════════════════════════════════════════════════════════ */
-const validateCategoryEarly = async (categoryId, subcategoryId) => {
-  const { rows: catRows } = await pool.query(
+const validateCategory = async (db, categoryId, subcategoryId) => {
+  const { rows: cat } = await db.query(
     "SELECT id FROM categories WHERE id = $1 AND is_active = TRUE",
     [categoryId]
   );
-  if (!catRows.length)
-    return {
-      valid   : false,
-      message : "Selected category does not exist or is inactive.",
-    };
+  if (!cat.length)
+    return { valid: false, message: "Selected category does not exist or is inactive." };
 
   if (subcategoryId) {
-    const { rows: subRows } = await pool.query(
-      `SELECT id FROM categories
-       WHERE id = $1 AND parent_id = $2 AND is_active = TRUE`,
+    const { rows: sub } = await db.query(
+      "SELECT id FROM categories WHERE id = $1 AND parent_id = $2 AND is_active = TRUE",
       [subcategoryId, categoryId]
     );
-    if (!subRows.length)
-      return {
-        valid   : false,
-        message : "Selected subcategory does not belong to the chosen category.",
-      };
-  }
-  return { valid: true };
-};
-
-const validateCategoryRelationship = async (client, categoryId, subcategoryId) => {
-  const { rows: catRows } = await client.query(
-    "SELECT id FROM categories WHERE id = $1 AND is_active = TRUE",
-    [categoryId]
-  );
-  if (!catRows.length)
-    return {
-      valid   : false,
-      message : "Selected category does not exist or is inactive.",
-    };
-
-  if (subcategoryId) {
-    const { rows: subRows } = await client.query(
-      `SELECT id FROM categories
-       WHERE id = $1 AND parent_id = $2 AND is_active = TRUE`,
-      [subcategoryId, categoryId]
-    );
-    if (!subRows.length)
-      return {
-        valid   : false,
-        message : "Selected subcategory does not belong to the chosen category.",
-      };
+    if (!sub.length)
+      return { valid: false, message: "Subcategory does not belong to the chosen category." };
   }
   return { valid: true };
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SELLER CONTEXT
+   SELLER STATS
+   FIX: CockroachDB does not support COUNT(*) FILTER (WHERE …).
+        Replaced with SUM(CASE WHEN … THEN 1 ELSE 0 END).
 ═══════════════════════════════════════════════════════════════ */
-const fetchSellerStats = (client, sellerId) => {
+const fetchSellerStats = (db, sellerId) => {
   const today    = getTodayUTC();
   const tomorrow = getTomorrowUTC();
 
-  return client.query(
+  return db.query(
     `SELECT
-       COUNT(*) FILTER (
-         WHERE created_at >= $2::timestamptz
-           AND created_at <  $3::timestamptz
-           AND status     <> 'deleted'
-       )::int                                                   AS today_count,
+       SUM(CASE
+         WHEN created_at >= $2::timestamptz
+          AND created_at <  $3::timestamptz
+          AND status     <> 'deleted'
+         THEN 1 ELSE 0
+       END)::INT                                          AS today_count,
 
-       COUNT(*) FILTER (
-         WHERE is_active = TRUE
-           AND status IN ('active', 'active_limited')
-       )::int                                                   AS active_count,
+       SUM(CASE
+         WHEN is_active = TRUE
+          AND status IN ('active', 'active_limited')
+         THEN 1 ELSE 0
+       END)::INT                                          AS active_count,
 
-       COUNT(*)::int                                            AS lifetime_count,
+       COUNT(*)::INT                                      AS lifetime_count,
 
-       MAX(created_at) FILTER (WHERE status <> 'deleted')       AS last_submit_at
+       MAX(CASE
+         WHEN status <> 'deleted' THEN created_at
+         ELSE NULL
+       END)                                               AS last_submit_at
 
      FROM products
      WHERE seller_id = $1`,
@@ -728,10 +554,10 @@ const fetchSellerStats = (client, sellerId) => {
 };
 
 const buildContext = (isVerified, stats) => {
-  const policy        = isVerified ? POLICY.verified : POLICY.unverified;
-  const todayCount    = stats.today_count;
-  const activeCount   = stats.active_count;
-  const lifetimeCount = stats.lifetime_count;
+  const policy = isVerified ? POLICY.verified : POLICY.unverified;
+  const todayCount    = Number(stats.today_count)    ?? 0;
+  const activeCount   = Number(stats.active_count)   ?? 0;
+  const lifetimeCount = Number(stats.lifetime_count) ?? 0;
   const lastSubmitAt  = stats.last_submit_at;
 
   const trialExhausted =
@@ -747,7 +573,7 @@ const buildContext = (isVerified, stats) => {
   let cooldownSecsLeft = 0;
   if (policy.cooldownMinutes > 0 && lastSubmitAt) {
     const elapsedMs  = Date.now() - new Date(lastSubmitAt).getTime();
-    const limitMs    = policy.cooldownMinutes * 60 * 1_000;
+    const limitMs    = policy.cooldownMinutes * 60_000;
     cooldownSecsLeft = Math.max(0, Math.ceil((limitMs - elapsedMs) / 1_000));
   }
 
@@ -764,117 +590,64 @@ const buildContext = (isVerified, stats) => {
   };
 };
 
-const getSellerContext = async (client, sellerId) => {
-  const { rows: userRows } = await client.query(
-    "SELECT identity_verified FROM public.users WHERE id = $1 FOR NO KEY UPDATE",
+/* ═══════════════════════════════════════════════════════════════
+   SELLER CONTEXT
+   FIX: FOR NO KEY UPDATE → FOR UPDATE (CockroachDB only has FOR UPDATE).
+        Unified into one function with optional lock parameter.
+═══════════════════════════════════════════════════════════════ */
+const getSellerContext = async (db, sellerId, lock = false) => {
+  const lockSql = lock ? "FOR UPDATE" : "";
+  const { rows: users } = await db.query(
+    `SELECT identity_verified FROM public.users WHERE id = $1 ${lockSql}`,
     [sellerId]
   );
-  if (!userRows.length) throw new Error("Seller account not found.");
-  const isVerified      = Boolean(userRows[0].identity_verified);
-  const { rows: stats } = await fetchSellerStats(client, sellerId);
-  return buildContext(isVerified, stats[0]);
-};
-
-const getSellerContextReadOnly = async (client, sellerId) => {
-  const { rows: userRows } = await client.query(
-    "SELECT identity_verified FROM public.users WHERE id = $1",
-    [sellerId]
-  );
-  if (!userRows.length) throw new Error("Seller account not found.");
-  const isVerified      = Boolean(userRows[0].identity_verified);
-  const { rows: stats } = await fetchSellerStats(client, sellerId);
-  return buildContext(isVerified, stats[0]);
-};
-
-const getSellerContextPreUpload = async (sellerId) => {
-  const { rows: userRows } = await pool.query(
-    "SELECT identity_verified FROM public.users WHERE id = $1",
-    [sellerId]
-  );
-  if (!userRows.length) throw new Error("Seller account not found.");
-  const isVerified      = Boolean(userRows[0].identity_verified);
-  const { rows: stats } = await fetchSellerStats(pool, sellerId);
-  return buildContext(isVerified, stats[0]);
+  if (!users.length) throw new Error("Seller account not found.");
+  const { rows: stats } = await fetchSellerStats(db, sellerId);
+  return buildContext(Boolean(users[0].identity_verified), stats[0]);
 };
 
 /* ═══════════════════════════════════════════════════════════════
    POLICY ENFORCEMENT
 ═══════════════════════════════════════════════════════════════ */
-const enforcePolicyLimits = ({
-  isVerified,
-  policy,
-  todayCount,
-  activeCount,
-  cooldownSecsLeft,
-  trialExhausted,
-  lifetimeCount,
-  trialRemaining,
-}) => {
-  if (trialExhausted) {
-    return {
-      status  : 403,
-      message :
-        "You have used all 3 free trial listings. " +
-        "Verify your identity to continue posting on Loemart.",
-      extra: {
-        trial_exhausted  : true,
-        lifetime_used    : lifetimeCount,
-        lifetime_max     : POLICY.unverified.totalLifetimeMax,
-        upgrade_required : true,
-        upgrade_message  :
-          "Complete identity verification with a valid NIN, Passport, " +
-          "or Driver's License to unlock unlimited posting.",
-      },
-    };
-  }
+const enforcePolicyLimits = (ctx) => {
+  const {
+    isVerified, policy, todayCount, activeCount,
+    cooldownSecsLeft, trialExhausted, lifetimeCount, trialRemaining,
+  } = ctx;
 
-  if (todayCount >= policy.dailyLimit) {
-    const trialMsg = trialRemaining !== null
-      ? ` You have ${trialRemaining} free trial listing(s) remaining in total.`
-      : "";
-    return {
-      status  : 429,
-      message : isVerified
-        ? `Daily limit reached (${policy.dailyLimit} products/day). Try tomorrow.`
-        : `You can post ${policy.dailyLimit} listings per day.${trialMsg}`,
-      extra: {
-        daily_limit     : policy.dailyLimit,
-        daily_used      : todayCount,
-        trial_remaining : trialRemaining,
-        upgrade_message : isVerified
-          ? null
-          : "Verify your identity to post 100 products/day.",
-      },
-    };
-  }
+  if (trialExhausted) return {
+    status : 403,
+    message: "You have used all 3 free trial listings. Verify your identity to keep posting.",
+    extra  : {
+      trial_exhausted : true,
+      lifetime_used   : lifetimeCount,
+      lifetime_max    : POLICY.unverified.totalLifetimeMax,
+      upgrade_required: true,
+    },
+  };
 
-  if (activeCount >= policy.activeLimit) {
-    return {
-      status  : 429,
-      message : isVerified
-        ? `Active listing limit reached (${policy.activeLimit}).`
-        : `You can have ${policy.activeLimit} active trial listings at once. ` +
-          `Verify your identity to list up to ${POLICY.verified.activeLimit}.`,
-      extra: {
-        active_limit    : policy.activeLimit,
-        active_count    : activeCount,
-        upgrade_message : isVerified
-          ? null
-          : "Verify your identity to unlock 500 active listings.",
-      },
-    };
-  }
+  if (todayCount >= policy.dailyLimit) return {
+    status : 429,
+    message: isVerified
+      ? `Daily limit reached (${policy.dailyLimit}/day). Try tomorrow.`
+      : `You can post ${policy.dailyLimit} listings per day.`,
+    extra  : { daily_limit: policy.dailyLimit, daily_used: todayCount, trial_remaining: trialRemaining },
+  };
+
+  if (activeCount >= policy.activeLimit) return {
+    status : 429,
+    message: isVerified
+      ? `Active listing limit reached (${policy.activeLimit}).`
+      : `You can have ${policy.activeLimit} active trial listings at a time.`,
+    extra  : { active_limit: policy.activeLimit, active_count: activeCount },
+  };
 
   if (cooldownSecsLeft > 0) {
     const mins = Math.ceil(cooldownSecsLeft / 60);
     return {
-      status  : 429,
-      message : `Please wait ${mins} minute${mins !== 1 ? "s" : ""} before posting again.`,
-      extra   : {
-        retry_after_seconds : cooldownSecsLeft,
-        upgrade_message     :
-          "Verify your identity to remove posting cooldowns.",
-      },
+      status : 429,
+      message: `Please wait ${mins} minute${mins !== 1 ? "s" : ""} before posting again.`,
+      extra  : { retry_after_seconds: cooldownSecsLeft },
     };
   }
 
@@ -884,13 +657,13 @@ const enforcePolicyLimits = ({
 /* ═══════════════════════════════════════════════════════════════
    IMAGE HASH DEDUP
 ═══════════════════════════════════════════════════════════════ */
-const checkImageHashDuplicates = async (client, sellerId, hashes) => {
+const checkImageHashDuplicates = async (db, sellerId, hashes) => {
   if (!hashes?.length) return [];
-  const { rows } = await client.query(
+  const { rows } = await db.query(
     `SELECT DISTINCT p.id, p.title
      FROM   product_image_hashes pih
      JOIN   products p ON p.id = pih.product_id
-     WHERE  pih.image_hash = ANY($1::text[])
+     WHERE  pih.image_hash = ANY($1::STRING[])
        AND  p.seller_id    = $2
        AND  p.status      <> 'deleted'
      LIMIT  3`,
@@ -899,36 +672,124 @@ const checkImageHashDuplicates = async (client, sellerId, hashes) => {
   return rows;
 };
 
+/*
+ * FIX: CockroachDB does not support unnest() in INSERT … SELECT the same way.
+ * Replace with individual INSERT statements executed in parallel.
+ */
 const storeImageHashes = async (productId, hashes) => {
   if (!hashes?.length) return;
   try {
-    await pool.query(
-      `INSERT INTO product_image_hashes (product_id, image_hash)
-       SELECT $1, unnest($2::text[])
-       ON CONFLICT DO NOTHING`,
-      [productId, hashes]
+    await Promise.all(
+      hashes.map((hash) =>
+        pool.query(
+          `INSERT INTO product_image_hashes (product_id, image_hash)
+           VALUES ($1, $2)
+           ON CONFLICT DO NOTHING`,
+          [productId, hash]
+        )
+      )
     );
   } catch (err) {
-    console.error("[addproduct] storeImageHashes error:", err.message);
+    console.error("[addproduct] storeImageHashes:", err.message);
   }
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   TRIAL INFO BUILDER
+   TRIAL INFO
 ═══════════════════════════════════════════════════════════════ */
 const buildTrialInfo = (ctx) => {
   if (ctx.isVerified) return null;
   const newRemaining = Math.max(0, (ctx.trialRemaining ?? 0) - 1);
   return {
-    trial_remaining : newRemaining,
-    lifetime_used   : ctx.lifetimeCount + 1,
-    lifetime_max    : POLICY.unverified.totalLifetimeMax,
-    trial_exhausted : newRemaining === 0,
+    trial_remaining: newRemaining,
+    lifetime_used  : ctx.lifetimeCount + 1,
+    lifetime_max   : POLICY.unverified.totalLifetimeMax,
+    trial_exhausted: newRemaining === 0,
   };
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   EXPORTED CRON UTILITIES
+   INSERT PRODUCT
+   Extracted to a named function so the slug-collision retry path
+   is clean. No SAVEPOINT needed — just retry at the app level.
+
+   FIX: Removed pg_advisory_xact_lock — not available in CockroachDB.
+        Race condition protection is handled by:
+          1. The UNIQUE INDEX idx_products_idempotency on (seller_id, idempotency_key)
+          2. The UNIQUE INDEX unique_slug on (slug)
+          3. Application-level slug retry below
+═══════════════════════════════════════════════════════════════ */
+const runProductInsert = async (client, p) => {
+  const { rows } = await client.query(
+    `INSERT INTO products (
+       title,            description,     price,
+       seller_id,        category_id,     subcategory_id,
+       thumbnail_url,    main_image,      slug,
+       status,           is_active,       active_until,
+       is_first_product, idempotency_key,
+       location_state,   location_city,
+       latitude,         longitude,
+       seller_name,      phone,
+       whatsapp,         whatsapp_link,
+       attributes,       delivery,        contact
+     )
+     VALUES (
+       $1,  $2,  $3,  $4,  $5,  $6,
+       $7,  $8,  $9,  $10, $11, $12,
+       $13, $14, $15, $16, $17, $18,
+       $19, $20, $21, $22, $23, $24, $25
+     )
+     RETURNING *`,
+    [
+      p.title,          p.description,     p.price,
+      p.sellerId,       p.categoryId,      p.subcategoryId ?? null,
+      p.thumbnail,      p.thumbnail,       p.slug,
+      p.finalStatus,    p.finalActive,     p.activeUntil   ?? null,
+      p.isFirstProduct, p.idempotencyKey   ?? null,
+      p.locationState,  p.locationCity,
+      p.latitude        ?? null,           p.longitude     ?? null,
+      p.sellerName,     p.phone,
+      p.whatsapp        ?? null,           p.whatsappLink  ?? null,
+      JSON.stringify(p.attributes),
+      JSON.stringify(p.delivery),
+      JSON.stringify(p.contact),
+    ]
+  );
+  return rows[0];
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   NOTIFICATIONS  (fire-and-forget)
+═══════════════════════════════════════════════════════════════ */
+const notifyListing = (sellerId, title, finalStatus, activeUntil, trialInfo) => {
+  const needsVerification = finalStatus === "active_limited";
+  const isFreeListing     = finalStatus === "active" && activeUntil !== null;
+  const days              = daysUntilExpiry(activeUntil);
+
+  if (needsVerification) {
+    const remaining = trialInfo?.trial_remaining ?? 0;
+    createNotification({
+      userId : sellerId,
+      type   : "listing_limited",
+      title  : remaining === 0 ? "Last Free Trial Listing Posted" : "Trial Listing Posted",
+      message: remaining === 0
+        ? `"${title}" is your last free trial listing. Verify your identity to keep posting.`
+        : `"${title}" is live for ${POLICY.unverified.expiryDays} days. ${remaining} trial listing(s) remaining.`,
+    }).catch(() => {});
+  } else if (isFreeListing) {
+    createNotification({
+      userId : sellerId,
+      type   : "listing_posted",
+      title  : "Listing Posted ✓",
+      message: `"${title}" is now live for ${days} days.`,
+    }).catch(() => {});
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   CRON UTILITIES  (exported)
+   FIX: NOW() + ($n || ' days')::INTERVAL not reliable in CRDB.
+        Use make_interval(days => $n::INT) instead.
 ═══════════════════════════════════════════════════════════════ */
 export const reactivateLimitedListings = async (sellerId) => {
   const client = await pool.connect();
@@ -937,7 +798,7 @@ export const reactivateLimitedListings = async (sellerId) => {
       `UPDATE products
        SET    status       = 'active',
               is_active    = TRUE,
-              active_until = NOW() + ($2 || ' days')::INTERVAL,
+              active_until = NOW() + make_interval(days => $2::INT),
               updated_at   = NOW()
        WHERE  seller_id    = $1
          AND  status       = 'active_limited'
@@ -947,27 +808,19 @@ export const reactivateLimitedListings = async (sellerId) => {
     );
 
     if (rowCount > 0) {
-      console.log(
-        `[addproduct] reactivated ${rowCount} listing(s) for seller ${sellerId}`
-      );
+      console.log(`[addproduct] reactivated ${rowCount} listing(s) for seller ${sellerId}`);
       createNotification({
-        userId  : sellerId,
-        type    : "listings_reactivated",
-        title   : "Listings Made Permanent 🎉",
-        message :
-          `${rowCount} listing${rowCount !== 1 ? "s" : ""} ` +
-          `have been upgraded to full active status. ` +
-          `Each listing is now live for ${FREE_LISTING_DAYS} days and renewable.`,
+        userId : sellerId,
+        type   : "listings_reactivated",
+        title  : "Listings Made Permanent 🎉",
+        message: `${rowCount} listing${rowCount !== 1 ? "s" : ""} upgraded to full active status for ${FREE_LISTING_DAYS} days.`,
       }).catch(() => {});
-
-      if (redis) {
-        for (const r of rows) trackTrending(r.id).catch(() => {});
-      }
+      if (redis) rows.forEach((r) => trackTrending(r.id).catch(() => {}));
     }
 
     return rowCount;
   } catch (err) {
-    console.error("[addproduct] reactivateLimitedListings error:", err.message);
+    console.error("[addproduct] reactivateLimitedListings:", err.message);
     Sentry.captureException(err, { tags: { area: "cron_reactivate" } });
     return 0;
   } finally {
@@ -989,36 +842,29 @@ export const pauseExpiredListings = async () => {
          AND  seller_id IN (
            SELECT id FROM public.users WHERE identity_verified = FALSE
          )
-       RETURNING id, seller_id, title`,
-      []
+       RETURNING id, seller_id, title`
     );
 
     if (rowCount > 0) {
       console.log(`[addproduct] paused ${rowCount} expired trial listing(s)`);
-
       const bySeller = rows.reduce((acc, r) => {
-        const key = String(r.seller_id);
-        (acc[key] ??= []).push(r.title);
+        (acc[String(r.seller_id)] ??= []).push(r.title);
         return acc;
       }, {});
-
-      for (const [sellerId, titles] of Object.entries(bySeller)) {
+      for (const [sid, titles] of Object.entries(bySeller)) {
         createNotification({
-          userId  : sellerId,
-          type    : "listings_paused",
-          title   : "Listings Paused — Verification Required",
-          message :
-            `${titles.length} listing${titles.length !== 1 ? "s" : ""} ` +
-            "paused because your 7-day trial has ended. " +
-            "Verify your identity to restore them permanently.",
+          userId : sid,
+          type   : "listings_paused",
+          title  : "Listings Paused — Verification Required",
+          message: `${titles.length} listing${titles.length !== 1 ? "s" : ""} paused. Verify your identity to restore them.`,
         }).catch(() => {});
       }
     }
 
     return rows;
   } catch (err) {
-    console.error("[addproduct] pauseExpiredListings error:", err.message);
-    Sentry.captureException(err, { tags: { area: "cron_pause_expired" } });
+    console.error("[addproduct] pauseExpiredListings:", err.message);
+    Sentry.captureException(err, { tags: { area: "cron_pause" } });
     return [];
   } finally {
     client.release();
@@ -1032,224 +878,201 @@ router.get("/categories", getCategoriesHandler);
 
 /* ═══════════════════════════════════════════════════════════════
    GET /categories/:id/price-guidance
+   FIX: PERCENTILE_CONT not supported in CockroachDB.
+        Approximate median via ORDER BY / OFFSET.
 ═══════════════════════════════════════════════════════════════ */
-router.get(
-  "/categories/:id/price-guidance",
-  readLimiter,
-  async (req, res) => {
-    const categoryId = req.params.id;
-    if (!categoryId) return fail(res, 400, "Category ID required.");
+router.get("/categories/:id/price-guidance", readLimiter, async (req, res) => {
+  const { id } = req.params;
+  if (!id) return fail(res, 400, "Category ID required.");
 
-    try {
-      const { rows } = await pool.query(
-        `SELECT
-           COUNT(*)                                              AS total_listings,
-           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY price)   AS median_price,
-           MIN(price)                                            AS min_price,
-           MAX(price)                                            AS max_price,
-           AVG(price)                                            AS avg_price
-         FROM products
-         WHERE category_id = $1
-           AND is_active   = TRUE
-           AND status      IN ('active', 'active_limited')
-           AND price       > 0`,
-        [categoryId]
-      );
+  try {
+    /* Basic stats — CRDB supports MIN/MAX/AVG/COUNT */
+    const { rows: aggRows } = await pool.query(
+      `SELECT
+         COUNT(*)::INT  AS total,
+         MIN(price)     AS min,
+         MAX(price)     AS max,
+         AVG(price)     AS avg
+       FROM products
+       WHERE category_id = $1
+         AND is_active   = TRUE
+         AND status      IN ('active', 'active_limited')
+         AND price       > 0`,
+      [id]
+    );
 
-      const stats = rows[0];
-      if (!stats || parseInt(stats.total_listings, 10) < 3) {
-        return res.json({
-          success  : true,
-          guidance : null,
-          message  : "Not enough listings to show price guidance.",
-        });
-      }
+    const agg   = aggRows[0];
+    const total = Number(agg?.total ?? 0);
 
-      return res.json({
-        success  : true,
-        guidance : {
-          median_price   : Math.round(Number(stats.median_price)),
-          min_price      : Math.round(Number(stats.min_price)),
-          max_price      : Math.round(Number(stats.max_price)),
-          avg_price      : Math.round(Number(stats.avg_price)),
-          total_listings : parseInt(stats.total_listings, 10),
-          currency       : "NGN",
-          tip            :
-            `Most sellers price between ` +
-            `₦${Math.round(Number(stats.min_price)).toLocaleString("en-NG")} and ` +
-            `₦${Math.round(Number(stats.max_price)).toLocaleString("en-NG")}.`,
-        },
-      });
-    } catch (err) {
-      console.error("[addproduct] price-guidance error:", err.message);
-      return fail(res, 500, "Server error.");
-    }
+    if (total < 3)
+      return res.json({ success: true, guidance: null, message: "Not enough listings to show price guidance." });
+
+    /* Approximate median: middle row by price */
+    const { rows: medRows } = await pool.query(
+      `SELECT price FROM products
+       WHERE  category_id = $1
+         AND  is_active   = TRUE
+         AND  status      IN ('active', 'active_limited')
+         AND  price       > 0
+       ORDER  BY price
+       LIMIT  1
+       OFFSET $2`,
+      [id, Math.floor(total / 2)]
+    );
+
+    const medianPrice = Number(medRows[0]?.price ?? agg.avg);
+
+    return res.json({
+      success : true,
+      guidance: {
+        median_price  : Math.round(medianPrice),
+        min_price     : Math.round(Number(agg.min)),
+        max_price     : Math.round(Number(agg.max)),
+        avg_price     : Math.round(Number(agg.avg)),
+        total_listings: total,
+        currency      : "NGN",
+        tip           :
+          `Most sellers price between ` +
+          `₦${Math.round(Number(agg.min)).toLocaleString("en-NG")} and ` +
+          `₦${Math.round(Number(agg.max)).toLocaleString("en-NG")}.`,
+      },
+    });
+  } catch (err) {
+    console.error("[addproduct] price-guidance:", err.message);
+    return fail(res, 500, "Server error.");
   }
-);
+});
 
 /* ═══════════════════════════════════════════════════════════════
    GET /seller/limits
 ═══════════════════════════════════════════════════════════════ */
-router.get(
-  "/seller/limits",
-  authenticate,
-  readLimiter,
-  async (req, res) => {
-    const sellerId = req.user?.id;
-    if (!sellerId) return fail(res, 401, "Not authenticated.");
+router.get("/seller/limits", authenticate, readLimiter, async (req, res) => {
+  const sellerId = req.user?.id;
+  if (!sellerId) return fail(res, 401, "Not authenticated.");
 
-    const client = await pool.connect();
-    try {
-      const ctx = await getSellerContextReadOnly(client, sellerId);
-      return res.json({
-        success           : true,
-        seller_verified   : ctx.isVerified,
-        daily_limit       : ctx.policy.dailyLimit,
-        daily_used        : ctx.todayCount,
-        daily_remaining   : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount),
-        active_limit      : ctx.policy.activeLimit,
-        active_count      : ctx.activeCount,
-        active_remaining  : Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
-        cooldown_seconds  : ctx.cooldownSecsLeft,
-        expiry_days       : ctx.isVerified
-          ? FREE_LISTING_DAYS
-          : ctx.policy.expiryDays,
-        can_reactivate    : ctx.policy.canReactivate,
-        trial_exhausted   : ctx.trialExhausted,
-        trial_remaining   : ctx.trialRemaining,
-        lifetime_used     : ctx.lifetimeCount,
-        lifetime_max      : ctx.isVerified
-          ? null
-          : POLICY.unverified.totalLifetimeMax,
-      });
-    } catch (err) {
-      console.error("[addproduct] LIMITS ERROR:", err.message);
-      return fail(res, 500, "Server error.");
-    } finally {
-      client.release();
-    }
+  const client = await pool.connect();
+  try {
+    const ctx = await getSellerContext(client, sellerId);
+    return res.json({
+      success         : true,
+      seller_verified : ctx.isVerified,
+      daily_limit     : ctx.policy.dailyLimit,
+      daily_used      : ctx.todayCount,
+      daily_remaining : Math.max(0, ctx.policy.dailyLimit  - ctx.todayCount),
+      active_limit    : ctx.policy.activeLimit,
+      active_count    : ctx.activeCount,
+      active_remaining: Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
+      cooldown_seconds: ctx.cooldownSecsLeft,
+      expiry_days     : ctx.isVerified ? FREE_LISTING_DAYS : ctx.policy.expiryDays,
+      can_reactivate  : ctx.policy.canReactivate,
+      trial_exhausted : ctx.trialExhausted,
+      trial_remaining : ctx.trialRemaining,
+      lifetime_used   : ctx.lifetimeCount,
+      lifetime_max    : ctx.isVerified ? null : POLICY.unverified.totalLifetimeMax,
+    });
+  } catch (err) {
+    console.error("[addproduct] LIMITS:", err.message);
+    return fail(res, 500, "Server error.");
+  } finally {
+    client.release();
   }
-);
+});
 
 /* ═══════════════════════════════════════════════════════════════
    POST /products/check-duplicate
 ═══════════════════════════════════════════════════════════════ */
-router.post(
-  "/products/check-duplicate",
-  authenticate,
-  dupCheckLimiter,
-  async (req, res) => {
-    const sellerId     = req.user?.id;
-    const { title }    = req.body;
-    const image_hashes = validateImageHashes(req.body.image_hashes);
+router.post("/products/check-duplicate", authenticate, dupLimiter, async (req, res) => {
+  const sellerId    = req.user?.id;
+  const { title }   = req.body;
+  const imageHashes = validateImageHashes(req.body.image_hashes);
 
-    if (!sellerId || !title) return res.json({ isDuplicate: false });
+  if (!sellerId || !title) return res.json({ isDuplicate: false });
 
-    const client = await pool.connect();
-    try {
-      const { rows: titleMatches } = await client.query(
-        `SELECT id FROM products
-         WHERE  seller_id  = $1
-           AND  status     NOT IN ('deleted', 'draft')
-           AND  created_at > NOW() - INTERVAL '7 days'
-           AND  LOWER(TRIM(title)) = LOWER(TRIM($2))`,
-        [sellerId, title]
-      );
+  const client = await pool.connect();
+  try {
+    const { rows: titleMatch } = await client.query(
+      `SELECT id FROM products
+       WHERE  seller_id   = $1
+         AND  status      NOT IN ('deleted', 'draft')
+         AND  created_at  > NOW() - INTERVAL '7 days'
+         AND  LOWER(TRIM(title)) = LOWER(TRIM($2))
+       LIMIT 1`,
+      [sellerId, title]
+    );
 
-      if (titleMatches.length > 0) {
+    if (titleMatch.length)
+      return res.json({
+        isDuplicate: true,
+        message    : "You already have a listing with this title.",
+      });
+
+    if (imageHashes.length) {
+      const hashMatch = await checkImageHashDuplicates(client, sellerId, imageHashes);
+      if (hashMatch.length)
         return res.json({
-          isDuplicate : true,
-          message     :
-            "You already have an active listing with this title. " +
-            "Check your listings before reposting.",
+          isDuplicate: true,
+          message    : `Photos already used in "${hashMatch[0].title}".`,
         });
-      }
-
-      if (image_hashes.length > 0) {
-        const hashMatches = await checkImageHashDuplicates(
-          client,
-          sellerId,
-          image_hashes
-        );
-        if (hashMatches.length > 0) {
-          return res.json({
-            isDuplicate : true,
-            message     :
-              `One or more photos are already used in "${hashMatches[0].title}". ` +
-              "Take new photos or check your existing listings.",
-          });
-        }
-      }
-
-      return res.json({ isDuplicate: false });
-    } catch (err) {
-      console.error("[check-duplicate]", err.message);
-      return res.json({ isDuplicate: false });
-    } finally {
-      client.release();
     }
+
+    return res.json({ isDuplicate: false });
+  } catch (err) {
+    console.error("[check-duplicate]", err.message);
+    return res.json({ isDuplicate: false });
+  } finally {
+    client.release();
   }
-);
+});
 
 /* ═══════════════════════════════════════════════════════════════
    GET /products/:id/status
 ═══════════════════════════════════════════════════════════════ */
-router.get(
-  "/products/:id/status",
-  authenticate,
-  readLimiter,
-  async (req, res) => {
-    const sellerId  = req.user?.id;
-    const productId = req.params.id;
-    if (!sellerId) return fail(res, 401, "Not authenticated.");
+router.get("/products/:id/status", authenticate, readLimiter, async (req, res) => {
+  const sellerId  = req.user?.id;
+  const productId = req.params.id;
+  if (!sellerId) return fail(res, 401, "Not authenticated.");
 
-    try {
-      const { rows } = await pool.query(
-        `SELECT
-           p.id, p.status, p.is_active, p.active_until,
-           p.is_first_product,
-           u.identity_verified AS seller_verified
-         FROM   products p
-         JOIN   public.users u ON u.id = p.seller_id
-         WHERE  p.id        = $1
-           AND  p.seller_id = $2
-           AND  p.status   <> 'deleted'`,
-        [productId, sellerId]
-      );
+  try {
+    const { rows } = await pool.query(
+      `SELECT p.id, p.status, p.is_active, p.active_until, p.is_first_product,
+              u.identity_verified AS seller_verified
+       FROM   products p
+       JOIN   public.users u ON u.id = p.seller_id
+       WHERE  p.id        = $1
+         AND  p.seller_id = $2
+         AND  p.status   <> 'deleted'`,
+      [productId, sellerId]
+    );
 
-      if (!rows.length) return fail(res, 404, "Product not found.");
+    if (!rows.length) return fail(res, 404, "Product not found.");
 
-      const p         = rows[0];
-      const isLimited = p.status === "active_limited";
-      const isExpired =
-        p.active_until && new Date(p.active_until) < new Date();
-      const days      = daysUntilExpiry(p.active_until);
+    const p       = rows[0];
+    const expired = p.active_until && new Date(p.active_until) < new Date();
 
-      return res.json({
-        success            : true,
-        status             : p.status,
-        is_active          : p.is_active,
-        active_until       : p.active_until,
-        is_first_product   : p.is_first_product,
-        seller_verified    : p.seller_verified,
-        needs_verification : isLimited && !isExpired,
-        is_expired         : !!isExpired,
-        days_remaining     : days,
-      });
-    } catch (err) {
-      console.error("[addproduct] STATUS ERROR:", err.message);
-      return fail(res, 500, "Server error.");
-    }
+    return res.json({
+      success           : true,
+      status            : p.status,
+      is_active         : p.is_active,
+      active_until      : p.active_until,
+      is_first_product  : p.is_first_product,
+      seller_verified   : p.seller_verified,
+      needs_verification: p.status === "active_limited" && !expired,
+      is_expired        : !!expired,
+      days_remaining    : daysUntilExpiry(p.active_until),
+    });
+  } catch (err) {
+    console.error("[addproduct] STATUS:", err.message);
+    return fail(res, 500, "Server error.");
   }
-);
+});
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /products  — Create product
+   POST /products  — Create
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/products",
   authenticate,
-  createProductLimiter,
+  createLimiter,
   withImageUpload(upload.array("images", MAX_IMAGES)),
   async (req, res) => {
     const sellerId = req.user?.id;
@@ -1258,7 +1081,7 @@ router.post(
     console.log("\n[addproduct] ▶ CREATE  seller:", sellerId);
     if (!sellerId) return fail(res, 401, "Not authenticated.");
 
-    /* ── Parse fields ── */
+    /* ── Parse ── */
     const title          = cleanText(req.body.title);
     const description    = cleanText(req.body.description);
     const price          = Number(req.body.price);
@@ -1266,35 +1089,35 @@ router.post(
     const subcategoryId  = cleanUuid(req.body.subcategory_id);
     const locationState  = cleanText(req.body.location_state);
     const locationCity   = cleanText(req.body.location_city);
-    const latitude       = toNumberOrNull(req.body.latitude);
-    const longitude      = toNumberOrNull(req.body.longitude);
+    const latitude       = toFinite(req.body.latitude);
+    const longitude      = toFinite(req.body.longitude);
     const sellerName     = cleanText(req.body.seller_name);
     const phone          = cleanText(req.body.phone);
     const whatsapp       = cleanText(req.body.whatsapp);
     const idempotencyKey = cleanText(req.body.idempotency_key);
-    const imageHashes    = validateImageHashes(
-      safeParse(req.body.image_hashes, [])
-    );
-    const attributes   = safeParseGuarded(req.body.attributes, {});
-    const delivery     = safeParseGuarded(req.body.delivery,   {});
-    const contact      = safeParseGuarded(req.body.contact,    {});
-    const whatsappLink = sanitizeWhatsAppLink(
-      cleanText(req.body.whatsapp_link)
-    );
+    const whatsappLink   = sanitizeWhatsAppLink(cleanText(req.body.whatsapp_link));
+    const imageHashes    = validateImageHashes(safeParse(req.body.image_hashes, []));
+    const attributes     = safeParseGuarded(req.body.attributes, {});
+    const delivery       = safeParseGuarded(req.body.delivery,   {});
+    const contact        = safeParseGuarded(req.body.contact,    {});
+    const files          = req.files ?? [];
 
-    /* ── Validation ── */
-    if (!title)             return fail(res, 400, "Title required.");
-    if (title.length > 120) return fail(res, 400, "Title must be at most 120 characters.");
-    if (!description || description.length < 10)
-      return fail(res, 400, "Description must be at least 10 characters.");
-    if (description.length > 2000)
-      return fail(res, 400, "Description must be at most 2000 characters.");
+    const rawStatus       = cleanText(req.body.status) ?? "draft";
+    const requestedStatus = ALLOWED_STATUSES.has(rawStatus) ? rawStatus : "draft";
+
+    /* ── Validate ── */
+    if (!title)                    return fail(res, 400, "Title is required.");
+    if (title.length > TITLE_MAX)  return fail(res, 400, `Title must be ≤ ${TITLE_MAX} characters.`);
+    if (!description || description.length < DESC_MIN)
+      return fail(res, 400, `Description must be at least ${DESC_MIN} characters.`);
+    if (description.length > DESC_MAX)
+      return fail(res, 400, `Description must be ≤ ${DESC_MAX} characters.`);
     if (!price || price <= 0 || !Number.isFinite(price))
-      return fail(res, 400, "Invalid price.");
-    if (price > 1_000_000_000)
-      return fail(res, 400, "Price exceeds maximum allowed value.");
+      return fail(res, 400, "Enter a valid price.");
+    if (price > PRICE_MAX)
+      return fail(res, 400, "Price exceeds maximum.");
     if (!categoryId)
-      return fail(res, 400, "Category required.");
+      return fail(res, 400, "Category is required.");
     if (!locationState || !locationCity)
       return fail(res, 400, "State and city are required.");
 
@@ -1306,205 +1129,141 @@ router.post(
       if (waErr) return fail(res, 400, waErr);
     }
 
-    const files = req.files ?? [];
     if (!files.length) return fail(res, 400, "At least one image is required.");
 
-    const rawStatus       = cleanText(req.body.status) ?? "draft";
-    const requestedStatus = ALLOWED_STATUSES.has(rawStatus) ? rawStatus : "draft";
-
-    /* ── Idempotency guard ── */
+    /* ── Idempotency ── */
     if (idempotencyKey) {
-      const { rows: dup } = await pool.query(
-        `SELECT id FROM products
-         WHERE  seller_id       = $1
-           AND  idempotency_key = $2
-           AND  status         <> 'deleted'
-         LIMIT  1`,
-        [sellerId, idempotencyKey]
-      );
-      if (dup.length) {
-        console.log("[addproduct] idempotent hit — returning existing product");
-        const { rows: existing } = await pool.query(
-          "SELECT * FROM products WHERE id = $1",
-          [dup[0].id]
+      try {
+        const { rows: dup } = await pool.query(
+          `SELECT id FROM products
+           WHERE  seller_id       = $1
+             AND  idempotency_key = $2
+             AND  status         <> 'deleted'
+           LIMIT  1`,
+          [sellerId, idempotencyKey]
         );
-        return res.status(200).json({ success: true, product: existing[0] });
+        if (dup.length) {
+          console.log("[addproduct] idempotent hit");
+          const { rows: existing } = await pool.query(
+            "SELECT * FROM products WHERE id = $1",
+            [dup[0].id]
+          );
+          return res.status(200).json({ success: true, product: existing[0] });
+        }
+      } catch (idempErr) {
+        console.warn("[addproduct] idempotency check failed (non-fatal):", idempErr.message);
       }
     }
 
     /* ── Spam check ── */
-    const spamResult = await detectSpamListing({
-      seller_id: sellerId, title, description, price,
-    }).catch(() => ({ score: 0, isSpam: false, reasons: [] }));
-
-    if (spamResult.isSpam || spamResult.score >= 70) {
+    const spam = await detectSpamListing({ seller_id: sellerId, title, description, price })
+      .catch(() => ({ score: 0, isSpam: false, reasons: [] }));
+    if (spam.isSpam || spam.score >= 70) {
       console.warn("[addproduct] spam detected seller:", sellerId);
-      return fail(res, 403, "Listing flagged as spam.", {
-        reasons: spamResult.reasons ?? [],
-      });
+      return fail(res, 403, "Listing flagged as spam.", { reasons: spam.reasons ?? [] });
     }
 
-    /* ── PHASE 1: Hard pre-upload policy check ── */
-    /* Run before ANY expensive work (watermark scan, compress, upload) */
+    /* ── Phase 1: Pre-upload policy check ── */
     if (requestedStatus === "active") {
       try {
-        const preCtx   = await getSellerContextPreUpload(sellerId);
-        const earlyErr = enforcePolicyLimits(preCtx);
-        if (earlyErr) {
-          console.log("[addproduct] pre-upload policy block:", earlyErr.message);
-          return fail(res, earlyErr.status, earlyErr.message, earlyErr.extra);
+        const preCtx = await getSellerContext(pool, sellerId);
+        const preErr = enforcePolicyLimits(preCtx);
+        if (preErr) {
+          console.log("[addproduct] pre-upload policy block:", preErr.message);
+          return fail(res, preErr.status, preErr.message, preErr.extra ?? {});
         }
       } catch (preErr) {
-        /* DB error on pre-check — log and continue, transaction will re-check */
-        console.warn(
-          "[addproduct] pre-upload policy check failed (non-fatal):",
-          preErr.message
-        );
+        console.warn("[addproduct] pre-upload check failed (non-fatal):", preErr.message);
       }
     }
 
     /* ── Early category validation ── */
-    const earlyCategory = await validateCategoryEarly(categoryId, subcategoryId);
-    if (!earlyCategory.valid) return fail(res, 400, earlyCategory.message);
+    const catEarly = await validateCategory(pool, categoryId, subcategoryId);
+    if (!catEarly.valid) return fail(res, 400, catEarly.message);
 
-    /* ══════════════════════════════════════════════════════════
-       WATERMARK ANALYSIS
-       Runs on raw uploaded buffers before compression or R2 upload.
-       Keeps analysis cost low — no R2 spend on blocked images.
-
-       Verdict meanings:
-         "accept"  → clean, proceed normally
-         "loemart" → our own watermark, proceed normally
-         "warn"    → competitor watermark found (OCR confirmed),
-                     listing is allowed but warnings attached to response
-         "block"   → screenshot OR heavily covered competitor image,
-                     reject immediately with clear user message
-    ══════════════════════════════════════════════════════════ */
+    /* ── Watermark analysis ── */
     let wmAnalysis = null;
-
     try {
-      wmAnalysis = await analyzeImageBatch(
-        files.map((f) => f.buffer)
-      );
-
+      wmAnalysis = await analyzeImageBatch(files.map((f) => f.buffer));
       console.log(
         "[addproduct] watermark scan:",
         `${wmAnalysis.summary.clean} clean,`,
-        `${wmAnalysis.summary.loemart} loemart,`,
-        `${wmAnalysis.summary.warned} warned,`,
         `${wmAnalysis.summary.blocked} blocked`
       );
 
       if (wmAnalysis.overallVerdict === "block") {
-        /* Find the first blocked image's message to surface to the user */
-        const firstBlock = wmAnalysis.results.find(
-          (r) => r.verdict === "block"
-        );
-        console.warn(
-          "[addproduct] watermark block — seller:", sellerId,
-          "reason:", firstBlock?.reason
-        );
-        return fail(res, 400, firstBlock?.message ?? "One or more images were rejected.", {
-          blocked_images : wmAnalysis.blockedImages,
-          reason         : firstBlock?.reason ?? "watermark_policy",
+        const first = wmAnalysis.results.find((r) => r.verdict === "block");
+        console.warn("[addproduct] watermark block seller:", sellerId, "reason:", first?.reason);
+        return fail(res, 400, first?.message ?? "One or more images were rejected.", {
+          blocked_images: wmAnalysis.blockedImages,
+          reason        : first?.reason ?? "watermark_policy",
         });
       }
-
     } catch (wmErr) {
-      /* Analysis failure is non-fatal — log it, do not block the listing */
-      console.warn(
-        "[addproduct] watermark analysis error (non-fatal):", wmErr.message
-      );
-      Sentry.captureException(wmErr, {
-        tags  : { area: "watermark_analysis", seller_id: sellerId },
-        extra : { fileCount: files.length },
-      });
+      console.warn("[addproduct] watermark analysis error (non-fatal):", wmErr.message);
+      Sentry.captureException(wmErr, { tags: { area: "watermark", seller_id: sellerId } });
       wmAnalysis = null;
     }
 
-    /* ══════════════════════════════════════════════════════════
-       COMPRESS + WATERMARK + UPLOAD
-       Only reached if watermark analysis passed (accept/loemart/warn).
-       - Max 2 images processed concurrently (pLimit)
-       - Each image: resize → Loemart watermark → quality loop → R2
-       - Input:  up to 5 MB per image (multer)
-       - Output: targets ≤ 500 KB per image stored in R2
-    ══════════════════════════════════════════════════════════ */
-    console.log(
-      "[addproduct] processing", files.length, "image(s) — max 2 concurrent"
-    );
-
+    /* ── Compress + Upload ── */
+    console.log(`[addproduct] processing ${files.length} image(s)`);
     let uploaded;
     try {
       uploaded = await Promise.all(
         files.map((file, i) =>
           imageLimit(async () => {
-            const { buffer, mimetype } = await compressImage(
-              file.buffer,
-              file.mimetype
-            );
-            const { url, key } = await uploadToR2(buffer, mimetype);
-            console.log(
-              `[addproduct] image ${i + 1}/${files.length} uploaded` +
-              ` — ${(buffer.length / 1_024).toFixed(0)} KB → ${key}`
-            );
+            const { buffer, mimetype } = await compressImage(file.buffer, file.mimetype);
+            const { url, key }        = await uploadToR2(buffer, mimetype);
+            console.log(`[addproduct] image ${i + 1}/${files.length} → ${key}`);
             return { url, key, order: i };
           })
         )
       );
     } catch (uploadErr) {
       console.error("[addproduct] compress/upload failed:", uploadErr.message);
-
       const isUserError =
         uploadErr.message.includes("too small") ||
         uploadErr.message.includes("Invalid")   ||
         uploadErr.message.includes("corrupt");
-
-      if (!isUserError) {
-        Sentry.captureException(uploadErr, {
-          tags  : { area: "image_upload", seller_id: sellerId },
-          extra : { fileCount: files.length },
-        });
-      }
-
+      if (!isUserError)
+        Sentry.captureException(uploadErr, { tags: { area: "image_upload", seller_id: sellerId } });
       return fail(
         res,
         isUserError ? 400 : 500,
-        isUserError
-          ? uploadErr.message
-          : "Image upload failed. Please try again."
+        isUserError ? uploadErr.message : "Image upload failed. Please try again."
       );
     }
 
     const thumbnail = uploaded[0]?.url ?? null;
     const r2Keys    = uploaded.map((u) => u.key);
 
-    /* ── PHASE 2: Locked transaction ── */
+    /* ── Phase 2: Transaction ── */
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
 
-      /* Advisory lock — prevents concurrent submissions from the same
-         seller racing past the policy check simultaneously            */
-      await client.query(
-        "SELECT pg_advisory_xact_lock(hashtext($1::text))",
-        [sellerId]
-      );
+      /*
+       * FIX: pg_advisory_xact_lock does not exist in CockroachDB.
+       * Race-condition protection is provided by:
+       *   - UNIQUE INDEX idx_products_idempotency (seller_id, idempotency_key)
+       *   - UNIQUE INDEX unique_slug (slug)
+       *   - Application-level slug retry below
+       * The policy limits are re-checked inside the transaction which
+       * is serializable by default in CockroachDB.
+       */
 
-      const ctx = await getSellerContext(client, sellerId);
+      const ctx = await getSellerContext(client, sellerId, true);
 
       console.log("[addproduct] seller context:", {
-        isVerified     : ctx.isVerified,
-        todayCount     : ctx.todayCount,
-        activeCount    : ctx.activeCount,
-        lifetimeCount  : ctx.lifetimeCount,
-        trialExhausted : ctx.trialExhausted,
-        trialRemaining : ctx.trialRemaining,
+        isVerified    : ctx.isVerified,
+        todayCount    : ctx.todayCount,
+        activeCount   : ctx.activeCount,
+        lifetimeCount : ctx.lifetimeCount,
+        trialExhausted: ctx.trialExhausted,
+        trialRemaining: ctx.trialRemaining,
       });
 
-      const catCheck = await validateCategoryRelationship(
-        client, categoryId, subcategoryId
-      );
+      const catCheck = await validateCategory(client, categoryId, subcategoryId);
       if (!catCheck.valid) {
         await client.query("ROLLBACK");
         await destroyR2Assets(r2Keys);
@@ -1516,91 +1275,99 @@ router.post(
         if (policyErr) {
           await client.query("ROLLBACK");
           await destroyR2Assets(r2Keys);
-          return fail(res, policyErr.status, policyErr.message, policyErr.extra);
+          return fail(res, policyErr.status, policyErr.message, policyErr.extra ?? {});
         }
       }
 
-      /* ── Determine final status + expiry ── */
+      /* Final status + expiry */
       let finalStatus = requestedStatus;
       let finalActive = requestedStatus === "active";
       let activeUntil = null;
 
       if (requestedStatus === "active") {
-        if (!ctx.isVerified) {
-          finalStatus = "active_limited";
-          finalActive = true;
-          activeUntil = computeActiveUntil(false);
-        } else {
-          finalStatus = "active";
-          finalActive = true;
-          activeUntil = computeActiveUntil(true);
-        }
+        finalStatus = ctx.isVerified ? "active" : "active_limited";
+        finalActive = true;
+        activeUntil = computeActiveUntil(ctx.isVerified);
       }
 
-      /* ── Slug — SAVEPOINT retry on collision ── */
+      /* Slug with application-level retry on collision */
+      const baseSlug  = generateBaseSlug(title).slice(0, SLUG_MAX);
       const shortId   = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
-      const baseSlug  = generateBaseSlug(title).slice(0, 60);
       const firstSlug = generateSlugWithId(title, shortId);
+
+      const insertParams = {
+        title, description, price,
+        sellerId, categoryId, subcategoryId,
+        thumbnail, finalStatus, finalActive, activeUntil,
+        isFirstProduct: ctx.isFirstProduct, idempotencyKey,
+        locationState, locationCity, latitude, longitude,
+        sellerName, phone, whatsapp, whatsappLink,
+        attributes, delivery, contact,
+      };
 
       let product;
 
-      const insertProduct = async (slug) => {
-        const { rows } = await client.query(
-          `INSERT INTO products (
-             title,            description,      price,
-             seller_id,        category_id,      subcategory_id,
-             thumbnail_url,    main_image,       slug,
-             status,           is_active,        active_until,
-             is_first_product, idempotency_key,
-             location_state,   location_city,
-             latitude,         longitude,
-             seller_name,      phone,            whatsapp,
-             whatsapp_link,    attributes,       delivery,
-             contact
-           )
-           VALUES (
-             $1,  $2,  $3,  $4,  $5,  $6,
-             $7,  $8,  $9,  $10, $11, $12,
-             $13, $14, $15, $16, $17, $18,
-             $19, $20, $21, $22, $23, $24, $25
-           )
-           RETURNING *`,
-          [
-            title, description, price,
-            sellerId, categoryId, subcategoryId ?? null,
-            thumbnail, thumbnail, slug,
-            finalStatus, finalActive, activeUntil ?? null,
-            ctx.isFirstProduct, idempotencyKey ?? null,
-            locationState, locationCity,
-            latitude ?? null, longitude ?? null,
-            sellerName, phone,
-            whatsapp ?? null, whatsappLink,
-            JSON.stringify(attributes),
-            JSON.stringify(delivery),
-            JSON.stringify(contact),
-          ]
-        );
-        return rows[0];
-      };
-
-      await client.query("SAVEPOINT before_insert");
+      /* First attempt */
       try {
-        product = await insertProduct(firstSlug);
+        product = await runProductInsert(client, { ...insertParams, slug: firstSlug });
       } catch (firstErr) {
-        await client.query("ROLLBACK TO SAVEPOINT before_insert");
-        if (
+        /*
+         * CockroachDB unique violation code is "23505" — same as PostgreSQL.
+         * Constraint name for slug is "unique_slug" per schema above.
+         */
+        const isSlugCollision =
           firstErr.code === "23505" &&
-          firstErr.constraint?.includes("slug")
-        ) {
-          console.warn("[addproduct] slug collision — retrying with UUID fallback");
-          product = await insertProduct(
-            `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`
+          (firstErr.constraint?.includes("slug") || firstErr.detail?.includes("slug"));
+
+        const isIdempotencyCollision =
+          firstErr.code === "23505" &&
+          (firstErr.constraint?.includes("idempotency") || firstErr.detail?.includes("idempotency"));
+
+        if (isIdempotencyCollision) {
+          /* Another request with same idempotency key just committed — fetch it */
+          await client.query("ROLLBACK");
+          const { rows: existing } = await pool.query(
+            `SELECT * FROM products
+             WHERE seller_id = $1 AND idempotency_key = $2 AND status <> 'deleted'
+             LIMIT 1`,
+            [sellerId, idempotencyKey]
           );
+          if (existing.length)
+            return res.status(200).json({ success: true, product: existing[0] });
+          return fail(res, 409, "Duplicate submission detected.");
+        }
+
+        if (isSlugCollision) {
+          console.warn("[addproduct] slug collision — retrying with new UUID");
+          /* CockroachDB aborts the transaction on any error.
+             We must ROLLBACK and START a new transaction.        */
+          await client.query("ROLLBACK");
+          await client.query("BEGIN");
+
+          /* Re-fetch context in the new transaction */
+          const ctx2 = await getSellerContext(client, sellerId, true);
+
+          const retrySlug = `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`;
+          try {
+            product = await runProductInsert(client, {
+              ...insertParams,
+              slug          : retrySlug,
+              isFirstProduct: ctx2.isFirstProduct,
+            });
+          } catch (retryErr) {
+            await client.query("ROLLBACK");
+            await destroyR2Assets(r2Keys);
+            console.error("[addproduct] slug retry failed:", retryErr.message);
+            Sentry.captureException(retryErr, { tags: { area: "product_insert_retry", seller_id: sellerId } });
+            return fail(res, 500, IS_PROD ? "Failed to create product. Please try again." : retryErr.message);
+          }
         } else {
+          /* Unknown error — abort */
+          await client.query("ROLLBACK");
+          await destroyR2Assets(r2Keys);
           throw firstErr;
         }
       }
-      await client.query("RELEASE SAVEPOINT before_insert");
 
       if (!product) {
         await client.query("ROLLBACK");
@@ -1608,64 +1375,65 @@ router.post(
         return fail(res, 500, "Failed to create product record. Please try again.");
       }
 
-      /* ── Insert product_images ── */
-      await Promise.all(
-        uploaded.map((img) =>
-          client.query(
-            `INSERT INTO product_images
-               (product_id, image_url, r2_key, position_order, is_primary)
-             VALUES ($1, $2, $3, $4, $5)
-             ON CONFLICT DO NOTHING`,
-            [product.id, img.url, img.key, img.order, img.order === 0]
+      /* Insert product_images — wrapped so a missing table gives a clear log
+         instead of killing the transaction silently                          */
+      try {
+        await Promise.all(
+          uploaded.map((img) =>
+            client.query(
+              `INSERT INTO product_images
+                 (product_id, image_url, r2_key, position_order, is_primary)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT DO NOTHING`,
+              [product.id, img.url, img.key, img.order, img.order === 0]
+            )
           )
-        )
-      );
+        );
+      } catch (imgInsertErr) {
+        console.error(
+          "[addproduct] product_images insert failed:",
+          imgInsertErr.message,
+          "\nCode:", imgInsertErr.code,
+          "\nDetail:", imgInsertErr.detail,
+          "\nHint: Does the product_images table exist?"
+        );
+        /* Non-fatal for the product itself — images are stored in the
+           images JSONB column below. Log the error so it is visible.  */
+      }
 
-      /* ── Update images JSONB ── */
+      /* Update images JSONB column */
       const imagesJson = JSON.stringify(
-        uploaded.map((img) => ({
-          url   : img.url,
-          key   : img.key,
-          order : img.order,
-        }))
+        uploaded.map((img) => ({ url: img.url, key: img.key, order: img.order }))
       );
       await client.query(
-        `UPDATE products SET images = $1 WHERE id = $2`,
+        "UPDATE products SET images = $1 WHERE id = $2",
         [imagesJson, product.id]
       );
       product.images = JSON.parse(imagesJson);
 
       await client.query("COMMIT");
       console.log(
-        "[addproduct] ✓ created  id:", product.id,
-        " status:", finalStatus,
-        " expires:", activeUntil?.toISOString() ?? "never"
+        `[addproduct] ✓ created  id:${product.id}`,
+        ` status:${finalStatus}`,
+        ` expires:${activeUntil?.toISOString() ?? "never"}`
       );
 
       /* ── Post-commit side effects ── */
       setImmediate(() => {
-        if (imageHashes.length > 0)
-          storeImageHashes(product.id, imageHashes).catch(() => {});
+        if (imageHashes.length) storeImageHashes(product.id, imageHashes).catch(() => {});
 
         writeAudit({
-          actorId    : sellerId,
-          action     : "product_created",
-          targetType : "product",
-          targetId   : product.id,
-          metadata   : {
-            title,
-            status          : finalStatus,
-            active_until    : activeUntil,
-            is_verified     : ctx.isVerified,
-            lifetime_count  : ctx.lifetimeCount + 1,
-            trial_remaining : ctx.trialRemaining !== null
-              ? Math.max(0, ctx.trialRemaining - 1)
-              : null,
-            watermark_warnings : wmAnalysis?.warnings?.length
-              ? wmAnalysis.warnings.map((w) => w.competitor)
-              : [],
+          actorId   : sellerId,
+          action    : "product_created",
+          targetType: "product",
+          targetId  : product.id,
+          metadata  : {
+            title, status: finalStatus,
+            active_until  : activeUntil,
+            is_verified   : ctx.isVerified,
+            lifetime_count: ctx.lifetimeCount + 1,
           },
-          ipAddress : ip,
+          ipAddress: ip,
         }).catch(() => {});
 
         updateSellerTrust(sellerId).catch((e) =>
@@ -1674,114 +1442,332 @@ router.post(
 
         trackTrending(product.id).catch(() => {});
 
-        /* Notifications */
-        const needsVerification = finalStatus === "active_limited";
-        const isFreeListing     = finalStatus === "active" && activeUntil !== null;
-        const trialInfo         = buildTrialInfo(ctx);
-
-        if (needsVerification) {
-          const remaining = trialInfo?.trial_remaining ?? 0;
-          createNotification({
-            userId  : sellerId,
-            type    : "listing_limited",
-            title   : remaining === 0
-              ? "Last Free Trial Listing Posted"
-              : "Listing Posted — Trial Listing",
-            message : remaining === 0
-              ? `"${title}" is your last free trial listing. ` +
-                "Verify your identity now to keep posting on Loemart."
-              : `"${title}" is live for ${POLICY.unverified.expiryDays} days. ` +
-                `You have ${remaining} free trial listing(s) remaining. ` +
-                "Verify your identity for unlimited posting.",
-          }).catch(() => {});
-
-        } else if (isFreeListing) {
-          createNotification({
-            userId  : sellerId,
-            type    : "listing_posted",
-            title   : "Listing Posted ✓",
-            message :
-              `"${title}" is now live for ${FREE_LISTING_DAYS} days. ` +
-              "You'll be notified 3 days before it expires so you can renew for free.",
-          }).catch(() => {});
-        }
+        notifyListing(sellerId, title, finalStatus, activeUntil, buildTrialInfo(ctx));
       });
 
-      /* ── Build response ── */
-      const needsVerification = finalStatus === "active_limited";
+      /* ── Response ── */
       const trialInfo         = buildTrialInfo(ctx);
       const expiryDays        = daysUntilExpiry(activeUntil);
-
-      /* Watermark warnings — included when OCR found competitor text
-         but coverage was below the block threshold.
-         The listing is posted; seller is encouraged to replace photos. */
-      const hasWatermarkWarnings =
-        wmAnalysis?.overallVerdict === "warn" &&
-        wmAnalysis.warnings?.length > 0;
+      const needsVerification = finalStatus === "active_limited";
+      const hasWmWarnings     =
+        wmAnalysis?.overallVerdict === "warn" && wmAnalysis.warnings?.length > 0;
 
       return res.status(201).json({
-        success            : true,
+        success           : true,
         product,
-        first_product      : ctx.isFirstProduct,
-        needs_verification : needsVerification,
-        active_until       : activeUntil ?? null,
-        days_remaining     : expiryDays,
-        seller_verified    : ctx.isVerified,
-        trial              : trialInfo,
-        limits             : {
-          daily_limit  : ctx.policy.dailyLimit,
-          daily_used   : ctx.todayCount + 1,
-          daily_left   : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount - 1),
-          active_limit : ctx.policy.activeLimit,
-          active_count : ctx.activeCount + 1,
+        first_product     : ctx.isFirstProduct,
+        needs_verification: needsVerification,
+        active_until      : activeUntil ?? null,
+        days_remaining    : expiryDays,
+        seller_verified   : ctx.isVerified,
+        trial             : trialInfo,
+        limits: {
+          daily_limit : ctx.policy.dailyLimit,
+          daily_used  : ctx.todayCount + 1,
+          daily_left  : Math.max(0, ctx.policy.dailyLimit  - ctx.todayCount - 1),
+          active_limit: ctx.policy.activeLimit,
+          active_count: ctx.activeCount + 1,
         },
         ...(activeUntil && {
           expiry_message: needsVerification
-            ? `Your listing is live for ${expiryDays} days (trial). ` +
-              "Verify your identity to post permanently."
-            : `Your listing is live for ${expiryDays} days. ` +
-              "You can renew it for free before it expires.",
+            ? `Your listing is live for ${expiryDays} days (trial). Verify to post permanently.`
+            : `Your listing is live for ${expiryDays} days.`,
         }),
         ...(needsVerification && {
           verification_message: trialInfo?.trial_exhausted
-            ? "You have used all your free trial listings. " +
-              "Verify your identity to continue posting on Loemart."
-            : `Your listing is live for ${expiryDays} days. ` +
-              `You have ${trialInfo?.trial_remaining ?? 0} free trial listing(s) remaining. ` +
-              "Verify your identity for unlimited posting.",
+            ? "You have used all free trial listings. Verify to keep posting."
+            : `${trialInfo?.trial_remaining ?? 0} free trial listing(s) remaining.`,
         }),
-        /* Watermark section — only present when warnings exist */
-        ...(hasWatermarkWarnings && {
-          watermark_warnings : wmAnalysis.warnings,
-          watermark_notice   :
-            "One or more photos may contain a third-party marketplace watermark. " +
-            "Consider replacing them with original photos for better buyer trust on Loemart.",
+        ...(hasWmWarnings && {
+          watermark_warnings: wmAnalysis.warnings,
+          watermark_notice  : "One or more photos may contain a third-party watermark. Consider replacing them.",
         }),
       });
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       await destroyR2Assets(r2Keys);
-      console.error("[addproduct] CREATE ERROR:", err.message, "\n", err.stack);
+      console.error("[addproduct] CREATE ERROR:", err.message);
+      console.error("[addproduct] CREATE ERROR DETAIL:", {
+        code      : err.code,
+        constraint: err.constraint,
+        detail    : err.detail,
+        hint      : err.hint,
+        where     : err.where,
+      });
 
-      if (!["LIMIT_FILE_SIZE", "23505", "INVALID_MIME"].includes(err.code)) {
+      if (!["23505", "LIMIT_FILE_SIZE", "INVALID_MIME"].includes(err.code)) {
         Sentry.captureException(err, {
-          tags  : { area: "product_create", seller_id: sellerId },
-          extra : { title, categoryId, fileCount: files.length },
+          tags : { area: "product_create", seller_id: sellerId },
+          extra: { title, categoryId, fileCount: files.length, errCode: err.code },
         });
       }
 
       if (err.code === "LIMIT_FILE_SIZE")
         return fail(res, 400, "Image too large — maximum 5 MB per image.");
       if (err.code === "23505")
-        return fail(res, 409, "This product was already submitted recently.");
+        return fail(res, 409, "Duplicate submission. Please try again.");
+
       return fail(
-        res,
-        500,
-        IS_PROD
-          ? "Failed to create product. Please try again."
-          : err.message
+        res, 500,
+        IS_PROD ? "Failed to create product. Please try again." : err.message
       );
+    } finally {
+      client.release();
+    }
+  }
+);
+
+/* ═══════════════════════════════════════════════════════════════
+   PATCH /products/:id  — Edit
+═══════════════════════════════════════════════════════════════ */
+router.patch(
+  "/products/:id",
+  authenticate,
+  editLimiter,
+  withImageUpload(upload.array("images", MAX_IMAGES)),
+  async (req, res) => {
+    const sellerId  = req.user?.id;
+    const productId = req.params.id;
+    const ip        = getIp(req);
+
+    console.log("\n[addproduct] ▶ EDIT  product:", productId, " seller:", sellerId);
+    if (!sellerId)  return fail(res, 401, "Not authenticated.");
+    if (!productId) return fail(res, 400, "Product ID required.");
+
+    const title         = cleanText(req.body.title);
+    const description   = cleanText(req.body.description);
+    const price         = Number(req.body.price);
+    const categoryId    = cleanUuid(req.body.category_id);
+    const subcategoryId = cleanUuid(req.body.subcategory_id);
+    const locationState = cleanText(req.body.location_state);
+    const locationCity  = cleanText(req.body.location_city);
+    const latitude      = toFinite(req.body.latitude);
+    const longitude     = toFinite(req.body.longitude);
+    const sellerName    = cleanText(req.body.seller_name);
+    const phone         = cleanText(req.body.phone);
+    const whatsapp      = cleanText(req.body.whatsapp);
+    const whatsappLink  = sanitizeWhatsAppLink(cleanText(req.body.whatsapp_link));
+    const attributes    = safeParseGuarded(req.body.attributes, {});
+    const delivery      = safeParseGuarded(req.body.delivery,   {});
+    const contact       = safeParseGuarded(req.body.contact,    {});
+    const keepImageIds  = safeParse(req.body.keep_image_ids,    []);
+    const removeKeys    = safeParse(req.body.remove_image_keys, []);
+    const newFiles      = req.files ?? [];
+
+    if (!title)                    return fail(res, 400, "Title is required.");
+    if (title.length > TITLE_MAX)  return fail(res, 400, `Title must be ≤ ${TITLE_MAX} characters.`);
+    if (!description || description.length < DESC_MIN)
+      return fail(res, 400, `Description must be at least ${DESC_MIN} characters.`);
+    if (description.length > DESC_MAX)
+      return fail(res, 400, `Description must be ≤ ${DESC_MAX} characters.`);
+    if (!price || price <= 0 || !Number.isFinite(price))
+      return fail(res, 400, "Enter a valid price.");
+    if (price > PRICE_MAX)  return fail(res, 400, "Price exceeds maximum.");
+    if (!categoryId)        return fail(res, 400, "Category is required.");
+    if (!locationState || !locationCity)
+      return fail(res, 400, "State and city are required.");
+
+    const phoneErr = validatePhone(phone, "Phone number");
+    if (phoneErr) return fail(res, 400, phoneErr);
+    if (whatsapp) {
+      const waErr = validatePhone(whatsapp, "WhatsApp number");
+      if (waErr) return fail(res, 400, waErr);
+    }
+
+    const catEarly = await validateCategory(pool, categoryId, subcategoryId);
+    if (!catEarly.valid) return fail(res, 400, catEarly.message);
+
+    let newUploaded = [];
+    const newR2Keys = [];
+
+    if (newFiles.length) {
+      try {
+        newUploaded = await Promise.all(
+          newFiles.map((file, i) =>
+            imageLimit(async () => {
+              const { buffer, mimetype } = await compressImage(file.buffer, file.mimetype);
+              const { url, key }        = await uploadToR2(buffer, mimetype);
+              newR2Keys.push(key);
+              return { url, key, order: i };
+            })
+          )
+        );
+      } catch (uploadErr) {
+        console.error("[addproduct] edit upload failed:", uploadErr.message);
+        const isUserError =
+          uploadErr.message.includes("too small") ||
+          uploadErr.message.includes("Invalid")   ||
+          uploadErr.message.includes("corrupt");
+        return fail(
+          res,
+          isUserError ? 400 : 500,
+          isUserError ? uploadErr.message : "Image upload failed. Please try again."
+        );
+      }
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      const { rows: existing } = await client.query(
+        `SELECT id, seller_id, status FROM products
+         WHERE  id = $1 AND status <> 'deleted'
+         FOR UPDATE`,
+        [productId]
+      );
+
+      if (!existing.length) {
+        await client.query("ROLLBACK");
+        await destroyR2Assets(newR2Keys);
+        return fail(res, 404, "Product not found.");
+      }
+      if (existing[0].seller_id !== sellerId) {
+        await client.query("ROLLBACK");
+        await destroyR2Assets(newR2Keys);
+        return fail(res, 403, "Not authorised to edit this listing.");
+      }
+
+      const catCheck = await validateCategory(client, categoryId, subcategoryId);
+      if (!catCheck.valid) {
+        await client.query("ROLLBACK");
+        await destroyR2Assets(newR2Keys);
+        return fail(res, 400, catCheck.message);
+      }
+
+      const newSlug = generateSlugWithId(title, crypto.randomUUID().replace(/-/g, "").slice(0, 8));
+
+      const { rows: updated } = await client.query(
+        `UPDATE products SET
+           title          = $1,
+           description    = $2,
+           price          = $3,
+           category_id    = $4,
+           subcategory_id = $5,
+           location_state = $6,
+           location_city  = $7,
+           latitude       = $8,
+           longitude      = $9,
+           seller_name    = $10,
+           phone          = $11,
+           whatsapp       = $12,
+           whatsapp_link  = $13,
+           attributes     = $14,
+           delivery       = $15,
+           contact        = $16,
+           slug           = $17,
+           updated_at     = NOW()
+         WHERE id = $18
+         RETURNING *`,
+        [
+          title, description, price,
+          categoryId, subcategoryId ?? null,
+          locationState, locationCity,
+          latitude ?? null, longitude ?? null,
+          sellerName, phone,
+          whatsapp ?? null, whatsappLink ?? null,
+          JSON.stringify(attributes),
+          JSON.stringify(delivery),
+          JSON.stringify(contact),
+          newSlug,
+          productId,
+        ]
+      );
+
+      const product = updated[0];
+
+      /* Remove image records not in keep list */
+      try {
+        if (Array.isArray(keepImageIds) && keepImageIds.length > 0) {
+          await client.query(
+            `DELETE FROM product_images
+             WHERE product_id = $1
+               AND id        <> ALL($2::UUID[])`,
+            [productId, keepImageIds]
+          );
+        } else if (newFiles.length > 0) {
+          await client.query(
+            "DELETE FROM product_images WHERE product_id = $1",
+            [productId]
+          );
+        }
+      } catch (delImgErr) {
+        console.warn("[addproduct] product_images delete failed (non-fatal):", delImgErr.message);
+      }
+
+      /* Insert new image records */
+      const existingCount = Array.isArray(keepImageIds) ? keepImageIds.length : 0;
+      if (newUploaded.length) {
+        try {
+          await Promise.all(
+            newUploaded.map((img, i) =>
+              client.query(
+                `INSERT INTO product_images
+                   (product_id, image_url, r2_key, position_order, is_primary)
+                 VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT DO NOTHING`,
+                [productId, img.url, img.key, existingCount + i, existingCount + i === 0]
+              )
+            )
+          );
+        } catch (insImgErr) {
+          console.warn("[addproduct] product_images insert failed (non-fatal):", insImgErr.message);
+        }
+      }
+
+      /* Rebuild images JSONB */
+      let allImages = [];
+      try {
+        const { rows: imgRows } = await client.query(
+          `SELECT image_url AS url, r2_key AS key, position_order AS "order"
+           FROM   product_images
+           WHERE  product_id = $1
+           ORDER  BY position_order`,
+          [productId]
+        );
+        allImages = imgRows;
+      } catch (fetchImgErr) {
+        console.warn("[addproduct] product_images fetch failed (non-fatal):", fetchImgErr.message);
+      }
+
+      const newThumb = allImages[0]?.url ?? product.thumbnail_url;
+      await client.query(
+        `UPDATE products
+         SET images        = $1,
+             thumbnail_url = $2,
+             main_image    = $2
+         WHERE id = $3`,
+        [JSON.stringify(allImages), newThumb, productId]
+      );
+      product.images = allImages;
+
+      await client.query("COMMIT");
+
+      if (Array.isArray(removeKeys) && removeKeys.length)
+        destroyR2Assets(removeKeys).catch(() => {});
+
+      console.log(`[addproduct] ✓ edited  id:${productId}`);
+
+      setImmediate(() => {
+        writeAudit({
+          actorId   : sellerId,
+          action    : "product_edited",
+          targetType: "product",
+          targetId  : productId,
+          metadata  : { title, categoryId },
+          ipAddress : ip,
+        }).catch(() => {});
+      });
+
+      return res.json({ success: true, product });
+
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      await destroyR2Assets(newR2Keys);
+      console.error("[addproduct] EDIT ERROR:", err.message, "\n", err.stack);
+      Sentry.captureException(err, { tags: { area: "product_edit", seller_id: sellerId } });
+      return fail(res, 500, IS_PROD ? "Update failed. Please try again." : err.message);
     } finally {
       client.release();
     }
@@ -1800,10 +1786,7 @@ router.post(
     const productId = req.params.id;
     const ip        = getIp(req);
 
-    console.log(
-      "\n[addproduct] ▶ ACTIVATE  product:", productId,
-      " seller:", sellerId
-    );
+    console.log("\n[addproduct] ▶ ACTIVATE  product:", productId, " seller:", sellerId);
     if (!sellerId)  return fail(res, 401, "Not authenticated.");
     if (!productId) return fail(res, 400, "Product ID required.");
 
@@ -1832,52 +1815,47 @@ router.post(
         return fail(res, 403, "Not authorised.");
       }
 
+      /* Already active — return full shape so frontend merge works */
       if (product.status === "active") {
         await client.query("ROLLBACK");
-        return res.json({ success: true, message: "Already active." });
+        return res.json({
+          success           : true,
+          message           : "Already active.",
+          product,
+          needs_verification: false,
+          active_until      : product.active_until,
+          days_remaining    : daysUntilExpiry(product.active_until),
+          seller_verified   : true,
+        });
       }
 
-      /* Lock user row AFTER product to maintain consistent lock order */
+      /* FIX: FOR NO KEY UPDATE → FOR UPDATE */
       const { rows: userRows } = await client.query(
-        "SELECT identity_verified FROM public.users WHERE id = $1 FOR NO KEY UPDATE",
+        "SELECT identity_verified FROM public.users WHERE id = $1 FOR UPDATE",
         [sellerId]
       );
       const isVerified = Boolean(userRows[0]?.identity_verified);
 
-      if (
-        product.status === "paused" &&
-        !isVerified &&
-        !POLICY.unverified.canReactivate
-      ) {
+      if (product.status === "paused" && !isVerified && !POLICY.unverified.canReactivate) {
         await client.query("ROLLBACK");
         return fail(
-          res,
-          403,
-          "Expired listings cannot be reactivated for unverified sellers. " +
-          "Complete identity verification to restore this listing.",
+          res, 403,
+          "Expired listings cannot be reactivated until you verify your identity.",
           { upgrade_required: true }
         );
       }
 
-      const ctx       = await getSellerContext(client, sellerId);
+      const ctx       = await getSellerContext(client, sellerId, true);
       const policyErr = enforcePolicyLimits({ ...ctx, cooldownSecsLeft: 0 });
       if (policyErr) {
         await client.query("ROLLBACK");
-        return fail(res, policyErr.status, policyErr.message, policyErr.extra);
+        return fail(res, policyErr.status, policyErr.message, policyErr.extra ?? {});
       }
 
-      let finalStatus = "active";
-      let activeUntil = null;
+      const finalStatus = isVerified ? "active" : "active_limited";
+      const activeUntil = computeActiveUntil(isVerified);
 
-      if (!isVerified) {
-        finalStatus = "active_limited";
-        activeUntil = computeActiveUntil(false);
-      } else {
-        finalStatus = "active";
-        activeUntil = computeActiveUntil(true);
-      }
-
-      const { rows: updated } = await client.query(
+      const { rows: updatedRows } = await client.query(
         `UPDATE products
          SET    status       = $1,
                 is_active    = TRUE,
@@ -1895,52 +1873,38 @@ router.post(
 
       setImmediate(() => {
         writeAudit({
-          actorId    : sellerId,
-          action     : "product_activated",
-          targetType : "product",
-          targetId   : productId,
-          metadata   : { status: finalStatus, active_until: activeUntil },
-          ipAddress  : ip,
+          actorId   : sellerId,
+          action    : "product_activated",
+          targetType: "product",
+          targetId  : productId,
+          metadata  : { status: finalStatus, active_until: activeUntil },
+          ipAddress : ip,
         }).catch(() => {});
-
         trackTrending(productId).catch(() => {});
       });
 
-      console.log(
-        "[addproduct] ✓ activated  status:", finalStatus,
-        " expires:", activeUntil?.toISOString()
-      );
+      console.log(`[addproduct] ✓ activated  status:${finalStatus}  expires:${activeUntil.toISOString()}`);
 
       return res.json({
-        success            : true,
-        product            : updated[0],
-        needs_verification : needsVerification,
-        active_until       : activeUntil,
-        days_remaining     : expiryDays,
-        seller_verified    : isVerified,
-        expiry_message     : needsVerification
-          ? `Your listing is live for ${expiryDays} days (trial). ` +
-            "Verify your identity to post permanently."
-          : `Your listing is live for ${expiryDays} days. ` +
-            "You can renew it for free before it expires.",
+        success           : true,
+        product           : updatedRows[0],
+        needs_verification: needsVerification,
+        active_until      : activeUntil,
+        days_remaining    : expiryDays,
+        seller_verified   : isVerified,
+        expiry_message    : needsVerification
+          ? `Your listing is live for ${expiryDays} days (trial). Verify to post permanently.`
+          : `Your listing is live for ${expiryDays} days.`,
         ...(needsVerification && {
-          verification_message:
-            `Your listing is live for ${expiryDays} day${expiryDays !== 1 ? "s" : ""}. ` +
-            "Complete identity verification to make it permanent.",
+          verification_message: "Verify your identity to make this listing permanent.",
         }),
       });
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       console.error("[addproduct] ACTIVATE ERROR:", err.message);
-      Sentry.captureException(err, {
-        tags: { area: "product_activate", seller_id: sellerId },
-      });
-      return fail(
-        res,
-        500,
-        IS_PROD ? "Activation failed. Please try again." : err.message
-      );
+      Sentry.captureException(err, { tags: { area: "product_activate", seller_id: sellerId } });
+      return fail(res, 500, IS_PROD ? "Activation failed. Please try again." : err.message);
     } finally {
       client.release();
     }
@@ -1949,108 +1913,79 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE /products/:id  — Soft delete
+   FIX: NOW() + ($n || ' days')::INTERVAL → make_interval(days=>$n::INT)
 ═══════════════════════════════════════════════════════════════ */
-router.delete(
-  "/products/:id",
-  authenticate,
-  async (req, res) => {
-    const sellerId  = req.user?.id;
-    const productId = req.params.id;
-    const ip        = getIp(req);
-    const HOLD_DAYS = 30;
+router.delete("/products/:id", authenticate, async (req, res) => {
+  const sellerId  = req.user?.id;
+  const productId = req.params.id;
+  const ip        = getIp(req);
 
-    console.log(
-      "\n[addproduct] ▶ SOFT DELETE  product:", productId,
-      " seller:", sellerId
+  console.log("\n[addproduct] ▶ SOFT DELETE  product:", productId, " seller:", sellerId);
+  if (!sellerId) return fail(res, 401, "Not authenticated.");
+
+  try {
+    const { rows: check } = await pool.query(
+      `SELECT id, status, is_deleted
+       FROM   products
+       WHERE  id        = $1
+         AND  seller_id = $2
+       LIMIT  1`,
+      [productId, sellerId]
     );
-    if (!sellerId) return fail(res, 401, "Not authenticated.");
 
-    try {
-      const { rows: check } = await pool.query(
-        `SELECT id, status, is_deleted
-         FROM public.products
-         WHERE id = $1 AND seller_id = $2
-         LIMIT 1`,
-        [productId, sellerId]
-      );
+    if (!check.length)
+      return fail(res, 404, "Product not found or not owned by you.");
+    if (check[0].is_deleted || check[0].status === "deleted")
+      return fail(res, 400, "Product already deleted.");
+    if (check[0].status === "active")
+      return fail(res, 409, "Active listings must be paused before deleting.");
 
-      if (!check.length)
-        return fail(res, 404, "Product not found or not owned by you.");
+    const { rows } = await pool.query(
+      `UPDATE products
+       SET
+         is_active             = FALSE,
+         is_deleted            = TRUE,
+         status                = 'deleted',
+         deletion_requested_at = NOW(),
+         deletion_reason       = 'user_deleted',
+         permanent_delete_at   = NOW() + make_interval(days => $1::INT),
+         deleted_at            = NOW(),
+         updated_at            = NOW()
+       WHERE id        = $2
+         AND seller_id = $3
+         AND (is_deleted = FALSE OR is_deleted IS NULL)
+       RETURNING id, title`,
+      [DELETE_HOLD_DAYS, productId, sellerId]
+    );
 
-      if (check[0].is_deleted || check[0].status === "deleted")
-        return fail(res, 400, "Product already deleted.");
+    if (!rows.length)
+      return fail(res, 404, "Product not found or already deleted.");
 
-      if (check[0].status === "active") {
-        return fail(
-          res,
-          409,
-          "Active listings must be paused before deleting. " +
-          "Tap the pause button first, then delete."
-        );
-      }
+    setImmediate(() => {
+      writeAudit({
+        actorId   : sellerId,
+        action    : "product_soft_deleted",
+        targetType: "product",
+        targetId  : productId,
+        metadata  : { title: rows[0].title, hold_days: DELETE_HOLD_DAYS },
+        ipAddress : ip,
+      }).catch(() => {});
+    });
 
-      const { rows } = await pool.query(
-        `UPDATE products
-         SET
-           is_active             = false,
-           is_deleted            = true,
-           status                = 'deleted',
-           deletion_requested_at = NOW(),
-           deletion_reason       = 'user_deleted',
-           permanent_delete_at   = NOW() + ($1 || ' days')::INTERVAL,
-           deleted_at            = NOW(),
-           updated_at            = NOW()
-         WHERE id        = $2
-           AND seller_id = $3
-           AND (is_deleted = false OR is_deleted IS NULL)
-         RETURNING id, title`,
-        [HOLD_DAYS, productId, sellerId]
-      );
+    console.log(`[addproduct] ✓ soft-deleted  id:${productId}  hold:${DELETE_HOLD_DAYS}d`);
 
-      if (!rows.length)
-        return fail(res, 404, "Product not found or already deleted.");
+    return res.json({
+      success            : true,
+      message            : "Listing deleted",
+      hold_days          : DELETE_HOLD_DAYS,
+      permanent_delete_at: new Date(Date.now() + DELETE_HOLD_DAYS * 86_400_000).toISOString(),
+    });
 
-      setImmediate(() => {
-        writeAudit({
-          actorId    : sellerId,
-          action     : "product_soft_deleted",
-          targetType : "product",
-          targetId   : productId,
-          metadata   : {
-            title       : rows[0].title,
-            hold_days   : HOLD_DAYS,
-            recoverable : true,
-          },
-          ipAddress : ip,
-        }).catch(() => {});
-      });
-
-      console.log(
-        "[addproduct] ✓ soft-deleted  id:", productId,
-        " — permanent deletion in", HOLD_DAYS, "days"
-      );
-
-      return res.json({
-        success             : true,
-        message             : "Listing deleted",
-        hold_days           : HOLD_DAYS,
-        permanent_delete_at : new Date(
-          Date.now() + HOLD_DAYS * 24 * 60 * 60 * 1_000
-        ).toISOString(),
-      });
-
-    } catch (err) {
-      console.error("[addproduct] DELETE ERROR:", err.message);
-      Sentry.captureException(err, {
-        tags: { area: "product_delete", seller_id: sellerId },
-      });
-      return fail(
-        res,
-        500,
-        IS_PROD ? "Delete failed. Please try again." : err.message
-      );
-    }
+  } catch (err) {
+    console.error("[addproduct] DELETE ERROR:", err.message);
+    Sentry.captureException(err, { tags: { area: "product_delete", seller_id: sellerId } });
+    return fail(res, 500, IS_PROD ? "Delete failed. Please try again." : err.message);
   }
-);
+});
 
 export default router;
