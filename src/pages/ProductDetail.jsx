@@ -386,12 +386,30 @@ const Attributes = memo(function Attributes({ attributes }) {
 const DeliveryInfo = memo(function DeliveryInfo({ delivery }) {
   if (!delivery || typeof delivery !== "object") return null;
 
-  const rows = Object.entries(delivery).filter(
-    ([, v]) =>
-      v !== null &&
-      v !== undefined &&
-      String(v).trim() !== ""
-  );
+  const available =
+    delivery.available === true ||
+    delivery.available === "Yes";
+
+  const rows = Object.entries(delivery).filter(([key, value]) => {
+    if (
+      value == null ||
+      String(value).trim() === ""
+    ) {
+      return false;
+    }
+
+    // Hide duration when delivery isn't available
+    if (key === "duration" && !available) {
+      return false;
+    }
+
+    // Don't render plain objects
+    if (typeof value === "object") {
+      return false;
+    }
+
+    return true;
+  });
   if (!rows.length) return null;
 
   return (
