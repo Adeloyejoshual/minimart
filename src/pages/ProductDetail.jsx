@@ -573,15 +573,12 @@ const StockStatus = memo(function StockStatus({ product }) {
   const { stock_status, stock_quantity } = product;
   if (!stock_status && stock_quantity == null) return null;
 
-  const isLow = stock_quantity != null && stock_quantity <= 5 && stock_quantity > 0;
   const isOut = stock_status === "out_of_stock" || stock_quantity === 0;
 
   return (
     <div className="pd-stock" aria-live="polite">
       {isOut ? (
         <span className="pd-stock--out">Out of Stock</span>
-      ) : isLow ? (
-        <span className="pd-stock--low">Only {stock_quantity} left!</span>
       ) : stock_status === "in_stock" ? (
         <span className="pd-stock--in">In Stock</span>
       ) : null}
