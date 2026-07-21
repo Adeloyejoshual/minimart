@@ -6,7 +6,7 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import "../styles/DealsPage.css";
+import "../../styles/DealsPage.css";
 
 /* ══════════════════════════════════════════════════════════════
    ICONS  (inline SVG — zero dependencies)
