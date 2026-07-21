@@ -1,8 +1,8 @@
 // src/pages/Homepage/NearbyPage.jsx
 /**
- * NearbyPage — Elite Edition v2
- * Location-aware product feed with GPS, manual LocationPicker,
- * infinite scroll, analytics batching, retry backoff, and full accessibility.
+ * NearbyPage — Elite Edition v3
+ * All emoji replaced with SVG icons.
+ * UI upgraded: GPS prompt, location banner, empty state, error banner.
  */
 
 import {
@@ -26,7 +26,7 @@ import "../../styles/NearbyPage.css";
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
 const API       = `${BASE_URL}/api`;
 const PAGE_SIZE = 40;
@@ -39,13 +39,148 @@ const GPS_RETRY_DELAY = 1_500;
 const GPS_OPTS_HIGH = { timeout: 8_000, enableHighAccuracy: true,  maximumAge: 0       };
 const GPS_OPTS_LOW  = { timeout: 6_000, enableHighAccuracy: false, maximumAge: 300_000 };
 
-const FETCH_RETRY_DELAYS   = [0, 1_000, 3_000];
-const ANALYTICS_FLUSH_MS   = 2_000;
+const FETCH_RETRY_DELAYS = [0, 1_000, 3_000];
+const ANALYTICS_FLUSH_MS = 2_000;
 const SCROLL_TOP_THRESHOLD = 320;
 
 /* ══════════════════════════════════════════════════════════════
+   SVG ICONS
+══════════════════════════════════════════════════════════════ */
+const ArrowLeftIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M19 12H5" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
+
+const MapPinIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+    <circle cx="12" cy="10" r="3" />
+  </svg>
+);
+
+const SatelliteIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="2" />
+    <path d="M16.24 7.76a6 6 0 010 8.49m-8.48-.01a6 6 0 010-8.49" />
+    <path d="M19.07 4.93a10 10 0 010 14.14m-14.14 0a10 10 0 010-14.14" />
+  </svg>
+);
+
+const CrosshairIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <circle cx="12" cy="12" r="3" />
+    <line x1="12" y1="2" x2="12" y2="6" />
+    <line x1="12" y1="18" x2="12" y2="22" />
+    <line x1="2" y1="12" x2="6" y2="12" />
+    <line x1="18" y1="12" x2="22" y2="12" />
+  </svg>
+);
+
+const NavigationIcon = ({ size = 48 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polygon points="3 11 22 2 13 21 11 13 3 11" />
+  </svg>
+);
+
+const MapIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+    <line x1="8" y1="2" x2="8" y2="18" />
+    <line x1="16" y1="6" x2="16" y2="22" />
+  </svg>
+);
+
+const GlobeIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="2" y1="12" x2="22" y2="12" />
+    <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10
+             15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
+  </svg>
+);
+
+const ZapIcon = ({ size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
+
+const ChevronUpIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
+       aria-hidden="true">
+    <path d="M18 15l-6-6-6 6" />
+  </svg>
+);
+
+const ChevronRightIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
+       aria-hidden="true">
+    <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+  </svg>
+);
+
+const CheckCircleIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+    <polyline points="22 4 12 14.01 9 11.01" />
+  </svg>
+);
+
+const ShieldIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+);
+
+const ListIcon = ({ size = 13 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
+  </svg>
+);
+
+const EditIcon = ({ size = 13 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+    <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+  </svg>
+);
+
+/* ══════════════════════════════════════════════════════════════
    GPS CACHE
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 function readCachedGps() {
   try {
     const raw = sessionStorage.getItem(GPS_KEY);
@@ -74,8 +209,8 @@ async function queryGpsPermission() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   NORMALISE + DEDUP
-   ══════════════════════════════════════════════════════════════ */
+   NORMALIZE + DEDUP
+══════════════════════════════════════════════════════════════ */
 function normalizeProduct(p) {
   if (!p || typeof p !== "object" || !p.id) return null;
 
@@ -86,9 +221,7 @@ function normalizeProduct(p) {
         ? p.images[0]
         : p.images[0]?.url ?? null
       : null) ??
-    p.main_image ??
-    p.thumbnail_url ??
-    null;
+    p.main_image ?? p.thumbnail_url ?? null;
 
   return {
     ...p,
@@ -99,10 +232,19 @@ function normalizeProduct(p) {
     views             : Number(p.views              || 0),
     ctr               : Number(p.ctr                || 0),
     promotion_priority: Number(p.promotion_priority || 0),
+    search_priority   : Number(p.search_priority    || 0),
     is_promoted       : Boolean(p.is_promoted),
+    promotion_badge   : p.promotion_badge || null,
     image,
     location_city : p.location?.city  ?? p.location_city  ?? null,
     location_state: p.location?.state ?? p.location_state ?? null,
+    seller: {
+      id              : p.seller?.id               ?? p.seller_id   ?? null,
+      name            : p.seller?.name             ?? p.seller_name ?? null,
+      verified        : Boolean(p.seller?.verified),
+      subscriptionPlan: p.seller?.subscriptionPlan ?? null,
+      subscriptionRank: Number(p.seller?.subscriptionRank || 0),
+    },
   };
 }
 
@@ -113,7 +255,7 @@ function dedup(arr) {
 
 /* ══════════════════════════════════════════════════════════════
    FETCH WITH RETRY + ABORT
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 class FetchError extends Error {
   constructor(status, message) {
     super(message);
@@ -138,14 +280,6 @@ async function fetchWithRetry(url, signal, attempt = 0) {
   return res;
 }
 
-/**
- * @param {{
- *   pageParam?     : number,
- *   coords?        : { lat: number, lng: number } | null,
- *   manualLocation?: { state?: string, city?: string } | null,
- *   signal?        : AbortSignal,
- * }} opts
- */
 async function fetchNearbyPage({
   pageParam      = 0,
   coords         = null,
@@ -162,7 +296,6 @@ async function fetchNearbyPage({
     return `${API}/homepage?${p}`;
   };
 
-  /* 1️⃣  Try nearby section */
   try {
     const res  = await fetchWithRetry(buildUrl("nearby"), signal);
     const data = await res.json();
@@ -171,14 +304,13 @@ async function fetchNearbyPage({
     if (err.name === "AbortError") throw err;
   }
 
-  /* 2️⃣  General feed fallback */
   const res = await fetchWithRetry(buildUrl(), signal);
   return res.json();
 }
 
 /* ══════════════════════════════════════════════════════════════
    ANALYTICS BATCHER
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 function createAnalyticsBatcher() {
   const queue = { view: new Set(), click: new Set() };
   let timer   = null;
@@ -190,19 +322,23 @@ function createAnalyticsBatcher() {
     queue.click.clear();
 
     if (views.length) {
-      fetch(`${API}/analytics/views`, {
+      fetch(`${API}/homepage/analytics/batch`, {
         method   : "POST",
         keepalive: true,
         headers  : { "Content-Type": "application/json" },
-        body     : JSON.stringify({ ids: views }),
+        body     : JSON.stringify({
+          events: views.map((id) => ({ type: "view", id })),
+        }),
       }).catch(() => {});
     }
     if (clicks.length) {
-      fetch(`${API}/analytics/clicks`, {
+      fetch(`${API}/homepage/analytics/batch`, {
         method   : "POST",
         keepalive: true,
         headers  : { "Content-Type": "application/json" },
-        body     : JSON.stringify({ ids: clicks }),
+        body     : JSON.stringify({
+          events: clicks.map((id) => ({ type: "click", id })),
+        }),
       }).catch(() => {});
     }
   };
@@ -218,7 +354,7 @@ function createAnalyticsBatcher() {
 
 /* ══════════════════════════════════════════════════════════════
    FEED REDUCER
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const initialFeedState = {
   products   : [],
   meta       : {},
@@ -269,7 +405,7 @@ function feedReducer(state, action) {
 
 /* ══════════════════════════════════════════════════════════════
    HOOKS
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 
 /* ── useGps ── */
 function useGps() {
@@ -406,41 +542,30 @@ function useInfiniteScroll(sentinelRef, loadMore, enabled) {
 
 /* ══════════════════════════════════════════════════════════════
    INLINE COMPONENTS
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 
 /* ── Header ── */
 const NearbyHeader = memo(function NearbyHeader({
   gpsStatus, manualLocation, onBack, onRequestGps, onOpenPicker,
 }) {
-  const CHIP = {
-    pending: { text: "Locating…",   cls: "nb-chip--pending" },
-    gps    : { text: "📍 GPS Live", cls: "nb-chip--gps"     },
-    denied : { text: "📍 Manual",   cls: "nb-chip--manual"  },
-  };
-  const chip = CHIP[gpsStatus] ?? CHIP.pending;
-
   return (
     <div className="nb-header">
-      {/* Back */}
       <button className="nb-back" onClick={onBack} aria-label="Go back">
-        <svg width="18" height="18" viewBox="0 0 24 24"
-             fill="currentColor" aria-hidden="true">
-          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8
-                   1.41-1.41L7.83 13H20v-2z" />
-        </svg>
+        <ArrowLeftIcon size={18} />
       </button>
 
-      {/* Title + GPS chip */}
       <div className="nb-title-wrap">
         <h1 className="nb-title">Near You</h1>
-        <span className={`nb-chip ${chip.cls}`} aria-live="polite">
+        <span className={`nb-chip nb-chip--${gpsStatus}`} aria-live="polite">
           {gpsStatus === "pending" && (
             <span className="nb-chip-spin" aria-hidden="true" />
           )}
           {gpsStatus === "gps" && (
             <span className="nb-chip-dot" aria-hidden="true" />
           )}
-          {chip.text}
+          {gpsStatus === "pending" && "Locating…"}
+          {gpsStatus === "gps"     && <><SatelliteIcon size={12} /> GPS Live</>}
+          {gpsStatus === "denied"  && <><MapPinIcon    size={12} /> Manual</>}
         </span>
       </div>
 
@@ -449,15 +574,8 @@ const NearbyHeader = memo(function NearbyHeader({
         className="nb-loc-pick-btn"
         onClick={onOpenPicker}
         aria-label="Change location"
-        title="Change location"
       >
-        <svg width="13" height="13" viewBox="0 0 24 24"
-             fill="currentColor" aria-hidden="true">
-          <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75
-                   7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5
-                   -2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5
-                   -2.5 2.5z" />
-        </svg>
+        <EditIcon size={13} />
         <span className="nb-loc-pick-label">
           {manualLocation?.label ?? "Change"}
         </span>
@@ -465,19 +583,9 @@ const NearbyHeader = memo(function NearbyHeader({
 
       {/* GPS enable — only when no manual override + GPS denied */}
       {!manualLocation && gpsStatus === "denied" && (
-        <button
-          className="nb-gps-btn"
-          onClick={onRequestGps}
-          aria-label="Enable GPS"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor"
-               strokeWidth="2" strokeLinecap="round"
-               aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-          </svg>
-          Enable GPS
+        <button className="nb-gps-btn" onClick={onRequestGps}
+                aria-label="Enable GPS">
+          <CrosshairIcon size={14} /> Enable GPS
         </button>
       )}
     </div>
@@ -493,7 +601,10 @@ const NearbyLocationBanner = memo(function NearbyLocationBanner({
     <div className="nb-loc-banner" role="status" aria-live="polite">
       <div className="nb-loc-left">
         <span className="nb-loc-icon" aria-hidden="true">
-          {gpsStatus === "gps" ? "📡" : "📍"}
+          {gpsStatus === "gps"
+            ? <SatelliteIcon size={18} />
+            : <MapPinIcon    size={18} />
+          }
         </span>
         <div className="nb-loc-text">
           <span className="nb-loc-label">Showing listings near</span>
@@ -504,15 +615,13 @@ const NearbyLocationBanner = memo(function NearbyLocationBanner({
       <div className="nb-loc-right">
         {count > 0 && (
           <span className="nb-loc-count" aria-label={`${count} listings`}>
+            <ListIcon size={13} />
             {count.toLocaleString()} listing{count !== 1 ? "s" : ""}
           </span>
         )}
-        <button
-          className="nb-loc-change-btn"
-          onClick={onOpenPicker}
-          aria-label="Change location"
-        >
-          Change
+        <button className="nb-loc-change-btn" onClick={onOpenPicker}
+                aria-label="Change location">
+          <EditIcon size={12} /> Change
         </button>
       </div>
     </div>
@@ -531,25 +640,32 @@ const NearbyGpsPrompt = memo(function NearbyGpsPrompt({
          role="dialog"
          aria-modal="true"
          aria-label="Enable location for better results">
-      <div className="nb-gps-prompt-icon" aria-hidden="true">📍</div>
+      <div className="nb-gps-prompt-icon" aria-hidden="true">
+        <NavigationIcon size={48} />
+      </div>
       <div className="nb-gps-prompt-body">
         <h3 className="nb-gps-prompt-title">See listings near you</h3>
         <p className="nb-gps-prompt-sub">
           Allow location access to find deals closest to you first.
         </p>
+        <div className="nb-gps-prompt-features">
+          <span className="nb-gps-prompt-feat">
+            <CheckCircleIcon size={13} /> Closest deals shown first
+          </span>
+          <span className="nb-gps-prompt-feat">
+            <ShieldIcon size={13} /> Location never stored or shared
+          </span>
+        </div>
       </div>
       <div className="nb-gps-prompt-actions">
-        <button ref={allowRef}
-                className="nb-gps-prompt-allow"
+        <button ref={allowRef} className="nb-gps-prompt-allow"
                 onClick={onAllow}>
-          Allow Location
+          <CrosshairIcon size={14} /> Allow Location
         </button>
-        <button className="nb-gps-prompt-manual"
-                onClick={onOpenPicker}>
-          Pick manually
+        <button className="nb-gps-prompt-manual" onClick={onOpenPicker}>
+          <MapPinIcon size={13} /> Pick manually
         </button>
-        <button className="nb-gps-prompt-skip"
-                onClick={onDismiss}>
+        <button className="nb-gps-prompt-skip" onClick={onDismiss}>
           Maybe later
         </button>
       </div>
@@ -601,12 +717,7 @@ function ScrollTopBtn() {
       aria-hidden={!visible}
       tabIndex={visible ? 0 : -1}
     >
-      <svg width="16" height="16" viewBox="0 0 24 24"
-           fill="none" stroke="currentColor"
-           strokeWidth="2.5" strokeLinecap="round"
-           aria-hidden="true">
-        <path d="M18 15l-6-6-6 6" />
-      </svg>
+      <ChevronUpIcon size={16} />
     </button>
   );
 }
@@ -616,8 +727,11 @@ function EmptyState({ gpsStatus, manualLocation, onBrowseAll, onOpenPicker }) {
   const isDenied = gpsStatus === "denied";
   return (
     <div className="nb-empty" role="status" aria-live="polite">
-      <span className="nb-empty-emoji" aria-hidden="true">
-        {isDenied ? "🗺️" : "📍"}
+      <span className="nb-empty-icon" aria-hidden="true">
+        {manualLocation || isDenied
+          ? <MapIcon   size={44} />
+          : <GlobeIcon size={44} />
+        }
       </span>
       <h3 className="nb-empty-title">
         {manualLocation
@@ -633,13 +747,19 @@ function EmptyState({ gpsStatus, manualLocation, onBrowseAll, onOpenPicker }) {
           ? "We couldn't detect your location. Try picking one manually."
           : "There are no listings in your area yet. More sellers joining daily!"}
       </p>
+      {isDenied && !manualLocation && (
+        <p className="nb-empty-hint">
+          <ShieldIcon size={12} /> Your location is only used to sort results
+          — never stored or shared.
+        </p>
+      )}
       <div className="nb-empty-actions">
         <button className="nb-empty-btn" onClick={onOpenPicker}>
-          Pick a location
+          <MapPinIcon size={14} /> Pick a location
         </button>
         <button className="nb-empty-btn nb-empty-btn--ghost"
                 onClick={onBrowseAll}>
-          Browse all listings
+          Browse all listings <ChevronRightIcon size={13} />
         </button>
       </div>
     </div>
@@ -648,15 +768,16 @@ function EmptyState({ gpsStatus, manualLocation, onBrowseAll, onOpenPicker }) {
 
 /* ── Error banner ── */
 function ErrorBanner({ message, onRetry, retryCount }) {
+  const exhausted = retryCount >= 3;
   return (
     <div className="nb-err" role="alert">
-      <span className="nb-err-icon" aria-hidden="true">⚡</span>
+      <span className="nb-err-icon" aria-hidden="true">
+        <ZapIcon size={20} />
+      </span>
       <p className="nb-err-title">Could not load listings</p>
       <p className="nb-err-msg">{message}</p>
-      <button className="nb-err-btn"
-              onClick={onRetry}
-              disabled={retryCount >= 3}>
-        {retryCount >= 3 ? "Please refresh the page" : "Try again"}
+      <button className="nb-err-btn" onClick={onRetry} disabled={exhausted}>
+        {exhausted ? "Please refresh the page" : "Try again"}
       </button>
     </div>
   );
@@ -664,7 +785,7 @@ function ErrorBanner({ message, onRetry, retryCount }) {
 
 /* ══════════════════════════════════════════════════════════════
    MAIN COMPONENT
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 export default function NearbyPage({ user }) {
   const navigate    = useNavigate();
   const sentinelRef = useRef(null);
@@ -676,7 +797,7 @@ export default function NearbyPage({ user }) {
     requestGps, dismissPrompt,
   } = useGps();
 
-  /* ── Manual location (overrides GPS) ── */
+  /* ── Manual location ── */
   const [manualLocation, setManualLocation] = useState(null);
   const [pickerOpen,     setPickerOpen]     = useState(false);
 
@@ -688,7 +809,6 @@ export default function NearbyPage({ user }) {
   const openPicker  = useCallback(() => setPickerOpen(true),  []);
   const closePicker = useCallback(() => setPickerOpen(false), []);
 
-  /* GPS coords are ignored when user has set a manual location */
   const activeCoords = useMemo(
     () => (manualLocation ? null : coords),
     [manualLocation, coords]
@@ -731,7 +851,6 @@ export default function NearbyPage({ user }) {
 
   const total = meta?.total ?? products.length;
 
-  /* ── Retry with cap ── */
   const handleRetry = useCallback(() => {
     retryCount.current += 1;
     retry();
@@ -747,7 +866,6 @@ export default function NearbyPage({ user }) {
       <main className="nb-page" id="nb-main"
             aria-label="Nearby listings page">
 
-        {/* ── Header ── */}
         <NearbyHeader
           gpsStatus={gpsStatus}
           manualLocation={manualLocation}
@@ -756,7 +874,6 @@ export default function NearbyPage({ user }) {
           onOpenPicker={openPicker}
         />
 
-        {/* ── GPS soft prompt ── */}
         {showPrompt && gpsStatus === "pending" && (
           <NearbyGpsPrompt
             onAllow={requestGps}
@@ -765,7 +882,6 @@ export default function NearbyPage({ user }) {
           />
         )}
 
-        {/* ── Location banner ── */}
         {!loading && locLabel && (
           <NearbyLocationBanner
             label={locLabel}
@@ -775,7 +891,6 @@ export default function NearbyPage({ user }) {
           />
         )}
 
-        {/* ── Error ── */}
         {error && (
           <ErrorBanner
             message={error}
@@ -784,10 +899,8 @@ export default function NearbyPage({ user }) {
           />
         )}
 
-        {/* ── Skeleton ── */}
         {loading && <NearbySkeleton />}
 
-        {/* ── Empty ── */}
         {!loading && !error && products.length === 0 && (
           <EmptyState
             gpsStatus={gpsStatus}
@@ -797,14 +910,10 @@ export default function NearbyPage({ user }) {
           />
         )}
 
-        {/* ── Product grid ── */}
         {!loading && products.length > 0 && (
           <>
-            <div
-              className="nb-masonry"
-              role="list"
-              aria-label={`${total.toLocaleString()} nearby listings`}
-            >
+            <div className="nb-masonry" role="list"
+                 aria-label={`${total.toLocaleString()} nearby listings`}>
               {products.map((p, i) => (
                 <div key={p.id} role="listitem">
                   <MasonryCard
@@ -817,39 +926,30 @@ export default function NearbyPage({ user }) {
               ))}
             </div>
 
-            {/* Infinite scroll sentinel */}
             <div ref={sentinelRef} aria-hidden="true"
                  style={{ height: 1, marginTop: -1 }} />
 
-            {/* Loading more */}
             {loadingMore && (
-              <p className="nb-loading-more"
-                 aria-live="polite" aria-busy="true">
+              <p className="nb-loading-more" aria-live="polite" aria-busy="true">
                 <span className="nb-spinner" aria-hidden="true" />
                 Loading more listings…
               </p>
             )}
 
-            {/* Feed end */}
             {!hasMore && products.length > 0 && (
               <div className="nb-feed-end-wrap" role="status">
                 <p className="nb-feed-end">
                   You've seen all{" "}
                   {total > 0 ? `${total.toLocaleString()} ` : ""}
-                  nearby listings 🎉
+                  nearby listings
                 </p>
                 <div className="nb-feed-end-actions">
-                  <button
-                    className="nb-feed-end-btn"
-                    onClick={openPicker}
-                  >
-                    Try another location
+                  <button className="nb-feed-end-btn" onClick={openPicker}>
+                    <MapPinIcon size={13} /> Try another location
                   </button>
-                  <button
-                    className="nb-feed-end-btn nb-feed-end-btn--ghost"
-                    onClick={() => navigate("/")}
-                  >
-                    Browse all →
+                  <button className="nb-feed-end-btn nb-feed-end-btn--ghost"
+                          onClick={() => navigate("/")}>
+                    Browse all <ChevronRightIcon size={13} />
                   </button>
                 </div>
               </div>
@@ -858,10 +958,8 @@ export default function NearbyPage({ user }) {
         )}
 
         {!loading && <Footer />}
-
       </main>
 
-      {/* ── Location picker modal ── */}
       <LocationPicker
         open={pickerOpen}
         onClose={closePicker}
