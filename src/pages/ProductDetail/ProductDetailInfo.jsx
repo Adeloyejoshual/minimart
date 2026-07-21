@@ -1,33 +1,39 @@
 import { memo, useMemo } from "react";
 import "./ProductDetailInfo.css";
 
+/* ═══════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════ */
 const fmt = (n) =>
   Number(n || 0).toLocaleString("en-NG", { minimumFractionDigits: 0 });
 
 const compactNum = (n) => {
   const num = Number(n) || 0;
   if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-  if (num >= 1_000) return `${(num / 1_000).toFixed(1)}K`;
+  if (num >= 1_000)     return `${(num / 1_000).toFixed(1)}K`;
   return String(num);
 };
 
 const timeAgo = (d) => {
   if (!d) return null;
   const diff = Math.max(0, Date.now() - new Date(d).getTime());
-  const m = Math.floor(diff / 60_000);
-  const h = Math.floor(diff / 3_600_000);
+  const m    = Math.floor(diff / 60_000);
+  const h    = Math.floor(diff / 3_600_000);
   const days = Math.floor(diff / 86_400_000);
-  const w = Math.floor(days / 7);
-  const mo = Math.floor(days / 30);
+  const w    = Math.floor(days / 7);
+  const mo   = Math.floor(days / 30);
 
-  if (m < 1) return "Just now";
-  if (m < 60) return `${m}m ago`;
-  if (h < 24) return `${h}h ago`;
+  if (m < 1)    return "Just now";
+  if (m < 60)   return `${m}m ago`;
+  if (h < 24)   return `${h}h ago`;
   if (days < 7) return `${days}d ago`;
-  if (w < 5) return `${w}w ago`;
+  if (w < 5)    return `${w}w ago`;
   return `${mo}mo ago`;
 };
 
+/* ═══════════════════════════════════════════════════════════
+   ICONS
+═══════════════════════════════════════════════════════════ */
 const IconChevronRight = () => (
   <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
@@ -114,47 +120,50 @@ const IconFolder = () => (
   </svg>
 );
 
+/* ═══════════════════════════════════════════════════════════
+   COMPONENT
+═══════════════════════════════════════════════════════════ */
 function ProductDetailInfo({ product }) {
+  /* ✅ Hooks must run before any early return */
+  const metaItems = useMemo(() => {
+    if (!product) return [];
+    return [
+      product.condition && {
+        label: "Condition",
+        value: product.condition,
+        Icon: IconTag,
+      },
+      product.brand && {
+        label: "Brand",
+        value: product.brand,
+        Icon: IconAward,
+      },
+      product.model && {
+        label: "Model",
+        value: product.model,
+        Icon: IconSmartphone,
+      },
+      (product.location_city || product.location_state) && {
+        label: "Location",
+        value: [product.location_city, product.location_state]
+          .filter(Boolean)
+          .join(", "),
+        Icon: IconMapPin,
+      },
+      product.category_name && {
+        label: "Category",
+        value: product.subcategory_name
+          ? `${product.category_name} › ${product.subcategory_name}`
+          : product.category_name,
+        Icon: IconFolder,
+      },
+    ].filter(Boolean);
+  }, [product]);
+
   if (!product) return null;
 
   const symbol = (product.currency || "NGN") === "NGN" ? "₦" : product.currency;
   const posted = timeAgo(product.created_at);
-
-  const metaItems = useMemo(
-    () =>
-      [
-        product.condition && {
-          label: "Condition",
-          value: product.condition,
-          Icon: IconTag,
-        },
-        product.brand && {
-          label: "Brand",
-          value: product.brand,
-          Icon: IconAward,
-        },
-        product.model && {
-          label: "Model",
-          value: product.model,
-          Icon: IconSmartphone,
-        },
-        (product.location_city || product.location_state) && {
-          label: "Location",
-          value: [product.location_city, product.location_state]
-            .filter(Boolean)
-            .join(", "),
-          Icon: IconMapPin,
-        },
-        product.category_name && {
-          label: "Category",
-          value: product.subcategory_name
-            ? `${product.category_name} › ${product.subcategory_name}`
-            : product.category_name,
-          Icon: IconFolder,
-        },
-      ].filter(Boolean),
-    [product]
-  );
 
   const hasEngagement =
     product.views > 0 ||
@@ -211,7 +220,7 @@ function ProductDetailInfo({ product }) {
         </div>
       )}
 
-      {/* Price — no negotiable badge */}
+      {/* Price */}
       <div className="pdi-price-row">
         <span className="pdi-price" aria-label={`Price: ${symbol}${fmt(product.price)}`}>
           {symbol}{fmt(product.price)}
