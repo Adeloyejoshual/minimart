@@ -26,6 +26,7 @@ import { useProductCache } from "../context/ProductCacheContext";
 import ProductDetailTopBar from "./ProductDetail/ProductDetailTopBar";
 import ProductDetailExpiry from "./ProductDetail/ProductDetailExpiry";
 import ProductImageGallery from "./ProductDetail/ProductImageGallery";
+import ProductImageViewer  from "./ProductDetail/ProductImageViewer";
 import ProductDetailInfo   from "./ProductDetail/ProductDetailInfo";
 import ContactStrip        from "./ProductDetail/ContactStrip";
 import ReviewSection       from "./ProductDetail/Review";
@@ -125,24 +126,37 @@ const formatDeliveryValue = (v) => {
 };
 
 /* ═══════════════════════════════════════════════════════════
+   IMAGE URL HELPERS  (mirror of ProductImageGallery)
+═══════════════════════════════════════════════════════════ */
+const optimizedUrl = (url, width = 1600) => {
+  if (!url || typeof url !== "string") return url;
+  if (url.includes("res.cloudinary.com") && url.includes("/upload/")) {
+    if (url.includes("/upload/w_")) return url;
+    return url.replace("/upload/", `/upload/w_${width},q_auto,f_auto/`);
+  }
+  if (url.includes("imagedelivery.net") && url.endsWith("/public")) {
+    return url.replace(/\/public$/, `/w=${width},q=80`);
+  }
+  return url;
+};
+
+/* ═══════════════════════════════════════════════════════════
    NORMALIZE IMAGES
    Backend returns: [{ url, key, order }] or []
-   Gallery expects: same — but we also accept legacy shapes
+   Gallery / Viewer expect: string[]
 ═══════════════════════════════════════════════════════════ */
 const normalizeImages = (raw) => {
-  /* Already an array */
   if (Array.isArray(raw) && raw.length) {
     return raw
       .map((img) => {
         if (typeof img === "string") return img;
-        if (img?.url)        return img.url;
-        if (img?.src)        return img.src;
-        if (img?.image_url)  return img.image_url;
+        if (img?.url)       return img.url;
+        if (img?.src)       return img.src;
+        if (img?.image_url) return img.image_url;
         return null;
       })
       .filter(Boolean);
   }
-  /* Single string */
   if (typeof raw === "string" && raw) return [raw];
   return [];
 };
@@ -197,7 +211,10 @@ const ErrorState = memo(function ErrorState({ message, onRetry }) {
         </p>
         <div className="pd-error-actions">
           {onRetry && (
-            <button className="pd-error-btn pd-error-btn--secondary" onClick={onRetry}>
+            <button
+              className="pd-error-btn pd-error-btn--secondary"
+              onClick={onRetry}
+            >
               Try Again
             </button>
           )}
@@ -316,7 +333,10 @@ const Specifications = memo(function Specifications({ specifications }) {
   return (
     <section className="pd-section" aria-label="Specifications">
       <h3 className="pd-section-h">Specifications</h3>
-      <table className="pd-specs-table" aria-label="Product specifications">
+      <table
+        className="pd-specs-table"
+        aria-label="Product specifications"
+      >
         <tbody>
           {specifications.map(({ label, value }, i) => (
             <tr key={i} className={i % 2 === 0 ? "pd-specs-row--even" : ""}>
@@ -472,7 +492,10 @@ const SellerCard = memo(function SellerCard({ product, onNavigate }) {
             </span>
           )}
           {online && (
-            <span className="pd-seller-online" aria-label="Currently online" />
+            <span
+              className="pd-seller-online"
+              aria-label="Currently online"
+            />
           )}
         </div>
 
@@ -481,7 +504,10 @@ const SellerCard = memo(function SellerCard({ product, onNavigate }) {
           <div className="pd-seller-name-row">
             <span className="pd-seller-name">{name}</span>
             {verified && (
-              <span className="pd-seller-badge" aria-label="Verified seller">
+              <span
+                className="pd-seller-badge"
+                aria-label="Verified seller"
+              >
                 ✔ Verified
               </span>
             )}
@@ -494,7 +520,10 @@ const SellerCard = memo(function SellerCard({ product, onNavigate }) {
           )}
 
           {trust != null && (
-            <div className="pd-trust" aria-label={`Trust score: ${trust}%`}>
+            <div
+              className="pd-trust"
+              aria-label={`Trust score: ${trust}%`}
+            >
               <div className="pd-trust-bar" role="presentation">
                 <div
                   className="pd-trust-fill"
@@ -522,9 +551,9 @@ const SwapBadge = memo(function SwapBadge({ product }) {
     <div className="pd-section pd-swap-wrap" aria-label="Offer type">
       {product.offer_type && (
         <span className="pd-swap-badge">
-          {product.offer_type === "swap"   ? "🔄 Swap"   :
-           product.offer_type === "free"   ? "🎁 Free"   :
-           product.offer_type === "rent"   ? "🏠 Rent"   :
+          {product.offer_type === "swap" ? "🔄 Swap" :
+           product.offer_type === "free" ? "🎁 Free" :
+           product.offer_type === "rent" ? "🏠 Rent" :
            product.offer_type}
         </span>
       )}
@@ -544,8 +573,8 @@ const StockStatus = memo(function StockStatus({ product }) {
   const { stock_status, stock_quantity } = product;
   if (!stock_status && stock_quantity == null) return null;
 
-  const isLow  = stock_quantity != null && stock_quantity <= 5 && stock_quantity > 0;
-  const isOut  = stock_status === "out_of_stock" || stock_quantity === 0;
+  const isLow = stock_quantity != null && stock_quantity <= 5 && stock_quantity > 0;
+  const isOut = stock_status === "out_of_stock" || stock_quantity === 0;
 
   return (
     <div className="pd-stock" aria-live="polite">
@@ -569,18 +598,20 @@ export default function ProductDetail({ user }) {
   const { addSingleProduct } = useProductCache();
 
   /* ── State ────────────────────────────────────────────── */
-  const [product,     setProduct]     = useState(null);
-  const [similar,     setSimilar]     = useState([]);
-  const [moreSeller,  setMoreSeller]  = useState([]);
-  const [reviews,     setReviews]     = useState([]);
-  const [reviewStats, setReviewStats] = useState(null);
-  const [reviewTotal, setReviewTotal] = useState(0);
-  const [reviewPage,  setReviewPage]  = useState(1);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState(null);
-  const [fav,         setFav]         = useState(false);
-  const [chatBusy,    setChatBusy]    = useState(false);
-  const [toast,       setToast]       = useState(null); // { message, type }
+  const [product,      setProduct]      = useState(null);
+  const [similar,      setSimilar]      = useState([]);
+  const [moreSeller,   setMoreSeller]   = useState([]);
+  const [reviews,      setReviews]      = useState([]);
+  const [reviewStats,  setReviewStats]  = useState(null);
+  const [reviewTotal,  setReviewTotal]  = useState(0);
+  const [reviewPage,   setReviewPage]   = useState(1);
+  const [loading,      setLoading]      = useState(true);
+  const [error,        setError]        = useState(null);
+  const [fav,          setFav]          = useState(false);
+  const [chatBusy,     setChatBusy]     = useState(false);
+  const [toast,        setToast]        = useState(null);
+  const [viewerOpen,   setViewerOpen]   = useState(false);
+  const [viewerIndex,  setViewerIndex]  = useState(0);
 
   /* ── Refs ─────────────────────────────────────────────── */
   const favTimerRef = useRef(null);
@@ -588,12 +619,17 @@ export default function ProductDetail({ user }) {
 
   /* ── Derived ──────────────────────────────────────────── */
   const userId = useMemo(
-    () => user?.id ? String(user.id) : readUserId(),
+    () => (user?.id ? String(user.id) : readUserId()),
     [user]
   );
 
   const isOwn = useMemo(
-    () => !!(userId && product?.seller_id && userId === String(product.seller_id)),
+    () =>
+      !!(
+        userId &&
+        product?.seller_id &&
+        userId === String(product.seller_id)
+      ),
     [userId, product?.seller_id]
   );
 
@@ -607,12 +643,26 @@ export default function ProductDetail({ user }) {
     [product]
   );
 
+  /* Higher-res URLs for the standalone viewer */
+  const viewerUrls = useMemo(
+    () => productImages.map((u) => optimizedUrl(u, 1600)),
+    [productImages]
+  );
+
   /* ── Toast helpers ────────────────────────────────────── */
-  const showToast    = useCallback(
+  const showToast = useCallback(
     (message, type = "error") => setToast({ message, type }),
     []
   );
   const dismissToast = useCallback(() => setToast(null), []);
+
+  /* ── Viewer helpers ───────────────────────────────────── */
+  const openViewer = useCallback((index = 0) => {
+    setViewerIndex(index);
+    setViewerOpen(true);
+  }, []);
+
+  const closeViewer = useCallback(() => setViewerOpen(false), []);
 
   /* ═══════════════════════════════════════════════════════
      FETCH — PRODUCT
@@ -625,8 +675,8 @@ export default function ProductDetail({ user }) {
     }
 
     abortRef.current?.abort();
-    const controller  = new AbortController();
-    abortRef.current  = controller;
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setLoading(true);
     setError(null);
@@ -642,7 +692,6 @@ export default function ProductDetail({ user }) {
 
       const data = await res.json();
 
-      /* Sanity-check: log image shape once in dev */
       if (import.meta.env.DEV) {
         console.log("[ProductDetail] images from API:", data.images);
       }
@@ -780,7 +829,6 @@ export default function ProductDetail({ user }) {
   const openWhatsApp = useCallback(() => {
     if (!product || isOwn) return;
 
-    /* Fire-and-forget click tracking */
     fetch(`${API}/product/products/${product.id}/click`, {
       method: "POST",
     }).catch(() => {});
@@ -912,8 +960,18 @@ export default function ProductDetail({ user }) {
       <ProductImageGallery
         images={productImages}
         title={product.title}
-        productSlug={slug}
+        onImageClick={openViewer}
       />
+
+      {/* ── Full-screen image viewer (portal-level) ───── */}
+      {viewerOpen && viewerUrls.length > 0 && (
+        <ProductImageViewer
+          urls={viewerUrls}
+          title={product.title}
+          startIndex={viewerIndex}
+          onClose={closeViewer}
+        />
+      )}
 
       {/* ── Stock status ──────────────────────────────── */}
       <StockStatus product={product} />
