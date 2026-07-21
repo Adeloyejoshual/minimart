@@ -16,7 +16,7 @@ import "../../styles/NearbyPage.css";
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API       = `${BASE_URL}/api`;
 const PAGE_SIZE = 40;
@@ -31,8 +31,133 @@ const GPS_OPTS = {
 };
 
 /* ══════════════════════════════════════════════════════════════
+   SVG ICONS
+══════════════════════════════════════════════════════════════ */
+const ArrowLeftIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M19 12H5" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
+
+const MapPinIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
+    <circle cx="12" cy="10" r="3" />
+  </svg>
+);
+
+const CrosshairIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <circle cx="12" cy="12" r="3" />
+    <line x1="12" y1="2" x2="12" y2="6" />
+    <line x1="12" y1="18" x2="12" y2="22" />
+    <line x1="2" y1="12" x2="6" y2="12" />
+    <line x1="18" y1="12" x2="22" y2="12" />
+  </svg>
+);
+
+const SatelliteIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="2" />
+    <path d="M16.24 7.76a6 6 0 010 8.49m-8.48-.01a6 6 0 010-8.49" />
+    <path d="M19.07 4.93a10 10 0 010 14.14m-14.14 0a10 10 0 010-14.14" />
+  </svg>
+);
+
+const NavigationIcon = ({ size = 44 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polygon points="3 11 22 2 13 21 11 13 3 11" />
+  </svg>
+);
+
+const GlobeIcon = ({ size = 40 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="2" y1="12" x2="22" y2="12" />
+    <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
+  </svg>
+);
+
+const MapIcon = ({ size = 40 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
+    <line x1="8" y1="2" x2="8" y2="18" />
+    <line x1="16" y1="6" x2="16" y2="22" />
+  </svg>
+);
+
+const ZapIcon = ({ size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
+
+const ChevronUpIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
+       aria-hidden="true">
+    <path d="M18 15l-6-6-6 6" />
+  </svg>
+);
+
+const ChevronRightIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
+       aria-hidden="true">
+    <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+  </svg>
+);
+
+const CheckCircleIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+    <polyline points="22 4 12 14.01 9 11.01" />
+  </svg>
+);
+
+const ShieldIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+);
+
+const ListIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <line x1="8" y1="6" x2="21" y2="6" />
+    <line x1="8" y1="12" x2="21" y2="12" />
+    <line x1="8" y1="18" x2="21" y2="18" />
+    <line x1="3" y1="6" x2="3.01" y2="6" />
+    <line x1="3" y1="12" x2="3.01" y2="12" />
+    <line x1="3" y1="18" x2="3.01" y2="18" />
+  </svg>
+);
+
+/* ══════════════════════════════════════════════════════════════
    GPS CACHE
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 function readCachedGps() {
   try {
     const raw = sessionStorage.getItem(GPS_KEY);
@@ -45,16 +170,13 @@ function readCachedGps() {
 
 function writeCachedGps(coords) {
   try {
-    sessionStorage.setItem(
-      GPS_KEY,
-      JSON.stringify({ coords, ts: Date.now() })
-    );
+    sessionStorage.setItem(GPS_KEY, JSON.stringify({ coords, ts: Date.now() }));
   } catch {}
 }
 
 /* ══════════════════════════════════════════════════════════════
    NORMALIZE + DEDUP
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const normalizeProduct = (p) => {
   if (!p || typeof p !== "object" || !p.id) return null;
   return {
@@ -66,7 +188,9 @@ const normalizeProduct = (p) => {
     views             : Number(p.views             || 0),
     ctr               : Number(p.ctr               || 0),
     promotion_priority: Number(p.promotion_priority || 0),
+    search_priority   : Number(p.search_priority   || 0),
     is_promoted       : !!p.is_promoted,
+    promotion_badge   : p.promotion_badge || null,
     image:
       p.image ||
       (Array.isArray(p.images) && p.images.length > 0
@@ -77,6 +201,13 @@ const normalizeProduct = (p) => {
       p.main_image || p.thumbnail_url || null,
     location_city : p.location?.city  || p.location_city  || null,
     location_state: p.location?.state || p.location_state || null,
+    seller: {
+      id              : p.seller?.id               || p.seller_id   || null,
+      name            : p.seller?.name             || p.seller_name || null,
+      verified        : !!p.seller?.verified,
+      subscriptionPlan: p.seller?.subscriptionPlan || null,
+      subscriptionRank: Number(p.seller?.subscriptionRank || 0),
+    },
   };
 };
 
@@ -87,7 +218,7 @@ const dedup = (arr) => {
 
 /* ══════════════════════════════════════════════════════════════
    FETCH — with silent fallback to general feed
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 async function fetchNearbyPage({ pageParam = 0, coords } = {}) {
   const makeParams = (section) => {
     const p = new URLSearchParams({ page: pageParam, limit: PAGE_SIZE });
@@ -99,7 +230,6 @@ async function fetchNearbyPage({ pageParam = 0, coords } = {}) {
     return p;
   };
 
-  /* Try nearby section first */
   try {
     const res = await fetch(`${API}/homepage?${makeParams("nearby")}`);
     if (res.ok) {
@@ -109,7 +239,6 @@ async function fetchNearbyPage({ pageParam = 0, coords } = {}) {
     }
   } catch {}
 
-  /* Fallback → general feed */
   const res = await fetch(`${API}/homepage?${makeParams()}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -117,58 +246,41 @@ async function fetchNearbyPage({ pageParam = 0, coords } = {}) {
 
 /* ══════════════════════════════════════════════════════════════
    INLINE COMPONENTS
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 
 /* ── Header ── */
 const NearbyHeader = memo(function NearbyHeader({
   gpsStatus, onBack, onRequestGps,
 }) {
-  const chipConfig = {
-    pending : { text: "Locating…",   cls: "nb-chip--pending" },
-    gps     : { text: "📍 GPS Live", cls: "nb-chip--gps"     },
-    denied  : { text: "📍 Manual",   cls: "nb-chip--manual"  },
-  };
-  const chip = chipConfig[gpsStatus] || chipConfig.pending;
-
   return (
     <div className="nb-header">
-      <button
-        className="nb-back"
-        onClick={onBack}
-        aria-label="Go back"
-      >
-        <svg width="18" height="18" viewBox="0 0 24 24"
-             fill="currentColor" aria-hidden="true">
-          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-        </svg>
+      <button className="nb-back" onClick={onBack} aria-label="Go back">
+        <ArrowLeftIcon size={18} />
       </button>
 
       <div className="nb-title-wrap">
         <h1 className="nb-title">Near You</h1>
-        <span className={`nb-chip ${chip.cls}`}>
+        <span className={`nb-chip nb-chip--${gpsStatus}`}>
           {gpsStatus === "pending" && (
             <span className="nb-chip-spin" aria-hidden="true" />
           )}
           {gpsStatus === "gps" && (
             <span className="nb-chip-dot" aria-hidden="true" />
           )}
-          {chip.text}
+          {gpsStatus === "pending" && "Locating…"}
+          {gpsStatus === "gps" && (
+            <><SatelliteIcon size={12} /> GPS Live</>
+          )}
+          {gpsStatus === "denied" && (
+            <><MapPinIcon size={12} /> Manual</>
+          )}
         </span>
       </div>
 
       {gpsStatus === "denied" && (
-        <button
-          className="nb-gps-btn"
-          onClick={onRequestGps}
-          aria-label="Enable GPS"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor"
-               strokeWidth="2" strokeLinecap="round"
-               aria-hidden="true">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
-          </svg>
+        <button className="nb-gps-btn" onClick={onRequestGps}
+                aria-label="Enable GPS">
+          <CrosshairIcon size={14} />
           Enable GPS
         </button>
       )}
@@ -185,7 +297,10 @@ const NearbyLocationBanner = memo(function NearbyLocationBanner({
     <div className="nb-loc-banner" role="status" aria-live="polite">
       <div className="nb-loc-left">
         <span className="nb-loc-icon" aria-hidden="true">
-          {gpsStatus === "gps" ? "📡" : "📍"}
+          {gpsStatus === "gps"
+            ? <SatelliteIcon size={18} />
+            : <MapPinIcon size={18} />
+          }
         </span>
         <div className="nb-loc-text">
           <span className="nb-loc-label">Showing listings near</span>
@@ -194,6 +309,7 @@ const NearbyLocationBanner = memo(function NearbyLocationBanner({
       </div>
       {count > 0 && (
         <span className="nb-loc-count">
+          <ListIcon size={13} />
           {count.toLocaleString()} listing{count !== 1 ? "s" : ""}
         </span>
       )}
@@ -208,16 +324,26 @@ const NearbyGpsPrompt = memo(function NearbyGpsPrompt({
   return (
     <div className="nb-gps-prompt" role="dialog"
          aria-label="Enable location for better results">
-      <div className="nb-gps-prompt-icon" aria-hidden="true">📍</div>
+      <div className="nb-gps-prompt-icon" aria-hidden="true">
+        <NavigationIcon size={44} />
+      </div>
       <div className="nb-gps-prompt-body">
         <h3 className="nb-gps-prompt-title">See listings near you</h3>
         <p className="nb-gps-prompt-sub">
           Allow location access to find deals closest to you first.
         </p>
+        <div className="nb-gps-prompt-features">
+          <span className="nb-gps-prompt-feat">
+            <CheckCircleIcon size={14} /> Closest deals first
+          </span>
+          <span className="nb-gps-prompt-feat">
+            <ShieldIcon size={14} /> Privacy safe — never shared
+          </span>
+        </div>
       </div>
       <div className="nb-gps-prompt-actions">
         <button className="nb-gps-prompt-allow" onClick={onAllow}>
-          Allow Location
+          <CrosshairIcon size={14} /> Allow Location
         </button>
         <button className="nb-gps-prompt-skip" onClick={onDismiss}>
           Maybe later
@@ -258,12 +384,7 @@ function ScrollTopBtn() {
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
       aria-label="Scroll to top"
     >
-      <svg width="16" height="16" viewBox="0 0 24 24"
-           fill="none" stroke="currentColor"
-           strokeWidth="2.5" strokeLinecap="round"
-           aria-hidden="true">
-        <path d="M18 15l-6-6-6 6" />
-      </svg>
+      <ChevronUpIcon size={16} />
     </button>
   );
 }
@@ -272,8 +393,11 @@ function ScrollTopBtn() {
 function EmptyState({ gpsStatus, onBrowseAll }) {
   return (
     <div className="nb-empty" role="status">
-      <span className="nb-empty-emoji" aria-hidden="true">
-        {gpsStatus === "denied" ? "🗺️" : "📍"}
+      <span className="nb-empty-icon" aria-hidden="true">
+        {gpsStatus === "denied"
+          ? <MapIcon size={44} />
+          : <GlobeIcon size={44} />
+        }
       </span>
       <h3 className="nb-empty-title">
         {gpsStatus === "denied"
@@ -285,8 +409,13 @@ function EmptyState({ gpsStatus, onBrowseAll }) {
           ? "We couldn't detect your location. Showing listings from across Nigeria."
           : "There are no listings in your area yet. More sellers joining daily!"}
       </p>
+      {gpsStatus === "denied" && (
+        <p className="nb-empty-hint">
+          <ShieldIcon size={13} /> Your location is only used to sort results — never stored or shared.
+        </p>
+      )}
       <button className="nb-empty-btn" onClick={onBrowseAll}>
-        Browse All Listings
+        Browse All Listings <ChevronRightIcon size={14} />
       </button>
     </div>
   );
@@ -296,19 +425,19 @@ function EmptyState({ gpsStatus, onBrowseAll }) {
 function ErrorBanner({ message, onRetry }) {
   return (
     <div className="nb-err" role="alert">
-      <span className="nb-err-icon" aria-hidden="true">⚡</span>
+      <span className="nb-err-icon" aria-hidden="true">
+        <ZapIcon size={20} />
+      </span>
       <p className="nb-err-title">Could not load listings</p>
       <p className="nb-err-msg">{message}</p>
-      <button className="nb-err-btn" onClick={onRetry}>
-        Try again
-      </button>
+      <button className="nb-err-btn" onClick={onRetry}>Try again</button>
     </div>
   );
 }
 
 /* ══════════════════════════════════════════════════════════════
    MAIN COMPONENT
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 export default function NearbyPage({ user }) {
   const navigate = useNavigate();
 
@@ -378,7 +507,7 @@ export default function NearbyPage({ user }) {
     }
   }, [coords]);
 
-  /* ── Initial load ── */
+  /* Initial load */
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -387,7 +516,7 @@ export default function NearbyPage({ user }) {
     load(0, false).finally(() => setLoading(false));
   }, [load]);
 
-  /* ── Load more ── */
+  /* Load more */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -400,7 +529,7 @@ export default function NearbyPage({ user }) {
     }
   }, [loadingMore, hasMore, page, load]);
 
-  /* ── Infinite scroll ── */
+  /* Infinite scroll */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -412,7 +541,10 @@ export default function NearbyPage({ user }) {
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
-  /* ── Location label ── */
+  /*
+   * Location label — falls back to empty/null, never
+   * shows a hardcoded city name.
+   */
   const locLabel = useMemo(() => {
     if (meta?.location) return meta.location;
     if (products[0]) {
@@ -429,14 +561,14 @@ export default function NearbyPage({ user }) {
   /* ── Analytics ── */
   const trackView = useCallback((id) => {
     if (!id) return;
-    fetch(`${API}/products/${id}/view`, {
+    fetch(`${API}/homepage/products/${id}/view`, {
       method: "POST", keepalive: true,
     }).catch(() => {});
   }, []);
 
   const handleClick = useCallback((product) => {
     if (!product?.id) return;
-    fetch(`${API}/products/${product.id}/click`, {
+    fetch(`${API}/homepage/products/${product.id}/click`, {
       method: "POST", keepalive: true,
     }).catch(() => {});
     navigate(`/product/${product.slug || product.id}`);
@@ -529,19 +661,24 @@ export default function NearbyPage({ user }) {
             {!hasMore && products.length > 0 && (
               <div className="nb-feed-end-wrap">
                 <p className="nb-feed-end">
-                  You've seen all nearby listings 🎉
+                  You've seen all nearby listings
                 </p>
-                <button className="nb-feed-end-btn"
-                        onClick={() => navigate("/")}>
-                  Browse all →
-                </button>
+                <div className="nb-feed-end-actions">
+                  <button className="nb-feed-end-btn"
+                          onClick={() => navigate("/")}>
+                    Browse all <ChevronRightIcon size={13} />
+                  </button>
+                  <button className="nb-feed-end-btn nb-feed-end-btn--ghost"
+                          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+                    Back to top <ChevronUpIcon size={13} />
+                  </button>
+                </div>
               </div>
             )}
           </>
         )}
 
         {!loading && <Footer />}
-
       </main>
 
       <ScrollTopBtn />
