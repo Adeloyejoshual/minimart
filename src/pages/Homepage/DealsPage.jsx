@@ -25,10 +25,10 @@ const PAGE_SIZE = 40;
 const STALE_MS  = 5 * 60_000;
 
 const SORT_OPTIONS = [
-  { value: "newest",          label: "Newest",    apiVal: "created_desc"    },
-  { value: "price_lo",        label: "Price ↑",   apiVal: "price_asc"       },
-  { value: "price_hi",        label: "Price ↓",   apiVal: "price_desc"      },
-  { value: "most_popular",    label: "Popular",   apiVal: "engagement_desc"  },
+  { value: "newest",       label: "Newest",  apiVal: "created_desc"   },
+  { value: "price_lo",     label: "Price ↑", apiVal: "price_asc"      },
+  { value: "price_hi",     label: "Price ↓", apiVal: "price_desc"     },
+  { value: "most_popular", label: "Popular", apiVal: "engagement_desc" },
 ];
 
 /* ══════════════════════════════════════════════════════════════
@@ -104,15 +104,6 @@ const BagIcon = ({ size = 40 }) => (
   </svg>
 );
 
-const SearchIcon = ({ size = 17 }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-    strokeWidth={2.2} strokeLinecap="round" width={size}
-    height={size} aria-hidden="true">
-    <circle cx="11" cy="11" r="8" />
-    <path d="M21 21l-4.35-4.35" />
-  </svg>
-);
-
 const DiamondIcon = ({ size = 12 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth={2} strokeLinecap="round"
@@ -145,26 +136,26 @@ const normalizeProduct = (p) => {
   return {
     ...p,
     image,
-    price            : Number(p.price              || 0),
-    engagement_score : Number(p.engagement_score   || 0),
-    clicks_count     : Number(p.clicks_count        || 0),
-    impression_count : Number(p.impression_count    || 0),
-    views            : Number(p.views               || 0),
-    ctr              : Number(p.ctr                 || 0),
-    promotion_priority: Number(p.promotion_priority || 0),
-    search_priority  : Number(p.search_priority     || 0),
-    favorites_count  : Number(p.favorites_count     || 0),
-    discount_pct     : Number(p.discount_pct        || 0),
-    is_promoted      : !!p.is_promoted,
-    is_featured      : !!p.is_featured,
-    promotion_badge  : p.promotion_badge || null,
-    original_price   : Number(
+    price             : Number(p.price              || 0),
+    engagement_score  : Number(p.engagement_score   || 0),
+    clicks_count      : Number(p.clicks_count        || 0),
+    impression_count  : Number(p.impression_count    || 0),
+    views             : Number(p.views               || 0),
+    ctr               : Number(p.ctr                 || 0),
+    promotion_priority: Number(p.promotion_priority  || 0),
+    search_priority   : Number(p.search_priority     || 0),
+    favorites_count   : Number(p.favorites_count     || 0),
+    discount_pct      : Number(p.discount_pct        || 0),
+    is_promoted       : !!p.is_promoted,
+    is_featured       : !!p.is_featured,
+    promotion_badge   : p.promotion_badge || null,
+    original_price    : Number(
       p.attributes?.original_price ||
       p.original_price             ||
       0
     ),
-    location_city    : p.location?.city  || p.location_city  || null,
-    location_state   : p.location?.state || p.location_state || null,
+    location_city  : p.location?.city  || p.location_city  || null,
+    location_state : p.location?.state || p.location_state || null,
     seller: {
       id              : p.seller?.id               || p.seller_id   || null,
       name            : p.seller?.name             || p.seller_name || null,
@@ -392,7 +383,7 @@ const DealsHeader = memo(function DealsHeader({ onBack, onShare }) {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   FILTER BAR  — sort only, no category
+   FILTER BAR
 ══════════════════════════════════════════════════════════════ */
 const FilterBar = memo(function FilterBar({ total, filtered, sort, onSort }) {
   return (
@@ -521,12 +512,10 @@ export default function DealsPage({ user }) {
     loadFeed(sortVal);
   }, [sort, loadFeed]);
 
-  /* Mount */
   useEffect(() => {
     loadFeed("newest");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Stale-while-revalidate */
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "hidden") {
@@ -540,7 +529,6 @@ export default function DealsPage({ user }) {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loading, sort, loadFeed]);
 
-  /* Infinite scroll */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -583,16 +571,13 @@ export default function DealsPage({ user }) {
 
   const displayDeals = useMemo(() => {
     const out = [...allDeals];
-    if (sort === "price_lo")     out.sort((a, b) => a.price - b.price);
+    if (sort === "price_lo")      out.sort((a, b) => a.price - b.price);
     else if (sort === "price_hi") out.sort((a, b) => b.price - a.price);
     else if (sort === "most_popular")
       out.sort((a, b) => b.engagement_score - a.engagement_score);
     return out;
   }, [allDeals, sort]);
 
-  /* ══════════════════════════════════════════════════════
-     RENDER
-  ══════════════════════════════════════════════════════ */
   return (
     <div className="deals-root">
       <TopNav user={user} />
@@ -600,19 +585,6 @@ export default function DealsPage({ user }) {
       <main className="deals-page" id="deals-main">
 
         <DealsHeader onBack={handleBack} onShare={handleShare} />
-
-        {/* SEARCH */}
-        <div className="hm-search-wrap">
-          <button className="hm-search-bar"
-            onClick={() => navigate("/search")}>
-            <span className="hm-search-ic" aria-hidden="true">
-              <SearchIcon size={17} />
-            </span>
-            <span className="hm-search-placeholder">
-              Search deals, brands…
-            </span>
-          </button>
-        </div>
 
         {/* FILTER BAR */}
         {!loading && !error && (
