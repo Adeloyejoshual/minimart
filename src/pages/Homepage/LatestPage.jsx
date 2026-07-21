@@ -17,7 +17,7 @@ import "../../styles/LatestPage.css";
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API       = `${BASE_URL}/api`;
 const PAGE_SIZE = 40;
@@ -26,8 +26,146 @@ const ALL_CAT  = { id: "all", name: "All", icon: "✦" };
 const CAT_LIST = [ALL_CAT, ...CATEGORIES];
 
 /* ══════════════════════════════════════════════════════════════
+   SVG ICONS
+══════════════════════════════════════════════════════════════ */
+const ArrowLeftIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M19 12H5" />
+    <polyline points="12 19 5 12 12 5" />
+  </svg>
+);
+
+const ZapIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
+
+const CalendarIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+    <line x1="16" y1="2" x2="16" y2="6" />
+    <line x1="8" y1="2" x2="8" y2="6" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+  </svg>
+);
+
+const ClockIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </svg>
+);
+
+const CalendarDaysIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+    <line x1="16" y1="2" x2="16" y2="6" />
+    <line x1="8" y1="2" x2="8" y2="6" />
+    <line x1="3" y1="10" x2="21" y2="10" />
+    <line x1="8" y1="14" x2="8.01" y2="14" />
+    <line x1="12" y1="14" x2="12.01" y2="14" />
+    <line x1="16" y1="14" x2="16.01" y2="14" />
+    <line x1="8" y1="18" x2="8.01" y2="18" />
+    <line x1="12" y1="18" x2="12.01" y2="18" />
+  </svg>
+);
+
+const ArchiveIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polyline points="21 8 21 21 3 21 3 8" />
+    <rect x="1" y="3" width="22" height="5" />
+    <line x1="10" y1="12" x2="14" y2="12" />
+  </svg>
+);
+
+const ShareIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <circle cx="18" cy="5"  r="3" />
+    <circle cx="6"  cy="12" r="3" />
+    <circle cx="18" cy="19" r="3" />
+    <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+    <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+  </svg>
+);
+
+const StarIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+  </svg>
+);
+
+const ChevronUpIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
+       aria-hidden="true">
+    <path d="M18 15l-6-6-6 6" />
+  </svg>
+);
+
+const ChevronRightIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
+       aria-hidden="true">
+    <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
+  </svg>
+);
+
+const RefreshIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polyline points="23 4 23 10 17 10" />
+    <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
+  </svg>
+);
+
+const InboxIcon = ({ size = 40 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
+    <path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z" />
+  </svg>
+);
+
+const BellDotIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
+    <path d="M13.73 21a2 2 0 01-3.46 0" />
+    <circle cx="18" cy="4" r="3" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+const TimerIcon = ({ size = 9 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </svg>
+);
+
+/* ══════════════════════════════════════════════════════════════
    HELPERS
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 const normalizeProduct = (p) => {
   if (!p || typeof p !== "object" || !p.id) return null;
   return {
@@ -39,7 +177,9 @@ const normalizeProduct = (p) => {
     views             : Number(p.views             || 0),
     favorites_count   : Number(p.favorites_count   || 0),
     promotion_priority: Number(p.promotion_priority || 0),
+    search_priority   : Number(p.search_priority   || 0),
     is_promoted       : !!p.is_promoted,
+    promotion_badge   : p.promotion_badge || null,
     image:
       p.image ||
       (Array.isArray(p.images) && p.images.length > 0
@@ -51,6 +191,13 @@ const normalizeProduct = (p) => {
     location_city : p.location?.city  || p.location_city  || null,
     location_state: p.location?.state || p.location_state || null,
     created_at    : p.created_at || null,
+    seller: {
+      id              : p.seller?.id               || p.seller_id   || null,
+      name            : p.seller?.name             || p.seller_name || null,
+      verified        : !!p.seller?.verified,
+      subscriptionPlan: p.seller?.subscriptionPlan || null,
+      subscriptionRank: Number(p.seller?.subscriptionRank || 0),
+    },
   };
 };
 
@@ -59,7 +206,6 @@ const dedup = (arr) => {
   return arr.filter((p) => p && !seen.has(p.id) && seen.add(p.id));
 };
 
-/* ── Time helpers ── */
 const timeAgo = (dateStr) => {
   if (!dateStr) return null;
   const diff  = Date.now() - new Date(dateStr).getTime();
@@ -110,7 +256,7 @@ const groupByDate = (products) => {
 
 /* ══════════════════════════════════════════════════════════════
    FETCH
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 async function fetchLatestPage({ page = 0, category } = {}) {
   const params = new URLSearchParams({
     section : "latest",
@@ -119,7 +265,6 @@ async function fetchLatestPage({ page = 0, category } = {}) {
     sort    : "created_desc",
   });
   if (category && category !== "all") params.set("category_id", category);
-
   const res = await fetch(`${API}/homepage?${params}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
@@ -127,7 +272,7 @@ async function fetchLatestPage({ page = 0, category } = {}) {
 
 /* ══════════════════════════════════════════════════════════════
    INLINE COMPONENTS
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 
 /* ── Live clock ── */
 function LiveClock() {
@@ -139,7 +284,11 @@ function LiveClock() {
     const t = setInterval(() => setTime(fmt()), 30_000);
     return () => clearInterval(t);
   }, []);
-  return <span className="lt-clock">{time}</span>;
+  return (
+    <span className="lt-clock">
+      <ClockIcon size={12} /> {time}
+    </span>
+  );
 }
 
 /* ── Header ── */
@@ -147,10 +296,7 @@ const LatestHeader = memo(function LatestHeader({ onBack }) {
   return (
     <div className="lt-header">
       <button className="lt-back" onClick={onBack} aria-label="Go back">
-        <svg width="18" height="18" viewBox="0 0 24 24"
-             fill="currentColor" aria-hidden="true">
-          <path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" />
-        </svg>
+        <ArrowLeftIcon size={18} />
       </button>
 
       <div className="lt-title-wrap">
@@ -174,15 +320,7 @@ const LatestHeader = memo(function LatestHeader({ onBack }) {
             }).catch(() => {});
           }}
         >
-          <svg width="16" height="16" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor"
-               strokeWidth="2" strokeLinecap="round"
-               aria-hidden="true">
-            <circle cx="18" cy="5"  r="3" />
-            <circle cx="6"  cy="12" r="3" />
-            <circle cx="18" cy="19" r="3" />
-            <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" />
-          </svg>
+          <ShareIcon size={16} />
         </button>
       </div>
     </div>
@@ -212,7 +350,7 @@ const LatestTimeBar = memo(function LatestTimeBar({
             </span>
             {timeLabel && (
               <span className="lt-timebar-updated">
-                Updated {timeLabel}
+                <RefreshIcon size={11} /> Updated {timeLabel}
               </span>
             )}
           </div>
@@ -240,20 +378,33 @@ const LatestTimeBar = memo(function LatestTimeBar({
 });
 
 /* ── Date group separator ── */
-const GROUP_CONFIG = {
-  "Just Added" : { icon: "⚡", cls: "lt-dg--new"   },
-  "Today"      : { icon: "📅", cls: "lt-dg--today" },
-  "Yesterday"  : { icon: "🕐", cls: "lt-dg--yest"  },
-  "This Week"  : { icon: "📆", cls: "lt-dg--week"  },
-  "This Month" : { icon: "🗓", cls: "lt-dg--month" },
-  "Older"      : { icon: "📁", cls: "lt-dg--old"   },
+const GROUP_ICONS = {
+  "Just Added" : ZapIcon,
+  "Today"      : CalendarIcon,
+  "Yesterday"  : ClockIcon,
+  "This Week"  : CalendarDaysIcon,
+  "This Month" : CalendarDaysIcon,
+  "Older"      : ArchiveIcon,
+};
+
+const GROUP_CLS = {
+  "Just Added" : "lt-dg--new",
+  "Today"      : "lt-dg--today",
+  "Yesterday"  : "lt-dg--yest",
+  "This Week"  : "lt-dg--week",
+  "This Month" : "lt-dg--month",
+  "Older"      : "lt-dg--old",
 };
 
 const LatestDateGroup = memo(function LatestDateGroup({ label, count }) {
-  const cfg = GROUP_CONFIG[label] ?? { icon: "📁", cls: "" };
+  const IconComponent = GROUP_ICONS[label] ?? ArchiveIcon;
+  const cls           = GROUP_CLS[label]   ?? "";
+
   return (
-    <div className={`lt-dg ${cfg.cls}`} role="separator">
-      <span className="lt-dg-icon" aria-hidden="true">{cfg.icon}</span>
+    <div className={`lt-dg ${cls}`} role="separator">
+      <span className="lt-dg-icon" aria-hidden="true">
+        <IconComponent size={14} />
+      </span>
       <span className="lt-dg-label">{label}</span>
       <span className="lt-dg-count">{count} item{count !== 1 ? "s" : ""}</span>
       <div className="lt-dg-line" aria-hidden="true" />
@@ -279,7 +430,7 @@ const LatestSkeleton = memo(function LatestSkeleton() {
   );
 });
 
-/* ── Latest card (wraps MasonryCard with timestamp) ── */
+/* ── Latest card wrapper ── */
 const LatestCardWrapper = memo(function LatestCardWrapper({
   product, priority, onView, onClick,
 }) {
@@ -288,20 +439,12 @@ const LatestCardWrapper = memo(function LatestCardWrapper({
 
   return (
     <div className={`lt-card-wrap${justAdded ? " lt-card-wrap--new" : ""}`}>
-      {/* Timestamp badge */}
       {ago && (
         <div className="lt-ago-badge">
-          <svg width="9" height="9" viewBox="0 0 24 24"
-               fill="none" stroke="currentColor"
-               strokeWidth="2.5" strokeLinecap="round"
-               aria-hidden="true">
-            <circle cx="12" cy="12" r="10" />
-            <path d="M12 6v6l4 2" />
-          </svg>
+          <TimerIcon size={9} />
           {ago}
         </div>
       )}
-      {/* New pulse ring */}
       {justAdded && (
         <span className="lt-new-ring" aria-hidden="true" />
       )}
@@ -320,8 +463,11 @@ function NewArrivalToast({ count, onDismiss }) {
   if (!count || count <= 0) return null;
   return (
     <button className="lt-toast" onClick={onDismiss} aria-live="polite">
-      <span className="lt-toast-dot" aria-hidden="true" />
-      {count} new listing{count !== 1 ? "s" : ""} added — tap to refresh ↑
+      <BellDotIcon size={14} />
+      <span>
+        {count} new listing{count !== 1 ? "s" : ""} added — tap to refresh
+      </span>
+      <ChevronUpIcon size={13} />
     </button>
   );
 }
@@ -330,7 +476,9 @@ function NewArrivalToast({ count, onDismiss }) {
 function EmptyState({ category, onClearCategory, onBrowseAll }) {
   return (
     <div className="lt-empty" role="status">
-      <span className="lt-empty-emoji" aria-hidden="true">🆕</span>
+      <span className="lt-empty-icon" aria-hidden="true">
+        <InboxIcon size={44} />
+      </span>
       <h3 className="lt-empty-title">
         {category !== "all"
           ? "No new listings in this category"
@@ -347,7 +495,7 @@ function EmptyState({ category, onClearCategory, onBrowseAll }) {
         </button>
       ) : (
         <button className="lt-empty-btn" onClick={onBrowseAll}>
-          Browse All Listings
+          Browse All Listings <ChevronRightIcon size={13} />
         </button>
       )}
     </div>
@@ -358,7 +506,9 @@ function EmptyState({ category, onClearCategory, onBrowseAll }) {
 function ErrorBanner({ message, onRetry }) {
   return (
     <div className="lt-err" role="alert">
-      <span className="lt-err-icon" aria-hidden="true">⚡</span>
+      <span className="lt-err-icon" aria-hidden="true">
+        <ZapIcon size={18} />
+      </span>
       <p className="lt-err-title">Could not load new arrivals</p>
       <p className="lt-err-msg">{message}</p>
       <button className="lt-err-btn" onClick={onRetry}>Try again</button>
@@ -380,26 +530,19 @@ function ScrollTopBtn() {
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
       aria-label="Scroll to top"
     >
-      <svg width="16" height="16" viewBox="0 0 24 24"
-           fill="none" stroke="currentColor"
-           strokeWidth="2.5" strokeLinecap="round"
-           aria-hidden="true">
-        <path d="M18 15l-6-6-6 6" />
-      </svg>
+      <ChevronUpIcon size={16} />
     </button>
   );
 }
 
 /* ══════════════════════════════════════════════════════════════
    MAIN COMPONENT
-   ══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════════ */
 export default function LatestPage({ user }) {
   const navigate = useNavigate();
 
-  /* ── Filters ── */
   const [category, setCategory] = useState("all");
 
-  /* ── Data state ── */
   const [products,    setProducts]    = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -409,7 +552,6 @@ export default function LatestPage({ user }) {
   const [total,       setTotal]       = useState(0);
   const [lastUpdated, setLastUpdated] = useState(null);
 
-  /* ── New arrivals detection ── */
   const [newCount, setNewCount] = useState(0);
   const firstIdRef  = useRef(null);
   const productsRef = useRef([]);
@@ -424,20 +566,17 @@ export default function LatestPage({ user }) {
       const merged = append
         ? dedup([...productsRef.current, ...normalized])
         : normalized;
-
       productsRef.current = merged;
       setProducts(merged);
       setTotal(data.meta?.total ?? merged.length);
-      setHasMore(
-        data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE
-      );
+      setHasMore(data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE);
       setLastUpdated(Date.now());
     } catch (err) {
       if (!append) setError(err.message || "Could not load new arrivals.");
     }
   }, []);
 
-  /* ── Initial + category change ── */
+  /* Initial + category change */
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -447,11 +586,10 @@ export default function LatestPage({ user }) {
     load(0, false, category).finally(() => setLoading(false));
   }, [category, load]);
 
-  /* ── Auto-refresh every 30s ── */
+  /* Auto-refresh every 30s */
   useEffect(() => {
     const id = setInterval(() => {
       if (!loading && !loadingMore) {
-        /* Silent background refresh — detect new items */
         fetchLatestPage({ page: 0, category })
           .then((data) => {
             const raw = Array.isArray(data.products) ? data.products : [];
@@ -472,17 +610,16 @@ export default function LatestPage({ user }) {
     return () => clearInterval(id);
   }, [loading, loadingMore, category]);
 
-  /* ── Track first product id ── */
+  /* Track first product id */
   useEffect(() => {
     if (products.length > 0 && !firstIdRef.current) {
       firstIdRef.current = products[0]?.id;
     }
   }, [products]);
 
-  /* ── Groups ── */
   const groups = useMemo(() => groupByDate(products), [products]);
 
-  /* ── Load more ── */
+  /* Load more */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -495,7 +632,7 @@ export default function LatestPage({ user }) {
     }
   }, [loadingMore, hasMore, page, category, load]);
 
-  /* ── Infinite scroll ── */
+  /* Infinite scroll */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -507,23 +644,23 @@ export default function LatestPage({ user }) {
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
-  /* ── Analytics ── */
+  /* Analytics */
   const trackView = useCallback((id) => {
     if (!id) return;
-    fetch(`${API}/products/${id}/view`, {
+    fetch(`${API}/homepage/products/${id}/view`, {
       method: "POST", keepalive: true,
     }).catch(() => {});
   }, []);
 
   const handleClick = useCallback((product) => {
     if (!product?.id) return;
-    fetch(`${API}/products/${product.id}/click`, {
+    fetch(`${API}/homepage/products/${product.id}/click`, {
       method: "POST", keepalive: true,
     }).catch(() => {});
     navigate(`/product/${product.slug || product.id}`);
   }, [navigate]);
 
-  /* ── Toast dismiss ── */
+  /* Toast dismiss */
   const handleToastDismiss = useCallback(() => {
     setNewCount(0);
     firstIdRef.current = products[0]?.id ?? null;
@@ -540,7 +677,6 @@ export default function LatestPage({ user }) {
     <div className="lt-root">
       <TopNav user={user} />
 
-      {/* Toast */}
       <NewArrivalToast count={newCount} onDismiss={handleToastDismiss} />
 
       <main className="lt-page" id="lt-main">
@@ -601,8 +737,7 @@ export default function LatestPage({ user }) {
         ))}
 
         {!loading && (
-          <div ref={sentinelRef} aria-hidden="true"
-               style={{ height: 1 }} />
+          <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
         )}
 
         {loadingMore && (
@@ -614,11 +749,17 @@ export default function LatestPage({ user }) {
 
         {!hasMore && products.length > 0 && (
           <div className="lt-feed-end-wrap">
-            <p className="lt-feed-end">You're all caught up 🎉</p>
-            <button className="lt-feed-end-btn"
-                    onClick={() => navigate("/")}>
-              Browse all listings →
-            </button>
+            <p className="lt-feed-end">You're all caught up</p>
+            <div className="lt-feed-end-actions">
+              <button className="lt-feed-end-btn"
+                      onClick={() => navigate("/")}>
+                Browse all listings <ChevronRightIcon size={13} />
+              </button>
+              <button className="lt-feed-end-btn lt-feed-end-btn--ghost"
+                      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+                Back to top <ChevronUpIcon size={13} />
+              </button>
+            </div>
           </div>
         )}
 
