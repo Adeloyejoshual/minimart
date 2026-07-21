@@ -8,15 +8,15 @@ import {
   memo,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import TopNav          from "../components/TopNav";
-import BottomNav       from "../components/BottomNav";
-import Footer          from "../components/Footer";
+import TopNav          from "../../components/TopNav";
+import BottomNav       from "../../components/BottomNav";
+import Footer          from "../../components/Footer";
 import MasonryCard, {
   naira,
   getImageUrl,
   formatCity,
   PinIcon,
-}                      from "../components/MasonryCard";
+}                      from "../../components/MasonryCard";
 import "../../styles/DealsPage.css";
 
 /* ══════════════════════════════════════════════════════════════
