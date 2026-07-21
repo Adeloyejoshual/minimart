@@ -1,369 +1,360 @@
 // src/pages/DealsPage.jsx
-import React, {
-  useState,
+import {
   useEffect,
-  useRef,
+  useState,
   useCallback,
+  useRef,
   useMemo,
+  memo,
 } from "react";
+import { useNavigate } from "react-router-dom";
+import TopNav          from "../components/TopNav";
+import BottomNav       from "../components/BottomNav";
+import Footer          from "../components/Footer";
+import MasonryCard, {
+  naira,
+  getImageUrl,
+  formatCity,
+  PinIcon,
+}                      from "../components/MasonryCard";
 import "../../styles/DealsPage.css";
 
 /* ══════════════════════════════════════════════════════════════
-   ICONS  (inline SVG — zero dependencies)
+   CONSTANTS
 ══════════════════════════════════════════════════════════════ */
-const Icon = {
-  Back: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
-      strokeLinejoin="round">
-      <path d="M19 12H5M12 5l-7 7 7 7" />
-    </svg>
-  ),
-  Share: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
-      strokeLinejoin="round">
-      <circle cx="18" cy="5" r="3" /><circle cx="6" cy="12" r="3" />
-      <circle cx="18" cy="19" r="3" />
-      <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" />
-    </svg>
-  ),
-  ChevronUp: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"
-      strokeLinejoin="round">
-      <path d="M18 15l-6-6-6 6" />
-    </svg>
-  ),
-  MapPin: () => (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
-      strokeLinejoin="round">
-      <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
-      <circle cx="12" cy="10" r="3" />
-    </svg>
-  ),
-  Tag: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-      strokeLinejoin="round">
-      <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59
-        8.59a2 2 0 010 2.82z" />
-      <line x1="7" y1="7" x2="7.01" y2="7" />
-    </svg>
-  ),
-  Filter: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
-      strokeLinejoin="round">
-      <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-  ),
-  Sort: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
-      strokeLinejoin="round">
-      <path d="M11 5h10M11 9h7M11 13h4M3 17l3 3 3-3M6 20V4" />
-    </svg>
-  ),
-  Zap: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.4" strokeLinecap="round"
-      strokeLinejoin="round">
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-    </svg>
-  ),
-  Star: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12
-        17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-    </svg>
-  ),
-  Home: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
-      strokeLinejoin="round">
-      <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
-      <polyline points="9 22 9 12 15 12 15 22" />
-    </svg>
-  ),
-  Flame: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-      strokeLinejoin="round">
-      <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3-1.072
-        -2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3
-        5.5a7 7 0 11-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 002.5 3z"/>
-    </svg>
-  ),
-  Grid: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-      strokeLinejoin="round">
-      <rect x="3" y="3" width="7" height="7"/>
-      <rect x="14" y="3" width="7" height="7"/>
-      <rect x="14" y="14" width="7" height="7"/>
-      <rect x="3" y="14" width="7" height="7"/>
-    </svg>
-  ),
-  Check: () => (
-    <svg width="10" height="10" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="3" strokeLinecap="round"
-      strokeLinejoin="round">
-      <polyline points="20 6 9 17 4 12"/>
-    </svg>
-  ),
-};
-
-/* ══════════════════════════════════════════════════════════════
-   MOCK DATA GENERATOR
-══════════════════════════════════════════════════════════════ */
-const CATEGORIES = [
-  "Electronics", "Fashion", "Home & Living", "Sports",
-  "Beauty", "Toys", "Books", "Food & Drink",
-];
-const LOCATIONS = [
-  "New York", "Los Angeles", "Chicago", "Miami",
-  "Seattle", "Austin", "Boston", "Denver",
-];
-const BADGES = [
-  { label: "HOT",      bg: "#ff3d00", color: "#fff" },
-  { label: "NEW",      bg: "#0ea5e9", color: "#fff" },
-  { label: "SALE",     bg: "#7c3aed", color: "#fff" },
-  { label: "LIMITED",  bg: "#f59e0b", color: "#fff" },
-  { label: "TRENDING", bg: "#10b981", color: "#fff" },
-];
-const NAMES = [
-  "AirPods Pro Max Gen3","Vintage Leather Jacket","Smart Coffee Maker",
-  "Yoga Mat Premium","Skincare Bundle Kit","LEGO Technic Set",
-  "Organic Green Tea","Running Shoes Ultra","4K Monitor 32\"",
-  "Silk Pillowcase","Portable Blender","Gaming Chair Pro",
-  "Wireless Earbuds","Winter Coat Oversized","Air Purifier HEPA",
-  "Resistance Bands Set","Vitamin C Serum","Harry Potter Box Set",
-  "Espresso Machine","Trail Running Vest","Mechanical Keyboard",
-  "Linen Shirt Summer","Smart Plant Pot","Foam Roller Deep Tissue",
-  "Face Mask Pack 30","Puzzle 1000 Pieces","Matcha Starter Kit",
-  "Basketball Shoes","Curved Ultrawide Monitor","Cashmere Scarf",
-];
-
-function makeDeals(count = 30, offset = 0) {
-  return Array.from({ length: count }, (_, i) => {
-    const id       = offset + i + 1;
-    const price    = Math.floor(Math.random() * 480 + 19);
-    const orig     = Math.floor(price * (1 + Math.random() * 0.8 + 0.2));
-    const discount = Math.round((1 - price / orig) * 100);
-    const h        = 120 + Math.floor(Math.random() * 220);
-    const badge    = Math.random() > 0.45
-      ? BADGES[Math.floor(Math.random() * BADGES.length)]
-      : null;
-    return {
-      id,
-      name    : NAMES[(id - 1) % NAMES.length],
-      price,
-      orig,
-      discount,
-      category: CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)],
-      location: LOCATIONS[Math.floor(Math.random() * LOCATIONS.length)],
-      verified: Math.random() > 0.35,
-      badge,
-      imgH    : h,
-      hue     : (id * 47) % 360,
-      seed    : id,
-    };
-  });
-}
+const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API       = `${BASE_URL}/api`;
+const PAGE_SIZE = 40;
+const PH        = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
+const STALE_MS  = 5 * 60_000;
 
 const SORT_OPTIONS = [
-  { value: "newest",   label: "Newest"   },
-  { value: "price_lo", label: "Price ↑"  },
-  { value: "price_hi", label: "Price ↓"  },
-  { value: "discount", label: "% Off"    },
+  { value: "newest",   label: "Newest"  },
+  { value: "price_lo", label: "Price ↑" },
+  { value: "price_hi", label: "Price ↓" },
+  { value: "discount", label: "% Off"   },
 ];
 
 const CATEGORY_OPTIONS = [
-  { value: "all",           label: "All Categories" },
-  ...CATEGORIES.map((c) => ({ value: c, label: c })),
+  { value: "all",         label: "All Deals"     },
+  { value: "electronics", label: "Electronics"   },
+  { value: "fashion",     label: "Fashion"       },
+  { value: "home",        label: "Home & Living" },
+  { value: "sports",      label: "Sports"        },
+  { value: "beauty",      label: "Beauty"        },
+  { value: "food",        label: "Food & Drink"  },
 ];
 
 /* ══════════════════════════════════════════════════════════════
-   SORT + FILTER UTILS
+   SVG ICONS
 ══════════════════════════════════════════════════════════════ */
-function applyFilters(deals, { category, sort }) {
-  let out = category === "all"
-    ? [...deals]
-    : deals.filter((d) => d.category === category);
+const BackIcon = ({ size = 18 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <path d="M19 12H5M12 5l-7 7 7 7" />
+  </svg>
+);
 
-  if (sort === "price_lo") out.sort((a, b) => a.price - b.price);
-  else if (sort === "price_hi") out.sort((a, b) => b.price - a.price);
-  else if (sort === "discount") out.sort((a, b) => b.discount - a.discount);
+const ShareIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <circle cx="18" cy="5" r="3" />
+    <circle cx="6" cy="12" r="3" />
+    <circle cx="18" cy="19" r="3" />
+    <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" />
+  </svg>
+);
 
-  return out;
-}
+const TagIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59
+      8.59a2 2 0 010 2.82z" />
+    <line x1="7" y1="7" x2="7.01" y2="7" />
+  </svg>
+);
+
+const FlashIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24"
+    fill="currentColor" aria-hidden="true">
+    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+  </svg>
+);
+
+const FilterIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+  </svg>
+);
+
+const SortIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <path d="M11 5h10M11 9h7M11 13h4M3 17l3 3 3-3M6 20V4" />
+  </svg>
+);
+
+const ChevronUpIcon = ({ size = 16 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
+    aria-hidden="true">
+    <path d="M18 15l-6-6-6 6" />
+  </svg>
+);
+
+const ZapIcon = ({ size = 20 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
+
+const BagIcon = ({ size = 40 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
+    <line x1="3" y1="6" x2="21" y2="6" />
+    <path d="M16 10a4 4 0 01-8 0" />
+  </svg>
+);
+
+const SearchIcon = ({ size = 17 }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth={2.2} strokeLinecap="round" width={size}
+    height={size} aria-hidden="true">
+    <circle cx="11" cy="11" r="8" />
+    <path d="M21 21l-4.35-4.35" />
+  </svg>
+);
 
 /* ══════════════════════════════════════════════════════════════
-   DEAL CARD  (masonry item)
+   HELPERS
 ══════════════════════════════════════════════════════════════ */
-function DealCard({ deal, onClick }) {
-  const [imgLoaded, setImgLoaded] = useState(false);
+const normalizeProduct = (p) => {
+  if (!p || typeof p !== "object" || !p.id) return null;
+  return {
+    ...p,
+    price             : Number(p.price              || 0),
+    engagement_score  : Number(p.engagement_score   || 0),
+    clicks_count      : Number(p.clicks_count        || 0),
+    impression_count  : Number(p.impression_count    || 0),
+    views             : Number(p.views               || 0),
+    ctr               : Number(p.ctr                 || 0),
+    promotion_priority: Number(p.promotion_priority  || 0),
+    favorites_count   : Number(p.favorites_count     || 0),
+    is_promoted       : !!p.is_promoted,
+    promotion_badge   : p.promotion_badge || null,
+    image:
+      p.image ||
+      (Array.isArray(p.images) && p.images.length > 0
+        ? typeof p.images[0] === "string"
+          ? p.images[0]
+          : p.images[0]?.url || null
+        : null) ||
+      p.main_image    ||
+      p.thumbnail_url ||
+      null,
+    location_city : p.location?.city  || p.location_city  || null,
+    location_state: p.location?.state || p.location_state || null,
+    seller: {
+      id              : p.seller?.id               || p.seller_id   || null,
+      name            : p.seller?.name             || p.seller_name || null,
+      verified        : !!p.seller?.verified,
+      subscriptionPlan: p.seller?.subscriptionPlan || null,
+      subscriptionRank: Number(p.seller?.subscriptionRank || 0),
+    },
+    original_price: Number(
+      p.attributes?.original_price ||
+      p.original_price             ||
+      0
+    ),
+  };
+};
 
-  /* Placeholder gradient image */
-  const imgSrc = useMemo(() => {
-    const colors = [
-      ["f8f0ff","c084fc"], ["e0f2fe","38bdf8"], ["d1fae5","34d399"],
-      ["fef3c7","fbbf24"], ["ffe4e6","fb7185"], ["f0fdf4","4ade80"],
-    ];
-    const [bg, fg] = colors[deal.seed % colors.length];
-    const svg = `<svg xmlns='http://www.w3.org/2000/svg'
-      width='300' height='${deal.imgH}'>
-      <defs>
-        <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
-          <stop offset='0%' stop-color='%23${bg}'/>
-          <stop offset='100%' stop-color='%23${fg}'/>
-        </linearGradient>
-      </defs>
-      <rect width='300' height='${deal.imgH}' fill='url(%23g)'/>
-      <text x='50%25' y='50%25' dominant-baseline='middle'
-        text-anchor='middle' font-size='28' opacity='.25'>🛍️</text>
-    </svg>`;
-    return `data:image/svg+xml;utf8,${svg}`;
-  }, [deal.imgH, deal.seed]);
+const dedup = (arr) => {
+  const seen = new Set();
+  return arr.filter((p) => p && !seen.has(p.id) && seen.add(p.id));
+};
+
+const discountPct = (p) => {
+  if (!p) return 0;
+  const orig = p.original_price || 0;
+  const curr = p.price          || 0;
+  if (orig > curr && curr > 0)
+    return Math.round(((orig - curr) / orig) * 100);
+  return 0;
+};
+
+const discountLabel = (p) => {
+  const pct = discountPct(p);
+  return pct > 0 ? `${pct}% off` : null;
+};
+
+const fmtCount = (n) => {
+  const num = Number(n || 0);
+  if (num <= 0)        return "0";
+  if (num < 1_000)     return `${num}+`;
+  if (num < 10_000)    return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}k+`;
+  if (num < 1_000_000) return `${Math.round(num / 1_000)}k+`;
+  return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M+`;
+};
+
+const sortDeals = (arr, sort) => {
+  const out = [...arr];
+  if (sort === "price_lo") return out.sort((a, b) => a.price - b.price);
+  if (sort === "price_hi") return out.sort((a, b) => b.price - a.price);
+  if (sort === "discount")
+    return out.sort((a, b) => discountPct(b) - discountPct(a));
+  return out; /* newest — keep server order */
+};
+
+/* ══════════════════════════════════════════════════════════════
+   SKELETON
+══════════════════════════════════════════════════════════════ */
+const MasonrySkeleton = memo(function MasonrySkeleton() {
+  return (
+    <div className="deals-masonry" aria-busy="true"
+      aria-label="Loading deals">
+      {[180, 220, 160, 200, 180, 190, 220, 170, 200, 180].map((h, i) => (
+        <div key={i} className="dc-sk deals-shimmer"
+          style={{ height: h }} aria-hidden="true" />
+      ))}
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════
+   DEAL CARD
+══════════════════════════════════════════════════════════════ */
+const DealCard = memo(function DealCard({ product, onClick }) {
+  const [imgLoaded, setImgLoaded] = useState(false);
+  if (!product) return null;
+
+  const imgUrl = getImageUrl(product) || PH;
+  const disc   = discountLabel(product);
+  const loc    = formatCity(product);
 
   return (
-    <div className="masonry-card" onClick={() => onClick?.(deal)}
-      role="button" tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && onClick?.(deal)}
-      aria-label={`${deal.name} — $${deal.price}`}>
+    <article
+      className="masonry-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick(product)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
+      aria-label={`${product.title} — ${naira(product.price)}`}>
 
-      {/* Badge */}
-      {deal.badge && (
-        <span className="bd"
-          style={{ background: deal.badge.bg, color: deal.badge.color }}>
-          {deal.badge.label}
+      {/* Discount badge */}
+      {disc && (
+        <span className="bd" style={{ background: "#e74c3c", color: "#fff" }}>
+          {disc}
         </span>
       )}
 
       {/* Image */}
       <div style={{ position: "relative", overflow: "hidden",
-        height: deal.imgH, background: "#f0f0f4" }}>
+        background: "rgba(0,0,0,0.04)" }}>
         {!imgLoaded && (
-          <div style={{ position: "absolute", inset: 0,
-            background: "rgba(0,0,0,0.04)" }}
-            className="deals-shimmer" />
+          <div className="deals-shimmer"
+            style={{ position: "absolute", inset: 0, minHeight: 140 }}
+            aria-hidden="true" />
         )}
         <img
-          src={imgSrc}
-          alt={deal.name}
           className="masonry-img"
-          style={{ height: deal.imgH, opacity: imgLoaded ? 1 : 0,
-            transition: "opacity 0.3s ease" }}
-          onLoad={() => setImgLoaded(true)}
+          src={imgUrl}
+          alt={product.title || "Deal"}
           loading="lazy"
+          style={{
+            opacity   : imgLoaded ? 1 : 0,
+            transition: "opacity .3s ease",
+          }}
+          onLoad={() => setImgLoaded(true)}
+          onError={(e) => { e.currentTarget.src = PH; setImgLoaded(true); }}
         />
-        {/* Discount pill */}
-        {deal.discount > 0 && (
-          <span style={{
-            position: "absolute", bottom: 7, right: 7,
-            background: "rgba(231,76,60,0.92)",
-            backdropFilter: "blur(6px)",
-            color: "#fff", fontSize: "0.62rem", fontWeight: 800,
-            padding: "2px 7px", borderRadius: 6,
-            border: "1px solid rgba(255,255,255,0.15)",
-          }}>
-            -{deal.discount}%
+        {disc && (
+          <span className="deals-disc-pip" aria-hidden="true">
+            <FlashIcon size={10} /> {disc}
           </span>
         )}
       </div>
 
       {/* Body */}
       <div className="masonry-body">
-        <p className="masonry-name">{deal.name}</p>
-        <p className="masonry-price">${deal.price.toLocaleString()}</p>
-        {deal.orig && (
-          <p style={{ fontSize: "0.68rem", color: "var(--deals-text-muted)",
-            textDecoration: "line-through", margin: "0 0 3px",
-            fontWeight: 400 }}>
-            ${deal.orig.toLocaleString()}
+        <p className="masonry-name">{product.title}</p>
+        <p className="masonry-price">{naira(product.price)}</p>
+        {product.original_price > 0 && (
+          <p className="deals-orig-price">
+            {naira(product.original_price)}
           </p>
         )}
-        <p className="masonry-loc">
-          <Icon.MapPin />
-          {deal.location}
-        </p>
-        {deal.verified && (
-          <p className="vfd">✓ Verified Deal</p>
+        {loc && (
+          <p className="masonry-loc">
+            <PinIcon size={10} /> {loc}
+          </p>
+        )}
+        {product.seller?.verified && (
+          <p className="vfd">✓ Verified Seller</p>
         )}
       </div>
-    </div>
+    </article>
   );
-}
-
-/* ══════════════════════════════════════════════════════════════
-   SKELETON CARD
-══════════════════════════════════════════════════════════════ */
-function SkeletonCard({ height = 160, elite = false }) {
-  if (elite) {
-    return (
-      <div className="elite-sk">
-        <div className="elite-sk-img" style={{ height }} />
-        <div className="elite-sk-body">
-          <div className="elite-sk-line elite-sk-line--wide" />
-          <div className="elite-sk-line elite-sk-line--mid" />
-          <div className="elite-sk-line elite-sk-line--short" />
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="dc-sk deals-shimmer" style={{ height: height + 80 }} />
-  );
-}
+});
 
 /* ══════════════════════════════════════════════════════════════
    MOBILE HEADER
 ══════════════════════════════════════════════════════════════ */
-function MobileHeader({ totalDeals, onBack, onShare }) {
+const DealsHeader = memo(function DealsHeader({ onBack, onShare }) {
   return (
     <header className="dh-wrap">
       <button className="dh-back" onClick={onBack}
         aria-label="Go back">
-        <Icon.Back />
+        <BackIcon size={18} />
       </button>
 
       <div className="dh-title-wrap">
         <h1 className="dh-title">Deals</h1>
         <span className="dh-chip">
-          <span className="dh-chip-dot" />
+          <span className="dh-chip-dot" aria-hidden="true" />
           Live
         </span>
       </div>
 
       <button className="dh-share" onClick={onShare}
         aria-label="Share deals">
-        <Icon.Share />
+        <ShareIcon size={16} />
       </button>
     </header>
   );
-}
+});
 
 /* ══════════════════════════════════════════════════════════════
-   MOBILE FILTER BAR
+   FILTER BAR
 ══════════════════════════════════════════════════════════════ */
-function FilterBar({ total, filtered, sort, category,
-  onSort, onCategory }) {
+const FilterBar = memo(function FilterBar({
+  total, filtered, sort, category, onSort, onCategory,
+}) {
   return (
     <div className="df-bar" role="search" aria-label="Filter deals">
       <span className="df-count">
+        <FilterIcon size={13} />
         {filtered} of {total}
       </span>
 
       <div className="df-controls">
         {/* Category */}
         <div className="df-select-wrap">
-          <label className="df-label" htmlFor="cat-select">
-            <Icon.Tag /> Category
+          <label className="df-label" htmlFor="deals-cat-select">
+            <TagIcon size={11} /> Category
           </label>
           <select
-            id="cat-select"
+            id="deals-cat-select"
             className="df-select"
             value={category}
             onChange={(e) => onCategory(e.target.value)}
@@ -376,11 +367,11 @@ function FilterBar({ total, filtered, sort, category,
 
         {/* Sort */}
         <div className="df-select-wrap">
-          <label className="df-label" htmlFor="sort-select">
-            <Icon.Sort /> Sort
+          <label className="df-label" htmlFor="deals-sort-select">
+            <SortIcon size={11} /> Sort
           </label>
           <select
-            id="sort-select"
+            id="deals-sort-select"
             className="df-select"
             value={sort}
             onChange={(e) => onSort(e.target.value)}
@@ -393,380 +384,219 @@ function FilterBar({ total, filtered, sort, category,
       </div>
     </div>
   );
+});
+
+/* ══════════════════════════════════════════════════════════════
+   SCROLL TO TOP
+══════════════════════════════════════════════════════════════ */
+function ScrollTopBtn() {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const fn = () => setVisible(window.scrollY > 400);
+    window.addEventListener("scroll", fn, { passive: true });
+    return () => window.removeEventListener("scroll", fn);
+  }, []);
+  return (
+    <button
+      className={`deals-scroll-top${visible ? " visible" : ""}`}
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      aria-label="Scroll to top"
+      tabIndex={visible ? 0 : -1}>
+      <ChevronUpIcon size={16} />
+    </button>
+  );
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ELITE HERO
+   HERO
 ══════════════════════════════════════════════════════════════ */
-function EliteHero({ totalDeals }) {
+const DealsHero = memo(function DealsHero({ total, loading }) {
   return (
-    <section className="elite-hero" aria-label="Deals hero banner">
-      {/* Animated BG */}
-      <div className="elite-hero-bg" aria-hidden="true">
-        <div className="elite-hero-grid" />
-        <div className="elite-hero-orb elite-hero-orb--1" />
-        <div className="elite-hero-orb elite-hero-orb--2" />
-        <div className="elite-hero-orb elite-hero-orb--3" />
-      </div>
+    <section className="dh-hero" aria-label="Deals overview">
+      <div className="dh-hero-blob dh-hero-blob--1" aria-hidden="true" />
+      <div className="dh-hero-blob dh-hero-blob--2" aria-hidden="true" />
 
-      <div className="elite-hero-content">
-        {/* Badge */}
-        <div className="elite-hero-badge">
-          <span className="elite-hero-badge-dot" aria-hidden="true" />
-          Live Marketplace
-        </div>
-
-        {/* Title */}
-        <h1 className="elite-hero-title">
-          Discover{" "}
-          <span className="elite-hero-title-accent">
-            Exclusive Deals
-          </span>
-        </h1>
-        <p className="elite-hero-sub">
-          Curated offers updated in real-time. Save big on top brands.
+      <div className="dh-hero-content">
+        <span className="dh-hero-kicker">
+          <FlashIcon size={14} /> Limited Time Offers
+        </span>
+        <h2 className="dh-hero-title">
+          Cheap <em className="dh-hero-em">Deals</em>
+        </h2>
+        <p className="dh-hero-sub">
+          Discounted listings from verified sellers across Nigeria.
         </p>
 
-        {/* Stats strip */}
-        <div className="elite-hero-stats" role="list">
-          {[
-            { num: totalDeals.toLocaleString(), label: "Active Deals" },
-            { num: "94%",   label: "Verified Sellers" },
-            { num: "48h",   label: "Avg. Deal Duration" },
-            { num: "$142",  label: "Avg. Savings" },
-          ].map((s, i, arr) => (
-            <React.Fragment key={s.label}>
-              <div className="elite-hero-stat" role="listitem">
-                <span className="elite-hero-stat-num">{s.num}</span>
-                <span className="elite-hero-stat-label">{s.label}</span>
+        {/* Stats */}
+        <div className="dh-hero-stats">
+          {loading ? (
+            [1, 2, 3].map((i) => (
+              <div key={i} className="dh-hero-stat">
+                <div className="dc-sk deals-shimmer"
+                  style={{ width: 44, height: 20, borderRadius: 6 }} />
+                <div className="dc-sk deals-shimmer"
+                  style={{ width: 52, height: 11, borderRadius: 4,
+                    marginTop: 4 }} />
               </div>
-              {i < arr.length - 1 && (
-                <div className="elite-hero-stat-divider"
-                  aria-hidden="true" />
-              )}
-            </React.Fragment>
-          ))}
+            ))
+          ) : (
+            [
+              { val: fmtCount(total), label: "Deals"   },
+              { val: "Up to 80%",     label: "Off"     },
+              { val: "Verified",      label: "Sellers" },
+            ].map((s) => (
+              <div key={s.label} className="dh-hero-stat">
+                <span className="dh-hero-stat-val">{s.val}</span>
+                <span className="dh-hero-stat-label">{s.label}</span>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </section>
   );
-}
+});
 
 /* ══════════════════════════════════════════════════════════════
-   ELITE SIDEBAR
+   DEALS PAGE
 ══════════════════════════════════════════════════════════════ */
-function EliteSidebar({ totalDeals, sort, category,
-  onSort, onCategory, onBack, onShare }) {
+export default function DealsPage({ user }) {
+  const navigate = useNavigate();
 
-  const cats = [
-    { value: "all", label: "All Deals",   icon: <Icon.Grid /> },
-    { value: "Electronics", label: "Electronics", icon: <Icon.Zap /> },
-    { value: "Fashion",     label: "Fashion",     icon: <Icon.Star /> },
-    { value: "Sports",      label: "Sports",      icon: <Icon.Flame /> },
-    { value: "Home & Living", label: "Home",      icon: <Icon.Home /> },
-  ];
-
-  return (
-    <aside className="elite-sidebar" aria-label="Filters sidebar">
-
-      {/* Logo */}
-      <div className="esb-logo">
-        <div className="esb-logo-icon" aria-hidden="true">
-          <Icon.Zap />
-        </div>
-        <div>
-          <span className="esb-logo-text">DealsHub</span>
-          <span className="esb-logo-sub">Pro Marketplace</span>
-        </div>
-      </div>
-
-      {/* Live counter */}
-      <div className="esb-counter">
-        <div className="esb-counter-pulse" aria-hidden="true" />
-        <div className="esb-counter-inner">
-          <span className="esb-counter-num"
-            aria-label={`${totalDeals} active deals`}>
-            {totalDeals.toLocaleString()}
-          </span>
-          <span className="esb-counter-label">Active Deals Right Now</span>
-        </div>
-      </div>
-
-      {/* Categories */}
-      <div className="esb-section">
-        <div className="esb-section-head">
-          <span className="esb-section-icon" aria-hidden="true">
-            <Icon.Grid />
-          </span>
-          <span className="esb-section-title">Categories</span>
-        </div>
-        <div className="esb-options" role="radiogroup"
-          aria-label="Category filter">
-          {cats.map((c) => (
-            <button
-              key={c.value}
-              className={`esb-opt${category === c.value
-                ? " esb-opt--active" : ""}`}
-              onClick={() => onCategory(c.value)}
-              role="radio"
-              aria-checked={category === c.value}
-              aria-label={c.label}>
-              <span className="esb-opt-icon">{c.icon}</span>
-              <span className="esb-opt-label">{c.label}</span>
-              {category === c.value && (
-                <span className="esb-opt-check" aria-hidden="true">
-                  <Icon.Check />
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Sort */}
-      <div className="esb-section">
-        <div className="esb-section-head">
-          <span className="esb-section-icon" aria-hidden="true">
-            <Icon.Sort />
-          </span>
-          <span className="esb-section-title">Sort By</span>
-        </div>
-        <div className="esb-options" role="radiogroup"
-          aria-label="Sort options">
-          {SORT_OPTIONS.map((s) => (
-            <button
-              key={s.value}
-              className={`esb-opt${sort === s.value
-                ? " esb-opt--active" : ""}`}
-              onClick={() => onSort(s.value)}
-              role="radio"
-              aria-checked={sort === s.value}
-              aria-label={`Sort by ${s.label}`}>
-              <span className="esb-opt-label">{s.label}</span>
-              {sort === s.value && (
-                <span className="esb-opt-check" aria-hidden="true">
-                  <Icon.Check />
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Actions */}
-      <button className="esb-share" onClick={onShare}
-        aria-label="Share this page">
-        <Icon.Share /> Share Page
-      </button>
-      <button className="esb-back" onClick={onBack}
-        aria-label="Go back">
-        <Icon.Back /> Back
-      </button>
-    </aside>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════
-   ELITE TOP BAR
-══════════════════════════════════════════════════════════════ */
-function EliteTopBar({ filteredCount, sort, onSort }) {
-  return (
-    <div className="elite-topbar" role="toolbar"
-      aria-label="Deals toolbar">
-      <div className="elite-topbar-left">
-        {/* Breadcrumb */}
-        <nav className="elite-breadcrumb" aria-label="Breadcrumb">
-          <span>Home</span>
-          <span className="elite-bc-sep" aria-hidden="true"> / </span>
-          <span className="elite-bc-current">Deals</span>
-        </nav>
-
-        <span className="elite-topbar-count"
-          aria-live="polite" aria-atomic="true">
-          {filteredCount.toLocaleString()} results
-        </span>
-      </div>
-
-      {/* Sort pills */}
-      <div className="elite-topbar-right" role="group"
-        aria-label="Sort options">
-        <span className="elite-topbar-sort-label">Sort:</span>
-        {SORT_OPTIONS.map((s) => (
-          <button
-            key={s.value}
-            className={`elite-pill${sort === s.value
-              ? " elite-pill--active" : ""}`}
-            onClick={() => onSort(s.value)}
-            aria-pressed={sort === s.value}
-            aria-label={`Sort by ${s.label}`}>
-            {s.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════
-   ERROR STATE
-══════════════════════════════════════════════════════════════ */
-function ErrorState({ message, onRetry, elite }) {
-  if (elite) {
-    return (
-      <div className="elite-empty" role="alert">
-        <span className="elite-empty-icon">⚠️</span>
-        <h2 className="elite-empty-title">Something went wrong</h2>
-        <p className="elite-empty-sub">{message}</p>
-        <button className="elite-empty-btn" onClick={onRetry}>
-          Try Again
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div className="deals-err" role="alert">
-      <span className="deals-err-icon">⚠️</span>
-      <p className="deals-err-title">Something went wrong</p>
-      <p className="deals-err-msg">{message}</p>
-      <button className="deals-err-btn" onClick={onRetry}>
-        Try Again
-      </button>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════
-   EMPTY STATE
-══════════════════════════════════════════════════════════════ */
-function EmptyState({ onReset, elite }) {
-  if (elite) {
-    return (
-      <div className="elite-empty">
-        <span className="elite-empty-icon">🔍</span>
-        <h2 className="elite-empty-title">No deals found</h2>
-        <p className="elite-empty-sub">
-          Try adjusting your filters or check back soon for new offers.
-        </p>
-        <button className="elite-empty-btn" onClick={onReset}>
-          Clear Filters
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div className="deals-empty">
-      <span className="deals-empty-emoji">🔍</span>
-      <h2 className="deals-empty-title">No deals found</h2>
-      <p className="deals-empty-sub">
-        Try adjusting your filters or check back soon<br />
-        for fresh new deals.
-      </p>
-      <button className="deals-empty-btn" onClick={onReset}>
-        Clear Filters
-      </button>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════
-   MAIN PAGE COMPONENT
-══════════════════════════════════════════════════════════════ */
-const PAGE_SIZE   = 20;
-const LOAD_DELAY  = 900; // ms — simulate network
-
-export default function DealsPage() {
-  /* ── Responsive ── */
-  const [isDesktop, setIsDesktop] = useState(
-    () => window.innerWidth >= 1024
-  );
-
-  useEffect(() => {
-    const mq = window.matchMedia("(min-width: 1024px)");
-    const handler = (e) => setIsDesktop(e.matches);
-    mq.addEventListener("change", handler);
-    return () => mq.removeEventListener("change", handler);
-  }, []);
-
-  /* ── Data ── */
-  const [allDeals]    = useState(() => makeDeals(120, 0));
-  const [page, setPage]     = useState(1);
-  const [loading, setLoading] = useState(true);   // initial load
+  /* ── Data state ── */
+  const [allDeals,    setAllDeals]    = useState([]);
+  const [loading,     setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [error, setError]   = useState(null);
+  const [error,       setError]       = useState(null);
+  const [hasMore,     setHasMore]     = useState(false);
+  const [page,        setPage]        = useState(0);
+  const [total,       setTotal]       = useState(0);
 
-  /* ── Filters ── */
-  const [sort, setSort]         = useState("newest");
+  /* ── Filter / sort state ── */
+  const [sort,     setSort]     = useState("newest");
   const [category, setCategory] = useState("all");
 
-  /* ── Scroll-to-top ── */
-  const [showScrollTop, setShowScrollTop] = useState(false);
-
-  /* ── Refs ── */
+  const dealsRef    = useRef([]);
   const sentinelRef = useRef(null);
-  const pageRef     = useRef(null);
+  const hiddenAtRef = useRef(null);
 
-  /* ── Filtered + paginated ── */
-  const filteredDeals = useMemo(
-    () => applyFilters(allDeals, { category, sort }),
-    [allDeals, category, sort]
-  );
-
-  const visibleDeals = useMemo(
-    () => filteredDeals.slice(0, page * PAGE_SIZE),
-    [filteredDeals, page]
-  );
-
-  const hasMore = visibleDeals.length < filteredDeals.length;
-
-  /* ── Simulate initial load ── */
-  useEffect(() => {
-    setLoading(true);
-    setError(null);
-    const t = setTimeout(() => {
-      // Simulate occasional error (1 in 20)
-      if (Math.random() < 0.05) {
-        setError("Failed to load deals. Please check your connection.");
-      }
-      setLoading(false);
-    }, LOAD_DELAY);
-    return () => clearTimeout(t);
+  /* ── Build URL ── */
+  const buildUrl = useCallback((pg = 0, catId = "all", sortVal = "newest") => {
+    const params = new URLSearchParams({ limit: PAGE_SIZE, page: pg });
+    if (catId !== "all")      params.set("category_id", catId);
+    if (sortVal !== "newest") params.set("sort", sortVal);
+    params.set("max_price",   50000);
+    params.set("has_discount", 1);
+    return `${API}/deals?${params}`;
   }, []);
 
-  /* ── Reset page on filter change ── */
-  useEffect(() => { setPage(1); }, [sort, category]);
+  /* ── Apply response data ── */
+  const applyData = useCallback((data, append = false) => {
+    const raw = Array.isArray(data.products) ? data.products
+              : Array.isArray(data.deals)    ? data.deals
+              : [];
+    const normalized = dedup(raw).map(normalizeProduct).filter(Boolean);
+    const merged     = append
+      ? dedup([...dealsRef.current, ...normalized])
+      : normalized;
+
+    dealsRef.current = merged;
+    setAllDeals(merged);
+    setTotal(data.meta?.total ?? merged.length);
+    setHasMore(
+      data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE
+    );
+  }, []);
+
+  /* ── Initial / reload ── */
+  const loadFeed = useCallback(async (catId = "all", sortVal = "newest") => {
+    setLoading(true);
+    setError(null);
+    setPage(0);
+    dealsRef.current = [];
+    try {
+      const res = await fetch(buildUrl(0, catId, sortVal));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      applyData(await res.json(), false);
+    } catch (err) {
+      console.error("[DealsPage]", err);
+      setError("Could not load deals. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [buildUrl, applyData]);
+
+  /* ── Load next page ── */
+  const loadMore = useCallback(async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const next = page + 1;
+      const res  = await fetch(buildUrl(next, category, sort));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      applyData(await res.json(), true);
+      setPage(next);
+    } catch (err) {
+      console.error("[DealsPage] loadMore:", err);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loadingMore, hasMore, page, category, sort, buildUrl, applyData]);
+
+  /* ── Category switch ── */
+  const switchCategory = useCallback((catId) => {
+    if (catId === category) return;
+    setCategory(catId);
+    loadFeed(catId, sort);
+  }, [category, sort, loadFeed]);
+
+  /* ── Sort switch ── */
+  const switchSort = useCallback((sortVal) => {
+    if (sortVal === sort) return;
+    setSort(sortVal);
+    loadFeed(category, sortVal);
+  }, [sort, category, loadFeed]);
+
+  /* ── Mount ── */
+  useEffect(() => { loadFeed("all", "newest"); }, []); // eslint-disable-line
+
+  /* ── Stale on visibility ── */
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+      } else {
+        const elapsed = Date.now() - (hiddenAtRef.current || 0);
+        if (!loading && elapsed > STALE_MS) loadFeed(category, sort);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [loading, category, sort, loadFeed]);
 
   /* ── Infinite scroll ── */
   useEffect(() => {
-    if (!sentinelRef.current || !hasMore || loading) return;
-
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry.isIntersecting && !loadingMore) {
-          setLoadingMore(true);
-          setTimeout(() => {
-            setPage((p) => p + 1);
-            setLoadingMore(false);
-          }, 600);
-        }
-      },
-      { threshold: 0.1, rootMargin: "120px" }
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const io = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) loadMore(); },
+      { threshold: 0.1 }
     );
-
-    observer.observe(sentinelRef.current);
-    return () => observer.disconnect();
-  }, [hasMore, loading, loadingMore]);
-
-  /* ── Scroll-to-top visibility ── */
-  useEffect(() => {
-    const handleScroll = () => {
-      setShowScrollTop(window.scrollY > 400);
-    };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
+    io.observe(el);
+    return () => io.disconnect();
+  }, [hasMore, loadingMore, loadMore]);
 
   /* ── Handlers ── */
-  const handleBack  = useCallback(() => window.history.back(), []);
+  const handleProductClick = useCallback((product) => {
+    if (!product?.id) return;
+    fetch(`${API}/deals/products/${product.id}/click`, {
+      method: "POST", keepalive: true,
+    }).catch(() => {});
+    navigate(`/product/${product.slug || product.id}`);
+  }, [navigate]);
+
+  const handleBack = useCallback(() => window.history.back(), []);
+
   const handleShare = useCallback(async () => {
     const data = {
       title: "Check out these deals!",
@@ -778,265 +608,178 @@ export default function DealsPage() {
     } catch {}
   }, []);
 
-  const handleCardClick = useCallback((deal) => {
-    console.log("Deal clicked:", deal);
-    // Navigate or open modal here
-  }, []);
-
-  const handleReset = useCallback(() => {
-    setSort("newest");
-    setCategory("all");
-  }, []);
-
-  const handleRetry = useCallback(() => {
-    setLoading(true);
-    setError(null);
-    setTimeout(() => setLoading(false), LOAD_DELAY);
-  }, []);
-
-  const handleScrollTop = useCallback(() => {
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }, []);
-
-  /* ── Skeleton heights ── */
-  const skeletonHeights = useMemo(
-    () => Array.from({ length: 12 }, () => 120 + Math.floor(Math.random() * 180)),
-    []
+  /* ── Derived ── */
+  const visibleDeals = useMemo(
+    () => sortDeals(allDeals, sort),
+    [allDeals, sort]
   );
 
-  /* ══════════════════════════════════════════════════════════════
-     RENDER — MOBILE LAYOUT
-  ══════════════════════════════════════════════════════════════ */
-  if (!isDesktop) {
-    return (
-      <div className="deals-root" ref={pageRef}>
-        <div className="deals-page">
+  const filteredDeals = useMemo(() => {
+    if (category === "all") return visibleDeals;
+    return visibleDeals.filter(
+      (p) => p.category?.toLowerCase() === category
+    );
+  }, [visibleDeals, category]);
 
-          {/* Header */}
-          <MobileHeader
-            totalDeals={filteredDeals.length}
-            onBack={handleBack}
-            onShare={handleShare}
-          />
+  const currentCatLabel =
+    CATEGORY_OPTIONS.find((c) => c.value === category)?.label || "Deals";
 
-          {/* Filter bar */}
-          {!loading && !error && (
-            <FilterBar
-              total={allDeals.length}
-              filtered={filteredDeals.length}
-              sort={sort}
-              category={category}
-              onSort={setSort}
-              onCategory={setCategory}
-            />
-          )}
+  /* ══════════════════════════════════════════════════════
+     RENDER
+  ══════════════════════════════════════════════════════ */
+  return (
+    <div className="deals-root">
+      <TopNav user={user} />
 
-          {/* Result count */}
-          {!loading && !error && filteredDeals.length > 0 && (
-            <div className="deals-result-count" aria-live="polite">
-              Showing{" "}
-              <span className="deals-result-count-num">
-                {visibleDeals.length}
-              </span>
-              {" "}of{" "}
-              <span className="deals-result-count-num">
-                {filteredDeals.length}
-              </span>
-              {" "}deals
-            </div>
-          )}
+      <main className="deals-page" id="deals-main">
 
-          {/* ── Error ── */}
-          {error && (
-            <ErrorState message={error} onRetry={handleRetry} />
-          )}
+        {/* ── HEADER ── */}
+        <DealsHeader onBack={handleBack} onShare={handleShare} />
 
-          {/* ── Loading skeleton ── */}
-          {loading && !error && (
-            <div className="deals-masonry" aria-label="Loading deals"
-              aria-busy="true">
-              {skeletonHeights.map((h, i) => (
-                <SkeletonCard key={i} height={h} />
-              ))}
-            </div>
-          )}
+        {/* ── HERO ── */}
+        <DealsHero total={total} loading={loading} />
 
-          {/* ── Empty ── */}
-          {!loading && !error && filteredDeals.length === 0 && (
-            <EmptyState onReset={handleReset} />
-          )}
-
-          {/* ── Masonry grid ── */}
-          {!loading && !error && filteredDeals.length > 0 && (
-            <>
-              <div className="deals-masonry"
-                role="list" aria-label="Deals grid">
-                {visibleDeals.map((deal) => (
-                  <DealCard
-                    key={deal.id}
-                    deal={deal}
-                    onClick={handleCardClick}
-                  />
-                ))}
-              </div>
-
-              {/* Sentinel */}
-              <div ref={sentinelRef} aria-hidden="true"
-                style={{ height: 1 }} />
-
-              {/* Loading more */}
-              {loadingMore && (
-                <div className="deals-loading-more"
-                  aria-live="polite" aria-label="Loading more deals">
-                  <span className="deals-spinner" aria-hidden="true" />
-                  Loading more deals…
-                </div>
-              )}
-
-              {/* Feed end */}
-              {!hasMore && !loadingMore && (
-                <div className="deals-feed-end-wrap">
-                  <p className="deals-feed-end">
-                    🎉 You've seen all {filteredDeals.length} deals!
-                  </p>
-                  <button className="deals-feed-end-btn"
-                    onClick={handleScrollTop}>
-                    Back to Top
-                  </button>
-                </div>
-              )}
-            </>
-          )}
+        {/* ── SEARCH ── */}
+        <div className="hm-search-wrap">
+          <button className="hm-search-bar"
+            onClick={() => navigate("/search")}>
+            <span className="hm-search-ic" aria-hidden="true">
+              <SearchIcon size={17} />
+            </span>
+            <span className="hm-search-placeholder">
+              Search deals, brands, locations…
+            </span>
+          </button>
         </div>
 
-        {/* Scroll to top */}
-        <button
-          className={`deals-scroll-top${showScrollTop ? " visible" : ""}`}
-          onClick={handleScrollTop}
-          aria-label="Scroll to top"
-          tabIndex={showScrollTop ? 0 : -1}>
-          <Icon.ChevronUp />
-        </button>
-      </div>
-    );
-  }
+        {/* ── FILTER BAR ── */}
+        {!loading && !error && (
+          <FilterBar
+            total={total}
+            filtered={filteredDeals.length}
+            sort={sort}
+            category={category}
+            onSort={switchSort}
+            onCategory={switchCategory}
+          />
+        )}
 
-  /* ══════════════════════════════════════════════════════════════
-     RENDER — ELITE DESKTOP LAYOUT
-  ══════════════════════════════════════════════════════════════ */
-  return (
-    <div className="deals-root deals-root--elite" ref={pageRef}>
+        {/* ── RESULT COUNT ── */}
+        {!loading && !error && filteredDeals.length > 0 && (
+          <div className="deals-result-count"
+            aria-live="polite" aria-atomic="true">
+            Showing{" "}
+            <span className="deals-result-count-num">
+              {filteredDeals.length}
+            </span>
+            {" "}deal{filteredDeals.length !== 1 ? "s" : ""}
+          </div>
+        )}
 
-      {/* Hero */}
-      <EliteHero totalDeals={filteredDeals.length} />
+        {/* ── ERROR ── */}
+        {error && (
+          <div className="deals-err" role="alert">
+            <span className="deals-err-icon">
+              <ZapIcon size={20} />
+            </span>
+            <p className="deals-err-title">Could not load deals</p>
+            <p className="deals-err-msg">{error}</p>
+            <button className="deals-err-btn"
+              onClick={() => loadFeed(category, sort)}>
+              Try again
+            </button>
+          </div>
+        )}
 
-      {/* Layout: sidebar + main */}
-      <div className="elite-layout">
+        {/* ── SKELETON ── */}
+        {loading && !error && <MasonrySkeleton />}
 
-        {/* Sidebar */}
-        <EliteSidebar
-          totalDeals={filteredDeals.length}
-          sort={sort}
-          category={category}
-          onSort={setSort}
-          onCategory={setCategory}
-          onBack={handleBack}
-          onShare={handleShare}
-        />
+        {/* ── EMPTY ── */}
+        {!loading && !error && filteredDeals.length === 0 && (
+          <div className="deals-empty">
+            <span className="deals-empty-emoji">
+              <BagIcon size={40} />
+            </span>
+            <h3 className="deals-empty-title">
+              {category === "all"
+                ? "No deals right now"
+                : `No deals in ${currentCatLabel}`}
+            </h3>
+            <p className="deals-empty-sub">
+              {category === "all"
+                ? "Check back soon for fresh discounts."
+                : "Try another category or clear filters."}
+            </p>
+            <button className="deals-empty-btn"
+              onClick={() =>
+                category === "all"
+                  ? loadFeed("all", sort)
+                  : switchCategory("all")
+              }>
+              {category === "all" ? "Reload" : "Browse all deals"}
+            </button>
+          </div>
+        )}
 
-        {/* Main column */}
-        <main className="elite-main" aria-label="Deals content">
+        {/* ── MASONRY GRID ── */}
+        {!loading && !error && filteredDeals.length > 0 && (
+          <section className="hm-section">
+            <div className="hm-section-head">
+              <h2 className="hm-section-title">
+                <TagIcon size={16} />{" "}
+                {category === "all" ? "All Deals" : currentCatLabel}
+              </h2>
+              {category !== "all" && (
+                <button className="hm-cat-clear"
+                  onClick={() => switchCategory("all")}>
+                  ✕ Clear
+                </button>
+              )}
+            </div>
 
-          {/* Top bar */}
-          {!loading && !error && (
-            <EliteTopBar
-              filteredCount={filteredDeals.length}
-              sort={sort}
-              onSort={setSort}
-            />
-          )}
-
-          {/* ── Error ── */}
-          {error && (
-            <ErrorState message={error} onRetry={handleRetry} elite />
-          )}
-
-          {/* ── Loading skeleton ── */}
-          {loading && !error && (
-            <div className="deals-masonry deals-masonry--desktop"
-              aria-label="Loading deals" aria-busy="true">
-              {skeletonHeights.map((h, i) => (
-                <SkeletonCard key={i} height={h} elite />
+            <div className="deals-masonry" role="list"
+              aria-label="Deals grid">
+              {filteredDeals.map((p) => p && (
+                <div key={p.id} role="listitem">
+                  <DealCard product={p} onClick={handleProductClick} />
+                </div>
               ))}
             </div>
-          )}
 
-          {/* ── Empty ── */}
-          {!loading && !error && filteredDeals.length === 0 && (
-            <EmptyState onReset={handleReset} elite />
-          )}
+            {/* Sentinel */}
+            <div ref={sentinelRef} aria-hidden="true"
+              style={{ height: 1 }} />
 
-          {/* ── Masonry grid ── */}
-          {!loading && !error && filteredDeals.length > 0 && (
-            <>
-              <div className="deals-masonry deals-masonry--desktop"
-                role="list" aria-label="Deals grid">
-                {visibleDeals.map((deal) => (
-                  <DealCard
-                    key={deal.id}
-                    deal={deal}
-                    onClick={handleCardClick}
-                  />
-                ))}
+            {/* Loading more */}
+            {loadingMore && (
+              <p className="deals-loading-more" aria-live="polite">
+                <span className="deals-spinner" aria-hidden="true" />
+                Loading more deals…
+              </p>
+            )}
+
+            {/* Feed end */}
+            {!hasMore && filteredDeals.length > 0 && !loadingMore && (
+              <div className="deals-feed-end-wrap">
+                <p className="deals-feed-end">
+                  🎉 You've seen all {filteredDeals.length} deals!
+                </p>
+                <button className="deals-feed-end-btn"
+                  onClick={() =>
+                    window.scrollTo({ top: 0, behavior: "smooth" })
+                  }>
+                  Back to top <ChevronUpIcon size={14} />
+                </button>
               </div>
+            )}
+          </section>
+        )}
 
-              {/* Sentinel */}
-              <div ref={sentinelRef} aria-hidden="true"
-                style={{ height: 1 }} />
+        {!loading && <Footer />}
+      </main>
 
-              {/* Loading more */}
-              {loadingMore && (
-                <div className="elite-loading-more"
-                  aria-live="polite" aria-label="Loading more">
-                  <div className="elite-loading-dots" aria-hidden="true">
-                    <span /><span /><span />
-                  </div>
-                  Loading more deals
-                </div>
-              )}
-
-              {/* Feed end */}
-              {!hasMore && !loadingMore && (
-                <div className="elite-feed-end">
-                  <div className="elite-feed-end-line"
-                    aria-hidden="true" />
-                  <div className="elite-feed-end-content">
-                    <span className="elite-feed-end-emoji">✨</span>
-                    <p className="elite-feed-end-text">
-                      All {filteredDeals.length} deals loaded
-                    </p>
-                    <button className="elite-feed-end-btn"
-                      onClick={handleScrollTop}>
-                      Back to Top
-                    </button>
-                  </div>
-                  <div className="elite-feed-end-line"
-                    aria-hidden="true" />
-                </div>
-              )}
-            </>
-          )}
-        </main>
-      </div>
-
-      {/* Scroll to top */}
-      <button
-        className={`deals-scroll-top${showScrollTop ? " visible" : ""}`}
-        onClick={handleScrollTop}
-        aria-label="Scroll to top"
-        tabIndex={showScrollTop ? 0 : -1}>
-        <Icon.ChevronUp />
-      </button>
+      <ScrollTopBtn />
+      <BottomNav />
     </div>
   );
 }
