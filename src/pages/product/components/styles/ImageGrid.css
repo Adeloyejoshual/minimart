@@ -1,279 +1,598 @@
-/* src/pages/product/components/styles/ImageGrid.css */
+/* ══════════════════════════════════════════════════════════════
+   src/pages/product/components/styles/ImageGrid.css
+   v2 — matches ImageGrid.jsx v2 upgrade
+════════════════════════════════════════════════════════════════ */
 
-/* ── Upload rules ── */
+/* ══════════════════════════════════════════════════════════════
+   OUTER WRAPPER
+════════════════════════════════════════════════════════════════ */
+.image-grid-wrapper {
+  display        : flex;
+  flex-direction : column;
+  gap            : 12px;
+  width          : 100%;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   UPLOAD RULES  (SVG icons — no more ✓/✗ characters)
+════════════════════════════════════════════════════════════════ */
 .image-upload-rules {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 8px 0;
+  display   : flex;
+  flex-wrap : wrap;
+  gap       : 6px 8px;
+  padding   : 6px 0;
 }
 
 .image-rule {
-  font-size: 0.72rem;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: var(--r-full);
+  display       : inline-flex;
+  align-items   : center;
+  gap           : 5px;
+  padding       : 4px 10px;
+  border-radius : var(--r-full);
+  font-size     : 0.72rem;
+  font-weight   : 600;
+  line-height   : 1;
+  white-space   : nowrap;
+}
+
+.image-rule svg {
+  flex-shrink : 0;
+  width       : 11px;
+  height      : 11px;
 }
 
 .image-rule--ok {
-  background: var(--gn-dim);
-  color: var(--gn);
-  border: 1px solid rgba(21,128,61,.2);
+  background : var(--gn-dim);
+  color      : var(--gn);
+  border     : 1px solid rgba(21, 128, 61, 0.2);
 }
 
 .image-rule--no {
-  background: var(--rd-dim);
-  color: var(--rd);
-  border: 1px solid rgba(220,38,38,.15);
+  background : var(--rd-dim);
+  color      : var(--rd);
+  border     : 1px solid rgba(220, 38, 38, 0.15);
 }
 
-/* ── Drop zone ── */
+/* ══════════════════════════════════════════════════════════════
+   DROP ZONE
+════════════════════════════════════════════════════════════════ */
 .image-upload-box,
 .ap-image-box {
-  border: 2px dashed var(--bd2);
-  border-radius: var(--r-md);
-  transition: border-color var(--tr), background var(--tr);
+  border        : 2px dashed var(--bd2);
+  border-radius : var(--r-md);
+  transition    :
+    border-color var(--tr),
+    background   var(--tr);
 }
 
 .ap-image-box--dragging {
-  border-color: var(--o);
-  background: var(--o-dim);
+  border-color : var(--o);
+  background   : var(--o-dim);
 }
 
-/* ── Image grid ── */
+/* ══════════════════════════════════════════════════════════════
+   IMAGE GRID
+════════════════════════════════════════════════════════════════ */
 .preview-grid-modern {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  padding: 12px;
+  display               : grid;
+  grid-template-columns : repeat(3, 1fr);
+  gap                   : 8px;
+  padding               : 12px;
+  min-height            : 120px;
 }
 
-/* ── Individual thumbnail ── */
+/* ══════════════════════════════════════════════════════════════
+   THUMBNAIL
+════════════════════════════════════════════════════════════════ */
 .preview-thumb {
-  position: relative;
-  aspect-ratio: 1;
-  border-radius: var(--r-sm);
-  overflow: hidden;
-  box-shadow: var(--sh-xs);
-  transition: transform var(--tr), box-shadow var(--tr);
+  position      : relative;
+  aspect-ratio  : 1;
+  border-radius : var(--r-sm);
+  overflow      : hidden;
+  box-shadow    : var(--sh-xs);
+  transition    :
+    transform    var(--tr),
+    box-shadow   var(--tr);
+  background    : var(--wh2);
 }
 
 .preview-thumb:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--sh-md);
+  transform  : translateY(-2px);
+  box-shadow : var(--sh-md);
 }
 
 .preview-img {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  display: block;
-  transition: transform var(--tr);
+  width      : 100%;
+  height     : 100%;
+  object-fit : cover;
+  display    : block;
+  transition : transform var(--tr), opacity var(--tr);
 }
 
 .preview-thumb:hover .preview-img { transform: scale(1.03); }
 
-.preview-img--error { opacity: 0.4; }
+.preview-img--error   { opacity: 0.4; }
+.preview-thumb--error { border : 2px solid var(--rd); }
 
-.preview-thumb--error { border: 2px solid var(--rd); }
-
-/* ── Error overlay ── */
+/* ══════════════════════════════════════════════════════════════
+   ERROR OVERLAY
+════════════════════════════════════════════════════════════════ */
 .preview-error-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(220,38,38,.12);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  color: var(--rd);
-  font-size: 0.7rem;
-  font-weight: 700;
-  padding: 6px;
-  text-align: center;
+  position         : absolute;
+  inset            : 0;
+  background       : rgba(220, 38, 38, 0.14);
+  display          : flex;
+  flex-direction   : column;
+  align-items      : center;
+  justify-content  : center;
+  gap              : 4px;
+  color            : var(--rd);
+  font-size        : 0.7rem;
+  font-weight      : 700;
+  padding          : 6px;
+  text-align       : center;
+  backdrop-filter  : blur(1px);
+  -webkit-backdrop-filter: blur(1px);
 }
 
-/* ── Remove button ── */
+.preview-error-overlay svg {
+  width  : 14px;
+  height : 14px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   REMOVE BUTTON
+════════════════════════════════════════════════════════════════ */
 .preview-remove-btn {
-  position: absolute;
-  top: 5px; right: 5px;
-  width: 24px; height: 24px;
-  border-radius: 50%;
-  background: rgba(0,0,0,.55);
-  border: none;
-  color: #fff;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  opacity: 0;
-  transform: scale(0.8);
-  transition:
-    opacity var(--tr),
+  position         : absolute;
+  top              : 5px;
+  right            : 5px;
+  width            : 24px;
+  height           : 24px;
+  border-radius    : 50%;
+  background       : rgba(0, 0, 0, 0.55);
+  border           : none;
+  color            : #fff;
+  cursor           : pointer;
+  display          : flex;
+  align-items      : center;
+  justify-content  : center;
+  opacity          : 0;
+  transform        : scale(0.8);
+  transition       :
+    opacity   var(--tr),
     transform var(--tr-bounce),
     background var(--tr);
 }
 
-.preview-thumb:hover .preview-remove-btn,
+.preview-thumb:hover        .preview-remove-btn,
 .preview-thumb:focus-within .preview-remove-btn {
-  opacity: 1;
-  transform: scale(1);
+  opacity   : 1;
+  transform : scale(1);
 }
 
 .preview-remove-btn:hover         { background: var(--rd); }
-.preview-remove-btn:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.preview-remove-btn:focus-visible {
+  outline        : 2px solid #fff;
+  outline-offset : 1px;
+}
 
-/* ── Drag handle ── */
+/* ══════════════════════════════════════════════════════════════
+   DRAG HANDLE
+════════════════════════════════════════════════════════════════ */
 .preview-drag-handle {
-  position: absolute;
-  bottom: 5px; left: 5px;
-  background: rgba(0,0,0,.45);
-  border-radius: var(--r-xs);
-  color: #fff;
-  padding: 3px 4px;
-  cursor: grab;
-  opacity: 0;
-  transition: opacity var(--tr);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position         : absolute;
+  bottom           : 5px;
+  left             : 5px;
+  background       : rgba(0, 0, 0, 0.45);
+  border-radius    : var(--r-xs);
+  color            : #fff;
+  padding          : 3px 4px;
+  cursor           : grab;
+  opacity          : 0;
+  transition       : opacity var(--tr);
+  display          : flex;
+  align-items      : center;
+  justify-content  : center;
 }
 
 .preview-thumb:hover .preview-drag-handle { opacity: 1; }
 
-/* ── Main badge ── */
+/* ══════════════════════════════════════════════════════════════
+   MAIN BADGE
+════════════════════════════════════════════════════════════════ */
 .preview-primary-badge {
-  position: absolute;
-  bottom: 5px; right: 5px;
-  background: var(--o);
-  color: #fff;
-  font-size: 0.65rem;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: var(--r-full);
-  letter-spacing: 0.02em;
+  position       : absolute;
+  bottom         : 5px;
+  right          : 5px;
+  background     : var(--o);
+  color          : #fff;
+  font-size      : 0.65rem;
+  font-weight    : 700;
+  padding        : 2px 7px;
+  border-radius  : var(--r-full);
+  letter-spacing : 0.02em;
+  box-shadow     : 0 2px 6px rgba(255, 92, 0, 0.35);
 }
 
-/* ── Arrow reorder buttons ── */
+/* ══════════════════════════════════════════════════════════════
+   REORDER ARROWS
+════════════════════════════════════════════════════════════════ */
 .preview-reorder {
-  position: absolute;
-  top: 5px; left: 5px;
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity var(--tr);
+  position   : absolute;
+  top        : 5px;
+  left       : 5px;
+  display    : flex;
+  gap        : 2px;
+  opacity    : 0;
+  transition : opacity var(--tr);
 }
 
 .preview-thumb:hover .preview-reorder { opacity: 1; }
 
 .preview-reorder button {
-  width: 22px; height: 22px;
-  background: rgba(0,0,0,.5);
-  border: none;
-  border-radius: var(--r-xs);
-  color: #fff;
-  font-size: 0.75rem;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background var(--tr);
+  width           : 22px;
+  height          : 22px;
+  background      : rgba(0, 0, 0, 0.55);
+  border          : none;
+  border-radius   : var(--r-xs);
+  color           : #fff;
+  font-size       : 0.75rem;
+  cursor          : pointer;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  padding         : 0;
+  transition      : background var(--tr);
+}
+
+.preview-reorder button svg {
+  width  : 12px;
+  height : 12px;
 }
 
 .preview-reorder button:hover         { background: var(--o); }
-.preview-reorder button:focus-visible { outline: 2px solid #fff; outline-offset: 1px; }
+.preview-reorder button:focus-visible {
+  outline        : 2px solid #fff;
+  outline-offset : 1px;
+}
 
-/* ── Add image tile ── */
+/* ══════════════════════════════════════════════════════════════
+   ADD IMAGE TILE  (small — sits inside the grid)
+════════════════════════════════════════════════════════════════ */
 .add-image-box,
 .add-image-btn {
-  aspect-ratio: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: 2px dashed var(--bd2);
-  border-radius: var(--r-sm);
-  background: var(--wh2);
-  cursor: pointer;
-  color: var(--ink3);
-  font-size: 0.75rem;
-  font-weight: 600;
-  transition:
-    background var(--tr),
+  aspect-ratio    : 1;
+  display         : flex;
+  flex-direction  : column;
+  align-items     : center;
+  justify-content : center;
+  gap             : 6px;
+  border          : 2px dashed var(--bd2);
+  border-radius   : var(--r-sm);
+  background      : var(--wh2);
+  cursor          : pointer;
+  color           : var(--ink3);
+  font-size       : 0.75rem;
+  font-weight     : 600;
+  text-align      : center;
+  padding         : 6px;
+  transition      :
+    background   var(--tr),
     border-color var(--tr),
-    color var(--tr);
+    color        var(--tr),
+    transform    var(--tr);
+}
+
+.add-image-btn svg {
+  width  : 22px;
+  height : 22px;
+}
+
+.add-image-btn small {
+  font-size   : 0.65rem;
+  color       : var(--ink4);
+  font-weight : 500;
+  margin-top  : 2px;
 }
 
 .add-image-btn:hover,
 .add-image-btn--dragging {
-  background: var(--o-dim);
-  border-color: var(--o);
-  color: var(--o);
+  background   : var(--o-dim);
+  border-color : var(--o);
+  color        : var(--o);
+  transform    : scale(1.02);
 }
 
-.add-image-btn:focus-within { outline: 2px solid var(--o); outline-offset: 2px; }
+.add-image-btn:hover small,
+.add-image-btn--dragging small {
+  color : var(--o);
+}
 
-/* ── Dark mode ── */
+.add-image-btn:focus-within {
+  outline        : 2px solid var(--o);
+  outline-offset : 2px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   EMPTY STATE  (full-width dropzone — no images yet)
+════════════════════════════════════════════════════════════════ */
+.image-empty-state {
+  display          : flex;
+  flex-direction   : column;
+  align-items      : center;
+  justify-content  : center;
+  gap              : 8px;
+  width            : 100%;
+  min-height       : 200px;
+  padding          : 32px 20px;
+  background       : var(--wh2);
+  border           : 2px dashed var(--bd2);
+  border-radius    : var(--r-md);
+  cursor           : pointer;
+  text-align       : center;
+  transition       :
+    background   var(--tr),
+    border-color var(--tr),
+    transform    var(--tr);
+}
+
+.image-empty-state:hover,
+.image-empty-state--dragging {
+  background   : var(--o-dim);
+  border-color : var(--o);
+}
+
+.image-empty-icon {
+  display : inline-flex;
+  color   : var(--o);
+}
+
+.image-empty-icon svg {
+  width  : 36px;
+  height : 36px;
+}
+
+.image-empty-title {
+  font-size   : 0.95rem;
+  font-weight : 700;
+  color       : var(--ink1);
+}
+
+.image-empty-state:hover .image-empty-title,
+.image-empty-state--dragging .image-empty-title {
+  color : var(--o);
+}
+
+.image-empty-sub {
+  font-size   : 0.75rem;
+  color       : var(--ink3);
+  line-height : 1.5;
+  max-width   : 320px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   LIMIT NOTICE  (shown below the grid when max reached)
+════════════════════════════════════════════════════════════════ */
+.image-limit-notice {
+  display       : flex;
+  align-items   : center;
+  gap           : 8px;
+  padding       : 10px 14px;
+  background    : rgba(245, 158, 11, 0.10);
+  border        : 1px solid rgba(245, 158, 11, 0.28);
+  border-radius : var(--r-sm);
+  font-size     : 0.8rem;
+  font-weight   : 600;
+  color         : #b45309;
+  line-height   : 1.5;
+}
+
+.image-limit-notice-icon {
+  display     : inline-flex;
+  flex-shrink : 0;
+  color       : #d97706;
+}
+
+.image-limit-notice-icon svg {
+  width  : 14px;
+  height : 14px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DARK MODE
+════════════════════════════════════════════════════════════════ */
 @media (prefers-color-scheme: dark) {
-  .preview-thumb button          { background: rgba(0,0,0,.65); }
-  .add-image-btn                 { background: rgba(255,92,0,.05); border-color: rgba(255,92,0,.2); }
-  .add-image-btn:hover           { background: rgba(255,92,0,.1); }
+  .preview-thumb button {
+    background : rgba(0, 0, 0, 0.7);
+  }
+
+  .add-image-btn {
+    background   : rgba(255, 92, 0, 0.06);
+    border-color : rgba(255, 92, 0, 0.25);
+  }
+
+  .add-image-btn:hover {
+    background : rgba(255, 92, 0, 0.12);
+  }
+
+  .image-empty-state {
+    background   : rgba(255, 92, 0, 0.04);
+    border-color : rgba(255, 255, 255, 0.15);
+  }
+
+  .image-empty-state:hover,
+  .image-empty-state--dragging {
+    background   : rgba(255, 92, 0, 0.12);
+    border-color : var(--o);
+  }
+
+  .image-limit-notice {
+    background : rgba(245, 158, 11, 0.15);
+    border-color: rgba(245, 158, 11, 0.35);
+    color      : #fbbf24;
+  }
+
+  .image-limit-notice-icon {
+    color : #fbbf24;
+  }
 }
 
-/* ── Reduced motion ── */
+/* ══════════════════════════════════════════════════════════════
+   REDUCED MOTION
+════════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
+  .preview-thumb,
   .preview-thumb:hover,
-  .preview-thumb:hover .preview-img { transform: none; }
+  .preview-thumb:hover .preview-img,
+  .add-image-btn:hover,
+  .add-image-btn--dragging,
+  .image-empty-state:hover {
+    transform : none;
+  }
+
+  .preview-thumb,
+  .preview-img,
+  .preview-remove-btn,
+  .add-image-btn,
+  .image-empty-state {
+    transition : none;
+  }
 }
 
-/* ── Touch devices ── */
+/* ══════════════════════════════════════════════════════════════
+   TOUCH DEVICES  (no hover — controls always visible)
+════════════════════════════════════════════════════════════════ */
 @media (hover: none) and (pointer: coarse) {
   .preview-remove-btn,
   .preview-drag-handle,
-  .preview-reorder               { opacity: 1; }
-  .preview-remove-btn            { width: 22px; height: 22px; top: 4px; right: 4px; transform: scale(1); }
-  .preview-thumb:hover           { transform: none; box-shadow: var(--sh-sm); }
-  .preview-thumb:hover .preview-img { transform: none; }
+  .preview-reorder {
+    opacity : 1;
+  }
+
+  .preview-remove-btn {
+    width     : 22px;
+    height    : 22px;
+    top       : 4px;
+    right     : 4px;
+    transform : scale(1);
+  }
+
+  .preview-thumb:hover                 { transform: none; box-shadow: var(--sh-sm); }
+  .preview-thumb:hover .preview-img    { transform: none; }
+  .add-image-btn:hover                 { transform: none; }
+  .image-empty-state:hover             { transform: none; }
 }
 
-/* ── Small screens ── */
+/* ══════════════════════════════════════════════════════════════
+   SMALL SCREENS  (mobile)
+════════════════════════════════════════════════════════════════ */
 @media (max-width: 480px) {
-  .preview-grid-modern           { grid-template-columns: repeat(3,1fr); gap: 6px; }
+  .preview-grid-modern {
+    grid-template-columns : repeat(3, 1fr);
+    gap                   : 6px;
+    padding               : 10px;
+  }
+
   .preview-remove-btn,
   .preview-drag-handle,
-  .preview-reorder               { opacity: 1 !important; }
-  .preview-remove-btn            { width: 22px; height: 22px; top: 4px; right: 4px; transform: scale(1); }
+  .preview-reorder {
+    opacity : 1 !important;
+  }
+
+  .preview-remove-btn {
+    width     : 22px;
+    height    : 22px;
+    top       : 4px;
+    right     : 4px;
+    transform : scale(1);
+  }
+
+  .image-empty-state {
+    min-height : 180px;
+    padding    : 24px 16px;
+  }
+
+  .image-empty-icon svg {
+    width  : 30px;
+    height : 30px;
+  }
+
+  .image-empty-title { font-size: 0.9rem; }
+  .image-empty-sub   { font-size: 0.7rem; }
+
+  .add-image-btn svg { width: 18px; height: 18px; }
+  .add-image-btn     { font-size: 0.7rem; }
+
+  .image-limit-notice {
+    font-size : 0.75rem;
+    padding   : 9px 12px;
+  }
 }
 
-/* ── Medium screens ── */
+/* ══════════════════════════════════════════════════════════════
+   MEDIUM SCREENS  (tablet)
+════════════════════════════════════════════════════════════════ */
 @media (min-width: 520px) {
-  .preview-grid-modern           { grid-template-columns: repeat(4,1fr); }
+  .preview-grid-modern { grid-template-columns: repeat(4, 1fr); }
 }
 
-/* ── Large screens ── */
+/* ══════════════════════════════════════════════════════════════
+   LARGE SCREENS  (desktop)
+════════════════════════════════════════════════════════════════ */
 @media (min-width: 768px) {
-  .preview-grid-modern           { grid-template-columns: repeat(6,1fr); }
+  .preview-grid-modern { grid-template-columns: repeat(6, 1fr); }
+
+  .image-empty-state {
+    min-height : 240px;
+    padding    : 40px 24px;
+  }
+
+  .image-empty-icon svg {
+    width  : 44px;
+    height : 44px;
+  }
 }
 
-/* ── Container queries ── */
+/* ══════════════════════════════════════════════════════════════
+   CONTAINER QUERIES
+════════════════════════════════════════════════════════════════ */
 @supports (container-type: inline-size) {
   @container ap-page (min-width: 520px) {
-    .preview-grid-modern         { grid-template-columns: repeat(4,1fr); }
+    .preview-grid-modern { grid-template-columns: repeat(4, 1fr); }
   }
 
   @container ap-page (min-width: 720px) {
-    .preview-grid-modern         { grid-template-columns: repeat(6,1fr); }
+    .preview-grid-modern { grid-template-columns: repeat(6, 1fr); }
   }
 }
 
-/* ── High contrast ── */
+/* ══════════════════════════════════════════════════════════════
+   HIGH CONTRAST
+════════════════════════════════════════════════════════════════ */
 @media (forced-colors: active) {
-  .preview-remove-btn            { border: 1px solid ButtonText; }
+  .preview-remove-btn,
+  .preview-reorder button {
+    border : 1px solid ButtonText;
+  }
+
+  .image-rule {
+    border : 1px solid ButtonText;
+  }
 }
 
-/* ── Print ── */
+/* ══════════════════════════════════════════════════════════════
+   PRINT
+════════════════════════════════════════════════════════════════ */
 @media print {
-  .add-image-btn                 { display: none !important; }
-  .preview-thumb button          { display: none; }
+  .add-image-btn,
+  .image-empty-state,
+  .image-limit-notice,
+  .image-upload-rules {
+    display : none !important;
+  }
+
+  .preview-thumb button {
+    display : none;
+  }
 }
