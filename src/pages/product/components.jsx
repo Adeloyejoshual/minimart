@@ -2,8 +2,11 @@
  * src/pages/product/components.jsx
  * Main shell — imports all sub-components, owns page-level logic only
  *
- * FIX: Button-section no longer uses .section/.form-card classes
- *      → avoids opacity:0 + sticky-positioning conflict on mobile
+ * v3 — image grid mount bug fixed:
+ *  - ImageGrid now renders whenever there are images (was hidden at max)
+ *  - Limit notice moved to inside ImageGrid, shown BELOW the grid
+ *  - Skipped-image feedback improved via useImageManager
+ *  - All emoji replaced with SVG icons
  */
 import {
   useMemo, useState, useEffect, useCallback, useRef,
@@ -174,7 +177,7 @@ export default function ProductComponents({
   const dropZoneRef     = useRef(null);
   const dragCounterRef  = useRef(0);
 
-  /* Static section refs — 6 form sections only (button-section excluded) */
+  /* Static section refs — 6 form sections only */
   const sec0 = useRef(null); const sec1 = useRef(null);
   const sec2 = useRef(null); const sec3 = useRef(null);
   const sec4 = useRef(null); const sec5 = useRef(null);
@@ -185,7 +188,7 @@ export default function ProductComponents({
 
   const planRefs = useRef([]);
 
-  /* ── Card entrance animation ── */
+  /* Card entrance animation */
   useEffect(() => {
     const timers = sectionRefs.map((ref, i) =>
       setTimeout(() => ref.current?.classList.add("ap-entered"), 420 + i * 60)
@@ -193,12 +196,12 @@ export default function ProductComponents({
     return () => timers.forEach(clearTimeout);
   }, [sectionRefs]);
 
-  /* ── Auto-open upsell when trial exhausted ── */
+  /* Auto-open upsell when trial exhausted */
   useEffect(() => {
     if (trialExhausted && !isEditMode) setShowUpsellModal(true);
   }, [trialExhausted, isEditMode]);
 
-  /* ── Image validation (serialized queue — no race condition) ── */
+  /* Image validation queue */
   const _validateImages = useCallback(async (incomingImages) => {
     const errors = {};
     const newMap = new Map(sessionHashMap.current);
@@ -207,8 +210,14 @@ export default function ProductComponents({
       if (!["image/jpeg","image/png","image/webp"].includes(img.file.type)) {
         errors[img.id] = "Wrong type — use JPEG, PNG or WebP"; continue;
       }
-      if (img.file.size > 3 * 1024 * 1024) {
-        errors[img.id] = `Too large (${(img.file.size / 1_048_576).toFixed(1)} MB) — max 3 MB`; continue;
+      /*
+        FIX: raised to 5 MB to match backend multer limit.
+        Was 3 MB which caused frontend to reject files the backend
+        would have accepted.
+      */
+      if (img.file.size > 5 * 1024 * 1024) {
+        errors[img.id] = `Too large (${(img.file.size / 1_048_576).toFixed(1)} MB) — max 5 MB`;
+        continue;
       }
       if (validatedIdsRef.current.has(img.id)) continue;
 
@@ -260,7 +269,7 @@ export default function ProductComponents({
     }
   }, [images]);
 
-  /* ── Server duplicate check ── */
+  /* Server duplicate check */
   const checkServerDuplicate = useCallback(async () => {
     if (isEditMode) return;
     if (!form.title?.trim() || !form.price || !form.category_id) return;
@@ -298,7 +307,7 @@ export default function ProductComponents({
     return () => clearTimeout(t);
   }, [isEditMode, form.title, form.price, form.category_id, images.length, checkServerDuplicate]);
 
-  /* ── WhatsApp link ── */
+  /* WhatsApp link */
   const ALLOWED_WA_HOSTS = useMemo(() => [
     "wa.me", "web.whatsapp.com", "api.whatsapp.com",
     "chat.whatsapp.com", "business.whatsapp.com",
@@ -333,7 +342,7 @@ export default function ProductComponents({
     }
   }, [sanitizeWhatsAppLink, updateContact]);
 
-  /* ── Delivery range ── */
+  /* Delivery range */
   const deliveryDurationRef = useRef(form.delivery?.duration ?? { from: "", to: "" });
   useEffect(() => {
     deliveryDurationRef.current = form.delivery?.duration ?? { from: "", to: "" };
@@ -349,7 +358,7 @@ export default function ProductComponents({
     );
   }, [updateDeliveryDuration]);
 
-  /* ── Drag and drop ── */
+  /* Drag and drop */
   const handleDragEnter = useCallback((e) => {
     e.preventDefault(); dragCounterRef.current += 1; setIsDragging(true);
   }, []);
@@ -365,7 +374,7 @@ export default function ProductComponents({
     if (files?.length) handleImages(files);
   }, [handleImages]);
 
-  /* ── Derived ── */
+  /* Derived */
   const categoryOptions = useMemo(() => {
     if (!Array.isArray(categories)) return [];
     return categories
@@ -397,7 +406,6 @@ export default function ProductComponents({
     );
   }, [attributes?.brand, options]);
 
-  /* ── Single consolidated options memo ── */
   const normalizedOptions = useMemo(() => ({
     brand           : normalizeOptions(options?.brands),
     color           : normalizeOptions(options?.colors),
@@ -432,7 +440,7 @@ export default function ProductComponents({
     [attributes?.features]
   );
 
-  /* ── Best value plan ── */
+  /* Best value plan */
   const bestValuePlanId = useMemo(() => {
     if (!promotionPlans.length) return null;
     let best = null, bestDiscount = 0;
@@ -468,7 +476,7 @@ export default function ProductComponents({
     return String(Math.min(n, 30));
   }, []);
 
-  /* ── Title suggestions ── */
+  /* Title suggestions */
   useEffect(() => {
     if (isEditMode) return;
     if (!form.description || form.description.length < 30 || form.title?.trim().length >= 10) {
@@ -484,7 +492,7 @@ export default function ProductComponents({
     return () => clearTimeout(t);
   }, [isEditMode, form.description, form.title]);
 
-  /* ── Derived UI state ── */
+  /* Derived UI state */
   const canAddMore     = totalImageCount < MAX_IMAGES;
   const hasImageErrors = Object.keys(imageErrors).length > 0;
 
@@ -536,7 +544,6 @@ export default function ProductComponents({
         />
       )}
 
-      {/* Progress bar (create mode only) */}
       {!isEditMode && sectionsComplete < 5 && (
         <div className="ap-top-bar">
           <div className="form-progress" aria-label="Form completion">
@@ -549,15 +556,20 @@ export default function ProductComponents({
         </div>
       )}
 
-      {/* Edit mode indicator */}
       {isEditMode && (
         <div className="ap-edit-mode-bar">
-          <span className="ap-edit-mode-icon">✏️</span>
+          <span className="ap-edit-mode-icon" aria-hidden="true">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+                 strokeLinejoin="round">
+              <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
+              <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+            </svg>
+          </span>
           <span>Editing listing</span>
         </div>
       )}
 
-      {/* Duplicate warning */}
       {!isEditMode && dupWarning && (
         <div className="duplicate-warning" role="alert">
           <WarningIcon />
@@ -569,13 +581,13 @@ export default function ProductComponents({
                   className="duplicate-dismiss" aria-label="Dismiss">&times;</button>
         </div>
       )}
+
       {!isEditMode && dupChecking && (
         <div className="dup-checking" aria-live="polite">
           <SpinnerIcon /> Checking for duplicates…
         </div>
       )}
 
-      {/* Feedback */}
       {error && (
         <div className="form-error ap-error-banner" role="alert">
           <WarningIcon /> {error}
@@ -591,7 +603,6 @@ export default function ProductComponents({
         <VerificationNudgeBanner verificationData={verificationData} />
       )}
 
-      {/* Incomplete payment */}
       {!isEditMode && paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
@@ -848,7 +859,7 @@ export default function ProductComponents({
                 ? <><SpinnerIcon /> Detecting location&#8230;</>
                 : <>
                     <LocationPinIcon />
-                    {detectedCoords ? "Location detected ✓" : "Detect my location"}
+                    {detectedCoords ? "Location detected" : "Detect my location"}
                   </>}
             </button>
           </div>
@@ -936,7 +947,12 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ── PRODUCT IMAGES ── */}
+      {/* ══════════════════════════════════════════════════
+          PRODUCT IMAGES
+          FIX: ImageGrid mounts whenever there are images
+          OR when user can still add more. Previously it was
+          hidden entirely when max was reached, hiding previews.
+      ══════════════════════════════════════════════════ */}
       <section ref={sec4} className="section form-card">
         <h3 className="section-title">
           Product Images * <SectionDot filled={imagesFilled} />
@@ -969,7 +985,17 @@ export default function ProductComponents({
           />
         )}
 
-        {canAddMore && (
+        {/*
+          FIX: mount ImageGrid whenever there are images OR user can add more.
+          This is the key change — previously it was `canAddMore && <ImageGrid />`
+          which hid all previews at max. Now the grid stays mounted and its
+          internal "Add more" tile is conditionally shown based on canAddMore.
+
+          The limit notice ("Maximum 6 reached") is now rendered INSIDE
+          ImageGrid, below the previews, so users see both the images AND
+          the warning at the same time.
+        */}
+        {(images.length > 0 || canAddMore) && (
           <ImageGrid
             images={images}
             imageErrors={imageErrors}
@@ -994,16 +1020,11 @@ export default function ProductComponents({
           />
         )}
 
-        {!canAddMore && (
-          <p className="image-limit-reached">
-            Maximum {MAX_IMAGES} images reached.
-            {isEditMode && " Remove an existing image to add a new one."}
-          </p>
-        )}
-
         {totalImageCount > 0 && (
           <div className="image-footer">
-            <small className="image-count">{totalImageCount}/{MAX_IMAGES} images</small>
+            <small className="image-count">
+              {totalImageCount}/{MAX_IMAGES} images
+            </small>
             <small className="field-hint">
               {isEditMode
                 ? "Remove existing images above or add new ones below"
@@ -1041,7 +1062,7 @@ export default function ProductComponents({
                     ref={(el) => { if (el) planRefs.current[planIndex] = el; }}
                     className={[
                       "plan-card",
-                      isSelected  ? "selected"       : "",
+                      isSelected  ? "selected"        : "",
                       isBestValue ? "plan-card--best" : "",
                     ].filter(Boolean).join(" ")}
                     onClick={() => setSelectedPlan(isSelected ? null : plan)}
@@ -1097,11 +1118,7 @@ export default function ProductComponents({
         </section>
       )}
 
-      {/* ── TERMS + SUBMIT ──
-           NOTE: no .section / .form-card class here.
-           Those classes have opacity:0 animation which conflicts with
-           position:sticky on mobile, hiding the button entirely.
-      */}
+      {/* ── TERMS + SUBMIT ── */}
       <div className="button-section">
         {!isEditMode && TermsCheckbox}
 
@@ -1112,7 +1129,6 @@ export default function ProductComponents({
           </p>
         )}
 
-        {/* Screen-reader live region for submit state */}
         <span className="sr-only" aria-live="polite" aria-atomic="true">
           {loading ? (isEditMode ? "Saving changes" : "Processing submission") : ""}
         </span>
