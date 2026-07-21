@@ -22,172 +22,154 @@ const API       = `${BASE_URL}/api`;
 const PAGE_SIZE = 40;
 
 const SORT_OPTIONS = [
-  { value: "default",         label: "Top Score"     },
-  { value: "engagement_desc", label: "Engagement"    },
-  { value: "created_desc",    label: "Newest First"  },
-  { value: "price_asc",       label: "Lowest Price"  },
+  { value: "default",         label: "Top Score"    },
+  { value: "engagement_desc", label: "Engagement"   },
+  { value: "created_desc",    label: "Newest First" },
+  { value: "price_asc",       label: "Lowest Price" },
 ];
 
 /* ══════════════════════════════════════════════════════════════
-   SVG ICON SYSTEM
+   SVG ICONS
 ══════════════════════════════════════════════════════════════ */
 const Icon = {
-  Back: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24"
-         fill="currentColor" aria-hidden="true">
-      <path d="M20 11H7.83l5.59-5.59L12
-               4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/>
+  Back: ({ size = 18 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <path d="M19 12H5" />
+      <polyline points="12 19 5 12 12 5" />
     </svg>
   ),
-  Share: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="2" strokeLinecap="round"
+  Share: ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <circle cx="18" cy="5"  r="3" />
+      <circle cx="6"  cy="12" r="3" />
+      <circle cx="18" cy="19" r="3" />
+      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+    </svg>
+  ),
+  ChevronUp: ({ size = 16 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
          aria-hidden="true">
-      <circle cx="18" cy="5"  r="3"/>
-      <circle cx="6"  cy="12" r="3"/>
-      <circle cx="18" cy="19" r="3"/>
-      <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98"/>
+      <path d="M18 15l-6-6-6 6" />
     </svg>
   ),
-  ChevronUp: () => (
-    <svg width="16" height="16" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="2.5" strokeLinecap="round"
+  ChevronRight: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
          aria-hidden="true">
-      <path d="M18 15l-6-6-6 6"/>
+      <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
     </svg>
   ),
-  Flame: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24"
-         fill="currentColor" aria-hidden="true">
-      <path d="M12 2c0 0-5 5.5-5 10a5 5 0 0010
-               0c0-2-1-4-2-5.5C14 8 13 10 12
-               10c0 0-1-3 0-8z"/>
+  Flame: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <path d="M8.5 14.5A2.5 2.5 0 0011 12c0-1.38-.5-2-1-3
+               -1.072-2.143-.224-4.054 2-6
+               .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5
+               a7 7 0 01-14 0c0-1.153.433-2.294 1-3
+               a2.5 2.5 0 002.5 2.5z" />
     </svg>
   ),
-  TrendUp: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="2.5" strokeLinecap="round"
-         aria-hidden="true">
-      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
-      <polyline points="17 6 23 6 23 12"/>
+  TrendUp: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+      <polyline points="17 6 23 6 23 12" />
     </svg>
   ),
-  Eye: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="2" strokeLinecap="round"
-         aria-hidden="true">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11
-               8-11-8-11-8z"/>
-      <circle cx="12" cy="12" r="3"/>
+  Eye: ({ size = 13 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
     </svg>
   ),
-  Click: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="2" strokeLinecap="round"
-         aria-hidden="true">
-      <path d="M9 9l-.5 9.5 3.5-2.5 2.5
-               3.5L16 17l-3.5-2.5 2.5-3.5L9 9z"/>
-      <path d="M5 3l2 2M19 3l-2 2M3 5l2
-               2M21 5l-2 2M12 2v2"/>
+  Click: ({ size = 13 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 9l6 6 6-6" />
     </svg>
   ),
-  Star: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24"
-         fill="currentColor" aria-hidden="true">
-      <polygon points="12 2 15.09 8.26 22 9.27
-                        17 14.14 18.18 21.02 12 17.77
-                        5.82 21.02 7 14.14 2 9.27
-                        8.91 8.26 12 2"/>
+  Trophy: ({ size = 13 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <path d="M6 9H4a2 2 0 01-2-2V5h4M18 9h2a2 2 0 002-2V5h-4" />
+      <path d="M6 5h12v6a6 6 0 01-12 0V5z" />
+      <path d="M12 17v4M8 21h8" />
     </svg>
   ),
-  Trophy: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="2" strokeLinecap="round"
-         aria-hidden="true">
-      <path d="M6 9H4a2 2 0 01-2-2V5h4M18
-               9h2a2 2 0 002-2V5h-4"/>
-      <path d="M6 5h12v6a6 6 0 01-12 0V5z"/>
-      <path d="M12 17v4M8 21h8"/>
+  Layers: ({ size = 18 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <polygon points="12 2 2 7 12 12 22 7 12 2" />
+      <polyline points="2 17 12 22 22 17" />
+      <polyline points="2 12 12 17 22 12" />
     </svg>
   ),
-  Layers: () => (
-    <svg width="18" height="18" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="2" strokeLinecap="round"
-         aria-hidden="true">
-      <polygon points="12 2 2 7 12 12 22 7 12 2"/>
-      <polyline points="2 17 12 22 22 17"/>
-      <polyline points="2 12 12 17 22 12"/>
+  Filter: ({ size = 13 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <line x1="4" y1="6" x2="20" y2="6" />
+      <line x1="8" y1="12" x2="16" y2="12" />
+      <line x1="11" y1="18" x2="13" y2="18" />
     </svg>
   ),
-  Filter: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="2" strokeLinecap="round"
-         aria-hidden="true">
-      <polygon points="22 3 2 3 10 12.46
-                        10 19 14 21 14 12.46 22 3"/>
+  Check: ({ size = 11 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={3} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <polyline points="20 6 9 17 4 12" />
     </svg>
   ),
-  Check: () => (
-    <svg width="11" height="11" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="3" strokeLinecap="round"
-         aria-hidden="true">
-      <polyline points="20 6 9 17 4 12"/>
+  Refresh: ({ size = 13 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 11-2.12-9.36L23 10" />
     </svg>
   ),
-  Refresh: () => (
-    <svg width="13" height="13" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="2.5" strokeLinecap="round"
-         aria-hidden="true">
-      <path d="M23 4v6h-6M1 20v-6h6"/>
-      <path d="M3.51 9a9 9 0 0114.85-3.36L23
-               10M1 14l4.64 4.36A9 9 0 0020.49 15"/>
+  ArrowRight: ({ size = 14 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <path d="M5 12h14M12 5l7 7-7 7" />
     </svg>
   ),
-  ArrowRight: () => (
-    <svg width="14" height="14" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="2.5" strokeLinecap="round"
-         aria-hidden="true">
-      <path d="M5 12h14M12 5l7 7-7 7"/>
+  Done: ({ size = 26 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={1.8} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
+      <polyline points="22 4 12 14.01 9 11.01" />
     </svg>
   ),
-  Done: () => (
-    <svg width="26" height="26" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="1.8" strokeLinecap="round"
-         aria-hidden="true">
-      <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
-      <polyline points="22 4 12 14.01 9 11.01"/>
+  Empty: ({ size = 52 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={1.4} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
+      <polyline points="17 6 23 6 23 12" />
     </svg>
   ),
-  Empty: () => (
-    <svg width="52" height="52" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="1.4" strokeLinecap="round"
-         aria-hidden="true">
-      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/>
-      <polyline points="17 6 23 6 23 12"/>
-    </svg>
-  ),
-  Error: () => (
-    <svg width="40" height="40" viewBox="0 0 24 24"
-         fill="none" stroke="currentColor"
-         strokeWidth="1.4" strokeLinecap="round"
-         aria-hidden="true">
-      <circle cx="12" cy="12" r="10"/>
-      <line x1="12" y1="8"  x2="12" y2="12"/>
-      <line x1="12" y1="16" x2="12.01" y2="16"
-            strokeWidth="2.5"/>
+  AlertCircle: ({ size = 40 }) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+         stroke="currentColor" strokeWidth={1.4} strokeLinecap="round"
+         strokeLinejoin="round" aria-hidden="true">
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="8" x2="12" y2="12" />
+      <line x1="12" y1="16" x2="12.01" y2="16" strokeWidth={2.5} />
     </svg>
   ),
 };
@@ -206,7 +188,9 @@ const normalizeProduct = (p) => {
     views             : Number(p.views             || 0),
     favorites_count   : Number(p.favorites_count   || 0),
     promotion_priority: Number(p.promotion_priority || 0),
+    search_priority   : Number(p.search_priority   || 0),
     is_promoted       : !!p.is_promoted,
+    promotion_badge   : p.promotion_badge || null,
     image:
       p.image ||
       (Array.isArray(p.images) && p.images.length > 0
@@ -217,6 +201,13 @@ const normalizeProduct = (p) => {
       p.main_image || p.thumbnail_url || null,
     location_city : p.location?.city  || p.location_city  || null,
     location_state: p.location?.state || p.location_state || null,
+    seller: {
+      id              : p.seller?.id               || p.seller_id   || null,
+      name            : p.seller?.name             || p.seller_name || null,
+      verified        : !!p.seller?.verified,
+      subscriptionPlan: p.seller?.subscriptionPlan || null,
+      subscriptionRank: Number(p.seller?.subscriptionRank || 0),
+    },
   };
 };
 
@@ -237,9 +228,9 @@ const fmtNum = (n) => {
 ══════════════════════════════════════════════════════════════ */
 async function fetchTrendingPage({ page = 0, sort } = {}) {
   const params = new URLSearchParams({
-    section : "trending",
+    section: "trending",
     page,
-    limit   : PAGE_SIZE,
+    limit  : PAGE_SIZE,
   });
   if (sort && sort !== "default") params.set("sort", sort);
   const res = await fetch(`${API}/homepage?${params}`);
@@ -267,22 +258,23 @@ function useIsDesktop(breakpoint = 1024) {
    SHARED COMPONENTS
 ══════════════════════════════════════════════════════════════ */
 
-/* ── Ranked Card (shared) ── */
+/* ── Ranked Card ── */
 const RankedCard = memo(function RankedCard({
   product, rank, priority, onView, onClick, elite = false,
 }) {
   const isTop3 = rank <= 3;
   return (
-    <div className={`tr-ranked-wrap${
-      isTop3 ? " tr-ranked-wrap--top" : ""}${
-      elite  ? " tr-ranked-wrap--elite" : ""}`}>
-      <span className={`tr-rank-badge${
-        isTop3 ? " tr-rank-badge--top" : ""}${
-        elite  ? " tr-rank-badge--elite" : ""}`}>
-        {isTop3
-          ? <Icon.Trophy />
-          : null
-        }
+    <div className={[
+      "tr-ranked-wrap",
+      isTop3  ? "tr-ranked-wrap--top"   : "",
+      elite   ? "tr-ranked-wrap--elite" : "",
+    ].filter(Boolean).join(" ")}>
+      <span className={[
+        "tr-rank-badge",
+        isTop3  ? "tr-rank-badge--top"   : "",
+        elite   ? "tr-rank-badge--elite" : "",
+      ].filter(Boolean).join(" ")}>
+        {isTop3 && <Icon.Trophy size={13} />}
         #{rank}
       </span>
       <MasonryCard
@@ -305,12 +297,13 @@ function ScrollTopBtn({ elite = false }) {
   }, []);
   return (
     <button
-      className={`${elite ? "elite-tr-scroll-top" : "tr-scroll-top"}${
-        visible ? " visible" : ""}`}
+      className={`${elite ? "elite-tr-scroll-top" : "tr-scroll-top"}${visible ? " visible" : ""}`}
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
       aria-label="Scroll to top"
+      aria-hidden={!visible}
+      tabIndex={visible ? 0 : -1}
     >
-      <Icon.ChevronUp />
+      <Icon.ChevronUp size={16} />
     </button>
   );
 }
@@ -319,9 +312,8 @@ function ScrollTopBtn({ elite = false }) {
 function EmptyState({ onBrowseAll, elite = false }) {
   return (
     <div className={elite ? "elite-tr-empty" : "tr-empty"} role="status">
-      <span className={elite
-        ? "elite-tr-empty-icon" : "tr-empty-icon-wrap"}>
-        <Icon.Empty />
+      <span className={elite ? "elite-tr-empty-icon" : "tr-empty-icon-wrap"}>
+        <Icon.Empty size={52} />
       </span>
       <h3 className={elite ? "elite-tr-empty-title" : "tr-empty-title"}>
         Nothing trending yet
@@ -334,7 +326,7 @@ function EmptyState({ onBrowseAll, elite = false }) {
         className={elite ? "elite-tr-empty-btn" : "tr-empty-btn"}
         onClick={onBrowseAll}
       >
-        Browse All Listings
+        Browse All Listings <Icon.ChevronRight size={13} />
       </button>
     </div>
   );
@@ -344,16 +336,13 @@ function EmptyState({ onBrowseAll, elite = false }) {
 function ErrorBanner({ message, onRetry, elite = false }) {
   return (
     <div className={elite ? "elite-tr-err" : "tr-err"} role="alert">
-      <span className={elite
-        ? "elite-tr-err-icon" : "tr-err-icon-wrap"}>
-        <Icon.Error />
+      <span className={elite ? "elite-tr-err-icon" : "tr-err-icon-wrap"}>
+        <Icon.AlertCircle size={40} />
       </span>
       <p className={elite ? "elite-tr-err-title" : "tr-err-title"}>
         Could not load trending
       </p>
-      <p className={elite ? "elite-tr-err-msg" : "tr-err-msg"}>
-        {message}
-      </p>
+      <p className={elite ? "elite-tr-err-msg" : "tr-err-msg"}>{message}</p>
       <button
         className={elite ? "elite-tr-err-btn" : "tr-err-btn"}
         onClick={onRetry}
@@ -365,33 +354,37 @@ function ErrorBanner({ message, onRetry, elite = false }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   MOBILE-ONLY COMPONENTS
+   MOBILE COMPONENTS
 ══════════════════════════════════════════════════════════════ */
 const TrendingHeader = memo(function TrendingHeader({ onBack }) {
   return (
     <div className="tr-header">
       <button className="tr-back" onClick={onBack} aria-label="Go back">
-        <Icon.Back />
+        <Icon.Back size={18} />
       </button>
+
       <div className="tr-title-wrap">
         <h1 className="tr-title">Trending</h1>
         <span className="tr-chip">
           <span className="tr-chip-icon" aria-hidden="true">
-            <Icon.Flame />
+            <Icon.Flame size={13} />
           </span>
           Most Popular
         </span>
       </div>
-      <button className="tr-share" aria-label="Share trending page"
+
+      <button
+        className="tr-share"
+        aria-label="Share trending page"
         onClick={() => {
           navigator.share?.({
-            title : "Loemart Trending",
-            text  : "See what's trending on Loemart!",
-            url   : window.location.href,
+            title: "Loemart Trending",
+            text : "See what's trending on Loemart!",
+            url  : window.location.href,
           }).catch(() => {});
         }}
       >
-        <Icon.Share />
+        <Icon.Share size={16} />
       </button>
     </div>
   );
@@ -412,24 +405,30 @@ const TrendingStatsBar = memo(function TrendingStatsBar({
         ) : (
           <>
             <div className="tr-stat">
+              <span className="tr-stat-icon"><Icon.TrendUp size={13} /></span>
               <span className="tr-stat-val">{fmtNum(total)}</span>
               <span className="tr-stat-label">Trending</span>
             </div>
             <div className="tr-stat-divider" aria-hidden="true" />
             <div className="tr-stat">
+              <span className="tr-stat-icon"><Icon.Eye size={13} /></span>
               <span className="tr-stat-val">{fmtNum(totalViews)}</span>
               <span className="tr-stat-label">Total views</span>
             </div>
             <div className="tr-stat-divider" aria-hidden="true" />
             <div className="tr-stat">
+              <span className="tr-stat-icon"><Icon.Click size={13} /></span>
               <span className="tr-stat-val">{fmtNum(totalClicks)}</span>
               <span className="tr-stat-label">Clicks today</span>
             </div>
           </>
         )}
       </div>
+
       <div className="tr-sort-wrap">
-        <label htmlFor="tr-sort" className="tr-sort-label">Sort</label>
+        <label htmlFor="tr-sort" className="tr-sort-label">
+          <Icon.Filter size={12} /> Sort
+        </label>
         <select
           id="tr-sort"
           className="tr-sort-select"
@@ -446,6 +445,7 @@ const TrendingStatsBar = memo(function TrendingStatsBar({
 });
 
 const SKEL_HEIGHTS = [260, 320, 240, 300, 280, 250, 330, 270, 290, 260];
+
 const TrendingSkeleton = memo(function TrendingSkeleton() {
   return (
     <>
@@ -478,15 +478,13 @@ const EliteTrendingHero = memo(function EliteTrendingHero({
       </div>
 
       <div className="elite-tr-hero-content">
-        {/* Badge */}
         <div className="elite-tr-badge">
           <span className="elite-tr-badge-icon">
-            <Icon.Flame />
+            <Icon.Flame size={13} />
           </span>
           <span>TRENDING NOW</span>
         </div>
 
-        {/* Title */}
         <h1 className="elite-tr-title">
           What's{" "}
           <span className="elite-tr-title-accent">Hot</span>
@@ -496,36 +494,29 @@ const EliteTrendingHero = memo(function EliteTrendingHero({
           The most viewed, clicked, and saved listings right now
         </p>
 
-        {/* Stats strip */}
         {!loading && (
           <div className="elite-tr-stats">
             <div className="elite-tr-stat">
               <span className="elite-tr-stat-icon">
-                <Icon.TrendUp />
+                <Icon.TrendUp size={14} />
               </span>
-              <span className="elite-tr-stat-num">
-                {fmtNum(total)}
-              </span>
+              <span className="elite-tr-stat-num">{fmtNum(total)}</span>
               <span className="elite-tr-stat-label">Trending</span>
             </div>
             <div className="elite-tr-stat-div" />
             <div className="elite-tr-stat">
               <span className="elite-tr-stat-icon">
-                <Icon.Eye />
+                <Icon.Eye size={14} />
               </span>
-              <span className="elite-tr-stat-num">
-                {fmtNum(totalViews)}
-              </span>
+              <span className="elite-tr-stat-num">{fmtNum(totalViews)}</span>
               <span className="elite-tr-stat-label">Total Views</span>
             </div>
             <div className="elite-tr-stat-div" />
             <div className="elite-tr-stat">
               <span className="elite-tr-stat-icon">
-                <Icon.Click />
+                <Icon.Click size={14} />
               </span>
-              <span className="elite-tr-stat-num">
-                {fmtNum(totalClicks)}
-              </span>
+              <span className="elite-tr-stat-num">{fmtNum(totalClicks)}</span>
               <span className="elite-tr-stat-label">Clicks Today</span>
             </div>
           </div>
@@ -541,11 +532,9 @@ const EliteTrendingSidebar = memo(function EliteTrendingSidebar({
 }) {
   return (
     <aside className="elite-tr-sidebar">
-
-      {/* Brand */}
       <div className="elite-tr-brand">
         <div className="elite-tr-brand-icon">
-          <Icon.Layers />
+          <Icon.Layers size={18} />
         </div>
         <div>
           <span className="elite-tr-brand-name">Loemart</span>
@@ -553,10 +542,9 @@ const EliteTrendingSidebar = memo(function EliteTrendingSidebar({
         </div>
       </div>
 
-      {/* Live counter */}
       <div className="elite-tr-live-counter">
         <span className="elite-tr-live-icon">
-          <Icon.Flame />
+          <Icon.Flame size={14} />
         </span>
         <div>
           <span className="elite-tr-live-num">
@@ -566,11 +554,10 @@ const EliteTrendingSidebar = memo(function EliteTrendingSidebar({
         </div>
       </div>
 
-      {/* Sort options */}
       <div className="elite-tr-section">
         <div className="elite-tr-section-head">
           <span className="elite-tr-section-icon">
-            <Icon.Filter />
+            <Icon.Filter size={13} />
           </span>
           <span className="elite-tr-section-title">Sort By</span>
         </div>
@@ -578,15 +565,13 @@ const EliteTrendingSidebar = memo(function EliteTrendingSidebar({
           {SORT_OPTIONS.map((o) => (
             <button
               key={o.value}
-              className={`elite-tr-opt${
-                sort === o.value ? " elite-tr-opt--active" : ""
-              }`}
+              className={`elite-tr-opt${sort === o.value ? " elite-tr-opt--active" : ""}`}
               onClick={() => onSortChange(o.value)}
             >
               <span className="elite-tr-opt-label">{o.label}</span>
               {sort === o.value && (
                 <span className="elite-tr-opt-check">
-                  <Icon.Check />
+                  <Icon.Check size={11} />
                 </span>
               )}
             </button>
@@ -594,30 +579,25 @@ const EliteTrendingSidebar = memo(function EliteTrendingSidebar({
         </div>
       </div>
 
-      {/* Refresh */}
       <button className="elite-tr-refresh" onClick={onRefresh}>
-        <Icon.Refresh />
-        Refresh Feed
+        <Icon.Refresh size={13} /> Refresh Feed
       </button>
 
-      {/* Share */}
-      <button className="elite-tr-share"
+      <button
+        className="elite-tr-share"
         onClick={() => {
           navigator.share?.({
-            title : "Loemart Trending",
-            text  : "See what's trending on Loemart!",
-            url   : window.location.href,
+            title: "Loemart Trending",
+            text : "See what's trending on Loemart!",
+            url  : window.location.href,
           }).catch(() => {});
         }}
       >
-        <Icon.Share />
-        Share Page
+        <Icon.Share size={14} /> Share Page
       </button>
 
-      {/* Back */}
       <button className="elite-tr-back" onClick={onBack}>
-        <Icon.Back />
-        All Listings
+        <Icon.Back size={15} /> All Listings
       </button>
     </aside>
   );
@@ -632,7 +612,7 @@ const EliteTrendingTopBar = memo(function EliteTrendingTopBar({
       <div className="elite-tr-topbar-left">
         <nav className="elite-tr-breadcrumb" aria-label="Breadcrumb">
           <span className="elite-tr-bc-home">Home</span>
-          <span className="elite-tr-bc-sep">›</span>
+          <Icon.ChevronRight size={12} />
           <span className="elite-tr-bc-current">Trending</span>
         </nav>
         {!loading && total > 0 && (
@@ -647,16 +627,17 @@ const EliteTrendingTopBar = memo(function EliteTrendingTopBar({
       </div>
 
       <div className="elite-tr-topbar-right">
-        <span className="elite-tr-sort-label">Sort:</span>
+        <span className="elite-tr-sort-label">
+          <Icon.Filter size={12} /> Sort:
+        </span>
         <div className="elite-tr-pills">
           {SORT_OPTIONS.map((o) => (
             <button
               key={o.value}
-              className={`elite-tr-pill${
-                sort === o.value ? " elite-tr-pill--active" : ""
-              }`}
+              className={`elite-tr-pill${sort === o.value ? " elite-tr-pill--active" : ""}`}
               onClick={() => onSortChange(o.value)}
             >
+              {sort === o.value && <Icon.Check size={10} />}
               {o.label}
             </button>
           ))}
@@ -668,8 +649,8 @@ const EliteTrendingTopBar = memo(function EliteTrendingTopBar({
 
 /* ── Elite Skeleton ── */
 const ELITE_SKEL = [
-  270,340,250,310,290,260,350,280,
-  300,270,260,320,250,290,270,310,
+  270, 340, 250, 310, 290, 260, 350, 280,
+  300, 270, 260, 320, 250, 290, 270, 310,
 ];
 
 const EliteTrendingSkeleton = memo(function EliteTrendingSkeleton() {
@@ -698,10 +679,8 @@ export default function TrendingPage({ user }) {
   const navigate  = useNavigate();
   const isDesktop = useIsDesktop();
 
-  /* ── Filters ── */
   const [sort, setSort] = useState("default");
 
-  /* ── Data state ── */
   const [products,    setProducts]    = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -725,15 +704,13 @@ export default function TrendingPage({ user }) {
       productsRef.current = merged;
       setProducts(merged);
       setTotal(data.meta?.total ?? merged.length);
-      setHasMore(
-        data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE
-      );
+      setHasMore(data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE);
     } catch (err) {
       if (!append) setError(err.message || "Could not load trending.");
     }
   }, []);
 
-  /* ── Initial + sort change ── */
+  /* Initial + sort change */
   useEffect(() => {
     setLoading(true);
     setError(null);
@@ -742,7 +719,7 @@ export default function TrendingPage({ user }) {
     load(0, false, sort).finally(() => setLoading(false));
   }, [sort, load]);
 
-  /* ── Auto-refresh every 90s ── */
+  /* Auto-refresh every 90s */
   useEffect(() => {
     const id = setInterval(() => {
       if (!loading && !loadingMore) load(0, false, sort);
@@ -750,7 +727,7 @@ export default function TrendingPage({ user }) {
     return () => clearInterval(id);
   }, [loading, loadingMore, sort, load]);
 
-  /* ── Load more ── */
+  /* Load more */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -763,7 +740,7 @@ export default function TrendingPage({ user }) {
     }
   }, [loadingMore, hasMore, page, sort, load]);
 
-  /* ── Infinite scroll ── */
+  /* Infinite scroll */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -775,23 +752,23 @@ export default function TrendingPage({ user }) {
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
-  /* ── Aggregate stats ── */
+  /* Aggregate stats */
   const { totalViews, totalClicks } = useMemo(() => ({
     totalViews : products.reduce((a, p) => a + Number(p.views        || 0), 0),
     totalClicks: products.reduce((a, p) => a + Number(p.clicks_count || 0), 0),
   }), [products]);
 
-  /* ── Analytics ── */
+  /* Analytics */
   const trackView = useCallback((id) => {
     if (!id) return;
-    fetch(`${API}/products/${id}/view`, {
+    fetch(`${API}/homepage/products/${id}/view`, {
       method: "POST", keepalive: true,
     }).catch(() => {});
   }, []);
 
   const handleClick = useCallback((product) => {
     if (!product?.id) return;
-    fetch(`${API}/products/${product.id}/click`, {
+    fetch(`${API}/homepage/products/${product.id}/click`, {
       method: "POST", keepalive: true,
     }).catch(() => {});
     navigate(`/product/${product.slug || product.id}`);
@@ -833,8 +810,7 @@ export default function TrendingPage({ user }) {
         ))}
       </div>
 
-      <div ref={sentinelRef} aria-hidden="true"
-           style={{ height: 1 }} />
+      <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
 
       {loadingMore && (
         <div
@@ -858,7 +834,7 @@ export default function TrendingPage({ user }) {
             <div className="elite-tr-feed-end-line" />
             <div className="elite-tr-feed-end-content">
               <span className="elite-tr-feed-end-icon">
-                <Icon.Done />
+                <Icon.Done size={26} />
               </span>
               <p className="elite-tr-feed-end-text">
                 You've seen all trending listings
@@ -867,24 +843,25 @@ export default function TrendingPage({ user }) {
                 className="elite-tr-feed-end-btn"
                 onClick={() => navigate("/")}
               >
-                Browse all
-                <Icon.ArrowRight />
+                Browse all <Icon.ArrowRight size={14} />
               </button>
             </div>
             <div className="elite-tr-feed-end-line" />
           </div>
         ) : (
           <div className="tr-feed-end-wrap">
-            <p className="tr-feed-end">
-              You've seen all trending listings
-            </p>
-            <button
-              className="tr-feed-end-btn"
-              onClick={() => navigate("/")}
-            >
-              Browse all
-              <Icon.ArrowRight />
-            </button>
+            <p className="tr-feed-end">You've seen all trending listings</p>
+            <div className="tr-feed-end-actions">
+              <button className="tr-feed-end-btn" onClick={() => navigate("/")}>
+                Browse all <Icon.ArrowRight size={13} />
+              </button>
+              <button
+                className="tr-feed-end-btn tr-feed-end-btn--ghost"
+                onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+              >
+                Back to top <Icon.ChevronUp size={13} />
+              </button>
+            </div>
           </div>
         )
       )}
@@ -899,7 +876,6 @@ export default function TrendingPage({ user }) {
       <div className="tr-root tr-root--elite">
         <TopNav user={user} />
 
-        {/* Hero */}
         <EliteTrendingHero
           total={total}
           totalViews={totalViews}
@@ -908,8 +884,6 @@ export default function TrendingPage({ user }) {
         />
 
         <div className="elite-tr-layout">
-
-          {/* Sidebar */}
           <EliteTrendingSidebar
             sort={sort}
             onSortChange={(s) => { setSort(s); setPage(0); }}
@@ -918,9 +892,7 @@ export default function TrendingPage({ user }) {
             onRefresh={handleRefresh}
           />
 
-          {/* Main */}
           <main className="elite-tr-main" id="tr-main">
-
             <EliteTrendingTopBar
               total={total}
               loading={loading}
@@ -935,15 +907,10 @@ export default function TrendingPage({ user }) {
             {loading && <EliteTrendingSkeleton />}
 
             {!loading && !error && products.length === 0 && (
-              <EmptyState
-                onBrowseAll={() => navigate("/")}
-                elite
-              />
+              <EmptyState onBrowseAll={() => navigate("/")} elite />
             )}
 
-            {!loading && products.length > 0 && (
-              <TrendingGrid elite />
-            )}
+            {!loading && products.length > 0 && <TrendingGrid elite />}
 
             {!loading && <Footer />}
           </main>
@@ -973,9 +940,7 @@ export default function TrendingPage({ user }) {
           loading={loading}
         />
 
-        {error && (
-          <ErrorBanner message={error} onRetry={handleRetry} />
-        )}
+        {error && <ErrorBanner message={error} onRetry={handleRetry} />}
 
         {loading && <TrendingSkeleton />}
 
@@ -983,9 +948,7 @@ export default function TrendingPage({ user }) {
           <EmptyState onBrowseAll={() => navigate("/")} />
         )}
 
-        {!loading && products.length > 0 && (
-          <TrendingGrid />
-        )}
+        {!loading && products.length > 0 && <TrendingGrid />}
 
         {!loading && <Footer />}
       </main>
