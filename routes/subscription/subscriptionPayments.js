@@ -1,14 +1,25 @@
-import express      from "express";
-import axios        from "axios";
-import { pool }     from "../../config/db.js";
+/**
+ * routes/subscription/payments.js
+ *
+ * Change from previous version:
+ *  - activateSubscription() now calls liftExpiryForSubscriber()
+ *    inside the same transaction, so the moment a seller pays:
+ *      • All their paused listings go back to active
+ *      • All their active_limited listings become full active
+ *      • active_until is set to NULL on all of them (never expires)
+ *    This is immediate — no waiting for the hourly cron.
+ */
+
+import express  from "express";
+import axios    from "axios";
+import { pool } from "../../config/db.js";
 import authenticate from "../../middleware/auth.js";
 
 const router = express.Router();
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
+/* ─────────────────────────────────────────────────────────────
+   HELPERS
+───────────────────────────────────────────────────────────── */
 const generateReference = () => {
   const rand = Math.random().toString(36).substring(2, 14).toUpperCase();
   return `LOEMART_${rand}_${Date.now()}`;
@@ -27,33 +38,71 @@ const verifyPaystackPayment = async (reference) => {
     `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
     {
       headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
-      timeout: 15000,
+      timeout: 15_000,
     }
   );
 
   const body = response.data;
-
   if (!body.status || body.data?.status !== "success") {
     throw new Error(
-      body.data?.gateway_response ??
-        body.message ??
-        "Payment was not successful."
+      body.data?.gateway_response ?? body.message ?? "Payment was not successful."
     );
   }
 
   return body.data;
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// activateSubscription
-// Runs inside an already-open transaction (client passed in).
-// 1. Confirms plan is active.
-// 2. Supersedes any existing active subscription.
-// 3. Inserts new subscription record.
-// 4. Mirrors state onto the user row.
-// 5. Syncs search_priority on all user listings.
-// Returns { subscriptionId, expiresAt }
-// ─────────────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────
+   liftExpiryForSubscriber
+   Called inside activateSubscription() — same transaction.
+
+   Sets active_until = NULL and status = 'active' on every
+   listing that belongs to this seller and is currently either:
+     • paused        (free listing that expired before they subscribed)
+     • active_limited (trial listing)
+     • active        (already live but had a future active_until)
+
+   After this call all the seller's non-deleted listings are
+   permanently active with no expiry date.
+───────────────────────────────────────────────────────────── */
+const liftExpiryForSubscriber = async (client, userId) => {
+  const { rowCount } = await client.query(
+    `UPDATE public.products
+     SET
+       is_active    = TRUE,
+       status       = 'active',
+       active_until = NULL,
+       updated_at   = NOW()
+     WHERE seller_id  = $1
+       AND status    <> 'deleted'
+       AND is_deleted  = FALSE
+       AND (
+         status IN ('paused', 'active_limited')
+         OR (status = 'active' AND active_until IS NOT NULL)
+       )`,
+    [userId]
+  );
+
+  if (rowCount > 0) {
+    console.log(
+      `[subscription] liftExpiry: ${rowCount} listing(s) made permanent for seller ${userId}`
+    );
+  }
+
+  return rowCount ?? 0;
+};
+
+/* ─────────────────────────────────────────────────────────────
+   activateSubscription
+   Runs inside an already-open transaction (client passed in).
+    1. Confirm plan is active.
+    2. Supersede any existing active subscription.
+    3. Insert new subscription record.
+    4. Mirror state onto the user row.
+    5. Sync search_priority on all user listings.
+    6. Lift expiry on all user listings (NEW).
+   Returns { subscriptionId, expiresAt, listingsLifted }
+───────────────────────────────────────────────────────────── */
 const activateSubscription = async (
   client,
   userId,
@@ -63,6 +112,7 @@ const activateSubscription = async (
   reference,
   metadata = {}
 ) => {
+  /* 1. Confirm plan */
   const { rows: planRows } = await client.query(
     `SELECT id, slug, name, rank
      FROM subscription_plans
@@ -71,15 +121,14 @@ const activateSubscription = async (
     [planSlug]
   );
 
-  if (!planRows.length) {
+  if (!planRows.length)
     throw new Error(`Plan "${planSlug}" not found or is currently inactive.`);
-  }
 
   const plan      = planRows[0];
   const now       = new Date();
   const expiresAt = getExpiryDate(billingCycle);
 
-  // Supersede any currently active subscription
+  /* 2. Supersede existing active subscription */
   await client.query(
     `UPDATE subscriptions
      SET status     = 'superseded',
@@ -89,7 +138,7 @@ const activateSubscription = async (
     [userId]
   );
 
-  // Insert the new subscription record
+  /* 3. Insert new subscription */
   const { rows: subRows } = await client.query(
     `INSERT INTO subscriptions
        (user_id, plan_id, plan_slug, billing_cycle, amount, currency,
@@ -114,44 +163,45 @@ const activateSubscription = async (
 
   const { id: subscriptionId, expires_at: subExpiresAt } = subRows[0];
 
-  // Mirror subscription state onto user row for fast lookups
+  /* 4. Mirror onto user row */
   await client.query(
     `UPDATE users
-     SET subscription_plan        = $1,
-         subscription_status      = 'active',
-         billing_cycle            = $2,
-         subscription_started_at  = $3,
-         subscription_expires_at  = $4,
-         auto_renew               = TRUE,
-         updated_at               = NOW()
+     SET subscription_plan       = $1,
+         subscription_status     = 'active',
+         billing_cycle           = $2,
+         subscription_started_at = $3,
+         subscription_expires_at = $4,
+         auto_renew              = TRUE,
+         updated_at              = NOW()
      WHERE id = $5`,
     [plan.slug, billingCycle, now, expiresAt, userId]
   );
 
-  // Sync search_priority on all of this user's listings
+  /* 5. Sync search_priority on all listings */
   await client.query(
-    `UPDATE listings
+    `UPDATE products
      SET search_priority = $1,
          updated_at      = NOW()
-     WHERE user_id = $2`,
+     WHERE seller_id = $2
+       AND status   <> 'deleted'`,
     [plan.rank, userId]
   );
 
-  return { subscriptionId, expiresAt: subExpiresAt };
+  /* 6. Lift expiry immediately — this is the key new step */
+  const listingsLifted = await liftExpiryForSubscriber(client, userId);
+
+  return { subscriptionId, expiresAt: subExpiresAt, listingsLifted };
 };
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/subscription/payments/history?page=1&limit=10
-// Paginated payment transaction history for the authenticated user.
-// ─────────────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────
+   GET /history
+───────────────────────────────────────────────────────────── */
 router.get("/history", authenticate, async (req, res) => {
   const client = await pool.connect();
-
   try {
     const userId = req.user.id;
-    const page   = Math.max(1, parseInt(req.query.page  ?? "1"));
-    const limit  = Math.min(50, parseInt(req.query.limit ?? "10"));
+    const page   = Math.max(1, parseInt(req.query.page  ?? "1", 10));
+    const limit  = Math.min(50, parseInt(req.query.limit ?? "10", 10));
     const offset = (page - 1) * limit;
 
     const { rows: transactions } = await client.query(
@@ -180,19 +230,17 @@ router.get("/history", authenticate, async (req, res) => {
     );
 
     const { rows: countRows } = await client.query(
-      `SELECT COUNT(*) AS total
-       FROM payment_transactions
-       WHERE user_id = $1`,
+      `SELECT COUNT(*) AS total FROM payment_transactions WHERE user_id = $1`,
       [userId]
     );
 
-    const total      = parseInt(countRows[0].total);
+    const total      = parseInt(countRows[0].total, 10);
     const totalPages = Math.ceil(total / limit);
 
     res.json({
       transactions: transactions.map((tx) => ({
         ...tx,
-        amountNaira: parseInt(tx.amount) / 100,
+        amountNaira: parseInt(tx.amount, 10) / 100,
       })),
       pagination: {
         page,
@@ -211,31 +259,21 @@ router.get("/history", authenticate, async (req, res) => {
   }
 });
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/subscription/payments/initiate
-// Body: { planSlug, cycle }
-// Initializes a Paystack transaction and returns the authorization URL.
-// ─────────────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────
+   POST /initiate
+───────────────────────────────────────────────────────────── */
 router.post("/initiate", authenticate, async (req, res) => {
   const client = await pool.connect();
-
   try {
     const { planSlug, cycle } = req.body;
     const userId = req.user.id;
 
-    // ── Input validation ──────────────────────────────────────────────────────
-    if (!planSlug || typeof planSlug !== "string") {
+    if (!planSlug || typeof planSlug !== "string")
       return res.status(400).json({ message: "planSlug is required." });
-    }
 
-    if (!["monthly", "yearly"].includes(cycle)) {
-      return res.status(400).json({
-        message: "cycle must be 'monthly' or 'yearly'.",
-      });
-    }
+    if (!["monthly", "yearly"].includes(cycle))
+      return res.status(400).json({ message: "cycle must be 'monthly' or 'yearly'." });
 
-    // ── Fetch the selected plan ───────────────────────────────────────────────
     const { rows: planRows } = await client.query(
       `SELECT id, slug, name, monthly_price, yearly_price, rank
        FROM subscription_plans
@@ -245,15 +283,11 @@ router.post("/initiate", authenticate, async (req, res) => {
       [planSlug]
     );
 
-    if (!planRows.length) {
-      return res.status(400).json({
-        message: "Invalid or inactive plan selected.",
-      });
-    }
+    if (!planRows.length)
+      return res.status(400).json({ message: "Invalid or inactive plan selected." });
 
     const plan = planRows[0];
 
-    // ── Fetch user ────────────────────────────────────────────────────────────
     const { rows: userRows } = await client.query(
       `SELECT
          email,
@@ -267,42 +301,35 @@ router.post("/initiate", authenticate, async (req, res) => {
       [userId]
     );
 
-    if (!userRows.length) {
+    if (!userRows.length)
       return res.status(404).json({ message: "User not found." });
-    }
 
     const user = userRows[0];
 
-    // ── Guard: already on this exact plan and active ──────────────────────────
     const alreadyOnThisPlan =
-      user.subscription_status === "active"  &&
-      user.subscription_plan   === planSlug  &&
-      user.subscription_expires_at           &&
+      user.subscription_status    === "active" &&
+      user.subscription_plan      === planSlug &&
+      user.subscription_expires_at             &&
       new Date(user.subscription_expires_at) > new Date();
 
-    if (alreadyOnThisPlan) {
-      return res.status(400).json({
-        message: "You are already subscribed to this plan.",
-      });
-    }
+    if (alreadyOnThisPlan)
+      return res.status(400).json({ message: "You are already subscribed to this plan." });
 
-    // ── Calculate charge amount with proration for upgrades ───────────────────
+    /* Calculate charge with proration for upgrades */
     let amountKobo =
       cycle === "yearly"
-        ? parseInt(plan.yearly_price)
-        : parseInt(plan.monthly_price);
+        ? parseInt(plan.yearly_price,  10)
+        : parseInt(plan.monthly_price, 10);
 
     const userIsActive =
-      user.subscription_status === "active" &&
-      user.subscription_plan   !== "free"   &&
-      user.subscription_expires_at          &&
+      user.subscription_status === "active"   &&
+      user.subscription_plan   !== "free"      &&
+      user.subscription_expires_at             &&
       new Date(user.subscription_expires_at) > new Date();
 
     if (userIsActive) {
       const { rows: currentPlanRows } = await client.query(
-        `SELECT monthly_price, yearly_price
-         FROM subscription_plans
-         WHERE slug = $1`,
+        `SELECT monthly_price, yearly_price FROM subscription_plans WHERE slug = $1`,
         [user.subscription_plan]
       );
 
@@ -310,74 +337,62 @@ router.post("/initiate", authenticate, async (req, res) => {
         const cp           = currentPlanRows[0];
         const currentPrice =
           user.billing_cycle === "yearly"
-            ? parseInt(cp.yearly_price)
-            : parseInt(cp.monthly_price);
+            ? parseInt(cp.yearly_price,  10)
+            : parseInt(cp.monthly_price, 10);
 
         const totalDays = user.billing_cycle === "yearly" ? 365 : 30;
-
         const daysRemaining = Math.max(
           0,
           Math.ceil(
-            (new Date(user.subscription_expires_at) - new Date()) /
-              (1000 * 60 * 60 * 24)
+            (new Date(user.subscription_expires_at) - new Date()) / 86_400_000
           )
         );
-
-        const unusedValue = Math.floor(
-          (currentPrice * daysRemaining) / totalDays
-        );
-
+        const unusedValue = Math.floor((currentPrice * daysRemaining) / totalDays);
         amountKobo = Math.max(0, amountKobo - unusedValue);
       }
     }
 
-    if (amountKobo === 0) {
+    if (amountKobo === 0)
       return res.status(400).json({
         message:
           "No payment required — your upgrade credit covers the full amount. " +
           "Contact support if you need assistance.",
       });
-    }
 
-    // ── Initialize Paystack transaction ───────────────────────────────────────
     const reference   = generateReference();
     const callbackUrl = `${process.env.FRONTEND_URL}/subscription/callback/paystack`;
 
     const paystackRes = await axios.post(
       "https://api.paystack.co/transaction/initialize",
       {
-        email:        user.email,
-        amount:       amountKobo,
+        email       : user.email,
+        amount      : amountKobo,
         reference,
-        currency:     "NGN",
+        currency    : "NGN",
         callback_url: callbackUrl,
-        metadata: {
-          user_id:       userId,
-          plan_slug:     plan.slug,
-          plan_name:     plan.name,
+        metadata    : {
+          user_id      : userId,
+          plan_slug    : plan.slug,
+          plan_name    : plan.name,
           billing_cycle: cycle,
-          type:          "subscription",
+          type         : "subscription",
           cancel_action: `${process.env.FRONTEND_URL}/seller/subscription`,
         },
       },
       {
         headers: {
-          Authorization:  `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+          Authorization : `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
           "Content-Type": "application/json",
         },
-        timeout: 15000,
+        timeout: 15_000,
       }
     );
 
-    if (!paystackRes.data.status) {
-      throw new Error(
-        paystackRes.data.message ?? "Paystack initialization failed."
-      );
-    }
+    if (!paystackRes.data.status)
+      throw new Error(paystackRes.data.message ?? "Paystack initialization failed.");
 
     const authorizationUrl = paystackRes.data.data.authorization_url;
 
-    // ── Save pending transaction record ───────────────────────────────────────
     await client.query(
       `INSERT INTO payment_transactions
          (user_id, reference, provider, amount, currency,
@@ -390,10 +405,10 @@ router.post("/initiate", authenticate, async (req, res) => {
     res.json({
       authorizationUrl,
       reference,
-      amount:      amountKobo,
-      amountNaira: amountKobo / 100,
-      plan:        plan.slug,
-      planName:    plan.name,
+      amount      : amountKobo,
+      amountNaira : amountKobo / 100,
+      plan        : plan.slug,
+      planName    : plan.name,
       cycle,
     });
   } catch (error) {
@@ -406,63 +421,46 @@ router.post("/initiate", authenticate, async (req, res) => {
   }
 });
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/subscription/payments/verify/paystack
-// Body: { reference }
-// Verifies the Paystack payment then activates the subscription.
-// ─────────────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────
+   POST /verify/paystack
+───────────────────────────────────────────────────────────── */
 router.post("/verify/paystack", authenticate, async (req, res) => {
   const client = await pool.connect();
-
   try {
     const { reference } = req.body;
     const userId = req.user.id;
 
-    if (!reference || typeof reference !== "string") {
+    if (!reference || typeof reference !== "string")
       return res.status(400).json({ message: "reference is required." });
-    }
 
-    // ── Guard against double-processing ──────────────────────────────────────
+    /* Guard against double-processing */
     const { rows: existingRows } = await client.query(
-      `SELECT id, status
-       FROM payment_transactions
-       WHERE reference = $1`,
+      `SELECT id, status FROM payment_transactions WHERE reference = $1`,
       [reference]
     );
 
-    if (existingRows.length && existingRows[0].status === "success") {
+    if (existingRows.length && existingRows[0].status === "success")
       return res.status(409).json({
         message: "This payment reference has already been processed.",
       });
-    }
 
-    // ── Verify with Paystack ──────────────────────────────────────────────────
     const verifiedData = await verifyPaystackPayment(reference);
 
     const meta     = verifiedData.metadata ?? {};
     const planSlug = meta.plan_slug;
     const cycle    = meta.billing_cycle;
 
-    if (!planSlug || !cycle) {
-      throw new Error(
-        "Plan details are missing from the payment metadata. " +
-          "Please contact support."
-      );
-    }
+    if (!planSlug || !cycle)
+      throw new Error("Plan details are missing from the payment metadata. Please contact support.");
 
-    if (meta.user_id && meta.user_id !== userId) {
-      return res.status(403).json({
-        message: "This payment does not belong to your account.",
-      });
-    }
+    if (meta.user_id && meta.user_id !== userId)
+      return res.status(403).json({ message: "This payment does not belong to your account." });
 
-    const amountKobo = parseInt(verifiedData.amount);
+    const amountKobo = parseInt(verifiedData.amount, 10);
 
-    // ── Begin transaction ─────────────────────────────────────────────────────
     await client.query("BEGIN");
 
-    const { subscriptionId, expiresAt } = await activateSubscription(
+    const { subscriptionId, expiresAt, listingsLifted } = await activateSubscription(
       client,
       userId,
       planSlug,
@@ -472,7 +470,6 @@ router.post("/verify/paystack", authenticate, async (req, res) => {
       verifiedData
     );
 
-    // Mark transaction as successful and link to the new subscription
     await client.query(
       `UPDATE payment_transactions
        SET status            = 'success',
@@ -485,13 +482,9 @@ router.post("/verify/paystack", authenticate, async (req, res) => {
     );
 
     await client.query("COMMIT");
-    // ── End transaction ───────────────────────────────────────────────────────
 
-    // Fetch plan display info for the success response
     const { rows: planRows } = await client.query(
-      `SELECT name, badge
-       FROM subscription_plans
-       WHERE slug = $1`,
+      `SELECT name, badge FROM subscription_plans WHERE slug = $1`,
       [planSlug]
     );
 
@@ -499,106 +492,84 @@ router.post("/verify/paystack", authenticate, async (req, res) => {
     const planBadge = planRows[0]?.badge ?? "";
 
     res.json({
-      message:      `${planBadge} Your ${planName} subscription is now active!`,
-      plan:         planSlug,
+      message       : `${planBadge} Your ${planName} subscription is now active!`,
+      plan          : planSlug,
       planName,
       planBadge,
       expiresAt,
-      billingCycle: cycle,
+      billingCycle  : cycle,
+      listingsLifted,   // how many listings were made permanent immediately
     });
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});
-
     console.error("[POST /payments/verify/paystack] error:", error);
 
-    // Mark transaction as failed so the user can retry
     if (req.body?.reference) {
-      await pool
-        .query(
-          `UPDATE payment_transactions
-           SET status     = 'failed',
-               updated_at = NOW()
-           WHERE reference = $1`,
-          [req.body.reference]
-        )
-        .catch(() => {});
+      await pool.query(
+        `UPDATE payment_transactions
+         SET status = 'failed', updated_at = NOW()
+         WHERE reference = $1`,
+        [req.body.reference]
+      ).catch(() => {});
     }
 
     res.status(400).json({
-      message:
-        error.message ??
-        "Payment verification failed. Contact support if you were charged.",
+      message: error.message ?? "Payment verification failed. Contact support if you were charged.",
     });
   } finally {
     client.release();
   }
 });
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/subscription/payments/cancel
-// Cancels the active subscription.
-// User retains access until subscription_expires_at.
-// Actual revert to Free plan is handled by the cron job.
-// ─────────────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────
+   POST /cancel
+───────────────────────────────────────────────────────────── */
 router.post("/cancel", authenticate, async (req, res) => {
   const client = await pool.connect();
-
   try {
     const userId = req.user.id;
 
     const { rows: userRows } = await client.query(
-      `SELECT subscription_status, subscription_expires_at
-       FROM users
-       WHERE id = $1`,
+      `SELECT subscription_status, subscription_expires_at FROM users WHERE id = $1`,
       [userId]
     );
 
-    if (!userRows.length) {
+    if (!userRows.length)
       return res.status(404).json({ message: "User not found." });
-    }
 
     const user = userRows[0];
-
     const isActive =
-      user.subscription_status === "active" &&
-      user.subscription_expires_at          &&
+      user.subscription_status === "active"   &&
+      user.subscription_expires_at             &&
       new Date(user.subscription_expires_at) > new Date();
 
-    if (!isActive) {
-      return res.status(400).json({
-        message: "You have no active subscription to cancel.",
-      });
-    }
+    if (!isActive)
+      return res.status(400).json({ message: "You have no active subscription to cancel." });
 
     await client.query("BEGIN");
 
     await client.query(
       `UPDATE subscriptions
-       SET status     = 'cancelled',
-           auto_renew = FALSE,
-           updated_at = NOW()
-       WHERE user_id = $1
-         AND status  = 'active'`,
+       SET status = 'cancelled', auto_renew = FALSE, updated_at = NOW()
+       WHERE user_id = $1 AND status = 'active'`,
       [userId]
     );
 
-    // Only disable auto_renew on user — plan and expiry stay unchanged.
-    // The cron job handles the actual revert to free when expires_at passes.
+    /*
+     * Only disable auto_renew — plan and expiry stay unchanged.
+     * Listings continue running until subscription_expires_at.
+     * The cron job's SUBSCRIBED_SELLER_GUARD checks expires_at > NOW()
+     * so they stay live until then, then expire normally.
+     */
     await client.query(
-      `UPDATE users
-       SET auto_renew = FALSE,
-           updated_at = NOW()
-       WHERE id = $1`,
+      `UPDATE users SET auto_renew = FALSE, updated_at = NOW() WHERE id = $1`,
       [userId]
     );
 
     await client.query("COMMIT");
 
     res.json({
-      message:
-        "Your subscription has been cancelled. " +
-        "You will retain access until it expires.",
+      message  : "Your subscription has been cancelled. You will retain access until it expires.",
       expiresAt: user.subscription_expires_at,
     });
   } catch (error) {
@@ -610,64 +581,45 @@ router.post("/cancel", authenticate, async (req, res) => {
   }
 });
 
-
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/subscription/payments/toggle-auto-renew
-// Body: { autoRenew: true | false }
-// ─────────────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────
+   POST /toggle-auto-renew
+───────────────────────────────────────────────────────────── */
 router.post("/toggle-auto-renew", authenticate, async (req, res) => {
   const client = await pool.connect();
-
   try {
     const userId    = req.user.id;
     const autoRenew = req.body.autoRenew;
 
-    if (typeof autoRenew !== "boolean") {
-      return res.status(400).json({
-        message: "autoRenew must be a boolean (true or false).",
-      });
-    }
+    if (typeof autoRenew !== "boolean")
+      return res.status(400).json({ message: "autoRenew must be a boolean (true or false)." });
 
     const { rows: userRows } = await client.query(
-      `SELECT subscription_status, subscription_expires_at
-       FROM users
-       WHERE id = $1`,
+      `SELECT subscription_status, subscription_expires_at FROM users WHERE id = $1`,
       [userId]
     );
 
-    if (!userRows.length) {
+    if (!userRows.length)
       return res.status(404).json({ message: "User not found." });
-    }
 
     const user = userRows[0];
-
     const isActive =
-      user.subscription_status === "active" &&
-      user.subscription_expires_at          &&
+      user.subscription_status === "active"   &&
+      user.subscription_expires_at             &&
       new Date(user.subscription_expires_at) > new Date();
 
-    if (!isActive) {
-      return res.status(400).json({
-        message: "You have no active subscription to update.",
-      });
-    }
+    if (!isActive)
+      return res.status(400).json({ message: "You have no active subscription to update." });
 
     await client.query("BEGIN");
 
     await client.query(
-      `UPDATE users
-       SET auto_renew = $1,
-           updated_at = NOW()
-       WHERE id = $2`,
+      `UPDATE users SET auto_renew = $1, updated_at = NOW() WHERE id = $2`,
       [autoRenew, userId]
     );
 
     await client.query(
-      `UPDATE subscriptions
-       SET auto_renew = $1,
-           updated_at = NOW()
-       WHERE user_id = $2
-         AND status  = 'active'`,
+      `UPDATE subscriptions SET auto_renew = $1, updated_at = NOW()
+       WHERE user_id = $2 AND status = 'active'`,
       [autoRenew, userId]
     );
 
@@ -687,6 +639,5 @@ router.post("/toggle-auto-renew", authenticate, async (req, res) => {
     client.release();
   }
 });
-
 
 export default router;
