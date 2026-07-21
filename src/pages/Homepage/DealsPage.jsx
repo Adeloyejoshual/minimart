@@ -19,44 +19,16 @@ import MasonryCard, {
 }                      from "../../components/MasonryCard";
 import "../../styles/DealsPage.css";
 
-/* ══════════════════════════════════════════════════════════════
-   CONSTANTS
-   Mirrors homepage.js:
-     section = "deals"  → price <= 50000, ordered price ASC
-     sort params map to backend sort values
-     PAGE_SIZE matches backend default (40)
-     STALE_MS matches CACHE_TTL.deals (120s) × 2.5
-══════════════════════════════════════════════════════════════ */
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API       = `${BASE_URL}/api`;
 const PAGE_SIZE = 40;
 const STALE_MS  = 5 * 60_000;
 
-/*
- * Sort values must match homepage.js switch(sort) cases:
- *   price_asc       → p.price ASC
- *   price_desc      → p.price DESC
- *   engagement_desc → p.engagement_score DESC
- *   created_desc    → p.created_at DESC
- *
- * "newest" = created_desc (default when no sort param sent)
- * "discount" = engagement_desc (best proxy for deals relevance)
- */
 const SORT_OPTIONS = [
   { value: "newest",          label: "Newest",    apiVal: "created_desc"    },
   { value: "price_lo",        label: "Price ↑",   apiVal: "price_asc"       },
   { value: "price_hi",        label: "Price ↓",   apiVal: "price_desc"      },
   { value: "most_popular",    label: "Popular",   apiVal: "engagement_desc"  },
-];
-
-const CATEGORY_OPTIONS = [
-  { value: "all",  label: "All Deals"     },
-  { value: "1",    label: "Electronics"   },
-  { value: "2",    label: "Fashion"       },
-  { value: "3",    label: "Home & Living" },
-  { value: "4",    label: "Sports"        },
-  { value: "5",    label: "Beauty"        },
-  { value: "6",    label: "Food & Drink"  },
 ];
 
 /* ══════════════════════════════════════════════════════════════
@@ -95,14 +67,6 @@ const FlashIcon = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24"
     fill="currentColor" aria-hidden="true">
     <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-  </svg>
-);
-
-const FilterIcon = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"
-    strokeLinejoin="round" aria-hidden="true">
-    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
   </svg>
 );
 
@@ -168,12 +132,10 @@ const StarIcon = ({ size = 12 }) => (
 
 /* ══════════════════════════════════════════════════════════════
    HELPERS
-   normalizeProduct mirrors shapeProduct() in homepage.js exactly
 ══════════════════════════════════════════════════════════════ */
 const normalizeProduct = (p) => {
   if (!p || typeof p !== "object" || !p.id) return null;
 
-  /* Image — matches shapeProduct image resolution order */
   let image = p.image || p.main_image || p.thumbnail_url || null;
   if (!image && Array.isArray(p.images) && p.images.length > 0) {
     const first = p.images[0];
@@ -195,15 +157,7 @@ const normalizeProduct = (p) => {
     discount_pct     : Number(p.discount_pct        || 0),
     is_promoted      : !!p.is_promoted,
     is_featured      : !!p.is_featured,
-    /*
-     * promotion_badge comes from shapeProduct →
-     * getPromotionBadge(is_promoted, promotion_type):
-     *   elite   → "featured"
-     *   premium → "premium"
-     *   other   → "promoted"
-     */
     promotion_badge  : p.promotion_badge || null,
-    /* original_price lives inside attributes on the backend */
     original_price   : Number(
       p.attributes?.original_price ||
       p.original_price             ||
@@ -216,10 +170,6 @@ const normalizeProduct = (p) => {
       name            : p.seller?.name             || p.seller_name || null,
       verified        : !!(p.seller?.verified      ?? false),
       subscriptionPlan: p.seller?.subscriptionPlan || null,
-      /*
-       * subscriptionRank from homepage.js:
-       *   free=0 premium=1 pro=2 business=3 diamond=5 elite=10
-       */
       subscriptionRank: Number(p.seller?.subscriptionRank || 0),
     },
   };
@@ -230,10 +180,6 @@ const dedup = (arr) => {
   return arr.filter((p) => p && !seen.has(p.id) && seen.add(p.id));
 };
 
-/*
- * discountPct — uses discount_pct from backend (shapeProduct)
- * falls back to computing from original_price / price
- */
 const discountPct = (p) => {
   if (!p) return 0;
   if (p.discount_pct > 0) return p.discount_pct;
@@ -249,18 +195,6 @@ const discountLabel = (p) => {
   return pct > 0 ? `${pct}% off` : null;
 };
 
-const fmtCount = (n) => {
-  const num = Number(n || 0);
-  if (num <= 0)        return "0";
-  if (num < 1_000)     return `${num}+`;
-  if (num < 10_000)    return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}k+`;
-  if (num < 1_000_000) return `${Math.round(num / 1_000)}k+`;
-  return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M+`;
-};
-
-/*
- * Promotion badge label — mirrors getPromotionBadge in homepage.js
- */
 const getBadgeConfig = (badge) => {
   if (badge === "featured") return {
     label: "Elite",
@@ -283,24 +217,17 @@ const getBadgeConfig = (badge) => {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   API — Build URL
-   Uses /api/homepage with section=deals — this hits the
-   backend's section="deals" case:
-     price <= 50000, ORDER BY price ASC (with promoted first)
+   BUILD URL
 ══════════════════════════════════════════════════════════════ */
-const buildUrl = (pg = 0, catId = "all", sortOpt = "newest") => {
+const buildUrl = (pg = 0, sortOpt = "newest") => {
   const params = new URLSearchParams({
     section: "deals",
     limit  : PAGE_SIZE,
     page   : pg,
   });
 
-  /* Map UI sort → backend sort value */
   const apiVal = SORT_OPTIONS.find((s) => s.value === sortOpt)?.apiVal;
   if (apiVal && apiVal !== "created_desc") params.set("sort", apiVal);
-
-  /* Category → category_id */
-  if (catId !== "all") params.set("category_id", catId);
 
   return `${API}/homepage?${params}`;
 };
@@ -322,8 +249,6 @@ const MasonrySkeleton = memo(function MasonrySkeleton() {
 
 /* ══════════════════════════════════════════════════════════════
    DEAL CARD
-   Renders promotion_badge from backend (featured/premium/promoted)
-   Shows discount_pct computed by shapeProduct on backend
 ══════════════════════════════════════════════════════════════ */
 const PH = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
 
@@ -331,7 +256,6 @@ const DealCard = memo(function DealCard({ product, onView, onClick }) {
   const [imgLoaded, setImgLoaded] = useState(false);
   const cardRef = useRef(null);
 
-  /* View tracking — mirrors Homepage trackView → POST /products/:id/view */
   useEffect(() => {
     const el = cardRef.current;
     if (!el || !product?.id) return;
@@ -350,10 +274,10 @@ const DealCard = memo(function DealCard({ product, onView, onClick }) {
 
   if (!product) return null;
 
-  const imgUrl  = getImageUrl(product) || PH;
-  const disc    = discountLabel(product);
-  const loc     = formatCity(product);
-  const badge   = getBadgeConfig(product.promotion_badge);
+  const imgUrl = getImageUrl(product) || PH;
+  const disc   = discountLabel(product);
+  const loc    = formatCity(product);
+  const badge  = getBadgeConfig(product.promotion_badge);
 
   return (
     <article
@@ -365,21 +289,18 @@ const DealCard = memo(function DealCard({ product, onView, onClick }) {
       onKeyDown={(e) => e.key === "Enter" && onClick(product)}
       aria-label={`${product.title} — ${naira(product.price)}`}>
 
-      {/* Promotion badge — from backend promotion_badge field */}
       {badge && (
         <span className="bd" style={badge.style}>
           {badge.icon} {badge.label}
         </span>
       )}
 
-      {/* Discount badge — from backend discount_pct */}
       {disc && !badge && (
         <span className="bd" style={{ background: "#e74c3c", color: "#fff" }}>
           {disc}
         </span>
       )}
 
-      {/* Image */}
       <div style={{ position: "relative", overflow: "hidden",
         background: "rgba(0,0,0,0.04)" }}>
 
@@ -405,7 +326,6 @@ const DealCard = memo(function DealCard({ product, onView, onClick }) {
           }}
         />
 
-        {/* Discount pip overlay */}
         {disc && (
           <span className="deals-disc-pip" aria-hidden="true">
             <FlashIcon size={10} /> {disc}
@@ -413,12 +333,10 @@ const DealCard = memo(function DealCard({ product, onView, onClick }) {
         )}
       </div>
 
-      {/* Body */}
       <div className="masonry-body">
         <p className="masonry-name">{product.title}</p>
         <p className="masonry-price">{naira(product.price)}</p>
 
-        {/* Strikethrough original price */}
         {product.original_price > product.price && (
           <p className="deals-orig-price">
             {naira(product.original_price)}
@@ -431,12 +349,10 @@ const DealCard = memo(function DealCard({ product, onView, onClick }) {
           </p>
         )}
 
-        {/* Verified seller — from seller.verified in shapeProduct */}
         {product.seller?.verified && (
           <p className="vfd">✓ Verified Seller</p>
         )}
 
-        {/* Subscription rank badge for high-tier sellers */}
         {product.seller?.subscriptionRank >= 5 && (
           <p className="deals-elite-seller">
             <DiamondIcon size={10} />{" "}
@@ -476,37 +392,16 @@ const DealsHeader = memo(function DealsHeader({ onBack, onShare }) {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   FILTER BAR
+   FILTER BAR  — sort only, no category
 ══════════════════════════════════════════════════════════════ */
-const FilterBar = memo(function FilterBar({
-  total, filtered, sort, category, onSort, onCategory,
-}) {
+const FilterBar = memo(function FilterBar({ total, filtered, sort, onSort }) {
   return (
     <div className="df-bar" role="search" aria-label="Filter deals">
       <span className="df-count">
-        <FilterIcon size={13} />
         {filtered} of {total}
       </span>
 
       <div className="df-controls">
-        {/* Category */}
-        <div className="df-select-wrap">
-          <label className="df-label" htmlFor="deals-cat-select">
-            <TagIcon size={11} /> Category
-          </label>
-          <select
-            id="deals-cat-select"
-            className="df-select"
-            value={category}
-            onChange={(e) => onCategory(e.target.value)}
-            aria-label="Filter by category">
-            {CATEGORY_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Sort */}
         <div className="df-select-wrap">
           <label className="df-label" htmlFor="deals-sort-select">
             <SortIcon size={11} /> Sort
@@ -549,63 +444,11 @@ function ScrollTopBtn() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   HERO
-══════════════════════════════════════════════════════════════ */
-const DealsHero = memo(function DealsHero({ total, loading }) {
-  return (
-    <section className="dh-hero" aria-label="Deals overview">
-      <div className="dh-hero-blob dh-hero-blob--1" aria-hidden="true" />
-      <div className="dh-hero-blob dh-hero-blob--2" aria-hidden="true" />
-
-      <div className="dh-hero-content">
-        <span className="dh-hero-kicker">
-          <FlashIcon size={14} /> Limited Time Offers
-        </span>
-        <h2 className="dh-hero-title">
-          Cheap <em className="dh-hero-em">Deals</em>
-        </h2>
-        <p className="dh-hero-sub">
-          Discounted listings from verified sellers across Nigeria.
-          All items priced under ₦50,000.
-        </p>
-
-        {/* Stats */}
-        <div className="dh-hero-stats">
-          {loading ? (
-            [1, 2, 3].map((i) => (
-              <div key={i} className="dh-hero-stat">
-                <div className="dc-sk deals-shimmer"
-                  style={{ width: 44, height: 20, borderRadius: 6 }} />
-                <div className="dc-sk deals-shimmer"
-                  style={{ width: 52, height: 11, borderRadius: 4,
-                    marginTop: 4 }} />
-              </div>
-            ))
-          ) : (
-            [
-              { val: fmtCount(total), label: "Deals"     },
-              { val: "Under ₦50k",    label: "Max Price" },
-              { val: "Verified",      label: "Sellers"   },
-            ].map((s) => (
-              <div key={s.label} className="dh-hero-stat">
-                <span className="dh-hero-stat-val">{s.val}</span>
-                <span className="dh-hero-stat-label">{s.label}</span>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    </section>
-  );
-});
-
-/* ══════════════════════════════════════════════════════════════
    DEALS PAGE
 ══════════════════════════════════════════════════════════════ */
 export default function DealsPage({ user }) {
   const navigate = useNavigate();
 
-  /* ── Data ── */
   const [allDeals,    setAllDeals]    = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -613,59 +456,39 @@ export default function DealsPage({ user }) {
   const [hasMore,     setHasMore]     = useState(false);
   const [page,        setPage]        = useState(0);
   const [total,       setTotal]       = useState(0);
-
-  /* ── Filter / sort ── */
-  const [sort,     setSort]     = useState("newest");
-  const [category, setCategory] = useState("all");
+  const [sort,        setSort]        = useState("newest");
 
   const dealsRef    = useRef([]);
   const sentinelRef = useRef(null);
   const hiddenAtRef = useRef(null);
 
-  /* ══════════════════════════════════════════════════════════
-     applyData
-     Reads response from /api/homepage (section=deals).
-     Backend returns: { products, featured, hasMore, meta }
-     We use `products` array directly — promoted products
-     appear first because backend ORDER BY is_promoted DESC.
-  ══════════════════════════════════════════════════════════ */
   const applyData = useCallback((data, append = false) => {
-    /* Support both products and deals key names */
     const raw = Array.isArray(data.products) ? data.products
               : Array.isArray(data.deals)    ? data.deals
               : [];
 
-    const normalized = dedup(raw)
-      .map(normalizeProduct)
-      .filter(Boolean);
-
+    const normalized = dedup(raw).map(normalizeProduct).filter(Boolean);
     const merged = append
       ? dedup([...dealsRef.current, ...normalized])
       : normalized;
 
     dealsRef.current = merged;
     setAllDeals(merged);
-
-    /* meta.total is only set on page 0 (see homepage.js countSql) */
-    setTotal((prev) =>
-      data.meta?.total > 0 ? data.meta.total : prev
-    );
+    setTotal((prev) => data.meta?.total > 0 ? data.meta.total : prev);
     setHasMore(
-      data.hasMore          ??
-      data.meta?.has_more   ??
+      data.hasMore        ??
+      data.meta?.has_more ??
       raw.length >= PAGE_SIZE
     );
   }, []);
 
-  /* ── loadFeed ── */
-  const loadFeed = useCallback(async (catId = "all", sortVal = "newest") => {
+  const loadFeed = useCallback(async (sortVal = "newest") => {
     setLoading(true);
     setError(null);
     setPage(0);
     dealsRef.current = [];
     try {
-      const url = buildUrl(0, catId, sortVal);
-      const res = await fetch(url);
+      const res = await fetch(buildUrl(0, sortVal));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       applyData(await res.json(), false);
     } catch (err) {
@@ -676,13 +499,12 @@ export default function DealsPage({ user }) {
     }
   }, [applyData]);
 
-  /* ── loadMore — increments page ── */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     try {
       const next = page + 1;
-      const res  = await fetch(buildUrl(next, category, sort));
+      const res  = await fetch(buildUrl(next, sort));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       applyData(await res.json(), true);
       setPage(next);
@@ -691,44 +513,34 @@ export default function DealsPage({ user }) {
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, page, category, sort, applyData]);
+  }, [loadingMore, hasMore, page, sort, applyData]);
 
-  /* ── switchCategory ── */
-  const switchCategory = useCallback((catId) => {
-    if (catId === category) return;
-    setCategory(catId);
-    loadFeed(catId, sort);
-  }, [category, sort, loadFeed]);
-
-  /* ── switchSort ── */
   const switchSort = useCallback((sortVal) => {
     if (sortVal === sort) return;
     setSort(sortVal);
-    loadFeed(category, sortVal);
-  }, [sort, category, loadFeed]);
+    loadFeed(sortVal);
+  }, [sort, loadFeed]);
 
-  /* ── Mount ── */
+  /* Mount */
   useEffect(() => {
-    loadFeed("all", "newest");
+    loadFeed("newest");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── Stale-while-revalidate on tab focus ──
-     CACHE_TTL.deals = 120s → STALE_MS = 300s is safe buffer
-  ── */
+  /* Stale-while-revalidate */
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "hidden") {
         hiddenAtRef.current = Date.now();
       } else {
         const elapsed = Date.now() - (hiddenAtRef.current || 0);
-        if (!loading && elapsed > STALE_MS) loadFeed(category, sort);
+        if (!loading && elapsed > STALE_MS) loadFeed(sort);
       }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => document.removeEventListener("visibilitychange", onVis);
-  }, [loading, category, sort, loadFeed]);
+  }, [loading, sort, loadFeed]);
 
-  /* ── Infinite scroll sentinel ── */
+  /* Infinite scroll */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -740,31 +552,22 @@ export default function DealsPage({ user }) {
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
-  /* ── Analytics — View tracking
-     Mirrors Homepage.trackView → POST /api/homepage/products/:id/view
-  ── */
   const trackView = useCallback((id) => {
     if (!id) return;
     fetch(`${API}/homepage/products/${id}/view`, {
-      method  : "POST",
-      keepalive: true,
+      method: "POST", keepalive: true,
     }).catch(() => {});
   }, []);
 
-  /* ── Analytics — Click tracking
-     Mirrors Homepage.handleProductClick → POST /api/homepage/products/:id/click
-  ── */
   const handleProductClick = useCallback((product) => {
     if (!product?.id) return;
     fetch(`${API}/homepage/products/${product.id}/click`, {
-      method  : "POST",
-      keepalive: true,
+      method: "POST", keepalive: true,
     }).catch(() => {});
     navigate(`/product/${product.slug || product.id}`);
   }, [navigate]);
 
-  /* ── Back / Share ── */
-  const handleBack = useCallback(() => window.history.back(), []);
+  const handleBack  = useCallback(() => window.history.back(), []);
 
   const handleShare = useCallback(async () => {
     const shareData = {
@@ -778,36 +581,14 @@ export default function DealsPage({ user }) {
     } catch {}
   }, []);
 
-  /* ── Derived —
-     Server already sorts promoted first + price ASC for deals.
-     Client-side sort is only applied when user overrides with
-     price_hi / most_popular — we re-sort the local array
-     without hitting the server again since data is already loaded.
-  ── */
   const displayDeals = useMemo(() => {
-    let out = [...allDeals];
-    if (sort === "price_lo")
-      out.sort((a, b) => a.price - b.price);
-    else if (sort === "price_hi")
-      out.sort((a, b) => b.price - a.price);
+    const out = [...allDeals];
+    if (sort === "price_lo")     out.sort((a, b) => a.price - b.price);
+    else if (sort === "price_hi") out.sort((a, b) => b.price - a.price);
     else if (sort === "most_popular")
       out.sort((a, b) => b.engagement_score - a.engagement_score);
-    /* newest = server order, no client sort needed */
     return out;
   }, [allDeals, sort]);
-
-  /* Category client fallback — backend receives category_id
-     but if user switches quickly before server responds, apply
-     local filter to the current data to avoid flash of all items */
-  const filteredDeals = useMemo(() => {
-    if (category === "all") return displayDeals;
-    return displayDeals.filter(
-      (p) => String(p.category_id) === category
-    );
-  }, [displayDeals, category]);
-
-  const currentCatLabel =
-    CATEGORY_OPTIONS.find((c) => c.value === category)?.label || "Deals";
 
   /* ══════════════════════════════════════════════════════
      RENDER
@@ -818,13 +599,9 @@ export default function DealsPage({ user }) {
 
       <main className="deals-page" id="deals-main">
 
-        {/* ── HEADER ── */}
         <DealsHeader onBack={handleBack} onShare={handleShare} />
 
-        {/* ── HERO ── */}
-        <DealsHero total={total} loading={loading} />
-
-        {/* ── SEARCH ── */}
+        {/* SEARCH */}
         <div className="hm-search-wrap">
           <button className="hm-search-bar"
             onClick={() => navigate("/search")}>
@@ -837,95 +614,73 @@ export default function DealsPage({ user }) {
           </button>
         </div>
 
-        {/* ── FILTER BAR ── */}
+        {/* FILTER BAR */}
         {!loading && !error && (
           <FilterBar
             total={total}
-            filtered={filteredDeals.length}
+            filtered={displayDeals.length}
             sort={sort}
-            category={category}
             onSort={switchSort}
-            onCategory={switchCategory}
           />
         )}
 
-        {/* ── RESULT COUNT ── */}
-        {!loading && !error && filteredDeals.length > 0 && (
+        {/* RESULT COUNT */}
+        {!loading && !error && displayDeals.length > 0 && (
           <div className="deals-result-count"
             aria-live="polite" aria-atomic="true">
             Showing{" "}
             <span className="deals-result-count-num">
-              {filteredDeals.length}
+              {displayDeals.length}
             </span>
-            {" "}deal{filteredDeals.length !== 1 ? "s" : ""}
-            {" "}under ₦50,000
+            {" "}deal{displayDeals.length !== 1 ? "s" : ""} under ₦50,000
           </div>
         )}
 
-        {/* ── ERROR ── */}
+        {/* ERROR */}
         {error && (
           <div className="deals-err" role="alert">
-            <span className="deals-err-icon">
-              <ZapIcon size={20} />
-            </span>
+            <span className="deals-err-icon"><ZapIcon size={20} /></span>
             <p className="deals-err-title">Could not load deals</p>
             <p className="deals-err-msg">{error}</p>
             <button className="deals-err-btn"
-              onClick={() => loadFeed(category, sort)}>
+              onClick={() => loadFeed(sort)}>
               Try again
             </button>
           </div>
         )}
 
-        {/* ── SKELETON ── */}
+        {/* SKELETON */}
         {loading && !error && <MasonrySkeleton />}
 
-        {/* ── EMPTY ── */}
-        {!loading && !error && filteredDeals.length === 0 && (
+        {/* EMPTY */}
+        {!loading && !error && displayDeals.length === 0 && (
           <div className="deals-empty">
             <span className="deals-empty-emoji">
               <BagIcon size={40} />
             </span>
-            <h3 className="deals-empty-title">
-              {category === "all"
-                ? "No deals right now"
-                : `No deals in ${currentCatLabel}`}
-            </h3>
+            <h3 className="deals-empty-title">No deals right now</h3>
             <p className="deals-empty-sub">
-              {category === "all"
-                ? "Check back soon — sellers add new discounts daily."
-                : "Try another category or browse all deals."}
+              Check back soon — sellers add new discounts daily.
             </p>
             <button className="deals-empty-btn"
-              onClick={() =>
-                category === "all"
-                  ? loadFeed("all", sort)
-                  : switchCategory("all")
-              }>
-              {category === "all" ? "Reload" : "Browse all deals"}
+              onClick={() => loadFeed(sort)}>
+              Reload
             </button>
           </div>
         )}
 
-        {/* ── MASONRY GRID ── */}
-        {!loading && !error && filteredDeals.length > 0 && (
+        {/* MASONRY GRID */}
+        {!loading && !error && displayDeals.length > 0 && (
           <section className="hm-section">
             <div className="hm-section-head">
               <h2 className="hm-section-title">
-                <TagIcon size={16} />{" "}
-                {category === "all" ? "All Deals" : currentCatLabel}
+                <TagIcon size={16} /> All Deals
               </h2>
-              {category !== "all" && (
-                <button className="hm-cat-clear"
-                  onClick={() => switchCategory("all")}>
-                  ✕ Clear
-                </button>
-              )}
             </div>
 
             <div className="deals-masonry" role="list"
               aria-label="Deals grid">
-              {filteredDeals.map((p) => (
+              {displayDeals.map((p) => (
                 <div key={p.id} role="listitem">
                   <DealCard
                     product={p}
@@ -936,11 +691,9 @@ export default function DealsPage({ user }) {
               ))}
             </div>
 
-            {/* Sentinel */}
             <div ref={sentinelRef} aria-hidden="true"
               style={{ height: 1 }} />
 
-            {/* Loading more */}
             {loadingMore && (
               <p className="deals-loading-more" aria-live="polite">
                 <span className="deals-spinner" aria-hidden="true" />
@@ -948,11 +701,10 @@ export default function DealsPage({ user }) {
               </p>
             )}
 
-            {/* Feed end */}
-            {!hasMore && filteredDeals.length > 0 && !loadingMore && (
+            {!hasMore && displayDeals.length > 0 && !loadingMore && (
               <div className="deals-feed-end-wrap">
                 <p className="deals-feed-end">
-                  🎉 You've seen all {filteredDeals.length} deals!
+                  🎉 You've seen all {displayDeals.length} deals!
                 </p>
                 <button className="deals-feed-end-btn"
                   onClick={() =>
