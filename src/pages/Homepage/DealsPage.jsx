@@ -1,18 +1,30 @@
-// src/pages/Homepage/NearbyPage.jsx
+// src/pages/DealsPage.jsx
 import {
-  useCallback,
   useEffect,
-  useMemo,
-  useRef,
   useState,
+  useCallback,
+  useRef,
+  useMemo,
   memo,
 } from "react";
-import { useNavigate } from "react-router-dom";
-import TopNav          from "../../components/TopNav";
-import BottomNav       from "../../components/BottomNav";
-import Footer          from "../../components/Footer";
-import MasonryCard     from "../../components/MasonryCard";
-import "../../styles/NearbyPage.css";
+import { useNavigate }  from "react-router-dom";
+import TopNav           from "../components/TopNav";
+import BottomNav        from "../components/BottomNav";
+import Footer           from "../components/Footer";
+import LocationPicker   from "../components/LocationPicker";
+import MasonryCard, {
+  naira,
+  getImageUrl,
+  formatCity,
+  PinIcon,
+}                       from "../components/MasonryCard";
+import {
+  useLocation      as useStoredLocation,
+  formatLocationLabel,
+  readCachedGps,
+  writeCachedGps,
+}                       from "../hooks/useLocation";
+import "../styles/DealsPage.css";
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
@@ -20,175 +32,151 @@ import "../../styles/NearbyPage.css";
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API       = `${BASE_URL}/api`;
 const PAGE_SIZE = 40;
-
-const GPS_KEY = "loemart_gps";
-const GPS_TTL = 10 * 60_000;
+const PH        = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
+const STALE_MS  = 5 * 60_000;
 
 const GPS_OPTS = {
-  timeout           : 6_000,
+  timeout           : 5_000,
   enableHighAccuracy: false,
   maximumAge        : 300_000,
 };
 
+const SORT_OPTIONS = [
+  { value: "newest",   label: "Newest"  },
+  { value: "price_lo", label: "Price ↑" },
+  { value: "price_hi", label: "Price ↓" },
+  { value: "discount", label: "% Off"   },
+];
+
+const CATEGORY_OPTIONS = [
+  { value: "all",         label: "All Deals"    },
+  { value: "electronics", label: "Electronics"  },
+  { value: "fashion",     label: "Fashion"      },
+  { value: "home",        label: "Home & Living" },
+  { value: "sports",      label: "Sports"       },
+  { value: "beauty",      label: "Beauty"       },
+  { value: "food",        label: "Food & Drink" },
+];
+
 /* ══════════════════════════════════════════════════════════════
    SVG ICONS
 ══════════════════════════════════════════════════════════════ */
-const ArrowLeftIcon = ({ size = 18 }) => (
+const BackIcon = ({ size = 18 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <path d="M19 12H5" />
-    <polyline points="12 19 5 12 12 5" />
+    stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <path d="M19 12H5M12 5l-7 7 7 7" />
   </svg>
 );
 
-const MapPinIcon = ({ size = 16 }) => (
+const ShareIcon = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
-    <circle cx="12" cy="10" r="3" />
+    stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <circle cx="18" cy="5" r="3" />
+    <circle cx="6" cy="12" r="3" />
+    <circle cx="18" cy="19" r="3" />
+    <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" />
   </svg>
 );
 
-const CrosshairIcon = ({ size = 14 }) => (
+const TagIcon = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="10" />
-    <circle cx="12" cy="12" r="3" />
-    <line x1="12" y1="2" x2="12" y2="6" />
-    <line x1="12" y1="18" x2="12" y2="22" />
-    <line x1="2" y1="12" x2="6" y2="12" />
-    <line x1="18" y1="12" x2="22" y2="12" />
+    stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59
+      8.59a2 2 0 010 2.82z" />
+    <line x1="7" y1="7" x2="7.01" y2="7" />
   </svg>
 );
 
-const SatelliteIcon = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="2" />
-    <path d="M16.24 7.76a6 6 0 010 8.49m-8.48-.01a6 6 0 010-8.49" />
-    <path d="M19.07 4.93a10 10 0 010 14.14m-14.14 0a10 10 0 010-14.14" />
+const FlashIcon = ({ size = 14 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24"
+    fill="currentColor" aria-hidden="true">
+    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
   </svg>
 );
 
-const NavigationIcon = ({ size = 44 }) => (
+const FilterIcon = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <polygon points="3 11 22 2 13 21 11 13 3 11" />
+    stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
   </svg>
 );
 
-const GlobeIcon = ({ size = 40 }) => (
+const SortIcon = ({ size = 14 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <circle cx="12" cy="12" r="10" />
-    <line x1="2" y1="12" x2="22" y2="12" />
-    <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z" />
+    stroke="currentColor" strokeWidth={2.2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <path d="M11 5h10M11 9h7M11 13h4M3 17l3 3 3-3M6 20V4" />
   </svg>
 );
 
-const MapIcon = ({ size = 40 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6" />
-    <line x1="8" y1="2" x2="8" y2="18" />
-    <line x1="16" y1="6" x2="16" y2="22" />
-  </svg>
-);
-
-const ZapIcon = ({ size = 20 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+const ChevronDownIcon = ({ size = 13 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24"
+    fill="currentColor" aria-hidden="true">
+    <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
   </svg>
 );
 
 const ChevronUpIcon = ({ size = 16 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
-       aria-hidden="true">
+    stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
+    aria-hidden="true">
     <path d="M18 15l-6-6-6 6" />
   </svg>
 );
 
-const ChevronRightIcon = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
-       aria-hidden="true">
+const ChevronRightIcon = ({ size = 13 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24"
+    fill="currentColor" aria-hidden="true">
     <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
   </svg>
 );
 
-const CheckCircleIcon = ({ size = 18 }) => (
+const ZapIcon = ({ size = 20 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <path d="M22 11.08V12a10 10 0 11-5.93-9.14" />
-    <polyline points="22 4 12 14.01 9 11.01" />
+    stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
   </svg>
 );
 
-const ShieldIcon = ({ size = 16 }) => (
+const BagIcon = ({ size = 40 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+    stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
+    <line x1="3" y1="6" x2="21" y2="6" />
+    <path d="M16 10a4 4 0 01-8 0" />
   </svg>
 );
 
-const ListIcon = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <line x1="8" y1="6" x2="21" y2="6" />
-    <line x1="8" y1="12" x2="21" y2="12" />
-    <line x1="8" y1="18" x2="21" y2="18" />
-    <line x1="3" y1="6" x2="3.01" y2="6" />
-    <line x1="3" y1="12" x2="3.01" y2="12" />
-    <line x1="3" y1="18" x2="3.01" y2="18" />
+const SearchIcon = ({ size = 17 }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+    strokeWidth={2.2} strokeLinecap="round" width={size}
+    height={size} aria-hidden="true">
+    <circle cx="11" cy="11" r="8" />
+    <path d="M21 21l-4.35-4.35" />
   </svg>
 );
 
 /* ══════════════════════════════════════════════════════════════
-   GPS CACHE
-══════════════════════════════════════════════════════════════ */
-function readCachedGps() {
-  try {
-    const raw = sessionStorage.getItem(GPS_KEY);
-    if (!raw) return null;
-    const { coords, ts } = JSON.parse(raw);
-    if (Date.now() - ts < GPS_TTL) return coords;
-  } catch {}
-  return null;
-}
-
-function writeCachedGps(coords) {
-  try {
-    sessionStorage.setItem(GPS_KEY, JSON.stringify({ coords, ts: Date.now() }));
-  } catch {}
-}
-
-/* ══════════════════════════════════════════════════════════════
-   NORMALIZE + DEDUP
+   HELPERS
 ══════════════════════════════════════════════════════════════ */
 const normalizeProduct = (p) => {
   if (!p || typeof p !== "object" || !p.id) return null;
   return {
     ...p,
-    price             : Number(p.price             || 0),
-    engagement_score  : Number(p.engagement_score  || 0),
-    clicks_count      : Number(p.clicks_count      || 0),
-    impression_count  : Number(p.impression_count  || 0),
-    views             : Number(p.views             || 0),
-    ctr               : Number(p.ctr               || 0),
-    promotion_priority: Number(p.promotion_priority || 0),
-    search_priority   : Number(p.search_priority   || 0),
+    price             : Number(p.price              || 0),
+    engagement_score  : Number(p.engagement_score   || 0),
+    clicks_count      : Number(p.clicks_count        || 0),
+    impression_count  : Number(p.impression_count    || 0),
+    views             : Number(p.views               || 0),
+    ctr               : Number(p.ctr                 || 0),
+    promotion_priority: Number(p.promotion_priority  || 0),
+    favorites_count   : Number(p.favorites_count     || 0),
     is_promoted       : !!p.is_promoted,
     promotion_badge   : p.promotion_badge || null,
     image:
@@ -198,7 +186,9 @@ const normalizeProduct = (p) => {
           ? p.images[0]
           : p.images[0]?.url || null
         : null) ||
-      p.main_image || p.thumbnail_url || null,
+      p.main_image ||
+      p.thumbnail_url ||
+      null,
     location_city : p.location?.city  || p.location_city  || null,
     location_state: p.location?.state || p.location_state || null,
     seller: {
@@ -208,6 +198,12 @@ const normalizeProduct = (p) => {
       subscriptionPlan: p.seller?.subscriptionPlan || null,
       subscriptionRank: Number(p.seller?.subscriptionRank || 0),
     },
+    /* discount helpers */
+    original_price: Number(
+      p.attributes?.original_price ||
+      p.original_price ||
+      0
+    ),
   };
 };
 
@@ -216,320 +212,488 @@ const dedup = (arr) => {
   return arr.filter((p) => p && !seen.has(p.id) && seen.add(p.id));
 };
 
+const discountPct = (p) => {
+  if (!p) return 0;
+  const orig = p.original_price || 0;
+  const curr = p.price          || 0;
+  if (orig > curr && curr > 0)
+    return Math.round(((orig - curr) / orig) * 100);
+  return 0;
+};
+
+const discountLabel = (p) => {
+  const pct = discountPct(p);
+  return pct > 0 ? `${pct}% off` : null;
+};
+
+const fmtCount = (n) => {
+  const num = Number(n || 0);
+  if (num <= 0)        return "0";
+  if (num < 1_000)     return `${num}+`;
+  if (num < 10_000)    return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}k+`;
+  if (num < 1_000_000) return `${Math.round(num / 1_000)}k+`;
+  return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M+`;
+};
+
+/* Sort deals array client-side */
+const sortDeals = (arr, sort) => {
+  const out = [...arr];
+  if (sort === "price_lo") return out.sort((a, b) => a.price - b.price);
+  if (sort === "price_hi") return out.sort((a, b) => b.price - a.price);
+  if (sort === "discount") return out.sort((a, b) => discountPct(b) - discountPct(a));
+  return out; /* newest — keep server order */
+};
+
 /* ══════════════════════════════════════════════════════════════
-   FETCH — with silent fallback to general feed
+   SKELETONS
 ══════════════════════════════════════════════════════════════ */
-async function fetchNearbyPage({ pageParam = 0, coords } = {}) {
-  const makeParams = (section) => {
-    const p = new URLSearchParams({ page: pageParam, limit: PAGE_SIZE });
-    if (section) p.set("section", section);
-    if (coords) {
-      p.set("lat", coords.lat);
-      p.set("lng", coords.lng);
-    }
-    return p;
-  };
-
-  try {
-    const res = await fetch(`${API}/homepage?${makeParams("nearby")}`);
-    if (res.ok) {
-      const data  = await res.json();
-      const items = Array.isArray(data.products) ? data.products : [];
-      if (items.length > 0) return data;
-    }
-  } catch {}
-
-  const res = await fetch(`${API}/homepage?${makeParams()}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-/* ══════════════════════════════════════════════════════════════
-   INLINE COMPONENTS
-══════════════════════════════════════════════════════════════ */
-
-/* ── Header ── */
-const NearbyHeader = memo(function NearbyHeader({
-  gpsStatus, onBack, onRequestGps,
-}) {
+const MasonrySkeleton = memo(function MasonrySkeleton() {
   return (
-    <div className="nb-header">
-      <button className="nb-back" onClick={onBack} aria-label="Go back">
-        <ArrowLeftIcon size={18} />
+    <div className="deals-masonry" aria-busy="true" aria-label="Loading deals">
+      {[180, 220, 160, 200, 180, 190, 220, 170, 200, 180].map((h, i) => (
+        <div key={i} className="dc-sk deals-shimmer"
+          style={{ height: h }} aria-hidden="true" />
+      ))}
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════
+   LOCATION BAR
+══════════════════════════════════════════════════════════════ */
+const LocationBar = memo(function LocationBar({ location, onOpen, onClear }) {
+  const label = formatLocationLabel(location) || "";
+  return (
+    <div className="df-loc-bar">
+      <button
+        className={`df-loc-btn${label ? " df-loc-btn--active" : ""}`}
+        onClick={onOpen}
+        aria-label={label ? `Location: ${label}` : "Set your location"}>
+        <span className="df-loc-pin" aria-hidden="true">
+          <PinIcon size={13} />
+        </span>
+        {label
+          ? <span className="df-loc-label">{label}</span>
+          : <span className="df-loc-placeholder">Set your location</span>
+        }
+        <ChevronDownIcon size={13} />
+      </button>
+      {label && (
+        <button className="df-loc-clear" onClick={onClear}
+          aria-label="Clear location">✕</button>
+      )}
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════
+   DEAL CARD  (masonry item with discount overlay)
+══════════════════════════════════════════════════════════════ */
+const DealCard = memo(function DealCard({ product, onClick }) {
+  const [imgLoaded, setImgLoaded] = useState(false);
+  if (!product) return null;
+
+  const imgUrl = getImageUrl(product) || PH;
+  const disc   = discountLabel(product);
+  const loc    = formatCity(product);
+
+  return (
+    <article
+      className="masonry-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick(product)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
+      aria-label={`${product.title} — ${naira(product.price)}`}>
+
+      {/* Badge */}
+      {disc && (
+        <span className="bd"
+          style={{ background: "#e74c3c", color: "#fff" }}>
+          {disc}
+        </span>
+      )}
+
+      {/* Image */}
+      <div style={{
+        position  : "relative",
+        overflow  : "hidden",
+        background: "rgba(0,0,0,0.04)",
+      }}>
+        {!imgLoaded && (
+          <div
+            className="deals-shimmer"
+            style={{
+              position: "absolute", inset: 0,
+              minHeight: 140,
+            }}
+            aria-hidden="true"
+          />
+        )}
+        <img
+          className="masonry-img"
+          src={imgUrl}
+          alt={product.title || "Deal"}
+          loading="lazy"
+          style={{ opacity: imgLoaded ? 1 : 0, transition: "opacity .3s ease" }}
+          onLoad={() => setImgLoaded(true)}
+          onError={(e) => {
+            e.currentTarget.src = PH;
+            setImgLoaded(true);
+          }}
+        />
+        {/* Flash sale strip */}
+        {disc && (
+          <span className="deals-disc-pip" aria-hidden="true">
+            <FlashIcon size={10} /> {disc}
+          </span>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="masonry-body">
+        <p className="masonry-name">{product.title}</p>
+        <p className="masonry-price">{naira(product.price)}</p>
+        {product.original_price > 0 && (
+          <p className="deals-orig-price">
+            {naira(product.original_price)}
+          </p>
+        )}
+        {loc && (
+          <p className="masonry-loc">
+            <PinIcon size={10} /> {loc}
+          </p>
+        )}
+        {product.seller?.verified && (
+          <p className="vfd">✓ Verified Seller</p>
+        )}
+      </div>
+    </article>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE HEADER
+══════════════════════════════════════════════════════════════ */
+const DealsHeader = memo(function DealsHeader({ total, onBack, onShare }) {
+  return (
+    <header className="dh-wrap">
+      <button className="dh-back" onClick={onBack} aria-label="Go back">
+        <BackIcon size={18} />
       </button>
 
-      <div className="nb-title-wrap">
-        <h1 className="nb-title">Near You</h1>
-        <span className={`nb-chip nb-chip--${gpsStatus}`}>
-          {gpsStatus === "pending" && (
-            <span className="nb-chip-spin" aria-hidden="true" />
-          )}
-          {gpsStatus === "gps" && (
-            <span className="nb-chip-dot" aria-hidden="true" />
-          )}
-          {gpsStatus === "pending" && "Locating…"}
-          {gpsStatus === "gps" && (
-            <><SatelliteIcon size={12} /> GPS Live</>
-          )}
-          {gpsStatus === "denied" && (
-            <><MapPinIcon size={12} /> Manual</>
-          )}
+      <div className="dh-title-wrap">
+        <h1 className="dh-title">Deals</h1>
+        <span className="dh-chip">
+          <span className="dh-chip-dot" aria-hidden="true" />
+          Live
         </span>
       </div>
 
-      {gpsStatus === "denied" && (
-        <button className="nb-gps-btn" onClick={onRequestGps}
-                aria-label="Enable GPS">
-          <CrosshairIcon size={14} />
-          Enable GPS
-        </button>
-      )}
-    </div>
+      <button className="dh-share" onClick={onShare}
+        aria-label="Share deals">
+        <ShareIcon size={16} />
+      </button>
+    </header>
   );
 });
 
-/* ── Location banner ── */
-const NearbyLocationBanner = memo(function NearbyLocationBanner({
-  label, gpsStatus, count,
-}) {
-  if (!label) return null;
-  return (
-    <div className="nb-loc-banner" role="status" aria-live="polite">
-      <div className="nb-loc-left">
-        <span className="nb-loc-icon" aria-hidden="true">
-          {gpsStatus === "gps"
-            ? <SatelliteIcon size={18} />
-            : <MapPinIcon size={18} />
-          }
-        </span>
-        <div className="nb-loc-text">
-          <span className="nb-loc-label">Showing listings near</span>
-          <strong className="nb-loc-place">{label}</strong>
-        </div>
-      </div>
-      {count > 0 && (
-        <span className="nb-loc-count">
-          <ListIcon size={13} />
-          {count.toLocaleString()} listing{count !== 1 ? "s" : ""}
-        </span>
-      )}
-    </div>
-  );
-});
-
-/* ── GPS prompt ── */
-const NearbyGpsPrompt = memo(function NearbyGpsPrompt({
-  onAllow, onDismiss,
+/* ══════════════════════════════════════════════════════════════
+   FILTER BAR
+══════════════════════════════════════════════════════════════ */
+const FilterBar = memo(function FilterBar({
+  total, filtered, sort, category,
+  onSort, onCategory,
 }) {
   return (
-    <div className="nb-gps-prompt" role="dialog"
-         aria-label="Enable location for better results">
-      <div className="nb-gps-prompt-icon" aria-hidden="true">
-        <NavigationIcon size={44} />
-      </div>
-      <div className="nb-gps-prompt-body">
-        <h3 className="nb-gps-prompt-title">See listings near you</h3>
-        <p className="nb-gps-prompt-sub">
-          Allow location access to find deals closest to you first.
-        </p>
-        <div className="nb-gps-prompt-features">
-          <span className="nb-gps-prompt-feat">
-            <CheckCircleIcon size={14} /> Closest deals first
-          </span>
-          <span className="nb-gps-prompt-feat">
-            <ShieldIcon size={14} /> Privacy safe — never shared
-          </span>
+    <div className="df-bar" role="search" aria-label="Filter deals">
+      <span className="df-count">
+        <FilterIcon size={13} />
+        {filtered} of {total}
+      </span>
+
+      <div className="df-controls">
+        {/* Category */}
+        <div className="df-select-wrap">
+          <label className="df-label" htmlFor="deals-cat-select">
+            <TagIcon size={11} /> Category
+          </label>
+          <select
+            id="deals-cat-select"
+            className="df-select"
+            value={category}
+            onChange={(e) => onCategory(e.target.value)}
+            aria-label="Filter by category">
+            {CATEGORY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
         </div>
-      </div>
-      <div className="nb-gps-prompt-actions">
-        <button className="nb-gps-prompt-allow" onClick={onAllow}>
-          <CrosshairIcon size={14} /> Allow Location
-        </button>
-        <button className="nb-gps-prompt-skip" onClick={onDismiss}>
-          Maybe later
-        </button>
+
+        {/* Sort */}
+        <div className="df-select-wrap">
+          <label className="df-label" htmlFor="deals-sort-select">
+            <SortIcon size={11} /> Sort
+          </label>
+          <select
+            id="deals-sort-select"
+            className="df-select"
+            value={sort}
+            onChange={(e) => onSort(e.target.value)}
+            aria-label="Sort deals">
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );
 });
 
-/* ── Skeleton ── */
-const SKEL_HEIGHTS = [240, 300, 220, 280, 260, 230, 310, 250, 270, 240];
-
-const NearbySkeleton = memo(function NearbySkeleton() {
-  return (
-    <>
-      <div className="nb-sk nb-sk-banner nb-shimmer" aria-hidden="true" />
-      <div className="nb-masonry" aria-busy="true">
-        {SKEL_HEIGHTS.map((h, i) => (
-          <div key={i} className="nb-sk nb-shimmer"
-               style={{ height: h }} aria-hidden="true" />
-        ))}
-      </div>
-    </>
-  );
-});
-
-/* ── Scroll to top ── */
+/* ══════════════════════════════════════════════════════════════
+   SCROLL TO TOP
+══════════════════════════════════════════════════════════════ */
 function ScrollTopBtn() {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
-    const fn = () => setVisible(window.scrollY > 320);
+    const fn = () => setVisible(window.scrollY > 400);
     window.addEventListener("scroll", fn, { passive: true });
     return () => window.removeEventListener("scroll", fn);
   }, []);
   return (
     <button
-      className={`nb-scroll-top${visible ? " visible" : ""}`}
+      className={`deals-scroll-top${visible ? " visible" : ""}`}
       onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
       aria-label="Scroll to top"
-    >
+      tabIndex={visible ? 0 : -1}>
       <ChevronUpIcon size={16} />
     </button>
   );
 }
 
-/* ── Empty state ── */
-function EmptyState({ gpsStatus, onBrowseAll }) {
+/* ══════════════════════════════════════════════════════════════
+   HERO BANNER  (deals-specific)
+══════════════════════════════════════════════════════════════ */
+const DealsHero = memo(function DealsHero({ total, loading }) {
   return (
-    <div className="nb-empty" role="status">
-      <span className="nb-empty-icon" aria-hidden="true">
-        {gpsStatus === "denied"
-          ? <MapIcon size={44} />
-          : <GlobeIcon size={44} />
-        }
-      </span>
-      <h3 className="nb-empty-title">
-        {gpsStatus === "denied"
-          ? "Location access denied"
-          : "No nearby listings found"}
-      </h3>
-      <p className="nb-empty-sub">
-        {gpsStatus === "denied"
-          ? "We couldn't detect your location. Showing listings from across Nigeria."
-          : "There are no listings in your area yet. More sellers joining daily!"}
-      </p>
-      {gpsStatus === "denied" && (
-        <p className="nb-empty-hint">
-          <ShieldIcon size={13} /> Your location is only used to sort results — never stored or shared.
-        </p>
-      )}
-      <button className="nb-empty-btn" onClick={onBrowseAll}>
-        Browse All Listings <ChevronRightIcon size={14} />
-      </button>
-    </div>
-  );
-}
+    <section className="dh-hero" aria-label="Deals overview">
+      <div className="dh-hero-blob dh-hero-blob--1" aria-hidden="true" />
+      <div className="dh-hero-blob dh-hero-blob--2" aria-hidden="true" />
 
-/* ── Error banner ── */
-function ErrorBanner({ message, onRetry }) {
-  return (
-    <div className="nb-err" role="alert">
-      <span className="nb-err-icon" aria-hidden="true">
-        <ZapIcon size={20} />
-      </span>
-      <p className="nb-err-title">Could not load listings</p>
-      <p className="nb-err-msg">{message}</p>
-      <button className="nb-err-btn" onClick={onRetry}>Try again</button>
-    </div>
+      <div className="dh-hero-content">
+        <span className="dh-hero-kicker">
+          <FlashIcon size={14} /> Limited Time Offers
+        </span>
+        <h2 className="dh-hero-title">
+          Cheap <em className="dh-hero-em">Deals</em>
+        </h2>
+        <p className="dh-hero-sub">
+          Discounted listings from verified sellers across Nigeria.
+        </p>
+
+        {/* Stats */}
+        <div className="dh-hero-stats">
+          {loading ? (
+            [1, 2, 3].map((i) => (
+              <div key={i} className="dh-hero-stat">
+                <div className="dc-sk deals-shimmer"
+                  style={{ width: 44, height: 20, borderRadius: 6 }} />
+                <div className="dc-sk deals-shimmer"
+                  style={{ width: 52, height: 11, borderRadius: 4, marginTop: 4 }} />
+              </div>
+            ))
+          ) : (
+            [
+              { val: fmtCount(total), label: "Deals"    },
+              { val: "Up to 80%",     label: "Off"      },
+              { val: "Verified",      label: "Sellers"  },
+            ].map((s) => (
+              <div key={s.label} className="dh-hero-stat">
+                <span className="dh-hero-stat-val">{s.val}</span>
+                <span className="dh-hero-stat-label">{s.label}</span>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </section>
   );
-}
+});
 
 /* ══════════════════════════════════════════════════════════════
-   MAIN COMPONENT
+   DEALS PAGE
 ══════════════════════════════════════════════════════════════ */
-export default function NearbyPage({ user }) {
+export default function DealsPage({ user }) {
   const navigate = useNavigate();
 
-  /* ── GPS ── */
-  const [coords,     setCoords]     = useState(() => readCachedGps());
-  const [gpsStatus,  setGpsStatus]  = useState(
-    () => readCachedGps() ? "gps" : "pending"
-  );
-  const [showPrompt, setShowPrompt] = useState(false);
+  const {
+    location : savedLocation,
+    save     : saveLocation,
+    clear    : clearLocation,
+  } = useStoredLocation();
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+
+  /* GPS */
+  const [gpsCoords, setGpsCoords] = useState(() => {
+    try { return readCachedGps(); } catch { return null; }
+  });
   const gpsAttempted = useRef(false);
 
-  const requestGps = useCallback(() => {
-    if (!navigator.geolocation) {
-      setGpsStatus("denied");
-      return;
-    }
-    setGpsStatus("pending");
-    setShowPrompt(false);
+  useEffect(() => {
+    if (savedLocation?.source === "manual") return;
+    if (gpsAttempted.current || gpsCoords)  return;
+    gpsAttempted.current = true;
+    if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       ({ coords: c }) => {
         const result = { lat: c.latitude, lng: c.longitude };
-        writeCachedGps(result);
-        setCoords(result);
-        setGpsStatus("gps");
+        try { writeCachedGps(result); } catch {}
+        setGpsCoords(result);
       },
-      () => setGpsStatus("denied"),
+      () => {},
       GPS_OPTS
     );
-  }, []);
+  }, [savedLocation, gpsCoords]);
 
-  useEffect(() => {
-    if (gpsAttempted.current || coords) return;
-    gpsAttempted.current = true;
-    if (!navigator.geolocation) { setGpsStatus("denied"); return; }
-    setShowPrompt(true);
-    const t = setTimeout(requestGps, 800);
-    return () => clearTimeout(t);
-  }, [coords, requestGps]);
-
-  /* ── Data state ── */
-  const [products,    setProducts]    = useState([]);
-  const [meta,        setMeta]        = useState({});
+  /* Data state */
+  const [allDeals,    setAllDeals]    = useState([]);
   const [loading,     setLoading]     = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error,       setError]       = useState(null);
   const [hasMore,     setHasMore]     = useState(false);
   const [page,        setPage]        = useState(0);
+  const [total,       setTotal]       = useState(0);
 
-  const productsRef = useRef([]);
+  /* Filter / sort state */
+  const [sort,     setSort]     = useState("newest");
+  const [category, setCategory] = useState("all");
+
+  const dealsRef    = useRef([]);
   const sentinelRef = useRef(null);
+  const hiddenAtRef = useRef(null);
 
-  /* ── Load ── */
-  const load = useCallback(async (pg = 0, append = false) => {
-    try {
-      const data = await fetchNearbyPage({ pageParam: pg, coords });
-      const raw  = Array.isArray(data.products) ? data.products : [];
-      const normalized = dedup(raw).map(normalizeProduct).filter(Boolean);
-      const merged = append
-        ? dedup([...productsRef.current, ...normalized])
-        : normalized;
-      productsRef.current = merged;
-      setProducts(merged);
-      setMeta(data.meta || {});
-      setHasMore(data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE);
-    } catch (err) {
-      if (!append) setError(err.message || "Could not load listings.");
+  /* Build API URL — targets /api/deals endpoint */
+  const buildUrl = useCallback((pg = 0, catId = "all", sortVal = "newest") => {
+    const params = new URLSearchParams({ limit: PAGE_SIZE, page: pg });
+
+    if (catId !== "all")     params.set("category_id", catId);
+    if (sortVal !== "newest") params.set("sort", sortVal);
+
+    /* Price filter for "cheap deals" — under ₦50k */
+    params.set("max_price", 50000);
+    params.set("has_discount", 1);
+
+    const coords = savedLocation?.coords || gpsCoords;
+    if (coords?.lat && coords?.lng) {
+      params.set("lat", coords.lat);
+      params.set("lng", coords.lng);
     }
-  }, [coords]);
+    if (savedLocation?.state) params.set("state", savedLocation.state);
+    if (savedLocation?.city)  params.set("city",  savedLocation.city);
 
-  /* Initial load */
-  useEffect(() => {
+    return `${API}/deals?${params}`;
+  }, [savedLocation, gpsCoords]);
+
+  /* Apply normalise + dedup + store */
+  const applyData = useCallback((data, append = false) => {
+    const raw        = Array.isArray(data.products) ? data.products
+                     : Array.isArray(data.deals)    ? data.deals
+                     : [];
+    const normalized = dedup(raw).map(normalizeProduct).filter(Boolean);
+    const merged     = append
+      ? dedup([...dealsRef.current, ...normalized])
+      : normalized;
+
+    dealsRef.current = merged;
+    setAllDeals(merged);
+    setTotal(data.meta?.total ?? merged.length);
+    setHasMore(data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE);
+  }, []);
+
+  /* Initial / category load */
+  const loadFeed = useCallback(async (catId = "all", sortVal = "newest") => {
     setLoading(true);
     setError(null);
     setPage(0);
-    productsRef.current = [];
-    load(0, false).finally(() => setLoading(false));
-  }, [load]);
+    dealsRef.current = [];
+    try {
+      const res = await fetch(buildUrl(0, catId, sortVal));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      applyData(await res.json(), false);
+    } catch (err) {
+      console.error("[DealsPage]", err);
+      setError("Could not load deals. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  }, [buildUrl, applyData]);
 
-  /* Load more */
+  /* Load next page */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
-    const next = page + 1;
     try {
-      await load(next, true);
+      const next = page + 1;
+      const res  = await fetch(buildUrl(next, category, sort));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      applyData(await res.json(), true);
       setPage(next);
+    } catch (err) {
+      console.error("[DealsPage] loadMore:", err);
     } finally {
       setLoadingMore(false);
     }
-  }, [loadingMore, hasMore, page, load]);
+  }, [loadingMore, hasMore, page, category, sort, buildUrl, applyData]);
 
-  /* Infinite scroll */
+  /* Category switch */
+  const switchCategory = useCallback((catId) => {
+    if (catId === category) return;
+    setCategory(catId);
+    loadFeed(catId, sort);
+  }, [category, sort, loadFeed]);
+
+  /* Sort change */
+  const switchSort = useCallback((sortVal) => {
+    if (sortVal === sort) return;
+    setSort(sortVal);
+    loadFeed(category, sortVal);
+  }, [sort, category, loadFeed]);
+
+  /* Mount */
+  useEffect(() => { loadFeed("all", "newest"); }, []); // eslint-disable-line
+
+  /* Location change */
+  const locationKey = savedLocation
+    ? `${savedLocation.city}-${savedLocation.state}` : "none";
+
+  useEffect(() => {
+    if (!loading) loadFeed(category, sort);
+  }, [locationKey]); // eslint-disable-line
+
+  /* External location event */
+  useEffect(() => {
+    const h = () => loadFeed(category, sort);
+    window.addEventListener("locationChanged", h);
+    return () => window.removeEventListener("locationChanged", h);
+  }, [category, sort, loadFeed]);
+
+  /* Visibility / stale */
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        hiddenAtRef.current = Date.now();
+      } else {
+        const elapsed = Date.now() - (hiddenAtRef.current || 0);
+        if (!loading && elapsed > STALE_MS) loadFeed(category, sort);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [loading, category, sort, loadFeed]);
+
+  /* Infinite scroll sentinel */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -541,141 +705,221 @@ export default function NearbyPage({ user }) {
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
-  /*
-   * Location label — falls back to empty/null, never
-   * shows a hardcoded city name.
-   */
-  const locLabel = useMemo(() => {
-    if (meta?.location) return meta.location;
-    if (products[0]) {
-      const p = products[0];
-      const c = p.location_city  || p.location?.city;
-      const s = p.location_state || p.location?.state;
-      return [c, s].filter(Boolean).join(", ") || null;
-    }
-    return null;
-  }, [meta, products]);
-
-  const total = meta?.total ?? products.length;
-
-  /* ── Analytics ── */
-  const trackView = useCallback((id) => {
-    if (!id) return;
-    fetch(`${API}/homepage/products/${id}/view`, {
-      method: "POST", keepalive: true,
-    }).catch(() => {});
-  }, []);
-
-  const handleClick = useCallback((product) => {
+  /* Click tracking */
+  const handleProductClick = useCallback((product) => {
     if (!product?.id) return;
-    fetch(`${API}/homepage/products/${product.id}/click`, {
+    fetch(`${API}/deals/products/${product.id}/click`, {
       method: "POST", keepalive: true,
     }).catch(() => {});
     navigate(`/product/${product.slug || product.id}`);
   }, [navigate]);
 
-  /* ══════════════════════════════════════════════════════════
+  const handleBack = useCallback(() => window.history.back(), []);
+
+  const handleShare = useCallback(async () => {
+    const data = { title: "Check out these deals!", url: window.location.href };
+    try {
+      if (navigator.share) await navigator.share(data);
+      else await navigator.clipboard.writeText(data.url);
+    } catch {}
+  }, []);
+
+  /* Derived — client-side sort applied on top of server data */
+  const visibleDeals = useMemo(
+    () => sortDeals(allDeals, sort),
+    [allDeals, sort]
+  );
+
+  /* Filtered by category (if server doesn't do it, client fallback) */
+  const filteredDeals = useMemo(() => {
+    if (category === "all") return visibleDeals;
+    return visibleDeals.filter(
+      (p) => p.category?.toLowerCase() === category
+    );
+  }, [visibleDeals, category]);
+
+  const heroLoc = useMemo(() => {
+    const manual = formatLocationLabel(savedLocation);
+    if (manual) return manual;
+    return null;
+  }, [savedLocation]);
+
+  /* ══════════════════════════════════════════════════════
      RENDER
-  ══════════════════════════════════════════════════════════ */
+  ══════════════════════════════════════════════════════ */
   return (
-    <div className="nb-root">
+    <div className="deals-root">
       <TopNav user={user} />
 
-      <main className="nb-page" id="nb-main">
+      <main className="deals-page" id="deals-main">
 
-        {/* Header */}
-        <NearbyHeader
-          gpsStatus={gpsStatus}
-          onBack={() => navigate(-1)}
-          onRequestGps={requestGps}
+        {/* ── MOBILE HEADER ── */}
+        <DealsHeader
+          total={total}
+          onBack={handleBack}
+          onShare={handleShare}
         />
 
-        {/* GPS prompt */}
-        {showPrompt && gpsStatus === "pending" && (
-          <NearbyGpsPrompt
-            onAllow={() => { setShowPrompt(false); requestGps(); }}
-            onDismiss={() => { setShowPrompt(false); setGpsStatus("denied"); }}
+        {/* ── HERO ── */}
+        <DealsHero total={total} loading={loading} />
+
+        {/* ── SEARCH ── */}
+        <div className="hm-search-wrap">
+          <button
+            className="hm-search-bar"
+            onClick={() => navigate("/search")}>
+            <span className="hm-search-ic" aria-hidden="true">
+              <SearchIcon size={17} />
+            </span>
+            <span className="hm-search-placeholder">
+              Search deals, brands, locations…
+            </span>
+          </button>
+        </div>
+
+        {/* ── LOCATION BAR ── */}
+        <LocationBar
+          location={savedLocation}
+          onOpen={() => setPickerOpen(true)}
+          onClear={clearLocation}
+        />
+
+        {/* ── FILTER BAR ── */}
+        {!loading && !error && (
+          <FilterBar
+            total={total}
+            filtered={filteredDeals.length}
+            sort={sort}
+            category={category}
+            onSort={switchSort}
+            onCategory={switchCategory}
           />
         )}
 
-        {/* Location banner */}
-        {!loading && locLabel && (
-          <NearbyLocationBanner
-            label={locLabel}
-            gpsStatus={gpsStatus}
-            count={total}
-          />
+        {/* ── RESULT COUNT ── */}
+        {!loading && !error && filteredDeals.length > 0 && (
+          <div className="deals-result-count" aria-live="polite" aria-atomic="true">
+            Showing{" "}
+            <span className="deals-result-count-num">
+              {filteredDeals.length}
+            </span>
+            {" "}deal{filteredDeals.length !== 1 ? "s" : ""}
+            {heroLoc && <> near <strong>{heroLoc}</strong></>}
+          </div>
         )}
 
-        {/* Error */}
+        {/* ── ERROR ── */}
         {error && (
-          <ErrorBanner
-            message={error}
-            onRetry={() => {
-              setError(null);
-              setLoading(true);
-              productsRef.current = [];
-              load(0, false).finally(() => setLoading(false));
-            }}
-          />
+          <div className="deals-err" role="alert">
+            <span className="deals-err-icon">
+              <ZapIcon size={20} />
+            </span>
+            <p className="deals-err-title">Could not load deals</p>
+            <p className="deals-err-msg">{error}</p>
+            <button
+              className="deals-err-btn"
+              onClick={() => loadFeed(category, sort)}>
+              Try again
+            </button>
+          </div>
         )}
 
-        {/* Skeleton */}
-        {loading && <NearbySkeleton />}
+        {/* ── LOADING SKELETON ── */}
+        {loading && !error && <MasonrySkeleton />}
 
-        {/* Empty */}
-        {!loading && !error && products.length === 0 && (
-          <EmptyState
-            gpsStatus={gpsStatus}
-            onBrowseAll={() => navigate("/")}
-          />
+        {/* ── EMPTY STATE ── */}
+        {!loading && !error && filteredDeals.length === 0 && (
+          <div className="deals-empty">
+            <span className="deals-empty-emoji">
+              <BagIcon size={40} />
+            </span>
+            <h3 className="deals-empty-title">
+              {category === "all"
+                ? heroLoc
+                  ? `No deals near ${heroLoc}`
+                  : "No deals right now"
+                : `No deals in ${
+                    CATEGORY_OPTIONS.find((c) => c.value === category)?.label
+                    || category
+                  }`
+              }
+            </h3>
+            <p className="deals-empty-sub">
+              {category === "all"
+                ? "Try changing your location or check back soon."
+                : "Try another category or clear filters."}
+            </p>
+            <button
+              className="deals-empty-btn"
+              onClick={() =>
+                category === "all"
+                  ? loadFeed("all", sort)
+                  : switchCategory("all")
+              }>
+              {category === "all" ? "Reload" : "Browse all deals"}
+            </button>
+          </div>
         )}
 
-        {/* Grid */}
-        {!loading && products.length > 0 && (
-          <>
-            <div className="nb-masonry" role="list"
-                 aria-label="Nearby listings">
-              {products.map((p, i) => (
+        {/* ── MASONRY GRID ── */}
+        {!loading && !error && filteredDeals.length > 0 && (
+          <section className="hm-section">
+            <div className="hm-section-head">
+              <h2 className="hm-section-title">
+                <TagIcon size={16} />{" "}
+                {category === "all"
+                  ? heroLoc
+                    ? `Deals near ${heroLoc}`
+                    : "All Deals"
+                  : CATEGORY_OPTIONS.find((c) => c.value === category)?.label
+                    || "Deals"
+                }
+              </h2>
+              {category !== "all" && (
+                <button
+                  className="hm-cat-clear"
+                  onClick={() => switchCategory("all")}>
+                  ✕ Clear
+                </button>
+              )}
+            </div>
+
+            <div className="deals-masonry" role="list" aria-label="Deals grid">
+              {filteredDeals.map((p) => p && (
                 <div key={p.id} role="listitem">
-                  <MasonryCard
-                    product={p}
-                    priority={i < 6}
-                    onView={trackView}
-                    onClick={handleClick}
-                  />
+                  <DealCard product={p} onClick={handleProductClick} />
                 </div>
               ))}
             </div>
 
-            <div ref={sentinelRef} aria-hidden="true"
-                 style={{ height: 1 }} />
+            {/* Sentinel */}
+            <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
 
+            {/* Loading more */}
             {loadingMore && (
-              <p className="nb-loading-more" aria-live="polite">
-                <span className="nb-spinner" aria-hidden="true" />
-                Loading more…
+              <p className="deals-loading-more" aria-live="polite">
+                <span className="deals-spinner" aria-hidden="true" />
+                Loading more deals…
               </p>
             )}
 
-            {!hasMore && products.length > 0 && (
-              <div className="nb-feed-end-wrap">
-                <p className="nb-feed-end">
-                  You've seen all nearby listings
+            {/* Feed end */}
+            {!hasMore && filteredDeals.length > 0 && !loadingMore && (
+              <div className="deals-feed-end-wrap">
+                <p className="deals-feed-end">
+                  🎉 You've seen all {filteredDeals.length} deals!
                 </p>
-                <div className="nb-feed-end-actions">
-                  <button className="nb-feed-end-btn"
-                          onClick={() => navigate("/")}>
-                    Browse all <ChevronRightIcon size={13} />
-                  </button>
-                  <button className="nb-feed-end-btn nb-feed-end-btn--ghost"
-                          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-                    Back to top <ChevronUpIcon size={13} />
-                  </button>
-                </div>
+                <button
+                  className="deals-feed-end-btn"
+                  onClick={() =>
+                    window.scrollTo({ top: 0, behavior: "smooth" })
+                  }>
+                  Back to top
+                  <ChevronUpIcon size={14} />
+                </button>
               </div>
             )}
-          </>
+          </section>
         )}
 
         {!loading && <Footer />}
@@ -683,6 +927,15 @@ export default function NearbyPage({ user }) {
 
       <ScrollTopBtn />
       <BottomNav />
+
+      <LocationPicker
+        open={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onSelect={(loc) => {
+          saveLocation(loc);
+          setPickerOpen(false);
+        }}
+      />
     </div>
   );
 }
