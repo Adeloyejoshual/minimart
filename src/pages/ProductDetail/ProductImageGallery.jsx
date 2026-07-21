@@ -7,6 +7,8 @@
  *   3. Full image         → loads on top when ready
  *   4. Preload link       → tells browser to fetch main image ASAP
  *   5. fetchpriority=high → main image gets network priority
+ *
+ * Full-screen viewing is handled internally by ImageViewer (no external dep).
  */
 
 import {
@@ -90,10 +92,10 @@ const optimizedUrl = (url, width = 800) => {
 ═══════════════════════════════════════════════════════════ */
 const preloadImage = (src, priority = "auto") => {
   if (!src) return null;
-  const link = document.createElement("link");
-  link.rel   = "preload";
-  link.as    = "image";
-  link.href  = src;
+  const link       = document.createElement("link");
+  link.rel         = "preload";
+  link.as          = "image";
+  link.href        = src;
   if (priority === "high") link.fetchPriority = "high";
   document.head.appendChild(link);
   return link;
@@ -132,40 +134,56 @@ const useSwipe = (onLeft, onRight, threshold = SWIPE_THRESHOLD) => {
    ICONS
 ═══════════════════════════════════════════════════════════ */
 const IconExpand = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
-    strokeLinejoin="round" aria-hidden="true">
+  <svg
+    width="14" height="14" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2"
+    strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true"
+  >
     <path d="M15 3h6v6" /><path d="M9 21H3v-6" />
     <path d="M21 3l-7 7" /><path d="M3 21l7-7" />
   </svg>
 );
 
 const IconClose = () => (
-  <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
+  <svg
+    width="22" height="22" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2.5"
+    strokeLinecap="round"
+    aria-hidden="true"
+  >
     <path d="M18 6L6 18" /><path d="M6 6l12 12" />
   </svg>
 );
 
 const IconChevronLeft = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-    strokeLinejoin="round" aria-hidden="true">
+  <svg
+    width="24" height="24" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2.5"
+    strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true"
+  >
     <path d="M15 18l-6-6 6-6" />
   </svg>
 );
 
 const IconChevronRight = () => (
-  <svg width="24" height="24" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"
-    strokeLinejoin="round" aria-hidden="true">
+  <svg
+    width="24" height="24" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="2.5"
+    strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true"
+  >
     <path d="M9 18l6-6-6-6" />
   </svg>
 );
 
 const IconNoImage = () => (
-  <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
+  <svg
+    width="40" height="40" viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth="1.2"
+    aria-hidden="true"
+  >
     <rect x="3" y="3" width="18" height="18" rx="3" />
     <circle cx="8.5" cy="8.5" r="1.5" />
     <path d="M21 15l-5-5L5 21" />
@@ -247,7 +265,9 @@ const MainImage = memo(function MainImage({
 });
 
 /* ═══════════════════════════════════════════════════════════
-   VIEWER (uses cache — instant open!)
+   INTERNAL VIEWER
+   Uses the same optimized URL already in browser cache —
+   so the image appears instantly when viewer opens.
 ═══════════════════════════════════════════════════════════ */
 const ImageViewer = memo(function ImageViewer({
   urls,
@@ -260,19 +280,28 @@ const ImageViewer = memo(function ImageViewer({
   const [zoomed, setZoomed] = useState(false);
   const stripRef            = useRef(null);
 
-  useEffect(() => { setLoaded(false); setZoomed(false); }, [active]);
+  /* Reset transition state on image change */
+  useEffect(() => {
+    setLoaded(false);
+    setZoomed(false);
+  }, [active]);
 
   /* Body scroll lock */
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    const prev                    = document.body.style.overflow;
+    document.body.style.overflow  = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, []);
 
+  /* Auto-scroll thumbnail strip to active thumb */
   useEffect(() => {
     stripRef.current
       ?.querySelector(".pig-viewer-thumb--active")
-      ?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      ?.scrollIntoView({
+        behavior: "smooth",
+        inline  : "center",
+        block   : "nearest",
+      });
   }, [active]);
 
   const prev = useCallback(
@@ -284,6 +313,7 @@ const ImageViewer = memo(function ImageViewer({
     [urls.length]
   );
 
+  /* Keyboard navigation */
   useEffect(() => {
     const handler = (e) => {
       if (e.key === "Escape")     onClose();
@@ -298,14 +328,14 @@ const ImageViewer = memo(function ImageViewer({
 
   const handleError = useCallback((e) => {
     e.currentTarget.onerror = null;
-    e.currentTarget.src = FALLBACK_SVG;
+    e.currentTarget.src     = FALLBACK_SVG;
     setLoaded(true);
   }, []);
 
-  const count       = urls.length;
-  /* IMPORTANT: viewer uses the SAME optimized URL as gallery
-     so browser cache serves it instantly — no re-download */
-  const currentSrc  = optimizedUrl(urls[active], 1600); // higher res in viewer
+  const count        = urls.length;
+  /* Viewer requests 1600px — still uses same cache key prefix
+     so if the 800px version was already parsed, network is fast */
+  const currentSrc   = optimizedUrl(urls[active], 1600);
   const currentThumb = thumbUrl(urls[active]);
 
   return (
@@ -316,19 +346,30 @@ const ImageViewer = memo(function ImageViewer({
       aria-label={`Image viewer — ${title || "Product"}`}
       {...swipe}
     >
+      {/* ── Header ──────────────────────────────────── */}
       <div className="pig-viewer-header">
-        <button className="pig-viewer-close" onClick={onClose}
-          aria-label="Close image viewer" type="button">
+        <button
+          className="pig-viewer-close"
+          onClick={onClose}
+          aria-label="Close image viewer"
+          type="button"
+        >
           <IconClose />
         </button>
+
         <span className="pig-viewer-counter" aria-live="polite">
           {active + 1} / {count}
         </span>
+
         <div className="pig-viewer-spacer" aria-hidden="true" />
       </div>
 
-      {title && <div className="pig-viewer-title">{title}</div>}
+      {/* ── Optional title ──────────────────────────── */}
+      {title && (
+        <div className="pig-viewer-title">{title}</div>
+      )}
 
+      {/* ── Main stage (click = toggle zoom) ────────── */}
       <div
         className={`pig-viewer-stage${zoomed ? " pig-viewer-stage--zoomed" : ""}`}
         onClick={() => setZoomed((z) => !z)}
@@ -339,7 +380,7 @@ const ImageViewer = memo(function ImageViewer({
           if (e.key === "Enter" || e.key === " ") setZoomed((z) => !z);
         }}
       >
-        {/* Instant preview using thumb (already cached) */}
+        {/* Instant preview while high-res loads */}
         {!loaded && currentThumb && (
           <img
             src={currentThumb}
@@ -366,22 +407,37 @@ const ImageViewer = memo(function ImageViewer({
         />
       </div>
 
+      {/* ── Prev / Next arrows ──────────────────────── */}
       {count > 1 && (
         <>
-          <button className="pig-viewer-nav pig-viewer-nav--prev"
-            onClick={prev} aria-label="Previous image" type="button">
+          <button
+            className="pig-viewer-nav pig-viewer-nav--prev"
+            onClick={prev}
+            aria-label="Previous image"
+            type="button"
+          >
             <IconChevronLeft />
           </button>
-          <button className="pig-viewer-nav pig-viewer-nav--next"
-            onClick={next} aria-label="Next image" type="button">
+
+          <button
+            className="pig-viewer-nav pig-viewer-nav--next"
+            onClick={next}
+            aria-label="Next image"
+            type="button"
+          >
             <IconChevronRight />
           </button>
         </>
       )}
 
+      {/* ── Thumbnail strip ─────────────────────────── */}
       {count > 1 && (
-        <div className="pig-viewer-strip" ref={stripRef}
-          role="list" aria-label="All images">
+        <div
+          className="pig-viewer-strip"
+          ref={stripRef}
+          role="list"
+          aria-label="All images"
+        >
           {urls.map((url, i) => (
             <button
               key={i}
@@ -414,6 +470,7 @@ const ImageViewer = memo(function ImageViewer({
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════ */
 function ProductImageGallery({ images, title }) {
+  /* images already normalized upstream — filter safety */
   const urls = useMemo(() => {
     if (!Array.isArray(images) || !images.length) return [];
     return images.filter((u) => typeof u === "string" && u.trim() !== "");
@@ -439,6 +496,7 @@ function ProductImageGallery({ images, title }) {
     setViewerOpen(false);
   }, [urls]);
 
+  /* Reset loaded state on slide change */
   useEffect(() => { setLoaded(false); }, [active]);
 
   /* Prefetch next image (low priority) */
@@ -464,8 +522,8 @@ function ProductImageGallery({ images, title }) {
     [urls.length]
   );
 
-  const swipe       = useSwipe(next, prev);
-  const openViewer  = useCallback(() => {
+  const swipe      = useSwipe(next, prev);
+  const openViewer = useCallback(() => {
     if (urls.length) setViewerOpen(true);
   }, [urls.length]);
   const closeViewer = useCallback(() => setViewerOpen(false), []);
@@ -480,9 +538,16 @@ function ProductImageGallery({ images, title }) {
 
   const handleKeyDown = useCallback(
     (e) => {
-      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openViewer(); }
-      else if (e.key === "ArrowLeft")         { e.preventDefault(); prev(); }
-      else if (e.key === "ArrowRight")        { e.preventDefault(); next(); }
+      if (e.key === "Enter" || e.key === " ") {
+        e.preventDefault();
+        openViewer();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        prev();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        next();
+      }
     },
     [openViewer, prev, next]
   );
@@ -497,6 +562,8 @@ function ProductImageGallery({ images, title }) {
   return (
     <>
       <div className="pig" role="region" aria-label="Product images">
+
+        {/* ── Main viewing area ───────────────────────── */}
         <div
           className="pig-main"
           role="button"
@@ -517,17 +584,20 @@ function ProductImageGallery({ images, title }) {
             onError={handleError}
           />
 
+          {/* Expand hint */}
           <div className="pig-tap-hint" aria-hidden="true">
             <IconExpand />
             <span>Tap to expand</span>
           </div>
 
+          {/* Counter badge */}
           {count > 1 && (
             <span className="pig-counter" aria-hidden="true">
               {active + 1}/{count}
             </span>
           )}
 
+          {/* Prev / Next arrows */}
           {count > 1 && (
             <>
               <button
@@ -536,17 +606,22 @@ function ProductImageGallery({ images, title }) {
                 aria-label="Previous image"
                 tabIndex={-1}
                 type="button"
-              >‹</button>
+              >
+                ‹
+              </button>
               <button
                 className="pig-arrow pig-arrow--right"
                 onClick={(e) => { e.stopPropagation(); next(); }}
                 aria-label="Next image"
                 tabIndex={-1}
                 type="button"
-              >›</button>
+              >
+                ›
+              </button>
             </>
           )}
 
+          {/* Dot navigation */}
           {count > 1 && count <= DOTS_MAX_COUNT && (
             <div
               className="pig-dots"
@@ -570,8 +645,13 @@ function ProductImageGallery({ images, title }) {
           )}
         </div>
 
+        {/* ── Thumbnail strip ─────────────────────────── */}
         {count > 1 && (
-          <div className="pig-thumbs" role="list" aria-label="All product images">
+          <div
+            className="pig-thumbs"
+            role="list"
+            aria-label="All product images"
+          >
             {urls.map((url, i) => (
               <button
                 key={i}
@@ -596,6 +676,7 @@ function ProductImageGallery({ images, title }) {
         )}
       </div>
 
+      {/* ── Internal full-screen viewer ─────────────── */}
       {viewerOpen && (
         <ImageViewer
           urls={urls.map((u) => optimizedUrl(u, 1600))}
