@@ -1,12 +1,12 @@
 /**
- * jobs/listingExpiry.js — v4
+ * jobs/listingExpiry.js — v5
  *
- * Changes from v3:
- *  - 7-day grace period after subscription_expires_at before listings expire
- *  - Email notifications sent alongside in-app notifications for all tasks
- *  - Subscription expiry warnings at 7 days, 3 days, and 1 day before expiry
- *  - Subscription expired notification sent when grace period ends
- *  - Grace period listings shown as 'grace' status in warnings
+ * Changes from v4:
+ *  - expireSubscriptionsAfterGrace resets search_priority = 0
+ *    on both products and users rows when grace period ends
+ *  - invalidateHomepageCache called after grace expiry
+ *  - Subscription rank values documented per your actual plans:
+ *      free=0, premium=1, pro=2, business=3, diamond=5, elite=10
  */
 
 import pLimit      from "p-limit";
@@ -14,6 +14,7 @@ import * as Sentry from "@sentry/node";
 
 import { pool }               from "../config/db.js";
 import { createNotification } from "../services/notifications.js";
+import { invalidateHomepageCache } from "../routes/homepage.js";
 import {
   sendListingExpiryEmail,
   sendListingExpiryWarningEmail,
@@ -26,10 +27,25 @@ import {
 /* ─────────────────────────────────────────────────────────────
    CONSTANTS
 ───────────────────────────────────────────────────────────── */
-const JOB_INTERVAL_MS       = 60 * 60 * 1_000;  // 1 hour
-const WARNING_DEDUP_HOURS   = 20;
-const NOTIFY_CONCURRENCY    = 5;
-const GRACE_PERIOD_DAYS     = 7;  // listings stay live this long after sub expires
+const JOB_INTERVAL_MS      = 60 * 60 * 1_000;  // 1 hour
+const WARNING_DEDUP_HOURS  = 20;
+const NOTIFY_CONCURRENCY   = 5;
+const GRACE_PERIOD_DAYS    = 7;
+
+/*
+ * Subscription plan ranks (from your subscription_plans table).
+ * Used only for documentation — actual values read from DB.
+ *
+ * free     = 0   → no homepage boost
+ * premium  = 1   → above free sellers
+ * pro      = 2   → above premium
+ * business = 3   → above pro
+ * diamond  = 5   → above business
+ * elite    = 10  → highest subscription boost
+ *
+ * These stack on top of promotion_priority in ORDER BY:
+ *   ORDER BY is_promoted DESC, promotion_priority DESC, search_priority DESC
+ */
 
 /* ─────────────────────────────────────────────────────────────
    CONCURRENCY GUARD
@@ -69,10 +85,11 @@ const runNotifications = async (tasks) => {
 
 /* ─────────────────────────────────────────────────────────────
    SUBSCRIPTION GUARD
-   A seller is "subscribed and within grace" when:
+   Seller is protected from expiry when:
      subscription_status = 'active'
      subscription_plan  != 'free'
      subscription_expires_at > NOW() - GRACE_PERIOD_DAYS
+
    The grace period keeps listings live for 7 days after expiry.
 ───────────────────────────────────────────────────────────── */
 const SUBSCRIBED_OR_IN_GRACE_GUARD = `
@@ -87,7 +104,6 @@ const SUBSCRIBED_OR_IN_GRACE_GUARD = `
 
 /* ══════════════════════════════════════════════════════════════
    TASK 1 — EXPIRE FREE LISTINGS
-   Verified sellers, active_until passed, not subscribed / in grace.
 ══════════════════════════════════════════════════════════════ */
 async function expireFreeListings() {
   const { rows, rowCount } = await pool.query(
@@ -111,7 +127,6 @@ async function expireFreeListings() {
   if (!rowCount) return { expired: 0, notified: 0 };
   console.log(`[expiry] Task 1: expired ${rowCount} free listing(s)`);
 
-  /* Fetch seller emails in one query */
   const sellerIds = [...new Set(rows.map((r) => String(r.seller_id)))];
   const { rows: sellers } = await pool.query(
     `SELECT id, name, email FROM public.users WHERE id = ANY($1::UUID[])`,
@@ -127,20 +142,18 @@ async function expireFreeListings() {
     const count   = products.length;
     const summary = buildTitleSummary(products);
 
-    /* In-app notification */
     tasks.push(() =>
       createNotification({
         userId  : sellerId,
         type    : "listing_expired",
         title   : count === 1 ? "Your listing has expired" : `${count} listings have expired`,
         message : count === 1
-          ? `${summary} has expired and is now hidden from buyers. Tap "Renew" to reactivate.`
+          ? `${summary} has expired. Tap "Renew" to reactivate for free.`
           : `${summary} have expired. Renew them to stay visible to buyers.`,
         metadata: { product_ids: products.map((p) => p.id), count },
       })
     );
 
-    /* Email notification */
     if (seller?.email) {
       tasks.push(() =>
         sendListingExpiryEmail({
@@ -158,7 +171,6 @@ async function expireFreeListings() {
 
 /* ══════════════════════════════════════════════════════════════
    TASK 2 — EXPIRE TRIAL LISTINGS
-   Unverified sellers, active_limited, not subscribed / in grace.
 ══════════════════════════════════════════════════════════════ */
 async function expireTrialListings() {
   const { rows, rowCount } = await pool.query(
@@ -202,7 +214,7 @@ async function expireTrialListings() {
         type    : "listings_paused",
         title   : "Trial Listings Expired",
         message :
-          `${count} listing${count !== 1 ? "s" : ""} paused — your 7-day trial has ended. ` +
+          `${count} listing${count !== 1 ? "s" : ""} paused — 7-day trial ended. ` +
           "Verify your identity to restore them permanently.",
         metadata: { product_ids: products.map((p) => p.id), count, reason: "trial_expired" },
       })
@@ -225,20 +237,24 @@ async function expireTrialListings() {
 
 /* ══════════════════════════════════════════════════════════════
    TASK 3 — EXPIRE PROMOTIONS
+   Subscription does not protect promotions from expiring.
+   A subscribed seller's listing stays LIVE — it just loses
+   the promotion boost after duration_days.
 ══════════════════════════════════════════════════════════════ */
 async function expirePromotions() {
   const { rows, rowCount } = await pool.query(
     `UPDATE public.products
      SET
-       is_promoted        = FALSE,
-       promotion_type     = NULL,
-       promotion_priority = 0,
-       boost_score        = GREATEST(0, COALESCE(boost_score, 0) - 50),
-       updated_at         = NOW()
-     WHERE is_promoted           = TRUE
-       AND promotion_expires_at IS NOT NULL
-       AND promotion_expires_at  < NOW()
-       AND status               <> 'deleted'
+       is_promoted          = FALSE,
+       promotion_type       = NULL,
+       promotion_priority   = 0,
+       promotion_expires_at = NULL,
+       boost_score          = GREATEST(0, COALESCE(boost_score, 0) - 50),
+       updated_at           = NOW()
+     WHERE is_promoted            = TRUE
+       AND promotion_expires_at  IS NOT NULL
+       AND promotion_expires_at   < NOW()
+       AND status                <> 'deleted'
      RETURNING id, title, seller_id`
   );
 
@@ -250,7 +266,9 @@ async function expirePromotions() {
       userId  : p.seller_id,
       type    : "promotion_expired",
       title   : "Promotion Ended",
-      message : `Your promotion for "${p.title}" has ended. Promote again to boost visibility.`,
+      message :
+        `Your promotion for "${p.title}" has ended. ` +
+        "Promote again to boost visibility.",
       metadata: { product_id: p.id },
     })
   );
@@ -260,8 +278,8 @@ async function expirePromotions() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   TASK 4 — SEND LISTING EXPIRY WARNINGS
-   Skips subscribed sellers (their listings won't expire).
+   TASK 4 — LISTING EXPIRY WARNINGS  (3 days and 1 day)
+   Skips subscribed sellers — their listings never expire.
 ══════════════════════════════════════════════════════════════ */
 async function sendExpiryWarnings() {
   const warnings = [
@@ -285,7 +303,6 @@ async function sendExpiryWarnings() {
          AND p.active_until IS NOT NULL
          AND p.active_until >= NOW() + (($1 - 1) * INTERVAL '1 day')
          AND p.active_until <  NOW() + ($1       * INTERVAL '1 day')
-         /* Skip subscribed / in-grace sellers */
          AND NOT (
            u.subscription_status      = 'active'
            AND u.subscription_plan   IS NOT NULL
@@ -298,8 +315,8 @@ async function sendExpiryWarnings() {
            WHERE  n.user_id                     = p.seller_id
              AND  n.type                        = 'listing_expiry_warning'
              AND  (n.metadata->>'product_id')::text = p.id::text
-             AND  (n.metadata->>'days')          = $2::text
-             AND  n.created_at                  > NOW() - ($3 * INTERVAL '1 hour')
+             AND  (n.metadata->>'days')         = $2::text
+             AND  n.created_at                 >  NOW() - ($3 * INTERVAL '1 hour')
          )`,
       [days, String(days), WARNING_DEDUP_HOURS]
     );
@@ -311,7 +328,6 @@ async function sendExpiryWarnings() {
 
     console.log(`[expiry] Task 4: ${rows.length} listing warning(s) — expires ${label}`);
 
-    /* Group by seller so one email covers all their expiring listings */
     const bySeller = groupBySeller(rows);
     const tasks    = [];
 
@@ -319,7 +335,6 @@ async function sendExpiryWarnings() {
       const first   = products[0];
       const isTrial = first.status === "active_limited";
 
-      /* One in-app notification per product */
       for (const p of products) {
         tasks.push(() =>
           createNotification({
@@ -327,14 +342,13 @@ async function sendExpiryWarnings() {
             type    : "listing_expiry_warning",
             title   : `Listing expires ${label}`,
             message : isTrial
-              ? `"${p.title}" expires ${label}. Verify your identity to keep it permanently.`
+              ? `"${p.title}" expires ${label}. Verify your identity to keep it.`
               : `"${p.title}" expires ${label}. Tap "Renew" to keep it active for free.`,
             metadata: { product_id: String(p.id), days: String(days) },
           })
         );
       }
 
-      /* One email per seller covering all their products expiring at this window */
       if (first.seller_email) {
         tasks.push(() =>
           sendListingExpiryWarningEmail({
@@ -343,7 +357,11 @@ async function sendExpiryWarnings() {
             days,
             label,
             isTrial,
-            products: products.map((p) => ({ id: p.id, title: p.title, activeUntil: p.active_until })),
+            products: products.map((p) => ({
+              id         : p.id,
+              title      : p.title,
+              activeUntil: p.active_until,
+            })),
           }).catch((e) => console.warn("[expiry] warning email failed:", e.message))
         );
       }
@@ -395,8 +413,8 @@ async function liftExpiryForSubscribedSellers() {
         title   : "Listings Restored by Subscription ✓",
         message : count === 1
           ? `${summary} is now permanently active as part of your subscription.`
-          : `${count} listings (${summary}) are now permanently active as part of your subscription.`,
-        metadata: { product_ids: products.map((p) => p.id), count, reason: "subscription_active" },
+          : `${count} listings (${summary}) are permanently active via your subscription.`,
+        metadata: { product_ids: products.map((p) => p.id), count },
       })
     );
   }
@@ -406,9 +424,7 @@ async function liftExpiryForSubscribedSellers() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   TASK 6 — SUBSCRIPTION EXPIRY WARNINGS  (new)
-   Sends emails + in-app at 7, 3, and 1 day before subscription expires.
-   Only for sellers whose subscription is still active (not yet expired).
+   TASK 6 — SUBSCRIPTION EXPIRY WARNINGS  (7, 3, 1 day before)
 ══════════════════════════════════════════════════════════════ */
 async function sendSubscriptionExpiryWarnings() {
   const warnings = [
@@ -426,7 +442,8 @@ async function sendSubscriptionExpiryWarnings() {
          u.subscription_plan,
          u.subscription_expires_at,
          u.billing_cycle,
-         sp.name AS plan_name
+         sp.name AS plan_name,
+         sp.rank AS plan_rank
        FROM public.users u
        LEFT JOIN subscription_plans sp ON sp.slug = u.subscription_plan
        WHERE u.subscription_status      = 'active'
@@ -435,7 +452,6 @@ async function sendSubscriptionExpiryWarnings() {
          AND u.subscription_expires_at IS NOT NULL
          AND u.subscription_expires_at >= NOW() + (($1 - 1) * INTERVAL '1 day')
          AND u.subscription_expires_at <  NOW() + ($1       * INTERVAL '1 day')
-         /* Dedup — don't re-warn within 20 hours */
          AND NOT EXISTS (
            SELECT 1 FROM public.notifications n
            WHERE  n.user_id         = u.id
@@ -447,25 +463,23 @@ async function sendSubscriptionExpiryWarnings() {
     );
 
     if (!rows.length) {
-      console.log(`[expiry] Task 6: no ${days}-day subscription warnings to send`);
+      console.log(`[expiry] Task 6: no ${days}-day subscription warnings`);
       continue;
     }
 
     console.log(`[expiry] Task 6: ${rows.length} subscription warning(s) — expires ${label}`);
 
     const tasks = rows.map((user) => async () => {
-      /* In-app notification */
       await createNotification({
         userId  : user.id,
         type    : "subscription_expiry_warning",
         title   : `Subscription expires ${label}`,
         message :
-          `Your ${user.plan_name ?? user.subscription_plan} subscription expires ${label}. ` +
-          `Renew now to keep your listings permanently active.`,
+          `Your ${user.plan_name ?? user.subscription_plan} plan expires ${label}. ` +
+          "Renew to keep your listings permanently active and your feed boost.",
         metadata: { days: String(days), plan: user.subscription_plan },
       });
 
-      /* Email */
       if (user.email) {
         await sendSubscriptionExpiryWarningEmail({
           to          : user.email,
@@ -486,11 +500,15 @@ async function sendSubscriptionExpiryWarnings() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   TASK 7 — EXPIRE SUBSCRIPTIONS AFTER GRACE PERIOD  (new)
+   TASK 7 — EXPIRE SUBSCRIPTIONS AFTER GRACE PERIOD
+
    When subscription_expires_at + GRACE_PERIOD_DAYS < NOW():
-     - Expire all their listings (set paused)
-     - Set subscription_status = 'expired' on user row
-     - Send email and in-app notification
+     1. Set users.subscription_status = 'expired'
+     2. Set subscriptions.status      = 'expired'
+     3. Pause all their listings
+     4. Reset search_priority = 0 on products AND users  ← KEY
+     5. Invalidate homepage cache                         ← KEY
+     6. Send email + in-app notification
 ══════════════════════════════════════════════════════════════ */
 async function expireSubscriptionsAfterGrace() {
   /* Find users whose grace period has ended */
@@ -510,14 +528,14 @@ async function expireSubscriptionsAfterGrace() {
 
   console.log(`[expiry] Task 7: ${expiredUsers.length} subscription(s) grace period ended`);
 
-  /* Mark their subscriptions record as expired too */
   const userIds = expiredUsers.map((u) => u.id);
+
+  /* Mark subscription records as expired */
   await pool.query(
     `UPDATE public.subscriptions
-     SET status     = 'expired',
-         updated_at = NOW()
-     WHERE user_id  = ANY($1::UUID[])
-       AND status   = 'active'`,
+     SET status = 'expired', updated_at = NOW()
+     WHERE user_id = ANY($1::UUID[])
+       AND status  = 'active'`,
     [userIds]
   );
 
@@ -533,27 +551,51 @@ async function expireSubscriptionsAfterGrace() {
     [userIds]
   );
 
-  console.log(`[expiry] Task 7: paused ${listingsPaused ?? 0} listings after grace`);
+  console.log(`[expiry] Task 7: paused ${listingsPaused ?? 0} listing(s) after grace`);
 
-  /* Notify each user */
+  /*
+   * KEY: Reset search_priority = 0 on all their products.
+   * Without this, expired sellers' products keep appearing above
+   * free sellers on the homepage even after their subscription ends.
+   *
+   * Mapping reminder:
+   *   elite=10, diamond=5, business=3, pro=2, premium=1, free=0
+   * After expiry → back to 0 (same as free sellers).
+   */
+  await pool.query(
+    `UPDATE public.products
+     SET search_priority = 0,
+         updated_at      = NOW()
+     WHERE seller_id = ANY($1::UUID[])
+       AND status   <> 'deleted'`,
+    [userIds]
+  );
+
+  console.log(`[expiry] Task 7: reset search_priority=0 for ${userIds.length} seller(s)`);
+
+  /* Invalidate homepage cache so the ranking change is immediate */
+  await invalidateHomepageCache().catch(() => {});
+
+  /* Send notifications */
   const tasks = expiredUsers.map((user) => async () => {
     await createNotification({
       userId  : user.id,
       type    : "subscription_grace_expired",
       title   : "Subscription Expired — Listings Paused",
       message :
-        "Your subscription grace period has ended. Your listings have been paused. " +
-        "Renew your subscription to restore them.",
+        "Your subscription grace period has ended. " +
+        "Your listings have been paused and your search boost removed. " +
+        "Renew to restore them.",
       metadata: { plan: user.subscription_plan },
     });
 
     if (user.email) {
       await sendSubscriptionGraceExpiredEmail({
-        to        : user.email,
-        name      : user.name,
-        planSlug  : user.subscription_plan,
-        expiresAt : user.subscription_expires_at,
-        graceDays : GRACE_PERIOD_DAYS,
+        to       : user.email,
+        name     : user.name,
+        planSlug : user.subscription_plan,
+        expiresAt: user.subscription_expires_at,
+        graceDays: GRACE_PERIOD_DAYS,
       }).catch((e) => console.warn("[expiry] grace expired email failed:", e.message));
     }
   });
@@ -563,19 +605,18 @@ async function expireSubscriptionsAfterGrace() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   TASK 8 — GRACE PERIOD REMINDER  (new)
-   Sent once when subscription just expired (entered grace period).
-   Tells seller they have GRACE_PERIOD_DAYS days to renew before
-   their listings are paused.
+   TASK 8 — GRACE PERIOD START NOTIFICATION
+   Fires once the moment subscription expires.
+   Tells seller: listings still live, 7 days to renew.
 ══════════════════════════════════════════════════════════════ */
 async function sendGracePeriodStartNotifications() {
-  /* Find users who expired in the last hour and haven't been notified yet */
   const { rows } = await pool.query(
     `SELECT
        u.id, u.name, u.email,
        u.subscription_plan,
        u.subscription_expires_at,
-       sp.name AS plan_name
+       sp.name AS plan_name,
+       sp.rank AS plan_rank
      FROM public.users u
      LEFT JOIN subscription_plans sp ON sp.slug = u.subscription_plan
      WHERE u.subscription_status      = 'active'
@@ -584,7 +625,6 @@ async function sendGracePeriodStartNotifications() {
        AND u.subscription_expires_at IS NOT NULL
        AND u.subscription_expires_at  < NOW()
        AND u.subscription_expires_at >= NOW() - INTERVAL '1 hour'
-       /* Dedup */
        AND NOT EXISTS (
          SELECT 1 FROM public.notifications n
          WHERE  n.user_id     = u.id
@@ -594,7 +634,6 @@ async function sendGracePeriodStartNotifications() {
   );
 
   if (!rows.length) return { notified: 0 };
-
   console.log(`[expiry] Task 8: ${rows.length} grace period start notification(s)`);
 
   const tasks = rows.map((user) => async () => {
@@ -603,19 +642,19 @@ async function sendGracePeriodStartNotifications() {
       type    : "subscription_grace_started",
       title   : `${GRACE_PERIOD_DAYS}-Day Grace Period Started`,
       message :
-        `Your ${user.plan_name ?? user.subscription_plan} subscription has expired. ` +
-        `Your listings will stay live for ${GRACE_PERIOD_DAYS} more days. ` +
-        "Renew now to avoid any interruption.",
+        `Your ${user.plan_name ?? user.subscription_plan} plan has expired. ` +
+        `Your listings stay live for ${GRACE_PERIOD_DAYS} more days. ` +
+        "Renew now to keep your search boost and avoid any interruption.",
       metadata: { plan: user.subscription_plan, grace_days: GRACE_PERIOD_DAYS },
     });
 
     if (user.email) {
       await sendSubscriptionExpiredEmail({
-        to        : user.email,
-        name      : user.name,
-        planName  : user.plan_name ?? user.subscription_plan,
-        expiresAt : user.subscription_expires_at,
-        graceDays : GRACE_PERIOD_DAYS,
+        to       : user.email,
+        name     : user.name,
+        planName : user.plan_name ?? user.subscription_plan,
+        expiresAt: user.subscription_expires_at,
+        graceDays: GRACE_PERIOD_DAYS,
       }).catch((e) => console.warn("[expiry] grace start email failed:", e.message));
     }
   });
@@ -672,14 +711,14 @@ export async function runListingExpiryJob() {
   };
 
   const tasks = [
-    { name: "expireFreeListings",              result: freeResult         },
-    { name: "expireTrialListings",             result: trialResult        },
-    { name: "expirePromotions",                result: promoResult        },
-    { name: "sendExpiryWarnings",              result: listingWarnResult  },
-    { name: "liftExpiryForSubscribedSellers",  result: liftResult         },
-    { name: "sendSubscriptionExpiryWarnings",  result: subWarnResult      },
-    { name: "expireSubscriptionsAfterGrace",   result: graceExpiredResult },
-    { name: "sendGracePeriodStartNotifications", result: graceStartResult },
+    { name: "expireFreeListings",               result: freeResult         },
+    { name: "expireTrialListings",              result: trialResult        },
+    { name: "expirePromotions",                 result: promoResult        },
+    { name: "sendExpiryWarnings",               result: listingWarnResult  },
+    { name: "liftExpiryForSubscribedSellers",   result: liftResult         },
+    { name: "sendSubscriptionExpiryWarnings",   result: subWarnResult      },
+    { name: "expireSubscriptionsAfterGrace",    result: graceExpiredResult },
+    { name: "sendGracePeriodStartNotifications",result: graceStartResult   },
   ];
 
   for (const { name, result } of tasks) {
@@ -717,7 +756,7 @@ let _timer = null;
 
 export function startListingExpiryJob() {
   if (_timer) {
-    console.warn("[expiry] Job already started — ignoring duplicate call");
+    console.warn("[expiry] Already started");
     return _timer;
   }
 
@@ -742,5 +781,5 @@ export function stopListingExpiryJob() {
   if (!_timer) return;
   clearInterval(_timer);
   _timer = null;
-  console.log("[expiry] ⏹ Job stopped");
+  console.log("[expiry] ⏹ Stopped");
 }
