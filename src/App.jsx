@@ -83,7 +83,7 @@ import TrendingPage      from "./pages/Homepage/TrendingPage";
 import LatestPage        from "./pages/Homepage/LatestPage";
 import NearbyPage        from "./pages/Homepage/NearbyPage";
 import NearbyPageDesktop from "./desktop/NearbyPageDesktop";
-import DealsPage         from "./pages/DealsPage";             // ← NEW
+import DealsPage         from "./pages/Homepage/DealsPage";             // ← NEW
 
 /* ════════════════════════════════════════════════════════════
    PAGES — AUTH
