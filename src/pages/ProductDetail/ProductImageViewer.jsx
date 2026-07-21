@@ -1,52 +1,95 @@
 /**
- * src/pages/ProductDetail/ProductImageViewer.jsx
+ * src/pages/ProductDetail/ProductImageGallery.jsx
  *
- * Route: /product/:slug/images
- * Must be registered in App.jsx:
- *   <Route path="/product/:slug/images" element={<ProductImageViewer />} />
- *
- * Receives via location.state:
- *   images     : string[]   — already-normalized URLs
- *   startIndex : number     — which image to open on
- *   title      : string     — product title for alt text
- *
- * Features:
- *   ─ Full-screen overlay
- *   ─ Swipe left / right
- *   ─ Keyboard: ← → Escape
- *   ─ Tap image to toggle zoom
- *   ─ Progressive load with shimmer
- *   ─ Fallback on broken image
- *   ─ Body scroll lock
- *   ─ Counter + thumbnail strip
- *   ─ Safe redirect if opened without state (direct URL)
+ * Fast progressive image gallery.
+ * Full-screen viewing is delegated to ProductImageViewer.
  */
 
 import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
   memo,
 } from "react";
-import { useNavigate, useLocation, useParams } from "react-router-dom";
-import "./ProductImageViewer.css";
+import ProductImageViewer from "./ProductImageViewer";
+import "./ProductImageGallery.css";
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════ */
 const FALLBACK_SVG =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'" +
-  " width='400' height='300'%3E%3Crect fill='%23111' width='400'" +
+  " width='400' height='300'%3E%3Crect fill='%23f3f4f6' width='400'" +
   " height='300'/%3E%3Ctext x='50%25' y='50%25'" +
   " dominant-baseline='middle' text-anchor='middle'" +
-  " fill='%23555' font-size='14' font-family='sans-serif'" +
+  " fill='%23aaa' font-size='14' font-family='sans-serif'" +
   "%3EImage unavailable%3C/text%3E%3C/svg%3E";
 
+const SWIPE_THRESHOLD = 50;
+const DOTS_MAX_COUNT  = 10;
+
 /* ═══════════════════════════════════════════════════════════
-   SWIPE HOOK  (self-contained — no shared file needed)
+   URL HELPERS
 ═══════════════════════════════════════════════════════════ */
-const useSwipe = (onLeft, onRight, threshold = 50) => {
+const thumbUrl = (url) => {
+  if (!url || typeof url !== "string") return url;
+
+  if (url.includes("res.cloudinary.com") && url.includes("/upload/")) {
+    if (url.includes("/upload/w_")) return url;
+    return url.replace("/upload/", "/upload/w_120,q_30,f_auto/");
+  }
+  if (url.includes("imagedelivery.net") && url.endsWith("/public")) {
+    return url.replace(/\/public$/, "/w=120,q=30");
+  }
+  return url;
+};
+
+const tinyUrl = (url) => {
+  if (!url || typeof url !== "string") return null;
+
+  if (url.includes("res.cloudinary.com") && url.includes("/upload/")) {
+    if (url.includes("/upload/w_")) return url;
+    return url.replace("/upload/", "/upload/w_40,q_10,f_auto/");
+  }
+  if (url.includes("imagedelivery.net") && url.endsWith("/public")) {
+    return url.replace(/\/public$/, "/w=40,q=10");
+  }
+  return null;
+};
+
+const optimizedUrl = (url, width = 800) => {
+  if (!url || typeof url !== "string") return url;
+
+  if (url.includes("res.cloudinary.com") && url.includes("/upload/")) {
+    if (url.includes("/upload/w_")) return url;
+    return url.replace("/upload/", `/upload/w_${width},q_auto,f_auto/`);
+  }
+  if (url.includes("imagedelivery.net") && url.endsWith("/public")) {
+    return url.replace(/\/public$/, `/w=${width},q=80`);
+  }
+  return url;
+};
+
+/* ═══════════════════════════════════════════════════════════
+   PRELOAD HELPER
+═══════════════════════════════════════════════════════════ */
+const preloadImage = (src, priority = "auto") => {
+  if (!src) return null;
+  const link = document.createElement("link");
+  link.rel   = "preload";
+  link.as    = "image";
+  link.href  = src;
+  if (priority === "high") link.fetchPriority = "high";
+  document.head.appendChild(link);
+  return link;
+};
+
+/* ═══════════════════════════════════════════════════════════
+   SWIPE HOOK
+═══════════════════════════════════════════════════════════ */
+const useSwipe = (onLeft, onRight, threshold = SWIPE_THRESHOLD) => {
   const startX = useRef(null);
   const startY = useRef(null);
 
@@ -73,295 +116,297 @@ const useSwipe = (onLeft, onRight, threshold = 50) => {
 };
 
 /* ═══════════════════════════════════════════════════════════
-   SHIMMER
+   ICONS
 ═══════════════════════════════════════════════════════════ */
-const Shimmer = memo(function Shimmer() {
-  return <div className="piv-shimmer" aria-hidden="true" />;
+const IconExpand = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2" strokeLinecap="round"
+    strokeLinejoin="round" aria-hidden="true">
+    <path d="M15 3h6v6" /><path d="M9 21H3v-6" />
+    <path d="M21 3l-7 7" /><path d="M3 21l7-7" />
+  </svg>
+);
+
+const IconNoImage = () => (
+  <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="18" rx="3" />
+    <circle cx="8.5" cy="8.5" r="1.5" />
+    <path d="M21 15l-5-5L5 21" />
+  </svg>
+);
+
+/* ═══════════════════════════════════════════════════════════
+   EMPTY STATE
+═══════════════════════════════════════════════════════════ */
+const EmptyGallery = memo(function EmptyGallery() {
+  return (
+    <div className="pig-empty" aria-label="No images available">
+      <IconNoImage />
+      <span>No photos</span>
+    </div>
+  );
 });
 
 /* ═══════════════════════════════════════════════════════════
-   CLOSE ICON
+   MAIN IMAGE — progressive layers
 ═══════════════════════════════════════════════════════════ */
-const CloseIcon = () => (
-  <svg
-    width="20"
-    height="20"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    aria-hidden="true"
-  >
-    <path d="M18 6L6 18" />
-    <path d="M6 6l12 12" />
-  </svg>
-);
+const MainImage = memo(function MainImage({
+  fullSrc,
+  thumbSrc,
+  tinySrc,
+  alt,
+  loaded,
+  onLoad,
+  onError,
+  isFirst,
+}) {
+  return (
+    <div className="pig-img-slot">
+      {!loaded && thumbSrc && (
+        <img
+          src={thumbSrc}
+          alt=""
+          className="pig-thumb-preview"
+          aria-hidden="true"
+          draggable={false}
+        />
+      )}
 
-/* ═══════════════════════════════════════════════════════════
-   CHEVRON ICONS
-═══════════════════════════════════════════════════════════ */
-const ChevronLeft = () => (
-  <svg
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M15 18l-6-6 6-6" />
-  </svg>
-);
+      {!loaded && !thumbSrc && tinySrc && (
+        <img
+          src={tinySrc}
+          alt=""
+          className="pig-blur"
+          aria-hidden="true"
+          draggable={false}
+        />
+      )}
 
-const ChevronRight = () => (
-  <svg
-    width="24"
-    height="24"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-    aria-hidden="true"
-  >
-    <path d="M9 18l6-6-6-6" />
-  </svg>
-);
+      {!loaded && !thumbSrc && !tinySrc && (
+        <div className="pig-shimmer" aria-hidden="true" />
+      )}
 
-/* ═══════════════════════════════════════════════════════════
-   COMPONENT
-═══════════════════════════════════════════════════════════ */
-function ProductImageViewer() {
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  const { slug }  = useParams();
-
-  /* Pull state passed from gallery */
-  const {
-    images     = [],
-    startIndex = 0,
-    title      = "",
-  } = location.state || {};
-
-  const [active,  setActive]  = useState(() => {
-    const idx = Number(startIndex);
-    return isNaN(idx) || idx < 0 ? 0 : idx;
-  });
-  const [loaded,  setLoaded]  = useState(false);
-  const [zoomed,  setZoomed]  = useState(false);
-  const stripRef  = useRef(null);
-
-  /* ── Guard: no state → go back to product ─────────── */
-  useEffect(() => {
-    if (!location.state || !images.length) {
-      navigate(`/product/${slug}`, { replace: true });
-    }
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  /* ── Body scroll lock ─────────────────────────────── */
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
-
-  /* ── Reset load state on image change ─────────────── */
-  useEffect(() => {
-    setLoaded(false);
-    setZoomed(false);
-  }, [active]);
-
-  /* ── Scroll thumbnail strip to keep active visible ── */
-  useEffect(() => {
-    if (!stripRef.current) return;
-    const thumb = stripRef.current.querySelector(
-      `.piv-strip-thumb--active`
-    );
-    thumb?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
-  }, [active]);
-
-  /* ── Navigation helpers ───────────────────────────── */
-  const close = useCallback(
-    () => navigate(`/product/${slug}`, { replace: true }),
-    [navigate, slug]
+      <img
+        key={fullSrc}
+        src={fullSrc}
+        alt={alt}
+        className={`pig-img${loaded ? " pig-img--loaded" : ""}`}
+        loading="eager"
+        fetchpriority={isFirst ? "high" : "auto"}
+        decoding="async"
+        draggable={false}
+        onLoad={onLoad}
+        onError={onError}
+      />
+    </div>
   );
+});
+
+/* ═══════════════════════════════════════════════════════════
+   MAIN COMPONENT
+═══════════════════════════════════════════════════════════ */
+function ProductImageGallery({ images, title }) {
+  /* images already normalized upstream — filter safety */
+  const urls = useMemo(() => {
+    if (!Array.isArray(images) || !images.length) return [];
+    return images.filter((u) => typeof u === "string" && u.trim() !== "");
+  }, [images]);
+
+  const [active,     setActive]     = useState(0);
+  const [loaded,     setLoaded]     = useState(false);
+  const [viewerOpen, setViewerOpen] = useState(false);
+
+  /* Preload first image ASAP */
+  useEffect(() => {
+    if (!urls.length) return;
+    const link = preloadImage(optimizedUrl(urls[0]), "high");
+    return () => {
+      try { link && document.head.removeChild(link); } catch {}
+    };
+  }, [urls]);
+
+  /* Reset on product change */
+  useEffect(() => {
+    setActive(0);
+    setLoaded(false);
+    setViewerOpen(false);
+  }, [urls]);
+
+  useEffect(() => { setLoaded(false); }, [active]);
+
+  /* Prefetch next image */
+  useEffect(() => {
+    if (urls.length <= 1) return;
+    const nextIdx = (active + 1) % urls.length;
+    const link    = document.createElement("link");
+    link.rel      = "prefetch";
+    link.as       = "image";
+    link.href     = optimizedUrl(urls[nextIdx]);
+    document.head.appendChild(link);
+    return () => {
+      try { document.head.removeChild(link); } catch {}
+    };
+  }, [active, urls]);
 
   const prev = useCallback(
-    () => setActive((i) => (i - 1 + images.length) % images.length),
-    [images.length]
+    () => setActive((i) => (i - 1 + urls.length) % urls.length),
+    [urls.length]
   );
-
   const next = useCallback(
-    () => setActive((i) => (i + 1) % images.length),
-    [images.length]
+    () => setActive((i) => (i + 1) % urls.length),
+    [urls.length]
   );
 
-  /* ── Keyboard ─────────────────────────────────────── */
-  useEffect(() => {
-    const handler = (e) => {
-      switch (e.key) {
-        case "ArrowLeft":  e.preventDefault(); prev();  break;
-        case "ArrowRight": e.preventDefault(); next();  break;
-        case "Escape":                          close(); break;
-        default: break;
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [prev, next, close]);
-
-  /* ── Swipe ────────────────────────────────────────── */
-  const swipe = useSwipe(next, prev);
-
-  /* ── Image callbacks ──────────────────────────────── */
+  const swipe       = useSwipe(next, prev);
+  const openViewer  = useCallback(() => {
+    if (urls.length) setViewerOpen(true);
+  }, [urls.length]);
+  const closeViewer = useCallback(() => setViewerOpen(false), []);
   const handleLoad  = useCallback(() => setLoaded(true), []);
+
   const handleError = useCallback((e) => {
-    e.currentTarget.src = FALLBACK_SVG;
+    console.warn("[ProductImageGallery] Image failed:", e.currentTarget.src);
+    e.currentTarget.onerror = null;
+    e.currentTarget.src     = FALLBACK_SVG;
     setLoaded(true);
   }, []);
 
-  /* ── Toggle zoom ──────────────────────────────────── */
-  const toggleZoom = useCallback(
-    () => setZoomed((z) => !z),
-    []
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openViewer(); }
+      else if (e.key === "ArrowLeft")         { e.preventDefault(); prev(); }
+      else if (e.key === "ArrowRight")        { e.preventDefault(); next(); }
+    },
+    [openViewer, prev, next]
   );
 
-  /* ── Render guard (while redirect effect fires) ───── */
-  if (!images.length) return null;
+  if (!urls.length) return <EmptyGallery />;
 
-  const count      = images.length;
-  const currentSrc = images[active];
+  const currentSrc   = optimizedUrl(urls[active], 800);
+  const currentThumb = thumbUrl(urls[active]);
+  const currentTiny  = tinyUrl(urls[active]);
+  const count        = urls.length;
+
+  /* Higher-res URLs for the viewer */
+  const viewerUrls = useMemo(
+    () => urls.map((u) => optimizedUrl(u, 1600)),
+    [urls]
+  );
 
   return (
-    <div
-      className="piv"
-      role="dialog"
-      aria-modal="true"
-      aria-label={`Image viewer — ${title || "Product"}`}
-      {...swipe}
-    >
-
-      {/* ── Header bar ──────────────────────────────── */}
-      <div className="piv-header">
-        <button
-          className="piv-close"
-          onClick={close}
-          aria-label="Close image viewer"
+    <>
+      <div className="pig" role="region" aria-label="Product images">
+        <div
+          className="pig-main"
+          role="button"
+          tabIndex={0}
+          aria-label={`Image ${active + 1} of ${count}. Press Enter to view full screen`}
+          onClick={openViewer}
+          onKeyDown={handleKeyDown}
+          {...swipe}
         >
-          <CloseIcon />
-        </button>
+          <MainImage
+            fullSrc={currentSrc}
+            thumbSrc={currentThumb}
+            tinySrc={currentTiny}
+            alt={`${title || "Product"} — photo ${active + 1} of ${count}`}
+            loaded={loaded}
+            isFirst={active === 0}
+            onLoad={handleLoad}
+            onError={handleError}
+          />
 
-        <span className="piv-counter" aria-live="polite" aria-atomic="true">
-          {active + 1} / {count}
-        </span>
+          <div className="pig-tap-hint" aria-hidden="true">
+            <IconExpand />
+            <span>Tap to expand</span>
+          </div>
 
-        {/* Spacer keeps counter centred */}
-        <div className="piv-header-spacer" aria-hidden="true" />
-      </div>
+          {count > 1 && (
+            <span className="pig-counter" aria-hidden="true">
+              {active + 1}/{count}
+            </span>
+          )}
 
-      {/* ── Title ───────────────────────────────────── */}
-      {title && (
-        <div className="piv-title" aria-label="Product name">
-          {title}
+          {count > 1 && (
+            <>
+              <button
+                className="pig-arrow pig-arrow--left"
+                onClick={(e) => { e.stopPropagation(); prev(); }}
+                aria-label="Previous image"
+                tabIndex={-1}
+                type="button"
+              >‹</button>
+              <button
+                className="pig-arrow pig-arrow--right"
+                onClick={(e) => { e.stopPropagation(); next(); }}
+                aria-label="Next image"
+                tabIndex={-1}
+                type="button"
+              >›</button>
+            </>
+          )}
+
+          {count > 1 && count <= DOTS_MAX_COUNT && (
+            <div
+              className="pig-dots"
+              role="tablist"
+              aria-label="Image navigation"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {urls.map((_, i) => (
+                <button
+                  key={i}
+                  role="tab"
+                  type="button"
+                  aria-selected={i === active}
+                  aria-label={`Go to image ${i + 1}`}
+                  className={`pig-dot${i === active ? " pig-dot--active" : ""}`}
+                  tabIndex={i === active ? 0 : -1}
+                  onClick={() => setActive(i)}
+                />
+              ))}
+            </div>
+          )}
         </div>
-      )}
 
-      {/* ── Image area ──────────────────────────────── */}
-      <div
-        className={`piv-stage${zoomed ? " piv-stage--zoomed" : ""}`}
-        onClick={toggleZoom}
-        role="button"
-        tabIndex={0}
-        aria-label={zoomed ? "Tap to zoom out" : "Tap to zoom in"}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") toggleZoom();
-        }}
-      >
-        {/* Shimmer while loading */}
-        {!loaded && <Shimmer />}
-
-        <img
-          key={currentSrc}
-          src={currentSrc}
-          alt={`${title || "Product"} — image ${active + 1} of ${count}`}
-          className={`piv-img${loaded ? " piv-img--loaded" : ""}`}
-          draggable={false}
-          onLoad={handleLoad}
-          onError={handleError}
-        />
-
-        {/* Zoom hint */}
-        {loaded && (
-          <div className="piv-zoom-hint" aria-hidden="true">
-            {zoomed ? "Tap to zoom out" : "Tap to zoom in"}
+        {count > 1 && (
+          <div className="pig-thumbs" role="list" aria-label="All product images">
+            {urls.map((url, i) => (
+              <button
+                key={i}
+                role="listitem"
+                type="button"
+                className={`pig-thumb${i === active ? " pig-thumb--active" : ""}`}
+                aria-label={`View image ${i + 1}`}
+                aria-current={i === active ? "true" : undefined}
+                onClick={() => setActive(i)}
+              >
+                <img
+                  src={thumbUrl(url)}
+                  alt=""
+                  loading="lazy"
+                  decoding="async"
+                  draggable={false}
+                  onError={(e) => { e.currentTarget.style.opacity = "0.2"; }}
+                />
+              </button>
+            ))}
           </div>
         )}
       </div>
 
-      {/* ── Prev / Next buttons ─────────────────────── */}
-      {count > 1 && (
-        <>
-          <button
-            className="piv-nav piv-nav--prev"
-            onClick={prev}
-            aria-label="Previous image"
-          >
-            <ChevronLeft />
-          </button>
-
-          <button
-            className="piv-nav piv-nav--next"
-            onClick={next}
-            aria-label="Next image"
-          >
-            <ChevronRight />
-          </button>
-        </>
+      {/* ── Full-screen viewer (imported component) ── */}
+      {viewerOpen && (
+        <ProductImageViewer
+          urls={viewerUrls}
+          title={title}
+          startIndex={active}
+          onClose={closeViewer}
+        />
       )}
-
-      {/* ── Thumbnail strip ─────────────────────────── */}
-      {count > 1 && (
-        <div
-          className="piv-strip"
-          ref={stripRef}
-          role="list"
-          aria-label="All images"
-        >
-          {images.map((url, i) => (
-            <button
-              key={i}
-              role="listitem"
-              className={`piv-strip-thumb${
-                i === active ? " piv-strip-thumb--active" : ""
-              }`}
-              aria-label={`Image ${i + 1}`}
-              aria-current={i === active ? "true" : undefined}
-              onClick={() => setActive(i)}
-            >
-              <img
-                src={url}
-                alt=""
-                loading="lazy"
-                decoding="async"
-                draggable={false}
-                onError={(e) => {
-                  e.currentTarget.style.opacity = "0.2";
-                }}
-              />
-            </button>
-          ))}
-        </div>
-      )}
-
-    </div>
+    </>
   );
 }
 
-export default memo(ProductImageViewer);
+export default memo(ProductImageGallery);
