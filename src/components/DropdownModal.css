@@ -1,52 +1,64 @@
-/* ── DropdownModal.css ───────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   src/components/DropdownModal.css
+   v2 — Mobile-first, keyboard-aware, accessible dropdown
+   Improvements:
+     • Search input 16px font (prevents iOS auto-zoom)
+     • Bigger touch targets on mobile (44px min-height)
+     • Tap-to-focus search — no auto-keyboard on open (JSX handles it)
+     • Refined dark mode with proper contrast
+     • Smoother animations, better focus rings
+═══════════════════════════════════════════════════════════════ */
 
-/* ── Root wrapper — no overflow clipping, just a position anchor ── */
+/* ── Root wrapper ── */
 .dm {
   --o        : #FF5C00;
-  --od       : #d94c00;
+  --o2       : #FF8040;
+  --od       : #D94C00;
   --ink      : #141210;
   --ink2     : #5A5650;
-  --bd       : rgba(255, 92, 0, 0.2);
+  --ink3     : #A8A39D;
+  --bd       : rgba(255, 92, 0, 0.20);
   --bd-focus : rgba(255, 92, 0, 0.55);
-  --shadow   : 0 8px 32px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.08);
+  --shadow   : 0 8px 32px rgba(0, 0, 0, .14), 0 2px 8px rgba(0, 0, 0, .08);
   --radius   : 12px;
-  --font     : 'Plus Jakarta Sans', system-ui, sans-serif;
+  --font     : "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
 
-  position   : relative;
-  width      : 100%;
-  font-family: var(--font);
-  font-size  : 0.93rem;
-  color      : var(--ink);
+  position    : relative;
+  width       : 100%;
+  font-family : var(--font);
+  font-size   : 0.93rem;
+  color       : var(--ink);
 }
 
 /* ── Label ── */
 .dm .dm-label {
-  display       : block;
-  font-size     : 0.82rem;
-  font-weight   : 600;
-  color         : var(--ink2);
-  margin-bottom : 6px;
-  letter-spacing: 0.01em;
+  display        : block;
+  font-size      : 0.82rem;
+  font-weight    : 600;
+  color          : var(--ink2);
+  margin-bottom  : 6px;
+  letter-spacing : 0.01em;
 }
 
 /* ── Trigger ── */
 .dm .dm-trigger {
-  width          : 100%;
-  display        : flex;
-  align-items    : center;
-  justify-content: space-between;
-  gap            : 10px;
-  padding        : 13px 15px;
-  border-radius  : var(--radius);
-  border         : 1.5px solid var(--bd);
-  background     : #FAFAFA;
-  cursor         : pointer;
-  text-align     : left;
-  font-family    : inherit;
-  font-size      : inherit;
-  color          : var(--ink);
-  min-height     : 48px;
-  transition     :
+  width           : 100%;
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  gap             : 10px;
+  padding         : 13px 15px;
+  border-radius   : var(--radius);
+  border          : 1.5px solid var(--bd);
+  background      : #FAFAFA;
+  cursor          : pointer;
+  text-align      : left;
+  font-family     : inherit;
+  font-size       : inherit;
+  color           : var(--ink);
+  min-height      : 48px;
+  -webkit-tap-highlight-color: transparent;
+  transition      :
     border-color 0.2s ease,
     box-shadow   0.2s ease,
     background   0.2s ease;
@@ -60,7 +72,7 @@
 .dm.dm--open .dm-trigger,
 .dm .dm-trigger:focus-visible:not(:disabled) {
   border-color: var(--o);
-  box-shadow  : 0 0 0 3px rgba(255,92,0,0.12);
+  box-shadow  : 0 0 0 3px rgba(255, 92, 0, 0.12);
   outline     : none;
   background  : #fff;
 }
@@ -68,71 +80,70 @@
 .dm .dm-trigger:focus:not(:focus-visible) { outline: none; }
 
 .dm .dm-trigger:disabled {
-  opacity   : 0.52;
-  cursor    : not-allowed;
-  background: #f5f5f5;
+  opacity    : 0.52;
+  cursor     : not-allowed;
+  background : #F5F5F5;
 }
 
 .dm .dm-trigger-text {
-  flex         : 1;
-  overflow     : hidden;
-  text-overflow: ellipsis;
-  white-space  : nowrap;
-  font-size    : 0.93rem;
-  line-height  : 1.4;
+  flex          : 1;
+  overflow      : hidden;
+  text-overflow : ellipsis;
+  white-space   : nowrap;
+  font-size     : 0.93rem;
+  line-height   : 1.4;
 }
 
-.dm .dm-placeholder { color: var(--ink2); opacity: 0.7; }
+.dm .dm-placeholder {
+  color   : var(--ink2);
+  opacity : 0.7;
+}
 
 .dm .dm-chevron {
-  flex-shrink: 0;
-  color      : var(--ink2);
-  display    : flex;
-  align-items: center;
-  transition : transform 0.22s ease, color 0.2s ease;
+  flex-shrink : 0;
+  color       : var(--ink2);
+  display     : flex;
+  align-items : center;
+  transition  : transform 0.22s ease, color 0.2s ease;
 }
 
 .dm.dm--open .dm-chevron {
-  transform: rotate(180deg);
-  color    : var(--o);
+  transform : rotate(180deg);
+  color     : var(--o);
 }
 
-/* ── Panel ────────────────────────────────────────────────────────
-   Rendered via createPortal into document.body with position:fixed
-   and explicit top/left/width/maxHeight set from JS.
-   All "position: absolute" rules removed — JS owns positioning.
-   Scoped without .dm parent because the portal element sits on <body>.
-─────────────────────────────────────────────────────────────────── */
+/* ═══════════════════════════════════════════════════════════════
+   PANEL  (portaled to document.body — JS controls position)
+═══════════════════════════════════════════════════════════════ */
 .dm-panel {
   /* position, top, left, width, maxHeight, z-index set by JS */
-  background    : #fff;
-  border        : 1.5px solid rgba(255, 92, 0, 0.2);
-  border-radius : 14px;
-  box-shadow    : var(--shadow, 0 8px 32px rgba(0,0,0,0.14));
-  display       : flex;
-  flex-direction: column;
-  overflow      : hidden;           /* clip children, not the panel itself */
-  animation     : dmPanelIn 0.18s cubic-bezier(0.34, 1.2, 0.64, 1) both;
+  background     : #fff;
+  border         : 1.5px solid rgba(255, 92, 0, 0.20);
+  border-radius  : 14px;
+  box-shadow     : 0 8px 32px rgba(0, 0, 0, .14), 0 2px 8px rgba(0, 0, 0, .08);
+  display        : flex;
+  flex-direction : column;
+  overflow       : hidden;
+  animation      : dmPanelIn 0.18s cubic-bezier(0.34, 1.2, 0.64, 1) both;
 
-  /* Design tokens — must be redeclared here (outside .dm scope) */
-  --o        : #FF5C00;
-  --od       : #d94c00;
-  --ink      : #141210;
-  --ink2     : #5A5650;
-  --shadow   : 0 8px 32px rgba(0,0,0,0.14), 0 2px 8px rgba(0,0,0,0.08);
-  --font     : 'Plus Jakarta Sans', system-ui, sans-serif;
+  /* Design tokens (portal element sits outside .dm scope) */
+  --o    : #FF5C00;
+  --od   : #D94C00;
+  --ink  : #141210;
+  --ink2 : #5A5650;
+  --font : "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
 
-  font-family: var(--font);
-  font-size  : 0.93rem;
-  color      : var(--ink);
+  font-family : var(--font);
+  font-size   : 0.93rem;
+  color       : var(--ink);
 }
 
 .dm-panel--up {
-  animation    : dmPanelInUp 0.18s cubic-bezier(0.34, 1.2, 0.64, 1) both;
-  border-radius: 14px 14px 4px 14px;
-  box-shadow   :
-    0 -4px 20px rgba(0,0,0,0.10),
-    0 -1px 4px  rgba(0,0,0,0.06);
+  animation     : dmPanelInUp 0.18s cubic-bezier(0.34, 1.2, 0.64, 1) both;
+  border-radius : 14px 14px 4px 14px;
+  box-shadow    :
+    0 -4px 20px rgba(0, 0, 0, 0.10),
+    0 -1px 4px  rgba(0, 0, 0, 0.06);
 }
 
 @keyframes dmPanelIn {
@@ -145,207 +156,382 @@
   to   { opacity: 1; transform: translateY(0)   scale(1);    }
 }
 
-/* ── Search ── */
+/* ═══════════════════════════════════════════════════════════════
+   SEARCH INPUT
+   • 16px font on mobile prevents iOS auto-zoom
+   • Larger padding gives clear tap target
+═══════════════════════════════════════════════════════════════ */
 .dm-search-wrap {
-  display        : flex;
-  align-items    : center;
-  gap            : 8px;
-  padding        : 10px 12px;
-  border-bottom  : 1px solid rgba(255,92,0,0.1);
-  background     : #FDFAF8;
-  flex-shrink    : 0;
-  border-radius  : 14px 14px 0 0;
+  display         : flex;
+  align-items     : center;
+  gap             : 8px;
+  padding         : 12px 14px;
+  border-bottom   : 1px solid rgba(255, 92, 0, 0.10);
+  background      : #FDFAF8;
+  flex-shrink     : 0;
+  border-radius   : 14px 14px 0 0;
+  transition      : border-color 0.15s ease, background 0.15s ease;
+}
+
+/* Highlight the search bar when the input inside is focused */
+.dm-search-wrap:focus-within {
+  border-bottom-color : rgba(255, 92, 0, 0.35);
+  background          : #FFF8F2;
 }
 
 .dm-search-icon {
-  flex-shrink: 0;
-  color      : var(--ink2);
-  opacity    : 0.6;
-  display    : flex;
-  align-items: center;
+  flex-shrink : 0;
+  color       : var(--ink2);
+  opacity     : 0.6;
+  display     : flex;
+  align-items : center;
+  transition  : color 0.15s ease, opacity 0.15s ease;
+}
+
+.dm-search-wrap:focus-within .dm-search-icon {
+  color   : var(--o);
+  opacity : 1;
 }
 
 .dm-search {
-  flex       : 1;
-  border     : none;
-  outline    : none;
-  background : transparent;
-  font-family: var(--font);
-  font-size  : 0.85rem;
-  color      : var(--ink);
-  padding    : 0;
-  min-width  : 0;
+  flex         : 1;
+  border       : none;
+  outline      : none;
+  background   : transparent;
+  font-family  : var(--font);
+  font-size    : 0.9rem;
+  color        : var(--ink);
+  padding      : 4px 0;
+  min-width    : 0;
+  cursor       : text;
+  -webkit-user-select : text;
+  user-select         : text;
 }
 
-.dm-search::placeholder { color: var(--ink2); opacity: 0.6; }
+.dm-search::placeholder {
+  color   : var(--ink2);
+  opacity : 0.55;
+}
 
 .dm-search-clear {
-  flex-shrink    : 0;
-  width          : 22px;
-  height         : 22px;
-  border-radius  : 50%;
-  border         : none;
-  background     : rgba(255,92,0,0.12);
-  color          : var(--o);
-  cursor         : pointer;
-  display        : flex;
-  align-items    : center;
-  justify-content: center;
-  transition     : background 0.15s ease;
+  flex-shrink     : 0;
+  width           : 24px;
+  height          : 24px;
+  border-radius   : 50%;
+  border          : none;
+  background      : rgba(255, 92, 0, 0.12);
+  color           : var(--o);
+  cursor          : pointer;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  padding         : 0;
+  transition      : background 0.15s ease, transform 0.15s ease;
+  -webkit-tap-highlight-color: transparent;
 }
-.dm-search-clear:hover         { background: rgba(255,92,0,0.22); }
-.dm-search-clear:focus-visible { outline: 2px solid var(--o); outline-offset: 1px; }
 
-/* ── List ── */
+.dm-search-clear:hover  { background: rgba(255, 92, 0, 0.22); }
+.dm-search-clear:active { transform: scale(0.9); }
+
+.dm-search-clear:focus-visible {
+  outline        : 2px solid var(--o);
+  outline-offset : 1px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LIST
+═══════════════════════════════════════════════════════════════ */
 .dm-list {
-  overflow-y         : auto;
-  flex               : 1;
-  overscroll-behavior: contain;
-  border-radius      : 0 0 14px 14px;
-  scrollbar-width    : thin;
-  scrollbar-color    : rgba(255,92,0,0.4) transparent;
+  overflow-y          : auto;
+  flex                : 1;
+  overscroll-behavior : contain;
+  border-radius       : 0 0 14px 14px;
+  scrollbar-width     : thin;
+  scrollbar-color     : rgba(255, 92, 0, 0.4) transparent;
+  -webkit-overflow-scrolling: touch;
 }
 
-.dm-list::-webkit-scrollbar       { width: 4px; }
-.dm-list::-webkit-scrollbar-track { background: transparent; }
-.dm-list::-webkit-scrollbar-thumb {
-  background   : rgba(255,92,0,0.4);
-  border-radius: 4px;
-  min-height   : 32px;
+.dm-list::-webkit-scrollbar        { width: 4px; }
+.dm-list::-webkit-scrollbar-track  { background: transparent; }
+.dm-list::-webkit-scrollbar-thumb  {
+  background    : rgba(255, 92, 0, 0.4);
+  border-radius : 4px;
+  min-height    : 32px;
 }
-.dm-list::-webkit-scrollbar-thumb:hover { background: rgba(255,92,0,0.65); }
+.dm-list::-webkit-scrollbar-thumb:hover { background: rgba(255, 92, 0, 0.65); }
 
-/* ── Option ── */
+/* ═══════════════════════════════════════════════════════════════
+   OPTION
+═══════════════════════════════════════════════════════════════ */
 .dm-option {
-  display        : flex;
-  align-items    : center;
-  justify-content: space-between;
-  gap            : 10px;
-  padding        : 11px 14px;
-  cursor         : pointer;
-  font-size      : 0.9rem;
-  color          : var(--ink);
-  line-height    : 1.4;
-  transition     : background 0.14s ease, color 0.14s ease;
-  border         : none;
-  outline        : none;
-  background     : transparent;
-  border-bottom  : 1px solid rgba(255,92,0,0.05);
-  user-select    : none;
-  width          : 100%;
-  text-align     : left;
-  font-family    : var(--font);
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  gap             : 10px;
+  padding         : 12px 14px;
+  cursor          : pointer;
+  font-size       : 0.9rem;
+  color           : var(--ink);
+  line-height     : 1.4;
+  border          : none;
+  outline         : none;
+  background      : transparent;
+  border-bottom   : 1px solid rgba(255, 92, 0, 0.05);
+  user-select     : none;
+  width           : 100%;
+  text-align      : left;
+  font-family     : var(--font);
+  -webkit-tap-highlight-color: transparent;
+  transition      :
+    background 0.14s ease,
+    color      0.14s ease;
 }
 
-.dm-option:last-child               { border-bottom: none; border-radius: 0 0 14px 14px; }
-.dm-option:hover                    { background: rgba(255,92,0,0.06); color: var(--o); }
-.dm-option:focus-visible            { background: rgba(255,92,0,0.10); color: var(--o); outline: 2px solid var(--o); outline-offset: -2px; }
-.dm-option:focus:not(:focus-visible){ outline: none; }
-.dm-option.selected                 { background: rgba(255,92,0,0.08); color: var(--o); font-weight: 600; }
+.dm-option:last-child {
+  border-bottom : none;
+  border-radius : 0 0 14px 14px;
+}
+
+.dm-option:hover {
+  background : rgba(255, 92, 0, 0.06);
+  color      : var(--o);
+}
+
+.dm-option:focus-visible {
+  background     : rgba(255, 92, 0, 0.10);
+  color          : var(--o);
+  outline        : 2px solid var(--o);
+  outline-offset : -2px;
+}
+
+.dm-option:focus:not(:focus-visible) { outline: none; }
+
+.dm-option.selected {
+  background   : rgba(255, 92, 0, 0.08);
+  color        : var(--o);
+  font-weight  : 600;
+}
+
 .dm-option.selected:hover,
-.dm-option.selected:focus-visible   { background: rgba(255,92,0,0.14); color: var(--od); }
-.dm-option.dm-option--disabled      { opacity: 0.38; cursor: not-allowed; pointer-events: none; }
+.dm-option.selected:focus-visible {
+  background : rgba(255, 92, 0, 0.14);
+  color      : var(--od);
+}
+
+.dm-option.dm-option--disabled {
+  opacity        : 0.38;
+  cursor         : not-allowed;
+  pointer-events : none;
+}
 
 .dm-option-label {
-  flex         : 1;
-  overflow     : hidden;
-  text-overflow: ellipsis;
-  white-space  : nowrap;
+  flex          : 1;
+  overflow      : hidden;
+  text-overflow : ellipsis;
+  white-space   : nowrap;
 }
 
 .dm-option-check {
-  flex-shrink: 0;
-  color      : var(--o);
-  display    : flex;
-  align-items: center;
+  flex-shrink : 0;
+  color       : var(--o);
+  display     : flex;
+  align-items : center;
 }
 
-/* ── Empty ── */
+/* ═══════════════════════════════════════════════════════════════
+   EMPTY / LOADING
+═══════════════════════════════════════════════════════════════ */
 .dm-empty {
-  padding   : 20px 14px;
-  text-align: center;
-  color     : var(--ink2);
-  font-size : 0.82rem;
-  opacity   : 0.75;
-  font-style: italic;
+  padding    : 24px 14px;
+  text-align : center;
+  color      : var(--ink2);
+  font-size  : 0.82rem;
+  opacity    : 0.75;
+  font-style : italic;
 }
 
-/* ── Loading ── */
 .dm-loading {
-  display        : flex;
-  align-items    : center;
-  justify-content: center;
-  gap            : 8px;
-  padding        : 20px 14px;
-  color          : var(--ink2);
-  font-size      : 0.85rem;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  gap             : 8px;
+  padding         : 24px 14px;
+  color           : var(--ink2);
+  font-size       : 0.85rem;
 }
 
 .dm-spinner {
-  display      : inline-block;
-  width        : 14px;
-  height       : 14px;
-  border       : 2px solid rgba(255,92,0,0.2);
-  border-top-color: var(--o);
-  border-radius: 50%;
-  animation    : dmSpin 0.7s linear infinite;
-  flex-shrink  : 0;
+  display          : inline-block;
+  width            : 14px;
+  height           : 14px;
+  border           : 2px solid rgba(255, 92, 0, 0.2);
+  border-top-color : var(--o);
+  border-radius    : 50%;
+  animation        : dmSpin 0.7s linear infinite;
+  flex-shrink      : 0;
 }
 
-@keyframes dmSpin { to { transform: rotate(360deg); } }
+@keyframes dmSpin {
+  to { transform: rotate(360deg); }
+}
 
 /* ── Disabled wrapper ── */
 .dm.dm--disabled { pointer-events: none; }
 
-/* ── Mobile ── */
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE  ( ≤ 480 px )
+   • 16px font on search prevents iOS auto-zoom on focus
+   • Bigger padding for easier tapping
+   • 44px min-height meets Apple's touch guidelines
+═══════════════════════════════════════════════════════════════ */
 @media (max-width: 480px) {
   .dm-panel        { border-radius: 12px; }
   .dm-panel--up    { border-radius: 12px 12px 4px 12px; }
-  .dm-option       { padding: 13px 14px; font-size: 0.93rem; }
-  .dm .dm-trigger  { padding: 13px 14px; min-height: 50px; }
-  .dm-search-wrap  { border-radius: 12px 12px 0 0; }
+
+  .dm .dm-trigger  {
+    padding    : 13px 14px;
+    min-height : 50px;
+  }
+
+  .dm-search-wrap  {
+    padding       : 14px 14px;
+    border-radius : 12px 12px 0 0;
+    min-height    : 52px;
+  }
+
+  .dm-search {
+    font-size  : 16px;     /* critical — prevents iOS auto-zoom */
+    padding    : 6px 0;
+    min-height : 28px;
+  }
+
+  .dm-search-clear {
+    width  : 28px;
+    height : 28px;
+  }
+
+  .dm-option {
+    padding    : 14px 14px;
+    font-size  : 0.95rem;
+    min-height : 48px;
+  }
 }
 
-/* ── Reduced motion ── */
+/* ═══════════════════════════════════════════════════════════════
+   TOUCH DEVICES  (regardless of viewport width)
+   Larger tap targets, better spacing
+═══════════════════════════════════════════════════════════════ */
+@media (hover: none) and (pointer: coarse) {
+  .dm .dm-trigger  { min-height: 50px; }
+
+  .dm-search {
+    font-size  : 16px;     /* prevents iOS auto-zoom */
+    min-height : 28px;
+  }
+
+  .dm-search-wrap  { min-height: 52px; }
+
+  .dm-option {
+    min-height : 48px;
+    padding    : 14px 14px;
+  }
+
+  /* Kill hover states — they get "stuck" on touch */
+  .dm .dm-trigger:hover:not(:disabled) { background: #FAFAFA; }
+  .dm-option:hover                     { background: transparent; color: var(--ink); }
+  .dm-option.selected:hover            { background: rgba(255, 92, 0, 0.08); color: var(--o); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REDUCED MOTION
+═══════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   .dm-panel,
   .dm-panel--up    { animation: none; }
+
   .dm .dm-chevron,
   .dm .dm-trigger,
   .dm-option,
-  .dm-search-clear { transition: none; }
+  .dm-search-clear,
+  .dm-search-wrap  { transition: none; }
+
   .dm-spinner      { animation: dmSpin 1.5s linear infinite; }
 }
 
-/* ── Dark mode ── */
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE
+═══════════════════════════════════════════════════════════════ */
 @media (prefers-color-scheme: dark) {
   .dm {
     --ink  : #F5F0EB;
     --ink2 : #A8A39D;
+    --ink3 : #706A62;
     --bd   : rgba(255, 92, 0, 0.25);
   }
 
-  .dm .dm-trigger         { background: #2A2722; border-color: var(--bd); color: var(--ink); }
-  .dm .dm-trigger:hover:not(:disabled)   { background: #33302B; }
-  .dm.dm--open .dm-trigger,
-  .dm .dm-trigger:focus-visible          { background: #33302B; }
-  .dm .dm-trigger:disabled               { background: #222019; }
-
-  .dm-panel {
-    --ink  : #F5F0EB;
-    --ink2 : #A8A39D;
-    background  : #2A2722;
-    border-color: rgba(255, 92, 0, 0.25);
-    box-shadow  : 0 8px 32px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.2);
+  .dm .dm-trigger {
+    background   : #2A2722;
+    border-color : var(--bd);
+    color        : var(--ink);
   }
 
-  .dm-search-wrap   { background: #222019; border-bottom-color: rgba(255,92,0,0.12); }
-  .dm-search        { color: var(--ink); }
-  .dm-list          { scrollbar-color: rgba(255,92,0,0.35) transparent; }
-  .dm-option        { color: var(--ink); border-bottom-color: rgba(255,92,0,0.06); }
+  .dm .dm-trigger:hover:not(:disabled) { background: #33302B; }
+
+  .dm.dm--open .dm-trigger,
+  .dm .dm-trigger:focus-visible        { background: #33302B; }
+
+  .dm .dm-trigger:disabled             { background: #222019; }
+
+  .dm-panel {
+    --ink        : #F5F0EB;
+    --ink2       : #A8A39D;
+    background   : #2A2722;
+    border-color : rgba(255, 92, 0, 0.25);
+    box-shadow   :
+      0 8px 32px rgba(0, 0, 0, 0.4),
+      0 2px 8px  rgba(0, 0, 0, 0.2);
+  }
+
+  .dm-search-wrap {
+    background          : #222019;
+    border-bottom-color : rgba(255, 92, 0, 0.12);
+  }
+
+  .dm-search-wrap:focus-within {
+    background          : #1C1A15;
+    border-bottom-color : rgba(255, 92, 0, 0.35);
+  }
+
+  .dm-search { color: var(--ink); }
+  .dm-search::placeholder { color: var(--ink2); opacity: 0.5; }
+
+  .dm-list {
+    scrollbar-color : rgba(255, 92, 0, 0.35) transparent;
+  }
+
+  .dm-option {
+    color               : var(--ink);
+    border-bottom-color : rgba(255, 92, 0, 0.06);
+  }
+
   .dm-option:hover,
-  .dm-option:focus-visible { background: rgba(255,92,0,0.1); }
-  .dm-option.selected      { background: rgba(255,92,0,0.12); }
-  .dm-empty                { color: var(--ink2); }
+  .dm-option:focus-visible { background: rgba(255, 92, 0, 0.10); }
+  .dm-option.selected      { background: rgba(255, 92, 0, 0.14); }
+
+  .dm-empty,
   .dm-loading              { color: var(--ink2); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HIGH-CONTRAST / FORCED-COLORS
+═══════════════════════════════════════════════════════════════ */
+@media (forced-colors: active) {
+  .dm .dm-trigger,
+  .dm-panel,
+  .dm-option {
+    forced-color-adjust : none;
+    border-color        : ButtonText;
+  }
+
+  .dm-option.selected  { background: Highlight; color: HighlightText; }
 }
