@@ -1088,28 +1088,229 @@
 }
 
 /* ───────────────────────────────────────────────
-   16. LOGOUT BUTTON
+   16. LOGOUT BUTTON + CONFIRMATION MODAL
 ─────────────────────────────────────────────── */
-.mp-logout {
+
+/* ── Trigger ── */
+.mp-logout-wrap {
+  padding: 4px 0 8px;
+}
+
+.mp-logout-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--wh);
+  border: 1.5px solid rgba(220, 38, 38, 0.18);
+  border-radius: var(--r2);
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
+  box-shadow: 0 2px 12px rgba(220, 38, 38, 0.06);
+  text-align: left;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mp-logout-btn:hover,
+.mp-logout-btn:focus-visible {
+  background: rgba(220, 38, 38, 0.04);
+  border-color: rgba(220, 38, 38, 0.35);
+  box-shadow: 0 4px 20px rgba(220, 38, 38, 0.12);
+  outline: none;
+}
+
+.mp-logout-btn:active {
+  background: rgba(220, 38, 38, 0.06);
+  transform: scale(0.985);
+}
+
+.mp-logout-btn__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: rgba(220, 38, 38, 0.1);
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  width: 100%;
-  padding: 14px;
-  margin-top: 6px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: var(--r2);
   color: var(--mp-red);
-  font-size: 14.5px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: background 0.15s;
+  flex-shrink: 0;
+}
+.mp-logout-btn__icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.mp-logout-btn__label {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--mp-red);
+  letter-spacing: -0.01em;
   font-family: var(--fb);
 }
-.mp-logout svg { width: 19px; height: 19px; }
-.mp-logout:active { background: #fee2e2; }
+
+.mp-logout-btn__arrow {
+  width: 18px;
+  height: 18px;
+  color: rgba(220, 38, 38, 0.45);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.mp-logout-btn__arrow svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Backdrop ── */
+.mp-logout-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 900;
+  background: rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(8px) saturate(140%);
+  -webkit-backdrop-filter: blur(8px) saturate(140%);
+}
+
+/* ── Bottom sheet ── */
+.mp-logout-sheet {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 901;
+  background: var(--wh);
+  border-radius: 24px 24px 0 0;
+  padding: 12px 24px calc(24px + var(--mp-safe-b));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  box-shadow:
+    0 -8px 40px rgba(0, 0, 0, 0.18),
+    0 -2px 12px rgba(0, 0, 0, 0.06);
+}
+
+/* drag handle */
+.mp-logout-sheet__handle {
+  width: 40px;
+  height: 4px;
+  border-radius: 99px;
+  background: var(--bd);
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+/* icon circle */
+.mp-logout-sheet__icon-wrap {
+  width: 64px;
+  height: 64px;
+  border-radius: 20px;
+  background: rgba(220, 38, 38, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mp-red);
+  margin-bottom: 2px;
+}
+.mp-logout-sheet__icon-wrap svg {
+  width: 30px;
+  height: 30px;
+}
+
+/* title */
+.mp-logout-sheet__title {
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  margin: 0;
+  font-family: var(--fd);
+}
+
+/* subtitle */
+.mp-logout-sheet__sub {
+  font-size: 14px;
+  color: var(--ink2);
+  text-align: center;
+  margin: 0 0 8px;
+  line-height: 1.5;
+  max-width: 280px;
+}
+
+/* actions */
+.mp-logout-sheet__actions {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+/* confirm btn */
+.mp-logout-sheet__confirm {
+  width: 100%;
+  padding: 15px;
+  border-radius: 14px;
+  background: var(--mp-red);
+  color: var(--wh);
+  font-size: 15px;
+  font-weight: 800;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: background 0.18s, opacity 0.18s, transform 0.12s;
+  letter-spacing: -0.01em;
+  font-family: var(--fb);
+  -webkit-tap-highlight-color: transparent;
+}
+.mp-logout-sheet__confirm:active {
+  background: #b91c1c;
+  transform: scale(0.97);
+}
+.mp-logout-sheet__confirm:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.mp-logout-sheet__confirm svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* cancel btn */
+.mp-logout-sheet__cancel {
+  width: 100%;
+  padding: 15px;
+  border-radius: 14px;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+  border: 1px solid var(--bd);
+  cursor: pointer;
+  transition: background 0.18s, opacity 0.18s, transform 0.12s;
+  letter-spacing: -0.01em;
+  font-family: var(--fb);
+  -webkit-tap-highlight-color: transparent;
+}
+.mp-logout-sheet__cancel:active {
+  background: var(--bd);
+  transform: scale(0.97);
+}
+.mp-logout-sheet__cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* spinner inside confirm */
+.mp-logout-sheet__confirm .mp-spinner-sm {
+  border-color: rgba(255, 255, 255, 0.3);
+  border-top-color: var(--wh);
+}
 
 /* ───────────────────────────────────────────────
    17. ERROR BANNER
@@ -1394,6 +1595,13 @@
   .mp-stat__value { font-size: 14px; }
   .mp-qa          { padding: 10px 5px; font-size: 11.5px; }
   .mp-lcard       { flex: 0 0 138px; }
+
+  .mp-logout-sheet {
+    padding-left: 18px;
+    padding-right: 18px;
+  }
+  .mp-logout-sheet__title { font-size: 18px; }
+  .mp-logout-sheet__sub   { font-size: 13px; }
 }
 
 /* ───────────────────────────────────────────────
@@ -1413,5 +1621,8 @@
   }
   .mp-scroll {
     padding-bottom: calc(var(--mp-nav-h) + max(var(--mp-safe-b), 0px) + 24px);
+  }
+  .mp-logout-sheet {
+    padding-bottom: calc(24px + max(var(--mp-safe-b), 0px));
   }
 }
