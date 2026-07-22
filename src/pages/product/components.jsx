@@ -2,6 +2,10 @@
  * src/pages/product/components.jsx
  * Main shell — imports all sub-components, owns page-level logic only
  *
+ * v4 — TermsCheckbox now rendered outside sticky button-section
+ *       so it is always visible above the Post Ad button.
+ *     Rest of file unchanged from v3.
+ *
  * v3 — image grid mount bug fixed:
  *  - ImageGrid now renders whenever there are images (was hidden at max)
  *  - Limit notice moved to inside ImageGrid, shown BELOW the grid
@@ -1118,17 +1122,22 @@ export default function ProductComponents({
         </section>
       )}
 
-      {/* ── TERMS + SUBMIT ── */}
+      {/* ══════════════════════════════════════════════════════
+          TERMS CHECKBOX
+          v4 change — moved OUT of .button-section so it's always
+          visible above the sticky submit bar (not hidden by it).
+      ══════════════════════════════════════════════════════ */}
+      {!isEditMode && TermsCheckbox}
+
+      {isEditMode && (
+        <p className="edit-back-hint">
+          Changes are saved to your listing immediately.{" "}
+          <Link to="/dashboard">← Back to Dashboard</Link>
+        </p>
+      )}
+
+      {/* ── STICKY SUBMIT BAR ── */}
       <div className="button-section">
-        {!isEditMode && TermsCheckbox}
-
-        {isEditMode && (
-          <p className="edit-back-hint">
-            Changes are saved to your listing immediately.{" "}
-            <Link to="/dashboard">← Back to Dashboard</Link>
-          </p>
-        )}
-
         <span className="sr-only" aria-live="polite" aria-atomic="true">
           {loading ? (isEditMode ? "Saving changes" : "Processing submission") : ""}
         </span>
