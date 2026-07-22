@@ -1,9 +1,9 @@
-/**
- * src/pages/SettingsPage/hooks/useSettings.js
- *
- * Central hook for all settings state and actions.
- * Keeps logic out of the UI components.
- */
+// ════════════════════════════════════════════════════════════
+// FILE: src/pages/SettingsPage/hooks/useSettings.js
+//
+// Central hook for all settings state and actions.
+// Keeps logic out of the UI components.
+// ════════════════════════════════════════════════════════════
 
 import {
   useCallback,
@@ -11,23 +11,29 @@ import {
   useRef,
   useState,
 } from "react";
-import { useNavigate } from "react-router-dom";
 
-/* ─── Constants ─── */
-const THEME_KEY  = "loemart_theme";
-const LANG_KEY   = "loemart_lang";
-const PREFS_KEY  = "loemart_notification_prefs";
+/* ═══════════════════════════════════════════════════════════════
+   CONSTANTS
+═══════════════════════════════════════════════════════════════ */
+const THEME_KEY = "loemart_theme";
+const LANG_KEY  = "loemart_lang";
+const PREFS_KEY = "loemart_notification_prefs";
 
-const THEMES     = ["light", "dark", "system"];
-const LANGUAGES  = [
-  { code: "en", label: "English"  },
-  { code: "yo", label: "Yorùbá"   },
-  { code: "ha", label: "Hausa"    },
-  { code: "ig", label: "Igbo"     },
+const THEMES = ["light", "dark", "system"];
+
+const LANGUAGES = [
+  { code: "en",  label: "English" },
+  { code: "yo",  label: "Yorùbá"  },
+  { code: "ha",  label: "Hausa"   },
+  { code: "ig",  label: "Igbo"    },
   { code: "pcm", label: "Pidgin"  },
 ];
 
-/* ─── Theme helpers ─── */
+const API_BASE = import.meta.env.VITE_API_BASE_URL;
+
+/* ═══════════════════════════════════════════════════════════════
+   THEME HELPERS
+═══════════════════════════════════════════════════════════════ */
 const getSystemTheme = () =>
   window.matchMedia("(prefers-color-scheme: dark)").matches
     ? "dark"
@@ -38,6 +44,9 @@ const applyTheme = (theme) => {
   document.documentElement.setAttribute("data-theme", resolved);
 };
 
+/* ═══════════════════════════════════════════════════════════════
+   STORAGE HELPERS
+═══════════════════════════════════════════════════════════════ */
 const readPref = (key, fallback) => {
   try {
     const v = localStorage.getItem(key);
@@ -53,19 +62,55 @@ const writePref = (key, value) => {
   } catch { /* storage full — non-critical */ }
 };
 
+const getToken = () =>
+  localStorage.getItem("marketplace_token") ||
+  localStorage.getItem("token")             ||
+  null;
+
+/*
+  clearAllAuthStorage
+  ───────────────────
+  Only clears authentication keys — NOT preferences like
+  theme and language. Those should survive a logout so the
+  user's UI settings are still applied when they log back in.
+*/
+const clearAllAuthStorage = () => {
+  localStorage.removeItem("marketplace_token");
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  localStorage.removeItem("auth_user");
+  sessionStorage.removeItem("marketplace_token");
+  sessionStorage.removeItem("token");
+  sessionStorage.removeItem("user");
+};
+
 /* ═══════════════════════════════════════════════════════════════
    HOOK
 ═══════════════════════════════════════════════════════════════ */
 export function useSettings({ user, onLogout } = {}) {
-  const navigate = useNavigate();
-  const mountedRef = useRef(true);
+  /*
+    onLogout  — App.jsx's handleLogout(navigateFn)
+    We do NOT call useNavigate() here.  Navigation is the
+    responsibility of App.jsx's handleLogout.  DangerZone
+    passes its own navigate when it calls onLogout(navigate).
+    This avoids duplicate navigation and keeps the destination
+    defined in one place.
+  */
+
+  const mountedRef  = useRef(true);
+  const toastTimer  = useRef(null);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
   }, []);
 
-  /* ── Theme ── */
+  /* ══════════════════════════════════════════════════════════
+     THEME
+  ══════════════════════════════════════════════════════════ */
   const [theme, setThemeState] = useState(
     () => readPref(THEME_KEY, "system")
   );
@@ -77,18 +122,20 @@ export function useSettings({ user, onLogout } = {}) {
     applyTheme(next);
   }, []);
 
-  /* Apply theme on mount and when system preference changes */
+  /* Apply on mount + watch system preference when theme = "system" */
   useEffect(() => {
     applyTheme(theme);
     if (theme !== "system") return;
 
-    const mq = window.matchMedia("(prefers-color-scheme: dark)");
+    const mq      = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = () => applyTheme("system");
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
   }, [theme]);
 
-  /* ── Language ── */
+  /* ══════════════════════════════════════════════════════════
+     LANGUAGE
+  ══════════════════════════════════════════════════════════ */
   const [language, setLanguageState] = useState(
     () => readPref(LANG_KEY, "en")
   );
@@ -100,12 +147,11 @@ export function useSettings({ user, onLogout } = {}) {
     document.documentElement.setAttribute("lang", code);
   }, []);
 
-  /* ── Notifications ── */
+  /* ══════════════════════════════════════════════════════════
+     NOTIFICATIONS
+  ══════════════════════════════════════════════════════════ */
   const [notifPrefs, setNotifPrefs] = useState(() =>
-    readPref(PREFS_KEY, {
-      push  : true,
-      email : true,
-    })
+    readPref(PREFS_KEY, { push: true, email: true })
   );
 
   const toggleNotif = useCallback((key) => {
@@ -116,9 +162,10 @@ export function useSettings({ user, onLogout } = {}) {
     });
   }, []);
 
-  /* ── Feedback ── */
-  const [toast, setToast] = useState(null); // { type: "success"|"error", msg }
-  const toastTimer = useRef(null);
+  /* ══════════════════════════════════════════════════════════
+     TOAST
+  ══════════════════════════════════════════════════════════ */
+  const [toast, setToast] = useState(null); // { type, msg } | null
 
   const showToast = useCallback((type, msg) => {
     if (!mountedRef.current) return;
@@ -129,94 +176,88 @@ export function useSettings({ user, onLogout } = {}) {
     }, 3_500);
   }, []);
 
-  /* ── Delete account confirmation ── */
-  const [deleteStep, setDeleteStep] = useState(0); // 0 idle 1 confirm 2 loading
-  const [deleteInput, setDeleteInput] = useState("");
+  /* ══════════════════════════════════════════════════════════
+     LOGOUT
+     ──────────────────────────────────────────────────────
+     useSettings does NOT navigate directly.
+     It exposes handleLogout(navigate) so DangerZone can
+     pass its local navigate and App.jsx controls destination.
 
-  const requestDeleteAccount = useCallback(() => {
-    setDeleteStep(1);
-    setDeleteInput("");
-  }, []);
-
-  const cancelDeleteAccount = useCallback(() => {
-    setDeleteStep(0);
-    setDeleteInput("");
-  }, []);
-
-  const confirmDeleteAccount = useCallback(async () => {
-    if (deleteInput.trim().toLowerCase() !== "delete") {
-      showToast("error", "Type DELETE to confirm.");
-      return;
-    }
-    setDeleteStep(2);
-    try {
-      const token =
-        localStorage.getItem("marketplace_token") ||
-        localStorage.getItem("token");
-
-      const res = await fetch(
-        `${import.meta.env.VITE_API_BASE_URL}/api/auth/delete-account`,
-        {
-          method  : "DELETE",
-          headers : {
-            Authorization  : `Bearer ${token}`,
-            "Content-Type" : "application/json",
-          },
-        }
-      );
-
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.message ?? "Delete failed.");
+     Called from DangerZone:
+       settings.handleLogout(navigate)
+         → onLogout(navigate)        [App.jsx]
+           → DELETE /api/users/me    [sets is_online = false]
+           → clearAllAuthStorage()
+           → setUser(null)
+           → navigate("/auth")
+  ══════════════════════════════════════════════════════════ */
+  const handleLogout = useCallback(
+    (navigateFn) => {
+      if (typeof onLogout === "function") {
+        onLogout(navigateFn);
       }
+    },
+    [onLogout]
+  );
 
-      /* Clear local data */
-      localStorage.clear();
-      sessionStorage.clear();
-      onLogout?.();
-      navigate("/", { replace: true });
+  /* ══════════════════════════════════════════════════════════
+     DELETE ACCOUNT
+     ──────────────────────────────────────────────────────
+     The modal in DangerZone handles the full delete flow
+     including the password input and confirm word.
 
-    } catch (err) {
-      if (mountedRef.current) {
-        setDeleteStep(1);
-        showToast("error", err.message ?? "Account deletion failed.");
+     This hook only exposes a lightweight helper that cleans
+     up and hands off to onLogout after a successful delete.
+
+     The actual DELETE /api/settings/delete-account call is
+     made inside DangerZone's DeleteAccountModal so it can
+     manage its own loading / error / success states cleanly.
+
+     handleDeleteSuccess(navigate) is called by DangerZone
+     after the server confirms deletion:
+       1. Clear auth storage locally
+       2. Call onLogout(navigate) → navigate("/auth")
+  ══════════════════════════════════════════════════════════ */
+  const handleDeleteSuccess = useCallback(
+    (navigateFn) => {
+      clearAllAuthStorage();
+      if (typeof onLogout === "function") {
+        onLogout(navigateFn);
       }
-    }
-  }, [deleteInput, navigate, onLogout, showToast]);
+    },
+    [onLogout]
+  );
 
-  /* ── Logout ── */
-  const handleLogout = useCallback(() => {
-    localStorage.clear();
-    sessionStorage.clear();
-    onLogout?.();
-    navigate("/login", { replace: true });
-  }, [navigate, onLogout]);
-
+  /* ══════════════════════════════════════════════════════════
+     RETURN
+  ══════════════════════════════════════════════════════════ */
   return {
+    /* meta */
+    user,
+    onLogout,         // raw — DangerZone can call it directly if needed
+
     /* theme */
     theme,
     setTheme,
     THEMES,
+
     /* language */
     language,
     setLanguage,
     LANGUAGES,
+
     /* notifications */
     notifPrefs,
     toggleNotif,
+
     /* feedback */
     toast,
     showToast,
-    /* delete */
-    deleteStep,
-    deleteInput,
-    setDeleteInput,
-    requestDeleteAccount,
-    cancelDeleteAccount,
-    confirmDeleteAccount,
-    /* logout */
+
+    /* logout — DangerZone calls handleLogout(navigate) */
     handleLogout,
-    /* user passthrough */
-    user,
+
+    /* delete — DangerZone calls handleDeleteSuccess(navigate) */
+    handleDeleteSuccess,
   };
 }
