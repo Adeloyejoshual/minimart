@@ -1,11 +1,9 @@
 // src/hooks/useLocation.js
-import { useCallback, useEffect, useState } from "react";
-
 const STORAGE_KEY = "active_location";
 const GPS_KEY     = "loemart_gps";
 const GPS_TTL     = 10 * 60_000; // 10 min
 
-/* ── Read / write localStorage ───────────────────────────── */
+/* ── localStorage ─────────────────────────────────────── */
 export const getActiveLocation = () => {
   try {
     return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null");
@@ -16,10 +14,13 @@ export const getActiveLocation = () => {
 
 export const saveActiveLocation = (loc) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(loc));
-    /* Broadcast to other components */
+    if (loc === null || loc === undefined) {
+      localStorage.removeItem(STORAGE_KEY);
+    } else {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(loc));
+    }
     window.dispatchEvent(
-      new CustomEvent("locationChanged", { detail: loc })
+      new CustomEvent("locationChanged", { detail: loc ?? null })
     );
   } catch {}
 };
@@ -33,7 +34,7 @@ export const clearActiveLocation = () => {
   } catch {}
 };
 
-/* ── GPS cache helpers ───────────────────────────────────── */
+/* ── GPS cache ────────────────────────────────────────── */
 export const readCachedGps = () => {
   try {
     const raw = sessionStorage.getItem(GPS_KEY);
@@ -53,7 +54,7 @@ export const writeCachedGps = (coords) => {
   } catch {}
 };
 
-/* ── Format label ────────────────────────────────────────── */
+/* ── Label helper ─────────────────────────────────────── */
 export const formatLocationLabel = (loc) => {
   if (!loc) return null;
   if (loc.city && loc.state) return `${loc.city}, ${loc.state}`;
@@ -62,42 +63,44 @@ export const formatLocationLabel = (loc) => {
   return null;
 };
 
-/* ══════════════════════════════════════════════════════════
-   HOOK
-   ══════════════════════════════════════════════════════════ */
+/* ── Hook ─────────────────────────────────────────────── */
+import { useCallback, useEffect, useState } from "react";
+
 export function useLocation() {
   const [location, setLocation] = useState(() => getActiveLocation());
 
-  /* Listen for changes from other components / tabs */
   useEffect(() => {
-    const onChanged = (e) => setLocation(e.detail);
+    const onCustom  = (e) => setLocation(e.detail);          // null-safe
     const onStorage = (e) => {
-      if (e.key === STORAGE_KEY) {
-        try {
-          setLocation(JSON.parse(e.newValue || "null"));
-        } catch {}
-      }
+      if (e.key !== STORAGE_KEY) return;
+      try { setLocation(JSON.parse(e.newValue || "null")); }
+      catch { setLocation(null); }
     };
-
-    window.addEventListener("locationChanged", onChanged);
+    window.addEventListener("locationChanged", onCustom);
     window.addEventListener("storage",         onStorage);
     return () => {
-      window.removeEventListener("locationChanged", onChanged);
+      window.removeEventListener("locationChanged", onCustom);
       window.removeEventListener("storage",         onStorage);
     };
   }, []);
 
-  /* Save + broadcast */
+  /* save — accepts null explicitly (= Show All) */
   const save = useCallback((loc) => {
-    setLocation(loc);
-    saveActiveLocation(loc);
+    const val = loc ?? null;
+    setLocation(val);
+    saveActiveLocation(val);
   }, []);
 
-  /* Clear */
+  /* clear — alias for save(null) */
   const clear = useCallback(() => {
     setLocation(null);
     clearActiveLocation();
   }, []);
 
-  return { location, save, clear };
+  return {
+    location,          // null = "show all"
+    save,
+    clear,
+    isAll: !location,  // convenience flag
+  };
 }
