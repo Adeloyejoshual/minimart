@@ -1,21 +1,6 @@
-/**
- * src/App.jsx — v5
- *
- * FIXES:
- *   FIX A — AuthPage calls setUser(user, token, navigate, from)
- *           correctly.  handleAuthSuccess maps (user, token, nav, from)
- *           exactly as expected.
- *   FIX B — Logout flow clears state synchronously first,
- *           then navigates.  Route guards now correctly block
- *           logged-in users from reaching /auth.
- *   FIX C — AuthPage login now uses handleAuthSuccess directly
- *           instead of wrapping setUser incorrectly.
- *   FIX D — Redirect param support so login returns to
- *           the previous page.
- *
- * CHANGELOG v5 → v6:
- *   - Added /deals route → DealsPage
- */
+// ════════════════════════════════════════════════════════════
+// FILE: App.jsx
+// ════════════════════════════════════════════════════════════
 
 import { useEffect, useState, useCallback, memo, useRef } from "react";
 import {
@@ -24,6 +9,7 @@ import {
   Route,
   Navigate,
   useLocation,
+  useNavigate,
   useParams,
   useSearchParams,
 } from "react-router-dom";
@@ -83,7 +69,7 @@ import TrendingPage      from "./pages/Homepage/TrendingPage";
 import LatestPage        from "./pages/Homepage/LatestPage";
 import NearbyPage        from "./pages/Homepage/NearbyPage";
 import NearbyPageDesktop from "./desktop/NearbyPageDesktop";
-import DealsPage         from "./pages/Homepage/DealsPage";             // ← NEW
+import DealsPage         from "./pages/Homepage/DealsPage";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — AUTH
@@ -290,6 +276,19 @@ async function syncCartAfterLogin(token) {
 }
 
 /* ════════════════════════════════════════════════════════════
+   AUTH STORAGE — clear every key the app might use
+════════════════════════════════════════════════════════════ */
+function clearAllAuthStorage() {
+  localStorage.removeItem(TOKEN_KEYS.marketplace);
+  localStorage.removeItem("token");
+  localStorage.removeItem("user");
+  localStorage.removeItem("auth_user");
+  sessionStorage.removeItem(TOKEN_KEYS.marketplace);
+  sessionStorage.removeItem("token");
+  sessionStorage.removeItem("user");
+}
+
+/* ════════════════════════════════════════════════════════════
    HOOKS
 ════════════════════════════════════════════════════════════ */
 function useSystemThemeWatcher() {
@@ -330,13 +329,17 @@ function useIsDesktop() {
 ════════════════════════════════════════════════════════════ */
 function SiteHeader({ user, onLogout }) {
   const { pathname } = useLocation();
+  const navigate     = useNavigate();
   const isDesktop    = useIsDesktop();
   if (!isDesktop) return null;
   const hidden = HEADER_HIDDEN_PREFIXES.some((p) => pathname.startsWith(p));
   if (hidden) return null;
   return (
     <>
-      <DesktopHeader user={user} onLogout={onLogout} />
+      <DesktopHeader
+        user={user}
+        onLogout={() => onLogout(navigate)}
+      />
       <div className="dh-spacer" aria-hidden="true" />
     </>
   );
@@ -383,9 +386,10 @@ function LeaderboardRoute({ user }) {
 }
 function ProfileRoute({ onLogout }) {
   const isDesktop = useIsDesktop();
+  const navigate  = useNavigate();
   return isDesktop
-    ? <DesktopProfile onLogout={onLogout} />
-    : <Profile        onLogout={onLogout} />;
+    ? <DesktopProfile onLogout={() => onLogout(navigate)} />
+    : <Profile        onLogout={() => onLogout(navigate)} />;
 }
 function SubscriptionRoute() {
   const isDesktop = useIsDesktop();
@@ -450,13 +454,15 @@ function AuthGuestRoute({ user, redirectTo, children }) {
 const AuthLoader = memo(() => (
   <div
     style={{
-      display       : "flex",
-      alignItems    : "center",
-      justifyContent: "center",
-      minHeight     : "100vh",
-      background    : "var(--bg)",
+      display        : "flex",
+      alignItems     : "center",
+      justifyContent : "center",
+      minHeight      : "100vh",
+      background     : "var(--bg)",
     }}
-    role="status" aria-label="Loading" aria-busy="true"
+    role="status"
+    aria-label="Loading"
+    aria-busy="true"
   >
     <div
       style={{
@@ -480,8 +486,8 @@ export default function App() {
   const [admin,       setAdmin]       = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
 
-  const { resetCache } = useProductCache();
-  const loggingOutRef  = useRef(false);
+  const { resetCache }  = useProductCache();
+  const loggingOutRef   = useRef(false);
 
   useSystemThemeWatcher();
 
@@ -497,11 +503,11 @@ export default function App() {
       })
       .then((res) => {
         if (loggingOutRef.current) return;
-        setUser(res.data);
-        syncFavouritesOnLogin(token, res.data.id);
+        setUser(res.data?.user ?? res.data);
+        syncFavouritesOnLogin(token, (res.data?.user ?? res.data).id);
       })
       .catch(() => {
-        localStorage.removeItem(TOKEN_KEYS.marketplace);
+        clearAllAuthStorage();
         clearFavouritesOnLogout();
         setUser(null);
       })
@@ -536,16 +542,55 @@ export default function App() {
     [resetCache]
   );
 
-  /* ── Logout ── */
-  const handleLogout = useCallback(() => {
-    loggingOutRef.current = true;
-    localStorage.removeItem(TOKEN_KEYS.marketplace);
-    setUser(null);
-    resetCache();
-    clearFavouritesOnLogout();
-    toast.success("Signed out");
-    setTimeout(() => { loggingOutRef.current = false; }, 100);
-  }, [resetCache]);
+  /* ════════════════════════════════════════════════════════
+     LOGOUT
+     ─────────────────────────────────────────────────────
+     handleLogout(navigateFn)
+
+     • navigateFn is the useNavigate() function from the
+       calling component. Passing it in keeps navigation
+       inside the Router context and avoids the "navigate
+       called outside Router" error.
+
+     • Every logout path (DangerZone, HamburgerMenu,
+       DesktopHeader, ProfileRoute) calls this one function
+       and always lands on /auth.
+  ════════════════════════════════════════════════════════ */
+  const handleLogout = useCallback(
+    async (navigateFn) => {
+      if (loggingOutRef.current) return;
+      loggingOutRef.current = true;
+
+      /* 1. Tell server — sets is_online = false (fire & forget) */
+      const token = localStorage.getItem(TOKEN_KEYS.marketplace);
+      if (token) {
+        fetch(`${USERS_API}/me`, {
+          method    : "DELETE",
+          headers   : { Authorization: `Bearer ${token}` },
+          keepalive : true,       // survives page unload
+        }).catch(() => {});
+      }
+
+      /* 2. Wipe all local auth data */
+      clearAllAuthStorage();
+
+      /* 3. Reset React + cache state */
+      setUser(null);
+      resetCache();
+      clearFavouritesOnLogout();
+
+      toast.success("Signed out");
+
+      /* 4. Navigate — always /auth, always replace so back
+            button doesn't return to a protected page */
+      if (typeof navigateFn === "function") {
+        navigateFn("/auth", { replace: true });
+      }
+
+      setTimeout(() => { loggingOutRef.current = false; }, 100);
+    },
+    [resetCache]
+  );
 
   /* ── Profile update ── */
   const handleProfileUpdate = useCallback((updatedData) => {
@@ -600,7 +645,7 @@ export default function App() {
         <Route path="/nearby"
           element={<NearbyRoute  user={user} />} />
         <Route path="/deals"
-          element={<DealsPage    user={user} />} />         {/* ← NEW */}
+          element={<DealsPage    user={user} />} />
 
         {/* ── AUTH (guests only) ── */}
         <Route
@@ -682,13 +727,20 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        {/* ── SETTINGS — passes handleLogout so DangerZone
+             can call handleLogout(navigate) ── */}
         <Route path="/settings"
           element={
             <ProtectedRoute user={user}>
-              <SettingsPage user={user} />
+              <SettingsPage
+                user={user}
+                onLogout={handleLogout}
+              />
             </ProtectedRoute>
           }
         />
+
         <Route path="/minimart/add"
           element={
             <ProtectedRoute user={user}>
