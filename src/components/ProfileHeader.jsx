@@ -70,15 +70,6 @@ const Icons = {
     </svg>
   ),
 
-  logout: () => (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-      <polyline points="16 17 21 12 16 7" />
-      <line x1="21" y1="12" x2="9" y2="12" />
-    </svg>
-  ),
-
   dots: () => (
     <svg viewBox="0 0 24 24" fill="currentColor">
       <circle cx="5"  cy="12" r="2" />
@@ -152,9 +143,6 @@ const DropMenuItem = memo(function DropMenuItem({
    menuRef      — optional forwarded ref to the dropdown element
    onEdit       — navigate to edit profile
    onNotif      — navigate to notifications
-   onLogout     — handleLogout(navigate) from App.jsx
-                  Called as: onLogout(navigate)
-                  so App.jsx can navigate to /auth
    onSettings   — navigate to settings page
    showBack     — show the back button (default true)
    fallbackPath — navigate here if history is empty (default "/")
@@ -167,7 +155,6 @@ const ProfileHeader = memo(function ProfileHeader({
   menuRef,
   onEdit,
   onNotif,
-  onLogout,
   onSettings,
   showBack     = true,
   fallbackPath = "/",
@@ -219,7 +206,6 @@ const ProfileHeader = memo(function ProfileHeader({
 
   /* ══════════════════════════════════════════════════════════
      HANDLERS
-     All close the dropdown first, then perform the action.
   ══════════════════════════════════════════════════════════ */
   const handleEdit = () => {
     onMenuClose?.();
@@ -237,28 +223,6 @@ const ProfileHeader = memo(function ProfileHeader({
       onSettings();
     } else {
       navigate("/settings");
-    }
-  };
-
-  /*
-    handleLogout
-    ────────────
-    onLogout is App.jsx's handleLogout(navigateFn).
-    We pass ProfileHeader's local navigate so App.jsx
-    can call navigate("/auth") from inside the Router context.
-
-    Flow:
-      ProfileHeader.handleLogout()
-        → onLogout(navigate)         [App.jsx handleLogout]
-          → DELETE /api/users/me     [is_online = false]
-          → clearAllAuthStorage()
-          → setUser(null)
-          → navigate("/auth")        ✅
-  */
-  const handleLogout = () => {
-    onMenuClose?.();
-    if (typeof onLogout === "function") {
-      onLogout(navigate);
     }
   };
 
@@ -384,15 +348,6 @@ const ProfileHeader = memo(function ProfileHeader({
                   icon={<Icons.settings />}
                   label="Settings"
                   onClick={handleSettings}
-                />
-
-                <div className="ph-drop__divider" role="separator" />
-
-                <DropMenuItem
-                  icon={<Icons.logout />}
-                  label="Log Out"
-                  onClick={handleLogout}
-                  danger
                 />
               </motion.div>
             )}
