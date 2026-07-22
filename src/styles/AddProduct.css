@@ -1287,15 +1287,14 @@ a:focus-visible {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   28. SAFE AREA
+   28. SAFE AREA — notch / home-indicator devices
+   Only add extra padding to the button section (for iPhone home
+   indicator). Do NOT add bottom padding to .apd-page — it would
+   create empty space below the sticky button.
 ═══════════════════════════════════════════════════════════════ */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .button-section {
     padding-bottom: calc(var(--pad) + env(safe-area-inset-bottom));
-  }
-
-  .apd-page {
-    padding-bottom: calc(120px + env(safe-area-inset-bottom));
   }
 }
 
