@@ -42,17 +42,13 @@ const IS_PROD = process.env.NODE_ENV === "production";
 const BCRYPT_ROUNDS        = 12;
 const MAX_BIO_LENGTH       = 300;
 const MAX_NAME_LENGTH      = 60;
-const MAX_USERNAME_LENGTH  = 30;
+const DELETION_GRACE_DAYS  = 60;
 const LOGIN_ACTIVITY_LIMIT = 50;
 const SESSIONS_LIMIT       = 20;
 const BLOCKED_USERS_LIMIT  = 100;
-const DELETION_GRACE_DAYS  = 60;   // days before hard purge
 
-const ALLOWED_LANGUAGES = new Set([
-  "en", "yo", "ha", "ig", "pcm",
-]);
-
-const ALLOWED_GENDERS = new Set([
+const ALLOWED_LANGUAGES = new Set(["en", "yo", "ha", "ig", "pcm"]);
+const ALLOWED_GENDERS   = new Set([
   "male", "female", "non-binary", "prefer_not_to_say",
 ]);
 
@@ -90,13 +86,13 @@ const extractToken = (req) => {
 };
 
 const parseDeviceName = (ua = "") => {
-  if (!ua)                        return "Unknown device";
-  if (/iPhone/i.test(ua))         return "iPhone";
-  if (/iPad/i.test(ua))           return "iPad";
-  if (/Android/i.test(ua))        return "Android device";
-  if (/Windows/i.test(ua))        return "Windows PC";
-  if (/Macintosh/i.test(ua))      return "Mac";
-  if (/Linux/i.test(ua))          return "Linux device";
+  if (!ua)                   return "Unknown device";
+  if (/iPhone/i.test(ua))    return "iPhone";
+  if (/iPad/i.test(ua))      return "iPad";
+  if (/Android/i.test(ua))   return "Android device";
+  if (/Windows/i.test(ua))   return "Windows PC";
+  if (/Macintosh/i.test(ua)) return "Mac";
+  if (/Linux/i.test(ua))     return "Linux device";
   return "Unknown device";
 };
 
@@ -173,7 +169,8 @@ const restoreLimiter = makeLimiter({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   SESSION UPSERT — call this from your auth/login route
+   SESSION UPSERT
+   Call this from your auth/login route after issuing a JWT.
 ═══════════════════════════════════════════════════════════════ */
 export const upsertSession = async (userId, token, req) => {
   try {
@@ -202,6 +199,8 @@ export const upsertSession = async (userId, token, req) => {
 
 /* ═══════════════════════════════════════════════════════════════
    PROFILE COLUMNS ALLOWLIST
+   Explicit list prevents newly added sensitive columns from
+   leaking accidentally via SELECT *.
 ═══════════════════════════════════════════════════════════════ */
 const PROFILE_COLS = `
   id, name, first_name, last_name, username, email,
@@ -242,14 +241,12 @@ router.get(
 
       const profile = rows[0];
 
-      /* Surface pending deletion info if applicable */
       const pendingDeletion =
-        profile.status === "pending_deletion" &&
-        profile.deletion_scheduled_at
+        profile.status === "pending_deletion" && profile.deletion_scheduled_at
           ? {
-              scheduled_at  : profile.deletion_scheduled_at,
-              days_remaining: daysRemaining(profile.deletion_scheduled_at),
-              can_restore   : true,
+              scheduled_at   : profile.deletion_scheduled_at,
+              days_remaining : daysRemaining(profile.deletion_scheduled_at),
+              can_restore    : true,
             }
           : null;
 
@@ -282,7 +279,7 @@ router.patch(
       address, social_links,
     } = req.body;
 
-    /* ── Validate ── */
+    /* ── Validation ── */
     if (first_name !== undefined) {
       const v = cleanText(first_name);
       if (!v || v.length > MAX_NAME_LENGTH)
@@ -318,9 +315,9 @@ router.patch(
     if (date_of_birth !== undefined && date_of_birth !== null) {
       const d   = new Date(date_of_birth);
       const age = (Date.now() - d.getTime()) / (365.25 * 86_400_000);
-      if (isNaN(d.getTime()))  return fail(res, 400, "Invalid date of birth.");
-      if (age < 13)            return fail(res, 400, "You must be at least 13 years old.");
-      if (age > 120)           return fail(res, 400, "Invalid date of birth.");
+      if (isNaN(d.getTime())) return fail(res, 400, "Invalid date of birth.");
+      if (age < 13)           return fail(res, 400, "You must be at least 13 years old.");
+      if (age > 120)          return fail(res, 400, "Invalid date of birth.");
     }
 
     if (social_links !== undefined && social_links !== null) {
@@ -332,6 +329,7 @@ router.patch(
     try {
       await client.query("BEGIN");
 
+      /* Username uniqueness check */
       if (username !== undefined) {
         const uname = cleanText(username);
         const { rows: existing } = await client.query(
@@ -368,7 +366,7 @@ router.patch(
       if (social_links      !== undefined)
         addField("social_links", social_links ? JSON.stringify(social_links) : null);
 
-      /* Sync composite name */
+      /* Sync composite name when either name part changes */
       if (first_name !== undefined || last_name !== undefined) {
         const { rows: cur } = await client.query(
           "SELECT first_name, last_name FROM public.users WHERE id = $1",
@@ -467,6 +465,7 @@ router.post(
         [newHash, userId]
       );
 
+      /* Invalidate all other sessions — forces re-login on other devices */
       const currentTokenHash = hashToken(extractToken(req) ?? "");
       await pool.query(
         `DELETE FROM user_sessions
@@ -610,8 +609,7 @@ router.patch(
         return fail(res, 400, "This is already your current phone number.");
 
       const { rows: taken } = await pool.query(
-        `SELECT id FROM public.users
-         WHERE phone = $1 AND id <> $2`,
+        `SELECT id FROM public.users WHERE phone = $1 AND id <> $2`,
         [cleaned, userId]
       );
       if (taken.length) return fail(res, 409, "This phone number is already in use.");
@@ -638,10 +636,7 @@ router.patch(
         }).catch(() => {});
       });
 
-      return ok(res, {
-        message : "Phone number updated.",
-        phone   : cleaned,
-      });
+      return ok(res, { message: "Phone number updated.", phone: cleaned });
 
     } catch (err) {
       console.error("[settings] PATCH /phone:", err.message);
@@ -726,6 +721,7 @@ router.patch(
         `UPDATE public.users SET ${updates.join(", ")} WHERE id = $${idx}`,
         values
       );
+
       return ok(res, { message: "Preferences updated.", language });
 
     } catch (err) {
@@ -754,6 +750,7 @@ router.get(
         [userId]
       );
 
+      /* Return sensible defaults when no row exists yet */
       const prefs = rows[0] ?? {
         push_enabled      : true,
         email_enabled     : true,
@@ -856,17 +853,17 @@ router.get(
     try {
       const { rows } = await pool.query(
         `SELECT
-           bu.id            AS block_id,
-           bu.created_at    AS blocked_at,
+           bu.id          AS block_id,
+           bu.created_at  AS blocked_at,
            bu.reason,
-           u.id             AS user_id,
+           u.id           AS user_id,
            u.name,
            u.username,
            u.profile_image,
            u.store_name,
            u.verified
          FROM blocked_users bu
-         JOIN public.users u ON u.id = bu.blocked_id
+         JOIN public.users  u ON u.id = bu.blocked_id
          WHERE bu.blocker_id = $1
          ORDER BY bu.created_at DESC
          LIMIT $2`,
@@ -904,7 +901,8 @@ router.post(
 
     try {
       const { rows: target } = await pool.query(
-        "SELECT id, name FROM public.users WHERE id = $1 AND status <> 'deleted'",
+        `SELECT id, name FROM public.users
+         WHERE id = $1 AND status <> 'deleted'`,
         [user_id]
       );
       if (!target.length) return fail(res, 404, "User not found.");
@@ -1042,6 +1040,7 @@ router.get(
     const currentHash = currentToken ? hashToken(currentToken) : null;
 
     try {
+      /* Prune expired sessions first */
       await pool.query(
         `DELETE FROM user_sessions
          WHERE user_id = $1 AND expires_at < NOW()`,
@@ -1176,6 +1175,15 @@ router.delete(
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/settings/logout
+   ─────────────────────────────────────────────────────────────
+   Also called by App.jsx via DELETE /api/users/me which sets
+   is_online = false.  This endpoint handles the session row
+   deletion and the audit log entry.
+
+   Both endpoints can be hit simultaneously — both are safe
+   to call independently or together:
+     DELETE /api/users/me   → is_online = false
+     POST /api/settings/logout → deletes session row + audit
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/logout",
@@ -1186,10 +1194,21 @@ router.post(
     const token  = extractToken(req);
 
     try {
+      /* Remove this device's session */
       if (token) {
         await pool.query(
           "DELETE FROM user_sessions WHERE token_hash = $1",
           [hashToken(token)]
+        );
+      }
+
+      /* Mark user offline */
+      if (userId) {
+        await pool.query(
+          `UPDATE public.users
+           SET is_online = false
+           WHERE id = $1`,
+          [userId]
         );
       }
 
@@ -1207,6 +1226,7 @@ router.post(
 
     } catch (err) {
       console.error("[settings] POST /logout:", err.message);
+      /* Always succeed from the client's perspective */
       return ok(res, { message: "Logged out." });
     }
   }
@@ -1214,20 +1234,18 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE /api/settings/delete-account
-
+   ─────────────────────────────────────────────────────────────
    Flow:
-     1. Verify password
-     2. Verify confirm = "delete"
-     3. Mark status = 'pending_deletion'
-     4. Set deletion_scheduled_at = NOW() + 60 days
-     5. Pause all active listings
-     6. Revoke all sessions → forces logout
-     7. Audit log
-     8. Return 200 with grace period info
+     1. Verify password + "delete" confirmation word
+     2. Mark status = 'pending_deletion'
+     3. Set deletion_scheduled_at = NOW() + 60 days
+     4. Pause all active listings
+     5. Revoke ALL sessions → forces logout everywhere
+     6. Audit log
 
    The user is NOT hard-deleted here.
-   A cron job handles hard deletion after 60 days.
-   If they log in within 60 days, offer restore.
+   A nightly cron job handles hard deletion after 60 days.
+   If the user logs in before then, offer /restore-account.
 ═══════════════════════════════════════════════════════════════ */
 router.delete(
   "/delete-account",
@@ -1257,9 +1275,12 @@ router.delete(
         [userId]
       );
 
-      if (!rows.length) return fail(res, 404, "User not found.");
+      if (!rows.length) {
+        await client.query("ROLLBACK");
+        return fail(res, 404, "User not found.");
+      }
 
-      /* Already scheduled — return current state */
+      /* Already scheduled — return current state rather than erroring */
       if (rows[0].status === "pending_deletion") {
         await client.query("ROLLBACK");
         const { rows: cur } = await pool.query(
@@ -1287,10 +1308,11 @@ router.delete(
       /* Mark account pending deletion */
       await client.query(
         `UPDATE public.users
-         SET status                  = 'pending_deletion',
-             deletion_requested_at   = NOW(),
-             deletion_scheduled_at   = $1,
-             updated_at              = NOW()
+         SET status                = 'pending_deletion',
+             deletion_requested_at = NOW(),
+             deletion_scheduled_at = $1,
+             is_online             = false,
+             updated_at            = NOW()
          WHERE id = $2`,
         [scheduledAt, userId]
       );
@@ -1306,7 +1328,7 @@ router.delete(
         [userId]
       );
 
-      /* Revoke ALL sessions — logs the user out everywhere */
+      /* Revoke ALL sessions — logs user out on every device */
       await client.query(
         "DELETE FROM user_sessions WHERE user_id = $1",
         [userId]
@@ -1355,16 +1377,13 @@ router.delete(
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/settings/restore-account
-
-   Called when a user with status = 'pending_deletion' logs in
-   and taps "Restore Account".
-
+   ─────────────────────────────────────────────────────────────
    Flow:
      1. Confirm account is in pending_deletion state
      2. Confirm grace period has not expired
      3. Restore status to 'active'
      4. Clear deletion fields
-     5. Restore paused listings
+     5. Restore listings that were paused at deletion time
      6. Audit log
 ═══════════════════════════════════════════════════════════════ */
 router.post(
@@ -1381,24 +1400,26 @@ router.post(
       await client.query("BEGIN");
 
       const { rows } = await client.query(
-        `SELECT status, deletion_scheduled_at, restore_count
+        `SELECT status, deletion_scheduled_at, deletion_requested_at, restore_count
          FROM public.users
          WHERE id = $1
          FOR UPDATE`,
         [userId]
       );
 
-      if (!rows.length) return fail(res, 404, "User not found.");
+      if (!rows.length) {
+        await client.query("ROLLBACK");
+        return fail(res, 404, "User not found.");
+      }
 
       const user = rows[0];
 
-      /* Not pending deletion */
       if (user.status !== "pending_deletion") {
         await client.query("ROLLBACK");
         return fail(res, 400, "Your account is not scheduled for deletion.");
       }
 
-      /* Grace period already passed — too late to restore */
+      /* Grace period has already passed */
       if (
         user.deletion_scheduled_at &&
         new Date(user.deletion_scheduled_at) <= new Date()
@@ -1414,21 +1435,22 @@ router.post(
       /* Restore account */
       await client.query(
         `UPDATE public.users
-         SET status                 = 'active',
-             deletion_requested_at  = NULL,
-             deletion_scheduled_at  = NULL,
-             deletion_reason        = NULL,
-             restored_at            = NOW(),
-             restore_count          = restore_count + 1,
-             updated_at             = NOW()
+         SET status                = 'active',
+             deletion_requested_at = NULL,
+             deletion_scheduled_at = NULL,
+             deletion_reason       = NULL,
+             restored_at           = NOW(),
+             restore_count         = restore_count + 1,
+             updated_at            = NOW()
          WHERE id = $1`,
         [userId]
       );
 
-      /* Restore listings that were paused at deletion request time.
-         We only restore listings paused AFTER deletion_requested_at
-         to avoid accidentally re-activating listings paused for
-         other reasons (e.g. policy violations).                     */
+      /*
+        Only restore listings that were paused when the deletion was
+        requested — avoids accidentally reactivating listings that were
+        paused for unrelated reasons (e.g. policy violations).
+      */
       const { rowCount: restoredListings } = await client.query(
         `UPDATE products
          SET is_active  = TRUE,
@@ -1436,12 +1458,8 @@ router.post(
              updated_at = NOW()
          WHERE seller_id  = $1
            AND status     = 'paused'
-           AND updated_at >= (
-             SELECT deletion_requested_at
-             FROM public.users
-             WHERE id = $1
-           )`,
-        [userId]
+           AND updated_at >= $2`,
+        [userId, user.deletion_requested_at]
       );
 
       await client.query("COMMIT");
@@ -1453,8 +1471,8 @@ router.post(
           targetType : "user",
           targetId   : userId,
           metadata   : {
-            restore_count      : (user.restore_count ?? 0) + 1,
-            listings_restored  : restoredListings,
+            restore_count     : (user.restore_count ?? 0) + 1,
+            listings_restored : restoredListings,
           },
           ipAddress  : ip,
         }).catch(() => {});
