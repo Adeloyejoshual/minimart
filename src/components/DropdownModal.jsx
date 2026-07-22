@@ -23,6 +23,15 @@ const getOptLabel = (opt, labelField) =>
 const getOptDisabled = (opt) =>
   typeof opt === "object" ? !!opt.disabled : false;
 
+/* Detect touch device once at module load */
+const IS_TOUCH_DEVICE =
+  typeof window !== "undefined" &&
+  (
+    "ontouchstart" in window ||
+    navigator.maxTouchPoints > 0 ||
+    window.matchMedia?.("(hover: none) and (pointer: coarse)").matches
+  );
+
 /* ── Component ────────────────────────────────────────────────── */
 export default function DropdownModal({
   label      = "",
@@ -170,19 +179,33 @@ export default function DropdownModal({
     };
   }, [open, updatePanelPosition]);
 
-  /* ── Focus on open ── */
+  /* ── Focus on open ──
+     v2 FIX: On touch devices, do NOT auto-focus the search input.
+     Auto-focusing pops up the mobile keyboard immediately, which is
+     jarring and obscures the option list. Users tap the search box
+     themselves when they want to type.
+
+     Behaviour:
+       • Desktop + search visible  → auto-focus search (fast typing)
+       • Desktop + no search       → focus selected/first option
+       • Mobile  + search visible  → focus nothing (user taps search)
+       • Mobile  + no search       → focus selected/first option
+  */
   useEffect(() => {
     if (!open) return;
 
     const tid = setTimeout(() => {
-      if (showSearch) {
+      if (showSearch && !IS_TOUCH_DEVICE) {
+        /* Desktop only — auto-focus the search field */
         searchRef.current?.focus();
-      } else {
+      } else if (!showSearch) {
+        /* No search box — focus the selected or first enabled option */
         const selected =
           listRef.current?.querySelector(".dm-option.selected") ||
           listRef.current?.querySelector(".dm-option:not(.dm-option--disabled)");
         selected?.focus();
       }
+      /* Mobile + search: intentionally focus nothing */
     }, 0);
 
     return () => clearTimeout(tid);
@@ -324,13 +347,17 @@ export default function DropdownModal({
                 ref={searchRef}
                 type="text"
                 className="dm-search"
-                placeholder="Search…"
+                placeholder="Tap to search…"
                 value={rawQuery}
                 onChange={handleSearchChange}
                 onKeyDown={handleSearchKeyDown}
                 aria-label="Search options"
                 autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
                 spellCheck={false}
+                inputMode="search"
+                enterKeyHint="search"
               />
               {rawQuery && (
                 <button
