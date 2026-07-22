@@ -30,7 +30,7 @@ const POPULAR_STATES = [
 const ALL_STATES = Object.keys(locationsByState).sort();
 
 /* ══════════════════════════════════════════════════════════════
-   SVG ICONS
+   SVG ICONS  (unchanged — keeping all your originals)
 ══════════════════════════════════════════════════════════════ */
 const ArrowLeftIcon = ({ size = 18 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -155,22 +155,32 @@ const detectState = async (lat, lng) => {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   CITY AD COUNTS
+   CITY AD COUNTS  ← now also returns per-state totals
+   Returns: { byCityCity: {CityName: count}, byState: {StateName: count} }
 ══════════════════════════════════════════════════════════════ */
 const fetchCityCounts = async () => {
   try {
     const res  = await fetch(`${API}/homepage?page=0&limit=${PRODUCT_LIMIT}`);
-    if (!res.ok) return {};
-    const data = await res.json();
+    if (!res.ok) return { byCity: {}, byState: {} };
+
+    const data  = await res.json();
     const prods = Array.isArray(data.products) ? data.products : [];
-    const counts = {};
+
+    const byCity  = {};
+    const byState = {};
+
     for (const p of prods) {
-      const city = p.location?.city || p.location_city;
-      if (city) counts[city] = (counts[city] || 0) + 1;
+      // ── normalise field names ────────────────────────────
+      const city  = p.location?.city  ?? p.location_city  ?? null;
+      const state = p.location?.state ?? p.location_state ?? null;
+
+      if (city)  byCity[city]   = (byCity[city]   || 0) + 1;
+      if (state) byState[state] = (byState[state] || 0) + 1;
     }
-    return counts;
+
+    return { byCity, byState };
   } catch {
-    return {};
+    return { byCity: {}, byState: {} };
   }
 };
 
@@ -179,17 +189,16 @@ const fetchCityCounts = async () => {
 ══════════════════════════════════════════════════════════════ */
 const formatCount = (n) => {
   const num = Number(n || 0);
-  if (num <= 0)          return "0";
-  if (num < 1_000)       return String(num);
-  if (num < 10_000)      return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  if (num <= 0)     return "0";
+  if (num < 1_000)  return String(num);
+  if (num < 10_000) return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
   return `${Math.round(num / 1_000)}k`;
 };
 
 /* ══════════════════════════════════════════════════════════════
    SUB-COMPONENTS
 ══════════════════════════════════════════════════════════════ */
-
-function StateItem({ state, onSelect, isPopular = false }) {
+function StateItem({ state, count, onSelect, isPopular = false }) {
   return (
     <button className="lp-item" onClick={() => onSelect(state)}>
       {isPopular && (
@@ -198,6 +207,12 @@ function StateItem({ state, onSelect, isPopular = false }) {
         </span>
       )}
       <span className="lp-item-name">{state}</span>
+
+      {/* show ad count badge on state list too */}
+      {count > 0 && (
+        <span className="lp-ads-chip">{formatCount(count)} ads</span>
+      )}
+
       <ChevronRightIcon size={14} />
     </button>
   );
@@ -225,26 +240,33 @@ export default function LocationPicker({ open, onClose, onSelect }) {
   const [query,         setQuery]         = useState("");
   const [gpsStatus,     setGpsStatus]     = useState("idle");
   const [gpsLabel,      setGpsLabel]      = useState("");
-  const [cityCounts,    setCityCounts]    = useState({});
+
+  // ── Unified counts ───────────────────────────────────────
+  const [byCity,        setByCity]        = useState({});
+  const [byState,       setByState]       = useState({});
   const [loadingCounts, setLoadingCounts] = useState(false);
+
+  // ── Fallback banner ──────────────────────────────────────
+  // null = no banner  |  object = { original, fallback }
+  const [fallbackInfo,  setFallbackInfo]  = useState(null);
 
   const inputRef     = useRef(null);
   const gpsAttempted = useRef(false);
 
-  /* Scroll lock */
+  /* ── Scroll lock ─────────────────────────────────────────── */
   useEffect(() => {
     document.body.style.overflow = open ? "hidden" : "";
     return () => { document.body.style.overflow = ""; };
   }, [open]);
 
-  /* ESC key */
+  /* ── ESC key ─────────────────────────────────────────────── */
   useEffect(() => {
     const h = (e) => { if (e.key === "Escape") onClose(); };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
 
-  /* Reset on open */
+  /* ── Reset on open ───────────────────────────────────────── */
   useEffect(() => {
     if (open) {
       setView("state");
@@ -252,22 +274,27 @@ export default function LocationPicker({ open, onClose, onSelect }) {
       setQuery("");
       setGpsStatus("idle");
       setGpsLabel("");
-      setCityCounts({});
+      setByCity({});
+      setByState({});
+      setFallbackInfo(null);
       gpsAttempted.current = false;
       setTimeout(() => inputRef.current?.focus(), FOCUS_DELAY);
     }
   }, [open]);
 
-  /* Fetch city counts */
+  /* ── Fetch counts (once per open, not per state) ─────────── */
   useEffect(() => {
-    if (!selState) return;
+    if (!open) return;
     setLoadingCounts(true);
     fetchCityCounts()
-      .then(setCityCounts)
+      .then(({ byCity: bc, byState: bs }) => {
+        setByCity(bc);
+        setByState(bs);
+      })
       .finally(() => setLoadingCounts(false));
-  }, [selState]);
+  }, [open]); // ← run once when picker opens
 
-  /* Filtered lists */
+  /* ── Filtered lists ──────────────────────────────────────── */
   const popularFiltered = useMemo(() =>
     POPULAR_STATES.filter((s) =>
       s.toLowerCase().includes(query.toLowerCase())
@@ -288,7 +315,101 @@ export default function LocationPicker({ open, onClose, onSelect }) {
     );
   }, [selState, query]);
 
-  /* Handlers */
+  /* ─────────────────────────────────────────────────────────
+     CORE: pick a location, check for products, auto-fallback
+  ───────────────────────────────────────────────────────── */
+  /**
+   * Tries to save the requested location.
+   * If it has ZERO products AND there is at least one state with products,
+   * we transparently fall back to:
+   *   1. Any popular state that has products, or
+   *   2. Any state at all that has products.
+   *
+   * We then show a small banner telling the user what happened.
+   */
+  const commitLocation = useCallback((loc) => {
+    if (!loc) {
+      // "Show all" — never needs a fallback
+      try {
+        localStorage.removeItem("active_location");
+        window.dispatchEvent(
+          new CustomEvent("locationChanged", { detail: null })
+        );
+      } catch {}
+      setFallbackInfo(null);
+      onSelect?.(null);
+      onClose();
+      return;
+    }
+
+    // ── Does the requested location have any ads? ──────────
+    const requestedCount =
+      loc.city
+        ? (byCity[loc.city] || 0)
+        : (byState[loc.state] || 0);
+
+    if (requestedCount > 0) {
+      // ✅ Has products — save directly
+      saveActiveLocation(loc);
+      setFallbackInfo(null);
+      onSelect?.(loc);
+      onClose();
+      return;
+    }
+
+    // ── Zero products — find a fallback ────────────────────
+    // Prefer a popular state with ads; otherwise any state with ads.
+    const statesWithAds = Object.keys(byState).filter(
+      (s) => (byState[s] || 0) > 0
+    );
+
+    if (statesWithAds.length === 0) {
+      // No location has any products — just show all
+      try {
+        localStorage.removeItem("active_location");
+        window.dispatchEvent(
+          new CustomEvent("locationChanged", { detail: null })
+        );
+      } catch {}
+      setFallbackInfo({
+        original: loc.label || loc.city || loc.state,
+        fallback: "all of Nigeria",
+      });
+      onSelect?.(null);
+      onClose();
+      return;
+    }
+
+    // Pick best fallback state
+    const fallbackState =
+      POPULAR_STATES.find((s) => statesWithAds.includes(s)) ||
+      statesWithAds[0];
+
+    const fallbackLoc = {
+      state  : fallbackState,
+      city   : null,
+      source : "fallback",
+      label  : fallbackState,
+      savedAt: Date.now(),
+    };
+
+    saveActiveLocation(fallbackLoc);
+
+    // Store info so parent can show a toast/banner if desired
+    setFallbackInfo({
+      original: loc.label || loc.city || loc.state,
+      fallback: fallbackState,
+    });
+
+    onSelect?.(fallbackLoc, {
+      wasFallback: true,
+      requested  : loc,
+      reason     : "no_products",
+    });
+    onClose();
+  }, [byCity, byState, onSelect, onClose]);
+
+  /* ── Handlers ────────────────────────────────────────────── */
   const handleState = useCallback((state) => {
     setSelState(state);
     setView("city");
@@ -304,10 +425,8 @@ export default function LocationPicker({ open, onClose, onSelect }) {
       label  : `${city}, ${selState}`,
       savedAt: Date.now(),
     };
-    saveActiveLocation(loc);
-    onSelect?.(loc);
-    onClose();
-  }, [selState, onSelect, onClose]);
+    commitLocation(loc);
+  }, [selState, commitLocation]);
 
   const handleStateOnly = useCallback(() => {
     const loc = {
@@ -317,12 +436,15 @@ export default function LocationPicker({ open, onClose, onSelect }) {
       label  : selState,
       savedAt: Date.now(),
     };
-    saveActiveLocation(loc);
-    onSelect?.(loc);
-    onClose();
-  }, [selState, onSelect, onClose]);
+    commitLocation(loc);
+  }, [selState, commitLocation]);
 
-  /* GPS — silent on denial */
+  /* ── "Show all Nigeria" footer button ───────────────────── */
+  const handleShowAll = useCallback(() => {
+    commitLocation(null); // null = no filter
+  }, [commitLocation]);
+
+  /* ── GPS ─────────────────────────────────────────────────── */
   const handleGps = useCallback(() => {
     if (!navigator.geolocation) {
       setGpsStatus("error");
@@ -354,23 +476,12 @@ export default function LocationPicker({ open, onClose, onSelect }) {
         }
       },
       () => {
-        /* Denied — silent, don't show an error */
         setGpsStatus("idle");
         setGpsLabel("");
       },
       GPS_OPTIONS
     );
   }, []);
-
-  /* Clear selection */
-  const handleClearLocation = useCallback(() => {
-    try {
-      localStorage.removeItem("active_location");
-      window.dispatchEvent(new CustomEvent("locationChanged", { detail: null }));
-    } catch {}
-    onSelect?.(null);
-    onClose();
-  }, [onSelect, onClose]);
 
   if (!open) return null;
 
@@ -403,7 +514,6 @@ export default function LocationPicker({ open, onClose, onSelect }) {
             {view === "state" ? "Where are you?" : selState}
           </div>
 
-          {/* GPS button */}
           <button
             className={`lp-gps-btn lp-gps-${gpsStatus}`}
             onClick={handleGps}
@@ -426,13 +536,13 @@ export default function LocationPicker({ open, onClose, onSelect }) {
           </button>
         </div>
 
-        {/* GPS label — only shown for ok/error, not on denial */}
+        {/* GPS label */}
         {gpsLabel && gpsStatus !== "idle" && (
           <p className={`lp-gps-label lp-gps-label--${gpsStatus}`}>
             {gpsStatus === "loading" && (
               <span className="lp-spin lp-spin--sm" aria-hidden="true" />
             )}
-            {gpsStatus === "ok" && <CheckIcon size={12} />}
+            {gpsStatus === "ok"    && <CheckIcon size={12} />}
             {gpsStatus === "error" && <AlertCircleIcon size={12} />}
             {gpsLabel}
           </p>
@@ -482,8 +592,13 @@ export default function LocationPicker({ open, onClose, onSelect }) {
                   <StarIcon size={12} /> Popular
                 </div>
                 {popularFiltered.map((s) => (
-                  <StateItem key={s} state={s}
-                             onSelect={handleState} isPopular />
+                  <StateItem
+                    key={s}
+                    state={s}
+                    count={byState[s] || 0}
+                    onSelect={handleState}
+                    isPopular
+                  />
                 ))}
                 {allFiltered.length > 0 && (
                   <>
@@ -497,8 +612,13 @@ export default function LocationPicker({ open, onClose, onSelect }) {
             {query && popularFiltered.length > 0 && (
               <>
                 {popularFiltered.map((s) => (
-                  <StateItem key={`pop-${s}`} state={s}
-                             onSelect={handleState} isPopular />
+                  <StateItem
+                    key={`pop-${s}`}
+                    state={s}
+                    count={byState[s] || 0}
+                    onSelect={handleState}
+                    isPopular
+                  />
                 ))}
                 {allFiltered.length > 0 && (
                   <div className="lp-divider" />
@@ -507,7 +627,12 @@ export default function LocationPicker({ open, onClose, onSelect }) {
             )}
 
             {allFiltered.map((s) => (
-              <StateItem key={s} state={s} onSelect={handleState} />
+              <StateItem
+                key={s}
+                state={s}
+                count={byState[s] || 0}
+                onSelect={handleState}
+              />
             ))}
 
             {allFiltered.length === 0 && popularFiltered.length === 0 && (
@@ -524,7 +649,6 @@ export default function LocationPicker({ open, onClose, onSelect }) {
           <div className="lp-list" role="listbox"
                aria-label={`Cities in ${selState}`}>
 
-            {/* All of state option */}
             <button className="lp-item lp-item--all" onClick={handleStateOnly}>
               <div className="lp-item-all-inner">
                 <span className="lp-item-all-icon" aria-hidden="true">
@@ -537,6 +661,12 @@ export default function LocationPicker({ open, onClose, onSelect }) {
                   </span>
                 </div>
               </div>
+              {/* show state-level count */}
+              {(byState[selState] || 0) > 0 && (
+                <span className="lp-ads-chip">
+                  {formatCount(byState[selState])} ads
+                </span>
+              )}
               <ChevronRightIcon size={14} />
             </button>
 
@@ -559,7 +689,7 @@ export default function LocationPicker({ open, onClose, onSelect }) {
                 <CityItem
                   key={city}
                   city={city}
-                  count={cityCounts[city] || 0}
+                  count={byCity[city] || 0}
                   onSelect={handleCity}
                 />
               ))
@@ -567,9 +697,9 @@ export default function LocationPicker({ open, onClose, onSelect }) {
           </div>
         )}
 
-        {/* ── Footer — clear saved location ── */}
+        {/* ── Footer ── */}
         <div className="lp-footer">
-          <button className="lp-clear-btn" onClick={handleClearLocation}>
+          <button className="lp-clear-btn" onClick={handleShowAll}>
             <GlobeIcon size={14} />
             Show all of Nigeria
           </button>
