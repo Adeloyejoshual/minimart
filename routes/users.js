@@ -1,112 +1,198 @@
-// ════════════════════════════════════════════════════════════
-// FILE: routes/users.js
-//
-// GET    /api/users/me
-// PUT    /api/users/me
-// PATCH  /api/users/me/heartbeat
-// PATCH  /api/users/me/password
-// DELETE /api/users/me
-// ════════════════════════════════════════════════════════════
-
-import express  from "express";
-import bcrypt   from "bcrypt";
+// routes/users.js
+import express from "express";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import { pool } from "../server.js";
 import { authenticate } from "../middleware/auth.js";
 
-const router      = express.Router();
-const SALT_ROUNDS = 12;
+const router = express.Router();
+const SALT_ROUNDS = 10;
+const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
 
-/* ════════════════════════════════════════════════════════════
-   CONSTANTS
-════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════ */
+
+// ✅ Matches EXACTLY the columns in your table — no balance, role is quoted
 const SAFE_USER_FIELDS = `
-  id, name, email, phone_number,
-  country, state, city,
-  profile_image,
-  store_name, store_description, store_logo, store_verified,
-  status, last_login,
-  rating, trust_score, verified,
-  products_count, total_sales, total_purchases,
-  created_at, "role",
-  is_online, email_verified, identity_verified,
-  seller_type, referral_code,
-  bonus_spins, total_referrals
+  id, name, email, phone_number, country, state, city,
+  profile_image, store_name, store_description, store_logo,
+  store_verified, status, last_login,
+  rating, trust_score, verified, products_count,
+  total_sales, total_purchases, created_at,
+  "role", is_online, email_verified, identity_verified, seller_type
 `;
 
-/* ════════════════════════════════════════════════════════════
-   HELPERS
-════════════════════════════════════════════════════════════ */
+const makeToken = (user) =>
+  jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: "30d" });
 
-// Convert empty strings → null
-// Prevents unique constraint crashes on blank phone numbers
+// ✅ Convert empty strings → null (prevents unique constraint crash on phone)
 const nullIfEmpty = (val) =>
   val && String(val).trim() !== "" ? String(val).trim() : null;
 
-const fail = (res, status, message, extra = {}) =>
-  res.status(status).json({ success: false, message, ...extra });
+/* ══════════════════════════════════════════
+   REGISTER
+══════════════════════════════════════════ */
+router.post("/register", async (req, res) => {
+  let { name, email, password, phone_number, country, state, city } = req.body;
 
-/* ════════════════════════════════════════════════════════════
-   GET /api/users/me
-   Returns the authenticated user's full profile
-════════════════════════════════════════════════════════════ */
-router.get("/me", authenticate, async (req, res) => {
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: "Name, email and password are required" });
+  }
+
+  name         = name.trim();
+  email        = email.trim().toLowerCase();
+  phone_number = nullIfEmpty(phone_number);
+  country      = nullIfEmpty(country);
+  state        = nullIfEmpty(state);
+  city         = nullIfEmpty(city);
+
+  if (password.length < 6) {
+    return res.status(400).json({ message: "Password must be at least 6 characters" });
+  }
+
   try {
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
     const { rows } = await pool.query(
-      `SELECT ${SAFE_USER_FIELDS}
-       FROM   public.users
-       WHERE  id = $1`,
-      [req.user.id]
+      `INSERT INTO public.users
+         (name, email, password_hash, phone_number, country, state, city, last_login)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+       RETURNING ${SAFE_USER_FIELDS}`,
+      [name, email, hashedPassword, phone_number, country, state, city]
     );
 
-    if (!rows[0])
-      return fail(res, 404, "User not found.");
+    const user  = rows[0];
+    const token = makeToken(user);
 
-    return res.json({ success: true, user: rows[0] });
+    return res.status(201).json({ token, user });
 
   } catch (err) {
-    console.error("GET /users/me error:", err.message);
-    return fail(res, 500, "Failed to fetch user.");
+    console.error("Register error code:", err.code);
+    console.error("Register error msg: ", err.message);
+    console.error("Register error detail:", err.detail);
+
+    if (err.code === "23505") {
+      const detail = (err.detail || "").toLowerCase();
+      if (detail.includes("phone")) {
+        return res.status(409).json({ message: "Phone number already registered" });
+      }
+      return res.status(409).json({ message: "Email already registered" });
+    }
+
+    return res.status(500).json({
+      message: "Registration failed. Please try again.",
+      // Show real error in development so you can debug
+      debug: process.env.NODE_ENV !== "production" ? err.message : undefined,
+    });
   }
 });
 
-/* ════════════════════════════════════════════════════════════
-   PUT /api/users/me
-   Update editable profile fields.
-   - COALESCE keeps the existing value when null is passed
-   - phone_number is set directly (null clears it)
-════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════
+   LOGIN
+══════════════════════════════════════════ */
+router.post("/login", async (req, res) => {
+  let { email, password } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ message: "Email and password required" });
+  }
+
+  email = email.trim().toLowerCase();
+
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         id, name, email, password_hash,
+         phone_number, country, state, city,
+         profile_image, store_name, store_description, store_logo,
+         store_verified, status, last_login,
+         rating, trust_score, verified, products_count,
+         total_sales, total_purchases, created_at,
+         "role", is_online, email_verified, identity_verified, seller_type
+       FROM public.users
+       WHERE lower(email) = $1`,
+      [email]
+    );
+
+    const row = rows[0];
+    if (!row) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    const match = await bcrypt.compare(password, row.password_hash);
+    if (!match) {
+      return res.status(401).json({ message: "Invalid email or password" });
+    }
+
+    // Fire-and-forget last_login update
+    pool.query(
+      "UPDATE public.users SET last_login = NOW(), is_online = true WHERE id = $1",
+      [row.id]
+    ).catch((e) => console.error("last_login update failed:", e));
+
+    // Strip password_hash before sending to client
+    const { password_hash, ...user } = row;
+
+    const token = makeToken(user);
+    return res.json({ token, user });
+
+  } catch (err) {
+    console.error("Login error:", err.message);
+    return res.status(500).json({ message: "Login failed. Please try again." });
+  }
+});
+
+/* ══════════════════════════════════════════
+   GET CURRENT USER  (protected)
+══════════════════════════════════════════ */
+router.get("/me", authenticate, async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${SAFE_USER_FIELDS} FROM public.users WHERE id = $1`,
+      [req.user.id]
+    );
+
+    if (!rows[0]) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    return res.json(rows[0]);
+
+  } catch (err) {
+    console.error("GET /me error:", err.message);
+    return res.status(500).json({ message: "Failed to fetch user" });
+  }
+});
+
+/* ══════════════════════════════════════════
+   UPDATE PROFILE  (protected)
+══════════════════════════════════════════ */
 router.put("/me", authenticate, async (req, res) => {
   const {
-    name,
-    phone_number,
-    country,
-    state,
-    city,
-    profile_image,
-    store_name,
-    store_description,
-    store_logo,
+    name, phone_number, country, state, city,
+    profile_image, store_name, store_description, store_logo,
   } = req.body;
 
   try {
     const { rows } = await pool.query(
       `UPDATE public.users
        SET
-         name              = COALESCE($1,  name),
+         name              = COALESCE($1, name),
          phone_number      = $2,
-         country           = COALESCE($3,  country),
-         state             = COALESCE($4,  state),
-         city              = COALESCE($5,  city),
-         profile_image     = COALESCE($6,  profile_image),
-         store_name        = COALESCE($7,  store_name),
-         store_description = COALESCE($8,  store_description),
-         store_logo        = COALESCE($9,  store_logo),
+         country           = $3,
+         state             = $4,
+         city              = $5,
+         profile_image     = $6,
+         store_name        = $7,
+         store_description = $8,
+         store_logo        = $9,
          updated_at        = NOW()
-       WHERE  id = $10
+       WHERE id = $10
        RETURNING ${SAFE_USER_FIELDS}`,
       [
-        nullIfEmpty(name),
-        nullIfEmpty(phone_number),   // explicit null allowed to clear phone
+        name ? name.trim() : null,
+        nullIfEmpty(phone_number),
         nullIfEmpty(country),
         nullIfEmpty(state),
         nullIfEmpty(city),
@@ -118,147 +204,18 @@ router.put("/me", authenticate, async (req, res) => {
       ]
     );
 
-    if (!rows[0])
-      return fail(res, 404, "User not found.");
-
-    return res.json({ success: true, user: rows[0] });
-
-  } catch (err) {
-    if (
-      err.code === "23505" &&
-      (err.detail ?? "").toLowerCase().includes("phone")
-    ) {
-      return fail(res, 409, "Phone number already in use.", {
-        code: "PHONE_TAKEN",
-      });
+    if (!rows[0]) {
+      return res.status(404).json({ message: "User not found" });
     }
 
-    console.error("PUT /users/me error:", err.message);
-    return fail(res, 500, "Failed to update profile.");
-  }
-});
-
-/* ════════════════════════════════════════════════════════════
-   PATCH /api/users/me/heartbeat
-   Called by the frontend every ~2 minutes while the app is open.
-   Keeps last_login fresh so the heartbeat-aware online check in
-   conversations.js shows the correct green dot status.
-
-   Online logic (in conversations.js):
-     is_online = true AND last_login > NOW() - INTERVAL '5 minutes'
-
-   So if heartbeats stop (tab closed, crash, no signal) the green
-   dot disappears automatically within 5 minutes — no cron needed.
-
-   Frontend example:
-     const hb = setInterval(() =>
-       fetch('/api/users/me/heartbeat', {
-         method  : 'PATCH',
-         headers : { Authorization: `Bearer ${token}` },
-       }), 2 * 60 * 1000
-     );
-
-     // On logout / tab close:
-     clearInterval(hb);
-════════════════════════════════════════════════════════════ */
-router.patch("/me/heartbeat", authenticate, async (req, res) => {
-  try {
-    await pool.query(
-      `UPDATE public.users
-       SET is_online  = true,
-           last_login = NOW()
-       WHERE id = $1`,
-      [req.user.id]
-    );
-
-    return res.json({ success: true });
+    return res.json(rows[0]);
 
   } catch (err) {
-    console.error("PATCH /users/me/heartbeat error:", err.message);
-    return fail(res, 500, "Heartbeat failed.");
-  }
-});
-
-/* ════════════════════════════════════════════════════════════
-   PATCH /api/users/me/password
-   Change password.
-   - Requires current password so a stolen JWT cannot change it
-   - Validates new password strength before hashing
-════════════════════════════════════════════════════════════ */
-router.patch("/me/password", authenticate, async (req, res) => {
-  const { current_password, new_password } = req.body;
-
-  if (!current_password || !new_password)
-    return fail(res, 400, "current_password and new_password are required.");
-
-  if (typeof new_password !== "string" || new_password.length < 8)
-    return fail(res, 400, "New password must be at least 8 characters.");
-
-  if (!/[A-Z]/.test(new_password))
-    return fail(res, 400,
-      "New password must contain at least one uppercase letter."
-    );
-
-  if (!/[0-9]/.test(new_password))
-    return fail(res, 400,
-      "New password must contain at least one number."
-    );
-
-  try {
-    /* Fetch the current hash — never SELECT * */
-    const { rows } = await pool.query(
-      `SELECT password_hash FROM public.users WHERE id = $1`,
-      [req.user.id]
-    );
-
-    if (!rows[0])
-      return fail(res, 404, "User not found.");
-
-    const valid = await bcrypt.compare(current_password, rows[0].password_hash);
-    if (!valid)
-      return fail(res, 401, "Current password is incorrect.");
-
-    const new_hash = await bcrypt.hash(new_password, SALT_ROUNDS);
-
-    await pool.query(
-      `UPDATE public.users
-       SET password_hash = $1,
-           updated_at    = NOW()
-       WHERE id = $2`,
-      [new_hash, req.user.id]
-    );
-
-    return res.json({ success: true, message: "Password updated successfully." });
-
-  } catch (err) {
-    console.error("PATCH /users/me/password error:", err.message);
-    return fail(res, 500, "Failed to update password.");
-  }
-});
-
-/* ════════════════════════════════════════════════════════════
-   DELETE /api/users/me
-   Called on logout.
-   Sets is_online = false immediately so the green dot turns off
-   right away instead of waiting for the 5-minute heartbeat timeout.
-════════════════════════════════════════════════════════════ */
-router.delete("/me", authenticate, async (req, res) => {
-  try {
-    await pool.query(
-      `UPDATE public.users
-       SET is_online = false
-       WHERE id = $1`,
-      [req.user.id]
-    );
-
-    return res.json({
-      success : true,
-      message : "Logged out and marked offline.",
-    });
-
-  } catch (err) {
-    console.error("DELETE /users/me error:", err.message);
-    return fail(res, 500, "Logout failed.");
+    if (err.code === "23505" && (err.detail || "").includes("phone")) {
+      return res.status(409).json({ message: "Phone number already in use" });
+    }
+    console.error("PUT /me error:", err.message);
+    return res.status(500).json({ message: "Failed to update profile" });
   }
 });
 
