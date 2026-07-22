@@ -1,12 +1,29 @@
 /**
- * jobs/listingExpiry.js — v5
+ * jobs/listingExpiry.js — v6
  *
- * Changes from v4:
- *  - expireSubscriptionsAfterGrace resets search_priority = 0
- *    on both products and users rows when grace period ends
- *  - invalidateHomepageCache called after grace expiry
- *  - Subscription rank values documented per your actual plans:
- *      free=0, premium=1, pro=2, business=3, diamond=5, elite=10
+ * Changes from v5:
+ *  - Fixed "unsupported binary operator: <interval> * <interval>" error
+ *    in Task 4 (sendExpiryWarnings) and Task 6 (sendSubscriptionExpiryWarnings)
+ *    by explicitly casting all numeric parameters to ::int before multiplying
+ *    against INTERVAL literals. The pg driver was sending untyped JS numbers
+ *    which PostgreSQL inferred as INTERVAL in interval-arithmetic context.
+ *
+ *  - All $1 / $3 parameters used in interval arithmetic now carry ::int casts:
+ *      ($1::int * INTERVAL '1 day')
+ *      ($3::int * INTERVAL '1 hour')
+ *
+ * Subscription rank values (from subscription_plans table):
+ *   free=0, premium=1, pro=2, business=3, diamond=5, elite=10
+ *
+ * Listing expiry pipeline (runs every 1 hour):
+ *   Task 1 — Expire free listings         (active_until < NOW(), verified sellers)
+ *   Task 2 — Expire trial listings        (active_until < NOW(), unverified sellers)
+ *   Task 3 — Expire promotions            (promotion_expires_at < NOW())
+ *   Task 4 — Listing expiry warnings      (3-day and 1-day warnings)
+ *   Task 5 — Lift expiry for subscribers  (belt-and-suspenders reactivation)
+ *   Task 6 — Subscription expiry warnings (7, 3, 1 day before expiry)
+ *   Task 7 — Expire subscriptions         (after grace period ends)
+ *   Task 8 — Grace period start notice    (fires the moment subscription expires)
  */
 
 import pLimit      from "p-limit";
@@ -27,25 +44,10 @@ import {
 /* ─────────────────────────────────────────────────────────────
    CONSTANTS
 ───────────────────────────────────────────────────────────── */
-const JOB_INTERVAL_MS      = 60 * 60 * 1_000;  // 1 hour
-const WARNING_DEDUP_HOURS  = 20;
-const NOTIFY_CONCURRENCY   = 5;
-const GRACE_PERIOD_DAYS    = 7;
-
-/*
- * Subscription plan ranks (from your subscription_plans table).
- * Used only for documentation — actual values read from DB.
- *
- * free     = 0   → no homepage boost
- * premium  = 1   → above free sellers
- * pro      = 2   → above premium
- * business = 3   → above pro
- * diamond  = 5   → above business
- * elite    = 10  → highest subscription boost
- *
- * These stack on top of promotion_priority in ORDER BY:
- *   ORDER BY is_promoted DESC, promotion_priority DESC, search_priority DESC
- */
+const JOB_INTERVAL_MS     = 60 * 60 * 1_000; // 1 hour
+const WARNING_DEDUP_HOURS = 20;
+const NOTIFY_CONCURRENCY  = 5;
+const GRACE_PERIOD_DAYS   = 7;
 
 /* ─────────────────────────────────────────────────────────────
    CONCURRENCY GUARD
@@ -77,7 +79,7 @@ const runNotifications = async (tasks) => {
   if (failed.length) {
     console.warn(
       `[expiry] ${failed.length} notification(s) failed:`,
-      failed.map((r) => r.reason?.message).join("; ")
+      failed.map((r) => r.reason?.message).join("; "),
     );
   }
   return results.filter((r) => r.status === "fulfilled").length;
@@ -85,12 +87,13 @@ const runNotifications = async (tasks) => {
 
 /* ─────────────────────────────────────────────────────────────
    SUBSCRIPTION GUARD
-   Seller is protected from expiry when:
+   A seller is protected from listing expiry when:
      subscription_status = 'active'
      subscription_plan  != 'free'
      subscription_expires_at > NOW() - GRACE_PERIOD_DAYS
 
-   The grace period keeps listings live for 7 days after expiry.
+   The grace period keeps listings live for 7 days after expiry
+   so the seller has time to renew before anything disappears.
 ───────────────────────────────────────────────────────────── */
 const SUBSCRIBED_OR_IN_GRACE_GUARD = `
   AND NOT (
@@ -104,6 +107,8 @@ const SUBSCRIBED_OR_IN_GRACE_GUARD = `
 
 /* ══════════════════════════════════════════════════════════════
    TASK 1 — EXPIRE FREE LISTINGS
+   Targets: verified sellers, active listings, active_until < NOW()
+   Skips:   sellers who are subscribed or inside their grace window
 ══════════════════════════════════════════════════════════════ */
 async function expireFreeListings() {
   const { rows, rowCount } = await pool.query(
@@ -121,7 +126,7 @@ async function expireFreeListings() {
        AND p.active_until         < NOW()
        AND u.identity_verified    = TRUE
        ${SUBSCRIBED_OR_IN_GRACE_GUARD}
-     RETURNING p.id, p.title, p.seller_id`
+     RETURNING p.id, p.title, p.seller_id`,
   );
 
   if (!rowCount) return { expired: 0, notified: 0 };
@@ -130,7 +135,7 @@ async function expireFreeListings() {
   const sellerIds = [...new Set(rows.map((r) => String(r.seller_id)))];
   const { rows: sellers } = await pool.query(
     `SELECT id, name, email FROM public.users WHERE id = ANY($1::UUID[])`,
-    [sellerIds]
+    [sellerIds],
   );
   const sellerMap = Object.fromEntries(sellers.map((s) => [String(s.id), s]));
 
@@ -151,7 +156,7 @@ async function expireFreeListings() {
           ? `${summary} has expired. Tap "Renew" to reactivate for free.`
           : `${summary} have expired. Renew them to stay visible to buyers.`,
         metadata: { product_ids: products.map((p) => p.id), count },
-      })
+      }),
     );
 
     if (seller?.email) {
@@ -160,7 +165,7 @@ async function expireFreeListings() {
           to      : seller.email,
           name    : seller.name,
           products: products.map((p) => ({ id: p.id, title: p.title })),
-        }).catch((e) => console.warn("[expiry] email failed:", e.message))
+        }).catch((e) => console.warn("[expiry] email failed:", e.message)),
       );
     }
   }
@@ -171,6 +176,8 @@ async function expireFreeListings() {
 
 /* ══════════════════════════════════════════════════════════════
    TASK 2 — EXPIRE TRIAL LISTINGS
+   Targets: unverified sellers, active_limited listings, active_until < NOW()
+   Skips:   sellers who are subscribed or inside their grace window
 ══════════════════════════════════════════════════════════════ */
 async function expireTrialListings() {
   const { rows, rowCount } = await pool.query(
@@ -188,7 +195,7 @@ async function expireTrialListings() {
        AND p.active_until         < NOW()
        AND u.identity_verified    = FALSE
        ${SUBSCRIBED_OR_IN_GRACE_GUARD}
-     RETURNING p.id, p.title, p.seller_id`
+     RETURNING p.id, p.title, p.seller_id`,
   );
 
   if (!rowCount) return { expired: 0, notified: 0 };
@@ -197,7 +204,7 @@ async function expireTrialListings() {
   const sellerIds = [...new Set(rows.map((r) => String(r.seller_id)))];
   const { rows: sellers } = await pool.query(
     `SELECT id, name, email FROM public.users WHERE id = ANY($1::UUID[])`,
-    [sellerIds]
+    [sellerIds],
   );
   const sellerMap = Object.fromEntries(sellers.map((s) => [String(s.id), s]));
 
@@ -217,7 +224,7 @@ async function expireTrialListings() {
           `${count} listing${count !== 1 ? "s" : ""} paused — 7-day trial ended. ` +
           "Verify your identity to restore them permanently.",
         metadata: { product_ids: products.map((p) => p.id), count, reason: "trial_expired" },
-      })
+      }),
     );
 
     if (seller?.email) {
@@ -226,7 +233,7 @@ async function expireTrialListings() {
           to      : seller.email,
           name    : seller.name,
           products: products.map((p) => ({ id: p.id, title: p.title })),
-        }).catch((e) => console.warn("[expiry] email failed:", e.message))
+        }).catch((e) => console.warn("[expiry] email failed:", e.message)),
       );
     }
   }
@@ -237,9 +244,9 @@ async function expireTrialListings() {
 
 /* ══════════════════════════════════════════════════════════════
    TASK 3 — EXPIRE PROMOTIONS
-   Subscription does not protect promotions from expiring.
-   A subscribed seller's listing stays LIVE — it just loses
-   the promotion boost after duration_days.
+   Subscriptions do NOT protect promotions from expiring.
+   A subscribed seller's listing stays LIVE — it simply loses
+   its promotion boost once promotion_expires_at passes.
 ══════════════════════════════════════════════════════════════ */
 async function expirePromotions() {
   const { rows, rowCount } = await pool.query(
@@ -255,7 +262,7 @@ async function expirePromotions() {
        AND promotion_expires_at  IS NOT NULL
        AND promotion_expires_at   < NOW()
        AND status                <> 'deleted'
-     RETURNING id, title, seller_id`
+     RETURNING id, title, seller_id`,
   );
 
   if (!rowCount) return { expired: 0, notified: 0 };
@@ -270,7 +277,7 @@ async function expirePromotions() {
         `Your promotion for "${p.title}" has ended. ` +
         "Promote again to boost visibility.",
       metadata: { product_id: p.id },
-    })
+    }),
   );
 
   const notified = await runNotifications(tasks);
@@ -278,8 +285,13 @@ async function expirePromotions() {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   TASK 4 — LISTING EXPIRY WARNINGS  (3 days and 1 day)
+   TASK 4 — LISTING EXPIRY WARNINGS  (3 days and 1 day before)
    Skips subscribed sellers — their listings never expire.
+
+   FIX v6: Cast $1 and $3 to ::int before multiplying against
+   INTERVAL literals. Without the cast, pg sends an untyped
+   parameter that PostgreSQL infers as INTERVAL, producing:
+     unsupported binary operator: <interval> * <interval>
 ══════════════════════════════════════════════════════════════ */
 async function sendExpiryWarnings() {
   const warnings = [
@@ -301,8 +313,8 @@ async function sendExpiryWarnings() {
          AND p.status       IN ('active', 'active_limited')
          AND p.status       <> 'deleted'
          AND p.active_until IS NOT NULL
-         AND p.active_until >= NOW() + (($1 - 1) * INTERVAL '1 day')
-         AND p.active_until <  NOW() + ($1       * INTERVAL '1 day')
+         AND p.active_until >= NOW() + (($1::int - 1) * INTERVAL '1 day')
+         AND p.active_until <  NOW() + ( $1::int      * INTERVAL '1 day')
          AND NOT (
            u.subscription_status      = 'active'
            AND u.subscription_plan   IS NOT NULL
@@ -312,13 +324,13 @@ async function sendExpiryWarnings() {
          )
          AND NOT EXISTS (
            SELECT 1 FROM public.notifications n
-           WHERE  n.user_id                     = p.seller_id
-             AND  n.type                        = 'listing_expiry_warning'
+           WHERE  n.user_id                         = p.seller_id
+             AND  n.type                            = 'listing_expiry_warning'
              AND  (n.metadata->>'product_id')::text = p.id::text
-             AND  (n.metadata->>'days')         = $2::text
-             AND  n.created_at                 >  NOW() - ($3 * INTERVAL '1 hour')
+             AND  (n.metadata->>'days')             = $2::text
+             AND  n.created_at                     > NOW() - ($3::int * INTERVAL '1 hour')
          )`,
-      [days, String(days), WARNING_DEDUP_HOURS]
+      [days, String(days), WARNING_DEDUP_HOURS],
     );
 
     if (!rows.length) {
@@ -345,7 +357,7 @@ async function sendExpiryWarnings() {
               ? `"${p.title}" expires ${label}. Verify your identity to keep it.`
               : `"${p.title}" expires ${label}. Tap "Renew" to keep it active for free.`,
             metadata: { product_id: String(p.id), days: String(days) },
-          })
+          }),
         );
       }
 
@@ -362,7 +374,7 @@ async function sendExpiryWarnings() {
               title      : p.title,
               activeUntil: p.active_until,
             })),
-          }).catch((e) => console.warn("[expiry] warning email failed:", e.message))
+          }).catch((e) => console.warn("[expiry] warning email failed:", e.message)),
         );
       }
     }
@@ -375,6 +387,8 @@ async function sendExpiryWarnings() {
 
 /* ══════════════════════════════════════════════════════════════
    TASK 5 — LIFT EXPIRY FOR SUBSCRIBED SELLERS  (belt-and-suspenders)
+   Reactivates any paused/active_limited listings that belong to
+   a seller with a currently active, non-free subscription.
 ══════════════════════════════════════════════════════════════ */
 async function liftExpiryForSubscribedSellers() {
   const { rows, rowCount } = await pool.query(
@@ -394,7 +408,7 @@ async function liftExpiryForSubscribedSellers() {
        AND u.subscription_plan       <> 'free'
        AND u.subscription_expires_at IS NOT NULL
        AND u.subscription_expires_at  > NOW()
-     RETURNING p.id, p.title, p.seller_id`
+     RETURNING p.id, p.title, p.seller_id`,
   );
 
   if (!rowCount) return { lifted: 0, notified: 0 };
@@ -406,6 +420,7 @@ async function liftExpiryForSubscribedSellers() {
   for (const [sellerId, products] of bySeller) {
     const count   = products.length;
     const summary = buildTitleSummary(products);
+
     tasks.push(() =>
       createNotification({
         userId  : sellerId,
@@ -415,7 +430,7 @@ async function liftExpiryForSubscribedSellers() {
           ? `${summary} is now permanently active as part of your subscription.`
           : `${count} listings (${summary}) are permanently active via your subscription.`,
         metadata: { product_ids: products.map((p) => p.id), count },
-      })
+      }),
     );
   }
 
@@ -425,6 +440,11 @@ async function liftExpiryForSubscribedSellers() {
 
 /* ══════════════════════════════════════════════════════════════
    TASK 6 — SUBSCRIPTION EXPIRY WARNINGS  (7, 3, 1 day before)
+
+   FIX v6: Cast $1 and $3 to ::int before multiplying against
+   INTERVAL literals. Without the cast, pg sends an untyped
+   parameter that PostgreSQL infers as INTERVAL, producing:
+     unsupported binary operator: <interval> * <interval>
 ══════════════════════════════════════════════════════════════ */
 async function sendSubscriptionExpiryWarnings() {
   const warnings = [
@@ -450,16 +470,16 @@ async function sendSubscriptionExpiryWarnings() {
          AND u.subscription_plan       IS NOT NULL
          AND u.subscription_plan       <> 'free'
          AND u.subscription_expires_at IS NOT NULL
-         AND u.subscription_expires_at >= NOW() + (($1 - 1) * INTERVAL '1 day')
-         AND u.subscription_expires_at <  NOW() + ($1       * INTERVAL '1 day')
+         AND u.subscription_expires_at >= NOW() + (($1::int - 1) * INTERVAL '1 day')
+         AND u.subscription_expires_at <  NOW() + ( $1::int      * INTERVAL '1 day')
          AND NOT EXISTS (
            SELECT 1 FROM public.notifications n
-           WHERE  n.user_id         = u.id
-             AND  n.type            = 'subscription_expiry_warning'
+           WHERE  n.user_id             = u.id
+             AND  n.type                = 'subscription_expiry_warning'
              AND  (n.metadata->>'days') = $2::text
-             AND  n.created_at     > NOW() - ($3 * INTERVAL '1 hour')
+             AND  n.created_at         > NOW() - ($3::int * INTERVAL '1 hour')
          )`,
-      [days, String(days), WARNING_DEDUP_HOURS]
+      [days, String(days), WARNING_DEDUP_HOURS],
     );
 
     if (!rows.length) {
@@ -503,15 +523,15 @@ async function sendSubscriptionExpiryWarnings() {
    TASK 7 — EXPIRE SUBSCRIPTIONS AFTER GRACE PERIOD
 
    When subscription_expires_at + GRACE_PERIOD_DAYS < NOW():
-     1. Set users.subscription_status = 'expired'
-     2. Set subscriptions.status      = 'expired'
-     3. Pause all their listings
-     4. Reset search_priority = 0 on products AND users  ← KEY
-     5. Invalidate homepage cache                         ← KEY
-     6. Send email + in-app notification
+     1. Set users.subscription_status        = 'expired'
+     2. Set subscriptions.status             = 'expired'
+     3. Pause all their active listings
+     4. Reset search_priority = 0 on products AND users
+     5. Invalidate homepage cache so ranking changes immediately
+     6. Send in-app notification + email
 ══════════════════════════════════════════════════════════════ */
 async function expireSubscriptionsAfterGrace() {
-  /* Find users whose grace period has ended */
+  /* Step 1 — Mark users as expired */
   const { rows: expiredUsers } = await pool.query(
     `UPDATE public.users
      SET subscription_status = 'expired',
@@ -521,7 +541,7 @@ async function expireSubscriptionsAfterGrace() {
        AND subscription_plan       <> 'free'
        AND subscription_expires_at IS NOT NULL
        AND subscription_expires_at  < NOW() - (${GRACE_PERIOD_DAYS} * INTERVAL '1 day')
-     RETURNING id, name, email, subscription_plan, subscription_expires_at`
+     RETURNING id, name, email, subscription_plan, subscription_expires_at`,
   );
 
   if (!expiredUsers.length) return { expired: 0, listingsPaused: 0 };
@@ -530,16 +550,16 @@ async function expireSubscriptionsAfterGrace() {
 
   const userIds = expiredUsers.map((u) => u.id);
 
-  /* Mark subscription records as expired */
+  /* Step 2 — Mark subscription records as expired */
   await pool.query(
     `UPDATE public.subscriptions
      SET status = 'expired', updated_at = NOW()
      WHERE user_id = ANY($1::UUID[])
        AND status  = 'active'`,
-    [userIds]
+    [userIds],
   );
 
-  /* Pause all their listings */
+  /* Step 3 — Pause all their active listings */
   const { rowCount: listingsPaused } = await pool.query(
     `UPDATE public.products
      SET is_active  = FALSE,
@@ -548,18 +568,17 @@ async function expireSubscriptionsAfterGrace() {
      WHERE seller_id = ANY($1::UUID[])
        AND is_active  = TRUE
        AND status    <> 'deleted'`,
-    [userIds]
+    [userIds],
   );
 
   console.log(`[expiry] Task 7: paused ${listingsPaused ?? 0} listing(s) after grace`);
 
   /*
-   * KEY: Reset search_priority = 0 on all their products.
-   * Without this, expired sellers' products keep appearing above
-   * free sellers on the homepage even after their subscription ends.
+   * Step 4 — Reset search_priority = 0 on all their products.
+   * Without this, expired sellers' products continue to appear
+   * above free sellers on the homepage despite the subscription ending.
    *
-   * Mapping reminder:
-   *   elite=10, diamond=5, business=3, pro=2, premium=1, free=0
+   * Plan ranks:  elite=10, diamond=5, business=3, pro=2, premium=1, free=0
    * After expiry → back to 0 (same as free sellers).
    */
   await pool.query(
@@ -568,15 +587,15 @@ async function expireSubscriptionsAfterGrace() {
          updated_at      = NOW()
      WHERE seller_id = ANY($1::UUID[])
        AND status   <> 'deleted'`,
-    [userIds]
+    [userIds],
   );
 
   console.log(`[expiry] Task 7: reset search_priority=0 for ${userIds.length} seller(s)`);
 
-  /* Invalidate homepage cache so the ranking change is immediate */
+  /* Step 5 — Invalidate homepage cache so ranking change is immediate */
   await invalidateHomepageCache().catch(() => {});
 
-  /* Send notifications */
+  /* Step 6 — Send notifications */
   const tasks = expiredUsers.map((user) => async () => {
     await createNotification({
       userId  : user.id,
@@ -606,8 +625,8 @@ async function expireSubscriptionsAfterGrace() {
 
 /* ══════════════════════════════════════════════════════════════
    TASK 8 — GRACE PERIOD START NOTIFICATION
-   Fires once the moment subscription expires.
-   Tells seller: listings still live, 7 days to renew.
+   Fires once the moment a subscription expires.
+   Tells the seller: listings are still live, 7 days to renew.
 ══════════════════════════════════════════════════════════════ */
 async function sendGracePeriodStartNotifications() {
   const { rows } = await pool.query(
@@ -630,7 +649,7 @@ async function sendGracePeriodStartNotifications() {
          WHERE  n.user_id     = u.id
            AND  n.type        = 'subscription_grace_started'
            AND  n.created_at > NOW() - INTERVAL '23 hours'
-       )`
+       )`,
   );
 
   if (!rows.length) return { notified: 0 };
@@ -711,14 +730,14 @@ export async function runListingExpiryJob() {
   };
 
   const tasks = [
-    { name: "expireFreeListings",               result: freeResult         },
-    { name: "expireTrialListings",              result: trialResult        },
-    { name: "expirePromotions",                 result: promoResult        },
-    { name: "sendExpiryWarnings",               result: listingWarnResult  },
-    { name: "liftExpiryForSubscribedSellers",   result: liftResult         },
-    { name: "sendSubscriptionExpiryWarnings",   result: subWarnResult      },
-    { name: "expireSubscriptionsAfterGrace",    result: graceExpiredResult },
-    { name: "sendGracePeriodStartNotifications",result: graceStartResult   },
+    { name: "expireFreeListings",                result: freeResult         },
+    { name: "expireTrialListings",               result: trialResult        },
+    { name: "expirePromotions",                  result: promoResult        },
+    { name: "sendExpiryWarnings",                result: listingWarnResult  },
+    { name: "liftExpiryForSubscribedSellers",    result: liftResult         },
+    { name: "sendSubscriptionExpiryWarnings",    result: subWarnResult      },
+    { name: "expireSubscriptionsAfterGrace",     result: graceExpiredResult },
+    { name: "sendGracePeriodStartNotifications", result: graceStartResult   },
   ];
 
   for (const { name, result } of tasks) {
@@ -742,7 +761,7 @@ export async function runListingExpiryJob() {
       sub_warnings        : summary.sub_warnings?.warned           ?? "error",
       grace_expired       : summary.grace_expired?.expired         ?? "error",
       grace_start_notified: summary.grace_start_notified?.notified ?? "error",
-    })
+    }),
   );
 
   isRunning = false;
@@ -780,6 +799,6 @@ export function startListingExpiryJob() {
 export function stopListingExpiryJob() {
   if (!_timer) return;
   clearInterval(_timer);
-  _timer = null;
+  _timer    = null;
   console.log("[expiry] ⏹ Stopped");
 }
