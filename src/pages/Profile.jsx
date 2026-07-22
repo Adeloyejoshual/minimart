@@ -15,8 +15,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   motion,
   AnimatePresence,
-  useScroll,
-  useTransform,
   animate,
 } from "framer-motion";
 import axios from "axios";
@@ -162,13 +160,11 @@ function useAnimatedCounter(to, duration = 1.2) {
     const from   = prev.current;
     prev.current = to;
     if (from === to) return;
-
     const ctrl = animate(from, to, {
       duration,
       ease:     [0.16, 1, 0.3, 1],
       onUpdate: (v) => setDisplay(Math.round(v * 10) / 10),
     });
-
     return () => ctrl.stop();
   }, [to, duration]);
 
@@ -242,8 +238,8 @@ function useDragScroll() {
     const onTouchEnd  = () => { state.current.isDown = false; };
     const onTouchMove = (e) => {
       if (!state.current.isDown) return;
-      const x        = e.touches[0].pageX - el.offsetLeft;
-      el.scrollLeft  = state.current.scrollLeft - (x - state.current.startX) * 1.1;
+      const x       = e.touches[0].pageX - el.offsetLeft;
+      el.scrollLeft = state.current.scrollLeft - (x - state.current.startX) * 1.1;
     };
 
     el.addEventListener("touchstart", onTouchStart, { passive: true });
@@ -306,12 +302,11 @@ const Icon = {
   crown:     () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z"/><path d="M3 20h18"/></svg>,
   diamond:   () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h12l4 6-10 13L2 9z"/><path d="M11 3l1 6"/><path d="M2 9h20"/></svg>,
   camera:    () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>,
-  arrowUp:   () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>,
   eye:       () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>,
   sparkle:   () => <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0L14.59 8.41L23 11L14.59 13.59L12 22L9.41 13.59L1 11L9.41 8.41Z"/></svg>,
-  /* ── Meta row icons (replaced emojis) ── */
   calendar:  () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>,
   mapPin:    () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>,
+  logout:    () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>,
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -396,18 +391,8 @@ const buildMenuSections = (unreadCount = 0, subStatus = null) => [
         badgeType: "notif",
         desc:      "Stay updated",
       },
-      {
-        to:    "/help",
-        Ic:    Icon.help,
-        label: "Help Center",
-        desc:  "Browse FAQs and articles",
-      },
-      {
-        to:    "/support",
-        Ic:    Icon.support,
-        label: "Help & Support",
-        desc:  "Tickets, disputes, appeals",
-      },
+      { to: "/help",    Ic: Icon.help,    label: "Help Center",   desc: "Browse FAQs and articles" },
+      { to: "/support", Ic: Icon.support, label: "Help & Support", desc: "Tickets, disputes, appeals" },
     ],
   },
 ];
@@ -415,11 +400,7 @@ const buildMenuSections = (unreadCount = 0, subStatus = null) => [
 /* ═══════════════════════════════════════════════════════════════
    PULL TO REFRESH INDICATOR
 ═══════════════════════════════════════════════════════════════ */
-const PullIndicator = memo(function PullIndicator({
-  pullY,
-  refreshing,
-  threshold = 80,
-}) {
+const PullIndicator = memo(function PullIndicator({ pullY, refreshing, threshold = 80 }) {
   const progress      = Math.min(pullY / threshold, 1);
   const circumference = 2 * Math.PI * 10;
   const dash          = circumference * progress;
@@ -460,7 +441,7 @@ const PullIndicator = memo(function PullIndicator({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   ANIMATED STAT PILL
+   STAT PILL
 ═══════════════════════════════════════════════════════════════ */
 const StatPill = memo(function StatPill({ icon, value, label, delay = 0 }) {
   return (
@@ -564,7 +545,6 @@ const HeroProfileCard = memo(function HeroProfileCard({
           )}
         </div>
 
-        {/* Meta row — SVG icons instead of emoji */}
         <div className="mp-hero__meta">
           {joinedLabel && (
             <span className="mp-hero__meta-item">
@@ -588,36 +568,16 @@ const HeroProfileCard = memo(function HeroProfileCard({
         animate="visible"
       >
         {user?.rating != null && Number(user.rating) > 0 && (
-          <StatPill
-            icon={<Icon.star />}
-            value={Number(user.rating).toFixed(1)}
-            label="Rating"
-            delay={0.1}
-          />
+          <StatPill icon={<Icon.star />}    value={Number(user.rating).toFixed(1)} label="Rating"   delay={0.10} />
         )}
         {listingsCount > 0 && (
-          <StatPill
-            icon={<Icon.package />}
-            value={fmtNum(listingsCount)}
-            label="Listings"
-            delay={0.15}
-          />
+          <StatPill icon={<Icon.package />} value={fmtNum(listingsCount)}          label="Listings"  delay={0.15} />
         )}
         {user?.total_views != null && Number(user.total_views) > 0 && (
-          <StatPill
-            icon={<Icon.eye />}
-            value={fmtNum(user.total_views)}
-            label="Views"
-            delay={0.2}
-          />
+          <StatPill icon={<Icon.eye />}     value={fmtNum(user.total_views)}        label="Views"     delay={0.20} />
         )}
         {user?.total_sales != null && Number(user.total_sales) > 0 && (
-          <StatPill
-            icon={<Icon.trending />}
-            value={fmtNum(user.total_sales)}
-            label="Sales"
-            delay={0.25}
-          />
+          <StatPill icon={<Icon.trending />} value={fmtNum(user.total_sales)}       label="Sales"     delay={0.25} />
         )}
       </motion.div>
 
@@ -651,10 +611,7 @@ const HeroProfileCard = memo(function HeroProfileCard({
 /* ═══════════════════════════════════════════════════════════════
    SUBSCRIPTION BANNER
 ═══════════════════════════════════════════════════════════════ */
-const MobileSubscriptionCard = memo(function MobileSubscriptionCard({
-  sub,
-  onClick,
-}) {
+const MobileSubscriptionCard = memo(function MobileSubscriptionCard({ sub, onClick }) {
   if (!sub) return null;
   const isActive = sub.isActive;
   const info     = isActive ? SUB_MAP[sub.plan] : null;
@@ -753,11 +710,7 @@ const MobileReferralCard = memo(function MobileReferralCard({ code }) {
 /* ═══════════════════════════════════════════════════════════════
    LISTING CARD
 ═══════════════════════════════════════════════════════════════ */
-const MobileListingCard = memo(function MobileListingCard({
-  item,
-  onClick,
-  index = 0,
-}) {
+const MobileListingCard = memo(function MobileListingCard({ item, onClick, index = 0 }) {
   const img = resolveImage(item);
   const [imgError, setImgError] = useState(false);
 
@@ -809,10 +762,7 @@ const MobileListingCard = memo(function MobileListingCard({
 /* ═══════════════════════════════════════════════════════════════
    RECENT LISTINGS
 ═══════════════════════════════════════════════════════════════ */
-const MobileRecentListings = memo(function MobileRecentListings({
-  listings,
-  onViewAll,
-}) {
+const MobileRecentListings = memo(function MobileRecentListings({ listings, onViewAll }) {
   const navigate  = useNavigate();
   const scrollRef = useDragScroll();
 
@@ -851,11 +801,7 @@ const MobileRecentListings = memo(function MobileRecentListings({
             item={item}
             index={i}
             onClick={() =>
-              navigate(
-                item.slug
-                  ? `/product/${item.slug}`
-                  : `/product/${item.id}`
-              )
+              navigate(item.slug ? `/product/${item.slug}` : `/product/${item.id}`)
             }
           />
         ))}
@@ -868,23 +814,16 @@ const MobileRecentListings = memo(function MobileRecentListings({
    MENU ITEM
 ═══════════════════════════════════════════════════════════════ */
 const MobileMenuItem = memo(function MobileMenuItem({
-  to,
-  Ic,
-  label,
-  desc,
-  badge,
-  badgeType,
-  currentPath,
-  index = 0,
+  to, Ic, label, desc, badge, badgeType, currentPath, index = 0,
 }) {
   const isActive = currentPath === to;
 
   const pillCls =
-    badgeType === "notif"        ? "mp-pill mp-pill--notif"
-    : badgeType === "sub"        ? "mp-pill mp-pill--sub"
-    : badge    === "WIN"         ? "mp-pill mp-pill--win"
-    : badge    === "NEW"         ? "mp-pill mp-pill--new"
-    : badge?.startsWith?.("₦")  ? "mp-pill mp-pill--money"
+    badgeType === "notif"       ? "mp-pill mp-pill--notif"
+    : badgeType === "sub"       ? "mp-pill mp-pill--sub"
+    : badge    === "WIN"        ? "mp-pill mp-pill--win"
+    : badge    === "NEW"        ? "mp-pill mp-pill--new"
+    : badge?.startsWith?.("₦") ? "mp-pill mp-pill--money"
     : "mp-pill";
 
   return (
@@ -914,18 +853,14 @@ const MobileMenuItem = memo(function MobileMenuItem({
 /* ═══════════════════════════════════════════════════════════════
    ERROR BANNER
 ═══════════════════════════════════════════════════════════════ */
-const MobileErrorBanner = memo(function MobileErrorBanner({
-  message,
-  onRetry,
-  isRetrying,
-}) {
+const MobileErrorBanner = memo(function MobileErrorBanner({ message, onRetry, isRetrying }) {
   return (
     <motion.div
       className="mp-error"
       role="alert"
       initial={{ opacity: 0, y: -16, scale: 0.95 }}
-      animate={{ opacity: 1, y: 0,   scale: 1 }}
-      exit={{ opacity: 0,   y: -16,  scale: 0.95 }}
+      animate={{ opacity: 1,  y: 0,   scale: 1 }}
+      exit={{ opacity: 0,    y: -16,  scale: 0.95 }}
       transition={spring}
     >
       <div className="mp-error__row">
@@ -951,6 +886,118 @@ const MobileErrorBanner = memo(function MobileErrorBanner({
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   LOGOUT BUTTON
+═══════════════════════════════════════════════════════════════ */
+const LogoutButton = memo(function LogoutButton({ onLogout }) {
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [loggingOut,  setLoggingOut]  = useState(false);
+
+  const handleLogout = useCallback(async () => {
+    setLoggingOut(true);
+    try {
+      await onLogout();
+    } catch {
+      // parent handles navigation even on error
+    } finally {
+      setLoggingOut(false);
+      setShowConfirm(false);
+    }
+  }, [onLogout]);
+
+  return (
+    <>
+      {/* ── Trigger ── */}
+      <motion.div
+        className="mp-logout-wrap"
+        variants={fadeUp}
+        initial="hidden"
+        whileInView="visible"
+        viewport={viewOnce}
+        transition={{ ...spring, delay: 0.06 }}
+      >
+        <motion.button
+          className="mp-logout-btn"
+          onClick={() => setShowConfirm(true)}
+          whileTap={{ scale: 0.97 }}
+          aria-label="Log out of your account"
+        >
+          <span className="mp-logout-btn__icon">
+            <Icon.logout />
+          </span>
+          <span className="mp-logout-btn__label">Log Out</span>
+          <span className="mp-logout-btn__arrow">
+            <Icon.chevron />
+          </span>
+        </motion.button>
+      </motion.div>
+
+      {/* ── Confirm sheet ── */}
+      <AnimatePresence>
+        {showConfirm && (
+          <>
+            <motion.div
+              className="mp-logout-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.22 }}
+              onClick={() => !loggingOut && setShowConfirm(false)}
+              aria-hidden="true"
+            />
+
+            <motion.div
+              className="mp-logout-sheet"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Confirm logout"
+              initial={{ opacity: 0, y: 80, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0,  scale: 1 }}
+              exit={{ opacity: 0,   y: 80,  scale: 0.96 }}
+              transition={popSpring}
+            >
+              <div className="mp-logout-sheet__handle" aria-hidden="true" />
+
+              <div className="mp-logout-sheet__icon-wrap">
+                <Icon.logout />
+              </div>
+
+              <h2 className="mp-logout-sheet__title">Log out?</h2>
+              <p className="mp-logout-sheet__sub">
+                You'll need to sign in again to access your account.
+              </p>
+
+              <div className="mp-logout-sheet__actions">
+                <motion.button
+                  className="mp-logout-sheet__confirm"
+                  onClick={handleLogout}
+                  disabled={loggingOut}
+                  whileTap={{ scale: 0.96 }}
+                >
+                  {loggingOut ? (
+                    <><span className="mp-spinner-sm" /> Logging out…</>
+                  ) : (
+                    <><Icon.logout /> Yes, Log Out</>
+                  )}
+                </motion.button>
+
+                <motion.button
+                  className="mp-logout-sheet__cancel"
+                  onClick={() => setShowConfirm(false)}
+                  disabled={loggingOut}
+                  whileTap={{ scale: 0.96 }}
+                >
+                  Cancel
+                </motion.button>
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function MobileProfile({ onLogout }) {
@@ -959,12 +1006,10 @@ export default function MobileProfile({ onLogout }) {
   const currentPath = location.pathname;
   const queryClient = useQueryClient();
 
-  const menuRef = useRef(null);
-  const pageRef = useRef(null);
-  const [menuOpen,   setMenuOpen]   = useState(false);
+  const pageRef      = useRef(null);
   const [isRetrying, setIsRetrying] = useState(false);
 
-  /* ── Data fetching ── */
+  /* ── Queries ── */
   const {
     data:    user,
     error:   userError,
@@ -1015,7 +1060,7 @@ export default function MobileProfile({ onLogout }) {
 
   const menuSections = useMemo(
     () => buildMenuSections(unreadCount, subStatus),
-    [unreadCount, subStatus]
+    [unreadCount, subStatus],
   );
 
   /* ── Pull to refresh ── */
@@ -1026,7 +1071,7 @@ export default function MobileProfile({ onLogout }) {
     ]);
   }, [queryClient]);
 
-  const { containerRef, pullY, pulling, refreshing } =
+  const { containerRef, pullY, refreshing } =
     usePullToRefresh(handleRefresh, 80);
 
   /* ── Auth guard ── */
@@ -1045,14 +1090,21 @@ export default function MobileProfile({ onLogout }) {
   /* ── Retry ── */
   const handleRetry = useCallback(async () => {
     setIsRetrying(true);
-    try {
-      await Promise.all([refetchUser(), refetchListings()]);
-    } finally {
-      setIsRetrying(false);
-    }
+    try { await Promise.all([refetchUser(), refetchListings()]); }
+    finally { setIsRetrying(false); }
   }, [refetchUser, refetchListings]);
 
-  const joinedLabel   = fmtJoined(user?.created_at || user?.joined_at);
+  /* ── Logout ── */
+  const handleLogout = useCallback(async () => {
+    localStorage.removeItem("marketplace_token");
+    localStorage.removeItem("token");
+    if (typeof onLogout === "function") {
+      try { await onLogout(); } catch { /* ignore */ }
+    }
+    navigate("/auth", { replace: true });
+  }, [navigate, onLogout]);
+
+  const joinedLabel = fmtJoined(user?.created_at || user?.joined_at);
 
   const errorMessage =
     userIsError &&
@@ -1063,22 +1115,23 @@ export default function MobileProfile({ onLogout }) {
         : "Connection error."
       : null;
 
+  /* ── Render ── */
   return (
     <div className="mp-root" role="main">
+
+      {/* Top bar */}
       <div className="mp-top-bar">
         <ProfileHeader
           title="Profile"
-          menuOpen={menuOpen}
-          onMenuToggle={() => setMenuOpen((v) => !v)}
-          onMenuClose={() => setMenuOpen(false)}
-          menuRef={menuRef}
           onEdit={() => navigate("/profile/edit")}
           onNotif={() => navigate("/notifications")}
         />
       </div>
 
+      {/* Pull indicator sits outside scroll */}
       <PullIndicator pullY={pullY} refreshing={refreshing} />
 
+      {/* Scrollable body */}
       <div
         className="mp-scroll"
         ref={(node) => {
@@ -1086,6 +1139,7 @@ export default function MobileProfile({ onLogout }) {
           containerRef.current = node;
         }}
       >
+        {/* Error */}
         <AnimatePresence>
           {errorMessage && (
             <MobileErrorBanner
@@ -1096,6 +1150,7 @@ export default function MobileProfile({ onLogout }) {
           )}
         </AnimatePresence>
 
+        {/* Hero */}
         <HeroProfileCard
           user={user}
           joinedLabel={joinedLabel}
@@ -1104,6 +1159,7 @@ export default function MobileProfile({ onLogout }) {
           listingsCount={listings.length}
         />
 
+        {/* Listings */}
         {listingsLoading ? (
           <div className="mp-skeletons">
             <div className="mp-sk-card">
@@ -1117,19 +1173,22 @@ export default function MobileProfile({ onLogout }) {
           />
         )}
 
+        {/* Subscription */}
         <MobileSubscriptionCard
           sub={subStatus}
           onClick={() =>
             navigate(
               subStatus?.isActive
                 ? "/seller/subscription"
-                : "/seller/subscription/plans"
+                : "/seller/subscription/plans",
             )
           }
         />
 
+        {/* Referral */}
         <MobileReferralCard code={user?.referral_code} />
 
+        {/* Menu sections */}
         <div className="mp-menu-wrap">
           {menuSections.map((section, si) => (
             <motion.section
@@ -1142,10 +1201,7 @@ export default function MobileProfile({ onLogout }) {
               transition={{ ...spring, delay: si * 0.035 }}
             >
               <div className="mp-msection__hdr">
-                <span
-                  className="mp-msection__icon"
-                  style={{ color: section.color }}
-                >
+                <span className="mp-msection__icon" style={{ color: section.color }}>
                   {section.icon}
                 </span>
                 <h3 className="mp-msection__title">{section.title}</h3>
@@ -1176,6 +1232,10 @@ export default function MobileProfile({ onLogout }) {
           ))}
         </div>
 
+        {/* ── Logout ── */}
+        <LogoutButton onLogout={handleLogout} />
+
+        {/* Footer */}
         <p className="mp-footer">
           Loemart Technologies Ltd · {new Date().getFullYear()}
         </p>
