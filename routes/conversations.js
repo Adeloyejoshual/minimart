@@ -11,6 +11,11 @@ const router = express.Router();
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════════════════════ */
+
+// A user is considered online if is_online = true AND
+// last_login was within the last 5 minutes (heartbeat-based)
+const ONLINE_INTERVAL = "5 minutes";
+
 function shapeConversation(row) {
   return {
     thread_id:         row.thread_id,
@@ -26,7 +31,7 @@ function shapeConversation(row) {
     other_user_id:     row.other_user_id     || null,
     other_user_name:   row.other_user_name   || "User",
     other_user_image:  row.other_user_image  || null,
-    other_user_online: row.other_user_online || false,
+    other_user_online: row.other_user_online || false,  // ← heartbeat-aware
     other_user_store:  row.other_user_store  || null,
     last_login:        row.last_login        || null,
     product_title:     row.product_title     || null,
@@ -40,7 +45,7 @@ function shapeConversation(row) {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/conversations
-   List all conversations for the authenticated user
+   List all non-archived conversations for the authenticated user
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", softAuth, async (req, res) => {
   const userId = req.user?.id || req.query.userId;
@@ -53,7 +58,7 @@ router.get("/", softAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
-         t.id                  AS thread_id,
+         t.id                AS thread_id,
          t.product_id,
          t.last_message,
          t.last_message_at,
@@ -63,14 +68,22 @@ router.get("/", softAuth, async (req, res) => {
          t.seller_id,
          t.created_at,
 
-         CASE WHEN t.buyer_id = $1 THEN t.seller_id
-              ELSE t.buyer_id END              AS other_user_id,
+         -- who is the other person?
+         CASE WHEN t.buyer_id = $1
+              THEN t.seller_id
+              ELSE t.buyer_id
+         END                                          AS other_user_id,
 
-         u.name                               AS other_user_name,
-         u.profile_image                      AS other_user_image,
-         u.is_online                          AS other_user_online,
-         u.store_name                         AS other_user_store,
+         u.name                                       AS other_user_name,
+         u.profile_image                              AS other_user_image,
+         u.store_name                                 AS other_user_store,
          u.last_login,
+
+         -- heartbeat-aware online flag
+         (
+           u.is_online = true
+           AND u.last_login > NOW() - INTERVAL '${ONLINE_INTERVAL}'
+         )                                            AS other_user_online,
 
          p.title      AS product_title,
          p.price      AS product_price,
@@ -78,14 +91,17 @@ router.get("/", softAuth, async (req, res) => {
 
          lm.sender_id AS last_sender_id,
 
+         -- unread count: messages from the other user that arrived
+         -- after my last read receipt
          COUNT(m.id) FILTER (
            WHERE m.sender_id <> $1
              AND m.deleted    = false
              AND (rr.last_read_at IS NULL OR m.created_at > rr.last_read_at)
-         )::INT AS unread_count
+         )::INT                                       AS unread_count
 
        FROM public.chat_threads t
 
+       -- join the OTHER user's profile
        JOIN public.users u
          ON u.id = CASE WHEN t.buyer_id = $1
                         THEN t.seller_id
@@ -96,6 +112,7 @@ router.get("/", softAuth, async (req, res) => {
        LEFT JOIN public.chat_read_receipts rr ON rr.thread_id = t.id
                                              AND rr.user_id   = $1
 
+       -- last non-deleted message (for last_sender_id)
        LEFT JOIN LATERAL (
          SELECT sender_id
          FROM   public.chat_messages
@@ -106,10 +123,11 @@ router.get("/", softAuth, async (req, res) => {
 
        WHERE (t.buyer_id = $1 OR t.seller_id = $1)
          AND t.is_archived = false
+         -- only show threads the user hasn't soft-deleted
          AND (
-           (t.buyer_id  = $1 AND (t.deleted_by_buyer  = false OR t.deleted_by_buyer  IS NULL))
+           (t.buyer_id  = $1 AND (t.deleted_by_buyer  IS NULL OR t.deleted_by_buyer  = false))
            OR
-           (t.seller_id = $1 AND (t.deleted_by_seller = false OR t.deleted_by_seller IS NULL))
+           (t.seller_id = $1 AND (t.deleted_by_seller IS NULL OR t.deleted_by_seller = false))
          )
 
        GROUP BY
@@ -134,7 +152,7 @@ router.get("/", softAuth, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/conversations/unread-count
-   ⚠️  Must be declared BEFORE /:threadId to avoid param clash
+   ⚠️  Declared BEFORE /:threadId to avoid route param clash
    Returns total unread message count across all threads
 ═══════════════════════════════════════════════════════════════ */
 router.get("/unread-count", softAuth, async (req, res) => {
@@ -177,7 +195,7 @@ router.get("/unread-count", softAuth, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/conversations/:threadId
-   Single conversation thread
+   Single conversation thread with heartbeat-aware online status
 ═══════════════════════════════════════════════════════════════ */
 router.get("/:threadId", softAuth, async (req, res) => {
   const { threadId } = req.params;
@@ -200,11 +218,16 @@ router.get("/:threadId", softAuth, async (req, res) => {
               THEN t.seller_id
               ELSE t.buyer_id END AS other_user_id,
 
-         u.name            AS other_user_name,
-         u.profile_image   AS other_user_image,
-         u.is_online       AS other_user_online,
-         u.store_name      AS other_user_store,
+         u.name          AS other_user_name,
+         u.profile_image AS other_user_image,
+         u.store_name    AS other_user_store,
          u.last_login,
+
+         -- heartbeat-aware online flag
+         (
+           u.is_online = true
+           AND u.last_login > NOW() - INTERVAL '${ONLINE_INTERVAL}'
+         )               AS other_user_online,
 
          p.title      AS product_title,
          p.price      AS product_price,
@@ -225,9 +248,7 @@ router.get("/:threadId", softAuth, async (req, res) => {
     );
 
     if (!rows[0])
-      return res
-        .status(404)
-        .json({ success: false, message: "Thread not found" });
+      return res.status(404).json({ success: false, message: "Thread not found" });
 
     return res.json(shapeConversation(rows[0]));
   } catch (err) {
@@ -250,9 +271,7 @@ router.post("/", softAuth, async (req, res) => {
   if (!sellerId)
     return res.status(400).json({ success: false, message: "sellerId required" });
   if (buyerId === sellerId)
-    return res
-      .status(400)
-      .json({ success: false, message: "Cannot chat with yourself" });
+    return res.status(400).json({ success: false, message: "Cannot chat with yourself" });
 
   const client = await pool.connect();
   try {
@@ -267,19 +286,15 @@ router.post("/", softAuth, async (req, res) => {
 
     if (!found.has(buyerId)) {
       await client.query("ROLLBACK");
-      client.release();
       return res.status(404).json({ success: false, message: "Buyer not found" });
     }
     if (!found.has(sellerId)) {
       await client.query("ROLLBACK");
-      client.release();
-      return res
-        .status(404)
-        .json({ success: false, message: "Seller not found" });
+      return res.status(404).json({ success: false, message: "Seller not found" });
     }
 
     /* ── Check for existing thread ── */
-    const findQ = productId
+    const existingQuery = productId
       ? `SELECT id AS thread_id, id, buyer_id, seller_id, product_id,
                 last_message, last_message_at, created_at,
                 is_archived, is_blocked
@@ -294,7 +309,7 @@ router.post("/", softAuth, async (req, res) => {
          LIMIT 1`;
 
     const { rows: existing } = await client.query(
-      findQ,
+      existingQuery,
       productId ? [buyerId, sellerId, productId] : [buyerId, sellerId]
     );
 
@@ -302,10 +317,10 @@ router.post("/", softAuth, async (req, res) => {
       /* restore visibility if buyer had soft-deleted it */
       await client.query(
         `UPDATE public.chat_threads
-         SET    deleted_by_buyer  = false,
-                deleted_at_buyer  = NULL
-         WHERE  id       = $1
-           AND  buyer_id = $2
+         SET    deleted_by_buyer = false,
+                deleted_at_buyer = NULL
+         WHERE  id               = $1
+           AND  buyer_id         = $2
            AND  deleted_by_buyer = true`,
         [existing[0].id, buyerId]
       );
@@ -329,25 +344,28 @@ router.post("/", softAuth, async (req, res) => {
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
 
-    /* race condition — unique violation, fetch existing */
+    /* race condition — unique violation, return existing thread */
     if (err.code === "23505") {
-      const { rows: fb } = await pool.query(
-        productId
-          ? `SELECT id AS thread_id, id, buyer_id, seller_id, product_id,
-                    last_message, last_message_at, created_at,
-                    is_archived, is_blocked
-             FROM public.chat_threads
-             WHERE buyer_id = $1 AND seller_id = $2 AND product_id = $3
-             LIMIT 1`
-          : `SELECT id AS thread_id, id, buyer_id, seller_id, product_id,
-                    last_message, last_message_at, created_at,
-                    is_archived, is_blocked
-             FROM public.chat_threads
-             WHERE buyer_id = $1 AND seller_id = $2 AND product_id IS NULL
-             LIMIT 1`,
+      const fallbackQuery = productId
+        ? `SELECT id AS thread_id, id, buyer_id, seller_id, product_id,
+                  last_message, last_message_at, created_at,
+                  is_archived, is_blocked
+           FROM public.chat_threads
+           WHERE buyer_id = $1 AND seller_id = $2 AND product_id = $3
+           LIMIT 1`
+        : `SELECT id AS thread_id, id, buyer_id, seller_id, product_id,
+                  last_message, last_message_at, created_at,
+                  is_archived, is_blocked
+           FROM public.chat_threads
+           WHERE buyer_id = $1 AND seller_id = $2 AND product_id IS NULL
+           LIMIT 1`;
+
+      const { rows: fallback } = await pool.query(
+        fallbackQuery,
         productId ? [buyerId, sellerId, productId] : [buyerId, sellerId]
       );
-      if (fb.length > 0) return res.status(200).json(shapeConversation(fb[0]));
+      if (fallback.length > 0)
+        return res.status(200).json(shapeConversation(fallback[0]));
     }
 
     console.error("POST /conversations error:", err.message);
@@ -359,7 +377,7 @@ router.post("/", softAuth, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    PATCH /api/conversations/:threadId/read
-   Mark all messages in a thread as read
+   Upsert read receipt + mark messages as read
 ═══════════════════════════════════════════════════════════════ */
 router.patch("/:threadId/read", softAuth, async (req, res) => {
   const { threadId } = req.params;
@@ -384,7 +402,7 @@ router.patch("/:threadId/read", softAuth, async (req, res) => {
       return res.status(403).json({ success: false, message: "Access denied" });
     }
 
-    /* upsert read receipt */
+    /* upsert read receipt to the latest message */
     await client.query(
       `INSERT INTO public.chat_read_receipts
          (thread_id, user_id, last_read_message_id, last_read_at)
@@ -400,7 +418,7 @@ router.patch("/:threadId/read", softAuth, async (req, res) => {
       [threadId, userId]
     );
 
-    /* mark messages as read */
+    /* flip unread messages to 'read' */
     const { rowCount } = await client.query(
       `UPDATE public.chat_messages
        SET    status = 'read'
@@ -424,7 +442,7 @@ router.patch("/:threadId/read", softAuth, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE /api/conversations/:threadId
-   Soft-delete — hides thread from user's inbox
+   Soft-delete — hides thread from the requesting user's inbox
 ═══════════════════════════════════════════════════════════════ */
 router.delete("/:threadId", softAuth, async (req, res) => {
   const { threadId } = req.params;
@@ -446,22 +464,17 @@ router.delete("/:threadId", softAuth, async (req, res) => {
 
     if (!tr[0]) {
       await client.query("ROLLBACK");
-      return res
-        .status(404)
-        .json({ success: false, message: "Thread not found" });
+      return res.status(404).json({ success: false, message: "Thread not found" });
     }
 
-    const isBuyer  = tr[0].buyer_id  === userId;
-    const isSeller = tr[0].seller_id === userId;
-
-    if (isBuyer) {
+    if (tr[0].buyer_id === userId) {
       await client.query(
         `UPDATE public.chat_threads
          SET    deleted_by_buyer = true, deleted_at_buyer = NOW()
          WHERE  id = $1`,
         [threadId]
       );
-    } else if (isSeller) {
+    } else {
       await client.query(
         `UPDATE public.chat_threads
          SET    deleted_by_seller = true, deleted_at_seller = NOW()
@@ -483,11 +496,11 @@ router.delete("/:threadId", softAuth, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/conversations/:threadId/report
-   Submit a report — buyer only
+   Submit a report — any thread member (buyer or seller)
 ═══════════════════════════════════════════════════════════════ */
 router.post("/:threadId/report", softAuth, async (req, res) => {
-  const { threadId }                          = req.params;
-  const userId                                = req.user?.id || req.body.userId;
+  const { threadId }                               = req.params;
+  const userId                                     = req.user?.id || req.body.userId;
   const { reason, details = "", messageId = null } = req.body;
 
   const VALID_REASONS = [
@@ -522,32 +535,16 @@ router.post("/:threadId/report", softAuth, async (req, res) => {
 
     if (!tr[0]) {
       await client.query("ROLLBACK");
-      client.release();
-      return res
-        .status(404)
-        .json({ success: false, message: "Thread not found" });
+      return res.status(404).json({ success: false, message: "Thread not found" });
     }
 
-    const isMember =
-      tr[0].buyer_id === userId || tr[0].seller_id === userId;
-
+    const isMember = tr[0].buyer_id === userId || tr[0].seller_id === userId;
     if (!isMember) {
       await client.query("ROLLBACK");
-      client.release();
       return res.status(403).json({ success: false, message: "Access denied" });
     }
 
-    /* only buyer can report */
-    if (tr[0].buyer_id !== userId) {
-      await client.query("ROLLBACK");
-      client.release();
-      return res.status(403).json({
-        success: false,
-        message: "Only the buyer can submit a report",
-      });
-    }
-
-    /* prevent duplicate pending reports */
+    /* prevent duplicate pending reports from same user */
     const { rows: existing } = await client.query(
       `SELECT id FROM public.chat_reports
        WHERE  conversation_id = $1
@@ -564,7 +561,6 @@ router.post("/:threadId/report", softAuth, async (req, res) => {
       });
     }
 
-    /* insert report */
     const { rows: report } = await client.query(
       `INSERT INTO public.chat_reports
          (reporter_id, conversation_id, message_id, reason, details)
@@ -573,7 +569,7 @@ router.post("/:threadId/report", softAuth, async (req, res) => {
       [userId, threadId, messageId || null, reason, details.slice(0, 1000)]
     );
 
-    /* lock conversation from cleanup */
+    /* lock thread from automated cleanup while under review */
     await client.query(
       `UPDATE public.chat_threads
        SET    is_under_review = true
@@ -600,9 +596,12 @@ router.post("/:threadId/report", softAuth, async (req, res) => {
    PATCH /api/conversations/:threadId/archive
 ═══════════════════════════════════════════════════════════════ */
 router.patch("/:threadId/archive", softAuth, async (req, res) => {
-  const { threadId }    = req.params;
+  const { threadId }       = req.params;
   const { archive = true } = req.body;
-  const userId          = req.user?.id || req.body.userId;
+  const userId             = req.user?.id || req.body.userId;
+
+  if (!userId)
+    return res.status(400).json({ success: false, message: "userId required" });
 
   try {
     const { rowCount } = await pool.query(
@@ -613,9 +612,7 @@ router.patch("/:threadId/archive", softAuth, async (req, res) => {
     );
 
     if (!rowCount)
-      return res
-        .status(404)
-        .json({ success: false, message: "Thread not found" });
+      return res.status(404).json({ success: false, message: "Thread not found" });
 
     return res.json({ success: true, archived: !!archive });
   } catch (err) {
@@ -628,9 +625,12 @@ router.patch("/:threadId/archive", softAuth, async (req, res) => {
    PATCH /api/conversations/:threadId/block
 ═══════════════════════════════════════════════════════════════ */
 router.patch("/:threadId/block", softAuth, async (req, res) => {
-  const { threadId }  = req.params;
+  const { threadId }    = req.params;
   const { block = true } = req.body;
-  const userId        = req.user?.id || req.body.userId;
+  const userId          = req.user?.id || req.body.userId;
+
+  if (!userId)
+    return res.status(400).json({ success: false, message: "userId required" });
 
   try {
     const { rowCount } = await pool.query(
@@ -641,9 +641,7 @@ router.patch("/:threadId/block", softAuth, async (req, res) => {
     );
 
     if (!rowCount)
-      return res
-        .status(404)
-        .json({ success: false, message: "Thread not found" });
+      return res.status(404).json({ success: false, message: "Thread not found" });
 
     return res.json({ success: true, blocked: !!block });
   } catch (err) {
@@ -656,9 +654,12 @@ router.patch("/:threadId/block", softAuth, async (req, res) => {
    PATCH /api/conversations/:threadId/mute
 ═══════════════════════════════════════════════════════════════ */
 router.patch("/:threadId/mute", softAuth, async (req, res) => {
-  const { threadId } = req.params;
+  const { threadId }    = req.params;
   const { mute = true } = req.body;
-  const userId       = req.user?.id || req.body.userId;
+  const userId          = req.user?.id || req.body.userId;
+
+  if (!userId)
+    return res.status(400).json({ success: false, message: "userId required" });
 
   try {
     await pool.query(
