@@ -1,15 +1,16 @@
-/**
- * routes/auth.routes.js
- *
- * POST /api/auth/register
- * POST /api/auth/login
- */
+// ════════════════════════════════════════════════════════════
+// FILE: routes/auth.routes.js
+//
+// POST /api/auth/register
+// POST /api/auth/login
+// ════════════════════════════════════════════════════════════
 
-import express    from "express";
-import bcrypt     from "bcrypt";
-import jwt        from "jsonwebtoken";
-import rateLimit  from "express-rate-limit";
-import { pool }   from "../config/db.js";
+import express   from "express";
+import bcrypt    from "bcrypt";
+import jwt       from "jsonwebtoken";
+import rateLimit from "express-rate-limit";
+import { pool }  from "../config/db.js";
+
 import { writeAudit }                 from "../lib/audit.js";
 import { generateUniqueReferralCode } from "../lib/generateReferralCode.js";
 import { sendEmailOtp }               from "../lib/sendEmailOtp.js";
@@ -36,11 +37,7 @@ const BANNED_STATUSES = Object.freeze(["banned", "suspended", "flagged"]);
 const INVITE_CODE_RE  = /^[A-Z0-9]{4,20}$/;
 const EMAIL_RE        = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-/*
-  AUTH_FIELDS — the only columns sent to the client.
-  SAFE_FIELDS — full projection used for INSERT RETURNING only;
-                never serialised directly into a response.
-*/
+/* Columns returned to the client — never add sensitive cols here */
 const AUTH_FIELDS = `
   id, name, email, phone_number,
   country, state, city,
@@ -53,6 +50,7 @@ const AUTH_FIELDS = `
   created_at
 `;
 
+/* Extended projection used only in INSERT RETURNING */
 const SAFE_FIELDS = `
   ${AUTH_FIELDS},
   store_description,
@@ -61,6 +59,22 @@ const SAFE_FIELDS = `
   identity_verified,
   bonus_spins, total_referrals
 `;
+
+const AUTH_FIELD_NAMES = new Set([
+  "id", "name", "email", "phone_number",
+  "country", "state", "city",
+  "profile_image",
+  "store_name", "store_logo", "store_verified",
+  "status", "last_login",
+  "verified", "role",
+  "is_online", "email_verified",
+  "seller_type", "referral_code",
+  "created_at",
+]);
+
+/* Timing-safe dummy hash — used when email is not found at login */
+const DUMMY_HASH =
+  "$2b$12$invalidsaltinvalidsaltininvalidhashpadding000000000000";
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
@@ -79,6 +93,8 @@ const fail = (res, status, message, extra = {}) =>
 
 const normalizeEmail = (raw = "") => raw.trim().toLowerCase();
 const isValidEmail   = (e)        => EMAIL_RE.test(e);
+const nullIfEmpty    = (val)      =>
+  val && String(val).trim() !== "" ? String(val).trim() : null;
 
 const makeJwt = (user) =>
   jwt.sign(
@@ -87,22 +103,7 @@ const makeJwt = (user) =>
     { expiresIn: process.env.JWT_EXPIRES_IN ?? "7d" }
   );
 
-/*
-  toPublicUser — strips every column that is not in AUTH_FIELDS
-  so newly-added DB columns can never accidentally leak.
-*/
-const AUTH_FIELD_NAMES = new Set([
-  "id", "name", "email", "phone_number",
-  "country", "state", "city",
-  "profile_image",
-  "store_name", "store_logo", "store_verified",
-  "status", "last_login",
-  "verified", "role",
-  "is_online", "email_verified",
-  "seller_type", "referral_code",
-  "created_at",
-]);
-
+/* Strip every column not in AUTH_FIELD_NAMES */
 const toPublicUser = (row) =>
   Object.fromEntries(
     Object.entries(row).filter(([k]) => AUTH_FIELD_NAMES.has(k))
@@ -110,8 +111,8 @@ const toPublicUser = (row) =>
 
 /* ════════════════════════════════════════════════════════════
    STRUCTURED LOGGER
-   info / dev  → silent in production (no PII in prod logs)
-   warn / error → always emitted
+   info/dev  → silent in production (no PII in prod logs)
+   warn/error → always emitted
 ════════════════════════════════════════════════════════════ */
 const log = {
   info  : (...a) => { if (!IS_PROD) console.log(...a);  },
@@ -138,52 +139,22 @@ const validateRegisterBody = (body) => {
     return "Password must contain at least one uppercase letter.";
   if (!/[0-9]/.test(password))
     return "Password must contain at least one number.";
-  if (invite_code) {
-    const clean = String(invite_code).trim().toUpperCase();
-    if (!INVITE_CODE_RE.test(clean))
-      return "Invalid invite code format.";
-  }
+  if (invite_code && !INVITE_CODE_RE.test(String(invite_code).trim().toUpperCase()))
+    return "Invalid invite code format.";
+
   return null;
 };
 
-const validateLoginBody = (body) => {
-  const { email, password } = body;
-  if (!email || !password)
-    return "Email and password are required.";
+const validateLoginBody = ({ email, password } = {}) => {
+  if (!email || !password)    return "Email and password are required.";
   if (!isValidEmail(normalizeEmail(email)))
     return "Please enter a valid email address.";
   return null;
 };
 
 /* ════════════════════════════════════════════════════════════
-   DUMMY HASH — timing-safe login
-   Always run bcrypt.compare() so an attacker cannot
-   distinguish "no account" from "wrong password" by measuring
-   response time.
-════════════════════════════════════════════════════════════ */
-const DUMMY_HASH =
-  "$2b$12$invalidsaltinvalidsaltininvalidhashpadding000000000000";
-
-/* ════════════════════════════════════════════════════════════
    REFERRAL — recordReferral
    Runs INSIDE the registration transaction (same pg client).
-
-   Schema:
-     inviter_id   UUID NOT NULL
-     invitee_id   UUID NOT NULL  ← legacy NOT NULL col
-     referee_id   UUID NULL      ← new col, used everywhere
-     invite_code  VARCHAR(20)
-     status       VARCHAR(20)    DEFAULT 'pending'
-     reward_type  VARCHAR(30)    DEFAULT 'bonus_spin'
-     reward_value DECIMAL(12,2)
-
-   Both invitee_id AND referee_id are written so the NOT NULL
-   constraint is satisfied and new queries work on referee_id.
-
-   TODO: once this migration is applied, replace the SELECT
-   duplicate check with ON CONFLICT (referee_id) DO NOTHING:
-     ALTER TABLE referrals
-       ADD CONSTRAINT referrals_referee_unique UNIQUE (referee_id);
 ════════════════════════════════════════════════════════════ */
 async function recordReferral(client, inviteCode, newUserId) {
   if (!inviteCode || !newUserId) {
@@ -193,12 +164,9 @@ async function recordReferral(client, inviteCode, newUserId) {
 
   const code = String(inviteCode).toUpperCase().trim();
 
-  /* ── 1. Find inviter ── */
+  /* 1. Find inviter */
   const { rows: [inviter] } = await client.query(
-    `SELECT id, status
-     FROM   users
-     WHERE  referral_code = $1
-     LIMIT  1`,
+    `SELECT id, status FROM users WHERE referral_code = $1 LIMIT 1`,
     [code]
   );
 
@@ -207,7 +175,6 @@ async function recordReferral(client, inviteCode, newUserId) {
     return;
   }
 
-  /* ── 2. Guards ── */
   if (String(inviter.id) === String(newUserId)) {
     log.warn("[referral] self-referral blocked");
     return;
@@ -218,13 +185,11 @@ async function recordReferral(client, inviteCode, newUserId) {
     return;
   }
 
-  /* ── 3. Duplicate check (TOCTOU gap — see TODO above) ── */
+  /* 2. Duplicate guard */
   const { rows: existing } = await client.query(
-    `SELECT id
-     FROM   referrals
-     WHERE  referee_id = $1
-        OR  invitee_id = $1
-     LIMIT  1`,
+    `SELECT id FROM referrals
+     WHERE referee_id = $1 OR invitee_id = $1
+     LIMIT 1`,
     [newUserId]
   );
 
@@ -233,16 +198,12 @@ async function recordReferral(client, inviteCode, newUserId) {
     return;
   }
 
-  /* ── 4. Insert referral ── */
+  /* 3. Insert referral row */
   const { rows: [referral] } = await client.query(
     `INSERT INTO referrals
-       (inviter_id, invitee_id, referee_id,
-        invite_code, status,
-        reward_type, reward_value)
-     VALUES
-       ($1, $2, $2,
-        $3, 'pending',
-        'bonus_spin', 1)
+       (inviter_id, invitee_id, referee_id, invite_code,
+        status, reward_type, reward_value)
+     VALUES ($1, $2, $2, $3, 'pending', 'bonus_spin', 1)
      RETURNING id`,
     [inviter.id, newUserId, code]
   );
@@ -254,40 +215,36 @@ async function recordReferral(client, inviteCode, newUserId) {
 
   log.info(`[referral] referral row inserted: id=${referral.id}`);
 
-  /* ── 5. referred_by (column may not exist yet) ── */
+  /* 4. referred_by */
   try {
     await client.query(
-      `UPDATE users
-       SET    referred_by = $1
-       WHERE  id          = $2
-         AND  referred_by IS NULL`,
+      `UPDATE users SET referred_by = $1
+       WHERE id = $2 AND referred_by IS NULL`,
       [inviter.id, newUserId]
     );
   } catch (e) {
     log.warn(`[referral] referred_by update skipped: ${e.message}`);
   }
 
-  /* ── 6. Increment total_referrals ── */
+  /* 5. Increment total_referrals */
   try {
     await client.query(
       `UPDATE users
-       SET    total_referrals = COALESCE(total_referrals, 0) + 1
-       WHERE  id = $1`,
+       SET total_referrals = COALESCE(total_referrals, 0) + 1
+       WHERE id = $1`,
       [inviter.id]
     );
   } catch (e) {
     log.warn(`[referral] total_referrals update skipped: ${e.message}`);
   }
 
-  /* ── 7. signed_up event (table may not exist yet) ── */
+  /* 6. signed_up event */
   try {
     await client.query(
       `INSERT INTO referral_events
          (referral_id, event_type, description, metadata)
-       VALUES
-         ($1, 'signed_up',
-          'New user signed up using invite code',
-          $2::JSONB)`,
+       VALUES ($1, 'signed_up',
+               'New user signed up using invite code', $2::JSONB)`,
       [
         referral.id,
         JSON.stringify({
@@ -309,7 +266,7 @@ async function recordReferral(client, inviteCode, newUserId) {
 
 /* ════════════════════════════════════════════════════════════
    REFERRAL — grantReferralRewardOnVerify
-   Called after email verification.  Never throws.
+   Called after email verification. Never throws.
 ════════════════════════════════════════════════════════════ */
 async function grantReferralRewardOnVerify(verifiedUserId) {
   if (!verifiedUserId) return;
@@ -318,11 +275,9 @@ async function grantReferralRewardOnVerify(verifiedUserId) {
 
   try {
     const { rows: [referral] } = await pool.query(
-      `SELECT id, inviter_id
-       FROM   referrals
-       WHERE  (referee_id = $1 OR invitee_id = $1)
-         AND  status = 'pending'
-       LIMIT  1`,
+      `SELECT id, inviter_id FROM referrals
+       WHERE (referee_id = $1 OR invitee_id = $1) AND status = 'pending'
+       LIMIT 1`,
       [verifiedUserId]
     );
 
@@ -333,13 +288,11 @@ async function grantReferralRewardOnVerify(verifiedUserId) {
       return;
     }
 
-    /* Atomic pending → verified (only succeeds once) */
+    /* Atomic: pending → verified */
     const { rowCount } = await pool.query(
       `UPDATE referrals
-       SET    status      = 'verified',
-              verified_at = now()
-       WHERE  id     = $1
-         AND  status = 'pending'`,
+       SET status = 'verified', verified_at = now()
+       WHERE id = $1 AND status = 'pending'`,
       [referral.id]
     );
 
@@ -351,10 +304,8 @@ async function grantReferralRewardOnVerify(verifiedUserId) {
     /* email_verified event */
     try {
       await pool.query(
-        `INSERT INTO referral_events
-           (referral_id, event_type, description)
-         VALUES ($1, 'email_verified',
-                 'Referee verified their email address')`,
+        `INSERT INTO referral_events (referral_id, event_type, description)
+         VALUES ($1, 'email_verified', 'Referee verified their email address')`,
         [referral.id]
       );
     } catch (e) {
@@ -372,19 +323,15 @@ async function grantReferralRewardOnVerify(verifiedUserId) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   grantBonusSpin
-   Idempotent: only fires when status = 'verified'.
+   grantBonusSpin — idempotent, only fires when status = 'verified'
 ════════════════════════════════════════════════════════════ */
 async function grantBonusSpin(referralId, inviterId, refereeId) {
   const REWARD = 1;
 
   const { rowCount } = await pool.query(
     `UPDATE referrals
-     SET    status          = 'rewarded',
-            reward_value    = $1,
-            reward_given_at = now()
-     WHERE  id     = $2
-       AND  status = 'verified'`,
+     SET status = 'rewarded', reward_value = $1, reward_given_at = now()
+     WHERE id = $2 AND status = 'verified'`,
     [REWARD, referralId]
   );
 
@@ -396,9 +343,8 @@ async function grantBonusSpin(referralId, inviterId, refereeId) {
   }
 
   await pool.query(
-    `UPDATE users
-     SET    bonus_spins = COALESCE(bonus_spins, 0) + $1
-     WHERE  id = $2`,
+    `UPDATE users SET bonus_spins = COALESCE(bonus_spins, 0) + $1
+     WHERE id = $2`,
     [REWARD, inviterId]
   );
 
@@ -406,9 +352,7 @@ async function grantBonusSpin(referralId, inviterId, refereeId) {
     await pool.query(
       `INSERT INTO referral_events
          (referral_id, event_type, description, metadata)
-       VALUES ($1, 'reward_granted',
-               'Bonus spin awarded to inviter',
-               $2::JSONB)`,
+       VALUES ($1, 'reward_granted', 'Bonus spin awarded to inviter', $2::JSONB)`,
       [
         referralId,
         JSON.stringify({
@@ -429,31 +373,27 @@ async function grantBonusSpin(referralId, inviterId, refereeId) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   RATE LIMITERS
+   RATE LIMITER
    Key: normalised email + IP
-     • IP-only  → shared NAT blocks innocent users
+     • IP-only   → shared NAT blocks innocent users
      • email-only → attacker can enumerate existing accounts
      • email + IP → fair to legitimate users, hard to abuse
 ════════════════════════════════════════════════════════════ */
-const mkLimiter = ({ windowMin, max, message }) =>
-  rateLimit({
-    windowMs        : windowMin * 60 * 1_000,
-    max             : IS_PROD ? max : max * 50,
-    standardHeaders : true,
-    legacyHeaders   : false,
-    keyGenerator    : (req) => {
-      const email = normalizeEmail(req.body?.email ?? "");
-      const ip    = getIp(req) ?? "unknown";
-      return `${email}::${ip}`;
-    },
-    handler : (_req, res) =>
-      res.status(429).json({ success: false, message }),
-  });
-
-const authLimiter = mkLimiter({
-  windowMin : 15,
-  max       : 10,
-  message   : "Too many attempts. Please try again later.",
+const authLimiter = rateLimit({
+  windowMs        : 15 * 60 * 1_000,
+  max             : IS_PROD ? 10 : 500,
+  standardHeaders : true,
+  legacyHeaders   : false,
+  keyGenerator    : (req) => {
+    const email = normalizeEmail(req.body?.email ?? "");
+    const ip    = getIp(req) ?? "unknown";
+    return `${email}::${ip}`;
+  },
+  handler : (_req, res) =>
+    res.status(429).json({
+      success : false,
+      message : "Too many attempts. Please try again later.",
+    }),
 });
 
 /* ════════════════════════════════════════════════════════════
@@ -470,7 +410,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
     invite_code  : req.body.invite_code ?? "(not sent)",
   });
 
-  /* ── 1. Validate ── */
+  /* 1. Validate */
   const validationError = validateRegisterBody(req.body);
   if (validationError) return fail(res, 400, validationError);
 
@@ -482,7 +422,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
 
   const cleanEmail      = normalizeEmail(email);
   const cleanName       = name.trim();
-  const cleanPhone      = phone_number?.trim() || null;
+  const cleanPhone      = nullIfEmpty(phone_number);
   const cleanInviteCode = invite_code
     ? String(invite_code).trim().toUpperCase()
     : null;
@@ -497,7 +437,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
   try {
     await client.query("BEGIN");
 
-    /* ── 2. Duplicate email ── */
+    /* 2. Duplicate email check */
     const { rowCount: emailTaken } = await client.query(
       `SELECT 1 FROM users WHERE email = $1`,
       [cleanEmail]
@@ -510,13 +450,12 @@ router.post("/register", authLimiter, async (req, res, next) => {
       });
     }
 
-    /* ── 3. Validate invite code ── */
+    /* 3. Validate invite code */
     if (cleanInviteCode) {
       const { rowCount: codeValid } = await client.query(
-        `SELECT 1
-         FROM   users
-         WHERE  referral_code = $1
-           AND  status NOT IN ('banned', 'suspended', 'flagged')`,
+        `SELECT 1 FROM users
+         WHERE referral_code = $1
+           AND status NOT IN ('banned', 'suspended', 'flagged')`,
         [cleanInviteCode]
       );
 
@@ -529,18 +468,20 @@ router.post("/register", authLimiter, async (req, res, next) => {
       }
     }
 
-    /* ── 4. Hash password ── */
+    /* 4. Hash password */
     const password_hash = await bcrypt.hash(password, HASH_ROUNDS);
 
-    /* ── 5. Generate referral code ── */
+    /* 5. Generate referral code */
     let newReferralCode = null;
     try {
       newReferralCode = await generateUniqueReferralCode();
     } catch (genErr) {
-      log.error(`[auth] referral code gen failed (non-fatal): ${genErr.message}`);
+      log.error(
+        `[auth] referral code gen failed (non-fatal): ${genErr.message}`
+      );
     }
 
-    /* ── 6. Insert user ── */
+    /* 6. Insert user */
     const { rows: [userRow] } = await client.query(
       `INSERT INTO users
          (name, email, password_hash, phone_number,
@@ -552,16 +493,16 @@ router.post("/register", authLimiter, async (req, res, next) => {
         cleanEmail,
         password_hash,
         cleanPhone,
-        country ?? null,
-        state   ?? null,
-        city    ?? null,
+        nullIfEmpty(country),
+        nullIfEmpty(state),
+        nullIfEmpty(city),
         newReferralCode,
       ]
     );
 
     log.info(`[auth] user inserted: id=${userRow.id}`);
 
-    /* ── 7. Record referral (inside transaction) ── */
+    /* 7. Record referral (inside transaction) */
     if (cleanInviteCode) {
       try {
         await recordReferral(client, cleanInviteCode, userRow.id);
@@ -573,27 +514,18 @@ router.post("/register", authLimiter, async (req, res, next) => {
       }
     }
 
-    /* ── 8. Commit ── */
+    /* 8. Commit */
     await client.query("COMMIT");
     log.info(`[auth] transaction committed for user=${userRow.id}`);
 
-    /* ── 9. JWT ── */
+    /* 9. JWT */
     const token = makeJwt(userRow);
 
-    /* ── 10. OTP — delegate to shared sender ──────────────────
-       KEY FIX:
-       The previous version generated an OTP here, hashed it
-       with SHA-256, and stored it in email_verification_otps.
-
-       The /verify-email-otp endpoint reads from email_verifications
-       and compares with bcrypt — a completely different table and
-       a completely different hashing algorithm.  That mismatch
-       caused every registration OTP to be silently unverifiable.
-
-       Fix: call sendEmailOtp() from lib/sendEmailOtp.js which
-       writes bcrypt-hashed rows to email_verifications — the
-       exact same table and algorithm that /verify-email-otp reads.
-    ─────────────────────────────────────────────────────────── */
+    /* 10. Send OTP via shared sender
+       NOTE: sendEmailOtp writes a bcrypt-hashed row to
+       email_verifications — the same table and algorithm
+       that /verify-email-otp reads. Do NOT generate OTPs
+       inline here or the hashing algorithm will mismatch. */
     const otpResult = await sendEmailOtp({
       userId : userRow.id,
       email  : userRow.email,
@@ -604,7 +536,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
 
     const emailSent = otpResult.success;
 
-    /* ── 11. Dev console output ── */
+    /* 11. Dev console output */
     log.dev(
       "\n" + "═".repeat(60) + "\n" +
       "[auth] 🔑  DEV — EMAIL VERIFICATION OTP\n" +
@@ -619,7 +551,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
       "═".repeat(60)
     );
 
-    /* ── 12. Audit ── */
+    /* 12. Audit */
     writeAudit({
       actorId    : userRow.id,
       action     : "user_registered",
@@ -639,7 +571,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
       (newReferralCode ? `  referral=${newReferralCode}` : "")
     );
 
-    /* ── 13. Response ── */
+    /* 13. Response */
     const publicUser = toPublicUser(userRow);
 
     const body = {
@@ -666,9 +598,21 @@ router.post("/register", authLimiter, async (req, res, next) => {
 
     if (isDuplicate) {
       const CONSTRAINT_MAP = {
-        users_email_key          : { status: 409, msg: "An account with this email already exists.", code: "EMAIL_TAKEN"             },
-        users_phone_key          : { status: 409, msg: "Phone number already registered.",           code: "PHONE_TAKEN"             },
-        users_referral_code_key  : { status: 500, msg: "Could not generate a unique referral code. Please try again.", code: "REFERRAL_CODE_CONFLICT" },
+        users_email_key : {
+          status : 409,
+          msg    : "An account with this email already exists.",
+          code   : "EMAIL_TAKEN",
+        },
+        users_phone_key : {
+          status : 409,
+          msg    : "Phone number already registered.",
+          code   : "PHONE_TAKEN",
+        },
+        users_referral_code_key : {
+          status : 500,
+          msg    : "Could not generate a unique referral code. Please try again.",
+          code   : "REFERRAL_CODE_CONFLICT",
+        },
         referrals_referee_unique : { status: 200, msg: null },
       };
 
@@ -684,18 +628,28 @@ router.post("/register", authLimiter, async (req, res, next) => {
         return fail(res, mapped.status, mapped.msg, { code: mapped.code });
       }
 
-      /* CockroachDB fallback — unnamed constraints */
+      /* CockroachDB / unnamed constraint fallback */
       const detail = (err.detail ?? err.message ?? "").toLowerCase();
       if (detail.includes("phone"))
-        return fail(res, 409, "Phone number already registered.", { code: "PHONE_TAKEN" });
+        return fail(res, 409, "Phone number already registered.", {
+          code: "PHONE_TAKEN",
+        });
       if (detail.includes("referral_code"))
-        return fail(res, 500, "Could not generate a unique referral code. Please try again.", { code: "REFERRAL_CODE_CONFLICT" });
+        return fail(res, 500,
+          "Could not generate a unique referral code. Please try again.", {
+            code: "REFERRAL_CODE_CONFLICT",
+          });
       if (detail.includes("referee") || detail.includes("invitee")) {
         log.warn("[auth] duplicate referee constraint hit — referral skipped");
-        return res.status(201).json({ success: true, message: "Account created successfully." });
+        return res.status(201).json({
+          success : true,
+          message : "Account created successfully.",
+        });
       }
 
-      return fail(res, 409, "An account with this email already exists.", { code: "EMAIL_TAKEN" });
+      return fail(res, 409, "An account with this email already exists.", {
+        code: "EMAIL_TAKEN",
+      });
     }
 
     log.error(`[auth] register error: ${err.message}\n${err.stack}`);
@@ -726,35 +680,31 @@ router.post("/login", authLimiter, async (req, res, next) => {
     );
 
     /*
-      Timing-safe: always run bcrypt even when email not found.
-      An early return here would be ~1 ms vs ~100 ms for bcrypt
-      and trivially detectable via response-time measurement.
+      Timing-safe: always run bcrypt even when email is not found.
+      An early return here would be ~1 ms vs ~100 ms for bcrypt —
+      trivially detectable via response-time measurement.
     */
     const row         = rows[0] ?? null;
     const hashToCheck = row ? row.password_hash : DUMMY_HASH;
     const valid       = await bcrypt.compare(req.body.password, hashToCheck);
 
-    if (!row || !valid) {
+    if (!row || !valid)
       return fail(res, 401, "Invalid email or password.");
-    }
 
-    if (BANNED_STATUSES.includes(row.status)) {
+    if (BANNED_STATUSES.includes(row.status))
       return fail(res, 403,
         "Your account has been suspended. Please contact support.", {
           code: "ACCOUNT_SUSPENDED",
         }
       );
-    }
 
+    /* Fire-and-forget — does not block the response */
     pool.query(
-      `UPDATE users
-       SET    last_login = now(),
-              is_online  = true
-       WHERE  id = $1`,
+      `UPDATE users SET last_login = now(), is_online = true WHERE id = $1`,
       [row.id]
     ).catch((e) => log.error(`[auth] last_login update failed: ${e.message}`));
 
-    const { password_hash, ...fullRow } = row;
+    const { password_hash: _ph, ...fullRow } = row;
     const publicUser = toPublicUser(fullRow);
     const token      = makeJwt(publicUser);
 
