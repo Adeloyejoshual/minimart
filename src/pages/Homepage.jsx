@@ -1,11 +1,7 @@
 // src/pages/Homepage.jsx
 import {
-  useEffect,
-  useState,
-  useCallback,
-  useRef,
-  useMemo,
-  memo,
+  useCallback, useEffect, useMemo,
+  useRef, useState, memo,
 } from "react";
 import { useNavigate }     from "react-router-dom";
 import { useProductCache } from "../context/ProductCacheContext";
@@ -15,22 +11,19 @@ import BottomNav           from "../components/BottomNav";
 import Footer              from "../components/Footer";
 import LocationPicker      from "../components/LocationPicker";
 import MasonryCard, {
-  naira,
-  getImageUrl,
-  formatCity,
-  PinIcon,
+  naira, getImageUrl, formatCity, PinIcon,
 }                          from "../components/MasonryCard";
 import {
-  useLocation      as useStoredLocation,
+  useLocation as useStoredLocation,
   formatLocationLabel,
   readCachedGps,
   writeCachedGps,
 }                          from "../hooks/useLocation";
 import "../styles/Homepage.css";
 
-/* ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    CONSTANTS
-══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════ */
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API       = `${BASE_URL}/api`;
 const PAGE_SIZE = 40;
@@ -46,207 +39,70 @@ const GPS_OPTS = {
   maximumAge        : 300_000,
 };
 
-/* ══════════════════════════════════════════════════════════════
-   SVG ICONS
-══════════════════════════════════════════════════════════════ */
-const TrendingIcon = ({ size = 18 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-    <polyline points="17 6 23 6 23 12" />
+/* ══════════════════════════════════════════════════════════
+   ICONS
+══════════════════════════════════════════════════════════ */
+const Ico = ({ children, size = 18, fill = "none",
+               stroke = "currentColor", sw = 2, ...r }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24"
+       fill={fill} stroke={stroke} strokeWidth={sw}
+       strokeLinecap="round" strokeLinejoin="round"
+       aria-hidden="true" {...r}>
+    {children}
   </svg>
 );
 
-const DealsIcon = ({ size = 18 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <line x1="12" y1="1" x2="12" y2="23" />
-    <path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
-  </svg>
-);
+const TrendingIcon   = ({ size = 18 }) => <Ico size={size}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></Ico>;
+const DealsIcon      = ({ size = 18 }) => <Ico size={size}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></Ico>;
+const NewIcon        = ({ size = 18 }) => <Ico size={size}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></Ico>;
+const NearbyIcon     = ({ size = 18 }) => <Ico size={size}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></Ico>;
+const SearchIcon     = ({ size = 17 }) => <Ico size={size} sw={2.2}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></Ico>;
+const BellIcon       = ({ size = 22 }) => <Ico size={size}><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></Ico>;
+const CartIcon       = ({ size = 18 }) => <Ico size={size}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></Ico>;
+const PlusIcon       = ({ size = 18 }) => <Ico size={size} sw={2.5}><path d="M12 5v14M5 12h14"/></Ico>;
+const ChevRightIcon  = ({ size = 14 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></Ico>;
+const ChevDownIcon   = ({ size = 13 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></Ico>;
+const ChevUpIcon     = ({ size = 16 }) => <Ico size={size} sw={2.5}><path d="M18 15l-6-6-6 6"/></Ico>;
+const DiamondIcon    = ({ size = 14 }) => <Ico size={size}><path d="M6 3h12l4 6-10 13L2 9z"/><path d="M2 9h20"/><path d="M10 3l-4 6 6 13 6-13-4-6"/></Ico>;
+const FlashIcon      = ({ size = 14 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></Ico>;
+const TagIcon        = ({ size = 18 }) => <Ico size={size}><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></Ico>;
+const StarIcon       = ({ size = 12 }) => <Ico size={size} fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></Ico>;
+const ZapIcon        = ({ size = 20 }) => <Ico size={size}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></Ico>;
+const BagIcon        = ({ size = 40 }) => <Ico size={size} sw={1.5}><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></Ico>;
+const GlobeIcon      = ({ size = 14 }) => <Ico size={size}><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></Ico>;
+const SponsoredIcon  = ({ size = 12 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></Ico>;
+const AlertIcon      = ({ size = 14 }) => <Ico size={size} sw={1.5}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" strokeWidth={2.5}/></Ico>;
 
-const NewIcon = ({ size = 18 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-  </svg>
-);
-
-const NearbyIcon = ({ size = 18 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z" />
-    <circle cx="12" cy="10" r="3" />
-  </svg>
-);
-
-const DiamondIcon = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <path d="M6 3h12l4 6-10 13L2 9z" />
-    <path d="M2 9h20" />
-    <path d="M10 3l-4 6 6 13 6-13-4-6" />
-  </svg>
-);
-
-const FlashIcon = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
-       aria-hidden="true">
-    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
-  </svg>
-);
-
-const CartIcon = ({ size = 18 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <circle cx="9" cy="21" r="1" />
-    <circle cx="20" cy="21" r="1" />
-    <path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6" />
-  </svg>
-);
-
-const BellIcon = ({ size = 22 }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth={2} strokeLinecap="round" width={size} height={size}
-       aria-hidden="true">
-    <path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9" />
-    <path d="M13.73 21a2 2 0 01-3.46 0" />
-  </svg>
-);
-
-const SearchIcon = ({ size = 17 }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth={2.2} strokeLinecap="round" width={size} height={size}
-       aria-hidden="true">
-    <circle cx="11" cy="11" r="8" />
-    <path d="M21 21l-4.35-4.35" />
-  </svg>
-);
-
-const ChevronRightIcon = ({ size = 14 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
-       aria-hidden="true">
-    <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
-  </svg>
-);
-
-const ChevronDownIcon = ({ size = 13 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
-       aria-hidden="true">
-    <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" />
-  </svg>
-);
-
-const ChevronUpIcon = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2.5} strokeLinecap="round"
-       aria-hidden="true">
-    <path d="M18 15l-6-6-6 6" />
-  </svg>
-);
-
-const PlusIcon = ({ size = 18 }) => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth={2.5} strokeLinecap="round" width={size} height={size}
-       aria-hidden="true">
-    <path d="M12 5v14M5 12h14" />
-  </svg>
-);
-
-const BagIcon = ({ size = 40 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
-    <line x1="3" y1="6" x2="21" y2="6" />
-    <path d="M16 10a4 4 0 01-8 0" />
-  </svg>
-);
-
-const ZapIcon = ({ size = 20 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-  </svg>
-);
-
-const TagIcon = ({ size = 18 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-       strokeLinejoin="round" aria-hidden="true">
-    <path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z" />
-    <line x1="7" y1="7" x2="7.01" y2="7" />
-  </svg>
-);
-
-const SponsoredIcon = ({ size = 12 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
-       aria-hidden="true">
-    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-  </svg>
-);
-
-/* ══════════════════════════════════════════════════════════════
-   SECTION CARDS CONFIG  (SVG icons, no emoji)
-══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   SECTION CARDS CONFIG
+══════════════════════════════════════════════════════════ */
 const SECTION_CARDS = [
-  {
-    label : "Trending",
-    sub   : "Most popular",
-    Icon  : TrendingIcon,
-    path  : "/trending",
-    grad  : "linear-gradient(135deg, #ff416c 0%, #ff4b2b 100%)",
-    shadow: "rgba(255, 65, 108, 0.4)",
-  },
-  {
-    label : "Deals",
-    sub   : "Under ₦50k",
-    Icon  : DealsIcon,
-    path  : "/deals",
-    grad  : "linear-gradient(135deg, #11998e 0%, #38ef7d 100%)",
-    shadow: "rgba(17, 153, 142, 0.4)",
-  },
-  {
-    label : "New",
-    sub   : "Just listed",
-    Icon  : NewIcon,
-    path  : "/latest",
-    grad  : "linear-gradient(135deg, #667eea 0%, #764ba2 100%)",
-    shadow: "rgba(102, 126, 234, 0.4)",
-  },
-  {
-    label : "Near You",
-    sub   : "Closest first",
-    Icon  : NearbyIcon,
-    path  : "/nearby",
-    grad  : "linear-gradient(135deg, #f093fb 0%, #f5576c 100%)",
-    shadow: "rgba(240, 147, 251, 0.4)",
-  },
+  { label:"Trending", sub:"Most popular", Icon:TrendingIcon, path:"/trending",
+    grad:"linear-gradient(135deg,#ff416c,#ff4b2b)", shadow:"rgba(255,65,108,.4)" },
+  { label:"Deals",    sub:"Under ₦50k",   Icon:DealsIcon,    path:"/deals",
+    grad:"linear-gradient(135deg,#11998e,#38ef7d)", shadow:"rgba(17,153,142,.4)" },
+  { label:"New",      sub:"Just listed",  Icon:NewIcon,      path:"/latest",
+    grad:"linear-gradient(135deg,#667eea,#764ba2)", shadow:"rgba(102,126,234,.4)" },
+  { label:"Near You", sub:"Closest first",Icon:NearbyIcon,   path:"/nearby",
+    grad:"linear-gradient(135deg,#f093fb,#f5576c)", shadow:"rgba(240,147,251,.4)" },
 ];
 
-/* ══════════════════════════════════════════════════════════════
-   HELPERS
-══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   DATA HELPERS
+══════════════════════════════════════════════════════════ */
 const normalizeProduct = (p) => {
   if (!p || typeof p !== "object" || !p.id) return null;
   return {
     ...p,
-    price             : Number(p.price             || 0),
-    engagement_score  : Number(p.engagement_score  || 0),
-    clicks_count      : Number(p.clicks_count      || 0),
-    impression_count  : Number(p.impression_count  || 0),
-    views             : Number(p.views             || 0),
-    ctr               : Number(p.ctr               || 0),
+    price             : Number(p.price              || 0),
+    engagement_score  : Number(p.engagement_score   || 0),
+    clicks_count      : Number(p.clicks_count       || 0),
+    impression_count  : Number(p.impression_count   || 0),
+    views             : Number(p.views              || 0),
+    ctr               : Number(p.ctr                || 0),
     promotion_priority: Number(p.promotion_priority || 0),
-    search_priority   : Number(p.search_priority   || 0),
-    favorites_count   : Number(p.favorites_count   || 0),
+    search_priority   : Number(p.search_priority    || 0),
+    favorites_count   : Number(p.favorites_count    || 0),
     is_promoted       : !!p.is_promoted,
     promotion_badge   : p.promotion_badge || null,
     image:
@@ -276,89 +132,114 @@ const dedup = (arr) => {
   return arr.filter((p) => p && !seen.has(p.id) && seen.add(p.id));
 };
 
-const discountLabel = (p) => {
+const discountPct = (p) => {
   if (!p) return null;
   const orig = Number(p.attributes?.original_price || 0);
   const curr = Number(p.price || 0);
-  if (orig > curr && curr > 0) {
+  if (orig > curr && curr > 0)
     return `${Math.round(((orig - curr) / orig) * 100)}% off`;
-  }
   return null;
 };
 
 const fmtCount = (n) => {
   const num = Number(n || 0);
-  if (num <= 0)           return "0";
-  if (num < 1_000)        return `${num}+`;
-  if (num < 10_000)       return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}k+`;
-  if (num < 1_000_000)    return `${Math.round(num / 1_000)}k+`;
-  if (num < 10_000_000)   return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M+`;
-  return `${Math.round(num / 1_000_000)}M+`;
+  if (num <= 0)        return "0";
+  if (num < 1_000)     return `${num}+`;
+  if (num < 10_000)    return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}k+`;
+  if (num < 1_000_000) return `${Math.round(num / 1_000)}k+`;
+  return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M+`;
 };
 
-/* ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    SKELETONS
-══════════════════════════════════════════════════════════════ */
-const MasonrySkeleton = memo(function MasonrySkeleton() {
-  return (
-    <div className="hm-masonry" aria-busy="true">
-      {[180,220,160,200,180,190,220,170,200,180].map((h, i) => (
-        <div key={i} className="hm-sk hm-shimmer"
-             style={{ height: h }} aria-hidden="true" />
-      ))}
-    </div>
-  );
-});
+══════════════════════════════════════════════════════════ */
+const MasonrySkeleton = memo(() => (
+  <div className="hm-masonry" aria-busy="true">
+    {[180,220,160,200,180,190,220,170,200,180].map((h, i) => (
+      <div key={i} className="hm-sk hm-shimmer"
+           style={{ height: h }} aria-hidden="true" />
+    ))}
+  </div>
+));
 
-const FeaturedSkeleton = memo(function FeaturedSkeleton() {
-  return (
-    <div className="hm-feat-row" aria-busy="true">
-      {[1, 2, 3].map((i) => (
-        <div key={i} className="hm-sk hm-sk-feat hm-shimmer"
-             aria-hidden="true" />
-      ))}
-    </div>
-  );
-});
+const FeaturedSkeleton = memo(() => (
+  <div className="hm-feat-row" aria-busy="true">
+    {[1,2,3].map((i) => (
+      <div key={i} className="hm-sk hm-sk-feat hm-shimmer" aria-hidden="true" />
+    ))}
+  </div>
+));
 
-/* ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    LOCATION BAR
-   FIX: Falls back to empty string, not "Ife" or any default.
-══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════ */
 const LocationBar = memo(function LocationBar({ location, onOpen, onClear }) {
-  /* FIX: formatLocationLabel returns null when no location is set.
-     We show "Set your location" placeholder instead of any fallback. */
-  const label = formatLocationLabel(location) || "";
+  const label = formatLocationLabel(location);
 
   return (
     <div className="hm-loc-bar">
       <button
         className={`hm-loc-bar-btn${label ? " hm-loc-bar-btn--active" : ""}`}
         onClick={onOpen}
+        aria-label={label ? `Location: ${label}. Change location` : "Set your location"}
       >
         <span className="hm-loc-bar-pin" aria-hidden="true">
           <PinIcon size={13} />
         </span>
         {label
           ? <span className="hm-loc-bar-label">{label}</span>
-          : <span className="hm-loc-bar-placeholder">Set your location</span>
+          : <span className="hm-loc-bar-placeholder">Set location</span>
         }
-        <ChevronDownIcon size={13} />
+        <ChevDownIcon size={13} />
       </button>
+
+      {/* Only show clear button when a location is actually set */}
       {label && (
-        <button className="hm-loc-bar-clear" onClick={onClear}
-                aria-label="Clear location">✕</button>
+        <button
+          className="hm-loc-bar-clear"
+          onClick={onClear}
+          aria-label="Clear location — show all of Nigeria"
+        >
+          ✕
+        </button>
       )}
     </div>
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
+   FALLBACK BANNER
+══════════════════════════════════════════════════════════ */
+const FallbackBanner = memo(function FallbackBanner({ info, onDismiss }) {
+  if (!info) return null;
+  return (
+    <div className="hm-fallback-banner" role="alert" aria-live="polite">
+      <span className="hm-fallback-banner-icon" aria-hidden="true">
+        <AlertIcon size={14} />
+      </span>
+      <p className="hm-fallback-banner-text">
+        No listings found in{" "}
+        <strong>"{info.original}"</strong>.{" "}
+        Showing results from{" "}
+        <strong>{info.fallback}</strong> instead.
+      </p>
+      <button
+        className="hm-fallback-banner-close"
+        onClick={onDismiss}
+        aria-label="Dismiss notice"
+      >
+        ✕
+      </button>
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════
    CATEGORY STRIP
-══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════ */
 const CategoryStrip = memo(function CategoryStrip({ current, onChange }) {
   return (
-    <nav className="hm-cat-strip" aria-label="Categories">
+    <nav className="hm-cat-strip" aria-label="Filter by category">
       {CAT_LIST.map((cat) => (
         <button
           key={cat.id}
@@ -374,9 +255,9 @@ const CategoryStrip = memo(function CategoryStrip({ current, onChange }) {
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
-   SECTION CARDS  (SVG icons)
-══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   SECTION CARDS
+══════════════════════════════════════════════════════════ */
 const SectionCards = memo(function SectionCards({ onNavigate }) {
   return (
     <div className="hm-section-cards">
@@ -385,73 +266,70 @@ const SectionCards = memo(function SectionCards({ onNavigate }) {
           key={card.path}
           className="hm-sc"
           onClick={() => onNavigate(card.path)}
-          style={{
-            "--sc-grad"  : card.grad,
-            "--sc-shadow": card.shadow,
-          }}
+          style={{ "--sc-grad": card.grad, "--sc-shadow": card.shadow }}
         >
           <div className="hm-sc-bg" aria-hidden="true" />
           <div className="hm-sc-content">
-            <span className="hm-sc-icon">
-              <card.Icon size={20} />
-            </span>
+            <span className="hm-sc-icon"><card.Icon size={20} /></span>
             <div className="hm-sc-text">
               <span className="hm-sc-label">{card.label}</span>
               <span className="hm-sc-sub">{card.sub}</span>
             </div>
           </div>
-          <ChevronRightIcon size={14} />
+          <ChevRightIcon size={14} />
         </button>
       ))}
     </div>
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
-   FEATURED CARD  (SVG icons)
-══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   FEATURED CARD
+══════════════════════════════════════════════════════════ */
 const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
   if (!product) return null;
   const imgUrl = getImageUrl(product);
   const loc    = formatCity(product);
-  const disc   = discountLabel(product);
-
-  /* Badge based on promotion_badge from backend or fallback */
+  const disc   = discountPct(product);
   const badge  = product.promotion_badge || "promoted";
 
   return (
-    <article className="hm-feat-card" role="button" tabIndex={0}
-             onClick={() => onClick(product)}
-             onKeyDown={(e) => e.key === "Enter" && onClick(product)}>
+    <article
+      className="hm-feat-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick(product)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
+    >
       <div className="hm-feat-img-wrap">
-        <img className="hm-feat-img" src={imgUrl}
-             alt={product.title || "Featured"} loading="eager"
-             onError={(e) => { e.currentTarget.src = PH; }} />
+        <img
+          className="hm-feat-img"
+          src={imgUrl}
+          alt={product.title || "Featured listing"}
+          loading="eager"
+          onError={(e) => { e.currentTarget.src = PH; }}
+        />
         <div className="hm-feat-overlay" aria-hidden="true" />
       </div>
       <div className="hm-feat-body">
         <div className="hm-feat-top">
           <span className={`hm-feat-tag hm-feat-tag--${badge}`}>
-            {badge === "featured" ? (
-              <><DiamondIcon size={12} /> Featured</>
-            ) : badge === "premium" ? (
-              <><SponsoredIcon size={12} /> Premium</>
-            ) : (
-              <><FlashIcon size={12} /> Promoted</>
-            )}
+            {badge === "featured"
+              ? <><DiamondIcon size={11} /> Featured</>
+              : badge === "premium"
+              ? <><SponsoredIcon size={11} /> Premium</>
+              : <><FlashIcon size={11} /> Promoted</>}
           </span>
           {disc && <span className="hm-feat-disc">{disc}</span>}
         </div>
         <p className="hm-feat-title">{product.title}</p>
         <div className="hm-feat-bottom">
           <span className="hm-feat-price">{naira(product.price)}</span>
-          <span className="hm-feat-loc"><PinIcon size={10} /> {loc}</span>
+          {loc && <span className="hm-feat-loc"><PinIcon size={10} /> {loc}</span>}
         </div>
-        {/* Seller subscription badge */}
         {product.seller?.subscriptionRank > 0 && (
           <span className="hm-feat-seller-badge">
-            <SponsoredIcon size={10} />
-            {product.seller.subscriptionPlan}
+            <SponsoredIcon size={10} /> {product.seller.subscriptionPlan}
           </span>
         )}
       </div>
@@ -459,22 +337,30 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
-   DEAL CARD  (SVG icons)
-══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   DEAL CARD
+══════════════════════════════════════════════════════════ */
 const DealCard = memo(function DealCard({ product, onClick }) {
   if (!product) return null;
   const imgUrl = getImageUrl(product);
-  const disc   = discountLabel(product);
+  const disc   = discountPct(product);
 
   return (
-    <article className="hm-deal-card" role="button" tabIndex={0}
-             onClick={() => onClick(product)}
-             onKeyDown={(e) => e.key === "Enter" && onClick(product)}>
+    <article
+      className="hm-deal-card"
+      role="button"
+      tabIndex={0}
+      onClick={() => onClick(product)}
+      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
+    >
       <div className="hm-deal-img-wrap">
-        <img src={imgUrl} alt={product.title || "Deal"}
-             className="hm-deal-img" loading="lazy"
-             onError={(e) => { e.currentTarget.src = PH; }} />
+        <img
+          src={imgUrl}
+          alt={product.title || "Deal"}
+          className="hm-deal-img"
+          loading="lazy"
+          onError={(e) => { e.currentTarget.src = PH; }}
+        />
         {disc && (
           <span className="hm-deal-disc">
             <TagIcon size={11} /> {disc}
@@ -489,9 +375,9 @@ const DealCard = memo(function DealCard({ product, onClick }) {
   );
 });
 
-/* ══════════════════════════════════════════════════════════════
-   SCROLL TO TOP  (SVG icon)
-══════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════
+   SCROLL-TO-TOP BUTTON
+══════════════════════════════════════════════════════════ */
 function ScrollTopBtn() {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
@@ -500,55 +386,39 @@ function ScrollTopBtn() {
     return () => window.removeEventListener("scroll", fn);
   }, []);
   return (
-    <button className={`hm-scroll-top${visible ? " visible" : ""}`}
-            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-            aria-label="Scroll to top">
-      <ChevronUpIcon size={16} />
+    <button
+      className={`hm-scroll-top${visible ? " visible" : ""}`}
+      onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+      aria-label="Scroll to top"
+    >
+      <ChevUpIcon size={16} />
     </button>
   );
 }
 
-/* ══════════════════════════════════════════════════════════════
+/* ══════════════════════════════════════════════════════════
    HOMEPAGE
-══════════════════════════════════════════════════════════════ */
+══════════════════════════════════════════════════════════ */
 export default function Homepage({ user }) {
   const navigate = useNavigate();
 
+  /* Cache context — safe fallback */
   let cacheCtx = { setProducts: () => {}, setLoaded: () => {} };
   try { cacheCtx = useProductCache(); } catch {}
   const { setProducts: setCachedProducts, setLoaded: setCacheLoaded } = cacheCtx;
 
+  /* Location hook */
   const {
     location : savedLocation,
     save     : saveLocation,
     clear    : clearLocation,
   } = useStoredLocation();
 
-  const [pickerOpen, setPickerOpen] = useState(false);
+  /* ── State ──────────────────────────────────────────── */
+  const [pickerOpen,    setPickerOpen]    = useState(false);
+  const [fallbackInfo,  setFallbackInfo]  = useState(null);
+  const [gpsCoords,     setGpsCoords]     = useState(() => readCachedGps());
 
-  /* GPS */
-  const [gpsCoords, setGpsCoords] = useState(() => {
-    try { return readCachedGps(); } catch { return null; }
-  });
-  const gpsAttempted = useRef(false);
-
-  useEffect(() => {
-    if (savedLocation?.source === "manual") return;
-    if (gpsAttempted.current || gpsCoords) return;
-    gpsAttempted.current = true;
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      ({ coords: c }) => {
-        const result = { lat: c.latitude, lng: c.longitude };
-        try { writeCachedGps(result); } catch {}
-        setGpsCoords(result);
-      },
-      () => {},
-      GPS_OPTS
-    );
-  }, [savedLocation, gpsCoords]);
-
-  /* State */
   const [products,    setProducts]    = useState([]);
   const [featured,    setFeatured]    = useState([]);
   const [deals,       setDeals]       = useState([]);
@@ -561,38 +431,86 @@ export default function Homepage({ user }) {
   const [page,        setPage]        = useState(0);
   const [total,       setTotal]       = useState(0);
 
-  const productsRef = useRef([]);
-  const sentinelRef = useRef(null);
-  const hiddenAtRef = useRef(null);
+  const productsRef  = useRef([]);
+  const sentinelRef  = useRef(null);
+  const hiddenAtRef  = useRef(null);
+  const gpsAttempted = useRef(false);
 
+  /* ── Auto-dismiss fallback banner after 6s ──────────── */
+  useEffect(() => {
+    if (!fallbackInfo) return;
+    const t = setTimeout(() => setFallbackInfo(null), 6_000);
+    return () => clearTimeout(t);
+  }, [fallbackInfo]);
+
+  /* ── Silent GPS on first load (manual location skips) ─ */
+  useEffect(() => {
+    if (savedLocation?.source === "manual") return;
+    if (gpsAttempted.current || gpsCoords)  return;
+    gpsAttempted.current = true;
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      ({ coords: c }) => {
+        const result = { lat: c.latitude, lng: c.longitude };
+        writeCachedGps(result);
+        setGpsCoords(result);
+      },
+      () => {},
+      GPS_OPTS
+    );
+  }, [savedLocation, gpsCoords]);
+
+  /* ══════════════════════════════════════════════════════
+     BUILD URL
+     KEY FIX: when savedLocation is null, NO location
+     params are sent → API returns everything.
+  ══════════════════════════════════════════════════════ */
   const buildUrl = useCallback((pg = 0, catId = "all") => {
-    const params = new URLSearchParams({ limit: PAGE_SIZE, page: pg });
+    const params = new URLSearchParams({
+      limit: PAGE_SIZE,
+      page : pg,
+    });
+
     if (catId !== "all") params.set("category_id", catId);
-    const coords = savedLocation?.coords || gpsCoords;
-    if (coords?.lat && coords?.lng) {
-      params.set("lat", coords.lat);
-      params.set("lng", coords.lng);
+
+    /* Only add location params when a location is actually chosen */
+    if (savedLocation) {
+      /* GPS coords if available */
+      const coords = savedLocation.coords || gpsCoords;
+      if (coords?.lat && coords?.lng) {
+        params.set("lat", coords.lat);
+        params.set("lng", coords.lng);
+      }
+      if (savedLocation.state) params.set("state", savedLocation.state);
+      if (savedLocation.city)  params.set("city",  savedLocation.city);
     }
-    if (savedLocation?.state) params.set("state", savedLocation.state);
-    if (savedLocation?.city)  params.set("city",  savedLocation.city);
+    /* savedLocation === null → no state/city/lat/lng → API shows all */
+
     return `${API}/homepage?${params}`;
   }, [savedLocation, gpsCoords]);
 
+  /* ══════════════════════════════════════════════════════
+     PROCESS API DATA
+  ══════════════════════════════════════════════════════ */
   const applyData = useCallback((data, append = false) => {
-    const raw = Array.isArray(data.products) ? data.products : [];
+    const raw        = Array.isArray(data.products) ? data.products : [];
     const normalized = dedup(raw).map(normalizeProduct).filter(Boolean);
-    const merged = append
+    const merged     = append
       ? dedup([...productsRef.current, ...normalized])
       : normalized;
 
     productsRef.current = merged;
+
+    /* Update cache */
     try { setCachedProducts(merged); setCacheLoaded(true); } catch {}
 
+    /* Featured: prefer explicit field, else promoted items */
     const incomingFeat = Array.isArray(data.featured) ? data.featured : [];
     const feat = incomingFeat.length > 0
       ? incomingFeat.map(normalizeProduct).filter(Boolean)
       : merged.filter((p) => p.is_promoted).slice(0, 4);
 
+    /* Deals: discounted non-promoted items */
     const cheap = merged
       .filter((p) => {
         const orig = Number(p.attributes?.original_price || 0);
@@ -605,26 +523,35 @@ export default function Homepage({ user }) {
     setProducts(merged.filter((p) => !p.is_promoted));
     setMeta(data.meta || {});
     setTotal(data.meta?.total ?? merged.length);
-    setHasMore(data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE);
+    setHasMore(
+      data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE
+    );
   }, [setCachedProducts, setCacheLoaded]);
 
+  /* ══════════════════════════════════════════════════════
+     LOAD FEED  (full reload, page 0)
+  ══════════════════════════════════════════════════════ */
   const loadFeed = useCallback(async (catId = "all") => {
     setLoading(true);
     setError(null);
     setPage(0);
     productsRef.current = [];
+
     try {
       const res = await fetch(buildUrl(0, catId));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       applyData(await res.json(), false);
     } catch (err) {
-      console.error("[Homepage]", err);
-      setError("Could not load listings.");
+      console.error("[Homepage] loadFeed:", err);
+      setError("Could not load listings. Check your connection and try again.");
     } finally {
       setLoading(false);
     }
   }, [buildUrl, applyData]);
 
+  /* ══════════════════════════════════════════════════════
+     LOAD MORE  (pagination)
+  ══════════════════════════════════════════════════════ */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
@@ -641,27 +568,56 @@ export default function Homepage({ user }) {
     }
   }, [loadingMore, hasMore, page, category, buildUrl, applyData]);
 
+  /* ══════════════════════════════════════════════════════
+     CATEGORY SWITCH
+  ══════════════════════════════════════════════════════ */
   const switchCategory = useCallback((catId) => {
     if (catId === category) return;
     setCategory(catId);
     loadFeed(catId);
   }, [category, loadFeed]);
 
-  useEffect(() => { loadFeed("all"); }, []); // eslint-disable-line
+  /* ══════════════════════════════════════════════════════
+     EFFECTS
+  ══════════════════════════════════════════════════════ */
 
-  const locationKey = savedLocation
-    ? `${savedLocation.city}-${savedLocation.state}` : "none";
-
+  /* Initial load */
   useEffect(() => {
-    if (!loading) loadFeed(category);
-  }, [locationKey]); // eslint-disable-line
+    loadFeed("all");
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /*
+   * Reload when location changes.
+   *
+   * KEY FIX: locationKey must be unique for every state:
+   *   - location set to Lagos     → "Lagos-null-1719..."
+   *   - location set to null      → "showAll"
+   *   - location set to Abuja     → "FCT-null-1719..."
+   *
+   * Using "showAll" as the null token means switching from
+   * any location → null always triggers a reload.
+   */
+  const locationKey = savedLocation
+    ? `${savedLocation.state ?? ""}-${savedLocation.city ?? ""}-${savedLocation.savedAt ?? ""}`
+    : "showAll";
+
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return; // skip — initial load handled above
+    }
+    loadFeed(category);
+  }, [locationKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* Sync locationChanged events (from other tabs / LocationPicker) */
   useEffect(() => {
     const h = () => loadFeed(category);
     window.addEventListener("locationChanged", h);
     return () => window.removeEventListener("locationChanged", h);
   }, [category, loadFeed]);
 
+  /* Refresh on tab re-focus if data is stale */
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "hidden") {
@@ -675,6 +631,7 @@ export default function Homepage({ user }) {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loading, category, loadFeed]);
 
+  /* Infinite scroll sentinel */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -686,6 +643,35 @@ export default function Homepage({ user }) {
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
+  /* ══════════════════════════════════════════════════════
+     LOCATION PICKER — onSelect handler
+     loc === null   → user chose "Show all of Nigeria"
+     loc !== null   → user chose a specific location
+     meta           → { wasFallback, requested, reason }
+  ══════════════════════════════════════════════════════ */
+  const handleLocationSelect = useCallback((loc, pickMeta) => {
+    if (pickMeta?.wasFallback) {
+      setFallbackInfo({
+        original: (
+          pickMeta.requested?.label ||
+          pickMeta.requested?.city  ||
+          pickMeta.requested?.state ||
+          "that area"
+        ),
+        fallback: loc ? (loc.label || loc.state) : "all of Nigeria",
+      });
+    } else {
+      setFallbackInfo(null);
+    }
+
+    /* saveLocation(null) correctly clears storage and fires locationChanged */
+    saveLocation(loc ?? null);
+    setPickerOpen(false);
+  }, [saveLocation]);
+
+  /* ══════════════════════════════════════════════════════
+     TRACKING
+  ══════════════════════════════════════════════════════ */
   const trackView = useCallback((id) => {
     if (!id) return;
     fetch(`${API}/homepage/products/${id}/view`, {
@@ -701,50 +687,39 @@ export default function Homepage({ user }) {
     navigate(`/product/${product.slug || product.id}`);
   }, [navigate]);
 
-  /*
-   * FIX: heroLoc falls back to empty string "" (not "Ife" or any default).
-   * Only shows a location label when:
-   *   1. User explicitly set a location via LocationPicker
-   *   2. GPS detected and backend returned meta.location
-   *   3. Backend meta.location is populated from query filters
-   *
-   * If none of the above → heroLoc is null → location button hidden.
-   */
-  const heroLoc = useMemo(() => {
-    const manual = formatLocationLabel(savedLocation);
-    if (manual) return manual;
-    if (meta?.nearbySource === "gps" && meta.location) return meta.location;
-    if (meta?.location) return meta.location;
-    return null;
-  }, [savedLocation, meta]);
+  /* ══════════════════════════════════════════════════════
+     DERIVED VALUES
+  ══════════════════════════════════════════════════════ */
+  const locationLabel = formatLocationLabel(savedLocation); // null when no location
+
+  const feedTitle = useMemo(() => {
+    if (category !== "all") {
+      return CAT_LIST.find((c) => c.id === category)?.name || "Products";
+    }
+    return locationLabel ? `Near ${locationLabel}` : "Recommended for You";
+  }, [category, locationLabel]);
 
   const currentCatName =
     CAT_LIST.find((c) => c.id === category)?.name || "Products";
 
-  const feedTitle = useMemo(() => {
-    if (category !== "all") return currentCatName;
-    const loc = formatLocationLabel(savedLocation);
-    return loc ? `Near ${loc}` : "Recommended for You";
-  }, [category, currentCatName, savedLocation]);
-
-  /* ══════════════════════════════════════════════════════════
+  /* ══════════════════════════════════════════════════════
      RENDER
-  ══════════════════════════════════════════════════════════ */
+  ══════════════════════════════════════════════════════ */
   return (
     <div className="hm-root">
       <TopNav user={user} />
 
       <main className="hm-page" id="hm-main">
 
-        {/* ── HERO ── */}
-        <section className="hm-hero" aria-label="Welcome">
+        {/* ══ HERO ══ */}
+        <section className="hm-hero" aria-label="Welcome banner">
           <div className="hm-hero-blob hm-hero-blob--1" aria-hidden="true" />
           <div className="hm-hero-blob hm-hero-blob--2" aria-hidden="true" />
 
           <div className="hm-hero-top">
             <div className="hm-hero-copy">
               <span className="hm-hero-kicker">
-                <CartIcon size={16} /> Loemart Marketplace
+                <CartIcon size={15} /> Loemart Marketplace
               </span>
               <h1 className="hm-hero-h1">
                 Buy &amp; Sell<br />
@@ -754,31 +729,38 @@ export default function Homepage({ user }) {
                 Thousands of verified listings from sellers across Nigeria.
               </p>
             </div>
-            <button className="hm-notif-btn" aria-label="Notifications"
-                    onClick={() => navigate("/notifications")}>
+            <button
+              className="hm-notif-btn"
+              aria-label="View notifications"
+              onClick={() => navigate("/notifications")}
+            >
               <BellIcon size={22} />
             </button>
           </div>
 
-          {/* Location — only shows when we have one; empty fallback */}
-          {heroLoc && (
-            <button className="hm-hero-loc" onClick={() => navigate("/nearby")}>
+          {/* Location pill — only when we have a real location */}
+          {locationLabel && (
+            <button
+              className="hm-hero-loc"
+              onClick={() => navigate("/nearby")}
+              aria-label={`Browsing near ${locationLabel}`}
+            >
               <span className="hm-loc-pip-lg" aria-hidden="true" />
               <PinIcon size={12} />
-              <span>{heroLoc}</span>
-              <ChevronRightIcon size={12} />
+              <span>{locationLabel}</span>
+              <ChevRightIcon size={12} />
             </button>
           )}
 
-          {/* Stats */}
-          <div className="hm-hero-stats">
+          {/* Stats row */}
+          <div className="hm-hero-stats" aria-label="Marketplace stats">
             {loading ? (
-              [1, 2, 3].map((i) => (
+              [1,2,3].map((i) => (
                 <div key={i} className="hm-hero-stat">
                   <div className="hm-sk hm-shimmer"
-                       style={{ width: 48, height: 22, borderRadius: 6 }} />
+                       style={{ width:48, height:22, borderRadius:6 }} />
                   <div className="hm-sk hm-shimmer"
-                       style={{ width: 56, height: 12, borderRadius: 4, marginTop: 4 }} />
+                       style={{ width:56, height:12, borderRadius:4, marginTop:4 }} />
                 </div>
               ))
             ) : (
@@ -796,9 +778,13 @@ export default function Homepage({ user }) {
           </div>
         </section>
 
-        {/* ── SEARCH ── */}
+        {/* ══ SEARCH BAR ══ */}
         <div className="hm-search-wrap">
-          <button className="hm-search-bar" onClick={() => navigate("/search")}>
+          <button
+            className="hm-search-bar"
+            onClick={() => navigate("/search")}
+            aria-label="Search products, brands, locations"
+          >
             <span className="hm-search-ic" aria-hidden="true">
               <SearchIcon size={17} />
             </span>
@@ -808,107 +794,156 @@ export default function Homepage({ user }) {
           </button>
         </div>
 
-        {/* ── LOCATION BAR ── */}
+        {/* ══ LOCATION BAR ══ */}
         <LocationBar
           location={savedLocation}
           onOpen={() => setPickerOpen(true)}
           onClear={clearLocation}
         />
 
-        {/* ── CATEGORIES ── */}
+        {/* ══ FALLBACK BANNER ══ */}
+        <FallbackBanner
+          info={fallbackInfo}
+          onDismiss={() => setFallbackInfo(null)}
+        />
+
+        {/* ══ CATEGORIES ══ */}
         <CategoryStrip current={category} onChange={switchCategory} />
 
-        {/* ── SECTION CARDS ── */}
+        {/* ══ SECTION CARDS ══ */}
         <SectionCards onNavigate={navigate} />
 
-        {/* ── ERROR ── */}
+        {/* ══ ERROR ══ */}
         {error && (
           <div className="hm-error" role="alert">
-            <span className="hm-error-icon">
-              <ZapIcon size={20} />
-            </span>
+            <span className="hm-error-icon"><ZapIcon size={20} /></span>
             <p className="hm-error-title">Marketplace unavailable</p>
             <p className="hm-error-msg">{error}</p>
-            <button className="hm-error-btn" onClick={() => loadFeed(category)}>
+            <button
+              className="hm-error-btn"
+              onClick={() => loadFeed(category)}
+            >
               Try again
             </button>
           </div>
         )}
 
-        {/* ── FEATURED ── */}
+        {/* ══ FEATURED ══ */}
         {(loading || featured.length > 0) && (
-          <section className="hm-section">
+          <section className="hm-section" aria-label="Featured listings">
             <div className="hm-section-head">
               <h2 className="hm-section-title">
-                <DiamondIcon size={16} /> Featured
+                <DiamondIcon size={15} /> Featured
               </h2>
             </div>
-            {loading ? <FeaturedSkeleton /> : (
-              <div className="hm-feat-row">
-                {featured.map((p) => p && (
-                  <FeaturedCard key={p.id} product={p}
-                                onClick={handleProductClick} />
-                ))}
-              </div>
-            )}
+            {loading
+              ? <FeaturedSkeleton />
+              : (
+                <div className="hm-feat-row">
+                  {featured.map((p) => p && (
+                    <FeaturedCard
+                      key={p.id}
+                      product={p}
+                      onClick={handleProductClick}
+                    />
+                  ))}
+                </div>
+              )}
           </section>
         )}
 
-        {/* ── DEALS ── */}
+        {/* ══ DEALS ══ */}
         {!loading && deals.length > 0 && (
-          <section className="hm-section">
+          <section className="hm-section" aria-label="Cheap deals">
             <div className="hm-section-head">
               <h2 className="hm-section-title">
-                <DealsIcon size={16} /> Cheap Deals
+                <DealsIcon size={15} /> Cheap Deals
               </h2>
-              <button className="hm-section-link"
-                      onClick={() => navigate("/deals")}>See all →</button>
+              <button
+                className="hm-section-link"
+                onClick={() => navigate("/deals")}
+              >
+                See all →
+              </button>
             </div>
             <div className="hm-deals-scroll">
               <div className="hm-deals-track">
                 {deals.map((p) => p && (
-                  <DealCard key={p.id} product={p}
-                            onClick={handleProductClick} />
+                  <DealCard
+                    key={p.id}
+                    product={p}
+                    onClick={handleProductClick}
+                  />
                 ))}
               </div>
             </div>
           </section>
         )}
 
-        {/* ── MAIN FEED ── */}
-        <section className="hm-section">
+        {/* ══ MAIN FEED ══ */}
+        <section className="hm-section" aria-label="Product listings">
           <div className="hm-section-head">
             <h2 className="hm-section-title">{feedTitle}</h2>
             {category !== "all" && (
-              <button className="hm-cat-clear"
-                      onClick={() => switchCategory("all")}>✕ Clear</button>
+              <button
+                className="hm-cat-clear"
+                onClick={() => switchCategory("all")}
+              >
+                ✕ Clear
+              </button>
             )}
           </div>
 
           {loading ? (
             <MasonrySkeleton />
           ) : error ? null : products.length === 0 ? (
-            <div className="hm-empty">
-              <span className="hm-empty-icon">
-                <BagIcon size={40} />
-              </span>
+            /* ── Empty state ── */
+            <div className="hm-empty" role="status">
+              <span className="hm-empty-icon"><BagIcon size={40} /></span>
+
               <h3 className="hm-empty-title">
-                {category === "all"
-                  ? formatLocationLabel(savedLocation)
-                    ? "No listings near you"
-                    : "Welcome to Loemart"
-                  : `No listings in ${currentCatName}`}
+                {category !== "all"
+                  ? `No ${currentCatName} listings`
+                  : savedLocation
+                    ? `No listings in ${locationLabel}`
+                    : "No listings yet"}
               </h3>
+
               <p className="hm-empty-sub">
-                {category === "all"
-                  ? "Try changing your location."
-                  : "Try another category."}
+                {category !== "all"
+                  ? "Try a different category."
+                  : savedLocation
+                    ? "Try a different location or show all of Nigeria."
+                    : "New listings are added every day — check back soon."}
               </p>
-              <button className="hm-empty-btn"
-                      onClick={() => category === "all"
-                        ? loadFeed("all") : switchCategory("all")}>
-                {category === "all" ? "Reload" : "Browse all"}
-              </button>
+
+              {/* Helpful action buttons */}
+              <div className="hm-empty-actions">
+                {category !== "all" && (
+                  <button
+                    className="hm-empty-btn"
+                    onClick={() => switchCategory("all")}
+                  >
+                    Browse all
+                  </button>
+                )}
+                {savedLocation && (
+                  <button
+                    className="hm-empty-btn hm-empty-btn--ghost"
+                    onClick={() => { clearLocation(); }}
+                  >
+                    <GlobeIcon size={13} /> Show all Nigeria
+                  </button>
+                )}
+                {!savedLocation && category === "all" && (
+                  <button
+                    className="hm-empty-btn"
+                    onClick={() => loadFeed("all")}
+                  >
+                    Reload
+                  </button>
+                )}
+              </div>
             </div>
           ) : (
             <>
@@ -925,21 +960,30 @@ export default function Homepage({ user }) {
                 ))}
               </div>
 
-              <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
+              {/* Infinite scroll sentinel */}
+              <div
+                ref={sentinelRef}
+                aria-hidden="true"
+                style={{ height: 1 }}
+              />
 
               {loadingMore && (
-                <p className="hm-loading-more">
-                  <span className="hm-spinner" /> Loading more…
+                <p className="hm-loading-more" aria-live="polite">
+                  <span className="hm-spinner" aria-hidden="true" />
+                  Loading more…
                 </p>
               )}
 
               {!hasMore && products.length > 0 && (
                 <div className="hm-feed-end-wrap">
                   <p className="hm-feed-end">You've seen it all</p>
-                  <button className="hm-feed-end-btn"
-                          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
-                    Back to top
-                    <ChevronUpIcon size={14} />
+                  <button
+                    className="hm-feed-end-btn"
+                    onClick={() =>
+                      window.scrollTo({ top: 0, behavior: "smooth" })
+                    }
+                  >
+                    Back to top <ChevUpIcon size={13} />
                   </button>
                 </div>
               )}
@@ -947,19 +991,20 @@ export default function Homepage({ user }) {
           )}
         </section>
 
-        {/* ── SELL BANNER ── */}
+        {/* ══ SELL BANNER ══ */}
         {!loading && (
-          <section className="hm-sell-banner">
+          <section className="hm-sell-banner" aria-label="Start selling">
             <div className="hm-sell-banner-blob" aria-hidden="true" />
             <div className="hm-sell-banner-content">
               <div className="hm-sell-banner-text">
                 <h2>Start Selling on Loemart</h2>
                 <p>List your products for free and reach thousands of buyers.</p>
               </div>
-              <button className="hm-sell-banner-btn"
-                      onClick={() => navigate("/minimart/add")}>
-                List for Free
-                <ChevronRightIcon size={14} />
+              <button
+                className="hm-sell-banner-btn"
+                onClick={() => navigate("/minimart/add")}
+              >
+                List for Free <ChevRightIcon size={13} />
               </button>
             </div>
           </section>
@@ -968,18 +1013,23 @@ export default function Homepage({ user }) {
         {!loading && <Footer />}
       </main>
 
-      <button className="hm-fab" onClick={() => navigate("/minimart/add")}>
-        <PlusIcon size={18} />
-        Sell Now
+      {/* ══ FAB ══ */}
+      <button
+        className="hm-fab"
+        onClick={() => navigate("/minimart/add")}
+        aria-label="List a product for sale"
+      >
+        <PlusIcon size={18} /> Sell Now
       </button>
 
       <ScrollTopBtn />
       <BottomNav />
 
+      {/* ══ LOCATION PICKER ══ */}
       <LocationPicker
         open={pickerOpen}
         onClose={() => setPickerOpen(false)}
-        onSelect={(loc) => { saveLocation(loc); setPickerOpen(false); }}
+        onSelect={handleLocationSelect}
       />
     </div>
   );
