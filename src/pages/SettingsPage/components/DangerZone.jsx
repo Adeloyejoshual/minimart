@@ -18,15 +18,6 @@ const ActionsIcon = () => (
   </svg>
 );
 
-const LogoutIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
-       strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-    <polyline points="16 17 21 12 16 7"/>
-    <line x1="21" y1="12" x2="9" y2="12"/>
-  </svg>
-);
-
 const TrashIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
        strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -85,7 +76,6 @@ const DELETION_ITEMS = [
 
 /* ════════════════════════════════════════════════════════════
    TOKEN HELPERS
-   Clears every key that any part of the app might use.
 ════════════════════════════════════════════════════════════ */
 function getToken() {
   return (
@@ -96,24 +86,13 @@ function getToken() {
 }
 
 function clearAllAuthStorage() {
-  /* localStorage */
   localStorage.removeItem("marketplace_token");
   localStorage.removeItem("token");
   localStorage.removeItem("user");
   localStorage.removeItem("auth_user");
-
-  /* sessionStorage */
   sessionStorage.removeItem("marketplace_token");
   sessionStorage.removeItem("token");
   sessionStorage.removeItem("user");
-
-  /*
-    Belt-and-braces: clear everything if your app stores nothing
-    else important in storage. Comment this out if you have
-    non-auth keys you want to preserve (e.g. cart, preferences).
-  */
-  // localStorage.clear();
-  // sessionStorage.clear();
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -311,85 +290,15 @@ function DeleteAccountModal({ open, onClose, onSuccess }) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   LOGOUT CONFIRMATION
-   A lightweight inline confirmation so users can't misclick.
-════════════════════════════════════════════════════════════ */
-function LogoutConfirm({ onConfirm, onCancel }) {
-  return (
-    <div className="dz-logout-confirm" role="alert">
-      <p className="dz-logout-confirm__msg">
-        Are you sure you want to log out?
-      </p>
-      <div className="dz-logout-confirm__actions">
-        <button type="button" className="dz-btn dz-btn--cancel dz-btn--sm"
-                onClick={onCancel}>
-          Cancel
-        </button>
-        <button type="button" className="dz-btn dz-btn--logout dz-btn--sm"
-                onClick={onConfirm}>
-          <LogoutIcon /> Yes, log out
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/* ════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ════════════════════════════════════════════════════════════ */
 export default function DangerZone({ settings }) {
   const navigate = useNavigate();
 
-  /* settings prop may expose handleLogout from App.jsx */
   const { handleLogout } = settings ?? {};
 
-  const [panelOpen,      setPanelOpen]      = useState(false);
-  const [showLogoutConf, setShowLogoutConf] = useState(false);
-  const [deleteOpen,     setDeleteOpen]     = useState(false);
-  const [loggingOut,     setLoggingOut]     = useState(false);
-
-  /* ── Logout flow ──────────────────────────────────────────
-     Order matters:
-       1. Call the server logout endpoint (fire-and-forget)
-       2. Clear all local auth storage
-       3. Call app-level handleLogout to reset React state
-       4. Navigate to /auth
-     Steps 2-4 happen regardless of whether the server call
-     succeeds — the user is logged out locally no matter what.
-  ─────────────────────────────────────────────────────────── */
-  const performLogout = useCallback(async () => {
-    setLoggingOut(true);
-
-    /* 1. Tell the server (non-blocking — don't await in the
-          critical path; we log out locally even if it fails) */
-    const token = getToken();
-    if (token) {
-      fetch(`${API_BASE}/settings/logout`, {
-        method  : "POST",
-        headers : { Authorization: `Bearer ${token}` },
-      }).catch(() => {
-        /* Server unreachable — still log out locally */
-      });
-    }
-
-    /* 2. Wipe storage */
-    clearAllAuthStorage();
-
-    /* 3. Reset app state (clears user from React context / state) */
-    if (typeof handleLogout === "function") {
-      handleLogout();
-    }
-
-    /* 4. Navigate to login tab of AuthPage */
-    navigate("/auth", { replace: true });
-  }, [handleLogout, navigate]);
-
-  const handleLogoutClick  = () => setShowLogoutConf(true);
-  const handleLogoutCancel = () => setShowLogoutConf(false);
-  const handleLogoutConfirm = () => {
-    setShowLogoutConf(false);
-    performLogout();
-  };
+  const [panelOpen,  setPanelOpen]  = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   /* ── Delete success ─────────────────────────────────────── */
   const handleDeleteSuccess = useCallback(() => {
@@ -416,7 +325,7 @@ export default function DangerZone({ settings }) {
               <div className="dz-trigger__text">
                 <span className="dz-trigger__label">Account Actions</span>
                 <span className="dz-trigger__desc">
-                  Log out or delete your account
+                  Manage or delete your account
                 </span>
               </div>
             </div>
@@ -431,43 +340,6 @@ export default function DangerZone({ settings }) {
             className={`dz-panel${panelOpen ? " dz-panel--open" : ""}`}
           >
             <div className="dz-panel__inner">
-
-              {/* ── Log Out ── */}
-              <div className="dz-action-group">
-                <button
-                  type="button"
-                  className="dz-action dz-action--logout"
-                  onClick={handleLogoutClick}
-                  disabled={loggingOut}
-                  aria-busy={loggingOut}
-                >
-                  <span className="dz-action__icon"><LogoutIcon /></span>
-                  <span className="dz-action__text">
-                    <span className="dz-action__label">
-                      {loggingOut ? "Logging out…" : "Log Out"}
-                    </span>
-                    <span className="dz-action__desc">
-                      Sign out and return to the login page
-                    </span>
-                  </span>
-                  {!loggingOut && (
-                    <span className="dz-action__arrow">
-                      <ArrowRightIcon />
-                    </span>
-                  )}
-                  {loggingOut && (
-                    <span className="dz-spinner dz-spinner--sm" aria-hidden="true" />
-                  )}
-                </button>
-
-                {/* Inline confirmation — avoids accidental logouts */}
-                {showLogoutConf && (
-                  <LogoutConfirm
-                    onConfirm={handleLogoutConfirm}
-                    onCancel={handleLogoutCancel}
-                  />
-                )}
-              </div>
 
               {/* ── Delete Account ── */}
               <button
