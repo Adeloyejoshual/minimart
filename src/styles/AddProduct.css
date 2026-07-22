@@ -7,15 +7,17 @@
      VerificationNudgeBanner.css · VerificationUpsellModal.css
    Desktop layout overrides → AddProductDesktop.css (≥ 1024 px)
    ───────────────────────────────────────────────────────────────
-   v3 — Toggle switch fixed (was overlapping delivery status text)
-        Terms checkbox moved out of sticky bar in components.jsx
+   v4 — Dark mode input visibility fixed
+        • Forced explicit text color on inputs (was invisible black-on-black)
+        • Added color-scheme, caret-color, autofill overrides
+        • Fixed number-input dark styling
+        • Fixed Post Ad button contrast when disabled
+   v3 — Toggle switch fixed
+        Terms checkbox moved out of sticky bar
 ═══════════════════════════════════════════════════════════════ */
 
 /* ───────────────────────────────────────────────────────────────
    TOKEN BRIDGE
-   Maps the tokens used throughout this file to the tokens
-   declared in your existing :root.  Keeps both worlds in sync
-   without touching any other file.
 ─────────────────────────────────────────────────────────────── */
 :root {
   /* colours */
@@ -69,16 +71,16 @@
 @media (prefers-color-scheme: dark) {
   :root {
     --bg          : #1A1714;
-    --wh          : #211E1A;
-    --wh2         : #181512;
-    --wh3         : #2A2520;
-    --bd          : #2E2A26;
-    --bd2         : #3A3530;
-    --ink         : #F0EDE8;
-    --ink2        : #B0AAA2;
-    --ink3        : #706A62;
-    --ink4        : #504A44;
-    --o-bg        : rgba(255, 92,  0, .12);
+    --wh          : #2A2622;   /* lifted so inputs are distinguishable */
+    --wh2         : #221F1B;
+    --wh3         : #33302B;
+    --bd          : #3A3530;
+    --bd2         : #4A4540;
+    --ink         : #F5F0EB;   /* high-contrast white text */
+    --ink2        : #C5BEB5;
+    --ink3        : #8A8278;
+    --ink4        : #605A52;
+    --o-bg        : rgba(255, 92,  0, .14);
     --o-dim       : rgba(255, 92,  0, .10);
     --o-20        : rgba(255, 92,  0, .22);
     --gn2         : rgba(21, 128, 61, .18);
@@ -89,16 +91,16 @@
 
 [data-theme="dark"] {
   --bg          : #1A1714;
-  --wh          : #211E1A;
-  --wh2         : #181512;
-  --wh3         : #2A2520;
-  --bd          : #2E2A26;
-  --bd2         : #3A3530;
-  --ink         : #F0EDE8;
-  --ink2        : #B0AAA2;
-  --ink3        : #706A62;
-  --ink4        : #504A44;
-  --o-bg        : rgba(255, 92,  0, .12);
+  --wh          : #2A2622;
+  --wh2         : #221F1B;
+  --wh3         : #33302B;
+  --bd          : #3A3530;
+  --bd2         : #4A4540;
+  --ink         : #F5F0EB;
+  --ink2        : #C5BEB5;
+  --ink3        : #8A8278;
+  --ink4        : #605A52;
+  --o-bg        : rgba(255, 92,  0, .14);
   --o-dim       : rgba(255, 92,  0, .10);
   --o-20        : rgba(255, 92,  0, .22);
   --gn2         : rgba(21, 128, 61, .18);
@@ -124,70 +126,49 @@
 /* ═══════════════════════════════════════════════════════════════
    1. SHARED KEYFRAMES
 ═══════════════════════════════════════════════════════════════ */
-@keyframes ap-fade-in {
-  from { opacity: 0; }
-  to   { opacity: 1; }
-}
-
-@keyframes ap-card-enter {
-  from { opacity: 0; transform: translateY(14px); }
-  to   { opacity: 1; transform: translateY(0);    }
-}
-
-@keyframes ap-gradient-shift {
-  0%,100% { background-position: 0%   50%; }
-  50%      { background-position: 100% 50%; }
-}
-
-@keyframes ap-spin {
-  to { transform: rotate(360deg); }
-}
-
-@keyframes ap-dot-pop {
-  0%   { transform: scale(0);   }
-  60%  { transform: scale(1.3); }
-  100% { transform: scale(1);   }
-}
-
+@keyframes ap-fade-in     { from { opacity: 0; } to   { opacity: 1; } }
+@keyframes ap-card-enter  { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ap-gradient-shift { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+@keyframes ap-spin        { to { transform: rotate(360deg); } }
+@keyframes ap-dot-pop     { 0% { transform: scale(0); } 60% { transform: scale(1.3); } 100% { transform: scale(1); } }
 @keyframes ap-shake {
-  0%,100% { transform: translateX(0);   }
-  15%     { transform: translateX(-6px);}
+  0%,100% { transform: translateX(0); }
+  15%     { transform: translateX(-6px); }
   30%     { transform: translateX(5px); }
-  45%     { transform: translateX(-4px);}
+  45%     { transform: translateX(-4px); }
   60%     { transform: translateX(3px); }
-  75%     { transform: translateX(-2px);}
+  75%     { transform: translateX(-2px); }
 }
-
-@keyframes ap-slide-down {
-  from { opacity: 0; transform: translateY(-8px); }
-  to   { opacity: 1; transform: translateY(0);    }
-}
-
-@keyframes ap-slide-up {
-  from { transform: translateY(100%); }
-  to   { transform: translateY(0);    }
-}
+@keyframes ap-slide-down  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes ap-slide-up    { from { transform: translateY(100%); } to { transform: translateY(0); } }
 
 /* ═══════════════════════════════════════════════════════════════
    2. PAGE SHELL
+   color-scheme tells the browser to render native controls
+   (scrollbars, form widgets) with the correct theme.
 ═══════════════════════════════════════════════════════════════ */
 .apd-page {
-  width      : 100%;
-  max-width  : 640px;
-  margin     : 0 auto;
-  padding    : 0 var(--pad) 120px;
-  color      : var(--ink);
-  background : var(--bg);
+  width         : 100%;
+  max-width     : 640px;
+  margin        : 0 auto;
+  padding       : 0 var(--pad) 120px;
+  color         : var(--ink);
+  background    : var(--bg);
+  color-scheme  : light;
   container-type: inline-size;
   container-name: ap-page;
 }
 
+@media (prefers-color-scheme: dark) {
+  .apd-page { color-scheme: dark; }
+}
+
+[data-theme="dark"] .apd-page { color-scheme: dark; }
+
 /* ═══════════════════════════════════════════════════════════════
    3. PROGRESS BAR
 ═══════════════════════════════════════════════════════════════ */
-.ap-top-bar {
-  margin: var(--gap-md) 0 var(--gap-sm);
-}
+.ap-top-bar { margin: var(--gap-md) 0 var(--gap-sm); }
 
 .form-progress {
   position      : relative;
@@ -255,9 +236,9 @@
   opacity       : 0;
   transform     : translateY(14px);
   transition    :
-    opacity    .4s cubic-bezier(.22, 1, .36, 1),
-    transform  .4s cubic-bezier(.22, 1, .36, 1),
-    box-shadow var(--tr),
+    opacity      .4s cubic-bezier(.22, 1, .36, 1),
+    transform    .4s cubic-bezier(.22, 1, .36, 1),
+    box-shadow   var(--tr),
     border-color var(--tr);
 }
 
@@ -287,15 +268,19 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   6. FORM GROUPS & INPUTS
+   6. FORM GROUPS & INPUTS  — FIXED for dark mode visibility
+   Critical additions:
+     • color !important on text     (overrides UA dark defaults)
+     • color-scheme: light          (stops native form styling)
+     • caret-color                  (makes typing cursor visible)
+     • -webkit-text-fill-color      (Safari dark-mode fix)
+     • autofill overrides           (Chrome yellow autofill fix)
 ═══════════════════════════════════════════════════════════════ */
 .form-group {
   margin-bottom: var(--gap-md);
 }
 
-.form-group:last-child {
-  margin-bottom: 0;
-}
+.form-group:last-child { margin-bottom: 0; }
 
 .form-group > label {
   display       : block;
@@ -312,29 +297,35 @@
   font-size  : .72rem;
 }
 
+/* ── Base input styling — text visibility guaranteed ── */
 .form-group input[type="text"],
 .form-group input[type="email"],
 .form-group input[type="tel"],
 .form-group input[type="url"],
 .form-group input[type="number"],
+.form-group input[type="search"],
+.form-group input[type="password"],
 .form-group textarea,
 .form-group select {
-  display      : block;
-  width        : 100%;
-  padding      : 12px 14px;
-  font-family  : var(--fb);
-  font-size    : .875rem;
-  color        : var(--ink);
-  background   : var(--wh);
-  border       : 1.5px solid var(--bd);
-  border-radius: var(--r-sm);
-  outline      : none;
-  transition   :
+  display                : block;
+  width                  : 100%;
+  padding                : 12px 14px;
+  font-family            : var(--fb);
+  font-size              : .9375rem;
+  color                  : var(--ink);
+  -webkit-text-fill-color: var(--ink);        /* Safari override */
+  caret-color            : var(--o);          /* orange cursor */
+  background             : var(--wh);
+  background-color       : var(--wh);
+  border                 : 1.5px solid var(--bd);
+  border-radius          : var(--r-sm);
+  outline                : none;
+  color-scheme           : light;              /* prevents UA dark styling */
+  transition             :
     border-color var(--tr),
-    box-shadow   var(--tr),
-    background   var(--tr);
-  -webkit-appearance: none;
-  appearance        : none;
+    box-shadow   var(--tr);
+  -webkit-appearance     : none;
+  appearance             : none;
 }
 
 .form-group input:hover,
@@ -348,13 +339,13 @@
 .form-group select:focus {
   border-color: var(--o);
   box-shadow  : 0 0 0 3.5px var(--o-dim);
-  background  : var(--wh);
 }
 
 .form-group input::placeholder,
 .form-group textarea::placeholder {
-  color  : var(--ink3);
-  opacity: 1;
+  color                  : var(--ink3);
+  -webkit-text-fill-color: var(--ink3);
+  opacity                : 1;
 }
 
 .form-group textarea {
@@ -362,6 +353,26 @@
   min-height : 100px;
   line-height: 1.6;
 }
+
+/* Chrome / Safari autofill — kill yellow background, keep text visible */
+.form-group input:-webkit-autofill,
+.form-group input:-webkit-autofill:hover,
+.form-group input:-webkit-autofill:focus,
+.form-group input:-webkit-autofill:active {
+  -webkit-text-fill-color : var(--ink);
+  -webkit-box-shadow      : 0 0 0 1000px var(--wh) inset;
+  transition              : background-color 5000s ease-in-out 0s;
+  caret-color             : var(--o);
+}
+
+/* Kill up/down spinners on number inputs — cleaner look */
+.form-group input[type="number"]::-webkit-outer-spin-button,
+.form-group input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.form-group input[type="number"] { -moz-appearance: textfield; }
 
 #ap-title {
   padding    : 16px 14px;
@@ -380,8 +391,8 @@
 }
 
 @media (min-width: 480px) {
-  .form-row                  { flex-direction: row; gap: 12px; }
-  .form-row > .form-group    { flex: 1; min-width: 0; }
+  .form-row               { flex-direction: row; gap: 12px; }
+  .form-row > .form-group { flex: 1; min-width: 0; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -454,27 +465,27 @@
 }
 
 .checkbox-inline {
-  display    : flex;
-  align-items: center;
-  gap        : 8px;
-  padding    : 9px 10px;
+  display      : flex;
+  align-items  : center;
+  gap          : 8px;
+  padding      : 9px 10px;
   border-radius: var(--r-sm);
-  cursor     : pointer;
-  font-size  : .8125rem;
-  color      : var(--ink);
-  user-select: none;
-  transition : background var(--tr);
+  cursor       : pointer;
+  font-size    : .8125rem;
+  color        : var(--ink);
+  user-select  : none;
+  transition   : background var(--tr);
 }
 
 .checkbox-inline:hover { background: var(--wh2); }
 
 .checkbox-inline input[type="checkbox"] {
-  width       : 16px;
-  height      : 16px;
-  accent-color: var(--o);
+  width        : 16px;
+  height       : 16px;
+  accent-color : var(--o);
   border-radius: 4px;
-  flex-shrink : 0;
-  cursor      : pointer;
+  flex-shrink  : 0;
+  cursor       : pointer;
 }
 
 .checkbox-inline span { line-height: 1.35; }
@@ -501,13 +512,8 @@
 .link-btn:hover { opacity: .7; text-decoration: underline; }
 
 /* ═══════════════════════════════════════════════════════════════
-   13. TOGGLE SWITCH (delivery) — FIXED LAYOUT
-   Previously the invisible input had width:0/height:0 with no
-   containing block, causing the visible slider circle to render
-   at the wrong spot and overlap the status text.
+   13. TOGGLE SWITCH (delivery)
 ═══════════════════════════════════════════════════════════════ */
-
-/* Section wrapper for the toggle */
 .toggle-section {
   padding-top   : 4px;
   padding-bottom: 4px;
@@ -522,25 +528,21 @@
   letter-spacing: .01em;
 }
 
-/* The clickable label wrapping switch + text */
 .toggle-switch {
-  position    : relative;
-  display     : inline-flex;
-  align-items : center;
-  gap         : 12px;
-  cursor      : pointer;
-  user-select : none;
-  padding     : 8px 4px;
-  min-height  : 40px;
+  position     : relative;
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 12px;
+  cursor       : pointer;
+  user-select  : none;
+  padding      : 8px 4px;
+  min-height   : 40px;
   border-radius: var(--r-sm);
-  transition  : background var(--tr);
+  transition   : background var(--tr);
 }
 
-.toggle-switch:hover {
-  background: var(--wh2);
-}
+.toggle-switch:hover { background: var(--wh2); }
 
-/* Hidden real input — covers whole label for a large tap target */
 .toggle-switch input {
   position: absolute;
   inset   : 0;
@@ -552,19 +554,17 @@
   z-index : 1;
 }
 
-/* Visible slider track */
 .toggle-switch .slider {
-  position     : relative;
-  width        : 48px;
-  height       : 28px;
-  background   : var(--bd2);
-  border-radius: var(--r-full);
-  flex-shrink  : 0;
-  transition   : background .25s ease;
+  position      : relative;
+  width         : 48px;
+  height        : 28px;
+  background    : var(--bd2);
+  border-radius : var(--r-full);
+  flex-shrink   : 0;
+  transition    : background .25s ease;
   pointer-events: none;
 }
 
-/* Slider thumb (the circle) */
 .toggle-switch .slider::after {
   content      : "";
   position     : absolute;
@@ -578,27 +578,17 @@
   transition   : transform var(--tr-bounce);
 }
 
-/* Checked state */
-.toggle-switch input:checked + .slider {
-  background: var(--o);
-}
+.toggle-switch input:checked + .slider              { background: var(--o); }
+.toggle-switch input:checked + .slider::after       { transform: translateX(20px); }
+.toggle-switch input:focus-visible + .slider        { box-shadow: 0 0 0 3px var(--o-dim); }
 
-.toggle-switch input:checked + .slider::after {
-  transform: translateX(20px);
-}
-
-.toggle-switch input:focus-visible + .slider {
-  box-shadow: 0 0 0 3px var(--o-dim);
-}
-
-/* Status text next to switch */
 .toggle-status {
-  font-size    : .875rem;
-  color        : var(--ink2);
-  font-weight  : 500;
-  line-height  : 1.4;
+  font-size     : .875rem;
+  color         : var(--ink2);
+  font-weight   : 500;
+  line-height   : 1.4;
   pointer-events: none;
-  transition   : color var(--tr);
+  transition    : color var(--tr);
 }
 
 .toggle-status--on {
@@ -610,13 +600,13 @@
    14. DELIVERY GRID
 ═══════════════════════════════════════════════════════════════ */
 .delivery-grid {
-  margin-top   : var(--gap-md);
-  padding-top  : var(--gap-md);
-  border-top   : 1px solid var(--bd);
-  display      : flex;
+  margin-top    : var(--gap-md);
+  padding-top   : var(--gap-md);
+  border-top    : 1px solid var(--bd);
+  display       : flex;
   flex-direction: column;
-  gap          : 0;
-  animation    : ap-slide-down .28s ease both;
+  gap           : 0;
+  animation     : ap-slide-down .28s ease both;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -646,7 +636,6 @@
 
 /* ═══════════════════════════════════════════════════════════════
    16. IMAGE SECTION WRAPPER
-   (thumbnails/grid/upload UI → ImageGrid.css & ExistingImageGrid.css)
 ═══════════════════════════════════════════════════════════════ */
 .image-section-header {
   display       : flex;
@@ -706,9 +695,7 @@
 .plan-card.selected {
   border-color : var(--o);
   background   : var(--o-bg);
-  box-shadow   :
-    0 0 0 3px var(--o-dim),
-    var(--sh-sm);
+  box-shadow   : 0 0 0 3px var(--o-dim), var(--sh-sm);
 }
 
 .plan-card--best { border-color: var(--o2); }
@@ -851,7 +838,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   19. BANNERS — error, success
+   19. BANNERS
 ═══════════════════════════════════════════════════════════════ */
 .form-error,
 .ap-error-banner {
@@ -868,8 +855,8 @@
   line-height  : 1.45;
 }
 
-.form-error svg       { flex-shrink: 0; margin-top: 1px; }
-.ap-error-banner      { margin: var(--gap-sm) 0; }
+.form-error svg  { flex-shrink: 0; margin-top: 1px; }
+.ap-error-banner { margin: var(--gap-sm) 0; }
 
 .form-success {
   display      : flex;
@@ -907,11 +894,10 @@
     box-shadow   var(--tr);
 }
 
-.terms-wrapper:hover          { border-color: var(--o2); background: var(--o-bg); }
-.terms-wrapper--checked       { border-color: var(--o);  background: var(--o-bg); box-shadow: 0 0 0 3px var(--o-dim); }
-.terms-wrapper--error         { border-color: var(--rd); background: var(--rd-dim); animation: ap-shake .4s ease both; }
+.terms-wrapper:hover    { border-color: var(--o2); background: var(--o-bg); }
+.terms-wrapper--checked { border-color: var(--o);  background: var(--o-bg); box-shadow: 0 0 0 3px var(--o-dim); }
+.terms-wrapper--error   { border-color: var(--rd); background: var(--rd-dim); animation: ap-shake .4s ease both; }
 
-/* Custom checkbox visual */
 .terms-checkbox-box {
   position   : relative;
   flex-shrink: 0;
@@ -932,16 +918,16 @@
 }
 
 .terms-checkbox-visual {
-  position        : absolute;
-  inset           : 0;
-  border          : 2px solid var(--bd2);
-  border-radius   : 6px;
-  background      : var(--wh);
-  display         : flex;
-  align-items     : center;
-  justify-content : center;
-  pointer-events  : none;
-  transition      :
+  position       : absolute;
+  inset          : 0;
+  border         : 2px solid var(--bd2);
+  border-radius  : 6px;
+  background     : var(--wh);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  pointer-events : none;
+  transition     :
     border-color var(--tr),
     background   var(--tr),
     box-shadow   var(--tr);
@@ -974,20 +960,20 @@
 }
 
 .terms-text {
-  flex      : 1;
-  min-width : 0;
-  font-size : .8125rem;
-  color     : var(--ink2);
+  flex       : 1;
+  min-width  : 0;
+  font-size  : .8125rem;
+  color      : var(--ink2);
   line-height: 1.6;
   user-select: none;
 }
 
 .terms-text a {
-  color         : var(--o);
-  font-weight   : 600;
+  color          : var(--o);
+  font-weight    : 600;
   text-decoration: none;
-  border-bottom : 1px solid transparent;
-  transition    : border-color var(--tr);
+  border-bottom  : 1px solid transparent;
+  transition     : border-color var(--tr);
 }
 
 .terms-text a:hover { border-color: var(--o); }
@@ -1009,31 +995,27 @@
    21. STICKY SUBMIT BAR
 ═══════════════════════════════════════════════════════════════ */
 .button-section {
-  position          : sticky;
-  bottom            : 0;
-  z-index           : var(--z-sticky);
-  margin-top        : var(--gap-md);
-  padding           : var(--pad);
-  background        : rgba(255, 255, 255, .94);
-  backdrop-filter   : blur(18px) saturate(1.6);
+  position               : sticky;
+  bottom                 : 0;
+  z-index                : var(--z-sticky);
+  margin-top             : var(--gap-md);
+  padding                : var(--pad);
+  background             : rgba(255, 255, 255, .94);
+  backdrop-filter        : blur(18px) saturate(1.6);
   -webkit-backdrop-filter: blur(18px) saturate(1.6);
-  border-top        : 1px solid var(--bd);
-  border-radius     : var(--r-md) var(--r-md) 0 0;
-  box-shadow        : 0 -4px 24px rgba(0,0,0,.08);
+  border-top             : 1px solid var(--bd);
+  border-radius          : var(--r-md) var(--r-md) 0 0;
+  box-shadow             : 0 -4px 24px rgba(0,0,0,.08);
 }
 
 @media (prefers-color-scheme: dark) {
-  .button-section {
-    background: rgba(33, 30, 26, .94);
-  }
+  .button-section { background: rgba(26, 23, 20, .94); }
 }
 
-[data-theme="dark"] .button-section {
-  background: rgba(33, 30, 26, .94);
-}
+[data-theme="dark"] .button-section { background: rgba(26, 23, 20, .94); }
 
 /* ═══════════════════════════════════════════════════════════════
-   22. BUTTONS
+   22. BUTTONS  — Fixed disabled contrast in dark mode
 ═══════════════════════════════════════════════════════════════ */
 .primary-btn {
   display             : inline-flex;
@@ -1068,11 +1050,13 @@
   box-shadow : var(--sh-xs);
 }
 
+/* Disabled state — visible in both light and dark */
 .primary-btn:disabled {
-  opacity   : .4;
+  opacity   : .55;
   cursor    : not-allowed;
   transform : none;
-  filter    : grayscale(.2);
+  filter    : saturate(.6);
+  color     : rgba(255, 255, 255, .85);
 }
 
 .primary-btn.full-width { width: 100%; }
@@ -1109,11 +1093,7 @@
 /* ═══════════════════════════════════════════════════════════════
    23. SPINNER
 ═══════════════════════════════════════════════════════════════ */
-.spinner-icon {
-  display  : inline-flex;
-  animation: ap-spin .75s linear infinite;
-}
-
+.spinner-icon { display: inline-flex; animation: ap-spin .75s linear infinite; }
 .spinner-icon svg { width: 16px; height: 16px; }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1155,34 +1135,63 @@ a:focus-visible {
 
 /* ═══════════════════════════════════════════════════════════════
    26. DARK MODE — component surface fixes
+   CRITICAL: force text color + color-scheme so browsers don't
+   apply their own dark-mode input styling that hides text.
 ═══════════════════════════════════════════════════════════════ */
 @media (prefers-color-scheme: dark) {
+
+  /* Inputs in dark mode */
   .form-group input[type="text"],
   .form-group input[type="email"],
   .form-group input[type="tel"],
   .form-group input[type="url"],
   .form-group input[type="number"],
+  .form-group input[type="search"],
+  .form-group input[type="password"],
   .form-group textarea,
   .form-group select {
-    background  : var(--wh2);
-    color       : var(--ink);
-    border-color: var(--bd);
+    background             : var(--wh);
+    background-color       : var(--wh);
+    color                  : var(--ink) !important;
+    -webkit-text-fill-color: var(--ink) !important;
+    caret-color            : var(--o);
+    border-color           : var(--bd);
+    color-scheme           : dark;
   }
 
   .form-group input:focus,
   .form-group textarea:focus,
   .form-group select:focus {
     background: var(--wh);
+    border-color: var(--o);
   }
 
+  .form-group input::placeholder,
+  .form-group textarea::placeholder {
+    color                  : var(--ink3) !important;
+    -webkit-text-fill-color: var(--ink3) !important;
+    opacity                : 1;
+  }
+
+  /* Autofill in dark mode — kill Chrome yellow */
+  .form-group input:-webkit-autofill,
+  .form-group input:-webkit-autofill:hover,
+  .form-group input:-webkit-autofill:focus,
+  .form-group input:-webkit-autofill:active {
+    -webkit-text-fill-color : var(--ink) !important;
+    -webkit-box-shadow      : 0 0 0 1000px var(--wh) inset !important;
+    caret-color             : var(--o) !important;
+  }
+
+  /* Cards & surfaces */
   .plan-card               { background: var(--wh); }
   .plan-card.selected      { background: var(--o-bg); }
   .terms-wrapper           { background: var(--wh2); }
   .terms-wrapper--checked  { background: var(--o-bg); }
-  .terms-checkbox-visual   { background: var(--wh2); border-color: var(--bd2); }
+  .terms-checkbox-visual   { background: var(--wh); border-color: var(--bd2); }
   .terms-checkbox-box input:checked ~ .terms-checkbox-visual { background: var(--o); }
-  .outline-btn             { background: var(--wh2); border-color: var(--bd); color: var(--ink2); }
-  .outline-btn:hover       { background: var(--wh);  border-color: var(--bd2); }
+  .outline-btn             { background: var(--wh); border-color: var(--bd); color: var(--ink2); }
+  .outline-btn:hover       { background: var(--wh3); border-color: var(--bd2); color: var(--ink); }
   .duplicate-warning       { background: rgba(245,158,11,.1); }
   .dup-checking            { background: var(--wh2); }
   .section:hover,
@@ -1191,25 +1200,55 @@ a:focus-visible {
   .edit-back-hint          { background: var(--wh2); }
 }
 
+/* ── data-theme="dark" (manual toggle) mirror ── */
 [data-theme="dark"] .form-group input[type="text"],
 [data-theme="dark"] .form-group input[type="email"],
 [data-theme="dark"] .form-group input[type="tel"],
 [data-theme="dark"] .form-group input[type="url"],
 [data-theme="dark"] .form-group input[type="number"],
+[data-theme="dark"] .form-group input[type="search"],
+[data-theme="dark"] .form-group input[type="password"],
 [data-theme="dark"] .form-group textarea,
 [data-theme="dark"] .form-group select {
-  background  : var(--wh2);
-  color       : var(--ink);
-  border-color: var(--bd);
+  background             : var(--wh);
+  background-color       : var(--wh);
+  color                  : var(--ink) !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  caret-color            : var(--o);
+  border-color           : var(--bd);
+  color-scheme           : dark;
+}
+
+[data-theme="dark"] .form-group input:focus,
+[data-theme="dark"] .form-group textarea:focus,
+[data-theme="dark"] .form-group select:focus {
+  background  : var(--wh);
+  border-color: var(--o);
+}
+
+[data-theme="dark"] .form-group input::placeholder,
+[data-theme="dark"] .form-group textarea::placeholder {
+  color                  : var(--ink3) !important;
+  -webkit-text-fill-color: var(--ink3) !important;
+  opacity                : 1;
+}
+
+[data-theme="dark"] .form-group input:-webkit-autofill,
+[data-theme="dark"] .form-group input:-webkit-autofill:hover,
+[data-theme="dark"] .form-group input:-webkit-autofill:focus {
+  -webkit-text-fill-color : var(--ink) !important;
+  -webkit-box-shadow      : 0 0 0 1000px var(--wh) inset !important;
+  caret-color             : var(--o) !important;
 }
 
 [data-theme="dark"] .plan-card              { background: var(--wh); }
 [data-theme="dark"] .plan-card.selected     { background: var(--o-bg); }
 [data-theme="dark"] .terms-wrapper          { background: var(--wh2); }
 [data-theme="dark"] .terms-wrapper--checked { background: var(--o-bg); }
-[data-theme="dark"] .terms-checkbox-visual  { background: var(--wh2); border-color: var(--bd2); }
+[data-theme="dark"] .terms-checkbox-visual  { background: var(--wh); border-color: var(--bd2); }
 [data-theme="dark"] .terms-checkbox-box input:checked ~ .terms-checkbox-visual { background: var(--o); }
-[data-theme="dark"] .outline-btn            { background: var(--wh2); border-color: var(--bd); color: var(--ink2); }
+[data-theme="dark"] .outline-btn            { background: var(--wh); border-color: var(--bd); color: var(--ink2); }
+[data-theme="dark"] .outline-btn:hover      { background: var(--wh3); border-color: var(--bd2); color: var(--ink); }
 [data-theme="dark"] .duplicate-warning      { background: rgba(245,158,11,.1); }
 [data-theme="dark"] .dup-checking           { background: var(--wh2); }
 [data-theme="dark"] .toggle-switch:hover    { background: var(--wh3); }
@@ -1221,8 +1260,8 @@ a:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .section,
   .form-card {
-    opacity  : 1;
-    transform: none;
+    opacity   : 1;
+    transform : none;
     transition: none;
   }
 
@@ -1243,13 +1282,12 @@ a:focus-visible {
     animation : none;
   }
 
-  .spinner-icon { animation-duration: 1.5s; }
-
+  .spinner-icon         { animation-duration: 1.5s; }
   .terms-wrapper--error { animation: none; }
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   28. SAFE AREA — notch / home-indicator devices
+   28. SAFE AREA
 ═══════════════════════════════════════════════════════════════ */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .button-section {
@@ -1271,6 +1309,15 @@ a:focus-visible {
   .plan-card.selected    { border: 2px solid Highlight; }
   .form-progress-bar     { background: Highlight; }
   .toggle-switch .slider { border: 1px solid ButtonText; }
+
+  .form-group input,
+  .form-group textarea,
+  .form-group select {
+    forced-color-adjust: none;
+    background : Canvas;
+    color      : CanvasText;
+    border     : 1.5px solid CanvasText;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1292,11 +1339,11 @@ a:focus-visible {
 
   .section,
   .form-card {
-    break-inside : avoid;
-    box-shadow   : none;
-    border       : 1px solid #ddd;
-    opacity      : 1;
-    transform    : none;
+    break-inside: avoid;
+    box-shadow  : none;
+    border      : 1px solid #ddd;
+    opacity     : 1;
+    transform   : none;
   }
 
   .apd-page {
