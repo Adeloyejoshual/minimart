@@ -2,7 +2,7 @@
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Ic } from "./icons";
-import { naira, fmtNum, TIPS } from "./helpers";
+import { fmtNum, TIPS } from "./helpers";
 import StatCard from "./StatCard";
 import ScoreSection from "./ScoreSection";
 import ProductCard from "./ProductCard";
@@ -60,31 +60,42 @@ export default function Overview({
 
   const insights = useMemo(() => {
     if (!stats) return [];
+
     const list = [];
     const active = stats.active ?? 0;
     const draft = stats.draft ?? 0;
     const views = stats.total_views ?? 0;
 
-    if (active === 0)
+    if (active === 0) {
       list.push({
         type: "warn",
         msg: "No active listings — create or activate one to start getting views.",
       });
-    if (draft > 0)
+    }
+
+    if (draft > 0) {
       list.push({
         type: "info",
         msg: `${draft} draft${draft > 1 ? "s" : ""} waiting to be published.`,
       });
-    if (active >= 5)
+    }
+
+    if (active >= 5) {
       list.push({
         type: "good",
         msg: `${active} active listings — you're doing great!`,
       });
-    if (views > 100)
+    }
+
+    if (views > 100) {
       list.push({
         type: "good",
-        msg: `${fmtNum(views)} total views — consider promoting your top listings!`,
+        msg: `${fmtNum(
+          views
+        )} total views — consider promoting your top listings!`,
       });
+    }
+
     return list;
   }, [stats]);
 
@@ -101,6 +112,7 @@ export default function Overview({
           </span>
           <span>New Listing</span>
         </button>
+
         <button
           className="quick-action"
           onClick={() => onSetSection("products")}
@@ -110,6 +122,7 @@ export default function Overview({
           </span>
           <span>Listings</span>
         </button>
+
         <button
           className="quick-action"
           onClick={() => onSetSection("analytics")}
@@ -119,6 +132,7 @@ export default function Overview({
           </span>
           <span>Analytics</span>
         </button>
+
         <Link className="quick-action" to={`/seller/${userId || ""}`}>
           <span className="quick-action__icon">
             <Ic.Store />
@@ -139,6 +153,7 @@ export default function Overview({
             sub={`${stats.active} active · ${stats.draft} drafts`}
             color="#6366f1"
           />
+
           <StatCard
             icon={<Ic.Eye />}
             label="Total Views"
@@ -146,23 +161,13 @@ export default function Overview({
             sub={`${fmtNum(stats.total_clicks)} clicks`}
             color="#0ea5e9"
           />
+
           <StatCard
             icon={<Ic.Heart />}
             label="Saved by Buyers"
             value={fmtNum(stats.total_favorites)}
             sub="total saves"
             color="#ec4899"
-          />
-          <StatCard
-            icon={<Ic.Naira />}
-            label="Estimated Revenue"
-            value={naira(stats.total_revenue)}
-            sub={
-              stats.rating > 0
-                ? `${Number(stats.rating).toFixed(1)} rating`
-                : "No reviews yet"
-            }
-            color="#10b981"
           />
         </div>
       ) : null}
@@ -179,12 +184,10 @@ export default function Overview({
       {insights.length > 0 && (
         <div className="overview__card">
           <h2 className="overview__card-title">Insights</h2>
+
           <div className="overview__insights">
             {insights.map((ins, i) => (
-              <div
-                key={i}
-                className={`insight insight--${ins.type}`}
-              >
+              <div key={i} className={`insight insight--${ins.type}`}>
                 <span className="insight__icon">
                   {insightIcon[ins.type]}
                 </span>
@@ -200,6 +203,7 @@ export default function Overview({
         <div className="overview__card">
           <div className="overview__card-header">
             <h2 className="overview__card-title">Recent Listings</h2>
+
             <button
               className="overview__card-link"
               onClick={() => onSetSection("products")}
@@ -207,6 +211,7 @@ export default function Overview({
               View all <Ic.ChevronRight />
             </button>
           </div>
+
           <div className="overview__products-list">
             {products.slice(0, 3).map((p) => (
               <ProductCard
@@ -240,18 +245,22 @@ export default function Overview({
       <div className="overview__card overview__tips">
         <div className="overview__card-header">
           <h2 className="overview__card-title">Seller Tips</h2>
+
           <span className="overview__tips-badge">
             <Ic.Zap /> Pro
           </span>
         </div>
+
         <div className="overview__tips-grid">
           {TIPS.map(({ iconKey, title, desc }, i) => {
             const Icon = Ic[iconKey];
+
             return (
               <div key={i} className="tip">
                 <span className="tip__icon">
                   <Icon />
                 </span>
+
                 <div>
                   <p className="tip__title">{title}</p>
                   <p className="tip__desc">{desc}</p>
