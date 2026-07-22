@@ -3,15 +3,17 @@
  * Route: /minimart/add
  *       /minimart/add?edit=:productId  ← EDIT MODE
  *
- * v2 — watermark warning/block handling integrated
+ * v3 — TermsCheckbox extracted to shared component
+ *      Uses .terms-wrapper / .terms-checkbox-* CSS classes
  */
 
 import {
   useEffect, useMemo, useState, useCallback, useRef,
 } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 import ProductComponents              from "./product/components.jsx";
+import { TermsCheckbox }              from "./product/components/index.jsx";
 import ProgressOverlay                from "../components/ProgressOverlay.jsx";
 import WatermarkWarningBanner         from "../components/WatermarkWarningBanner.jsx";
 import { locationsByState }           from "../config/locationsByState.js";
@@ -60,7 +62,7 @@ const ERROR_SELECTOR_MAP = [
   { match: "WhatsApp",       sel: "#ap-wa"                  },
   { match: "image",          sel: ".ap-image-box"           },
   { match: "state and city", sel: ".detect-location-row"    },
-  { match: "Terms",          sel: ".ap-terms-row"           },
+  { match: "Terms",          sel: ".terms-wrapper"          },
   { match: "delivery days",  sel: "#ap-del-from"            },
   { match: "Delivery end",   sel: "#ap-del-to"              },
   { match: "delivery fee",   sel: "#ap-del-fee"             },
@@ -1167,62 +1169,14 @@ export default function AddProduct({ user }) {
   );
 
   /* ═══════════════════════════════════════════════════════════
-     TERMS CHECKBOX
+     TERMS CHECKBOX  (uses component + modern CSS)
   ═══════════════════════════════════════════════════════════ */
-  const TermsCheckbox = useMemo(
+  const termsCheckboxEl = useMemo(
     () => (
-      <div className="ap-terms-row">
-        <label
-          className="ap-terms-label"
-          onClick={(e) => {
-            if (e.target.tagName === "A") return;
-            e.preventDefault();
-            setAgreedToTerms((v) => !v);
-          }}
-        >
-          <span
-            className={`ap-terms-box ${agreedToTerms ? "ap-terms-box--on" : ""}`}
-            role="checkbox"
-            aria-checked={agreedToTerms}
-            tabIndex={0}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                setAgreedToTerms((v) => !v);
-              }
-            }}
-          >
-            {agreedToTerms && (
-              <svg
-                width="11" height="11" viewBox="0 0 24 24"
-                fill="none" stroke="#fff" strokeWidth="3"
-                strokeLinecap="round" strokeLinejoin="round"
-              >
-                <polyline points="20 6 9 17 4 12" />
-              </svg>
-            )}
-          </span>
-          <input
-            type="checkbox"
-            checked={agreedToTerms}
-            onChange={() => {}}
-            style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
-            aria-hidden="true"
-            tabIndex={-1}
-          />
-          <span className="ap-terms-text">
-            I agree to the{" "}
-            <Link
-              to="/terms"
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-            >
-              Terms &amp; Conditions
-            </Link>
-          </span>
-        </label>
-      </div>
+      <TermsCheckbox
+        checked={agreedToTerms}
+        onChange={setAgreedToTerms}
+      />
     ),
     [agreedToTerms]
   );
@@ -1232,7 +1186,7 @@ export default function AddProduct({ user }) {
   ═══════════════════════════════════════════════════════════ */
   if (isEditMode && editLoading) {
     return (
-      <div className="ap-page">
+      <div className="apd-page">
         <div className="ap-edit-loading">
           <div className="ap-edit-loading-spinner" />
           <p>Loading listing…</p>
@@ -1243,7 +1197,7 @@ export default function AddProduct({ user }) {
 
   if (isEditMode && editError) {
     return (
-      <div className="ap-page">
+      <div className="apd-page">
         <div className="ap-edit-error">
           <span>⚠️</span>
           <h2>Could not load listing</h2>
@@ -1260,7 +1214,7 @@ export default function AddProduct({ user }) {
      RENDER
   ═══════════════════════════════════════════════════════════ */
   return (
-    <div className="ap-page">
+    <div className="apd-page">
 
       <ProgressOverlay
         visible={progressVisible}
@@ -1315,7 +1269,7 @@ export default function AddProduct({ user }) {
         detectedCoords={detectedCoords}
         detectingLocation={detectingLocation}
         agreedToTerms={agreedToTerms}
-        TermsCheckbox={TermsCheckbox}
+        TermsCheckbox={termsCheckboxEl}
         promotionPlans={promotionPlans}
         plansLoading={plansLoading}
         MAX_IMAGES={MAX_IMAGES}
