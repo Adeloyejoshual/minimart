@@ -3,7 +3,14 @@
 // Route: /conversations
 // ════════════════════════════════════════════════════════════
 
-import { useState, useCallback, useMemo, memo } from "react";
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  memo,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -21,9 +28,10 @@ const API      = `${BASE_URL}/api`;
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const POLL_INTERVAL   = 15_000;
-const PREVIEW_MAX_LEN = 55;
-const MAX_UNREAD_DISP = 99;
+const POLL_INTERVAL      = 15_000;   // refetch conversations every 15 s
+const HEARTBEAT_INTERVAL = 2 * 60 * 1_000; // ping server every 2 min
+const PREVIEW_MAX_LEN    = 55;
+const MAX_UNREAD_DISP    = 99;
 
 /* ═══════════════════════════════════════════════════════════════
    AUTH
@@ -42,15 +50,16 @@ const timeLabel = (dateStr) => {
   const now  = new Date();
   const diff = Math.floor((now - d) / 1000);
 
-  if (diff < 60)     return "now";
-  if (diff < 3600)   return `${Math.floor(diff / 60)}m`;
-  if (diff < 86400)  return `${Math.floor(diff / 3600)}h`;
+  if (diff < 60)    return "now";
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`;
 
   const today     = new Date(now.getFullYear(), now.getMonth(), now.getDate());
   const yesterday = new Date(today);
   yesterday.setDate(today.getDate() - 1);
 
-  if (d >= today)     return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  if (d >= today)
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   if (d >= yesterday) return "Yesterday";
   return d.toLocaleDateString([], { month: "short", day: "numeric" });
 };
@@ -62,14 +71,70 @@ const fmtUnread = (n) =>
   n > MAX_UNREAD_DISP ? `${MAX_UNREAD_DISP}+` : String(n);
 
 /* ═══════════════════════════════════════════════════════════════
+   HEARTBEAT
+   Keeps last_login fresh while the user has the app open.
+   Conversations.jsx is a good place for this because it is only
+   mounted when the user is logged in and actively using the app.
+
+   Flow:
+     mount          → ping immediately
+     every 2 min    → ping again
+     tab hidden     → pause (no wasted requests)
+     tab visible    → resume + ping immediately
+     unmount/logout → stop
+═══════════════════════════════════════════════════════════════ */
+function useHeartbeat(userId) {
+  const timerRef = useRef(null);
+
+  const ping = useCallback(async () => {
+    const token = getToken();
+    if (!token || !userId) return;
+
+    try {
+      await axios.patch(
+        `${API}/users/me/heartbeat`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 5_000 }
+      );
+    } catch {
+      // silent — offline or navigating away
+    }
+  }, [userId]);
+
+  const start = useCallback(() => {
+    if (timerRef.current) return;           // already running
+    ping();                                  // immediate ping on resume
+    timerRef.current = setInterval(ping, HEARTBEAT_INTERVAL);
+  }, [ping]);
+
+  const stop = useCallback(() => {
+    clearInterval(timerRef.current);
+    timerRef.current = null;
+  }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    start();
+
+    // Pause when tab is hidden, resume when visible again
+    const handleVisibility = () => {
+      if (document.hidden) stop();
+      else start();
+    };
+
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [userId, start, stop]);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    ANIMATION PRESETS
 ═══════════════════════════════════════════════════════════════ */
 const spring = { type: "spring", stiffness: 320, damping: 28 };
-
-const fadeUp = {
-  hidden:  { opacity: 0, y: 18 },
-  visible: { opacity: 1, y: 0 },
-};
 
 const stagger = {
   hidden:  {},
@@ -78,7 +143,7 @@ const stagger = {
 
 const threadReveal = {
   hidden:  { opacity: 0, y: 14, scale: 0.97 },
-  visible: { opacity: 1, y: 0,  scale: 1 },
+  visible: { opacity: 1, y: 0,  scale: 1    },
   exit:    { opacity: 0, x: -30, transition: { duration: 0.2 } },
 };
 
@@ -98,7 +163,7 @@ const Icons = {
       <polyline points="23 4 23 10 17 10" />
       <polyline points="1 20 1 14 7 14" />
       <path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64
-              4.36A9 9 0 0020.49 15" />
+               4.36A9 9 0 0020.49 15" />
     </svg>
   ),
   search: () => (
@@ -112,8 +177,8 @@ const Icons = {
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
       strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M8 10h.01M12 10h.01M16 10h.01M21 12c0 4.418-4.03
-             8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4
-             15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+               8-9 8a9.77 9.77 0 01-4-.85L3 20l1.09-3.27C3.4
+               15.56 3 13.82 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
     </svg>
   ),
   error: () => (
@@ -140,16 +205,19 @@ async function fetchConversations(userId) {
   if (!token || !userId) return [];
 
   const { data } = await axios.get(`${API}/conversations`, {
-    headers: { Authorization: `Bearer ${token}` },
-    params:  { userId, limit: 50, page: 1 },
-    timeout: 10000,
+    headers : { Authorization: `Bearer ${token}` },
+    params  : { userId, limit: 50, page: 1 },
+    timeout : 10_000,
   });
 
   const list = Array.isArray(data) ? data : [];
+
+  // Ensure consistent sort — newest first
   list.sort(
     (a, b) =>
       new Date(b.last_message_at || 0) - new Date(a.last_message_at || 0)
   );
+
   return list;
 }
 
@@ -170,7 +238,33 @@ const Avatar = memo(function Avatar({ src, name, online, size = 52 }) {
         style={{ width: size, height: size }}
         onError={(e) => { e.target.src = fallback; }}
       />
+      {/* Green dot — only rendered when server confirms online */}
       {online && <span className="cv-avatar__online" />}
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   SKELETON LOADER
+═══════════════════════════════════════════════════════════════ */
+const SkeletonThread = memo(function SkeletonThread() {
+  return (
+    <div className="cv-skeleton">
+      <div className="cv-skeleton__avatar cv-shimmer" />
+      <div className="cv-skeleton__body">
+        <div className="cv-skeleton__line cv-skeleton__line--name cv-shimmer" />
+        <div className="cv-skeleton__line cv-skeleton__line--msg  cv-shimmer" />
+      </div>
+    </div>
+  );
+});
+
+const SkeletonList = memo(function SkeletonList() {
+  return (
+    <div className="cv-skeleton-list">
+      {Array.from({ length: 6 }).map((_, i) => (
+        <SkeletonThread key={i} />
+      ))}
     </div>
   );
 });
@@ -178,7 +272,10 @@ const Avatar = memo(function Avatar({ src, name, online, size = 52 }) {
 /* ═══════════════════════════════════════════════════════════════
    EMPTY STATE
 ═══════════════════════════════════════════════════════════════ */
-const EmptyState = memo(function EmptyState({ filtered = false, search = "" }) {
+const EmptyState = memo(function EmptyState({
+  filtered = false,
+  search   = "",
+}) {
   if (filtered) {
     return (
       <motion.div
@@ -211,117 +308,9 @@ const EmptyState = memo(function EmptyState({ filtered = false, search = "" }) {
       </div>
       <p className="cv-empty__title">No conversations yet</p>
       <p className="cv-empty__sub">
-        When you message a seller or someone messages you, your conversations
-        will appear here.
+        When you message a seller or someone messages you, your
+        conversations will appear here.
       </p>
-    </motion.div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   SKELETON LOADER
-═══════════════════════════════════════════════════════════════ */
-const SkeletonThread = memo(function SkeletonThread() {
-  return (
-    <div className="cv-skeleton">
-      <div className="cv-skeleton__avatar cv-shimmer" />
-      <div className="cv-skeleton__body">
-        <div className="cv-skeleton__line cv-skeleton__line--name cv-shimmer" />
-        <div className="cv-skeleton__line cv-skeleton__line--msg cv-shimmer" />
-      </div>
-    </div>
-  );
-});
-
-const SkeletonList = memo(function SkeletonList() {
-  return (
-    <div className="cv-skeleton-list">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <SkeletonThread key={i} />
-      ))}
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   THREAD ITEM
-═══════════════════════════════════════════════════════════════ */
-const ThreadItem = memo(function ThreadItem({ thread, userId, onClick, index }) {
-  const isMine    = thread.last_sender_id === userId;
-  const unread    = Number(thread.unread_count || 0);
-  const hasUnread = unread > 0;
-
-  const preview    = thread.last_message || "";
-  const displayMsg = isMine ? `You: ${preview}` : preview;
-  const truncated  = truncate(displayMsg);
-
-  return (
-    <motion.div
-      className={`cv-thread${hasUnread ? " cv-thread--unread" : ""}`}
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && onClick()}
-      variants={threadReveal}
-      transition={{ ...spring, delay: index * 0.03 }}
-      whileTap={{ scale: 0.98 }}
-      layout
-    >
-      <Avatar
-        src={thread.other_user_image}
-        name={thread.other_user_name}
-        online={thread.other_user_online}
-      />
-
-      <div className="cv-thread__content">
-        {/* Row 1: Name + Time */}
-        <div className="cv-thread__row">
-          <span className={`cv-thread__name${hasUnread ? " cv-thread__name--bold" : ""}`}>
-            {thread.other_user_name || "User"}
-          </span>
-          <span className={`cv-thread__time${hasUnread ? " cv-thread__time--bold" : ""}`}>
-            {timeLabel(thread.last_message_at)}
-          </span>
-        </div>
-
-        {/* Row 2: Preview + Product + Badge */}
-        <div className="cv-thread__row">
-          <span className={`cv-thread__preview${hasUnread ? " cv-thread__preview--bold" : ""}`}>
-            {truncated || "No messages yet"}
-          </span>
-
-          <div className="cv-thread__meta">
-            {thread.product_image && (
-              <img
-                src={thread.product_image}
-                alt=""
-                className="cv-thread__product-img"
-              />
-            )}
-
-            <AnimatePresence>
-              {hasUnread && (
-                <motion.span
-                  className="cv-thread__badge"
-                  initial={{ scale: 0 }}
-                  animate={{ scale: 1 }}
-                  exit={{ scale: 0 }}
-                  transition={{ type: "spring", stiffness: 500, damping: 24 }}
-                >
-                  {fmtUnread(unread)}
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
-
-        {/* Row 3: Product title */}
-        {thread.product_title && (
-          <span className="cv-thread__product-title">
-            re: {thread.product_title}
-          </span>
-        )}
-      </div>
     </motion.div>
   );
 });
@@ -349,13 +338,9 @@ const ErrorState = memo(function ErrorState({ message, onRetry, isRetrying }) {
         whileTap={{ scale: 0.95 }}
       >
         {isRetrying ? (
-          <>
-            <span className="cv-spinner-sm" /> Refreshing…
-          </>
+          <><span className="cv-spinner-sm" /> Refreshing…</>
         ) : (
-          <>
-            <Icons.refresh /> Retry
-          </>
+          <><Icons.refresh /> Retry</>
         )}
       </motion.button>
     </motion.div>
@@ -392,6 +377,110 @@ const NotLoggedIn = memo(function NotLoggedIn({ onLogin }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   THREAD ITEM
+═══════════════════════════════════════════════════════════════ */
+const ThreadItem = memo(function ThreadItem({
+  thread,
+  userId,
+  onClick,
+  index,
+}) {
+  const isMine    = thread.last_sender_id === userId;
+  const unread    = Number(thread.unread_count || 0);
+  const hasUnread = unread > 0;
+
+  const preview    = thread.last_message || "";
+  const displayMsg = isMine ? `You: ${preview}` : preview;
+  const truncated  = truncate(displayMsg);
+
+  return (
+    <motion.div
+      className={`cv-thread${hasUnread ? " cv-thread--unread" : ""}`}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onClick()}
+      variants={threadReveal}
+      transition={{ ...spring, delay: index * 0.03 }}
+      whileTap={{ scale: 0.98 }}
+      layout
+    >
+      <Avatar
+        src={thread.other_user_image}
+        name={thread.other_user_name}
+        online={thread.other_user_online}
+      />
+
+      <div className="cv-thread__content">
+        {/* Row 1 — Name + Timestamp */}
+        <div className="cv-thread__row">
+          <span
+            className={`cv-thread__name${
+              hasUnread ? " cv-thread__name--bold" : ""
+            }`}
+          >
+            {thread.other_user_name || "User"}
+          </span>
+          <span
+            className={`cv-thread__time${
+              hasUnread ? " cv-thread__time--bold" : ""
+            }`}
+          >
+            {timeLabel(thread.last_message_at)}
+          </span>
+        </div>
+
+        {/* Row 2 — Message preview + product thumbnail + unread badge */}
+        <div className="cv-thread__row">
+          <span
+            className={`cv-thread__preview${
+              hasUnread ? " cv-thread__preview--bold" : ""
+            }`}
+          >
+            {truncated || "No messages yet"}
+          </span>
+
+          <div className="cv-thread__meta">
+            {thread.product_image && (
+              <img
+                src={thread.product_image}
+                alt=""
+                className="cv-thread__product-img"
+              />
+            )}
+
+            <AnimatePresence>
+              {hasUnread && (
+                <motion.span
+                  className="cv-thread__badge"
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  exit={{ scale: 0 }}
+                  transition={{
+                    type: "spring",
+                    stiffness: 500,
+                    damping: 24,
+                  }}
+                >
+                  {fmtUnread(unread)}
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+
+        {/* Row 3 — Product title (if any) */}
+        {thread.product_title && (
+          <span className="cv-thread__product-title">
+            re: {thread.product_title}
+          </span>
+        )}
+      </div>
+    </motion.div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function Conversations({ user }) {
@@ -402,6 +491,9 @@ export default function Conversations({ user }) {
   const [tab,        setTab]        = useState("all");
   const [isRetrying, setIsRetrying] = useState(false);
 
+  /* ── Heartbeat — keeps green dot alive while page is open ── */
+  useHeartbeat(user?.id);
+
   /* ── Fetch conversations ── */
   const {
     data:      threads = [],
@@ -410,32 +502,33 @@ export default function Conversations({ user }) {
     error,
     refetch,
   } = useQuery({
-    queryKey:  ["conversations", user?.id],
-    queryFn:   () => fetchConversations(user?.id),
-    enabled:   !!user?.id && !!getToken(),
-    staleTime: 30 * 1000,
-    gcTime:    10 * 60 * 1000,
-    refetchInterval: POLL_INTERVAL,
+    queryKey : ["conversations", user?.id],
+    queryFn  : () => fetchConversations(user?.id),
+    enabled  : !!user?.id && !!getToken(),
+    staleTime: 30_000,
+    gcTime   : 10 * 60 * 1_000,
+    refetchInterval            : POLL_INTERVAL,
     refetchIntervalInBackground: false,
     retry: 2,
   });
 
-  /* ── Invalidate unread count when page loads ── */
-  // This clears the BottomNav badge when user views messages
-  useState(() => {
+  /* ── Invalidate unread count badge in BottomNav on mount ── */
+  useEffect(() => {
     queryClient.invalidateQueries({ queryKey: ["unread-message-count"] });
-  });
+  }, [queryClient]);
 
-  /* ── Filtered threads ── */
+  /* ── Filtered + sorted threads ── */
   const filtered = useMemo(() => {
     return threads.filter((t) => {
+      // Tab filter
       if (tab === "unread" && Number(t.unread_count || 0) === 0) return false;
 
+      // Search filter — matches name, message preview, or product title
       if (search.trim()) {
         const q       = search.toLowerCase();
         const name    = (t.other_user_name || "").toLowerCase();
-        const msg     = (t.last_message || "").toLowerCase();
-        const product = (t.product_title || "").toLowerCase();
+        const msg     = (t.last_message    || "").toLowerCase();
+        const product = (t.product_title   || "").toLowerCase();
         if (!name.includes(q) && !msg.includes(q) && !product.includes(q))
           return false;
       }
@@ -451,25 +544,17 @@ export default function Conversations({ user }) {
 
   /* ── Handlers ── */
   const openThread = useCallback(
-    (thread) => {
-      const threadId = thread.thread_id || thread.id;
-      navigate(`/chat/${threadId}`);
-    },
+    (thread) => navigate(`/chat/${thread.thread_id || thread.id}`),
     [navigate]
   );
 
   const handleRetry = useCallback(async () => {
     setIsRetrying(true);
-    try {
-      await refetch();
-    } finally {
-      setIsRetrying(false);
-    }
+    try   { await refetch(); }
+    finally { setIsRetrying(false); }
   }, [refetch]);
 
-  const handleRefresh = useCallback(() => {
-    refetch();
-  }, [refetch]);
+  const handleRefresh = useCallback(() => refetch(), [refetch]);
 
   /* ═══════════════════════════════════════════════════════════
      NOT LOGGED IN
@@ -488,6 +573,7 @@ export default function Conversations({ user }) {
   ═══════════════════════════════════════════════════════════ */
   return (
     <div className="cv-root">
+
       {/* ── Header ── */}
       <header className="cv-header">
         <div className="cv-header__top">
@@ -515,7 +601,11 @@ export default function Conversations({ user }) {
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     exit={{ scale: 0 }}
-                    transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                    transition={{
+                      type: "spring",
+                      stiffness: 500,
+                      damping: 22,
+                    }}
                   >
                     {fmtUnread(totalUnread)}
                   </motion.span>
@@ -527,14 +617,14 @@ export default function Conversations({ user }) {
           <motion.button
             className="cv-header__action"
             onClick={handleRefresh}
-            aria-label="Refresh"
+            aria-label="Refresh conversations"
             whileTap={{ scale: 0.85, rotate: -45 }}
           >
             <Icons.refresh />
           </motion.button>
         </div>
 
-        {/* Search */}
+        {/* Search — only shown when there's enough to search through */}
         {threads.length > 3 && (
           <motion.div
             className="cv-search-wrap"
@@ -557,6 +647,7 @@ export default function Conversations({ user }) {
                 <motion.button
                   className="cv-search__clear"
                   onClick={() => setSearch("")}
+                  aria-label="Clear search"
                   initial={{ scale: 0 }}
                   animate={{ scale: 1 }}
                   exit={{ scale: 0 }}
@@ -569,7 +660,7 @@ export default function Conversations({ user }) {
           </motion.div>
         )}
 
-        {/* Tabs */}
+        {/* Tabs — All / Unread */}
         {threads.length > 0 && (
           <div className="cv-tabs">
             <button
@@ -596,7 +687,8 @@ export default function Conversations({ user }) {
 
       {/* ── Body ── */}
       <div className="cv-body">
-        {/* Loading */}
+
+        {/* Loading skeleton */}
         {loading && <SkeletonList />}
 
         {/* Error */}
@@ -608,16 +700,13 @@ export default function Conversations({ user }) {
           />
         )}
 
-        {/* Empty — no conversations */}
+        {/* No conversations at all */}
         {!loading && !isError && threads.length === 0 && <EmptyState />}
 
-        {/* Empty — filter returned nothing */}
-        {!loading &&
-          !isError &&
-          threads.length > 0 &&
-          filtered.length === 0 && (
-            <EmptyState filtered search={tab === "all" ? search : ""} />
-          )}
+        {/* Has conversations but filter returned nothing */}
+        {!loading && !isError && threads.length > 0 && filtered.length === 0 && (
+          <EmptyState filtered search={tab === "all" ? search : ""} />
+        )}
 
         {/* Thread list */}
         {!loading && !isError && filtered.length > 0 && (
@@ -627,19 +716,21 @@ export default function Conversations({ user }) {
             initial="hidden"
             animate="visible"
           >
-            {filtered.map((thread, i) => (
-              <ThreadItem
-                key={thread.thread_id || thread.id}
-                thread={thread}
-                userId={user.id}
-                onClick={() => openThread(thread)}
-                index={i}
-              />
-            ))}
+            <AnimatePresence>
+              {filtered.map((thread, i) => (
+                <ThreadItem
+                  key={thread.thread_id || thread.id}
+                  thread={thread}
+                  userId={user.id}
+                  onClick={() => openThread(thread)}
+                  index={i}
+                />
+              ))}
+            </AnimatePresence>
           </motion.div>
         )}
 
-        {/* Bottom spacer for BottomNav */}
+        {/* Spacer so last thread clears BottomNav */}
         <div className="cv-spacer" />
       </div>
 
