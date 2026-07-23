@@ -1,188 +1,191 @@
 // ════════════════════════════════════════════════════════════
-// FILE: routes/admin/admins.js
-// Base: /api/admin/admins
+// FILE: routes/admin/user.js
+// Base: /api/admin/users
+//
+// Manages regular USERS only (from public.users table).
+// Admin accounts live in a separate `admins` table and are
+// managed via /api/admin/admins — they are never returned here.
 // ════════════════════════════════════════════════════════════
 
-import express         from "express";
-import bcrypt          from "bcrypt";
-import { pool }        from "../../config/db.js";
+import express        from "express";
+import { pool }       from "../../config/db.js";
 import { verifyAdmin } from "./middleware.js";
 
 const router = express.Router();
 router.use(verifyAdmin);
 
-/* ─── allowed role names (must match admin_roles.role_name) ─── */
-const ALLOWED_ROLES = [
-  "admin",
-  "content_moderator",
-  "finance_admin",
-  "support_admin",
-  "super_admin",
-];
+/* ─── helpers ─────────────────────────────────────────────── */
+const safeInt = (v, fb = 0) => {
+  const n = parseInt(v);
+  return isNaN(n) ? fb : n;
+};
+
+/* ─── safe user projection ─────────────────────────────────
+   Fields returned when listing / viewing regular users.
+   Never includes password_hash or any admin-only column. */
+const USER_FIELDS = `
+  id,
+  name,
+  email,
+  phone,
+  phone_number,
+  username,
+  business_name,
+  store_name,
+  city,
+  state,
+  status,
+  role,
+  subscription_plan,
+  subscription_status,
+  subscription_expires_at,
+  profile_image,
+  verified,
+  store_verified,
+  trust_score,
+  rating,
+  created_at,
+  last_login
+`;
 
 // ─────────────────────────────────────────────────────────────
-// GET /api/admin/admins
+// GET /api/admin/users
+// List regular users with search + pagination
+// Query: ?q=... &limit=100 &offset=0 &status=active
 // ─────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   const client = await pool.connect();
   try {
+    const q      = (req.query.q ?? req.query.search ?? "").trim();
+    const status = (req.query.status ?? "").trim();
+    const limit  = Math.min(200, safeInt(req.query.limit,  100));
+    const offset = Math.max(0,   safeInt(req.query.offset, 0));
+
+    const params = [];
+    const where  = [];
+
+    /* ── Search filter ─────────────────────────────────── */
+    if (q) {
+      params.push(`%${q.toLowerCase()}%`);
+      params.push(`%${q}%`);
+      where.push(`
+        (
+          LOWER(CAST(name          AS TEXT)) LIKE $${params.length - 1}
+          OR LOWER(CAST(email      AS TEXT)) LIKE $${params.length - 1}
+          OR CAST(phone            AS TEXT)  LIKE $${params.length}
+          OR CAST(phone_number     AS TEXT)  LIKE $${params.length}
+          OR LOWER(CAST(username   AS TEXT)) LIKE $${params.length - 1}
+          OR LOWER(CAST(business_name AS TEXT)) LIKE $${params.length - 1}
+          OR LOWER(CAST(store_name    AS TEXT)) LIKE $${params.length - 1}
+        )
+      `);
+    }
+
+    /* ── Status filter ─────────────────────────────────── */
+    if (status) {
+      params.push(status);
+      where.push(`status = $${params.length}`);
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(" AND ")}` : "";
+
+    params.push(limit);
+    params.push(offset);
+
+    /* ── Fetch rows ────────────────────────────────────── */
+    const { rows } = await client.query(
+      `SELECT ${USER_FIELDS}
+       FROM public.users
+       ${whereSql}
+       ORDER BY created_at DESC
+       LIMIT $${params.length - 1} OFFSET $${params.length}`,
+      params,
+    );
+
+    /* ── Total count for pagination ────────────────────── */
+    const { rows: totalRows } = await client.query(
+      `SELECT COUNT(*)::int AS count
+       FROM public.users
+       ${whereSql}`,
+      params.slice(0, params.length - 2),
+    );
+
+    res.json({
+      users  : rows,
+      total  : totalRows[0].count,
+      limit,
+      offset,
+    });
+  } catch (err) {
+    console.error("[GET /admin/users]", err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/admin/users/stats
+// Quick counters for dashboard
+// ─────────────────────────────────────────────────────────────
+router.get("/stats", async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const [total, active, banned, todayCount, verified] = await Promise.all([
+      client.query(`SELECT COUNT(*)::int FROM public.users`),
+      client.query(`SELECT COUNT(*)::int FROM public.users WHERE status = 'active'`),
+      client.query(`SELECT COUNT(*)::int FROM public.users WHERE status = 'banned'`),
+      client.query(`SELECT COUNT(*)::int FROM public.users WHERE created_at >= $1`, [today]),
+      client.query(`SELECT COUNT(*)::int FROM public.users WHERE verified = true`),
+    ]);
+
+    res.json({
+      total    : total.rows[0].count,
+      active   : active.rows[0].count,
+      banned   : banned.rows[0].count,
+      today    : todayCount.rows[0].count,
+      verified : verified.rows[0].count,
+    });
+  } catch (err) {
+    console.error("[GET /admin/users/stats]", err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    client.release();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────
+// GET /api/admin/users/:id
+// Full details for one user
+// ─────────────────────────────────────────────────────────────
+router.get("/:id", async (req, res) => {
+  const client = await pool.connect();
+  try {
     const { rows } = await client.query(
       `SELECT
-         a.id,
-         a.name,
-         a.email,
-         a.status,
-         a.created_at,
-         a.last_login,
-         a.banned_at,
-         r.role_name  AS role,
-         c.name       AS created_by
-       FROM admins a
-       LEFT JOIN admin_roles r  ON r.id = a.role_id
-       LEFT JOIN admins      c  ON c.id = a.created_by
-       ORDER BY a.created_at DESC`,
-    );
-    res.json(rows);
-  } catch (err) {
-    console.error("[GET /admin/admins]", err.message);
-    res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
-  }
-});
-
-// ─────────────────────────────────────────────────────────────
-// POST /api/admin/admins/register
-// Body: { name, email, password, role }
-// ─────────────────────────────────────────────────────────────
-router.post("/register", async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const { name, email, password, role } = req.body;
-
-    // Validate fields
-    if (!name || !email || !password || !role) {
-      return res.status(400).json({ error: "All fields are required." });
-    }
-    if (!ALLOWED_ROLES.includes(role)) {
-      return res.status(400).json({ error: "Invalid role." });
-    }
-
-    // Only super_admin can create another super_admin
-    if (role === "super_admin" && req.admin.role !== "super_admin") {
-      return res.status(403).json({ error: "Only a Super Admin can create another Super Admin." });
-    }
-
-    // Check duplicate email
-    const { rows: existing } = await client.query(
-      `SELECT id FROM admins WHERE email = $1`,
-      [email.toLowerCase().trim()],
-    );
-    if (existing.length) {
-      return res.status(409).json({ error: "An admin with this email already exists." });
-    }
-
-    // Look up the role_id from admin_roles
-    const { rows: roleRows } = await client.query(
-      `SELECT id FROM admin_roles WHERE role_name = $1`,
-      [role],
-    );
-    if (!roleRows.length) {
-      return res.status(400).json({ error: `Role "${role}" not found in admin_roles table.` });
-    }
-    const roleId = roleRows[0].id;
-
-    // Hash password
-    const hash = await bcrypt.hash(password, 12);
-
-    // Insert new admin
-    const { rows } = await client.query(
-      `INSERT INTO admins
-         (name, email, password_hash, role_id, status, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 'active', $5, NOW(), NOW())
-       RETURNING id, name, email, status, created_at`,
-      [
-        name.trim(),
-        email.toLowerCase().trim(),
-        hash,
-        roleId,
-        req.admin.id,
-      ],
-    );
-
-    // Log it
-    await client.query(
-      `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'create_admin', 'admin', $2, $3)`,
-      [req.admin.id, rows[0].id, `Created admin "${name}" with role "${role}"`],
-    ).catch(() => {});
-
-    res.status(201).json(rows[0]);
-  } catch (err) {
-    console.error("[POST /admin/admins/register]", err.message);
-    res.status(500).json({ error: err.message });
-  } finally {
-    client.release();
-  }
-});
-
-// ─────────────────────────────────────────────────────────────
-// PATCH /api/admin/admins/:id/role
-// Body: { role }
-// ─────────────────────────────────────────────────────────────
-router.patch("/:id/role", async (req, res) => {
-  const client = await pool.connect();
-  try {
-    const { role }  = req.body;
-    const targetId  = req.params.id;
-
-    if (!ALLOWED_ROLES.includes(role)) {
-      return res.status(400).json({ error: "Invalid role." });
-    }
-
-    // Only super_admin can assign super_admin role
-    if (role === "super_admin" && req.admin.role !== "super_admin") {
-      return res.status(403).json({ error: "Only a Super Admin can assign this role." });
-    }
-
-    // Prevent editing yourself
-    if (targetId === String(req.admin.id)) {
-      return res.status(400).json({ error: "You cannot edit your own role." });
-    }
-
-    // Look up role_id
-    const { rows: roleRows } = await client.query(
-      `SELECT id FROM admin_roles WHERE role_name = $1`,
-      [role],
-    );
-    if (!roleRows.length) {
-      return res.status(400).json({ error: `Role "${role}" not found in admin_roles table.` });
-    }
-    const roleId = roleRows[0].id;
-
-    // Update
-    const { rows } = await client.query(
-      `UPDATE admins
-       SET role_id = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, name, email, status`,
-      [roleId, targetId],
+         id, name, email, phone, phone_number,
+         username, business_name, store_name, store_slug,
+         city, state, country, status, role,
+         subscription_plan, subscription_status,
+         subscription_expires_at, billing_cycle, auto_renew,
+         profile_image, verified, store_verified,
+         trust_score, rating, total_sales, products_count,
+         followers_count, following_count,
+         created_at, last_login, last_seen
+       FROM public.users
+       WHERE id = $1`,
+      [req.params.id],
     );
 
     if (!rows.length) {
-      return res.status(404).json({ error: "Admin not found." });
+      return res.status(404).json({ error: "User not found." });
     }
-
-    // Log it
-    await client.query(
-      `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'edit_admin_role', 'admin', $2, $3)`,
-      [req.admin.id, targetId, `Changed role to "${role}" for admin ${targetId}`],
-    ).catch(() => {});
-
     res.json(rows[0]);
   } catch (err) {
-    console.error("[PATCH /admin/admins/:id/role]", err.message);
+    console.error("[GET /admin/users/:id]", err.message);
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
@@ -190,56 +193,54 @@ router.patch("/:id/role", async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// POST /api/admin/admins/:id/ban
+// POST /api/admin/users/:id/ban
+// Suspend a user account
+// Body: { reason? }
 // ─────────────────────────────────────────────────────────────
 router.post("/:id/ban", async (req, res) => {
   const client = await pool.connect();
   try {
-    const targetId = req.params.id;
+    const targetId    = req.params.id;
+    const reason      = (req.body?.reason ?? "").trim();
 
-    // Prevent banning yourself
-    if (targetId === String(req.admin.id)) {
-      return res.status(400).json({ error: "You cannot deactivate your own account." });
-    }
-
-    // Prevent removing the last super_admin
-    const { rows: superAdmins } = await client.query(
-      `SELECT a.id
-       FROM admins a
-       JOIN admin_roles r ON r.id = a.role_id
-       WHERE r.role_name = 'super_admin'
-       AND a.status = 'active'`,
-    );
-    const { rows: target } = await client.query(
-      `SELECT r.role_name
-       FROM admins a
-       JOIN admin_roles r ON r.id = a.role_id
-       WHERE a.id = $1`,
+    /* Ensure the user exists */
+    const { rows: existing } = await client.query(
+      `SELECT id, status, name FROM public.users WHERE id = $1`,
       [targetId],
     );
-    if (
-      target[0]?.role_name === "super_admin" &&
-      superAdmins.length === 1
-    ) {
-      return res.status(400).json({ error: "Cannot deactivate the last Super Admin." });
+
+    if (!existing.length) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    if (existing[0].status === "banned") {
+      return res.status(400).json({ error: "User is already banned." });
     }
 
     await client.query(
-      `UPDATE admins
-       SET status = 'banned', banned_at = NOW(), updated_at = NOW()
+      `UPDATE public.users
+       SET status     = 'banned',
+           banned_at  = NOW(),
+           updated_at = NOW()
        WHERE id = $1`,
       [targetId],
     );
 
+    /* Best-effort audit log */
     await client.query(
-      `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'ban_admin', 'admin', $2, $3)`,
-      [req.admin.id, targetId, `Deactivated admin ${targetId}`],
+      `INSERT INTO admin_logs
+         (admin_id, action, target_type, target_id, details)
+       VALUES ($1, 'ban_user', 'user', $2, $3)`,
+      [
+        req.admin.id,
+        targetId,
+        `Banned "${existing[0].name}"${reason ? ` — Reason: ${reason}` : ""}`,
+      ],
     ).catch(() => {});
 
     res.json({ success: true });
   } catch (err) {
-    console.error("[POST /admin/admins/:id/ban]", err.message);
+    console.error("[POST /admin/users/:id/ban]", err.message);
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
@@ -247,29 +248,46 @@ router.post("/:id/ban", async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// POST /api/admin/admins/:id/unban
+// POST /api/admin/users/:id/unban
+// Restore a suspended user
 // ─────────────────────────────────────────────────────────────
 router.post("/:id/unban", async (req, res) => {
   const client = await pool.connect();
   try {
     const targetId = req.params.id;
 
+    const { rows: existing } = await client.query(
+      `SELECT id, status, name FROM public.users WHERE id = $1`,
+      [targetId],
+    );
+
+    if (!existing.length) {
+      return res.status(404).json({ error: "User not found." });
+    }
+
+    if (existing[0].status === "active") {
+      return res.status(400).json({ error: "User is already active." });
+    }
+
     await client.query(
-      `UPDATE admins
-       SET status = 'active', banned_at = NULL, updated_at = NOW()
+      `UPDATE public.users
+       SET status     = 'active',
+           banned_at  = NULL,
+           updated_at = NOW()
        WHERE id = $1`,
       [targetId],
     );
 
     await client.query(
-      `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'unban_admin', 'admin', $2, $3)`,
-      [req.admin.id, targetId, `Reactivated admin ${targetId}`],
+      `INSERT INTO admin_logs
+         (admin_id, action, target_type, target_id, details)
+       VALUES ($1, 'unban_user', 'user', $2, $3)`,
+      [req.admin.id, targetId, `Unbanned "${existing[0].name}"`],
     ).catch(() => {});
 
     res.json({ success: true });
   } catch (err) {
-    console.error("[POST /admin/admins/:id/unban]", err.message);
+    console.error("[POST /admin/users/:id/unban]", err.message);
     res.status(500).json({ error: err.message });
   } finally {
     client.release();
