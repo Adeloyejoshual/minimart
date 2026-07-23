@@ -35,7 +35,6 @@ export default function Admins({
     { value: "super_admin",       label: "Super Admin / Owner" },
   ];
 
-  // Merge built-in + custom + any roles that exist in the DB but not in either list
   const existingRolesInData = [...new Set(admins.map((a) => a.role).filter(Boolean))];
 
   const allRoles = [
@@ -75,13 +74,60 @@ export default function Admins({
     return matchSearch && matchRole;
   });
 
-  // ── actions ─────────────────────────────────────────────
+  // ── actions with debug alerts ───────────────────────────
 
   const submit = async () => {
-    if (!form.name || !form.email || !form.password) return;
-    await registerAdmin(form);
-    setForm({ name: "", email: "", password: "", role: "admin" });
-    setShowForm(false);
+    // Debug: show what we are sending
+    const debug =
+      `🔍 SUBMITTING FORM\n\n` +
+      `Name:     ${form.name || "(empty)"}\n` +
+      `Email:    ${form.email || "(empty)"}\n` +
+      `Password: ${form.password ? "***" + form.password.length + " chars" : "(empty)"}\n` +
+      `Role:     ${form.role || "(empty)"}\n\n` +
+      `Current user role: ${currentUser?.role || "(none)"}\n` +
+      `Token in storage:  ${localStorage.getItem("admin_token") ? "YES" : "NO"}`;
+
+    console.log(debug);
+
+    // Basic validation
+    if (!form.name.trim()) {
+      alert("❌ Name is required");
+      return;
+    }
+    if (!form.email.trim()) {
+      alert("❌ Email is required");
+      return;
+    }
+    if (!form.password) {
+      alert("❌ Password is required");
+      return;
+    }
+    if (form.password.length < 8) {
+      alert("❌ Password must be at least 8 characters");
+      return;
+    }
+    if (!form.role) {
+      alert("❌ Please select a role");
+      return;
+    }
+
+    // Show what we are about to send
+    alert(debug);
+
+    try {
+      await registerAdmin(form);
+      // Reset the form only if no error was thrown
+      setForm({ name: "", email: "", password: "", role: "admin" });
+      setShowForm(false);
+      // Reload the list so the new admin appears
+      await reloadAdmins();
+    } catch (err) {
+      alert(
+        `❌ SUBMIT ERROR\n\n${err.message || err}\n\n` +
+        `Check the browser console and server logs for more details.`
+      );
+      console.error("[submit]", err);
+    }
   };
 
   const addCustomRole = () => {
@@ -134,8 +180,14 @@ export default function Admins({
       alert("Only a Super Admin can assign the Super Admin role.");
       return;
     }
-    await editAdminRole(a.id, editRole);
-    setEditingId(null);
+    try {
+      await editAdminRole(a.id, editRole);
+      setEditingId(null);
+      await reloadAdmins();
+    } catch (err) {
+      alert(`❌ EDIT ROLE ERROR\n\n${err.message || err}`);
+      console.error("[saveEdit]", err);
+    }
   };
 
   const handleBanToggle = (a) => {
@@ -174,6 +226,25 @@ export default function Admins({
 
   return (
     <>
+      {/* DEBUG BANNER — shows current user info so you can verify */}
+      <div style={{
+        padding      : "8px 14px",
+        marginBottom : 10,
+        background   : "#1a1f3a",
+        borderRadius : 8,
+        fontSize     : ".72rem",
+        color        : "#8ba1d1",
+        fontFamily   : "monospace",
+      }}>
+        👤 Logged in as: <b>{currentUser?.name || "?"}</b> ({currentUser?.email || "?"}) — 
+        Role: <b style={{ color: currentUser?.role === "super_admin" ? "#4ade80" : "#f59e42" }}>
+          {currentUser?.role || "NONE"}
+        </b> — 
+        Token: <b style={{ color: localStorage.getItem("admin_token") ? "#4ade80" : "#ef4444" }}>
+          {localStorage.getItem("admin_token") ? "OK" : "MISSING"}
+        </b>
+      </div>
+
       {/* Page Header */}
       <div className="ph">
         <div className="ph-left">
@@ -219,7 +290,7 @@ export default function Admins({
             </div>
 
             <div className="form-group">
-              <label>Password</label>
+              <label>Password (min 8 chars)</label>
               <input
                 className="input"
                 type="password"
@@ -238,8 +309,8 @@ export default function Admins({
                     className="btn b-ghost"
                     style={{
                       marginLeft: 8,
-                      fontSize: ".65rem",
-                      padding: "2px 8px",
+                      fontSize:   ".65rem",
+                      padding:    "2px 8px",
                     }}
                     onClick={() => setShowCustomInput((s) => !s)}
                   >
@@ -299,7 +370,7 @@ export default function Admins({
                 disabled={busy === "register"}
                 onClick={submit}
               >
-                {busy === "register" ? "…" : "Create Admin"}
+                {busy === "register" ? "Creating…" : "Create Admin"}
               </button>
             </div>
 
@@ -315,13 +386,13 @@ export default function Admins({
               <div
                 key={r}
                 style={{
-                  display    : "flex",
-                  alignItems : "center",
-                  gap        : 6,
-                  padding    : "4px 10px",
-                  background : "var(--card2)",
+                  display     : "flex",
+                  alignItems  : "center",
+                  gap         : 6,
+                  padding     : "4px 10px",
+                  background  : "var(--card2)",
                   borderRadius: 20,
-                  fontSize   : ".75rem",
+                  fontSize    : ".75rem",
                 }}
               >
                 <span>{humanize(r)}</span>
@@ -343,10 +414,7 @@ export default function Admins({
               </div>
             ))}
           </div>
-          <p
-            className="dim"
-            style={{ fontSize: ".7rem", marginTop: 8 }}
-          >
+          <p className="dim" style={{ fontSize: ".7rem", marginTop: 8 }}>
             Note: Custom roles are saved locally in your browser. Permissions for them
             must be configured on the backend.
           </p>
@@ -401,7 +469,6 @@ export default function Admins({
                     {a.email}
                   </td>
 
-                  {/* Role — inline edit */}
                   <td>
                     {editingId === a.id ? (
                       <select
