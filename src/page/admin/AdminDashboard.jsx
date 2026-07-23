@@ -577,6 +577,7 @@ export default function AdminDashboard() {
         userQ={userQ}
         setUserQ={setUserQ}
         banUser={actions.banUser}
+        unbanUser={actions.unbanUser}
         busy={actions.busy}
         reloadUsers={data.reload.users}
         confirm={confirm}
