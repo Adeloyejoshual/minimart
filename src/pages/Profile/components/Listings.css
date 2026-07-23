@@ -1,469 +1,409 @@
-/* ═══════════════════════════════════════════════════════════════
-   src/pages/Profile/components/Listings.css
+// src/pages/Profile/components/Listings.jsx
+import { Link } from "react-router-dom";
+import { Ic } from "./icons";
+import ProductCard from "./ProductCard";
+import EmptyState from "./EmptyState";
+import { ProdSkeleton } from "./Skeletons";
+import "./Listings.css";
 
-   v2 — Tier system integrated:
-     • listings__header-left with tier badges
-     • listings__upsell-banner (verify / subscribe variants)
-     • listings__info-banner variants (trial, warn)
-     • Preserves original design language
-═══════════════════════════════════════════════════════════════ */
-
-.listings {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   CARD WRAPPER
-═══════════════════════════════════════════════════════════════ */
-.listings__card {
-  background: var(--wh);
-  border: 1px solid var(--bd);
-  border-radius: var(--r3);
-  padding: 16px;
-  box-shadow: var(--s1);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
+const TABS = [
+  { key: "all",             label: "All"     },
+  { key: "active",          label: "Active"  },
+  { key: "active_limited",  label: "Trial"   },
+  { key: "draft",           label: "Drafts"  },
+  { key: "paused",          label: "Paused"  },
+  { key: "pending",         label: "Pending" },
+];
 
 /* ═══════════════════════════════════════════════════════════════
-   HEADER
+   SAFE ICON HELPER
+   Returns the icon if it exists in Ic, otherwise renders a
+   harmless placeholder so the whole component never crashes.
 ═══════════════════════════════════════════════════════════════ */
-.listings__header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-}
+const SafeIcon = ({ name, fallback = null }) => {
+  const Icon = Ic?.[name];
+  if (Icon) return <Icon />;
+  return fallback;
+};
 
-.listings__header-left {
-  display    : flex;
-  align-items: center;
-  gap        : 8px;
-  flex-wrap  : wrap;
-  min-width  : 0;
-}
+/* Small inline SVG fallbacks — used if Ic.X doesn't exist */
+const FallbackShield = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+  </svg>
+);
 
-.listings__title {
-  font-size: 15px;
-  font-weight: 800;
-  font-family: var(--fd);
-  color: var(--ink);
-  margin: 0;
-}
+const FallbackCheck = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="8 12 11 15 16 9" />
+  </svg>
+);
 
-/* ── Tier badge next to title ── */
-.listings__tier-badge {
-  display       : inline-flex;
-  align-items   : center;
-  gap           : 4px;
-  padding       : 3px 8px;
-  font-size     : 10px;
-  font-weight   : 700;
-  border-radius : 100px;
-  letter-spacing: .03em;
-  font-family   : var(--fb);
-  white-space   : nowrap;
-}
+const FallbackZap = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+  </svg>
+);
 
-.listings__tier-badge svg {
-  width : 10px;
-  height: 10px;
-}
+const FallbackClock = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 7 12 12 15 14" />
+  </svg>
+);
 
-.listings__tier-badge--pro {
-  background: linear-gradient(135deg, #8b5cf6, #ec4899);
-  color     : var(--wh);
-  box-shadow: 0 2px 6px rgba(139, 92, 246, .3);
-}
+const FallbackAlert = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <line x1="12" y1="8"  x2="12"    y2="12" />
+    <line x1="12" y1="16" x2="12.01" y2="16" />
+  </svg>
+);
 
-.listings__tier-badge--verified {
-  background: var(--gn2);
-  color     : var(--gn);
-  border    : 1px solid #86efac;
-}
+const FallbackPlus = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2.5"
+       strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="5" x2="12" y2="19" />
+    <line x1="5" y1="12" x2="19" y2="12" />
+  </svg>
+);
 
-.listings__tier-badge--trial {
-  background: #fffbeb;
-  color     : #d97706;
-  border    : 1px solid #fde68a;
-}
+const FallbackSearch = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="8" />
+    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+  </svg>
+);
+
+const FallbackX = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth="2"
+       strokeLinecap="round" strokeLinejoin="round">
+    <line x1="18" y1="6" x2="6"  y2="18" />
+    <line x1="6"  y1="6" x2="18" y2="18" />
+  </svg>
+);
 
 /* ═══════════════════════════════════════════════════════════════
-   UPSELL BANNERS  (verify / subscribe)
+   MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
-.listings__upsell-banner {
-  display      : flex;
-  align-items  : center;
-  gap          : 12px;
-  padding      : 12px 14px;
-  border-radius: var(--r2);
-  border       : 1.5px solid;
-  flex-wrap    : wrap;
-}
+export default function Listings({
+  products,
+  prodLoading,
+  loadingMore,
+  hasMore,
+  tab,
+  search,
+  tabCounts        = {},
+  deleting,
+  verifying,
+  tier             = "unverified",
+  isSubscriber     = false,
+  onTabChange,
+  onSearch,
+  onLoadMore,
+  onNavigate,
+  onEdit,
+  onDelete,
+  onToggle,
+  onRenew,
+  onPromote,
+  onPayNow,
+  onVerifyPayment,
+}) {
+  /* Safe count getter */
+  const getCount = (key) => Number(tabCounts?.[key] ?? 0);
 
-.listings__upsell-banner > svg {
-  width      : 22px;
-  height     : 22px;
-  flex-shrink: 0;
-}
+  /* Only show 'Trial' tab if user has trial listings OR is unverified */
+  const visibleTabs = TABS.filter((t) => {
+    if (t.key === "active_limited") {
+      return getCount(t.key) > 0 || tier === "unverified";
+    }
+    return true;
+  });
 
-.listings__upsell-text {
-  flex          : 1;
-  min-width     : 0;
-  display       : flex;
-  flex-direction: column;
-  gap           : 2px;
-}
+  const totalListings = getCount("all");
 
-.listings__upsell-text strong {
-  font-size  : 13px;
-  font-weight: 700;
-  color      : var(--ink);
-  font-family: var(--fd);
-}
+  return (
+    <div className="listings">
+      <div className="listings__card">
 
-.listings__upsell-text p {
-  margin     : 0;
-  font-size  : 11.5px;
-  color      : var(--ink2);
-  line-height: 1.4;
-}
+        {/* ══════════════════════════════════════════════════
+            HEADER
+        ══════════════════════════════════════════════════ */}
+        <div className="listings__header">
+          <div className="listings__header-left">
+            <h2 className="listings__title">My Listings</h2>
 
-/* Verify variant — amber */
-.listings__upsell-banner--verify {
-  background  : linear-gradient(135deg, #fffbeb 0%, var(--wh) 60%);
-  border-color: #fde68a;
-}
+            {/* Tier badge — never crashes */}
+            {tier === "subscriber" && (
+              <span className="listings__tier-badge listings__tier-badge--pro">
+                <SafeIcon name="Zap" fallback={<FallbackZap />} />
+                Pro
+              </span>
+            )}
+            {tier === "verified" && (
+              <span className="listings__tier-badge listings__tier-badge--verified">
+                <SafeIcon name="CheckCircle" fallback={<FallbackCheck />} />
+                Verified
+              </span>
+            )}
+            {tier === "unverified" && (
+              <span className="listings__tier-badge listings__tier-badge--trial">
+                <SafeIcon name="Clock" fallback={<FallbackClock />} />
+                Trial
+              </span>
+            )}
+          </div>
 
-.listings__upsell-banner--verify > svg {
-  color: #d97706;
-}
+          <button
+            className="btn btn--primary btn--sm"
+            onClick={() => onNavigate?.("/minimart/add")}
+          >
+            <SafeIcon name="Plus" fallback={<FallbackPlus />} />
+            Add New
+          </button>
+        </div>
 
-/* Subscribe variant — purple */
-.listings__upsell-banner--subscribe {
-  background  : linear-gradient(135deg, #f5f3ff 0%, var(--wh) 60%);
-  border-color: #ddd6fe;
-}
+        {/* ══════════════════════════════════════════════════
+            UPSELL BANNERS
+        ══════════════════════════════════════════════════ */}
+        {tier === "unverified" && totalListings >= 2 && (
+          <div className="listings__upsell-banner listings__upsell-banner--verify">
+            <SafeIcon name="Shield" fallback={<FallbackShield />} />
+            <div className="listings__upsell-text">
+              <strong>Upgrade to Verified</strong>
+              <p>
+                You've used {totalListings} of 3 trial listings.
+                Verify your identity to unlock 500 free listings + 30-day windows.
+              </p>
+            </div>
+            <Link to="/verification" className="btn btn--primary btn--sm">
+              Verify Now
+            </Link>
+          </div>
+        )}
 
-.listings__upsell-banner--subscribe > svg {
-  color: #8b5cf6;
-}
+        {tier === "verified" && totalListings >= 450 && (
+          <div className="listings__upsell-banner listings__upsell-banner--subscribe">
+            <SafeIcon name="Zap" fallback={<FallbackZap />} />
+            <div className="listings__upsell-text">
+              <strong>Approaching your 500-listing limit</strong>
+              <p>
+                You've used {totalListings} of 500 free listings.
+                Subscribe to Pro for unlimited posting.
+              </p>
+            </div>
+            <Link to="/seller/subscription/plans" className="btn btn--primary btn--sm">
+              View Plans
+            </Link>
+          </div>
+        )}
 
-/* ═══════════════════════════════════════════════════════════════
-   FILTER TABS
-═══════════════════════════════════════════════════════════════ */
-.listings__tabs {
-  display: flex;
-  border-bottom: 1px solid var(--bd);
-  overflow-x: auto;
-  scrollbar-width: none;
-  margin: 0 -16px;
-  padding: 0 16px;
-}
-.listings__tabs::-webkit-scrollbar {
-  display: none;
-}
+        {/* ══════════════════════════════════════════════════
+            FILTER TABS
+        ══════════════════════════════════════════════════ */}
+        <div className="listings__tabs" role="tablist">
+          {visibleTabs.map((t) => (
+            <button
+              key={t.key}
+              role="tab"
+              aria-selected={tab === t.key}
+              className={`listings__tab${
+                tab === t.key ? " listings__tab--active" : ""
+              }`}
+              onClick={() => onTabChange?.(t.key)}
+            >
+              {t.label}
+              <span className="listings__tab-count">
+                {getCount(t.key)}
+              </span>
+            </button>
+          ))}
+        </div>
 
-.listings__tab {
-  padding: 10px 12px;
-  border: none;
-  background: none;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink3);
-  cursor: pointer;
-  border-bottom: 2.5px solid transparent;
-  white-space: nowrap;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  transition: color 0.15s;
-  font-family: var(--fb);
-}
-.listings__tab--active {
-  color: var(--ink);
-  border-bottom-color: var(--o);
-}
+        {/* ══════════════════════════════════════════════════
+            SEARCH
+        ══════════════════════════════════════════════════ */}
+        <div className="listings__search">
+          <SafeIcon name="Search" fallback={<FallbackSearch />} />
+          <input
+            type="search"
+            className="listings__search-input"
+            placeholder="Search your listings…"
+            value={search ?? ""}
+            onChange={(e) => onSearch?.(e.target.value)}
+          />
+          {search && (
+            <button
+              className="listings__search-clear"
+              onClick={() => onSearch?.("")}
+              aria-label="Clear search"
+            >
+              <SafeIcon name="X" fallback={<FallbackX />} />
+            </button>
+          )}
+        </div>
 
-.listings__tab-count {
-  background: var(--bg);
-  color: var(--ink3);
-  font-size: 10px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: 20px;
-}
-.listings__tab--active .listings__tab-count {
-  background: var(--o-bg);
-  color: var(--o);
-}
+        {/* ══════════════════════════════════════════════════
+            INFO BANNERS
+        ══════════════════════════════════════════════════ */}
 
-/* ═══════════════════════════════════════════════════════════════
-   SEARCH
-═══════════════════════════════════════════════════════════════ */
-.listings__search {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
+        {/* Trial tab info */}
+        {tab === "active_limited" && !prodLoading && products?.length > 0 && (
+          <div className="listings__info-banner listings__info-banner--trial">
+            <SafeIcon name="Clock" fallback={<FallbackClock />} />
+            <div>
+              <strong>Trial listings expire in 7 days</strong>
+              <p>
+                {tier === "unverified"
+                  ? "Verify your identity to make these listings permanent (30 days for verified, 90 days for Pro)."
+                  : "Tap 'Activate' on any listing to convert it to a full listing."}
+              </p>
+            </div>
+            {tier === "unverified" && (
+              <Link to="/verification" className="btn btn--primary btn--sm">
+                Verify
+              </Link>
+            )}
+          </div>
+        )}
 
-.listings__search > svg {
-  position: absolute;
-  left: 11px;
-  pointer-events: none;
-  color: var(--ink3);
-  flex-shrink: 0;
-}
+        {/* Pending payment info */}
+        {tab === "pending" && !prodLoading && products?.length > 0 && (
+          <div className="listings__info-banner">
+            <SafeIcon name="AlertCircle" fallback={<FallbackAlert />} />
+            <div>
+              <strong>Payment required</strong>
+              <p>
+                These listings are waiting for payment to go live.
+                Complete payment to activate them.
+              </p>
+            </div>
+          </div>
+        )}
 
-.listings__search-input {
-  width: 100%;
-  padding: 10px 36px;
-  border: 1.5px solid var(--bd);
-  border-radius: var(--r1);
-  font-size: 13px;
-  background: var(--bg);
-  box-sizing: border-box;
-  outline: none;
-  font-family: var(--fb);
-  color: var(--ink);
-  transition: border-color 0.15s;
-}
-.listings__search-input:focus {
-  border-color: var(--o);
-  background: var(--wh);
-}
-.listings__search-input::placeholder {
-  color: var(--ink3);
-}
+        {/* Paused tab — unverified can't reactivate */}
+        {tab === "paused" &&
+          !prodLoading &&
+          products?.length > 0 &&
+          tier === "unverified" && (
+            <div className="listings__info-banner listings__info-banner--warn">
+              <SafeIcon name="AlertCircle" fallback={<FallbackAlert />} />
+              <div>
+                <strong>Paused listings can't be reactivated</strong>
+                <p>
+                  Trial listings that expire become paused.
+                  Verify your identity to unlock reactivation.
+                </p>
+              </div>
+              <Link to="/verification" className="btn btn--primary btn--sm">
+                Verify
+              </Link>
+            </div>
+          )}
 
-.listings__search-clear {
-  position: absolute;
-  right: 10px;
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--ink3);
-  display: flex;
-  align-items: center;
-  padding: 0;
-  transition: color 0.15s;
-}
-.listings__search-clear:hover {
-  color: var(--o);
-}
+        {/* ══════════════════════════════════════════════════
+            CONTENT
+        ══════════════════════════════════════════════════ */}
+        {prodLoading && <ProdSkeleton />}
 
-/* ═══════════════════════════════════════════════════════════════
-   INFO BANNERS  (pending, trial, paused-warn)
-═══════════════════════════════════════════════════════════════ */
-.listings__info-banner {
-  display      : flex;
-  align-items  : center;
-  gap          : 10px;
-  padding      : 12px 14px;
-  border-radius: var(--r2);
-  background   : #eff6ff;
-  border       : 1px solid #bfdbfe;
-  font-family  : var(--fb);
-  flex-wrap    : wrap;
-}
+        {/* Empty state */}
+        {!prodLoading && (!products || products.length === 0) && (
+          <EmptyState
+            icon={<SafeIcon name="Search" fallback={<FallbackSearch />} />}
+            title={
+              search
+                ? `No results for "${search}"`
+                : tab === "pending"
+                ? "No pending payments"
+                : tab === "active_limited"
+                ? "No trial listings"
+                : `No ${tab === "all" ? "" : tab + " "}listings`
+            }
+            description={
+              search
+                ? "Try a different search term."
+                : tab === "pending"
+                ? "All your listings are paid up!"
+                : tab === "active_limited"
+                ? "You don't have any trial listings right now."
+                : "Start selling by creating your first listing."
+            }
+            action={
+              !search && (tab === "all" || tab === "active")
+                ? "Create Listing"
+                : null
+            }
+            onAction={() => onNavigate?.("/minimart/add")}
+          />
+        )}
 
-.listings__info-banner > svg {
-  color      : #1e40af;
-  width      : 20px;
-  height     : 20px;
-  flex-shrink: 0;
-}
+        {/* Product list */}
+        {!prodLoading && products?.length > 0 && (
+          <div className="listings__list">
+            {products.map((p) => (
+              <ProductCard
+                key={p.id}
+                product={p}
+                tier={tier}
+                isSubscriber={isSubscriber}
+                onEdit={onEdit}
+                onDelete={onDelete}
+                onToggle={onToggle}
+                onRenew={onRenew}
+                onPromote={onPromote}
+                onPayNow={onPayNow}
+                onVerifyPayment={onVerifyPayment}
+                isDeleting={deleting === p.id}
+                isVerifying={verifying === p.id}
+              />
+            ))}
+          </div>
+        )}
 
-.listings__info-banner > div {
-  flex          : 1;
-  min-width     : 0;
-  display       : flex;
-  flex-direction: column;
-  gap           : 2px;
-}
+        {/* Load more */}
+        {!prodLoading && hasMore && (
+          <div className="listings__load-more">
+            <button
+              className="btn btn--ghost"
+              onClick={onLoadMore}
+              disabled={loadingMore}
+            >
+              {loadingMore ? (
+                <>
+                  <span className="spinner" /> Loading…
+                </>
+              ) : (
+                "Load More"
+              )}
+            </button>
+          </div>
+        )}
 
-.listings__info-banner strong {
-  font-size  : 13px;
-  font-weight: 700;
-  color      : var(--ink);
-  font-family: var(--fd);
-}
-
-.listings__info-banner p {
-  margin     : 0;
-  font-size  : 11.5px;
-  color      : var(--ink2);
-  line-height: 1.4;
-}
-
-/* Trial variant — amber */
-.listings__info-banner--trial {
-  background  : #fffbeb;
-  border-color: #fde68a;
-}
-
-.listings__info-banner--trial > svg {
-  color: #d97706;
-}
-
-/* Warn variant — red */
-.listings__info-banner--warn {
-  background  : #fef2f2;
-  border-color: #fecaca;
-}
-
-.listings__info-banner--warn > svg {
-  color: #dc2626;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   PRODUCT LIST
-═══════════════════════════════════════════════════════════════ */
-.listings__list {
-  display: flex;
-  flex-direction: column;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   LOAD MORE
-═══════════════════════════════════════════════════════════════ */
-.listings__load-more {
-  display: flex;
-  justify-content: center;
-  padding: 8px 0;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   RESULT COUNT
-═══════════════════════════════════════════════════════════════ */
-.listings__count {
-  font-size: 12px;
-  color: var(--ink3);
-  text-align: center;
-  margin: 0;
-  padding-top: 4px;
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   DARK MODE
-═══════════════════════════════════════════════════════════════ */
-@media (prefers-color-scheme: dark) {
-  .listings__tier-badge--verified {
-    background: rgba(21, 128, 61, .18);
-    color     : #6ee7b7;
-    border-color: rgba(21, 128, 61, .35);
-  }
-
-  .listings__tier-badge--trial {
-    background: rgba(245, 158, 11, .18);
-    color     : #fbbf24;
-    border-color: rgba(245, 158, 11, .35);
-  }
-
-  .listings__upsell-banner--verify {
-    background  : linear-gradient(135deg, rgba(245, 158, 11, .12) 0%, var(--wh) 60%);
-    border-color: rgba(245, 158, 11, .35);
-  }
-
-  .listings__upsell-banner--subscribe {
-    background  : linear-gradient(135deg, rgba(139, 92, 246, .14) 0%, var(--wh) 60%);
-    border-color: rgba(139, 92, 246, .35);
-  }
-
-  .listings__info-banner {
-    background  : rgba(59, 130, 246, .12);
-    border-color: rgba(59, 130, 246, .35);
-  }
-
-  .listings__info-banner > svg { color: #93c5fd; }
-
-  .listings__info-banner--trial {
-    background  : rgba(245, 158, 11, .12);
-    border-color: rgba(245, 158, 11, .35);
-  }
-
-  .listings__info-banner--trial > svg { color: #fbbf24; }
-
-  .listings__info-banner--warn {
-    background  : rgba(220, 38, 38, .12);
-    border-color: rgba(220, 38, 38, .35);
-  }
-
-  .listings__info-banner--warn > svg { color: #fca5a5; }
-}
-
-[data-theme="dark"] .listings__tier-badge--verified {
-  background  : rgba(21, 128, 61, .18);
-  color       : #6ee7b7;
-  border-color: rgba(21, 128, 61, .35);
-}
-
-[data-theme="dark"] .listings__tier-badge--trial {
-  background  : rgba(245, 158, 11, .18);
-  color       : #fbbf24;
-  border-color: rgba(245, 158, 11, .35);
-}
-
-[data-theme="dark"] .listings__upsell-banner--verify {
-  background  : linear-gradient(135deg, rgba(245, 158, 11, .12) 0%, var(--wh) 60%);
-  border-color: rgba(245, 158, 11, .35);
-}
-
-[data-theme="dark"] .listings__upsell-banner--subscribe {
-  background  : linear-gradient(135deg, rgba(139, 92, 246, .14) 0%, var(--wh) 60%);
-  border-color: rgba(139, 92, 246, .35);
-}
-
-[data-theme="dark"] .listings__info-banner {
-  background  : rgba(59, 130, 246, .12);
-  border-color: rgba(59, 130, 246, .35);
-}
-
-[data-theme="dark"] .listings__info-banner > svg { color: #93c5fd; }
-
-[data-theme="dark"] .listings__info-banner--trial {
-  background  : rgba(245, 158, 11, .12);
-  border-color: rgba(245, 158, 11, .35);
-}
-
-[data-theme="dark"] .listings__info-banner--trial > svg { color: #fbbf24; }
-
-[data-theme="dark"] .listings__info-banner--warn {
-  background  : rgba(220, 38, 38, .12);
-  border-color: rgba(220, 38, 38, .35);
-}
-
-[data-theme="dark"] .listings__info-banner--warn > svg { color: #fca5a5; }
-
-/* ═══════════════════════════════════════════════════════════════
-   MOBILE — stack banners
-═══════════════════════════════════════════════════════════════ */
-@media (max-width: 520px) {
-  .listings__upsell-banner,
-  .listings__info-banner {
-    flex-direction: column;
-    align-items   : flex-start;
-    text-align    : left;
-  }
-
-  .listings__upsell-banner .btn,
-  .listings__info-banner .btn {
-    width          : 100%;
-    justify-content: center;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   REDUCED MOTION
-═══════════════════════════════════════════════════════════════ */
-@media (prefers-reduced-motion: reduce) {
-  .listings__tab,
-  .listings__search-input,
-  .listings__search-clear {
-    transition: none;
-  }
+        {/* Count */}
+        {!prodLoading && products?.length > 0 && (
+          <p className="listings__count">
+            Showing {products.length} listing
+            {products.length !== 1 ? "s" : ""}
+            {search ? ` matching "${search}"` : ""}
+          </p>
+        )}
+      </div>
+    </div>
+  );
 }
