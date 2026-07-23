@@ -2,6 +2,7 @@
 
 import {
   PILL,
+  ROLE_LABEL,
   TT,
   fmtDate,
   verificationColor,
@@ -11,14 +12,20 @@ import {
   trustColor,
 } from "./helpers";
 
-/* ── Basic pill / status badge ── */
-export const Pill = ({ s }) => (
-  <span className={PILL[s] || "pill pd"}>{s || "—"}</span>
-);
+/* ── Basic pill / status badge ─────────────────────────────────
+   s     = raw value  e.g. "super_admin", "active", "banned"
+   label = optional friendly override e.g. "Super Admin / Owner"
+────────────────────────────────────────────────────────────── */
+export const Pill = ({ s, label }) => {
+  const text = label ?? ROLE_LABEL[s] ?? s ?? "—";
+  return (
+    <span className={PILL[s] || "pill pd"}>
+      {text}
+    </span>
+  );
+};
 
-/* ── Verification status badge ──
-   Uses verificationColor so it always matches the unified colour map.
-   Safe against null / undefined status. */
+/* ── Verification status badge ── */
 export const VerificationBadge = ({ status }) => {
   const s     = status ?? "unknown";
   const color = verificationColor(s);
@@ -95,8 +102,7 @@ export const StatCard = ({ label, value, color = "c-blue", delta }) => (
   </div>
 );
 
-/* ── Verification stat card ──
-   Coloured number + label, matching the verification page stats row. */
+/* ── Verification stat card ── */
 export const VerifStatCard = ({ label, value, color }) => (
   <div style={{
     background   : "#fafaf8",
@@ -105,12 +111,12 @@ export const VerifStatCard = ({ label, value, color }) => (
     padding      : "14px 16px",
   }}>
     <div style={{
-      fontSize       : 10,
-      fontWeight     : 700,
-      color          : "#aaa",
-      textTransform  : "uppercase",
-      letterSpacing  : ".4px",
-      marginBottom   : 4,
+      fontSize      : 10,
+      fontWeight    : 700,
+      color         : "#aaa",
+      textTransform : "uppercase",
+      letterSpacing : ".4px",
+      marginBottom  : 4,
     }}>
       {label}
     </div>
@@ -166,7 +172,7 @@ export const Srch = ({ value, onChange, placeholder }) => (
 
 /* ── Empty state ── */
 export const EmptyState = ({
-  icon = "📋",
+  icon  = "📋",
   title = "Nothing here",
   body  = "No records found.",
 }) => (
@@ -186,61 +192,56 @@ export const EmptyState = ({
   </div>
 );
 
-/* ── Drawer shell ──
-   Reusable right-side drawer used by verification + other pages. */
+/* ── Drawer shell ── */
 export const Drawer = ({ onClose, header, children, width = 580 }) => (
   <div style={{
     position : "fixed", inset: 0, zIndex: 600, display: "flex",
   }}>
-    {/* Backdrop */}
     <div
       style={{ flex: 1, background: "rgba(0,0,0,.45)", cursor: "pointer" }}
       onClick={onClose}
     />
-    {/* Panel */}
     <div style={{
-      width          : `min(${width}px, 100%)`,
-      background     : "#fff",
-      overflowY      : "auto",
-      display        : "flex",
-      flexDirection  : "column",
-      boxShadow      : "-8px 0 32px rgba(0,0,0,.15)",
+      width         : `min(${width}px, 100%)`,
+      background    : "#fff",
+      overflowY     : "auto",
+      display       : "flex",
+      flexDirection : "column",
+      boxShadow     : "-8px 0 32px rgba(0,0,0,.15)",
     }}>
-      {/* Sticky header */}
       <div style={{
-        padding          : "16px 20px",
-        borderBottom     : "1px solid #f0eeea",
-        display          : "flex",
-        alignItems       : "center",
-        justifyContent   : "space-between",
-        position         : "sticky",
-        top              : 0,
-        background       : "#fff",
-        zIndex           : 1,
+        padding         : "16px 20px",
+        borderBottom    : "1px solid #f0eeea",
+        display         : "flex",
+        alignItems      : "center",
+        justifyContent  : "space-between",
+        position        : "sticky",
+        top             : 0,
+        background      : "#fff",
+        zIndex          : 1,
       }}>
         <div style={{ flex: 1 }}>{header}</div>
         <button
           onClick={onClose}
           style={{
-            border       : "1.5px solid #e8e6e0",
-            background   : "#fafaf8",
-            borderRadius : "50%",
-            width        : 32,
-            height       : 32,
-            cursor       : "pointer",
-            fontSize     : 16,
-            color        : "#555",
-            display      : "flex",
-            alignItems   : "center",
-            justifyContent: "center",
-            flexShrink   : 0,
-            marginLeft   : 12,
+            border          : "1.5px solid #e8e6e0",
+            background      : "#fafaf8",
+            borderRadius    : "50%",
+            width           : 32,
+            height          : 32,
+            cursor          : "pointer",
+            fontSize        : 16,
+            color           : "#555",
+            display         : "flex",
+            alignItems      : "center",
+            justifyContent  : "center",
+            flexShrink      : 0,
+            marginLeft      : 12,
           }}
         >
           &times;
         </button>
       </div>
-      {/* Body */}
       <div style={{ padding: 20, flex: 1 }}>{children}</div>
     </div>
   </div>
@@ -258,16 +259,13 @@ export const Modal = ({ title, onClose, children, maxWidth = 460 }) => (
       onClick={(e) => e.stopPropagation()}
       style={{ maxWidth }}
     >
-      {title && (
-        <div className="modal-title">{title}</div>
-      )}
+      {title && <div className="modal-title">{title}</div>}
       {children}
     </div>
   </div>
 );
 
-/* ── Info box ──
-   Lightly shaded box used in drawers for grouped detail rows. */
+/* ── Info box ── */
 export const InfoBox = ({ label, children, style = {} }) => (
   <div style={{
     background   : "#fafaf8",
@@ -280,12 +278,12 @@ export const InfoBox = ({ label, children, style = {} }) => (
   }}>
     {label && (
       <div style={{
-        fontSize       : 11,
-        fontWeight     : 700,
-        color          : "#aaa",
-        textTransform  : "uppercase",
-        letterSpacing  : ".5px",
-        marginBottom   : 8,
+        fontSize      : 11,
+        fontWeight    : 700,
+        color         : "#aaa",
+        textTransform : "uppercase",
+        letterSpacing : ".5px",
+        marginBottom  : 8,
       }}>
         {label}
       </div>
@@ -294,8 +292,7 @@ export const InfoBox = ({ label, children, style = {} }) => (
   </div>
 );
 
-/* ── Detail row ──
-   <DetailRow label="Email" value={user.email} /> */
+/* ── Detail row ── */
 export const DetailRow = ({ label, value, children }) => (
   <div style={{ marginBottom: 5 }}>
     <span style={{ color: "#888" }}>{label}: </span>
