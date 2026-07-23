@@ -15,11 +15,19 @@ export default function Admins({
     name: "", email: "", password: "", role: "admin",
   });
 
+  // ── custom role creation ────────────────────────────────
+  const [customRoles, setCustomRoles] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("customRoles") || "[]");
+    } catch { return []; }
+  });
+  const [showCustomInput, setShowCustomInput] = useState(false);
+  const [newRoleName,     setNewRoleName]     = useState("");
+
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  // ── helpers ───────────────────────────────────────────────────────────────
-
-  const roles = [
+  // ── built-in roles ──────────────────────────────────────
+  const builtInRoles = [
     { value: "admin",             label: "Admin / Manager"     },
     { value: "content_moderator", label: "Content Moderator"   },
     { value: "finance_admin",     label: "Finance Admin"       },
@@ -27,8 +35,31 @@ export default function Admins({
     { value: "super_admin",       label: "Super Admin / Owner" },
   ];
 
+  // Merge built-in + custom + any roles that exist in the DB but not in either list
+  const existingRolesInData = [...new Set(admins.map((a) => a.role).filter(Boolean))];
+
+  const allRoles = [
+    ...builtInRoles,
+    ...customRoles.map((r) => ({ value: r, label: humanize(r) })),
+    ...existingRolesInData
+      .filter(
+        (r) =>
+          !builtInRoles.some((b) => b.value === r) &&
+          !customRoles.includes(r)
+      )
+      .map((r) => ({ value: r, label: humanize(r) })),
+  ];
+
+  function humanize(slug) {
+    if (!slug) return "—";
+    return slug
+      .split("_")
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join(" ");
+  }
+
   const roleLabel = (value) =>
-    roles.find((r) => r.value === value)?.label ?? value;
+    allRoles.find((r) => r.value === value)?.label ?? humanize(value);
 
   const activeSuperAdmins = admins.filter(
     (a) => a.role === "super_admin" && a.status !== "banned",
@@ -37,14 +68,14 @@ export default function Admins({
   const filtered = admins.filter((a) => {
     const q = search.toLowerCase();
     const matchSearch =
-      a.name.toLowerCase().includes(q) ||
-      a.email.toLowerCase().includes(q);
+      (a.name  ?? "").toLowerCase().includes(q) ||
+      (a.email ?? "").toLowerCase().includes(q);
     const matchRole =
       filterRole === "all" || a.role === filterRole;
     return matchSearch && matchRole;
   });
 
-  // ── actions ───────────────────────────────────────────────────────────────
+  // ── actions ─────────────────────────────────────────────
 
   const submit = async () => {
     if (!form.name || !form.email || !form.password) return;
@@ -53,12 +84,51 @@ export default function Admins({
     setShowForm(false);
   };
 
+  const addCustomRole = () => {
+    const clean = newRoleName
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_ ]/g, "")
+      .replace(/\s+/g, "_");
+
+    if (!clean) return;
+    if (clean === "super_admin" && currentUser.role !== "super_admin") {
+      alert("Only a Super Admin can create the Super Admin role.");
+      return;
+    }
+    if (allRoles.some((r) => r.value === clean)) {
+      alert("That role already exists.");
+      return;
+    }
+
+    const updated = [...customRoles, clean];
+    setCustomRoles(updated);
+    localStorage.setItem("customRoles", JSON.stringify(updated));
+
+    setForm((f) => ({ ...f, role: clean }));
+    setNewRoleName("");
+    setShowCustomInput(false);
+  };
+
+  const removeCustomRole = (roleValue) => {
+    if (currentUser.role !== "super_admin") {
+      alert("Only a Super Admin can remove custom roles.");
+      return;
+    }
+    if (admins.some((a) => a.role === roleValue)) {
+      alert("Cannot delete a role that is currently assigned to an admin.");
+      return;
+    }
+    const updated = customRoles.filter((r) => r !== roleValue);
+    setCustomRoles(updated);
+    localStorage.setItem("customRoles", JSON.stringify(updated));
+  };
+
   const startEdit = (a) => {
     setEditingId(a.id);
     setEditRole(a.role);
   };
 
-  // async so we wait before closing the inline editor
   const saveEdit = async (a) => {
     if (editRole === "super_admin" && currentUser.role !== "super_admin") {
       alert("Only a Super Admin can assign the Super Admin role.");
@@ -100,7 +170,7 @@ export default function Admins({
     }
   };
 
-  // ── render ────────────────────────────────────────────────────────────────
+  // ── render ──────────────────────────────────────────────
 
   return (
     <>
@@ -160,16 +230,61 @@ export default function Admins({
             </div>
 
             <div className="form-group">
-              <label>Role</label>
-              <select className="input" value={form.role} onChange={set("role")}>
-                <option value="admin">Admin / Manager</option>
-                <option value="content_moderator">Content Moderator</option>
-                <option value="finance_admin">Finance Admin</option>
-                <option value="support_admin">Support Admin</option>
+              <label>
+                Role
                 {currentUser.role === "super_admin" && (
-                  <option value="super_admin">Super Admin / Owner</option>
+                  <button
+                    type="button"
+                    className="btn b-ghost"
+                    style={{
+                      marginLeft: 8,
+                      fontSize: ".65rem",
+                      padding: "2px 8px",
+                    }}
+                    onClick={() => setShowCustomInput((s) => !s)}
+                  >
+                    {showCustomInput ? "Cancel" : "+ New Role"}
+                  </button>
                 )}
-              </select>
+              </label>
+
+              {showCustomInput ? (
+                <div style={{ display: "flex", gap: 6 }}>
+                  <input
+                    className="input"
+                    style={{ flex: 1 }}
+                    value={newRoleName}
+                    onChange={(e) => setNewRoleName(e.target.value)}
+                    placeholder="e.g. marketing_admin"
+                    onKeyDown={(e) => e.key === "Enter" && addCustomRole()}
+                  />
+                  <button
+                    type="button"
+                    className="btn b-solid"
+                    onClick={addCustomRole}
+                  >
+                    Add
+                  </button>
+                </div>
+              ) : (
+                <select
+                  className="input"
+                  value={form.role}
+                  onChange={set("role")}
+                >
+                  {allRoles.map((r) => {
+                    if (
+                      r.value === "super_admin" &&
+                      currentUser.role !== "super_admin"
+                    ) return null;
+                    return (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    );
+                  })}
+                </select>
+              )}
             </div>
 
             <div
@@ -192,6 +307,52 @@ export default function Admins({
         </Card>
       )}
 
+      {/* Custom Roles Manager (Super Admin only) */}
+      {currentUser.role === "super_admin" && customRoles.length > 0 && (
+        <Card title="Custom Roles">
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {customRoles.map((r) => (
+              <div
+                key={r}
+                style={{
+                  display    : "flex",
+                  alignItems : "center",
+                  gap        : 6,
+                  padding    : "4px 10px",
+                  background : "var(--card2)",
+                  borderRadius: 20,
+                  fontSize   : ".75rem",
+                }}
+              >
+                <span>{humanize(r)}</span>
+                <button
+                  type="button"
+                  onClick={() => removeCustomRole(r)}
+                  title="Remove role"
+                  style={{
+                    background : "transparent",
+                    border     : "none",
+                    color      : "var(--danger)",
+                    cursor     : "pointer",
+                    fontSize   : "1rem",
+                    lineHeight : 1,
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+          <p
+            className="dim"
+            style={{ fontSize: ".7rem", marginTop: 8 }}
+          >
+            Note: Custom roles are saved locally in your browser. Permissions for them
+            must be configured on the backend.
+          </p>
+        </Card>
+      )}
+
       {/* Search & Filter */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <input
@@ -208,7 +369,7 @@ export default function Admins({
           onChange={(e) => setFilterRole(e.target.value)}
         >
           <option value="all">All Roles</option>
-          {roles.map((r) => (
+          {allRoles.map((r) => (
             <option key={r.value} value={r.value}>{r.label}</option>
           ))}
         </select>
@@ -234,10 +395,8 @@ export default function Admins({
               {filtered.map((a) => (
                 <tr key={a.id}>
 
-                  {/* Name */}
                   <td style={{ fontWeight: 700 }}>{a.name}</td>
 
-                  {/* Email */}
                   <td className="mono dim" style={{ fontSize: ".7rem" }}>
                     {a.email}
                   </td>
@@ -251,7 +410,7 @@ export default function Admins({
                         value={editRole}
                         onChange={(e) => setEditRole(e.target.value)}
                       >
-                        {roles.map((r) => {
+                        {allRoles.map((r) => {
                           if (
                             r.value === "super_admin" &&
                             currentUser.role !== "super_admin"
@@ -268,33 +427,27 @@ export default function Admins({
                     )}
                   </td>
 
-                  {/* Status */}
                   <td><Pill s={a.status || "active"} /></td>
 
-                  {/* Date Created — backend returns created_at */}
                   <td className="dim" style={{ fontSize: ".7rem" }}>
                     {a.created_at
                       ? new Date(a.created_at).toLocaleDateString()
                       : "—"}
                   </td>
 
-                  {/* Last Login — backend returns last_login */}
                   <td className="dim" style={{ fontSize: ".7rem" }}>
                     {a.last_login
                       ? new Date(a.last_login).toLocaleDateString()
                       : "Never"}
                   </td>
 
-                  {/* Created By — backend returns created_by */}
                   <td className="dim" style={{ fontSize: ".7rem" }}>
                     {a.created_by || "—"}
                   </td>
 
-                  {/* Actions */}
                   <td>
                     <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
 
-                      {/* Edit Role / Save / Cancel */}
                       {editingId === a.id ? (
                         <>
                           <button
@@ -324,7 +477,6 @@ export default function Admins({
                         </button>
                       )}
 
-                      {/* Deactivate / Reactivate */}
                       <button
                         className={`btn ${a.status === "banned" ? "b-solid" : "b-red"}`}
                         style={{ fontSize: ".72rem", padding: "2px 10px" }}
