@@ -16,6 +16,28 @@ const insightIcon = {
   good: <Ic.Celebration />,
 };
 
+/* Tier-specific config for upsell hints */
+const TIER_CONFIG = {
+  unverified: {
+    badge     : "Trial",
+    badgeColor: "#f59e0b",
+    upgradeCta: "Verify to unlock 500 free listings",
+    upgradeUrl: "/verification",
+  },
+  verified: {
+    badge     : "Verified",
+    badgeColor: "#10b981",
+    upgradeCta: "Subscribe for unlimited listings",
+    upgradeUrl: "/seller/subscription/plans",
+  },
+  subscriber: {
+    badge     : "Pro",
+    badgeColor: "#8b5cf6",
+    upgradeCta: null,
+    upgradeUrl: null,
+  },
+};
+
 export default function Overview({
   stats,
   analytics,
@@ -23,6 +45,8 @@ export default function Overview({
   loading,
   userId,
   deleting,
+  tier          = "unverified",
+  isSubscriber  = false,
   onNavigate,
   onSetSection,
   onEdit,
@@ -31,6 +55,8 @@ export default function Overview({
   onRenew,
   onPromote,
 }) {
+  const tierConfig = TIER_CONFIG[tier] ?? TIER_CONFIG.unverified;
+
   const overviewMetrics = useMemo(
     () => [
       { label: "Response Time", val: 60, color: "#6366f1" },
@@ -62,45 +88,116 @@ export default function Overview({
     if (!stats) return [];
 
     const list = [];
-    const active = stats.active ?? 0;
-    const draft = stats.draft ?? 0;
-    const views = stats.total_views ?? 0;
+    const active         = stats.active         ?? 0;
+    const activeLimited  = stats.active_limited ?? 0;
+    const draft          = stats.draft          ?? 0;
+    const views          = stats.total_views    ?? 0;
+    const totalProducts  = stats.total_products ?? 0;
 
-    if (active === 0) {
+    /* ── Tier-specific insights ── */
+    if (tier === "unverified" && totalProducts >= 2) {
       list.push({
         type: "warn",
-        msg: "No active listings — create or activate one to start getting views.",
+        msg : `You've used ${totalProducts}/3 free trial listings. Verify your identity to unlock 500 free listings.`,
+        action: { label: "Verify Now", url: "/verification" },
+      });
+    }
+
+    if (tier === "verified" && totalProducts >= 450) {
+      list.push({
+        type: "warn",
+        msg : `You've posted ${totalProducts}/500 listings. Subscribe to Pro for unlimited posting.`,
+        action: { label: "View Plans", url: "/seller/subscription/plans" },
+      });
+    }
+
+    if (activeLimited > 0 && tier !== "subscriber") {
+      list.push({
+        type: "info",
+        msg : `${activeLimited} trial listing${activeLimited > 1 ? "s" : ""} will expire soon. Verify to make ${activeLimited > 1 ? "them" : "it"} permanent.`,
+        action: tier === "unverified"
+          ? { label: "Verify", url: "/verification" }
+          : null,
+      });
+    }
+
+    if (active === 0 && activeLimited === 0) {
+      list.push({
+        type: "warn",
+        msg : "No active listings — create or activate one to start getting views.",
       });
     }
 
     if (draft > 0) {
       list.push({
         type: "info",
-        msg: `${draft} draft${draft > 1 ? "s" : ""} waiting to be published.`,
+        msg : `${draft} draft${draft > 1 ? "s" : ""} waiting to be published.`,
       });
     }
 
     if (active >= 5) {
       list.push({
         type: "good",
-        msg: `${active} active listings — you're doing great!`,
+        msg : `${active} active listings — you're doing great!`,
       });
     }
 
     if (views > 100) {
       list.push({
         type: "good",
-        msg: `${fmtNum(
-          views
-        )} total views — consider promoting your top listings!`,
+        msg : `${fmtNum(views)} total views — consider promoting your top listings!`,
+      });
+    }
+
+    if (isSubscriber && active >= 20) {
+      list.push({
+        type: "good",
+        msg : `${active} active listings with Pro perks — 90-day windows & priority placement working for you!`,
       });
     }
 
     return list;
-  }, [stats]);
+  }, [stats, tier, isSubscriber]);
 
   return (
     <div className="overview">
+      {/* ── Tier Badge Banner ── */}
+      {!loading && (
+        <div className={`overview__tier-banner overview__tier-banner--${tier}`}>
+          <div className="overview__tier-info">
+            <span
+              className="overview__tier-badge"
+              style={{ background: tierConfig.badgeColor }}
+            >
+              {tier === "subscriber" ? <Ic.Zap /> : tier === "verified" ? <Ic.CheckCircle /> : <Ic.Clock />}
+              {tierConfig.badge}
+            </span>
+
+            <div className="overview__tier-text">
+              <strong>
+                {tier === "unverified" && "Trial Account"}
+                {tier === "verified"   && "Verified Seller"}
+                {tier === "subscriber" && "Pro Subscriber"}
+              </strong>
+              <span>
+                {tier === "unverified" && `${stats?.total_products ?? 0}/3 trial listings used`}
+                {tier === "verified"   && `${stats?.total_products ?? 0}/500 lifetime listings used`}
+                {tier === "subscriber" && "Unlimited listings · 90-day windows"}
+              </span>
+            </div>
+          </div>
+
+          {tierConfig.upgradeCta && (
+            <Link
+              to={tierConfig.upgradeUrl}
+              className="overview__tier-upgrade"
+            >
+              {tierConfig.upgradeCta} <Ic.ChevronRight />
+            </Link>
+          )}
+        </div>
+      )}
+
       {/* Quick Actions */}
       <div className="overview__quick-actions">
         <button
@@ -191,7 +288,14 @@ export default function Overview({
                 <span className="insight__icon">
                   {insightIcon[ins.type]}
                 </span>
-                <p>{ins.msg}</p>
+                <div className="insight__content">
+                  <p>{ins.msg}</p>
+                  {ins.action && (
+                    <Link to={ins.action.url} className="insight__action">
+                      {ins.action.label} <Ic.ChevronRight />
+                    </Link>
+                  )}
+                </div>
               </div>
             ))}
           </div>
@@ -217,6 +321,8 @@ export default function Overview({
               <ProductCard
                 key={p.id}
                 product={p}
+                tier={tier}
+                isSubscriber={isSubscriber}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onToggle={onToggle}
