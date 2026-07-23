@@ -3,42 +3,33 @@
 // Base: /api/admin
 // ════════════════════════════════════════════════════════════
 
-import express                              from "express";
-import { pool }                             from "../config/db.js";
-import bcrypt                               from "bcrypt";
-import jwt                                  from "jsonwebtoken";
-import { verifyAdmin, requireSuperAdmin }   from "./admin/middleware.js";
+import express                            from "express";
+import { pool }                           from "../config/db.js";
+import bcrypt                             from "bcrypt";
+import jwt                                from "jsonwebtoken";
+import { verifyAdmin, requireSuperAdmin } from "./admin/middleware.js";
 
 // ── Sub-routers ───────────────────────────────────────────────
-import userRouter                           from "./admin/user.js";
-import { publicProductRouter }              from "./admin/product.js";
-import marketProductRouter                  from "./admin/marketproducts.js";
-import paymentRouter                        from "./admin/payment.js";
-import orderRouter                          from "./admin/order.js";
-import reportRouter                         from "./admin/report.js";
-import systemRouter                         from "./admin/system.js";
-import { rolesRouter, permissionsRouter }   from "./admin/roles.js";
-import promotionRouter                      from "./admin/promotion.js";
-import verificationRouter                   from "./admin/verification.js";
-import vendorVerificationRouter             from "./admin/vendorVerification.js";
-import withdrawalRouter                     from "./admin/withdrawalRoutes.js";
-import leaderboardRouter                    from "./admin/leaderboard.js";
-import airtimeCouponAdminRouter             from "./admin/airtimeCoupons.js";
-import couponRedemptionRouter               from "./admin/couponRedemption.js";
-import subscriptionAdminRouter              from "./admin/subscriptionAdmin.js";
-import supportAdminRouter                   from "./admin/support.js";
+import userRouter                from "./admin/user.js";
+import { publicProductRouter }   from "./admin/product.js";
+import marketProductRouter       from "./admin/marketproducts.js";
+import paymentRouter             from "./admin/payment.js";
+import orderRouter               from "./admin/order.js";
+import reportRouter              from "./admin/report.js";
+import systemRouter              from "./admin/system.js";
+import adminsRouter              from "./admin/admins.js";       // ← NEW
+import promotionRouter           from "./admin/promotion.js";
+import verificationRouter        from "./admin/verification.js";
+import vendorVerificationRouter  from "./admin/vendorVerification.js";
+import withdrawalRouter          from "./admin/withdrawalRoutes.js";
+import leaderboardRouter         from "./admin/leaderboard.js";
+import airtimeCouponAdminRouter  from "./admin/airtimeCoupons.js";
+import couponRedemptionRouter    from "./admin/couponRedemption.js";
+import subscriptionAdminRouter   from "./admin/subscriptionAdmin.js";
+import supportAdminRouter        from "./admin/support.js";
 
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
-
-/* ─── allowed roles ──────────────────────────────────────── */
-const ALLOWED_ROLES = [
-  "admin",
-  "content_moderator",
-  "finance_admin",
-  "support_admin",
-  "super_admin",
-];
 
 const generateToken = (admin) =>
   jwt.sign(
@@ -61,8 +52,7 @@ router.post("/login", async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT
-         id, name, email, password_hash, role, status
+      `SELECT id, name, email, password_hash, role, status
        FROM admins
        WHERE email = $1`,
       [email.toLowerCase().trim()],
@@ -117,30 +107,7 @@ router.get("/me", verifyAdmin, async (req, res) => {
       return res.status(404).json({ error: "Admin not found." });
     }
 
-    const admin = rows[0];
-
-    // Fetch permissions if you have them
-    let permissions = [];
-    try {
-      const { rows: perms } = await pool.query(
-        `SELECT DISTINCT p.name
-         FROM role_permissions rp
-         JOIN permissions p   ON rp.permission_id = p.id
-         JOIN admin_roles  ar ON rp.role_id        = ar.id
-         WHERE ar.role_name = $1
-         UNION
-         SELECT p.name
-         FROM admin_permissions ap
-         JOIN permissions p ON ap.permission_id = p.id
-         WHERE ap.admin_id = $2`,
-        [admin.role, admin.id],
-      );
-      permissions = perms.map((p) => p.name);
-    } catch {
-      // permissions tables may not exist yet — ignore
-    }
-
-    return res.json({ admin, permissions });
+    return res.json({ admin: rows[0], permissions: [] });
 
   } catch (err) {
     console.error("[admin me]", err.message);
@@ -149,233 +116,211 @@ router.get("/me", verifyAdmin, async (req, res) => {
 });
 
 // ══════════════════════════════════════════════════════════════
-// DASHBOARD STATS  (unchanged — keep your existing code here)
-// ══════════════════════════════════════════════════════════════
-// ... your existing stats route stays exactly as it is ...
-
-// ══════════════════════════════════════════════════════════════
-// ADMIN MANAGEMENT
+// DASHBOARD STATS
 // ══════════════════════════════════════════════════════════════
 
-// GET /api/admin/admins
-router.get("/admins", verifyAdmin, async (req, res) => {
+// GET /api/admin/stats
+router.get("/stats", verifyAdmin, async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT
-         a.id,
-         a.name,
-         a.email,
-         a.role,
-         a.status,
-         a.created_at,
-         a.last_login,
-         a.banned_at,
-         c.name AS created_by
-       FROM admins a
-       LEFT JOIN admins c ON c.id = a.created_by
-       ORDER BY a.created_at DESC`,
-    );
-    return res.json(rows);
-  } catch (err) {
-    console.error("[admin list]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
-// POST /api/admin/register
-router.post("/register", verifyAdmin, requireSuperAdmin, async (req, res) => {
-  const { name, email, password, role } = req.body;
+    const safe = (promise) =>
+      promise.catch(() => ({ rows: [{ count: 0, revenue: 0 }] }));
 
-  if (!name?.trim() || !email?.trim() || !password) {
-    return res.status(400).json({ error: "Name, email and password are required." });
-  }
-  if (password.length < 8) {
-    return res.status(400).json({ error: "Password must be at least 8 characters." });
-  }
-  if (!ALLOWED_ROLES.includes(role)) {
-    return res.status(400).json({ error: "Invalid role." });
-  }
+    const [
+      usersRes,
+      activeUsersRes,
+      bannedUsersRes,
+      todayUsersRes,
 
-  // Only super_admin can create another super_admin
-  if (role === "super_admin" && req.admin.role !== "super_admin") {
-    return res.status(403).json({ error: "Only a Super Admin can create another Super Admin." });
-  }
+      pubProductsRes,
+      pubPendingRes,
+      pubTodayRes,
 
-  try {
-    const { rows: existing } = await pool.query(
-      `SELECT id FROM admins WHERE email = $1`,
-      [email.toLowerCase().trim()],
-    );
-    if (existing.length) {
-      return res.status(409).json({ error: "An admin with this email already exists." });
-    }
+      mktProductsRes,
+      mktPendingRes,
+      mktTodayRes,
 
-    const hash = await bcrypt.hash(password, 12);
+      ordersRes,
+      todayOrdersRes,
 
-    const { rows } = await pool.query(
-      `INSERT INTO admins
-         (name, email, password_hash, role, status, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 'active', $5, NOW(), NOW())
-       RETURNING id, name, email, role, status, created_at`,
-      [
-        name.trim(),
-        email.toLowerCase().trim(),
-        hash,
-        role,
-        req.admin.id,
-      ],
-    );
+      revenueRes,
+      todayRevenueRes,
+      dailySalesRes,
 
-    // Log it
-    await pool.query(
-      `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'create_admin', 'admin', $2, $3)`,
-      [req.admin.id, rows[0].id, `Created admin "${name}" with role "${role}"`],
-    ).catch(() => {});
+      vendorsTotalRes,
+      vendorsPendingRes,
+      vendorsActiveRes,
+      vendorsReviewRes,
 
-    return res.status(201).json(rows[0]);
+      totalReferralsRes,
+      pendingReferralsRes,
+      verifiedReferralsRes,
+      rewardedReferralsRes,
 
-  } catch (err) {
-    console.error("[admin register]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
+      couponTotalRes,
+      couponAvailableRes,
+      couponRedeemedRes,
+      couponTodayRes,
 
-// PATCH /api/admin/admins/:id/role
-router.patch("/admins/:id/role", verifyAdmin, requireSuperAdmin, async (req, res) => {
-  const { role }  = req.body;
-  const targetId  = req.params.id;
+      supportTicketsTotalRes,
+      supportTicketsOpenRes,
+      supportTicketsInProgressRes,
+      supportTicketsResolvedRes,
+      supportTicketsEscalatedRes,
+      supportTicketsTodayRes,
+      supportReportsPendingRes,
+      supportDisputesOpenRes,
+      supportAppealsOpenRes,
+      supportAvgRatingRes,
+    ] = await Promise.all([
+      pool.query(`SELECT COUNT(*) FROM public.users`),
+      pool.query(`SELECT COUNT(*) FROM public.users WHERE status != 'banned'`),
+      pool.query(`SELECT COUNT(*) FROM public.users WHERE status = 'banned'`),
+      pool.query(`SELECT COUNT(*) FROM public.users WHERE created_at >= $1`, [today]),
 
-  if (!ALLOWED_ROLES.includes(role)) {
-    return res.status(400).json({ error: "Invalid role." });
-  }
-  if (role === "super_admin" && req.admin.role !== "super_admin") {
-    return res.status(403).json({ error: "Only a Super Admin can assign this role." });
-  }
-  if (targetId === String(req.admin.id)) {
-    return res.status(400).json({ error: "You cannot edit your own role." });
-  }
+      safe(pool.query(`SELECT COUNT(*) FROM public.products`)),
+      safe(pool.query(`SELECT COUNT(*) FROM public.products WHERE status = 'pending'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM public.products WHERE created_at >= $1`, [today])),
 
-  try {
-    const { rows } = await pool.query(
-      `UPDATE admins
-       SET role = $1, updated_at = NOW()
-       WHERE id = $2
-       RETURNING id, name, email, role, status`,
-      [role, targetId],
-    );
+      safe(pool.query(`SELECT COUNT(*) FROM market.products`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.products WHERE status = 'pending'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.products WHERE created_at >= $1`, [today])),
 
-    if (!rows.length) {
-      return res.status(404).json({ error: "Admin not found." });
-    }
+      safe(pool.query(`SELECT COUNT(*) FROM orders`)),
+      safe(pool.query(`SELECT COUNT(*) FROM orders WHERE created_at >= $1`, [today])),
 
-    await pool.query(
-      `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'edit_admin_role', 'admin', $2, $3)`,
-      [req.admin.id, targetId, `Changed role to "${role}" for admin ${targetId}`],
-    ).catch(() => {});
+      pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS revenue
+         FROM payments WHERE status IN ('success','completed','paid')`
+      ),
+      pool.query(
+        `SELECT COALESCE(SUM(amount), 0) AS revenue
+         FROM payments WHERE status IN ('success','completed','paid')
+           AND created_at >= $1`, [today]
+      ),
+      pool.query(
+        `SELECT DATE(created_at) AS date,
+                COALESCE(SUM(amount), 0) AS amount
+         FROM payments
+         WHERE status IN ('success','completed','paid')
+           AND created_at >= NOW() - INTERVAL '30 days'
+         GROUP BY DATE(created_at)
+         ORDER BY date ASC`
+      ),
 
-    return res.json(rows[0]);
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'pending'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'active'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM market.vendors WHERE status = 'under_review'`)),
 
-  } catch (err) {
-    console.error("[admin role update]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
+      safe(pool.query(`SELECT COUNT(*) FROM referrals`)),
+      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'pending'`)),
+      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status IN ('verified','rewarded')`)),
+      safe(pool.query(`SELECT COUNT(*) FROM referrals WHERE status = 'rewarded'`)),
 
-// POST /api/admin/admins/:id/ban
-router.post("/admins/:id/ban", verifyAdmin, requireSuperAdmin, async (req, res) => {
-  const targetId = req.params.id;
+      safe(pool.query(`SELECT COUNT(*) FROM public.coupons`)),
+      safe(pool.query(`SELECT COUNT(*) FROM public.coupons WHERE is_active = true`)),
+      safe(pool.query(`SELECT COUNT(*) FROM public.coupons WHERE is_active = false`)),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.coupon_redemptions WHERE redeemed_at >= $1`, [today]
+      )),
 
-  if (targetId === String(req.admin.id)) {
-    return res.status(400).json({ error: "You cannot deactivate your own account." });
-  }
+      safe(pool.query(`SELECT COUNT(*) FROM public.support_tickets`)),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets
+         WHERE status IN ('open','waiting_for_customer')`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'in_progress'`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'resolved'`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE status = 'escalated'`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.support_tickets WHERE created_at >= $1`, [today]
+      )),
+      safe(pool.query(`SELECT COUNT(*) FROM public.reports WHERE status = 'pending'`)),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.disputes WHERE status IN ('open','under_review')`
+      )),
+      safe(pool.query(
+        `SELECT COUNT(*) FROM public.appeals WHERE status IN ('pending','under_review')`
+      )),
+      safe(pool.query(
+        `SELECT ROUND(AVG(satisfaction_rating), 2) AS avg_rating
+         FROM public.support_tickets
+         WHERE satisfaction_rating IS NOT NULL`
+      )),
+    ]);
 
-  try {
-    // Prevent removing the last super_admin
-    const { rows: target } = await pool.query(
-      `SELECT role FROM admins WHERE id = $1`,
-      [targetId],
-    );
-    if (target[0]?.role === "super_admin") {
-      const { rows: supers } = await pool.query(
-        `SELECT id FROM admins
-         WHERE role = 'super_admin' AND status = 'active'`,
-      );
-      if (supers.length === 1) {
-        return res.status(400).json({ error: "Cannot deactivate the last Super Admin." });
-      }
-    }
+    return res.json({
+      users:       Number(usersRes.rows[0].count),
+      activeUsers: Number(activeUsersRes.rows[0].count),
+      bannedUsers: Number(bannedUsersRes.rows[0].count),
+      todayUsers:  Number(todayUsersRes.rows[0].count),
 
-    await pool.query(
-      `UPDATE admins
-       SET status = 'banned', banned_at = NOW(), updated_at = NOW()
-       WHERE id = $1`,
-      [targetId],
-    );
+      totalProducts:   Number(pubProductsRes.rows[0].count),
+      pendingProducts: Number(pubPendingRes.rows[0].count),
+      todayProducts:   Number(pubTodayRes.rows[0].count),
 
-    await pool.query(
-      `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'ban_admin', 'admin', $2, $3)`,
-      [req.admin.id, targetId, `Deactivated admin ${targetId}`],
-    ).catch(() => {});
+      marketTotalProducts:   Number(mktProductsRes.rows[0].count),
+      marketPendingProducts: Number(mktPendingRes.rows[0].count),
+      marketTodayProducts:   Number(mktTodayRes.rows[0].count),
 
-    return res.json({ success: true });
+      orders:      Number(ordersRes.rows[0].count),
+      todayOrders: Number(todayOrdersRes.rows[0].count),
 
-  } catch (err) {
-    console.error("[admin ban]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
+      revenue:      Number(revenueRes.rows[0].revenue),
+      todayRevenue: Number(todayRevenueRes.rows[0].revenue),
+      dailySales:   dailySalesRes.rows.map((r) => ({
+        date:   r.date,
+        amount: Number(r.amount),
+      })),
 
-// POST /api/admin/admins/:id/unban
-router.post("/admins/:id/unban", verifyAdmin, requireSuperAdmin, async (req, res) => {
-  const targetId = req.params.id;
+      vendorsTotal:       Number(vendorsTotalRes.rows[0].count),
+      vendorsPending:     Number(vendorsPendingRes.rows[0].count),
+      vendorsActive:      Number(vendorsActiveRes.rows[0].count),
+      vendorsUnderReview: Number(vendorsReviewRes.rows[0].count),
 
-  try {
-    await pool.query(
-      `UPDATE admins
-       SET status = 'active', banned_at = NULL, updated_at = NOW()
-       WHERE id = $1`,
-      [targetId],
-    );
+      referrals: {
+        total:    Number(totalReferralsRes.rows[0].count),
+        pending:  Number(pendingReferralsRes.rows[0].count),
+        verified: Number(verifiedReferralsRes.rows[0].count),
+        rewarded: Number(rewardedReferralsRes.rows[0].count),
+      },
 
-    await pool.query(
-      `INSERT INTO admin_logs (admin_id, action, target_type, target_id, details)
-       VALUES ($1, 'unban_admin', 'admin', $2, $3)`,
-      [req.admin.id, targetId, `Reactivated admin ${targetId}`],
-    ).catch(() => {});
+      coupons: {
+        total:     Number(couponTotalRes.rows[0].count),
+        available: Number(couponAvailableRes.rows[0].count),
+        redeemed:  Number(couponRedeemedRes.rows[0].count),
+        today:     Number(couponTodayRes.rows[0].count),
+      },
 
-    return res.json({ success: true });
-
-  } catch (err) {
-    console.error("[admin unban]", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-// PATCH /api/admin/admins/:id/password
-router.patch("/admins/:id/password", verifyAdmin, requireSuperAdmin, async (req, res) => {
-  const { password } = req.body;
-
-  if (!password || password.length < 8) {
-    return res.status(400).json({ error: "Password must be at least 8 characters." });
-  }
-
-  try {
-    const hash = await bcrypt.hash(password, 12);
-
-    await pool.query(
-      `UPDATE admins
-       SET password_hash = $1, updated_at = NOW()
-       WHERE id = $2`,
-      [hash, req.params.id],
-    );
-
-    return res.json({ success: true });
+      support: {
+        tickets: {
+          total:       Number(supportTicketsTotalRes.rows[0].count),
+          open:        Number(supportTicketsOpenRes.rows[0].count),
+          in_progress: Number(supportTicketsInProgressRes.rows[0].count),
+          resolved:    Number(supportTicketsResolvedRes.rows[0].count),
+          escalated:   Number(supportTicketsEscalatedRes.rows[0].count),
+          today:       Number(supportTicketsTodayRes.rows[0].count),
+        },
+        reports_pending: Number(supportReportsPendingRes.rows[0].count),
+        disputes_open:   Number(supportDisputesOpenRes.rows[0].count),
+        appeals_open:    Number(supportAppealsOpenRes.rows[0].count),
+        avg_rating:      supportAvgRatingRes.rows[0]?.avg_rating
+                           ? Number(supportAvgRatingRes.rows[0].avg_rating)
+                           : null,
+      },
+    });
 
   } catch (err) {
-    console.error("[admin password reset]", err.message);
+    console.error("[admin stats]", err.message);
     return res.status(500).json({ error: err.message });
   }
 });
@@ -434,8 +379,7 @@ router.use("/payments",          paymentRouter);
 router.use("/orders",            orderRouter);
 router.use("/reports",           reportRouter);
 router.use("/system",            systemRouter);
-router.use("/roles",             rolesRouter);
-router.use("/permissions",       permissionsRouter);
+router.use("/admins",            adminsRouter);        // ← NEW (replaces roles + permissions)
 router.use("/plans",             promotionRouter);
 router.use("/verification",      verificationRouter);
 router.use("/vendors",           vendorVerificationRouter);
