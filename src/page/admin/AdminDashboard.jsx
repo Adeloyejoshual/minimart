@@ -49,11 +49,11 @@ const LOG_POLL_INTERVAL = 5_000;
 const createApi = (token) => {
   const h = { Authorization: `Bearer ${token}` };
   return {
-    get   : (p, base = BASE)          => axios.get   (base + p,     { headers: h }),
-    post  : (p, b = {}, base = BASE)  => axios.post  (base + p, b,  { headers: h }),
-    put   : (p, b = {}, base = BASE)  => axios.put   (base + p, b,  { headers: h }),
-    patch : (p, b = {}, base = BASE)  => axios.patch (base + p, b,  { headers: h }),
-    del   : (p, base = BASE)          => axios.delete (base + p,    { headers: h }),
+    get   : (p, base = BASE)         => axios.get   (base + p,      { headers: h }),
+    post  : (p, b = {}, base = BASE) => axios.post  (base + p, b,   { headers: h }),
+    put   : (p, b = {}, base = BASE) => axios.put   (base + p, b,   { headers: h }),
+    patch : (p, b = {}, base = BASE) => axios.patch (base + p, b,   { headers: h }),
+    del   : (p, base = BASE)         => axios.delete(base + p,      { headers: h }),
   };
 };
 
@@ -123,12 +123,26 @@ function useData(api) {
   const [subscriptionStats,        setSubscriptionStats]        = useState(null);
   const [loading,                  setLoading]                  = useState(true);
 
+  /* ── generic fetcher for object responses ─────────────── */
   const safe = useCallback(async (path, setter, base) => {
     try {
       const { data } = await api.get(path, base);
       setter(data);
     } catch (err) {
       console.warn("[admin] fetch:", path, err.message);
+    }
+  }, [api]);
+
+  /* ── list fetcher that handles both wrapped + plain arrays
+        e.g. { users: [...] } OR just [...] ─────────────── */
+  const safeList = useCallback(async (path, setter, key) => {
+    try {
+      const { data } = await api.get(path);
+      const list = Array.isArray(data) ? data : (data?.[key] ?? []);
+      setter(list);
+    } catch (err) {
+      console.warn("[admin] fetch:", path, err.message);
+      setter([]);
     }
   }, [api]);
 
@@ -220,9 +234,10 @@ function useData(api) {
     }
   }, [api]);
 
+  /* ── reload map ──────────────────────────────────────── */
   const reload = useMemo(() => ({
-    users    : () => safe("/users",            setUsers),
-    admins   : () => safe("/admins",           setAdmins),
+    users    : () => safeList("/users",  setUsers,  "users"),
+    admins   : () => safeList("/admins", setAdmins, "admins"),
     products : () => Promise.all([
       safe("/products",         setProducts),
       safe("/products/pending", setPending),
@@ -242,6 +257,7 @@ function useData(api) {
     subscriptionStats : reloadSubscriptionStats,
   }), [
     safe,
+    safeList,
     reloadPlans,
     reloadReportCount,
     reloadMarketPendingCount,
@@ -256,8 +272,8 @@ function useData(api) {
     setLoading(true);
     await Promise.all([
       safe("/stats",            setStats),
-      safe("/users",            setUsers),
-      safe("/admins",           setAdmins),
+      safeList("/users",        setUsers,  "users"),
+      safeList("/admins",       setAdmins, "admins"),
       safe("/products",         setProducts),
       safe("/products/pending", setPending),
       safe("/payments",         setPayments),
@@ -276,6 +292,7 @@ function useData(api) {
     setLoading(false);
   }, [
     safe,
+    safeList,
     reloadPlans,
     reloadReportCount,
     reloadMarketPendingCount,
@@ -386,33 +403,33 @@ function useActions(api, reload) {
     // ── Users ─────────────────────────────────────────────
     banUser: (id) => run(`bu-${id}`, async () => {
       await api.post(`/users/${id}/ban`);
-      reload.users();
+      await reload.users();
     }),
 
     unbanUser: (id) => run(`ubu-${id}`, async () => {
       await api.post(`/users/${id}/unban`);
-      reload.users();
+      await reload.users();
     }),
 
     // ── Admins ────────────────────────────────────────────
     banAdmin: (id) => run(`ba-${id}`, async () => {
       await api.post(`/admins/${id}/ban`);
-      reload.admins();
+      await reload.admins();
     }),
 
     unbanAdmin: (id) => run(`uba-${id}`, async () => {
       await api.post(`/admins/${id}/unban`);
-      reload.admins();
+      await reload.admins();
     }),
 
     editAdminRole: (id, role) => run(`er-${id}`, async () => {
       await api.patch(`/admins/${id}/role`, { role });
-      reload.admins();
+      await reload.admins();
     }),
 
     registerAdmin: (form) => run("register", async () => {
       await api.post("/admins/register", form);
-      reload.admins();
+      await reload.admins();
     }),
 
     // ── Products ──────────────────────────────────────────
@@ -429,13 +446,13 @@ function useActions(api, reload) {
     // ── Payments ──────────────────────────────────────────
     refundPayment: (id) => run(`rf-${id}`, async () => {
       await api.post(`/payments/${id}/refund`);
-      reload.payments();
+      await reload.payments();
     }),
 
     // ── Orders ────────────────────────────────────────────
     cancelOrder: (id) => run(`co-${id}`, async () => {
       await api.post(`/orders/${id}/cancel`);
-      reload.orders();
+      await reload.orders();
     }),
 
     // ── System ────────────────────────────────────────────
@@ -461,7 +478,7 @@ function useActions(api, reload) {
           features         : safeFeatures(plan.features),
         }, PAY_BASE),
       );
-      reload.plans();
+      await reload.plans();
     },
 
     togglePlan: async (plan) => {
@@ -472,14 +489,14 @@ function useActions(api, reload) {
           PAY_BASE,
         )
       );
-      reload.plans();
+      await reload.plans();
     },
 
     // ── Subscriptions ─────────────────────────────────────
     cancelSellerSubscription: async (userId) => {
       await run(`csub-${userId}`, async () => {
         await api.post(`/subscriptions/${userId}/cancel`);
-        reload.subscriptionStats();
+        await reload.subscriptionStats();
       });
     },
   };
@@ -492,7 +509,7 @@ export default function AdminDashboard() {
   const token = useMemo(() => localStorage.getItem("admin_token"), []);
   const api   = useMemo(() => createApi(token), [token]);
 
-  // ── Read currentUser saved by AdminLogin.jsx ──────────
+  /* ── Read currentUser saved by AdminLogin.jsx ───────── */
   const currentUser = useMemo(() => {
     try {
       const stored = localStorage.getItem("admin");
