@@ -3,7 +3,7 @@
 // ════════════════════════════════════════════════════════════
 
 import { useState, useCallback, useMemo } from "react";
-import { supportCss } from "./support.css";      // ✅ Import CSS as string
+import { css } from "./support.css";      // ✅ Import CSS as string
 
 import SupportOverview  from "./SupportOverview";
 import TicketList       from "./TicketList";
