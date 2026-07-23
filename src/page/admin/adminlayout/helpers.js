@@ -40,31 +40,51 @@ export const safeFeatures = (f) => {
 
 /* ── Status → pill class map ── */
 export const PILL = {
-  /* user / account */
-  active        : "pill pa",
-  verified      : "pill pa",
-  flagged       : "pill pb",
-  banned        : "pill pb",
-  suspended     : "pill pb",
-  inactive      : "pill pd",
-  /* verification */
-  pending       : "pill pp",
-  approved      : "pill pa",
-  rejected      : "pill pb",
-  reset         : "pill pd",
-  unknown       : "pill pd",
-  /* orders / payments */
-  draft         : "pill pd",
-  completed     : "pill pa",
-  failed        : "pill pb",
-  refunded      : "pill pv",
-  cancelled     : "pill pb",
-  paid          : "pill pa",
-  success       : "pill pa",
-  /* admin roles */
-  super_admin   : "pill pc",
-  moderator     : "pill pv",
-  support       : "pill pd",
+  /* ── user / account ── */
+  active            : "pill pa",
+  verified          : "pill pa",
+  flagged           : "pill pb",
+  banned            : "pill pb",
+  suspended         : "pill pb",
+  inactive          : "pill pd",
+
+  /* ── verification ── */
+  pending           : "pill pp",
+  approved          : "pill pa",
+  rejected          : "pill pb",
+  reset             : "pill pd",
+  unknown           : "pill pd",
+
+  /* ── orders / payments ── */
+  draft             : "pill pd",
+  completed         : "pill pa",
+  failed            : "pill pb",
+  refunded          : "pill pv",
+  cancelled         : "pill pb",
+  paid              : "pill pa",
+  success           : "pill pa",
+
+  /* ── admin roles — legacy ── */
+  moderator         : "pill pv",
+  support           : "pill pd",
+
+  /* ── admin roles — current ── */
+  super_admin       : "pill pc",
+  admin             : "pill pp",
+  content_moderator : "pill pv",
+  finance_admin     : "pill py",
+  support_admin     : "pill pd",
+};
+
+/* ── Friendly label for admin roles ── */
+export const ROLE_LABEL = {
+  super_admin       : "Super Admin",
+  admin             : "Admin / Manager",
+  content_moderator : "Content Moderator",
+  finance_admin     : "Finance Admin",
+  support_admin     : "Support Admin",
+  moderator         : "Moderator",
+  support           : "Support",
 };
 
 /* ── Recharts tooltip shared style ── */
@@ -80,10 +100,6 @@ export const PIE_COLORS = [
 ];
 
 /* ── Verification status helpers ── */
-
-/**
- * Returns a human-readable label for an identity / store status.
- */
 export const verificationLabel = (status) => {
   const map = {
     pending  : "Pending Review",
@@ -96,9 +112,6 @@ export const verificationLabel = (status) => {
   return map[status] ?? status ?? "—";
 };
 
-/**
- * Returns a hex colour for a verification status.
- */
 export const verificationColor = (status) => {
   const map = {
     pending  : "#d97706",
@@ -111,9 +124,6 @@ export const verificationColor = (status) => {
   return map[status] ?? "#6b7280";
 };
 
-/**
- * Returns a hex colour for a risk score (0–100).
- */
 export const riskColor = (score) => {
   if (!score || score === 0) return "#6b7280";
   if (score >= 80) return "#dc2626";
@@ -122,28 +132,18 @@ export const riskColor = (score) => {
   return "#6b7280";
 };
 
-/**
- * Returns true if a submission is overdue (pending > 24 h).
- */
 export const isOverdue = (createdAt) => {
   if (!createdAt) return false;
   return (Date.now() - new Date(createdAt).getTime()) / 3_600_000 > 24;
 };
 
-/**
- * Returns how many days overdue a pending submission is.
- * Returns null if not overdue.
- */
 export const overdueDays = (createdAt) => {
   if (!isOverdue(createdAt)) return null;
   return Math.floor(
-    (Date.now() - new Date(createdAt).getTime()) / 86_400_000
+    (Date.now() - new Date(createdAt).getTime()) / 86_400_000,
   );
 };
 
-/**
- * Safely parses risk_flags from DB — can be a JSON string or already an array.
- */
 export const safeRiskFlags = (flags) => {
   if (Array.isArray(flags)) return flags;
   if (typeof flags === "string") {
@@ -152,10 +152,6 @@ export const safeRiskFlags = (flags) => {
   return [];
 };
 
-/**
- * Extracts logo_url from a store's documents_url jsonb field.
- * documents_url is stored as a JSON object: { logo_url: "..." }
- */
 export const storeLogoUrl = (documentsUrl) => {
   if (!documentsUrl) return null;
   if (typeof documentsUrl === "object") return documentsUrl.logo_url ?? null;
@@ -166,9 +162,6 @@ export const storeLogoUrl = (documentsUrl) => {
   return null;
 };
 
-/**
- * Returns the trust score colour tier.
- */
 export const trustColor = (score) => {
   if ((score ?? 0) >= 60) return "#16a34a";
   if ((score ?? 0) >= 30) return "#d97706";
