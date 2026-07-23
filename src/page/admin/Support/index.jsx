@@ -1,11 +1,13 @@
 // ════════════════════════════════════════════════════════════
 // FILE: src/pages/admin/Support/index.jsx
 // Support admin shell — manages its own sub-page routing
-// Mount this as a single page in AdminDashboard pageMap:
-//   support: <SupportAdmin />
+//
+// Mount inside AdminDashboard pageMap as:
+//   support: <SupportAdmin api={api} confirm={confirm} onMutation={...} />
 // ════════════════════════════════════════════════════════════
 
-import { useState } from "react";
+import { useState, useCallback, useMemo } from "react";
+
 import SupportOverview  from "./SupportOverview";
 import TicketList       from "./TicketList";
 import TicketDetail     from "./TicketDetail";
@@ -16,32 +18,125 @@ import AppealList       from "./AppealList";
 import FaqManager       from "./FaqManager";
 import SupportAnalytics from "./SupportAnalytics";
 
-/* ── nav items ── */
+/* ── sub-nav items ─────────────────────────────────────── */
 const NAV = [
-  { key: "overview",  label: "Overview"   },
-  { key: "tickets",   label: "Tickets"    },
-  { key: "reports",   label: "Reports"    },
-  { key: "disputes",  label: "Disputes"   },
-  { key: "appeals",   label: "Appeals"    },
-  { key: "faq",       label: "FAQ"        },
-  { key: "analytics", label: "Analytics"  },
+  { key: "overview",  label: "Overview"  },
+  { key: "tickets",   label: "Tickets"   },
+  { key: "reports",   label: "Reports"   },
+  { key: "disputes",  label: "Disputes"  },
+  { key: "appeals",   label: "Appeals"   },
+  { key: "faq",       label: "FAQ"       },
+  { key: "analytics", label: "Analytics" },
 ];
 
-export default function SupportAdmin() {
-  const [page,      setPage]      = useState("overview");
-  const [detailId,  setDetailId]  = useState(null);
+export default function SupportAdmin({
+  api,
+  confirm,
+  currentUser,
+  onMutation,
+}) {
+  const [page,     setPage]     = useState("overview");
+  const [detailId, setDetailId] = useState(null);
 
+  /* ── helpers passed to every sub-page ───────────────── */
+  const goTo = useCallback((nextPage, id = null) => {
+    setPage(nextPage);
+    setDetailId(id);
+  }, []);
+
+  const openTicket = useCallback((id) => {
+    setDetailId(id);
+    setPage("ticket_detail");
+  }, []);
+
+  const openDispute = useCallback((id) => {
+    setDetailId(id);
+    setPage("dispute_detail");
+  }, []);
+
+  const back = useCallback((fallback = "overview") => {
+    setDetailId(null);
+    setPage(fallback);
+  }, []);
+
+  /* ── shared props for all sub-pages ─────────────────── */
+  const shared = useMemo(
+    () => ({
+      api,
+      confirm,
+      currentUser,
+      onMutation,
+      goTo,
+    }),
+    [api, confirm, currentUser, onMutation, goTo],
+  );
+
+  /* ── page map ───────────────────────────────────────── */
   const pageMap = {
-    overview:       <SupportOverview  setPage={setPage} />,
-    tickets:        <TicketList       setPage={setPage} setDetailId={setDetailId} />,
-    ticket_detail:  <TicketDetail     ticketId={detailId} setPage={setPage} />,
-    reports:        <ReportList />,
-    disputes:       <DisputeList      setPage={setPage} setDetailId={setDetailId} />,
-    dispute_detail: <DisputeDetail    disputeId={detailId} setPage={setPage} />,
-    appeals:        <AppealList />,
-    faq:            <FaqManager />,
-    analytics:      <SupportAnalytics />,
+    overview: (
+      <SupportOverview
+        {...shared}
+        setPage={setPage}
+      />
+    ),
+
+    tickets: (
+      <TicketList
+        {...shared}
+        setPage={setPage}
+        setDetailId={setDetailId}
+        openTicket={openTicket}
+      />
+    ),
+
+    ticket_detail: (
+      <TicketDetail
+        {...shared}
+        ticketId={detailId}
+        setPage={setPage}
+        back={() => back("tickets")}
+      />
+    ),
+
+    reports: (
+      <ReportList {...shared} />
+    ),
+
+    disputes: (
+      <DisputeList
+        {...shared}
+        setPage={setPage}
+        setDetailId={setDetailId}
+        openDispute={openDispute}
+      />
+    ),
+
+    dispute_detail: (
+      <DisputeDetail
+        {...shared}
+        disputeId={detailId}
+        setPage={setPage}
+        back={() => back("disputes")}
+      />
+    ),
+
+    appeals: (
+      <AppealList {...shared} />
+    ),
+
+    faq: (
+      <FaqManager {...shared} />
+    ),
+
+    analytics: (
+      <SupportAnalytics {...shared} />
+    ),
   };
+
+  /* ── highlight logic for sub-nav (detail pages
+        keep their parent tab active) ───────────────── */
+  const isActive = (key) =>
+    page === key || page === `${key}_detail`;
 
   return (
     <div className="sp-shell">
@@ -51,8 +146,12 @@ export default function SupportAdmin() {
         {NAV.map((n) => (
           <button
             key={n.key}
-            className={`sp-nav-btn${page === n.key || page === `${n.key}_detail` ? " sp-nav-active" : ""}`}
-            onClick={() => { setPage(n.key); setDetailId(null); }}
+            type="button"
+            className={`sp-nav-btn${isActive(n.key) ? " sp-nav-active" : ""}`}
+            onClick={() => {
+              setPage(n.key);
+              setDetailId(null);
+            }}
           >
             {n.label}
           </button>
@@ -61,7 +160,11 @@ export default function SupportAdmin() {
 
       {/* ── content ── */}
       <div className="sp-content">
-        {pageMap[page] ?? null}
+        {pageMap[page] ?? (
+          <div className="sp-empty">
+            Page not found — <button onClick={() => back()}>Go back</button>
+          </div>
+        )}
       </div>
     </div>
   );
