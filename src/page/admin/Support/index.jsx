@@ -1,12 +1,9 @@
 // ════════════════════════════════════════════════════════════
 // FILE: src/pages/admin/Support/index.jsx
-// Support admin shell — manages its own sub-page routing
-//
-// Mount inside AdminDashboard pageMap as:
-//   support: <SupportAdmin api={api} confirm={confirm} onMutation={...} />
 // ════════════════════════════════════════════════════════════
 
 import { useState, useCallback, useMemo } from "react";
+import { supportCss } from "./supportCss";      // ✅ Import CSS as string
 
 import SupportOverview  from "./SupportOverview";
 import TicketList       from "./TicketList";
@@ -18,7 +15,6 @@ import AppealList       from "./AppealList";
 import FaqManager       from "./FaqManager";
 import SupportAnalytics from "./SupportAnalytics";
 
-/* ── sub-nav items ─────────────────────────────────────── */
 const NAV = [
   { key: "overview",  label: "Overview"  },
   { key: "tickets",   label: "Tickets"   },
@@ -38,7 +34,6 @@ export default function SupportAdmin({
   const [page,     setPage]     = useState("overview");
   const [detailId, setDetailId] = useState(null);
 
-  /* ── helpers passed to every sub-page ───────────────── */
   const goTo = useCallback((nextPage, id = null) => {
     setPage(nextPage);
     setDetailId(id);
@@ -59,113 +54,55 @@ export default function SupportAdmin({
     setPage(fallback);
   }, []);
 
-  /* ── shared props for all sub-pages ─────────────────── */
   const shared = useMemo(
-    () => ({
-      api,
-      confirm,
-      currentUser,
-      onMutation,
-      goTo,
-    }),
+    () => ({ api, confirm, currentUser, onMutation, goTo }),
     [api, confirm, currentUser, onMutation, goTo],
   );
 
-  /* ── page map ───────────────────────────────────────── */
   const pageMap = {
-    overview: (
-      <SupportOverview
-        {...shared}
-        setPage={setPage}
-      />
-    ),
-
-    tickets: (
-      <TicketList
-        {...shared}
-        setPage={setPage}
-        setDetailId={setDetailId}
-        openTicket={openTicket}
-      />
-    ),
-
-    ticket_detail: (
-      <TicketDetail
-        {...shared}
-        ticketId={detailId}
-        setPage={setPage}
-        back={() => back("tickets")}
-      />
-    ),
-
-    reports: (
-      <ReportList {...shared} />
-    ),
-
-    disputes: (
-      <DisputeList
-        {...shared}
-        setPage={setPage}
-        setDetailId={setDetailId}
-        openDispute={openDispute}
-      />
-    ),
-
-    dispute_detail: (
-      <DisputeDetail
-        {...shared}
-        disputeId={detailId}
-        setPage={setPage}
-        back={() => back("disputes")}
-      />
-    ),
-
-    appeals: (
-      <AppealList {...shared} />
-    ),
-
-    faq: (
-      <FaqManager {...shared} />
-    ),
-
-    analytics: (
-      <SupportAnalytics {...shared} />
-    ),
+    overview:       <SupportOverview  {...shared} setPage={setPage} />,
+    tickets:        <TicketList       {...shared} setPage={setPage} setDetailId={setDetailId} openTicket={openTicket} />,
+    ticket_detail:  <TicketDetail     {...shared} ticketId={detailId} setPage={setPage} back={() => back("tickets")} />,
+    reports:        <ReportList       {...shared} />,
+    disputes:       <DisputeList      {...shared} setPage={setPage} setDetailId={setDetailId} openDispute={openDispute} />,
+    dispute_detail: <DisputeDetail    {...shared} disputeId={detailId} setPage={setPage} back={() => back("disputes")} />,
+    appeals:        <AppealList       {...shared} />,
+    faq:            <FaqManager       {...shared} />,
+    analytics:      <SupportAnalytics {...shared} />,
   };
 
-  /* ── highlight logic for sub-nav (detail pages
-        keep their parent tab active) ───────────────── */
-  const isActive = (key) =>
-    page === key || page === `${key}_detail`;
+  const isActive = (key) => page === key || page === `${key}_detail`;
 
   return (
-    <div className="sp-shell">
+    <>
+      {/* ✅ Inject CSS directly — guaranteed to load */}
+      <style>{supportCss}</style>
 
-      {/* ── sub-nav ── */}
-      <nav className="sp-nav">
-        {NAV.map((n) => (
-          <button
-            key={n.key}
-            type="button"
-            className={`sp-nav-btn${isActive(n.key) ? " sp-nav-active" : ""}`}
-            onClick={() => {
-              setPage(n.key);
-              setDetailId(null);
-            }}
-          >
-            {n.label}
-          </button>
-        ))}
-      </nav>
+      <div className="sp-shell">
+        <nav className="sp-nav">
+          {NAV.map((n) => (
+            <button
+              key={n.key}
+              type="button"
+              className={`sp-nav-btn${isActive(n.key) ? " sp-nav-active" : ""}`}
+              onClick={() => {
+                setPage(n.key);
+                setDetailId(null);
+              }}
+            >
+              {n.label}
+            </button>
+          ))}
+        </nav>
 
-      {/* ── content ── */}
-      <div className="sp-content">
-        {pageMap[page] ?? (
-          <div className="sp-empty">
-            Page not found — <button onClick={() => back()}>Go back</button>
-          </div>
-        )}
+        <div className="sp-content">
+          {pageMap[page] ?? (
+            <div className="sp-empty">
+              Page not found — <button onClick={() => back()}>Go back</button>
+            </div>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }
