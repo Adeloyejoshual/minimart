@@ -1,0 +1,377 @@
+/* ═══════════════════════════════════════════════════════════════
+   src/pages/product/components/styles/SubscriptionUpsellModal.css
+
+   Self-contained styles for the Pro subscription upsell modal.
+   Uses its own `sub-upsell-*` namespace to avoid clashing with
+   VerificationUpsellModal's `upsell-*` classes.
+
+   All icons are transparent stroke-only SVGs that inherit
+   currentColor from their parent — perfect theme support.
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Overlay ── */
+.sub-upsell-overlay {
+  position          : fixed;
+  inset             : 0;
+  z-index           : var(--z-modal, 999);
+  display           : flex;
+  align-items       : center;
+  justify-content   : center;
+  padding           : 20px;
+  backdrop-filter   : blur(10px) saturate(0.8);
+  -webkit-backdrop-filter: blur(10px) saturate(0.8);
+  background        : rgba(20, 18, 16, 0.55);
+  animation         : sub-upsell-fade-in 0.2s ease both;
+}
+
+@keyframes sub-upsell-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+/* ── Modal ── */
+.sub-upsell-modal {
+  position     : relative;
+  width        : 100%;
+  max-width    : 420px;
+  padding      : 36px 28px 28px;
+  background   :
+    linear-gradient(
+      180deg,
+      rgba(255, 92, 0, 0.03) 0%,
+      var(--wh, #FFFFFF) 60%
+    );
+  border       : 1.5px solid var(--o2, #FF8040);
+  border-radius: var(--r-xl, 24px);
+  box-shadow   :
+    0 24px 60px rgba(0, 0, 0, 0.18),
+    0 4px 16px  rgba(0, 0, 0, 0.08);
+  animation    : sub-upsell-enter 0.28s cubic-bezier(0.34, 1.3, 0.64, 1) both;
+  text-align   : center;
+}
+
+@keyframes sub-upsell-enter {
+  from { opacity: 0; transform: translateY(20px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0)    scale(1);    }
+}
+
+/* ── Close button ── */
+.sub-upsell-close {
+  position       : absolute;
+  top            : 14px;
+  right          : 14px;
+  width          : 32px;
+  height         : 32px;
+  border-radius  : 50%;
+  border         : 1.5px solid var(--bd, #EAE6E0);
+  background     : var(--wh2, #F7F4EF);
+  color          : var(--ink2, #5A5650);
+  cursor         : pointer;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  padding        : 0;
+  transition     :
+    background   0.15s ease,
+    border-color 0.15s ease,
+    color        0.15s ease,
+    transform    0.15s ease;
+}
+
+.sub-upsell-close:hover {
+  background  : var(--wh3, #EAE6E0);
+  border-color: var(--bd2, #D8D4CE);
+  color       : var(--ink, #141210);
+  transform   : scale(1.05);
+}
+
+.sub-upsell-close:active { transform: scale(0.95); }
+
+.sub-upsell-close:focus-visible {
+  outline       : 2px solid var(--o, #FF5C00);
+  outline-offset: 2px;
+}
+
+/* ── Crown icon container ── */
+.sub-upsell-icon {
+  width          : 72px;
+  height         : 72px;
+  margin         : 0 auto 20px;
+  border-radius  : 20px;
+  background     : var(--o-bg, #FFF3EE);
+  color          : var(--o, #FF5C00);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  box-shadow     :
+    0 4px 14px rgba(255, 92, 0, 0.15),
+    inset 0 -2px 4px rgba(255, 92, 0, 0.08);
+}
+
+/* ── Title ── */
+.sub-upsell-title {
+  margin         : 0 0 10px;
+  font-family    : var(--font-d, 'Fraunces', Georgia, serif);
+  font-size      : 1.2rem;
+  font-weight    : 800;
+  letter-spacing : -0.02em;
+  line-height    : 1.25;
+  color          : var(--o-deep, #CC4900); /* fallback */
+  background     :
+    linear-gradient(
+      135deg,
+      var(--o-deep, #CC4900) 0%,
+      var(--o,     #FF5C00) 100%
+    );
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* ── Subtitle ── */
+.sub-upsell-subtitle {
+  margin     : 0 0 24px;
+  font-size  : 0.9rem;
+  line-height: 1.55;
+  color      : var(--ink2, #5A5650);
+}
+
+.sub-upsell-subtitle strong {
+  color      : var(--ink, #141210);
+  font-weight: 700;
+}
+
+/* ── Benefits list ── */
+.sub-upsell-benefits {
+  list-style   : none;
+  margin       : 0 0 24px;
+  padding      : 0;
+  display      : flex;
+  flex-direction: column;
+  gap          : 12px;
+  text-align   : left;
+}
+
+.sub-upsell-benefit {
+  display    : flex;
+  align-items: center;
+  gap        : 12px;
+  font-size  : 0.88rem;
+  line-height: 1.4;
+  color      : var(--ink, #141210);
+}
+
+/* Benefit icon circle */
+.sub-upsell-benefit-icon {
+  flex-shrink    : 0;
+  width          : 32px;
+  height         : 32px;
+  border-radius  : 10px;
+  background     : var(--o-bg, #FFF3EE);
+  color          : var(--o, #FF5C00);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  transition     : all 0.2s ease;
+}
+
+.sub-upsell-benefit:hover .sub-upsell-benefit-icon {
+  background: var(--o-20, rgba(255, 92, 0, 0.20));
+  transform : scale(1.05);
+}
+
+.sub-upsell-benefit-text {
+  flex: 1;
+}
+
+/* ── CTA button ── */
+.sub-upsell-cta {
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  gap            : 8px;
+  width          : 100%;
+  padding        : 14px 24px;
+  margin-bottom  : 14px;
+  font-family    : var(--fb, 'Plus Jakarta Sans', system-ui, sans-serif);
+  font-size      : 0.95rem;
+  font-weight    : 700;
+  color          : #fff;
+  background     :
+    linear-gradient(135deg, var(--o, #FF5C00) 0%, #E85500 100%);
+  border         : none;
+  border-radius  : var(--r-sm, 8px);
+  text-decoration: none;
+  cursor         : pointer;
+  letter-spacing : 0.01em;
+  line-height    : 1;
+  box-shadow     : 0 4px 14px rgba(255, 92, 0, 0.35);
+  -webkit-tap-highlight-color: transparent;
+  transition     :
+    transform  0.15s ease,
+    box-shadow 0.2s  ease;
+}
+
+.sub-upsell-cta:hover {
+  transform : translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 92, 0, 0.45);
+}
+
+.sub-upsell-cta:active {
+  transform : translateY(0) scale(0.98);
+  box-shadow: 0 2px 8px rgba(255, 92, 0, 0.35);
+}
+
+.sub-upsell-cta:focus-visible {
+  outline       : 2px solid var(--o, #FF5C00);
+  outline-offset: 2px;
+}
+
+/* Arrow slides right on hover */
+.sub-upsell-cta svg {
+  transition: transform 0.2s ease;
+}
+
+.sub-upsell-cta:hover svg {
+  transform: translateX(4px);
+}
+
+/* ── Footer ── */
+.sub-upsell-footer {
+  margin    : 0;
+  font-size : 0.75rem;
+  color     : var(--ink3, #A8A39D);
+  text-align: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  .sub-upsell-modal {
+    background: linear-gradient(
+      180deg,
+      rgba(255, 92, 0, 0.10) 0%,
+      var(--wh, #211E1A) 60%
+    );
+    border-color: var(--o, #FF5C00);
+    box-shadow  :
+      0 24px 60px rgba(0, 0, 0, 0.5),
+      0 4px 16px  rgba(0, 0, 0, 0.3);
+  }
+
+  .sub-upsell-close {
+    background  : var(--wh2, #181512);
+    border-color: var(--bd, #2E2A26);
+    color       : var(--ink2, #B0AAA2);
+  }
+
+  .sub-upsell-close:hover {
+    background  : var(--wh3, #2A2520);
+    border-color: var(--bd2, #3A3530);
+    color       : var(--ink, #F0EDE8);
+  }
+
+  .sub-upsell-icon,
+  .sub-upsell-benefit-icon {
+    background: rgba(255, 92, 0, 0.15);
+  }
+
+  .sub-upsell-benefit:hover .sub-upsell-benefit-icon {
+    background: rgba(255, 92, 0, 0.25);
+  }
+}
+
+[data-theme="dark"] .sub-upsell-modal {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 92, 0, 0.10) 0%,
+    var(--wh, #211E1A) 60%
+  );
+  border-color: var(--o, #FF5C00);
+  box-shadow  :
+    0 24px 60px rgba(0, 0, 0, 0.5),
+    0 4px 16px  rgba(0, 0, 0, 0.3);
+}
+
+[data-theme="dark"] .sub-upsell-close {
+  background  : var(--wh2, #181512);
+  border-color: var(--bd, #2E2A26);
+  color       : var(--ink2, #B0AAA2);
+}
+
+[data-theme="dark"] .sub-upsell-close:hover {
+  background  : var(--wh3, #2A2520);
+  border-color: var(--bd2, #3A3530);
+  color       : var(--ink, #F0EDE8);
+}
+
+[data-theme="dark"] .sub-upsell-icon,
+[data-theme="dark"] .sub-upsell-benefit-icon {
+  background: rgba(255, 92, 0, 0.15);
+}
+
+[data-theme="dark"] .sub-upsell-benefit:hover .sub-upsell-benefit-icon {
+  background: rgba(255, 92, 0, 0.25);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REDUCED MOTION
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  .sub-upsell-overlay,
+  .sub-upsell-modal { animation: none; }
+
+  .sub-upsell-close,
+  .sub-upsell-cta,
+  .sub-upsell-cta svg,
+  .sub-upsell-benefit-icon {
+    transition: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SMALL SCREENS
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .sub-upsell-modal {
+    padding      : 28px 20px 22px;
+    border-radius: var(--r-lg, 16px);
+  }
+
+  .sub-upsell-icon {
+    width : 64px;
+    height: 64px;
+  }
+
+  .sub-upsell-title    { font-size: 1.1rem; }
+  .sub-upsell-subtitle { font-size: 0.85rem; }
+  .sub-upsell-benefit  { font-size: 0.85rem; }
+
+  .sub-upsell-cta {
+    padding  : 13px 20px;
+    font-size: 0.9rem;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HIGH CONTRAST / FORCED-COLORS
+═══════════════════════════════════════════════════════════════ */
+@media (forced-colors: active) {
+  .sub-upsell-modal {
+    forced-color-adjust: none;
+    border: 2px solid ButtonText;
+  }
+
+  .sub-upsell-cta {
+    forced-color-adjust: none;
+    background: ButtonText;
+    color     : ButtonFace;
+    border    : 2px solid ButtonText;
+  }
+
+  .sub-upsell-close {
+    forced-color-adjust: none;
+    border: 1.5px solid ButtonText;
+  }
+}
