@@ -42,8 +42,12 @@ const SORT_OPTIONS = [
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
-   naira, getImageUrl, formatCity, PinIcon come from MasonryCard
    ═══════════════════════════════════════════════════════════════ */
+const calcDiscount = (p) => {
+  if (!p.original_price || p.original_price <= p.price) return null;
+  return Math.round(((p.original_price - p.price) / p.original_price) * 100);
+};
+
 const timeAgo = (iso) => {
   if (!iso) return "";
   const s = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
@@ -51,11 +55,6 @@ const timeAgo = (iso) => {
   if (s < 3600) return `${Math.floor(s / 60)}m ago`;
   if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
   return `${Math.floor(s / 86400)}d ago`;
-};
-
-const calcDiscount = (p) => {
-  if (!p.original_price || p.original_price <= p.price) return null;
-  return Math.round(((p.original_price - p.price) / p.original_price) * 100);
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -76,37 +75,6 @@ function SvgFilter({ size = 16 }) {
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round">
       <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-    </svg>
-  );
-}
-
-function SvgGrid({ size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-    </svg>
-  );
-}
-
-function SvgList({ size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-      <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01" />
-    </svg>
-  );
-}
-
-function SvgMasonry({ size = 15 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor">
-      <rect x="3" y="3" width="7" height="10" rx="1.5" />
-      <rect x="14" y="3" width="7" height="6" rx="1.5" />
-      <rect x="3" y="15" width="7" height="6" rx="1.5" />
-      <rect x="14" y="11" width="7" height="10" rx="1.5" />
     </svg>
   );
 }
@@ -204,16 +172,6 @@ function SvgEye({ size = 14 }) {
   );
 }
 
-function SvgCamera({ size = 11 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-      <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
-      <circle cx="12" cy="13" r="4" />
-    </svg>
-  );
-}
-
 function SvgVerified({ size = 13 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
@@ -290,22 +248,6 @@ function SvgSparkle({ size = 14 }) {
   );
 }
 
-function SvgFlash({ size = 12 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
-    </svg>
-  );
-}
-
-function SvgFire({ size = 12 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <path d="M12 23c-4.97 0-9-3.58-9-8 0-3.07 2.31-6.64 4.5-9 .37-.4 1.02-.11 1 .44-.09 2.41 1.49 3.94 3.08 4.35C12.23 11 13 10 13 8c0-1.5-.5-3.5-2-5 3.34 1 7 5 7 10 0 5-4 8-6 8z" />
-    </svg>
-  );
-}
-
 function SvgArrowUp({ size = 12 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
@@ -363,149 +305,6 @@ const Stars = memo(function Stars({ rating, size = 11 }) {
         </span>
       ))}
     </span>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   SKELETON CARD
-   ═══════════════════════════════════════════════════════════════ */
-const SkeletonCard = memo(function SkeletonCard({ view, index }) {
-  return (
-    <div
-      className={`sp-card sp-card--sk ${view === "list" ? "sp-card--list" : "sp-card--grid"}`}
-      aria-hidden="true"
-      style={{ animationDelay: `${index * 35}ms` }}
-    >
-      <div className="sp-card__img-wrap sp-sk-pulse" />
-      <div className="sp-card__body">
-        <div className="sp-sk-line" style={{ width: "85%", height: 13 }} />
-        <div className="sp-sk-line" style={{ width: "55%", height: 17, marginTop: 6 }} />
-        <div className="sp-sk-line" style={{ width: "65%", height: 10, marginTop: 8 }} />
-      </div>
-    </div>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   PRODUCT CARD
-   ═══════════════════════════════════════════════════════════════ */
-const ProductCard = memo(function ProductCard({
-  product: p, index, view, active, onHover, onClick,
-}) {
-  const disc = calcDiscount(p);
-  const loc = formatCity(p);
-  const imgCount = p.images?.length || 0;
-  const isList = view === "list";
-
-  const badge = p.is_featured
-    ? { cls: "sp-badge--feat",  icon: <SvgSparkle size={9} />, text: "Featured" }
-    : p.is_flash
-    ? { cls: "sp-badge--flash", icon: <SvgFlash size={9} />,   text: "Flash"    }
-    : p.is_hot
-    ? { cls: "sp-badge--hot",   icon: <SvgFire size={9} />,    text: "Hot"      }
-    : p.is_trending
-    ? { cls: "sp-badge--trend", icon: <SvgTrendUp size={9} />, text: "Trending" }
-    : p.is_new
-    ? { cls: "sp-badge--new",   icon: <SvgStar size={9} />,    text: "New"      }
-    : null;
-
-  return (
-    <article
-      className={`sp-card ${isList ? "sp-card--list" : "sp-card--grid"} ${active ? "sp-card--active" : ""}`}
-      style={{ animationDelay: `${index * 40}ms` }}
-      tabIndex={0}
-      role="button"
-      aria-label={`${p.title} — ${naira(p.price)}`}
-      onMouseEnter={() => onHover(p)}
-      onFocus={() => onHover(p)}
-      onClick={() => onClick(p)}
-      onKeyDown={(e) => e.key === "Enter" && onClick(p)}
-    >
-      <div className="sp-card__img-wrap">
-        <img
-          className="sp-card__img"
-          src={getImageUrl(p)}
-          alt={p.title}
-          loading="lazy"
-          decoding="async"
-        />
-
-        {badge && (
-          <span className={`sp-badge ${badge.cls}`}>
-            {badge.icon}
-            {badge.text}
-          </span>
-        )}
-
-        {disc && disc > 0 && (
-          <span className="sp-badge sp-badge--disc">-{disc}%</span>
-        )}
-
-        {imgCount > 1 && (
-          <span className="sp-img-count">
-            <SvgCamera size={9} />
-            {imgCount}
-          </span>
-        )}
-
-        <div className="sp-card__overlay">
-          <button
-            className="sp-card__overlay-btn"
-            onClick={(e) => e.stopPropagation()}
-            aria-label="Add to wishlist"
-            type="button"
-          >
-            <SvgHeart size={15} />
-          </button>
-        </div>
-      </div>
-
-      <div className="sp-card__body">
-        <h3 className="sp-card__title">{p.title}</h3>
-
-        {isList && p.description && (
-          <p className="sp-card__desc">{p.description}</p>
-        )}
-
-        <div className="sp-card__price-row">
-          <span className="sp-card__price">{naira(p.price)}</span>
-          {p.original_price && p.original_price > p.price && (
-            <span className="sp-card__orig">{naira(p.original_price)}</span>
-          )}
-        </div>
-
-        {p.rating != null && p.rating > 0 && (
-          <div className="sp-card__rating">
-            <Stars rating={p.rating} />
-            {p.review_count != null && (
-              <span className="sp-card__reviews">({p.review_count})</span>
-            )}
-          </div>
-        )}
-
-        <div className="sp-card__foot">
-          {loc && (
-            <span className="sp-card__loc">
-              <PinIcon size={10} />
-              {loc}
-            </span>
-          )}
-          {p.created_at && (
-            <span className="sp-card__time">{timeAgo(p.created_at)}</span>
-          )}
-        </div>
-
-        {p.condition && (
-          <span
-            className={`sp-card__condition sp-cond--${p.condition
-              .toLowerCase()
-              .replace(/\s+/g, "")}`}
-          >
-            {p.condition}
-          </span>
-        )}
-      </div>
-    </article>
   );
 });
 
@@ -925,7 +724,6 @@ export default function SearchPage({ user }) {
   const [meta,            setMeta]            = useState(null);
   const [loading,         setLoading]         = useState(false);
   const [error,           setError]           = useState(null);
-  const [view,            setView]            = useState("grid");
   const [preview,         setPreview]         = useState(null);
   const [filterCollapsed, setFilterCollapsed] = useState(false);
 
@@ -1162,25 +960,6 @@ export default function SearchPage({ user }) {
             </h1>
 
             <div className="sp__controls">
-              <div className="sp__view-group" role="group" aria-label="View mode">
-                {[
-                  { v: "grid",    icon: <SvgGrid />,    label: "Grid"    },
-                  { v: "masonry", icon: <SvgMasonry />, label: "Masonry" },
-                  { v: "list",    icon: <SvgList />,    label: "List"    },
-                ].map(({ v, icon, label }) => (
-                  <button
-                    key={v}
-                    className={`sp__view-btn ${view === v ? "sp__view-btn--active" : ""}`}
-                    onClick={() => setView(v)}
-                    aria-label={label}
-                    aria-pressed={view === v}
-                    type="button"
-                  >
-                    {icon}
-                  </button>
-                ))}
-              </div>
-
               <button
                 className={`sp__toggle-panel ${filterCollapsed ? "sp__toggle-panel--collapsed" : ""}`}
                 onClick={() => setFilterCollapsed((v) => !v)}
@@ -1253,22 +1032,33 @@ export default function SearchPage({ user }) {
           )}
 
           {loading && (
-            <div className={`sp__grid sp__grid--${view}`}>
+            <div className="sp__masonry">
               {Array.from({ length: 12 }, (_, i) => (
-                <SkeletonCard key={i} view={view} index={i} />
+                <div
+                  key={i}
+                  className="sp-card sp-card--sk"
+                  aria-hidden="true"
+                  style={{ animationDelay: `${i * 35}ms` }}
+                >
+                  <div className="sp-card__img-wrap sp-sk-pulse" />
+                  <div className="sp-card__body">
+                    <div className="sp-sk-line" style={{ width: "85%", height: 13 }} />
+                    <div className="sp-sk-line" style={{ width: "55%", height: 17, marginTop: 6 }} />
+                    <div className="sp-sk-line" style={{ width: "65%", height: 10, marginTop: 8 }} />
+                  </div>
+                </div>
               ))}
             </div>
           )}
 
           {!loading && !error && products.length > 0 && (
             <>
-              <div className={`sp__grid sp__grid--${view}`}>
+              <div className="sp__masonry">
                 {products.map((p, i) => (
-                  <ProductCard
+                  <MasonryCard
                     key={p.id}
                     product={p}
                     index={i}
-                    view={view}
                     active={preview?.id === p.id}
                     onHover={setPreview}
                     onClick={handleProductClick}
