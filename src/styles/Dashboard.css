@@ -301,6 +301,149 @@
   transform: scale(1.08);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   TOAST POSITIONING — never overlap content
+═══════════════════════════════════════════════════════════════ */
+.toast-container,
+[class*="toast"] {
+  position: fixed;
+  bottom  : 80px;   /* Above FAB */
+  left    : 50%;
+  transform: translateX(-50%);
+  z-index : 1000;
+  max-width: calc(100vw - 32px);
+  pointer-events: none;
+}
+
+.toast-container > *,
+.toast {
+  pointer-events: auto;
+}
+
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .toast-container,
+  [class*="toast"] {
+    bottom: calc(80px + env(safe-area-inset-bottom));
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BUTTON SYSTEM
+═══════════════════════════════════════════════════════════════ */
+.btn {
+  display        : inline-flex;
+  align-items    : center;
+  justify-content: center;
+  gap            : 6px;
+  padding        : 10px 16px;
+  font-family    : var(--fb, system-ui, sans-serif);
+  font-size      : 13px;
+  font-weight    : 600;
+  color          : var(--ink);
+  background     : var(--wh);
+  border         : 1.5px solid var(--bd);
+  border-radius  : var(--r1, 8px);
+  cursor         : pointer;
+  outline        : none;
+  line-height    : 1;
+  text-decoration: none;
+  white-space    : nowrap;
+  transition     :
+    background   .15s ease,
+    border-color .15s ease,
+    color        .15s ease,
+    transform    .1s  ease,
+    box-shadow   .15s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--bd2);
+  box-shadow  : var(--s1);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(.98);
+}
+
+.btn:disabled {
+  opacity: .5;
+  cursor : not-allowed;
+}
+
+.btn:focus-visible {
+  outline       : 2px solid var(--o);
+  outline-offset: 2px;
+}
+
+.btn svg {
+  width      : 14px;
+  height     : 14px;
+  flex-shrink: 0;
+}
+
+/* ── Sizes ── */
+.btn--sm {
+  padding  : 8px 14px;
+  font-size: 12.5px;
+}
+
+.btn--lg {
+  padding  : 13px 22px;
+  font-size: 14px;
+}
+
+/* ── Primary ── */
+.btn--primary {
+  background  : linear-gradient(135deg, var(--o, #FF5C00) 0%, #E85500 100%);
+  color       : #fff;
+  border-color: transparent;
+  box-shadow  : 0 2px 8px rgba(255, 92, 0, .25);
+}
+
+.btn--primary:hover:not(:disabled) {
+  transform : translateY(-1px);
+  box-shadow: 0 4px 14px rgba(255, 92, 0, .35);
+}
+
+.btn--primary:active:not(:disabled) {
+  transform : translateY(0) scale(.98);
+  box-shadow: 0 2px 6px rgba(255, 92, 0, .2);
+}
+
+/* ── Ghost ── */
+.btn--ghost {
+  background  : transparent;
+  border-color: var(--bd);
+  color       : var(--ink2);
+}
+
+.btn--ghost:hover:not(:disabled) {
+  background: var(--bg);
+  color     : var(--ink);
+}
+
+/* ── Full width ── */
+.btn--full {
+  width          : 100%;
+  justify-content: center;
+}
+
+/* ── Spinner (for loading states) ── */
+.spinner {
+  display      : inline-block;
+  width        : 14px;
+  height       : 14px;
+  border       : 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation    : btn-spin .7s linear infinite;
+}
+
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ── Footer ── */
 .dashboard__footer {
   text-align: center;
