@@ -27,6 +27,7 @@ import Leaderboard        from "./SuperAdmin/Leaderboard";
 import AirtimeCoupons     from "./SuperAdmin/AirtimeCoupons";
 import CouponRedemption   from "./SuperAdmin/CouponRedemption";
 import AdminSubscriptions from "./SuperAdmin/AdminSubscriptions";
+import SupportAdmin       from "./Support";   // ✅ NEW — resolves to Support/index.jsx
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
@@ -36,7 +37,6 @@ import { safeFeatures } from "./adminlayout/helpers";
 ════════════════════════════════════════════════════════════ */
 const BASE     = `${import.meta.env.VITE_API_BASE_URL}/api/admin`;
 const PAY_BASE = `${import.meta.env.VITE_API_BASE_URL}/api/payment`;
-const SUB_BASE = `${import.meta.env.VITE_API_BASE_URL}/api/admin`;
 
 /* ════════════════════════════════════════════════════════════
    CONSTANTS
@@ -120,6 +120,7 @@ function useData(api) {
   const [vendorPendingCount,       setVendorPendingCount]       = useState(0);
   const [withdrawalPendingCount,   setWithdrawalPendingCount]   = useState(0);
   const [airtimePendingCount,      setAirtimePendingCount]      = useState(0);
+  const [supportPendingCount,      setSupportPendingCount]      = useState(0); // ✅ NEW
   const [subscriptionStats,        setSubscriptionStats]        = useState(null);
   const [loading,                  setLoading]                  = useState(true);
 
@@ -133,8 +134,7 @@ function useData(api) {
     }
   }, [api]);
 
-  /* ── list fetcher that handles both wrapped + plain arrays
-        e.g. { users: [...] } OR just [...] ─────────────── */
+  /* ── list fetcher that handles both wrapped + plain arrays ─ */
   const safeList = useCallback(async (path, setter, key) => {
     try {
       const { data } = await api.get(path);
@@ -212,9 +212,20 @@ function useData(api) {
     } catch {}
   }, [api]);
 
+  const reloadSupportCount = useCallback(async () => {
+    try {
+      const { data } = await api.get("/support/tickets/stats");
+      // Sum every "action-needed" state — adjust to match your backend
+      const open     = data?.open     ?? 0;
+      const pending  = data?.pending  ?? 0;
+      const awaiting = data?.awaiting ?? 0;
+      setSupportPendingCount(open + pending + awaiting);
+    } catch {}
+  }, [api]);
+
   const reloadSubscriptionStats = useCallback(async () => {
     try {
-      const { data } = await api.get("/subscriptions/stats", SUB_BASE);
+      const { data } = await api.get("/subscriptions/stats");
       setSubscriptionStats(data);
       setStats((prev) => ({
         ...prev,
@@ -254,6 +265,7 @@ function useData(api) {
     vendorCount       : reloadVendorCount,
     withdrawalCount   : reloadWithdrawalCount,
     airtimeCount      : reloadAirtimeCount,
+    supportCount      : reloadSupportCount,          // ✅ NEW
     subscriptionStats : reloadSubscriptionStats,
   }), [
     safe,
@@ -265,6 +277,7 @@ function useData(api) {
     reloadVendorCount,
     reloadWithdrawalCount,
     reloadAirtimeCount,
+    reloadSupportCount,                              // ✅ NEW
     reloadSubscriptionStats,
   ]);
 
@@ -287,6 +300,7 @@ function useData(api) {
       reloadVendorCount(),
       reloadWithdrawalCount(),
       reloadAirtimeCount(),
+      reloadSupportCount(),                          // ✅ NEW
       reloadSubscriptionStats(),
     ]);
     setLoading(false);
@@ -300,6 +314,7 @@ function useData(api) {
     reloadVendorCount,
     reloadWithdrawalCount,
     reloadAirtimeCount,
+    reloadSupportCount,                              // ✅ NEW
     reloadSubscriptionStats,
   ]);
 
@@ -309,6 +324,7 @@ function useData(api) {
     reportCount, marketPendingCount,
     verificationPendingCount, vendorPendingCount,
     withdrawalPendingCount, airtimePendingCount,
+    supportPendingCount,                             // ✅ NEW
     subscriptionStats, loading, loadAll, reload,
   };
 }
@@ -558,7 +574,8 @@ export default function AdminDashboard() {
     data.verificationPendingCount +
     data.vendorPendingCount       +
     data.withdrawalPendingCount   +
-    data.airtimePendingCount;
+    data.airtimePendingCount      +
+    data.supportPendingCount;   // ✅ NEW
 
   if (data.loading) {
     return (
@@ -746,6 +763,16 @@ export default function AdminDashboard() {
         confirm={confirm}
       />
     ),
+
+    // ✅ NEW — Support Center shell
+    support: (
+      <SupportAdmin
+        api={api}
+        confirm={confirm}
+        currentUser={currentUser}
+        onMutation={data.reload.supportCount}
+      />
+    ),
   };
 
   return (
@@ -763,6 +790,7 @@ export default function AdminDashboard() {
           withdrawalPendingCount={data.withdrawalPendingCount}
           airtimePendingCount={data.airtimePendingCount}
           subscriptionActiveCount={data.subscriptionStats?.active ?? 0}
+          supportPendingCount={data.supportPendingCount}   // ✅ NEW
         />
         <div className="main">
           <Topbar
