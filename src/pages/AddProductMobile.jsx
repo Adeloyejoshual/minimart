@@ -3,8 +3,17 @@
  * Route: /minimart/add
  *       /minimart/add?edit=:productId  ← EDIT MODE
  *
+ * v4 — 3-TIER SUBSCRIPTION SUPPORT
+ *   • Passes `tier`, `isSubscriber`, `lifetimeExhausted`,
+ *     `upgradeTo`, `upgradeUrl` down to ProductComponents
+ *   • Handles both "verify" and "subscribe" upsell paths:
+ *       - Unverified hits 3 lifetime  → verification upsell
+ *       - Verified   hits 500 lifetime → subscription upsell
+ *       - Subscriber never sees upsell
+ *   • Reads new backend response fields from POST /products
+ *     (upgrade_message, upgrade_to, upgrade_url, is_subscriber)
+ *
  * v3 — TermsCheckbox extracted to shared component
- *      Uses .terms-wrapper / .terms-checkbox-* CSS classes
  */
 
 import {
@@ -41,8 +50,9 @@ const REDIRECT_DELAY_MS = 1_500;
 const VERIFY_DELAY_MS   = 2_000;
 const STEP_DELAY_MS     = 400;
 
-/* Extra delay when watermark warnings are present so seller can read them */
+/* Extra delay when watermark warnings / upgrade prompts are present */
 const WM_WARN_EXTRA_DELAY_MS = 3_000;
+const UPGRADE_EXTRA_DELAY_MS = 4_000;
 
 const ALLOWED_PAYMENT_HOSTS = new Set([
   "checkout.paystack.com",
@@ -174,14 +184,13 @@ const multipartRequest = async (
     clearTimeout(tid);
   }
 
-  /* Always parse body so error responses expose reason / blocked_images */
   const data = await res.json().catch(() => ({}));
 
   if (!res.ok)
     throw new ApiError(
       data?.message ?? `Request failed (${res.status})`,
       res.status,
-      data   // full body passed through — catch blocks can read data.reason etc.
+      data
     );
 
   return data;
@@ -262,11 +271,23 @@ export default function AddProduct({ user }) {
     showSuccess: (msg) => showSuccessRef.current(msg),
   });
 
+  /* ─── Seller limits — extended with tier info ─── */
   const {
     sellerLimits, limitsLoading, fetchLimits,
     isVerifiedSeller, trialExhausted, trialRemaining,
     dailyRemaining, activeRemaining, cooldownSecs, canPost,
   } = useSellerLimits(API_BASE, isEditMode);
+
+  /* Derive tier fields — works even if useSellerLimits hasn't
+     been updated yet, by reading directly from sellerLimits.  */
+  const tier               = sellerLimits?.tier               ?? "unverified";
+  const isSubscriber       = sellerLimits?.is_subscriber      ?? false;
+  const lifetimeExhausted  = sellerLimits?.lifetime_exhausted ?? false;
+  const lifetimeRemaining  = sellerLimits?.lifetime_remaining ?? null;
+  const lifetimeUsed       = sellerLimits?.lifetime_used      ?? 0;
+  const lifetimeMax        = sellerLimits?.lifetime_max       ?? null;
+  const upgradeTo          = sellerLimits?.upgrade_to         ?? null;
+  const upgradeUrl         = sellerLimits?.upgrade_url        ?? null;
 
   /* ─── Local state ─── */
   const [categories,        setCategories]        = useState([]);
@@ -290,9 +311,12 @@ export default function AddProduct({ user }) {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [verificationData,  setVerificationData]  = useState(null);
 
+  /* ─── Subscription upsell state ─── */
+  /* Shown when a VERIFIED seller hits their 500-listing lifetime cap. */
+  const [needsSubscription, setNeedsSubscription] = useState(false);
+  const [subscriptionData,  setSubscriptionData]  = useState(null);
+
   /* ─── Watermark state ─── */
-  /* warnings : array of { imageIndex, competitor, message, isBlocked? } */
-  /* notice   : string shown below the warning list                       */
   const [watermarkWarnings, setWatermarkWarnings] = useState([]);
   const [watermarkNotice,   setWatermarkNotice]   = useState("");
 
@@ -435,7 +459,6 @@ export default function AddProduct({ user }) {
         setDetectedCoords({ latitude: p.latitude, longitude: p.longitude });
       }
 
-      /* ── Load existing images ── */
       if (p.product_images?.length > 0) {
         loadExistingImages(
           p.product_images.map((img) => ({
@@ -792,6 +815,8 @@ export default function AddProduct({ user }) {
     setAgreedToTerms(false);
     setNeedsVerification(false);
     setVerificationData(null);
+    setNeedsSubscription(false);
+    setSubscriptionData(null);
     setWatermarkWarnings([]);
     setWatermarkNotice("");
     localStorage.removeItem(STORAGE_DRAFT);
@@ -802,9 +827,10 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      POST SUCCESS HANDLER
-     Called after a successful product create + activate cycle.
-     Reads watermark_warnings from the response and adjusts the
-     redirect delay so sellers have time to read the warning.
+     v4 — Now handles 3 upsell paths:
+       1. Watermark warnings   → delay + banner
+       2. Verification needed  → /verification redirect (unverified)
+       3. Subscription pitch   → /subscribe hint (verified at 500 cap)
   ═══════════════════════════════════════════════════════════ */
   const handlePostSuccess = useCallback(
     (responseData) => {
@@ -813,15 +839,10 @@ export default function AddProduct({ user }) {
 
       const verificationNeeded = responseData?.needs_verification === true;
       const daysRemaining      = responseData?.days_remaining ?? 7;
+      const respTier           = responseData?.tier ?? tier;
+      const respIsSubscriber   = responseData?.is_subscriber ?? isSubscriber;
 
-      /* ── Watermark warnings ──────────────────────────────────
-         The listing was accepted but OCR found a competitor
-         watermark on one or more images. The backend sends:
-           watermark_warnings : [{ imageIndex, competitor, message }]
-           watermark_notice   : string
-         We show the banner and give the seller extra time before
-         redirecting so they can read the tip.
-      ─────────────────────────────────────────────────────────*/
+      /* ── Watermark warnings ── */
       const warnings = Array.isArray(responseData?.watermark_warnings)
         ? responseData.watermark_warnings
         : [];
@@ -832,8 +853,33 @@ export default function AddProduct({ user }) {
         setWatermarkNotice(notice);
       }
 
-      /* Extra delay when there are warnings so seller can read them */
-      const extraDelay = warnings.length > 0 ? WM_WARN_EXTRA_DELAY_MS : 0;
+      /* ── Subscription upsell —
+         Backend sends `upgrade_message` + `upgrade_to: "subscriber"`
+         when a VERIFIED seller has just posted their final free listing
+         (i.e. hit the 500 lifetime cap after this post). */
+      const upgradeMessage = responseData?.upgrade_message ?? null;
+      const upgradeToNext  = responseData?.upgrade_to      ?? null;
+      const upgradeUrlNext = responseData?.upgrade_url     ?? "/subscribe";
+
+      const showSubscribeUpsell =
+        upgradeToNext === "subscriber" &&
+        respTier === "verified" &&
+        !respIsSubscriber;
+
+      if (showSubscribeUpsell) {
+        setSubscriptionData({
+          message   : upgradeMessage,
+          upgradeUrl: upgradeUrlNext,
+          lifetimeUsed: responseData?.limits?.lifetime_used ?? lifetimeUsed,
+          lifetimeMax : responseData?.limits?.lifetime_max  ?? 500,
+        });
+        setNeedsSubscription(true);
+      }
+
+      /* Extra delay for upsell / warning readability */
+      const extraDelay =
+        (warnings.length > 0 ? WM_WARN_EXTRA_DELAY_MS : 0) +
+        (showSubscribeUpsell ? UPGRADE_EXTRA_DELAY_MS : 0);
 
       if (verificationNeeded) {
         setVerificationData({
@@ -850,21 +896,34 @@ export default function AddProduct({ user }) {
             : `Listing live for ${daysRemaining} days. Redirecting…`
         );
         safeRedirect("/verification", VERIFY_DELAY_MS + extraDelay);
+      } else if (showSubscribeUpsell) {
+        /* Verified seller just hit 500 — DON'T auto-redirect.
+           Let them read the upsell and decide.                */
+        showSuccess(
+          respIsSubscriber
+            ? "Product live! Redirecting…"
+            : "Product live! You've reached your 500-listing limit."
+        );
+        /* No redirect — user chooses to subscribe or stay */
       } else {
         showSuccess(
           warnings.length > 0
             ? "Product live! Review the photo tip below."
-            : "Product live! Redirecting…"
+            : respIsSubscriber
+              ? "Product live permanently!"
+              : "Product live! Redirecting…"
         );
         safeRedirect("/", REDIRECT_DELAY_MS + extraDelay);
       }
     },
-    [IDEMPOTENCY_STORE, showSuccess, safeRedirect]
+    [
+      IDEMPOTENCY_STORE, showSuccess, safeRedirect,
+      tier, isSubscriber, lifetimeUsed,
+    ]
   );
 
   /* ═══════════════════════════════════════════════════════════
      EDIT SUBMIT
-     PATCH /api/addproduct/products/:id
   ═══════════════════════════════════════════════════════════ */
   const handleEditSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
@@ -940,6 +999,7 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      CREATE SUBMIT
+     v4 — Enhanced 403 handling for both trial/lifetime blocks
   ═══════════════════════════════════════════════════════════ */
   const handleCreateSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
@@ -959,9 +1019,11 @@ export default function AddProduct({ user }) {
       return;
     }
 
-    /* Clear any stale watermark state from a previous attempt */
+    /* Clear any stale banners */
     setWatermarkWarnings([]);
     setWatermarkNotice("");
+    setNeedsSubscription(false);
+    setSubscriptionData(null);
 
     setProgressVisible(true);
     setProgressStep("compressing");
@@ -1031,7 +1093,7 @@ export default function AddProduct({ user }) {
         return;
       }
 
-      /* ── Paid plan ── */
+      /* ── Paid promotion plan ── */
       setProgressStep("payment");
       const rawPrice     = Number(finalPlan.price);
       const discount     = Number(finalPlan.discount_percent ?? 0);
@@ -1069,7 +1131,7 @@ export default function AddProduct({ user }) {
         createdAt        : Date.now(),
         needsVerification: uploadData.needs_verification ?? false,
         activeUntil      : uploadData.active_until       ?? null,
-        daysRemaining    : uploadData.days_remaining      ?? null,
+        daysRemaining    : uploadData.days_remaining     ?? null,
       };
       localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
 
@@ -1086,11 +1148,7 @@ export default function AddProduct({ user }) {
       console.error("[AddProduct] create submit:", err);
       if (mountedRef.current) setProgressVisible(false);
 
-      /* ── Watermark block — backend rejected one or more images ──
-         err.status === 400 && err.data.reason === "watermark_policy"
-         Surface the blocked image indexes in the banner so the
-         seller knows exactly which photos to replace.
-      ─────────────────────────────────────────────────────────────*/
+      /* ── Watermark block ── */
       if (
         err?.status === 400 &&
         err?.data?.reason === "watermark_policy"
@@ -1115,11 +1173,9 @@ export default function AddProduct({ user }) {
               }]
         );
         setWatermarkNotice(
-          "Please replace the flagged photo(s) with original images " +
-          "and try again."
+          "Please replace the flagged photo(s) with original images and try again."
         );
 
-        /* Scroll to the banner so seller sees it */
         requestAnimationFrame(() => {
           document
             .querySelector(".wm-banner")
@@ -1131,12 +1187,45 @@ export default function AddProduct({ user }) {
           "One or more photos were rejected. Please replace them and try again."
         );
 
+      /* ── 403 — tier limit hit BEFORE upload ──
+         The backend returns:
+           unverified at 3   → upgrade_to: "verified"
+           verified at 500   → upgrade_to: "subscriber"
+         Show the appropriate upsell.                        */
+      } else if (
+        err?.status === 403 &&
+        err?.data?.upgrade_required === true
+      ) {
+        const upTo  = err.data?.upgrade_to  ?? "verified";
+        const upUrl = err.data?.upgrade_url ?? "/verification";
+
+        if (upTo === "subscriber") {
+          /* Verified seller hit 500 — show subscribe pitch */
+          setSubscriptionData({
+            message     : err.message ?? "You've reached your 500-listing limit.",
+            upgradeUrl  : upUrl,
+            lifetimeUsed: err.data?.lifetime_used ?? lifetimeUsed,
+            lifetimeMax : err.data?.lifetime_max  ?? 500,
+          });
+          setNeedsSubscription(true);
+        } else {
+          /* Unverified seller hit trial cap — show verify pitch */
+          setVerificationData({
+            message     : err.message ?? "You've used all free trial listings.",
+            upgradeUrl  : upUrl,
+            lifetimeUsed: err.data?.lifetime_used ?? lifetimeUsed,
+            lifetimeMax : err.data?.lifetime_max  ?? 3,
+          });
+          setNeedsVerification(true);
+        }
+
+        showError(err.message ?? "Posting limit reached.");
+
       } else {
-        /* All other errors */
         showError(err.message ?? "Submission failed — please try again");
       }
 
-      /* Clean up orphaned product if upload created one before the error */
+      /* Clean up orphaned product */
       if (product?.id && !paymentInitiated) {
         const token = getToken();
         if (token) {
@@ -1159,7 +1248,7 @@ export default function AddProduct({ user }) {
     validateForm, selectedPlan, promotionPlans, plansLoading,
     buildCreateFormData, clearDraft, showError, showSuccess,
     handlePostSuccess, fetchLimits, navigate,
-    form.contact.email, IDEMPOTENCY_STORE,
+    form.contact.email, IDEMPOTENCY_STORE, lifetimeUsed,
   ]);
 
   /* Route to correct submit */
@@ -1169,7 +1258,7 @@ export default function AddProduct({ user }) {
   );
 
   /* ═══════════════════════════════════════════════════════════
-     TERMS CHECKBOX  (uses component + modern CSS)
+     TERMS CHECKBOX
   ═══════════════════════════════════════════════════════════ */
   const termsCheckboxEl = useMemo(
     () => (
@@ -1229,19 +1318,11 @@ export default function AddProduct({ user }) {
         </div>
       )}
 
-      {/* ── Watermark banner ────────────────────────────────────
-          Rendered here (above ProductComponents) so it is always
-          visible regardless of scroll position.
-
-          warn  → yellow, dismissible, listing was accepted
-          block → red, not dismissible, seller must replace photo
-      ─────────────────────────────────────────────────────────*/}
       {watermarkWarnings.length > 0 && (
         <WatermarkWarningBanner
           warnings={watermarkWarnings}
           notice={watermarkNotice}
           onDismiss={
-            /* Only show dismiss button if none of the warnings are blocks */
             watermarkWarnings.some((w) => w.isBlocked)
               ? undefined
               : dismissWatermarkWarnings
@@ -1273,12 +1354,14 @@ export default function AddProduct({ user }) {
         promotionPlans={promotionPlans}
         plansLoading={plansLoading}
         MAX_IMAGES={MAX_IMAGES}
+
         /* ─ edit mode ─ */
         isEditMode={isEditMode}
         editId={editId}
         existingImages={existingImages}
         removeExistingImage={removeExistingImage}
         totalImageCount={totalImageCount}
+
         /* ─ seller limits ─ */
         sellerLimits={sellerLimits}
         limitsLoading={limitsLoading}
@@ -1289,12 +1372,27 @@ export default function AddProduct({ user }) {
         cooldownSecs={cooldownSecs}
         trialExhausted={trialExhausted}
         trialRemaining={trialRemaining}
-        /* ─ post-creation ─ */
+
+        /* ─ 3-tier fields (v4) ─ */
+        tier={tier}
+        isSubscriber={isSubscriber}
+        lifetimeExhausted={lifetimeExhausted}
+        lifetimeRemaining={lifetimeRemaining}
+        lifetimeUsed={lifetimeUsed}
+        lifetimeMax={lifetimeMax}
+        upgradeTo={upgradeTo}
+        upgradeUrl={upgradeUrl}
+
+        /* ─ post-creation upsells ─ */
         needsVerification={needsVerification}
         verificationData={verificationData}
+        needsSubscription={needsSubscription}
+        subscriptionData={subscriptionData}
+
         /* ─ watermark ─ */
         watermarkWarnings={watermarkWarnings}
         watermarkNotice={watermarkNotice}
+
         /* ─ handlers ─ */
         updateForm={updateForm}
         updateAttribute={updateAttribute}
@@ -1313,11 +1411,13 @@ export default function AddProduct({ user }) {
         detectLocation={detectLocation}
         resumePayment={isEditMode ? null : resumePayment}
         cancelPendingPayment={isEditMode ? null : cancelPendingPayment}
+
         /* ─ formatters ─ */
         displayPrice={displayPrice}
         formatLabel={formatLabel}
         onlyNumbers={onlyNumbers}
         onlyDigits={onlyDigits}
+
         /* ─ API base ─ */
         apiBase={API_BASE}
       />
