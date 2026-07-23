@@ -3,18 +3,22 @@
  *
  * Targets CockroachDB (serverless / dedicated).
  *
- * CockroachDB-specific fixes applied vs previous version:
- *  - pg_advisory_xact_lock removed (not supported) → replaced with
- *    idempotency_key unique index which CockroachDB already has
- *  - FOR NO KEY UPDATE → FOR UPDATE (CRDB only supports FOR UPDATE)
- *  - SAVEPOINT retry replaced with application-level slug retry
- *  - FILTER (WHERE …) on COUNT() → CASE WHEN … END
- *  - PERCENTILE_CONT removed → replaced with ORDER BY / LIMIT median
- *  - unnest() in INSERT replaced with individual inserts
- *  - product_images insert wrapped in try/catch so missing table
- *    does not kill the transaction (with clear error log)
- *  - All ::int casts changed to explicit CAST(… AS INT)
- *  - NOW() + ($n || ' days')::INTERVAL → NOW() + make_interval(days=>$n)
+ * v4 — 3-TIER SYSTEM
+ * ─────────────────────────────────────────────────────────────
+ *  unverified  → 3 lifetime trial listings   (7-day expiry)
+ *  verified    → 500 lifetime listings       (30-day expiry)
+ *  subscriber  → Unlimited                   (90-day expiry)
+ *
+ * CockroachDB-specific compatibility (unchanged from v3):
+ *  - pg_advisory_xact_lock removed
+ *  - FOR NO KEY UPDATE → FOR UPDATE
+ *  - SAVEPOINT retry replaced with app-level slug retry
+ *  - FILTER (WHERE …) on COUNT() → CASE WHEN
+ *  - PERCENTILE_CONT → ORDER BY / OFFSET
+ *  - unnest() in INSERT → parallel INSERTs
+ *  - product_images insert wrapped in try/catch
+ *  - ::int casts → CAST(… AS INT)
+ *  - NOW() + interval → NOW() + make_interval(days=>$n)
  */
 
 import express      from "express";
@@ -71,8 +75,8 @@ if (process.env.SENTRY_DSN) {
    R2 CLIENT
 ═══════════════════════════════════════════════════════════════ */
 const r2 = new S3Client({
-  region   : process.env.R2_REGION ?? "auto",
-  endpoint : process.env.R2_ENDPOINT,
+  region     : process.env.R2_REGION ?? "auto",
+  endpoint   : process.env.R2_ENDPOINT,
   credentials: {
     accessKeyId    : process.env.R2_ACCESS_KEY_ID,
     secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
@@ -114,7 +118,6 @@ const destroyR2Assets = async (keys) => {
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const FREE_LISTING_DAYS   = 30;
 const ALLOWED_STATUSES    = new Set(["active", "draft", "pending_payment"]);
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const MAX_IMAGES          = 6;
@@ -133,6 +136,49 @@ const ALLOWED_WA_HOSTS = new Set([
   "chat.whatsapp.com",
   "business.whatsapp.com",
 ]);
+
+/* ═══════════════════════════════════════════════════════════════
+   POLICY TABLE — 3-TIER SYSTEM
+   ─────────────────────────────────────────────────────────────
+   Tier is determined by getSellerContext():
+     1. Active subscription  → 'subscriber'
+     2. Identity verified    → 'verified'
+     3. Neither              → 'unverified'
+═══════════════════════════════════════════════════════════════ */
+const POLICY = Object.freeze({
+  /* ─── FREE TRIAL ─── */
+  unverified: Object.freeze({
+    dailyLimit      :   3,
+    activeLimit     :   3,
+    cooldownMinutes :  10,
+    expiryDays      :   7,
+    freeListingDays :   7,
+    canReactivate   : false,
+    totalLifetimeMax:   3,        // 3 free trial listings — ever
+  }),
+
+  /* ─── FREE VERIFIED (ID confirmed) ─── */
+  verified: Object.freeze({
+    dailyLimit      :  50,
+    activeLimit     : 500,        // Also the lifetime cap
+    cooldownMinutes :   0,
+    expiryDays      :  30,
+    freeListingDays :  30,
+    canReactivate   : true,
+    totalLifetimeMax: 500,        // 500 listings — ever
+  }),
+
+  /* ─── PAID SUBSCRIBER (unlimited) ─── */
+  subscriber: Object.freeze({
+    dailyLimit      : 10_000,     // effectively unlimited
+    activeLimit     : 1_000_000,  // effectively unlimited
+    cooldownMinutes :   0,
+    expiryDays      :   0,        // never expires (see computeActiveUntil)
+    freeListingDays :  90,        // shown to user as 90-day windows
+    canReactivate   : true,
+    totalLifetimeMax: null,       // ♾ truly unlimited
+  }),
+});
 
 /* ═══════════════════════════════════════════════════════════════
    IMAGE CONFIG
@@ -313,29 +359,6 @@ const compressImage = async (buffer, mimetype) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   POLICY TABLE
-═══════════════════════════════════════════════════════════════ */
-const POLICY = Object.freeze({
-  unverified: Object.freeze({
-    dailyLimit      :   3,
-    activeLimit     :   3,
-    cooldownMinutes :  10,
-    expiryDays      :   7,
-    canReactivate   : false,
-    totalLifetimeMax:   3,
-  }),
-  verified: Object.freeze({
-    dailyLimit      : 100,
-    activeLimit     : 500,
-    cooldownMinutes :   0,
-    expiryDays      :   0,
-    freeListingDays :  30,
-    canReactivate   : true,
-    totalLifetimeMax: null,
-  }),
-});
-
-/* ═══════════════════════════════════════════════════════════════
    REDIS  (trending — non-critical)
 ═══════════════════════════════════════════════════════════════ */
 const TRENDING_KEY        = "trending:24h";
@@ -412,11 +435,11 @@ const makeLimiter = ({ windowMin, max, message }) =>
     handler        : (_req, res) => res.status(429).json({ success: false, message }),
   });
 
-const createLimiter   = makeLimiter({ windowMin: 60, max: IS_PROD ? 20  : 500, message: "Too many submissions. Please wait."        });
-const activateLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 30  : 500, message: "Too many activation requests."            });
-const readLimiter     = makeLimiter({ windowMin: 5,  max: IS_PROD ? 120 : 1_000, message: "Too many requests. Slow down."          });
-const dupLimiter      = makeLimiter({ windowMin: 5,  max: IS_PROD ? 30  : 500, message: "Too many duplicate checks."               });
-const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60  : 500, message: "Too many edit requests. Please wait."     });
+const createLimiter   = makeLimiter({ windowMin: 60, max: IS_PROD ? 20  : 500,   message: "Too many submissions. Please wait." });
+const activateLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 30  : 500,   message: "Too many activation requests." });
+const readLimiter     = makeLimiter({ windowMin: 5,  max: IS_PROD ? 120 : 1_000, message: "Too many requests. Slow down." });
+const dupLimiter      = makeLimiter({ windowMin: 5,  max: IS_PROD ? 30  : 500,   message: "Too many duplicate checks." });
+const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60  : 500,   message: "Too many edit requests. Please wait." });
 
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
@@ -481,9 +504,15 @@ const validateImageHashes = (raw) => {
     .slice(0, MAX_IMAGES);
 };
 
-const computeActiveUntil = (isVerified) => {
-  const days = isVerified ? FREE_LISTING_DAYS : POLICY.unverified.expiryDays;
-  const d    = new Date();
+/* Tier-aware expiry calculation */
+const computeActiveUntil = (tier) => {
+  const policy = POLICY[tier] ?? POLICY.unverified;
+
+  /* Subscribers get "never expires" (permanent listings) */
+  if (tier === "subscriber" && policy.expiryDays === 0) return null;
+
+  const days = policy.freeListingDays ?? policy.expiryDays;
+  const d = new Date();
   d.setUTCDate(d.getUTCDate() + days);
   return d;
 };
@@ -495,7 +524,6 @@ const daysUntilExpiry = (activeUntil) => {
 
 /* ═══════════════════════════════════════════════════════════════
    CATEGORY VALIDATION
-   CockroachDB supports standard WHERE clause — no changes needed.
 ═══════════════════════════════════════════════════════════════ */
 const validateCategory = async (db, categoryId, subcategoryId) => {
   const { rows: cat } = await db.query(
@@ -518,8 +546,6 @@ const validateCategory = async (db, categoryId, subcategoryId) => {
 
 /* ═══════════════════════════════════════════════════════════════
    SELLER STATS
-   FIX: CockroachDB does not support COUNT(*) FILTER (WHERE …).
-        Replaced with SUM(CASE WHEN … THEN 1 ELSE 0 END).
 ═══════════════════════════════════════════════════════════════ */
 const fetchSellerStats = (db, sellerId) => {
   const today    = getTodayUTC();
@@ -553,23 +579,27 @@ const fetchSellerStats = (db, sellerId) => {
   );
 };
 
-const buildContext = (isVerified, stats) => {
-  const policy = isVerified ? POLICY.verified : POLICY.unverified;
+/* ═══════════════════════════════════════════════════════════════
+   BUILD CONTEXT — works with all 3 tiers
+═══════════════════════════════════════════════════════════════ */
+const buildContext = (tier, stats, extras = {}) => {
+  const policy        = POLICY[tier] ?? POLICY.unverified;
   const todayCount    = Number(stats.today_count)    ?? 0;
   const activeCount   = Number(stats.active_count)   ?? 0;
   const lifetimeCount = Number(stats.lifetime_count) ?? 0;
   const lastSubmitAt  = stats.last_submit_at;
 
-  const trialExhausted =
-    !isVerified &&
+  /* Lifetime exhaustion (null = unlimited) */
+  const lifetimeExhausted =
     policy.totalLifetimeMax !== null &&
     lifetimeCount >= policy.totalLifetimeMax;
 
-  const trialRemaining =
-    isVerified || policy.totalLifetimeMax === null
+  const lifetimeRemaining =
+    policy.totalLifetimeMax === null
       ? null
       : Math.max(0, policy.totalLifetimeMax - lifetimeCount);
 
+  /* Cooldown between posts */
   let cooldownSecsLeft = 0;
   if (policy.cooldownMinutes > 0 && lastSubmitAt) {
     const elapsedMs  = Date.now() - new Date(lastSubmitAt).getTime();
@@ -578,70 +608,145 @@ const buildContext = (isVerified, stats) => {
   }
 
   return {
-    isVerified,
+    tier,
+    isVerified   : tier === "verified" || tier === "subscriber",
+    isSubscriber : tier === "subscriber",
     policy,
-    isFirstProduct : lifetimeCount === 0,
+    isFirstProduct: lifetimeCount === 0,
     todayCount,
     activeCount,
     lifetimeCount,
-    trialExhausted,
-    trialRemaining,
+    lifetimeExhausted,
+    lifetimeRemaining,
+
+    /* Legacy names for backward-compat with existing code */
+    trialExhausted: tier === "unverified" && lifetimeExhausted,
+    trialRemaining: tier === "unverified" ? lifetimeRemaining : null,
+
     cooldownSecsLeft,
+    subscriptionPlan     : extras.subscriptionPlan      ?? null,
+    subscriptionExpiresAt: extras.subscriptionExpiresAt ?? null,
   };
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SELLER CONTEXT
-   FIX: FOR NO KEY UPDATE → FOR UPDATE (CockroachDB only has FOR UPDATE).
-        Unified into one function with optional lock parameter.
+   SELLER CONTEXT — detects tier from users table
 ═══════════════════════════════════════════════════════════════ */
 const getSellerContext = async (db, sellerId, lock = false) => {
   const lockSql = lock ? "FOR UPDATE" : "";
+
   const { rows: users } = await db.query(
-    `SELECT identity_verified FROM public.users WHERE id = $1 ${lockSql}`,
+    `SELECT
+       identity_verified,
+       subscription_plan,
+       subscription_status,
+       subscription_expires_at
+     FROM public.users
+     WHERE id = $1
+     ${lockSql}`,
     [sellerId]
   );
+
   if (!users.length) throw new Error("Seller account not found.");
+
+  const u     = users[0];
+  const nowMs = Date.now();
+
+  /* Tier detection ─ subscriber wins, then verified, then unverified */
+  const hasActiveSubscription =
+    u.subscription_status === "active" &&
+    u.subscription_plan   &&
+    u.subscription_plan   !== "free" &&
+    u.subscription_expires_at &&
+    new Date(u.subscription_expires_at).getTime() > nowMs;
+
+  const isVerified = Boolean(u.identity_verified);
+
+  let tier;
+  if      (hasActiveSubscription) tier = "subscriber";
+  else if (isVerified)            tier = "verified";
+  else                            tier = "unverified";
+
   const { rows: stats } = await fetchSellerStats(db, sellerId);
-  return buildContext(Boolean(users[0].identity_verified), stats[0]);
+
+  return buildContext(tier, stats[0], {
+    subscriptionPlan     : u.subscription_plan,
+    subscriptionExpiresAt: u.subscription_expires_at,
+  });
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   POLICY ENFORCEMENT
+   POLICY ENFORCEMENT — tier-specific messages
 ═══════════════════════════════════════════════════════════════ */
 const enforcePolicyLimits = (ctx) => {
   const {
-    isVerified, policy, todayCount, activeCount,
-    cooldownSecsLeft, trialExhausted, lifetimeCount, trialRemaining,
+    tier, policy, todayCount, activeCount,
+    cooldownSecsLeft, lifetimeExhausted, lifetimeCount, lifetimeRemaining,
   } = ctx;
 
-  if (trialExhausted) return {
-    status : 403,
-    message: "You have used all 3 free trial listings. Verify your identity to keep posting.",
-    extra  : {
-      trial_exhausted : true,
-      lifetime_used   : lifetimeCount,
-      lifetime_max    : POLICY.unverified.totalLifetimeMax,
-      upgrade_required: true,
-    },
-  };
+  /* ── Lifetime cap ── */
+  if (lifetimeExhausted) {
+    if (tier === "unverified") return {
+      status : 403,
+      message: "You have used all 3 free trial listings. Verify your identity to keep posting.",
+      extra  : {
+        trial_exhausted   : true,
+        lifetime_exhausted: true,
+        lifetime_used     : lifetimeCount,
+        lifetime_max      : POLICY.unverified.totalLifetimeMax,
+        upgrade_required  : true,
+        upgrade_to        : "verified",
+        upgrade_url       : "/verification",
+      },
+    };
 
-  if (todayCount >= policy.dailyLimit) return {
-    status : 429,
-    message: isVerified
-      ? `Daily limit reached (${policy.dailyLimit}/day). Try tomorrow.`
-      : `You can post ${policy.dailyLimit} listings per day.`,
-    extra  : { daily_limit: policy.dailyLimit, daily_used: todayCount, trial_remaining: trialRemaining },
-  };
+    if (tier === "verified") return {
+      status : 403,
+      message: "You have reached your 500-listing limit. Subscribe to a paid plan for unlimited listings.",
+      extra  : {
+        lifetime_exhausted: true,
+        lifetime_used     : lifetimeCount,
+        lifetime_max      : POLICY.verified.totalLifetimeMax,
+        upgrade_required  : true,
+        upgrade_to        : "subscriber",
+        upgrade_url       : "/subscribe",
+      },
+    };
+  }
 
-  if (activeCount >= policy.activeLimit) return {
-    status : 429,
-    message: isVerified
-      ? `Active listing limit reached (${policy.activeLimit}).`
-      : `You can have ${policy.activeLimit} active trial listings at a time.`,
-    extra  : { active_limit: policy.activeLimit, active_count: activeCount },
-  };
+  /* ── Daily cap ── */
+  if (todayCount >= policy.dailyLimit) {
+    const suffix =
+      tier === "subscriber" ? "Try tomorrow."
+      : tier === "verified" ? "Try tomorrow or subscribe for higher limits."
+      : "Verify your identity to increase limits.";
 
+    return {
+      status : 429,
+      message: `Daily posting limit reached (${policy.dailyLimit}/day). ${suffix}`,
+      extra  : {
+        daily_limit      : policy.dailyLimit,
+        daily_used       : todayCount,
+        lifetime_remaining: lifetimeRemaining,
+        ...(tier === "verified"   && { upgrade_to: "subscriber", upgrade_url: "/subscribe" }),
+        ...(tier === "unverified" && { upgrade_to: "verified",   upgrade_url: "/verification" }),
+      },
+    };
+  }
+
+  /* ── Concurrent active cap ── */
+  if (activeCount >= policy.activeLimit) {
+    return {
+      status : 429,
+      message:
+        tier === "unverified"
+          ? `You can have ${policy.activeLimit} active trial listings at a time.`
+          : `Active listing limit reached (${policy.activeLimit}). Delete or pause some listings to add more.`,
+      extra  : { active_limit: policy.activeLimit, active_count: activeCount },
+    };
+  }
+
+  /* ── Cooldown (unverified only) ── */
   if (cooldownSecsLeft > 0) {
     const mins = Math.ceil(cooldownSecsLeft / 60);
     return {
@@ -672,10 +777,6 @@ const checkImageHashDuplicates = async (db, sellerId, hashes) => {
   return rows;
 };
 
-/*
- * FIX: CockroachDB does not support unnest() in INSERT … SELECT the same way.
- * Replace with individual INSERT statements executed in parallel.
- */
 const storeImageHashes = async (productId, hashes) => {
   if (!hashes?.length) return;
   try {
@@ -695,29 +796,28 @@ const storeImageHashes = async (productId, hashes) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   TRIAL INFO
+   TRIAL / LIFETIME INFO for response payload
 ═══════════════════════════════════════════════════════════════ */
 const buildTrialInfo = (ctx) => {
-  if (ctx.isVerified) return null;
-  const newRemaining = Math.max(0, (ctx.trialRemaining ?? 0) - 1);
+  if (ctx.tier === "subscriber") return null;
+
+  const newRemaining = Math.max(0, (ctx.lifetimeRemaining ?? 0) - 1);
+
   return {
-    trial_remaining: newRemaining,
-    lifetime_used  : ctx.lifetimeCount + 1,
-    lifetime_max   : POLICY.unverified.totalLifetimeMax,
-    trial_exhausted: newRemaining === 0,
+    tier              : ctx.tier,
+    lifetime_used     : ctx.lifetimeCount + 1,
+    lifetime_max      : ctx.policy.totalLifetimeMax,
+    lifetime_remaining: newRemaining,
+    lifetime_exhausted: newRemaining === 0,
+
+    /* Legacy compatibility with existing frontend */
+    trial_remaining   : ctx.tier === "unverified" ? newRemaining : null,
+    trial_exhausted   : ctx.tier === "unverified" && newRemaining === 0,
   };
 };
 
 /* ═══════════════════════════════════════════════════════════════
    INSERT PRODUCT
-   Extracted to a named function so the slug-collision retry path
-   is clean. No SAVEPOINT needed — just retry at the app level.
-
-   FIX: Removed pg_advisory_xact_lock — not available in CockroachDB.
-        Race condition protection is handled by:
-          1. The UNIQUE INDEX idx_products_idempotency on (seller_id, idempotency_key)
-          2. The UNIQUE INDEX unique_slug on (slug)
-          3. Application-level slug retry below
 ═══════════════════════════════════════════════════════════════ */
 const runProductInsert = async (client, p) => {
   const { rows } = await client.query(
@@ -761,12 +861,12 @@ const runProductInsert = async (client, p) => {
 /* ═══════════════════════════════════════════════════════════════
    NOTIFICATIONS  (fire-and-forget)
 ═══════════════════════════════════════════════════════════════ */
-const notifyListing = (sellerId, title, finalStatus, activeUntil, trialInfo) => {
+const notifyListing = (sellerId, title, tier, finalStatus, activeUntil, trialInfo) => {
   const needsVerification = finalStatus === "active_limited";
-  const isFreeListing     = finalStatus === "active" && activeUntil !== null;
   const days              = daysUntilExpiry(activeUntil);
 
-  if (needsVerification) {
+  /* Trial-listing warnings */
+  if (needsVerification && tier === "unverified") {
     const remaining = trialInfo?.trial_remaining ?? 0;
     createNotification({
       userId : sellerId,
@@ -776,24 +876,63 @@ const notifyListing = (sellerId, title, finalStatus, activeUntil, trialInfo) => 
         ? `"${title}" is your last free trial listing. Verify your identity to keep posting.`
         : `"${title}" is live for ${POLICY.unverified.expiryDays} days. ${remaining} trial listing(s) remaining.`,
     }).catch(() => {});
-  } else if (isFreeListing) {
+    return;
+  }
+
+  /* Verified sellers hitting 500 cap */
+  if (tier === "verified" && trialInfo?.lifetime_remaining === 0) {
+    createNotification({
+      userId : sellerId,
+      type   : "lifetime_limit_reached",
+      title  : "You've Reached 500 Listings 🚀",
+      message: `You've made great use of your free verified account. Subscribe for unlimited listings.`,
+    }).catch(() => {});
+    return;
+  }
+
+  /* Standard live-listing confirmation */
+  if (finalStatus === "active") {
+    const durationText = tier === "subscriber" && !activeUntil
+      ? "permanently"
+      : `for ${days} days`;
+
     createNotification({
       userId : sellerId,
       type   : "listing_posted",
       title  : "Listing Posted ✓",
-      message: `"${title}" is now live for ${days} days.`,
+      message: `"${title}" is now live ${durationText}.`,
     }).catch(() => {});
   }
 };
 
 /* ═══════════════════════════════════════════════════════════════
    CRON UTILITIES  (exported)
-   FIX: NOW() + ($n || ' days')::INTERVAL not reliable in CRDB.
-        Use make_interval(days => $n::INT) instead.
 ═══════════════════════════════════════════════════════════════ */
 export const reactivateLimitedListings = async (sellerId) => {
   const client = await pool.connect();
   try {
+    /* Determine which policy to apply — verified vs subscriber */
+    const { rows: userRows } = await client.query(
+      `SELECT identity_verified, subscription_plan, subscription_status,
+              subscription_expires_at
+       FROM public.users WHERE id = $1`,
+      [sellerId]
+    );
+    if (!userRows.length) return 0;
+
+    const u = userRows[0];
+    const hasActiveSub =
+      u.subscription_status === "active" &&
+      u.subscription_plan && u.subscription_plan !== "free" &&
+      u.subscription_expires_at &&
+      new Date(u.subscription_expires_at).getTime() > Date.now();
+
+    const tier = hasActiveSub ? "subscriber"
+              : u.identity_verified ? "verified"
+              : "unverified";
+
+    const days = POLICY[tier].freeListingDays ?? POLICY[tier].expiryDays;
+
     const { rows, rowCount } = await client.query(
       `UPDATE products
        SET    status       = 'active',
@@ -804,7 +943,7 @@ export const reactivateLimitedListings = async (sellerId) => {
          AND  status       = 'active_limited'
          AND  (active_until IS NULL OR active_until > NOW())
        RETURNING id, title`,
-      [sellerId, FREE_LISTING_DAYS]
+      [sellerId, days]
     );
 
     if (rowCount > 0) {
@@ -813,7 +952,7 @@ export const reactivateLimitedListings = async (sellerId) => {
         userId : sellerId,
         type   : "listings_reactivated",
         title  : "Listings Made Permanent 🎉",
-        message: `${rowCount} listing${rowCount !== 1 ? "s" : ""} upgraded to full active status for ${FREE_LISTING_DAYS} days.`,
+        message: `${rowCount} listing${rowCount !== 1 ? "s" : ""} upgraded to full active status for ${days} days.`,
       }).catch(() => {});
       if (redis) rows.forEach((r) => trackTrending(r.id).catch(() => {}));
     }
@@ -878,15 +1017,12 @@ router.get("/categories", getCategoriesHandler);
 
 /* ═══════════════════════════════════════════════════════════════
    GET /categories/:id/price-guidance
-   FIX: PERCENTILE_CONT not supported in CockroachDB.
-        Approximate median via ORDER BY / OFFSET.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/categories/:id/price-guidance", readLimiter, async (req, res) => {
   const { id } = req.params;
   if (!id) return fail(res, 400, "Category ID required.");
 
   try {
-    /* Basic stats — CRDB supports MIN/MAX/AVG/COUNT */
     const { rows: aggRows } = await pool.query(
       `SELECT
          COUNT(*)::INT  AS total,
@@ -907,7 +1043,6 @@ router.get("/categories/:id/price-guidance", readLimiter, async (req, res) => {
     if (total < 3)
       return res.json({ success: true, guidance: null, message: "Not enough listings to show price guidance." });
 
-    /* Approximate median: middle row by price */
     const { rows: medRows } = await pool.query(
       `SELECT price FROM products
        WHERE  category_id = $1
@@ -944,7 +1079,7 @@ router.get("/categories/:id/price-guidance", readLimiter, async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /seller/limits
+   GET /seller/limits — exposes full tier data
 ═══════════════════════════════════════════════════════════════ */
 router.get("/seller/limits", authenticate, readLimiter, async (req, res) => {
   const sellerId = req.user?.id;
@@ -953,22 +1088,50 @@ router.get("/seller/limits", authenticate, readLimiter, async (req, res) => {
   const client = await pool.connect();
   try {
     const ctx = await getSellerContext(client, sellerId);
+
     return res.json({
-      success         : true,
-      seller_verified : ctx.isVerified,
-      daily_limit     : ctx.policy.dailyLimit,
-      daily_used      : ctx.todayCount,
-      daily_remaining : Math.max(0, ctx.policy.dailyLimit  - ctx.todayCount),
-      active_limit    : ctx.policy.activeLimit,
-      active_count    : ctx.activeCount,
-      active_remaining: Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
-      cooldown_seconds: ctx.cooldownSecsLeft,
-      expiry_days     : ctx.isVerified ? FREE_LISTING_DAYS : ctx.policy.expiryDays,
-      can_reactivate  : ctx.policy.canReactivate,
-      trial_exhausted : ctx.trialExhausted,
-      trial_remaining : ctx.trialRemaining,
-      lifetime_used   : ctx.lifetimeCount,
-      lifetime_max    : ctx.isVerified ? null : POLICY.unverified.totalLifetimeMax,
+      success              : true,
+
+      /* Tier identification */
+      tier                 : ctx.tier,
+      seller_verified      : ctx.isVerified,
+      is_subscriber        : ctx.isSubscriber,
+      subscription_plan    : ctx.subscriptionPlan,
+      subscription_expires : ctx.subscriptionExpiresAt,
+
+      /* Daily limits */
+      daily_limit          : ctx.policy.dailyLimit,
+      daily_used           : ctx.todayCount,
+      daily_remaining      : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount),
+
+      /* Concurrent active limits */
+      active_limit         : ctx.policy.activeLimit,
+      active_count         : ctx.activeCount,
+      active_remaining     : Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
+
+      /* Cooldown & expiry */
+      cooldown_seconds     : ctx.cooldownSecsLeft,
+      expiry_days          : ctx.policy.freeListingDays ?? ctx.policy.expiryDays,
+      can_reactivate       : ctx.policy.canReactivate,
+
+      /* Lifetime info */
+      lifetime_used        : ctx.lifetimeCount,
+      lifetime_max         : ctx.policy.totalLifetimeMax,
+      lifetime_remaining   : ctx.lifetimeRemaining,
+      lifetime_exhausted   : ctx.lifetimeExhausted,
+
+      /* Legacy fields for existing frontend */
+      trial_exhausted      : ctx.trialExhausted,
+      trial_remaining      : ctx.trialRemaining,
+
+      /* Upgrade suggestions */
+      can_upgrade          : ctx.tier !== "subscriber",
+      upgrade_to           : ctx.tier === "unverified" ? "verified"
+                           : ctx.tier === "verified"   ? "subscriber"
+                           : null,
+      upgrade_url          : ctx.tier === "unverified" ? "/verification"
+                           : ctx.tier === "verified"   ? "/subscribe"
+                           : null,
     });
   } catch (err) {
     console.error("[addproduct] LIMITS:", err.message);
@@ -1242,25 +1405,15 @@ router.post(
     try {
       await client.query("BEGIN");
 
-      /*
-       * FIX: pg_advisory_xact_lock does not exist in CockroachDB.
-       * Race-condition protection is provided by:
-       *   - UNIQUE INDEX idx_products_idempotency (seller_id, idempotency_key)
-       *   - UNIQUE INDEX unique_slug (slug)
-       *   - Application-level slug retry below
-       * The policy limits are re-checked inside the transaction which
-       * is serializable by default in CockroachDB.
-       */
-
       const ctx = await getSellerContext(client, sellerId, true);
 
       console.log("[addproduct] seller context:", {
-        isVerified    : ctx.isVerified,
-        todayCount    : ctx.todayCount,
-        activeCount   : ctx.activeCount,
-        lifetimeCount : ctx.lifetimeCount,
-        trialExhausted: ctx.trialExhausted,
-        trialRemaining: ctx.trialRemaining,
+        tier             : ctx.tier,
+        todayCount       : ctx.todayCount,
+        activeCount      : ctx.activeCount,
+        lifetimeCount    : ctx.lifetimeCount,
+        lifetimeExhausted: ctx.lifetimeExhausted,
+        lifetimeRemaining: ctx.lifetimeRemaining,
       });
 
       const catCheck = await validateCategory(client, categoryId, subcategoryId);
@@ -1279,15 +1432,17 @@ router.post(
         }
       }
 
-      /* Final status + expiry */
+      /* Final status + expiry based on tier */
       let finalStatus = requestedStatus;
       let finalActive = requestedStatus === "active";
       let activeUntil = null;
 
       if (requestedStatus === "active") {
-        finalStatus = ctx.isVerified ? "active" : "active_limited";
+        /* Only unverified users get 'active_limited' status.
+           Verified and subscribers both get full 'active'.       */
+        finalStatus = ctx.tier === "unverified" ? "active_limited" : "active";
         finalActive = true;
-        activeUntil = computeActiveUntil(ctx.isVerified);
+        activeUntil = computeActiveUntil(ctx.tier);
       }
 
       /* Slug with application-level retry on collision */
@@ -1307,14 +1462,10 @@ router.post(
 
       let product;
 
-      /* First attempt */
+      /* First insert attempt */
       try {
         product = await runProductInsert(client, { ...insertParams, slug: firstSlug });
       } catch (firstErr) {
-        /*
-         * CockroachDB unique violation code is "23505" — same as PostgreSQL.
-         * Constraint name for slug is "unique_slug" per schema above.
-         */
         const isSlugCollision =
           firstErr.code === "23505" &&
           (firstErr.constraint?.includes("slug") || firstErr.detail?.includes("slug"));
@@ -1324,7 +1475,6 @@ router.post(
           (firstErr.constraint?.includes("idempotency") || firstErr.detail?.includes("idempotency"));
 
         if (isIdempotencyCollision) {
-          /* Another request with same idempotency key just committed — fetch it */
           await client.query("ROLLBACK");
           const { rows: existing } = await pool.query(
             `SELECT * FROM products
@@ -1339,12 +1489,9 @@ router.post(
 
         if (isSlugCollision) {
           console.warn("[addproduct] slug collision — retrying with new UUID");
-          /* CockroachDB aborts the transaction on any error.
-             We must ROLLBACK and START a new transaction.        */
           await client.query("ROLLBACK");
           await client.query("BEGIN");
 
-          /* Re-fetch context in the new transaction */
           const ctx2 = await getSellerContext(client, sellerId, true);
 
           const retrySlug = `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`;
@@ -1362,7 +1509,6 @@ router.post(
             return fail(res, 500, IS_PROD ? "Failed to create product. Please try again." : retryErr.message);
           }
         } else {
-          /* Unknown error — abort */
           await client.query("ROLLBACK");
           await destroyR2Assets(r2Keys);
           throw firstErr;
@@ -1375,8 +1521,7 @@ router.post(
         return fail(res, 500, "Failed to create product record. Please try again.");
       }
 
-      /* Insert product_images — wrapped so a missing table gives a clear log
-         instead of killing the transaction silently                          */
+      /* Insert product_images */
       try {
         await Promise.all(
           uploaded.map((img) =>
@@ -1394,11 +1539,8 @@ router.post(
           "[addproduct] product_images insert failed:",
           imgInsertErr.message,
           "\nCode:", imgInsertErr.code,
-          "\nDetail:", imgInsertErr.detail,
-          "\nHint: Does the product_images table exist?"
+          "\nDetail:", imgInsertErr.detail
         );
-        /* Non-fatal for the product itself — images are stored in the
-           images JSONB column below. Log the error so it is visible.  */
       }
 
       /* Update images JSONB column */
@@ -1414,11 +1556,14 @@ router.post(
       await client.query("COMMIT");
       console.log(
         `[addproduct] ✓ created  id:${product.id}`,
+        ` tier:${ctx.tier}`,
         ` status:${finalStatus}`,
         ` expires:${activeUntil?.toISOString() ?? "never"}`
       );
 
       /* ── Post-commit side effects ── */
+      const trialInfo = buildTrialInfo(ctx);
+
       setImmediate(() => {
         if (imageHashes.length) storeImageHashes(product.id, imageHashes).catch(() => {});
 
@@ -1429,8 +1574,10 @@ router.post(
           targetId  : product.id,
           metadata  : {
             title, status: finalStatus,
+            tier          : ctx.tier,
             active_until  : activeUntil,
             is_verified   : ctx.isVerified,
+            is_subscriber : ctx.isSubscriber,
             lifetime_count: ctx.lifetimeCount + 1,
           },
           ipAddress: ip,
@@ -1442,11 +1589,10 @@ router.post(
 
         trackTrending(product.id).catch(() => {});
 
-        notifyListing(sellerId, title, finalStatus, activeUntil, buildTrialInfo(ctx));
+        notifyListing(sellerId, title, ctx.tier, finalStatus, activeUntil, trialInfo);
       });
 
       /* ── Response ── */
-      const trialInfo         = buildTrialInfo(ctx);
       const expiryDays        = daysUntilExpiry(activeUntil);
       const needsVerification = finalStatus === "active_limited";
       const hasWmWarnings     =
@@ -1455,28 +1601,41 @@ router.post(
       return res.status(201).json({
         success           : true,
         product,
+        tier              : ctx.tier,
         first_product     : ctx.isFirstProduct,
         needs_verification: needsVerification,
         active_until      : activeUntil ?? null,
         days_remaining    : expiryDays,
         seller_verified   : ctx.isVerified,
+        is_subscriber     : ctx.isSubscriber,
         trial             : trialInfo,
         limits: {
-          daily_limit : ctx.policy.dailyLimit,
-          daily_used  : ctx.todayCount + 1,
-          daily_left  : Math.max(0, ctx.policy.dailyLimit  - ctx.todayCount - 1),
-          active_limit: ctx.policy.activeLimit,
-          active_count: ctx.activeCount + 1,
+          daily_limit      : ctx.policy.dailyLimit,
+          daily_used       : ctx.todayCount + 1,
+          daily_left       : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount - 1),
+          active_limit     : ctx.policy.activeLimit,
+          active_count     : ctx.activeCount + 1,
+          lifetime_used    : ctx.lifetimeCount + 1,
+          lifetime_max     : ctx.policy.totalLifetimeMax,
+          lifetime_remaining: trialInfo?.lifetime_remaining ?? null,
         },
         ...(activeUntil && {
           expiry_message: needsVerification
             ? `Your listing is live for ${expiryDays} days (trial). Verify to post permanently.`
             : `Your listing is live for ${expiryDays} days.`,
         }),
+        ...(!activeUntil && ctx.isSubscriber && {
+          expiry_message: "Your listing is live permanently.",
+        }),
         ...(needsVerification && {
           verification_message: trialInfo?.trial_exhausted
             ? "You have used all free trial listings. Verify to keep posting."
             : `${trialInfo?.trial_remaining ?? 0} free trial listing(s) remaining.`,
+        }),
+        ...(ctx.tier === "verified" && trialInfo?.lifetime_remaining === 0 && {
+          upgrade_message: "You've reached your 500-listing limit. Subscribe for unlimited listings.",
+          upgrade_to     : "subscriber",
+          upgrade_url    : "/subscribe",
         }),
         ...(hasWmWarnings && {
           watermark_warnings: wmAnalysis.warnings,
@@ -1829,31 +1988,27 @@ router.post(
         });
       }
 
-      /* FIX: FOR NO KEY UPDATE → FOR UPDATE */
-      const { rows: userRows } = await client.query(
-        "SELECT identity_verified FROM public.users WHERE id = $1 FOR UPDATE",
-        [sellerId]
-      );
-      const isVerified = Boolean(userRows[0]?.identity_verified);
+      const ctx = await getSellerContext(client, sellerId, true);
 
-      if (product.status === "paused" && !isVerified && !POLICY.unverified.canReactivate) {
+      /* Paused listings can only be reactivated per tier policy */
+      if (product.status === "paused" && !ctx.policy.canReactivate) {
         await client.query("ROLLBACK");
         return fail(
           res, 403,
           "Expired listings cannot be reactivated until you verify your identity.",
-          { upgrade_required: true }
+          { upgrade_required: true, upgrade_to: "verified", upgrade_url: "/verification" }
         );
       }
 
-      const ctx       = await getSellerContext(client, sellerId, true);
       const policyErr = enforcePolicyLimits({ ...ctx, cooldownSecsLeft: 0 });
       if (policyErr) {
         await client.query("ROLLBACK");
         return fail(res, policyErr.status, policyErr.message, policyErr.extra ?? {});
       }
 
-      const finalStatus = isVerified ? "active" : "active_limited";
-      const activeUntil = computeActiveUntil(isVerified);
+      /* Only unverified sellers get 'active_limited'. Everyone else = full 'active' */
+      const finalStatus = ctx.tier === "unverified" ? "active_limited" : "active";
+      const activeUntil = computeActiveUntil(ctx.tier);
 
       const { rows: updatedRows } = await client.query(
         `UPDATE products
@@ -1877,24 +2032,33 @@ router.post(
           action    : "product_activated",
           targetType: "product",
           targetId  : productId,
-          metadata  : { status: finalStatus, active_until: activeUntil },
-          ipAddress : ip,
+          metadata  : {
+            status      : finalStatus,
+            active_until: activeUntil,
+            tier        : ctx.tier,
+          },
+          ipAddress: ip,
         }).catch(() => {});
         trackTrending(productId).catch(() => {});
       });
 
-      console.log(`[addproduct] ✓ activated  status:${finalStatus}  expires:${activeUntil.toISOString()}`);
+      console.log(`[addproduct] ✓ activated  status:${finalStatus}  tier:${ctx.tier}  expires:${activeUntil?.toISOString() ?? "never"}`);
 
       return res.json({
         success           : true,
         product           : updatedRows[0],
+        tier              : ctx.tier,
         needs_verification: needsVerification,
         active_until      : activeUntil,
         days_remaining    : expiryDays,
-        seller_verified   : isVerified,
-        expiry_message    : needsVerification
-          ? `Your listing is live for ${expiryDays} days (trial). Verify to post permanently.`
-          : `Your listing is live for ${expiryDays} days.`,
+        seller_verified   : ctx.isVerified,
+        is_subscriber     : ctx.isSubscriber,
+        expiry_message    :
+          !activeUntil && ctx.isSubscriber
+            ? "Your listing is live permanently."
+            : needsVerification
+              ? `Your listing is live for ${expiryDays} days (trial). Verify to post permanently.`
+              : `Your listing is live for ${expiryDays} days.`,
         ...(needsVerification && {
           verification_message: "Verify your identity to make this listing permanent.",
         }),
@@ -1913,7 +2077,6 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE /products/:id  — Soft delete
-   FIX: NOW() + ($n || ' days')::INTERVAL → make_interval(days=>$n::INT)
 ═══════════════════════════════════════════════════════════════ */
 router.delete("/products/:id", authenticate, async (req, res) => {
   const sellerId  = req.user?.id;
