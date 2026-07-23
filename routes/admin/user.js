@@ -3,15 +3,15 @@
 // Base: /api/admin/admins
 // ════════════════════════════════════════════════════════════
 
-import express        from "express";
-import bcrypt         from "bcrypt";
-import { pool }       from "../../config/db.js";
+import express         from "express";
+import bcrypt          from "bcrypt";
+import { pool }        from "../../config/db.js";
 import { verifyAdmin } from "./middleware.js";
 
 const router = express.Router();
 router.use(verifyAdmin);
 
-/* ─── helpers ────────────────────────────────────────────────────────────── */
+/* ─── allowed role names (must match admin_roles.role_name) ─── */
 const ALLOWED_ROLES = [
   "admin",
   "content_moderator",
@@ -20,9 +20,9 @@ const ALLOWED_ROLES = [
   "super_admin",
 ];
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // GET /api/admin/admins
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   const client = await pool.connect();
   try {
@@ -31,13 +31,15 @@ router.get("/", async (req, res) => {
          a.id,
          a.name,
          a.email,
-         a.role,
          a.status,
          a.created_at,
          a.last_login,
-         creator.name AS created_by
-       FROM admin_accounts a
-       LEFT JOIN admin_accounts creator ON creator.id = a.created_by_id
+         a.banned_at,
+         r.role_name  AS role,
+         c.name       AS created_by
+       FROM admins a
+       LEFT JOIN admin_roles r  ON r.id = a.role_id
+       LEFT JOIN admins      c  ON c.id = a.created_by
        ORDER BY a.created_at DESC`,
     );
     res.json(rows);
@@ -49,16 +51,16 @@ router.get("/", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // POST /api/admin/admins/register
 // Body: { name, email, password, role }
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 router.post("/register", async (req, res) => {
   const client = await pool.connect();
   try {
     const { name, email, password, role } = req.body;
 
-    // Validate
+    // Validate fields
     if (!name || !email || !password || !role) {
       return res.status(400).json({ error: "All fields are required." });
     }
@@ -66,28 +68,46 @@ router.post("/register", async (req, res) => {
       return res.status(400).json({ error: "Invalid role." });
     }
 
-    // Only a super_admin can create another super_admin
+    // Only super_admin can create another super_admin
     if (role === "super_admin" && req.admin.role !== "super_admin") {
       return res.status(403).json({ error: "Only a Super Admin can create another Super Admin." });
     }
 
     // Check duplicate email
     const { rows: existing } = await client.query(
-      `SELECT id FROM admin_accounts WHERE email = $1`,
+      `SELECT id FROM admins WHERE email = $1`,
       [email.toLowerCase().trim()],
     );
     if (existing.length) {
       return res.status(409).json({ error: "An admin with this email already exists." });
     }
 
+    // Look up the role_id from admin_roles
+    const { rows: roleRows } = await client.query(
+      `SELECT id FROM admin_roles WHERE role_name = $1`,
+      [role],
+    );
+    if (!roleRows.length) {
+      return res.status(400).json({ error: `Role "${role}" not found in admin_roles table.` });
+    }
+    const roleId = roleRows[0].id;
+
+    // Hash password
     const hash = await bcrypt.hash(password, 12);
 
+    // Insert new admin
     const { rows } = await client.query(
-      `INSERT INTO admin_accounts
-         (name, email, password_hash, role, status, created_by_id, created_at)
-       VALUES ($1, $2, $3, $4, 'active', $5, NOW())
-       RETURNING id, name, email, role, status, created_at`,
-      [name.trim(), email.toLowerCase().trim(), hash, role, req.admin.id],
+      `INSERT INTO admins
+         (name, email, password_hash, role_id, status, created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, 'active', $5, NOW(), NOW())
+       RETURNING id, name, email, status, created_at`,
+      [
+        name.trim(),
+        email.toLowerCase().trim(),
+        hash,
+        roleId,
+        req.admin.id,
+      ],
     );
 
     // Log it
@@ -106,14 +126,14 @@ router.post("/register", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // PATCH /api/admin/admins/:id/role
 // Body: { role }
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 router.patch("/:id/role", async (req, res) => {
   const client = await pool.connect();
   try {
-    const { role } = req.body;
+    const { role }  = req.body;
     const targetId  = req.params.id;
 
     if (!ALLOWED_ROLES.includes(role)) {
@@ -130,12 +150,23 @@ router.patch("/:id/role", async (req, res) => {
       return res.status(400).json({ error: "You cannot edit your own role." });
     }
 
+    // Look up role_id
+    const { rows: roleRows } = await client.query(
+      `SELECT id FROM admin_roles WHERE role_name = $1`,
+      [role],
+    );
+    if (!roleRows.length) {
+      return res.status(400).json({ error: `Role "${role}" not found in admin_roles table.` });
+    }
+    const roleId = roleRows[0].id;
+
+    // Update
     const { rows } = await client.query(
-      `UPDATE admin_accounts
-       SET role = $1, updated_at = NOW()
+      `UPDATE admins
+       SET role_id = $1, updated_at = NOW()
        WHERE id = $2
-       RETURNING id, name, email, role, status`,
-      [role, targetId],
+       RETURNING id, name, email, status`,
+      [roleId, targetId],
     );
 
     if (!rows.length) {
@@ -158,9 +189,9 @@ router.patch("/:id/role", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // POST /api/admin/admins/:id/ban
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 router.post("/:id/ban", async (req, res) => {
   const client = await pool.connect();
   try {
@@ -173,22 +204,28 @@ router.post("/:id/ban", async (req, res) => {
 
     // Prevent removing the last super_admin
     const { rows: superAdmins } = await client.query(
-      `SELECT id FROM admin_accounts
-       WHERE role = 'super_admin' AND status = 'active'`,
+      `SELECT a.id
+       FROM admins a
+       JOIN admin_roles r ON r.id = a.role_id
+       WHERE r.role_name = 'super_admin'
+       AND a.status = 'active'`,
     );
-    const target = await client.query(
-      `SELECT role FROM admin_accounts WHERE id = $1`,
+    const { rows: target } = await client.query(
+      `SELECT r.role_name
+       FROM admins a
+       JOIN admin_roles r ON r.id = a.role_id
+       WHERE a.id = $1`,
       [targetId],
     );
     if (
-      target.rows[0]?.role === "super_admin" &&
+      target[0]?.role_name === "super_admin" &&
       superAdmins.length === 1
     ) {
       return res.status(400).json({ error: "Cannot deactivate the last Super Admin." });
     }
 
     await client.query(
-      `UPDATE admin_accounts
+      `UPDATE admins
        SET status = 'banned', banned_at = NOW(), updated_at = NOW()
        WHERE id = $1`,
       [targetId],
@@ -209,16 +246,16 @@ router.post("/:id/ban", async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 // POST /api/admin/admins/:id/unban
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
 router.post("/:id/unban", async (req, res) => {
   const client = await pool.connect();
   try {
     const targetId = req.params.id;
 
     await client.query(
-      `UPDATE admin_accounts
+      `UPDATE admins
        SET status = 'active', banned_at = NULL, updated_at = NOW()
        WHERE id = $1`,
       [targetId],
