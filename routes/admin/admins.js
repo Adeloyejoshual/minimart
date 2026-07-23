@@ -13,7 +13,7 @@ import {
 
 const router = express.Router();
 
-/* ─── allowed roles ──────────────────────────────────────── */
+/* ─── allowed roles ─── */
 const ALLOWED_ROLES = [
   "admin",
   "content_moderator",
@@ -23,73 +23,84 @@ const ALLOWED_ROLES = [
 ];
 
 // ─────────────────────────────────────────────────────────────
+// LOG EVERY REQUEST hitting this router
+// ─────────────────────────────────────────────────────────────
+router.use((req, res, next) => {
+  console.log(`\n📥 [admins router] ${req.method} ${req.originalUrl}`);
+  console.log(`   Headers.auth: ${req.headers.authorization ? "yes" : "NO"}`);
+  console.log(`   Body:`, req.body);
+  next();
+});
+
+// ─────────────────────────────────────────────────────────────
 // GET /api/admin/admins
-// Any admin can view the list
 // ─────────────────────────────────────────────────────────────
 router.get("/", verifyAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT
-         a.id,
-         a.name,
-         a.email,
-         a.role,
-         a.status,
-         a.created_at,
-         a.last_login,
-         a.banned_at,
+         a.id, a.name, a.email, a.role, a.status,
+         a.created_at, a.last_login, a.banned_at,
          c.name AS created_by
        FROM admins a
        LEFT JOIN admins c ON c.id = a.created_by
        ORDER BY a.created_at DESC`,
     );
+    console.log(`   ✅ Returning ${rows.length} admins`);
     res.json(rows);
   } catch (err) {
-    console.error("[GET /admin/admins]", err.message);
+    console.error(`   ❌ [GET /admin/admins]`, err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/admin/admins/register
-// Body: { name, email, password, role }
 // ─────────────────────────────────────────────────────────────
 router.post(
   "/register",
   verifyAdmin,
   requireSuperAdmin,
   async (req, res) => {
+    console.log(`   👤 Requester: ${req.admin?.email} (${req.admin?.role})`);
+
     try {
       const { name, email, password, role } = req.body;
 
       // ── Validate ─────────────────────────────────────────
       if (!name?.trim() || !email?.trim() || !password) {
+        console.log(`   ❌ Missing required fields`);
         return res.status(400).json({
           error: "Name, email and password are required.",
         });
       }
       if (password.length < 8) {
+        console.log(`   ❌ Password too short`);
         return res.status(400).json({
           error: "Password must be at least 8 characters.",
         });
       }
       if (!ALLOWED_ROLES.includes(role)) {
-        return res.status(400).json({ error: "Invalid role." });
+        console.log(`   ❌ Invalid role: "${role}"`);
+        console.log(`   ℹ️  Allowed: ${ALLOWED_ROLES.join(", ")}`);
+        return res.status(400).json({
+          error: `Invalid role "${role}". Allowed: ${ALLOWED_ROLES.join(", ")}`,
+        });
       }
-
-      // Only super_admin can create another super_admin
       if (role === "super_admin" && req.admin.role !== "super_admin") {
+        console.log(`   ❌ Non super_admin trying to create super_admin`);
         return res.status(403).json({
           error: "Only a Super Admin can create another Super Admin.",
         });
       }
 
-      // ── Duplicate email check ────────────────────────────
+      // ── Duplicate check ──────────────────────────────────
       const { rows: existing } = await pool.query(
         `SELECT id FROM admins WHERE email = $1`,
         [email.toLowerCase().trim()],
       );
       if (existing.length) {
+        console.log(`   ❌ Email exists: ${email}`);
         return res.status(409).json({
           error: "An admin with this email already exists.",
         });
@@ -97,6 +108,7 @@ router.post(
 
       // ── Hash + insert ────────────────────────────────────
       const hash = await bcrypt.hash(password, 12);
+      console.log(`   🔐 Password hashed`);
 
       const { rows } = await pool.query(
         `INSERT INTO admins
@@ -113,6 +125,8 @@ router.post(
         ],
       );
 
+      console.log(`   ✅ Admin created: ${rows[0].id} — ${rows[0].email}`);
+
       // ── Log ──────────────────────────────────────────────
       await pool.query(
         `INSERT INTO admin_logs
@@ -123,31 +137,37 @@ router.post(
           rows[0].id,
           `Created admin "${name.trim()}" with role "${role}"`,
         ],
-      ).catch(() => {});
+      ).catch((e) => console.warn(`   ⚠️  Log insert failed: ${e.message}`));
 
       res.status(201).json(rows[0]);
     } catch (err) {
-      console.error("[POST /admin/admins/register]", err.message);
-      res.status(500).json({ error: err.message });
+      console.error(`   ❌ [POST /admin/admins/register]`, err);
+      res.status(500).json({
+        error: err.message,
+        code: err.code,
+        detail: err.detail,
+      });
     }
   },
 );
 
 // ─────────────────────────────────────────────────────────────
 // PATCH /api/admin/admins/:id/role
-// Body: { role }
 // ─────────────────────────────────────────────────────────────
 router.patch(
   "/:id/role",
   verifyAdmin,
   requireSuperAdmin,
   async (req, res) => {
+    console.log(`   👤 Requester: ${req.admin?.email} (${req.admin?.role})`);
     try {
       const { role } = req.body;
       const targetId = req.params.id;
 
       if (!ALLOWED_ROLES.includes(role)) {
-        return res.status(400).json({ error: "Invalid role." });
+        return res.status(400).json({
+          error: `Invalid role "${role}". Allowed: ${ALLOWED_ROLES.join(", ")}`,
+        });
       }
       if (role === "super_admin" && req.admin.role !== "super_admin") {
         return res.status(403).json({
@@ -172,6 +192,8 @@ router.patch(
         return res.status(404).json({ error: "Admin not found." });
       }
 
+      console.log(`   ✅ Role updated: ${targetId} → ${role}`);
+
       await pool.query(
         `INSERT INTO admin_logs
            (admin_id, action, target_type, target_id, details)
@@ -185,7 +207,7 @@ router.patch(
 
       res.json(rows[0]);
     } catch (err) {
-      console.error("[PATCH /admin/admins/:id/role]", err.message);
+      console.error(`   ❌ [PATCH /admin/admins/:id/role]`, err);
       res.status(500).json({ error: err.message });
     }
   },
@@ -199,6 +221,7 @@ router.post(
   verifyAdmin,
   requireSuperAdmin,
   async (req, res) => {
+    console.log(`   👤 Requester: ${req.admin?.email} (${req.admin?.role})`);
     try {
       const targetId = req.params.id;
 
@@ -208,7 +231,6 @@ router.post(
         });
       }
 
-      // Fetch target admin
       const { rows: target } = await pool.query(
         `SELECT role, status FROM admins WHERE id = $1`,
         [targetId],
@@ -217,7 +239,6 @@ router.post(
         return res.status(404).json({ error: "Admin not found." });
       }
 
-      // Prevent removing the last super_admin
       if (target[0].role === "super_admin") {
         const { rows: supers } = await pool.query(
           `SELECT id FROM admins
@@ -238,12 +259,12 @@ router.post(
 
       await pool.query(
         `UPDATE admins
-         SET status = 'banned',
-             banned_at = NOW(),
-             updated_at = NOW()
+         SET status = 'banned', banned_at = NOW(), updated_at = NOW()
          WHERE id = $1`,
         [targetId],
       );
+
+      console.log(`   ✅ Deactivated: ${targetId}`);
 
       await pool.query(
         `INSERT INTO admin_logs
@@ -254,7 +275,7 @@ router.post(
 
       res.json({ success: true });
     } catch (err) {
-      console.error("[POST /admin/admins/:id/ban]", err.message);
+      console.error(`   ❌ [POST /admin/admins/:id/ban]`, err);
       res.status(500).json({ error: err.message });
     }
   },
@@ -268,6 +289,7 @@ router.post(
   verifyAdmin,
   requireSuperAdmin,
   async (req, res) => {
+    console.log(`   👤 Requester: ${req.admin?.email} (${req.admin?.role})`);
     try {
       const targetId = req.params.id;
 
@@ -286,12 +308,12 @@ router.post(
 
       await pool.query(
         `UPDATE admins
-         SET status = 'active',
-             banned_at = NULL,
-             updated_at = NOW()
+         SET status = 'active', banned_at = NULL, updated_at = NOW()
          WHERE id = $1`,
         [targetId],
       );
+
+      console.log(`   ✅ Reactivated: ${targetId}`);
 
       await pool.query(
         `INSERT INTO admin_logs
@@ -302,55 +324,7 @@ router.post(
 
       res.json({ success: true });
     } catch (err) {
-      console.error("[POST /admin/admins/:id/unban]", err.message);
-      res.status(500).json({ error: err.message });
-    }
-  },
-);
-
-// ─────────────────────────────────────────────────────────────
-// PATCH /api/admin/admins/:id/password
-// Body: { password }
-// ─────────────────────────────────────────────────────────────
-router.patch(
-  "/:id/password",
-  verifyAdmin,
-  requireSuperAdmin,
-  async (req, res) => {
-    try {
-      const { password } = req.body;
-      const targetId = req.params.id;
-
-      if (!password || password.length < 8) {
-        return res.status(400).json({
-          error: "Password must be at least 8 characters.",
-        });
-      }
-
-      const hash = await bcrypt.hash(password, 12);
-
-      const { rows } = await pool.query(
-        `UPDATE admins
-         SET password_hash = $1, updated_at = NOW()
-         WHERE id = $2
-         RETURNING id`,
-        [hash, targetId],
-      );
-
-      if (!rows.length) {
-        return res.status(404).json({ error: "Admin not found." });
-      }
-
-      await pool.query(
-        `INSERT INTO admin_logs
-           (admin_id, action, target_type, target_id, details)
-         VALUES ($1, 'reset_admin_password', 'admin', $2, $3)`,
-        [req.admin.id, targetId, `Reset password for admin ${targetId}`],
-      ).catch(() => {});
-
-      res.json({ success: true });
-    } catch (err) {
-      console.error("[PATCH /admin/admins/:id/password]", err.message);
+      console.error(`   ❌ [POST /admin/admins/:id/unban]`, err);
       res.status(500).json({ error: err.message });
     }
   },
