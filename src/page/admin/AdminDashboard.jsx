@@ -9,34 +9,34 @@ import Topbar  from "./adminlayout/Topbar";
 import { css } from "./adminlayout/css";
 
 // ── Pages ─────────────────────────────────────────────────────
-import Overview              from "./SuperAdmin/Overview";
-import Users                 from "./SuperAdmin/Users";
-import Admins                from "./SuperAdmin/Admins";
-import Products              from "./SuperAdmin/Products";
-import MarketProducts        from "./SuperAdmin/MarketProducts";
-import Payments              from "./SuperAdmin/Payments";
-import Orders                from "./SuperAdmin/Orders";
-import Withdrawals           from "./SuperAdmin/Withdrawals";
-import Logs                  from "./SuperAdmin/Logs";
-import Promotions            from "./SuperAdmin/Promotions";
-import System                from "./SuperAdmin/System";
-import Reports               from "./SuperAdmin/Reports";
-import Verification          from "./SuperAdmin/Verification";
-import VendorVerification    from "./SuperAdmin/VendorVerification";
-import Leaderboard           from "./SuperAdmin/Leaderboard";
-import AirtimeCoupons        from "./SuperAdmin/AirtimeCoupons";
-import CouponRedemption      from "./SuperAdmin/CouponRedemption";
-import AdminSubscriptions    from "./SuperAdmin/AdminSubscriptions"; // ✅ NEW
+import Overview           from "./SuperAdmin/Overview";
+import Users              from "./SuperAdmin/Users";
+import Admins             from "./SuperAdmin/Admins";
+import Products           from "./SuperAdmin/Products";
+import MarketProducts     from "./SuperAdmin/MarketProducts";
+import Payments           from "./SuperAdmin/Payments";
+import Orders             from "./SuperAdmin/Orders";
+import Withdrawals        from "./SuperAdmin/Withdrawals";
+import Logs               from "./SuperAdmin/Logs";
+import Promotions         from "./SuperAdmin/Promotions";
+import System             from "./SuperAdmin/System";
+import Reports            from "./SuperAdmin/Reports";
+import Verification       from "./SuperAdmin/Verification";
+import VendorVerification from "./SuperAdmin/VendorVerification";
+import Leaderboard        from "./SuperAdmin/Leaderboard";
+import AirtimeCoupons     from "./SuperAdmin/AirtimeCoupons";
+import CouponRedemption   from "./SuperAdmin/CouponRedemption";
+import AdminSubscriptions from "./SuperAdmin/AdminSubscriptions";
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
 
 /* ════════════════════════════════════════════════════════════
-   ENV + API
+   ENV + API bases
 ════════════════════════════════════════════════════════════ */
 const BASE     = `${import.meta.env.VITE_API_BASE_URL}/api/admin`;
 const PAY_BASE = `${import.meta.env.VITE_API_BASE_URL}/api/payment`;
-const SUB_BASE = `${import.meta.env.VITE_API_BASE_URL}/api/admin`; // ✅ NEW
+const SUB_BASE = `${import.meta.env.VITE_API_BASE_URL}/api/admin`;
 
 /* ════════════════════════════════════════════════════════════
    CONSTANTS
@@ -49,11 +49,11 @@ const LOG_POLL_INTERVAL = 5_000;
 const createApi = (token) => {
   const h = { Authorization: `Bearer ${token}` };
   return {
-    get   : (p, base = BASE)         => axios.get(base + p,      { headers: h }),
-    post  : (p, b = {}, base = BASE) => axios.post(base + p, b,  { headers: h }),
-    put   : (p, b = {}, base = BASE) => axios.put(base + p, b,   { headers: h }),
-    patch : (p, b = {}, base = BASE) => axios.patch(base + p, b, { headers: h }),
-    del   : (p, base = BASE)         => axios.delete(base + p,   { headers: h }),
+    get   : (p, base = BASE)          => axios.get   (base + p,     { headers: h }),
+    post  : (p, b = {}, base = BASE)  => axios.post  (base + p, b,  { headers: h }),
+    put   : (p, b = {}, base = BASE)  => axios.put   (base + p, b,  { headers: h }),
+    patch : (p, b = {}, base = BASE)  => axios.patch (base + p, b,  { headers: h }),
+    del   : (p, base = BASE)          => axios.delete (base + p,    { headers: h }),
   };
 };
 
@@ -70,9 +70,7 @@ function Confirm({ cfg, onClose }) {
           {cfg.body}
         </p>
         <div className="modal-btns">
-          <button className="btn b-ghost" onClick={onClose}>
-            Cancel
-          </button>
+          <button className="btn b-ghost" onClick={onClose}>Cancel</button>
           <button
             className={`btn ${cfg.danger ? "b-red" : "b-solid"}`}
             onClick={() => { cfg.action(); onClose(); }}
@@ -90,43 +88,17 @@ function Confirm({ cfg, onClose }) {
 ════════════════════════════════════════════════════════════ */
 function useData(api) {
   const [stats, setStats] = useState({
-    users              : 0,
-    orders             : 0,
-    revenue            : 0,
-    dailySales         : [],
-    activeUsers        : 0,
-    bannedUsers        : 0,
-    pendingProducts    : 0,
-    totalProducts      : 0,
-    todayUsers         : 0,
-    todayProducts      : 0,
-    todayRevenue       : 0,
-    todayOrders        : 0,
-    vendorsTotal       : 0,
-    vendorsPending     : 0,
-    vendorsActive      : 0,
-    vendorsUnderReview : 0,
-    referrals: {
-      total    : 0,
-      pending  : 0,
-      verified : 0,
-      rewarded : 0,
-    },
-    coupons: {
-      total     : 0,
-      available : 0,
-      redeemed  : 0,
-      today     : 0,
-    },
-    subscriptions: {              // ✅ NEW
-      total       : 0,
-      active      : 0,
-      expired     : 0,
-      cancelled   : 0,
-      mrr         : 0,            // monthly recurring revenue in kobo
-      arr         : 0,            // annual recurring revenue in kobo
-      today       : 0,
-      byPlan      : {},           // { premium: N, pro: N, ... }
+    users: 0, orders: 0, revenue: 0, dailySales: [],
+    activeUsers: 0, bannedUsers: 0, pendingProducts: 0,
+    totalProducts: 0, todayUsers: 0, todayProducts: 0,
+    todayRevenue: 0, todayOrders: 0,
+    vendorsTotal: 0, vendorsPending: 0, vendorsActive: 0,
+    vendorsUnderReview: 0,
+    referrals: { total: 0, pending: 0, verified: 0, rewarded: 0 },
+    coupons:   { total: 0, available: 0, redeemed: 0, today: 0 },
+    subscriptions: {
+      total: 0, active: 0, expired: 0, cancelled: 0,
+      mrr: 0, arr: 0, today: 0, byPlan: {},
     },
   });
 
@@ -138,9 +110,7 @@ function useData(api) {
   const [orders,   setOrders]   = useState([]);
   const [logs,     setLogs]     = useState([]);
   const [system,   setSystem]   = useState({
-    maintenance   : false,
-    allowPosting  : true,
-    allowPayments : true,
+    maintenance: false, allowPosting: true, allowPayments: true,
   });
   const [plans, setPlans] = useState([]);
 
@@ -150,7 +120,7 @@ function useData(api) {
   const [vendorPendingCount,       setVendorPendingCount]       = useState(0);
   const [withdrawalPendingCount,   setWithdrawalPendingCount]   = useState(0);
   const [airtimePendingCount,      setAirtimePendingCount]      = useState(0);
-  const [subscriptionStats,        setSubscriptionStats]        = useState(null); // ✅ NEW
+  const [subscriptionStats,        setSubscriptionStats]        = useState(null);
   const [loading,                  setLoading]                  = useState(true);
 
   const safe = useCallback(async (path, setter, base) => {
@@ -164,7 +134,9 @@ function useData(api) {
 
   const normalizePlans = useCallback((data) => {
     if (data?.plans) {
-      setPlans(data.plans.map((p) => ({ ...p, features: safeFeatures(p.features) })));
+      setPlans(data.plans.map((p) => ({
+        ...p, features: safeFeatures(p.features),
+      })));
     }
   }, []);
 
@@ -189,7 +161,7 @@ function useData(api) {
       const { data } = await api.get("/market-products?status=pending");
       setMarketPendingCount(
         data?.counts?.pending ??
-        (Array.isArray(data?.products) ? data.products.length : 0) ?? 0
+        (Array.isArray(data?.products) ? data.products.length : 0) ?? 0,
       );
     } catch {}
   }, [api]);
@@ -198,7 +170,7 @@ function useData(api) {
     try {
       const { data } = await api.get("/verification/stats");
       setVerificationPendingCount(
-        (data?.identity?.pending ?? 0) + (data?.store?.pending ?? 0)
+        (data?.identity?.pending ?? 0) + (data?.store?.pending ?? 0),
       );
     } catch {}
   }, [api]);
@@ -207,7 +179,7 @@ function useData(api) {
     try {
       const { data } = await api.get("/vendors?status=pending&limit=1");
       setVendorPendingCount(
-        data?.status_counts?.pending ?? data?.pagination?.total ?? 0
+        data?.status_counts?.pending ?? data?.pagination?.total ?? 0,
       );
     } catch {}
   }, [api]);
@@ -226,23 +198,21 @@ function useData(api) {
     } catch {}
   }, [api]);
 
-  // ✅ NEW — reload subscription stats for the overview card
   const reloadSubscriptionStats = useCallback(async () => {
     try {
       const { data } = await api.get("/subscriptions/stats", SUB_BASE);
       setSubscriptionStats(data);
-      // Mirror into stats.subscriptions so Overview can read it
       setStats((prev) => ({
         ...prev,
         subscriptions: {
-          total     : data.total     ?? 0,
-          active    : data.active    ?? 0,
-          expired   : data.expired   ?? 0,
-          cancelled : data.cancelled ?? 0,
-          mrr       : data.mrr       ?? 0,
-          arr       : data.arr       ?? 0,
-          today     : data.today     ?? 0,
-          byPlan    : data.byPlan    ?? {},
+          total:     data.total     ?? 0,
+          active:    data.active    ?? 0,
+          expired:   data.expired   ?? 0,
+          cancelled: data.cancelled ?? 0,
+          mrr:       data.mrr       ?? 0,
+          arr:       data.arr       ?? 0,
+          today:     data.today     ?? 0,
+          byPlan:    data.byPlan    ?? {},
         },
       }));
     } catch (err) {
@@ -251,25 +221,25 @@ function useData(api) {
   }, [api]);
 
   const reload = useMemo(() => ({
-    users              : () => safe("/users",            setUsers),
-    admins             : () => safe("/admins",           setAdmins),
-    products           : () => Promise.all([
+    users    : () => safe("/users",            setUsers),
+    admins   : () => safe("/admins",           setAdmins),
+    products : () => Promise.all([
       safe("/products",         setProducts),
       safe("/products/pending", setPending),
       safe("/stats",            setStats),
     ]),
-    payments           : () => safe("/payments",         setPayments),
-    orders             : () => safe("/orders",           setOrders),
-    logs               : () => safe("/logs",             setLogs),
-    system             : (d) => setSystem(d),
-    plans              : reloadPlans,
-    reportCount        : reloadReportCount,
-    marketPendingCount : reloadMarketPendingCount,
-    verificationCount  : reloadVerificationCount,
-    vendorCount        : reloadVendorCount,
-    withdrawalCount    : reloadWithdrawalCount,
-    airtimeCount       : reloadAirtimeCount,
-    subscriptionStats  : reloadSubscriptionStats,    // ✅ NEW
+    payments          : () => safe("/payments", setPayments),
+    orders            : () => safe("/orders",   setOrders),
+    logs              : () => safe("/logs",     setLogs),
+    system            : (d) => setSystem(d),
+    plans             : reloadPlans,
+    reportCount       : reloadReportCount,
+    marketPendingCount: reloadMarketPendingCount,
+    verificationCount : reloadVerificationCount,
+    vendorCount       : reloadVendorCount,
+    withdrawalCount   : reloadWithdrawalCount,
+    airtimeCount      : reloadAirtimeCount,
+    subscriptionStats : reloadSubscriptionStats,
   }), [
     safe,
     reloadPlans,
@@ -279,7 +249,7 @@ function useData(api) {
     reloadVendorCount,
     reloadWithdrawalCount,
     reloadAirtimeCount,
-    reloadSubscriptionStats,                          // ✅ NEW
+    reloadSubscriptionStats,
   ]);
 
   const loadAll = useCallback(async () => {
@@ -301,7 +271,7 @@ function useData(api) {
       reloadVendorCount(),
       reloadWithdrawalCount(),
       reloadAirtimeCount(),
-      reloadSubscriptionStats(),                      // ✅ NEW
+      reloadSubscriptionStats(),
     ]);
     setLoading(false);
   }, [
@@ -313,7 +283,7 @@ function useData(api) {
     reloadVendorCount,
     reloadWithdrawalCount,
     reloadAirtimeCount,
-    reloadSubscriptionStats,                          // ✅ NEW
+    reloadSubscriptionStats,
   ]);
 
   return {
@@ -322,8 +292,7 @@ function useData(api) {
     reportCount, marketPendingCount,
     verificationPendingCount, vendorPendingCount,
     withdrawalPendingCount, airtimePendingCount,
-    subscriptionStats,                                // ✅ NEW
-    loading, loadAll, reload,
+    subscriptionStats, loading, loadAll, reload,
   };
 }
 
@@ -336,16 +305,15 @@ function useDerived({
 }) {
   const salesData = useMemo(() =>
     (stats.dailySales ?? []).map((d) => ({
-      date  : d.date?.slice(5),
-      sales : Number(d.amount),
+      date: d.date?.slice(5), sales: Number(d.amount),
     })),
-    [stats.dailySales]
+    [stats.dailySales],
   );
 
   const userStats = useMemo(() => ({
-    total  : users.length,
-    active : users.filter((u) => u.status !== "banned").length,
-    banned : users.filter((u) => u.status === "banned").length,
+    total:  users.length,
+    active: users.filter((u) => u.status !== "banned").length,
+    banned: users.filter((u) => u.status === "banned").length,
   }), [users]);
 
   const prodStatusData = useMemo(() => [
@@ -358,13 +326,13 @@ function useDerived({
     [...products]
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 8),
-    [products]
+    [products],
   );
 
   const filteredUsers = useMemo(() => {
     const q = userQ.toLowerCase();
     return users.filter((u) =>
-      `${u.name ?? ""} ${u.email ?? ""}`.toLowerCase().includes(q)
+      `${u.name ?? ""} ${u.email ?? ""}`.toLowerCase().includes(q),
     );
   }, [users, userQ]);
 
@@ -373,7 +341,7 @@ function useDerived({
     const base = productTab === "pending" ? pending : products;
     return base.filter((p) =>
       (p.name ?? p.title ?? "").toLowerCase().includes(q) ||
-      (p.seller_name ?? "").toLowerCase().includes(q)
+      (p.seller_name ?? "").toLowerCase().includes(q),
     );
   }, [products, pending, productTab, productQ]);
 
@@ -381,7 +349,7 @@ function useDerived({
     const q = orderQ.toLowerCase();
     return orders.filter((o) =>
       `${o.id ?? ""} ${o.buyer_name ?? ""} ${o.status ?? ""}`
-        .toLowerCase().includes(q)
+        .toLowerCase().includes(q),
     );
   }, [orders, orderQ]);
 
@@ -389,7 +357,7 @@ function useDerived({
     const q = payQ.toLowerCase();
     return payments.filter((p) =>
       `${p.user ?? ""} ${p.reference ?? ""} ${p.status ?? ""}`
-        .toLowerCase().includes(q)
+        .toLowerCase().includes(q),
     );
   }, [payments, payQ]);
 
@@ -415,16 +383,39 @@ function useActions(api, reload) {
   return {
     busy,
 
+    // ── Users ─────────────────────────────────────────────
     banUser: (id) => run(`bu-${id}`, async () => {
       await api.post(`/users/${id}/ban`);
       reload.users();
     }),
 
+    unbanUser: (id) => run(`ubu-${id}`, async () => {
+      await api.post(`/users/${id}/unban`);
+      reload.users();
+    }),
+
+    // ── Admins ────────────────────────────────────────────
     banAdmin: (id) => run(`ba-${id}`, async () => {
       await api.post(`/admins/${id}/ban`);
       reload.admins();
     }),
 
+    unbanAdmin: (id) => run(`uba-${id}`, async () => {
+      await api.post(`/admins/${id}/unban`);
+      reload.admins();
+    }),
+
+    editAdminRole: (id, role) => run(`er-${id}`, async () => {
+      await api.patch(`/admins/${id}/role`, { role });
+      reload.admins();
+    }),
+
+    registerAdmin: (form) => run("register", async () => {
+      await api.post("/admins/register", form);
+      reload.admins();
+    }),
+
+    // ── Products ──────────────────────────────────────────
     approveProduct: (id) => run(`ap-${id}`, async () => {
       await api.post(`/products/${id}/approve`);
       await reload.products();
@@ -435,16 +426,19 @@ function useActions(api, reload) {
       await reload.products();
     }),
 
+    // ── Payments ──────────────────────────────────────────
     refundPayment: (id) => run(`rf-${id}`, async () => {
       await api.post(`/payments/${id}/refund`);
       reload.payments();
     }),
 
+    // ── Orders ────────────────────────────────────────────
     cancelOrder: (id) => run(`co-${id}`, async () => {
       await api.post(`/orders/${id}/cancel`);
       reload.orders();
     }),
 
+    // ── System ────────────────────────────────────────────
     toggleSystem: async (key, system) => {
       const next = { ...system, [key]: !system[key] };
       reload.system(next);
@@ -452,11 +446,7 @@ function useActions(api, reload) {
       catch { reload.system(system); }
     },
 
-    registerAdmin: async (form) => {
-      await api.post("/register", form);
-      reload.admins();
-    },
-
+    // ── Plans ─────────────────────────────────────────────
     savePlan: async (plan) => {
       await run(`plan-${plan.id}`, () =>
         api.put(`/plans/${plan.id}`, {
@@ -469,7 +459,7 @@ function useActions(api, reload) {
           sort_order       : Number(plan.sort_order       ?? 0),
           is_active        : !!plan.is_active,
           features         : safeFeatures(plan.features),
-        }, PAY_BASE)
+        }, PAY_BASE),
       );
       reload.plans();
     },
@@ -479,13 +469,13 @@ function useActions(api, reload) {
         api.put(
           `/plans/${plan.id}`,
           { ...plan, is_active: !plan.is_active },
-          PAY_BASE
+          PAY_BASE,
         )
       );
       reload.plans();
     },
 
-    // ✅ NEW — cancel a seller subscription from the admin panel
+    // ── Subscriptions ─────────────────────────────────────
     cancelSellerSubscription: async (userId) => {
       await run(`csub-${userId}`, async () => {
         await api.post(`/subscriptions/${userId}/cancel`);
@@ -499,9 +489,19 @@ function useActions(api, reload) {
    ADMIN DASHBOARD
 ════════════════════════════════════════════════════════════ */
 export default function AdminDashboard() {
-  const token     = useMemo(() => localStorage.getItem("admin_token"), []);
-  const adminName = useMemo(() => localStorage.getItem("admin_name") || "SA", []);
-  const api       = useMemo(() => createApi(token), [token]);
+  const token = useMemo(() => localStorage.getItem("admin_token"), []);
+  const api   = useMemo(() => createApi(token), [token]);
+
+  // ── Read currentUser saved by AdminLogin.jsx ──────────
+  const currentUser = useMemo(() => {
+    try {
+      const stored = localStorage.getItem("admin");
+      if (stored) return JSON.parse(stored);
+    } catch {}
+    return { id: null, name: null, email: null, role: null };
+  }, []);
+
+  const adminName = currentUser?.name || "Admin";
 
   const [page,       setPage]       = useState("overview");
   const [productTab, setProductTab] = useState("all");
@@ -522,7 +522,7 @@ export default function AdminDashboard() {
   });
   const actions = useActions(api, data.reload);
 
-  /* ── Live log polling ── */
+  /* ── Live log polling ────────────────────────────────── */
   const logRef = useMemo(() => ({ current: data.reload.logs }), []);
   useEffect(() => { logRef.current = data.reload.logs; });
 
@@ -533,7 +533,7 @@ export default function AdminDashboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ── Total notification badge ── */
+  /* ── Notification badge total ────────────────────────── */
   const totalNotifCount =
     data.pending.length           +
     data.marketPendingCount       +
@@ -554,7 +554,7 @@ export default function AdminDashboard() {
     );
   }
 
-  /* ── Page map ── */
+  /* ── Page map ────────────────────────────────────────── */
   const pageMap = {
 
     overview: (
@@ -587,10 +587,13 @@ export default function AdminDashboard() {
       <Admins
         admins={data.admins}
         banAdmin={actions.banAdmin}
+        unbanAdmin={actions.unbanAdmin}
+        editAdminRole={actions.editAdminRole}
         registerAdmin={actions.registerAdmin}
         busy={actions.busy}
         reloadAdmins={data.reload.admins}
         confirm={confirm}
+        currentUser={currentUser}
       />
     ),
 
@@ -716,7 +719,6 @@ export default function AdminDashboard() {
       />
     ),
 
-    // ✅ NEW — Seller Subscription Management
     subscriptions: (
       <AdminSubscriptions
         api={api}
@@ -731,7 +733,6 @@ export default function AdminDashboard() {
   return (
     <>
       <style>{css}</style>
-
       <div className="wrap">
         <Sidebar
           page={page}
@@ -743,9 +744,8 @@ export default function AdminDashboard() {
           vendorPendingCount={data.vendorPendingCount}
           withdrawalPendingCount={data.withdrawalPendingCount}
           airtimePendingCount={data.airtimePendingCount}
-          subscriptionActiveCount={data.subscriptionStats?.active ?? 0} // ✅ NEW
+          subscriptionActiveCount={data.subscriptionStats?.active ?? 0}
         />
-
         <div className="main">
           <Topbar
             page={page}
@@ -757,7 +757,6 @@ export default function AdminDashboard() {
           </div>
         </div>
       </div>
-
       <Confirm cfg={confirmCfg} onClose={() => setConfirmCfg(null)} />
     </>
   );
