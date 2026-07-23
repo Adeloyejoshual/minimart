@@ -65,14 +65,17 @@ const resolveEmail = (propEmail) => {
 
 /* ─────────────────────────────────────────────
    useDashboard — all data & mutations
+   v2 — Tier-aware renewals + subscription upsells
 ───────────────────────────────────────────── */
-function useDashboard(showToast, userEmail) {
+function useDashboard(showToast, userEmail, navigate) {
 
   /* ── data ── */
-  const [stats,     setStats]     = useState(null);
-  const [products,  setProducts]  = useState([]);
-  const [analytics, setAnalytics] = useState(null);
-  const [plans,     setPlans]     = useState([]);
+  const [stats,        setStats]        = useState(null);
+  const [products,     setProducts]     = useState([]);
+  const [analytics,    setAnalytics]    = useState(null);
+  const [plans,        setPlans]        = useState([]);
+  const [tier,         setTier]         = useState("unverified");
+  const [isSubscriber, setIsSubscriber] = useState(false);
 
   /* ── ui state ── */
   const [loading,     setLoading]     = useState(true);
@@ -82,6 +85,7 @@ function useDashboard(showToast, userEmail) {
   const [error,       setError]       = useState(null);
   const [deleting,    setDeleting]    = useState(null);
   const [verifying,   setVerifying]   = useState(null);
+  const [renewing,    setRenewing]    = useState(null);
 
   /* ── filters / pagination ── */
   const [tab,        setTab]        = useState("all");
@@ -90,13 +94,31 @@ function useDashboard(showToast, userEmail) {
   const [nextCursor, setNextCursor] = useState(null);
 
   /* ── refs ── */
-  const abortRef      = useRef(null);
-  const searchTimer   = useRef(null);
-  const pendingDelete = useRef(null);
+  const abortRef       = useRef(null);
+  const searchTimer    = useRef(null);
+  const pendingDelete  = useRef(null);
+  const pendingUpgrade = useRef(null);
 
   /* ────────────────────────────────────────
      Fetchers
   ──────────────────────────────────────── */
+  const fetchOverview = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/seller-dashboard/overview`, {
+        headers: authH(),
+      });
+      const d = await res.json();
+      if (res.ok && d.success && d.data) {
+        setTier(d.data.tier ?? "unverified");
+        setIsSubscriber(d.data.is_subscriber ?? false);
+        /* Overview returns stats + recent_products too — use as a warm start */
+        if (d.data.stats) setStats(d.data.stats);
+      }
+    } catch (err) {
+      console.error("[dashboard] fetchOverview:", err);
+    }
+  }, []);
+
   const fetchStats = useCallback(async () => {
     try {
       const res = await fetch(`${API}/seller-dashboard/stats`, {
@@ -178,6 +200,7 @@ function useDashboard(showToast, userEmail) {
       setError(null);
       try {
         await Promise.all([
+          fetchOverview(),
           fetchStats(),
           fetchProducts("all"),
           fetchAnalytics(),
@@ -189,7 +212,7 @@ function useDashboard(showToast, userEmail) {
         setRefreshing(false);
       }
     },
-    [fetchStats, fetchProducts, fetchAnalytics]
+    [fetchOverview, fetchStats, fetchProducts, fetchAnalytics]
   );
 
   useEffect(() => {
@@ -304,8 +327,17 @@ function useDashboard(showToast, userEmail) {
     [fetchStats, showToast]
   );
 
+  /* ────────────────────────────────────────
+     RENEW — v2 tier-aware
+     Handles all 3-tier response shapes:
+       200 → success (updates product, shows tier-specific toast)
+       403 → unverified block (routes to verification)
+       400 → various — trial should_activate, max renewals,
+             too-early, subscribe upsell
+  ──────────────────────────────────────── */
   const renewProduct = useCallback(
     async (product) => {
+      setRenewing(product.id);
       try {
         const res = await fetch(
           `${API}/seller-dashboard/products/${product.id}/renew`,
@@ -313,29 +345,105 @@ function useDashboard(showToast, userEmail) {
         );
         const d = await res.json();
 
+        /* ── Success ── */
         if (res.ok && d.success) {
           setProducts((prev) =>
             prev.map((p) =>
               p.id === product.id
                 ? {
                     ...p,
-                    active_until: d.active_until,
-                    status:       d.status,
-                    is_active:    true,
+                    active_until : d.active_until,
+                    status       : d.status,
+                    is_active    : true,
+                    renewal_count: d.renewal_count ?? (p.renewal_count ?? 0) + 1,
                   }
                 : p
             )
           );
           fetchStats();
-          showToast(`Renewed for ${d.days_added} days`, "success");
-        } else {
-          showToast(d.message || "Could not renew.", "error");
+
+          /* Tier-specific success toast */
+          if (d.is_subscriber) {
+            showToast(`✨ Renewed for ${d.days_added} days (Pro)`, "success");
+          } else if (d.renewals_left !== null && d.renewals_left <= 2) {
+            const msg = d.renewals_left === 0
+              ? `Renewed for ${d.days_added} days — last renewal available`
+              : `Renewed for ${d.days_added} days · ${d.renewals_left} renewals left`;
+            showToast(msg, d.renewals_left === 0 ? "warning" : "info", 6000);
+          } else {
+            showToast(`Renewed for ${d.days_added} days`, "success");
+          }
+
+          /* If verified just hit renewal cap, prompt upgrade */
+          if (d.upgrade_to === "subscriber" && d.limit_reached_notice) {
+            setTimeout(() => {
+              pendingUpgrade.current = {
+                type       : "subscribe",
+                message    : d.limit_reached_notice,
+                upgradeUrl : d.upgrade_url ?? "/seller/subscription/plans",
+              };
+              showToast(
+                "Tap here to upgrade for unlimited renewals",
+                "info",
+                8000,
+                () => navigate(d.upgrade_url ?? "/seller/subscription/plans")
+              );
+            }, 1500);
+          }
+          return;
         }
+
+        /* ── 403: unverified user blocked ── */
+        if (res.status === 403 && d.reason === "unverified_no_renewal") {
+          showToast(
+            "Verify your identity to unlock renewals",
+            "warning",
+            6000,
+            () => navigate(d.upgrade_url ?? "/verification")
+          );
+          return;
+        }
+
+        /* ── 400: trial listing should be activated instead ── */
+        if (d.should_activate) {
+          showToast(
+            "This is a trial listing — activate it to make it permanent",
+            "info",
+            6000
+          );
+          return;
+        }
+
+        /* ── 400: max renewals reached ── */
+        if (d.upgrade_to === "subscriber") {
+          showToast(
+            d.message || "Renewal limit reached — subscribe for unlimited",
+            "warning",
+            7000,
+            () => navigate(d.upgrade_url ?? "/seller/subscription/plans")
+          );
+          return;
+        }
+
+        /* ── 400: too early to renew ── */
+        if (d.days_left !== undefined) {
+          showToast(
+            d.message || `Available when 7 days or less remain (${d.days_left} left)`,
+            "info",
+            5000
+          );
+          return;
+        }
+
+        /* ── Fallback error ── */
+        showToast(d.message || "Could not renew.", "error");
       } catch {
         showToast("Network error.", "error");
+      } finally {
+        setRenewing(null);
       }
     },
-    [fetchStats, showToast]
+    [fetchStats, showToast, navigate]
   );
 
   /* ────────────────────────────────────────
@@ -428,11 +536,12 @@ function useDashboard(showToast, userEmail) {
   ──────────────────────────────────────── */
   const tabCounts = useMemo(
     () => ({
-      all:     stats?.total_products  ?? products.length,
-      active:  stats?.active          ?? 0,
-      draft:   stats?.draft           ?? 0,
-      paused:  stats?.paused          ?? 0,
-      pending: stats?.pending_payment ?? 0,
+      all:             stats?.total_products  ?? products.length,
+      active:          stats?.active          ?? 0,
+      active_limited:  stats?.active_limited  ?? 0,
+      draft:           stats?.draft           ?? 0,
+      paused:          stats?.paused          ?? 0,
+      pending:         stats?.pending_payment ?? 0,
     }),
     [stats, products.length]
   );
@@ -440,9 +549,10 @@ function useDashboard(showToast, userEmail) {
   return {
     /* data */
     stats, products, analytics, plans,
+    tier, isSubscriber,
     /* ui */
     loading, prodLoading, loadingMore, refreshing, error,
-    deleting, verifying,
+    deleting, verifying, renewing,
     /* filters */
     tab, search, hasMore,
     /* refs */
@@ -463,7 +573,7 @@ function useDashboard(showToast, userEmail) {
 }
 
 /* ─────────────────────────────────────────────
-   DashboardHeader
+   DashboardHeader — with tier chip
 ───────────────────────────────────────────── */
 function DashboardHeader({
   greeting,
@@ -473,9 +583,23 @@ function DashboardHeader({
   setSection,
   tabCounts,
   refreshing,
+  tier,
+  isSubscriber,
   onRefresh,
   onNavigate,
 }) {
+  const tierLabel =
+    tier === "subscriber" ? "Pro"
+    : tier === "verified" ? "Verified"
+    : "Trial";
+
+  const tierIcon =
+    tier === "subscriber" ? Ic.Zap
+    : tier === "verified" ? Ic.CheckCircle
+    : Ic.Clock;
+
+  const TierIc = tierIcon;
+
   return (
     <header className="dashboard__header">
       <div className="dashboard__header-inner">
@@ -491,7 +615,13 @@ function DashboardHeader({
           </button>
           <div className="dashboard__header-text">
             <span className="dashboard__greeting">{greeting}</span>
-            <h1 className="dashboard__title">{userName}</h1>
+            <h1 className="dashboard__title">
+              {userName}
+              <span className={`dashboard__tier-chip dashboard__tier-chip--${tier}`}>
+                <TierIc />
+                {tierLabel}
+              </span>
+            </h1>
           </div>
         </div>
 
@@ -588,7 +718,7 @@ export default function Dashboard({ user }) {
   }, [navigate]);
 
   /* ── all data & logic ── */
-  const db = useDashboard(showToast, user?.email);
+  const db = useDashboard(showToast, user?.email, navigate);
 
   /* ────────────────────────────────────────
      Delete flow
@@ -653,7 +783,7 @@ export default function Dashboard({ user }) {
   );
 
   /* ────────────────────────────────────────
-     Sections map
+     Sections map — tier props flow to Overview + Listings
   ──────────────────────────────────────── */
   const userName = user?.name || user?.full_name || user?.username || "Seller";
 
@@ -668,6 +798,8 @@ export default function Dashboard({ user }) {
           userId={user?.id}
           deleting={db.deleting}
           verifying={db.verifying}
+          tier={db.tier}                  /* NEW */
+          isSubscriber={db.isSubscriber}  /* NEW */
           onNavigate={navigate}
           onSetSection={setSection}
           {...productActions}
@@ -684,6 +816,9 @@ export default function Dashboard({ user }) {
           tabCounts={db.tabCounts}
           deleting={db.deleting}
           verifying={db.verifying}
+          renewing={db.renewing}          /* NEW */
+          tier={db.tier}                  /* NEW */
+          isSubscriber={db.isSubscriber}  /* NEW */
           onTabChange={db.handleTabChange}
           onSearch={db.handleSearch}
           onLoadMore={db.handleLoadMore}
@@ -696,6 +831,8 @@ export default function Dashboard({ user }) {
           stats={db.stats}
           analytics={db.analytics}
           loading={db.loading}
+          tier={db.tier}                  /* NEW */
+          isSubscriber={db.isSubscriber}  /* NEW */
           onSetSection={setSection}
           onTabChange={db.handleTabChange}
         />
@@ -716,6 +853,8 @@ export default function Dashboard({ user }) {
         setSection={setSection}
         tabCounts={db.tabCounts}
         refreshing={db.refreshing}
+        tier={db.tier}                    /* NEW */
+        isSubscriber={db.isSubscriber}    /* NEW */
         onRefresh={() => db.loadAll(true)}
         onNavigate={navigate}
       />
