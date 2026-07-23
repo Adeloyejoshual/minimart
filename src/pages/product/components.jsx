@@ -2,15 +2,14 @@
  * src/pages/product/components.jsx
  * Main shell — imports all sub-components, owns page-level logic only
  *
- * v4 — TermsCheckbox now rendered outside sticky button-section
- *       so it is always visible above the Post Ad button.
- *     Rest of file unchanged from v3.
+ * v5 — Subscription upsell modal integrated
+ *   • VerificationUpsellModal shows for unverified sellers at 3-cap
+ *   • SubscriptionUpsellModal shows for verified sellers at 500-cap
+ *   • Both auto-open on their respective exhaustion + accept props
+ *   • Modal routes to /seller/subscription/plans
  *
- * v3 — image grid mount bug fixed:
- *  - ImageGrid now renders whenever there are images (was hidden at max)
- *  - Limit notice moved to inside ImageGrid, shown BELOW the grid
- *  - Skipped-image feedback improved via useImageManager
- *  - All emoji replaced with SVG icons
+ * v4 — TermsCheckbox moved outside sticky bar
+ * v3 — image grid mount fix
  */
 import {
   useMemo, useState, useEffect, useCallback, useRef,
@@ -29,6 +28,7 @@ import {
   ImageGrid,
   VerificationUpsellModal,
   VerificationNudgeBanner,
+  SubscriptionUpsellModal,
   WarningIcon,
   CheckCircleIcon,
   CardIcon,
@@ -119,7 +119,7 @@ export default function ProductComponents({
   removeExistingImage,
   totalImageCount   = 0,
 
-  /* ─ seller limits ─ */
+  /* ─ seller limits (legacy) ─ */
   sellerLimits      = null,
   limitsLoading     = false,
   isVerifiedSeller  = false,
@@ -130,9 +130,21 @@ export default function ProductComponents({
   trialExhausted    = false,
   trialRemaining    = null,
 
-  /* ─ post-creation ─ */
+  /* ─ v4 tier-aware ─ */
+  tier              = "unverified",
+  isSubscriber      = false,
+  lifetimeExhausted = false,
+  lifetimeRemaining = null,
+  lifetimeUsed      = 0,
+  lifetimeMax       = null,
+  upgradeTo         = null,
+  upgradeUrl        = null,
+
+  /* ─ post-creation upsells ─ */
   needsVerification = false,
   verificationData  = null,
+  needsSubscription = false,
+  subscriptionData  = null,
 
   /* ─ handlers ─ */
   updateForm,
@@ -165,15 +177,16 @@ export default function ProductComponents({
     : "/api",
 }) {
   /* ── Local state ── */
-  const [showAllFeatures,    setShowAllFeatures]    = useState(false);
-  const [isDragging,         setIsDragging]         = useState(false);
-  const [waLinkError,        setWaLinkError]        = useState("");
-  const [deliveryRangeError, setDeliveryRangeError] = useState("");
-  const [showUpsellModal,    setShowUpsellModal]    = useState(false);
-  const [titleSuggestions,   setTitleSuggestions]   = useState([]);
-  const [dupWarning,         setDupWarning]         = useState("");
-  const [dupChecking,        setDupChecking]        = useState(false);
-  const [imageErrors,        setImageErrors]        = useState({});
+  const [showAllFeatures,           setShowAllFeatures]           = useState(false);
+  const [isDragging,                setIsDragging]                = useState(false);
+  const [waLinkError,               setWaLinkError]               = useState("");
+  const [deliveryRangeError,        setDeliveryRangeError]        = useState("");
+  const [showVerificationModal,     setShowVerificationModal]     = useState(false);
+  const [showSubscriptionModal,     setShowSubscriptionModal]     = useState(false);
+  const [titleSuggestions,          setTitleSuggestions]          = useState([]);
+  const [dupWarning,                setDupWarning]                = useState("");
+  const [dupChecking,               setDupChecking]               = useState(false);
+  const [imageErrors,               setImageErrors]               = useState({});
 
   const sessionHashMap  = useRef(new Map());
   const validationQueue = useRef(Promise.resolve());
@@ -200,10 +213,36 @@ export default function ProductComponents({
     return () => timers.forEach(clearTimeout);
   }, [sectionRefs]);
 
-  /* Auto-open upsell when trial exhausted */
+  /* ═══════════════════════════════════════════════════════════
+     AUTO-OPEN UPSELL MODALS
+     v5 — Two distinct paths depending on tier:
+       • Unverified at 3-cap  → VerificationUpsellModal
+       • Verified at 500-cap  → SubscriptionUpsellModal
+       • Subscribers          → never shown
+  ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
-    if (trialExhausted && !isEditMode) setShowUpsellModal(true);
-  }, [trialExhausted, isEditMode]);
+    if (isEditMode) return;
+
+    /* Unverified trial exhausted → verify pitch */
+    if (trialExhausted && tier === "unverified") {
+      setShowVerificationModal(true);
+    }
+  }, [trialExhausted, tier, isEditMode]);
+
+  useEffect(() => {
+    if (isEditMode) return;
+
+    /* Verified seller hit 500 lifetime → subscribe pitch */
+    if (lifetimeExhausted && tier === "verified" && !isSubscriber) {
+      setShowSubscriptionModal(true);
+    }
+  }, [lifetimeExhausted, tier, isSubscriber, isEditMode]);
+
+  /* Also react to needsSubscription flag from parent (post-create response) */
+  useEffect(() => {
+    if (isEditMode) return;
+    if (needsSubscription) setShowSubscriptionModal(true);
+  }, [needsSubscription, isEditMode]);
 
   /* Image validation queue */
   const _validateImages = useCallback(async (incomingImages) => {
@@ -214,11 +253,6 @@ export default function ProductComponents({
       if (!["image/jpeg","image/png","image/webp"].includes(img.file.type)) {
         errors[img.id] = "Wrong type — use JPEG, PNG or WebP"; continue;
       }
-      /*
-        FIX: raised to 5 MB to match backend multer limit.
-        Was 3 MB which caused frontend to reject files the backend
-        would have accepted.
-      */
       if (img.file.size > 5 * 1024 * 1024) {
         errors[img.id] = `Too large (${(img.file.size / 1_048_576).toFixed(1)} MB) — max 5 MB`;
         continue;
@@ -541,10 +575,21 @@ export default function ProductComponents({
         onClearDraft={isEditMode ? null : clearDraft}
       />
 
-      {showUpsellModal && !isEditMode && (
+      {/* ── VERIFICATION UPSELL — unverified at 3-cap ── */}
+      {showVerificationModal && !isEditMode && (
         <VerificationUpsellModal
-          onClose={() => setShowUpsellModal(false)}
+          onClose={() => setShowVerificationModal(false)}
           trialRemaining={trialRemaining}
+        />
+      )}
+
+      {/* ── SUBSCRIPTION UPSELL — verified at 500-cap ── */}
+      {showSubscriptionModal && !isEditMode && (
+        <SubscriptionUpsellModal
+          onClose={() => setShowSubscriptionModal(false)}
+          lifetimeUsed={subscriptionData?.lifetimeUsed ?? lifetimeUsed ?? 500}
+          lifetimeMax={subscriptionData?.lifetimeMax ?? lifetimeMax ?? 500}
+          upgradeUrl={subscriptionData?.upgradeUrl ?? upgradeUrl ?? "/seller/subscription/plans"}
         />
       )}
 
@@ -951,12 +996,7 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ══════════════════════════════════════════════════
-          PRODUCT IMAGES
-          FIX: ImageGrid mounts whenever there are images
-          OR when user can still add more. Previously it was
-          hidden entirely when max was reached, hiding previews.
-      ══════════════════════════════════════════════════ */}
+      {/* ── PRODUCT IMAGES ── */}
       <section ref={sec4} className="section form-card">
         <h3 className="section-title">
           Product Images * <SectionDot filled={imagesFilled} />
@@ -989,16 +1029,6 @@ export default function ProductComponents({
           />
         )}
 
-        {/*
-          FIX: mount ImageGrid whenever there are images OR user can add more.
-          This is the key change — previously it was `canAddMore && <ImageGrid />`
-          which hid all previews at max. Now the grid stays mounted and its
-          internal "Add more" tile is conditionally shown based on canAddMore.
-
-          The limit notice ("Maximum 6 reached") is now rendered INSIDE
-          ImageGrid, below the previews, so users see both the images AND
-          the warning at the same time.
-        */}
         {(images.length > 0 || canAddMore) && (
           <ImageGrid
             images={images}
@@ -1122,11 +1152,7 @@ export default function ProductComponents({
         </section>
       )}
 
-      {/* ══════════════════════════════════════════════════════
-          TERMS CHECKBOX
-          v4 change — moved OUT of .button-section so it's always
-          visible above the sticky submit bar (not hidden by it).
-      ══════════════════════════════════════════════════════ */}
+      {/* ── TERMS CHECKBOX ── */}
       {!isEditMode && TermsCheckbox}
 
       {isEditMode && (
