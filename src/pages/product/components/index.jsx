@@ -10,5 +10,6 @@ export { default as ExistingImageGrid        } from "./ExistingImageGrid.jsx";
 export { default as ImageGrid                } from "./ImageGrid.jsx";
 export { default as VerificationUpsellModal  } from "./VerificationUpsellModal.jsx";
 export { default as VerificationNudgeBanner  } from "./VerificationNudgeBanner.jsx";
+export { default as SubscriptionUpsellModal  } from "./SubscriptionUpsellModal.jsx";
 export { default as TermsCheckbox            } from "./TermsCheckbox.jsx";
 export * from "./icons/index.jsx";
