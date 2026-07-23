@@ -20,11 +20,11 @@ export default function Admins({
   // ── helpers ───────────────────────────────────────────────────────────────
 
   const roles = [
-    { value: "admin",             label: "Admin / Manager"    },
-    { value: "content_moderator", label: "Content Moderator"  },
-    { value: "finance_admin",     label: "Finance Admin"      },
-    { value: "support_admin",     label: "Support Admin"      },
-    { value: "super_admin",       label: "Super Admin / Owner"},
+    { value: "admin",             label: "Admin / Manager"     },
+    { value: "content_moderator", label: "Content Moderator"   },
+    { value: "finance_admin",     label: "Finance Admin"       },
+    { value: "support_admin",     label: "Support Admin"       },
+    { value: "super_admin",       label: "Super Admin / Owner" },
   ];
 
   const roleLabel = (value) =>
@@ -58,25 +58,24 @@ export default function Admins({
     setEditRole(a.role);
   };
 
-  const saveEdit = (a) => {
+  // async so we wait before closing the inline editor
+  const saveEdit = async (a) => {
     if (editRole === "super_admin" && currentUser.role !== "super_admin") {
       alert("Only a Super Admin can assign the Super Admin role.");
       return;
     }
-    editAdminRole(a.id, editRole);
+    await editAdminRole(a.id, editRole);
     setEditingId(null);
   };
 
   const handleBanToggle = (a) => {
-    // Prevent acting on yourself
     if (a.id === currentUser.id) {
       alert("You cannot deactivate your own account.");
       return;
     }
-    // Prevent removing the last Super Admin
     if (
       a.role === "super_admin" &&
-      a.status !== "banned" &&
+      a.status !== "banned"  &&
       activeSuperAdmins.length === 1
     ) {
       alert("Cannot deactivate the last Super Admin.");
@@ -167,7 +166,6 @@ export default function Admins({
                 <option value="content_moderator">Content Moderator</option>
                 <option value="finance_admin">Finance Admin</option>
                 <option value="support_admin">Support Admin</option>
-                {/* Only Super Admin can create another Super Admin */}
                 {currentUser.role === "super_admin" && (
                   <option value="super_admin">Super Admin / Owner</option>
                 )}
@@ -181,8 +179,12 @@ export default function Admins({
               <button className="btn b-ghost" onClick={() => setShowForm(false)}>
                 Cancel
               </button>
-              <button className="btn b-solid" onClick={submit}>
-                Create Admin
+              <button
+                className="btn b-solid"
+                disabled={busy === "register"}
+                onClick={submit}
+              >
+                {busy === "register" ? "…" : "Create Admin"}
               </button>
             </div>
 
@@ -250,7 +252,6 @@ export default function Admins({
                         onChange={(e) => setEditRole(e.target.value)}
                       >
                         {roles.map((r) => {
-                          // Hide Super Admin option for non-super-admins
                           if (
                             r.value === "super_admin" &&
                             currentUser.role !== "super_admin"
@@ -270,23 +271,23 @@ export default function Admins({
                   {/* Status */}
                   <td><Pill s={a.status || "active"} /></td>
 
-                  {/* Date Created */}
+                  {/* Date Created — backend returns created_at */}
                   <td className="dim" style={{ fontSize: ".7rem" }}>
-                    {a.createdAt
-                      ? new Date(a.createdAt).toLocaleDateString()
+                    {a.created_at
+                      ? new Date(a.created_at).toLocaleDateString()
                       : "—"}
                   </td>
 
-                  {/* Last Login */}
+                  {/* Last Login — backend returns last_login */}
                   <td className="dim" style={{ fontSize: ".7rem" }}>
-                    {a.lastLogin
-                      ? new Date(a.lastLogin).toLocaleDateString()
+                    {a.last_login
+                      ? new Date(a.last_login).toLocaleDateString()
                       : "Never"}
                   </td>
 
-                  {/* Created By */}
+                  {/* Created By — backend returns created_by */}
                   <td className="dim" style={{ fontSize: ".7rem" }}>
-                    {a.createdBy || "—"}
+                    {a.created_by || "—"}
                   </td>
 
                   {/* Actions */}
@@ -299,13 +300,15 @@ export default function Admins({
                           <button
                             className="btn b-solid"
                             style={{ fontSize: ".72rem", padding: "2px 10px" }}
+                            disabled={busy === `er-${a.id}`}
                             onClick={() => saveEdit(a)}
                           >
-                            Save
+                            {busy === `er-${a.id}` ? "…" : "Save"}
                           </button>
                           <button
                             className="btn b-ghost"
                             style={{ fontSize: ".72rem", padding: "2px 10px" }}
+                            disabled={busy === `er-${a.id}`}
                             onClick={() => setEditingId(null)}
                           >
                             Cancel
@@ -326,7 +329,7 @@ export default function Admins({
                         className={`btn ${a.status === "banned" ? "b-solid" : "b-red"}`}
                         style={{ fontSize: ".72rem", padding: "2px 10px" }}
                         disabled={
-                          busy === `ba-${a.id}` ||
+                          busy === `ba-${a.id}`  ||
                           busy === `uba-${a.id}`
                         }
                         onClick={() => handleBanToggle(a)}
