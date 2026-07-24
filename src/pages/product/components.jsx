@@ -2,12 +2,14 @@
  * src/pages/product/components.jsx
  * Main shell — imports all sub-components, owns page-level logic only
  *
- * v5 — Subscription upsell modal integrated
- *   • VerificationUpsellModal shows for unverified sellers at 3-cap
- *   • SubscriptionUpsellModal shows for verified sellers at 500-cap
- *   • Both auto-open on their respective exhaustion + accept props
- *   • Modal routes to /seller/subscription/plans
+ * v6 — EMAIL REMOVED FROM CONTACT INFORMATION
+ *   • Email field completely removed from Contact Information section
+ *   • Contact section now shows only: Phone + WhatsApp + WhatsApp Link
+ *   • contactFilled no longer depends on email
+ *   • SectionDot for contact now based on phone only
+ *   • All email refs/selectors removed from UI layer
  *
+ * v5 — Subscription upsell modal integrated
  * v4 — TermsCheckbox moved outside sticky bar
  * v3 — image grid mount fix
  */
@@ -177,16 +179,16 @@ export default function ProductComponents({
     : "/api",
 }) {
   /* ── Local state ── */
-  const [showAllFeatures,           setShowAllFeatures]           = useState(false);
-  const [isDragging,                setIsDragging]                = useState(false);
-  const [waLinkError,               setWaLinkError]               = useState("");
-  const [deliveryRangeError,        setDeliveryRangeError]        = useState("");
-  const [showVerificationModal,     setShowVerificationModal]     = useState(false);
-  const [showSubscriptionModal,     setShowSubscriptionModal]     = useState(false);
-  const [titleSuggestions,          setTitleSuggestions]          = useState([]);
-  const [dupWarning,                setDupWarning]                = useState("");
-  const [dupChecking,               setDupChecking]               = useState(false);
-  const [imageErrors,               setImageErrors]               = useState({});
+  const [showAllFeatures,       setShowAllFeatures]       = useState(false);
+  const [isDragging,            setIsDragging]            = useState(false);
+  const [waLinkError,           setWaLinkError]           = useState("");
+  const [deliveryRangeError,    setDeliveryRangeError]    = useState("");
+  const [showVerificationModal, setShowVerificationModal] = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+  const [titleSuggestions,      setTitleSuggestions]      = useState([]);
+  const [dupWarning,            setDupWarning]            = useState("");
+  const [dupChecking,           setDupChecking]           = useState(false);
+  const [imageErrors,           setImageErrors]           = useState({});
 
   const sessionHashMap  = useRef(new Map());
   const validationQueue = useRef(Promise.resolve());
@@ -208,22 +210,19 @@ export default function ProductComponents({
   /* Card entrance animation */
   useEffect(() => {
     const timers = sectionRefs.map((ref, i) =>
-      setTimeout(() => ref.current?.classList.add("ap-entered"), 420 + i * 60)
+      setTimeout(
+        () => ref.current?.classList.add("ap-entered"),
+        420 + i * 60
+      )
     );
     return () => timers.forEach(clearTimeout);
   }, [sectionRefs]);
 
   /* ═══════════════════════════════════════════════════════════
      AUTO-OPEN UPSELL MODALS
-     v5 — Two distinct paths depending on tier:
-       • Unverified at 3-cap  → VerificationUpsellModal
-       • Verified at 500-cap  → SubscriptionUpsellModal
-       • Subscribers          → never shown
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
-
-    /* Unverified trial exhausted → verify pitch */
     if (trialExhausted && tier === "unverified") {
       setShowVerificationModal(true);
     }
@@ -231,20 +230,19 @@ export default function ProductComponents({
 
   useEffect(() => {
     if (isEditMode) return;
-
-    /* Verified seller hit 500 lifetime → subscribe pitch */
     if (lifetimeExhausted && tier === "verified" && !isSubscriber) {
       setShowSubscriptionModal(true);
     }
   }, [lifetimeExhausted, tier, isSubscriber, isEditMode]);
 
-  /* Also react to needsSubscription flag from parent (post-create response) */
   useEffect(() => {
     if (isEditMode) return;
     if (needsSubscription) setShowSubscriptionModal(true);
   }, [needsSubscription, isEditMode]);
 
-  /* Image validation queue */
+  /* ═══════════════════════════════════════════════════════════
+     IMAGE VALIDATION
+  ═══════════════════════════════════════════════════════════ */
   const _validateImages = useCallback(async (incomingImages) => {
     const errors = {};
     const newMap = new Map(sessionHashMap.current);
@@ -291,7 +289,9 @@ export default function ProductComponents({
 
   useEffect(() => {
     if (!images.length) return;
-    const newImages = images.filter((img) => !validatedIdsRef.current.has(img.id));
+    const newImages = images.filter(
+      (img) => !validatedIdsRef.current.has(img.id)
+    );
     if (!newImages.length) return;
     validateAndHashImages(newImages);
   }, [images, validateAndHashImages]);
@@ -307,7 +307,9 @@ export default function ProductComponents({
     }
   }, [images]);
 
-  /* Server duplicate check */
+  /* ═══════════════════════════════════════════════════════════
+     SERVER DUPLICATE CHECK
+  ═══════════════════════════════════════════════════════════ */
   const checkServerDuplicate = useCallback(async () => {
     if (isEditMode) return;
     if (!form.title?.trim() || !form.price || !form.category_id) return;
@@ -316,20 +318,32 @@ export default function ProductComponents({
 
     setDupChecking(true);
     try {
-      const hashes = await Promise.all(images.map((img) => hashImageFile(img.file)));
-      const res = await fetch(`${apiBase}/addproduct/products/check-duplicate`, {
-        method  : "POST",
-        headers : { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body    : JSON.stringify({
-          title       : form.title.trim(),
-          price       : Number(form.price),
-          category_id : form.category_id,
-          image_hashes: hashes,
-        }),
-      });
+      const hashes = await Promise.all(
+        images.map((img) => hashImageFile(img.file))
+      );
+      const res = await fetch(
+        `${apiBase}/addproduct/products/check-duplicate`,
+        {
+          method  : "POST",
+          headers : {
+            "Content-Type" : "application/json",
+            Authorization  : `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            title       : form.title.trim(),
+            price       : Number(form.price),
+            category_id : form.category_id,
+            image_hashes: hashes,
+          }),
+        }
+      );
       if (!res.ok) return;
       const data = await res.json();
-      setDupWarning(data.isDuplicate ? (data.message ?? "A similar listing already exists.") : "");
+      setDupWarning(
+        data.isDuplicate
+          ? (data.message ?? "A similar listing already exists.")
+          : ""
+      );
     } catch (err) {
       if (import.meta.env.DEV) console.warn("[DupCheck]", err.message);
     } finally {
@@ -343,9 +357,14 @@ export default function ProductComponents({
     }
     const t = setTimeout(checkServerDuplicate, 1_200);
     return () => clearTimeout(t);
-  }, [isEditMode, form.title, form.price, form.category_id, images.length, checkServerDuplicate]);
+  }, [
+    isEditMode, form.title, form.price,
+    form.category_id, images.length, checkServerDuplicate,
+  ]);
 
-  /* WhatsApp link */
+  /* ═══════════════════════════════════════════════════════════
+     WHATSAPP LINK
+  ═══════════════════════════════════════════════════════════ */
   const ALLOWED_WA_HOSTS = useMemo(() => [
     "wa.me", "web.whatsapp.com", "api.whatsapp.com",
     "chat.whatsapp.com", "business.whatsapp.com",
@@ -358,7 +377,8 @@ export default function ProductComponents({
       const url = new URL(trimmed);
       if (url.protocol !== "https:") return "";
       const allowed = ALLOWED_WA_HOSTS.some(
-        (host) => url.hostname === host || url.hostname.endsWith(`.${host}`)
+        (host) =>
+          url.hostname === host || url.hostname.endsWith(`.${host}`)
       );
       return allowed ? trimmed : "";
     } catch { return ""; }
@@ -366,7 +386,10 @@ export default function ProductComponents({
 
   const handleWaLinkChange = useCallback((e) => {
     setWaLinkError("");
-    updateContact("whatsapp_link", sanitizeWhatsAppLink(e.target.value) || e.target.value);
+    updateContact(
+      "whatsapp_link",
+      sanitizeWhatsAppLink(e.target.value) || e.target.value
+    );
   }, [sanitizeWhatsAppLink, updateContact]);
 
   const handleWaLinkBlur = useCallback((e) => {
@@ -374,16 +397,23 @@ export default function ProductComponents({
     const safe = sanitizeWhatsAppLink(val);
     if (val && !safe) {
       updateContact("whatsapp_link", "");
-      setWaLinkError("Invalid link — must use https://wa.me/ or similar.");
+      setWaLinkError(
+        "Invalid link — must use https://wa.me/ or similar."
+      );
     } else {
       setWaLinkError("");
     }
   }, [sanitizeWhatsAppLink, updateContact]);
 
-  /* Delivery range */
-  const deliveryDurationRef = useRef(form.delivery?.duration ?? { from: "", to: "" });
+  /* ═══════════════════════════════════════════════════════════
+     DELIVERY RANGE
+  ═══════════════════════════════════════════════════════════ */
+  const deliveryDurationRef = useRef(
+    form.delivery?.duration ?? { from: "", to: "" }
+  );
   useEffect(() => {
-    deliveryDurationRef.current = form.delivery?.duration ?? { from: "", to: "" };
+    deliveryDurationRef.current =
+      form.delivery?.duration ?? { from: "", to: "" };
   }, [form.delivery?.duration]);
 
   const handleDeliveryDuration = useCallback((key, val) => {
@@ -392,27 +422,45 @@ export default function ProductComponents({
     const from    = Number(key === "from" ? val : current.from);
     const to      = Number(key === "to"   ? val : current.to);
     setDeliveryRangeError(
-      from && to && to < from ? "End day must be equal to or after start day." : ""
+      from && to && to < from
+        ? "End day must be equal to or after start day."
+        : ""
     );
   }, [updateDeliveryDuration]);
 
-  /* Drag and drop */
+  /* ═══════════════════════════════════════════════════════════
+     DRAG AND DROP
+  ═══════════════════════════════════════════════════════════ */
   const handleDragEnter = useCallback((e) => {
-    e.preventDefault(); dragCounterRef.current += 1; setIsDragging(true);
+    e.preventDefault();
+    dragCounterRef.current += 1;
+    setIsDragging(true);
   }, []);
-  const handleDragOver  = useCallback((e) => { e.preventDefault(); }, []);
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+  }, []);
+
   const handleDragLeave = useCallback((e) => {
     e.preventDefault();
     dragCounterRef.current -= 1;
-    if (dragCounterRef.current <= 0) { dragCounterRef.current = 0; setIsDragging(false); }
+    if (dragCounterRef.current <= 0) {
+      dragCounterRef.current = 0;
+      setIsDragging(false);
+    }
   }, []);
+
   const handleDrop = useCallback((e) => {
-    e.preventDefault(); dragCounterRef.current = 0; setIsDragging(false);
+    e.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
     const files = e.dataTransfer?.files;
     if (files?.length) handleImages(files);
   }, [handleImages]);
 
-  /* Derived */
+  /* ═══════════════════════════════════════════════════════════
+     DERIVED VALUES
+  ═══════════════════════════════════════════════════════════ */
   const categoryOptions = useMemo(() => {
     if (!Array.isArray(categories)) return [];
     return categories
@@ -420,20 +468,26 @@ export default function ProductComponents({
       .filter((cat) => cat.id && cat.name);
   }, [categories]);
 
-  const activeCategory = selectedCategory ?? getSelectedCategory(categories, form.category_id);
+  const activeCategory = selectedCategory ??
+    getSelectedCategory(categories, form.category_id);
   const subcategories  = activeCategory?.subcategories ?? [];
 
   const fields = useMemo(() => {
     if (!activeCategory) return [];
     const backendFields = Array.isArray(options?.fields)
-      ? options.fields.map((f) => (typeof f === "object" ? f.name ?? f.id : f))
+      ? options.fields.map((f) =>
+          typeof f === "object" ? f.name ?? f.id : f
+        )
       : [];
     const localFields = categoryFields[activeCategory.name] ?? [];
     const seen = new Set();
     return [...backendFields, ...localFields]
       .filter(Boolean)
       .filter((f) => typeof f === "string" && f.trim().length > 0)
-      .filter((f) => { if (seen.has(f)) return false; seen.add(f); return true; })
+      .filter((f) => {
+        if (seen.has(f)) return false;
+        seen.add(f); return true;
+      })
       .filter((f) => f !== "brand" && f !== "model");
   }, [activeCategory, options]);
 
@@ -448,24 +502,33 @@ export default function ProductComponents({
     brand           : normalizeOptions(options?.brands),
     color           : normalizeOptions(options?.colors),
     condition       : normalizeOptions(options?.conditions),
-    used_detail     : normalizeOptions(options?.used_details ?? options?.usedDetails ?? []),
+    used_detail     : normalizeOptions(
+      options?.used_details ?? options?.usedDetails ?? []
+    ),
     ram             : normalizeOptions(options?.ram),
     storage         : normalizeOptions(options?.storage),
     sim             : normalizeOptions(options?.sim),
     year            : normalizeOptions(options?.years),
-    engine          : normalizeOptions(options?.engine ?? options?.engines ?? []),
-    fuel_type       : normalizeOptions(options?.fuelType ?? options?.fuel_types ?? []),
+    engine          : normalizeOptions(
+      options?.engine ?? options?.engines ?? []
+    ),
+    fuel_type       : normalizeOptions(
+      options?.fuelType ?? options?.fuel_types ?? []
+    ),
     size            : normalizeOptions(options?.size),
     age_range       : normalizeOptions(options?.age_range),
     bedrooms        : normalizeOptions(options?.bedrooms),
     bathrooms       : normalizeOptions(options?.bathrooms),
     experience_level: normalizeOptions(options?.experience_level),
     skills          : normalizeOptions(options?.skills),
-    features        : Array.isArray(options?.features) ? options.features : [],
+    features        : Array.isArray(options?.features)
+      ? options.features
+      : [],
   }), [options]);
 
   const showModelField = !!attributes?.brand;
-  const isFreePlan     = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
+  const isFreePlan     = !selectedPlan ||
+    Number(selectedPlan?.price ?? 0) === 0;
 
   const allFeatures = normalizedOptions.features;
   const visibleFeatures = useMemo(
@@ -499,8 +562,12 @@ export default function ProductComponents({
         : price * (1 - discount / 100);
       return (
         <>
-          <span className="plan-price-original">&#8358;{displayPrice(price)}</span>{" "}
-          <span className="plan-price-effective">&#8358;{displayPrice(effective.toFixed(2))}</span>{" "}
+          <span className="plan-price-original">
+            &#8358;{displayPrice(price)}
+          </span>{" "}
+          <span className="plan-price-effective">
+            &#8358;{displayPrice(effective.toFixed(2))}
+          </span>{" "}
           <span className="plan-price-badge">-{discount}%</span>
         </>
       );
@@ -517,7 +584,11 @@ export default function ProductComponents({
   /* Title suggestions */
   useEffect(() => {
     if (isEditMode) return;
-    if (!form.description || form.description.length < 30 || form.title?.trim().length >= 10) {
+    if (
+      !form.description ||
+      form.description.length < 30 ||
+      form.title?.trim().length >= 10
+    ) {
       setTitleSuggestions([]); return;
     }
     const t = setTimeout(() => {
@@ -530,13 +601,22 @@ export default function ProductComponents({
     return () => clearTimeout(t);
   }, [isEditMode, form.description, form.title]);
 
-  /* Derived UI state */
+  /* ═══════════════════════════════════════════════════════════
+     DERIVED UI STATE
+     ✅ v6: contactFilled now based on phone only (no email)
+  ═══════════════════════════════════════════════════════════ */
   const canAddMore     = totalImageCount < MAX_IMAGES;
   const hasImageErrors = Object.keys(imageErrors).length > 0;
 
-  const basicFilled    = !!(form.title?.trim() && form.description?.trim() && form.price);
+  const basicFilled   = !!(
+    form.title?.trim() && form.description?.trim() && form.price
+  );
   const detailsFilled  = !!form.category_id;
-  const contactFilled  = !!(form.contact?.email && form.contact?.phone);
+
+  /* ✅ v6: Contact is complete when phone is filled
+           Email is NOT required — comes from registration */
+  const contactFilled  = !!form.contact?.phone;
+
   const locationFilled = !!(state && city);
   const imagesFilled   = totalImageCount > 0 && !hasImageErrors;
 
@@ -545,15 +625,20 @@ export default function ProductComponents({
   ].filter(Boolean).length;
 
   const submitBlocked =
-    loading || (!isEditMode && !agreedToTerms) ||
-    (!isEditMode && plansLoading) ||
-    !!deliveryRangeError || hasImageErrors;
+    loading                             ||
+    (!isEditMode && !agreedToTerms)     ||
+    (!isEditMode && plansLoading)       ||
+    !!deliveryRangeError                ||
+    hasImageErrors;
 
   const submitTitle = !agreedToTerms && !isEditMode
     ? "Please accept the Terms & Conditions first"
-    : plansLoading && !isEditMode ? "Plans are still loading"
-    : !!deliveryRangeError        ? deliveryRangeError
-    : hasImageErrors              ? "Fix image errors before submitting"
+    : plansLoading && !isEditMode
+    ? "Plans are still loading"
+    : !!deliveryRangeError
+    ? deliveryRangeError
+    : hasImageErrors
+    ? "Fix image errors before submitting"
     : undefined;
 
   const submitLabel = (() => {
@@ -587,17 +672,28 @@ export default function ProductComponents({
       {showSubscriptionModal && !isEditMode && (
         <SubscriptionUpsellModal
           onClose={() => setShowSubscriptionModal(false)}
-          lifetimeUsed={subscriptionData?.lifetimeUsed ?? lifetimeUsed ?? 500}
-          lifetimeMax={subscriptionData?.lifetimeMax ?? lifetimeMax ?? 500}
-          upgradeUrl={subscriptionData?.upgradeUrl ?? upgradeUrl ?? "/seller/subscription/plans"}
+          lifetimeUsed={
+            subscriptionData?.lifetimeUsed ?? lifetimeUsed ?? 500
+          }
+          lifetimeMax={
+            subscriptionData?.lifetimeMax ?? lifetimeMax ?? 500
+          }
+          upgradeUrl={
+            subscriptionData?.upgradeUrl ??
+            upgradeUrl ??
+            "/seller/subscription/plans"
+          }
         />
       )}
 
+      {/* ── PROGRESS BAR ── */}
       {!isEditMode && sectionsComplete < 5 && (
         <div className="ap-top-bar">
           <div className="form-progress" aria-label="Form completion">
-            <div className="form-progress-bar"
-                 style={{ width: `${(sectionsComplete / 5) * 100}%` }} />
+            <div
+              className="form-progress-bar"
+              style={{ width: `${(sectionsComplete / 5) * 100}%` }}
+            />
             <span className="form-progress-label">
               {sectionsComplete}/5 sections complete
             </span>
@@ -605,12 +701,15 @@ export default function ProductComponents({
         </div>
       )}
 
+      {/* ── EDIT MODE BAR ── */}
       {isEditMode && (
         <div className="ap-edit-mode-bar">
           <span className="ap-edit-mode-icon" aria-hidden="true">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" strokeWidth={2} strokeLinecap="round"
-                 strokeLinejoin="round">
+            <svg
+              width="14" height="14" viewBox="0 0 24 24"
+              fill="none" stroke="currentColor"
+              strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+            >
               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
               <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
             </svg>
@@ -619,6 +718,7 @@ export default function ProductComponents({
         </div>
       )}
 
+      {/* ── DUPLICATE WARNING ── */}
       {!isEditMode && dupWarning && (
         <div className="duplicate-warning" role="alert">
           <WarningIcon />
@@ -626,8 +726,14 @@ export default function ProductComponents({
             <strong>Possible duplicate listing</strong>
             <p>{dupWarning}</p>
           </div>
-          <button type="button" onClick={() => setDupWarning("")}
-                  className="duplicate-dismiss" aria-label="Dismiss">&times;</button>
+          <button
+            type="button"
+            onClick={() => setDupWarning("")}
+            className="duplicate-dismiss"
+            aria-label="Dismiss"
+          >
+            &times;
+          </button>
         </div>
       )}
 
@@ -637,6 +743,7 @@ export default function ProductComponents({
         </div>
       )}
 
+      {/* ── GLOBAL ERROR / SUCCESS ── */}
       {error && (
         <div className="form-error ap-error-banner" role="alert">
           <WarningIcon /> {error}
@@ -648,10 +755,12 @@ export default function ProductComponents({
         </div>
       )}
 
+      {/* ── VERIFICATION NUDGE ── */}
       {needsVerification && verificationData && (
         <VerificationNudgeBanner verificationData={verificationData} />
       )}
 
+      {/* ── PAYMENT RESUME BANNER ── */}
       {!isEditMode && paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
@@ -665,22 +774,33 @@ export default function ProductComponents({
             </div>
           </div>
           <div className="payment-resume-actions">
-            <button type="button" className="primary-btn" onClick={resumePayment}>
+            <button
+              type="button"
+              className="primary-btn"
+              onClick={resumePayment}
+            >
               Complete Payment
             </button>
-            <button type="button" className="outline-btn" onClick={cancelPendingPayment}>
+            <button
+              type="button"
+              className="outline-btn"
+              onClick={cancelPendingPayment}
+            >
               Cancel &amp; Save Draft
             </button>
           </div>
         </div>
       )}
 
-      {/* ── BASIC INFORMATION ── */}
+      {/* ════════════════════════════════════════════════════
+          SECTION 0 — BASIC INFORMATION
+      ════════════════════════════════════════════════════ */}
       <section ref={sec0} className="section form-card">
         <h3 className="section-title">
           Basic Information <SectionDot filled={basicFilled} />
         </h3>
 
+        {/* Title */}
         <div className="form-group">
           <label htmlFor="ap-title">Product Title *</label>
           <input
@@ -698,8 +818,15 @@ export default function ProductComponents({
             <div className="title-suggestions">
               <span className="title-suggestions-label">Suggestion:</span>
               {titleSuggestions.map((s) => (
-                <button key={s} type="button" className="title-suggestion-chip"
-                        onClick={() => { updateForm("title", s); setTitleSuggestions([]); }}>
+                <button
+                  key={s}
+                  type="button"
+                  className="title-suggestion-chip"
+                  onClick={() => {
+                    updateForm("title", s);
+                    setTitleSuggestions([]);
+                  }}
+                >
                   {s}
                 </button>
               ))}
@@ -707,10 +834,12 @@ export default function ProductComponents({
           )}
         </div>
 
+        {/* Description */}
         <div className="form-group">
           <label htmlFor="ap-desc">Description *</label>
           <textarea
-            id="ap-desc" rows={4}
+            id="ap-desc"
+            rows={4}
             placeholder="Describe your product — condition, features, reason for selling"
             value={form.description}
             onChange={(e) => updateForm("description", e.target.value)}
@@ -722,23 +851,31 @@ export default function ProductComponents({
           </div>
         </div>
 
+        {/* Price */}
         <div className="form-group">
           <label htmlFor="ap-price">Price (&#8358;) *</label>
           <input
-            id="ap-price" type="text" inputMode="numeric"
+            id="ap-price"
+            type="text"
+            inputMode="numeric"
             placeholder="Enter price"
             value={displayPrice(form.price)}
-            onChange={(e) => updateForm("price", onlyNumbers(e.target.value))}
+            onChange={(e) =>
+              updateForm("price", onlyNumbers(e.target.value))
+            }
           />
         </div>
       </section>
 
-      {/* ── PRODUCT DETAILS ── */}
+      {/* ════════════════════════════════════════════════════
+          SECTION 1 — PRODUCT DETAILS
+      ════════════════════════════════════════════════════ */}
       <section ref={sec1} className="section form-card">
         <h3 className="section-title">
           Product Details <SectionDot filled={detailsFilled} />
         </h3>
 
+        {/* Category */}
         <div className="form-group">
           <label>Category *</label>
           <DropdownModal
@@ -750,24 +887,32 @@ export default function ProductComponents({
               updateForm("category_id",    value);
               updateForm("subcategory_id", "");
               if (!isEditMode) {
-                updateForm("attributes", deepClone(INITIAL_FORM.attributes));
+                updateForm(
+                  "attributes",
+                  deepClone(INITIAL_FORM.attributes)
+                );
               }
             }}
           />
         </div>
 
+        {/* Subcategory */}
         {subcategories.length > 0 && (
           <div className="form-group">
             <label>Subcategory</label>
             <DropdownModal
               value={normValue(form.subcategory_id)}
-              options={subcategories.map((sub) => ({ id: String(sub.id), name: sub.name }))}
+              options={subcategories.map((sub) => ({
+                id  : String(sub.id),
+                name: sub.name,
+              }))}
               placeholder="Select subcategory"
               onChange={(value) => updateForm("subcategory_id", value)}
             />
           </div>
         )}
 
+        {/* Brand */}
         {normalizedOptions.brand.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
@@ -779,6 +924,7 @@ export default function ProductComponents({
           </div>
         )}
 
+        {/* Model */}
         {showModelField && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
@@ -796,16 +942,22 @@ export default function ProductComponents({
                 type="text"
                 placeholder="e.g. Pavilion 15-eg3000"
                 value={attributes?.model ?? ""}
-                onChange={(e) => updateAttribute("model", e.target.value.trimStart())}
+                onChange={(e) =>
+                  updateAttribute("model", e.target.value.trimStart())
+                }
               />
             )}
           </div>
         )}
 
+        {/* Dynamic fields */}
         {fields.map((field) => {
           const fieldOptions = normalizedOptions[field] ?? [];
           if (!fieldOptions.length) return null;
-          if (field === "used_detail" && attributes?.condition !== "Used") return null;
+          if (
+            field === "used_detail" &&
+            attributes?.condition !== "Used"
+          ) return null;
           return (
             <div key={field} className="form-group">
               <label>{formatLabel(field)}</label>
@@ -818,12 +970,20 @@ export default function ProductComponents({
           );
         })}
 
+        {/* Features */}
         {totalFeatureCount > 0 && (
           <div className="form-group">
             <label>Features</label>
-            <div className="checkbox-grid-inline" role="group" aria-label="Product features">
+            <div
+              className="checkbox-grid-inline"
+              role="group"
+              aria-label="Product features"
+            >
               {visibleFeatures.map((feature) => (
-                <label key={safeStr(feature)} className="checkbox-inline">
+                <label
+                  key={safeStr(feature)}
+                  className="checkbox-inline"
+                >
                   <input
                     type="checkbox"
                     checked={selectedFeaturesSet.has(feature)}
@@ -834,8 +994,11 @@ export default function ProductComponents({
               ))}
             </div>
             {totalFeatureCount > 12 && (
-              <button type="button" className="link-btn"
-                      onClick={() => setShowAllFeatures((v) => !v)}>
+              <button
+                type="button"
+                className="link-btn"
+                onClick={() => setShowAllFeatures((v) => !v)}
+              >
                 {showAllFeatures
                   ? "Show fewer features"
                   : `Show ${totalFeatureCount - 12} more features`}
@@ -845,80 +1008,120 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ── CONTACT INFORMATION ── */}
+      {/* ════════════════════════════════════════════════════
+          SECTION 2 — CONTACT INFORMATION
+          ✅ v6: Email completely removed
+                 Only Phone + WhatsApp + WhatsApp Link shown
+      ════════════════════════════════════════════════════ */}
       <section ref={sec2} className="section form-card">
         <h3 className="section-title">
           Contact Information <SectionDot filled={contactFilled} />
         </h3>
 
-        <div className="form-row">
-          <div className="form-group">
-            <label htmlFor="ap-email">Email *</label>
-            <input id="ap-email" type="email"
-                   value={form.contact.email} placeholder="your@email.com"
-                   onChange={(e) => updateContact("email", e.target.value)}
-                   autoComplete="email" />
-          </div>
-          <div className="form-group">
-            <label htmlFor="ap-phone">Phone *</label>
-            <input id="ap-phone" type="tel"
-                   value={form.contact.phone} placeholder="08012345678"
-                   onChange={(e) => updateContact("phone", onlyDigits(e.target.value))}
-                   maxLength={15} autoComplete="tel" />
-          </div>
+        {/* ✅ Phone Number — required */}
+        <div className="form-group">
+          <label htmlFor="ap-phone">Phone Number *</label>
+          <input
+            id="ap-phone"
+            type="tel"
+            value={form.contact?.phone ?? ""}
+            placeholder="08012345678"
+            onChange={(e) =>
+              updateContact("phone", onlyDigits(e.target.value))
+            }
+            maxLength={15}
+            autoComplete="tel"
+          />
+          <small className="field-hint">
+            Buyers will use this to contact you
+          </small>
         </div>
 
-        <div className="form-row">
-          <div className="form-group">
-            <label htmlFor="ap-wa">
-              WhatsApp <span className="label-optional">(optional)</span>
-            </label>
-            <input id="ap-wa" type="tel"
-                   value={form.contact.whatsapp} placeholder="08012345678"
-                   onChange={(e) => updateContact("whatsapp", onlyDigits(e.target.value))}
-                   maxLength={15} />
-          </div>
-          <div className="form-group">
-            <label htmlFor="ap-wa-link">
-              WhatsApp Link <span className="label-optional">(optional)</span>
-            </label>
-            <input id="ap-wa-link" type="url"
-                   value={form.contact.whatsapp_link}
-                   placeholder="https://wa.me/2348012345678"
-                   onChange={handleWaLinkChange}
-                   onBlur={handleWaLinkBlur} />
-            {waLinkError && (
-              <small className="field-hint field-hint--error">{waLinkError}</small>
-            )}
-          </div>
+        {/* ✅ WhatsApp Number — optional */}
+        <div className="form-group">
+          <label htmlFor="ap-wa">
+            WhatsApp Number{" "}
+            <span className="label-optional">(optional)</span>
+          </label>
+          <input
+            id="ap-wa"
+            type="tel"
+            value={form.contact?.whatsapp ?? ""}
+            placeholder="08012345678"
+            onChange={(e) =>
+              updateContact("whatsapp", onlyDigits(e.target.value))
+            }
+            maxLength={15}
+          />
+          <small className="field-hint">
+            Leave blank if same as phone number
+          </small>
+        </div>
+
+        {/* ✅ WhatsApp Link — optional */}
+        <div className="form-group">
+          <label htmlFor="ap-wa-link">
+            WhatsApp Link{" "}
+            <span className="label-optional">(optional)</span>
+          </label>
+          <input
+            id="ap-wa-link"
+            type="url"
+            value={form.contact?.whatsapp_link ?? ""}
+            placeholder="https://wa.me/2348012345678"
+            onChange={handleWaLinkChange}
+            onBlur={handleWaLinkBlur}
+          />
+          {waLinkError ? (
+            <small className="field-hint field-hint--error">
+              {waLinkError}
+            </small>
+          ) : (
+            <small className="field-hint">
+              Optional — buyers can tap to open a WhatsApp chat
+            </small>
+          )}
         </div>
       </section>
 
-      {/* ── LOCATION & DELIVERY ── */}
+      {/* ════════════════════════════════════════════════════
+          SECTION 3 — LOCATION & DELIVERY
+      ════════════════════════════════════════════════════ */}
       <section ref={sec3} className="section form-card">
         <h3 className="section-title">
           Location &amp; Delivery <SectionDot filled={locationFilled} />
         </h3>
 
+        {/* Detect Location */}
         {detectLocation && (
           <div className="detect-location-row">
-            <button type="button" className="detect-location-btn"
-                    onClick={detectLocation} disabled={detectingLocation}>
-              {detectingLocation
-                ? <><SpinnerIcon /> Detecting location&#8230;</>
-                : <>
-                    <LocationPinIcon />
-                    {detectedCoords ? "Location detected" : "Detect my location"}
-                  </>}
+            <button
+              type="button"
+              className="detect-location-btn"
+              onClick={detectLocation}
+              disabled={detectingLocation}
+            >
+              {detectingLocation ? (
+                <><SpinnerIcon /> Detecting location&#8230;</>
+              ) : (
+                <>
+                  <LocationPinIcon />
+                  {detectedCoords
+                    ? "Location detected"
+                    : "Detect my location"}
+                </>
+              )}
             </button>
           </div>
         )}
 
+        {/* State & City */}
         <div className="form-row">
           <div className="form-group">
             <label>State *</label>
             <DropdownModal
-              value={state} onChange={setState}
+              value={state}
+              onChange={setState}
               options={states.map((s) => ({ id: s, name: s }))}
               placeholder="Select state"
             />
@@ -927,7 +1130,8 @@ export default function ProductComponents({
             <div className="form-group">
               <label>City *</label>
               <DropdownModal
-                value={city} onChange={setCity}
+                value={city}
+                onChange={setCity}
                 options={cities.map((c) => ({ id: c, name: c }))}
                 placeholder="Select city"
               />
@@ -935,38 +1139,69 @@ export default function ProductComponents({
           )}
         </div>
 
+        {/* Delivery Toggle */}
         <div className="form-group">
           <label htmlFor="ap-delivery-toggle">Delivery Available</label>
           <label className="toggle-switch">
-            <input id="ap-delivery-toggle" type="checkbox"
-                   checked={form.delivery.available}
-                   onChange={(e) => updateDelivery("available", e.target.checked)} />
+            <input
+              id="ap-delivery-toggle"
+              type="checkbox"
+              checked={form.delivery.available}
+              onChange={(e) =>
+                updateDelivery("available", e.target.checked)
+              }
+            />
             <span className="slider" />
-            <span className={`toggle-status${form.delivery.available ? " toggle-status--on" : ""}`}>
-              {form.delivery.available ? "Yes — delivery available" : "No delivery"}
+            <span
+              className={`toggle-status${
+                form.delivery.available ? " toggle-status--on" : ""
+              }`}
+            >
+              {form.delivery.available
+                ? "Yes — delivery available"
+                : "No delivery"}
             </span>
           </label>
         </div>
 
+        {/* Delivery Details */}
         {form.delivery.available && (
           <div className="delivery-grid">
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="ap-del-from">From Day *</label>
-                <input id="ap-del-from" type="number" min="1" max="30"
-                       value={form.delivery.duration.from}
-                       onChange={(e) => handleDeliveryDuration("from", clampDay(e.target.value))} />
+                <input
+                  id="ap-del-from"
+                  type="number"
+                  min="1"
+                  max="30"
+                  value={form.delivery.duration.from}
+                  onChange={(e) =>
+                    handleDeliveryDuration("from", clampDay(e.target.value))
+                  }
+                />
               </div>
               <div className="form-group">
                 <label htmlFor="ap-del-to">To Day *</label>
-                <input id="ap-del-to" type="number" min="1" max="30"
-                       value={form.delivery.duration.to}
-                       onChange={(e) => handleDeliveryDuration("to", clampDay(e.target.value))} />
+                <input
+                  id="ap-del-to"
+                  type="number"
+                  min="1"
+                  max="30"
+                  value={form.delivery.duration.to}
+                  onChange={(e) =>
+                    handleDeliveryDuration("to", clampDay(e.target.value))
+                  }
+                />
               </div>
             </div>
 
             {deliveryRangeError && (
-              <div className="form-error" role="alert" style={{ marginBottom: 10 }}>
+              <div
+                className="form-error"
+                role="alert"
+                style={{ marginBottom: 10 }}
+              >
                 <WarningIcon /> {deliveryRangeError}
               </div>
             )}
@@ -974,18 +1209,30 @@ export default function ProductComponents({
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="ap-del-fee">Fee (&#8358;) *</label>
-                <input id="ap-del-fee" type="text" inputMode="numeric"
-                       value={displayPrice(form.delivery.fee)}
-                       onChange={(e) => updateDelivery("fee", onlyNumbers(e.target.value))} />
+                <input
+                  id="ap-del-fee"
+                  type="text"
+                  inputMode="numeric"
+                  value={displayPrice(form.delivery.fee)}
+                  onChange={(e) =>
+                    updateDelivery("fee", onlyNumbers(e.target.value))
+                  }
+                />
               </div>
               <div className="form-group">
                 <label htmlFor="ap-del-note">
-                  Delivery Note <span className="label-optional">(optional)</span>
+                  Delivery Note{" "}
+                  <span className="label-optional">(optional)</span>
                 </label>
-                <textarea id="ap-del-note" rows={2}
-                          value={form.delivery.note}
-                          onChange={(e) => updateDelivery("note", e.target.value)}
-                          maxLength={200} />
+                <textarea
+                  id="ap-del-note"
+                  rows={2}
+                  value={form.delivery.note}
+                  onChange={(e) =>
+                    updateDelivery("note", e.target.value)
+                  }
+                  maxLength={200}
+                />
                 <div className="field-footer">
                   <span />
                   <CharCounter value={form.delivery.note} max={200} />
@@ -996,14 +1243,22 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ── PRODUCT IMAGES ── */}
+      {/* ════════════════════════════════════════════════════
+          SECTION 4 — PRODUCT IMAGES
+      ════════════════════════════════════════════════════ */}
       <section ref={sec4} className="section form-card">
         <h3 className="section-title">
           Product Images * <SectionDot filled={imagesFilled} />
         </h3>
 
         <div className="image-count-status">
-          <span className={`image-count-badge${totalImageCount >= MAX_IMAGES ? " image-count-badge--full" : ""}`}>
+          <span
+            className={`image-count-badge${
+              totalImageCount >= MAX_IMAGES
+                ? " image-count-badge--full"
+                : ""
+            }`}
+          >
             {totalImageCount}/{MAX_IMAGES} images
           </span>
           {isEditMode && existingImages.length > 0 && (
@@ -1014,11 +1269,15 @@ export default function ProductComponents({
         </div>
 
         {hasImageErrors && (
-          <div className="form-error" role="alert" style={{ marginBottom: 10 }}>
+          <div
+            className="form-error"
+            role="alert"
+            style={{ marginBottom: 10 }}
+          >
             <WarningIcon />{" "}
             {Object.keys(imageErrors).length} image
-            {Object.keys(imageErrors).length !== 1 ? "s have" : " has"} errors
-            — fix before submitting
+            {Object.keys(imageErrors).length !== 1 ? "s have" : " has"}{" "}
+            errors — fix before submitting
           </div>
         )}
 
@@ -1068,7 +1327,9 @@ export default function ProductComponents({
         )}
       </section>
 
-      {/* ── PROMOTION PLAN (create mode only) ── */}
+      {/* ════════════════════════════════════════════════════
+          SECTION 5 — PROMOTION PLAN (create mode only)
+      ════════════════════════════════════════════════════ */}
       {!isEditMode && (
         <section ref={sec5} className="section form-card">
           <h3 className="section-title">Promotion Plan</h3>
@@ -1086,24 +1347,36 @@ export default function ProductComponents({
           )}
 
           {!plansLoading && promotionPlans.length > 0 && (
-            <div className="plans-grid" role="radiogroup" aria-label="Promotion plan">
+            <div
+              className="plans-grid"
+              role="radiogroup"
+              aria-label="Promotion plan"
+            >
               {promotionPlans.map((plan, planIndex) => {
-                const isSelected  = String(selectedPlan?.id) === String(plan.id);
-                const isBestValue = String(plan.id) === String(bestValuePlanId);
+                const isSelected  =
+                  String(selectedPlan?.id) === String(plan.id);
+                const isBestValue =
+                  String(plan.id) === String(bestValuePlanId);
                 return (
                   <div
                     key={plan.id}
-                    ref={(el) => { if (el) planRefs.current[planIndex] = el; }}
+                    ref={(el) => {
+                      if (el) planRefs.current[planIndex] = el;
+                    }}
                     className={[
                       "plan-card",
                       isSelected  ? "selected"        : "",
                       isBestValue ? "plan-card--best" : "",
                     ].filter(Boolean).join(" ")}
-                    onClick={() => setSelectedPlan(isSelected ? null : plan)}
+                    onClick={() =>
+                      setSelectedPlan(isSelected ? null : plan)
+                    }
                     role="radio"
                     tabIndex={isSelected ? 0 : -1}
                     aria-checked={isSelected}
-                    aria-label={`${plan.name} plan${isBestValue ? " — Best Value" : ""}`}
+                    aria-label={`${plan.name} plan${
+                      isBestValue ? " — Best Value" : ""
+                    }`}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
@@ -1111,13 +1384,19 @@ export default function ProductComponents({
                         return;
                       }
                       const total = promotionPlans.length;
-                      if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                      if (
+                        e.key === "ArrowRight" ||
+                        e.key === "ArrowDown"
+                      ) {
                         e.preventDefault();
                         const next = (planIndex + 1) % total;
                         setSelectedPlan(promotionPlans[next]);
                         planRefs.current[next]?.focus();
                       }
-                      if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                      if (
+                        e.key === "ArrowLeft" ||
+                        e.key === "ArrowUp"
+                      ) {
                         e.preventDefault();
                         const prev = (planIndex - 1 + total) % total;
                         setSelectedPlan(promotionPlans[prev]);
@@ -1132,18 +1411,24 @@ export default function ProductComponents({
                     )}
                     <div className="plan-header">
                       <strong>{plan.name}</strong>
-                      <span className="plan-price">{planPriceLabel(plan)}</span>
+                      <span className="plan-price">
+                        {planPriceLabel(plan)}
+                      </span>
                     </div>
                     <div className="plan-duration">
-                      {plan.duration || `${plan.duration_days ?? 30} days`}
+                      {plan.duration ||
+                        `${plan.duration_days ?? 30} days`}
                     </div>
-                    {Array.isArray(plan.features) && plan.features.length > 0 && (
-                      <ul className="plan-features">
-                        {plan.features.map((f) => (
-                          <li key={safeStr(f)}><CheckIcon /> {safeStr(f)}</li>
-                        ))}
-                      </ul>
-                    )}
+                    {Array.isArray(plan.features) &&
+                      plan.features.length > 0 && (
+                        <ul className="plan-features">
+                          {plan.features.map((f) => (
+                            <li key={safeStr(f)}>
+                              <CheckIcon /> {safeStr(f)}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                   </div>
                 );
               })}
@@ -1155,6 +1440,7 @@ export default function ProductComponents({
       {/* ── TERMS CHECKBOX ── */}
       {!isEditMode && TermsCheckbox}
 
+      {/* ── EDIT BACK HINT ── */}
       {isEditMode && (
         <p className="edit-back-hint">
           Changes are saved to your listing immediately.{" "}
@@ -1164,8 +1450,16 @@ export default function ProductComponents({
 
       {/* ── STICKY SUBMIT BAR ── */}
       <div className="button-section">
-        <span className="sr-only" aria-live="polite" aria-atomic="true">
-          {loading ? (isEditMode ? "Saving changes" : "Processing submission") : ""}
+        <span
+          className="sr-only"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {loading
+            ? isEditMode
+              ? "Saving changes"
+              : "Processing submission"
+            : ""}
         </span>
 
         <button
@@ -1176,9 +1470,14 @@ export default function ProductComponents({
           aria-busy={loading}
           title={submitTitle}
         >
-          {loading
-            ? <><SpinnerIcon />{" "}{isEditMode ? "Saving…" : "Processing…"}</>
-            : submitLabel}
+          {loading ? (
+            <>
+              <SpinnerIcon />{" "}
+              {isEditMode ? "Saving…" : "Processing…"}
+            </>
+          ) : (
+            submitLabel
+          )}
         </button>
       </div>
     </>
