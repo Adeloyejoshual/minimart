@@ -6,17 +6,21 @@
  * POST /api/payment/verify
  * POST /api/payment/webhook   (mount with express.raw)
  *
- * v4 — enterprise improvements:
- *  1.  Currency validation (NGN enforced on verify + webhook)
- *  2.  Prevent multiple active pending payments per product
- *  3.  Expire stale pending payment rows in cleanup job
- *  4.  Unique DB constraints documented (migration below)
- *  5.  Webhook event deduplication via payload hash
- *  6.  Product row lock inside activateProductForPayment
- *  7.  Signature length guard before timingSafeEqual
- *  8.  Notification deduplication via (user_id, type, payment_id)
- *  9.  seller_id stringified in cleanup bySeller grouping
- * 10.  Reuse existing pending payment on idempotent initiate
+ * v5 — EMAIL FROM REGISTRATION
+ * ─────────────────────────────────────────────────────────────
+ *  - Email is NEVER taken from req.body
+ *  - Email is always fetched from users table (registration email)
+ *  - All v4 enterprise improvements maintained:
+ *     1.  Currency validation (NGN enforced)
+ *     2.  Prevent multiple active pending payments per product
+ *     3.  Expire stale pending payment rows in cleanup job
+ *     4.  Unique DB constraints documented
+ *     5.  Webhook event deduplication via payload hash
+ *     6.  Product row lock inside activateProductForPayment
+ *     7.  Signature length guard before timingSafeEqual
+ *     8.  Notification deduplication via (user_id, type, payment_id)
+ *     9.  seller_id stringified in cleanup bySeller grouping
+ *    10.  Reuse existing pending payment on idempotent initiate
  */
 
 import express   from "express";
@@ -33,7 +37,7 @@ import { reactivateLimitedListings } from "./addproduct.js";
 const router        = express.Router();
 const webhookRouter = express.Router();
 
-const IS_PROD       = process.env.NODE_ENV === "production";
+const IS_PROD           = process.env.NODE_ENV === "production";
 const ACCEPTED_CURRENCY = "NGN";
 
 /* ══════════════════════════════════════════════════════════════
@@ -75,19 +79,38 @@ const cleanUuid = (v) => {
   return s && s !== "null" && s !== "undefined" ? s : null;
 };
 
-const cleanEmail = (v) => {
-  const s = String(v ?? "").trim().toLowerCase();
-  return s.includes("@") ? s : null;
-};
-
 const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
-/**
- * HMAC-SHA512 Paystack webhook signature.
- * FIX #7: validate signature length before buffer comparison
- * to prevent malformed input edge cases.
- */
+/* ══════════════════════════════════════════════════════════════
+   FETCH SELLER EMAIL FROM USERS TABLE
+   ✅ v5: Single source of truth — always registration email
+   Never accepts email from req.body
+══════════════════════════════════════════════════════════════ */
+const getSellerEmail = async (db, sellerId) => {
+  const { rows } = await db.query(
+    `SELECT email FROM public.users WHERE id = $1 LIMIT 1`,
+    [sellerId]
+  );
+
+  if (!rows.length) {
+    throw new Error("Seller account not found.");
+  }
+
+  const email = rows[0]?.email ?? null;
+
+  if (!email) {
+    throw new Error("Account email not found. Please contact support.");
+  }
+
+  console.log(`[payment] ✅ email fetched from users table for seller: ${sellerId}`);
+  return email;
+};
+
+/* ══════════════════════════════════════════════════════════════
+   HMAC-SHA512 PAYSTACK WEBHOOK SIGNATURE
+   FIX #7: validate signature length before timingSafeEqual
+══════════════════════════════════════════════════════════════ */
 const verifySignature = (rawBody, secret, signature) => {
   /* Paystack HMAC-SHA512 is always 128 hex chars */
   if (
@@ -113,24 +136,20 @@ const verifySignature = (rawBody, secret, signature) => {
   }
 };
 
-/** Compute promotion expiry date from plan duration */
+/* Compute promotion expiry date from plan duration */
 const promotionExpiresAt = (durationDays) => {
   const d = new Date();
   d.setDate(d.getDate() + durationDays);
   return d;
 };
 
-/**
- * Hash raw webhook payload for deduplication.
- * Stored in payment_webhook_events before any DB work.
- */
+/* Hash raw webhook payload for deduplication */
 const hashWebhookPayload = (rawBody) =>
   crypto.createHash("sha256").update(rawBody).digest("hex");
 
 /* ══════════════════════════════════════════════════════════════
    PAYMENT EVENT LOG
-   Append-only audit trail for every payment state change.
-   Fire-and-forget — never blocks the main flow.
+   Append-only audit trail — fire-and-forget
 ══════════════════════════════════════════════════════════════ */
 const logPaymentEvent = async (paymentId, event, source, payload = {}) => {
   try {
@@ -146,9 +165,7 @@ const logPaymentEvent = async (paymentId, event, source, payload = {}) => {
 
 /* ══════════════════════════════════════════════════════════════
    NOTIFICATION — DEDUPLICATED
-   FIX #8: one notification per (userId, type, paymentId).
-   If the same event fires from both webhook and /verify,
-   only one notification reaches the user.
+   FIX #8: one notification per (userId, type, paymentId)
 ══════════════════════════════════════════════════════════════ */
 const sendPaymentNotification = async ({
   userId,
@@ -158,7 +175,6 @@ const sendPaymentNotification = async ({
   paymentId,
 }) => {
   try {
-    /* Insert only if no row exists for this (user_id, type, payment_id) */
     await pool.query(
       `INSERT INTO notifications
          (user_id, type, title, message, metadata)
@@ -183,8 +199,10 @@ const sendPaymentNotification = async ({
 /* ══════════════════════════════════════════════════════════════
    CORE ACTIVATION
    Shared by /verify and webhook.
-   FIX #6: product row is locked FOR UPDATE inside this function.
-   FIX #4: seller_id guard in UPDATE WHERE clause.
+   FIX #6: product row locked FOR UPDATE
+   FIX #4: seller_id guard in UPDATE WHERE clause
+   ✅ v5: email fetched fresh from users table for any
+          email-dependent operations
 ══════════════════════════════════════════════════════════════ */
 const activateProductForPayment = async (client, {
   paymentId,
@@ -193,7 +211,7 @@ const activateProductForPayment = async (client, {
   sellerId,
   source = "unknown",
 }) => {
-  /* Fetch plan — must exist and be active */
+  /* Fetch plan */
   const { rows: planRows } = await client.query(
     `SELECT name, duration_days, priority
      FROM   promotion_plans
@@ -206,7 +224,7 @@ const activateProductForPayment = async (client, {
   const plan      = planRows[0];
   const expiresAt = promotionExpiresAt(plan.duration_days);
 
-  /* FIX #6: lock product row before updating */
+  /* FIX #6: lock product row */
   const { rows: lockRows } = await client.query(
     `SELECT id, seller_id, status
      FROM   products
@@ -288,7 +306,7 @@ const activateProductForPayment = async (client, {
 
 /* ══════════════════════════════════════════════════════════════
    EXPORTED CRON UTILITY
-   Fix #5: cleanup stuck pending_payment products.
+   Cleanup stuck pending_payment products.
    Cron schedule: every 15 minutes
 ══════════════════════════════════════════════════════════════ */
 export const cleanupStuckPendingPayments = async () => {
@@ -308,7 +326,6 @@ export const cleanupStuckPendingPayments = async () => {
     /* 2 — Expire associated pending payment rows */
     if (products.length) {
       await client.query(
-        /* FIX #3: expire stale payment rows too */
         `UPDATE payments
          SET    status     = 'expired',
                 updated_at = NOW()
@@ -318,8 +335,7 @@ export const cleanupStuckPendingPayments = async () => {
       );
     }
 
-    /* 3 — Also expire any orphaned pending payments older than 30 min
-           (products may have been hard-deleted or state diverged) */
+    /* 3 — Expire orphaned pending payments older than 30 min */
     await client.query(
       `UPDATE payments
        SET    status     = 'expired',
@@ -337,7 +353,7 @@ export const cleanupStuckPendingPayments = async () => {
 
       /* Group by seller — FIX #9: stringify UUID key */
       const bySeller = products.reduce((acc, r) => {
-        const key = String(r.seller_id);   /* FIX #9 */
+        const key = String(r.seller_id);
         (acc[key] ??= []).push(r.title);
         return acc;
       }, {});
@@ -400,20 +416,30 @@ router.get("/plans", async (_req, res) => {
 
 /* ══════════════════════════════════════════════════════════════
    POST /initiate
+   ✅ v5: email fetched from users table — req.body.email ignored
 ══════════════════════════════════════════════════════════════ */
 router.post("/initiate", authenticate, initiateLimiter, async (req, res) => {
   const sellerId       = cleanUuid(req.user?.id);
   const productId      = cleanUuid(req.body.product_id);
   const planId         = cleanBigInt(req.body.plan_id);
-  const email          = cleanEmail(req.body.email);
   const idempotencyKey = String(req.body.idempotency_key ?? "").trim() || null;
 
+  /* ✅ email intentionally NOT read from req.body */
   console.log("[payment] /initiate  seller:", sellerId, " plan:", planId);
+  console.log("[payment] NOTE: email will be fetched from users table — req.body.email ignored");
 
   if (!sellerId)  return fail(res, 401, "Authentication required.");
   if (!productId) return fail(res, 400, "Product ID required.");
   if (!planId)    return fail(res, 400, `Plan ID required — received: ${JSON.stringify(req.body.plan_id)}`);
-  if (!email)     return fail(res, 400, "Valid email required.");
+
+  /* ✅ Fetch registration email from users table */
+  let email;
+  try {
+    email = await getSellerEmail(pool, sellerId);
+  } catch (err) {
+    console.error("[payment] email fetch failed:", err.message);
+    return fail(res, 400, err.message);
+  }
 
   /* ── Idempotency check ── */
   if (idempotencyKey) {
@@ -431,7 +457,7 @@ router.post("/initiate", authenticate, initiateLimiter, async (req, res) => {
       const ep = existing[0];
       console.log("[payment] idempotent hit — existing payment:", ep.id);
 
-      /* FIX #10: reuse existing pending payment — re-initialize with Paystack */
+      /* FIX #10: reuse existing pending payment */
       let authUrl = null;
       if (ep.status === "pending") {
         try {
@@ -465,9 +491,8 @@ router.post("/initiate", authenticate, initiateLimiter, async (req, res) => {
 
   if (pendingPayments.length) {
     const ep = pendingPayments[0];
-    console.log("[payment] existing pending payment for product:", productId, " — reusing:", ep.id);
+    console.log("[payment] existing pending payment — reusing:", ep.id);
 
-    /* Return the existing pending payment rather than creating a duplicate */
     let authUrl = null;
     try {
       const pRes  = await fetch(
@@ -547,7 +572,9 @@ router.post("/initiate", authenticate, initiateLimiter, async (req, res) => {
       [productId]
     );
 
-    /* ── Insert payment row ── */
+    /* ── Insert payment row ──
+       ✅ v5: email column stores registration email from users table
+    ── */
     const { rows: paymentRows } = await client.query(
       `INSERT INTO payments
          (seller_id, product_id, plan_id, amount, email,
@@ -555,7 +582,9 @@ router.post("/initiate", authenticate, initiateLimiter, async (req, res) => {
        VALUES ($1,$2,$3,$4,$5,$6,'pending','promotion','paystack',$7,$8)
        RETURNING id, reference`,
       [
-        sellerId, productId, planId, finalAmount, email, reference,
+        sellerId, productId, planId, finalAmount,
+        email,            // ✅ Registration email from users table
+        reference,
         idempotencyKey,
         JSON.stringify({
           original_price   : plan.price,
@@ -570,15 +599,16 @@ router.post("/initiate", authenticate, initiateLimiter, async (req, res) => {
     const savedReference = paymentRows[0].reference;
 
     await client.query("COMMIT");
-    console.log("[payment] row created:", paymentId);
+    console.log("[payment] row created:", paymentId, " email:", email);
 
     logPaymentEvent(paymentId, "payment.initiated", "api", {
       plan    : plan.name,
       amount  : finalAmount,
       currency: ACCEPTED_CURRENCY,
+      email,    // ✅ Audit log confirms registration email
     });
 
-    /* ── Call Paystack ── */
+    /* ── Call Paystack with registration email ── */
     let paystackData;
     try {
       const paystackRes = await fetch(
@@ -590,12 +620,12 @@ router.post("/initiate", authenticate, initiateLimiter, async (req, res) => {
             "Content-Type" : "application/json",
           },
           body    : JSON.stringify({
-            email,
-            amount    : Math.round(finalAmount * 100),
-            reference : savedReference,
-            currency  : ACCEPTED_CURRENCY,
-            callback_url : `${process.env.FRONTEND_URL}/payment/success`,
-            metadata     : {
+            email,                              // ✅ Registration email sent to Paystack
+            amount      : Math.round(finalAmount * 100),
+            reference   : savedReference,
+            currency    : ACCEPTED_CURRENCY,
+            callback_url: `${process.env.FRONTEND_URL}/payment/success`,
+            metadata    : {
               paymentId,
               productId,
               sellerId,
@@ -645,7 +675,12 @@ router.post("/initiate", authenticate, initiateLimiter, async (req, res) => {
       action     : "payment_initiated",
       targetType : "payment",
       targetId   : String(paymentId),
-      metadata   : { plan: plan.name, amount: finalAmount, reference: savedReference },
+      metadata   : {
+        plan     : plan.name,
+        amount   : finalAmount,
+        reference: savedReference,
+        email,    // ✅ Audit log
+      },
       ipAddress  : req.ip,
     }).catch(() => {});
 
@@ -653,6 +688,7 @@ router.post("/initiate", authenticate, initiateLimiter, async (req, res) => {
       success           : true,
       reference         : savedReference,
       authorization_url : paystackData.data.authorization_url,
+      /* ✅ Never expose email in response — security best practice */
     });
 
   } catch (err) {
@@ -669,8 +705,9 @@ router.post("/initiate", authenticate, initiateLimiter, async (req, res) => {
 
 /* ══════════════════════════════════════════════════════════════
    POST /verify
-   FIX #1: currency validated.
-   FIX #3: "pending" status handled explicitly.
+   FIX #1: currency validated
+   FIX #3: "pending" status handled explicitly
+   ✅ v5: email from users table — never req.body
 ══════════════════════════════════════════════════════════════ */
 router.post("/verify", authenticate, verifyLimiter, async (req, res) => {
   const reference = cleanUuid(req.body.reference);
@@ -679,6 +716,7 @@ router.post("/verify", authenticate, verifyLimiter, async (req, res) => {
   if (!reference) return fail(res, 400, "Reference required.");
   if (!sellerId)  return fail(res, 401, "Authentication required.");
 
+  /* ✅ No email taken from req.body */
   console.log("[payment] /verify  ref:", reference, " seller:", sellerId);
 
   /* ── Ask Paystack ── */
@@ -708,7 +746,7 @@ router.post("/verify", authenticate, verifyLimiter, async (req, res) => {
     );
   }
 
-  /* Handle pending explicitly — before DB */
+  /* Handle pending explicitly */
   if (paystackStatus === "pending") {
     return res.json({
       success : false,
@@ -740,7 +778,7 @@ router.post("/verify", authenticate, verifyLimiter, async (req, res) => {
     const productId = payment.product_id;
     const planId    = payment.plan_id;
 
-    /* Idempotency */
+    /* Idempotency — already confirmed */
     if (payment.status === "success") {
       await client.query("ROLLBACK");
 
@@ -888,9 +926,10 @@ router.post("/verify", authenticate, verifyLimiter, async (req, res) => {
 /* ══════════════════════════════════════════════════════════════
    WEBHOOK
    FIX #1:  500 on DB failure → Paystack retries
-   FIX #5:  payload hash deduplication before DB work
+   FIX #5:  payload hash deduplication
    FIX #1:  currency validated
    FIX #7:  signature length guard
+   ✅ v5:   email never used from webhook payload
 ══════════════════════════════════════════════════════════════ */
 webhookRouter.post("/", async (req, res) => {
   const secret    = process.env.PAYSTACK_SECRET_KEY;
@@ -917,7 +956,7 @@ webhookRouter.post("/", async (req, res) => {
   if (event.event !== "charge.success")
     return res.status(200).send("OK");
 
-  /* FIX #5: deduplicate by payload hash before any DB work */
+  /* FIX #5: deduplicate by payload hash */
   const payloadHash = hashWebhookPayload(req.body);
   try {
     const { rows: dupRows } = await pool.query(
@@ -925,11 +964,10 @@ webhookRouter.post("/", async (req, res) => {
       [payloadHash]
     );
     if (dupRows.length) {
-      console.log("[webhook] duplicate payload — already processed:", payloadHash.slice(0, 16));
+      console.log("[webhook] duplicate payload:", payloadHash.slice(0, 16));
       return res.status(200).send("OK");
     }
 
-    /* Record hash immediately — before processing */
     await pool.query(
       `INSERT INTO payment_webhook_events (payload_hash, event_type, received_at)
        VALUES ($1, $2, NOW())
@@ -937,22 +975,24 @@ webhookRouter.post("/", async (req, res) => {
       [payloadHash, event.event]
     );
   } catch (err) {
-    /* If dedup table insert fails, still process — prefer double-processing to missing */
     console.error("[webhook] dedup check error:", err.message);
   }
 
-  const data             = event.data ?? {};
-  const metadata         = data.metadata ?? {};
-  const paystackRef      = data.reference;
+  const data               = event.data ?? {};
+  const metadata           = data.metadata ?? {};
+  const paystackRef        = data.reference;
   const paystackAmountKobo = data.amount;
   const paystackCurrency   = data.currency;
 
   /* FIX #1: currency check */
   if (paystackCurrency && paystackCurrency !== ACCEPTED_CURRENCY) {
     console.error("[webhook] ⚠ wrong currency:", paystackCurrency);
-    return res.status(200).send("OK"); // log but don't activate
+    return res.status(200).send("OK");
   }
 
+  /* ✅ v5: email intentionally NOT read from webhook payload
+     It was already stored correctly from registration email
+     when the payment was initiated                          */
   const paymentId  = cleanUuid(metadata.paymentId);
   const productId  = cleanUuid(metadata.productId);
   const sellerId   = cleanUuid(metadata.sellerId);
