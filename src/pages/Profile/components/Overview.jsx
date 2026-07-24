@@ -11,22 +11,17 @@ import { StatsSkeleton } from "./Skeletons";
 import "./Overview.css";
 
 /* ─────────────────────────────────────────────
-   Safe icon renderer — NEVER crashes on undefined
-───────────────────────────────────────────── */
-function SafeIc({ name, fallback = "Star", ...props }) {
-  const Icon = Ic[name] ?? Ic[fallback] ?? (() => null);
-  return <Icon {...props} />;
-}
-
-/* ─────────────────────────────────────────────
-   Constants
+   insightIcon — only use keys that exist in Ic
 ───────────────────────────────────────────── */
 const insightIcon = {
   warn: <Ic.AlertTriangle />,
   info: <Ic.Info />,
-  good: <Ic.Star />,        // ← was Ic.Celebration — may not exist
+  good: <Ic.Star />,         // ✅ was Ic.Celebration — doesn't exist
 };
 
+/* ─────────────────────────────────────────────
+   Tier config
+───────────────────────────────────────────── */
 const TIER_CONFIG = {
   unverified: {
     badge     : "Trial",
@@ -58,8 +53,8 @@ export default function Overview({
   loading,
   userId,
   deleting,
-  tier          = "unverified",
-  isSubscriber  = false,
+  tier         = "unverified",
+  isSubscriber = false,
   onNavigate,
   onSetSection,
   onEdit,
@@ -70,15 +65,16 @@ export default function Overview({
 }) {
   const tierConfig = TIER_CONFIG[tier] ?? TIER_CONFIG.unverified;
 
-  /* ── Tier icon — safe ── */
+  /* ── Tier icon — resolved once, never undefined ── */
   const TierIcon =
     tier === "subscriber" ? Ic.Zap
     : tier === "verified"  ? Ic.CheckCircle
     : Ic.Clock;
 
+  /* ── Performance metrics ── */
   const overviewMetrics = useMemo(
     () => [
-      { label: "Response Time",  val: 60, color: "#6366f1" },
+      { label: "Response Time", val: 60, color: "#6366f1" },
       {
         label: "Engagement",
         val  : Math.min(100, (stats?.total_views || 0) / 10),
@@ -102,6 +98,7 @@ export default function Overview({
     [stats]
   );
 
+  /* ── Insights ── */
   const insights = useMemo(() => {
     if (!stats) return [];
 
@@ -131,7 +128,11 @@ export default function Overview({
     if (activeLimited > 0 && tier !== "subscriber") {
       list.push({
         type  : "info",
-        msg   : `${activeLimited} trial listing${activeLimited > 1 ? "s" : ""} will expire soon.`,
+        msg   : `${activeLimited} trial listing${activeLimited > 1 ? "s" : ""} will expire soon. ${
+          tier === "unverified"
+            ? "Verify to make them permanent."
+            : "Tap 'Activate' to convert them."
+        }`,
         action: tier === "unverified"
           ? { label: "Verify", url: "/verification" }
           : null,
@@ -169,13 +170,14 @@ export default function Overview({
     if (isSubscriber && active >= 20) {
       list.push({
         type: "good",
-        msg : `${active} active listings with Pro perks!`,
+        msg : `${active} active listings with Pro perks — 90-day windows & priority placement working for you!`,
       });
     }
 
     return list;
   }, [stats, tier, isSubscriber]);
 
+  /* ─── render ─── */
   return (
     <div className="overview">
 
@@ -198,9 +200,12 @@ export default function Overview({
                 {tier === "subscriber" && "Pro Subscriber"}
               </strong>
               <span>
-                {tier === "unverified" && `${stats?.total_products ?? 0}/3 trial listings used`}
-                {tier === "verified"   && `${stats?.total_products ?? 0}/500 lifetime listings used`}
-                {tier === "subscriber" && "Unlimited listings · 90-day windows"}
+                {tier === "unverified" &&
+                  `${stats?.total_products ?? 0}/3 trial listings used`}
+                {tier === "verified" &&
+                  `${stats?.total_products ?? 0}/500 lifetime listings used`}
+                {tier === "subscriber" &&
+                  "Unlimited listings · 90-day windows"}
               </span>
             </div>
           </div>
@@ -217,7 +222,7 @@ export default function Overview({
       <div className="overview__quick-actions">
         <button
           className="quick-action quick-action--primary"
-          onClick={() => onNavigate("/minimart/add")}
+          onClick={() => onNavigate?.("/minimart/add")}
         >
           <span className="quick-action__icon"><Ic.Plus /></span>
           <span>New Listing</span>
@@ -225,7 +230,7 @@ export default function Overview({
 
         <button
           className="quick-action"
-          onClick={() => onSetSection("products")}
+          onClick={() => onSetSection?.("products")}
         >
           <span className="quick-action__icon"><Ic.Package /></span>
           <span>Listings</span>
@@ -233,7 +238,7 @@ export default function Overview({
 
         <button
           className="quick-action"
-          onClick={() => onSetSection("analytics")}
+          onClick={() => onSetSection?.("analytics")}
         >
           <span className="quick-action__icon"><Ic.TrendUp /></span>
           <span>Analytics</span>
@@ -253,21 +258,21 @@ export default function Overview({
           <StatCard
             icon={<Ic.Package />}
             label="Total Listings"
-            value={fmtNum(stats.total_products)}
+            value={fmtNum(stats.total_products ?? 0)}
             sub={`${stats.active ?? 0} active · ${stats.draft ?? 0} drafts`}
             color="#6366f1"
           />
           <StatCard
             icon={<Ic.Eye />}
             label="Total Views"
-            value={fmtNum(stats.total_views)}
-            sub={`${fmtNum(stats.total_clicks)} clicks`}
+            value={fmtNum(stats.total_views ?? 0)}
+            sub={`${fmtNum(stats.total_clicks ?? 0)} clicks`}
             color="#0ea5e9"
           />
           <StatCard
             icon={<Ic.Heart />}
             label="Saved by Buyers"
-            value={fmtNum(stats.total_favorites)}
+            value={fmtNum(stats.total_favorites ?? 0)}
             sub="total saves"
             color="#ec4899"
           />
@@ -290,7 +295,6 @@ export default function Overview({
             {insights.map((ins, i) => (
               <div key={i} className={`insight insight--${ins.type}`}>
                 <span className="insight__icon">
-                  {/* Safe — insightIcon keys are hardcoded above */}
                   {insightIcon[ins.type] ?? <Ic.Info />}
                 </span>
                 <div className="insight__content">
@@ -314,11 +318,12 @@ export default function Overview({
             <h2 className="overview__card-title">Recent Listings</h2>
             <button
               className="overview__card-link"
-              onClick={() => onSetSection("products")}
+              onClick={() => onSetSection?.("products")}
             >
               View all <Ic.ChevronRight />
             </button>
           </div>
+
           <div className="overview__products-list">
             {products.slice(0, 3).map((p) => (
               <ProductCard
@@ -343,9 +348,9 @@ export default function Overview({
           <EmptyState
             icon={<Ic.Package />}
             title="No listings yet"
-            description="Create your first listing to start selling."
+            description="Create your first listing to start selling on the marketplace."
             action="Create Listing"
-            onAction={() => onNavigate("/minimart/add")}
+            onAction={() => onNavigate?.("/minimart/add")}
           />
         </div>
       )}
@@ -361,20 +366,19 @@ export default function Overview({
 
         <div className="overview__tips-grid">
           {TIPS.map(({ iconKey, title, desc }, i) => {
-            /* ✅ THE FIX — safe icon lookup with fallback */
-            const Icon = Ic[iconKey];
+            const Icon = Ic[iconKey]; // look up icon safely
 
+            /* Log missing keys in dev */
             if (!Icon) {
               console.warn(
-                `[Overview/TIPS] iconKey "${iconKey}" not found in Ic. ` +
-                `Available keys: ${Object.keys(Ic).join(", ")}`
+                `[Overview/TIPS] Missing icon "${iconKey}". ` +
+                `Valid keys: ${Object.keys(Ic).join(", ")}`
               );
             }
 
             return (
               <div key={i} className="tip">
                 <span className="tip__icon">
-                  {/* Fallback to Star if icon missing */}
                   {Icon ? <Icon /> : <Ic.Star />}
                 </span>
                 <div>
