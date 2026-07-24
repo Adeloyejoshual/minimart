@@ -1,13 +1,13 @@
-import express  from "express";
-import multer   from "multer";
-import path     from "path";
-import fs       from "fs";
-import crypto   from "crypto";
-import sharp    from "sharp";
-import ffmpeg   from "fluent-ffmpeg";
-import { execSync } from "child_process";
-import { pool } from "../server.js";
-import { softAuth } from "../middleware/auth.js";
+import express       from "express";
+import multer        from "multer";
+import path          from "path";
+import fs            from "fs";
+import crypto        from "crypto";
+import sharp         from "sharp";
+import ffmpeg        from "fluent-ffmpeg";
+import ffmpegStatic  from "ffmpeg-static";
+import { pool }      from "../server.js";
+import { softAuth }  from "../middleware/auth.js";
 import {
   S3Client,
   PutObjectCommand,
@@ -15,22 +15,15 @@ import {
 } from "@aws-sdk/client-s3";
 
 /* ══════════════════════════════════════════════
-   FFMPEG — system binary (Render has ffmpeg
-   pre-installed). Falls back gracefully.
+   FFMPEG — use ffmpeg-static binary
+   Already in your package.json dependencies
 ══════════════════════════════════════════════ */
-(function setFfmpegBinary() {
-  try {
-    const p = execSync("which ffmpeg 2>/dev/null").toString().trim();
-    if (p) {
-      ffmpeg.setFfmpegPath(p);
-      console.log("[ffmpeg] system binary:", p);
-      return;
-    }
-  } catch {}
-  console.warn(
-    "[ffmpeg] binary not found — video duration check will be skipped"
-  );
-})();
+if (ffmpegStatic) {
+  ffmpeg.setFfmpegPath(ffmpegStatic);
+  console.log("[ffmpeg] binary:", ffmpegStatic);
+} else {
+  console.warn("[ffmpeg] ffmpeg-static not found — duration check will be skipped");
+}
 
 /* ══════════════════════════════════════════════
    R2 CLIENT
@@ -72,7 +65,7 @@ const ALLOWED_VIDEO_MIME = new Set([
 ]);
 
 /* ══════════════════════════════════════════════
-   MULTER  (memory storage → R2)
+   MULTER  (memory storage → straight to R2)
 ══════════════════════════════════════════════ */
 const imageUpload = multer({
   storage   : multer.memoryStorage(),
@@ -160,12 +153,15 @@ async function compressImage(buffer, mimetype) {
 }
 
 /* ══════════════════════════════════════════════
-   VIDEO DURATION CHECK  (ffprobe)
-   Writes buffer → tmp → probes → removes tmp.
+   VIDEO DURATION CHECK  (ffprobe via ffmpeg-static)
+   Writes buffer → tmp file → probes → removes.
    Fails open (returns 0) if ffmpeg unavailable.
 ══════════════════════════════════════════════ */
 function getVideoDuration(buffer) {
   return new Promise((resolve) => {
+    /* If ffmpeg-static is not available, skip check */
+    if (!ffmpegStatic) return resolve(0);
+
     const tmpPath = path.join(
       process.env.TMPDIR || "/tmp",
       `vid_${crypto.randomBytes(8).toString("hex")}.tmp`
@@ -174,7 +170,7 @@ function getVideoDuration(buffer) {
     fs.writeFile(tmpPath, buffer, (writeErr) => {
       if (writeErr) {
         console.warn("[ffprobe] write error:", writeErr.message);
-        return resolve(0);          // fail open
+        return resolve(0);            // fail open
       }
 
       ffmpeg.ffprobe(tmpPath, (err, metadata) => {
@@ -445,7 +441,6 @@ router.post(
   imageUpload.array("files", IMAGE_MAX_COUNT),
   async (req, res) => {
 
-    /* ── basic validation ── */
     if (!req.files || req.files.length === 0)
       return res.status(400).json({
         success: false, message: "No images provided",
@@ -470,7 +465,7 @@ router.post(
     const uploadedUrls = [];
 
     try {
-      /* ── compress each image & upload to R2 ── */
+      /* compress each image & upload to R2 */
       for (const file of req.files) {
         const { buffer: compressed, ext, mime } =
           await compressImage(file.buffer, file.mimetype);
@@ -485,7 +480,6 @@ router.post(
       const previewText = count === 1 ? "Photo" : `${count} Photos`;
       const mediaUrl    = encodeMediaUrl(uploadedUrls);
 
-      /* ── DB transaction ── */
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -515,7 +509,6 @@ router.post(
           return res.status(error).json({ success: false, message });
         }
 
-        /* insert */
         const { rows } = await client.query(
           `INSERT INTO public.chat_messages
              (thread_id, sender_id, message, message_type,
@@ -525,7 +518,6 @@ router.post(
           [threadId, senderId, previewText, mediaUrl, replyToId, clientMsgId]
         );
 
-        /* thread preview */
         await client.query(
           `UPDATE public.chat_threads
            SET last_message = $1, last_message_at = NOW()
@@ -565,7 +557,6 @@ router.post(
   videoUpload.array("files", VIDEO_MAX_COUNT),
   async (req, res) => {
 
-    /* ── basic validation ── */
     if (!req.files || req.files.length === 0)
       return res.status(400).json({
         success: false, message: "No videos provided",
@@ -590,15 +581,14 @@ router.post(
     const uploadedUrls = [];
 
     try {
-      /* ── duration check & upload each video ── */
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
 
         const duration = await getVideoDuration(file.buffer);
 
         /*
-         * Only reject if ffprobe actually returned a real duration
-         * (> 0) that exceeds the limit. If ffprobe is unavailable
+         * Only reject when ffprobe returned a real duration (> 0)
+         * that exceeds the limit. If ffmpeg-static is unavailable
          * (returns 0) we allow the upload — client already validated.
          */
         if (duration > 0 && duration > VIDEO_MAX_SECONDS) {
@@ -622,7 +612,6 @@ router.post(
       const previewText = count === 1 ? "Video" : `${count} Videos`;
       const mediaUrl    = encodeMediaUrl(uploadedUrls);
 
-      /* ── DB transaction ── */
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -652,7 +641,6 @@ router.post(
           return res.status(error).json({ success: false, message });
         }
 
-        /* insert */
         const { rows } = await client.query(
           `INSERT INTO public.chat_messages
              (thread_id, sender_id, message, message_type,
@@ -662,7 +650,6 @@ router.post(
           [threadId, senderId, previewText, mediaUrl, replyToId, clientMsgId]
         );
 
-        /* thread preview */
         await client.query(
           `UPDATE public.chat_threads
            SET last_message = $1, last_message_at = NOW()
