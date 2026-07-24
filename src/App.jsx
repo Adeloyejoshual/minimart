@@ -100,6 +100,7 @@ import Profile           from "./pages/Profile";
 import EditProfile       from "./pages/Profile/EditProfile";
 import SavedItems        from "./pages/Profile/SavedItems";
 import NotificationsPage from "./pages/NotificationsPage";
+import NotificationDetail from "./pages/NotificationDetail";
 import SettingsPage      from "./pages/SettingsPage";
 import AddProduct        from "./pages/AddProduct";
 import Conversations     from "./pages/Conversations";
@@ -738,6 +739,13 @@ export default function App() {
           element={
             <ProtectedRoute user={user}>
               <NotificationsPage user={user} />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="/notifications/:id"
+          element={
+            <ProtectedRoute user={user}>
+              <NotificationDetail user={user} />
             </ProtectedRoute>
           }
         />
