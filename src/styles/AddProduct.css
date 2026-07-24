@@ -8,8 +8,19 @@
      SubscriptionUpsellModal.css
    Desktop layout overrides → AddProductDesktop.css (≥ 1024 px)
    ───────────────────────────────────────────────────────────────
+   v6 — Verify Before Pay Modal added
+        • .ap-modal-overlay  — fixed fullscreen backdrop
+        • .ap-modal          — card with entrance animation
+        • .ap-modal-icon     — emoji lock icon
+        • .ap-modal-title    — heading
+        • .ap-modal-message  — body copy
+        • .ap-modal-list     — benefits list
+        • .ap-modal-actions  — stacked CTA buttons
+        • .ap-modal-hint     — free plan hint + link
+        • @keyframes ap-modal-in
+        Full dark mode, reduced motion, high contrast, print
    v5 — Title input color inheritance fixed
-        • #ap-title now explicitly restates color rules with
+        • #ap-title explicitly restates color rules with
           higher specificity to beat UA dark-mode defaults
         • Catch-all `.form-group input` selector added
         • color-scheme: light dark accepts both palettes
@@ -129,39 +140,61 @@
 /* ═══════════════════════════════════════════════════════════════
    1. SHARED KEYFRAMES
 ═══════════════════════════════════════════════════════════════ */
-@keyframes ap-fade-in     { from { opacity: 0; } to { opacity: 1; } }
-@keyframes ap-card-enter  { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes ap-gradient-shift { 0%,100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
-@keyframes ap-spin        { to { transform: rotate(360deg); } }
-@keyframes ap-dot-pop     { 0% { transform: scale(0); } 60% { transform: scale(1.3); } 100% { transform: scale(1); } }
-@keyframes ap-shake {
-  0%,100% { transform: translateX(0);   }
-  15%     { transform: translateX(-6px);}
-  30%     { transform: translateX(5px); }
-  45%     { transform: translateX(-4px);}
-  60%     { transform: translateX(3px); }
-  75%     { transform: translateX(-2px);}
+@keyframes ap-fade-in    {
+  from { opacity: 0; }
+  to   { opacity: 1; }
 }
-@keyframes ap-slide-down  { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
-@keyframes ap-slide-up    { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes ap-card-enter {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+@keyframes ap-gradient-shift {
+  0%,100% { background-position: 0%   50%; }
+  50%     { background-position: 100% 50%; }
+}
+@keyframes ap-spin { to { transform: rotate(360deg); } }
+@keyframes ap-dot-pop {
+  0%   { transform: scale(0);   }
+  60%  { transform: scale(1.3); }
+  100% { transform: scale(1);   }
+}
+@keyframes ap-shake {
+  0%,100% { transform: translateX(0);    }
+  15%     { transform: translateX(-6px); }
+  30%     { transform: translateX(5px);  }
+  45%     { transform: translateX(-4px); }
+  60%     { transform: translateX(3px);  }
+  75%     { transform: translateX(-2px); }
+}
+@keyframes ap-slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0);    }
+}
+@keyframes ap-slide-up {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0);    }
+}
+
+/* ✅ v6 — Modal entrance */
+@keyframes ap-modal-in {
+  from { opacity: 0; transform: scale(.94) translateY(14px); }
+  to   { opacity: 1; transform: scale(1)   translateY(0);    }
+}
 
 /* ═══════════════════════════════════════════════════════════════
    2. PAGE SHELL
-   `color-scheme: light dark` lets the browser render native
-   controls with the appropriate theme, but our explicit rules
-   below still take priority.
 ═══════════════════════════════════════════════════════════════ */
 .apd-page {
-  width         : 100%;
-  max-width     : 640px;
-  margin        : 0 auto;
-  padding       : 0 var(--pad) 0;
-  color         : var(--ink);
-  background    : var(--bg);
-  color-scheme  : light dark;
-  min-height    : 100vh;
-  container-type: inline-size;
-  container-name: ap-page;
+  width          : 100%;
+  max-width      : 640px;
+  margin         : 0 auto;
+  padding        : 0 var(--pad) 0;
+  color          : var(--ink);
+  background     : var(--bg);
+  color-scheme   : light dark;
+  min-height     : 100vh;
+  container-type : inline-size;
+  container-name : ap-page;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -170,21 +203,21 @@
 .ap-top-bar { margin: var(--gap-md) 0 var(--gap-sm); }
 
 .form-progress {
-  position      : relative;
-  height        : 6px;
-  background    : var(--bd);
-  border-radius : var(--r-full);
-  overflow      : hidden;
+  position     : relative;
+  height       : 6px;
+  background   : var(--bd);
+  border-radius: var(--r-full);
+  overflow     : hidden;
 }
 
 .form-progress-bar {
-  position      : absolute;
-  inset         : 0 auto 0 0;
-  height        : 100%;
-  background    : linear-gradient(90deg, var(--o) 0%, var(--o2) 100%);
-  border-radius : var(--r-full);
-  transition    : width .5s cubic-bezier(.22, 1, .36, 1);
-  min-width     : 0;
+  position     : absolute;
+  inset        : 0 auto 0 0;
+  height       : 100%;
+  background   : linear-gradient(90deg, var(--o) 0%, var(--o2) 100%);
+  border-radius: var(--r-full);
+  transition   : width .5s cubic-bezier(.22, 1, .36, 1);
+  min-width    : 0;
 }
 
 .form-progress-label {
@@ -201,24 +234,24 @@
    4. EDIT-MODE BAR
 ═══════════════════════════════════════════════════════════════ */
 .ap-edit-mode-bar {
-  display       : flex;
-  align-items   : center;
-  gap           : 8px;
-  margin        : var(--gap-md) 0 var(--gap-sm);
-  padding       : 10px 14px;
-  background    : var(--o-bg);
-  border        : 1px solid var(--o-20);
-  border-radius : var(--r-sm);
-  font-size     : .8125rem;
-  font-weight   : 600;
-  color         : var(--o);
+  display      : flex;
+  align-items  : center;
+  gap          : 8px;
+  margin       : var(--gap-md) 0 var(--gap-sm);
+  padding      : 10px 14px;
+  background   : var(--o-bg);
+  border       : 1px solid var(--o-20);
+  border-radius: var(--r-sm);
+  font-size    : .8125rem;
+  font-weight  : 600;
+  color        : var(--o);
 }
 
 .ap-edit-mode-icon {
-  display     : flex;
-  align-items : center;
-  flex-shrink : 0;
-  color       : var(--o);
+  display    : flex;
+  align-items: center;
+  flex-shrink: 0;
+  color      : var(--o);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -268,20 +301,8 @@
 
 /* ═══════════════════════════════════════════════════════════════
    6. FORM GROUPS & INPUTS  — v5
-   ─────────────────────────────────────────────────────────────
-   Every input rule uses:
-     color                  : var(--ink) !important
-     -webkit-text-fill-color: var(--ink) !important
-     caret-color            : var(--o)
-     background             : var(--wh)
-   #ap-title restates all four with higher specificity to beat
-   any UA dark-mode overrides that would otherwise make text
-   invisible on Samsung Internet, iOS Safari, etc.
 ═══════════════════════════════════════════════════════════════ */
-.form-group {
-  margin-bottom: var(--gap-md);
-}
-
+.form-group { margin-bottom: var(--gap-md); }
 .form-group:last-child { margin-bottom: 0; }
 
 .form-group > label {
@@ -299,7 +320,7 @@
   font-size  : .72rem;
 }
 
-/* ── Base input styling — text visibility guaranteed ── */
+/* ── Base input styling ── */
 .form-group input[type="text"],
 .form-group input[type="email"],
 .form-group input[type="tel"],
@@ -309,15 +330,15 @@
 .form-group input[type="password"],
 .form-group textarea,
 .form-group select,
-.form-group input {                                 /* catch-all fallback */
+.form-group input {
   display                : block;
   width                  : 100%;
   padding                : 12px 14px;
   font-family            : var(--fb);
   font-size              : .9375rem;
-  color                  : var(--ink) !important;   /* always beats UA */
-  -webkit-text-fill-color: var(--ink) !important;   /* Safari override */
-  caret-color            : var(--o);                /* orange cursor  */
+  color                  : var(--ink) !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  caret-color            : var(--o);
   background             : var(--wh);
   background-color       : var(--wh);
   border                 : 1.5px solid var(--bd);
@@ -333,9 +354,7 @@
 
 .form-group input:hover,
 .form-group textarea:hover,
-.form-group select:hover {
-  border-color: var(--bd2);
-}
+.form-group select:hover  { border-color: var(--bd2); }
 
 .form-group input:focus,
 .form-group textarea:focus,
@@ -357,18 +376,16 @@
   line-height: 1.6;
 }
 
-/* Chrome / Safari autofill — kill yellow background, keep text visible */
 .form-group input:-webkit-autofill,
 .form-group input:-webkit-autofill:hover,
 .form-group input:-webkit-autofill:focus,
 .form-group input:-webkit-autofill:active {
-  -webkit-text-fill-color : var(--ink) !important;
-  -webkit-box-shadow      : 0 0 0 1000px var(--wh) inset !important;
-  transition              : background-color 5000s ease-in-out 0s;
-  caret-color             : var(--o);
+  -webkit-text-fill-color: var(--ink) !important;
+  -webkit-box-shadow     : 0 0 0 1000px var(--wh) inset !important;
+  transition             : background-color 5000s ease-in-out 0s;
+  caret-color            : var(--o);
 }
 
-/* Kill up/down spinners on number inputs — cleaner look */
 .form-group input[type="number"]::-webkit-outer-spin-button,
 .form-group input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
@@ -377,11 +394,7 @@
 
 .form-group input[type="number"] { -moz-appearance: textfield; }
 
-/* ═══════════════════════════════════════════════════════════════
-   TITLE INPUT — hero-sized, explicit color restatement
-   Multiple selectors ensure the color rules always win over
-   ID specificity + UA dark-mode defaults.
-═══════════════════════════════════════════════════════════════ */
+/* ── Title input — hero-sized ── */
 #ap-title,
 input#ap-title,
 .form-group #ap-title,
@@ -462,18 +475,18 @@ input#ap-title::placeholder,
 }
 
 .title-suggestion-chip {
-  display       : inline-flex;
-  align-items   : center;
-  padding       : 5px 12px;
-  font-size     : .75rem;
-  font-weight   : 600;
-  color         : var(--o);
-  background    : var(--o-bg);
-  border        : 1px solid transparent;
-  border-radius : var(--r-full);
-  cursor        : pointer;
-  font-family   : var(--fb);
-  transition    : all var(--tr);
+  display      : inline-flex;
+  align-items  : center;
+  padding      : 5px 12px;
+  font-size    : .75rem;
+  font-weight  : 600;
+  color        : var(--o);
+  background   : var(--o-bg);
+  border       : 1px solid transparent;
+  border-radius: var(--r-full);
+  cursor       : pointer;
+  font-family  : var(--fb);
+  transition   : all var(--tr);
 }
 
 .title-suggestion-chip:hover  { background: var(--o); color: #fff; }
@@ -536,12 +549,9 @@ input#ap-title::placeholder,
 .link-btn:hover { opacity: .7; text-decoration: underline; }
 
 /* ═══════════════════════════════════════════════════════════════
-   13. TOGGLE SWITCH (delivery)
+   13. TOGGLE SWITCH
 ═══════════════════════════════════════════════════════════════ */
-.toggle-section {
-  padding-top   : 4px;
-  padding-bottom: 4px;
-}
+.toggle-section        { padding-top: 4px; padding-bottom: 4px; }
 
 .toggle-section-label {
   display       : block;
@@ -598,13 +608,13 @@ input#ap-title::placeholder,
   height       : 22px;
   background   : #fff;
   border-radius: 50%;
-  box-shadow   : 0 2px 4px rgba(0, 0, 0, .2);
+  box-shadow   : 0 2px 4px rgba(0,0,0,.2);
   transition   : transform var(--tr-bounce);
 }
 
-.toggle-switch input:checked + .slider              { background: var(--o); }
-.toggle-switch input:checked + .slider::after       { transform : translateX(20px); }
-.toggle-switch input:focus-visible + .slider        { box-shadow: 0 0 0 3px var(--o-dim); }
+.toggle-switch input:checked + .slider          { background: var(--o); }
+.toggle-switch input:checked + .slider::after   { transform: translateX(20px); }
+.toggle-switch input:focus-visible + .slider    { box-shadow: 0 0 0 3px var(--o-dim); }
 
 .toggle-status {
   font-size     : .875rem;
@@ -615,10 +625,7 @@ input#ap-title::placeholder,
   transition    : color var(--tr);
 }
 
-.toggle-status--on {
-  color      : var(--o);
-  font-weight: 600;
-}
+.toggle-status--on { color: var(--o); font-weight: 600; }
 
 /* ═══════════════════════════════════════════════════════════════
    14. DELIVERY GRID
@@ -662,11 +669,11 @@ input#ap-title::placeholder,
    16. IMAGE SECTION WRAPPER
 ═══════════════════════════════════════════════════════════════ */
 .image-section-header {
-  display       : flex;
-  align-items   : center;
-  gap           : var(--gap-sm);
-  margin-bottom : 14px;
-  flex-wrap     : wrap;
+  display      : flex;
+  align-items  : center;
+  gap          : var(--gap-sm);
+  margin-bottom: 14px;
+  flex-wrap    : wrap;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -752,38 +759,24 @@ input#ap-title::placeholder,
   margin-bottom  : 4px;
 }
 
-.plan-header strong {
-  font-size  : .9rem;
-  font-weight: 700;
-  color      : var(--ink);
-}
+.plan-header strong { font-size: .9rem; font-weight: 700; color: var(--ink); }
 
-.plan-price {
-  font-size  : .9rem;
-  font-weight: 700;
-  color      : var(--o);
-  white-space: nowrap;
-}
-
+.plan-price           { font-size: .9rem; font-weight: 700; color: var(--o); white-space: nowrap; }
 .plan-price-original  { text-decoration: line-through; color: var(--ink3); font-weight: 500; font-size: .72rem; }
 .plan-price-effective { color: var(--o); font-weight: 700; }
 
 .plan-price-badge {
-  display       : inline-flex;
-  padding       : 1px 6px;
-  font-size     : .5625rem;
-  font-weight   : 700;
-  color         : #fff;
-  background    : var(--gn);
-  border-radius : var(--r-xs);
+  display      : inline-flex;
+  padding      : 1px 6px;
+  font-size    : .5625rem;
+  font-weight  : 700;
+  color        : #fff;
+  background   : var(--gn);
+  border-radius: var(--r-xs);
   vertical-align: middle;
 }
 
-.plan-duration {
-  font-size    : .72rem;
-  color        : var(--ink3);
-  margin-bottom: 10px;
-}
+.plan-duration { font-size: .72rem; color: var(--ink3); margin-bottom: 10px; }
 
 .plan-features {
   list-style    : none;
@@ -804,11 +797,11 @@ input#ap-title::placeholder,
 }
 
 .plan-features li svg {
-  width      : 13px;
-  height     : 13px;
-  color      : var(--gn);
+  width     : 13px;
+  height    : 13px;
+  color     : var(--gn);
   flex-shrink: 0;
-  margin-top : 1px;
+  margin-top: 1px;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -923,11 +916,11 @@ input#ap-title::placeholder,
 .terms-wrapper--error   { border-color: var(--rd); background: var(--rd-dim); animation: ap-shake .4s ease both; }
 
 .terms-checkbox-box {
-  position   : relative;
+  position  : relative;
   flex-shrink: 0;
-  width      : 22px;
-  height     : 22px;
-  margin-top : 1px;
+  width     : 22px;
+  height    : 22px;
+  margin-top: 1px;
 }
 
 .terms-checkbox-box input[type="checkbox"] {
@@ -984,10 +977,10 @@ input#ap-title::placeholder,
 }
 
 .terms-text {
-  flex       : 1;
-  min-width  : 0;
-  font-size  : .8125rem;
-  color      : var(--ink2);
+  flex      : 1;
+  min-width : 0;
+  font-size : .8125rem;
+  color     : var(--ink2);
   line-height: 1.6;
   user-select: none;
 }
@@ -1028,7 +1021,7 @@ input#ap-title::placeholder,
   backdrop-filter        : blur(18px) saturate(1.6);
   -webkit-backdrop-filter: blur(18px) saturate(1.6);
   border-top             : 1px solid var(--bd);
-  box-shadow             : 0 -4px 24px rgba(0, 0, 0, .08);
+  box-shadow             : 0 -4px 24px rgba(0,0,0,.08);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -1078,12 +1071,11 @@ input#ap-title::placeholder,
   cursor   : not-allowed;
   transform: none;
   filter   : saturate(.6);
-  color    : rgba(255, 255, 255, .85);
+  color    : rgba(255,255,255,.85);
 }
 
 .primary-btn.full-width { width: 100%; }
-
-.primary-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.primary-btn svg        { width: 16px; height: 16px; flex-shrink: 0; }
 
 .outline-btn {
   display                    : inline-flex;
@@ -1115,7 +1107,7 @@ input#ap-title::placeholder,
 /* ═══════════════════════════════════════════════════════════════
    23. SPINNER
 ═══════════════════════════════════════════════════════════════ */
-.spinner-icon { display: inline-flex; animation: ap-spin .75s linear infinite; }
+.spinner-icon     { display: inline-flex; animation: ap-spin .75s linear infinite; }
 .spinner-icon svg { width: 16px; height: 16px; }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -1156,12 +1148,135 @@ a:focus-visible {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   26. DARK MODE — component surface fixes
+   26. ✅ v6 — VERIFY BEFORE PAY MODAL
+   ─────────────────────────────────────────────────────────────
+   Shown when an unverified user selects a paid promotion plan.
+     Cancel    → stays on page     (no Paystack redirect)
+     Verify    → /verification
+     Free Plan → switches plan + submits immediately
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Overlay ── */
+.ap-modal-overlay {
+  position               : fixed;
+  inset                  : 0;
+  background             : rgba(0, 0, 0, .60);
+  backdrop-filter        : blur(4px) saturate(1.4);
+  -webkit-backdrop-filter: blur(4px) saturate(1.4);
+  display                : flex;
+  align-items            : center;
+  justify-content        : center;
+  z-index                : var(--z-modal);
+  padding                : var(--pad);
+  animation              : ap-fade-in .18s ease both;
+}
+
+/* ── Card ── */
+.ap-modal {
+  position     : relative;
+  background   : var(--wh);
+  border       : 1px solid var(--bd);
+  border-radius: 20px;
+  padding      : 2rem 1.75rem;
+  max-width    : 420px;
+  width        : 100%;
+  text-align   : center;
+  box-shadow   :
+    0 24px 64px rgba(0,0,0,.22),
+    0  4px 16px rgba(0,0,0,.10);
+  animation    : ap-modal-in .22s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+/* ── Lock icon ── */
+.ap-modal-icon {
+  display      : block;
+  font-size    : 3rem;
+  line-height  : 1;
+  margin-bottom: .75rem;
+}
+
+/* ── Heading ── */
+.ap-modal-title {
+  font-family   : var(--font-d);
+  font-size     : 1.25rem;
+  font-weight   : 700;
+  color         : var(--ink);
+  margin        : 0 0 .75rem;
+  line-height   : 1.3;
+  letter-spacing: -.01em;
+}
+
+/* ── Body copy ── */
+.ap-modal-message {
+  font-size  : .9rem;
+  color      : var(--ink2);
+  line-height: 1.65;
+  margin     : 0 0 1.25rem;
+}
+
+/* ── Benefits list ── */
+.ap-modal-list {
+  list-style    : none;
+  padding       : 1rem 1.125rem;
+  margin        : 0 0 1.5rem;
+  text-align    : left;
+  background    : var(--wh2);
+  border        : 1px solid var(--bd);
+  border-radius : var(--r-md);
+  display       : flex;
+  flex-direction: column;
+  gap           : .35rem;
+}
+
+.ap-modal-list li {
+  display    : flex;
+  align-items: center;
+  gap        : .4rem;
+  font-size  : .875rem;
+  color      : var(--ink);
+  line-height: 1.5;
+}
+
+/* ── CTA stack ── */
+.ap-modal-actions {
+  display       : flex;
+  flex-direction: column;
+  gap           : .625rem;
+  margin-bottom : 1rem;
+}
+
+/* ── "Use free plan" hint ── */
+.ap-modal-hint {
+  font-size  : .8125rem;
+  color      : var(--ink3);
+  margin     : 0;
+  line-height: 1.5;
+}
+
+/* free-plan link inherits .link-btn but needs no top margin here */
+.ap-modal-hint .link-btn {
+  margin-top : 0;
+  font-size  : inherit;
+  display    : inline;
+  padding    : 0;
+}
+
+/* ── Small phones ── */
+@media (max-width: 359px) {
+  .ap-modal {
+    padding      : 1.5rem 1.125rem;
+    border-radius: 16px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   27. DARK MODE — component surface fixes
    v5: #ap-title explicitly listed so title text stays visible.
+   v6: modal surfaces added.
 ═══════════════════════════════════════════════════════════════ */
 @media (prefers-color-scheme: dark) {
 
-  /* All inputs (including #ap-title) — force text color */
+  /* ── All inputs ── */
   .form-group input[type="text"],
   .form-group input[type="email"],
   .form-group input[type="tel"],
@@ -1203,7 +1318,6 @@ a:focus-visible {
     opacity                : 1;
   }
 
-  /* Autofill in dark mode — kill Chrome yellow */
   .form-group input:-webkit-autofill,
   .form-group input:-webkit-autofill:hover,
   .form-group input:-webkit-autofill:focus,
@@ -1215,24 +1329,33 @@ a:focus-visible {
     caret-color            : var(--o) !important;
   }
 
-  /* Cards & surfaces */
-  .plan-card               { background: var(--wh); }
-  .plan-card.selected      { background: var(--o-bg); }
-  .terms-wrapper           { background: var(--wh2); }
-  .terms-wrapper--checked  { background: var(--o-bg); }
-  .terms-checkbox-visual   { background: var(--wh); border-color: var(--bd2); }
+  /* ── Cards & surfaces ── */
+  .plan-card              { background: var(--wh); }
+  .plan-card.selected     { background: var(--o-bg); }
+  .terms-wrapper          { background: var(--wh2); }
+  .terms-wrapper--checked { background: var(--o-bg); }
+  .terms-checkbox-visual  { background: var(--wh); border-color: var(--bd2); }
   .terms-checkbox-box input:checked ~ .terms-checkbox-visual { background: var(--o); }
-  .outline-btn             { background: var(--wh); border-color: var(--bd); color: var(--ink2); }
-  .outline-btn:hover       { background: var(--wh3); border-color: var(--bd2); color: var(--ink); }
-  .duplicate-warning       { background: rgba(245,158,11,.1); }
-  .dup-checking            { background: var(--wh2); }
+  .outline-btn            { background: var(--wh); border-color: var(--bd); color: var(--ink2); }
+  .outline-btn:hover      { background: var(--wh3); border-color: var(--bd2); color: var(--ink); }
+  .duplicate-warning      { background: rgba(245,158,11,.1); }
+  .dup-checking           { background: var(--wh2); }
   .section:hover,
-  .form-card:hover         { border-color: var(--bd2); }
-  .toggle-switch:hover     { background: var(--wh3); }
-  .edit-back-hint          { background: var(--wh2); }
+  .form-card:hover        { border-color: var(--bd2); }
+  .toggle-switch:hover    { background: var(--wh3); }
+  .edit-back-hint         { background: var(--wh2); }
+
+  /* ✅ v6: Modal dark mode */
+  .ap-modal-overlay       { background: rgba(0, 0, 0, .72); }
+  .ap-modal               { background: var(--wh); border-color: var(--bd); }
+  .ap-modal-list          { background: var(--wh2); border-color: var(--bd); }
+  .ap-modal-title         { color: var(--ink); }
+  .ap-modal-message       { color: var(--ink2); }
+  .ap-modal-hint          { color: var(--ink3); }
+  .ap-modal-list li       { color: var(--ink); }
 }
 
-/* ── data-theme="dark" (manual toggle) mirror ── */
+/* ── data-theme="dark" manual toggle mirror ── */
 [data-theme="dark"] .form-group input[type="text"],
 [data-theme="dark"] .form-group input[type="email"],
 [data-theme="dark"] .form-group input[type="tel"],
@@ -1297,14 +1420,23 @@ a:focus-visible {
 [data-theme="dark"] .toggle-switch:hover    { background: var(--wh3); }
 [data-theme="dark"] .edit-back-hint         { background: var(--wh2); }
 
+/* ✅ v6: Modal — data-theme="dark" mirror */
+[data-theme="dark"] .ap-modal-overlay       { background: rgba(0, 0, 0, .72); }
+[data-theme="dark"] .ap-modal               { background: var(--wh); border-color: var(--bd); }
+[data-theme="dark"] .ap-modal-list          { background: var(--wh2); border-color: var(--bd); }
+[data-theme="dark"] .ap-modal-title         { color: var(--ink); }
+[data-theme="dark"] .ap-modal-message       { color: var(--ink2); }
+[data-theme="dark"] .ap-modal-hint          { color: var(--ink3); }
+[data-theme="dark"] .ap-modal-list li       { color: var(--ink); }
+
 /* ═══════════════════════════════════════════════════════════════
-   27. REDUCED MOTION
+   28. REDUCED MOTION
 ═══════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   .section,
   .form-card {
-    opacity   : 1;
-    transform : none;
+    opacity  : 1;
+    transform: none;
     transition: none;
   }
 
@@ -1320,7 +1452,10 @@ a:focus-visible {
   .terms-checkbox-visual,
   .terms-checkbox-visual svg,
   .terms-wrapper,
-  .delivery-grid {
+  .delivery-grid,
+  /* ✅ v6: modal animations off */
+  .ap-modal-overlay,
+  .ap-modal {
     transition: none;
     animation : none;
   }
@@ -1330,10 +1465,7 @@ a:focus-visible {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   28. SAFE AREA — notch / home-indicator devices
-   Only add extra padding to the sticky button section so the
-   button clears the iPhone home indicator. .apd-page stays at
-   padding-bottom:0 so nothing renders below the sticky bar.
+   29. SAFE AREA — notch / home-indicator devices
 ═══════════════════════════════════════════════════════════════ */
 @supports (padding-bottom: env(safe-area-inset-bottom)) {
   .button-section {
@@ -1342,7 +1474,7 @@ a:focus-visible {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   29. HIGH CONTRAST
+   30. HIGH CONTRAST
 ═══════════════════════════════════════════════════════════════ */
 @media (forced-colors: active) {
   .primary-btn           { forced-color-adjust: none; background: ButtonText; color: ButtonFace; }
@@ -1351,6 +1483,13 @@ a:focus-visible {
   .plan-card.selected    { border: 2px solid Highlight; }
   .form-progress-bar     { background: Highlight; }
   .toggle-switch .slider { border: 1px solid ButtonText; }
+
+  /* ✅ v6: Modal high contrast */
+  .ap-modal              { forced-color-adjust: none; border: 2px solid ButtonText; background: Canvas; }
+  .ap-modal-overlay      { forced-color-adjust: none; background: rgba(0,0,0,.85); }
+  .ap-modal-title        { color: CanvasText; }
+  .ap-modal-list         { border: 1px solid ButtonText; background: Canvas; }
+  .ap-modal-list li      { color: CanvasText; }
 
   .form-group input,
   .form-group textarea,
@@ -1364,7 +1503,7 @@ a:focus-visible {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   30. PRINT
+   31. PRINT
 ═══════════════════════════════════════════════════════════════ */
 @media print {
   .ap-top-bar,
@@ -1376,7 +1515,9 @@ a:focus-visible {
   .terms-wrapper,
   .terms-error-msg,
   .plans-grid,
-  .spinner-icon {
+  .spinner-icon,
+  /* ✅ v6: hide modal when printing */
+  .ap-modal-overlay {
     display: none !important;
   }
 
