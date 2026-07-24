@@ -1,14 +1,13 @@
-import express  from "express";
-import multer   from "multer";
-import path     from "path";
-import fs       from "fs";
-import crypto   from "crypto";
-import sharp    from "sharp";
-import ffmpeg   from "fluent-ffmpeg";
-import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
-import { pool } from "../server.js";
-import { softAuth } from "../middleware/auth.js";
-
+import express           from "express";
+import multer            from "multer";
+import path              from "path";
+import fs                from "fs";
+import crypto            from "crypto";
+import sharp             from "sharp";
+import ffmpeg            from "fluent-ffmpeg";
+import ffmpegInstaller   from "@ffmpeg-installer/ffmpeg";
+import { pool }          from "../server.js";
+import { softAuth }      from "../middleware/auth.js";
 import {
   S3Client,
   PutObjectCommand,
@@ -16,7 +15,7 @@ import {
 } from "@aws-sdk/client-s3";
 
 /* ══════════════════════════════════════════════
-   FFMPEG PATH
+   FFMPEG
 ══════════════════════════════════════════════ */
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
@@ -35,44 +34,49 @@ const r2 = new S3Client({
 const R2_BUCKET     = process.env.R2_BUCKET_NAME;
 const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL?.replace(/\/$/, "");
 
-const router = express.Router();
+/* ══════════════════════════════════════════════
+   CONSTANTS / LIMITS
+══════════════════════════════════════════════ */
+const IMAGE_MAX_BYTES      = 5  * 1024 * 1024;   // 5  MB per image
+const VIDEO_MAX_BYTES      = 10 * 1024 * 1024;   // 10 MB per video
+const IMAGE_MAX_COUNT      = 10;                  // max 10 images per message
+const VIDEO_MAX_COUNT      = 3;                   // max  3 videos per message
+const VIDEO_MAX_SECONDS    = 60;                  // max 60 sec per video
+const IMAGE_MAX_WIDTH      = 1080;                // resize if wider
+const IMAGE_QUALITY        = 70;                  // q70 → ~200–500 KB output
 
 /* ══════════════════════════════════════════════
    ALLOWED MIME TYPES
 ══════════════════════════════════════════════ */
 const ALLOWED_IMAGE_MIME = new Set([
-  "image/jpeg", "image/jpg", "image/png",
+  "image/jpeg", "image/jpg",  "image/png",
   "image/gif",  "image/webp", "image/heic", "image/avif",
 ]);
 
 const ALLOWED_VIDEO_MIME = new Set([
   "video/mp4", "video/quicktime", "video/x-msvideo",
-  "video/webm", "video/3gpp", "video/x-matroska",
+  "video/webm", "video/3gpp",    "video/x-matroska",
 ]);
 
 /* ══════════════════════════════════════════════
-   MULTER
-   Images : 5  MB
-   Videos : 10 MB
+   MULTER  — memory storage (straight to R2)
 ══════════════════════════════════════════════ */
 const imageUpload = multer({
-  storage: multer.memoryStorage(),
-  limits : { fileSize: 5 * 1024 * 1024 },     // 5 MB
-  fileFilter(req, file, cb) {
+  storage   : multer.memoryStorage(),
+  limits    : { fileSize: IMAGE_MAX_BYTES },
+  fileFilter: (req, file, cb) =>
     ALLOWED_IMAGE_MIME.has(file.mimetype)
       ? cb(null, true)
-      : cb(new Error("Only image files are allowed"));
-  },
+      : cb(new Error("Only image files are allowed")),
 });
 
 const videoUpload = multer({
-  storage: multer.memoryStorage(),
-  limits : { fileSize: 10 * 1024 * 1024 },    // 10 MB
-  fileFilter(req, file, cb) {
+  storage   : multer.memoryStorage(),
+  limits    : { fileSize: VIDEO_MAX_BYTES },
+  fileFilter: (req, file, cb) =>
     ALLOWED_VIDEO_MIME.has(file.mimetype)
       ? cb(null, true)
-      : cb(new Error("Only video files are allowed"));
-  },
+      : cb(new Error("Only video files are allowed")),
 });
 
 /* ══════════════════════════════════════════════
@@ -80,7 +84,7 @@ const videoUpload = multer({
 ══════════════════════════════════════════════ */
 
 /**
- * Upload a Buffer to R2, return its public URL.
+ * Upload buffer → R2, return public URL.
  */
 async function uploadToR2(buffer, key, contentType) {
   await r2.send(
@@ -95,7 +99,7 @@ async function uploadToR2(buffer, key, contentType) {
 }
 
 /**
- * Delete an R2 object by its public URL. Never throws.
+ * Delete R2 object by public URL. Never throws.
  */
 async function deleteFromR2(publicUrl) {
   try {
@@ -107,51 +111,45 @@ async function deleteFromR2(publicUrl) {
   }
 }
 
+/**
+ * Delete an array of R2 URLs. Never throws.
+ */
+async function deleteAllFromR2(urls = []) {
+  await Promise.allSettled(urls.map(deleteFromR2));
+}
+
 /* ══════════════════════════════════════════════
-   IMAGE COMPRESSION
+   IMAGE COMPRESSION  (Sharp)
    Input  : up to 5 MB
-   Output : ~150 KB – 400 KB
-   Rules  : max 1080px wide | quality 70 | mozjpeg
+   Output : ~150 KB – 500 KB
+   Rules  : max 1080px | q70 | mozjpeg
 ══════════════════════════════════════════════ */
 async function compressImage(buffer, mimetype) {
-
   /* GIF — Sharp cannot re-animate, pass through */
-  if (mimetype === "image/gif") {
+  if (mimetype === "image/gif")
     return { buffer, ext: ".gif", mime: "image/gif" };
-  }
 
   const img  = sharp(buffer);
   const meta = await img.metadata();
 
-  /* Downscale if wider than 1080 px */
-  const MAX_WIDTH = 1080;
-  if ((meta.width ?? 0) > MAX_WIDTH) {
-    img.resize({ width: MAX_WIDTH, withoutEnlargement: true });
-  }
-
-  const QUALITY = 70;
+  /* Downscale if wider than IMAGE_MAX_WIDTH */
+  if ((meta.width ?? 0) > IMAGE_MAX_WIDTH)
+    img.resize({ width: IMAGE_MAX_WIDTH, withoutEnlargement: true });
 
   /* JPEG / HEIC / AVIF → JPEG (mozjpeg) */
-  if (
-    ["image/jpeg", "image/jpg",
-     "image/heic", "image/avif"].includes(mimetype)
-  ) {
-    const out = await img
-      .jpeg({ quality: QUALITY, mozjpeg: true })
-      .toBuffer();
+  if (["image/jpeg", "image/jpg", "image/heic", "image/avif"].includes(mimetype)) {
+    const out = await img.jpeg({ quality: IMAGE_QUALITY, mozjpeg: true }).toBuffer();
     return { buffer: out, ext: ".jpg", mime: "image/jpeg" };
   }
 
   /* PNG / WebP / anything else → WebP */
-  const out = await img
-    .webp({ quality: QUALITY })
-    .toBuffer();
+  const out = await img.webp({ quality: IMAGE_QUALITY }).toBuffer();
   return { buffer: out, ext: ".webp", mime: "image/webp" };
 }
 
 /* ══════════════════════════════════════════════
-   VIDEO DURATION CHECK (ffprobe)
-   Writes buffer to tmp → probes → removes tmp
+   VIDEO DURATION CHECK  (ffprobe)
+   Writes buffer → tmp file → probes → removes
 ══════════════════════════════════════════════ */
 function getVideoDuration(buffer) {
   return new Promise((resolve, reject) => {
@@ -164,12 +162,34 @@ function getVideoDuration(buffer) {
       if (writeErr) return reject(writeErr);
 
       ffmpeg.ffprobe(tmpPath, (err, metadata) => {
-        fs.unlink(tmpPath, () => {});        // clean up always
+        fs.unlink(tmpPath, () => {});          // clean up always
         if (err) return reject(err);
         resolve(metadata?.format?.duration ?? 0);
       });
     });
   });
+}
+
+/* ══════════════════════════════════════════════
+   media_url HELPERS
+   Stored as JSON array string in DB.
+   e.g. '["https://…/a.jpg","https://…/b.jpg"]'
+══════════════════════════════════════════════ */
+
+/** Parse media_url column → always string[] | null */
+function parseMediaUrl(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [raw];
+  } catch {
+    return [raw];
+  }
+}
+
+/** Encode string[] → JSON string for DB */
+function encodeMediaUrl(urls) {
+  return JSON.stringify(urls);
 }
 
 /* ══════════════════════════════════════════════
@@ -219,15 +239,15 @@ function shapeMessage(row) {
     id               : row.id,
     thread_id        : row.thread_id,
     sender_id        : row.sender_id,
-    sender_name      : row.sender_name   || null,
-    sender_image     : row.sender_image  || null,
-    message          : row.message       || null,
+    sender_name      : row.sender_name  || null,
+    sender_image     : row.sender_image || null,
+    message          : row.message      || null,
     message_type     : row.message_type,
-    media_url        : row.media_url     || null,
-    reply_to_id      : row.reply_to_id   || null,
+    media_url        : parseMediaUrl(row.media_url),  // always array | null
+    reply_to_id      : row.reply_to_id  || null,
     status           : row.status,
-    edited           : row.edited        || false,
-    deleted          : row.deleted       || false,
+    edited           : row.edited       || false,
+    deleted          : row.deleted      || false,
     client_message_id: row.client_message_id || null,
     created_at       : row.created_at,
   };
@@ -278,21 +298,27 @@ async function verifyThreadMember(client, threadId, userId) {
     [threadId]
   );
 
-  if (!rows[0])      return { error: 404, message: "Thread not found" };
+  if (!rows[0])
+    return { error: 404, message: "Thread not found" };
 
   const t        = rows[0];
   const isMember = t.buyer_id === userId || t.seller_id === userId;
 
-  if (!isMember)   return { error: 403, message: "Access denied" };
+  if (!isMember)    return { error: 403, message: "Access denied" };
   if (t.is_blocked) return { error: 403, message: "Conversation is blocked" };
 
   return { thread: t };
 }
 
 /* ══════════════════════════════════════════════
+   ROUTER
+══════════════════════════════════════════════ */
+const router = express.Router();
+
+/* ──────────────────────────────────────────────
    GET /api/messages
    ?threadId=  &userId=  &before=  &limit=
-══════════════════════════════════════════════ */
+────────────────────────────────────────────── */
 router.get("/", softAuth, async (req, res) => {
   const { threadId, before, limit = 50 } = req.query;
   const userId   = req.user?.id || req.query.userId;
@@ -357,10 +383,10 @@ router.get("/", softAuth, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════
+/* ──────────────────────────────────────────────
    GET /api/messages/unread-count
    MUST stay above /:messageId
-══════════════════════════════════════════════ */
+────────────────────────────────────────────── */
 router.get("/unread-count", softAuth, async (req, res) => {
   const userId = req.user?.id || req.query.userId;
   if (!userId)
@@ -388,19 +414,26 @@ router.get("/unread-count", softAuth, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════
+/* ──────────────────────────────────────────────
    POST /api/messages/upload
-   IMAGE upload → compress → R2
-   Limits : 5 MB | 1080px | q70
-   MUST be above /:messageId
-══════════════════════════════════════════════ */
+   Multi-image → compress → R2
+   Max : 10 images | 5 MB each | 1080px | q70
+   MUST stay above /:messageId
+────────────────────────────────────────────── */
 router.post(
   "/upload",
   softAuth,
-  imageUpload.single("file"),
+  imageUpload.array("files", IMAGE_MAX_COUNT),
   async (req, res) => {
-    if (!req.file)
-      return res.status(400).json({ success: false, message: "No image provided" });
+    /* ── basic validation ── */
+    if (!req.files || req.files.length === 0)
+      return res.status(400).json({ success: false, message: "No images provided" });
+
+    if (req.files.length > IMAGE_MAX_COUNT)
+      return res.status(400).json({
+        success: false,
+        message: `Max ${IMAGE_MAX_COUNT} images allowed per message`,
+      });
 
     const senderId    = req.user?.id || req.body.senderId;
     const threadId    = req.body.threadId;
@@ -412,17 +445,23 @@ router.post(
         success: false, message: "senderId and threadId required",
       });
 
-    let mediaUrl = null;
+    const uploadedUrls = [];
 
     try {
-      /* ── Compress ── */
-      const { buffer: compressed, ext, mime } =
-        await compressImage(req.file.buffer, req.file.mimetype);
+      /* ── compress each image & upload to R2 ── */
+      for (const file of req.files) {
+        const { buffer: compressed, ext, mime } =
+          await compressImage(file.buffer, file.mimetype);
 
-      /* ── Upload to R2 ── */
-      const hash  = crypto.randomBytes(12).toString("hex");
-      const r2Key = `chat/images/${Date.now()}_${hash}${ext}`;
-      mediaUrl    = await uploadToR2(compressed, r2Key, mime);
+        const hash  = crypto.randomBytes(12).toString("hex");
+        const r2Key = `chat/images/${Date.now()}_${hash}${ext}`;
+        const url   = await uploadToR2(compressed, r2Key, mime);
+        uploadedUrls.push(url);
+      }
+
+      const count       = uploadedUrls.length;
+      const previewText = count === 1 ? "Photo" : `${count} Photos`;
+      const mediaUrl    = encodeMediaUrl(uploadedUrls);
 
       /* ── DB transaction ── */
       const client = await pool.connect();
@@ -439,118 +478,7 @@ router.post(
           if (ex.length > 0) {
             const full = await fetchFullMessage(client, ex[0].id);
             await client.query("COMMIT");
-            deleteFromR2(mediaUrl);           // orphan cleanup
-            return res.status(200).json(shapeMessage(full));
-          }
-        }
-
-        /* verify thread */
-        const { error, message, thread } =
-          await verifyThreadMember(client, threadId, senderId);
-
-        if (error) {
-          await client.query("ROLLBACK");
-          deleteFromR2(mediaUrl);
-          return res.status(error).json({ success: false, message });
-        }
-
-        /* insert message */
-        const { rows } = await client.query(
-          `INSERT INTO public.chat_messages
-             (thread_id, sender_id, message, message_type,
-              media_url, reply_to_id, status, client_message_id)
-           VALUES ($1, $2, 'Photo', 'media', $3, $4, 'sent', $5)
-           RETURNING id`,
-          [threadId, senderId, mediaUrl, replyToId, clientMsgId]
-        );
-
-        /* update thread preview */
-        await client.query(
-          `UPDATE public.chat_threads
-           SET last_message = 'Photo', last_message_at = NOW()
-           WHERE id = $1`,
-          [threadId]
-        );
-
-        const full = await fetchFullMessage(client, rows[0].id);
-        await client.query("COMMIT");
-        return res.status(201).json(shapeMessage(full));
-
-      } catch (err) {
-        await client.query("ROLLBACK").catch(() => {});
-        deleteFromR2(mediaUrl);
-        throw err;
-      } finally {
-        client.release();
-      }
-
-    } catch (err) {
-      console.error("POST /upload (image) error:", err);
-      return res.status(500).json({ success: false, message: err.message });
-    }
-  }
-);
-
-/* ══════════════════════════════════════════════
-   POST /api/messages/upload-video
-   VIDEO upload → duration check → R2
-   Limits : 10 MB | 60 seconds max | no compression
-   MUST be above /:messageId
-══════════════════════════════════════════════ */
-router.post(
-  "/upload-video",
-  softAuth,
-  videoUpload.single("file"),
-  async (req, res) => {
-    if (!req.file)
-      return res.status(400).json({ success: false, message: "No video provided" });
-
-    const senderId    = req.user?.id || req.body.senderId;
-    const threadId    = req.body.threadId;
-    const clientMsgId = req.body.clientMessageId || null;
-    const replyToId   = req.body.reply_to_id     || null;
-
-    const MAX_DURATION_SEC = 60;
-
-    if (!senderId || !threadId)
-      return res.status(400).json({
-        success: false, message: "senderId and threadId required",
-      });
-
-    let mediaUrl = null;
-
-    try {
-      /* ── Duration check ── */
-      const duration = await getVideoDuration(req.file.buffer);
-      if (duration > MAX_DURATION_SEC) {
-        return res.status(400).json({
-          success: false,
-          message: `Video too long. Max 60 seconds (yours: ${Math.round(duration)}s).`,
-        });
-      }
-
-      /* ── Upload to R2 ── */
-      const hash  = crypto.randomBytes(12).toString("hex");
-      const ext   = path.extname(req.file.originalname).toLowerCase() || ".mp4";
-      const r2Key = `chat/videos/${Date.now()}_${hash}${ext}`;
-      mediaUrl    = await uploadToR2(req.file.buffer, r2Key, req.file.mimetype);
-
-      /* ── DB transaction ── */
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-
-        /* idempotency */
-        if (clientMsgId) {
-          const { rows: ex } = await client.query(
-            `SELECT id FROM public.chat_messages
-             WHERE client_message_id = $1 AND sender_id = $2`,
-            [clientMsgId, senderId]
-          );
-          if (ex.length > 0) {
-            const full = await fetchFullMessage(client, ex[0].id);
-            await client.query("COMMIT");
-            deleteFromR2(mediaUrl);
+            await deleteAllFromR2(uploadedUrls);   // orphan cleanup
             return res.status(200).json(shapeMessage(full));
           }
         }
@@ -561,26 +489,26 @@ router.post(
 
         if (error) {
           await client.query("ROLLBACK");
-          deleteFromR2(mediaUrl);
+          await deleteAllFromR2(uploadedUrls);
           return res.status(error).json({ success: false, message });
         }
 
-        /* insert message */
+        /* insert */
         const { rows } = await client.query(
           `INSERT INTO public.chat_messages
              (thread_id, sender_id, message, message_type,
               media_url, reply_to_id, status, client_message_id)
-           VALUES ($1, $2, 'Video', 'video', $3, $4, 'sent', $5)
+           VALUES ($1, $2, $3, 'media', $4, $5, 'sent', $6)
            RETURNING id`,
-          [threadId, senderId, mediaUrl, replyToId, clientMsgId]
+          [threadId, senderId, previewText, mediaUrl, replyToId, clientMsgId]
         );
 
-        /* update thread preview */
+        /* thread preview */
         await client.query(
           `UPDATE public.chat_threads
-           SET last_message = 'Video', last_message_at = NOW()
-           WHERE id = $1`,
-          [threadId]
+           SET last_message = $1, last_message_at = NOW()
+           WHERE id = $2`,
+          [previewText, threadId]
         );
 
         const full = await fetchFullMessage(client, rows[0].id);
@@ -589,7 +517,134 @@ router.post(
 
       } catch (err) {
         await client.query("ROLLBACK").catch(() => {});
-        deleteFromR2(mediaUrl);
+        await deleteAllFromR2(uploadedUrls);
+        throw err;
+      } finally {
+        client.release();
+      }
+
+    } catch (err) {
+      console.error("POST /upload (images) error:", err);
+      return res.status(500).json({ success: false, message: err.message });
+    }
+  }
+);
+
+/* ──────────────────────────────────────────────
+   POST /api/messages/upload-video
+   Multi-video → duration check → R2
+   Max : 3 videos | 10 MB each | 60 sec each | no compression
+   MUST stay above /:messageId
+────────────────────────────────────────────── */
+router.post(
+  "/upload-video",
+  softAuth,
+  videoUpload.array("files", VIDEO_MAX_COUNT),
+  async (req, res) => {
+    /* ── basic validation ── */
+    if (!req.files || req.files.length === 0)
+      return res.status(400).json({ success: false, message: "No videos provided" });
+
+    if (req.files.length > VIDEO_MAX_COUNT)
+      return res.status(400).json({
+        success: false,
+        message: `Max ${VIDEO_MAX_COUNT} videos allowed per message`,
+      });
+
+    const senderId    = req.user?.id || req.body.senderId;
+    const threadId    = req.body.threadId;
+    const clientMsgId = req.body.clientMessageId || null;
+    const replyToId   = req.body.reply_to_id     || null;
+
+    if (!senderId || !threadId)
+      return res.status(400).json({
+        success: false, message: "senderId and threadId required",
+      });
+
+    const uploadedUrls = [];
+
+    try {
+      /* ── duration check & upload each video ── */
+      for (let i = 0; i < req.files.length; i++) {
+        const file = req.files[i];
+
+        const duration = await getVideoDuration(file.buffer);
+        if (duration > VIDEO_MAX_SECONDS) {
+          await deleteAllFromR2(uploadedUrls);   // clean already uploaded
+          return res.status(400).json({
+            success: false,
+            message:
+              `Video ${i + 1} is too long. ` +
+              `Max ${VIDEO_MAX_SECONDS}s (got ${Math.round(duration)}s).`,
+          });
+        }
+
+        const hash  = crypto.randomBytes(12).toString("hex");
+        const ext   = path.extname(file.originalname).toLowerCase() || ".mp4";
+        const r2Key = `chat/videos/${Date.now()}_${hash}${ext}`;
+        const url   = await uploadToR2(file.buffer, r2Key, file.mimetype);
+        uploadedUrls.push(url);
+      }
+
+      const count       = uploadedUrls.length;
+      const previewText = count === 1 ? "Video" : `${count} Videos`;
+      const mediaUrl    = encodeMediaUrl(uploadedUrls);
+
+      /* ── DB transaction ── */
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        /* idempotency */
+        if (clientMsgId) {
+          const { rows: ex } = await client.query(
+            `SELECT id FROM public.chat_messages
+             WHERE client_message_id = $1 AND sender_id = $2`,
+            [clientMsgId, senderId]
+          );
+          if (ex.length > 0) {
+            const full = await fetchFullMessage(client, ex[0].id);
+            await client.query("COMMIT");
+            await deleteAllFromR2(uploadedUrls);
+            return res.status(200).json(shapeMessage(full));
+          }
+        }
+
+        /* verify thread */
+        const { error, message } =
+          await verifyThreadMember(client, threadId, senderId);
+
+        if (error) {
+          await client.query("ROLLBACK");
+          await deleteAllFromR2(uploadedUrls);
+          return res.status(error).json({ success: false, message });
+        }
+
+        /* insert */
+        const { rows } = await client.query(
+          `INSERT INTO public.chat_messages
+             (thread_id, sender_id, message, message_type,
+              media_url, reply_to_id, status, client_message_id)
+           VALUES ($1, $2, $3, 'video', $4, $5, 'sent', $6)
+           RETURNING id`,
+          [threadId, senderId, previewText, mediaUrl, replyToId, clientMsgId]
+        );
+
+        /* thread preview */
+        await client.query(
+          `UPDATE public.chat_threads
+           SET last_message = $1, last_message_at = NOW()
+           WHERE id = $2`,
+          [previewText, threadId]
+        );
+
+        const full = await fetchFullMessage(client, rows[0].id);
+        await client.query("COMMIT");
+        return res.status(201).json(shapeMessage(full));
+
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        await deleteAllFromR2(uploadedUrls);
         throw err;
       } finally {
         client.release();
@@ -602,10 +657,10 @@ router.post(
   }
 );
 
-/* ══════════════════════════════════════════════
+/* ──────────────────────────────────────────────
    POST /api/messages
    text | offer | location | product | media
-══════════════════════════════════════════════ */
+────────────────────────────────────────────── */
 router.post("/", softAuth, async (req, res) => {
   const {
     threadId,
@@ -690,23 +745,23 @@ router.post("/", softAuth, async (req, res) => {
       [
         threadId,
         senderId,
-        message          ?? null,
+        message         ?? null,
         messageType,
-        mediaUrl         ?? null,
-        reply_to_id      ?? null,
-        clientMessageId  ?? null,
-        offerMeta?.amount          ?? null,
-        offerMeta?.original_price  ?? null,
-        offerMeta?.product_title   ?? null,
-        offerMeta?.note            ?? null,
-        offerMeta ? "pending"      : null,
-        location?.lat              ?? null,
-        location?.lng              ?? null,
-        location?.address          ?? null,
-        sharedProduct?.id          ?? null,
-        sharedProduct?.title       ?? null,
-        sharedProduct?.price       ?? null,
-        sharedProduct?.image       ?? null,
+        mediaUrl        ?? null,
+        reply_to_id     ?? null,
+        clientMessageId ?? null,
+        offerMeta?.amount         ?? null,
+        offerMeta?.original_price ?? null,
+        offerMeta?.product_title  ?? null,
+        offerMeta?.note           ?? null,
+        offerMeta ? "pending"     : null,
+        location?.lat             ?? null,
+        location?.lng             ?? null,
+        location?.address         ?? null,
+        sharedProduct?.id         ?? null,
+        sharedProduct?.title      ?? null,
+        sharedProduct?.price      ?? null,
+        sharedProduct?.image      ?? null,
       ]
     );
 
@@ -744,11 +799,11 @@ router.post("/", softAuth, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════
+/* ──────────────────────────────────────────────
    PATCH /api/messages/:messageId/offer
    Accept / decline / counter
-   MUST be above plain /:messageId
-══════════════════════════════════════════════ */
+   MUST stay above plain /:messageId
+────────────────────────────────────────────── */
 router.patch("/:messageId/offer", softAuth, async (req, res) => {
   const { messageId } = req.params;
   const { status }    = req.body;
@@ -807,9 +862,9 @@ router.patch("/:messageId/offer", softAuth, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════
+/* ──────────────────────────────────────────────
    PATCH /api/messages/:messageId  (edit text)
-══════════════════════════════════════════════ */
+────────────────────────────────────────────── */
 router.patch("/:messageId", softAuth, async (req, res) => {
   const { messageId } = req.params;
   const { message }   = req.body;
@@ -850,9 +905,9 @@ router.patch("/:messageId", softAuth, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════
+/* ──────────────────────────────────────────────
    DELETE /api/messages/:messageId  (soft delete)
-══════════════════════════════════════════════ */
+────────────────────────────────────────────── */
 router.delete("/:messageId", softAuth, async (req, res) => {
   const { messageId } = req.params;
   const senderId      = req.user?.id || req.body.senderId;
@@ -905,9 +960,9 @@ router.delete("/:messageId", softAuth, async (req, res) => {
   }
 });
 
-/* ══════════════════════════════════════════════
+/* ──────────────────────────────────────────────
    PATCH /api/messages/read/:threadId
-══════════════════════════════════════════════ */
+────────────────────────────────────────────── */
 router.patch("/read/:threadId", softAuth, async (req, res) => {
   const { threadId } = req.params;
   const userId       = req.user?.id || req.body.userId;
