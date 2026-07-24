@@ -48,6 +48,100 @@ const SOCKET_URL   = BASE;
 const SEND_TIMEOUT = 15_000;
 
 /* ═══════════════════════════════════════════════════════════════
+   UPLOAD LIMITS  (must match server)
+═══════════════════════════════════════════════════════════════ */
+const IMAGE_MAX_COUNT   = 10;
+const IMAGE_MAX_BYTES   = 5  * 1024 * 1024;   // 5  MB
+const VIDEO_MAX_COUNT   = 3;
+const VIDEO_MAX_BYTES   = 10 * 1024 * 1024;   // 10 MB
+const VIDEO_MAX_SECONDS = 60;
+
+/* ═══════════════════════════════════════════════════════════════
+   UPLOAD HELPERS
+═══════════════════════════════════════════════════════════════ */
+
+/** Read video duration (seconds) from a File object */
+function getClientVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve) => {
+    const url   = URL.createObjectURL(file);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      resolve(video.duration);
+    };
+    video.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(0);
+    };
+    video.src = url;
+  });
+}
+
+/** Validate image files → { valid, errors } */
+function validateImages(files: File[]): { valid: File[]; errors: string[] } {
+  const errors: string[] = [];
+  if (files.length > IMAGE_MAX_COUNT) {
+    errors.push(`Max ${IMAGE_MAX_COUNT} images per message.`);
+    return { valid: [], errors };
+  }
+  const valid: File[] = [];
+  for (const f of files) {
+    if (!f.type.startsWith("image/")) {
+      errors.push(`"${f.name}" is not an image.`);
+    } else if (f.size > IMAGE_MAX_BYTES) {
+      errors.push(`"${f.name}" exceeds 5 MB.`);
+    } else {
+      valid.push(f);
+    }
+  }
+  return { valid, errors };
+}
+
+/** Validate video files (async — duration check) */
+async function validateVideos(
+  files: File[]
+): Promise<{ valid: File[]; errors: string[] }> {
+  const errors: string[] = [];
+  if (files.length > VIDEO_MAX_COUNT) {
+    errors.push(`Max ${VIDEO_MAX_COUNT} videos per message.`);
+    return { valid: [], errors };
+  }
+  const valid: File[] = [];
+  for (const f of files) {
+    if (!f.type.startsWith("video/")) {
+      errors.push(`"${f.name}" is not a video.`);
+      continue;
+    }
+    if (f.size > VIDEO_MAX_BYTES) {
+      errors.push(`"${f.name}" exceeds 10 MB.`);
+      continue;
+    }
+    const dur = await getClientVideoDuration(f);
+    if (dur > VIDEO_MAX_SECONDS) {
+      errors.push(
+        `"${f.name}" is ${Math.round(dur)}s — max ${VIDEO_MAX_SECONDS}s.`
+      );
+      continue;
+    }
+    valid.push(f);
+  }
+  return { valid, errors };
+}
+
+/** Normalise media_url → always string[] */
+function asMediaArray(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw as string[];
+  return [raw as string];
+}
+
+/** Is a URL a video file? */
+function isVideoUrl(url: string): boolean {
+  return /\.(mp4|webm|mov|3gp|mkv)(\?|$)/i.test(url);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MESSAGES REDUCER
 ═══════════════════════════════════════════════════════════════ */
 type MsgAction =
@@ -148,6 +242,14 @@ function msgsReducer(state: Message[], action: MsgAction): Message[] {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   LIGHTBOX STATE
+═══════════════════════════════════════════════════════════════ */
+interface LightboxState {
+  urls:  string[];
+  index: number;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    PROPS
 ═══════════════════════════════════════════════════════════════ */
 interface ChatPanelProps {
@@ -167,8 +269,8 @@ const ChatPanel: FC<ChatPanelProps> = ({
   const navigate = useNavigate();
 
   /* ── Core state ─────────────────────────────────────────── */
-  const [messages,  dispatch]  = useReducer(msgsReducer, []);
-  const [newMsg,    setNewMsg]  = useState("");
+  const [messages,  dispatch]     = useReducer(msgsReducer, []);
+  const [newMsg,    setNewMsg]    = useState("");
   const [otherUser, setOtherUser] = useState<any>(null);
   const [product,   setProduct]   = useState<Product | null>(null);
   const [loading,   setLoading]   = useState(true);
@@ -182,12 +284,16 @@ const ChatPanel: FC<ChatPanelProps> = ({
     string | number | null
   >(null);
 
+  /* Upload state */
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const [uploadingVideos, setUploadingVideos] = useState(false);
+
   /* ── UI state ───────────────────────────────────────────── */
   const [showMenu,        setShowMenu]        = useState(false);
   const [muted,           setMuted]           = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [showAttach,      setShowAttach]      = useState(false);
-  const [lightboxUrl,     setLightboxUrl]     = useState<string | null>(null);
+  const [lightbox,        setLightbox]        = useState<LightboxState | null>(null);
   const [replyTo,         setReplyTo]         = useState<Message | null>(null);
 
   /* Context menu */
@@ -212,8 +318,9 @@ const ChatPanel: FC<ChatPanelProps> = ({
   const sendTimers    = useRef(
     new Map<string | number, ReturnType<typeof setTimeout>>()
   );
-  const fileRef   = useRef<HTMLInputElement>(null);
-  const cameraRef = useRef<HTMLInputElement>(null);
+  const imageFileRef  = useRef<HTMLInputElement>(null);  // gallery images
+  const videoFileRef  = useRef<HTMLInputElement>(null);  // gallery videos
+  const cameraRef     = useRef<HTMLInputElement>(null);  // camera capture
 
   /* Always-fresh refs */
   const newMsgRef  = useRef("");
@@ -349,11 +456,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
         .catch(() => {});
     };
 
-    const onRead = ({
-      userId: uid,
-    }: {
-      userId: string | number;
-    }) => {
+    const onRead = ({ userId: uid }: { userId: string | number }) => {
       if (uid === user.id) return;
       safe(() => dispatch({ type: "MARK_READ", myId: user.id }));
     };
@@ -361,11 +464,8 @@ const ChatPanel: FC<ChatPanelProps> = ({
     const onTyping     = () => safe(() => setIsTyping(true));
     const onStopTyping = () => safe(() => setIsTyping(false));
 
-    const onDeleted = ({
-      messageId,
-    }: {
-      messageId: string | number;
-    }) => safe(() => dispatch({ type: "SOFT_DELETE", id: messageId }));
+    const onDeleted = ({ messageId }: { messageId: string | number }) =>
+      safe(() => dispatch({ type: "SOFT_DELETE", id: messageId }));
 
     const onOfferUpdated = ({
       messageId,
@@ -374,25 +474,15 @@ const ChatPanel: FC<ChatPanelProps> = ({
       messageId: string | number;
       status:    string;
     }) =>
-      safe(() =>
-        dispatch({ type: "PATCH_OFFER", id: messageId, status })
-      );
+      safe(() => dispatch({ type: "PATCH_OFFER", id: messageId, status }));
 
-    const onOnline = ({
-      userId: uid,
-    }: {
-      userId: string | number;
-    }) => {
+    const onOnline = ({ userId: uid }: { userId: string | number }) => {
       if (String(uid) !== String(user.id))
         safe(() =>
           setOtherUser((p: any) => (p ? { ...p, is_online: true } : p))
         );
     };
-    const onOffline = ({
-      userId: uid,
-    }: {
-      userId: string | number;
-    }) => {
+    const onOffline = ({ userId: uid }: { userId: string | number }) => {
       if (String(uid) !== String(user.id))
         safe(() =>
           setOtherUser((p: any) => (p ? { ...p, is_online: false } : p))
@@ -550,15 +640,9 @@ const ChatPanel: FC<ChatPanelProps> = ({
         _failed:           false,
         _timedOut:         false,
         ...replyRef,
-        ...(extras.offerMeta
-          ? { _offerMeta: extras.offerMeta }
-          : {}),
-        ...(extras.location
-          ? { location: extras.location }
-          : {}),
-        ...(extras.shared_product
-          ? { shared_product: extras.shared_product }
-          : {}),
+        ...(extras.offerMeta      ? { _offerMeta:    extras.offerMeta }      : {}),
+        ...(extras.location       ? { location:       extras.location }       : {}),
+        ...(extras.shared_product ? { shared_product: extras.shared_product } : {}),
       };
 
       dispatch({ type: "APPEND", payload: temp });
@@ -569,10 +653,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
       setReplyTo(null);
 
       if (typingTimer.current) clearTimeout(typingTimer.current);
-      socketRef.current?.emit("stopTyping", {
-        threadId,
-        userId: user.id,
-      });
+      socketRef.current?.emit("stopTyping", { threadId, userId: user.id });
 
       /* Timeout fallback */
       const timer = setTimeout(() => {
@@ -580,7 +661,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
           dispatch({
             type:  "PATCH",
             id:    tempId,
-            patch: { _temp: false, _timedOut: true },
+            patch: { _temp: false, _timedOut: true } as any,
           });
           setSending(false);
           sendingRef.current = false;
@@ -598,15 +679,9 @@ const ChatPanel: FC<ChatPanelProps> = ({
             messageType:     msgType,
             clientMessageId: clientMsgId,
             ...replyRef,
-            ...(extras.offerMeta
-              ? { offerMeta: extras.offerMeta }
-              : {}),
-            ...(extras.location
-              ? { location: extras.location }
-              : {}),
-            ...(extras.shared_product
-              ? { sharedProduct: extras.shared_product }
-              : {}),
+            ...(extras.offerMeta      ? { offerMeta:     extras.offerMeta }      : {}),
+            ...(extras.location       ? { location:      extras.location }       : {}),
+            ...(extras.shared_product ? { sharedProduct: extras.shared_product } : {}),
           },
           { headers: authH(), timeout: SEND_TIMEOUT }
         );
@@ -616,15 +691,9 @@ const ChatPanel: FC<ChatPanelProps> = ({
 
         const final = {
           ...saved,
-          ...(extras.offerMeta
-            ? { _offerMeta: extras.offerMeta }
-            : {}),
-          ...(extras.location
-            ? { location: extras.location }
-            : {}),
-          ...(extras.shared_product
-            ? { shared_product: extras.shared_product }
-            : {}),
+          ...(extras.offerMeta      ? { _offerMeta:    extras.offerMeta }      : {}),
+          ...(extras.location       ? { location:       extras.location }       : {}),
+          ...(extras.shared_product ? { shared_product: extras.shared_product } : {}),
         };
 
         if (mounted.current)
@@ -639,7 +708,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
           dispatch({
             type:  "PATCH",
             id:    tempId,
-            patch: { _temp: false, _failed: true, _timedOut: false },
+            patch: { _temp: false, _failed: true, _timedOut: false } as any,
           });
           setNewMsg(trimmed);
         }
@@ -679,27 +748,110 @@ const ChatPanel: FC<ChatPanelProps> = ({
   );
 
   /* ════════════════════════════════════════════════════════════
-     IMAGE UPLOAD
+     IMAGE UPLOAD  (multi — max 10 | 5 MB each)
   ════════════════════════════════════════════════════════════ */
   const handleImageChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
+      const raw = Array.from(e.target.files || []);
       e.target.value = "";
       setShowAttach(false);
+      if (!raw.length) return;
 
-      if (!file.type.startsWith("image/")) {
-        alert("Only images allowed.");
-        return;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        alert("Image too large. Max 10 MB.");
-        return;
-      }
+      /* validate */
+      const { valid, errors } = validateImages(raw);
+      if (errors.length) { alert(errors.join("\n")); return; }
+      if (!valid.length) return;
 
       const clientMsgId = `${user.id}_${Date.now()}`;
       const tempId      = `temp_${clientMsgId}`;
-      const localUrl    = URL.createObjectURL(file);
+
+      const localUrls = valid.map((f) => URL.createObjectURL(f));
+      const count     = valid.length;
+      const preview   = count === 1 ? "Photo" : `${count} Photos`;
+
+      /* optimistic temp bubble — media_url always an array */
+      dispatch({
+        type: "APPEND",
+        payload: {
+          id:                tempId,
+          client_message_id: clientMsgId,
+          thread_id:         threadId,
+          sender_id:         user.id,
+          message:           preview,
+          message_type:      MESSAGE_TYPES.MEDIA,
+          media_url:         localUrls,
+          created_at:        new Date().toISOString(),
+          status:            "sending",
+          _temp:             true,
+          _failed:           false,
+          _timedOut:         false,
+          ...(replyTo ? { reply_to_id: replyTo.id } : {}),
+        } as any,
+      });
+
+      setUploadingImages(true);
+      setReplyTo(null);
+
+      try {
+        const form = new FormData();
+        valid.forEach((f) => form.append("files", f));
+        form.append("threadId",        threadId);
+        form.append("senderId",        String(user.id));
+        form.append("clientMessageId", clientMsgId);
+        if (replyTo) form.append("reply_to_id", String(replyTo.id));
+
+        const { data: saved } = await axios.post(
+          `${API}/messages/upload`,
+          form,
+          {
+            headers: { ...authH(), "Content-Type": "multipart/form-data" },
+            timeout: 60_000,
+          }
+        );
+
+        localUrls.forEach((u) => URL.revokeObjectURL(u));
+
+        if (mounted.current)
+          dispatch({ type: "REPLACE", tempId, payload: saved });
+
+        socketRef.current?.emit("sendMessage", saved);
+      } catch (err: any) {
+        console.error("Image upload failed:", err.message);
+        localUrls.forEach((u) => URL.revokeObjectURL(u));
+        if (mounted.current)
+          dispatch({
+            type:  "PATCH",
+            id:    tempId,
+            patch: { _temp: false, _failed: true } as any,
+          });
+      } finally {
+        safe(() => setUploadingImages(false));
+      }
+    },
+    [threadId, user?.id, replyTo, safe]
+  );
+
+  /* ════════════════════════════════════════════════════════════
+     VIDEO UPLOAD  (multi — max 3 | 10 MB each | 60 sec each)
+  ════════════════════════════════════════════════════════════ */
+  const handleVideoChange = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const raw = Array.from(e.target.files || []);
+      e.target.value = "";
+      setShowAttach(false);
+      if (!raw.length) return;
+
+      /* validate (async — duration check) */
+      const { valid, errors } = await validateVideos(raw);
+      if (errors.length) { alert(errors.join("\n")); return; }
+      if (!valid.length) return;
+
+      const clientMsgId = `${user.id}_${Date.now()}`;
+      const tempId      = `temp_${clientMsgId}`;
+
+      const localUrls = valid.map((f) => URL.createObjectURL(f));
+      const count     = valid.length;
+      const preview   = count === 1 ? "Video" : `${count} Videos`;
 
       dispatch({
         type: "APPEND",
@@ -708,55 +860,58 @@ const ChatPanel: FC<ChatPanelProps> = ({
           client_message_id: clientMsgId,
           thread_id:         threadId,
           sender_id:         user.id,
-          message:           "Photo",
-          message_type:      MESSAGE_TYPES.MEDIA,
-          media_url:         localUrl,
+          message:           preview,
+          message_type:      MESSAGE_TYPES.VIDEO ?? "video",
+          media_url:         localUrls,
           created_at:        new Date().toISOString(),
           status:            "sending",
           _temp:             true,
           _failed:           false,
           _timedOut:         false,
+          ...(replyTo ? { reply_to_id: replyTo.id } : {}),
         } as any,
       });
 
+      setUploadingVideos(true);
+      setReplyTo(null);
+
       try {
         const form = new FormData();
-        form.append("file",            file);
+        valid.forEach((f) => form.append("files", f));
         form.append("threadId",        threadId);
         form.append("senderId",        String(user.id));
-        form.append("messageType",     MESSAGE_TYPES.MEDIA);
         form.append("clientMessageId", clientMsgId);
         if (replyTo) form.append("reply_to_id", String(replyTo.id));
 
         const { data: saved } = await axios.post(
-          `${API}/messages/upload`,
+          `${API}/messages/upload-video`,
           form,
           {
-            headers: {
-              ...authH(),
-              "Content-Type": "multipart/form-data",
-            },
-            timeout: 30_000,
+            headers: { ...authH(), "Content-Type": "multipart/form-data" },
+            timeout: 60_000,
           }
         );
 
-        URL.revokeObjectURL(localUrl);
-        if (mounted.current) {
+        localUrls.forEach((u) => URL.revokeObjectURL(u));
+
+        if (mounted.current)
           dispatch({ type: "REPLACE", tempId, payload: saved });
-          setReplyTo(null);
-        }
+
         socketRef.current?.emit("sendMessage", saved);
-      } catch {
-        URL.revokeObjectURL(localUrl);
+      } catch (err: any) {
+        console.error("Video upload failed:", err.message);
+        localUrls.forEach((u) => URL.revokeObjectURL(u));
         if (mounted.current)
           dispatch({
             type:  "PATCH",
             id:    tempId,
-            patch: { _temp: false, _failed: true, _timedOut: false },
+            patch: { _temp: false, _failed: true } as any,
           });
+      } finally {
+        safe(() => setUploadingVideos(false));
       }
     },
-    [threadId, user?.id, replyTo]
+    [threadId, user?.id, replyTo, safe]
   );
 
   /* ════════════════════════════════════════════════════════════
@@ -778,11 +933,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
       }
 
       if (mounted.current)
-        dispatch({
-          type:   "PATCH_OFFER",
-          id:     origMsg.id,
-          status: action,
-        });
+        dispatch({ type: "PATCH_OFFER", id: origMsg.id, status: action });
 
       const txt =
         action === OFFER_STATUS.ACCEPTED
@@ -848,9 +999,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
   const handleShareProduct = useCallback(() => {
     if (!product) return;
     sendMessage(
-      `${product.title} — ${CURRENCY}${Number(
-        product.price
-      ).toLocaleString()}`,
+      `${product.title} — ${CURRENCY}${Number(product.price).toLocaleString()}`,
       {
         shared_product: {
           id:    product.id    || "",
@@ -865,9 +1014,8 @@ const ChatPanel: FC<ChatPanelProps> = ({
 
   /*
    * handleDeleteChat:
-   *  - On desktop: after deletion, call onDeselectThread to
-   *    clear the right panel instead of navigate(-1)
-   *  - On mobile:  navigate(-1) as before
+   *  - Desktop: clear right panel via onDeselectThread
+   *  - Mobile : navigate(-1)
    */
   const handleDeleteChat = useCallback(async () => {
     try {
@@ -956,31 +1104,74 @@ const ChatPanel: FC<ChatPanelProps> = ({
     [user?.id]
   );
 
+  /* ════════════════════════════════════════════════════════════
+     LIGHTBOX  (multi-media aware)
+  ════════════════════════════════════════════════════════════ */
+  const openLightbox = useCallback(
+    (urls: string | string[] | null, index: number = 0) => {
+      const list = asMediaArray(urls);
+      if (list.length) setLightbox({ urls: list, index });
+    },
+    []
+  );
+
+  const closeLightbox = useCallback(() => setLightbox(null), []);
+
+  const lightboxPrev = useCallback(
+    () =>
+      setLightbox((s) =>
+        s && s.index > 0 ? { ...s, index: s.index - 1 } : s
+      ),
+    []
+  );
+
+  const lightboxNext = useCallback(
+    () =>
+      setLightbox((s) =>
+        s && s.index < s.urls.length - 1
+          ? { ...s, index: s.index + 1 }
+          : s
+      ),
+    []
+  );
+
+  /* Keyboard nav for lightbox (desktop) */
+  useEffect(() => {
+    if (!lightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape")     closeLightbox();
+      if (e.key === "ArrowLeft")  lightboxPrev();
+      if (e.key === "ArrowRight") lightboxNext();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [lightbox, closeLightbox, lightboxPrev, lightboxNext]);
+
   /* ── Stable UI callbacks ─────────────────────────────────── */
-  const openOfferModal    = useCallback(() => setOfferModal(true),         []);
-  const closeOfferModal   = useCallback(() => setOfferModal(false),        []);
-  const closeCounterModal = useCallback(() => setCounterModal(null),       []);
+  const openOfferModal    = useCallback(() => setOfferModal(true),  []);
+  const closeOfferModal   = useCallback(() => setOfferModal(false), []);
+  const closeCounterModal = useCallback(() => setCounterModal(null), []);
   const openLocationModal = useCallback(() => {
     setShowAttach(false);
     setLocationModal(true);
   }, []);
-  const closeLocationModal   = useCallback(() => setLocationModal(false),   []);
-  const toggleMenu           = useCallback(() => setShowMenu((v) => !v),    []);
-  const closeMenu            = useCallback(() => setShowMenu(false),         []);
+  const closeLocationModal   = useCallback(() => setLocationModal(false),      []);
+  const toggleMenu           = useCallback(() => setShowMenu((v) => !v),       []);
+  const closeMenu            = useCallback(() => setShowMenu(false),           []);
   const toggleAttach         = useCallback((e: any) => {
     e.stopPropagation();
     setShowAttach((v) => !v);
   }, []);
-  const showSuggestionsAgain = useCallback(() => setShowSuggestions(true),  []);
-  const handleMute           = useCallback(() => setMuted((v) => !v),       []);
-  const closeLightbox        = useCallback(() => setLightboxUrl(null),      []);
-  const openCamera           = useCallback(() => cameraRef.current?.click(),[]);
-  const openGallery          = useCallback(() => fileRef.current?.click(),  []);
-  const clearReply           = useCallback(() => setReplyTo(null),          []);
-  const openDeleteConfirm    = useCallback(() => setShowDeleteConfirm(true),[]);
-  const closeDeleteConfirm   = useCallback(() => setShowDeleteConfirm(false),[]);
-  const openReportModal      = useCallback(() => setShowReportModal(true),  []);
-  const closeReportModal     = useCallback(() => setShowReportModal(false), []);
+  const showSuggestionsAgain = useCallback(() => setShowSuggestions(true),     []);
+  const handleMute           = useCallback(() => setMuted((v) => !v),          []);
+  const openCamera           = useCallback(() => cameraRef.current?.click(),   []);
+  const openGallery          = useCallback(() => imageFileRef.current?.click(),[]);
+  const openVideoGallery     = useCallback(() => videoFileRef.current?.click(),[]);
+  const clearReply           = useCallback(() => setReplyTo(null),             []);
+  const openDeleteConfirm    = useCallback(() => setShowDeleteConfirm(true),   []);
+  const closeDeleteConfirm   = useCallback(() => setShowDeleteConfirm(false),  []);
+  const openReportModal      = useCallback(() => setShowReportModal(true),     []);
+  const closeReportModal     = useCallback(() => setShowReportModal(false),    []);
 
   const handleSelectSuggestion = useCallback((s: string) => {
     setNewMsg(s);
@@ -1004,6 +1195,16 @@ const ChatPanel: FC<ChatPanelProps> = ({
     () => () => sendTimers.current.forEach((t) => clearTimeout(t)),
     []
   );
+
+  /* ── Reply preview media info ────────────────────────────── */
+  const replyMedia = useMemo(() => {
+    if (!replyTo) return null;
+    const urls = asMediaArray((replyTo as any).media_url);
+    if (!urls.length) return null;
+    const isVideo =
+      (replyTo as any).message_type === "video" || isVideoUrl(urls[0]);
+    return { urls, isVideo };
+  }, [replyTo]);
 
   /* ════════════════════════════════════════════════════════════
      RENDER
@@ -1040,28 +1241,22 @@ const ChatPanel: FC<ChatPanelProps> = ({
       {/* ── Messages Body ──────────────────────────────────── */}
       <main className="cp-body">
 
-        {/* Loading */}
         {loading && (
           <div className="cp-center">
             <div className="cp-spinner" />
           </div>
         )}
 
-        {/* Error */}
         {!loading && error && (
           <div className="cp-center">
             <p className="cp-center__title">Failed to load messages</p>
             <p className="cp-center__error-code">{error}</p>
-            <button
-              onClick={loadHistory}
-              className="cp-center__retry-btn"
-            >
+            <button onClick={loadHistory} className="cp-center__retry-btn">
               Retry
             </button>
           </div>
         )}
 
-        {/* Empty */}
         {!loading && !error && messages.length === 0 && (
           <div className="cp-center">
             <p className="cp-center__title">No messages yet</p>
@@ -1071,7 +1266,6 @@ const ChatPanel: FC<ChatPanelProps> = ({
           </div>
         )}
 
-        {/* Message list */}
         {!loading &&
           !error &&
           messages.length > 0 &&
@@ -1086,7 +1280,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
                 onRetry={retryMessage}
                 onOfferRespond={handleOfferRespond}
                 onCtx={handleCtx}
-                onLightbox={setLightboxUrl}
+                onLightbox={openLightbox}
                 replyToMsg={
                   item.data.reply_to_id
                     ? msgMap.get(item.data.reply_to_id) || null
@@ -1097,8 +1291,22 @@ const ChatPanel: FC<ChatPanelProps> = ({
           )}
 
         {isTyping && <TypingBubble />}
-        <div ref={bottomRef} />
 
+        {/* Upload progress banners */}
+        {uploadingImages && (
+          <div className="cp-upload-banner">
+            <div className="cp-spinner cp-spinner--sm" />
+            <span>Uploading photos…</span>
+          </div>
+        )}
+        {uploadingVideos && (
+          <div className="cp-upload-banner">
+            <div className="cp-spinner cp-spinner--sm" />
+            <span>Uploading videos…</span>
+          </div>
+        )}
+
+        <div ref={bottomRef} />
       </main>
 
       {/* ── Context Menu ───────────────────────────────────── */}
@@ -1133,10 +1341,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
           </button>
         )}
         {!showSuggestions && (
-          <button
-            className="cp-toolbar__btn"
-            onClick={showSuggestionsAgain}
-          >
+          <button className="cp-toolbar__btn" onClick={showSuggestionsAgain}>
             {Icon.suggest} Suggestions
           </button>
         )}
@@ -1157,24 +1362,33 @@ const ChatPanel: FC<ChatPanelProps> = ({
           {Icon.reply}
           <div className="cp-reply-preview__text">
             <div className="cp-reply-preview__sender">
-              {replyTo.sender_id === user?.id
-                ? "You"
-                : otherUser?.name}
+              {replyTo.sender_id === user?.id ? "You" : otherUser?.name}
             </div>
-            {replyTo.media_url ? (
+
+            {replyMedia ? (
               <div
-                style={{
-                  display:    "flex",
-                  alignItems: "center",
-                  gap:        6,
-                }}
+                style={{ display: "flex", alignItems: "center", gap: 6 }}
               >
-                <img
-                  src={replyTo.media_url}
-                  alt=""
-                  className="cp-reply-preview__thumb"
-                />
-                <span className="cp-reply-preview__msg">Photo</span>
+                {replyMedia.isVideo ? (
+                  <div className="cp-reply-preview__video-thumb">
+                    {(Icon as any).video || "▶"}
+                  </div>
+                ) : (
+                  <img
+                    src={replyMedia.urls[0]}
+                    alt=""
+                    className="cp-reply-preview__thumb"
+                  />
+                )}
+                <span className="cp-reply-preview__msg">
+                  {replyMedia.isVideo
+                    ? replyMedia.urls.length > 1
+                      ? `${replyMedia.urls.length} Videos`
+                      : "Video"
+                    : replyMedia.urls.length > 1
+                    ? `${replyMedia.urls.length} Photos`
+                    : "Photo"}
+                </span>
               </div>
             ) : (
               <div className="cp-reply-preview__msg">
@@ -1182,10 +1396,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
               </div>
             )}
           </div>
-          <button
-            className="cp-reply-preview__close"
-            onClick={clearReply}
-          >
+          <button className="cp-reply-preview__close" onClick={clearReply}>
             {Icon.close}
           </button>
         </div>
@@ -1197,38 +1408,51 @@ const ChatPanel: FC<ChatPanelProps> = ({
         {/* Attach popover */}
         {showAttach && (
           <div className="cp-attach-popover">
-            <button
-              className="cp-attach-option"
-              onClick={openCamera}
-            >
+
+            <button className="cp-attach-option" onClick={openCamera}>
               {Icon.camera}
               <span>Camera</span>
             </button>
-            <button
-              className="cp-attach-option"
-              onClick={openGallery}
-            >
+
+            <button className="cp-attach-option" onClick={openGallery}>
               {Icon.gallery}
-              <span>Gallery</span>
+              <span>
+                Photo
+                <small className="cp-attach-option__hint">
+                  max {IMAGE_MAX_COUNT} · 5 MB each
+                </small>
+              </span>
             </button>
-            <button
-              className="cp-attach-option"
-              onClick={openLocationModal}
-            >
+
+            <button className="cp-attach-option" onClick={openVideoGallery}>
+              {(Icon as any).video || "🎥"}
+              <span>
+                Video
+                <small className="cp-attach-option__hint">
+                  max {VIDEO_MAX_COUNT} · 10 MB · 60 s
+                </small>
+              </span>
+            </button>
+
+            <button className="cp-attach-option" onClick={openLocationModal}>
               {Icon.location}
               <span>Location</span>
             </button>
+
           </div>
         )}
 
         {/* Hidden file inputs */}
+        {/* images — gallery, multi-select */}
         <input
-          ref={fileRef}
+          ref={imageFileRef}
           type="file"
           accept="image/*"
+          multiple
           className="cp-footer__file-input"
           onChange={handleImageChange}
         />
+        {/* camera capture — single */}
         <input
           ref={cameraRef}
           type="file"
@@ -1236,6 +1460,15 @@ const ChatPanel: FC<ChatPanelProps> = ({
           capture="environment"
           className="cp-footer__file-input"
           onChange={handleImageChange}
+        />
+        {/* videos — multi-select */}
+        <input
+          ref={videoFileRef}
+          type="file"
+          accept="video/*"
+          multiple
+          className="cp-footer__file-input"
+          onChange={handleVideoChange}
         />
 
         {/* Attach toggle */}
@@ -1255,9 +1488,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
           value={newMsg}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
-          placeholder={
-            replyTo ? "Write a reply…" : "Type a message…"
-          }
+          placeholder={replyTo ? "Write a reply…" : "Type a message…"}
           aria-label="Message"
           maxLength={5000}
         />
@@ -1282,21 +1513,61 @@ const ChatPanel: FC<ChatPanelProps> = ({
 
       </footer>
 
-      {/* ── Lightbox ───────────────────────────────────────── */}
-      {lightboxUrl && (
+      {/* ── Lightbox (multi-image / video + keyboard nav) ──── */}
+      {lightbox && lightbox.urls.length > 0 && (
         <div className="cp-lightbox" onClick={closeLightbox}>
-          <img
-            src={lightboxUrl}
-            alt="Full size"
-            className="cp-lightbox__img"
-            onClick={(e) => e.stopPropagation()}
-          />
-          <button
-            className="cp-lightbox__close"
-            onClick={closeLightbox}
-          >
+
+          {/* prev */}
+          {lightbox.index > 0 && (
+            <button
+              className="cp-lightbox__nav cp-lightbox__nav--prev"
+              onClick={(e) => { e.stopPropagation(); lightboxPrev(); }}
+              aria-label="Previous"
+            >
+              ‹
+            </button>
+          )}
+
+          {/* media */}
+          {isVideoUrl(lightbox.urls[lightbox.index]) ? (
+            <video
+              src={lightbox.urls[lightbox.index]}
+              className="cp-lightbox__img"
+              controls
+              autoPlay
+              onClick={(e) => e.stopPropagation()}
+            />
+          ) : (
+            <img
+              src={lightbox.urls[lightbox.index]}
+              alt={`Media ${lightbox.index + 1}`}
+              className="cp-lightbox__img"
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
+
+          {/* next */}
+          {lightbox.index < lightbox.urls.length - 1 && (
+            <button
+              className="cp-lightbox__nav cp-lightbox__nav--next"
+              onClick={(e) => { e.stopPropagation(); lightboxNext(); }}
+              aria-label="Next"
+            >
+              ›
+            </button>
+          )}
+
+          {/* counter */}
+          {lightbox.urls.length > 1 && (
+            <div className="cp-lightbox__counter">
+              {lightbox.index + 1} / {lightbox.urls.length}
+            </div>
+          )}
+
+          <button className="cp-lightbox__close" onClick={closeLightbox}>
             {Icon.close}
           </button>
+
         </div>
       )}
 
