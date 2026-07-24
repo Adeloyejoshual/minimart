@@ -5,6 +5,7 @@ import { Ic } from "./icons";
 import ProductCard from "./ProductCard";
 import EmptyState from "./EmptyState";
 import { ProdSkeleton } from "./Skeletons";
+import ErrorBoundary from "./ErrorBoundary"; // 👈 import
 import "./Listings.css";
 
 /* ─────────────────────────────────────────────
@@ -54,8 +55,8 @@ const UpsellBanner = memo(({ tier, count }) => {
         <div className="listings__upsell-text">
           <strong>Upgrade to Verified</strong>
           <p>
-            You've used {count} of 3 trial listings. Verify your identity to
-            unlock 500 free listings + 30-day windows.
+            You've used {count} of 3 trial listings. Verify your identity
+            to unlock 500 free listings + 30-day windows.
           </p>
         </div>
         <Link to="/verification" className="btn btn--primary btn--sm">
@@ -86,7 +87,7 @@ const UpsellBanner = memo(({ tier, count }) => {
 UpsellBanner.displayName = "UpsellBanner";
 
 /* ─────────────────────────────────────────────
-   TabInfoBanner — contextual banners per tab
+   TabInfoBanner
 ───────────────────────────────────────────── */
 const TabInfoBanner = memo(({ tab, tier, hasProducts }) => {
   if (!hasProducts) return null;
@@ -99,7 +100,7 @@ const TabInfoBanner = memo(({ tab, tier, hasProducts }) => {
           <strong>Trial listings expire in 7 days</strong>
           <p>
             {tier === "unverified"
-              ? "Verify your identity to make these listings permanent (30 days for verified, 90 days for Pro)."
+              ? "Verify your identity to make these listings permanent."
               : "Tap 'Activate' on any listing to convert it to a full listing."}
           </p>
         </div>
@@ -117,10 +118,7 @@ const TabInfoBanner = memo(({ tab, tier, hasProducts }) => {
         <Ic.AlertCircle />
         <div>
           <strong>Payment required</strong>
-          <p>
-            These listings are waiting for payment to go live. Complete
-            payment to activate them.
-          </p>
+          <p>Complete payment to activate these listings.</p>
         </div>
       </div>
     );
@@ -131,10 +129,7 @@ const TabInfoBanner = memo(({ tab, tier, hasProducts }) => {
         <Ic.AlertCircle />
         <div>
           <strong>Paused listings can't be reactivated</strong>
-          <p>
-            Trial listings that expire become paused. Verify your identity
-            to unlock reactivation.
-          </p>
+          <p>Verify your identity to unlock reactivation.</p>
         </div>
         <Link to="/verification" className="btn btn--primary btn--sm">
           Verify
@@ -147,10 +142,10 @@ const TabInfoBanner = memo(({ tab, tier, hasProducts }) => {
 TabInfoBanner.displayName = "TabInfoBanner";
 
 /* ─────────────────────────────────────────────
-   EmptyMessage — what to show when list is empty
+   Empty helpers
 ───────────────────────────────────────────── */
 const emptyTitle = (tab, search) => {
-  if (search) return `No results for "${search}"`;
+  if (search)                   return `No results for "${search}"`;
   if (tab === "pending")        return "No pending payments";
   if (tab === "active_limited") return "No trial listings";
   if (tab === "all")            return "No listings yet";
@@ -165,17 +160,21 @@ const emptyDescription = (tab, search) => {
 };
 
 /* ─────────────────────────────────────────────
-   SafeProductCard — crash boundary per card
+   ProductRow — one card wrapped in error boundary
+   Shows the REAL error if ProductCard crashes
 ───────────────────────────────────────────── */
-function SafeProductCard(props) {
-  const { product } = props;
-
+function ProductRow({ product, ...props }) {
+  /* Guard: completely skip malformed products */
   if (!product || !product.id) {
-    console.warn("[Listings] Skipping malformed product:", product);
+    console.warn("[Listings] Malformed product skipped:", product);
     return null;
   }
 
-  return <ProductCard {...props} />;
+  return (
+    <ErrorBoundary label={`Product #${product.id} — "${product.title ?? "?"}"`}>
+      <ProductCard product={product} {...props} />
+    </ErrorBoundary>
+  );
 }
 
 /* ─────────────────────────────────────────────
@@ -206,7 +205,6 @@ export default function Listings({
   onPayNow,
   onVerifyPayment,
 }) {
-  /* ── Only show Trial tab if relevant ── */
   const visibleTabs = TABS.filter((t) => {
     if (t.key === "active_limited") {
       return (tabCounts[t.key] ?? 0) > 0 || tier === "unverified";
@@ -214,7 +212,7 @@ export default function Listings({
     return true;
   });
 
-  const totalCount = tabCounts.all ?? products.length ?? 0;
+  const totalCount  = tabCounts.all ?? products.length ?? 0;
   const hasProducts = !prodLoading && products.length > 0;
 
   return (
@@ -235,10 +233,10 @@ export default function Listings({
           </button>
         </div>
 
-        {/* ── Upsell banner ── */}
+        {/* ── Upsell ── */}
         <UpsellBanner tier={tier} count={totalCount} />
 
-        {/* ── Filter tabs ── */}
+        {/* ── Tabs ── */}
         <div className="listings__tabs" role="tablist">
           {visibleTabs.map((t) => (
             <button
@@ -279,17 +277,13 @@ export default function Listings({
           )}
         </div>
 
-        {/* ── Tab-contextual banners ── */}
-        <TabInfoBanner
-          tab={tab}
-          tier={tier}
-          hasProducts={hasProducts}
-        />
+        {/* ── Tab banners ── */}
+        <TabInfoBanner tab={tab} tier={tier} hasProducts={hasProducts} />
 
-        {/* ── Loading skeleton ── */}
+        {/* ── Skeleton ── */}
         {prodLoading && <ProdSkeleton />}
 
-        {/* ── Empty state ── */}
+        {/* ── Empty ── */}
         {!prodLoading && products.length === 0 && (
           <EmptyState
             icon={<Ic.Package />}
@@ -308,14 +302,14 @@ export default function Listings({
         {hasProducts && (
           <div className="listings__list">
             {products.map((p) => (
-              <SafeProductCard
+              <ProductRow
                 key={p?.id ?? Math.random()}
                 product={p}
                 tier={tier}
                 isSubscriber={isSubscriber}
-                isDeleting={deleting === p?.id}
+                isDeleting={deleting  === p?.id}
                 isVerifying={verifying === p?.id}
-                isRenewing={renewing === p?.id}
+                isRenewing={renewing  === p?.id}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 onToggle={onToggle}
@@ -337,9 +331,7 @@ export default function Listings({
               disabled={loadingMore}
             >
               {loadingMore ? (
-                <>
-                  <span className="spinner" /> Loading…
-                </>
+                <><span className="spinner" /> Loading…</>
               ) : (
                 "Load More"
               )}
