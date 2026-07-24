@@ -3,12 +3,19 @@
  * Route: /minimart/add
  *       /minimart/add?edit=:productId  ← EDIT MODE
  *
- * v5 — EMAIL FROM REGISTRATION
+ * v6 — VERIFY BEFORE PAY
  * ─────────────────────────────────────────────────────────────
- *  - Email field completely removed from contact information
- *  - Email is automatically taken from user.email (registration)
+ *  - Unverified users who select a PAID plan see a
+ *    "Verify First" modal BEFORE any upload or payment
+ *  - Modal Cancel → stay on page (no Paystack redirect)
+ *  - Modal Verify → navigate to /verification
+ *  - Modal Free Plan → switch to free plan automatically
+ *  - Verified + paid plan → normal Paystack flow
+ *
+ * v5 — EMAIL FROM REGISTRATION
+ *  - Email field removed from contact form
+ *  - Email auto-set from user.email (registration)
  *  - Never sent in form body — backend reads from users table
- *  - 3-TIER SUBSCRIPTION SUPPORT maintained from v4
  *
  * v4 — 3-TIER SUBSCRIPTION SUPPORT
  * v3 — TermsCheckbox extracted to shared component
@@ -37,7 +44,7 @@ import "../styles/AddProduct.css";
 ═══════════════════════════════════════════════════════════════ */
 const API_BASE          = `${import.meta.env.VITE_API_BASE_URL}/api`;
 const STORAGE_PAYMENT   = "payment_retry";
-const DRAFT_VERSION     = 4;                // ✅ bumped — email removed from draft
+const DRAFT_VERSION     = 4;
 const MAX_IMAGES        = 6;
 const UPLOAD_TIMEOUT    = 120_000;
 const PAYMENT_MAX_AGE   = 30 * 60 * 1_000;
@@ -48,7 +55,6 @@ const REDIRECT_DELAY_MS = 1_500;
 const VERIFY_DELAY_MS   = 2_000;
 const STEP_DELAY_MS     = 400;
 
-/* Extra delay when watermark warnings / upgrade prompts are present */
 const WM_WARN_EXTRA_DELAY_MS = 3_000;
 const UPGRADE_EXTRA_DELAY_MS = 4_000;
 
@@ -57,10 +63,8 @@ const ALLOWED_PAYMENT_HOSTS = new Set([
   "standard.paystack.com",
 ]);
 
-/* ✅ EMAIL_RE removed — email no longer validated on frontend */
 const PHONE_RE = /^\+?[0-9]{7,15}$/;
 
-/* ✅ email entry removed from ERROR_SELECTOR_MAP */
 const ERROR_SELECTOR_MAP = [
   { match: "Title",          sel: "#ap-title"               },
   { match: "Description",    sel: "#ap-desc"                },
@@ -124,9 +128,11 @@ const safeOpenPayment = (url, onError) => {
     if (parsed.protocol !== "https:") throw new Error("Non-HTTPS URL");
     const hostAllowed = [...ALLOWED_PAYMENT_HOSTS].some(
       (host) =>
-        parsed.hostname === host || parsed.hostname.endsWith(`.${host}`)
+        parsed.hostname === host ||
+        parsed.hostname.endsWith(`.${host}`)
     );
-    if (!hostAllowed) throw new Error(`Untrusted host: ${parsed.hostname}`);
+    if (!hostAllowed)
+      throw new Error(`Untrusted host: ${parsed.hostname}`);
     window.open(url, "_blank", "noopener,noreferrer");
   } catch (err) {
     console.error("[Payment] Blocked unsafe URL:", err.message);
@@ -177,7 +183,9 @@ const multipartRequest = async (
   } catch (err) {
     if (err.name === "AbortError")
       throw new ApiError("Upload timed out — check your connection", 0);
-    throw new ApiError("Cannot reach the server. Check your connection.", 0);
+    throw new ApiError(
+      "Cannot reach the server. Check your connection.", 0
+    );
   } finally {
     clearTimeout(tid);
   }
@@ -218,6 +226,88 @@ const scrollToError = (msg) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   VERIFY BEFORE PAY MODAL
+   ✅ v6: Shown when unverified user selects a paid plan
+          Cancel → stay on page (NO Paystack redirect)
+          Verify → /verification
+          Free Plan → switch to free plan
+═══════════════════════════════════════════════════════════════ */
+function VerifyBeforePayModal({ onVerify, onCancel, onFreePlan }) {
+  /* Close on overlay click */
+  const handleOverlayClick = (e) => {
+    if (e.target === e.currentTarget) onCancel();
+  };
+
+  return (
+    <div
+      className="ap-modal-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="vbp-title"
+      onClick={handleOverlayClick}
+    >
+      <div className="ap-modal">
+
+        {/* Icon */}
+        <div className="ap-modal-icon" aria-hidden="true">🔒</div>
+
+        {/* Title */}
+        <h2 id="vbp-title" className="ap-modal-title">
+          Verify Your Identity First
+        </h2>
+
+        {/* Message */}
+        <p className="ap-modal-message">
+          You need to verify your identity before purchasing
+          a promotion plan. Verification is free and only
+          takes a few minutes.
+        </p>
+
+        {/* Benefits */}
+        <ul className="ap-modal-list">
+          <li>✅ Post up to 500 listings</li>
+          <li>✅ Listings active for 30 days</li>
+          <li>✅ Access all paid promotion plans</li>
+          <li>✅ Build buyer trust with a verified badge</li>
+        </ul>
+
+        {/* Actions */}
+        <div className="ap-modal-actions">
+          <button
+            type="button"
+            className="primary-btn"
+            onClick={onVerify}
+          >
+            Verify My Account
+          </button>
+
+          <button
+            type="button"
+            className="outline-btn"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        </div>
+
+        {/* Free plan hint */}
+        <p className="ap-modal-hint">
+          Want to post now?{" "}
+          <button
+            type="button"
+            className="link-btn"
+            onClick={onFreePlan}
+          >
+            Use the free plan instead
+          </button>
+        </p>
+
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function AddProduct({ user }) {
@@ -228,7 +318,7 @@ export default function AddProduct({ user }) {
   const isEditMode = !!editId;
 
   const STORAGE_DRAFT = useMemo(
-    () => `product_draft_v4_${user?.id ?? "anon"}`,  // ✅ v4 key — clears old drafts
+    () => `product_draft_v4_${user?.id ?? "anon"}`,
     [user?.id]
   );
   const IDEMPOTENCY_STORE = useMemo(
@@ -269,7 +359,7 @@ export default function AddProduct({ user }) {
     showSuccess: (msg) => showSuccessRef.current(msg),
   });
 
-  /* ─── Seller limits — extended with tier info ─── */
+  /* ─── Seller limits ─── */
   const {
     sellerLimits, limitsLoading, fetchLimits,
     isVerifiedSeller, trialExhausted, trialRemaining,
@@ -315,6 +405,9 @@ export default function AddProduct({ user }) {
   /* ─── Watermark state ─── */
   const [watermarkWarnings, setWatermarkWarnings] = useState([]);
   const [watermarkNotice,   setWatermarkNotice]   = useState("");
+
+  /* ─── ✅ v6: Verify before pay modal ─── */
+  const [showVerifyBeforePay, setShowVerifyBeforePay] = useState(false);
 
   /* ─── Feedback ─── */
   const showError = useCallback((msg) => {
@@ -362,8 +455,9 @@ export default function AddProduct({ user }) {
   /* ─── Derived ─── */
   const selectedCategory = useMemo(
     () =>
-      categories.find((c) => String(c.id) === String(form.category_id)) ??
-      null,
+      categories.find(
+        (c) => String(c.id) === String(form.category_id)
+      ) ?? null,
     [categories, form.category_id]
   );
   const options    = useMemo(
@@ -374,7 +468,10 @@ export default function AddProduct({ user }) {
     () => form.attributes ?? INITIAL_FORM.attributes,
     [form.attributes]
   );
-  const states = useMemo(() => Object.keys(locationsByState ?? {}), []);
+  const states = useMemo(
+    () => Object.keys(locationsByState ?? {}),
+    []
+  );
   const cities = useMemo(
     () => (locationState ? locationsByState[locationState] ?? [] : []),
     [locationState]
@@ -384,13 +481,11 @@ export default function AddProduct({ user }) {
     !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
   /* ═══════════════════════════════════════════════════════════
-     ✅ AUTO-SET EMAIL FROM LOGGED-IN USER ON MOUNT
-     Email comes from registration — never from form input
+     AUTO-SET EMAIL FROM LOGGED-IN USER
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (user?.email) {
       updateContact("email", user.email);
-      console.log("[AddProduct] ✅ email set from registration:", user.email);
     }
   }, [user?.email]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -413,7 +508,7 @@ export default function AddProduct({ user }) {
   }, [showError]);
 
   /* ═══════════════════════════════════════════════════════════
-     LOAD PLANS  (skip in edit mode)
+     LOAD PLANS
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) { setPlansLoading(false); return; }
@@ -425,8 +520,12 @@ export default function AddProduct({ user }) {
           data.success && Array.isArray(data.plans) ? data.plans : []
         );
       })
-      .catch(() => { if (mountedRef.current) setPromotionPlans([]); })
-      .finally(() => { if (mountedRef.current) setPlansLoading(false); });
+      .catch(() => {
+        if (mountedRef.current) setPromotionPlans([]);
+      })
+      .finally(() => {
+        if (mountedRef.current) setPlansLoading(false);
+      });
   }, [isEditMode]);
 
   /* ═══════════════════════════════════════════════════════════
@@ -434,7 +533,9 @@ export default function AddProduct({ user }) {
   ═══════════════════════════════════════════════════════════ */
   const loadProductForEdit = useCallback(async () => {
     if (!editId) return;
-    const token = getTokenOrRedirect(navigate, "/auth?redirect=/dashboard");
+    const token = getTokenOrRedirect(
+      navigate, "/auth?redirect=/dashboard"
+    );
     if (!token) return;
 
     setEditLoading(true);
@@ -445,8 +546,8 @@ export default function AddProduct({ user }) {
         `${API_BASE}/seller-dashboard/products/${editId}`,
         {
           headers: {
-            Authorization  : `Bearer ${token}`,
-            "Content-Type" : "application/json",
+            Authorization : `Bearer ${token}`,
+            "Content-Type": "application/json",
           },
         }
       );
@@ -457,15 +558,17 @@ export default function AddProduct({ user }) {
       const p = d.product;
       if (!mountedRef.current) return;
 
-      /* ✅ v5: Do NOT load email from product data
-         Email will be set from user.email via the useEffect above */
+      /* ✅ email NOT loaded from product — set from user.email */
       loadForm({ ...p });
 
       if (p.location_state) setLocationState(p.location_state);
       if (p.location_city)  setCity(p.location_city);
 
       if (p.latitude && p.longitude) {
-        setDetectedCoords({ latitude: p.latitude, longitude: p.longitude });
+        setDetectedCoords({
+          latitude : p.latitude,
+          longitude: p.longitude,
+        });
       }
 
       if (p.product_images?.length > 0) {
@@ -473,9 +576,9 @@ export default function AddProduct({ user }) {
           p.product_images.map((img) => ({
             id        : img.id,
             url       : img.image_url,
-            r2_key    : img.r2_key       || null,
-            position  : img.position_order ?? 0,
-            is_primary: img.is_primary   ?? false,
+            r2_key    : img.r2_key          || null,
+            position  : img.position_order  ?? 0,
+            is_primary: img.is_primary      ?? false,
             isExisting: true,
           }))
         );
@@ -511,14 +614,13 @@ export default function AddProduct({ user }) {
       if (mountedRef.current) setEditLoading(false);
     }
   }, [editId, navigate, loadForm, loadExistingImages]);
-  // ✅ removed user?.email dependency — email set via separate useEffect
 
   useEffect(() => {
     if (isEditMode && categoriesLoaded) loadProductForEdit();
   }, [isEditMode, categoriesLoaded, loadProductForEdit]);
 
   /* ═══════════════════════════════════════════════════════════
-     RESUME STALE PAYMENT  (skip in edit mode)
+     RESUME STALE PAYMENT
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -549,10 +651,10 @@ export default function AddProduct({ user }) {
           if (token) {
             try {
               const result = await apiFetch(`${API_BASE}/payment/verify`, {
-                method  : "POST",
-                headers : {
-                  "Content-Type" : "application/json",
-                  Authorization  : `Bearer ${token}`,
+                method : "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization : `Bearer ${token}`,
                 },
                 body: JSON.stringify({ reference: session.reference }),
               });
@@ -580,7 +682,7 @@ export default function AddProduct({ user }) {
   }, [isEditMode, showSuccess, safeRedirect]);
 
   /* ═══════════════════════════════════════════════════════════
-     RESTORE DRAFT  (skip in edit mode)
+     RESTORE DRAFT
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -594,8 +696,6 @@ export default function AddProduct({ user }) {
       }
       if (!mountedRef.current) return;
 
-      /* ✅ v5: Strip email from draft before loading
-         Email is always set fresh from user.email     */
       const { form: draftForm = {} } = draft;
       const { contact, ...restForm } = draftForm;
       const contactWithoutEmail = contact
@@ -621,8 +721,7 @@ export default function AddProduct({ user }) {
   ]);
 
   /* ═══════════════════════════════════════════════════════════
-     AUTO-SAVE DRAFT  (skip in edit mode)
-     ✅ v5: Strip email before saving to localStorage
+     AUTO-SAVE DRAFT
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -630,7 +729,6 @@ export default function AddProduct({ user }) {
     autoSaveTimer.current = setTimeout(() => {
       if (!mountedRef.current) return;
       try {
-        /* ✅ Never persist email in draft — always use user.email on restore */
         const { contact, ...restForm } = form;
         const contactWithoutEmail = contact
           ? (({ email, ...rest }) => rest)(contact)
@@ -682,7 +780,6 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      VALIDATION
-     ✅ v5: Email validation removed — comes from registration
   ═══════════════════════════════════════════════════════════ */
   const validateForm = useCallback(() => {
     const t = form.title?.trim() ?? "";
@@ -702,8 +799,6 @@ export default function AddProduct({ user }) {
 
     if (!form.category_id)
       return "Category required.";
-
-    /* ✅ Email validation removed — backend reads from users table */
 
     if (!isValidPhone(form.contact?.phone))
       return "Phone number must be 7–15 digits (e.g. 08012345678).";
@@ -734,19 +829,20 @@ export default function AddProduct({ user }) {
     }
 
     return null;
-  }, [form, totalImageCount, locationState, city, agreedToTerms, isEditMode]);
+  }, [
+    form, totalImageCount, locationState,
+    city, agreedToTerms, isEditMode,
+  ]);
 
   /* ═══════════════════════════════════════════════════════════
      BUILD FORM DATA
-     ✅ v5: email NOT appended to FormData
-            Backend reads email from users table
   ═══════════════════════════════════════════════════════════ */
   const buildBaseFormData = useCallback(() => {
     const fd = new FormData();
-    fd.append("title",          form.title.trim());
-    fd.append("description",    form.description.trim());
-    fd.append("price",          Number(form.price).toFixed(2));
-    fd.append("category_id",    form.category_id);
+    fd.append("title",         form.title.trim());
+    fd.append("description",   form.description.trim());
+    fd.append("price",         Number(form.price).toFixed(2));
+    fd.append("category_id",   form.category_id);
     if (form.subcategory_id)
       fd.append("subcategory_id", form.subcategory_id);
     fd.append("location_state", locationState ?? "");
@@ -756,7 +852,7 @@ export default function AddProduct({ user }) {
     fd.append("whatsapp_link",  form.contact.whatsapp_link ?? "");
     fd.append("seller_name",    user?.store_name || user?.name || BRAND_NAME);
 
-    /* ✅ email intentionally NOT appended — backend fetches from users table */
+    /* ✅ email NOT appended — backend reads from users table */
 
     fd.append("attributes", JSON.stringify({
       ...attributes,
@@ -764,7 +860,7 @@ export default function AddProduct({ user }) {
     }));
     fd.append("delivery", JSON.stringify(form.delivery));
 
-    /* ✅ Strip email from contact JSON before sending */
+    /* ✅ Strip email from contact JSON */
     const { email: _email, ...contactWithoutEmail } = form.contact ?? {};
     fd.append("contact", JSON.stringify(contactWithoutEmail));
 
@@ -778,9 +874,12 @@ export default function AddProduct({ user }) {
   const buildCreateFormData = useCallback(
     (isFreePlan) => {
       const fd = buildBaseFormData();
-      fd.append("status",          isFreePlan ? "active" : "draft");
-      fd.append("is_active",       isFreePlan ? "true"   : "false");
-      fd.append("idempotency_key", getOrCreateIdempotencyKey(IDEMPOTENCY_STORE));
+      fd.append("status",    isFreePlan ? "active" : "draft");
+      fd.append("is_active", isFreePlan ? "true"   : "false");
+      fd.append(
+        "idempotency_key",
+        getOrCreateIdempotencyKey(IDEMPOTENCY_STORE)
+      );
       const imageHashes = images.map((img) => img.hash).filter(Boolean);
       if (imageHashes.length)
         fd.append("image_hashes", JSON.stringify(imageHashes));
@@ -820,10 +919,10 @@ export default function AddProduct({ user }) {
       const token = getToken();
       if (token) {
         await apiFetch(`${API_BASE}/payment/verify`, {
-          method  : "POST",
-          headers : {
-            "Content-Type" : "application/json",
-            Authorization  : `Bearer ${token}`,
+          method : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization : `Bearer ${token}`,
           },
           body: JSON.stringify({ reference: paymentData.reference }),
         });
@@ -854,14 +953,12 @@ export default function AddProduct({ user }) {
     setSubscriptionData(null);
     setWatermarkWarnings([]);
     setWatermarkNotice("");
+    setShowVerifyBeforePay(false);
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
     clearIdempotencyKey(IDEMPOTENCY_STORE);
 
-    /* ✅ Re-set email from registration after reset */
-    if (user?.email) {
-      updateContact("email", user.email);
-    }
+    if (user?.email) updateContact("email", user.email);
 
     showSuccess("Draft cleared");
   }, [
@@ -880,10 +977,9 @@ export default function AddProduct({ user }) {
 
       const verificationNeeded = responseData?.needs_verification === true;
       const daysRemaining      = responseData?.days_remaining ?? 7;
-      const respTier           = responseData?.tier ?? tier;
-      const respIsSubscriber   = responseData?.is_subscriber ?? isSubscriber;
+      const respTier           = responseData?.tier           ?? tier;
+      const respIsSubscriber   = responseData?.is_subscriber  ?? isSubscriber;
 
-      /* ── Watermark warnings ── */
       const warnings = Array.isArray(responseData?.watermark_warnings)
         ? responseData.watermark_warnings
         : [];
@@ -894,7 +990,6 @@ export default function AddProduct({ user }) {
         setWatermarkNotice(notice);
       }
 
-      /* ── Subscription upsell ── */
       const upgradeMessage = responseData?.upgrade_message ?? null;
       const upgradeToNext  = responseData?.upgrade_to      ?? null;
       const upgradeUrlNext = responseData?.upgrade_url     ?? "/subscribe";
@@ -916,7 +1011,7 @@ export default function AddProduct({ user }) {
 
       const extraDelay =
         (warnings.length > 0 ? WM_WARN_EXTRA_DELAY_MS : 0) +
-        (showSubscribeUpsell ? UPGRADE_EXTRA_DELAY_MS : 0);
+        (showSubscribeUpsell ? UPGRADE_EXTRA_DELAY_MS  : 0);
 
       if (verificationNeeded) {
         setVerificationData({
@@ -1032,34 +1127,29 @@ export default function AddProduct({ user }) {
   ]);
 
   /* ═══════════════════════════════════════════════════════════
-     CREATE SUBMIT
-     ✅ v5: email NOT sent in payment initiation body
-            Backend reads email from users table
+     CREATE SUBMIT — CORE LOGIC
+     Separated so it can be called after modal dismissal too
   ═══════════════════════════════════════════════════════════ */
-  const handleCreateSubmit = useCallback(async () => {
-    if (isSubmittingRef.current) return;
+  const runCreateSubmit = useCallback(async (forcedPlan = null) => {
     if (!navigator.onLine) {
       showError("You appear to be offline.");
       return;
     }
 
-    isSubmittingRef.current = true;
     setLoading(true);
 
     const validationError = validateForm();
     if (validationError) {
       showError(validationError);
-      isSubmittingRef.current = false;
       setLoading(false);
+      isSubmittingRef.current = false;
       return;
     }
 
-    /* Clear stale banners */
     setWatermarkWarnings([]);
     setWatermarkNotice("");
     setNeedsSubscription(false);
     setSubscriptionData(null);
-
     setProgressVisible(true);
     setProgressStep("compressing");
     setError("");
@@ -1069,6 +1159,7 @@ export default function AddProduct({ user }) {
 
     try {
       const finalPlan =
+        forcedPlan ??
         selectedPlan ??
         promotionPlans.find((p) => Number(p.price) === 0) ??
         null;
@@ -1101,15 +1192,16 @@ export default function AddProduct({ user }) {
 
       fetchLimits();
 
+      /* ── Free plan ── */
       if (isFreePlan) {
         setProgressStep("activating");
         const activateRes = await apiFetch(
           `${API_BASE}/addproduct/products/${product.id}/activate`,
           {
-            method  : "POST",
-            headers : {
-              "Content-Type" : "application/json",
-              Authorization  : `Bearer ${token}`,
+            method : "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization : `Bearer ${token}`,
             },
             body: JSON.stringify({ promotion_id: null }),
           }
@@ -1136,19 +1228,18 @@ export default function AddProduct({ user }) {
         (rawPrice * (1 - discount / 100)).toFixed(2)
       );
 
-      /* ✅ v5: email NOT sent — backend reads from users table */
       const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
-        method  : "POST",
-        headers : {
-          "Content-Type" : "application/json",
-          Authorization  : `Bearer ${token}`,
+        method : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization : `Bearer ${token}`,
         },
         body: JSON.stringify({
-          /* email intentionally omitted — backend fetches from users table */
-          amount          : effectiveAmt,
-          plan_id         : String(finalPlan.id),
-          product_id      : product.id,
-          idempotency_key : getOrCreateIdempotencyKey(IDEMPOTENCY_STORE),
+          /* ✅ email omitted — backend reads from users table */
+          amount         : effectiveAmt,
+          plan_id        : String(finalPlan.id),
+          product_id     : product.id,
+          idempotency_key: getOrCreateIdempotencyKey(IDEMPOTENCY_STORE),
         }),
       });
 
@@ -1157,7 +1248,6 @@ export default function AddProduct({ user }) {
 
       paymentInitiated = true;
 
-      /* ✅ v5: email NOT stored in payment session */
       const session = {
         reference        : payData.reference,
         authUrl          : payData.authorization_url,
@@ -1185,45 +1275,35 @@ export default function AddProduct({ user }) {
       if (mountedRef.current) setProgressVisible(false);
 
       /* ── Watermark block ── */
-      if (
-        err?.status === 400 &&
-        err?.data?.reason === "watermark_policy"
-      ) {
+      if (err?.status === 400 && err?.data?.reason === "watermark_policy") {
         const blockedIndexes = Array.isArray(err.data?.blocked_images)
           ? err.data.blocked_images
           : [];
-
         setWatermarkWarnings(
           blockedIndexes.length > 0
             ? blockedIndexes.map((index) => ({
-                imageIndex : index,
-                competitor : null,
-                message    : err.message,
-                isBlocked  : true,
+                imageIndex: index,
+                competitor: null,
+                message   : err.message,
+                isBlocked : true,
               }))
-            : [{
-                imageIndex : null,
-                competitor : null,
-                message    : err.message,
-                isBlocked  : true,
-              }]
+            : [{ imageIndex: null, competitor: null,
+                 message: err.message, isBlocked: true }]
         );
         setWatermarkNotice(
           "Please replace the flagged photo(s) with original images and try again."
         );
-
         requestAnimationFrame(() => {
           document
             .querySelector(".wm-banner")
             ?.scrollIntoView({ behavior: "smooth", block: "center" });
         });
-
         showError(
           err.message ??
           "One or more photos were rejected. Please replace them and try again."
         );
 
-      /* ── 403 — tier limit ── */
+      /* ── 403 tier limit ── */
       } else if (
         err?.status === 403 &&
         err?.data?.upgrade_required === true
@@ -1248,7 +1328,6 @@ export default function AddProduct({ user }) {
           });
           setNeedsVerification(true);
         }
-
         showError(err.message ?? "Posting limit reached.");
 
       } else {
@@ -1260,8 +1339,8 @@ export default function AddProduct({ user }) {
         const token = getToken();
         if (token) {
           fetch(`${API_BASE}/addproduct/products/${product.id}`, {
-            method  : "DELETE",
-            headers : { Authorization: `Bearer ${token}` },
+            method : "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
           }).catch((e) =>
             console.error("[AddProduct] cleanup failed:", e)
           );
@@ -1279,10 +1358,69 @@ export default function AddProduct({ user }) {
     buildCreateFormData, clearDraft, showError, showSuccess,
     handlePostSuccess, fetchLimits, navigate,
     IDEMPOTENCY_STORE, lifetimeUsed,
-    /* ✅ form.contact.email removed from deps — no longer used */
   ]);
 
-  /* Route to correct submit */
+  /* ═══════════════════════════════════════════════════════════
+     CREATE SUBMIT — ENTRY POINT
+     ✅ v6: Blocks unverified users from paid plans
+            Shows VerifyBeforePayModal instead of Paystack
+  ═══════════════════════════════════════════════════════════ */
+  const handleCreateSubmit = useCallback(() => {
+    if (isSubmittingRef.current) return;
+
+    /* Determine the plan that would be used */
+    const finalPlan =
+      selectedPlan ??
+      promotionPlans.find((p) => Number(p.price) === 0) ??
+      null;
+
+    const isPaidPlan = !!finalPlan && Number(finalPlan.price) > 0;
+
+    /* ✅ v6: Unverified user + paid plan = show verify modal
+       Do NOT upload, do NOT go to Paystack              */
+    if (isPaidPlan && !isVerifiedSeller) {
+      console.log(
+        "[AddProduct] ⛔ Blocking unverified user from paid plan —",
+        "showing VerifyBeforePayModal"
+      );
+      setShowVerifyBeforePay(true);
+      return;
+    }
+
+    /* Verified or free plan — proceed normally */
+    isSubmittingRef.current = true;
+    runCreateSubmit();
+  }, [
+    selectedPlan, promotionPlans,
+    isVerifiedSeller, runCreateSubmit,
+  ]);
+
+  /* ─── Modal handlers ─── */
+  const handleVerifyBeforePayVerify = useCallback(() => {
+    /* User chose to verify — close modal and redirect */
+    setShowVerifyBeforePay(false);
+    navigate("/verification");
+  }, [navigate]);
+
+  const handleVerifyBeforePayCancel = useCallback(() => {
+    /* ✅ User cancelled — stay on page, do nothing */
+    setShowVerifyBeforePay(false);
+  }, []);
+
+  const handleVerifyBeforePayFreePlan = useCallback(() => {
+    /* Switch to free plan and proceed */
+    setShowVerifyBeforePay(false);
+    const freePlan = promotionPlans.find(
+      (p) => Number(p.price) === 0
+    ) ?? null;
+    setSelectedPlan(freePlan);
+
+    /* Submit with free plan */
+    isSubmittingRef.current = true;
+    runCreateSubmit(freePlan);
+  }, [promotionPlans, runCreateSubmit]);
+
+  /* ─── Route to correct submit ─── */
   const handleSubmit = useCallback(
     () => (isEditMode ? handleEditSubmit() : handleCreateSubmit()),
     [isEditMode, handleEditSubmit, handleCreateSubmit]
@@ -1336,6 +1474,15 @@ export default function AddProduct({ user }) {
   return (
     <div className="apd-page">
 
+      {/* ✅ v6: Verify Before Pay Modal */}
+      {showVerifyBeforePay && !isEditMode && (
+        <VerifyBeforePayModal
+          onVerify   ={handleVerifyBeforePayVerify}
+          onCancel   ={handleVerifyBeforePayCancel}
+          onFreePlan ={handleVerifyBeforePayFreePlan}
+        />
+      )}
+
       <ProgressOverlay
         visible={progressVisible}
         step={progressStep}
@@ -1343,7 +1490,11 @@ export default function AddProduct({ user }) {
       />
 
       {compressingTotal > 0 && (
-        <div className="compression-progress" role="status" aria-live="polite">
+        <div
+          className="compression-progress"
+          role="status"
+          aria-live="polite"
+        >
           <span className="btn-spin-svg" aria-hidden="true" />
           Compressing image {compressingCount + 1} of {compressingTotal}…
         </div>
@@ -1404,7 +1555,7 @@ export default function AddProduct({ user }) {
         trialExhausted={trialExhausted}
         trialRemaining={trialRemaining}
 
-        /* ─ 3-tier fields (v4) ─ */
+        /* ─ 3-tier fields ─ */
         tier={tier}
         isSubscriber={isSubscriber}
         lifetimeExhausted={lifetimeExhausted}
