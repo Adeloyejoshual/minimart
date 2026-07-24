@@ -145,11 +145,24 @@ export const Ic = {
     </svg>
   ),
 
-  /* ═══════════════════════════════════════════════════════════
-     TIER SYSTEM — required by Listings.jsx & Dashboard.jsx
-  ═══════════════════════════════════════════════════════════ */
+  /* ─── NEW: Arrow indicators ─── */
+  ArrowUp: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="19" x2="12" y2="5" />
+      <polyline points="5 12 12 5 19 12" />
+    </svg>
+  ),
 
-  /* ⭐ NEW — Verified tier badge */
+  ArrowDown: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="12" y1="5" x2="12" y2="19" />
+      <polyline points="19 12 12 19 5 12" />
+    </svg>
+  ),
+
+  /* ═══════════════════════════════════════════════════════════
+     TIER SYSTEM
+  ═══════════════════════════════════════════════════════════ */
   CheckCircle: () => (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
@@ -157,14 +170,12 @@ export const Ic = {
     </svg>
   ),
 
-  /* ⭐ NEW — Verify upsell banner */
   Shield: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
     </svg>
   ),
 
-  /* ⭐ NEW — Shield with check inside (verification success) */
   ShieldCheck: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -172,7 +183,6 @@ export const Ic = {
     </svg>
   ),
 
-  /* ⭐ NEW — Crown (subscriber/premium indicator) */
   Crown: () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M3 18h18" />
@@ -180,7 +190,6 @@ export const Ic = {
     </svg>
   ),
 
-  /* ⭐ NEW — Sparkles (Pro perks indicator) */
   Sparkles: () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <path d="M12 3l1.9 5.8L20 10l-6.1 1.2L12 17l-1.9-5.8L4 10l6.1-1.2L12 3z" />
@@ -199,7 +208,6 @@ export const Ic = {
     </svg>
   ),
 
-  /* ⭐ NEW — Pending / info banners */
   AlertCircle: () => (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="12" cy="12" r="10" />
@@ -222,17 +230,28 @@ export const Ic = {
     </svg>
   ),
 
-  /* ⭐ NEW — Success / good insight */
-  Celebration: () => (
+  /* ─── NEW: replaces Celebration ─── */
+  ThumbsUp: () => (
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M5.8 11.3L2 22l10.7-3.79" />
-      <path d="M4 3h.01" />
-      <path d="M22 8h.01" />
-      <path d="M15 2h.01" />
-      <path d="M22 20h.01" />
-      <path d="M22 2l-2.24.75a2.9 2.9 0 00-1.96 3.12v0c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 10" />
-      <path d="M22 13l-1.9-.38a2.9 2.9 0 00-3.32 1.9v0c-.24.8-1.11 1.24-1.9.99L14 16" />
-      <path d="M10.94 4.94l1.06-2.94 1.06 2.94 2.94 1.06-2.94 1.06-1.06 2.94-1.06-2.94-2.94-1.06 2.94-1.06z" />
+      <path d="M14 9V5a3 3 0 00-3-3l-4 9v11h11.28a2 2 0 002-1.7l1.38-9a2 2 0 00-2-2.3H14z" />
+      <path d="M7 22H4a2 2 0 01-2-2v-7a2 2 0 012-2h3" />
+    </svg>
+  ),
+
+  /* ═══════════════════════════════════════════════════════════
+     PAYMENT — required by ProductCard PendingBanner
+  ═══════════════════════════════════════════════════════════ */
+  Lock: () => (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
+      <path d="M7 11V7a5 5 0 0110 0v4" />
+    </svg>
+  ),
+
+  CreditCard: () => (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1" y="4" width="22" height="16" rx="2" ry="2" />
+      <line x1="1" y1="10" x2="23" y2="10" />
     </svg>
   ),
 
@@ -312,4 +331,24 @@ export const Ic = {
       <path d="M6 4l12 16M18 4L6 20" />
     </svg>
   ),
+
+  /* ─── Catch-all fallback — use when key might be missing ─── */
+  Fallback: () => (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="10" />
+    </svg>
+  ),
+};
+
+/* ─────────────────────────────────────────────
+   safeIc — never returns undefined
+   Usage: const Icon = safeIc("Chart");  <Icon />
+───────────────────────────────────────────── */
+export const safeIc = (key) => {
+  const icon = Ic[key];
+  if (!icon) {
+    console.warn(`[safeIc] Missing icon: "${key}"`);
+    return Ic.Fallback;
+  }
+  return icon;
 };
