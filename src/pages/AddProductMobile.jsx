@@ -3,16 +3,14 @@
  * Route: /minimart/add
  *       /minimart/add?edit=:productId  ← EDIT MODE
  *
- * v4 — 3-TIER SUBSCRIPTION SUPPORT
- *   • Passes `tier`, `isSubscriber`, `lifetimeExhausted`,
- *     `upgradeTo`, `upgradeUrl` down to ProductComponents
- *   • Handles both "verify" and "subscribe" upsell paths:
- *       - Unverified hits 3 lifetime  → verification upsell
- *       - Verified   hits 500 lifetime → subscription upsell
- *       - Subscriber never sees upsell
- *   • Reads new backend response fields from POST /products
- *     (upgrade_message, upgrade_to, upgrade_url, is_subscriber)
+ * v5 — EMAIL FROM REGISTRATION
+ * ─────────────────────────────────────────────────────────────
+ *  - Email field completely removed from contact information
+ *  - Email is automatically taken from user.email (registration)
+ *  - Never sent in form body — backend reads from users table
+ *  - 3-TIER SUBSCRIPTION SUPPORT maintained from v4
  *
+ * v4 — 3-TIER SUBSCRIPTION SUPPORT
  * v3 — TermsCheckbox extracted to shared component
  */
 
@@ -39,7 +37,7 @@ import "../styles/AddProduct.css";
 ═══════════════════════════════════════════════════════════════ */
 const API_BASE          = `${import.meta.env.VITE_API_BASE_URL}/api`;
 const STORAGE_PAYMENT   = "payment_retry";
-const DRAFT_VERSION     = 3;
+const DRAFT_VERSION     = 4;                // ✅ bumped — email removed from draft
 const MAX_IMAGES        = 6;
 const UPLOAD_TIMEOUT    = 120_000;
 const PAYMENT_MAX_AGE   = 30 * 60 * 1_000;
@@ -59,15 +57,15 @@ const ALLOWED_PAYMENT_HOSTS = new Set([
   "standard.paystack.com",
 ]);
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/* ✅ EMAIL_RE removed — email no longer validated on frontend */
 const PHONE_RE = /^\+?[0-9]{7,15}$/;
 
+/* ✅ email entry removed from ERROR_SELECTOR_MAP */
 const ERROR_SELECTOR_MAP = [
   { match: "Title",          sel: "#ap-title"               },
   { match: "Description",    sel: "#ap-desc"                },
   { match: "price",          sel: "#ap-price"               },
   { match: "Category",       sel: ".section:nth-of-type(2)" },
-  { match: "email",          sel: "#ap-email"               },
   { match: "Phone",          sel: "#ap-phone"               },
   { match: "WhatsApp",       sel: "#ap-wa"                  },
   { match: "image",          sel: ".ap-image-box"           },
@@ -230,7 +228,7 @@ export default function AddProduct({ user }) {
   const isEditMode = !!editId;
 
   const STORAGE_DRAFT = useMemo(
-    () => `product_draft_v3_${user?.id ?? "anon"}`,
+    () => `product_draft_v4_${user?.id ?? "anon"}`,  // ✅ v4 key — clears old drafts
     [user?.id]
   );
   const IDEMPOTENCY_STORE = useMemo(
@@ -278,16 +276,15 @@ export default function AddProduct({ user }) {
     dailyRemaining, activeRemaining, cooldownSecs, canPost,
   } = useSellerLimits(API_BASE, isEditMode);
 
-  /* Derive tier fields — works even if useSellerLimits hasn't
-     been updated yet, by reading directly from sellerLimits.  */
-  const tier               = sellerLimits?.tier               ?? "unverified";
-  const isSubscriber       = sellerLimits?.is_subscriber      ?? false;
-  const lifetimeExhausted  = sellerLimits?.lifetime_exhausted ?? false;
-  const lifetimeRemaining  = sellerLimits?.lifetime_remaining ?? null;
-  const lifetimeUsed       = sellerLimits?.lifetime_used      ?? 0;
-  const lifetimeMax        = sellerLimits?.lifetime_max       ?? null;
-  const upgradeTo          = sellerLimits?.upgrade_to         ?? null;
-  const upgradeUrl         = sellerLimits?.upgrade_url        ?? null;
+  /* Derive tier fields */
+  const tier              = sellerLimits?.tier               ?? "unverified";
+  const isSubscriber      = sellerLimits?.is_subscriber      ?? false;
+  const lifetimeExhausted = sellerLimits?.lifetime_exhausted ?? false;
+  const lifetimeRemaining = sellerLimits?.lifetime_remaining ?? null;
+  const lifetimeUsed      = sellerLimits?.lifetime_used      ?? 0;
+  const lifetimeMax       = sellerLimits?.lifetime_max       ?? null;
+  const upgradeTo         = sellerLimits?.upgrade_to         ?? null;
+  const upgradeUrl        = sellerLimits?.upgrade_url        ?? null;
 
   /* ─── Local state ─── */
   const [categories,        setCategories]        = useState([]);
@@ -312,7 +309,6 @@ export default function AddProduct({ user }) {
   const [verificationData,  setVerificationData]  = useState(null);
 
   /* ─── Subscription upsell state ─── */
-  /* Shown when a VERIFIED seller hits their 500-listing lifetime cap. */
   const [needsSubscription, setNeedsSubscription] = useState(false);
   const [subscriptionData,  setSubscriptionData]  = useState(null);
 
@@ -388,6 +384,17 @@ export default function AddProduct({ user }) {
     !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
   /* ═══════════════════════════════════════════════════════════
+     ✅ AUTO-SET EMAIL FROM LOGGED-IN USER ON MOUNT
+     Email comes from registration — never from form input
+  ═══════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    if (user?.email) {
+      updateContact("email", user.email);
+      console.log("[AddProduct] ✅ email set from registration:", user.email);
+    }
+  }, [user?.email]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /* ═══════════════════════════════════════════════════════════
      LOAD CATEGORIES
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
@@ -450,7 +457,9 @@ export default function AddProduct({ user }) {
       const p = d.product;
       if (!mountedRef.current) return;
 
-      loadForm({ ...p, email: p.contact?.email || user?.email || "" });
+      /* ✅ v5: Do NOT load email from product data
+         Email will be set from user.email via the useEffect above */
+      loadForm({ ...p });
 
       if (p.location_state) setLocationState(p.location_state);
       if (p.location_city)  setCity(p.location_city);
@@ -501,7 +510,8 @@ export default function AddProduct({ user }) {
     } finally {
       if (mountedRef.current) setEditLoading(false);
     }
-  }, [editId, navigate, user?.email, loadForm, loadExistingImages]);
+  }, [editId, navigate, loadForm, loadExistingImages]);
+  // ✅ removed user?.email dependency — email set via separate useEffect
 
   useEffect(() => {
     if (isEditMode && categoriesLoaded) loadProductForEdit();
@@ -584,7 +594,15 @@ export default function AddProduct({ user }) {
       }
       if (!mountedRef.current) return;
 
-      loadForm(draft.form ?? {});
+      /* ✅ v5: Strip email from draft before loading
+         Email is always set fresh from user.email     */
+      const { form: draftForm = {} } = draft;
+      const { contact, ...restForm } = draftForm;
+      const contactWithoutEmail = contact
+        ? { ...contact, email: user?.email ?? "" }
+        : { email: user?.email ?? "" };
+
+      loadForm({ ...restForm, contact: contactWithoutEmail });
       setLocationState(draft.locationState ?? "");
       setCity(draft.city ?? "");
 
@@ -599,11 +617,12 @@ export default function AddProduct({ user }) {
     }
   }, [
     isEditMode, categoriesLoaded, plansLoading,
-    STORAGE_DRAFT, loadForm, promotionPlans,
+    STORAGE_DRAFT, loadForm, promotionPlans, user?.email,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
      AUTO-SAVE DRAFT  (skip in edit mode)
+     ✅ v5: Strip email before saving to localStorage
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -611,11 +630,17 @@ export default function AddProduct({ user }) {
     autoSaveTimer.current = setTimeout(() => {
       if (!mountedRef.current) return;
       try {
+        /* ✅ Never persist email in draft — always use user.email on restore */
+        const { contact, ...restForm } = form;
+        const contactWithoutEmail = contact
+          ? (({ email, ...rest }) => rest)(contact)
+          : {};
+
         localStorage.setItem(
           STORAGE_DRAFT,
           JSON.stringify({
             version     : DRAFT_VERSION,
-            form,
+            form        : { ...restForm, contact: contactWithoutEmail },
             locationState,
             city,
             selectedPlan: selectedPlan?.id ?? null,
@@ -657,6 +682,7 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      VALIDATION
+     ✅ v5: Email validation removed — comes from registration
   ═══════════════════════════════════════════════════════════ */
   const validateForm = useCallback(() => {
     const t = form.title?.trim() ?? "";
@@ -673,11 +699,11 @@ export default function AddProduct({ user }) {
       return "Enter a valid price.";
     if (Number(form.price) > 1_000_000_000)
       return "Price exceeds maximum.";
+
     if (!form.category_id)
       return "Category required.";
 
-    if (!EMAIL_RE.test(form.contact?.email ?? ""))
-      return "Enter a valid email address.";
+    /* ✅ Email validation removed — backend reads from users table */
 
     if (!isValidPhone(form.contact?.phone))
       return "Phone number must be 7–15 digits (e.g. 08012345678).";
@@ -712,6 +738,8 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      BUILD FORM DATA
+     ✅ v5: email NOT appended to FormData
+            Backend reads email from users table
   ═══════════════════════════════════════════════════════════ */
   const buildBaseFormData = useCallback(() => {
     const fd = new FormData();
@@ -727,12 +755,19 @@ export default function AddProduct({ user }) {
     fd.append("whatsapp",       sanitizePhone(form.contact.whatsapp ?? ""));
     fd.append("whatsapp_link",  form.contact.whatsapp_link ?? "");
     fd.append("seller_name",    user?.store_name || user?.name || BRAND_NAME);
-    fd.append("attributes",     JSON.stringify({
+
+    /* ✅ email intentionally NOT appended — backend fetches from users table */
+
+    fd.append("attributes", JSON.stringify({
       ...attributes,
       features: toArray(attributes.features),
     }));
-    fd.append("delivery",  JSON.stringify(form.delivery));
-    fd.append("contact",   JSON.stringify(form.contact));
+    fd.append("delivery", JSON.stringify(form.delivery));
+
+    /* ✅ Strip email from contact JSON before sending */
+    const { email: _email, ...contactWithoutEmail } = form.contact ?? {};
+    fd.append("contact", JSON.stringify(contactWithoutEmail));
+
     if (detectedCoords) {
       fd.append("latitude",  String(detectedCoords.latitude));
       fd.append("longitude", String(detectedCoords.longitude));
@@ -822,15 +857,21 @@ export default function AddProduct({ user }) {
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
     clearIdempotencyKey(IDEMPOTENCY_STORE);
+
+    /* ✅ Re-set email from registration after reset */
+    if (user?.email) {
+      updateContact("email", user.email);
+    }
+
     showSuccess("Draft cleared");
-  }, [STORAGE_DRAFT, IDEMPOTENCY_STORE, resetForm, resetImages, showSuccess]);
+  }, [
+    STORAGE_DRAFT, IDEMPOTENCY_STORE,
+    resetForm, resetImages, showSuccess,
+    user?.email, updateContact,
+  ]);
 
   /* ═══════════════════════════════════════════════════════════
      POST SUCCESS HANDLER
-     v4 — Now handles 3 upsell paths:
-       1. Watermark warnings   → delay + banner
-       2. Verification needed  → /verification redirect (unverified)
-       3. Subscription pitch   → /subscribe hint (verified at 500 cap)
   ═══════════════════════════════════════════════════════════ */
   const handlePostSuccess = useCallback(
     (responseData) => {
@@ -853,10 +894,7 @@ export default function AddProduct({ user }) {
         setWatermarkNotice(notice);
       }
 
-      /* ── Subscription upsell —
-         Backend sends `upgrade_message` + `upgrade_to: "subscriber"`
-         when a VERIFIED seller has just posted their final free listing
-         (i.e. hit the 500 lifetime cap after this post). */
+      /* ── Subscription upsell ── */
       const upgradeMessage = responseData?.upgrade_message ?? null;
       const upgradeToNext  = responseData?.upgrade_to      ?? null;
       const upgradeUrlNext = responseData?.upgrade_url     ?? "/subscribe";
@@ -868,15 +906,14 @@ export default function AddProduct({ user }) {
 
       if (showSubscribeUpsell) {
         setSubscriptionData({
-          message   : upgradeMessage,
-          upgradeUrl: upgradeUrlNext,
+          message     : upgradeMessage,
+          upgradeUrl  : upgradeUrlNext,
           lifetimeUsed: responseData?.limits?.lifetime_used ?? lifetimeUsed,
           lifetimeMax : responseData?.limits?.lifetime_max  ?? 500,
         });
         setNeedsSubscription(true);
       }
 
-      /* Extra delay for upsell / warning readability */
       const extraDelay =
         (warnings.length > 0 ? WM_WARN_EXTRA_DELAY_MS : 0) +
         (showSubscribeUpsell ? UPGRADE_EXTRA_DELAY_MS : 0);
@@ -897,14 +934,11 @@ export default function AddProduct({ user }) {
         );
         safeRedirect("/verification", VERIFY_DELAY_MS + extraDelay);
       } else if (showSubscribeUpsell) {
-        /* Verified seller just hit 500 — DON'T auto-redirect.
-           Let them read the upsell and decide.                */
         showSuccess(
           respIsSubscriber
             ? "Product live! Redirecting…"
             : "Product live! You've reached your 500-listing limit."
         );
-        /* No redirect — user chooses to subscribe or stay */
       } else {
         showSuccess(
           warnings.length > 0
@@ -999,7 +1033,8 @@ export default function AddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      CREATE SUBMIT
-     v4 — Enhanced 403 handling for both trial/lifetime blocks
+     ✅ v5: email NOT sent in payment initiation body
+            Backend reads email from users table
   ═══════════════════════════════════════════════════════════ */
   const handleCreateSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
@@ -1019,7 +1054,7 @@ export default function AddProduct({ user }) {
       return;
     }
 
-    /* Clear any stale banners */
+    /* Clear stale banners */
     setWatermarkWarnings([]);
     setWatermarkNotice("");
     setNeedsSubscription(false);
@@ -1101,6 +1136,7 @@ export default function AddProduct({ user }) {
         (rawPrice * (1 - discount / 100)).toFixed(2)
       );
 
+      /* ✅ v5: email NOT sent — backend reads from users table */
       const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
         method  : "POST",
         headers : {
@@ -1108,7 +1144,7 @@ export default function AddProduct({ user }) {
           Authorization  : `Bearer ${token}`,
         },
         body: JSON.stringify({
-          email           : form.contact.email,
+          /* email intentionally omitted — backend fetches from users table */
           amount          : effectiveAmt,
           plan_id         : String(finalPlan.id),
           product_id      : product.id,
@@ -1121,12 +1157,12 @@ export default function AddProduct({ user }) {
 
       paymentInitiated = true;
 
+      /* ✅ v5: email NOT stored in payment session */
       const session = {
         reference        : payData.reference,
         authUrl          : payData.authorization_url,
         planId           : String(finalPlan.id),
         productId        : product.id,
-        email            : form.contact.email,
         amount           : effectiveAmt,
         createdAt        : Date.now(),
         needsVerification: uploadData.needs_verification ?? false,
@@ -1187,11 +1223,7 @@ export default function AddProduct({ user }) {
           "One or more photos were rejected. Please replace them and try again."
         );
 
-      /* ── 403 — tier limit hit BEFORE upload ──
-         The backend returns:
-           unverified at 3   → upgrade_to: "verified"
-           verified at 500   → upgrade_to: "subscriber"
-         Show the appropriate upsell.                        */
+      /* ── 403 — tier limit ── */
       } else if (
         err?.status === 403 &&
         err?.data?.upgrade_required === true
@@ -1200,7 +1232,6 @@ export default function AddProduct({ user }) {
         const upUrl = err.data?.upgrade_url ?? "/verification";
 
         if (upTo === "subscriber") {
-          /* Verified seller hit 500 — show subscribe pitch */
           setSubscriptionData({
             message     : err.message ?? "You've reached your 500-listing limit.",
             upgradeUrl  : upUrl,
@@ -1209,7 +1240,6 @@ export default function AddProduct({ user }) {
           });
           setNeedsSubscription(true);
         } else {
-          /* Unverified seller hit trial cap — show verify pitch */
           setVerificationData({
             message     : err.message ?? "You've used all free trial listings.",
             upgradeUrl  : upUrl,
@@ -1248,7 +1278,8 @@ export default function AddProduct({ user }) {
     validateForm, selectedPlan, promotionPlans, plansLoading,
     buildCreateFormData, clearDraft, showError, showSuccess,
     handlePostSuccess, fetchLimits, navigate,
-    form.contact.email, IDEMPOTENCY_STORE, lifetimeUsed,
+    IDEMPOTENCY_STORE, lifetimeUsed,
+    /* ✅ form.contact.email removed from deps — no longer used */
   ]);
 
   /* Route to correct submit */
