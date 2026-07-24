@@ -5,6 +5,7 @@ import {
   useCallback,
   useMemo,
   useRef,
+  Component,
 } from "react";
 import { useNavigate, Link } from "react-router-dom";
 
@@ -20,6 +21,228 @@ import PromoteModal  from "./components/PromoteModal";
 import Toast         from "./components/Toast";
 
 import "../../styles/Dashboard.css";
+
+/* ─────────────────────────────────────────────
+   SectionErrorBoundary
+   Catches render crashes inside any section and
+   shows the REAL error instead of a blank screen.
+───────────────────────────────────────────── */
+class SectionErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, info: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error, info) {
+    console.error(
+      `[Dashboard:${this.props.section}] RENDER CRASH:`,
+      error,
+      info
+    );
+    this.setState({ info });
+  }
+
+  render() {
+    const { error, info } = this.state;
+
+    if (error) {
+      return (
+        <div
+          style={{
+            margin       : "24px 16px",
+            padding      : "20px",
+            border       : "1.5px solid #f87171",
+            borderRadius : "12px",
+            background   : "#fff1f1",
+            fontFamily   : "monospace",
+          }}
+        >
+          {/* Title */}
+          <div
+            style={{
+              display    : "flex",
+              alignItems : "center",
+              gap        : "8px",
+              marginBottom: "12px",
+            }}
+          >
+            <span style={{ fontSize: 20 }}>⚠️</span>
+            <strong style={{ color: "#991b1b", fontSize: 14 }}>
+              Render error in{" "}
+              <code
+                style={{
+                  background   : "#fee2e2",
+                  padding      : "2px 6px",
+                  borderRadius : 4,
+                }}
+              >
+                {this.props.section ?? "unknown section"}
+              </code>
+            </strong>
+          </div>
+
+          {/* Error message */}
+          <div
+            style={{
+              background   : "#fef2f2",
+              border       : "1px solid #fca5a5",
+              borderRadius : "8px",
+              padding      : "12px",
+              marginBottom : "10px",
+            }}
+          >
+            <div
+              style={{
+                fontSize     : 11,
+                color        : "#6b7280",
+                marginBottom : 4,
+                textTransform: "uppercase",
+                letterSpacing: "0.05em",
+              }}
+            >
+              Error Message
+            </div>
+            <pre
+              style={{
+                margin    : 0,
+                fontSize  : 13,
+                color     : "#7f1d1d",
+                whiteSpace: "pre-wrap",
+                wordBreak : "break-all",
+              }}
+            >
+              {error?.message ?? String(error)}
+            </pre>
+          </div>
+
+          {/* Stack trace */}
+          {error?.stack && (
+            <details style={{ marginBottom: "10px" }}>
+              <summary
+                style={{
+                  cursor  : "pointer",
+                  fontSize: 12,
+                  color   : "#9ca3af",
+                  padding : "4px 0",
+                }}
+              >
+                Stack trace
+              </summary>
+              <pre
+                style={{
+                  marginTop : "8px",
+                  padding   : "10px",
+                  background: "#f9fafb",
+                  borderRadius: "6px",
+                  fontSize  : 10,
+                  color     : "#374151",
+                  whiteSpace: "pre-wrap",
+                  wordBreak : "break-all",
+                  maxHeight : "200px",
+                  overflowY : "auto",
+                }}
+              >
+                {error.stack}
+              </pre>
+            </details>
+          )}
+
+          {/* Component stack */}
+          {info?.componentStack && (
+            <details style={{ marginBottom: "14px" }}>
+              <summary
+                style={{
+                  cursor  : "pointer",
+                  fontSize: 12,
+                  color   : "#9ca3af",
+                  padding : "4px 0",
+                }}
+              >
+                Component tree
+              </summary>
+              <pre
+                style={{
+                  marginTop : "8px",
+                  padding   : "10px",
+                  background: "#f9fafb",
+                  borderRadius: "6px",
+                  fontSize  : 10,
+                  color     : "#374151",
+                  whiteSpace: "pre-wrap",
+                  wordBreak : "break-all",
+                  maxHeight : "200px",
+                  overflowY : "auto",
+                }}
+              >
+                {info.componentStack}
+              </pre>
+            </details>
+          )}
+
+          {/* Actions */}
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              style={{
+                padding      : "8px 16px",
+                background   : "#ef4444",
+                color        : "#fff",
+                border       : "none",
+                borderRadius : "8px",
+                cursor       : "pointer",
+                fontSize     : 13,
+                fontWeight   : 600,
+              }}
+              onClick={() => this.setState({ error: null, info: null })}
+            >
+              Try Again
+            </button>
+            <button
+              style={{
+                padding      : "8px 16px",
+                background   : "transparent",
+                color        : "#6b7280",
+                border       : "1px solid #d1d5db",
+                borderRadius : "8px",
+                cursor       : "pointer",
+                fontSize     : 13,
+              }}
+              onClick={() => window.location.reload()}
+            >
+              Reload Page
+            </button>
+            <button
+              style={{
+                padding      : "8px 16px",
+                background   : "transparent",
+                color        : "#6b7280",
+                border       : "1px solid #d1d5db",
+                borderRadius : "8px",
+                cursor       : "pointer",
+                fontSize     : 13,
+              }}
+              onClick={() => {
+                const text =
+                  `Section: ${this.props.section}\n` +
+                  `Error: ${error?.message}\n\n` +
+                  `Stack:\n${error?.stack}\n\n` +
+                  `Component tree:\n${info?.componentStack}`;
+                navigator.clipboard?.writeText(text);
+              }}
+            >
+              Copy Error
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 /* ─────────────────────────────────────────────
    Constants
@@ -65,7 +288,6 @@ const resolveEmail = (propEmail) => {
 
 /* ─────────────────────────────────────────────
    useDashboard — all data & mutations
-   v2 — Tier-aware renewals + subscription upsells
 ───────────────────────────────────────────── */
 function useDashboard(showToast, userEmail, navigate) {
 
@@ -99,9 +321,7 @@ function useDashboard(showToast, userEmail, navigate) {
   const pendingDelete  = useRef(null);
   const pendingUpgrade = useRef(null);
 
-  /* ────────────────────────────────────────
-     Fetchers
-  ──────────────────────────────────────── */
+  /* ── fetchers ── */
   const fetchOverview = useCallback(async () => {
     try {
       const res = await fetch(`${API}/seller-dashboard/overview`, {
@@ -111,7 +331,6 @@ function useDashboard(showToast, userEmail, navigate) {
       if (res.ok && d.success && d.data) {
         setTier(d.data.tier ?? "unverified");
         setIsSubscriber(d.data.is_subscriber ?? false);
-        /* Overview returns stats + recent_products too — use as a warm start */
         if (d.data.stats) setStats(d.data.stats);
       }
     } catch (err) {
@@ -191,9 +410,6 @@ function useDashboard(showToast, userEmail, navigate) {
     } catch { /* non-critical */ }
   }, []);
 
-  /* ────────────────────────────────────────
-     Bootstrap
-  ──────────────────────────────────────── */
   const loadAll = useCallback(
     async (silent = false) => {
       silent ? setRefreshing(true) : setLoading(true);
@@ -220,9 +436,6 @@ function useDashboard(showToast, userEmail, navigate) {
     loadAll();
   }, [fetchPlans, loadAll]);
 
-  /* ────────────────────────────────────────
-     Filter / pagination handlers
-  ──────────────────────────────────────── */
   const handleTabChange = useCallback(
     (newTab) => {
       setTab(newTab);
@@ -250,28 +463,19 @@ function useDashboard(showToast, userEmail, navigate) {
     fetchProducts(tab, nextCursor, search);
   }, [hasMore, loadingMore, nextCursor, tab, search, fetchProducts]);
 
-  /* ────────────────────────────────────────
-     Product mutations
-  ──────────────────────────────────────── */
   const deleteProduct = useCallback(
     async (product) => {
       setDeleting(product.id);
       setProducts((prev) => prev.filter((p) => p.id !== product.id));
-
       try {
         const res = await fetch(
           `${API}/seller-dashboard/products/${product.id}`,
           { method: "DELETE", headers: authH() }
         );
         const d = await res.json();
-
         if (res.ok && d.success) {
           fetchStats();
-          showToast(
-            `Deleted — recoverable for ${d.hold_days ?? 30} days`,
-            "info",
-            5000
-          );
+          showToast(`Deleted — recoverable for ${d.hold_days ?? 30} days`, "info", 5000);
         } else {
           setProducts((prev) => [product, ...prev]);
           showToast(d.message || "Could not delete.", "error");
@@ -288,22 +492,16 @@ function useDashboard(showToast, userEmail, navigate) {
 
   const toggleProduct = useCallback(
     async (product) => {
-      /* guard: pending_payment products must not be toggled */
       if (product.status === "pending_payment") {
-        showToast(
-          "Complete payment before activating this listing.",
-          "warning"
-        );
+        showToast("Complete payment before activating this listing.", "warning");
         return;
       }
-
       try {
         const res = await fetch(
           `${API}/seller-dashboard/products/${product.id}/toggle`,
           { method: "PATCH", headers: authH() }
         );
         const d = await res.json();
-
         if (res.ok && d.success) {
           setProducts((prev) =>
             prev.map((p) =>
@@ -327,14 +525,6 @@ function useDashboard(showToast, userEmail, navigate) {
     [fetchStats, showToast]
   );
 
-  /* ────────────────────────────────────────
-     RENEW — v2 tier-aware
-     Handles all 3-tier response shapes:
-       200 → success (updates product, shows tier-specific toast)
-       403 → unverified block (routes to verification)
-       400 → various — trial should_activate, max renewals,
-             too-early, subscribe upsell
-  ──────────────────────────────────────── */
   const renewProduct = useCallback(
     async (product) => {
       setRenewing(product.id);
@@ -345,7 +535,6 @@ function useDashboard(showToast, userEmail, navigate) {
         );
         const d = await res.json();
 
-        /* ── Success ── */
         if (res.ok && d.success) {
           setProducts((prev) =>
             prev.map((p) =>
@@ -361,8 +550,6 @@ function useDashboard(showToast, userEmail, navigate) {
             )
           );
           fetchStats();
-
-          /* Tier-specific success toast */
           if (d.is_subscriber) {
             showToast(`✨ Renewed for ${d.days_added} days (Pro)`, "success");
           } else if (d.renewals_left !== null && d.renewals_left <= 2) {
@@ -373,14 +560,12 @@ function useDashboard(showToast, userEmail, navigate) {
           } else {
             showToast(`Renewed for ${d.days_added} days`, "success");
           }
-
-          /* If verified just hit renewal cap, prompt upgrade */
           if (d.upgrade_to === "subscriber" && d.limit_reached_notice) {
             setTimeout(() => {
               pendingUpgrade.current = {
-                type       : "subscribe",
-                message    : d.limit_reached_notice,
-                upgradeUrl : d.upgrade_url ?? "/seller/subscription/plans",
+                type      : "subscribe",
+                message   : d.limit_reached_notice,
+                upgradeUrl: d.upgrade_url ?? "/seller/subscription/plans",
               };
               showToast(
                 "Tap here to upgrade for unlimited renewals",
@@ -393,7 +578,6 @@ function useDashboard(showToast, userEmail, navigate) {
           return;
         }
 
-        /* ── 403: unverified user blocked ── */
         if (res.status === 403 && d.reason === "unverified_no_renewal") {
           showToast(
             "Verify your identity to unlock renewals",
@@ -403,18 +587,10 @@ function useDashboard(showToast, userEmail, navigate) {
           );
           return;
         }
-
-        /* ── 400: trial listing should be activated instead ── */
         if (d.should_activate) {
-          showToast(
-            "This is a trial listing — activate it to make it permanent",
-            "info",
-            6000
-          );
+          showToast("This is a trial listing — activate it to make it permanent", "info", 6000);
           return;
         }
-
-        /* ── 400: max renewals reached ── */
         if (d.upgrade_to === "subscriber") {
           showToast(
             d.message || "Renewal limit reached — subscribe for unlimited",
@@ -424,8 +600,6 @@ function useDashboard(showToast, userEmail, navigate) {
           );
           return;
         }
-
-        /* ── 400: too early to renew ── */
         if (d.days_left !== undefined) {
           showToast(
             d.message || `Available when 7 days or less remain (${d.days_left} left)`,
@@ -434,8 +608,6 @@ function useDashboard(showToast, userEmail, navigate) {
           );
           return;
         }
-
-        /* ── Fallback error ── */
         showToast(d.message || "Could not renew.", "error");
       } catch {
         showToast("Network error.", "error");
@@ -446,32 +618,20 @@ function useDashboard(showToast, userEmail, navigate) {
     [fetchStats, showToast, navigate]
   );
 
-  /* ────────────────────────────────────────
-     Payment handlers
-  ──────────────────────────────────────── */
   const handlePayNow = useCallback(
     async (product) => {
       const email = resolveEmail(userEmail);
-
       if (!email) {
-        showToast(
-          "We couldn't find your email. Please log out and log in again.",
-          "error"
-        );
+        showToast("We couldn't find your email. Please log out and log in again.", "error");
         return;
       }
-
       try {
         const res = await fetch(`${API}/payment/initiate`, {
-          method: "POST",
+          method : "POST",
           headers: authH(),
-          body: JSON.stringify({
-            product_id: product.id,
-            email,
-          }),
+          body   : JSON.stringify({ product_id: product.id, email }),
         });
         const d = await res.json();
-
         if (res.ok && d.authorization_url) {
           window.location.href = d.authorization_url;
         } else {
@@ -493,7 +653,6 @@ function useDashboard(showToast, userEmail, navigate) {
           { method: "POST", headers: authH() }
         );
         const d = await res.json();
-
         if (res.ok && d.success) {
           if (d.status === "active") {
             setProducts((prev) =>
@@ -504,20 +663,11 @@ function useDashboard(showToast, userEmail, navigate) {
               )
             );
             fetchStats();
-            showToast(
-              "Payment verified! Your listing is now live.",
-              "success"
-            );
+            showToast("Payment verified! Your listing is now live.", "success");
           } else if (d.status === "pending") {
-            showToast(
-              "Payment is still processing. Please wait a few minutes.",
-              "info"
-            );
+            showToast("Payment is still processing. Please wait a few minutes.", "info");
           } else {
-            showToast(
-              d.message || "Payment not confirmed. Please complete payment.",
-              "warning"
-            );
+            showToast(d.message || "Payment not confirmed. Please complete payment.", "warning");
           }
         } else {
           showToast(d.message || "Could not verify payment.", "error");
@@ -531,33 +681,25 @@ function useDashboard(showToast, userEmail, navigate) {
     [fetchStats, showToast]
   );
 
-  /* ────────────────────────────────────────
-     Derived
-  ──────────────────────────────────────── */
   const tabCounts = useMemo(
     () => ({
-      all:             stats?.total_products  ?? products.length,
-      active:          stats?.active          ?? 0,
-      active_limited:  stats?.active_limited  ?? 0,
-      draft:           stats?.draft           ?? 0,
-      paused:          stats?.paused          ?? 0,
-      pending:         stats?.pending_payment ?? 0,
+      all:            stats?.total_products  ?? products.length,
+      active:         stats?.active          ?? 0,
+      active_limited: stats?.active_limited  ?? 0,
+      draft:          stats?.draft           ?? 0,
+      paused:         stats?.paused          ?? 0,
+      pending:        stats?.pending_payment ?? 0,
     }),
     [stats, products.length]
   );
 
   return {
-    /* data */
     stats, products, analytics, plans,
     tier, isSubscriber,
-    /* ui */
     loading, prodLoading, loadingMore, refreshing, error,
     deleting, verifying, renewing,
-    /* filters */
     tab, search, hasMore,
-    /* refs */
     pendingDelete,
-    /* actions */
     loadAll,
     handleTabChange,
     handleSearch,
@@ -567,13 +709,12 @@ function useDashboard(showToast, userEmail, navigate) {
     renewProduct,
     handlePayNow,
     verifyPayment,
-    /* counts */
     tabCounts,
   };
 }
 
 /* ─────────────────────────────────────────────
-   DashboardHeader — with tier chip
+   DashboardHeader
 ───────────────────────────────────────────── */
 function DashboardHeader({
   greeting,
@@ -590,21 +731,18 @@ function DashboardHeader({
 }) {
   const tierLabel =
     tier === "subscriber" ? "Pro"
-    : tier === "verified" ? "Verified"
+    : tier === "verified"  ? "Verified"
     : "Trial";
 
-  const tierIcon =
+  const TierIc =
     tier === "subscriber" ? Ic.Zap
-    : tier === "verified" ? Ic.CheckCircle
+    : tier === "verified"  ? Ic.CheckCircle
     : Ic.Clock;
-
-  const TierIc = tierIcon;
 
   return (
     <header className="dashboard__header">
       <div className="dashboard__header-inner">
 
-        {/* Left */}
         <div className="dashboard__header-left">
           <button
             className="dashboard__back-btn"
@@ -625,7 +763,6 @@ function DashboardHeader({
           </div>
         </div>
 
-        {/* Right */}
         <div className="dashboard__header-right">
           <button
             className={`dashboard__action-btn${
@@ -657,10 +794,9 @@ function DashboardHeader({
         </div>
       </div>
 
-      {/* Nav */}
       <nav className="dashboard__nav" aria-label="Dashboard sections">
         {NAV_ITEMS.map(({ key, label, icon }) => {
-          const Icon = Ic[icon];
+          const Icon = Ic[icon] ?? (() => null);
           return (
             <button
               key={key}
@@ -686,7 +822,7 @@ function DashboardHeader({
 }
 
 /* ─────────────────────────────────────────────
-   ErrorBanner
+   ErrorBanner — data fetch errors
 ───────────────────────────────────────────── */
 function ErrorBanner({ message, onRetry }) {
   return (
@@ -704,10 +840,9 @@ function ErrorBanner({ message, onRetry }) {
    Dashboard
 ───────────────────────────────────────────── */
 export default function Dashboard({ user }) {
-  const navigate               = useNavigate();
+  const navigate                    = useNavigate();
   const { toasts, show: showToast } = useToast();
 
-  /* ── ui-only state ── */
   const [section,   setSection]   = useState("overview");
   const [confirm,   setConfirm]   = useState(null);
   const [promoting, setPromoting] = useState(null);
@@ -717,18 +852,13 @@ export default function Dashboard({ user }) {
     if (!getToken()) navigate("/auth?redirect=/dashboard");
   }, [navigate]);
 
-  /* ── all data & logic ── */
   const db = useDashboard(showToast, user?.email, navigate);
 
-  /* ────────────────────────────────────────
-     Delete flow
-  ──────────────────────────────────────── */
+  /* ── delete flow ── */
   const handleDeleteRequest = useCallback(
     (product) => {
       db.pendingDelete.current = product;
-      setConfirm({
-        message: `Delete "${product.title}"? This cannot be undone.`,
-      });
+      setConfirm({ message: `Delete "${product.title}"? This cannot be undone.` });
     },
     [db.pendingDelete]
   );
@@ -746,21 +876,14 @@ export default function Dashboard({ user }) {
     setConfirm(null);
   }, [db]);
 
-  /* ────────────────────────────────────────
-     Edit / Promote
-  ──────────────────────────────────────── */
+  /* ── edit / promote ── */
   const handleEdit    = useCallback(
     (product) => navigate(`/minimart/add?edit=${product.id}`),
     [navigate]
   );
-  const handlePromote = useCallback(
-    (product) => setPromoting(product),
-    []
-  );
+  const handlePromote = useCallback((product) => setPromoting(product), []);
 
-  /* ────────────────────────────────────────
-     Shared action props (memoised object)
-  ──────────────────────────────────────── */
+  /* ── shared action props ── */
   const productActions = useMemo(
     () => ({
       onEdit:          handleEdit,
@@ -782,66 +905,69 @@ export default function Dashboard({ user }) {
     ]
   );
 
-  /* ────────────────────────────────────────
-     Sections map — tier props flow to Overview + Listings
-  ──────────────────────────────────────── */
   const userName = user?.name || user?.full_name || user?.username || "Seller";
 
+  /* ── sections — each wrapped in its own error boundary ── */
   const sections = useMemo(
     () => ({
       overview: (
-        <Overview
-          stats={db.stats}
-          analytics={db.analytics}
-          products={db.products}
-          loading={db.loading}
-          userId={user?.id}
-          deleting={db.deleting}
-          verifying={db.verifying}
-          tier={db.tier}                  /* NEW */
-          isSubscriber={db.isSubscriber}  /* NEW */
-          onNavigate={navigate}
-          onSetSection={setSection}
-          {...productActions}
-        />
+        <SectionErrorBoundary section="Overview">
+          <Overview
+            stats={db.stats}
+            analytics={db.analytics}
+            products={db.products}
+            loading={db.loading}
+            userId={user?.id}
+            deleting={db.deleting}
+            verifying={db.verifying}
+            tier={db.tier}
+            isSubscriber={db.isSubscriber}
+            onNavigate={navigate}
+            onSetSection={setSection}
+            {...productActions}
+          />
+        </SectionErrorBoundary>
       ),
       products: (
-        <Listings
-          products={db.products}
-          prodLoading={db.prodLoading}
-          loadingMore={db.loadingMore}
-          hasMore={db.hasMore}
-          tab={db.tab}
-          search={db.search}
-          tabCounts={db.tabCounts}
-          deleting={db.deleting}
-          verifying={db.verifying}
-          renewing={db.renewing}          /* NEW */
-          tier={db.tier}                  /* NEW */
-          isSubscriber={db.isSubscriber}  /* NEW */
-          onTabChange={db.handleTabChange}
-          onSearch={db.handleSearch}
-          onLoadMore={db.handleLoadMore}
-          onNavigate={navigate}
-          {...productActions}
-        />
+        <SectionErrorBoundary section="Listings">
+          <Listings
+            products={db.products}
+            prodLoading={db.prodLoading}
+            loadingMore={db.loadingMore}
+            hasMore={db.hasMore}
+            tab={db.tab}
+            search={db.search}
+            tabCounts={db.tabCounts}
+            deleting={db.deleting}
+            verifying={db.verifying}
+            renewing={db.renewing}
+            tier={db.tier}
+            isSubscriber={db.isSubscriber}
+            onTabChange={db.handleTabChange}
+            onSearch={db.handleSearch}
+            onLoadMore={db.handleLoadMore}
+            onNavigate={navigate}
+            {...productActions}
+          />
+        </SectionErrorBoundary>
       ),
       analytics: (
-        <Analytics
-          stats={db.stats}
-          analytics={db.analytics}
-          loading={db.loading}
-          tier={db.tier}                  /* NEW */
-          isSubscriber={db.isSubscriber}  /* NEW */
-          onSetSection={setSection}
-          onTabChange={db.handleTabChange}
-        />
+        <SectionErrorBoundary section="Analytics">
+          <Analytics
+            stats={db.stats}
+            analytics={db.analytics}
+            loading={db.loading}
+            tier={db.tier}
+            isSubscriber={db.isSubscriber}
+            onSetSection={setSection}
+            onTabChange={db.handleTabChange}
+          />
+        </SectionErrorBoundary>
       ),
     }),
     [db, user?.id, navigate, productActions]
   );
 
-  /* ─── render ─── */
   return (
     <div className="dashboard">
 
@@ -853,8 +979,8 @@ export default function Dashboard({ user }) {
         setSection={setSection}
         tabCounts={db.tabCounts}
         refreshing={db.refreshing}
-        tier={db.tier}                    /* NEW */
-        isSubscriber={db.isSubscriber}    /* NEW */
+        tier={db.tier}
+        isSubscriber={db.isSubscriber}
         onRefresh={() => db.loadAll(true)}
         onNavigate={navigate}
       />
@@ -868,7 +994,6 @@ export default function Dashboard({ user }) {
           />
         )}
 
-        {/* key forces clean remount on section switch */}
         <div
           key={section}
           className="dashboard__section dashboard__fade-in"
@@ -891,7 +1016,6 @@ export default function Dashboard({ user }) {
         <Ic.Plus />
       </button>
 
-      {/* Confirm delete */}
       {confirm && (
         <ConfirmDialog
           message={confirm.message}
@@ -900,7 +1024,6 @@ export default function Dashboard({ user }) {
         />
       )}
 
-      {/* Promote modal */}
       {promoting && (
         <PromoteModal
           product={promoting}
