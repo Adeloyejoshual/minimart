@@ -17,29 +17,60 @@ const STATUS_META = {
 };
 
 /* ─────────────────────────────────────────────
-   Helpers
+   Safe helpers — NEVER throw
 ───────────────────────────────────────────── */
-
-/* Safely compute days left — returns null if no date */
 const safeDaysLeft = (dateStr) => {
   if (!dateStr) return null;
   try {
-    return daysLeft(dateStr);
-  } catch {
+    const result = daysLeft(dateStr);
+    return typeof result === "number" && isFinite(result) ? result : null;
+  } catch (err) {
+    console.warn("[safeDaysLeft] failed:", dateStr, err.message);
     return null;
   }
 };
 
-/* Safely get image — always returns a string */
 const safeImg = (product) => {
   try {
     return getImg(product) || PH;
-  } catch {
+  } catch (err) {
+    console.warn("[safeImg] failed:", err.message);
     return PH;
   }
 };
 
-/* Resolve product status to a canonical key */
+const safeNaira = (price) => {
+  try {
+    if (price == null || price === "") return "₦—";
+    return naira(Number(price));
+  } catch (err) {
+    console.warn("[safeNaira] failed:", price, err.message);
+    return "₦—";
+  }
+};
+
+const safeFmtNum = (n) => {
+  try {
+    if (n == null) return "0";
+    return fmtNum(Number(n));
+  } catch {
+    return "0";
+  }
+};
+
+const safeTimeAgo = (ts) => {
+  try {
+    if (!ts) return "";
+    return timeAgo(ts);
+  } catch (err) {
+    console.warn("[safeTimeAgo] failed:", ts, err.message);
+    return "";
+  }
+};
+
+/* ─────────────────────────────────────────────
+   resolveStatus
+───────────────────────────────────────────── */
 const resolveStatus = (product) => {
   if (!product) return "draft";
 
@@ -48,13 +79,14 @@ const resolveStatus = (product) => {
   if (status === "pending_payment") return "pending_payment";
   if (status === "draft")           return "draft";
 
+  /* Only check expiry for non-pending products */
   const days = safeDaysLeft(active_until);
   if (days !== null && days <= 0)   return "expired";
 
   if (
     (status === "active" || status === "active_limited") &&
     is_active !== false
-  ) return status; // preserve active_limited so badge is correct
+  ) return status; /* preserve active_limited */
 
   if (status === "paused" || is_active === false) return "paused";
 
@@ -82,7 +114,6 @@ StatusBadge.displayName = "StatusBadge";
    ExpiryBadge
 ───────────────────────────────────────────── */
 const ExpiryBadge = memo(({ activeUntil, isPromoted, resolvedStatus }) => {
-  /* No expiry badge for these statuses */
   if (
     resolvedStatus === "pending_payment" ||
     resolvedStatus === "draft"
@@ -92,41 +123,25 @@ const ExpiryBadge = memo(({ activeUntil, isPromoted, resolvedStatus }) => {
   if (days === null) return null;
 
   if (days <= 0)
-    return (
-      <span className="expiry-badge expiry-badge--expired">Expired</span>
-    );
+    return <span className="expiry-badge expiry-badge--expired">Expired</span>;
   if (days <= 3)
-    return (
-      <span className="expiry-badge expiry-badge--critical">
-        {days}d left
-      </span>
-    );
+    return <span className="expiry-badge expiry-badge--critical">{days}d left</span>;
   if (days <= 7)
-    return (
-      <span className="expiry-badge expiry-badge--warn">{days}d left</span>
-    );
+    return <span className="expiry-badge expiry-badge--warn">{days}d left</span>;
   if (isPromoted)
     return (
       <span className="expiry-badge expiry-badge--promoted">
         <Ic.Zap /> {days}d
       </span>
     );
-
-  return (
-    <span className="expiry-badge expiry-badge--ok">{days}d left</span>
-  );
+  return <span className="expiry-badge expiry-badge--ok">{days}d left</span>;
 });
 ExpiryBadge.displayName = "ExpiryBadge";
 
 /* ─────────────────────────────────────────────
    PendingBanner
 ───────────────────────────────────────────── */
-const PendingBanner = memo(({
-  product,
-  onPayNow,
-  onVerifyPayment,
-  isVerifying,
-}) => (
+const PendingBanner = memo(({ product, onPayNow, onVerifyPayment, isVerifying }) => (
   <div className="product-card__pending-banner">
     <div className="product-card__pending-banner-text">
       <Ic.AlertCircle />
@@ -138,8 +153,7 @@ const PendingBanner = memo(({
         onClick={() => onPayNow?.(product)}
         disabled={isVerifying}
       >
-        <Ic.CreditCard />
-        Pay Now
+        <Ic.CreditCard /> Pay Now
       </button>
       <button
         className="product-card__pending-btn product-card__pending-btn--check"
@@ -148,15 +162,9 @@ const PendingBanner = memo(({
         title="Already paid? Check your payment status"
       >
         {isVerifying ? (
-          <>
-            <span className="spinner spinner--xs" />
-            Checking…
-          </>
+          <><span className="spinner spinner--xs" /> Checking…</>
         ) : (
-          <>
-            <Ic.Refresh />
-            Check Status
-          </>
+          <><Ic.Refresh /> Check Status</>
         )}
       </button>
     </div>
@@ -183,61 +191,50 @@ const DropdownMenu = memo(({
     [onClose]
   );
 
-  const isPending  = resolvedStatus === "pending_payment";
-  const isActive   = resolvedStatus === "active";
-  const isPaused   = resolvedStatus === "paused";
-  const isExpired  = resolvedStatus === "expired";
-  const isLimited  = resolvedStatus === "active_limited";
-  const canRenew   = (days !== null && days <= 7) || isExpired;
-  const canToggle  = isActive || isPaused || isLimited;
+  const isPending = resolvedStatus === "pending_payment";
+  const isActive  = resolvedStatus === "active";
+  const isPaused  = resolvedStatus === "paused";
+  const isExpired = resolvedStatus === "expired";
+  const isLimited = resolvedStatus === "active_limited";
+  const canRenew  = (days !== null && days <= 7) || isExpired;
+  const canToggle = isActive || isPaused || isLimited;
 
   return (
     <div className="product-card__dropdown" role="menu">
 
-      {/* Edit — always available */}
       <button role="menuitem" onClick={run(onEdit)}>
         <Ic.Edit /> Edit
       </button>
 
-      {/* Promote — only when active */}
       {isActive && (
         <button role="menuitem" onClick={run(onPromote)}>
           <Ic.Zap /> Promote
         </button>
       )}
 
-      {/* Toggle active ↔ paused */}
       {canToggle && (
         <button role="menuitem" onClick={run(onToggle)}>
-          {isActive || isLimited ? (
-            <><Ic.Pause /> Pause</>
-          ) : (
-            <><Ic.Play /> Activate</>
-          )}
+          {isActive || isLimited
+            ? <><Ic.Pause /> Pause</>
+            : <><Ic.Play /> Activate</>
+          }
         </button>
       )}
 
-      {/* Renew — when near expiry or expired */}
       {canRenew && (
         <button role="menuitem" onClick={run(onRenew)}>
           <Ic.Refresh /> Renew
         </button>
       )}
 
-      {/* Pending: block activation */}
       {isPending && (
-        <button
-          role="menuitem"
-          className="product-card__dropdown-info"
-          disabled
-        >
+        <button role="menuitem" className="product-card__dropdown-info" disabled>
           <Ic.Lock /> Complete payment to activate
         </button>
       )}
 
       <div className="product-card__dropdown-divider" />
 
-      {/* Delete — always available */}
       <button
         role="menuitem"
         className="product-card__dropdown-danger"
@@ -257,8 +254,8 @@ DropdownMenu.displayName = "DropdownMenu";
 ───────────────────────────────────────────── */
 const ProductCard = memo(function ProductCard({
   product,
-  tier         = "unverified",
-  isSubscriber = false,
+  tier          = "unverified",
+  isSubscriber  = false,
   onEdit,
   onDelete,
   onToggle,
@@ -266,40 +263,38 @@ const ProductCard = memo(function ProductCard({
   onPromote,
   onPayNow,
   onVerifyPayment,
-  isDeleting   = false,
-  isVerifying  = false,
-  isRenewing   = false,
+  isDeleting    = false,
+  isVerifying   = false,
+  isRenewing    = false,
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
-  /* ── Bail out early if product is malformed ── */
+  /* ── Hard guard ── */
   if (!product || !product.id) {
-    console.warn("[ProductCard] Received invalid product:", product);
+    console.warn("[ProductCard] Invalid product:", product);
     return null;
   }
 
-  /* ── Derived values — all safe ── */
+  /* ── Resolve status first — before any date ops ── */
   const resolvedStatus = resolveStatus(product);
   const isPending      = resolvedStatus === "pending_payment";
   const isExpired      = resolvedStatus === "expired";
   const isActive       = resolvedStatus === "active";
   const isLimited      = resolvedStatus === "active_limited";
 
-  /* Only compute days if we have a date & product isn't pending */
+  /* ── Date-sensitive values — skipped for pending ── */
   const days = isPending ? null : safeDaysLeft(product.active_until);
 
-  /* Safe image */
-  const img = safeImg(product);
-
-  /* Safe display values */
-  const title       = product.title        || "Untitled Listing";
-  const price       = product.price != null ? naira(product.price) : "₦—";
-  const views       = product.views        != null ? fmtNum(product.views)           : "0";
-  const saves       = product.favorites_count != null ? fmtNum(product.favorites_count) : "0";
-  const createdAt   = product.created_at   ? timeAgo(product.created_at)   : "";
-  const isPromoted  = Boolean(product.is_promoted);
-  const categoryName = product.category_name || null;
+  /* ── All display values are safe ── */
+  const img          = safeImg(product);
+  const title        = product.title          || "Untitled Listing";
+  const price        = safeNaira(product.price);
+  const views        = safeFmtNum(product.views);
+  const saves        = safeFmtNum(product.favorites_count);
+  const createdAt    = safeTimeAgo(product.created_at);
+  const isPromoted   = Boolean(product.is_promoted);
+  const categoryName = product.category_name  || null;
 
   /* ── Close menu on outside click ── */
   useEffect(() => {
@@ -322,7 +317,6 @@ const ProductCard = memo(function ProductCard({
     return () => document.removeEventListener("keydown", handler);
   }, [menuOpen]);
 
-  /* ─── Render ─── */
   return (
     <div
       className={[
@@ -344,19 +338,16 @@ const ProductCard = memo(function ProductCard({
           loading="lazy"
           onError={(e) => { e.currentTarget.src = PH; }}
         />
-
         {isPromoted && !isPending && (
           <span className="product-card__promoted-badge">
             <Ic.Zap /> Promoted
           </span>
         )}
-
         {isPending && (
           <span className="product-card__pending-overlay">
             <Ic.Lock />
           </span>
         )}
-
         {isRenewing && (
           <span className="product-card__renewing-overlay">
             <span className="spinner spinner--sm" />
@@ -367,7 +358,7 @@ const ProductCard = memo(function ProductCard({
       {/* ── Body ── */}
       <div className="product-card__body">
 
-        {/* ── Top row: title + badges + menu ── */}
+        {/* Top row */}
         <div className="product-card__top">
           <div className="product-card__title-wrap">
             <h3 className="product-card__title">{title}</h3>
@@ -381,7 +372,7 @@ const ProductCard = memo(function ProductCard({
             </div>
           </div>
 
-          {/* ── Context menu ── */}
+          {/* Menu */}
           <div className="product-card__menu-wrap" ref={menuRef}>
             <button
               className="product-card__menu-btn"
@@ -393,7 +384,6 @@ const ProductCard = memo(function ProductCard({
             >
               <Ic.MoreVertical />
             </button>
-
             {menuOpen && (
               <DropdownMenu
                 resolvedStatus={resolvedStatus}
@@ -410,7 +400,7 @@ const ProductCard = memo(function ProductCard({
           </div>
         </div>
 
-        {/* ── Meta row ── */}
+        {/* Meta row */}
         <div className="product-card__meta">
           <span className="product-card__price">{price}</span>
           {categoryName && (
@@ -423,7 +413,7 @@ const ProductCard = memo(function ProductCard({
           )}
         </div>
 
-        {/* ── Stats row — hidden for pending ── */}
+        {/* Stats — hidden for pending */}
         {!isPending && (
           <div className="product-card__stats">
             <div className="product-card__stat" title="Views">
@@ -435,23 +425,22 @@ const ProductCard = memo(function ProductCard({
               <span>{saves}</span>
             </div>
 
-            {/* Renew shortcut — near expiry */}
+            {/* Renew shortcut */}
             {days !== null && days <= 7 && days > 0 && (
               <button
                 className="product-card__renew"
                 onClick={() => onRenew?.(product)}
                 disabled={isRenewing}
               >
-                {isRenewing ? (
-                  <span className="spinner spinner--xs" />
-                ) : (
-                  <Ic.Refresh />
-                )}
+                {isRenewing
+                  ? <span className="spinner spinner--xs" />
+                  : <Ic.Refresh />
+                }
                 {isRenewing ? "Renewing…" : "Renew"}
               </button>
             )}
 
-            {/* Promote shortcut — active only */}
+            {/* Promote shortcut */}
             {(isActive || isLimited) && !isPromoted && (
               <button
                 className="product-card__boost"
@@ -463,7 +452,7 @@ const ProductCard = memo(function ProductCard({
           </div>
         )}
 
-        {/* ── Pending payment banner ── */}
+        {/* Pending banner */}
         {isPending && (
           <PendingBanner
             product={product}
