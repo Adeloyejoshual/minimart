@@ -1,310 +1,417 @@
-import React, { useRef, useCallback, memo } from "react";
-import OfferCard   from "./OfferCard";
-import { Icon }    from "./icons";
-import { formatTime, truncate } from "./constants";
+import { useRef, useCallback, useState, memo } from "react";
+import { MESSAGE_TYPES, CURRENCY, OFFER_STATUS } from "./constants";
+import { Icon } from "./icons";
 
-/* tiny sub-components */
-const Tick = memo(function Tick({ status }) {
-  return <Icon.tick status={status}/>;
+/* ═══════════════════════════════════════════════════════════════
+   HELPERS
+═══════════════════════════════════════════════════════════════ */
+function isVideoUrl(url) {
+  return /\.(mp4|webm|mov|3gp|mkv)(\?|$)/i.test(url || "");
+}
+
+function formatTime(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch { return ""; }
+}
+
+/** Normalise media_url to a real array */
+function toMediaArray(raw) {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.filter(Boolean);
+  if (typeof raw === "string") {
+    /* Might be a JSON-encoded array from the DB */
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean);
+    } catch {}
+    return [raw];
+  }
+  return [];
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SINGLE MEDIA TILE  (with loading shimmer + progressive load)
+═══════════════════════════════════════════════════════════════ */
+const MediaTile = memo(function MediaTile({ url, onClick, showMore }) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const video = isVideoUrl(url);
+
+  return (
+    <div className="mtile" onClick={onClick}>
+      {/* Loading shimmer overlay */}
+      {!loaded && !failed && (
+        <div className="mtile__shimmer">
+          <div className="mtile__spinner" />
+        </div>
+      )}
+
+      {/* Error fallback */}
+      {failed && (
+        <div className="mtile__error">
+          <div>⚠️</div>
+          <div>Failed to load</div>
+        </div>
+      )}
+
+      {/* Actual media */}
+      {video ? (
+        <>
+          <video
+            src={url}
+            preload="metadata"
+            muted
+            playsInline
+            onLoadedData={() => setLoaded(true)}
+            onError={() => setFailed(true)}
+            className={loaded ? "mtile__media mtile__media--in" : "mtile__media"}
+          />
+          {loaded && (
+            <div className="mtile__play">▶</div>
+          )}
+        </>
+      ) : (
+        <img
+          src={url}
+          alt=""
+          loading="lazy"
+          onLoad={() => setLoaded(true)}
+          onError={() => setFailed(true)}
+          className={loaded ? "mtile__media mtile__media--in" : "mtile__media"}
+          draggable={false}
+        />
+      )}
+
+      {/* +N overlay on 4th tile */}
+      {showMore != null && showMore > 0 && (
+        <div className="mtile__more">+{showMore}</div>
+      )}
+    </div>
+  );
 });
 
-const TypingBubble = memo(function TypingBubble() {
-  return (
-    <div className="chat-typing-wrap">
-      <div className="chat-typing-bubble">
-        {[0,1,2].map(n => (
-          <span key={n} className="chat-typing-dot"
-            style={{ animationDelay: `${n * .18}s` }}/>
+/* ═══════════════════════════════════════════════════════════════
+   MEDIA GRID  (WhatsApp-style layout)
+═══════════════════════════════════════════════════════════════ */
+const MediaGrid = memo(function MediaGrid({ urls, msg, onOpen }) {
+  const count = urls.length;
+  const shown = urls.slice(0, 4);
+  const extra = count > 4 ? count - 4 : 0;
+
+  const open = (i) => onOpen?.(urls, i, msg);
+
+  if (count === 1) {
+    return (
+      <div className="mgrid mgrid--1">
+        <MediaTile url={urls[0]} onClick={(e) => { e.stopPropagation(); open(0); }} />
+      </div>
+    );
+  }
+
+  if (count === 2) {
+    return (
+      <div className="mgrid mgrid--2">
+        {shown.map((u, i) => (
+          <MediaTile
+            key={i}
+            url={u}
+            onClick={(e) => { e.stopPropagation(); open(i); }}
+          />
         ))}
+      </div>
+    );
+  }
+
+  if (count === 3) {
+    return (
+      <div className="mgrid mgrid--3">
+        <MediaTile
+          url={urls[0]}
+          onClick={(e) => { e.stopPropagation(); open(0); }}
+        />
+        <div className="mgrid__col">
+          {[1, 2].map((i) => (
+            <MediaTile
+              key={i}
+              url={urls[i]}
+              onClick={(e) => { e.stopPropagation(); open(i); }}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  /* 4+ */
+  return (
+    <div className="mgrid mgrid--4">
+      {shown.map((u, i) => (
+        <MediaTile
+          key={i}
+          url={u}
+          onClick={(e) => { e.stopPropagation(); open(i); }}
+          showMore={i === 3 ? extra : null}
+        />
+      ))}
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   TYPING BUBBLE
+═══════════════════════════════════════════════════════════════ */
+export const TypingBubble = memo(function TypingBubble() {
+  return (
+    <div className="chat-row chat-row--them">
+      <div className="chat-bubble chat-bubble--them chat-bubble--typing">
+        <span className="typing-dot" />
+        <span className="typing-dot" />
+        <span className="typing-dot" />
       </div>
     </div>
   );
 });
 
-const DateSep = memo(function DateSep({ label }) {
-  return <div className="chat-date-sep"><span>{label}</span></div>;
+/* ═══════════════════════════════════════════════════════════════
+   DATE SEPARATOR
+═══════════════════════════════════════════════════════════════ */
+export const DateSep = memo(function DateSep({ label }) {
+  return (
+    <div className="chat-date-sep">
+      <span>{label}</span>
+    </div>
+  );
 });
 
-/* ── main bubble ── */
+/* ═══════════════════════════════════════════════════════════════
+   MAIN BUBBLE
+═══════════════════════════════════════════════════════════════ */
 function Bubble({
-  msg, mine,
-  onRetry, onOfferRespond,
-  onCtx, onLightbox,
+  msg,
+  mine,
+  onRetry,
+  onOfferRespond,
+  onCtx,
+  onLightbox,
   replyToMsg,
-  ctxMsgId,
-  onCtxClose, onCtxReply, onCtxCopy, onCtxDelete,
 }) {
-  const failed   = !!msg._failed;
-  const sending  = !!msg._temp;
-  const timedOut = !!msg._timedOut;
-  const isOffer  = !!msg._offerMeta;
-  const showCtx  = ctxMsgId === msg.id;
+  const bubbleRef = useRef(null);
 
-  const holdRef  = useRef(null);
-  const rowRef   = useRef(null);
-  const swipeX   = useRef(null);
-  const moved    = useRef(false);
-
-  /* ── long press — works on both mobile & desktop ── */
-  const startHold = useCallback(e => {
-    moved.current = false;
-
-    /* prevent text selection on long press */
-    if (e.cancelable) e.preventDefault();
-
-    holdRef.current = setTimeout(() => {
-      /* only show if user didn't move finger */
-      if (moved.current) return;
-
-      const touch = e.touches?.[0];
-      const rect  = rowRef.current?.getBoundingClientRect() || {};
-
-      /* position the context menu near the bubble */
-      const x = Math.min(
-        touch?.clientX ?? e.clientX ?? rect.left + rect.width / 2,
-        window.innerWidth - 210
-      );
-      const y = Math.max(
-        (touch?.clientY ?? e.clientY ?? rect.top) - 140,
-        60
-      );
-
-      onCtx(msg, { x, y });
-    }, 450); // slightly shorter than 500 for better UX
-  }, [msg, onCtx]);
-
-  const cancelHold = useCallback(() => {
-    clearTimeout(holdRef.current);
-    holdRef.current = null;
-  }, []);
-
-  /* ── touch handlers for swipe-to-reply ── */
-  const onTouchStart = useCallback(e => {
-    swipeX.current = e.touches[0].clientX;
-    moved.current  = false;
-    startHold(e);
-  }, [startHold]);
-
-  const onTouchMove = useCallback(e => {
-    if (swipeX.current === null) return;
-
-    const dx = e.touches[0].clientX - swipeX.current;
-
-    /* if user moved more than 8px, cancel long press */
-    if (Math.abs(dx) > 8) {
-      moved.current = true;
-      cancelHold();
-    }
-
-    const el = rowRef.current;
-    if (!el) return;
-
-    const valid = mine ? dx < -10 : dx > 10;
-    if (valid) {
-      el.classList.add("swiping");
-      const clamped = mine ? Math.max(dx, -60) : Math.min(dx, 60);
-      const bubble  = el.querySelector(".chat-bubble");
-      if (bubble) bubble.style.transform = `translateX(${clamped}px)`;
-    }
-  }, [mine, cancelHold]);
-
-  const onTouchEnd = useCallback(e => {
-    cancelHold();
-    const el = rowRef.current;
-    if (!el) return;
-
-    const dx = e.changedTouches[0].clientX - (swipeX.current || 0);
-
-    el.classList.remove("swiping");
-    const bubble = el.querySelector(".chat-bubble");
-    if (bubble) bubble.style.transform = "";
-    swipeX.current = null;
-
-    /* swipe threshold → trigger reply */
-    if (mine ? dx < -40 : dx > 40) {
-      onCtx(msg, null, "reply");
-    }
-  }, [mine, cancelHold, msg, onCtx]);
-
-  /* mouse-based long press (desktop) */
-  const onMouseDown = useCallback(e => {
-    /* only left button */
-    if (e.button !== 0) return;
-    moved.current = false;
-    startHold(e);
-  }, [startHold]);
-
-  const onMouseMove = useCallback(() => {
-    moved.current = true;
-    cancelHold();
-  }, [cancelHold]);
-
-  const onMouseUp = useCallback(() => {
-    cancelHold();
-  }, [cancelHold]);
-
-  /* prevent browser context menu on mobile */
-  const onContextMenu = useCallback(e => {
+  const handleContextMenu = useCallback((e) => {
     e.preventDefault();
-    /* trigger our custom context menu */
-    const rect = rowRef.current?.getBoundingClientRect() || {};
-    const x = Math.min(e.clientX || rect.left, window.innerWidth - 210);
-    const y = Math.max(e.clientY - 140 || rect.top, 60);
-    onCtx(msg, { x, y });
+    const rect = bubbleRef.current?.getBoundingClientRect();
+    onCtx?.(msg, { x: e.clientX, y: e.clientY, rect });
   }, [msg, onCtx]);
 
-  const handleRetry = useCallback(() => {
-    if (failed || timedOut) onRetry(msg);
-  }, [failed, timedOut, msg, onRetry]);
+  const pressTimer = useRef(null);
+  const onTouchStart = useCallback((e) => {
+    pressTimer.current = setTimeout(() => {
+      const t = e.touches?.[0];
+      const rect = bubbleRef.current?.getBoundingClientRect();
+      onCtx?.(msg, {
+        x: t?.clientX || rect?.left || 0,
+        y: t?.clientY || rect?.top  || 0,
+        rect,
+      });
+    }, 500);
+  }, [msg, onCtx]);
+  const onTouchEnd  = useCallback(() => clearTimeout(pressTimer.current), []);
+  const onTouchMove = useCallback(() => clearTimeout(pressTimer.current), []);
 
-  const handleLightbox = useCallback(e => {
-    e.stopPropagation();
-    if (msg.media_url) onLightbox(msg.media_url);
-  }, [msg.media_url, onLightbox]);
+  if (msg._deleted) {
+    return (
+      <div className={`chat-row ${mine ? "chat-row--me" : "chat-row--them"}`}>
+        <div className="chat-bubble chat-bubble--deleted">
+          <em>🗑 Message deleted</em>
+        </div>
+      </div>
+    );
+  }
 
-  const handleProductClick = useCallback(e => {
-    e.stopPropagation();
-    if (msg.shared_product?.id)
-      window.open(`/product/${msg.shared_product.id}`, "_blank");
-  }, [msg.shared_product]);
+  const isMedia = msg.message_type === MESSAGE_TYPES.MEDIA;
+  const isVideo = msg.message_type === MESSAGE_TYPES.VIDEO;
+  const isOffer = msg.message_type === MESSAGE_TYPES.OFFER;
+  const isLoc   = msg.message_type === MESSAGE_TYPES.LOCATION;
+  const isProd  = msg.message_type === MESSAGE_TYPES.PRODUCT;
+
+  /* Normalise media_url */
+  const mediaUrls = toMediaArray(msg.media_url);
+  const hasMedia  = (isMedia || isVideo) && mediaUrls.length > 0;
+
+  /* Hide auto-preview text ("Photo", "2 Photos", "Video", etc.)
+     when we're rendering actual media */
+  const AUTO_PREVIEW = /^(\d+\s+)?(Photo|Video)s?$/i;
+  const showText     = msg.message && !(hasMedia && AUTO_PREVIEW.test(msg.message.trim()));
 
   return (
-    <div
-      ref={rowRef}
-      className={`chat-bubble-row ${mine ? "mine" : "theirs"}`}
-      onClick={handleRetry}
-    >
-      <span className="reply-hint-icon">{Icon.reply}</span>
-
+    <div className={`chat-row ${mine ? "chat-row--me" : "chat-row--them"}`}>
       <div
+        ref={bubbleRef}
         className={[
           "chat-bubble",
-          mine    ? "mine"         : "theirs",
-          failed  ? "failed"       : "",
-          sending ? "sending"      : "",
-          isOffer ? "offer-bubble" : "",
+          mine ? "chat-bubble--me" : "chat-bubble--them",
+          hasMedia    ? "chat-bubble--media"    : "",
+          msg._failed ? "chat-bubble--failed"   : "",
+          msg._timedOut ? "chat-bubble--timedout" : "",
+          msg._temp   ? "chat-bubble--sending"  : "",
         ].filter(Boolean).join(" ")}
+        onContextMenu={handleContextMenu}
         onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseUp}
-        onContextMenu={onContextMenu}
+        onTouchMove={onTouchMove}
+        onDoubleClick={() => onCtx?.(msg, null, "reply")}
       >
-        {/* Reply strip */}
-        {replyToMsg && !isOffer && (
-          <div className={`bubble-reply-strip ${mine ? "" : "theirs"}`}>
-            <div className="bubble-reply-sender">
-              {replyToMsg.sender_id === msg.sender_id ? "You" : "Them"}
+        {/* ── Reply preview ── */}
+        {replyToMsg && (
+          <div className="chat-reply-box">
+            <div className="chat-reply-box__sender">
+              {mine ? "You" : replyToMsg.sender_name || "User"}
             </div>
-            {replyToMsg.media_url ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <img src={replyToMsg.media_url} alt=""
-                  className="bubble-reply-img"/>
-                <span className="bubble-reply-text">Photo</span>
+            <div className="chat-reply-box__msg">
+              {(() => {
+                const rUrls = toMediaArray(replyToMsg.media_url);
+                if (rUrls.length) {
+                  return replyToMsg.message_type === MESSAGE_TYPES.VIDEO
+                    ? `🎥 ${rUrls.length > 1 ? `${rUrls.length} Videos` : "Video"}`
+                    : `📷 ${rUrls.length > 1 ? `${rUrls.length} Photos` : "Photo"}`;
+                }
+                return replyToMsg.message || "";
+              })()}
+            </div>
+          </div>
+        )}
+
+        {/* ── MEDIA GRID ── */}
+        {hasMedia && (
+          <MediaGrid urls={mediaUrls} msg={msg} onOpen={onLightbox} />
+        )}
+
+        {/* ── OFFER ── */}
+        {isOffer && msg._offerMeta && (
+          <div className="chat-offer">
+            <div className="chat-offer__label">💰 Offer</div>
+            <div className="chat-offer__amount">
+              {CURRENCY}{Number(msg._offerMeta.amount).toLocaleString()}
+            </div>
+            {msg._offerMeta.product_title && (
+              <div className="chat-offer__title">
+                {msg._offerMeta.product_title}
               </div>
-            ) : (
-              <div className="bubble-reply-text">
-                {truncate(replyToMsg.message)}
+            )}
+            {msg._offerMeta.original_price && (
+              <div className="chat-offer__original">
+                Original: {CURRENCY}
+                {Number(msg._offerMeta.original_price).toLocaleString()}
+              </div>
+            )}
+            {msg._offerMeta.note && (
+              <div className="chat-offer__note">"{msg._offerMeta.note}"</div>
+            )}
+
+            {!mine && (msg._offerMeta.status || "pending") === "pending" && (
+              <div className="chat-offer__actions">
+                <button
+                  className="chat-offer__btn chat-offer__btn--accept"
+                  onClick={() => onOfferRespond?.(msg, OFFER_STATUS.ACCEPTED)}
+                >Accept</button>
+                <button
+                  className="chat-offer__btn chat-offer__btn--counter"
+                  onClick={() => onOfferRespond?.(msg, OFFER_STATUS.COUNTERED)}
+                >Counter</button>
+                <button
+                  className="chat-offer__btn chat-offer__btn--decline"
+                  onClick={() => onOfferRespond?.(msg, OFFER_STATUS.DECLINED)}
+                >Decline</button>
+              </div>
+            )}
+
+            {msg._offerMeta.status && msg._offerMeta.status !== "pending" && (
+              <div className={`chat-offer__status chat-offer__status--${msg._offerMeta.status}`}>
+                {msg._offerMeta.status.toUpperCase()}
               </div>
             )}
           </div>
         )}
 
-        {/* Offer card */}
-        {isOffer && (
-          <OfferCard msg={msg} mine={mine} onRespond={onOfferRespond}/>
-        )}
-
-        {/* Text */}
-        {!isOffer && !msg._deleted && msg.message && (
-          <div className="chat-bubble-text">{msg.message}</div>
-        )}
-        {msg._deleted && (
-          <div className="chat-bubble-deleted">This message was deleted</div>
-        )}
-
-        {/* Image */}
-        {msg.media_url && !msg._deleted && (
-          <img
-            src={msg.media_url}
-            alt="media"
-            className="chat-bubble-media"
-            onClick={handleLightbox}
-          />
-        )}
-
-        {/* Location */}
-        {msg.location && !msg._deleted && (
+        {/* ── LOCATION ── */}
+        {isLoc && msg.location && (
           <a
-            href={`https://maps.google.com/?q=${msg.location.lat},${msg.location.lng}`}
+            className="chat-location"
+            href={`https://www.google.com/maps?q=${msg.location.lat},${msg.location.lng}`}
             target="_blank"
             rel="noreferrer"
-            className="chat-location-bubble"
-            onClick={e => e.stopPropagation()}
           >
-            <img
-              className="chat-location-map"
-              alt="Location"
-              src={`https://staticmap.openstreetmap.de/staticmap.php?center=${msg.location.lat},${msg.location.lng}&zoom=15&size=400x160&markers=${msg.location.lat},${msg.location.lng},red`}
-              onError={e => { e.target.style.display = "none"; }}
-            />
-            <div className="chat-location-label">
-              {Icon.pin}&nbsp;
-              {msg.location.address ||
-                `${msg.location.lat.toFixed(4)}, ${msg.location.lng.toFixed(4)}`}
+            <div className="chat-location__pin">📍</div>
+            <div className="chat-location__text">
+              {msg.location.address || "Shared location"}
             </div>
           </a>
         )}
 
-        {/* Product card */}
-        {msg.shared_product && !msg._deleted && (
-          <div className="chat-product-card" onClick={handleProductClick}>
+        {/* ── SHARED PRODUCT ── */}
+        {isProd && msg.shared_product && (
+          <a
+            className="chat-shared-product"
+            href={`/product/${msg.shared_product.slug || msg.shared_product.id}`}
+          >
             {msg.shared_product.image && (
-              <img src={msg.shared_product.image} alt=""
-                className="chat-product-card-img"/>
+              <img
+                src={msg.shared_product.image}
+                alt=""
+                className="chat-shared-product__img"
+              />
             )}
-            <div className="chat-product-card-body">
-              <div className="chat-product-card-title">
+            <div className="chat-shared-product__info">
+              <div className="chat-shared-product__title">
                 {msg.shared_product.title}
               </div>
-              <div className="chat-product-card-price">
-                ₦{Number(msg.shared_product.price).toLocaleString()}
-              </div>
-              <div className="chat-product-card-cta">Tap to view</div>
+              {msg.shared_product.price != null && (
+                <div className="chat-shared-product__price">
+                  {CURRENCY}
+                  {Number(msg.shared_product.price).toLocaleString()}
+                </div>
+              )}
             </div>
+          </a>
+        )}
+
+        {/* ── TEXT (only when meaningful) ── */}
+        {!isOffer && !isLoc && !isProd && showText && (
+          <div className="chat-bubble__text">
+            {msg.message}
           </div>
         )}
 
-        {/* Meta */}
-        <div className={`chat-bubble-meta ${mine ? "mine" : "theirs"}`}>
-          {failed ? (
-            <span className="chat-bubble-failed">
-              {Icon.close} Not sent · Tap to retry
+        {/* ── Meta row ── */}
+        <div className="chat-bubble__meta">
+          {msg.edited && <span className="chat-bubble__edited">edited</span>}
+          <span className="chat-bubble__time">
+            {formatTime(msg.created_at)}
+          </span>
+          {mine && (
+            <span className={`chat-bubble__ticks ${msg.status === "read" ? "chat-bubble__ticks--read" : ""}`}>
+              {msg.status === "read"      ? "✓✓"
+                : msg.status === "delivered" ? "✓✓"
+                : msg.status === "sent"      ? "✓"
+                : "…"}
             </span>
-          ) : timedOut ? (
-            <span className="chat-bubble-failed">
-              Timed out · Tap to retry
-            </span>
-          ) : sending ? (
-            <span className="chat-bubble-sending">
-              <span className="chat-sending-spinner"/>Sending
-            </span>
-          ) : (
-            <>
-              {formatTime(msg.created_at)}
-              {mine && <Tick status={msg.status}/>}
-            </>
           )}
         </div>
-      </div>
 
-      {/* Context menu rendered via parent — we just flag it */}
+        {/* ── Failed / retry ── */}
+        {(msg._failed || msg._timedOut) && (
+          <button
+            className="chat-bubble__retry"
+            onClick={(e) => { e.stopPropagation(); onRetry?.(msg); }}
+          >
+            {msg._timedOut ? "Timed out — retry" : "Failed — retry"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
 
-export { TypingBubble, DateSep };
 export default memo(Bubble);
