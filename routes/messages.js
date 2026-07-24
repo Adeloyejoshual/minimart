@@ -1,13 +1,13 @@
-import express           from "express";
-import multer            from "multer";
-import path              from "path";
-import fs                from "fs";
-import crypto            from "crypto";
-import sharp             from "sharp";
-import ffmpeg            from "fluent-ffmpeg";
-import ffmpegInstaller   from "@ffmpeg-installer/ffmpeg";
-import { pool }          from "../server.js";
-import { softAuth }      from "../middleware/auth.js";
+import express  from "express";
+import multer   from "multer";
+import path     from "path";
+import fs       from "fs";
+import crypto   from "crypto";
+import sharp    from "sharp";
+import ffmpeg   from "fluent-ffmpeg";
+import { execSync } from "child_process";
+import { pool } from "../server.js";
+import { softAuth } from "../middleware/auth.js";
 import {
   S3Client,
   PutObjectCommand,
@@ -15,9 +15,22 @@ import {
 } from "@aws-sdk/client-s3";
 
 /* ══════════════════════════════════════════════
-   FFMPEG
+   FFMPEG — system binary (Render has ffmpeg
+   pre-installed). Falls back gracefully.
 ══════════════════════════════════════════════ */
-ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+(function setFfmpegBinary() {
+  try {
+    const p = execSync("which ffmpeg 2>/dev/null").toString().trim();
+    if (p) {
+      ffmpeg.setFfmpegPath(p);
+      console.log("[ffmpeg] system binary:", p);
+      return;
+    }
+  } catch {}
+  console.warn(
+    "[ffmpeg] binary not found — video duration check will be skipped"
+  );
+})();
 
 /* ══════════════════════════════════════════════
    R2 CLIENT
@@ -37,13 +50,13 @@ const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL?.replace(/\/$/, "");
 /* ══════════════════════════════════════════════
    CONSTANTS / LIMITS
 ══════════════════════════════════════════════ */
-const IMAGE_MAX_BYTES      = 5  * 1024 * 1024;   // 5  MB per image
-const VIDEO_MAX_BYTES      = 10 * 1024 * 1024;   // 10 MB per video
-const IMAGE_MAX_COUNT      = 10;                  // max 10 images per message
-const VIDEO_MAX_COUNT      = 3;                   // max  3 videos per message
-const VIDEO_MAX_SECONDS    = 60;                  // max 60 sec per video
-const IMAGE_MAX_WIDTH      = 1080;                // resize if wider
-const IMAGE_QUALITY        = 70;                  // q70 → ~200–500 KB output
+const IMAGE_MAX_BYTES   = 5  * 1024 * 1024;   // 5  MB per image
+const VIDEO_MAX_BYTES   = 10 * 1024 * 1024;   // 10 MB per video
+const IMAGE_MAX_COUNT   = 10;                  // max 10 images per message
+const VIDEO_MAX_COUNT   = 3;                   // max  3 videos per message
+const VIDEO_MAX_SECONDS = 60;                  // max 60 sec per video
+const IMAGE_MAX_WIDTH   = 1080;                // resize if wider
+const IMAGE_QUALITY     = 70;                  // q70 → ~200–500 KB output
 
 /* ══════════════════════════════════════════════
    ALLOWED MIME TYPES
@@ -59,12 +72,12 @@ const ALLOWED_VIDEO_MIME = new Set([
 ]);
 
 /* ══════════════════════════════════════════════
-   MULTER  — memory storage (straight to R2)
+   MULTER  (memory storage → R2)
 ══════════════════════════════════════════════ */
 const imageUpload = multer({
   storage   : multer.memoryStorage(),
   limits    : { fileSize: IMAGE_MAX_BYTES },
-  fileFilter: (req, file, cb) =>
+  fileFilter: (_req, file, cb) =>
     ALLOWED_IMAGE_MIME.has(file.mimetype)
       ? cb(null, true)
       : cb(new Error("Only image files are allowed")),
@@ -73,7 +86,7 @@ const imageUpload = multer({
 const videoUpload = multer({
   storage   : multer.memoryStorage(),
   limits    : { fileSize: VIDEO_MAX_BYTES },
-  fileFilter: (req, file, cb) =>
+  fileFilter: (_req, file, cb) =>
     ALLOWED_VIDEO_MIME.has(file.mimetype)
       ? cb(null, true)
       : cb(new Error("Only video files are allowed")),
@@ -83,9 +96,7 @@ const videoUpload = multer({
    R2 HELPERS
 ══════════════════════════════════════════════ */
 
-/**
- * Upload buffer → R2, return public URL.
- */
+/** Upload buffer → R2, return public URL */
 async function uploadToR2(buffer, key, contentType) {
   await r2.send(
     new PutObjectCommand({
@@ -98,22 +109,18 @@ async function uploadToR2(buffer, key, contentType) {
   return `${R2_PUBLIC_URL}/${key}`;
 }
 
-/**
- * Delete R2 object by public URL. Never throws.
- */
+/** Delete R2 object by public URL. Never throws. */
 async function deleteFromR2(publicUrl) {
   try {
     if (!publicUrl || !R2_PUBLIC_URL) return;
     const key = publicUrl.replace(`${R2_PUBLIC_URL}/`, "");
     await r2.send(new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key }));
   } catch (err) {
-    console.warn("R2 delete warning:", err.message);
+    console.warn("[R2] delete warning:", err.message);
   }
 }
 
-/**
- * Delete an array of R2 URLs. Never throws.
- */
+/** Delete an array of R2 URLs. Never throws. */
 async function deleteAllFromR2(urls = []) {
   await Promise.allSettled(urls.map(deleteFromR2));
 }
@@ -137,8 +144,13 @@ async function compressImage(buffer, mimetype) {
     img.resize({ width: IMAGE_MAX_WIDTH, withoutEnlargement: true });
 
   /* JPEG / HEIC / AVIF → JPEG (mozjpeg) */
-  if (["image/jpeg", "image/jpg", "image/heic", "image/avif"].includes(mimetype)) {
-    const out = await img.jpeg({ quality: IMAGE_QUALITY, mozjpeg: true }).toBuffer();
+  if (
+    ["image/jpeg", "image/jpg",
+     "image/heic", "image/avif"].includes(mimetype)
+  ) {
+    const out = await img
+      .jpeg({ quality: IMAGE_QUALITY, mozjpeg: true })
+      .toBuffer();
     return { buffer: out, ext: ".jpg", mime: "image/jpeg" };
   }
 
@@ -149,21 +161,28 @@ async function compressImage(buffer, mimetype) {
 
 /* ══════════════════════════════════════════════
    VIDEO DURATION CHECK  (ffprobe)
-   Writes buffer → tmp file → probes → removes
+   Writes buffer → tmp → probes → removes tmp.
+   Fails open (returns 0) if ffmpeg unavailable.
 ══════════════════════════════════════════════ */
 function getVideoDuration(buffer) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     const tmpPath = path.join(
       process.env.TMPDIR || "/tmp",
       `vid_${crypto.randomBytes(8).toString("hex")}.tmp`
     );
 
     fs.writeFile(tmpPath, buffer, (writeErr) => {
-      if (writeErr) return reject(writeErr);
+      if (writeErr) {
+        console.warn("[ffprobe] write error:", writeErr.message);
+        return resolve(0);          // fail open
+      }
 
       ffmpeg.ffprobe(tmpPath, (err, metadata) => {
-        fs.unlink(tmpPath, () => {});          // clean up always
-        if (err) return reject(err);
+        fs.unlink(tmpPath, () => {}); // clean up always
+        if (err) {
+          console.warn("[ffprobe] probe error:", err.message);
+          return resolve(0);         // fail open
+        }
         resolve(metadata?.format?.duration ?? 0);
       });
     });
@@ -172,7 +191,7 @@ function getVideoDuration(buffer) {
 
 /* ══════════════════════════════════════════════
    media_url HELPERS
-   Stored as JSON array string in DB.
+   Stored as JSON array string in the DB.
    e.g. '["https://…/a.jpg","https://…/b.jpg"]'
 ══════════════════════════════════════════════ */
 
@@ -243,7 +262,7 @@ function shapeMessage(row) {
     sender_image     : row.sender_image || null,
     message          : row.message      || null,
     message_type     : row.message_type,
-    media_url        : parseMediaUrl(row.media_url),  // always array | null
+    media_url        : parseMediaUrl(row.media_url), // always array | null
     reply_to_id      : row.reply_to_id  || null,
     status           : row.status,
     edited           : row.edited       || false,
@@ -417,7 +436,7 @@ router.get("/unread-count", softAuth, async (req, res) => {
 /* ──────────────────────────────────────────────
    POST /api/messages/upload
    Multi-image → compress → R2
-   Max : 10 images | 5 MB each | 1080px | q70
+   Limits : 5 MB per file | max 10 | 1080px | q70
    MUST stay above /:messageId
 ────────────────────────────────────────────── */
 router.post(
@@ -425,9 +444,12 @@ router.post(
   softAuth,
   imageUpload.array("files", IMAGE_MAX_COUNT),
   async (req, res) => {
+
     /* ── basic validation ── */
     if (!req.files || req.files.length === 0)
-      return res.status(400).json({ success: false, message: "No images provided" });
+      return res.status(400).json({
+        success: false, message: "No images provided",
+      });
 
     if (req.files.length > IMAGE_MAX_COUNT)
       return res.status(400).json({
@@ -478,7 +500,7 @@ router.post(
           if (ex.length > 0) {
             const full = await fetchFullMessage(client, ex[0].id);
             await client.query("COMMIT");
-            await deleteAllFromR2(uploadedUrls);   // orphan cleanup
+            await deleteAllFromR2(uploadedUrls); // orphan cleanup
             return res.status(200).json(shapeMessage(full));
           }
         }
@@ -533,7 +555,8 @@ router.post(
 /* ──────────────────────────────────────────────
    POST /api/messages/upload-video
    Multi-video → duration check → R2
-   Max : 3 videos | 10 MB each | 60 sec each | no compression
+   Limits : 10 MB per file | max 3 | 60 sec each
+   No compression — stored as-is
    MUST stay above /:messageId
 ────────────────────────────────────────────── */
 router.post(
@@ -541,9 +564,12 @@ router.post(
   softAuth,
   videoUpload.array("files", VIDEO_MAX_COUNT),
   async (req, res) => {
+
     /* ── basic validation ── */
     if (!req.files || req.files.length === 0)
-      return res.status(400).json({ success: false, message: "No videos provided" });
+      return res.status(400).json({
+        success: false, message: "No videos provided",
+      });
 
     if (req.files.length > VIDEO_MAX_COUNT)
       return res.status(400).json({
@@ -569,8 +595,14 @@ router.post(
         const file = req.files[i];
 
         const duration = await getVideoDuration(file.buffer);
-        if (duration > VIDEO_MAX_SECONDS) {
-          await deleteAllFromR2(uploadedUrls);   // clean already uploaded
+
+        /*
+         * Only reject if ffprobe actually returned a real duration
+         * (> 0) that exceeds the limit. If ffprobe is unavailable
+         * (returns 0) we allow the upload — client already validated.
+         */
+        if (duration > 0 && duration > VIDEO_MAX_SECONDS) {
+          await deleteAllFromR2(uploadedUrls);
           return res.status(400).json({
             success: false,
             message:
@@ -682,7 +714,9 @@ router.post("/", softAuth, async (req, res) => {
     });
 
   if (!message && !mediaUrl && !offerMeta && !location && !sharedProduct)
-    return res.status(400).json({ success: false, message: "No content provided" });
+    return res.status(400).json({
+      success: false, message: "No content provided",
+    });
 
   const client = await pool.connect();
   try {
