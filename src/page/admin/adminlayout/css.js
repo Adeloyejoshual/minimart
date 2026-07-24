@@ -354,6 +354,104 @@ textarea.input { resize: vertical; min-height: 70px; }
 
 .divider { border: none; border-top: 1px solid var(--border); margin: 6px 0; }
 
+/* ── Sidebar structure — scrollable middle, fixed footer ── */
+.sidebar {
+  display        : flex;
+  flex-direction : column;
+  height         : 100vh;
+}
+
+.sb-nav-scroll {
+  flex-grow  : 1;
+  overflow-y : auto;
+  padding    : 4px 0;
+}
+
+.sb-nav-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.sb-nav-scroll::-webkit-scrollbar-thumb {
+  background   : rgba(255,255,255,0.1);
+  border-radius: 2px;
+}
+
+/* ── User + Logout section ── */
+.sb-user {
+  padding      : 12px;
+  border-top   : 1px solid rgba(255,255,255,0.08);
+  background   : rgba(0,0,0,0.15);
+}
+
+.sb-user-info {
+  display     : flex;
+  align-items : center;
+  gap         : 10px;
+  padding     : 6px 4px 10px;
+}
+
+.sb-avatar {
+  width          : 34px;
+  height         : 34px;
+  border-radius  : 50%;
+  background     : linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+  color          : #fff;
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  font-weight    : 800;
+  font-size      : 14px;
+  flex-shrink    : 0;
+}
+
+.sb-user-meta {
+  flex     : 1;
+  min-width: 0;
+}
+
+.sb-user-name {
+  font-size     : .82rem;
+  font-weight   : 700;
+  color         : #fff;
+  white-space   : nowrap;
+  overflow      : hidden;
+  text-overflow : ellipsis;
+}
+
+.sb-user-role {
+  font-size      : .65rem;
+  color          : rgba(255,255,255,0.55);
+  text-transform : capitalize;
+  margin-top     : 1px;
+}
+
+.sb-logout {
+  display        : flex;
+  align-items    : center;
+  gap            : 10px;
+  width          : 100%;
+  padding        : 9px 12px;
+  background     : rgba(239, 68, 68, 0.1);
+  border         : 1px solid rgba(239, 68, 68, 0.25);
+  border-radius  : 8px;
+  color          : #fca5a5;
+  font-size      : .78rem;
+  font-weight    : 700;
+  cursor         : pointer;
+  transition     : all .15s;
+}
+
+.sb-logout:hover:not(:disabled) {
+  background : rgba(239, 68, 68, 0.2);
+  color      : #fecaca;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.sb-logout:disabled {
+  opacity : .5;
+  cursor  : not-allowed;
+}
+
 ::-webkit-scrollbar       { width: 4px; height: 4px; }
 ::-webkit-scrollbar-track { background: var(--surface); }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
