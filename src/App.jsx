@@ -153,8 +153,9 @@ import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
 /* ════════════════════════════════════════════════════════════
    PAGES — ADMIN
 ════════════════════════════════════════════════════════════ */
-import AdminLogin     from "./pages/admin/AdminLogin";
-import AdminDashboard from "./page/admin/AdminDashboard";
+import AdminLogin       from "./pages/admin/AdminLogin";
+import AdminDashboard   from "./page/admin/AdminDashboard";
+import ManagerDashboard from "./page/admin/Manager/ManagerDashboard";
 
 /* ════════════════════════════════════════════════════════════
    COMPONENTS
@@ -970,6 +971,13 @@ export default function App() {
           element={
             <AdminProtectedRoute admin={admin}>
               <AdminDashboard admin={admin} />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route path="/admin/manager"
+          element={
+            <AdminProtectedRoute admin={admin}>
+              <ManagerDashboard admin={admin} />
             </AdminProtectedRoute>
           }
         />
