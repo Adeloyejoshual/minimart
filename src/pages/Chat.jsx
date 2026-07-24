@@ -5,12 +5,13 @@
  * Real-time chat with:
  * - Socket.IO messaging
  * - Offers / Counter-offers
- * - Multi-image upload  (max 10 | 5 MB each)
- * - Multi-video upload  (max 3  | 10 MB each | 60 sec)
+ * - Multi-image upload    (max 10 | 5 MB each)
+ * - Multi-video upload    (max 3  | 10 MB each | 60 sec)
  * - Location sharing
  * - Product sharing
  * - Context menu
  * - Typing indicators
+ * - Full-screen media viewer (swipe / keyboard / zoom / download)
  */
 
 import {
@@ -30,6 +31,7 @@ import ContextMenu       from "./chat/ContextMenu";
 import ReportModal       from "./chat/ReportModal";
 import DeleteChatConfirm from "./chat/DeleteChatConfirm";
 import Bubble, { TypingBubble, DateSep } from "./chat/Bubble";
+import MediaViewer       from "./chat/MediaViewer";
 import { Icon } from "./chat/icons";
 import {
   MESSAGE_TYPES, OFFER_STATUS, CURRENCY,
@@ -51,9 +53,9 @@ const SEND_TIMEOUT = 15_000;
    UPLOAD LIMITS  (must match server)
 ═══════════════════════════════════════════════════════════════ */
 const IMAGE_MAX_COUNT   = 10;
-const IMAGE_MAX_BYTES   = 5  * 1024 * 1024;   // 5  MB
+const IMAGE_MAX_BYTES   = 5  * 1024 * 1024;
 const VIDEO_MAX_COUNT   = 3;
-const VIDEO_MAX_BYTES   = 10 * 1024 * 1024;   // 10 MB
+const VIDEO_MAX_BYTES   = 10 * 1024 * 1024;
 const VIDEO_MAX_SECONDS = 60;
 
 /* ═══════════════════════════════════════════════════════════════
@@ -154,13 +156,9 @@ function validateImages(files) {
   }
   const valid = [];
   for (const f of files) {
-    if (!f.type.startsWith("image/")) {
-      errors.push(`"${f.name}" is not an image.`);
-    } else if (f.size > IMAGE_MAX_BYTES) {
-      errors.push(`"${f.name}" exceeds 5 MB.`);
-    } else {
-      valid.push(f);
-    }
+    if (!f.type.startsWith("image/"))     errors.push(`"${f.name}" is not an image.`);
+    else if (f.size > IMAGE_MAX_BYTES)    errors.push(`"${f.name}" exceeds 5 MB.`);
+    else                                  valid.push(f);
   }
   return { valid, errors };
 }
@@ -176,12 +174,10 @@ async function validateVideos(files) {
   for (let i = 0; i < files.length; i++) {
     const f = files[i];
     if (!f.type.startsWith("video/")) {
-      errors.push(`"${f.name}" is not a video.`);
-      continue;
+      errors.push(`"${f.name}" is not a video.`); continue;
     }
     if (f.size > VIDEO_MAX_BYTES) {
-      errors.push(`"${f.name}" exceeds 10 MB.`);
-      continue;
+      errors.push(`"${f.name}" exceeds 10 MB.`); continue;
     }
     const dur = await getClientVideoDuration(f);
     if (dur > VIDEO_MAX_SECONDS) {
@@ -223,7 +219,7 @@ export default function Chat({ user }) {
   const [muted,           setMuted]           = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [showAttach,      setShowAttach]      = useState(false);
-  const [lightboxSrcs,    setLightboxSrcs]    = useState(null); // { urls[], index }
+  const [viewer,          setViewer]          = useState(null); // { urls, index, senderName, createdAt }
   const [replyTo,         setReplyTo]         = useState(null);
 
   /* ── Context menu ── */
@@ -246,9 +242,9 @@ export default function Chat({ user }) {
   const pendingMsgs   = useRef([]);
   const mounted       = useRef(true);
   const sendTimers    = useRef(new Map());
-  const imageFileRef  = useRef(null);   // gallery (images)
-  const videoFileRef  = useRef(null);   // gallery (videos)
-  const cameraRef     = useRef(null);   // camera capture
+  const imageFileRef  = useRef(null);
+  const videoFileRef  = useRef(null);
+  const cameraRef     = useRef(null);
 
   const newMsgRef  = useRef("");
   const sendingRef = useRef(false);
@@ -482,7 +478,7 @@ export default function Chat({ user }) {
   useEffect(() => () => clearTimeout(typingTimer.current), []);
 
   /* ══════════════════════════════════════════════════════════
-     CORE SEND  (text / offer / location / product)
+     CORE SEND
   ══════════════════════════════════════════════════════════ */
   const doSend = useCallback(async (text, extras = {}) => {
     if (!text || typeof text !== "string") return;
@@ -494,8 +490,8 @@ export default function Chat({ user }) {
     const replyRef    = replyTo ? { reply_to_id: replyTo.id } : {};
 
     const msgType =
-      extras.offerMeta      ? MESSAGE_TYPES.OFFER
-      : extras.location     ? MESSAGE_TYPES.LOCATION
+      extras.offerMeta        ? MESSAGE_TYPES.OFFER
+      : extras.location       ? MESSAGE_TYPES.LOCATION
       : extras.shared_product ? MESSAGE_TYPES.PRODUCT
       : MESSAGE_TYPES.TEXT;
 
@@ -602,7 +598,7 @@ export default function Chat({ user }) {
   }, [doSend]);
 
   /* ══════════════════════════════════════════════════════════
-     IMAGE UPLOAD  (multi — max 10 | 5 MB each)
+     IMAGE UPLOAD
   ══════════════════════════════════════════════════════════ */
   const handleImageChange = useCallback(async (e) => {
     const raw = Array.from(e.target.files || []);
@@ -610,7 +606,6 @@ export default function Chat({ user }) {
     setShowAttach(false);
     if (!raw.length) return;
 
-    /* validate */
     const { valid, errors } = validateImages(raw);
     if (errors.length) { alert(errors.join("\n")); return; }
     if (!valid.length) return;
@@ -618,12 +613,10 @@ export default function Chat({ user }) {
     const clientMsgId = `${user.id}_${Date.now()}`;
     const tempId      = `temp_${clientMsgId}`;
 
-    /* build local preview URLs */
     const localUrls = valid.map((f) => URL.createObjectURL(f));
     const count     = valid.length;
     const preview   = count === 1 ? "Photo" : `${count} Photos`;
 
-    /* optimistic temp bubble */
     dispatch({
       type: "APPEND",
       payload: {
@@ -633,7 +626,7 @@ export default function Chat({ user }) {
         sender_id        : user.id,
         message          : preview,
         message_type     : MESSAGE_TYPES.MEDIA,
-        media_url        : localUrls,       // array of blob URLs
+        media_url        : localUrls,
         created_at       : new Date().toISOString(),
         status           : "sending",
         _temp            : true,
@@ -663,12 +656,11 @@ export default function Chat({ user }) {
         }
       );
 
-      /* revoke blob URLs */
       localUrls.forEach((u) => URL.revokeObjectURL(u));
 
-      if (mounted.current) {
+      if (mounted.current)
         dispatch({ type: "REPLACE", tempId, payload: saved });
-      }
+
       socketRef.current?.emit("sendMessage", saved);
 
     } catch (err) {
@@ -683,7 +675,7 @@ export default function Chat({ user }) {
   }, [threadId, user?.id, replyTo, safe]);
 
   /* ══════════════════════════════════════════════════════════
-     VIDEO UPLOAD  (multi — max 3 | 10 MB each | 60 sec each)
+     VIDEO UPLOAD
   ══════════════════════════════════════════════════════════ */
   const handleVideoChange = useCallback(async (e) => {
     const raw = Array.from(e.target.files || []);
@@ -691,7 +683,6 @@ export default function Chat({ user }) {
     setShowAttach(false);
     if (!raw.length) return;
 
-    /* validate (async — duration check) */
     const { valid, errors } = await validateVideos(raw);
     if (errors.length) { alert(errors.join("\n")); return; }
     if (!valid.length) return;
@@ -703,7 +694,6 @@ export default function Chat({ user }) {
     const count     = valid.length;
     const preview   = count === 1 ? "Video" : `${count} Videos`;
 
-    /* optimistic temp bubble */
     dispatch({
       type: "APPEND",
       payload: {
@@ -888,24 +878,29 @@ export default function Chat({ user }) {
 
   const isMine = useCallback((m) => m.sender_id === user?.id, [user?.id]);
 
-  /* ── Lightbox helpers ── */
-  const openLightbox = useCallback((urls, index = 0) => {
-    /* urls can be string | string[] | null */
+  /* ══════════════════════════════════════════════════════════
+     VIEWER  (image / video)
+     Bubble calls onLightbox(urls, index, msg?) — we build the
+     full viewer state with sender info for the header.
+  ══════════════════════════════════════════════════════════ */
+  const openViewer = useCallback((urls, index = 0, msg = null) => {
     const list = Array.isArray(urls) ? urls : urls ? [urls] : [];
-    if (list.length) setLightboxSrcs({ urls: list, index });
-  }, []);
+    if (!list.length) return;
 
-  const closeLightbox = useCallback(() => setLightboxSrcs(null), []);
+    const senderName =
+      msg?.sender_id === user?.id
+        ? "You"
+        : msg?.sender_name || otherUser?.name || "User";
 
-  const lightboxPrev = useCallback(() =>
-    setLightboxSrcs((s) => s && s.index > 0
-      ? { ...s, index: s.index - 1 } : s
-    ), []);
+    setViewer({
+      urls      : list,
+      index,
+      senderName,
+      createdAt : msg?.created_at || null,
+    });
+  }, [user?.id, otherUser?.name]);
 
-  const lightboxNext = useCallback(() =>
-    setLightboxSrcs((s) => s && s.index < s.urls.length - 1
-      ? { ...s, index: s.index + 1 } : s
-    ), []);
+  const closeViewer = useCallback(() => setViewer(null), []);
 
   /* ── Stable UI callbacks ── */
   const openOfferModal       = useCallback(() => setOfferModal(true),          []);
@@ -1010,7 +1005,7 @@ export default function Chat({ user }) {
                 onRetry={retryMessage}
                 onOfferRespond={handleOfferRespond}
                 onCtx={handleCtx}
-                onLightbox={openLightbox}
+                onLightbox={openViewer}
                 replyToMsg={
                   item.data.reply_to_id
                     ? msgMap.get(item.data.reply_to_id)
@@ -1023,7 +1018,6 @@ export default function Chat({ user }) {
 
         {isTyping && <TypingBubble />}
 
-        {/* upload progress indicators */}
         {uploadingImages && (
           <div className="upload-progress-banner">
             <div className="chat-btn-spinner" />
@@ -1090,7 +1084,6 @@ export default function Chat({ user }) {
               {replyTo.sender_id === user?.id ? "You" : otherUser?.name}
             </div>
 
-            {/* image reply */}
             {replyTo.message_type === MESSAGE_TYPES.MEDIA &&
              Array.isArray(replyTo.media_url) &&
              replyTo.media_url.length > 0 ? (
@@ -1106,7 +1099,6 @@ export default function Chat({ user }) {
                     : "Photo"}
                 </span>
               </div>
-            /* video reply */
             ) : replyTo.message_type === MESSAGE_TYPES.VIDEO &&
               Array.isArray(replyTo.media_url) &&
               replyTo.media_url.length > 0 ? (
@@ -1135,7 +1127,6 @@ export default function Chat({ user }) {
       {/* ── Footer ── */}
       <footer className="chat-footer">
 
-        {/* Attach popover */}
         {showAttach && (
           <div className="attach-popover">
 
@@ -1172,8 +1163,6 @@ export default function Chat({ user }) {
           </div>
         )}
 
-        {/* Hidden inputs */}
-        {/* images — gallery, multi-select */}
         <input
           ref={imageFileRef}
           type="file"
@@ -1182,7 +1171,6 @@ export default function Chat({ user }) {
           className="hidden-input"
           onChange={handleImageChange}
         />
-        {/* camera capture — single */}
         <input
           ref={cameraRef}
           type="file"
@@ -1191,7 +1179,6 @@ export default function Chat({ user }) {
           className="hidden-input"
           onChange={handleImageChange}
         />
-        {/* videos — multi-select */}
         <input
           ref={videoFileRef}
           type="file"
@@ -1236,62 +1223,15 @@ export default function Chat({ user }) {
 
       </footer>
 
-      {/* ── Lightbox (multi-image / video) ── */}
-      {lightboxSrcs && lightboxSrcs.urls.length > 0 && (
-        <div className="lightbox-overlay" onClick={closeLightbox}>
-
-          {/* prev */}
-          {lightboxSrcs.index > 0 && (
-            <button
-              className="lightbox-nav lightbox-prev"
-              onClick={(e) => { e.stopPropagation(); lightboxPrev(); }}
-            >
-              ‹
-            </button>
-          )}
-
-          {/* media */}
-          {lightboxSrcs.urls[lightboxSrcs.index]?.match(/\.(mp4|webm|mov|3gp|mkv)(\?|$)/i)
-            ? (
-              <video
-                src={lightboxSrcs.urls[lightboxSrcs.index]}
-                className="lightbox-img"
-                controls
-                autoPlay
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <img
-                src={lightboxSrcs.urls[lightboxSrcs.index]}
-                alt={`Media ${lightboxSrcs.index + 1}`}
-                className="lightbox-img"
-                onClick={(e) => e.stopPropagation()}
-              />
-            )
-          }
-
-          {/* next */}
-          {lightboxSrcs.index < lightboxSrcs.urls.length - 1 && (
-            <button
-              className="lightbox-nav lightbox-next"
-              onClick={(e) => { e.stopPropagation(); lightboxNext(); }}
-            >
-              ›
-            </button>
-          )}
-
-          {/* counter */}
-          {lightboxSrcs.urls.length > 1 && (
-            <div className="lightbox-counter">
-              {lightboxSrcs.index + 1} / {lightboxSrcs.urls.length}
-            </div>
-          )}
-
-          <button className="lightbox-close" onClick={closeLightbox}>
-            {Icon.close}
-          </button>
-
-        </div>
+      {/* ── Full Media Viewer ── */}
+      {viewer && (
+        <MediaViewer
+          urls={viewer.urls}
+          startIndex={viewer.index}
+          senderName={viewer.senderName}
+          createdAt={viewer.createdAt}
+          onClose={closeViewer}
+        />
       )}
 
       {/* ── Modals ── */}
