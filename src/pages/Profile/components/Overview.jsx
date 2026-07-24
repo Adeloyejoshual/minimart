@@ -1,7 +1,7 @@
 // src/pages/Profile/components/Overview.jsx
 import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { Ic } from "./icons";
+import { Ic, safeIc } from "./icons";
 import { fmtNum, TIPS } from "./helpers";
 import StatCard from "./StatCard";
 import ScoreSection from "./ScoreSection";
@@ -11,12 +11,12 @@ import { StatsSkeleton } from "./Skeletons";
 import "./Overview.css";
 
 /* ─────────────────────────────────────────────
-   insightIcon — only use keys that exist in Ic
+   insightIcon — ONLY keys that exist in Ic
 ───────────────────────────────────────────── */
 const insightIcon = {
   warn: <Ic.AlertTriangle />,
   info: <Ic.Info />,
-  good: <Ic.Star />,         // ✅ was Ic.Celebration — doesn't exist
+  good: <Ic.ThumbsUp />,   // ✅ exists — was Ic.Celebration (didn't exist)
 };
 
 /* ─────────────────────────────────────────────
@@ -65,13 +65,13 @@ export default function Overview({
 }) {
   const tierConfig = TIER_CONFIG[tier] ?? TIER_CONFIG.unverified;
 
-  /* ── Tier icon — resolved once, never undefined ── */
+  /* Tier icon — resolved safely */
   const TierIcon =
     tier === "subscriber" ? Ic.Zap
     : tier === "verified"  ? Ic.CheckCircle
     : Ic.Clock;
 
-  /* ── Performance metrics ── */
+  /* Performance metrics */
   const overviewMetrics = useMemo(
     () => [
       { label: "Response Time", val: 60, color: "#6366f1" },
@@ -98,7 +98,7 @@ export default function Overview({
     [stats]
   );
 
-  /* ── Insights ── */
+  /* Insights — exclude pending-related messages */
   const insights = useMemo(() => {
     if (!stats) return [];
 
@@ -170,12 +170,20 @@ export default function Overview({
     if (isSubscriber && active >= 20) {
       list.push({
         type: "good",
-        msg : `${active} active listings with Pro perks — 90-day windows & priority placement working for you!`,
+        msg : `${active} active listings with Pro perks — 90-day windows & priority placement!`,
       });
     }
 
     return list;
   }, [stats, tier, isSubscriber]);
+
+  /* Filter out pending products from recent listings */
+  const visibleProducts = useMemo(
+    () => (products ?? []).filter(
+      (p) => p?.status !== "pending_payment" && !p?.is_deleted
+    ),
+    [products]
+  );
 
   /* ─── render ─── */
   return (
@@ -311,8 +319,8 @@ export default function Overview({
         </div>
       )}
 
-      {/* ── Recent Listings ── */}
-      {!loading && products?.length > 0 && (
+      {/* ── Recent Listings — pending_payment excluded ── */}
+      {!loading && visibleProducts.length > 0 && (
         <div className="overview__card">
           <div className="overview__card-header">
             <h2 className="overview__card-title">Recent Listings</h2>
@@ -325,7 +333,7 @@ export default function Overview({
           </div>
 
           <div className="overview__products-list">
-            {products.slice(0, 3).map((p) => (
+            {visibleProducts.slice(0, 3).map((p) => (
               <ProductCard
                 key={p.id}
                 product={p}
@@ -343,7 +351,7 @@ export default function Overview({
         </div>
       )}
 
-      {!loading && (!products || products.length === 0) && (
+      {!loading && visibleProducts.length === 0 && (
         <div className="overview__card">
           <EmptyState
             icon={<Ic.Package />}
@@ -366,20 +374,12 @@ export default function Overview({
 
         <div className="overview__tips-grid">
           {TIPS.map(({ iconKey, title, desc }, i) => {
-            const Icon = Ic[iconKey]; // look up icon safely
-
-            /* Log missing keys in dev */
-            if (!Icon) {
-              console.warn(
-                `[Overview/TIPS] Missing icon "${iconKey}". ` +
-                `Valid keys: ${Object.keys(Ic).join(", ")}`
-              );
-            }
-
+            /* safeIc never returns undefined */
+            const Icon = safeIc(iconKey);
             return (
               <div key={i} className="tip">
                 <span className="tip__icon">
-                  {Icon ? <Icon /> : <Ic.Star />}
+                  <Icon />
                 </span>
                 <div>
                   <p className="tip__title">{title}</p>
