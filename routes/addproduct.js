@@ -3,13 +3,16 @@
  *
  * Targets CockroachDB (serverless / dedicated).
  *
- * v4 — 3-TIER SYSTEM
+ * v5 — EMAIL FROM REGISTRATION
  * ─────────────────────────────────────────────────────────────
- *  unverified  → 3 lifetime trial listings   (7-day expiry)
- *  verified    → 500 lifetime listings       (30-day expiry)
- *  subscriber  → Unlimited                   (90-day expiry)
+ *  - Email is NEVER taken from req.body
+ *  - Email is always fetched from users table (registration email)
+ *  - 3-TIER SYSTEM maintained:
+ *      unverified  → 3 lifetime trial listings   (7-day expiry)
+ *      verified    → 500 lifetime listings       (30-day expiry)
+ *      subscriber  → Unlimited                   (90-day expiry)
  *
- * CockroachDB-specific compatibility (unchanged from v3):
+ * CockroachDB-specific compatibility:
  *  - pg_advisory_xact_lock removed
  *  - FOR NO KEY UPDATE → FOR UPDATE
  *  - SAVEPOINT retry replaced with app-level slug retry
@@ -139,14 +142,8 @@ const ALLOWED_WA_HOSTS = new Set([
 
 /* ═══════════════════════════════════════════════════════════════
    POLICY TABLE — 3-TIER SYSTEM
-   ─────────────────────────────────────────────────────────────
-   Tier is determined by getSellerContext():
-     1. Active subscription  → 'subscriber'
-     2. Identity verified    → 'verified'
-     3. Neither              → 'unverified'
 ═══════════════════════════════════════════════════════════════ */
 const POLICY = Object.freeze({
-  /* ─── FREE TRIAL ─── */
   unverified: Object.freeze({
     dailyLimit      :   3,
     activeLimit     :   3,
@@ -154,29 +151,25 @@ const POLICY = Object.freeze({
     expiryDays      :   7,
     freeListingDays :   7,
     canReactivate   : false,
-    totalLifetimeMax:   3,        // 3 free trial listings — ever
+    totalLifetimeMax:   3,
   }),
-
-  /* ─── FREE VERIFIED (ID confirmed) ─── */
   verified: Object.freeze({
     dailyLimit      :  50,
-    activeLimit     : 500,        // Also the lifetime cap
+    activeLimit     : 500,
     cooldownMinutes :   0,
     expiryDays      :  30,
     freeListingDays :  30,
     canReactivate   : true,
-    totalLifetimeMax: 500,        // 500 listings — ever
+    totalLifetimeMax: 500,
   }),
-
-  /* ─── PAID SUBSCRIBER (unlimited) ─── */
   subscriber: Object.freeze({
-    dailyLimit      : 10_000,     // effectively unlimited
-    activeLimit     : 1_000_000,  // effectively unlimited
+    dailyLimit      : 10_000,
+    activeLimit     : 1_000_000,
     cooldownMinutes :   0,
-    expiryDays      :   0,        // never expires (see computeActiveUntil)
-    freeListingDays :  90,        // shown to user as 90-day windows
+    expiryDays      :   0,
+    freeListingDays :  90,
     canReactivate   : true,
-    totalLifetimeMax: null,       // ♾ truly unlimited
+    totalLifetimeMax: null,
   }),
 });
 
@@ -339,7 +332,7 @@ const compressImage = async (buffer, mimetype) => {
       finalBuffer = candidate;
       if (candidate.length <= IMAGE_CONFIG.maxOutputBytes) break;
       if (quality <= IMAGE_CONFIG.webpQualityMin) {
-        console.warn(`[addproduct] quality floor hit at q${quality}, size: ${(candidate.length / 1_024).toFixed(0)} KB`);
+        console.warn(`[addproduct] quality floor hit at q${quality}`);
         break;
       }
       quality = Math.max(quality - IMAGE_CONFIG.webpQualityStep, IMAGE_CONFIG.webpQualityMin);
@@ -352,7 +345,7 @@ const compressImage = async (buffer, mimetype) => {
   console.log(
     `[addproduct] compress: ${(buffer.length / 1_024).toFixed(0)} KB` +
     ` → ${(finalBuffer.length / 1_024).toFixed(0)} KB` +
-    ` @ q${quality} (${!IMAGE_CONFIG.watermark.enabled ? "no wm" : _usingLogoWm ? "logo" : "text"})`
+    ` @ q${quality}`
   );
 
   return { buffer: finalBuffer, mimetype: "image/webp" };
@@ -435,11 +428,11 @@ const makeLimiter = ({ windowMin, max, message }) =>
     handler        : (_req, res) => res.status(429).json({ success: false, message }),
   });
 
-const createLimiter   = makeLimiter({ windowMin: 60, max: IS_PROD ? 20  : 500,   message: "Too many submissions. Please wait." });
-const activateLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 30  : 500,   message: "Too many activation requests." });
+const createLimiter   = makeLimiter({ windowMin: 60, max: IS_PROD ? 20  : 500, message: "Too many submissions. Please wait." });
+const activateLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 30  : 500, message: "Too many activation requests." });
 const readLimiter     = makeLimiter({ windowMin: 5,  max: IS_PROD ? 120 : 1_000, message: "Too many requests. Slow down." });
-const dupLimiter      = makeLimiter({ windowMin: 5,  max: IS_PROD ? 30  : 500,   message: "Too many duplicate checks." });
-const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60  : 500,   message: "Too many edit requests. Please wait." });
+const dupLimiter      = makeLimiter({ windowMin: 5,  max: IS_PROD ? 30  : 500, message: "Too many duplicate checks." });
+const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60  : 500, message: "Too many edit requests. Please wait." });
 
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
@@ -464,7 +457,7 @@ const safeParseGuarded = (v, fallback) => {
   return safeParse(v, fallback);
 };
 
-const getTodayUTC = () => new Date().toISOString().slice(0, 10);
+const getTodayUTC    = () => new Date().toISOString().slice(0, 10);
 const getTomorrowUTC = () => {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 1);
@@ -507,10 +500,7 @@ const validateImageHashes = (raw) => {
 /* Tier-aware expiry calculation */
 const computeActiveUntil = (tier) => {
   const policy = POLICY[tier] ?? POLICY.unverified;
-
-  /* Subscribers get "never expires" (permanent listings) */
   if (tier === "subscriber" && policy.expiryDays === 0) return null;
-
   const days = policy.freeListingDays ?? policy.expiryDays;
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + days);
@@ -580,7 +570,7 @@ const fetchSellerStats = (db, sellerId) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   BUILD CONTEXT — works with all 3 tiers
+   BUILD CONTEXT
 ═══════════════════════════════════════════════════════════════ */
 const buildContext = (tier, stats, extras = {}) => {
   const policy        = POLICY[tier] ?? POLICY.unverified;
@@ -589,7 +579,6 @@ const buildContext = (tier, stats, extras = {}) => {
   const lifetimeCount = Number(stats.lifetime_count) ?? 0;
   const lastSubmitAt  = stats.last_submit_at;
 
-  /* Lifetime exhaustion (null = unlimited) */
   const lifetimeExhausted =
     policy.totalLifetimeMax !== null &&
     lifetimeCount >= policy.totalLifetimeMax;
@@ -599,7 +588,6 @@ const buildContext = (tier, stats, extras = {}) => {
       ? null
       : Math.max(0, policy.totalLifetimeMax - lifetimeCount);
 
-  /* Cooldown between posts */
   let cooldownSecsLeft = 0;
   if (policy.cooldownMinutes > 0 && lastSubmitAt) {
     const elapsedMs  = Date.now() - new Date(lastSubmitAt).getTime();
@@ -609,28 +597,27 @@ const buildContext = (tier, stats, extras = {}) => {
 
   return {
     tier,
-    isVerified   : tier === "verified" || tier === "subscriber",
-    isSubscriber : tier === "subscriber",
+    isVerified           : tier === "verified" || tier === "subscriber",
+    isSubscriber         : tier === "subscriber",
     policy,
-    isFirstProduct: lifetimeCount === 0,
+    isFirstProduct       : lifetimeCount === 0,
     todayCount,
     activeCount,
     lifetimeCount,
     lifetimeExhausted,
     lifetimeRemaining,
-
-    /* Legacy names for backward-compat with existing code */
-    trialExhausted: tier === "unverified" && lifetimeExhausted,
-    trialRemaining: tier === "unverified" ? lifetimeRemaining : null,
-
+    trialExhausted       : tier === "unverified" && lifetimeExhausted,
+    trialRemaining       : tier === "unverified" ? lifetimeRemaining : null,
     cooldownSecsLeft,
     subscriptionPlan     : extras.subscriptionPlan      ?? null,
     subscriptionExpiresAt: extras.subscriptionExpiresAt ?? null,
+    email                : extras.email                 ?? null, // ✅ registration email
   };
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SELLER CONTEXT — detects tier from users table
+   SELLER CONTEXT
+   ✅ v5: Always fetches email from users table
 ═══════════════════════════════════════════════════════════════ */
 const getSellerContext = async (db, sellerId, lock = false) => {
   const lockSql = lock ? "FOR UPDATE" : "";
@@ -640,7 +627,8 @@ const getSellerContext = async (db, sellerId, lock = false) => {
        identity_verified,
        subscription_plan,
        subscription_status,
-       subscription_expires_at
+       subscription_expires_at,
+       email                        -- ✅ Always from users table
      FROM public.users
      WHERE id = $1
      ${lockSql}`,
@@ -652,7 +640,12 @@ const getSellerContext = async (db, sellerId, lock = false) => {
   const u     = users[0];
   const nowMs = Date.now();
 
-  /* Tier detection ─ subscriber wins, then verified, then unverified */
+  /* Validate email exists */
+  if (!u.email) {
+    console.error(`[addproduct] seller ${sellerId} has no email in users table`);
+    throw new Error("Account email not found. Please contact support.");
+  }
+
   const hasActiveSubscription =
     u.subscription_status === "active" &&
     u.subscription_plan   &&
@@ -672,11 +665,12 @@ const getSellerContext = async (db, sellerId, lock = false) => {
   return buildContext(tier, stats[0], {
     subscriptionPlan     : u.subscription_plan,
     subscriptionExpiresAt: u.subscription_expires_at,
+    email                : u.email,       // ✅ Registration email passed through
   });
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   POLICY ENFORCEMENT — tier-specific messages
+   POLICY ENFORCEMENT
 ═══════════════════════════════════════════════════════════════ */
 const enforcePolicyLimits = (ctx) => {
   const {
@@ -684,7 +678,6 @@ const enforcePolicyLimits = (ctx) => {
     cooldownSecsLeft, lifetimeExhausted, lifetimeCount, lifetimeRemaining,
   } = ctx;
 
-  /* ── Lifetime cap ── */
   if (lifetimeExhausted) {
     if (tier === "unverified") return {
       status : 403,
@@ -714,7 +707,6 @@ const enforcePolicyLimits = (ctx) => {
     };
   }
 
-  /* ── Daily cap ── */
   if (todayCount >= policy.dailyLimit) {
     const suffix =
       tier === "subscriber" ? "Try tomorrow."
@@ -734,19 +726,17 @@ const enforcePolicyLimits = (ctx) => {
     };
   }
 
-  /* ── Concurrent active cap ── */
   if (activeCount >= policy.activeLimit) {
     return {
       status : 429,
       message:
         tier === "unverified"
           ? `You can have ${policy.activeLimit} active trial listings at a time.`
-          : `Active listing limit reached (${policy.activeLimit}). Delete or pause some listings to add more.`,
+          : `Active listing limit reached (${policy.activeLimit}). Delete or pause some listings.`,
       extra  : { active_limit: policy.activeLimit, active_count: activeCount },
     };
   }
 
-  /* ── Cooldown (unverified only) ── */
   if (cooldownSecsLeft > 0) {
     const mins = Math.ceil(cooldownSecsLeft / 60);
     return {
@@ -796,21 +786,17 @@ const storeImageHashes = async (productId, hashes) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   TRIAL / LIFETIME INFO for response payload
+   TRIAL INFO
 ═══════════════════════════════════════════════════════════════ */
 const buildTrialInfo = (ctx) => {
   if (ctx.tier === "subscriber") return null;
-
   const newRemaining = Math.max(0, (ctx.lifetimeRemaining ?? 0) - 1);
-
   return {
     tier              : ctx.tier,
     lifetime_used     : ctx.lifetimeCount + 1,
     lifetime_max      : ctx.policy.totalLifetimeMax,
     lifetime_remaining: newRemaining,
     lifetime_exhausted: newRemaining === 0,
-
-    /* Legacy compatibility with existing frontend */
     trial_remaining   : ctx.tier === "unverified" ? newRemaining : null,
     trial_exhausted   : ctx.tier === "unverified" && newRemaining === 0,
   };
@@ -818,6 +804,7 @@ const buildTrialInfo = (ctx) => {
 
 /* ═══════════════════════════════════════════════════════════════
    INSERT PRODUCT
+   ✅ v5: email column populated from users table via ctx.email
 ═══════════════════════════════════════════════════════════════ */
 const runProductInsert = async (client, p) => {
   const { rows } = await client.query(
@@ -831,13 +818,15 @@ const runProductInsert = async (client, p) => {
        latitude,         longitude,
        seller_name,      phone,
        whatsapp,         whatsapp_link,
-       attributes,       delivery,        contact
+       attributes,       delivery,        contact,
+       email
      )
      VALUES (
        $1,  $2,  $3,  $4,  $5,  $6,
        $7,  $8,  $9,  $10, $11, $12,
        $13, $14, $15, $16, $17, $18,
-       $19, $20, $21, $22, $23, $24, $25
+       $19, $20, $21, $22, $23, $24, $25,
+       $26
      )
      RETURNING *`,
     [
@@ -853,19 +842,19 @@ const runProductInsert = async (client, p) => {
       JSON.stringify(p.attributes),
       JSON.stringify(p.delivery),
       JSON.stringify(p.contact),
+      p.email,          // ✅ Always registration email from users table
     ]
   );
   return rows[0];
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   NOTIFICATIONS  (fire-and-forget)
+   NOTIFICATIONS
 ═══════════════════════════════════════════════════════════════ */
 const notifyListing = (sellerId, title, tier, finalStatus, activeUntil, trialInfo) => {
   const needsVerification = finalStatus === "active_limited";
   const days              = daysUntilExpiry(activeUntil);
 
-  /* Trial-listing warnings */
   if (needsVerification && tier === "unverified") {
     const remaining = trialInfo?.trial_remaining ?? 0;
     createNotification({
@@ -879,7 +868,6 @@ const notifyListing = (sellerId, title, tier, finalStatus, activeUntil, trialInf
     return;
   }
 
-  /* Verified sellers hitting 500 cap */
   if (tier === "verified" && trialInfo?.lifetime_remaining === 0) {
     createNotification({
       userId : sellerId,
@@ -890,7 +878,6 @@ const notifyListing = (sellerId, title, tier, finalStatus, activeUntil, trialInf
     return;
   }
 
-  /* Standard live-listing confirmation */
   if (finalStatus === "active") {
     const durationText = tier === "subscriber" && !activeUntil
       ? "permanently"
@@ -906,12 +893,11 @@ const notifyListing = (sellerId, title, tier, finalStatus, activeUntil, trialInf
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   CRON UTILITIES  (exported)
+   CRON UTILITIES
 ═══════════════════════════════════════════════════════════════ */
 export const reactivateLimitedListings = async (sellerId) => {
   const client = await pool.connect();
   try {
-    /* Determine which policy to apply — verified vs subscriber */
     const { rows: userRows } = await client.query(
       `SELECT identity_verified, subscription_plan, subscription_status,
               subscription_expires_at
@@ -995,7 +981,7 @@ export const pauseExpiredListings = async () => {
           userId : sid,
           type   : "listings_paused",
           title  : "Listings Paused — Verification Required",
-          message: `${titles.length} listing${titles.length !== 1 ? "s" : ""} paused. Verify your identity to restore them.`,
+          message: `${titles.length} listing${titles.length !== 1 ? "s" : ""} paused. Verify to restore.`,
         }).catch(() => {});
       }
     }
@@ -1041,7 +1027,7 @@ router.get("/categories/:id/price-guidance", readLimiter, async (req, res) => {
     const total = Number(agg?.total ?? 0);
 
     if (total < 3)
-      return res.json({ success: true, guidance: null, message: "Not enough listings to show price guidance." });
+      return res.json({ success: true, guidance: null, message: "Not enough listings for price guidance." });
 
     const { rows: medRows } = await pool.query(
       `SELECT price FROM products
@@ -1079,7 +1065,7 @@ router.get("/categories/:id/price-guidance", readLimiter, async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /seller/limits — exposes full tier data
+   GET /seller/limits
 ═══════════════════════════════════════════════════════════════ */
 router.get("/seller/limits", authenticate, readLimiter, async (req, res) => {
   const sellerId = req.user?.id;
@@ -1091,40 +1077,26 @@ router.get("/seller/limits", authenticate, readLimiter, async (req, res) => {
 
     return res.json({
       success              : true,
-
-      /* Tier identification */
       tier                 : ctx.tier,
       seller_verified      : ctx.isVerified,
       is_subscriber        : ctx.isSubscriber,
       subscription_plan    : ctx.subscriptionPlan,
       subscription_expires : ctx.subscriptionExpiresAt,
-
-      /* Daily limits */
       daily_limit          : ctx.policy.dailyLimit,
       daily_used           : ctx.todayCount,
       daily_remaining      : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount),
-
-      /* Concurrent active limits */
       active_limit         : ctx.policy.activeLimit,
       active_count         : ctx.activeCount,
       active_remaining     : Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
-
-      /* Cooldown & expiry */
       cooldown_seconds     : ctx.cooldownSecsLeft,
       expiry_days          : ctx.policy.freeListingDays ?? ctx.policy.expiryDays,
       can_reactivate       : ctx.policy.canReactivate,
-
-      /* Lifetime info */
       lifetime_used        : ctx.lifetimeCount,
       lifetime_max         : ctx.policy.totalLifetimeMax,
       lifetime_remaining   : ctx.lifetimeRemaining,
       lifetime_exhausted   : ctx.lifetimeExhausted,
-
-      /* Legacy fields for existing frontend */
       trial_exhausted      : ctx.trialExhausted,
       trial_remaining      : ctx.trialRemaining,
-
-      /* Upgrade suggestions */
       can_upgrade          : ctx.tier !== "subscriber",
       upgrade_to           : ctx.tier === "unverified" ? "verified"
                            : ctx.tier === "verified"   ? "subscriber"
@@ -1231,6 +1203,8 @@ router.get("/products/:id/status", authenticate, readLimiter, async (req, res) =
 
 /* ═══════════════════════════════════════════════════════════════
    POST /products  — Create
+   ✅ v5: email always from users table via ctx.email
+         never accepted from req.body
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/products",
@@ -1244,7 +1218,7 @@ router.post(
     console.log("\n[addproduct] ▶ CREATE  seller:", sellerId);
     if (!sellerId) return fail(res, 401, "Not authenticated.");
 
-    /* ── Parse ── */
+    /* ── Parse body — NOTE: email is intentionally NOT parsed from req.body ── */
     const title          = cleanText(req.body.title);
     const description    = cleanText(req.body.description);
     const price          = Number(req.body.price);
@@ -1268,7 +1242,7 @@ router.post(
     const rawStatus       = cleanText(req.body.status) ?? "draft";
     const requestedStatus = ALLOWED_STATUSES.has(rawStatus) ? rawStatus : "draft";
 
-    /* ── Validate ── */
+    /* ── Validate — no email validation here, comes from DB ── */
     if (!title)                    return fail(res, 400, "Title is required.");
     if (title.length > TITLE_MAX)  return fail(res, 400, `Title must be ≤ ${TITLE_MAX} characters.`);
     if (!description || description.length < DESC_MIN)
@@ -1314,7 +1288,7 @@ router.post(
           return res.status(200).json({ success: true, product: existing[0] });
         }
       } catch (idempErr) {
-        console.warn("[addproduct] idempotency check failed (non-fatal):", idempErr.message);
+        console.warn("[addproduct] idempotency check failed:", idempErr.message);
       }
     }
 
@@ -1336,7 +1310,7 @@ router.post(
           return fail(res, preErr.status, preErr.message, preErr.extra ?? {});
         }
       } catch (preErr) {
-        console.warn("[addproduct] pre-upload check failed (non-fatal):", preErr.message);
+        console.warn("[addproduct] pre-upload check failed:", preErr.message);
       }
     }
 
@@ -1356,14 +1330,14 @@ router.post(
 
       if (wmAnalysis.overallVerdict === "block") {
         const first = wmAnalysis.results.find((r) => r.verdict === "block");
-        console.warn("[addproduct] watermark block seller:", sellerId, "reason:", first?.reason);
+        console.warn("[addproduct] watermark block seller:", sellerId);
         return fail(res, 400, first?.message ?? "One or more images were rejected.", {
           blocked_images: wmAnalysis.blockedImages,
           reason        : first?.reason ?? "watermark_policy",
         });
       }
     } catch (wmErr) {
-      console.warn("[addproduct] watermark analysis error (non-fatal):", wmErr.message);
+      console.warn("[addproduct] watermark analysis error:", wmErr.message);
       Sentry.captureException(wmErr, { tags: { area: "watermark", seller_id: sellerId } });
       wmAnalysis = null;
     }
@@ -1405,10 +1379,12 @@ router.post(
     try {
       await client.query("BEGIN");
 
+      /* ✅ getSellerContext now includes email from users table */
       const ctx = await getSellerContext(client, sellerId, true);
 
       console.log("[addproduct] seller context:", {
         tier             : ctx.tier,
+        email            : ctx.email,   // ✅ Confirmed registration email
         todayCount       : ctx.todayCount,
         activeCount      : ctx.activeCount,
         lifetimeCount    : ctx.lifetimeCount,
@@ -1432,20 +1408,18 @@ router.post(
         }
       }
 
-      /* Final status + expiry based on tier */
+      /* Final status + expiry */
       let finalStatus = requestedStatus;
       let finalActive = requestedStatus === "active";
       let activeUntil = null;
 
       if (requestedStatus === "active") {
-        /* Only unverified users get 'active_limited' status.
-           Verified and subscribers both get full 'active'.       */
         finalStatus = ctx.tier === "unverified" ? "active_limited" : "active";
         finalActive = true;
         activeUntil = computeActiveUntil(ctx.tier);
       }
 
-      /* Slug with application-level retry on collision */
+      /* Slug */
       const baseSlug  = generateBaseSlug(title).slice(0, SLUG_MAX);
       const shortId   = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
       const firstSlug = generateSlugWithId(title, shortId);
@@ -1458,6 +1432,7 @@ router.post(
         locationState, locationCity, latitude, longitude,
         sellerName, phone, whatsapp, whatsappLink,
         attributes, delivery, contact,
+        email: ctx.email,   // ✅ Always from users table — never req.body
       };
 
       let product;
@@ -1488,18 +1463,19 @@ router.post(
         }
 
         if (isSlugCollision) {
-          console.warn("[addproduct] slug collision — retrying with new UUID");
+          console.warn("[addproduct] slug collision — retrying");
           await client.query("ROLLBACK");
           await client.query("BEGIN");
 
-          const ctx2 = await getSellerContext(client, sellerId, true);
-
+          const ctx2      = await getSellerContext(client, sellerId, true);
           const retrySlug = `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`;
+
           try {
             product = await runProductInsert(client, {
               ...insertParams,
               slug          : retrySlug,
               isFirstProduct: ctx2.isFirstProduct,
+              email         : ctx2.email,   // ✅ Re-fetch on retry too
             });
           } catch (retryErr) {
             await client.query("ROLLBACK");
@@ -1535,15 +1511,10 @@ router.post(
           )
         );
       } catch (imgInsertErr) {
-        console.error(
-          "[addproduct] product_images insert failed:",
-          imgInsertErr.message,
-          "\nCode:", imgInsertErr.code,
-          "\nDetail:", imgInsertErr.detail
-        );
+        console.error("[addproduct] product_images insert failed:", imgInsertErr.message);
       }
 
-      /* Update images JSONB column */
+      /* Update images JSONB */
       const imagesJson = JSON.stringify(
         uploaded.map((img) => ({ url: img.url, key: img.key, order: img.order }))
       );
@@ -1554,9 +1525,11 @@ router.post(
       product.images = JSON.parse(imagesJson);
 
       await client.query("COMMIT");
+
       console.log(
         `[addproduct] ✓ created  id:${product.id}`,
         ` tier:${ctx.tier}`,
+        ` email:${ctx.email}`,   // ✅ Log confirms registration email used
         ` status:${finalStatus}`,
         ` expires:${activeUntil?.toISOString() ?? "never"}`
       );
@@ -1573,8 +1546,10 @@ router.post(
           targetType: "product",
           targetId  : product.id,
           metadata  : {
-            title, status: finalStatus,
+            title,
+            status        : finalStatus,
             tier          : ctx.tier,
+            email         : ctx.email,   // ✅ Audit log shows registration email
             active_until  : activeUntil,
             is_verified   : ctx.isVerified,
             is_subscriber : ctx.isSubscriber,
@@ -1588,7 +1563,6 @@ router.post(
         );
 
         trackTrending(product.id).catch(() => {});
-
         notifyListing(sellerId, title, ctx.tier, finalStatus, activeUntil, trialInfo);
       });
 
@@ -1610,13 +1584,13 @@ router.post(
         is_subscriber     : ctx.isSubscriber,
         trial             : trialInfo,
         limits: {
-          daily_limit      : ctx.policy.dailyLimit,
-          daily_used       : ctx.todayCount + 1,
-          daily_left       : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount - 1),
-          active_limit     : ctx.policy.activeLimit,
-          active_count     : ctx.activeCount + 1,
-          lifetime_used    : ctx.lifetimeCount + 1,
-          lifetime_max     : ctx.policy.totalLifetimeMax,
+          daily_limit       : ctx.policy.dailyLimit,
+          daily_used        : ctx.todayCount + 1,
+          daily_left        : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount - 1),
+          active_limit      : ctx.policy.activeLimit,
+          active_count      : ctx.activeCount + 1,
+          lifetime_used     : ctx.lifetimeCount + 1,
+          lifetime_max      : ctx.policy.totalLifetimeMax,
           lifetime_remaining: trialInfo?.lifetime_remaining ?? null,
         },
         ...(activeUntil && {
@@ -1639,7 +1613,7 @@ router.post(
         }),
         ...(hasWmWarnings && {
           watermark_warnings: wmAnalysis.warnings,
-          watermark_notice  : "One or more photos may contain a third-party watermark. Consider replacing them.",
+          watermark_notice  : "One or more photos may contain a third-party watermark.",
         }),
       });
 
@@ -1647,18 +1621,11 @@ router.post(
       await client.query("ROLLBACK").catch(() => {});
       await destroyR2Assets(r2Keys);
       console.error("[addproduct] CREATE ERROR:", err.message);
-      console.error("[addproduct] CREATE ERROR DETAIL:", {
-        code      : err.code,
-        constraint: err.constraint,
-        detail    : err.detail,
-        hint      : err.hint,
-        where     : err.where,
-      });
 
       if (!["23505", "LIMIT_FILE_SIZE", "INVALID_MIME"].includes(err.code)) {
         Sentry.captureException(err, {
           tags : { area: "product_create", seller_id: sellerId },
-          extra: { title, categoryId, fileCount: files.length, errCode: err.code },
+          extra: { title, categoryId, fileCount: files.length },
         });
       }
 
@@ -1667,10 +1634,7 @@ router.post(
       if (err.code === "23505")
         return fail(res, 409, "Duplicate submission. Please try again.");
 
-      return fail(
-        res, 500,
-        IS_PROD ? "Failed to create product. Please try again." : err.message
-      );
+      return fail(res, 500, IS_PROD ? "Failed to create product. Please try again." : err.message);
     } finally {
       client.release();
     }
@@ -1679,6 +1643,7 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    PATCH /products/:id  — Edit
+   ✅ v5: email always re-fetched from users table
 ═══════════════════════════════════════════════════════════════ */
 router.patch(
   "/products/:id",
@@ -1788,6 +1753,13 @@ router.patch(
         return fail(res, 403, "Not authorised to edit this listing.");
       }
 
+      /* ✅ Fetch fresh email from users table for edit too */
+      const { rows: userRows } = await client.query(
+        "SELECT email FROM public.users WHERE id = $1",
+        [sellerId]
+      );
+      const sellerEmail = userRows[0]?.email ?? null;
+
       const catCheck = await validateCategory(client, categoryId, subcategoryId);
       if (!catCheck.valid) {
         await client.query("ROLLBACK");
@@ -1816,8 +1788,9 @@ router.patch(
            delivery       = $15,
            contact        = $16,
            slug           = $17,
+           email          = $18,
            updated_at     = NOW()
-         WHERE id = $18
+         WHERE id = $19
          RETURNING *`,
         [
           title, description, price,
@@ -1830,6 +1803,7 @@ router.patch(
           JSON.stringify(delivery),
           JSON.stringify(contact),
           newSlug,
+          sellerEmail,   // ✅ Registration email — not from req.body
           productId,
         ]
       );
@@ -1852,7 +1826,7 @@ router.patch(
           );
         }
       } catch (delImgErr) {
-        console.warn("[addproduct] product_images delete failed (non-fatal):", delImgErr.message);
+        console.warn("[addproduct] product_images delete failed:", delImgErr.message);
       }
 
       /* Insert new image records */
@@ -1871,7 +1845,7 @@ router.patch(
             )
           );
         } catch (insImgErr) {
-          console.warn("[addproduct] product_images insert failed (non-fatal):", insImgErr.message);
+          console.warn("[addproduct] product_images insert failed:", insImgErr.message);
         }
       }
 
@@ -1887,7 +1861,7 @@ router.patch(
         );
         allImages = imgRows;
       } catch (fetchImgErr) {
-        console.warn("[addproduct] product_images fetch failed (non-fatal):", fetchImgErr.message);
+        console.warn("[addproduct] product_images fetch failed:", fetchImgErr.message);
       }
 
       const newThumb = allImages[0]?.url ?? product.thumbnail_url;
@@ -1906,7 +1880,7 @@ router.patch(
       if (Array.isArray(removeKeys) && removeKeys.length)
         destroyR2Assets(removeKeys).catch(() => {});
 
-      console.log(`[addproduct] ✓ edited  id:${productId}`);
+      console.log(`[addproduct] ✓ edited  id:${productId}  email:${sellerEmail}`);
 
       setImmediate(() => {
         writeAudit({
@@ -1914,7 +1888,11 @@ router.patch(
           action    : "product_edited",
           targetType: "product",
           targetId  : productId,
-          metadata  : { title, categoryId },
+          metadata  : {
+            title,
+            categoryId,
+            email: sellerEmail,   // ✅ Audit log
+          },
           ipAddress : ip,
         }).catch(() => {});
       });
@@ -1924,7 +1902,7 @@ router.patch(
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       await destroyR2Assets(newR2Keys);
-      console.error("[addproduct] EDIT ERROR:", err.message, "\n", err.stack);
+      console.error("[addproduct] EDIT ERROR:", err.message);
       Sentry.captureException(err, { tags: { area: "product_edit", seller_id: sellerId } });
       return fail(res, 500, IS_PROD ? "Update failed. Please try again." : err.message);
     } finally {
@@ -1974,7 +1952,6 @@ router.post(
         return fail(res, 403, "Not authorised.");
       }
 
-      /* Already active — return full shape so frontend merge works */
       if (product.status === "active") {
         await client.query("ROLLBACK");
         return res.json({
@@ -1990,7 +1967,6 @@ router.post(
 
       const ctx = await getSellerContext(client, sellerId, true);
 
-      /* Paused listings can only be reactivated per tier policy */
       if (product.status === "paused" && !ctx.policy.canReactivate) {
         await client.query("ROLLBACK");
         return fail(
@@ -2006,7 +1982,6 @@ router.post(
         return fail(res, policyErr.status, policyErr.message, policyErr.extra ?? {});
       }
 
-      /* Only unverified sellers get 'active_limited'. Everyone else = full 'active' */
       const finalStatus = ctx.tier === "unverified" ? "active_limited" : "active";
       const activeUntil = computeActiveUntil(ctx.tier);
 
@@ -2036,13 +2011,14 @@ router.post(
             status      : finalStatus,
             active_until: activeUntil,
             tier        : ctx.tier,
+            email       : ctx.email,
           },
           ipAddress: ip,
         }).catch(() => {});
         trackTrending(productId).catch(() => {});
       });
 
-      console.log(`[addproduct] ✓ activated  status:${finalStatus}  tier:${ctx.tier}  expires:${activeUntil?.toISOString() ?? "never"}`);
+      console.log(`[addproduct] ✓ activated  status:${finalStatus}  tier:${ctx.tier}`);
 
       return res.json({
         success           : true,
@@ -2083,7 +2059,7 @@ router.delete("/products/:id", authenticate, async (req, res) => {
   const productId = req.params.id;
   const ip        = getIp(req);
 
-  console.log("\n[addproduct] ▶ SOFT DELETE  product:", productId, " seller:", sellerId);
+  console.log("\n[addproduct] ▶ SOFT DELETE  product:", productId);
   if (!sellerId) return fail(res, 401, "Not authenticated.");
 
   try {
@@ -2135,13 +2111,15 @@ router.delete("/products/:id", authenticate, async (req, res) => {
       }).catch(() => {});
     });
 
-    console.log(`[addproduct] ✓ soft-deleted  id:${productId}  hold:${DELETE_HOLD_DAYS}d`);
+    console.log(`[addproduct] ✓ soft-deleted  id:${productId}`);
 
     return res.json({
       success            : true,
       message            : "Listing deleted",
       hold_days          : DELETE_HOLD_DAYS,
-      permanent_delete_at: new Date(Date.now() + DELETE_HOLD_DAYS * 86_400_000).toISOString(),
+      permanent_delete_at: new Date(
+        Date.now() + DELETE_HOLD_DAYS * 86_400_000
+      ).toISOString(),
     });
 
   } catch (err) {
