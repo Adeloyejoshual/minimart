@@ -153,9 +153,12 @@ import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
 /* ════════════════════════════════════════════════════════════
    PAGES — ADMIN
 ════════════════════════════════════════════════════════════ */
-import AdminLogin       from "./pages/admin/AdminLogin";
-import AdminDashboard   from "./page/admin/AdminDashboard";
-import ManagerDashboard from "./page/admin/Manager/ManagerDashboard";
+import AdminLogin         from "./pages/admin/AdminLogin";
+import AdminDashboard     from "./page/admin/AdminDashboard";                 // super_admin
+import ManagerDashboard   from "./page/admin/Manager/ManagerDashboard";       // admin
+import FinanceDashboard   from "./page/admin/Finance/FinanceDashboard";       // finance_admin
+import ModeratorDashboard from "./page/admin/Moderator/ModeratorDashboard";   // content_moderator
+import SupportDashboard   from "./page/admin/Support/SupportDashboard";       // support_admin
 
 /* ════════════════════════════════════════════════════════════
    COMPONENTS
@@ -178,6 +181,18 @@ export const TOKEN_KEYS = {
 };
 
 const FAV_KEY = "loemart_favs";
+
+/* ── Map every admin role to its dashboard URL ── */
+const ADMIN_ROUTES = {
+  super_admin        : "/admin/dashboard",
+  admin              : "/admin/manager",
+  finance_admin      : "/admin/finance",
+  content_moderator  : "/admin/moderator",
+  support_admin      : "/admin/support",
+};
+
+const getAdminHome = (admin) =>
+  ADMIN_ROUTES[admin?.role] || "/admin/dashboard";
 
 const TOASTER_OPTIONS = {
   duration : 3500,
@@ -435,8 +450,21 @@ function ProtectedRoute({ user, children }) {
   return children;
 }
 
-function AdminProtectedRoute({ admin, children }) {
+/* ────────────────────────────────────────────────────
+   AdminProtectedRoute — role-based access control
+────────────────────────────────────────────────────── */
+function AdminProtectedRoute({ admin, role, children }) {
+  // Not logged in → login page
   if (!admin) return <Navigate to="/admin/login" replace />;
+
+  // Super Admin can access any admin dashboard
+  if (admin.role === "super_admin") return children;
+
+  // Wrong role → redirect to their own dashboard
+  if (role && admin.role !== role) {
+    return <Navigate to={getAdminHome(admin)} replace />;
+  }
+
   return children;
 }
 
@@ -515,13 +543,15 @@ export default function App() {
       .finally(() => setAuthChecked(true));
   }, []);
 
-  /* ── Admin ── */
+  /* ── Admin — matches AdminLogin.jsx key "admin" ── */
   useEffect(() => {
     const token       = localStorage.getItem(TOKEN_KEYS.admin);
-    const storedAdmin = localStorage.getItem("admin_data");
+    const storedAdmin = localStorage.getItem("admin");
     if (!token || !storedAdmin) return;
-    try { setAdmin(JSON.parse(storedAdmin)); } catch {
-      localStorage.removeItem("admin_data");
+    try {
+      setAdmin(JSON.parse(storedAdmin));
+    } catch {
+      localStorage.removeItem("admin");
       localStorage.removeItem(TOKEN_KEYS.admin);
     }
   }, []);
@@ -545,45 +575,28 @@ export default function App() {
 
   /* ════════════════════════════════════════════════════════
      LOGOUT
-     ─────────────────────────────────────────────────────
-     handleLogout(navigateFn)
-
-     • navigateFn is the useNavigate() function from the
-       calling component. Passing it in keeps navigation
-       inside the Router context and avoids the "navigate
-       called outside Router" error.
-
-     • Every logout path (DangerZone, HamburgerMenu,
-       DesktopHeader, ProfileRoute) calls this one function
-       and always lands on /auth.
   ════════════════════════════════════════════════════════ */
   const handleLogout = useCallback(
     async (navigateFn) => {
       if (loggingOutRef.current) return;
       loggingOutRef.current = true;
 
-      /* 1. Tell server — sets is_online = false (fire & forget) */
       const token = localStorage.getItem(TOKEN_KEYS.marketplace);
       if (token) {
         fetch(`${USERS_API}/me`, {
           method    : "DELETE",
           headers   : { Authorization: `Bearer ${token}` },
-          keepalive : true,       // survives page unload
+          keepalive : true,
         }).catch(() => {});
       }
 
-      /* 2. Wipe all local auth data */
       clearAllAuthStorage();
-
-      /* 3. Reset React + cache state */
       setUser(null);
       resetCache();
       clearFavouritesOnLogout();
 
       toast.success("Signed out");
 
-      /* 4. Navigate — always /auth, always replace so back
-            button doesn't return to a protected page */
       if (typeof navigateFn === "function") {
         navigateFn("/auth", { replace: true });
       }
@@ -728,20 +741,13 @@ export default function App() {
             </ProtectedRoute>
           }
         />
-
-        {/* ── SETTINGS — passes handleLogout so DangerZone
-             can call handleLogout(navigate) ── */}
         <Route path="/settings"
           element={
             <ProtectedRoute user={user}>
-              <SettingsPage
-                user={user}
-                onLogout={handleLogout}
-              />
+              <SettingsPage user={user} onLogout={handleLogout} />
             </ProtectedRoute>
           }
         />
-
         <Route path="/minimart/add"
           element={
             <ProtectedRoute user={user}>
@@ -855,7 +861,7 @@ export default function App() {
         <Route path="/help/article/:slug"
           element={<HelpArticleDetail user={user} />} />
 
-        {/* ── SUPPORT ── */}
+        {/* ── SUPPORT (public / user-facing) ── */}
         <Route path="/support"
           element={<SupportHub user={user} />} />
         <Route path="/support/contact"
@@ -944,40 +950,104 @@ export default function App() {
         <Route path="/payment-failed/:orderId"
           element={<PaymentFailedPage />} />
 
-        {/* ── ADMIN ── */}
+        {/* ═══════════════════════════════════════════════
+             ADMIN AREA
+        ═══════════════════════════════════════════════ */}
+
+        {/* Landing — routes to the correct dashboard for the role */}
         <Route path="/admin"
           element={
-            <Navigate
-              to={admin ? "/admin/dashboard" : "/admin/login"}
-              replace
-            />
+            admin
+              ? <Navigate to={getAdminHome(admin)} replace />
+              : <Navigate to="/admin/login" replace />
           }
         />
+
+        {/* Login — if already logged in, send to their dashboard */}
         <Route path="/admin/login"
           element={
             admin
-              ? <Navigate to="/admin/dashboard" replace />
+              ? <Navigate to={getAdminHome(admin)} replace />
               : <AdminLogin setAdmin={setAdmin} />
           }
         />
+
+        {/* ── Super Admin ─────────────────────────── */}
         <Route path="/admin/dashboard"
           element={
-            <AdminProtectedRoute admin={admin}>
+            <AdminProtectedRoute admin={admin} role="super_admin">
               <AdminDashboard admin={admin} />
             </AdminProtectedRoute>
           }
         />
         <Route path="/admin/dashboard/:tab"
           element={
-            <AdminProtectedRoute admin={admin}>
+            <AdminProtectedRoute admin={admin} role="super_admin">
               <AdminDashboard admin={admin} />
             </AdminProtectedRoute>
           }
         />
+
+        {/* ── Admin / Manager ─────────────────────── */}
         <Route path="/admin/manager"
           element={
-            <AdminProtectedRoute admin={admin}>
+            <AdminProtectedRoute admin={admin} role="admin">
               <ManagerDashboard admin={admin} />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route path="/admin/manager/:tab"
+          element={
+            <AdminProtectedRoute admin={admin} role="admin">
+              <ManagerDashboard admin={admin} />
+            </AdminProtectedRoute>
+          }
+        />
+
+        {/* ── Finance Admin ───────────────────────── */}
+        <Route path="/admin/finance"
+          element={
+            <AdminProtectedRoute admin={admin} role="finance_admin">
+              <FinanceDashboard admin={admin} />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route path="/admin/finance/:tab"
+          element={
+            <AdminProtectedRoute admin={admin} role="finance_admin">
+              <FinanceDashboard admin={admin} />
+            </AdminProtectedRoute>
+          }
+        />
+
+        {/* ── Content Moderator ───────────────────── */}
+        <Route path="/admin/moderator"
+          element={
+            <AdminProtectedRoute admin={admin} role="content_moderator">
+              <ModeratorDashboard admin={admin} />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route path="/admin/moderator/:tab"
+          element={
+            <AdminProtectedRoute admin={admin} role="content_moderator">
+              <ModeratorDashboard admin={admin} />
+            </AdminProtectedRoute>
+          }
+        />
+
+        {/* ── Support Admin ───────────────────────── */}
+        <Route path="/admin/support"
+          element={
+            <AdminProtectedRoute admin={admin} role="support_admin">
+              <SupportDashboard admin={admin} />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route path="/admin/support/:tab"
+          element={
+            <AdminProtectedRoute admin={admin} role="support_admin">
+              <SupportDashboard admin={admin} />
             </AdminProtectedRoute>
           }
         />
