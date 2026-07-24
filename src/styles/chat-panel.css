@@ -577,6 +577,66 @@
   height: 16px;
 }
 
+/* Attach hint text */
+.cp-attach-option__hint {
+  display: block;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* Upload banner */
+.cp-upload-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: #666;
+}
+
+/* Video reply thumb */
+.cp-reply-preview__video-thumb {
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: #111;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+
+/* Lightbox nav */
+.cp-lightbox__nav {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(0, 0, 0, 0.5);
+  color: #fff;
+  border: none;
+  font-size: 32px;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 2;
+}
+.cp-lightbox__nav--prev { left: 16px; }
+.cp-lightbox__nav--next { right: 16px; }
+
+.cp-lightbox__counter {
+  position: absolute;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 4px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+}
+
 /* ── 12. Footer / Message Input ── */
 .cp-footer {
   display: flex;
