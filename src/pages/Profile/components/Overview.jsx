@@ -10,13 +10,23 @@ import EmptyState from "./EmptyState";
 import { StatsSkeleton } from "./Skeletons";
 import "./Overview.css";
 
+/* ─────────────────────────────────────────────
+   Safe icon renderer — NEVER crashes on undefined
+───────────────────────────────────────────── */
+function SafeIc({ name, fallback = "Star", ...props }) {
+  const Icon = Ic[name] ?? Ic[fallback] ?? (() => null);
+  return <Icon {...props} />;
+}
+
+/* ─────────────────────────────────────────────
+   Constants
+───────────────────────────────────────────── */
 const insightIcon = {
   warn: <Ic.AlertTriangle />,
   info: <Ic.Info />,
-  good: <Ic.Celebration />,
+  good: <Ic.Star />,        // ← was Ic.Celebration — may not exist
 };
 
-/* Tier-specific config for upsell hints */
 const TIER_CONFIG = {
   unverified: {
     badge     : "Trial",
@@ -38,6 +48,9 @@ const TIER_CONFIG = {
   },
 };
 
+/* ─────────────────────────────────────────────
+   Overview
+───────────────────────────────────────────── */
 export default function Overview({
   stats,
   analytics,
@@ -57,26 +70,31 @@ export default function Overview({
 }) {
   const tierConfig = TIER_CONFIG[tier] ?? TIER_CONFIG.unverified;
 
+  /* ── Tier icon — safe ── */
+  const TierIcon =
+    tier === "subscriber" ? Ic.Zap
+    : tier === "verified"  ? Ic.CheckCircle
+    : Ic.Clock;
+
   const overviewMetrics = useMemo(
     () => [
-      { label: "Response Time", val: 60, color: "#6366f1" },
+      { label: "Response Time",  val: 60, color: "#6366f1" },
       {
         label: "Engagement",
-        val: Math.min(100, (stats?.total_views || 0) / 10),
+        val  : Math.min(100, (stats?.total_views || 0) / 10),
         color: "#0ea5e9",
       },
       {
         label: "Rating",
-        val: ((stats?.rating || 0) / 5) * 100,
+        val  : ((stats?.rating || 0) / 5) * 100,
         color: "#f59e0b",
       },
       {
         label: "Click-Through",
-        val: Math.min(
+        val  : Math.min(
           100,
           ((stats?.total_clicks || 0) /
-            Math.max(1, stats?.total_views || 1)) *
-            500
+            Math.max(1, stats?.total_views || 1)) * 500
         ),
         color: "#10b981",
       },
@@ -87,34 +105,33 @@ export default function Overview({
   const insights = useMemo(() => {
     if (!stats) return [];
 
-    const list = [];
-    const active         = stats.active         ?? 0;
-    const activeLimited  = stats.active_limited ?? 0;
-    const draft          = stats.draft          ?? 0;
-    const views          = stats.total_views    ?? 0;
-    const totalProducts  = stats.total_products ?? 0;
+    const list          = [];
+    const active        = stats.active         ?? 0;
+    const activeLimited = stats.active_limited ?? 0;
+    const draft         = stats.draft          ?? 0;
+    const views         = stats.total_views    ?? 0;
+    const totalProducts = stats.total_products ?? 0;
 
-    /* ── Tier-specific insights ── */
     if (tier === "unverified" && totalProducts >= 2) {
       list.push({
-        type: "warn",
-        msg : `You've used ${totalProducts}/3 free trial listings. Verify your identity to unlock 500 free listings.`,
+        type  : "warn",
+        msg   : `You've used ${totalProducts}/3 free trial listings. Verify your identity to unlock 500 free listings.`,
         action: { label: "Verify Now", url: "/verification" },
       });
     }
 
     if (tier === "verified" && totalProducts >= 450) {
       list.push({
-        type: "warn",
-        msg : `You've posted ${totalProducts}/500 listings. Subscribe to Pro for unlimited posting.`,
+        type  : "warn",
+        msg   : `You've posted ${totalProducts}/500 listings. Subscribe to Pro for unlimited posting.`,
         action: { label: "View Plans", url: "/seller/subscription/plans" },
       });
     }
 
     if (activeLimited > 0 && tier !== "subscriber") {
       list.push({
-        type: "info",
-        msg : `${activeLimited} trial listing${activeLimited > 1 ? "s" : ""} will expire soon. Verify to make ${activeLimited > 1 ? "them" : "it"} permanent.`,
+        type  : "info",
+        msg   : `${activeLimited} trial listing${activeLimited > 1 ? "s" : ""} will expire soon.`,
         action: tier === "unverified"
           ? { label: "Verify", url: "/verification" }
           : null,
@@ -152,7 +169,7 @@ export default function Overview({
     if (isSubscriber && active >= 20) {
       list.push({
         type: "good",
-        msg : `${active} active listings with Pro perks — 90-day windows & priority placement working for you!`,
+        msg : `${active} active listings with Pro perks!`,
       });
     }
 
@@ -161,7 +178,8 @@ export default function Overview({
 
   return (
     <div className="overview">
-      {/* ── Tier Badge Banner ── */}
+
+      {/* ── Tier Banner ── */}
       {!loading && (
         <div className={`overview__tier-banner overview__tier-banner--${tier}`}>
           <div className="overview__tier-info">
@@ -169,7 +187,7 @@ export default function Overview({
               className="overview__tier-badge"
               style={{ background: tierConfig.badgeColor }}
             >
-              {tier === "subscriber" ? <Ic.Zap /> : tier === "verified" ? <Ic.CheckCircle /> : <Ic.Clock />}
+              <TierIcon />
               {tierConfig.badge}
             </span>
 
@@ -188,25 +206,20 @@ export default function Overview({
           </div>
 
           {tierConfig.upgradeCta && (
-            <Link
-              to={tierConfig.upgradeUrl}
-              className="overview__tier-upgrade"
-            >
+            <Link to={tierConfig.upgradeUrl} className="overview__tier-upgrade">
               {tierConfig.upgradeCta} <Ic.ChevronRight />
             </Link>
           )}
         </div>
       )}
 
-      {/* Quick Actions */}
+      {/* ── Quick Actions ── */}
       <div className="overview__quick-actions">
         <button
           className="quick-action quick-action--primary"
           onClick={() => onNavigate("/minimart/add")}
         >
-          <span className="quick-action__icon">
-            <Ic.Plus />
-          </span>
+          <span className="quick-action__icon"><Ic.Plus /></span>
           <span>New Listing</span>
         </button>
 
@@ -214,9 +227,7 @@ export default function Overview({
           className="quick-action"
           onClick={() => onSetSection("products")}
         >
-          <span className="quick-action__icon">
-            <Ic.Package />
-          </span>
+          <span className="quick-action__icon"><Ic.Package /></span>
           <span>Listings</span>
         </button>
 
@@ -224,21 +235,17 @@ export default function Overview({
           className="quick-action"
           onClick={() => onSetSection("analytics")}
         >
-          <span className="quick-action__icon">
-            <Ic.Chart />
-          </span>
+          <span className="quick-action__icon"><Ic.TrendUp /></span>
           <span>Analytics</span>
         </button>
 
         <Link className="quick-action" to={`/seller/${userId || ""}`}>
-          <span className="quick-action__icon">
-            <Ic.Store />
-          </span>
+          <span className="quick-action__icon"><Ic.Store /></span>
           <span>My Store</span>
         </Link>
       </div>
 
-      {/* Stats */}
+      {/* ── Stats ── */}
       {loading ? (
         <StatsSkeleton />
       ) : stats ? (
@@ -247,10 +254,9 @@ export default function Overview({
             icon={<Ic.Package />}
             label="Total Listings"
             value={fmtNum(stats.total_products)}
-            sub={`${stats.active} active · ${stats.draft} drafts`}
+            sub={`${stats.active ?? 0} active · ${stats.draft ?? 0} drafts`}
             color="#6366f1"
           />
-
           <StatCard
             icon={<Ic.Eye />}
             label="Total Views"
@@ -258,7 +264,6 @@ export default function Overview({
             sub={`${fmtNum(stats.total_clicks)} clicks`}
             color="#0ea5e9"
           />
-
           <StatCard
             icon={<Ic.Heart />}
             label="Saved by Buyers"
@@ -269,7 +274,7 @@ export default function Overview({
         </div>
       ) : null}
 
-      {/* Performance Score */}
+      {/* ── Performance Score ── */}
       <ScoreSection
         score={analytics?.seller_score || 0}
         metrics={overviewMetrics}
@@ -277,16 +282,16 @@ export default function Overview({
         subtitle="Based on engagement, response time and reviews"
       />
 
-      {/* Insights */}
+      {/* ── Insights ── */}
       {insights.length > 0 && (
         <div className="overview__card">
           <h2 className="overview__card-title">Insights</h2>
-
           <div className="overview__insights">
             {insights.map((ins, i) => (
               <div key={i} className={`insight insight--${ins.type}`}>
                 <span className="insight__icon">
-                  {insightIcon[ins.type]}
+                  {/* Safe — insightIcon keys are hardcoded above */}
+                  {insightIcon[ins.type] ?? <Ic.Info />}
                 </span>
                 <div className="insight__content">
                   <p>{ins.msg}</p>
@@ -302,12 +307,11 @@ export default function Overview({
         </div>
       )}
 
-      {/* Recent Listings */}
-      {!loading && products.length > 0 && (
+      {/* ── Recent Listings ── */}
+      {!loading && products?.length > 0 && (
         <div className="overview__card">
           <div className="overview__card-header">
             <h2 className="overview__card-title">Recent Listings</h2>
-
             <button
               className="overview__card-link"
               onClick={() => onSetSection("products")}
@@ -315,7 +319,6 @@ export default function Overview({
               View all <Ic.ChevronRight />
             </button>
           </div>
-
           <div className="overview__products-list">
             {products.slice(0, 3).map((p) => (
               <ProductCard
@@ -335,23 +338,22 @@ export default function Overview({
         </div>
       )}
 
-      {!loading && products.length === 0 && (
+      {!loading && (!products || products.length === 0) && (
         <div className="overview__card">
           <EmptyState
             icon={<Ic.Package />}
             title="No listings yet"
-            description="Create your first listing to start selling on the marketplace."
+            description="Create your first listing to start selling."
             action="Create Listing"
             onAction={() => onNavigate("/minimart/add")}
           />
         </div>
       )}
 
-      {/* Seller Tips */}
+      {/* ── Seller Tips ── */}
       <div className="overview__card overview__tips">
         <div className="overview__card-header">
           <h2 className="overview__card-title">Seller Tips</h2>
-
           <span className="overview__tips-badge">
             <Ic.Zap /> Pro
           </span>
@@ -359,14 +361,22 @@ export default function Overview({
 
         <div className="overview__tips-grid">
           {TIPS.map(({ iconKey, title, desc }, i) => {
+            /* ✅ THE FIX — safe icon lookup with fallback */
             const Icon = Ic[iconKey];
+
+            if (!Icon) {
+              console.warn(
+                `[Overview/TIPS] iconKey "${iconKey}" not found in Ic. ` +
+                `Available keys: ${Object.keys(Ic).join(", ")}`
+              );
+            }
 
             return (
               <div key={i} className="tip">
                 <span className="tip__icon">
-                  <Icon />
+                  {/* Fallback to Star if icon missing */}
+                  {Icon ? <Icon /> : <Ic.Star />}
                 </span>
-
                 <div>
                   <p className="tip__title">{title}</p>
                   <p className="tip__desc">{desc}</p>
@@ -376,6 +386,7 @@ export default function Overview({
           })}
         </div>
       </div>
+
     </div>
   );
 }
