@@ -3,12 +3,18 @@
  *
  * Targets CockroachDB (serverless / dedicated).
  *
- * v6 — REAL ERROR MESSAGES + BETTER DEBUGGING
+ * v7 — EMAIL REMOVED FROM PRODUCTS TABLE
  * ─────────────────────────────────────────────────────────────
- *  - Real error messages always returned (never hidden)
- *  - Detailed logging on every failure
- *  - Email always from users table (never req.body)
- *  - 3-TIER SYSTEM maintained
+ *  - Email is NEVER stored in products table
+ *  - Email lives only in users table (registration email)
+ *  - Email still fetched from users table for:
+ *      → Payment initiation
+ *      → Audit logs
+ *      → Notifications
+ *  - 3-TIER SYSTEM maintained:
+ *      unverified  → 3 lifetime trial listings   (7-day expiry)
+ *      verified    → 500 lifetime listings       (30-day expiry)
+ *      subscriber  → Unlimited                   (90-day expiry)
  *
  * CockroachDB-specific compatibility:
  *  - pg_advisory_xact_lock removed
@@ -56,27 +62,28 @@ import { analyzeImageBatch } from "../utils/watermarkDetector.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router    = express.Router();
-
-/* ✅ v6: Always show real errors — never hide behind generic message */
-const IS_PROD = process.env.NODE_ENV === "production";
+const IS_PROD   = process.env.NODE_ENV === "production";
 
 /* ═══════════════════════════════════════════════════════════════
-   DEBUG LOGGER — always logs full error details
+   DEBUG LOGGER
 ═══════════════════════════════════════════════════════════════ */
 const logError = (area, err, extra = {}) => {
   console.error("\n╔══════════════════════════════════════════════════╗");
   console.error(`║ [addproduct] ❌ ERROR in: ${area}`);
   console.error("╠══════════════════════════════════════════════════╣");
   console.error("║ Message   :", err.message);
-  console.error("║ Code      :", err.code      ?? "none");
-  console.error("║ Detail    :", err.detail    ?? "none");
+  console.error("║ Code      :", err.code       ?? "none");
+  console.error("║ Detail    :", err.detail     ?? "none");
   console.error("║ Constraint:", err.constraint ?? "none");
-  console.error("║ Hint      :", err.hint      ?? "none");
-  console.error("║ Where     :", err.where     ?? "none");
+  console.error("║ Hint      :", err.hint       ?? "none");
+  console.error("║ Where     :", err.where      ?? "none");
   if (Object.keys(extra).length) {
     console.error("║ Extra     :", JSON.stringify(extra, null, 2));
   }
-  console.error("║ Stack     :", err.stack?.split("\n")[1]?.trim() ?? "none");
+  console.error(
+    "║ Stack     :",
+    err.stack?.split("\n")[1]?.trim() ?? "none"
+  );
   console.error("╚══════════════════════════════════════════════════╝\n");
 };
 
@@ -229,8 +236,10 @@ const getWatermarkLogo = async () => {
   if (_logoLoadTried) return _watermarkLogo;
   _logoLoadTried = true;
   try {
-    _watermarkLogo = await fs.promises.readFile(IMAGE_CONFIG.watermark.logoPath);
-    _usingLogoWm   = true;
+    _watermarkLogo = await fs.promises.readFile(
+      IMAGE_CONFIG.watermark.logoPath
+    );
+    _usingLogoWm = true;
     console.log("[watermark] Logo loaded from disk");
   } catch {
     console.warn("[watermark] Logo not found — using text watermark");
@@ -376,8 +385,7 @@ const compressImage = async (buffer, mimetype) => {
 
   console.log(
     `[addproduct] compress: ${(buffer.length / 1_024).toFixed(0)} KB` +
-    ` → ${(finalBuffer.length / 1_024).toFixed(0)} KB` +
-    ` @ q${quality}`
+    ` → ${(finalBuffer.length / 1_024).toFixed(0)} KB @ q${quality}`
   );
 
   return { buffer: finalBuffer, mimetype: "image/webp" };
@@ -463,11 +471,11 @@ const makeLimiter = ({ windowMin, max, message }) =>
       res.status(429).json({ success: false, message }),
   });
 
-const createLimiter   = makeLimiter({ windowMin: 60, max: IS_PROD ? 20   : 500,   message: "Too many submissions. Please wait."       });
-const activateLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 30   : 500,   message: "Too many activation requests."            });
-const readLimiter     = makeLimiter({ windowMin: 5,  max: IS_PROD ? 120  : 1_000, message: "Too many requests. Slow down."            });
-const dupLimiter      = makeLimiter({ windowMin: 5,  max: IS_PROD ? 30   : 500,   message: "Too many duplicate checks."               });
-const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60   : 500,   message: "Too many edit requests. Please wait."     });
+const createLimiter   = makeLimiter({ windowMin: 60, max: IS_PROD ? 20  : 500,   message: "Too many submissions. Please wait."    });
+const activateLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 30  : 500,   message: "Too many activation requests."         });
+const readLimiter     = makeLimiter({ windowMin: 5,  max: IS_PROD ? 120 : 1_000, message: "Too many requests. Slow down."         });
+const dupLimiter      = makeLimiter({ windowMin: 5,  max: IS_PROD ? 30  : 500,   message: "Too many duplicate checks."            });
+const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60  : 500,   message: "Too many edit requests. Please wait."  });
 
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
@@ -488,7 +496,6 @@ const toFinite = (v) => {
   return Number.isFinite(n) ? n : null;
 };
 
-/* ✅ v6: fail() always includes real error details in debug field */
 const fail = (res, status, message, extra = {}) => {
   console.log(`[addproduct] ↩ ${status}: ${message}`);
   return res.status(status).json({ success: false, message, ...extra });
@@ -497,7 +504,6 @@ const fail = (res, status, message, extra = {}) => {
 const safeParse = (v, fallback) => {
   try { return v ? JSON.parse(v) : fallback; } catch { return fallback; }
 };
-
 const safeParseGuarded = (v, fallback) => {
   if (v && String(v).length > MAX_JSON_BYTES) {
     console.warn("[addproduct] JSON field too large, ignoring");
@@ -592,7 +598,10 @@ const validateCategory = async (db, categoryId, subcategoryId) => {
     return { valid: true };
   } catch (err) {
     logError("validateCategory", err, { categoryId, subcategoryId });
-    return { valid: false, message: `Category validation error: ${err.message}` };
+    return {
+      valid  : false,
+      message: `Category validation error: ${err.message}`,
+    };
   }
 };
 
@@ -673,17 +682,24 @@ const buildContext = (tier, stats, extras = {}) => {
     cooldownSecsLeft,
     subscriptionPlan     : extras.subscriptionPlan      ?? null,
     subscriptionExpiresAt: extras.subscriptionExpiresAt ?? null,
-    email                : extras.email                 ?? null,
+    /* ✅ email fetched from users table
+       used for payment/audit ONLY
+       NOT stored in products table      */
+    email                : extras.email ?? null,
   };
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SELLER CONTEXT — always fetches email from users table
+   SELLER CONTEXT
+   ✅ v7: Fetches email from users table for payment/audit use
+          Email is NEVER written to products table
 ═══════════════════════════════════════════════════════════════ */
 const getSellerContext = async (db, sellerId, lock = false) => {
   const lockSql = lock ? "FOR UPDATE" : "";
 
-  console.log(`[addproduct] getSellerContext — seller: ${sellerId} lock: ${lock}`);
+  console.log(
+    `[addproduct] getSellerContext — seller: ${sellerId} lock: ${lock}`
+  );
 
   const { rows: users } = await db.query(
     `SELECT
@@ -699,34 +715,34 @@ const getSellerContext = async (db, sellerId, lock = false) => {
   );
 
   if (!users.length) {
-    console.error(`[addproduct] ❌ Seller not found in users table: ${sellerId}`);
+    console.error(`[addproduct] ❌ Seller not found: ${sellerId}`);
     throw new Error(`Seller account not found (id: ${sellerId}).`);
   }
 
   const u = users[0];
 
   console.log(`[addproduct] seller record:`, {
-    email            : u.email            ?? "NULL ⚠️",
-    identity_verified: u.identity_verified,
-    subscription_plan: u.subscription_plan,
+    email              : u.email              ?? "NULL ⚠️",
+    identity_verified  : u.identity_verified,
     subscription_status: u.subscription_status,
+    subscription_plan  : u.subscription_plan,
   });
 
   if (!u.email) {
-    console.error(`[addproduct] ❌ Seller ${sellerId} has no email in users table`);
+    console.error(`[addproduct] ❌ No email for seller ${sellerId}`);
     throw new Error(
-      `Account email is missing for seller ${sellerId}. ` +
-      `Please contact support or re-register.`
+      `Account email missing for seller ${sellerId}. ` +
+      `Please contact support.`
     );
   }
 
   const nowMs = Date.now();
 
   const hasActiveSubscription =
-    u.subscription_status === "active"  &&
-    u.subscription_plan                 &&
-    u.subscription_plan !== "free"      &&
-    u.subscription_expires_at           &&
+    u.subscription_status === "active" &&
+    u.subscription_plan                &&
+    u.subscription_plan !== "free"     &&
+    u.subscription_expires_at          &&
     new Date(u.subscription_expires_at).getTime() > nowMs;
 
   const isVerified = Boolean(u.identity_verified);
@@ -771,7 +787,6 @@ const enforcePolicyLimits = (ctx) => {
         upgrade_url       : "/verification",
       },
     };
-
     if (tier === "verified") return {
       status : 403,
       message: "You have reached your 500-listing limit. Subscribe for unlimited listings.",
@@ -881,20 +896,19 @@ const buildTrialInfo = (ctx) => {
 
 /* ═══════════════════════════════════════════════════════════════
    INSERT PRODUCT
-   ✅ v6: email from users table, never req.body
-          Real error thrown on failure
+   ✅ v7: NO email column — email lives in users table only
 ═══════════════════════════════════════════════════════════════ */
 const runProductInsert = async (client, p) => {
-  console.log("[addproduct] runProductInsert → params:", {
-    title       : p.title,
-    sellerId    : p.sellerId,
-    categoryId  : p.categoryId,
-    slug        : p.slug,
-    finalStatus : p.finalStatus,
-    email       : p.email,
-    phone       : p.phone,
+  console.log("[addproduct] runProductInsert params:", {
+    title        : p.title,
+    sellerId     : p.sellerId,
+    categoryId   : p.categoryId,
+    slug         : p.slug,
+    finalStatus  : p.finalStatus,
+    phone        : p.phone,
     locationState: p.locationState,
     locationCity : p.locationCity,
+    /* ✅ email NOT included — not stored in products */
   });
 
   const { rows } = await client.query(
@@ -908,35 +922,33 @@ const runProductInsert = async (client, p) => {
        latitude,         longitude,
        seller_name,      phone,
        whatsapp,         whatsapp_link,
-       attributes,       delivery,        contact,
-       email
+       attributes,       delivery,        contact
      )
      VALUES (
        $1,  $2,  $3,  $4,  $5,  $6,
        $7,  $8,  $9,  $10, $11, $12,
        $13, $14, $15, $16, $17, $18,
-       $19, $20, $21, $22, $23, $24, $25,
-       $26
+       $19, $20, $21, $22, $23, $24, $25
      )
      RETURNING *`,
     [
-      p.title,           p.description,    p.price,
-      p.sellerId,        p.categoryId,     p.subcategoryId  ?? null,
-      p.thumbnail,       p.thumbnail,      p.slug,
-      p.finalStatus,     p.finalActive,    p.activeUntil    ?? null,
-      p.isFirstProduct,  p.idempotencyKey  ?? null,
-      p.locationState,   p.locationCity,
-      p.latitude         ?? null,          p.longitude      ?? null,
-      p.sellerName,      p.phone,
-      p.whatsapp         ?? null,          p.whatsappLink   ?? null,
+      p.title,          p.description,    p.price,
+      p.sellerId,       p.categoryId,     p.subcategoryId  ?? null,
+      p.thumbnail,      p.thumbnail,      p.slug,
+      p.finalStatus,    p.finalActive,    p.activeUntil    ?? null,
+      p.isFirstProduct, p.idempotencyKey  ?? null,
+      p.locationState,  p.locationCity,
+      p.latitude        ?? null,          p.longitude      ?? null,
+      p.sellerName,     p.phone,
+      p.whatsapp        ?? null,          p.whatsappLink   ?? null,
       JSON.stringify(p.attributes),
       JSON.stringify(p.delivery),
       JSON.stringify(p.contact),
-      p.email,
+      /* ✅ email intentionally omitted — not in products table */
     ]
   );
 
-  console.log(`[addproduct] ✅ runProductInsert → id: ${rows[0]?.id}`);
+  console.log(`[addproduct] ✅ inserted product id: ${rows[0]?.id}`);
   return rows[0];
 };
 
@@ -969,7 +981,7 @@ const notifyListing = (
       userId : sellerId,
       type   : "lifetime_limit_reached",
       title  : "You've Reached 500 Listings 🚀",
-      message: "You've made great use of your free verified account. Subscribe for unlimited listings.",
+      message: "Subscribe for unlimited listings.",
     }).catch(() => {});
     return;
   }
@@ -1003,14 +1015,14 @@ export const reactivateLimitedListings = async (sellerId) => {
 
     const u = userRows[0];
     const hasActiveSub =
-      u.subscription_status === "active"  &&
-      u.subscription_plan                 &&
-      u.subscription_plan !== "free"      &&
-      u.subscription_expires_at           &&
+      u.subscription_status === "active" &&
+      u.subscription_plan                &&
+      u.subscription_plan !== "free"     &&
+      u.subscription_expires_at          &&
       new Date(u.subscription_expires_at).getTime() > Date.now();
 
-    const tier = hasActiveSub        ? "subscriber"
-              : u.identity_verified  ? "verified"
+    const tier = hasActiveSub       ? "subscriber"
+              : u.identity_verified ? "verified"
               : "unverified";
 
     const days = POLICY[tier].freeListingDays ?? POLICY[tier].expiryDays;
@@ -1036,7 +1048,7 @@ export const reactivateLimitedListings = async (sellerId) => {
         userId : sellerId,
         type   : "listings_reactivated",
         title  : "Listings Made Permanent 🎉",
-        message: `${rowCount} listing${rowCount !== 1 ? "s" : ""} upgraded to full active status for ${days} days.`,
+        message: `${rowCount} listing${rowCount !== 1 ? "s" : ""} upgraded for ${days} days.`,
       }).catch(() => {});
       if (redis) rows.forEach((r) => trackTrending(r.id).catch(() => {}));
     }
@@ -1173,51 +1185,56 @@ router.get(
 /* ═══════════════════════════════════════════════════════════════
    GET /seller/limits
 ═══════════════════════════════════════════════════════════════ */
-router.get("/seller/limits", authenticate, readLimiter, async (req, res) => {
-  const sellerId = req.user?.id;
-  if (!sellerId) return fail(res, 401, "Not authenticated.");
+router.get(
+  "/seller/limits",
+  authenticate,
+  readLimiter,
+  async (req, res) => {
+    const sellerId = req.user?.id;
+    if (!sellerId) return fail(res, 401, "Not authenticated.");
 
-  const client = await pool.connect();
-  try {
-    const ctx = await getSellerContext(client, sellerId);
+    const client = await pool.connect();
+    try {
+      const ctx = await getSellerContext(client, sellerId);
 
-    return res.json({
-      success              : true,
-      tier                 : ctx.tier,
-      seller_verified      : ctx.isVerified,
-      is_subscriber        : ctx.isSubscriber,
-      subscription_plan    : ctx.subscriptionPlan,
-      subscription_expires : ctx.subscriptionExpiresAt,
-      daily_limit          : ctx.policy.dailyLimit,
-      daily_used           : ctx.todayCount,
-      daily_remaining      : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount),
-      active_limit         : ctx.policy.activeLimit,
-      active_count         : ctx.activeCount,
-      active_remaining     : Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
-      cooldown_seconds     : ctx.cooldownSecsLeft,
-      expiry_days          : ctx.policy.freeListingDays ?? ctx.policy.expiryDays,
-      can_reactivate       : ctx.policy.canReactivate,
-      lifetime_used        : ctx.lifetimeCount,
-      lifetime_max         : ctx.policy.totalLifetimeMax,
-      lifetime_remaining   : ctx.lifetimeRemaining,
-      lifetime_exhausted   : ctx.lifetimeExhausted,
-      trial_exhausted      : ctx.trialExhausted,
-      trial_remaining      : ctx.trialRemaining,
-      can_upgrade          : ctx.tier !== "subscriber",
-      upgrade_to           : ctx.tier === "unverified" ? "verified"
-                           : ctx.tier === "verified"   ? "subscriber"
-                           : null,
-      upgrade_url          : ctx.tier === "unverified" ? "/verification"
-                           : ctx.tier === "verified"   ? "/subscribe"
-                           : null,
-    });
-  } catch (err) {
-    logError("GET /seller/limits", err, { sellerId });
-    return fail(res, 500, `Limits error: ${err.message}`);
-  } finally {
-    client.release();
+      return res.json({
+        success              : true,
+        tier                 : ctx.tier,
+        seller_verified      : ctx.isVerified,
+        is_subscriber        : ctx.isSubscriber,
+        subscription_plan    : ctx.subscriptionPlan,
+        subscription_expires : ctx.subscriptionExpiresAt,
+        daily_limit          : ctx.policy.dailyLimit,
+        daily_used           : ctx.todayCount,
+        daily_remaining      : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount),
+        active_limit         : ctx.policy.activeLimit,
+        active_count         : ctx.activeCount,
+        active_remaining     : Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
+        cooldown_seconds     : ctx.cooldownSecsLeft,
+        expiry_days          : ctx.policy.freeListingDays ?? ctx.policy.expiryDays,
+        can_reactivate       : ctx.policy.canReactivate,
+        lifetime_used        : ctx.lifetimeCount,
+        lifetime_max         : ctx.policy.totalLifetimeMax,
+        lifetime_remaining   : ctx.lifetimeRemaining,
+        lifetime_exhausted   : ctx.lifetimeExhausted,
+        trial_exhausted      : ctx.trialExhausted,
+        trial_remaining      : ctx.trialRemaining,
+        can_upgrade          : ctx.tier !== "subscriber",
+        upgrade_to           : ctx.tier === "unverified" ? "verified"
+                             : ctx.tier === "verified"   ? "subscriber"
+                             : null,
+        upgrade_url          : ctx.tier === "unverified" ? "/verification"
+                             : ctx.tier === "verified"   ? "/subscribe"
+                             : null,
+      });
+    } catch (err) {
+      logError("GET /seller/limits", err, { sellerId });
+      return fail(res, 500, `Limits error: ${err.message}`);
+    } finally {
+      client.release();
+    }
   }
-});
+);
 
 /* ═══════════════════════════════════════════════════════════════
    POST /products/check-duplicate
@@ -1300,7 +1317,8 @@ router.get(
       if (!rows.length) return fail(res, 404, "Product not found.");
 
       const p       = rows[0];
-      const expired = p.active_until && new Date(p.active_until) < new Date();
+      const expired = p.active_until &&
+        new Date(p.active_until) < new Date();
 
       return res.json({
         success           : true,
@@ -1322,8 +1340,8 @@ router.get(
 
 /* ═══════════════════════════════════════════════════════════════
    POST /products  — Create
-   ✅ v6: Real errors always returned
-          Email always from users table
+   ✅ v7: No email in products table
+          Email fetched from users table for payment/audit only
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/products",
@@ -1361,7 +1379,7 @@ router.post(
     const rawStatus       = cleanText(req.body.status) ?? "draft";
     const requestedStatus = ALLOWED_STATUSES.has(rawStatus) ? rawStatus : "draft";
 
-    console.log("[addproduct] parsed body:", {
+    console.log("[addproduct] parsed:", {
       title, price, categoryId, locationState,
       locationCity, phone, fileCount: files.length,
       requestedStatus,
@@ -1383,7 +1401,10 @@ router.post(
     if (!categoryId)
       return fail(res, 400, `Category is required. Received: "${req.body.category_id}"`);
     if (!locationState || !locationCity)
-      return fail(res, 400, `State and city are required. Got: state="${locationState}" city="${locationCity}"`);
+      return fail(
+        res, 400,
+        `State and city required. Got: state="${locationState}" city="${locationCity}"`
+      );
 
     const phoneErr = validatePhone(phone, "Phone number");
     if (phoneErr) return fail(res, 400, phoneErr);
@@ -1413,7 +1434,9 @@ router.post(
             "SELECT * FROM products WHERE id = $1",
             [dup[0].id]
           );
-          return res.status(200).json({ success: true, product: existing[0] });
+          return res.status(200).json({
+            success: true, product: existing[0],
+          });
         }
       } catch (idempErr) {
         console.warn("[addproduct] idempotency check failed:", idempErr.message);
@@ -1426,7 +1449,7 @@ router.post(
     }).catch(() => ({ score: 0, isSpam: false, reasons: [] }));
 
     if (spam.isSpam || spam.score >= 70) {
-      console.warn("[addproduct] spam detected seller:", sellerId);
+      console.warn("[addproduct] spam detected:", sellerId);
       return fail(res, 403, "Listing flagged as spam.", {
         reasons: spam.reasons ?? [],
       });
@@ -1463,7 +1486,7 @@ router.post(
 
       if (wmAnalysis.overallVerdict === "block") {
         const first = wmAnalysis.results.find((r) => r.verdict === "block");
-        console.warn("[addproduct] watermark block seller:", sellerId);
+        console.warn("[addproduct] watermark block:", sellerId);
         return fail(
           res, 400,
           first?.message ?? "One or more images were rejected.",
@@ -1527,16 +1550,18 @@ router.post(
 
       const ctx = await getSellerContext(client, sellerId, true);
 
-      console.log("[addproduct] seller context OK:", {
+      console.log("[addproduct] ctx OK:", {
         tier             : ctx.tier,
-        email            : ctx.email,
+        email            : ctx.email,  // for audit only
         todayCount       : ctx.todayCount,
         activeCount      : ctx.activeCount,
         lifetimeCount    : ctx.lifetimeCount,
         lifetimeExhausted: ctx.lifetimeExhausted,
       });
 
-      const catCheck = await validateCategory(client, categoryId, subcategoryId);
+      const catCheck = await validateCategory(
+        client, categoryId, subcategoryId
+      );
       if (!catCheck.valid) {
         await client.query("ROLLBACK");
         await destroyR2Assets(r2Keys);
@@ -1565,13 +1590,17 @@ router.post(
         activeUntil = computeActiveUntil(ctx.tier);
       }
 
-      console.log("[addproduct] final status:", finalStatus, "expires:", activeUntil);
+      console.log(
+        "[addproduct] final status:", finalStatus,
+        "expires:", activeUntil
+      );
 
       /* Slug */
       const baseSlug  = generateBaseSlug(title).slice(0, SLUG_MAX);
       const shortId   = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
       const firstSlug = generateSlugWithId(title, shortId);
 
+      /* ✅ v7: No email in insertParams */
       const insertParams = {
         title, description, price,
         sellerId, categoryId, subcategoryId,
@@ -1581,7 +1610,7 @@ router.post(
         locationState, locationCity, latitude, longitude,
         sellerName, phone, whatsapp, whatsappLink,
         attributes, delivery, contact,
-        email: ctx.email,
+        /* email intentionally omitted */
       };
 
       let product;
@@ -1624,7 +1653,7 @@ router.post(
         }
 
         if (isSlugCollision) {
-          console.warn("[addproduct] slug collision — retrying with new UUID");
+          console.warn("[addproduct] slug collision — retrying");
           await client.query("ROLLBACK");
           await client.query("BEGIN");
 
@@ -1636,7 +1665,6 @@ router.post(
               ...insertParams,
               slug          : retrySlug,
               isFirstProduct: ctx2.isFirstProduct,
-              email         : ctx2.email,
             });
           } catch (retryErr) {
             logError("runProductInsert (retry)", retryErr, {
@@ -1652,9 +1680,9 @@ router.post(
               `Product insert retry failed: ${retryErr.message}`,
               {
                 debug: {
-                  code      : retryErr.code,
-                  detail    : retryErr.detail,
-                  constraint: retryErr.constraint,
+                  code      : retryErr.code       ?? null,
+                  detail    : retryErr.detail     ?? null,
+                  constraint: retryErr.constraint ?? null,
                 },
               }
             );
@@ -1672,7 +1700,7 @@ router.post(
         return fail(res, 500, "Product insert returned no rows.");
       }
 
-      console.log("[addproduct] product row inserted → id:", product.id);
+      console.log("[addproduct] product row created → id:", product.id);
 
       /* Insert product_images */
       try {
@@ -1692,7 +1720,7 @@ router.post(
         logError("product_images insert", imgInsertErr, {
           productId: product.id,
         });
-        /* Non-fatal — images JSONB still updated below */
+        /* Non-fatal */
       }
 
       /* Update images JSONB */
@@ -1708,12 +1736,12 @@ router.post(
       product.images = JSON.parse(imagesJson);
 
       await client.query("COMMIT");
-      console.log("[addproduct] transaction committed ✅");
+      console.log("[addproduct] ✅ transaction committed");
 
       console.log(
         `[addproduct] ✓ created  id:${product.id}`,
         ` tier:${ctx.tier}`,
-        ` email:${ctx.email}`,
+        ` email:${ctx.email}`,   // audit only — NOT in products table
         ` status:${finalStatus}`,
         ` expires:${activeUntil?.toISOString() ?? "never"}`
       );
@@ -1734,7 +1762,7 @@ router.post(
             title,
             status        : finalStatus,
             tier          : ctx.tier,
-            email         : ctx.email,
+            email         : ctx.email,   // audit log only
             active_until  : activeUntil,
             is_verified   : ctx.isVerified,
             is_subscriber : ctx.isSubscriber,
@@ -1748,6 +1776,7 @@ router.post(
         );
 
         trackTrending(product.id).catch(() => {});
+
         notifyListing(
           sellerId, title, ctx.tier, finalStatus, activeUntil, trialInfo
         );
@@ -1810,10 +1839,7 @@ router.post(
       await destroyR2Assets(r2Keys);
 
       logError("POST /products", err, {
-        sellerId,
-        title,
-        categoryId,
-        fileCount: files.length,
+        sellerId, title, categoryId, fileCount: files.length,
       });
 
       Sentry.captureException(err, {
@@ -1821,7 +1847,6 @@ router.post(
         extra: { title, categoryId, fileCount: files.length },
       });
 
-      /* ✅ v6: Always return real error message */
       return fail(
         res, 500,
         err.message || "Unknown error occurred",
@@ -1842,6 +1867,7 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    PATCH /products/:id  — Edit
+   ✅ v7: No email column in products table
 ═══════════════════════════════════════════════════════════════ */
 router.patch(
   "/products/:id",
@@ -1853,7 +1879,9 @@ router.patch(
     const productId = req.params.id;
     const ip        = getIp(req);
 
-    console.log("\n[addproduct] ▶ EDIT  product:", productId, " seller:", sellerId);
+    console.log(
+      "\n[addproduct] ▶ EDIT  product:", productId, " seller:", sellerId
+    );
     if (!sellerId)  return fail(res, 401, "Not authenticated.");
     if (!productId) return fail(res, 400, "Product ID required.");
 
@@ -1960,15 +1988,9 @@ router.patch(
         return fail(res, 403, "Not authorised to edit this listing.");
       }
 
-      /* Fetch fresh email from users table */
-      const { rows: userRows } = await client.query(
-        "SELECT email FROM public.users WHERE id = $1",
-        [sellerId]
+      const catCheck = await validateCategory(
+        client, categoryId, subcategoryId
       );
-      const sellerEmail = userRows[0]?.email ?? null;
-      console.log(`[addproduct] edit — seller email: ${sellerEmail}`);
-
-      const catCheck = await validateCategory(client, categoryId, subcategoryId);
       if (!catCheck.valid) {
         await client.query("ROLLBACK");
         await destroyR2Assets(newR2Keys);
@@ -1980,6 +2002,7 @@ router.patch(
         crypto.randomUUID().replace(/-/g, "").slice(0, 8)
       );
 
+      /* ✅ v7: No email column in UPDATE */
       const { rows: updated } = await client.query(
         `UPDATE products SET
            title          = $1,
@@ -1999,9 +2022,8 @@ router.patch(
            delivery       = $15,
            contact        = $16,
            slug           = $17,
-           email          = $18,
            updated_at     = NOW()
-         WHERE id = $19
+         WHERE id = $18
          RETURNING *`,
         [
           title, description, price,
@@ -2014,8 +2036,8 @@ router.patch(
           JSON.stringify(delivery),
           JSON.stringify(contact),
           newSlug,
-          sellerEmail,
           productId,
+          /* ✅ email removed — not in products table */
         ]
       );
 
@@ -2100,7 +2122,7 @@ router.patch(
       product.images = allImages;
 
       await client.query("COMMIT");
-      console.log(`[addproduct] ✓ edited  id:${productId}  email:${sellerEmail}`);
+      console.log(`[addproduct] ✓ edited  id:${productId}`);
 
       if (Array.isArray(removeKeys) && removeKeys.length)
         destroyR2Assets(removeKeys).catch(() => {});
@@ -2111,7 +2133,7 @@ router.patch(
           action    : "product_edited",
           targetType: "product",
           targetId  : productId,
-          metadata  : { title, categoryId, email: sellerEmail },
+          metadata  : { title, categoryId },
           ipAddress : ip,
         }).catch(() => {});
       });
@@ -2214,7 +2236,9 @@ router.post(
         );
       }
 
-      const policyErr = enforcePolicyLimits({ ...ctx, cooldownSecsLeft: 0 });
+      const policyErr = enforcePolicyLimits({
+        ...ctx, cooldownSecsLeft: 0,
+      });
       if (policyErr) {
         await client.query("ROLLBACK");
         return fail(
@@ -2222,7 +2246,9 @@ router.post(
         );
       }
 
-      const finalStatus = ctx.tier === "unverified" ? "active_limited" : "active";
+      const finalStatus = ctx.tier === "unverified"
+        ? "active_limited"
+        : "active";
       const activeUntil = computeActiveUntil(ctx.tier);
 
       const { rows: updatedRows } = await client.query(
@@ -2251,7 +2277,7 @@ router.post(
             status      : finalStatus,
             active_until: activeUntil,
             tier        : ctx.tier,
-            email       : ctx.email,
+            email       : ctx.email,   // audit only
           },
           ipAddress: ip,
         }).catch(() => {});
