@@ -3,14 +3,12 @@
  *
  * Targets CockroachDB (serverless / dedicated).
  *
- * v5 — EMAIL FROM REGISTRATION
+ * v6 — REAL ERROR MESSAGES + BETTER DEBUGGING
  * ─────────────────────────────────────────────────────────────
- *  - Email is NEVER taken from req.body
- *  - Email is always fetched from users table (registration email)
- *  - 3-TIER SYSTEM maintained:
- *      unverified  → 3 lifetime trial listings   (7-day expiry)
- *      verified    → 500 lifetime listings       (30-day expiry)
- *      subscriber  → Unlimited                   (90-day expiry)
+ *  - Real error messages always returned (never hidden)
+ *  - Detailed logging on every failure
+ *  - Email always from users table (never req.body)
+ *  - 3-TIER SYSTEM maintained
  *
  * CockroachDB-specific compatibility:
  *  - pg_advisory_xact_lock removed
@@ -58,7 +56,29 @@ import { analyzeImageBatch } from "../utils/watermarkDetector.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const router    = express.Router();
-const IS_PROD   = process.env.NODE_ENV === "production";
+
+/* ✅ v6: Always show real errors — never hide behind generic message */
+const IS_PROD = process.env.NODE_ENV === "production";
+
+/* ═══════════════════════════════════════════════════════════════
+   DEBUG LOGGER — always logs full error details
+═══════════════════════════════════════════════════════════════ */
+const logError = (area, err, extra = {}) => {
+  console.error("\n╔══════════════════════════════════════════════════╗");
+  console.error(`║ [addproduct] ❌ ERROR in: ${area}`);
+  console.error("╠══════════════════════════════════════════════════╣");
+  console.error("║ Message   :", err.message);
+  console.error("║ Code      :", err.code      ?? "none");
+  console.error("║ Detail    :", err.detail    ?? "none");
+  console.error("║ Constraint:", err.constraint ?? "none");
+  console.error("║ Hint      :", err.hint      ?? "none");
+  console.error("║ Where     :", err.where     ?? "none");
+  if (Object.keys(extra).length) {
+    console.error("║ Extra     :", JSON.stringify(extra, null, 2));
+  }
+  console.error("║ Stack     :", err.stack?.split("\n")[1]?.trim() ?? "none");
+  console.error("╚══════════════════════════════════════════════════╝\n");
+};
 
 /* ═══════════════════════════════════════════════════════════════
    SENTRY
@@ -253,7 +273,10 @@ const buildLogoComposite = async (logoBuffer, imgW) => {
     .webp({ quality: 90 })
     .toBuffer();
 
-  const { data, info } = await sharp(resized).raw().toBuffer({ resolveWithObject: true });
+  const { data, info } = await sharp(resized)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
   for (let i = 3; i < data.length; i += 4) {
     data[i] = Math.round(data[i] * wm.opacity);
   }
@@ -314,10 +337,16 @@ const compressImage = async (buffer, mimetype) => {
         composite = await buildLogoComposite(logoBuffer, imgW);
       } catch (logoErr) {
         Sentry.captureException(logoErr, { tags: { area: "watermark" } });
-        composite = { input: buildTextWatermarkSvg(imgW, imgH), top: 0, left: 0, blend: "over" };
+        composite = {
+          input: buildTextWatermarkSvg(imgW, imgH),
+          top: 0, left: 0, blend: "over",
+        };
       }
     } else {
-      composite = { input: buildTextWatermarkSvg(imgW, imgH), top: 0, left: 0, blend: "over" };
+      composite = {
+        input: buildTextWatermarkSvg(imgW, imgH),
+        top: 0, left: 0, blend: "over",
+      };
     }
   }
 
@@ -335,7 +364,10 @@ const compressImage = async (buffer, mimetype) => {
         console.warn(`[addproduct] quality floor hit at q${quality}`);
         break;
       }
-      quality = Math.max(quality - IMAGE_CONFIG.webpQualityStep, IMAGE_CONFIG.webpQualityMin);
+      quality = Math.max(
+        quality - IMAGE_CONFIG.webpQualityStep,
+        IMAGE_CONFIG.webpQualityMin
+      );
     } catch (err) {
       Sentry.captureException(err, { tags: { area: "image", step: "encode" } });
       throw new Error("Failed to encode image. Please try a different photo.");
@@ -399,7 +431,9 @@ const upload = multer({
   limits    : { fileSize: IMAGE_CONFIG.maxInputBytes, files: MAX_IMAGES },
   fileFilter(_req, file, cb) {
     if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
-      const err  = new Error(`Invalid image type "${file.mimetype}". Only JPEG, PNG, WebP allowed.`);
+      const err  = new Error(
+        `Invalid image type "${file.mimetype}". Only JPEG, PNG, WebP allowed.`
+      );
       err.code   = "INVALID_MIME";
       return cb(err);
     }
@@ -425,14 +459,15 @@ const makeLimiter = ({ windowMin, max, message }) =>
     standardHeaders: true,
     legacyHeaders  : false,
     keyGenerator   : (req) => String(req.user?.id ?? req.ip),
-    handler        : (_req, res) => res.status(429).json({ success: false, message }),
+    handler        : (_req, res) =>
+      res.status(429).json({ success: false, message }),
   });
 
-const createLimiter   = makeLimiter({ windowMin: 60, max: IS_PROD ? 20  : 500, message: "Too many submissions. Please wait." });
-const activateLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 30  : 500, message: "Too many activation requests." });
-const readLimiter     = makeLimiter({ windowMin: 5,  max: IS_PROD ? 120 : 1_000, message: "Too many requests. Slow down." });
-const dupLimiter      = makeLimiter({ windowMin: 5,  max: IS_PROD ? 30  : 500, message: "Too many duplicate checks." });
-const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60  : 500, message: "Too many edit requests. Please wait." });
+const createLimiter   = makeLimiter({ windowMin: 60, max: IS_PROD ? 20   : 500,   message: "Too many submissions. Please wait."       });
+const activateLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 30   : 500,   message: "Too many activation requests."            });
+const readLimiter     = makeLimiter({ windowMin: 5,  max: IS_PROD ? 120  : 1_000, message: "Too many requests. Slow down."            });
+const dupLimiter      = makeLimiter({ windowMin: 5,  max: IS_PROD ? 30   : 500,   message: "Too many duplicate checks."               });
+const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60   : 500,   message: "Too many edit requests. Please wait."     });
 
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
@@ -440,15 +475,29 @@ const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60  : 500, m
 const UUID_RE  = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const PHONE_RE = /^\+?[0-9]{7,15}$/;
 
-const cleanText = (v) => { const s = String(v ?? "").trim(); return s || null; };
-const cleanUuid = (v) => { const s = String(v ?? "").trim(); return UUID_RE.test(s) ? s : null; };
-const toFinite  = (v) => { const n = Number(v); return Number.isFinite(n) ? n : null; };
-const fail      = (res, status, message, extra = {}) =>
-  res.status(status).json({ success: false, message, ...extra });
+const cleanText = (v) => {
+  const s = String(v ?? "").trim();
+  return s || null;
+};
+const cleanUuid = (v) => {
+  const s = String(v ?? "").trim();
+  return UUID_RE.test(s) ? s : null;
+};
+const toFinite = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+/* ✅ v6: fail() always includes real error details in debug field */
+const fail = (res, status, message, extra = {}) => {
+  console.log(`[addproduct] ↩ ${status}: ${message}`);
+  return res.status(status).json({ success: false, message, ...extra });
+};
 
 const safeParse = (v, fallback) => {
   try { return v ? JSON.parse(v) : fallback; } catch { return fallback; }
 };
+
 const safeParseGuarded = (v, fallback) => {
   if (v && String(v).length > MAX_JSON_BYTES) {
     console.warn("[addproduct] JSON field too large, ignoring");
@@ -457,7 +506,7 @@ const safeParseGuarded = (v, fallback) => {
   return safeParse(v, fallback);
 };
 
-const getTodayUTC    = () => new Date().toISOString().slice(0, 10);
+const getTodayUTC = () => new Date().toISOString().slice(0, 10);
 const getTomorrowUTC = () => {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 1);
@@ -497,7 +546,6 @@ const validateImageHashes = (raw) => {
     .slice(0, MAX_IMAGES);
 };
 
-/* Tier-aware expiry calculation */
 const computeActiveUntil = (tier) => {
   const policy = POLICY[tier] ?? POLICY.unverified;
   if (tier === "subscriber" && policy.expiryDays === 0) return null;
@@ -509,29 +557,43 @@ const computeActiveUntil = (tier) => {
 
 const daysUntilExpiry = (activeUntil) => {
   if (!activeUntil) return null;
-  return Math.ceil((new Date(activeUntil).getTime() - Date.now()) / 86_400_000);
+  return Math.ceil(
+    (new Date(activeUntil).getTime() - Date.now()) / 86_400_000
+  );
 };
 
 /* ═══════════════════════════════════════════════════════════════
    CATEGORY VALIDATION
 ═══════════════════════════════════════════════════════════════ */
 const validateCategory = async (db, categoryId, subcategoryId) => {
-  const { rows: cat } = await db.query(
-    "SELECT id FROM categories WHERE id = $1 AND is_active = TRUE",
-    [categoryId]
-  );
-  if (!cat.length)
-    return { valid: false, message: "Selected category does not exist or is inactive." };
-
-  if (subcategoryId) {
-    const { rows: sub } = await db.query(
-      "SELECT id FROM categories WHERE id = $1 AND parent_id = $2 AND is_active = TRUE",
-      [subcategoryId, categoryId]
+  try {
+    const { rows: cat } = await db.query(
+      "SELECT id FROM categories WHERE id = $1 AND is_active = TRUE",
+      [categoryId]
     );
-    if (!sub.length)
-      return { valid: false, message: "Subcategory does not belong to the chosen category." };
+    if (!cat.length)
+      return {
+        valid  : false,
+        message: "Selected category does not exist or is inactive.",
+      };
+
+    if (subcategoryId) {
+      const { rows: sub } = await db.query(
+        `SELECT id FROM categories
+         WHERE id = $1 AND parent_id = $2 AND is_active = TRUE`,
+        [subcategoryId, categoryId]
+      );
+      if (!sub.length)
+        return {
+          valid  : false,
+          message: "Subcategory does not belong to the chosen category.",
+        };
+    }
+    return { valid: true };
+  } catch (err) {
+    logError("validateCategory", err, { categoryId, subcategoryId });
+    return { valid: false, message: `Category validation error: ${err.message}` };
   }
-  return { valid: true };
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -548,20 +610,20 @@ const fetchSellerStats = (db, sellerId) => {
           AND created_at <  $3::timestamptz
           AND status     <> 'deleted'
          THEN 1 ELSE 0
-       END)::INT                                          AS today_count,
+       END)::INT          AS today_count,
 
        SUM(CASE
          WHEN is_active = TRUE
           AND status IN ('active', 'active_limited')
          THEN 1 ELSE 0
-       END)::INT                                          AS active_count,
+       END)::INT          AS active_count,
 
-       COUNT(*)::INT                                      AS lifetime_count,
+       COUNT(*)::INT      AS lifetime_count,
 
        MAX(CASE
          WHEN status <> 'deleted' THEN created_at
          ELSE NULL
-       END)                                               AS last_submit_at
+       END)               AS last_submit_at
 
      FROM products
      WHERE seller_id = $1`,
@@ -611,16 +673,17 @@ const buildContext = (tier, stats, extras = {}) => {
     cooldownSecsLeft,
     subscriptionPlan     : extras.subscriptionPlan      ?? null,
     subscriptionExpiresAt: extras.subscriptionExpiresAt ?? null,
-    email                : extras.email                 ?? null, // ✅ registration email
+    email                : extras.email                 ?? null,
   };
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SELLER CONTEXT
-   ✅ v5: Always fetches email from users table
+   SELLER CONTEXT — always fetches email from users table
 ═══════════════════════════════════════════════════════════════ */
 const getSellerContext = async (db, sellerId, lock = false) => {
   const lockSql = lock ? "FOR UPDATE" : "";
+
+  console.log(`[addproduct] getSellerContext — seller: ${sellerId} lock: ${lock}`);
 
   const { rows: users } = await db.query(
     `SELECT
@@ -628,29 +691,42 @@ const getSellerContext = async (db, sellerId, lock = false) => {
        subscription_plan,
        subscription_status,
        subscription_expires_at,
-       email                        -- ✅ Always from users table
+       email
      FROM public.users
      WHERE id = $1
      ${lockSql}`,
     [sellerId]
   );
 
-  if (!users.length) throw new Error("Seller account not found.");
-
-  const u     = users[0];
-  const nowMs = Date.now();
-
-  /* Validate email exists */
-  if (!u.email) {
-    console.error(`[addproduct] seller ${sellerId} has no email in users table`);
-    throw new Error("Account email not found. Please contact support.");
+  if (!users.length) {
+    console.error(`[addproduct] ❌ Seller not found in users table: ${sellerId}`);
+    throw new Error(`Seller account not found (id: ${sellerId}).`);
   }
 
+  const u = users[0];
+
+  console.log(`[addproduct] seller record:`, {
+    email            : u.email            ?? "NULL ⚠️",
+    identity_verified: u.identity_verified,
+    subscription_plan: u.subscription_plan,
+    subscription_status: u.subscription_status,
+  });
+
+  if (!u.email) {
+    console.error(`[addproduct] ❌ Seller ${sellerId} has no email in users table`);
+    throw new Error(
+      `Account email is missing for seller ${sellerId}. ` +
+      `Please contact support or re-register.`
+    );
+  }
+
+  const nowMs = Date.now();
+
   const hasActiveSubscription =
-    u.subscription_status === "active" &&
-    u.subscription_plan   &&
-    u.subscription_plan   !== "free" &&
-    u.subscription_expires_at &&
+    u.subscription_status === "active"  &&
+    u.subscription_plan                 &&
+    u.subscription_plan !== "free"      &&
+    u.subscription_expires_at           &&
     new Date(u.subscription_expires_at).getTime() > nowMs;
 
   const isVerified = Boolean(u.identity_verified);
@@ -660,12 +736,14 @@ const getSellerContext = async (db, sellerId, lock = false) => {
   else if (isVerified)            tier = "verified";
   else                            tier = "unverified";
 
+  console.log(`[addproduct] seller tier: ${tier}`);
+
   const { rows: stats } = await fetchSellerStats(db, sellerId);
 
   return buildContext(tier, stats[0], {
     subscriptionPlan     : u.subscription_plan,
     subscriptionExpiresAt: u.subscription_expires_at,
-    email                : u.email,       // ✅ Registration email passed through
+    email                : u.email,
   });
 };
 
@@ -675,7 +753,8 @@ const getSellerContext = async (db, sellerId, lock = false) => {
 const enforcePolicyLimits = (ctx) => {
   const {
     tier, policy, todayCount, activeCount,
-    cooldownSecsLeft, lifetimeExhausted, lifetimeCount, lifetimeRemaining,
+    cooldownSecsLeft, lifetimeExhausted,
+    lifetimeCount, lifetimeRemaining,
   } = ctx;
 
   if (lifetimeExhausted) {
@@ -695,7 +774,7 @@ const enforcePolicyLimits = (ctx) => {
 
     if (tier === "verified") return {
       status : 403,
-      message: "You have reached your 500-listing limit. Subscribe to a paid plan for unlimited listings.",
+      message: "You have reached your 500-listing limit. Subscribe for unlimited listings.",
       extra  : {
         lifetime_exhausted: true,
         lifetime_used     : lifetimeCount,
@@ -712,15 +791,14 @@ const enforcePolicyLimits = (ctx) => {
       tier === "subscriber" ? "Try tomorrow."
       : tier === "verified" ? "Try tomorrow or subscribe for higher limits."
       : "Verify your identity to increase limits.";
-
     return {
       status : 429,
       message: `Daily posting limit reached (${policy.dailyLimit}/day). ${suffix}`,
       extra  : {
-        daily_limit      : policy.dailyLimit,
-        daily_used       : todayCount,
+        daily_limit       : policy.dailyLimit,
+        daily_used        : todayCount,
         lifetime_remaining: lifetimeRemaining,
-        ...(tier === "verified"   && { upgrade_to: "subscriber", upgrade_url: "/subscribe" }),
+        ...(tier === "verified"   && { upgrade_to: "subscriber", upgrade_url: "/subscribe"    }),
         ...(tier === "unverified" && { upgrade_to: "verified",   upgrade_url: "/verification" }),
       },
     };
@@ -729,11 +807,10 @@ const enforcePolicyLimits = (ctx) => {
   if (activeCount >= policy.activeLimit) {
     return {
       status : 429,
-      message:
-        tier === "unverified"
-          ? `You can have ${policy.activeLimit} active trial listings at a time.`
-          : `Active listing limit reached (${policy.activeLimit}). Delete or pause some listings.`,
-      extra  : { active_limit: policy.activeLimit, active_count: activeCount },
+      message: tier === "unverified"
+        ? `You can have ${policy.activeLimit} active trial listings at a time.`
+        : `Active listing limit reached (${policy.activeLimit}). Delete or pause some listings.`,
+      extra: { active_limit: policy.activeLimit, active_count: activeCount },
     };
   }
 
@@ -804,9 +881,22 @@ const buildTrialInfo = (ctx) => {
 
 /* ═══════════════════════════════════════════════════════════════
    INSERT PRODUCT
-   ✅ v5: email column populated from users table via ctx.email
+   ✅ v6: email from users table, never req.body
+          Real error thrown on failure
 ═══════════════════════════════════════════════════════════════ */
 const runProductInsert = async (client, p) => {
+  console.log("[addproduct] runProductInsert → params:", {
+    title       : p.title,
+    sellerId    : p.sellerId,
+    categoryId  : p.categoryId,
+    slug        : p.slug,
+    finalStatus : p.finalStatus,
+    email       : p.email,
+    phone       : p.phone,
+    locationState: p.locationState,
+    locationCity : p.locationCity,
+  });
+
   const { rows } = await client.query(
     `INSERT INTO products (
        title,            description,     price,
@@ -830,28 +920,32 @@ const runProductInsert = async (client, p) => {
      )
      RETURNING *`,
     [
-      p.title,          p.description,     p.price,
-      p.sellerId,       p.categoryId,      p.subcategoryId ?? null,
-      p.thumbnail,      p.thumbnail,       p.slug,
-      p.finalStatus,    p.finalActive,     p.activeUntil   ?? null,
-      p.isFirstProduct, p.idempotencyKey   ?? null,
-      p.locationState,  p.locationCity,
-      p.latitude        ?? null,           p.longitude     ?? null,
-      p.sellerName,     p.phone,
-      p.whatsapp        ?? null,           p.whatsappLink  ?? null,
+      p.title,           p.description,    p.price,
+      p.sellerId,        p.categoryId,     p.subcategoryId  ?? null,
+      p.thumbnail,       p.thumbnail,      p.slug,
+      p.finalStatus,     p.finalActive,    p.activeUntil    ?? null,
+      p.isFirstProduct,  p.idempotencyKey  ?? null,
+      p.locationState,   p.locationCity,
+      p.latitude         ?? null,          p.longitude      ?? null,
+      p.sellerName,      p.phone,
+      p.whatsapp         ?? null,          p.whatsappLink   ?? null,
       JSON.stringify(p.attributes),
       JSON.stringify(p.delivery),
       JSON.stringify(p.contact),
-      p.email,          // ✅ Always registration email from users table
+      p.email,
     ]
   );
+
+  console.log(`[addproduct] ✅ runProductInsert → id: ${rows[0]?.id}`);
   return rows[0];
 };
 
 /* ═══════════════════════════════════════════════════════════════
    NOTIFICATIONS
 ═══════════════════════════════════════════════════════════════ */
-const notifyListing = (sellerId, title, tier, finalStatus, activeUntil, trialInfo) => {
+const notifyListing = (
+  sellerId, title, tier, finalStatus, activeUntil, trialInfo
+) => {
   const needsVerification = finalStatus === "active_limited";
   const days              = daysUntilExpiry(activeUntil);
 
@@ -860,7 +954,9 @@ const notifyListing = (sellerId, title, tier, finalStatus, activeUntil, trialInf
     createNotification({
       userId : sellerId,
       type   : "listing_limited",
-      title  : remaining === 0 ? "Last Free Trial Listing Posted" : "Trial Listing Posted",
+      title  : remaining === 0
+        ? "Last Free Trial Listing Posted"
+        : "Trial Listing Posted",
       message: remaining === 0
         ? `"${title}" is your last free trial listing. Verify your identity to keep posting.`
         : `"${title}" is live for ${POLICY.unverified.expiryDays} days. ${remaining} trial listing(s) remaining.`,
@@ -873,7 +969,7 @@ const notifyListing = (sellerId, title, tier, finalStatus, activeUntil, trialInf
       userId : sellerId,
       type   : "lifetime_limit_reached",
       title  : "You've Reached 500 Listings 🚀",
-      message: `You've made great use of your free verified account. Subscribe for unlimited listings.`,
+      message: "You've made great use of your free verified account. Subscribe for unlimited listings.",
     }).catch(() => {});
     return;
   }
@@ -882,7 +978,6 @@ const notifyListing = (sellerId, title, tier, finalStatus, activeUntil, trialInf
     const durationText = tier === "subscriber" && !activeUntil
       ? "permanently"
       : `for ${days} days`;
-
     createNotification({
       userId : sellerId,
       type   : "listing_posted",
@@ -899,8 +994,8 @@ export const reactivateLimitedListings = async (sellerId) => {
   const client = await pool.connect();
   try {
     const { rows: userRows } = await client.query(
-      `SELECT identity_verified, subscription_plan, subscription_status,
-              subscription_expires_at
+      `SELECT identity_verified, subscription_plan,
+              subscription_status, subscription_expires_at
        FROM public.users WHERE id = $1`,
       [sellerId]
     );
@@ -908,13 +1003,14 @@ export const reactivateLimitedListings = async (sellerId) => {
 
     const u = userRows[0];
     const hasActiveSub =
-      u.subscription_status === "active" &&
-      u.subscription_plan && u.subscription_plan !== "free" &&
-      u.subscription_expires_at &&
+      u.subscription_status === "active"  &&
+      u.subscription_plan                 &&
+      u.subscription_plan !== "free"      &&
+      u.subscription_expires_at           &&
       new Date(u.subscription_expires_at).getTime() > Date.now();
 
-    const tier = hasActiveSub ? "subscriber"
-              : u.identity_verified ? "verified"
+    const tier = hasActiveSub        ? "subscriber"
+              : u.identity_verified  ? "verified"
               : "unverified";
 
     const days = POLICY[tier].freeListingDays ?? POLICY[tier].expiryDays;
@@ -933,7 +1029,9 @@ export const reactivateLimitedListings = async (sellerId) => {
     );
 
     if (rowCount > 0) {
-      console.log(`[addproduct] reactivated ${rowCount} listing(s) for seller ${sellerId}`);
+      console.log(
+        `[addproduct] reactivated ${rowCount} listing(s) for seller ${sellerId}`
+      );
       createNotification({
         userId : sellerId,
         type   : "listings_reactivated",
@@ -945,7 +1043,7 @@ export const reactivateLimitedListings = async (sellerId) => {
 
     return rowCount;
   } catch (err) {
-    console.error("[addproduct] reactivateLimitedListings:", err.message);
+    logError("reactivateLimitedListings", err, { sellerId });
     Sentry.captureException(err, { tags: { area: "cron_reactivate" } });
     return 0;
   } finally {
@@ -988,7 +1086,7 @@ export const pauseExpiredListings = async () => {
 
     return rows;
   } catch (err) {
-    console.error("[addproduct] pauseExpiredListings:", err.message);
+    logError("pauseExpiredListings", err);
     Sentry.captureException(err, { tags: { area: "cron_pause" } });
     return [];
   } finally {
@@ -1004,65 +1102,73 @@ router.get("/categories", getCategoriesHandler);
 /* ═══════════════════════════════════════════════════════════════
    GET /categories/:id/price-guidance
 ═══════════════════════════════════════════════════════════════ */
-router.get("/categories/:id/price-guidance", readLimiter, async (req, res) => {
-  const { id } = req.params;
-  if (!id) return fail(res, 400, "Category ID required.");
+router.get(
+  "/categories/:id/price-guidance",
+  readLimiter,
+  async (req, res) => {
+    const { id } = req.params;
+    if (!id) return fail(res, 400, "Category ID required.");
 
-  try {
-    const { rows: aggRows } = await pool.query(
-      `SELECT
-         COUNT(*)::INT  AS total,
-         MIN(price)     AS min,
-         MAX(price)     AS max,
-         AVG(price)     AS avg
-       FROM products
-       WHERE category_id = $1
-         AND is_active   = TRUE
-         AND status      IN ('active', 'active_limited')
-         AND price       > 0`,
-      [id]
-    );
+    try {
+      const { rows: aggRows } = await pool.query(
+        `SELECT
+           COUNT(*)::INT AS total,
+           MIN(price)    AS min,
+           MAX(price)    AS max,
+           AVG(price)    AS avg
+         FROM products
+         WHERE category_id = $1
+           AND is_active   = TRUE
+           AND status      IN ('active', 'active_limited')
+           AND price       > 0`,
+        [id]
+      );
 
-    const agg   = aggRows[0];
-    const total = Number(agg?.total ?? 0);
+      const agg   = aggRows[0];
+      const total = Number(agg?.total ?? 0);
 
-    if (total < 3)
-      return res.json({ success: true, guidance: null, message: "Not enough listings for price guidance." });
+      if (total < 3)
+        return res.json({
+          success : true,
+          guidance: null,
+          message : "Not enough listings for price guidance.",
+        });
 
-    const { rows: medRows } = await pool.query(
-      `SELECT price FROM products
-       WHERE  category_id = $1
-         AND  is_active   = TRUE
-         AND  status      IN ('active', 'active_limited')
-         AND  price       > 0
-       ORDER  BY price
-       LIMIT  1
-       OFFSET $2`,
-      [id, Math.floor(total / 2)]
-    );
+      const { rows: medRows } = await pool.query(
+        `SELECT price FROM products
+         WHERE  category_id = $1
+           AND  is_active   = TRUE
+           AND  status      IN ('active', 'active_limited')
+           AND  price       > 0
+         ORDER  BY price
+         LIMIT  1
+         OFFSET $2`,
+        [id, Math.floor(total / 2)]
+      );
 
-    const medianPrice = Number(medRows[0]?.price ?? agg.avg);
+      const medianPrice = Number(medRows[0]?.price ?? agg.avg);
 
-    return res.json({
-      success : true,
-      guidance: {
-        median_price  : Math.round(medianPrice),
-        min_price     : Math.round(Number(agg.min)),
-        max_price     : Math.round(Number(agg.max)),
-        avg_price     : Math.round(Number(agg.avg)),
-        total_listings: total,
-        currency      : "NGN",
-        tip           :
-          `Most sellers price between ` +
-          `₦${Math.round(Number(agg.min)).toLocaleString("en-NG")} and ` +
-          `₦${Math.round(Number(agg.max)).toLocaleString("en-NG")}.`,
-      },
-    });
-  } catch (err) {
-    console.error("[addproduct] price-guidance:", err.message);
-    return fail(res, 500, "Server error.");
+      return res.json({
+        success : true,
+        guidance: {
+          median_price  : Math.round(medianPrice),
+          min_price     : Math.round(Number(agg.min)),
+          max_price     : Math.round(Number(agg.max)),
+          avg_price     : Math.round(Number(agg.avg)),
+          total_listings: total,
+          currency      : "NGN",
+          tip           :
+            `Most sellers price between ` +
+            `₦${Math.round(Number(agg.min)).toLocaleString("en-NG")} and ` +
+            `₦${Math.round(Number(agg.max)).toLocaleString("en-NG")}.`,
+        },
+      });
+    } catch (err) {
+      logError("price-guidance", err, { categoryId: id });
+      return fail(res, 500, `Price guidance error: ${err.message}`);
+    }
   }
-});
+);
 
 /* ═══════════════════════════════════════════════════════════════
    GET /seller/limits
@@ -1106,8 +1212,8 @@ router.get("/seller/limits", authenticate, readLimiter, async (req, res) => {
                            : null,
     });
   } catch (err) {
-    console.error("[addproduct] LIMITS:", err.message);
-    return fail(res, 500, "Server error.");
+    logError("GET /seller/limits", err, { sellerId });
+    return fail(res, 500, `Limits error: ${err.message}`);
   } finally {
     client.release();
   }
@@ -1116,95 +1222,108 @@ router.get("/seller/limits", authenticate, readLimiter, async (req, res) => {
 /* ═══════════════════════════════════════════════════════════════
    POST /products/check-duplicate
 ═══════════════════════════════════════════════════════════════ */
-router.post("/products/check-duplicate", authenticate, dupLimiter, async (req, res) => {
-  const sellerId    = req.user?.id;
-  const { title }   = req.body;
-  const imageHashes = validateImageHashes(req.body.image_hashes);
+router.post(
+  "/products/check-duplicate",
+  authenticate,
+  dupLimiter,
+  async (req, res) => {
+    const sellerId    = req.user?.id;
+    const { title }   = req.body;
+    const imageHashes = validateImageHashes(req.body.image_hashes);
 
-  if (!sellerId || !title) return res.json({ isDuplicate: false });
+    if (!sellerId || !title) return res.json({ isDuplicate: false });
 
-  const client = await pool.connect();
-  try {
-    const { rows: titleMatch } = await client.query(
-      `SELECT id FROM products
-       WHERE  seller_id   = $1
-         AND  status      NOT IN ('deleted', 'draft')
-         AND  created_at  > NOW() - INTERVAL '7 days'
-         AND  LOWER(TRIM(title)) = LOWER(TRIM($2))
-       LIMIT 1`,
-      [sellerId, title]
-    );
+    const client = await pool.connect();
+    try {
+      const { rows: titleMatch } = await client.query(
+        `SELECT id FROM products
+         WHERE  seller_id   = $1
+           AND  status      NOT IN ('deleted', 'draft')
+           AND  created_at  > NOW() - INTERVAL '7 days'
+           AND  LOWER(TRIM(title)) = LOWER(TRIM($2))
+         LIMIT 1`,
+        [sellerId, title]
+      );
 
-    if (titleMatch.length)
-      return res.json({
-        isDuplicate: true,
-        message    : "You already have a listing with this title.",
-      });
-
-    if (imageHashes.length) {
-      const hashMatch = await checkImageHashDuplicates(client, sellerId, imageHashes);
-      if (hashMatch.length)
+      if (titleMatch.length)
         return res.json({
           isDuplicate: true,
-          message    : `Photos already used in "${hashMatch[0].title}".`,
+          message    : "You already have a listing with this title.",
         });
-    }
 
-    return res.json({ isDuplicate: false });
-  } catch (err) {
-    console.error("[check-duplicate]", err.message);
-    return res.json({ isDuplicate: false });
-  } finally {
-    client.release();
+      if (imageHashes.length) {
+        const hashMatch = await checkImageHashDuplicates(
+          client, sellerId, imageHashes
+        );
+        if (hashMatch.length)
+          return res.json({
+            isDuplicate: true,
+            message    : `Photos already used in "${hashMatch[0].title}".`,
+          });
+      }
+
+      return res.json({ isDuplicate: false });
+    } catch (err) {
+      logError("check-duplicate", err, { sellerId });
+      return res.json({ isDuplicate: false });
+    } finally {
+      client.release();
+    }
   }
-});
+);
 
 /* ═══════════════════════════════════════════════════════════════
    GET /products/:id/status
 ═══════════════════════════════════════════════════════════════ */
-router.get("/products/:id/status", authenticate, readLimiter, async (req, res) => {
-  const sellerId  = req.user?.id;
-  const productId = req.params.id;
-  if (!sellerId) return fail(res, 401, "Not authenticated.");
+router.get(
+  "/products/:id/status",
+  authenticate,
+  readLimiter,
+  async (req, res) => {
+    const sellerId  = req.user?.id;
+    const productId = req.params.id;
+    if (!sellerId) return fail(res, 401, "Not authenticated.");
 
-  try {
-    const { rows } = await pool.query(
-      `SELECT p.id, p.status, p.is_active, p.active_until, p.is_first_product,
-              u.identity_verified AS seller_verified
-       FROM   products p
-       JOIN   public.users u ON u.id = p.seller_id
-       WHERE  p.id        = $1
-         AND  p.seller_id = $2
-         AND  p.status   <> 'deleted'`,
-      [productId, sellerId]
-    );
+    try {
+      const { rows } = await pool.query(
+        `SELECT p.id, p.status, p.is_active, p.active_until,
+                p.is_first_product,
+                u.identity_verified AS seller_verified
+         FROM   products p
+         JOIN   public.users u ON u.id = p.seller_id
+         WHERE  p.id        = $1
+           AND  p.seller_id = $2
+           AND  p.status   <> 'deleted'`,
+        [productId, sellerId]
+      );
 
-    if (!rows.length) return fail(res, 404, "Product not found.");
+      if (!rows.length) return fail(res, 404, "Product not found.");
 
-    const p       = rows[0];
-    const expired = p.active_until && new Date(p.active_until) < new Date();
+      const p       = rows[0];
+      const expired = p.active_until && new Date(p.active_until) < new Date();
 
-    return res.json({
-      success           : true,
-      status            : p.status,
-      is_active         : p.is_active,
-      active_until      : p.active_until,
-      is_first_product  : p.is_first_product,
-      seller_verified   : p.seller_verified,
-      needs_verification: p.status === "active_limited" && !expired,
-      is_expired        : !!expired,
-      days_remaining    : daysUntilExpiry(p.active_until),
-    });
-  } catch (err) {
-    console.error("[addproduct] STATUS:", err.message);
-    return fail(res, 500, "Server error.");
+      return res.json({
+        success           : true,
+        status            : p.status,
+        is_active         : p.is_active,
+        active_until      : p.active_until,
+        is_first_product  : p.is_first_product,
+        seller_verified   : p.seller_verified,
+        needs_verification: p.status === "active_limited" && !expired,
+        is_expired        : !!expired,
+        days_remaining    : daysUntilExpiry(p.active_until),
+      });
+    } catch (err) {
+      logError("GET /products/:id/status", err, { productId, sellerId });
+      return fail(res, 500, `Status error: ${err.message}`);
+    }
   }
-});
+);
 
 /* ═══════════════════════════════════════════════════════════════
    POST /products  — Create
-   ✅ v5: email always from users table via ctx.email
-         never accepted from req.body
+   ✅ v6: Real errors always returned
+          Email always from users table
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/products",
@@ -1218,7 +1337,7 @@ router.post(
     console.log("\n[addproduct] ▶ CREATE  seller:", sellerId);
     if (!sellerId) return fail(res, 401, "Not authenticated.");
 
-    /* ── Parse body — NOTE: email is intentionally NOT parsed from req.body ── */
+    /* ── Parse body ── */
     const title          = cleanText(req.body.title);
     const description    = cleanText(req.body.description);
     const price          = Number(req.body.price);
@@ -1242,21 +1361,29 @@ router.post(
     const rawStatus       = cleanText(req.body.status) ?? "draft";
     const requestedStatus = ALLOWED_STATUSES.has(rawStatus) ? rawStatus : "draft";
 
-    /* ── Validate — no email validation here, comes from DB ── */
-    if (!title)                    return fail(res, 400, "Title is required.");
-    if (title.length > TITLE_MAX)  return fail(res, 400, `Title must be ≤ ${TITLE_MAX} characters.`);
+    console.log("[addproduct] parsed body:", {
+      title, price, categoryId, locationState,
+      locationCity, phone, fileCount: files.length,
+      requestedStatus,
+    });
+
+    /* ── Validate ── */
+    if (!title)
+      return fail(res, 400, "Title is required.");
+    if (title.length > TITLE_MAX)
+      return fail(res, 400, `Title must be ≤ ${TITLE_MAX} characters.`);
     if (!description || description.length < DESC_MIN)
       return fail(res, 400, `Description must be at least ${DESC_MIN} characters.`);
     if (description.length > DESC_MAX)
       return fail(res, 400, `Description must be ≤ ${DESC_MAX} characters.`);
     if (!price || price <= 0 || !Number.isFinite(price))
-      return fail(res, 400, "Enter a valid price.");
+      return fail(res, 400, `Enter a valid price. Received: "${req.body.price}"`);
     if (price > PRICE_MAX)
       return fail(res, 400, "Price exceeds maximum.");
     if (!categoryId)
-      return fail(res, 400, "Category is required.");
+      return fail(res, 400, `Category is required. Received: "${req.body.category_id}"`);
     if (!locationState || !locationCity)
-      return fail(res, 400, "State and city are required.");
+      return fail(res, 400, `State and city are required. Got: state="${locationState}" city="${locationCity}"`);
 
     const phoneErr = validatePhone(phone, "Phone number");
     if (phoneErr) return fail(res, 400, phoneErr);
@@ -1266,7 +1393,8 @@ router.post(
       if (waErr) return fail(res, 400, waErr);
     }
 
-    if (!files.length) return fail(res, 400, "At least one image is required.");
+    if (!files.length)
+      return fail(res, 400, "At least one image is required.");
 
     /* ── Idempotency ── */
     if (idempotencyKey) {
@@ -1280,7 +1408,7 @@ router.post(
           [sellerId, idempotencyKey]
         );
         if (dup.length) {
-          console.log("[addproduct] idempotent hit");
+          console.log("[addproduct] idempotent hit →", dup[0].id);
           const { rows: existing } = await pool.query(
             "SELECT * FROM products WHERE id = $1",
             [dup[0].id]
@@ -1293,11 +1421,15 @@ router.post(
     }
 
     /* ── Spam check ── */
-    const spam = await detectSpamListing({ seller_id: sellerId, title, description, price })
-      .catch(() => ({ score: 0, isSpam: false, reasons: [] }));
+    const spam = await detectSpamListing({
+      seller_id: sellerId, title, description, price,
+    }).catch(() => ({ score: 0, isSpam: false, reasons: [] }));
+
     if (spam.isSpam || spam.score >= 70) {
       console.warn("[addproduct] spam detected seller:", sellerId);
-      return fail(res, 403, "Listing flagged as spam.", { reasons: spam.reasons ?? [] });
+      return fail(res, 403, "Listing flagged as spam.", {
+        reasons: spam.reasons ?? [],
+      });
     }
 
     /* ── Phase 1: Pre-upload policy check ── */
@@ -1310,7 +1442,8 @@ router.post(
           return fail(res, preErr.status, preErr.message, preErr.extra ?? {});
         }
       } catch (preErr) {
-        console.warn("[addproduct] pre-upload check failed:", preErr.message);
+        logError("pre-upload policy check", preErr, { sellerId });
+        /* Non-fatal — continue to transaction */
       }
     }
 
@@ -1331,43 +1464,55 @@ router.post(
       if (wmAnalysis.overallVerdict === "block") {
         const first = wmAnalysis.results.find((r) => r.verdict === "block");
         console.warn("[addproduct] watermark block seller:", sellerId);
-        return fail(res, 400, first?.message ?? "One or more images were rejected.", {
-          blocked_images: wmAnalysis.blockedImages,
-          reason        : first?.reason ?? "watermark_policy",
-        });
+        return fail(
+          res, 400,
+          first?.message ?? "One or more images were rejected.",
+          {
+            blocked_images: wmAnalysis.blockedImages,
+            reason        : first?.reason ?? "watermark_policy",
+          }
+        );
       }
     } catch (wmErr) {
       console.warn("[addproduct] watermark analysis error:", wmErr.message);
-      Sentry.captureException(wmErr, { tags: { area: "watermark", seller_id: sellerId } });
+      Sentry.captureException(wmErr, {
+        tags: { area: "watermark", seller_id: sellerId },
+      });
       wmAnalysis = null;
     }
 
     /* ── Compress + Upload ── */
-    console.log(`[addproduct] processing ${files.length} image(s)`);
+    console.log(`[addproduct] processing ${files.length} image(s)...`);
     let uploaded;
     try {
       uploaded = await Promise.all(
         files.map((file, i) =>
           imageLimit(async () => {
-            const { buffer, mimetype } = await compressImage(file.buffer, file.mimetype);
-            const { url, key }        = await uploadToR2(buffer, mimetype);
+            const { buffer, mimetype } = await compressImage(
+              file.buffer, file.mimetype
+            );
+            const { url, key } = await uploadToR2(buffer, mimetype);
             console.log(`[addproduct] image ${i + 1}/${files.length} → ${key}`);
             return { url, key, order: i };
           })
         )
       );
     } catch (uploadErr) {
-      console.error("[addproduct] compress/upload failed:", uploadErr.message);
+      logError("compress/upload", uploadErr, { sellerId });
       const isUserError =
         uploadErr.message.includes("too small") ||
         uploadErr.message.includes("Invalid")   ||
         uploadErr.message.includes("corrupt");
       if (!isUserError)
-        Sentry.captureException(uploadErr, { tags: { area: "image_upload", seller_id: sellerId } });
+        Sentry.captureException(uploadErr, {
+          tags: { area: "image_upload", seller_id: sellerId },
+        });
       return fail(
         res,
         isUserError ? 400 : 500,
-        isUserError ? uploadErr.message : "Image upload failed. Please try again."
+        isUserError
+          ? uploadErr.message
+          : `Image upload failed: ${uploadErr.message}`
       );
     }
 
@@ -1378,18 +1523,17 @@ router.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      console.log("[addproduct] transaction started");
 
-      /* ✅ getSellerContext now includes email from users table */
       const ctx = await getSellerContext(client, sellerId, true);
 
-      console.log("[addproduct] seller context:", {
+      console.log("[addproduct] seller context OK:", {
         tier             : ctx.tier,
-        email            : ctx.email,   // ✅ Confirmed registration email
+        email            : ctx.email,
         todayCount       : ctx.todayCount,
         activeCount      : ctx.activeCount,
         lifetimeCount    : ctx.lifetimeCount,
         lifetimeExhausted: ctx.lifetimeExhausted,
-        lifetimeRemaining: ctx.lifetimeRemaining,
       });
 
       const catCheck = await validateCategory(client, categoryId, subcategoryId);
@@ -1404,7 +1548,9 @@ router.post(
         if (policyErr) {
           await client.query("ROLLBACK");
           await destroyR2Assets(r2Keys);
-          return fail(res, policyErr.status, policyErr.message, policyErr.extra ?? {});
+          return fail(
+            res, policyErr.status, policyErr.message, policyErr.extra ?? {}
+          );
         }
       }
 
@@ -1419,6 +1565,8 @@ router.post(
         activeUntil = computeActiveUntil(ctx.tier);
       }
 
+      console.log("[addproduct] final status:", finalStatus, "expires:", activeUntil);
+
       /* Slug */
       const baseSlug  = generateBaseSlug(title).slice(0, SLUG_MAX);
       const shortId   = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
@@ -1428,42 +1576,55 @@ router.post(
         title, description, price,
         sellerId, categoryId, subcategoryId,
         thumbnail, finalStatus, finalActive, activeUntil,
-        isFirstProduct: ctx.isFirstProduct, idempotencyKey,
+        isFirstProduct: ctx.isFirstProduct,
+        idempotencyKey,
         locationState, locationCity, latitude, longitude,
         sellerName, phone, whatsapp, whatsappLink,
         attributes, delivery, contact,
-        email: ctx.email,   // ✅ Always from users table — never req.body
+        email: ctx.email,
       };
 
       let product;
 
       /* First insert attempt */
       try {
-        product = await runProductInsert(client, { ...insertParams, slug: firstSlug });
+        product = await runProductInsert(client, {
+          ...insertParams, slug: firstSlug,
+        });
       } catch (firstErr) {
+        logError("runProductInsert (first attempt)", firstErr, {
+          sellerId, slug: firstSlug,
+        });
+
         const isSlugCollision =
           firstErr.code === "23505" &&
-          (firstErr.constraint?.includes("slug") || firstErr.detail?.includes("slug"));
+          (firstErr.constraint?.includes("slug") ||
+           firstErr.detail?.includes("slug"));
 
         const isIdempotencyCollision =
           firstErr.code === "23505" &&
-          (firstErr.constraint?.includes("idempotency") || firstErr.detail?.includes("idempotency"));
+          (firstErr.constraint?.includes("idempotency") ||
+           firstErr.detail?.includes("idempotency"));
 
         if (isIdempotencyCollision) {
           await client.query("ROLLBACK");
           const { rows: existing } = await pool.query(
             `SELECT * FROM products
-             WHERE seller_id = $1 AND idempotency_key = $2 AND status <> 'deleted'
+             WHERE seller_id = $1
+               AND idempotency_key = $2
+               AND status <> 'deleted'
              LIMIT 1`,
             [sellerId, idempotencyKey]
           );
           if (existing.length)
-            return res.status(200).json({ success: true, product: existing[0] });
+            return res.status(200).json({
+              success: true, product: existing[0],
+            });
           return fail(res, 409, "Duplicate submission detected.");
         }
 
         if (isSlugCollision) {
-          console.warn("[addproduct] slug collision — retrying");
+          console.warn("[addproduct] slug collision — retrying with new UUID");
           await client.query("ROLLBACK");
           await client.query("BEGIN");
 
@@ -1475,14 +1636,28 @@ router.post(
               ...insertParams,
               slug          : retrySlug,
               isFirstProduct: ctx2.isFirstProduct,
-              email         : ctx2.email,   // ✅ Re-fetch on retry too
+              email         : ctx2.email,
             });
           } catch (retryErr) {
+            logError("runProductInsert (retry)", retryErr, {
+              sellerId, retrySlug,
+            });
             await client.query("ROLLBACK");
             await destroyR2Assets(r2Keys);
-            console.error("[addproduct] slug retry failed:", retryErr.message);
-            Sentry.captureException(retryErr, { tags: { area: "product_insert_retry", seller_id: sellerId } });
-            return fail(res, 500, IS_PROD ? "Failed to create product. Please try again." : retryErr.message);
+            Sentry.captureException(retryErr, {
+              tags: { area: "product_insert_retry", seller_id: sellerId },
+            });
+            return fail(
+              res, 500,
+              `Product insert retry failed: ${retryErr.message}`,
+              {
+                debug: {
+                  code      : retryErr.code,
+                  detail    : retryErr.detail,
+                  constraint: retryErr.constraint,
+                },
+              }
+            );
           }
         } else {
           await client.query("ROLLBACK");
@@ -1494,8 +1669,10 @@ router.post(
       if (!product) {
         await client.query("ROLLBACK");
         await destroyR2Assets(r2Keys);
-        return fail(res, 500, "Failed to create product record. Please try again.");
+        return fail(res, 500, "Product insert returned no rows.");
       }
+
+      console.log("[addproduct] product row inserted → id:", product.id);
 
       /* Insert product_images */
       try {
@@ -1510,13 +1687,19 @@ router.post(
             )
           )
         );
+        console.log(`[addproduct] ${uploaded.length} image row(s) inserted`);
       } catch (imgInsertErr) {
-        console.error("[addproduct] product_images insert failed:", imgInsertErr.message);
+        logError("product_images insert", imgInsertErr, {
+          productId: product.id,
+        });
+        /* Non-fatal — images JSONB still updated below */
       }
 
       /* Update images JSONB */
       const imagesJson = JSON.stringify(
-        uploaded.map((img) => ({ url: img.url, key: img.key, order: img.order }))
+        uploaded.map((img) => ({
+          url: img.url, key: img.key, order: img.order,
+        }))
       );
       await client.query(
         "UPDATE products SET images = $1 WHERE id = $2",
@@ -1525,20 +1708,22 @@ router.post(
       product.images = JSON.parse(imagesJson);
 
       await client.query("COMMIT");
+      console.log("[addproduct] transaction committed ✅");
 
       console.log(
         `[addproduct] ✓ created  id:${product.id}`,
         ` tier:${ctx.tier}`,
-        ` email:${ctx.email}`,   // ✅ Log confirms registration email used
+        ` email:${ctx.email}`,
         ` status:${finalStatus}`,
         ` expires:${activeUntil?.toISOString() ?? "never"}`
       );
 
-      /* ── Post-commit side effects ── */
+      /* Post-commit side effects */
       const trialInfo = buildTrialInfo(ctx);
 
       setImmediate(() => {
-        if (imageHashes.length) storeImageHashes(product.id, imageHashes).catch(() => {});
+        if (imageHashes.length)
+          storeImageHashes(product.id, imageHashes).catch(() => {});
 
         writeAudit({
           actorId   : sellerId,
@@ -1549,7 +1734,7 @@ router.post(
             title,
             status        : finalStatus,
             tier          : ctx.tier,
-            email         : ctx.email,   // ✅ Audit log shows registration email
+            email         : ctx.email,
             active_until  : activeUntil,
             is_verified   : ctx.isVerified,
             is_subscriber : ctx.isSubscriber,
@@ -1563,14 +1748,17 @@ router.post(
         );
 
         trackTrending(product.id).catch(() => {});
-        notifyListing(sellerId, title, ctx.tier, finalStatus, activeUntil, trialInfo);
+        notifyListing(
+          sellerId, title, ctx.tier, finalStatus, activeUntil, trialInfo
+        );
       });
 
-      /* ── Response ── */
+      /* Response */
       const expiryDays        = daysUntilExpiry(activeUntil);
       const needsVerification = finalStatus === "active_limited";
       const hasWmWarnings     =
-        wmAnalysis?.overallVerdict === "warn" && wmAnalysis.warnings?.length > 0;
+        wmAnalysis?.overallVerdict === "warn" &&
+        wmAnalysis.warnings?.length > 0;
 
       return res.status(201).json({
         success           : true,
@@ -1620,21 +1808,32 @@ router.post(
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       await destroyR2Assets(r2Keys);
-      console.error("[addproduct] CREATE ERROR:", err.message);
 
-      if (!["23505", "LIMIT_FILE_SIZE", "INVALID_MIME"].includes(err.code)) {
-        Sentry.captureException(err, {
-          tags : { area: "product_create", seller_id: sellerId },
-          extra: { title, categoryId, fileCount: files.length },
-        });
-      }
+      logError("POST /products", err, {
+        sellerId,
+        title,
+        categoryId,
+        fileCount: files.length,
+      });
 
-      if (err.code === "LIMIT_FILE_SIZE")
-        return fail(res, 400, "Image too large — maximum 5 MB per image.");
-      if (err.code === "23505")
-        return fail(res, 409, "Duplicate submission. Please try again.");
+      Sentry.captureException(err, {
+        tags : { area: "product_create", seller_id: sellerId },
+        extra: { title, categoryId, fileCount: files.length },
+      });
 
-      return fail(res, 500, IS_PROD ? "Failed to create product. Please try again." : err.message);
+      /* ✅ v6: Always return real error message */
+      return fail(
+        res, 500,
+        err.message || "Unknown error occurred",
+        {
+          debug: {
+            code      : err.code       ?? null,
+            detail    : err.detail     ?? null,
+            constraint: err.constraint ?? null,
+            hint      : err.hint       ?? null,
+          },
+        }
+      );
     } finally {
       client.release();
     }
@@ -1643,7 +1842,6 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    PATCH /products/:id  — Edit
-   ✅ v5: email always re-fetched from users table
 ═══════════════════════════════════════════════════════════════ */
 router.patch(
   "/products/:id",
@@ -1679,21 +1877,26 @@ router.patch(
     const removeKeys    = safeParse(req.body.remove_image_keys, []);
     const newFiles      = req.files ?? [];
 
-    if (!title)                    return fail(res, 400, "Title is required.");
-    if (title.length > TITLE_MAX)  return fail(res, 400, `Title must be ≤ ${TITLE_MAX} characters.`);
+    if (!title)
+      return fail(res, 400, "Title is required.");
+    if (title.length > TITLE_MAX)
+      return fail(res, 400, `Title must be ≤ ${TITLE_MAX} characters.`);
     if (!description || description.length < DESC_MIN)
       return fail(res, 400, `Description must be at least ${DESC_MIN} characters.`);
     if (description.length > DESC_MAX)
       return fail(res, 400, `Description must be ≤ ${DESC_MAX} characters.`);
     if (!price || price <= 0 || !Number.isFinite(price))
       return fail(res, 400, "Enter a valid price.");
-    if (price > PRICE_MAX)  return fail(res, 400, "Price exceeds maximum.");
-    if (!categoryId)        return fail(res, 400, "Category is required.");
+    if (price > PRICE_MAX)
+      return fail(res, 400, "Price exceeds maximum.");
+    if (!categoryId)
+      return fail(res, 400, "Category is required.");
     if (!locationState || !locationCity)
       return fail(res, 400, "State and city are required.");
 
     const phoneErr = validatePhone(phone, "Phone number");
     if (phoneErr) return fail(res, 400, phoneErr);
+
     if (whatsapp) {
       const waErr = validatePhone(whatsapp, "WhatsApp number");
       if (waErr) return fail(res, 400, waErr);
@@ -1710,15 +1913,17 @@ router.patch(
         newUploaded = await Promise.all(
           newFiles.map((file, i) =>
             imageLimit(async () => {
-              const { buffer, mimetype } = await compressImage(file.buffer, file.mimetype);
-              const { url, key }        = await uploadToR2(buffer, mimetype);
+              const { buffer, mimetype } = await compressImage(
+                file.buffer, file.mimetype
+              );
+              const { url, key } = await uploadToR2(buffer, mimetype);
               newR2Keys.push(key);
               return { url, key, order: i };
             })
           )
         );
       } catch (uploadErr) {
-        console.error("[addproduct] edit upload failed:", uploadErr.message);
+        logError("edit upload", uploadErr, { sellerId, productId });
         const isUserError =
           uploadErr.message.includes("too small") ||
           uploadErr.message.includes("Invalid")   ||
@@ -1726,7 +1931,9 @@ router.patch(
         return fail(
           res,
           isUserError ? 400 : 500,
-          isUserError ? uploadErr.message : "Image upload failed. Please try again."
+          isUserError
+            ? uploadErr.message
+            : `Image upload failed: ${uploadErr.message}`
         );
       }
     }
@@ -1753,12 +1960,13 @@ router.patch(
         return fail(res, 403, "Not authorised to edit this listing.");
       }
 
-      /* ✅ Fetch fresh email from users table for edit too */
+      /* Fetch fresh email from users table */
       const { rows: userRows } = await client.query(
         "SELECT email FROM public.users WHERE id = $1",
         [sellerId]
       );
       const sellerEmail = userRows[0]?.email ?? null;
+      console.log(`[addproduct] edit — seller email: ${sellerEmail}`);
 
       const catCheck = await validateCategory(client, categoryId, subcategoryId);
       if (!catCheck.valid) {
@@ -1767,7 +1975,10 @@ router.patch(
         return fail(res, 400, catCheck.message);
       }
 
-      const newSlug = generateSlugWithId(title, crypto.randomUUID().replace(/-/g, "").slice(0, 8));
+      const newSlug = generateSlugWithId(
+        title,
+        crypto.randomUUID().replace(/-/g, "").slice(0, 8)
+      );
 
       const { rows: updated } = await client.query(
         `UPDATE products SET
@@ -1803,14 +2014,14 @@ router.patch(
           JSON.stringify(delivery),
           JSON.stringify(contact),
           newSlug,
-          sellerEmail,   // ✅ Registration email — not from req.body
+          sellerEmail,
           productId,
         ]
       );
 
       const product = updated[0];
 
-      /* Remove image records not in keep list */
+      /* Remove images not in keep list */
       try {
         if (Array.isArray(keepImageIds) && keepImageIds.length > 0) {
           await client.query(
@@ -1826,11 +2037,15 @@ router.patch(
           );
         }
       } catch (delImgErr) {
-        console.warn("[addproduct] product_images delete failed:", delImgErr.message);
+        console.warn(
+          "[addproduct] product_images delete failed:", delImgErr.message
+        );
       }
 
-      /* Insert new image records */
-      const existingCount = Array.isArray(keepImageIds) ? keepImageIds.length : 0;
+      /* Insert new images */
+      const existingCount = Array.isArray(keepImageIds)
+        ? keepImageIds.length : 0;
+
       if (newUploaded.length) {
         try {
           await Promise.all(
@@ -1840,12 +2055,18 @@ router.patch(
                    (product_id, image_url, r2_key, position_order, is_primary)
                  VALUES ($1, $2, $3, $4, $5)
                  ON CONFLICT DO NOTHING`,
-                [productId, img.url, img.key, existingCount + i, existingCount + i === 0]
+                [
+                  productId, img.url, img.key,
+                  existingCount + i,
+                  existingCount + i === 0,
+                ]
               )
             )
           );
         } catch (insImgErr) {
-          console.warn("[addproduct] product_images insert failed:", insImgErr.message);
+          console.warn(
+            "[addproduct] product_images insert failed:", insImgErr.message
+          );
         }
       }
 
@@ -1853,7 +2074,8 @@ router.patch(
       let allImages = [];
       try {
         const { rows: imgRows } = await client.query(
-          `SELECT image_url AS url, r2_key AS key, position_order AS "order"
+          `SELECT image_url AS url, r2_key AS key,
+                  position_order AS "order"
            FROM   product_images
            WHERE  product_id = $1
            ORDER  BY position_order`,
@@ -1861,7 +2083,9 @@ router.patch(
         );
         allImages = imgRows;
       } catch (fetchImgErr) {
-        console.warn("[addproduct] product_images fetch failed:", fetchImgErr.message);
+        console.warn(
+          "[addproduct] product_images fetch failed:", fetchImgErr.message
+        );
       }
 
       const newThumb = allImages[0]?.url ?? product.thumbnail_url;
@@ -1876,11 +2100,10 @@ router.patch(
       product.images = allImages;
 
       await client.query("COMMIT");
+      console.log(`[addproduct] ✓ edited  id:${productId}  email:${sellerEmail}`);
 
       if (Array.isArray(removeKeys) && removeKeys.length)
         destroyR2Assets(removeKeys).catch(() => {});
-
-      console.log(`[addproduct] ✓ edited  id:${productId}  email:${sellerEmail}`);
 
       setImmediate(() => {
         writeAudit({
@@ -1888,11 +2111,7 @@ router.patch(
           action    : "product_edited",
           targetType: "product",
           targetId  : productId,
-          metadata  : {
-            title,
-            categoryId,
-            email: sellerEmail,   // ✅ Audit log
-          },
+          metadata  : { title, categoryId, email: sellerEmail },
           ipAddress : ip,
         }).catch(() => {});
       });
@@ -1902,9 +2121,21 @@ router.patch(
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
       await destroyR2Assets(newR2Keys);
-      console.error("[addproduct] EDIT ERROR:", err.message);
-      Sentry.captureException(err, { tags: { area: "product_edit", seller_id: sellerId } });
-      return fail(res, 500, IS_PROD ? "Update failed. Please try again." : err.message);
+      logError("PATCH /products/:id", err, { sellerId, productId });
+      Sentry.captureException(err, {
+        tags: { area: "product_edit", seller_id: sellerId },
+      });
+      return fail(
+        res, 500,
+        `Update failed: ${err.message}`,
+        {
+          debug: {
+            code      : err.code       ?? null,
+            detail    : err.detail     ?? null,
+            constraint: err.constraint ?? null,
+          },
+        }
+      );
     } finally {
       client.release();
     }
@@ -1923,7 +2154,10 @@ router.post(
     const productId = req.params.id;
     const ip        = getIp(req);
 
-    console.log("\n[addproduct] ▶ ACTIVATE  product:", productId, " seller:", sellerId);
+    console.log(
+      "\n[addproduct] ▶ ACTIVATE  product:", productId,
+      " seller:", sellerId
+    );
     if (!sellerId)  return fail(res, 401, "Not authenticated.");
     if (!productId) return fail(res, 400, "Product ID required.");
 
@@ -1972,14 +2206,20 @@ router.post(
         return fail(
           res, 403,
           "Expired listings cannot be reactivated until you verify your identity.",
-          { upgrade_required: true, upgrade_to: "verified", upgrade_url: "/verification" }
+          {
+            upgrade_required: true,
+            upgrade_to      : "verified",
+            upgrade_url     : "/verification",
+          }
         );
       }
 
       const policyErr = enforcePolicyLimits({ ...ctx, cooldownSecsLeft: 0 });
       if (policyErr) {
         await client.query("ROLLBACK");
-        return fail(res, policyErr.status, policyErr.message, policyErr.extra ?? {});
+        return fail(
+          res, policyErr.status, policyErr.message, policyErr.extra ?? {}
+        );
       }
 
       const finalStatus = ctx.tier === "unverified" ? "active_limited" : "active";
@@ -2018,7 +2258,9 @@ router.post(
         trackTrending(productId).catch(() => {});
       });
 
-      console.log(`[addproduct] ✓ activated  status:${finalStatus}  tier:${ctx.tier}`);
+      console.log(
+        `[addproduct] ✓ activated  status:${finalStatus}  tier:${ctx.tier}`
+      );
 
       return res.json({
         success           : true,
@@ -2036,15 +2278,27 @@ router.post(
               ? `Your listing is live for ${expiryDays} days (trial). Verify to post permanently.`
               : `Your listing is live for ${expiryDays} days.`,
         ...(needsVerification && {
-          verification_message: "Verify your identity to make this listing permanent.",
+          verification_message:
+            "Verify your identity to make this listing permanent.",
         }),
       });
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      console.error("[addproduct] ACTIVATE ERROR:", err.message);
-      Sentry.captureException(err, { tags: { area: "product_activate", seller_id: sellerId } });
-      return fail(res, 500, IS_PROD ? "Activation failed. Please try again." : err.message);
+      logError("POST /products/:id/activate", err, { sellerId, productId });
+      Sentry.captureException(err, {
+        tags: { area: "product_activate", seller_id: sellerId },
+      });
+      return fail(
+        res, 500,
+        `Activation failed: ${err.message}`,
+        {
+          debug: {
+            code  : err.code   ?? null,
+            detail: err.detail ?? null,
+          },
+        }
+      );
     } finally {
       client.release();
     }
@@ -2059,7 +2313,10 @@ router.delete("/products/:id", authenticate, async (req, res) => {
   const productId = req.params.id;
   const ip        = getIp(req);
 
-  console.log("\n[addproduct] ▶ SOFT DELETE  product:", productId);
+  console.log(
+    "\n[addproduct] ▶ SOFT DELETE  product:", productId,
+    " seller:", sellerId
+  );
   if (!sellerId) return fail(res, 401, "Not authenticated.");
 
   try {
@@ -2077,7 +2334,10 @@ router.delete("/products/:id", authenticate, async (req, res) => {
     if (check[0].is_deleted || check[0].status === "deleted")
       return fail(res, 400, "Product already deleted.");
     if (check[0].status === "active")
-      return fail(res, 409, "Active listings must be paused before deleting.");
+      return fail(
+        res, 409,
+        "Active listings must be paused before deleting."
+      );
 
     const { rows } = await pool.query(
       `UPDATE products
@@ -2123,9 +2383,20 @@ router.delete("/products/:id", authenticate, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[addproduct] DELETE ERROR:", err.message);
-    Sentry.captureException(err, { tags: { area: "product_delete", seller_id: sellerId } });
-    return fail(res, 500, IS_PROD ? "Delete failed. Please try again." : err.message);
+    logError("DELETE /products/:id", err, { sellerId, productId });
+    Sentry.captureException(err, {
+      tags: { area: "product_delete", seller_id: sellerId },
+    });
+    return fail(
+      res, 500,
+      `Delete failed: ${err.message}`,
+      {
+        debug: {
+          code  : err.code   ?? null,
+          detail: err.detail ?? null,
+        },
+      }
+    );
   }
 });
 
