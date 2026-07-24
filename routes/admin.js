@@ -17,7 +17,7 @@ import paymentRouter             from "./admin/payment.js";
 import orderRouter               from "./admin/order.js";
 import reportRouter              from "./admin/report.js";
 import systemRouter              from "./admin/system.js";
-import adminsRouter              from "./admin/admins.js";       // ← NEW
+import adminsRouter              from "./admin/admins.js";
 import promotionRouter           from "./admin/promotion.js";
 import verificationRouter        from "./admin/verification.js";
 import vendorVerificationRouter  from "./admin/vendorVerification.js";
@@ -31,9 +31,15 @@ import supportAdminRouter        from "./admin/support.js";
 const router     = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || "supersecret";
 
+/* ─── JWT signer — always includes token_version ─── */
 const generateToken = (admin) =>
   jwt.sign(
-    { id: admin.id, email: admin.email, role: admin.role },
+    {
+      id            : admin.id,
+      email         : admin.email,
+      role          : admin.role,
+      token_version : admin.token_version ?? 0,   // ← NEW: enables session revocation
+    },
     JWT_SECRET,
     { expiresIn: "7d" },
   );
@@ -52,7 +58,9 @@ router.post("/login", async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, email, password_hash, role, status
+      `SELECT
+         id, name, email, password_hash, role, status,
+         COALESCE(token_version, 0) AS token_version
        FROM admins
        WHERE email = $1`,
       [email.toLowerCase().trim()],
@@ -77,6 +85,14 @@ router.post("/login", async (req, res) => {
       [admin.id],
     );
 
+    // Log the login
+    await pool.query(
+      `INSERT INTO admin_logs
+         (admin_id, action, target_type, target_id, details)
+       VALUES ($1, 'login', 'admin', $2, $3)`,
+      [admin.id, admin.id, `${admin.name} signed in`],
+    ).catch(() => {});
+
     return res.json({
       admin: {
         id:    admin.id,
@@ -93,11 +109,32 @@ router.post("/login", async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// POST /api/admin/logout
+// Log the current admin out on this device only
+// (Client just deletes the token — this endpoint just records it)
+// ─────────────────────────────────────────────────────────────
+router.post("/logout", verifyAdmin, async (req, res) => {
+  try {
+    await pool.query(
+      `INSERT INTO admin_logs
+         (admin_id, action, target_type, target_id, details)
+       VALUES ($1, 'logout', 'admin', $2, $3)`,
+      [req.admin.id, req.admin.id, `${req.admin.name} signed out`],
+    ).catch(() => {});
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error("[admin logout]", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/admin/me
 router.get("/me", verifyAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT id, name, email, role, status, created_at
+      `SELECT id, name, email, role, status, created_at, last_login
        FROM admins
        WHERE id = $1`,
       [req.admin.id],
@@ -379,7 +416,7 @@ router.use("/payments",          paymentRouter);
 router.use("/orders",            orderRouter);
 router.use("/reports",           reportRouter);
 router.use("/system",            systemRouter);
-router.use("/admins",            adminsRouter);        // ← NEW (replaces roles + permissions)
+router.use("/admins",            adminsRouter);
 router.use("/plans",             promotionRouter);
 router.use("/verification",      verificationRouter);
 router.use("/vendors",           vendorVerificationRouter);
