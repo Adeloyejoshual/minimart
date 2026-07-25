@@ -1,0 +1,119 @@
+/* ═══════════════════════════════════════════════════════════════
+   8-toggles.css
+   Toggle Switch & Delivery Grid
+   ─────────────────────────────────────────────────────────────
+   .toggle-section       — padding wrapper for a toggle row
+   .toggle-section-label — bold label above the toggle
+   .toggle-switch        — full clickable area (label element)
+   .toggle-switch .slider— pill track with animated thumb
+   .toggle-status        — "On / Off" text beside the toggle
+   .delivery-grid        — animated expand panel for delivery
+                           options shown when toggle is on
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Section wrapper ── */
+.toggle-section {
+  padding-top   : 4px;
+  padding-bottom: 4px;
+}
+
+/* ── Section label ── */
+.toggle-section-label {
+  display       : block;
+  margin-bottom : 10px;
+  font-size     : .8125rem;
+  font-weight   : 600;
+  color         : var(--ink);
+  letter-spacing: .01em;
+}
+
+/* ── Clickable label wrapper ── */
+.toggle-switch {
+  position     : relative;
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 12px;
+  cursor       : pointer;
+  user-select  : none;
+  padding      : 8px 4px;
+  min-height   : 40px;
+  border-radius: var(--r-sm);
+  transition   : background var(--tr);
+}
+
+.toggle-switch:hover { background: var(--wh2); }
+
+/* ── Hidden native input ── */
+.toggle-switch input {
+  position: absolute;
+  inset   : 0;
+  opacity : 0;
+  width   : 100%;
+  height  : 100%;
+  margin  : 0;
+  cursor  : pointer;
+  z-index : 1;
+}
+
+/* ── Pill track ── */
+.toggle-switch .slider {
+  position      : relative;
+  width         : 48px;
+  height        : 28px;
+  background    : var(--bd2);
+  border-radius : var(--r-full);
+  flex-shrink   : 0;
+  transition    : background .25s ease;
+  pointer-events: none;
+}
+
+/* ── Thumb ── */
+.toggle-switch .slider::after {
+  content      : "";
+  position     : absolute;
+  top          : 3px;
+  left         : 3px;
+  width        : 22px;
+  height       : 22px;
+  background   : #fff;
+  border-radius: 50%;
+  box-shadow   : 0 2px 4px rgba(0, 0, 0, .2);
+  transition   : transform var(--tr-bounce);
+}
+
+/* ── Checked states ── */
+.toggle-switch input:checked + .slider        { background: var(--o); }
+.toggle-switch input:checked + .slider::after { transform: translateX(20px); }
+
+/* ── Focus ring ── */
+.toggle-switch input:focus-visible + .slider {
+  box-shadow: 0 0 0 3px var(--o-dim);
+}
+
+/* ── Status text ── */
+.toggle-status {
+  font-size     : .875rem;
+  color         : var(--ink2);
+  font-weight   : 500;
+  line-height   : 1.4;
+  pointer-events: none;
+  transition    : color var(--tr);
+}
+
+.toggle-status--on {
+  color      : var(--o);
+  font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DELIVERY GRID
+═══════════════════════════════════════════════════════════════ */
+.delivery-grid {
+  margin-top    : var(--gap-md);
+  padding-top   : var(--gap-md);
+  border-top    : 1px solid var(--bd);
+  display       : flex;
+  flex-direction: column;
+  gap           : 0;
+  animation     : ap-slide-down .28s ease both;
+}
