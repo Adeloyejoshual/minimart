@@ -219,7 +219,7 @@ export default function Chat({ user }) {
   const [muted,           setMuted]           = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [showAttach,      setShowAttach]      = useState(false);
-  const [viewer,          setViewer]          = useState(null); // { urls, index, senderName, createdAt }
+  const [viewer,          setViewer]          = useState(null);
   const [replyTo,         setReplyTo]         = useState(null);
 
   /* ── Context menu ── */
@@ -275,6 +275,7 @@ export default function Chat({ user }) {
 
   /* ══════════════════════════════════════════════════════════
      THREAD META
+     ⚠️  Must pass userId so backend can figure out the OTHER user
   ══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!threadId || !user?.id) return;
@@ -282,14 +283,19 @@ export default function Chat({ user }) {
 
     axios
       .get(`${API}/conversations/${threadId}`, {
-        headers: authH(), signal: ctrl.signal, timeout: 8_000,
+        headers: authH(),
+        params : { userId: user.id },          // ← FIX: send userId
+        signal : ctrl.signal,
+        timeout: 8_000,
       })
       .then(({ data }) => {
+        /* Derive the OTHER user id — never trust one source alone */
         const oid =
           data.other_user_id ||
           (data.buyer_id === user.id ? data.seller_id : data.buyer_id);
 
         safe(() => setThreadBuyerId(data.buyer_id));
+
         safe(() => setOtherUser({
           id           : oid,
           name         : data.other_user_name  || "User",
@@ -309,18 +315,28 @@ export default function Chat({ user }) {
           }));
         }
 
-        if (oid) {
-          axios.get(`${API}/users/${oid}`, { headers: authH() })
+        /* Enrich with full user profile (store name, verified badge, etc) */
+        if (oid && oid !== user.id) {
+          axios
+            .get(`${API}/users/${oid}`, { headers: authH() })
             .then(({ data: u }) =>
-              safe(() => setOtherUser((p) => ({
-                ...p, ...u,
-                is_online: p?.is_online || u.is_online || false,
-              })))
+              safe(() =>
+                setOtherUser((p) => ({
+                  ...p,
+                  ...u,
+                  /* preserve id + online state from primary source */
+                  id       : oid,
+                  is_online: p?.is_online || u.is_online || false,
+                }))
+              )
             )
             .catch(() => {});
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (!axios.isCancel(err))
+          console.error("Load thread meta failed:", err.message);
+      });
 
     return () => ctrl.abort();
   }, [threadId, user?.id]); // eslint-disable-line
@@ -879,9 +895,7 @@ export default function Chat({ user }) {
   const isMine = useCallback((m) => m.sender_id === user?.id, [user?.id]);
 
   /* ══════════════════════════════════════════════════════════
-     VIEWER  (image / video)
-     Bubble calls onLightbox(urls, index, msg?) — we build the
-     full viewer state with sender info for the header.
+     VIEWER
   ══════════════════════════════════════════════════════════ */
   const openViewer = useCallback((urls, index = 0, msg = null) => {
     const list = Array.isArray(urls) ? urls : urls ? [urls] : [];
