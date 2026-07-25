@@ -1,0 +1,91 @@
+/* ═══════════════════════════════════════════════════════════════
+   5-sections.css
+   Section Cards & Titles
+   ─────────────────────────────────────────────────────────────
+   .section / .form-card   — white card wrapper for each
+                             logical group of fields. Animates
+                             in via .ap-entered class added by JS.
+   .section-title          — icon + heading row at top of card
+   .image-section-header   — flex header above image upload area
+   .edit-back-hint         — muted helper text with a back link
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Card base ── */
+.section,
+.form-card {
+  background   : var(--wh);
+  border       : 1px solid var(--bd);
+  border-radius: var(--r-md);
+  padding      : 22px var(--pad);
+  margin-top   : var(--gap-md);
+  box-shadow   : var(--sh-sm);
+  opacity      : 0;
+  transform    : translateY(14px);
+  transition   :
+    opacity      .4s cubic-bezier(.22, 1, .36, 1),
+    transform    .4s cubic-bezier(.22, 1, .36, 1),
+    box-shadow   var(--tr),
+    border-color var(--tr);
+}
+
+/* ── Animate in ── */
+.section.ap-entered,
+.form-card.ap-entered {
+  opacity  : 1;
+  transform: translateY(0);
+}
+
+/* ── Hover lift ── */
+.section:hover,
+.form-card:hover {
+  box-shadow  : var(--sh-md);
+  border-color: var(--bd2);
+}
+
+/* ── Section heading ── */
+.section-title {
+  display       : flex;
+  align-items   : center;
+  gap           : 8px;
+  font-family   : var(--font-d);
+  font-size     : 1.05rem;
+  font-weight   : 700;
+  color         : var(--ink);
+  margin-bottom : 18px;
+  letter-spacing: -.01em;
+  line-height   : 1.3;
+}
+
+/* ── Image section header ── */
+.image-section-header {
+  display      : flex;
+  align-items  : center;
+  gap          : var(--gap-sm);
+  margin-bottom: 14px;
+  flex-wrap    : wrap;
+}
+
+/* ── Edit back hint ── */
+.edit-back-hint {
+  margin       : var(--gap-md) 0;
+  padding      : 12px 14px;
+  font-size    : .8125rem;
+  color        : var(--ink3);
+  line-height  : 1.45;
+  background   : var(--wh2);
+  border       : 1px solid var(--bd);
+  border-radius: var(--r-sm);
+  text-align   : center;
+}
+
+.edit-back-hint a {
+  color          : var(--o);
+  font-weight    : 600;
+  text-decoration: none;
+  transition     : opacity var(--tr);
+}
+
+.edit-back-hint a:hover {
+  opacity        : .75;
+  text-decoration: underline;
+}
