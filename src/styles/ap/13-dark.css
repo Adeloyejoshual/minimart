@@ -1,0 +1,295 @@
+/* ═══════════════════════════════════════════════════════════════
+   13-dark.css
+   All Dark Mode Overrides — Consolidated
+   ─────────────────────────────────────────────────────────────
+   Single source of truth for every dark-mode surface fix.
+   Tokens are already swapped in 1-tokens.css — this file
+   handles component-level overrides that need explicit rules.
+   Both @media (prefers-color-scheme: dark) and
+   [data-theme="dark"] are kept in sync here.
+═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   SYSTEM PREFERENCE
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+
+  /* ── Sticky bar ── */
+  .button-section {
+    background: rgba(26, 23, 20, .94);
+  }
+
+  /* ── All inputs ── */
+  .form-group input[type="text"],
+  .form-group input[type="email"],
+  .form-group input[type="tel"],
+  .form-group input[type="url"],
+  .form-group input[type="number"],
+  .form-group input[type="search"],
+  .form-group input[type="password"],
+  .form-group input,
+  .form-group textarea,
+  .form-group select,
+  #ap-title,
+  input#ap-title,
+  .form-group #ap-title,
+  .form-group input#ap-title {
+    background             : var(--wh) !important;
+    background-color       : var(--wh) !important;
+    color                  : var(--ink) !important;
+    -webkit-text-fill-color: var(--ink) !important;
+    caret-color            : var(--o) !important;
+    border-color           : var(--bd);
+    color-scheme           : dark;
+  }
+
+  .form-group input:focus,
+  .form-group textarea:focus,
+  .form-group select:focus,
+  #ap-title:focus,
+  input#ap-title:focus {
+    background  : var(--wh) !important;
+    border-color: var(--o);
+  }
+
+  .form-group input::placeholder,
+  .form-group textarea::placeholder,
+  #ap-title::placeholder,
+  input#ap-title::placeholder {
+    color                  : var(--ink3) !important;
+    -webkit-text-fill-color: var(--ink3) !important;
+    opacity                : 1;
+  }
+
+  .form-group input:-webkit-autofill,
+  .form-group input:-webkit-autofill:hover,
+  .form-group input:-webkit-autofill:focus,
+  .form-group input:-webkit-autofill:active,
+  #ap-title:-webkit-autofill,
+  input#ap-title:-webkit-autofill {
+    -webkit-text-fill-color: var(--ink) !important;
+    -webkit-box-shadow     : 0 0 0 1000px var(--wh) inset !important;
+    caret-color            : var(--o) !important;
+  }
+
+  /* ── Cards & surfaces ── */
+  .section,
+  .form-card              { background: var(--wh); border-color: var(--bd); }
+  .section:hover,
+  .form-card:hover        { border-color: var(--bd2); }
+  .plan-card              { background: var(--wh); border-color: var(--bd); }
+  .plan-card.selected     { background: var(--o-bg); border-color: var(--o); }
+  .plan-card--best        { border-color: var(--o2); }
+
+  /* ── Checkboxes ── */
+  .checkbox-inline        { background: var(--wh); border-color: var(--bd); }
+  .checkbox-inline:hover  { background: var(--o-bg); border-color: var(--o2); }
+  .checkbox-inline::before { background: var(--wh); border-color: var(--bd2); }
+  .checkbox-inline:has(input[type="checkbox"]:checked) {
+    background  : var(--o-bg);
+    border-color: var(--o);
+  }
+  .checkbox-inline:has(input[type="checkbox"]:checked)::before {
+    background  : var(--o);
+    border-color: var(--o);
+  }
+
+  /* ── Terms ── */
+  .terms-wrapper          { background: var(--wh2); border-color: var(--bd); }
+  .terms-wrapper:hover    { background: var(--o-bg); border-color: var(--o2); }
+  .terms-wrapper--checked { background: var(--o-bg); border-color: var(--o); }
+  .terms-checkbox-visual  { background: var(--wh); border-color: var(--bd2); }
+  .terms-checkbox-box input:checked ~ .terms-checkbox-visual {
+    background  : var(--o);
+    border-color: var(--o);
+  }
+
+  /* ── Buttons ── */
+  .outline-btn            { background: var(--wh); border-color: var(--bd); color: var(--ink2); }
+  .outline-btn:hover      { background: var(--wh3); border-color: var(--bd2); color: var(--ink); }
+  .primary-btn:hover:not(:disabled) {
+    box-shadow: 0 6px 20px rgba(255, 92, 0, .22), var(--sh-xs);
+  }
+
+  /* ── Detect location ── */
+  .detect-location-btn    { background: var(--o-bg); border-color: var(--o); color: var(--o); }
+  .detect-location-btn:hover:not(:disabled) { background: var(--o); color: #fff; }
+
+  /* ── Title suggestion chips ── */
+  .title-suggestion-chip  { background: var(--o-bg); color: var(--o); }
+  .title-suggestion-chip:hover { background: var(--o); color: #fff; }
+
+  /* ── Toggle ── */
+  .toggle-switch:hover    { background: var(--wh3); }
+  .toggle-switch .slider  { background: var(--bd2); }
+
+  /* ── Misc surfaces ── */
+  .duplicate-warning      { background: rgba(245, 158, 11, .12); border-color: rgba(245, 158, 11, .3); }
+  .dup-checking           { background: var(--wh2); }
+  .edit-back-hint         { background: var(--wh2); border-color: var(--bd); }
+  .plans-loading          { color: var(--ink3); }
+
+  /* ── Progress bar ── */
+  .form-progress          { background: var(--bd); }
+
+  /* ── Edit mode bar ── */
+  .ap-edit-mode-bar       { background: var(--o-bg); border-color: var(--o-20); }
+
+  /* ── Modal ── */
+  .ap-modal-overlay       { background: rgba(0, 0, 0, .75); }
+  .ap-modal               { background: var(--wh); border-color: var(--bd);
+                            box-shadow: 0 24px 64px rgba(0,0,0,.5), 0 4px 16px rgba(0,0,0,.3); }
+  .ap-modal-list          { background: var(--wh2); border-color: var(--bd); }
+  .ap-modal-title         { color: var(--ink); }
+  .ap-modal-message       { color: var(--ink2); }
+  .ap-modal-hint          { color: var(--ink3); }
+  .ap-modal-list li       { color: var(--ink); }
+
+  /* ── Banners ── */
+  .form-error,
+  .ap-error-banner        { background: var(--rd-dim); border-color: rgba(220, 38, 38, .25); color: var(--rd); }
+  .form-success           { background: var(--gn-dim); border-color: rgba(21, 128, 61, .25); color: var(--gn); }
+  .duplicate-warning      { color: var(--am); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MANUAL TOGGLE [data-theme="dark"]
+═══════════════════════════════════════════════════════════════ */
+[data-theme="dark"] {
+
+  /* ── Sticky bar ── */
+  .button-section {
+    background: rgba(26, 23, 20, .94);
+  }
+
+  /* ── All inputs ── */
+  .form-group input[type="text"],
+  .form-group input[type="email"],
+  .form-group input[type="tel"],
+  .form-group input[type="url"],
+  .form-group input[type="number"],
+  .form-group input[type="search"],
+  .form-group input[type="password"],
+  .form-group input,
+  .form-group textarea,
+  .form-group select,
+  #ap-title,
+  input#ap-title,
+  .form-group #ap-title,
+  .form-group input#ap-title {
+    background             : var(--wh) !important;
+    background-color       : var(--wh) !important;
+    color                  : var(--ink) !important;
+    -webkit-text-fill-color: var(--ink) !important;
+    caret-color            : var(--o) !important;
+    border-color           : var(--bd);
+    color-scheme           : dark;
+  }
+
+  .form-group input:focus,
+  .form-group textarea:focus,
+  .form-group select:focus,
+  #ap-title:focus,
+  input#ap-title:focus {
+    background  : var(--wh) !important;
+    border-color: var(--o);
+  }
+
+  .form-group input::placeholder,
+  .form-group textarea::placeholder,
+  #ap-title::placeholder,
+  input#ap-title::placeholder {
+    color                  : var(--ink3) !important;
+    -webkit-text-fill-color: var(--ink3) !important;
+    opacity                : 1;
+  }
+
+  .form-group input:-webkit-autofill,
+  .form-group input:-webkit-autofill:hover,
+  .form-group input:-webkit-autofill:focus,
+  .form-group input:-webkit-autofill:active,
+  #ap-title:-webkit-autofill,
+  input#ap-title:-webkit-autofill {
+    -webkit-text-fill-color: var(--ink) !important;
+    -webkit-box-shadow     : 0 0 0 1000px var(--wh) inset !important;
+    caret-color            : var(--o) !important;
+  }
+
+  /* ── Cards & surfaces ── */
+  .section,
+  .form-card              { background: var(--wh); border-color: var(--bd); }
+  .section:hover,
+  .form-card:hover        { border-color: var(--bd2); }
+  .plan-card              { background: var(--wh); border-color: var(--bd); }
+  .plan-card.selected     { background: var(--o-bg); border-color: var(--o); }
+  .plan-card--best        { border-color: var(--o2); }
+
+  /* ── Checkboxes ── */
+  .checkbox-inline        { background: var(--wh); border-color: var(--bd); }
+  .checkbox-inline:hover  { background: var(--o-bg); border-color: var(--o2); }
+  .checkbox-inline::before { background: var(--wh); border-color: var(--bd2); }
+  .checkbox-inline:has(input[type="checkbox"]:checked) {
+    background  : var(--o-bg);
+    border-color: var(--o);
+  }
+  .checkbox-inline:has(input[type="checkbox"]:checked)::before {
+    background  : var(--o);
+    border-color: var(--o);
+  }
+
+  /* ── Terms ── */
+  .terms-wrapper          { background: var(--wh2); border-color: var(--bd); }
+  .terms-wrapper:hover    { background: var(--o-bg); border-color: var(--o2); }
+  .terms-wrapper--checked { background: var(--o-bg); border-color: var(--o); }
+  .terms-checkbox-visual  { background: var(--wh); border-color: var(--bd2); }
+  .terms-checkbox-box input:checked ~ .terms-checkbox-visual {
+    background  : var(--o);
+    border-color: var(--o);
+  }
+
+  /* ── Buttons ── */
+  .outline-btn            { background: var(--wh); border-color: var(--bd); color: var(--ink2); }
+  .outline-btn:hover      { background: var(--wh3); border-color: var(--bd2); color: var(--ink); }
+  .primary-btn:hover:not(:disabled) {
+    box-shadow: 0 6px 20px rgba(255, 92, 0, .22), var(--sh-xs);
+  }
+
+  /* ── Detect location ── */
+  .detect-location-btn    { background: var(--o-bg); border-color: var(--o); color: var(--o); }
+  .detect-location-btn:hover:not(:disabled) { background: var(--o); color: #fff; }
+
+  /* ── Title suggestion chips ── */
+  .title-suggestion-chip  { background: var(--o-bg); color: var(--o); }
+  .title-suggestion-chip:hover { background: var(--o); color: #fff; }
+
+  /* ── Toggle ── */
+  .toggle-switch:hover    { background: var(--wh3); }
+  .toggle-switch .slider  { background: var(--bd2); }
+
+  /* ── Misc surfaces ── */
+  .duplicate-warning      { background: rgba(245, 158, 11, .12); border-color: rgba(245, 158, 11, .3); color: var(--am); }
+  .dup-checking           { background: var(--wh2); }
+  .edit-back-hint         { background: var(--wh2); border-color: var(--bd); }
+  .plans-loading          { color: var(--ink3); }
+
+  /* ── Progress bar ── */
+  .form-progress          { background: var(--bd); }
+
+  /* ── Edit mode bar ── */
+  .ap-edit-mode-bar       { background: var(--o-bg); border-color: var(--o-20); }
+
+  /* ── Modal ── */
+  .ap-modal-overlay       { background: rgba(0, 0, 0, .75); }
+  .ap-modal               { background: var(--wh); border-color: var(--bd);
+                            box-shadow: 0 24px 64px rgba(0,0,0,.5), 0 4px 16px rgba(0,0,0,.3); }
+  .ap-modal-list          { background: var(--wh2); border-color: var(--bd); }
+  .ap-modal-title         { color: var(--ink); }
+  .ap-modal-message       { color: var(--ink2); }
+  .ap-modal-hint          { color: var(--ink3); }
+  .ap-modal-list li       { color: var(--ink); }
+
+  /* ── Banners ── */
+  .form-error,
+  .ap-error-banner        { background: var(--rd-dim); border-color: rgba(220, 38, 38, .25); color: var(--rd); }
+  .form-success           { background: var(--gn-dim); border-color: rgba(21, 128, 61, .25); color: var(--gn); }
+}
