@@ -1,0 +1,130 @@
+/* ═══════════════════════════════════════════════════════════════
+   7-checkboxes.css
+   Feature Checkbox Grid & Custom Visual
+   ─────────────────────────────────────────────────────────────
+   .checkbox-grid-inline  — responsive auto-fill grid
+   .checkbox-inline       — card-style checkbox with custom
+                            visual built from ::before pseudo
+                            element + SVG data-uri checkmark.
+   Uses :has() to light up the whole card when checked.
+   Falls back to native accent-color on browsers without :has().
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Grid ── */
+.checkbox-grid-inline {
+  display              : grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap                  : 6px;
+}
+
+/* ── Checkbox card ── */
+.checkbox-inline {
+  position     : relative;
+  display      : flex;
+  align-items  : center;
+  gap          : 10px;
+  padding      : 10px 12px;
+  border       : 1.5px solid var(--bd);
+  border-radius: var(--r-sm);
+  cursor       : pointer;
+  font-size    : .8125rem;
+  color        : var(--ink);
+  background   : var(--wh);
+  user-select  : none;
+  transition   :
+    background   var(--tr),
+    border-color var(--tr),
+    box-shadow   var(--tr);
+}
+
+.checkbox-inline:hover {
+  border-color: var(--o2);
+  background  : var(--o-bg);
+}
+
+/* ── Hide native checkbox but keep it accessible ── */
+.checkbox-inline input[type="checkbox"] {
+  position : absolute;
+  opacity  : 0;
+  width    : 22px;
+  height   : 22px;
+  margin   : 0;
+  cursor   : pointer;
+  z-index  : 1;
+  left     : 12px;
+  top      : 50%;
+  transform: translateY(-50%);
+}
+
+/* ── Custom visual box ── */
+.checkbox-inline::before {
+  content        : "";
+  flex-shrink    : 0;
+  width          : 20px;
+  height         : 20px;
+  border         : 2px solid var(--bd2);
+  border-radius  : 5px;
+  background     : var(--wh);
+  display        : inline-flex;
+  align-items    : center;
+  justify-content: center;
+  transition     :
+    background   var(--tr),
+    border-color var(--tr),
+    box-shadow   var(--tr);
+}
+
+/* ── Checked state — SVG checkmark via data URI ── */
+.checkbox-inline:has(input[type="checkbox"]:checked)::before {
+  background         : var(--o);
+  border-color       : var(--o);
+  background-image   : url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='20 6 9 17 4 12'/></svg>");
+  background-repeat  : no-repeat;
+  background-position: center;
+  background-size    : 14px 14px;
+}
+
+/* ── Whole card lights up when checked ── */
+.checkbox-inline:has(input[type="checkbox"]:checked) {
+  background  : var(--o-bg);
+  border-color: var(--o);
+  box-shadow  : 0 0 0 2px var(--o-dim);
+  color       : var(--ink);
+  font-weight : 600;
+}
+
+/* ── Focus ring for keyboard users ── */
+.checkbox-inline:has(input[type="checkbox"]:focus-visible)::before {
+  box-shadow  : 0 0 0 3px var(--o-dim);
+  border-color: var(--o);
+}
+
+/* ── Tap feedback ── */
+.checkbox-inline:active { transform: scale(.98); }
+
+/* ── Label text ── */
+.checkbox-inline span {
+  line-height: 1.35;
+  flex       : 1;
+  min-width  : 0;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   :has() FALLBACK
+   Old Firefox / Samsung Internet before v21
+═══════════════════════════════════════════════════════════════ */
+@supports not selector(:has(*)) {
+  .checkbox-inline input[type="checkbox"] {
+    position     : static;
+    opacity      : 1;
+    width        : 20px;
+    height       : 20px;
+    accent-color : var(--o);
+    border-radius: 4px;
+    transform    : none;
+    left         : auto;
+    top          : auto;
+  }
+
+  .checkbox-inline::before { display: none; }
+}
