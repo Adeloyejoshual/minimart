@@ -1,19 +1,23 @@
 /**
- * routes/p2p.js
+ * routes/p2p.js — v2
  *
- * Changes from previous version:
- *  - GET /: search_priority added to ORDER BY (subscription boost)
- *  - GET /: promotion_badge derived and included in shaped product
- *  - GET /: seller subscription fields joined from users + subscription_plans
- *  - GET /: COUNT query fixed — no more string patching, proper params
- *  - GET /: location_geo → ST_MakePoint on latitude/longitude columns
- *           (matches your actual schema which has latitude + longitude floats,
- *            not a separate geography column named location_geo)
- *  - POST /: authenticate middleware added
- *  - POST /: slug collision guard via UUID suffix
- *  - POST /: location stored on latitude/longitude columns (no location_geo)
- *  - GET /match: lat/lng param order fixed (was swapped)
- *  - GET /match: search_priority + promotion in ORDER BY
+ * Changes from v1:
+ *  - ACTIVE_STATUSES constant added — single source of truth
+ *  - ACTIVE_WHERE helper added — mirrors homepage.js v4,
+ *    productDetail.js v2, sellerprofile.js v2, search.js v2
+ *  - GET /: status IN ('active','active_limited') — trial listings visible
+ *  - GET /: active_until expiry guard — expired trials auto-hidden
+ *  - GET /: p.status + p.active_until added to P2P_SELECT
+ *  - GET /: count query updated to match same ACTIVE_WHERE
+ *  - POST /: status set to 'active' for verified/subscribed,
+ *            'active_limited' for unverified (mirrors addproduct.js)
+ *  - POST /: active_until set based on tier (7 days for unverified)
+ *  - POST /: seller tier lookup added before INSERT
+ *  - GET /match: status IN ('active','active_limited') applied
+ *  - GET /match: active_until expiry guard applied
+ *  - shapeProduct: trial_listing, trial_expires_at,
+ *    trial_days_remaining added (mirrors homepage.js v4)
+ *  - All existing promotion + subscription logic unchanged
  */
 
 import express      from "express";
@@ -24,14 +28,44 @@ const router = express.Router();
 
 /* ══════════════════════════════════════════════════════════════
    CONSTANTS
+   Mirrors homepage.js v4, productDetail.js v2,
+   sellerprofile.js v2, search.js v2.
 ══════════════════════════════════════════════════════════════ */
 const PAGE_SIZE = 40;
 
 /*
- * Your schema has `latitude FLOAT8` and `longitude FLOAT8` columns.
- * For distance queries we build a point on the fly:
- *   ST_MakePoint(longitude, latitude)  ← note: longitude first (X,Y)
- * rather than using a separate geography column.
+ * ACTIVE_STATUSES — both statuses that mean "publicly visible".
+ *   active         → verified / subscribed seller, no expiry
+ *   active_limited → unverified seller trial listing, 7-day window
+ */
+const ACTIVE_STATUSES = `('active', 'active_limited')`;
+
+/*
+ * ACTIVE_WHERE — paste into any WHERE clause on products.
+ * The active_until guard auto-hides expired trials without
+ * needing the cron job to have run.
+ * Verified listings have NULL active_until → always shown.
+ */
+const ACTIVE_WHERE = `
+  p.is_active  = TRUE
+  AND p.is_deleted IS NOT TRUE
+  AND p.status     IN ${ACTIVE_STATUSES}
+  AND (p.active_until IS NULL OR p.active_until > NOW())
+`;
+
+/*
+ * POLICY — mirrors addproduct.js exactly.
+ * Used in POST / to compute active_until for new P2P listings.
+ */
+const POLICY = Object.freeze({
+  unverified: Object.freeze({ expiryDays: 7,  status: "active_limited" }),
+  verified  : Object.freeze({ expiryDays: 30, status: "active"         }),
+  subscriber: Object.freeze({ expiryDays: 0,  status: "active"         }),
+});
+
+/*
+ * PostGIS point builder.
+ * longitude first (X), latitude second (Y) — PostGIS convention.
  */
 const makePoint = (lngParam, latParam) =>
   `ST_MakePoint(${lngParam}::float, ${latParam}::float)::geography`;
@@ -39,16 +73,14 @@ const makePoint = (lngParam, latParam) =>
 /* ══════════════════════════════════════════════════════════════
    HELPERS
 ══════════════════════════════════════════════════════════════ */
+const daysUntilExpiry = (date) => {
+  if (!date) return null;
+  return Math.max(
+    0,
+    Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000)
+  );
+};
 
-/**
- * Derive promotion badge — mirrors homepage.js shapeProduct()
- * and productDetail.js getPromotionBadge()
- *
- * "featured"  → Elite plan   (priority 4)
- * "premium"   → Premium plan (priority 3)
- * "promoted"  → Basic/Starter
- * null        → not promoted
- */
 const getPromotionBadge = (isPromoted, promotionType, promotionPriority) => {
   if (!isPromoted) return null;
   const type     = String(promotionType     ?? "").toLowerCase();
@@ -58,19 +90,11 @@ const getPromotionBadge = (isPromoted, promotionType, promotionPriority) => {
   return "promoted";
 };
 
-/**
- * Check whether a subscription is currently active.
- */
 const isSubscriptionActive = (status, expiresAt) =>
   status === "active" &&
   expiresAt != null   &&
   new Date(expiresAt) > new Date();
 
-/**
- * Map subscription plan slug → display label.
- * Matches your subscription_plans table:
- *   free=0, premium=1, pro=2, business=3, diamond=5, elite=10
- */
 const getSubscriptionLabel = (planSlug) => {
   const labels = {
     premium : "Premium Seller",
@@ -82,12 +106,33 @@ const getSubscriptionLabel = (planSlug) => {
   return labels[planSlug] ?? null;
 };
 
-/**
- * Shape one raw DB row → clean product object for the frontend.
- * Includes promotion badge and seller subscription fields.
+/*
+ * Resolve seller tier — same logic as addproduct.js getSellerContext().
+ * Returns 'subscriber' | 'verified' | 'unverified'.
  */
+const resolveSellerTier = (u) => {
+  const nowMs = Date.now();
+  const hasActiveSub =
+    u.subscription_status === "active"    &&
+    u.subscription_plan                   &&
+    u.subscription_plan !== "free"        &&
+    u.subscription_expires_at             &&
+    new Date(u.subscription_expires_at).getTime() > nowMs;
+
+  if (hasActiveSub)          return "subscriber";
+  if (u.identity_verified)   return "verified";
+  return "unverified";
+};
+
+/* ══════════════════════════════════════════════════════════════
+   SHAPE PRODUCT
+   v2: added status, active_until, trial_listing,
+       trial_expires_at, trial_days_remaining.
+   Mirrors homepage.js v4 shapeProduct() exactly so the
+   frontend receives the same trial fields from every route.
+══════════════════════════════════════════════════════════════ */
 const shapeProduct = (p) => {
-  /* Images */
+  /* ── Images ── */
   let images = [];
   if (Array.isArray(p.images_json)) {
     images = p.images_json.filter((img) => img?.url).map((img) => img.url);
@@ -96,7 +141,7 @@ const shapeProduct = (p) => {
   }
   const primaryImage = images[0] ?? p.main_image ?? p.thumbnail_url ?? null;
 
-  /* Promotion */
+  /* ── Promotion ── */
   const isPromoted     = !!p.is_promoted;
   const promotionBadge = getPromotionBadge(
     isPromoted, p.promotion_type, p.promotion_priority
@@ -106,34 +151,51 @@ const shapeProduct = (p) => {
     p.promotion_expires_at != null &&
     new Date(p.promotion_expires_at) > new Date();
 
-  /* Seller subscription */
-  const sellerSubPlan   = p.seller_subscription_plan   ?? null;
-  const sellerSubStatus = p.seller_subscription_status ?? null;
-  const sellerSubExpiry = p.seller_subscription_expires_at ?? null;
+  /* ── Seller subscription ── */
+  const sellerSubPlan   = p.seller_subscription_plan        ?? null;
+  const sellerSubStatus = p.seller_subscription_status      ?? null;
+  const sellerSubExpiry = p.seller_subscription_expires_at  ?? null;
   const sellerSubRank   = Number(p.seller_subscription_rank ?? 0);
   const sellerSubActive = isSubscriptionActive(sellerSubStatus, sellerSubExpiry);
-  const sellerSubLabel  = sellerSubActive ? getSubscriptionLabel(sellerSubPlan) : null;
+  const sellerSubLabel  = sellerSubActive
+    ? getSubscriptionLabel(sellerSubPlan) : null;
 
-  /* CTR */
-  const impressions  = Number(p.impression_count || 0);
-  const clicks       = Number(p.clicks_count     || 0);
-  const views        = Number(p.views            || 0);
+  /* ── CTR ── */
+  const impressions = Number(p.impression_count || 0);
+  const clicks      = Number(p.clicks_count     || 0);
+  const views       = Number(p.views            || 0);
   const ctr = impressions > 0
     ? clicks / impressions
     : views > 0 ? clicks / views : 0;
+
+  /* ── Trial fields — mirrors homepage.js v4 ── */
+  const isTrialListing     = p.status === "active_limited";
+  const trialExpiresAt     = isTrialListing ? (p.active_until ?? null) : null;
+  const trialDaysRemaining = isTrialListing
+    ? daysUntilExpiry(trialExpiresAt)
+    : null;
 
   return {
     id              : p.id,
     title           : p.title,
     price           : Number(p.price || 0),
     slug            : p.slug,
-    description     : p.description     || null,
-    offer_type      : p.offer_type      || "sell",
-    swap_for        : p.swap_for        || null,
-    condition       : p.condition       || null,
+    description     : p.description   || null,
+    offer_type      : p.offer_type    || "sell",
+    swap_for        : p.swap_for      || null,
+    condition       : p.condition     || null,
     negotiable      : !!p.negotiable,
-    category_id     : p.category_id     || null,
+    category_id     : p.category_id   || null,
     created_at      : p.created_at,
+
+    /* Status */
+    status          : p.status        || null,
+    active_until    : p.active_until  ?? null,
+
+    /* Trial fields */
+    trial_listing        : isTrialListing,
+    trial_expires_at     : trialExpiresAt,
+    trial_days_remaining : trialDaysRemaining,
 
     /* Images */
     image           : primaryImage,
@@ -146,10 +208,7 @@ const shapeProduct = (p) => {
     engagement_score: Number(p.engagement_score || 0),
     ctr,
 
-    /* ── Promotion ──
-       Used on the P2P card to show "⭐ Featured" / "🔝 Premium" badge.
-       Matches the same badge system on the homepage feed.
-    */
+    /* Promotion */
     is_promoted          : isPromoted,
     promotion_priority   : Number(p.promotion_priority || 0),
     promotion_type       : p.promotion_type       || null,
@@ -157,10 +216,7 @@ const shapeProduct = (p) => {
     promotion_active     : promotionActive,
     promotion_badge      : promotionBadge,
 
-    /* ── Search priority (subscription rank) ──
-       Higher value = subscribed seller. Frontend can show
-       a "Diamond Seller" badge next to the listing.
-    */
+    /* Subscription rank */
     search_priority : Number(p.search_priority || 0),
 
     /* Location */
@@ -169,16 +225,14 @@ const shapeProduct = (p) => {
     location: {
       city : p.location_city  || null,
       state: p.location_state || null,
-      label: [p.location_city, p.location_state].filter(Boolean).join(", ") || null,
+      label:
+        [p.location_city, p.location_state].filter(Boolean).join(", ") || null,
     },
     distance_km: p.distance_km != null ? Number(p.distance_km) : null,
     latitude   : p.latitude    ?? null,
     longitude  : p.longitude   ?? null,
 
-    /* ── Seller ──
-       seller.subscription_badge is used by the frontend to show
-       "💎 Diamond Seller" next to the seller name on the card.
-    */
+    /* Seller */
     seller_id  : p.seller_id   || null,
     seller_name: p.seller_name || null,
     seller: {
@@ -189,20 +243,23 @@ const shapeProduct = (p) => {
       subscription_active : sellerSubActive,
       subscription_rank   : sellerSubRank,
       subscription_label  : sellerSubLabel,
-      subscription_badge  : sellerSubLabel,  // null when not subscribed
+      subscription_badge  : sellerSubLabel,
     },
   };
 };
 
 /* ══════════════════════════════════════════════════════════════
    SHARED SELECT COLUMNS
-   Includes seller subscription fields via LEFT JOIN.
+   v2: added p.status and p.active_until so shapeProduct()
+       can set trial_listing and trial_expires_at correctly.
 ══════════════════════════════════════════════════════════════ */
 const P2P_SELECT = (distanceExpr = "") => `
   p.id,
   p.title,
   p.price,
   p.slug,
+  p.status,
+  p.active_until,
   p.description,
   p.offer_type,
   p.swap_for,
@@ -228,12 +285,8 @@ const P2P_SELECT = (distanceExpr = "") => `
   p.category_id,
   p.seller_id,
   p.seller_name,
-  p.negotiable,
 
-  /* Seller live fields */
-  u.identity_verified  AS seller_verified,
-
-  /* Seller subscription — joined from users + subscription_plans */
+  u.identity_verified          AS seller_verified,
   u.subscription_plan          AS seller_subscription_plan,
   u.subscription_status        AS seller_subscription_status,
   u.subscription_expires_at    AS seller_subscription_expires_at,
@@ -266,25 +319,13 @@ router.get("/", async (req, res) => {
     const limit  = PAGE_SIZE;
     const offset = Number(page) * limit;
 
-    /*
-     * Parameter slots — built in a fixed order so SQL $N references
-     * never clash. All params pushed into this array in sequence.
-     *
-     * Slot layout:
-     *   $1          = limit + 1
-     *   $2          = offset
-     *   $3,$4,$5    = lng, lat, radius_m  (only when hasCoords)
-     *   $N          = category_id         (when hasCategory)
-     *   $N          = offer_type          (when offer_type filter)
-     *   $N          = search pattern      (when hasSearch)
-     */
     const params = [limit + 1, offset];
 
     let lngIdx = null, latIdx = null, radiusIdx = null;
     if (hasCoords) {
-      params.push(Number(lng));   lngIdx    = params.length; // $3
-      params.push(Number(lat));   latIdx    = params.length; // $4
-      params.push(Number(radius_km) * 1_000); radiusIdx = params.length; // $5
+      params.push(Number(lng));                   lngIdx    = params.length; // $3
+      params.push(Number(lat));                   latIdx    = params.length; // $4
+      params.push(Number(radius_km) * 1_000);     radiusIdx = params.length; // $5
     }
 
     let catIdx = null;
@@ -305,7 +346,7 @@ router.get("/", async (req, res) => {
       searchIdx = params.length;
     }
 
-    /* Distance expression — longitude first (X then Y in PostGIS) */
+    /* Distance expression */
     const distanceExpr = hasCoords
       ? `ROUND(
            (ST_Distance(
@@ -315,7 +356,7 @@ router.get("/", async (req, res) => {
          ) AS distance_km`
       : "";
 
-    /* Radius filter */
+    /* WHERE fragments */
     const radiusWhere = hasCoords
       ? `AND (
            p.latitude  IS NULL
@@ -328,28 +369,22 @@ router.get("/", async (req, res) => {
          )`
       : "";
 
-    /* Offer type filter */
     let offerWhere = "";
     if (offerIdx) {
-      if (offer_type === "free") {
-        offerWhere = `AND (p.offer_type = $${offerIdx} OR p.price = 0)`;
-      } else {
-        offerWhere = `AND p.offer_type = $${offerIdx}`;
-      }
+      offerWhere = offer_type === "free"
+        ? `AND (p.offer_type = $${offerIdx} OR p.price = 0)`
+        : `AND p.offer_type = $${offerIdx}`;
     }
 
-    /* Category filter */
-    const categoryWhere = catIdx ? `AND p.category_id = $${catIdx}` : "";
-
-    /* Full-text search filter */
-    const searchWhere = searchIdx
+    const categoryWhere = catIdx    ? `AND p.category_id = $${catIdx}`         : "";
+    const searchWhere   = searchIdx
       ? `AND (
            LOWER(p.title)       LIKE $${searchIdx}
            OR LOWER(p.description) LIKE $${searchIdx}
          )`
       : "";
 
-    /* Section extras + ORDER BY */
+    /* Section + ORDER BY */
     let sectionWhere = "";
     let orderBy      = "";
 
@@ -362,7 +397,7 @@ router.get("/", async (req, res) => {
 
       case "trending":
         sectionWhere = `AND (p.engagement_score > 0 OR p.clicks_count > 0)`;
-        orderBy      = `
+        orderBy = `
           p.is_promoted        DESC,
           p.promotion_priority DESC,
           p.search_priority    DESC,
@@ -379,7 +414,7 @@ router.get("/", async (req, res) => {
 
       case "swap":
         sectionWhere = `AND p.offer_type = 'swap'`;
-        orderBy      = `
+        orderBy = `
           p.is_promoted        DESC,
           p.promotion_priority DESC,
           p.search_priority    DESC,
@@ -401,14 +436,6 @@ router.get("/", async (req, res) => {
             break;
           case "smart":
           default:
-            /*
-             * Smart ranking — same as homepage.js:
-             *   1. Promoted products first  (paid promotion)
-             *   2. promotion_priority       (Elite=4 > Premium=3 > Basic=2 > Starter=1)
-             *   3. search_priority          (subscription rank: elite=10, diamond=5 …)
-             *   4. engagement_score         (organic)
-             *   5. created_at              (tiebreaker)
-             */
             orderBy = `
               p.is_promoted        DESC,
               p.promotion_priority DESC,
@@ -419,7 +446,10 @@ router.get("/", async (req, res) => {
         }
     }
 
-    /* Main query */
+    /* ── Main query ──
+       v2: WHERE uses ACTIVE_WHERE (active + active_limited)
+           plus the p.is_p2p = TRUE guard.
+    ── */
     const sql = `
       SELECT ${P2P_SELECT(distanceExpr)}
       FROM   public.products     p
@@ -427,9 +457,8 @@ router.get("/", async (req, res) => {
       LEFT   JOIN subscription_plans sp
                                      ON sp.slug = u.subscription_plan
                                     AND sp.is_active = TRUE
-      WHERE  p.is_active = TRUE
-        AND  p.status    = 'active'
-        AND  p.is_p2p    = TRUE
+      WHERE  ${ACTIVE_WHERE}
+        AND  p.is_p2p = TRUE
         ${radiusWhere}
         ${categoryWhere}
         ${offerWhere}
@@ -445,18 +474,17 @@ router.get("/", async (req, res) => {
     const records  = rows.slice(0, limit);
     const products = records.map(shapeProduct);
 
-    /*
-     * Section counts — properly parameterized, no string patching.
-     * Only uses coords and category (offer_type and search don't
-     * affect the filter chip counts).
-     */
+    /* ── Section counts ──
+       v2: count query uses same ACTIVE_WHERE so trial listings
+           are included in the chip counts too.
+    ── */
     const countParams = [];
-    let   cLngIdx = null, cLatIdx = null, cRadiusIdx = null, cCatIdx = null;
+    let cLngIdx = null, cLatIdx = null, cRadiusIdx = null, cCatIdx = null;
 
     if (hasCoords) {
-      countParams.push(Number(lng));                     cLngIdx    = countParams.length;
-      countParams.push(Number(lat));                     cLatIdx    = countParams.length;
-      countParams.push(Number(radius_km) * 1_000);       cRadiusIdx = countParams.length;
+      countParams.push(Number(lng));               cLngIdx    = countParams.length;
+      countParams.push(Number(lat));               cLatIdx    = countParams.length;
+      countParams.push(Number(radius_km) * 1_000); cRadiusIdx = countParams.length;
     }
     if (hasCategory) {
       countParams.push(category_id);
@@ -479,29 +507,27 @@ router.get("/", async (req, res) => {
 
     const countSql = `
       SELECT
-        COUNT(*)                                                       AS total,
-        COUNT(*) FILTER (WHERE p.offer_type = 'swap')                  AS swaps,
-        COUNT(*) FILTER (WHERE p.offer_type = 'free' OR p.price = 0)   AS frees,
+        COUNT(*)::int                                                  AS total,
+        COUNT(*) FILTER (WHERE p.offer_type = 'swap')::int             AS swaps,
+        COUNT(*) FILTER (WHERE p.offer_type = 'free' OR p.price = 0)::int AS frees,
         COUNT(*) FILTER (
           WHERE p.offer_type = 'sell' OR p.offer_type IS NULL
-        )                                                              AS sells
+        )::int                                                         AS sells
       FROM public.products p
-      WHERE p.is_active = TRUE
-        AND p.status    = 'active'
-        AND p.is_p2p    = TRUE
+      WHERE ${ACTIVE_WHERE}
+        AND p.is_p2p = TRUE
         ${countRadiusWhere}
         ${countCatWhere}
     `;
 
     const { rows: countRows } = await pool.query(countSql, countParams);
-    const counts = countRows[0] || {};
+    const counts = countRows[0] ?? {};
 
     /* Representative city */
     const cityFreq = {};
     for (const p of products) {
-      if (p.location.city) {
+      if (p.location.city)
         cityFreq[p.location.city] = (cityFreq[p.location.city] || 0) + 1;
-      }
     }
     const representativeCity =
       Object.entries(cityFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
@@ -535,7 +561,9 @@ router.get("/", async (req, res) => {
 
 /* ══════════════════════════════════════════════════════════════
    POST /api/p2p
-   Create a P2P offer. Requires authentication.
+   v2: resolves seller tier before INSERT so trial listings
+       get status='active_limited' and a 7-day active_until,
+       matching addproduct.js behaviour exactly.
 ══════════════════════════════════════════════════════════════ */
 router.post("/", authenticate, async (req, res) => {
   const sellerId = req.user?.id;
@@ -563,11 +591,44 @@ router.post("/", authenticate, async (req, res) => {
     return res.status(400).json({ error: "offer_type must be sell | swap | free" });
 
   try {
+    /* ── Resolve seller tier ──
+       Mirrors addproduct.js getSellerContext() so unverified
+       P2P sellers get the same 7-day trial treatment.
+    ── */
+    const { rows: userRows } = await pool.query(
+      `SELECT
+         identity_verified,
+         subscription_plan,
+         subscription_status,
+         subscription_expires_at
+       FROM public.users
+       WHERE id = $1
+       LIMIT 1`,
+      [sellerId]
+    );
+
+    if (!userRows.length) {
+      return res.status(404).json({ error: "Seller account not found." });
+    }
+
+    const tier   = resolveSellerTier(userRows[0]);
+    const policy = POLICY[tier];
+
     /*
-     * Slug with UUID suffix to avoid collisions.
-     * Same pattern as addproduct.js generateSlugWithId().
+     * active_until:
+     *   subscriber → NULL (never expires)
+     *   verified   → NOW() + 30 days
+     *   unverified → NOW() + 7 days (trial)
      */
-    const base = title.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 60);
+    const activeUntil = policy.expiryDays === 0
+      ? null
+      : new Date(Date.now() + policy.expiryDays * 86_400_000);
+
+    /* Slug with timestamp suffix to avoid collisions */
+    const base = title.trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .slice(0, 60);
     const slug = `${base}-${Date.now().toString(36)}`;
 
     const { rows } = await pool.query(
@@ -576,17 +637,19 @@ router.post("/", authenticate, async (req, res) => {
          offer_type, description, swap_for,
          seller_id, seller_name,
          location_city, location_state, latitude, longitude,
-         is_p2p, is_active, status,
+         is_p2p, is_active, status, active_until,
          created_at, updated_at
        ) VALUES (
          $1, $2, $3, $4,
          $5, $6, $7,
          $8, $9,
          $10, $11, $12, $13,
-         TRUE, TRUE, 'active',
+         TRUE, TRUE, $14, $15,
          NOW(), NOW()
        )
-       RETURNING id, slug, title, offer_type, created_at`,
+       RETURNING
+         id, slug, title, offer_type, status,
+         active_until, created_at`,
       [
         title.trim(),
         Number(price) || 0,
@@ -601,10 +664,32 @@ router.post("/", authenticate, async (req, res) => {
         location_state || null,
         lat ? Number(lat) : null,
         lng ? Number(lng) : null,
+        policy.status,    // $14 — 'active' or 'active_limited'
+        activeUntil,      // $15 — null or 7/30-day date
       ]
     );
 
-    return res.status(201).json({ success: true, product: rows[0] });
+    const created = rows[0];
+
+    return res.status(201).json({
+      success    : true,
+      product    : created,
+      tier,
+      /*
+       * trial fields in POST response — frontend can show
+       * "Your listing is live for 7 days (trial)" immediately
+       * after posting, same as addproduct.js response.
+       */
+      trial_listing       : policy.status === "active_limited",
+      trial_expires_at    : activeUntil,
+      trial_days_remaining: activeUntil ? policy.expiryDays : null,
+      needs_verification  : policy.status === "active_limited",
+      ...(policy.status === "active_limited" && {
+        verification_message:
+          "Verify your identity to make this listing permanent.",
+      }),
+    });
+
   } catch (err) {
     if (err.code === "23505")
       return res.status(409).json({ error: "Duplicate listing. Please try again." });
@@ -615,7 +700,9 @@ router.post("/", authenticate, async (req, res) => {
 
 /* ══════════════════════════════════════════════════════════════
    GET /api/p2p/match
-   Smart trade-match suggestions.
+   v2: status IN ('active','active_limited') applied.
+       active_until expiry guard applied.
+       Trial swap listings now appear in match results.
 ══════════════════════════════════════════════════════════════ */
 router.get("/match", async (req, res) => {
   const { have, want, lat, lng, limit = 10 } = req.query;
@@ -634,8 +721,8 @@ router.get("/match", async (req, res) => {
       params.push(`%${String(want).toLowerCase()}%`);
       const idx = params.length;
       clauses.push(`(
-        LOWER(p.title)       LIKE $${idx}
-        OR LOWER(p.swap_for) LIKE $${idx}
+        LOWER(p.title)          LIKE $${idx}
+        OR LOWER(p.swap_for)    LIKE $${idx}
         OR LOWER(p.description) LIKE $${idx}
       )`);
     }
@@ -644,7 +731,7 @@ router.get("/match", async (req, res) => {
       params.push(`%${String(have).toLowerCase()}%`);
       const idx = params.length;
       clauses.push(`(
-        LOWER(p.swap_for)    LIKE $${idx}
+        LOWER(p.swap_for)       LIKE $${idx}
         OR LOWER(p.description) LIKE $${idx}
       )`);
     }
@@ -653,7 +740,6 @@ router.get("/match", async (req, res) => {
       ? `AND (${clauses.join(" OR ")})`
       : "";
 
-    /* Distance params — longitude FIRST (PostGIS convention) */
     let lngIdx = null, latIdx = null;
     if (hasCoords) {
       params.push(Number(lng)); lngIdx = params.length;
@@ -673,9 +759,16 @@ router.get("/match", async (req, res) => {
     params.push(safeLimit);
     const limitIdx = params.length;
 
+    /*
+     * v2 WHERE:
+     *   - status IN ('active', 'active_limited') — trial swap listings included
+     *   - active_until guard — expired trials hidden automatically
+     *   - is_deleted IS NOT TRUE — NULL-safe (mirrors other routes)
+     */
     const sql = `
       SELECT
         p.id, p.title, p.price, p.slug,
+        p.status, p.active_until,
         p.offer_type, p.swap_for, p.condition,
         p.main_image, p.thumbnail_url,
         p.location_city, p.location_state,
@@ -683,10 +776,11 @@ router.get("/match", async (req, res) => {
         p.is_promoted, p.promotion_priority,
         p.promotion_type, p.promotion_expires_at,
         p.seller_id, p.seller_name,
-        u.subscription_plan       AS seller_subscription_plan,
-        u.subscription_status     AS seller_subscription_status,
-        u.subscription_expires_at AS seller_subscription_expires_at,
-        COALESCE(sp.rank, 0)      AS seller_subscription_rank,
+        u.identity_verified          AS seller_verified,
+        u.subscription_plan          AS seller_subscription_plan,
+        u.subscription_status        AS seller_subscription_status,
+        u.subscription_expires_at    AS seller_subscription_expires_at,
+        COALESCE(sp.rank, 0)         AS seller_subscription_rank,
         p.created_at
         ${distanceExpr ? `, ${distanceExpr}` : ""}
       FROM   public.products      p
@@ -694,16 +788,14 @@ router.get("/match", async (req, res) => {
       LEFT   JOIN subscription_plans sp
                                      ON sp.slug = u.subscription_plan
                                     AND sp.is_active = TRUE
-      WHERE  p.is_active    = TRUE
-        AND  p.status       = 'active'
-        AND  p.is_p2p       = TRUE
-        AND  p.offer_type   = 'swap'
+      WHERE  p.is_active   = TRUE
+        AND  p.is_deleted  IS NOT TRUE
+        AND  p.status      IN ${ACTIVE_STATUSES}
+        AND  (p.active_until IS NULL OR p.active_until > NOW())
+        AND  p.is_p2p      = TRUE
+        AND  p.offer_type  = 'swap'
         ${whereKeyword}
       ORDER BY
-        /*
-         * Subscribed and promoted swap listings rank higher —
-         * a Diamond seller's swap offer appears above a free seller.
-         */
         p.is_promoted        DESC,
         p.promotion_priority DESC,
         p.search_priority    DESC,
@@ -724,6 +816,8 @@ router.get("/match", async (req, res) => {
         ? getSubscriptionLabel(p.seller_subscription_plan)
         : null;
 
+      const isTrialListing = p.status === "active_limited";
+
       return {
         id         : p.id,
         title      : p.title,
@@ -733,20 +827,30 @@ router.get("/match", async (req, res) => {
         swap_for   : p.swap_for   || null,
         condition  : p.condition  || null,
         image      : p.main_image || p.thumbnail_url || null,
+        status     : p.status,
+        active_until: p.active_until ?? null,
+
+        /* Trial fields */
+        trial_listing       : isTrialListing,
+        trial_expires_at    : isTrialListing ? (p.active_until ?? null) : null,
+        trial_days_remaining: isTrialListing
+          ? daysUntilExpiry(p.active_until) : null,
+
         location: {
           city : p.location_city  || null,
           state: p.location_state || null,
         },
-        distance_km      : p.distance_km != null ? Number(p.distance_km) : null,
-        is_promoted      : !!p.is_promoted,
-        promotion_badge  : getPromotionBadge(
+        distance_km    : p.distance_km != null ? Number(p.distance_km) : null,
+        is_promoted    : !!p.is_promoted,
+        promotion_badge: getPromotionBadge(
           !!p.is_promoted, p.promotion_type, p.promotion_priority
         ),
-        search_priority  : Number(p.search_priority || 0),
-        created_at       : p.created_at,
+        search_priority: Number(p.search_priority || 0),
+        created_at     : p.created_at,
         seller: {
           id                 : p.seller_id   || null,
           name               : p.seller_name || null,
+          verified           : !!p.seller_verified,
           subscription_active: subActive,
           subscription_badge : subLabel,
         },
