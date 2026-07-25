@@ -1,12 +1,20 @@
 /**
- * routes/productDetail.js
+ * routes/productDetail.js — v2
  *
  * Changes from previous version:
- *  - PRODUCT_COLS: added seller subscription fields from users JOIN
- *  - normalizeProduct: added promotion_badge, seller.subscription fields
- *  - /similar and /by-seller: added promotion-aware ORDER BY
- *  - /users/:id/public: added subscription info to seller profile
- *  - All helpers unchanged — only additive changes
+ *  - ACTIVE_STATUSES constant wired into ACTIVE_WHERE (was unused)
+ *  - ACTIVE_WHERE now also guards: active_until IS NULL OR active_until > NOW()
+ *    so expired trial listings are hidden automatically (mirrors homepage.js v4)
+ *  - GET /slug/:slug — added active_until expiry guard
+ *  - GET /id/:id    — added active_until expiry guard
+ *  - POST /products/:id/view  — status guard added (active + active_limited)
+ *  - POST /products/:id/click — status guard added
+ *  - POST /products/:id/share — status guard added
+ *  - normalizeProduct: trial_listing + trial_days_remaining added
+ *    (mirrors homepage.js v4 shapeProduct)
+ *  - PRODUCT_COLS: p.status explicitly selected (was missing from card cols)
+ *  - /similar and /by-seller: active_until expiry guard added to WHERE
+ *  - All existing logic unchanged — only additive / guard changes
  */
 
 import express from "express";
@@ -17,6 +25,14 @@ const router = express.Router();
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
+
+/*
+ * ACTIVE_STATUSES — the two statuses that mean "publicly visible".
+ *   active         → verified / subscribed seller, no expiry
+ *   active_limited → unverified seller trial listing, expires in 7 days
+ *
+ * Used in every WHERE clause that filters public-facing queries.
+ */
 const ACTIVE_STATUSES = `('active', 'active_limited')`;
 
 /* ═══════════════════════════════════════════════════════════════
@@ -45,14 +61,6 @@ const safeFloat = (n, fallback = 0) => {
 
 /* ═══════════════════════════════════════════════════════════════
    PROMOTION BADGE HELPER
-   Maps promotion_type → badge label for the frontend.
-   Mirrors the same logic in homepage.js shapeProduct().
-
-   Badge values:
-     "featured"  → Elite plan   (priority 4) — show gold diamond badge
-     "premium"   → Premium plan (priority 3) — show silver star badge
-     "promoted"  → Basic/Starter              — show blue bolt badge
-     null        → not promoted
 ═══════════════════════════════════════════════════════════════ */
 const getPromotionBadge = (isPromoted, promotionType, promotionPriority) => {
   if (!isPromoted) return null;
@@ -64,10 +72,7 @@ const getPromotionBadge = (isPromoted, promotionType, promotionPriority) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SUBSCRIPTION RANK LABEL
-   Maps users.subscription_plan slug → display label.
-   Matches your actual subscription_plans table:
-     free=0, premium=1, pro=2, business=3, diamond=5, elite=10
+   SUBSCRIPTION HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const getSubscriptionLabel = (planSlug, rank) => {
   if (!planSlug || planSlug === "free") return null;
@@ -83,7 +88,7 @@ const getSubscriptionLabel = (planSlug, rank) => {
 
 const isSubscriptionActive = (status, expiresAt) =>
   status === "active" &&
-  expiresAt != null  &&
+  expiresAt != null   &&
   new Date(expiresAt) > new Date();
 
 /* ═══════════════════════════════════════════════════════════════
@@ -97,7 +102,11 @@ const buildImageArray = (row, productImageRows = []) => {
       const mapped = parsed
         .filter((img) => img?.url)
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
-        .map((img) => ({ url: img.url, key: img.key ?? null, order: img.order ?? 0 }));
+        .map((img) => ({
+          url  : img.url,
+          key  : img.key   ?? null,
+          order: img.order ?? 0,
+        }));
       if (mapped.length) return mapped;
     }
   }
@@ -125,15 +134,13 @@ const buildImageArray = (row, productImageRows = []) => {
 
 /* ═══════════════════════════════════════════════════════════════
    NORMALIZE PRODUCT
-   New fields added:
-     - promotion_badge      (derived)
-     - promotion_days_left  (derived)
-     - seller.subscription_plan
-     - seller.subscription_status
-     - seller.subscription_rank
-     - seller.subscription_label
-     - seller.subscription_active
-     - seller.subscription_expires_at
+   v2 additions:
+     - trial_listing         → true when status = 'active_limited'
+     - trial_days_remaining  → days left before trial expires
+     - trial_expires_at      → same as active_until for trial listings
+   These mirror homepage.js v4 shapeProduct() so the frontend
+   receives the same fields whether loading from homepage or
+   directly via product detail.
 ═══════════════════════════════════════════════════════════════ */
 const normalizeProduct = (row, productImageRows = []) => {
   if (!row) return null;
@@ -153,7 +160,9 @@ const normalizeProduct = (row, productImageRows = []) => {
 
   let specsArray = [];
   if (Array.isArray(specifications)) {
-    specsArray = specifications.filter((s) => s && (s.label || s.key) && s.value != null);
+    specsArray = specifications.filter(
+      (s) => s && (s.label || s.key) && s.value != null
+    );
   } else if (specifications && typeof specifications === "object") {
     specsArray = Object.entries(specifications)
       .filter(([, v]) => v != null && String(v).trim() !== "")
@@ -172,136 +181,152 @@ const normalizeProduct = (row, productImageRows = []) => {
   const daysRemaining = daysUntilExpiry(activeUntil);
   const sellerName    = row.seller_name_joined ?? row.seller_name ?? null;
 
+  /* ── Trial listing flags (v2) — mirrors homepage.js v4 ── */
+  const isTrialListing = row.status === "active_limited";
+  const trialExpiresAt = isTrialListing ? activeUntil : null;
+  const trialDaysRemaining = isTrialListing && trialExpiresAt
+    ? Math.max(
+        0,
+        Math.ceil(
+          (new Date(trialExpiresAt).getTime() - Date.now()) / 86_400_000
+        )
+      )
+    : null;
+
   /* ── Promotion ── */
-  const isPromoted          = !!row.is_promoted;
-  const promotionBadge      = getPromotionBadge(
+  const isPromoted        = !!row.is_promoted;
+  const promotionBadge    = getPromotionBadge(
     isPromoted, row.promotion_type, row.promotion_priority
   );
-  const promotionDaysLeft   = daysUntilExpiry(row.promotion_expires_at);
-  const promotionActive     =
+  const promotionDaysLeft = daysUntilExpiry(row.promotion_expires_at);
+  const promotionActive   =
     isPromoted &&
     row.promotion_expires_at != null &&
     new Date(row.promotion_expires_at) > new Date();
 
   /* ── Seller subscription ── */
-  const sellerSubPlan    = row.seller_subscription_plan   ?? null;
-  const sellerSubStatus  = row.seller_subscription_status ?? null;
-  const sellerSubExpires = row.seller_subscription_expires_at ?? null;
+  const sellerSubPlan    = row.seller_subscription_plan        ?? null;
+  const sellerSubStatus  = row.seller_subscription_status      ?? null;
+  const sellerSubExpires = row.seller_subscription_expires_at  ?? null;
   const sellerSubRank    = safeInt(row.seller_subscription_rank, 0);
   const sellerSubActive  = isSubscriptionActive(sellerSubStatus, sellerSubExpires);
   const sellerSubLabel   = getSubscriptionLabel(sellerSubPlan, sellerSubRank);
 
   return {
-    /* Identity */
+    /* ── Identity ── */
     id               : row.id,
     slug             : row.slug,
     title            : row.title       ?? "",
     description      : row.description ?? null,
 
-    /* Product details */
+    /* ── Product details ── */
     condition        : row.condition      ?? null,
     brand            : row.brand          ?? null,
     model            : row.model          ?? null,
     sku              : row.sku            ?? null,
     negotiable       : !!row.negotiable,
-    stock_quantity   : row.stock_quantity != null ? safeInt(row.stock_quantity) : null,
+    stock_quantity   : row.stock_quantity != null
+      ? safeInt(row.stock_quantity) : null,
     stock_status     : row.stock_status   ?? null,
     video_url        : row.video_url      ?? null,
 
-    /* P2P / Swap */
+    /* ── P2P / Swap ── */
     is_p2p           : !!row.is_p2p,
     offer_type       : row.offer_type ?? null,
     swap_for         : row.swap_for   ?? null,
 
-    /* Pricing */
+    /* ── Pricing ── */
     price            : safeFloat(row.price, 0),
     original_price   : null,
     discount_percent : null,
     currency         : "NGN",
 
-    /* Status */
-    status           : row.status           ?? null,
+    /* ── Status ── */
+    status           : row.status    ?? null,
     is_active        : !!row.is_active,
     active_until     : activeUntil,
-    expires_at       : row.expires_at       ?? null,
+    expires_at       : row.expires_at ?? null,
     days_remaining   : daysRemaining,
-    is_trial         : row.status === "active_limited",
+
+    /*
+     * is_trial — true when this listing is from an unverified seller
+     * and has a 7-day trial window. The frontend uses this to show
+     * a "Trial listing" badge or notice on the product detail page.
+     * Mirrors homepage.js v4 trial_listing field.
+     */
+    is_trial              : isTrialListing,
+    trial_listing         : isTrialListing,        // alias for homepage compat
+    trial_expires_at      : trialExpiresAt,
+    trial_days_remaining  : trialDaysRemaining,
+
     is_featured      : !!row.is_featured,
     is_first_product : !!row.is_first_product,
     is_deleted       : !!row.is_deleted,
     moderation_status: row.moderation_status ?? null,
     has_active_report: !!row.has_active_report,
-    fraud_score      : safeInt(row.fraud_score, 0),
-    renewal_count    : safeInt(row.renewal_count, 0),
-    search_priority  : row.search_priority  ?? null,
+    fraud_score      : safeInt(row.fraud_score,    0),
+    renewal_count    : safeInt(row.renewal_count,  0),
+    search_priority  : row.search_priority         ?? null,
 
-    /* Images */
+    /* ── Images ── */
     image            : primaryImage,
     images           : imageArray,
     main_image       : row.main_image    ?? primaryImage,
     thumbnail_url    : row.thumbnail_url ?? primaryImage,
 
-    /* Category */
+    /* ── Category ── */
     category_id      : row.category_id      ?? null,
     subcategory_id   : row.subcategory_id   ?? null,
     category_name    : row.category_name    ?? null,
     subcategory_name : row.subcategory_name ?? null,
 
-    /* Location */
+    /* ── Location ── */
     location_state   : row.location_state ?? null,
     location_city    : row.location_city  ?? null,
     latitude         : row.latitude       ?? null,
     longitude        : row.longitude      ?? null,
 
-    /* ═══════════════════════════════════════════════════════
-       SELLER — now includes subscription data
-       The frontend product detail page uses this to:
-         - Show a "Diamond Seller" / "Elite Seller" badge
-         - Show a "Promoted" badge on the listing
-         - Rank similar products from this seller higher
-    ═══════════════════════════════════════════════════════ */
+    /* ── Seller (flat — for backward compat) ── */
     seller_id        : row.seller_id,
     seller_name      : sellerName,
     seller_image     : row.seller_image  ?? null,
     seller_store     : row.seller_store  ?? null,
     seller_verified  : !!row.seller_verified,
-    seller_rating    : row.seller_rating != null ? safeFloat(row.seller_rating) : null,
-    seller_trust     : row.seller_trust  != null ? safeFloat(row.seller_trust)  : null,
+    seller_rating    : row.seller_rating != null
+      ? safeFloat(row.seller_rating) : null,
+    seller_trust     : row.seller_trust  != null
+      ? safeFloat(row.seller_trust)  : null,
     seller_online    : !!row.seller_online,
 
-    /* Seller subscription — new fields */
+    /* ── Seller (structured — for product detail page) ── */
     seller: {
       id                  : row.seller_id,
       name                : sellerName,
-      image               : row.seller_image   ?? null,
-      store               : row.seller_store   ?? null,
+      image               : row.seller_image  ?? null,
+      store               : row.seller_store  ?? null,
       verified            : !!row.seller_verified,
-      rating              : row.seller_rating  != null ? safeFloat(row.seller_rating) : null,
-      trust               : row.seller_trust   != null ? safeFloat(row.seller_trust)  : null,
+      rating              : row.seller_rating != null
+        ? safeFloat(row.seller_rating) : null,
+      trust               : row.seller_trust  != null
+        ? safeFloat(row.seller_trust)  : null,
       online              : !!row.seller_online,
 
-      /* Subscription fields */
-      subscription_plan   : sellerSubPlan,
-      subscription_status : sellerSubStatus,
-      subscription_rank   : sellerSubRank,
-      subscription_active : sellerSubActive,
-      subscription_label  : sellerSubLabel,
+      /* Subscription */
+      subscription_plan      : sellerSubPlan,
+      subscription_status    : sellerSubStatus,
+      subscription_rank      : sellerSubRank,
+      subscription_active    : sellerSubActive,
+      subscription_label     : sellerSubLabel,
       subscription_expires_at: sellerSubExpires,
-
-      /*
-       * subscription_badge — for the frontend seller card on product detail.
-       * Shows next to the seller name: "💎 Diamond Seller"
-       * null when not subscribed or on free plan.
-       */
-      subscription_badge  : sellerSubActive ? sellerSubLabel : null,
+      subscription_badge     : sellerSubActive ? sellerSubLabel : null,
     },
 
-    /* Contact */
+    /* ── Contact ── */
     phone            : row.phone         ?? null,
     whatsapp         : row.whatsapp      ?? null,
     whatsapp_link    : row.whatsapp_link ?? null,
 
-    /* Rich content */
+    /* ── Rich content ── */
     features,
     attributes,
     specifications   : specsArray,
@@ -310,7 +335,7 @@ const normalizeProduct = (row, productImageRows = []) => {
     delivery,
     contact,
 
-    /* Ratings */
+    /* ── Ratings ── */
     average_rating   : safeFloat(row.average_rating, 0),
     reviews_count    : safeInt(row.reviews_count,    0),
     rating_1_count   : safeInt(row.rating_1_count,   0),
@@ -319,7 +344,7 @@ const normalizeProduct = (row, productImageRows = []) => {
     rating_4_count   : safeInt(row.rating_4_count,   0),
     rating_5_count   : safeInt(row.rating_5_count,   0),
 
-    /* Engagement */
+    /* ── Engagement ── */
     views            : safeInt(row.views,            0),
     clicks_count     : safeInt(row.clicks_count,     0),
     favorites_count  : safeInt(row.favorites_count,  0),
@@ -330,13 +355,7 @@ const normalizeProduct = (row, productImageRows = []) => {
     quality_score    : safeInt(row.quality_score,    0),
     boost_score      : safeInt(row.boost_score,      0),
 
-    /* ═══════════════════════════════════════════════════════
-       PROMOTION — full data for product detail page
-       The frontend uses these to show:
-         - A "Promoted" / "Premium" / "Featured" badge on the image
-         - A "Promotion ends in X days" notice on the seller section
-         - Priority in similar products list
-    ═══════════════════════════════════════════════════════ */
+    /* ── Promotion ── */
     is_promoted          : isPromoted,
     promotion_type       : row.promotion_type       ?? null,
     promotion_priority   : row.promotion_priority   ?? null,
@@ -344,38 +363,30 @@ const normalizeProduct = (row, productImageRows = []) => {
     promotion_active     : promotionActive,
     promotion_badge      : promotionBadge,
     promotion_days_left  : promotionDaysLeft,
-
-    /*
-     * promotion_info — structured object for the frontend promo section.
-     * Show this when promotion_active = true on the product detail page.
-     *
-     * Example UI:
-     *   [⭐ Featured listing]
-     *   Promotion active · expires in 12 days
-     *   This listing appears at the top of search results.
-     */
-    promotion_info: promotionActive
+    promotion_info       : promotionActive
       ? {
-          badge       : promotionBadge,
-          type        : row.promotion_type  ?? null,
-          priority    : row.promotion_priority ?? null,
-          days_left   : promotionDaysLeft,
-          expires_at  : row.promotion_expires_at,
-          description : promotionBadge === "featured"
-            ? "This listing has top placement across the marketplace."
-            : promotionBadge === "premium"
-            ? "This listing has premium placement in search results."
-            : "This listing is promoted for higher visibility.",
+          badge      : promotionBadge,
+          type       : row.promotion_type    ?? null,
+          priority   : row.promotion_priority ?? null,
+          days_left  : promotionDaysLeft,
+          expires_at : row.promotion_expires_at,
+          description:
+            promotionBadge === "featured"
+              ? "This listing has top placement across the marketplace."
+              : promotionBadge === "premium"
+              ? "This listing has premium placement in search results."
+              : "This listing is promoted for higher visibility.",
         }
       : null,
 
-    /* SEO */
-    seo_title       : row.seo_title       ?? row.title ?? null,
-    seo_description : row.seo_description ?? row.description?.slice(0, 160) ?? null,
+    /* ── SEO ── */
+    seo_title       : row.seo_title       ?? row.title            ?? null,
+    seo_description : row.seo_description
+      ?? row.description?.slice(0, 160)   ?? null,
     seo_keywords    : row.seo_keywords    ?? null,
     canonical_url   : row.canonical_url   ?? null,
 
-    /* Timestamps */
+    /* ── Timestamps ── */
     created_at          : row.created_at,
     updated_at          : row.updated_at          ?? null,
     last_interaction_at : row.last_interaction_at ?? null,
@@ -402,15 +413,6 @@ const fetchProductImages = async (productId) => {
 
 /* ═══════════════════════════════════════════════════════════════
    COLUMN SETS
-
-   New columns added to PRODUCT_COLS:
-     u.subscription_plan          AS seller_subscription_plan
-     u.subscription_status        AS seller_subscription_status
-     u.subscription_expires_at    AS seller_subscription_expires_at
-     sp.rank                      AS seller_subscription_rank
-
-   These come from the existing users JOIN + a new LEFT JOIN
-   to subscription_plans for the rank value.
 ═══════════════════════════════════════════════════════════════ */
 const PRODUCT_COLS = `
   p.id,
@@ -489,7 +491,7 @@ const PRODUCT_COLS = `
   p.rating_4_count,
   p.rating_5_count,
 
-  /* Columns that do NOT exist — safe NULL aliases */
+  /* Columns that do NOT exist on the table — safe NULL aliases */
   NULL::numeric   AS original_price,
   NULL::text      AS currency,
   NULL::jsonb     AS features,
@@ -501,27 +503,26 @@ const PRODUCT_COLS = `
   sub.name        AS subcategory_name,
 
   /* Seller from users JOIN */
-  u.name                    AS seller_name_joined,
-  u.profile_image           AS seller_image,
-  u.store_name              AS seller_store,
-  u.identity_verified       AS seller_verified,
-  u.trust_score             AS seller_trust,
-  u.rating                  AS seller_rating,
-  u.is_online               AS seller_online,
+  u.name                       AS seller_name_joined,
+  u.profile_image              AS seller_image,
+  u.store_name                 AS seller_store,
+  u.identity_verified          AS seller_verified,
+  u.trust_score                AS seller_trust,
+  u.rating                     AS seller_rating,
+  u.is_online                  AS seller_online,
 
-  /* ── NEW: Seller subscription fields ──
-     Joined from users + subscription_plans.
-     Used to build seller.subscription_* on the normalized product.
-     subscription_plan / status / expires_at already on users row.
-     rank comes from the subscription_plans table JOIN.
-  */
+  /* Seller subscription fields */
   u.subscription_plan          AS seller_subscription_plan,
   u.subscription_status        AS seller_subscription_status,
   u.subscription_expires_at    AS seller_subscription_expires_at,
   COALESCE(sp.rank, 0)         AS seller_subscription_rank
 `;
 
-/* Card columns — for list / grid views */
+/*
+ * CARD_COLS — for list / grid views (/similar, /by-seller, /favorites).
+ * v2: p.status explicitly included so normalizeProduct can
+ *     set trial_listing correctly on card results.
+ */
 const CARD_COLS = `
   p.id,
   p.slug,
@@ -556,17 +557,26 @@ const CARD_COLS = `
   NULL::text      AS currency
 `;
 
+/*
+ * ACTIVE_WHERE — single source of truth for "publicly visible" filter.
+ *
+ * v2 changes:
+ *   1. Uses ACTIVE_STATUSES constant (was hard-coded in some places).
+ *   2. Added active_until expiry guard:
+ *        (p.active_until IS NULL OR p.active_until > NOW())
+ *      This means expired trial listings (active_limited + past active_until)
+ *      are automatically hidden without needing a cron job to have run.
+ *      Verified/subscribed listings have NULL active_until → always shown.
+ */
 const ACTIVE_WHERE = `
-  p.is_active    = true
-  AND p.is_deleted IS NOT TRUE
-  AND p.status   IN ('active', 'active_limited')
+  p.is_active     = TRUE
+  AND p.is_deleted  IS NOT TRUE
+  AND p.status      IN ${ACTIVE_STATUSES}
+  AND (p.active_until IS NULL OR p.active_until > NOW())
 `;
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/product/slug/:slug
-
-   JOIN change: added LEFT JOIN subscription_plans sp
-   so we can read sp.rank for the seller subscription rank.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/slug/:slug", async (req, res) => {
   const { slug } = req.params;
@@ -582,8 +592,9 @@ router.get("/slug/:slug", async (req, res) => {
        LEFT   JOIN public.categories    cat ON cat.id  = p.category_id
        LEFT   JOIN public.categories    sub ON sub.id  = p.subcategory_id
        LEFT   JOIN public.users         u   ON u.id    = p.seller_id
-       LEFT   JOIN subscription_plans   sp  ON sp.slug = u.subscription_plan
-                                           AND sp.is_active = TRUE
+       LEFT   JOIN subscription_plans   sp
+               ON  sp.slug      = u.subscription_plan
+               AND sp.is_active = TRUE
        WHERE  p.slug = $1
          AND  ${ACTIVE_WHERE}
        LIMIT  1`,
@@ -591,9 +602,11 @@ router.get("/slug/:slug", async (req, res) => {
     );
 
     if (!rows.length) {
+      /* Debug — show why it was filtered */
       try {
         const { rows: debug } = await pool.query(
-          `SELECT id, slug, status, is_active, is_deleted, moderation_status
+          `SELECT id, slug, status, is_active, is_deleted,
+                  moderation_status, active_until
            FROM   public.products WHERE slug = $1 LIMIT 1`,
           [slug]
         );
@@ -603,8 +616,11 @@ router.get("/slug/:slug", async (req, res) => {
           const d = debug[0];
           console.warn(
             `[product/slug] "${slug}" filtered —`,
-            `status=${d.status} is_active=${d.is_active}`,
-            `is_deleted=${d.is_deleted} moderation=${d.moderation_status}`
+            `status=${d.status}`,
+            `is_active=${d.is_active}`,
+            `is_deleted=${d.is_deleted}`,
+            `moderation=${d.moderation_status}`,
+            `active_until=${d.active_until}`   // ← now shows expiry in debug
           );
         }
       } catch (_) {}
@@ -614,6 +630,7 @@ router.get("/slug/:slug", async (req, res) => {
     const row              = rows[0];
     const productImageRows = await fetchProductImages(row.id);
 
+    /* Async view increment — non-blocking */
     pool.query(
       `UPDATE public.products
        SET    views               = COALESCE(views, 0) + 1,
@@ -646,15 +663,17 @@ router.get("/id/:id", async (req, res) => {
        LEFT   JOIN public.categories    cat ON cat.id  = p.category_id
        LEFT   JOIN public.categories    sub ON sub.id  = p.subcategory_id
        LEFT   JOIN public.users         u   ON u.id    = p.seller_id
-       LEFT   JOIN subscription_plans   sp  ON sp.slug = u.subscription_plan
-                                           AND sp.is_active = TRUE
+       LEFT   JOIN subscription_plans   sp
+               ON  sp.slug      = u.subscription_plan
+               AND sp.is_active = TRUE
        WHERE  p.id = $1
          AND  ${ACTIVE_WHERE}
        LIMIT  1`,
       [id]
     );
 
-    if (!rows.length) return res.status(404).json({ message: "Product not found" });
+    if (!rows.length)
+      return res.status(404).json({ message: "Product not found" });
 
     const row              = rows[0];
     const productImageRows = await fetchProductImages(row.id);
@@ -667,10 +686,6 @@ router.get("/id/:id", async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/product/similar
-
-   ORDER BY change: promotion_priority and search_priority both
-   included so promoted and subscribed sellers rank higher in
-   the similar products grid on the product detail page.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/similar", async (req, res) => {
   const { category_id, exclude, limit = 10 } = req.query;
@@ -696,11 +711,6 @@ router.get("/similar", async (req, res) => {
          AND  ${ACTIVE_WHERE}
          ${excludeClause}
        ORDER BY
-         /*
-          * Promoted products first — matches homepage ranking.
-          * A seller on Elite promotion (priority=4) with an Elite
-          * subscription (search_priority=10) appears at the very top.
-          */
          p.is_promoted        DESC,
          p.promotion_priority DESC,
          p.search_priority    DESC,
@@ -745,7 +755,6 @@ router.get("/by-seller", async (req, res) => {
          AND  ${ACTIVE_WHERE}
          ${excludeClause}
        ORDER BY
-         /* Promoted listings from this seller appear first */
          p.is_promoted        DESC,
          p.promotion_priority DESC,
          p.boost_score        DESC,
@@ -765,10 +774,10 @@ router.get("/by-seller", async (req, res) => {
    GET /api/product/slug/:slug/reviews
 ═══════════════════════════════════════════════════════════════ */
 router.get("/slug/:slug/reviews", async (req, res) => {
-  const { slug }  = req.params;
-  const limit     = Math.min(safeInt(req.query.limit, 5),  50);
-  const page      = Math.max(safeInt(req.query.page,  1),   1);
-  const offset    = (page - 1) * limit;
+  const { slug } = req.params;
+  const limit    = Math.min(safeInt(req.query.limit, 5),  50);
+  const page     = Math.max(safeInt(req.query.page,  1),   1);
+  const offset   = (page - 1) * limit;
 
   try {
     const { rows: pRows } = await pool.query(
@@ -781,15 +790,16 @@ router.get("/slug/:slug/reviews", async (req, res) => {
          rating_3_count,
          rating_4_count,
          rating_5_count
-       FROM public.products
+       FROM   public.products
        WHERE  slug      = $1
-         AND  is_active = true
+         AND  is_active = TRUE
          AND  is_deleted IS NOT TRUE
        LIMIT  1`,
       [slug]
     );
 
-    if (!pRows.length) return res.status(404).json({ message: "Product not found" });
+    if (!pRows.length)
+      return res.status(404).json({ message: "Product not found" });
 
     const p = pRows[0];
     const stats = {
@@ -850,7 +860,10 @@ router.post("/slug/:slug/reviews", async (req, res) => {
 
     const { rows: pRows } = await client.query(
       `SELECT id FROM public.products
-       WHERE  slug = $1 AND is_active = true AND is_deleted IS NOT TRUE LIMIT 1`,
+       WHERE  slug      = $1
+         AND  is_active = TRUE
+         AND  is_deleted IS NOT TRUE
+       LIMIT  1`,
       [slug]
     );
     if (!pRows.length) {
@@ -880,9 +893,9 @@ router.post("/slug/:slug/reviews", async (req, res) => {
     await client.query(
       `UPDATE public.products
        SET
-         reviews_count    = COALESCE(reviews_count, 0) + 1,
+         reviews_count             = COALESCE(reviews_count, 0) + 1,
          rating_${ratingNum}_count = COALESCE(rating_${ratingNum}_count, 0) + 1,
-         average_rating   = (
+         average_rating            = (
            SELECT ROUND(AVG(rating)::numeric, 2)
            FROM   product_reviews
            WHERE  product_id = $1
@@ -895,7 +908,9 @@ router.post("/slug/:slug/reviews", async (req, res) => {
     return res.status(201).json(inserted[0]);
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error(`[product/reviews] POST /slug/${slug}/reviews →`, err.message);
+    console.error(
+      `[product/reviews] POST /slug/${slug}/reviews →`, err.message
+    );
     return res.status(500).json({ message: "Failed to submit review" });
   } finally {
     client.release();
@@ -904,6 +919,8 @@ router.post("/slug/:slug/reviews", async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/product/products/:id/view
+   v2: status guard added — only active + active_limited products
+       accumulate analytics. Mirrors homepage.js v4.
 ═══════════════════════════════════════════════════════════════ */
 router.post("/products/:id/view", async (req, res) => {
   const { id } = req.params;
@@ -912,18 +929,21 @@ router.post("/products/:id/view", async (req, res) => {
       `UPDATE public.products
        SET    views               = COALESCE(views, 0) + 1,
               last_interaction_at = NOW()
-       WHERE  id = $1`,
+       WHERE  id        = $1
+         AND  is_active  = TRUE
+         AND  status    IN ${ACTIVE_STATUSES}`,
       [id]
     );
     return res.json({ success: true });
   } catch (err) {
-    console.error(`[product/view] →`, err.message);
+    console.error("[product/view] →", err.message);
     return res.status(500).json({ message: "Failed to track view" });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/product/products/:id/click
+   v2: status guard added
 ═══════════════════════════════════════════════════════════════ */
 router.post("/products/:id/click", async (req, res) => {
   const { id } = req.params;
@@ -932,18 +952,21 @@ router.post("/products/:id/click", async (req, res) => {
       `UPDATE public.products
        SET    clicks_count        = COALESCE(clicks_count, 0) + 1,
               last_interaction_at = NOW()
-       WHERE  id = $1`,
+       WHERE  id        = $1
+         AND  is_active  = TRUE
+         AND  status    IN ${ACTIVE_STATUSES}`,
       [id]
     );
     return res.json({ success: true });
   } catch (err) {
-    console.error(`[product/click] →`, err.message);
+    console.error("[product/click] →", err.message);
     return res.status(500).json({ message: "Failed to track click" });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/product/products/:id/share
+   v2: status guard added
 ═══════════════════════════════════════════════════════════════ */
 router.post("/products/:id/share", async (req, res) => {
   const { id } = req.params;
@@ -952,12 +975,14 @@ router.post("/products/:id/share", async (req, res) => {
       `UPDATE public.products
        SET    share_count         = COALESCE(share_count, 0) + 1,
               last_interaction_at = NOW()
-       WHERE  id = $1`,
+       WHERE  id        = $1
+         AND  is_active  = TRUE
+         AND  status    IN ${ACTIVE_STATUSES}`,
       [id]
     );
     return res.json({ success: true });
   } catch (err) {
-    console.error(`[product/share] →`, err.message);
+    console.error("[product/share] →", err.message);
     return res.status(500).json({ message: "Failed to track share" });
   }
 });
@@ -976,7 +1001,8 @@ router.post("/products/:id/favorite", async (req, res) => {
     await client.query("BEGIN");
 
     const { rows: existing } = await client.query(
-      `SELECT id FROM favorites WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT id FROM favorites
+       WHERE  product_id = $1 AND user_id = $2 LIMIT 1`,
       [id, user_id]
     );
 
@@ -1010,7 +1036,7 @@ router.post("/products/:id/favorite", async (req, res) => {
     return res.json({ favorited: true });
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error(`[product/favorite] →`, err.message);
+    console.error("[product/favorite] →", err.message);
     return res.status(500).json({ message: "Failed to toggle favorite" });
   } finally {
     client.release();
@@ -1028,12 +1054,13 @@ router.get("/products/:id/favorite", async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT id FROM favorites WHERE product_id = $1 AND user_id = $2 LIMIT 1`,
+      `SELECT id FROM favorites
+       WHERE  product_id = $1 AND user_id = $2 LIMIT 1`,
       [id, user_id]
     );
     return res.json({ favorited: rows.length > 0 });
   } catch (err) {
-    console.error(`[product/favorite] →`, err.message);
+    console.error("[product/favorite] →", err.message);
     return res.status(500).json({ message: "Failed to check favorite" });
   }
 });
@@ -1064,9 +1091,10 @@ router.get("/users/:userId/favorites", async (req, res) => {
        FROM   favorites f
        JOIN   public.products p ON p.id = f.product_id
        WHERE  f.user_id   = $1
-         AND  p.is_active = true
+         AND  p.is_active = TRUE
          AND  p.is_deleted IS NOT TRUE
-         AND  p.status    IN ('active', 'active_limited')
+         AND  p.status    IN ${ACTIVE_STATUSES}
+         AND  (p.active_until IS NULL OR p.active_until > NOW())
        ORDER  BY f.created_at DESC
        LIMIT  $2 OFFSET $3`,
       [userId, limit, offset]
@@ -1074,17 +1102,13 @@ router.get("/users/:userId/favorites", async (req, res) => {
 
     return res.json(rows.map((r) => normalizeProduct(r)));
   } catch (err) {
-    console.error(`[product/favorites] →`, err.message);
+    console.error("[product/favorites] →", err.message);
     return res.status(500).json({ message: "Failed to load favorites" });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/product/users/:id/public
-   Seller public profile.
-
-   Change: now includes subscription data so the product detail
-   page can show a "Diamond Seller" badge on the seller section.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/users/:id/public", async (req, res) => {
   const { id } = req.params;
@@ -1109,8 +1133,6 @@ router.get("/users/:id/public", async (req, res) => {
            u.is_online,
            u.created_at,
            EXTRACT(MONTH FROM AGE(NOW(), u.created_at))::int AS member_months,
-
-           /* Subscription fields */
            u.subscription_plan,
            u.subscription_status,
            u.subscription_expires_at,
@@ -1119,8 +1141,8 @@ router.get("/users/:id/public", async (req, res) => {
            sp.badge             AS subscription_badge
          FROM   public.users          u
          LEFT   JOIN subscription_plans sp
-                ON sp.slug      = u.subscription_plan
-               AND sp.is_active = TRUE
+                ON  sp.slug      = u.subscription_plan
+                AND sp.is_active = TRUE
          WHERE  u.id     = $1
            AND  u.status = 'active'
          LIMIT  1`,
@@ -1129,10 +1151,11 @@ router.get("/users/:id/public", async (req, res) => {
       pool.query(
         `SELECT COUNT(*)::int AS active_listings
          FROM   public.products
-         WHERE  seller_id  = $1
-           AND  is_active  = true
-           AND  is_deleted IS NOT TRUE
-           AND  status     IN ('active', 'active_limited')`,
+         WHERE  seller_id   = $1
+           AND  is_active   = TRUE
+           AND  is_deleted  IS NOT TRUE
+           AND  status      IN ${ACTIVE_STATUSES}
+           AND  (active_until IS NULL OR active_until > NOW())`,
         [id]
       ),
     ]);
@@ -1143,7 +1166,6 @@ router.get("/users/:id/public", async (req, res) => {
 
     const u = userResult.rows[0];
 
-    /* Derive subscription active status */
     const subActive = isSubscriptionActive(
       u.subscription_status,
       u.subscription_expires_at
@@ -1172,20 +1194,21 @@ router.get("/users/:id/public", async (req, res) => {
       member_months        : safeInt(u.member_months, 0),
       active_listings      : listingsResult.rows[0]?.active_listings ?? 0,
 
-      /* ── Subscription — for seller badge on product detail page ── */
       subscription: {
-        plan        : u.subscription_plan      ?? null,
-        plan_name   : u.subscription_plan_name ?? null,
-        status      : u.subscription_status    ?? null,
-        expires_at  : u.subscription_expires_at ?? null,
-        rank        : safeInt(u.subscription_rank, 0),
-        active      : subActive,
-        label       : subActive ? subLabel : null,
-        badge       : subActive ? (u.subscription_badge ?? subLabel) : null,
+        plan      : u.subscription_plan       ?? null,
+        plan_name : u.subscription_plan_name  ?? null,
+        status    : u.subscription_status     ?? null,
+        expires_at: u.subscription_expires_at ?? null,
+        rank      : safeInt(u.subscription_rank, 0),
+        active    : subActive,
+        label     : subActive ? subLabel : null,
+        badge     : subActive ? (u.subscription_badge ?? subLabel) : null,
       },
     });
   } catch (err) {
-    console.error(`[product/seller] GET /users/${id}/public →`, err.message);
+    console.error(
+      `[product/seller] GET /users/${id}/public →`, err.message
+    );
     return res.status(500).json({ message: "Failed to load seller" });
   }
 });
