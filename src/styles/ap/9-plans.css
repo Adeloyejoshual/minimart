@@ -1,0 +1,269 @@
+/* ═══════════════════════════════════════════════════════════════
+   9-plans.css
+   Promotion Plan Cards, Badges & Features
+   ─────────────────────────────────────────────────────────────
+   .plans-loading        — centred spinner shown while plans
+                           are being fetched from the server
+   .plans-grid           — 1→2 col responsive card grid
+   .plan-card            — individual plan card with hover lift,
+                           selected state and best-value variant
+   .plan-best-badge      — "Best Value" pill anchored to card top
+   .plan-header          — name + price row
+   .plan-price           — orange price display
+   .plan-price-original  — struck-through original price
+   .plan-price-effective — per-day effective rate
+   .plan-price-badge     — green "SAVE x%" inline badge
+   .plan-duration        — muted duration line
+   .plan-features        — tick-list of plan inclusions
+   .duplicate-warning    — amber warning shown when a similar
+                           listing already exists
+   .dup-checking         — inline "checking…" status row
+═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   LOADING STATE
+═══════════════════════════════════════════════════════════════ */
+.plans-loading {
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  gap            : 8px;
+  padding        : 28px 0;
+  font-size      : .8125rem;
+  color          : var(--ink3);
+  font-weight    : 500;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PLANS GRID
+═══════════════════════════════════════════════════════════════ */
+.plans-grid {
+  display              : grid;
+  grid-template-columns: 1fr;
+  gap                  : 10px;
+}
+
+@media (min-width: 480px) {
+  .plans-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PLAN CARD
+═══════════════════════════════════════════════════════════════ */
+.plan-card {
+  position     : relative;
+  padding      : 18px 16px;
+  border       : 1.5px solid var(--bd);
+  border-radius: var(--r-md);
+  background   : var(--wh);
+  cursor       : pointer;
+  outline      : none;
+  user-select  : none;
+  transition   : all .25s cubic-bezier(.22, 1, .36, 1);
+}
+
+/* ── Hover lift ── */
+.plan-card:hover {
+  border-color: var(--o2);
+  box-shadow  : var(--sh-sm);
+  transform   : translateY(-2px);
+}
+
+/* ── Keyboard focus ── */
+.plan-card:focus-visible {
+  box-shadow  : 0 0 0 3px var(--o-dim);
+  border-color: var(--o);
+}
+
+/* ── Selected state ── */
+.plan-card.selected {
+  border-color: var(--o);
+  background  : var(--o-bg);
+  box-shadow  : 0 0 0 3px var(--o-dim), var(--sh-sm);
+}
+
+/* ── Best value variant ── */
+.plan-card--best { border-color: var(--o2); }
+
+/* ═══════════════════════════════════════════════════════════════
+   BEST VALUE BADGE
+═══════════════════════════════════════════════════════════════ */
+.plan-best-badge {
+  position      : absolute;
+  top           : -10px;
+  right         : 14px;
+  display       : inline-flex;
+  align-items   : center;
+  gap           : 3px;
+  padding       : 3px 10px;
+  font-size     : .5625rem;
+  font-weight   : 700;
+  color         : #fff;
+  background    : linear-gradient(135deg, var(--o) 0%, var(--o2) 100%);
+  border-radius : var(--r-full);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  box-shadow    : 0 2px 8px rgba(255, 92, 0, .3);
+}
+
+.plan-best-badge svg {
+  width : 10px;
+  height: 10px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PLAN HEADER
+═══════════════════════════════════════════════════════════════ */
+.plan-header {
+  display        : flex;
+  justify-content: space-between;
+  align-items    : flex-start;
+  gap            : 8px;
+  margin-bottom  : 4px;
+}
+
+.plan-header strong {
+  font-size  : .9rem;
+  font-weight: 700;
+  color      : var(--ink);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PLAN PRICING
+═══════════════════════════════════════════════════════════════ */
+.plan-price {
+  font-size  : .9rem;
+  font-weight: 700;
+  color      : var(--o);
+  white-space: nowrap;
+}
+
+.plan-price-original {
+  text-decoration: line-through;
+  color          : var(--ink3);
+  font-weight    : 500;
+  font-size      : .72rem;
+}
+
+.plan-price-effective {
+  color      : var(--o);
+  font-weight: 700;
+}
+
+.plan-price-badge {
+  display      : inline-flex;
+  padding      : 1px 6px;
+  font-size    : .5625rem;
+  font-weight  : 700;
+  color        : #fff;
+  background   : var(--gn);
+  border-radius: var(--r-xs);
+  vertical-align: middle;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PLAN DURATION
+═══════════════════════════════════════════════════════════════ */
+.plan-duration {
+  font-size    : .72rem;
+  color        : var(--ink3);
+  margin-bottom: 10px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PLAN FEATURES LIST
+═══════════════════════════════════════════════════════════════ */
+.plan-features {
+  list-style    : none;
+  padding       : 0;
+  margin        : 0;
+  display       : flex;
+  flex-direction: column;
+  gap           : 5px;
+}
+
+.plan-features li {
+  display    : flex;
+  align-items: flex-start;
+  gap        : 6px;
+  font-size  : .75rem;
+  color      : var(--ink2);
+  line-height: 1.45;
+}
+
+.plan-features li svg {
+  width     : 13px;
+  height    : 13px;
+  color     : var(--gn);
+  flex-shrink: 0;
+  margin-top : 1px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DUPLICATE WARNING
+═══════════════════════════════════════════════════════════════ */
+.duplicate-warning {
+  display      : flex;
+  align-items  : flex-start;
+  gap          : 10px;
+  margin       : var(--gap-sm) 0;
+  padding      : 12px 14px;
+  background   : rgba(245, 158, 11, .08);
+  border       : 1px solid rgba(245, 158, 11, .28);
+  border-radius: var(--r-sm);
+  font-size    : .8125rem;
+  color        : var(--am);
+  line-height  : 1.45;
+}
+
+.duplicate-warning svg {
+  flex-shrink: 0;
+  margin-top : 1px;
+  color      : var(--am);
+}
+
+.duplicate-warning strong {
+  display      : block;
+  font-size    : .8125rem;
+  margin-bottom: 2px;
+  color        : var(--ink);
+}
+
+.duplicate-warning p {
+  margin   : 0;
+  font-size: .75rem;
+  color    : var(--ink2);
+}
+
+/* ── Dismiss button ── */
+.duplicate-dismiss {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding    : 0 4px;
+  font-size  : 1.15rem;
+  color      : var(--ink3);
+  background : none;
+  border     : none;
+  cursor     : pointer;
+  line-height: 1;
+  opacity    : .6;
+  transition : opacity var(--tr);
+}
+
+.duplicate-dismiss:hover { opacity: 1; }
+
+/* ═══════════════════════════════════════════════════════════════
+   DUP CHECKING
+═══════════════════════════════════════════════════════════════ */
+.dup-checking {
+  display      : flex;
+  align-items  : center;
+  gap          : 8px;
+  margin       : var(--gap-sm) 0;
+  padding      : 8px 14px;
+  font-size    : .72rem;
+  color        : var(--ink3);
+  font-weight  : 500;
+  background   : var(--wh2);
+  border-radius: var(--r-sm);
+}
