@@ -1,0 +1,130 @@
+/* ═══════════════════════════════════════════════════════════════
+   11-modal.css
+   Verify Before Pay Modal
+   ─────────────────────────────────────────────────────────────
+   Shown when an unverified user selects a paid promotion plan.
+     Cancel    → stays on page     (no Paystack redirect)
+     Verify    → /verification
+     Free Plan → switches plan + submits immediately
+
+   .ap-modal-overlay   — fixed full-screen dimmed backdrop
+   .ap-modal           — centred card with entrance animation
+   .ap-modal-icon      — large emoji / icon at top of card
+   .ap-modal-title     — bold heading
+   .ap-modal-message   — body copy
+   .ap-modal-list      — benefits list with icon rows
+   .ap-modal-actions   — vertical CTA button stack
+   .ap-modal-hint      — muted "use free plan" hint at bottom
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Overlay ── */
+.ap-modal-overlay {
+  position               : fixed;
+  inset                  : 0;
+  background             : rgba(0, 0, 0, .60);
+  backdrop-filter        : blur(4px) saturate(1.4);
+  -webkit-backdrop-filter: blur(4px) saturate(1.4);
+  display                : flex;
+  align-items            : center;
+  justify-content        : center;
+  z-index                : var(--z-modal);
+  padding                : var(--pad);
+  animation              : ap-fade-in .18s ease both;
+}
+
+/* ── Card ── */
+.ap-modal {
+  position     : relative;
+  background   : var(--wh);
+  border       : 1px solid var(--bd);
+  border-radius: 20px;
+  padding      : 2rem 1.75rem;
+  max-width    : 420px;
+  width        : 100%;
+  text-align   : center;
+  box-shadow   :
+    0 24px 64px rgba(0, 0, 0, .22),
+    0  4px 16px rgba(0, 0, 0, .10);
+  animation    : ap-modal-in .22s cubic-bezier(.22, 1, .36, 1) both;
+}
+
+/* ── Lock icon ── */
+.ap-modal-icon {
+  display      : block;
+  font-size    : 3rem;
+  line-height  : 1;
+  margin-bottom: .75rem;
+}
+
+/* ── Heading ── */
+.ap-modal-title {
+  font-family   : var(--font-d);
+  font-size     : 1.25rem;
+  font-weight   : 700;
+  color         : var(--ink);
+  margin        : 0 0 .75rem;
+  line-height   : 1.3;
+  letter-spacing: -.01em;
+}
+
+/* ── Body copy ── */
+.ap-modal-message {
+  font-size  : .9rem;
+  color      : var(--ink2);
+  line-height: 1.65;
+  margin     : 0 0 1.25rem;
+}
+
+/* ── Benefits list ── */
+.ap-modal-list {
+  list-style    : none;
+  padding       : 1rem 1.125rem;
+  margin        : 0 0 1.5rem;
+  text-align    : left;
+  background    : var(--wh2);
+  border        : 1px solid var(--bd);
+  border-radius : var(--r-md);
+  display       : flex;
+  flex-direction: column;
+  gap           : .35rem;
+}
+
+.ap-modal-list li {
+  display    : flex;
+  align-items: center;
+  gap        : .4rem;
+  font-size  : .875rem;
+  color      : var(--ink);
+  line-height: 1.5;
+}
+
+/* ── CTA stack ── */
+.ap-modal-actions {
+  display       : flex;
+  flex-direction: column;
+  gap           : .625rem;
+  margin-bottom : 1rem;
+}
+
+/* ── Free plan hint ── */
+.ap-modal-hint {
+  font-size  : .8125rem;
+  color      : var(--ink3);
+  margin     : 0;
+  line-height: 1.5;
+}
+
+.ap-modal-hint .link-btn {
+  margin-top: 0;
+  font-size : inherit;
+  display   : inline;
+  padding   : 0;
+}
+
+/* ── Small phones ── */
+@media (max-width: 359px) {
+  .ap-modal {
+    padding      : 1.5rem 1.125rem;
+    border-radius: 16px;
+  }
+}
