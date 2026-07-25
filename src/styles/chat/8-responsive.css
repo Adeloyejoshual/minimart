@@ -1,0 +1,65 @@
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .chat-header  { padding: 8px 10px; }
+  .chat-body    { padding: 8px; }
+
+  .chat-row--me,
+  .chat-bubble-row.mine   { padding-left: 40px !important; }
+  .chat-row--them,
+  .chat-bubble-row.theirs { padding-right: 40px !important; }
+
+  .chat-bubble        { max-width: 100%; }
+  .chat-bubble--media { max-width: 280px; }
+  .mgrid              { max-width: 274px; }
+
+  .attach-popover { left: 6px; right: 6px; min-width: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --chat-bg:           #0b141a;
+    --chat-surface:      #1f2c33;
+    --chat-border:       #2a3942;
+    --chat-border-soft:  #202c33;
+    --bubble-their-bg:   #202c33;
+    --bubble-their-text: #e9edef;
+    --text-primary:      #e9edef;
+    --text-secondary:    #aebac1;
+    --text-muted:        #8696a0;
+  }
+  .chat-input               { background: #2a3942; color: #e9edef; }
+  .chat-input:focus         { background: #1f2c33; }
+  .attach-popover           { background: #1f2c33; border-color: #2a3942; }
+  .attach-option:hover      { background: #2a3942; }
+  .modal-sheet              { background: #1f2c33; }
+  .modal-close              { background: #2a3942; color: #aebac1; }
+  .modal-input-wrap         { background: #2a3942; border-color: #37474f; }
+  .modal-textarea           { background: #2a3942; border-color: #37474f; color: #e9edef; }
+  .modal-quick-btn          { background: #2a3942; border-color: #37474f; color: #e9edef; }
+  .modal-cancel             { background: #1f2c33; border-color: #2a3942; color: #aebac1; }
+  .footer-reply-preview     { background: #1f2c33; }
+  .footer-reply-close:hover { background: #2a3942; }
+  .chat-offer               { background: #1f2c33; color: #e9edef; }
+  .chat-shared-product__info { background: #202c33; }
+  .chat-location            { background: #202c33; }
+  .mtile                    { background: #2a3942; }
+  .mtile__shimmer {
+    background: linear-gradient(90deg, #2a3942 0%, #37474f 50%, #2a3942 100%);
+    background-size: 200% 100%;
+  }
+  .mtile__spinner    { border-color: rgba(255,255,255,.15); border-top-color: #e9edef; }
+  .mtile__error      { background: #2a3942; color: #667781; }
+  .upload-progress-banner { background: #1f2c33; color: #aebac1; }
+  .delete-chat-sheet { background: #1f2c33; }
+  .delete-chat-cancel { background: #2a3942; border-color: #37474f; color: #aebac1; }
+  .report-reason-btn { background: #1f2c33; border-color: #2a3942; }
+  .report-reason-btn:hover { background: #2d1515; border-color: var(--accent-red); }
+  .report-selected-card { background: #2d1515; border-color: #7f1d1d; }
+  .report-warning-box   { background: #2a2000; border-color: #3d3000; color: #d4a800; }
+  .report-success-note  { background: #2a3942; }
+}
