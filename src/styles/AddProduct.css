@@ -1,12 +1,20 @@
 /* ═══════════════════════════════════════════════════════════════
    AddProduct.css  — Main Entry Point
+   Import order matters: tokens → keyframes → layout → components
 ═══════════════════════════════════════════════════════════════ */
 
-@import "./ap/1-tokens.css";      /* CSS custom properties & dark-mode token overrides   */
-@import "./ap/2-keyframes.css";   /* All @keyframes animations                           */
-@import "./ap/3-base.css";        /* Page shell + progress bar + edit-mode bar           */
-@import "./ap/4-sections.css";    /* .section, .form-card, inputs, form rows             */
-@import "./ap/5-components.css";  /* Checkboxes, toggles, delivery grid                  */
-@import "./ap/6-plans.css";       /* Promotion plans, buttons, modal                     */
-@import "./ap/7-banners.css";     /* Banners, terms, sticky bar                          */
-@import "./ap/8-dark.css";        /* Dark mode + responsive + utilities                  */
+@import "./ap/1-tokens.css";     /* CSS custom properties, shadows, motion & dark token overrides  */
+@import "./ap/2-keyframes.css";  /* All @keyframes — fade, slide, shake, spin, modal entrance      */
+@import "./ap/3-base.css";       /* Page shell, .apd-page, .sr-only, global focus-visible ring     */
+@import "./ap/4-progress.css";   /* Progress bar, edit-mode bar                                    */
+@import "./ap/5-sections.css";   /* .section, .form-card, .section-title, .edit-back-hint          */
+@import "./ap/6-inputs.css";     /* Form groups, inputs, textarea, select, #ap-title, suggestions  */
+@import "./ap/7-checkboxes.css"; /* Checkbox grid, custom visual, :has() fallback                  */
+@import "./ap/8-toggles.css";    /* Toggle switch, .toggle-status, delivery grid                   */
+@import "./ap/9-plans.css";      /* Plan cards, badges, features, duplicate warning                 */
+@import "./ap/10-buttons.css";   /* Primary, outline, link buttons, spinner, sticky submit bar      */
+@import "./ap/11-modal.css";     /* Verify-before-pay modal overlay, card & actions                 */
+@import "./ap/12-banners.css";   /* Error & success banners, terms checkbox, terms error msg        */
+@import "./ap/13-dark.css";      /* All dark-mode surface overrides consolidated                    */
+@import "./ap/14-responsive.css";/* Reduced motion, safe area, high contrast, print                 */
+@import "./ap/15-utilities.css"; /* .sr-only, flex, spacing, text & display helpers                 */
