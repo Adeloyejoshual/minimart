@@ -1,0 +1,146 @@
+/* ═══════════════════════════════════════════════════════════════
+   10-buttons.css
+   All Buttons & Spinner
+   ─────────────────────────────────────────────────────────────
+   .primary-btn          — full orange gradient CTA button
+   .outline-btn          — secondary ghost button
+   .link-btn             — inline text-style button
+   .detect-location-btn  — moved to 6-inputs.css
+   .spinner-icon         — animated loading spinner wrapper
+═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   PRIMARY BUTTON
+═══════════════════════════════════════════════════════════════ */
+.primary-btn {
+  display                    : inline-flex;
+  align-items                : center;
+  justify-content            : center;
+  gap                        : 8px;
+  padding                    : 14px 28px;
+  font-family                : var(--fb);
+  font-size                  : .9375rem;
+  font-weight                : 700;
+  color                      : #fff;
+  background                 : linear-gradient(135deg, var(--o) 0%, #E85500 100%);
+  border                     : none;
+  border-radius              : var(--r-sm);
+  cursor                     : pointer;
+  letter-spacing             : .01em;
+  line-height                : 1;
+  -webkit-tap-highlight-color: transparent;
+  transition                 :
+    transform  .15s ease,
+    box-shadow .2s  ease,
+    opacity    .15s ease;
+}
+
+/* ── Hover ── */
+.primary-btn:hover:not(:disabled) {
+  transform : translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 92, 0, .30), var(--sh-xs);
+}
+
+/* ── Active ── */
+.primary-btn:active:not(:disabled) {
+  transform : translateY(0) scale(.98);
+  box-shadow: var(--sh-xs);
+}
+
+/* ── Disabled ── */
+.primary-btn:disabled {
+  opacity  : .55;
+  cursor   : not-allowed;
+  transform: none;
+  filter   : saturate(.6);
+  color    : rgba(255, 255, 255, .85);
+}
+
+/* ── Modifiers ── */
+.primary-btn.full-width { width: 100%; }
+.primary-btn svg        { width: 16px; height: 16px; flex-shrink: 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   OUTLINE BUTTON
+═══════════════════════════════════════════════════════════════ */
+.outline-btn {
+  display                    : inline-flex;
+  align-items                : center;
+  justify-content            : center;
+  gap                        : 6px;
+  padding                    : 10px 20px;
+  font-family                : var(--fb);
+  font-size                  : .8125rem;
+  font-weight                : 600;
+  color                      : var(--ink2);
+  background                 : var(--wh);
+  border                     : 1.5px solid var(--bd);
+  border-radius              : var(--r-sm);
+  cursor                     : pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition                 : all var(--tr);
+}
+
+/* ── Hover ── */
+.outline-btn:hover:not(:disabled) {
+  border-color: var(--bd2);
+  color       : var(--ink);
+  box-shadow  : var(--sh-sm);
+  transform   : translateY(-1px);
+}
+
+/* ── Active ── */
+.outline-btn:active:not(:disabled) { transform: scale(.98); }
+
+/* ═══════════════════════════════════════════════════════════════
+   LINK BUTTON
+═══════════════════════════════════════════════════════════════ */
+.link-btn {
+  display    : inline-flex;
+  align-items: center;
+  gap        : 4px;
+  margin-top : 8px;
+  padding    : 4px 0;
+  font-size  : .8125rem;
+  font-weight: 600;
+  color      : var(--o);
+  background : none;
+  border     : none;
+  cursor     : pointer;
+  font-family: var(--fb);
+  transition : opacity var(--tr);
+}
+
+.link-btn:hover {
+  opacity        : .7;
+  text-decoration: underline;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SPINNER
+═══════════════════════════════════════════════════════════════ */
+.spinner-icon {
+  display  : inline-flex;
+  animation: ap-spin .75s linear infinite;
+}
+
+.spinner-icon svg {
+  width : 16px;
+  height: 16px;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STICKY SUBMIT BAR
+═══════════════════════════════════════════════════════════════ */
+.button-section {
+  position               : sticky;
+  bottom                 : 0;
+  z-index                : var(--z-sticky);
+  margin                 : var(--gap-md) calc(var(--pad) * -1) 0;
+  padding                : var(--pad);
+  background             : rgba(255, 255, 255, .94);
+  backdrop-filter        : blur(18px) saturate(1.6);
+  -webkit-backdrop-filter: blur(18px) saturate(1.6);
+  border-top             : 1px solid var(--bd);
+  box-shadow             : 0 -4px 24px rgba(0, 0, 0, .08);
+}
