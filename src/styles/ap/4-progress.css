@@ -1,0 +1,68 @@
+/* ═══════════════════════════════════════════════════════════════
+   4-progress.css
+   Progress Bar & Edit-Mode Bar
+   ─────────────────────────────────────────────────────────────
+   .ap-top-bar       — wrapper with margin above the form
+   .form-progress    — track + animated fill bar
+   .ap-edit-mode-bar — orange banner shown when editing
+                       an existing listing
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Top bar wrapper ── */
+.ap-top-bar {
+  margin: var(--gap-md) 0 var(--gap-sm);
+}
+
+/* ── Progress track ── */
+.form-progress {
+  position     : relative;
+  height       : 6px;
+  background   : var(--bd);
+  border-radius: var(--r-full);
+  overflow     : hidden;
+}
+
+/* ── Animated fill ── */
+.form-progress-bar {
+  position     : absolute;
+  inset        : 0 auto 0 0;
+  height       : 100%;
+  background   : linear-gradient(90deg, var(--o) 0%, var(--o2) 100%);
+  border-radius: var(--r-full);
+  transition   : width .5s cubic-bezier(.22, 1, .36, 1);
+  min-width    : 0;
+}
+
+/* ── Progress label ── */
+.form-progress-label {
+  display       : block;
+  margin-top    : 7px;
+  font-size     : .7rem;
+  font-weight   : 600;
+  color         : var(--ink3);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+/* ── Edit-mode banner ── */
+.ap-edit-mode-bar {
+  display      : flex;
+  align-items  : center;
+  gap          : 8px;
+  margin       : var(--gap-md) 0 var(--gap-sm);
+  padding      : 10px 14px;
+  background   : var(--o-bg);
+  border       : 1px solid var(--o-20);
+  border-radius: var(--r-sm);
+  font-size    : .8125rem;
+  font-weight  : 600;
+  color        : var(--o);
+}
+
+/* ── Edit-mode icon ── */
+.ap-edit-mode-icon {
+  display    : flex;
+  align-items: center;
+  flex-shrink: 0;
+  color      : var(--o);
+}
