@@ -249,6 +249,23 @@
   .chat-location              { background: #202c33; }
 
   /* ─────────────────────────────────────────────
+     LOCATION BUBBLE — Dark Mode
+  ───────────────────────────────────────────── */
+  .chat-location {
+    background: rgba(255, 255, 255, .08);
+    color: #e9edef;
+  }
+  .chat-bubble--them .chat-location {
+    background: #2a3942;
+  }
+  .chat-location__text {
+    color: #e9edef;
+  }
+  .chat-location__pin {
+    color: var(--brand);
+  }
+
+  /* ─────────────────────────────────────────────
      MEDIA TILES
   ───────────────────────────────────────────── */
   .mtile { background: #2a3942; }
