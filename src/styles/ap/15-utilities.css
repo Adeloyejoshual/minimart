@@ -1,0 +1,68 @@
+/* ═══════════════════════════════════════════════════════════════
+   15-utilities.css
+   Global Utility Helpers
+   ─────────────────────────────────────────────────────────────
+   Standalone helper classes that can be used anywhere.
+   Does not depend on any component-specific styles.
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Screen reader only ── */
+.sr-only {
+  position   : absolute;
+  width      : 1px;
+  height     : 1px;
+  padding    : 0;
+  margin     : -1px;
+  overflow   : hidden;
+  clip       : rect(0 0 0 0);
+  white-space: nowrap;
+  border     : 0;
+}
+
+/* ── Visually hide but keep in flow ── */
+.invisible {
+  visibility: hidden;
+}
+
+/* ── Truncate single line ── */
+.truncate {
+  overflow     : hidden;
+  text-overflow: ellipsis;
+  white-space  : nowrap;
+}
+
+/* ── Full width ── */
+.w-full { width: 100%; }
+
+/* ── Flex helpers ── */
+.flex         { display: flex; }
+.flex-center  { display: flex; align-items: center; justify-content: center; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; }
+.flex-col     { display: flex; flex-direction: column; }
+.gap-sm       { gap: var(--gap-sm); }
+.gap-md       { gap: var(--gap-md); }
+.gap-lg       { gap: var(--gap-lg); }
+
+/* ── Spacing ── */
+.mt-sm  { margin-top: var(--gap-sm); }
+.mt-md  { margin-top: var(--gap-md); }
+.mt-lg  { margin-top: var(--gap-lg); }
+.mb-sm  { margin-bottom: var(--gap-sm); }
+.mb-md  { margin-bottom: var(--gap-md); }
+.mb-lg  { margin-bottom: var(--gap-lg); }
+
+/* ── Text helpers ── */
+.text-sm    { font-size: .8125rem; }
+.text-xs    { font-size: .72rem; }
+.text-muted { color: var(--ink3); }
+.text-ink   { color: var(--ink); }
+.text-orange{ color: var(--o); }
+.text-red   { color: var(--rd); }
+.text-green { color: var(--gn); }
+.font-600   { font-weight: 600; }
+.font-700   { font-weight: 700; }
+
+/* ── Display ── */
+.hidden         { display: none !important; }
+.block          { display: block; }
+.inline-flex    { display: inline-flex; }
