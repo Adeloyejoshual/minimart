@@ -1,0 +1,46 @@
+/* ═══════════════════════════════════════════════════════════════
+   3-base.css
+   Page Shell & Utilities
+   ─────────────────────────────────────────────────────────────
+   Defines the root page container (.apd-page), screen-reader
+   utility (.sr-only), and global focus-visible styles.
+   Everything else sits inside .apd-page.
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Screen-reader only ── */
+.sr-only {
+  position   : absolute;
+  width      : 1px;
+  height     : 1px;
+  padding    : 0;
+  margin     : -1px;
+  overflow   : hidden;
+  clip       : rect(0 0 0 0);
+  white-space: nowrap;
+  border     : 0;
+}
+
+/* ── Page container ── */
+.apd-page {
+  width          : 100%;
+  max-width      : 640px;
+  margin         : 0 auto;
+  padding        : 0 var(--pad) 0;
+  color          : var(--ink);
+  background     : var(--bg);
+  color-scheme   : light dark;
+  min-height     : 100vh;
+  container-type : inline-size;
+  container-name : ap-page;
+}
+
+/* ── Global focus-visible ring ── */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[role="radio"]:focus-visible,
+a:focus-visible {
+  outline       : 2px solid var(--o);
+  outline-offset: 2px;
+}
