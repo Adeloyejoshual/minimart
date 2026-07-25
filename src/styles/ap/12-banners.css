@@ -1,0 +1,198 @@
+/* ═══════════════════════════════════════════════════════════════
+   12-banners.css
+   Error / Success Banners & Terms Checkbox
+   ─────────────────────────────────────────────────────────────
+   .form-error / .ap-error-banner — red error banner
+   .form-success                  — green success banner
+   .terms-wrapper                 — full-width checkbox card
+   .terms-checkbox-box            — custom animated checkbox
+   .terms-checkbox-visual         — visual box with checkmark
+   .terms-text                    — label copy + T&C link
+   .terms-error-msg               — inline error below terms
+═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   ERROR BANNER
+═══════════════════════════════════════════════════════════════ */
+.form-error,
+.ap-error-banner {
+  display      : flex;
+  align-items  : flex-start;
+  gap          : 8px;
+  padding      : 12px 14px;
+  background   : var(--rd-dim);
+  border       : 1px solid rgba(220, 38, 38, .22);
+  border-radius: var(--r-sm);
+  font-size    : .8125rem;
+  font-weight  : 500;
+  color        : var(--rd);
+  line-height  : 1.45;
+}
+
+.form-error svg      { flex-shrink: 0; margin-top: 1px; }
+.ap-error-banner     { margin: var(--gap-sm) 0; }
+
+/* ═══════════════════════════════════════════════════════════════
+   SUCCESS BANNER
+═══════════════════════════════════════════════════════════════ */
+.form-success {
+  display      : flex;
+  align-items  : flex-start;
+  gap          : 8px;
+  margin       : var(--gap-sm) 0;
+  padding      : 12px 14px;
+  background   : var(--gn-dim);
+  border       : 1px solid rgba(21, 128, 61, .2);
+  border-radius: var(--r-sm);
+  font-size    : .8125rem;
+  font-weight  : 500;
+  color        : var(--gn);
+  line-height  : 1.45;
+}
+
+.form-success svg { flex-shrink: 0; margin-top: 1px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   TERMS WRAPPER
+═══════════════════════════════════════════════════════════════ */
+.terms-wrapper {
+  display      : flex;
+  align-items  : flex-start;
+  gap          : 12px;
+  margin       : var(--gap-md) 0;
+  padding      : 14px;
+  background   : var(--wh2);
+  border       : 1.5px solid var(--bd);
+  border-radius: var(--r-sm);
+  cursor       : pointer;
+  transition   :
+    border-color var(--tr),
+    background   var(--tr),
+    box-shadow   var(--tr);
+}
+
+.terms-wrapper:hover {
+  border-color: var(--o2);
+  background  : var(--o-bg);
+}
+
+.terms-wrapper--checked {
+  border-color: var(--o);
+  background  : var(--o-bg);
+  box-shadow  : 0 0 0 3px var(--o-dim);
+}
+
+.terms-wrapper--error {
+  border-color: var(--rd);
+  background  : var(--rd-dim);
+  animation   : ap-shake .4s ease both;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CUSTOM CHECKBOX
+═══════════════════════════════════════════════════════════════ */
+.terms-checkbox-box {
+  position  : relative;
+  flex-shrink: 0;
+  width     : 22px;
+  height    : 22px;
+  margin-top: 1px;
+}
+
+.terms-checkbox-box input[type="checkbox"] {
+  position: absolute;
+  inset   : 0;
+  opacity : 0;
+  width   : 100%;
+  height  : 100%;
+  cursor  : pointer;
+  margin  : 0;
+  z-index : 1;
+}
+
+.terms-checkbox-visual {
+  position       : absolute;
+  inset          : 0;
+  border         : 2px solid var(--bd2);
+  border-radius  : 6px;
+  background     : var(--wh);
+  display        : flex;
+  align-items    : center;
+  justify-content: center;
+  pointer-events : none;
+  transition     :
+    border-color var(--tr),
+    background   var(--tr),
+    box-shadow   var(--tr);
+}
+
+/* ── Checked ── */
+.terms-checkbox-box input:checked ~ .terms-checkbox-visual {
+  border-color: var(--o);
+  background  : var(--o);
+}
+
+/* ── Focus ring ── */
+.terms-checkbox-box input:focus-visible ~ .terms-checkbox-visual {
+  box-shadow  : 0 0 0 3px var(--o-dim);
+  border-color: var(--o);
+}
+
+/* ── Animated checkmark ── */
+.terms-checkbox-visual svg {
+  width    : 12px;
+  height   : 12px;
+  color    : #fff;
+  opacity  : 0;
+  transform: scale(.3);
+  transition:
+    opacity   .15s ease,
+    transform var(--tr-bounce);
+}
+
+.terms-checkbox-box input:checked ~ .terms-checkbox-visual svg {
+  opacity  : 1;
+  transform: scale(1);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   TERMS TEXT & LINK
+═══════════════════════════════════════════════════════════════ */
+.terms-text {
+  flex       : 1;
+  min-width  : 0;
+  font-size  : .8125rem;
+  color      : var(--ink2);
+  line-height: 1.6;
+  user-select: none;
+}
+
+.terms-text a {
+  color          : var(--o);
+  font-weight    : 600;
+  text-decoration: none;
+  border-bottom  : 1px solid transparent;
+  transition     : border-color var(--tr);
+}
+
+.terms-text a:hover { border-color: var(--o); }
+
+/* ═══════════════════════════════════════════════════════════════
+   TERMS ERROR MESSAGE
+═══════════════════════════════════════════════════════════════ */
+.terms-error-msg {
+  display      : flex;
+  align-items  : center;
+  gap          : 5px;
+  margin-top   : -8px;
+  margin-bottom: 12px;
+  font-size    : .72rem;
+  font-weight  : 600;
+  color        : var(--rd);
+}
+
+.terms-error-msg svg {
+  width     : 13px;
+  height    : 13px;
+  flex-shrink: 0;
+}
