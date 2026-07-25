@@ -1,0 +1,151 @@
+/* ═══════════════════════════════════════════════════════════════
+   14-responsive.css
+   Breakpoints, Reduced Motion, Safe Area, High Contrast & Print
+   ─────────────────────────────────────────────────────────────
+   All environment-specific overrides in one place:
+     @media (min-width)           — responsive layout shifts
+     @media (prefers-reduced-motion) — animation opt-out
+     @supports (safe-area-inset) — notch / home-indicator
+     @media (forced-colors)      — high contrast / Windows HCM
+     @media print                — print stylesheet
+═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   REDUCED MOTION
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+
+  .section,
+  .form-card {
+    opacity  : 1;
+    transform: none;
+    transition: none;
+  }
+
+  .plan-card,
+  .plan-card:hover,
+  .primary-btn,
+  .outline-btn,
+  .detect-location-btn,
+  .title-suggestion-chip,
+  .toggle-switch,
+  .toggle-switch .slider::after,
+  .form-progress-bar,
+  .terms-checkbox-visual,
+  .terms-checkbox-visual svg,
+  .terms-wrapper,
+  .delivery-grid,
+  .ap-modal-overlay,
+  .ap-modal {
+    transition: none;
+    animation : none;
+  }
+
+  .spinner-icon         { animation-duration: 1.5s; }
+  .terms-wrapper--error { animation: none; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SAFE AREA — notch / home-indicator devices
+═══════════════════════════════════════════════════════════════ */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .button-section {
+    padding-bottom: calc(var(--pad) + env(safe-area-inset-bottom));
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HIGH CONTRAST — Windows HCM / forced-colors
+═══════════════════════════════════════════════════════════════ */
+@media (forced-colors: active) {
+
+  .primary-btn {
+    forced-color-adjust: none;
+    background         : ButtonText;
+    color              : ButtonFace;
+  }
+
+  .outline-btn {
+    forced-color-adjust: none;
+    border             : 1.5px solid ButtonText;
+    color              : ButtonText;
+  }
+
+  .terms-checkbox-visual {
+    forced-color-adjust: none;
+    border             : 2px solid ButtonText;
+  }
+
+  .plan-card.selected    { border: 2px solid Highlight; }
+  .form-progress-bar     { background: Highlight; }
+
+  .toggle-switch .slider {
+    border: 1px solid ButtonText;
+  }
+
+  .ap-modal {
+    forced-color-adjust: none;
+    border             : 2px solid ButtonText;
+    background         : Canvas;
+  }
+
+  .ap-modal-overlay      { background: rgba(0, 0, 0, .85); }
+  .ap-modal-title        { color: CanvasText; }
+  .ap-modal-list         { border: 1px solid ButtonText; background: Canvas; }
+  .ap-modal-list li      { color: CanvasText; }
+
+  .form-group input,
+  .form-group textarea,
+  .form-group select,
+  #ap-title {
+    forced-color-adjust: none;
+    background         : Canvas;
+    color              : CanvasText;
+    border             : 1.5px solid CanvasText;
+  }
+
+  .checkbox-inline::before {
+    forced-color-adjust: none;
+    border             : 2px solid ButtonText;
+    background         : Canvas;
+  }
+
+  .checkbox-inline:has(input[type="checkbox"]:checked)::before {
+    background  : Highlight;
+    border-color: Highlight;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PRINT
+═══════════════════════════════════════════════════════════════ */
+@media print {
+
+  .ap-top-bar,
+  .button-section,
+  .detect-location-row,
+  .duplicate-warning,
+  .dup-checking,
+  .ap-edit-mode-bar,
+  .terms-wrapper,
+  .terms-error-msg,
+  .plans-grid,
+  .spinner-icon,
+  .ap-modal-overlay {
+    display: none !important;
+  }
+
+  .section,
+  .form-card {
+    break-inside: avoid;
+    box-shadow  : none;
+    border      : 1px solid #ddd;
+    opacity     : 1;
+    transform   : none;
+  }
+
+  .apd-page {
+    max-width     : 100%;
+    padding-bottom: 0;
+  }
+}
