@@ -1,0 +1,262 @@
+/* ═══════════════════════════════════════════════════════════════
+   6-inputs.css
+   Form Groups, Inputs, Textarea, Select & Title Field
+   ─────────────────────────────────────────────────────────────
+   .form-group          — label + input wrapper with spacing
+   .form-row            — side-by-side field layout on wide screens
+   .field-footer        — hint + char-count row below a field
+   .field-hint          — small helper / error text below input
+   .label-optional      — muted "(optional)" label suffix
+   #ap-title            — hero-sized title input
+   .title-suggestions   — clickable chip row below title field
+   .detect-location-btn — GPS detect button in location section
+═══════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   FORM GROUP
+═══════════════════════════════════════════════════════════════ */
+.form-group              { margin-bottom: var(--gap-md); }
+.form-group:last-child   { margin-bottom: 0; }
+
+.form-group > label {
+  display       : block;
+  font-size     : .8125rem;
+  font-weight   : 600;
+  color         : var(--ink);
+  margin-bottom : 6px;
+  letter-spacing: .01em;
+}
+
+.label-optional {
+  font-weight: 400;
+  color      : var(--ink3);
+  font-size  : .72rem;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   BASE INPUT STYLES
+═══════════════════════════════════════════════════════════════ */
+.form-group input[type="text"],
+.form-group input[type="email"],
+.form-group input[type="tel"],
+.form-group input[type="url"],
+.form-group input[type="number"],
+.form-group input[type="search"],
+.form-group input[type="password"],
+.form-group textarea,
+.form-group select,
+.form-group input {
+  display                : block;
+  width                  : 100%;
+  padding                : 12px 14px;
+  font-family            : var(--fb);
+  font-size              : .9375rem;
+  color                  : var(--ink) !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  caret-color            : var(--o);
+  background             : var(--wh);
+  background-color       : var(--wh);
+  border                 : 1.5px solid var(--bd);
+  border-radius          : var(--r-sm);
+  outline                : none;
+  color-scheme           : light dark;
+  transition             :
+    border-color var(--tr),
+    box-shadow   var(--tr);
+  -webkit-appearance     : none;
+  appearance             : none;
+}
+
+/* ── Hover ── */
+.form-group input:hover,
+.form-group textarea:hover,
+.form-group select:hover {
+  border-color: var(--bd2);
+}
+
+/* ── Focus ── */
+.form-group input:focus,
+.form-group textarea:focus,
+.form-group select:focus {
+  border-color: var(--o);
+  box-shadow  : 0 0 0 3.5px var(--o-dim);
+}
+
+/* ── Placeholder ── */
+.form-group input::placeholder,
+.form-group textarea::placeholder {
+  color                  : var(--ink3) !important;
+  -webkit-text-fill-color: var(--ink3) !important;
+  opacity                : 1;
+}
+
+/* ── Textarea ── */
+.form-group textarea {
+  resize     : vertical;
+  min-height : 100px;
+  line-height: 1.6;
+}
+
+/* ── Autofill override ── */
+.form-group input:-webkit-autofill,
+.form-group input:-webkit-autofill:hover,
+.form-group input:-webkit-autofill:focus,
+.form-group input:-webkit-autofill:active {
+  -webkit-text-fill-color: var(--ink) !important;
+  -webkit-box-shadow     : 0 0 0 1000px var(--wh) inset !important;
+  transition             : background-color 5000s ease-in-out 0s;
+  caret-color            : var(--o);
+}
+
+/* ── Number spinners ── */
+.form-group input[type="number"]::-webkit-outer-spin-button,
+.form-group input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin            : 0;
+}
+
+.form-group input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HERO TITLE INPUT
+═══════════════════════════════════════════════════════════════ */
+#ap-title,
+input#ap-title,
+.form-group #ap-title,
+.form-group input#ap-title {
+  padding                : 16px 14px;
+  font-size              : 1.05rem;
+  font-weight            : 600;
+  min-height             : 54px;
+  color                  : var(--ink) !important;
+  -webkit-text-fill-color: var(--ink) !important;
+  caret-color            : var(--o);
+  background             : var(--wh) !important;
+  background-color       : var(--wh) !important;
+}
+
+#ap-title::placeholder,
+input#ap-title::placeholder,
+.form-group #ap-title::placeholder {
+  color                  : var(--ink3) !important;
+  -webkit-text-fill-color: var(--ink3) !important;
+  opacity                : 1;
+}
+
+/* ── Title autofill ── */
+#ap-title:-webkit-autofill,
+input#ap-title:-webkit-autofill {
+  -webkit-text-fill-color: var(--ink) !important;
+  -webkit-box-shadow     : 0 0 0 1000px var(--wh) inset !important;
+  caret-color            : var(--o) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FORM ROW — side by side on ≥480px
+═══════════════════════════════════════════════════════════════ */
+.form-row {
+  display       : flex;
+  flex-direction: column;
+  gap           : 0;
+}
+
+@media (min-width: 480px) {
+  .form-row               { flex-direction: row; gap: 12px; }
+  .form-row > .form-group { flex: 1; min-width: 0; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   FIELD FOOTER & HINTS
+═══════════════════════════════════════════════════════════════ */
+.field-footer {
+  display        : flex;
+  justify-content: space-between;
+  align-items    : center;
+  margin-top     : 5px;
+}
+
+.field-hint {
+  display    : block;
+  font-size  : .72rem;
+  color      : var(--ink3);
+  margin-top : 4px;
+  line-height: 1.45;
+}
+
+.field-hint--error { color: var(--rd); }
+
+/* ═══════════════════════════════════════════════════════════════
+   TITLE SUGGESTIONS
+═══════════════════════════════════════════════════════════════ */
+.title-suggestions {
+  display    : flex;
+  flex-wrap  : wrap;
+  align-items: center;
+  gap        : 6px;
+  margin-top : 8px;
+}
+
+.title-suggestions-label {
+  font-size     : .6875rem;
+  font-weight   : 700;
+  color         : var(--ink3);
+  text-transform: uppercase;
+  letter-spacing: .05em;
+}
+
+.title-suggestion-chip {
+  display      : inline-flex;
+  align-items  : center;
+  padding      : 5px 12px;
+  font-size    : .75rem;
+  font-weight  : 600;
+  color        : var(--o);
+  background   : var(--o-bg);
+  border       : 1px solid transparent;
+  border-radius: var(--r-full);
+  cursor       : pointer;
+  font-family  : var(--fb);
+  transition   : all var(--tr);
+}
+
+.title-suggestion-chip:hover  { background: var(--o);  color: #fff; }
+.title-suggestion-chip:active { transform: scale(.96); }
+
+/* ═══════════════════════════════════════════════════════════════
+   DETECT LOCATION BUTTON
+═══════════════════════════════════════════════════════════════ */
+.detect-location-row { margin-bottom: var(--gap-md); }
+
+.detect-location-btn {
+  display      : inline-flex;
+  align-items  : center;
+  gap          : 6px;
+  padding      : 9px 16px;
+  font-size    : .8125rem;
+  font-weight  : 600;
+  color        : var(--o);
+  background   : var(--o-bg);
+  border       : 1.5px solid var(--o);
+  border-radius: var(--r-sm);
+  cursor       : pointer;
+  font-family  : var(--fb);
+  transition   : all var(--tr);
+}
+
+.detect-location-btn:hover:not(:disabled) {
+  background: var(--o);
+  color     : #fff;
+}
+
+.detect-location-btn:disabled {
+  opacity: .5;
+  cursor : not-allowed;
+}
+
+.detect-location-btn svg {
+  width     : 15px;
+  height    : 15px;
+  flex-shrink: 0;
+}
