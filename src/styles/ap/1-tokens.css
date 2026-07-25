@@ -1,0 +1,114 @@
+/* ═══════════════════════════════════════════════════════════════
+   1-tokens.css
+   CSS Custom Properties & Dark-Mode Token Overrides
+   ─────────────────────────────────────────────────────────────
+   All design tokens live here. Every other file references
+   these variables — change once, update everywhere.
+═══════════════════════════════════════════════════════════════ */
+
+/* ───────────────────────────────────────────────────────────────
+   LIGHT MODE (default)
+─────────────────────────────────────────────────────────────── */
+:root {
+  /* ── Colours ── */
+  --o-20        : rgba(255, 92,  0, .20);
+  --o-dim       : rgba(255, 92,  0, .08);
+  --o-deep      : #CC4900;
+  --rd          : #DC2626;
+  --rd-dim      : rgba(220, 38, 38, .08);
+  --am          : #D97706;
+  --gn-dim      : rgba(21, 128, 61, .10);
+  --wh2         : var(--bg);
+  --wh3         : var(--bd);
+  --ink1        : var(--ink);
+  --ink4        : var(--ink3);
+
+  /* ── Radii ── */
+  --r-xs        : 4px;
+  --r-sm        : var(--r1);
+  --r-md        : var(--r2);
+  --r-lg        : var(--r2);
+  --r-xl        : var(--r3);
+  --r-full      : 9999px;
+
+  /* ── Shadows ── */
+  --sh-xs       : 0 1px 2px rgba(0, 0, 0, .05);
+  --sh-sm       : var(--s1);
+  --sh-md       : var(--s2);
+  --sh-lg       : var(--s3);
+
+  /* ── Motion ── */
+  --tr          : .2s ease;
+  --tr-bounce   : .3s cubic-bezier(.34, 1.56, .64, 1);
+
+  /* ── Layout ── */
+  --pad         : 16px;
+  --gap-sm      : 8px;
+  --gap-md      : 16px;
+  --gap-lg      : 24px;
+
+  /* ── Z-index ── */
+  --z-sticky    : 50;
+  --z-modal     : 999;
+
+  /* ── Font alias ── */
+  --font-d      : var(--fd);
+}
+
+/* ───────────────────────────────────────────────────────────────
+   DARK MODE — System Preference
+─────────────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg          : #1A1714;
+    --wh          : #2A2622;
+    --wh2         : #221F1B;
+    --wh3         : #33302B;
+    --bd          : #3A3530;
+    --bd2         : #4A4540;
+    --ink         : #F5F0EB;
+    --ink2        : #C5BEB5;
+    --ink3        : #8A8278;
+    --ink4        : #605A52;
+    --o-bg        : rgba(255, 92,  0, .14);
+    --o-dim       : rgba(255, 92,  0, .10);
+    --o-20        : rgba(255, 92,  0, .22);
+    --gn2         : rgba(21, 128, 61, .18);
+    --gn-dim      : rgba(21, 128, 61, .12);
+    --rd-dim      : rgba(220, 38, 38, .12);
+    --am          : #F59E0B;
+    --rd          : #EF4444;
+    --sh-xs       : 0 1px 2px rgba(0, 0, 0, .15);
+    --sh-sm       : 0 1px 3px rgba(0, 0, 0, .2);
+    --sh-md       : 0 4px 12px rgba(0, 0, 0, .25);
+    --sh-lg       : 0 8px 24px rgba(0, 0, 0, .3);
+  }
+}
+
+/* ───────────────────────────────────────────────────────────────
+   DARK MODE — Manual Toggle [data-theme="dark"]
+─────────────────────────────────────────────────────────────── */
+[data-theme="dark"] {
+  --bg          : #1A1714;
+  --wh          : #2A2622;
+  --wh2         : #221F1B;
+  --wh3         : #33302B;
+  --bd          : #3A3530;
+  --bd2         : #4A4540;
+  --ink         : #F5F0EB;
+  --ink2        : #C5BEB5;
+  --ink3        : #8A8278;
+  --ink4        : #605A52;
+  --o-bg        : rgba(255, 92,  0, .14);
+  --o-dim       : rgba(255, 92,  0, .10);
+  --o-20        : rgba(255, 92,  0, .22);
+  --gn2         : rgba(21, 128, 61, .18);
+  --gn-dim      : rgba(21, 128, 61, .12);
+  --rd-dim      : rgba(220, 38, 38, .12);
+  --am          : #F59E0B;
+  --rd          : #EF4444;
+  --sh-xs       : 0 1px 2px rgba(0, 0, 0, .15);
+  --sh-sm       : 0 1px 3px rgba(0, 0, 0, .2);
+  --sh-md       : 0 4px 12px rgba(0, 0, 0, .25);
+  --sh-lg       : 0 8px 24px rgba(0, 0, 0, .3);
+}
