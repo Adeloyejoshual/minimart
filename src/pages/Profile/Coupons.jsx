@@ -47,9 +47,10 @@ const timeAgo = (d) => {
 };
 
 const COUPON_CONFIG = {
-  percentage   : { color: "#6366f1", bg: "#eef2ff" },
-  fixed        : { color: "#e8630a", bg: "#fff0e6" },
-  free_shipping: { color: "#16a34a", bg: "#dcfce7" },
+  percentage   : { color: "#6366f1", bg: "#eef2ff",  label: "Discount"      },
+  fixed        : { color: "#e8630a", bg: "#fff0e6",  label: "Coupon"        },
+  free_shipping: { color: "#16a34a", bg: "#dcfce7",  label: "Free Shipping" },
+  airtime      : { color: "#0891b2", bg: "#f0f9ff",  label: "Airtime"       },
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -96,6 +97,14 @@ const IconTruck = () => (
     <path d="M16 8h4l3 5v3h-7V8z"/>
     <circle cx="5.5"  cy="18.5" r="2.5"/>
     <circle cx="18.5" cy="18.5" r="2.5"/>
+  </svg>
+);
+
+const IconPhone = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="5" y="2" width="14" height="20" rx="2"/>
+    <line x1="12" y1="18" x2="12.01" y2="18"/>
   </svg>
 );
 
@@ -167,15 +176,106 @@ const IconInfo = () => (
   </svg>
 );
 
+const IconSend = () => (
+  <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="22" y1="2" x2="11" y2="13"/>
+    <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+  </svg>
+);
+
 /* ── Coupon type icon resolver ── */
-const CouponIcon = ({ type, size = 16 }) => {
+const CouponIcon = ({ type }) => {
   if (type === "percentage")    return <IconPercent />;
   if (type === "free_shipping") return <IconTruck />;
+  if (type === "airtime")       return <IconPhone />;
   return <IconTag />;
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   COUPON CARD
+   AIRTIME COUPON CARD
+═══════════════════════════════════════════════════════════════ */
+function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
+  const cfg      = COUPON_CONFIG.airtime;
+  const isCopied = copied === coupon.code;
+  const isUsed   = coupon.is_used;
+  const statusMap = {
+    available : { label: "Ready to claim", color: "#16a34a" },
+    claimed   : { label: "Claim submitted", color: "#f59e0b" },
+    credited  : { label: "Credited ✓",      color: "#6366f1" },
+    expired   : { label: "Expired",          color: "#dc2626" },
+  };
+  const st = statusMap[coupon.status] ?? statusMap.available;
+
+  return (
+    <div className={`cp-card cp-card--airtime${isUsed ? " cp-card--used" : ""}`}>
+
+      {/* Left strip */}
+      <div className="cp-card-strip" style={{ background: cfg.color }} />
+
+      {/* Main body */}
+      <div className="cp-card-main">
+        <div className="cp-card-head">
+          <div
+            className="cp-discount-badge"
+            style={{ background: cfg.bg, color: cfg.color }}
+          >
+            <span className="cp-discount-icon"><IconPhone /></span>
+            <span className="cp-discount-text">{naira(coupon.value)} AIRTIME</span>
+          </div>
+          <span className="cp-status" style={{ color: st.color }}>{st.label}</span>
+        </div>
+
+        <p className="cp-desc">
+          {coupon.description || `🎡 Spin & Win — ₦${coupon.value} Airtime`}
+        </p>
+
+        <div className="cp-details">
+          <span className="cp-detail">Won on {fmtDate(coupon.created_at)}</span>
+          {coupon.claimed_at && (
+            <span className="cp-detail">Claimed {fmtDate(coupon.claimed_at)}</span>
+          )}
+        </div>
+
+        {/* Claim button — only when status is available */}
+        {!isUsed && coupon.status === "available" && (
+          <button
+            className="cp-airtime-claim-btn"
+            onClick={() => onClaim(coupon.code, coupon.value)}
+            disabled={claiming === coupon.code}
+          >
+            <IconSend />
+            {claiming === coupon.code ? "Submitting…" : "Claim Airtime"}
+          </button>
+        )}
+      </div>
+
+      {/* Ticket divider */}
+      <div className="cp-divider">
+        <div className="cp-divider-notch cp-divider-notch--top" />
+        <div className="cp-divider-line" />
+        <div className="cp-divider-notch cp-divider-notch--bottom" />
+      </div>
+
+      {/* Code + copy */}
+      <div className="cp-card-code">
+        <p className="cp-code-label">Code</p>
+        <p className="cp-code">{coupon.code}</p>
+        <button
+          className={`cp-copy-btn${isCopied ? " cp-copy-btn--done" : ""}`}
+          onClick={() => onCopy(coupon.code)}
+          aria-label={`Copy airtime code ${coupon.code}`}
+        >
+          {isCopied ? <IconCheck /> : <IconCopy />}
+          {isCopied ? "Copied" : "Copy"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DISCOUNT COUPON CARD
 ═══════════════════════════════════════════════════════════════ */
 function CouponCard({ coupon, onCopy, copied }) {
   const cfg      = COUPON_CONFIG[coupon.type] || COUPON_CONFIG.percentage;
@@ -207,10 +307,8 @@ function CouponCard({ coupon, onCopy, copied }) {
   return (
     <div className={`cp-card${!coupon.usable ? " cp-card--used" : ""}`}>
 
-      {/* Left colored strip */}
       <div className="cp-card-strip" style={{ background: cfg.color }} />
 
-      {/* Main body */}
       <div className="cp-card-main">
         <div className="cp-card-head">
           <div
@@ -252,14 +350,12 @@ function CouponCard({ coupon, onCopy, copied }) {
         </div>
       </div>
 
-      {/* Ticket divider */}
       <div className="cp-divider">
         <div className="cp-divider-notch cp-divider-notch--top" />
         <div className="cp-divider-line" />
         <div className="cp-divider-notch cp-divider-notch--bottom" />
       </div>
 
-      {/* Code + copy */}
       <div className="cp-card-code">
         <p className="cp-code-label">Code</p>
         <p className="cp-code">{coupon.code}</p>
@@ -274,6 +370,30 @@ function CouponCard({ coupon, onCopy, copied }) {
         </button>
       </div>
     </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SMART COUPON CARD — routes to AirtimeCard or CouponCard
+═══════════════════════════════════════════════════════════════ */
+function SmartCard({ coupon, onCopy, copied, onClaim, claiming }) {
+  if (coupon.coupon_kind === "airtime" || coupon.type === "airtime") {
+    return (
+      <AirtimeCard
+        coupon={coupon}
+        onCopy={onCopy}
+        copied={copied}
+        onClaim={onClaim}
+        claiming={claiming}
+      />
+    );
+  }
+  return (
+    <CouponCard
+      coupon={coupon}
+      onCopy={onCopy}
+      copied={copied}
+    />
   );
 }
 
@@ -388,18 +508,38 @@ function ValidatePanel({ onValidated }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   AIRTIME INFO BANNER
+═══════════════════════════════════════════════════════════════ */
+function AirtimeBanner() {
+  return (
+    <div className="cp-airtime-banner">
+      <span className="cp-airtime-banner-icon">📱</span>
+      <div>
+        <p className="cp-airtime-banner-title">How airtime credits work</p>
+        <p className="cp-airtime-banner-sub">
+          Tap <strong>Claim Airtime</strong> on any airtime coupon. Our team
+          will credit your registered phone number within 24 hours.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function Coupons() {
   const navigate = useNavigate();
 
-  const [coupons, setCoupons] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const [tab,     setTab]     = useState("available");
-  const [copied,  setCopied]  = useState(null);
-  const [toast,   setToast]   = useState(null);
+  const [coupons,  setCoupons]  = useState([]);
+  const [history,  setHistory]  = useState([]);
+  const [loading,  setLoading]  = useState(true);
+  const [error,    setError]    = useState(null);
+  const [tab,      setTab]      = useState("available");
+  const [copied,   setCopied]   = useState(null);
+  const [toast,    setToast]    = useState(null);
+  const [claiming, setClaiming] = useState(null); // code of coupon being claimed
+
   const toastRef = useRef(null);
 
   /* ── Auth guard ── */
@@ -436,7 +576,35 @@ export default function Coupons() {
     return () => clearTimeout(toastRef.current);
   }, [loadCoupons]);
 
-  /* ── Copy handler with fallback ── */
+  /* ── Airtime claim handler ── */
+  const handleClaim = useCallback(async (code, amount) => {
+    setClaiming(code);
+    try {
+      const res  = await fetch(`${API}/coupons/airtime/claim`, {
+        method  : "POST",
+        headers : authH(),
+        body    : JSON.stringify({ code }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`✅ ₦${amount} airtime claim submitted!`);
+        /* optimistically update status in local state */
+        setCoupons((prev) =>
+          prev.map((c) =>
+            c.code === code ? { ...c, status: "claimed", is_used: true, usable: false } : c
+          )
+        );
+      } else {
+        showToast(data.message || "Claim failed. Try again.", true);
+      }
+    } catch {
+      showToast("Network error. Please try again.", true);
+    } finally {
+      setClaiming(null);
+    }
+  }, []);
+
+  /* ── Copy handler ── */
   const handleCopy = useCallback((code) => {
     const fallback = () => {
       const el = document.createElement("textarea");
@@ -447,32 +615,38 @@ export default function Coupons() {
       document.execCommand("copy");
       document.body.removeChild(el);
     };
-
     if (navigator.clipboard) {
       navigator.clipboard.writeText(code).catch(fallback);
     } else {
       fallback();
     }
-
     setCopied(code);
-    setToast(`Code "${code}" copied!`);
+    showToast(`Code "${code}" copied!`);
     clearTimeout(toastRef.current);
-    toastRef.current = setTimeout(() => {
-      setCopied(null);
-      setToast(null);
-    }, 2_500);
+    toastRef.current = setTimeout(() => setCopied(null), 2_500);
   }, []);
 
+  /* ── Toast helper ── */
+  const showToast = (msg, isError = false) => {
+    setToast({ msg, isError });
+    clearTimeout(toastRef.current);
+    toastRef.current = setTimeout(() => setToast(null), 3_000);
+  };
+
   /* ── Derived lists ── */
-  const available  = coupons.filter((c) =>  c.usable);
-  const used       = coupons.filter((c) => !c.usable);
-  const totalSaved = history.reduce((s, h) => s + Number(h.discount || 0), 0);
+  const allAvailable  = coupons.filter((c) =>  c.usable);
+  const allUsed       = coupons.filter((c) => !c.usable);
+  const airtimeCoupons = coupons.filter((c) => c.coupon_kind === "airtime" || c.type === "airtime");
+  const totalSaved    = history.reduce((s, h) => s + Number(h.discount || 0), 0);
+
+  const hasAirtime = airtimeCoupons.length > 0;
 
   const TABS = [
-    { key: "available", label: "Available", count: available.length },
-    { key: "used",      label: "Used",      count: used.length      },
-    { key: "history",   label: "History",   count: history.length   },
-  ];
+    { key: "available", label: "Available", count: allAvailable.length  },
+    { key: "airtime",   label: "📱 Airtime", count: airtimeCoupons.length, hide: !hasAirtime },
+    { key: "used",      label: "Used",      count: allUsed.length       },
+    { key: "history",   label: "History",   count: history.length       },
+  ].filter((t) => !t.hide);
 
   /* ══════════════════════════════════════════════
      RENDER
@@ -482,19 +656,16 @@ export default function Coupons() {
 
       {/* ── Topbar ── */}
       <div className="cp-topbar">
-        <button
-          className="cp-back"
-          onClick={() => navigate(-1)}
-          aria-label="Go back"
-        >
+        <button className="cp-back" onClick={() => navigate(-1)} aria-label="Go back">
           <IconBack />
         </button>
-
         <div className="cp-topbar-text">
           <h1 className="cp-topbar-title">My Coupons</h1>
-          <p className="cp-topbar-sub">{available.length} available</p>
+          <p className="cp-topbar-sub">
+            {allAvailable.length} available
+            {hasAirtime ? ` · ${airtimeCoupons.filter(c => c.usable).length} airtime` : ""}
+          </p>
         </div>
-
         <button
           className="cp-refresh"
           onClick={loadCoupons}
@@ -558,7 +729,7 @@ export default function Coupons() {
 
         {/* ── Available tab ── */}
         {!loading && tab === "available" && (
-          available.length === 0 ? (
+          allAvailable.length === 0 ? (
             <div className="cp-empty">
               <span className="cp-empty-icon"><IconTag /></span>
               <p>No coupons available right now</p>
@@ -566,33 +737,64 @@ export default function Coupons() {
             </div>
           ) : (
             <div className="cp-list">
-              {available.map((c) => (
-                <CouponCard
+              {allAvailable.map((c) => (
+                <SmartCard
                   key={c.id}
                   coupon={c}
                   onCopy={handleCopy}
                   copied={copied}
+                  onClaim={handleClaim}
+                  claiming={claiming}
                 />
               ))}
             </div>
           )
         )}
 
+        {/* ── Airtime tab ── */}
+        {!loading && tab === "airtime" && (
+          <>
+            <AirtimeBanner />
+            {airtimeCoupons.length === 0 ? (
+              <div className="cp-empty">
+                <span className="cp-empty-icon">📱</span>
+                <p>No airtime coupons yet</p>
+                <small>Spin the wheel to win airtime!</small>
+              </div>
+            ) : (
+              <div className="cp-list">
+                {airtimeCoupons.map((c) => (
+                  <AirtimeCard
+                    key={c.id}
+                    coupon={c}
+                    onCopy={handleCopy}
+                    copied={copied}
+                    onClaim={handleClaim}
+                    claiming={claiming}
+                  />
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
         {/* ── Used tab ── */}
         {!loading && tab === "used" && (
-          used.length === 0 ? (
+          allUsed.length === 0 ? (
             <div className="cp-empty">
               <span className="cp-empty-icon"><IconCheckCircle /></span>
               <p>No used or expired coupons</p>
             </div>
           ) : (
             <div className="cp-list">
-              {used.map((c) => (
-                <CouponCard
+              {allUsed.map((c) => (
+                <SmartCard
                   key={c.id}
                   coupon={c}
                   onCopy={handleCopy}
                   copied={copied}
+                  onClaim={handleClaim}
+                  claiming={claiming}
                 />
               ))}
             </div>
@@ -628,7 +830,9 @@ export default function Coupons() {
                     </div>
                     <div className="cp-history-save">
                       <p className="cp-history-amount">-{naira(h.discount)}</p>
-                      <p className="cp-history-label">saved</p>
+                      <p className="cp-history-label">
+                        {h.coupon_kind === "airtime" ? "airtime" : "saved"}
+                      </p>
                     </div>
                   </div>
                 );
@@ -650,10 +854,11 @@ export default function Coupons() {
               <h3 className="cp-tips-title">How to use coupons</h3>
             </div>
             {[
-              { icon: <IconCopy />,       t: "Copy the coupon code by tapping 'Copy'" },
-              { icon: <IconTag />,        t: "Go to checkout and paste the code in the coupon field" },
-              { icon: <IconCheckCircle />,t: "Your discount will be applied automatically" },
-              { icon: <IconAlertCircle />,t: "Each coupon can only be used once per account" },
+              { icon: <IconCopy />,        t: "Copy the coupon code by tapping 'Copy'" },
+              { icon: <IconTag />,         t: "Go to checkout and paste the code in the coupon field" },
+              { icon: <IconCheckCircle />, t: "Your discount will be applied automatically" },
+              { icon: <IconPhone />,       t: "For airtime, tap 'Claim Airtime' — credited within 24 hours" },
+              { icon: <IconAlertCircle />, t: "Each coupon can only be used once per account" },
             ].map((tip, idx) => (
               <div key={idx} className="cp-tip">
                 <span className="cp-tip-icon">{tip.icon}</span>
@@ -667,9 +872,13 @@ export default function Coupons() {
 
       {/* ── Toast ── */}
       {toast && (
-        <div className="cp-toast" role="alert" aria-live="assertive">
-          <IconCheck />
-          {toast}
+        <div
+          className={`cp-toast${toast.isError ? " cp-toast--error" : ""}`}
+          role="alert"
+          aria-live="assertive"
+        >
+          {toast.isError ? <IconAlertCircle /> : <IconCheck />}
+          {toast.msg}
         </div>
       )}
 
