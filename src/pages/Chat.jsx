@@ -12,6 +12,7 @@
  * - Context menu
  * - Typing indicators
  * - Full-screen media viewer (swipe / keyboard / zoom / download)
+ * - Custom themed delete-message confirmation (no native alert)
  */
 
 import {
@@ -22,16 +23,17 @@ import { useParams, useNavigate } from "react-router-dom";
 import { io }  from "socket.io-client";
 import axios   from "axios";
 
-import ChatHeader        from "./chat/ChatHeader";
-import SuggestionsBar    from "./chat/SuggestionsBar";
-import MakeOfferModal    from "./chat/MakeOfferModal";
-import CounterOfferModal from "./chat/CounterOfferModal";
-import LocationModal     from "./chat/LocationModal";
-import ContextMenu       from "./chat/ContextMenu";
-import ReportModal       from "./chat/ReportModal";
-import DeleteChatConfirm from "./chat/DeleteChatConfirm";
+import ChatHeader           from "./chat/ChatHeader";
+import SuggestionsBar       from "./chat/SuggestionsBar";
+import MakeOfferModal       from "./chat/MakeOfferModal";
+import CounterOfferModal    from "./chat/CounterOfferModal";
+import LocationModal        from "./chat/LocationModal";
+import ContextMenu          from "./chat/ContextMenu";
+import ReportModal          from "./chat/ReportModal";
+import DeleteChatConfirm    from "./chat/DeleteChatConfirm";
+import DeleteMessageConfirm from "./chat/DeleteMessageConfirm";
 import Bubble, { TypingBubble, DateSep } from "./chat/Bubble";
-import MediaViewer       from "./chat/MediaViewer";
+import MediaViewer          from "./chat/MediaViewer";
 import { Icon } from "./chat/icons";
 import {
   MESSAGE_TYPES, OFFER_STATUS, CURRENCY,
@@ -232,6 +234,7 @@ export default function Chat({ user }) {
   const [locationModal,     setLocationModal]     = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showReportModal,   setShowReportModal]   = useState(false);
+  const [deleteMsgTarget,   setDeleteMsgTarget]   = useState(null);   // ← NEW
 
   /* ── Refs ── */
   const socketRef     = useRef(null);
@@ -284,12 +287,11 @@ export default function Chat({ user }) {
     axios
       .get(`${API}/conversations/${threadId}`, {
         headers: authH(),
-        params : { userId: user.id },          // ← FIX: send userId
+        params : { userId: user.id },
         signal : ctrl.signal,
         timeout: 8_000,
       })
       .then(({ data }) => {
-        /* Derive the OTHER user id — never trust one source alone */
         const oid =
           data.other_user_id ||
           (data.buyer_id === user.id ? data.seller_id : data.buyer_id);
@@ -315,7 +317,6 @@ export default function Chat({ user }) {
           }));
         }
 
-        /* Enrich with full user profile (store name, verified badge, etc) */
         if (oid && oid !== user.id) {
           axios
             .get(`${API}/users/${oid}`, { headers: authH() })
@@ -324,7 +325,6 @@ export default function Chat({ user }) {
                 setOtherUser((p) => ({
                   ...p,
                   ...u,
-                  /* preserve id + online state from primary source */
                   id       : oid,
                   is_online: p?.is_online || u.is_online || false,
                 }))
@@ -800,18 +800,29 @@ export default function Chat({ user }) {
   }, [threadId, user?.id, sendMessage]); // eslint-disable-line
 
   /* ══════════════════════════════════════════════════════════
-     OTHER HANDLERS
+     DELETE MESSAGE  (custom modal — replaces window.confirm)
   ══════════════════════════════════════════════════════════ */
   const handleDelete = useCallback((msg) => {
-    if (!window.confirm("Delete this message?")) return;
+    setDeleteMsgTarget(msg);
+  }, []);
+
+  const confirmDeleteMessage = useCallback(() => {
+    const msg = deleteMsgTarget;
+    setDeleteMsgTarget(null);
+    if (!msg) return;
     if (mounted.current) dispatch({ type: "SOFT_DELETE", id: msg.id });
     socketRef.current?.emit("deleteMessage", { threadId, messageId: msg.id });
     axios
       .delete(`${API}/messages/${msg.id}`,
         { data: { userId: user.id }, headers: authH() })
       .catch(() => {});
-  }, [threadId, user?.id]);
+  }, [deleteMsgTarget, threadId, user?.id]);
 
+  const cancelDeleteMessage = useCallback(() => setDeleteMsgTarget(null), []);
+
+  /* ══════════════════════════════════════════════════════════
+     OTHER HANDLERS
+  ══════════════════════════════════════════════════════════ */
   const handleCopy = useCallback((msg) => {
     navigator.clipboard?.writeText(msg.message).catch(() => {});
   }, []);
@@ -1248,7 +1259,10 @@ export default function Chat({ user }) {
         />
       )}
 
-      {/* ── Modals ── */}
+      {/* ══════════════════════════════════════════════════════
+         MODALS
+      ══════════════════════════════════════════════════════ */}
+
       {offerModal && (
         <MakeOfferModal
           product={product}
@@ -1256,6 +1270,7 @@ export default function Chat({ user }) {
           onClose={closeOfferModal}
         />
       )}
+
       {counterModal && (
         <CounterOfferModal
           originalMsg={counterModal}
@@ -1263,18 +1278,21 @@ export default function Chat({ user }) {
           onClose={closeCounterModal}
         />
       )}
+
       {locationModal && (
         <LocationModal
           onSend={handleSendLocation}
           onClose={closeLocationModal}
         />
       )}
+
       {showDeleteConfirm && (
         <DeleteChatConfirm
           onConfirm={() => { setShowDeleteConfirm(false); handleDeleteChat(); }}
           onCancel={closeDeleteConfirm}
         />
       )}
+
       {showReportModal && (
         <ReportModal
           threadId={threadId}
@@ -1282,6 +1300,14 @@ export default function Chat({ user }) {
           otherUserName={otherUser?.name || "Seller"}
           onClose={closeReportModal}
           onSuccess={() => {}}
+        />
+      )}
+
+      {/* Custom themed "Delete this message?" — replaces window.confirm */}
+      {deleteMsgTarget && (
+        <DeleteMessageConfirm
+          onConfirm={confirmDeleteMessage}
+          onCancel={cancelDeleteMessage}
         />
       )}
 
