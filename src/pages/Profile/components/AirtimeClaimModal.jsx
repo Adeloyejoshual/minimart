@@ -77,46 +77,96 @@ const isValidNgPhone = (num) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SMART FETCH — always extracts real error message
+   SMART FETCH
+   - Detects HTML error pages (Cloudflare/Nginx/Render 502/503/504)
+   - Maps common HTTP errors to friendly messages
+   - Never exposes raw HTML to the user
 ═══════════════════════════════════════════════════════════════ */
-async function smartFetch(url, options = {}) {
-  let res, data, rawText;
+const SERVER_ERROR_MESSAGES = {
+  500 : "Our server ran into a problem. Please try again shortly.",
+  502 : "Our server is temporarily unavailable. Please try again in a moment.",
+  503 : "Our service is down for maintenance. Please try again soon.",
+  504 : "The server is taking too long to respond. Please try again.",
+  520 : "Connection issue with our server. Please try again.",
+  521 : "Our server is offline. Please try again in a few minutes.",
+  522 : "Connection timed out. Please try again.",
+  523 : "Our server is unreachable right now. Please try again.",
+  524 : "The request took too long. Please try again.",
+};
 
+async function smartFetch(url, options = {}) {
+  let res;
+  let rawText = "";
+  let data;
+
+  /* ── Perform request ── */
   try {
     res     = await fetch(url, options);
     rawText = await res.text();
-
-    try {
-      data = rawText ? JSON.parse(rawText) : {};
-    } catch {
-      data = { message: rawText };
-    }
   } catch (netErr) {
     console.error("[AirtimeModal] Network error:", netErr);
     throw {
       status  : 0,
+      code    : "NETWORK_ERROR",
       message : "Network error. Please check your internet connection.",
       raw     : netErr.message,
     };
   }
 
-  /* Log for debugging */
+  /* ── Detect HTML error pages ── */
+  const trimmed = rawText.trim().toLowerCase();
+  const looksLikeHtml =
+    trimmed.startsWith("<!doctype") ||
+    trimmed.startsWith("<html")     ||
+    trimmed.startsWith("<!--");
+
+  if (looksLikeHtml) {
+    /* Try to extract page title for extra hint */
+    const titleMatch = rawText.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title      = titleMatch ? titleMatch[1].trim() : null;
+
+    const friendly =
+      SERVER_ERROR_MESSAGES[res.status] ||
+      title                              ||
+      `Server returned an error (${res.status})`;
+
+    console.error(
+      `[AirtimeModal] Server returned HTML (${res.status}) for ${url}\n` +
+      `  Title: ${title}`
+    );
+
+    throw {
+      status  : res.status,
+      code    : "SERVER_UNAVAILABLE",
+      message : friendly,
+      data    : null,      // ← NEVER expose HTML in the "Show details"
+    };
+  }
+
+  /* ── Parse JSON ── */
+  try {
+    data = rawText ? JSON.parse(rawText) : {};
+  } catch {
+    data = { message: rawText.slice(0, 200) };
+  }
+
+  /* ── Log for debugging ── */
   console.log(
-    `[AirtimeModal] ${options.method || "GET"} ${url}`,
-    `→ ${res.status}`,
+    `[AirtimeModal] ${options.method || "GET"} ${url} → ${res.status}`,
     data
   );
 
+  /* ── Handle non-OK responses ── */
   if (!res.ok || data?.success === false) {
     const msg =
       data?.message ||
       data?.error   ||
-      (typeof data === "string" ? data : null) ||
+      SERVER_ERROR_MESSAGES[res.status] ||
       `Request failed (${res.status} ${res.statusText})`;
 
     throw {
       status  : res.status,
-      code    : data?.code || null,          // ← surface backend error codes
+      code    : data?.code || (res.status >= 500 ? "SERVER_UNAVAILABLE" : null),
       message : msg,
       data,
     };
@@ -229,13 +279,18 @@ function OtpInput({ value, onChange, disabled }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ERROR BOX — expandable to show details
+   ERROR BOX
+   Handles 3 error variants:
+     • SERVER_UNAVAILABLE — friendly banner with retry
+     • NETWORK_ERROR      — offline / connection issue with retry
+     • normal errors      — with expandable JSON details
 ═══════════════════════════════════════════════════════════════ */
-function ErrorBox({ error }) {
+function ErrorBox({ error, onRetry, loading }) {
   const [expanded, setExpanded] = useState(false);
 
   if (!error) return null;
 
+  /* Plain string error */
   if (typeof error === "string") {
     return (
       <div className="acm-error" role="alert">
@@ -244,16 +299,97 @@ function ErrorBox({ error }) {
     );
   }
 
+  const isServerDown =
+    error.code === "SERVER_UNAVAILABLE" ||
+    (error.status >= 500 && error.status < 600);
+
+  const isNetworkError =
+    error.code === "NETWORK_ERROR" || error.status === 0;
+
+  /* ── Server unavailable ── */
+  if (isServerDown) {
+    return (
+      <div className="acm-error acm-error--server" role="alert">
+        <div className="acm-error-main">
+          <span className="acm-error-icon">🔧</span>
+          <div className="acm-error-text">
+            <p className="acm-error-title">Server temporarily unavailable</p>
+            <p className="acm-error-msg">{error.message}</p>
+          </div>
+          {error.status ? (
+            <span className="acm-error-code">HTTP {error.status}</span>
+          ) : null}
+        </div>
+        {onRetry && (
+          <button
+            type="button"
+            className="acm-error-retry"
+            onClick={onRetry}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <span className="acm-spinner acm-spinner--sm" />
+                Retrying…
+              </>
+            ) : (
+              "🔄 Try Again"
+            )}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  /* ── Network error ── */
+  if (isNetworkError) {
+    return (
+      <div className="acm-error acm-error--network" role="alert">
+        <div className="acm-error-main">
+          <span className="acm-error-icon">📡</span>
+          <div className="acm-error-text">
+            <p className="acm-error-title">No connection</p>
+            <p className="acm-error-msg">{error.message}</p>
+          </div>
+        </div>
+        {onRetry && (
+          <button
+            type="button"
+            className="acm-error-retry"
+            onClick={onRetry}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <span className="acm-spinner acm-spinner--sm" />
+                Retrying…
+              </>
+            ) : (
+              "🔄 Try Again"
+            )}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  /* ── Regular error with expandable details ── */
+  const hasDetails =
+    error.data &&
+    typeof error.data === "object" &&
+    Object.keys(error.data).length > 0;
+
   return (
     <div className="acm-error" role="alert">
       <div className="acm-error-main">
-        <span>⚠️ {error.message}</span>
+        <span className="acm-error-icon">⚠️</span>
+        <span className="acm-error-msg">{error.message}</span>
         {error.status ? (
           <span className="acm-error-code">HTTP {error.status}</span>
         ) : null}
       </div>
 
-      {error.data && Object.keys(error.data).length > 0 && (
+      {hasDetails && (
         <>
           <button
             type="button"
@@ -292,7 +428,6 @@ export default function AirtimeClaimModal({
   const [loading,          setLoading]          = useState(false);
   const [error,            setError]            = useState(null);
   const [countdown,        setCountdown]        = useState(0);
-  const [resendAfter,      setResendAfter]      = useState(60);
   const [attemptsLeft,     setAttemptsLeft]     = useState(null);
   const [isPrefilledPhone, setIsPrefilledPhone] = useState(false);
   const [devOtp,           setDevOtp]           = useState(null);
@@ -328,7 +463,6 @@ export default function AirtimeClaimModal({
     setOtp("");
     setError(null);
     setCountdown(0);
-    setResendAfter(60);
     setAttemptsLeft(null);
     setDevOtp(null);
     setIsPrefilledPhone(!!clean);
@@ -347,6 +481,7 @@ export default function AirtimeClaimModal({
     if (e.target === e.currentTarget && !loading) onClose();
   };
 
+  /* ESC to close */
   useEffect(() => {
     if (!isOpen) return;
     const handleEsc = (e) => {
@@ -376,7 +511,7 @@ export default function AirtimeClaimModal({
 
   /* ══════════════════════════════════════════════════════
      STEP 2 → 3 : send OTP
-     Hits POST /api/airtime-coupons/send-otp
+     POST /api/airtime-coupons/send-otp
   ══════════════════════════════════════════════════════ */
   const sendOtp = useCallback(async () => {
     setLoading(true);
@@ -394,9 +529,7 @@ export default function AirtimeClaimModal({
 
       if (data.dev_otp) setDevOtp(data.dev_otp);
 
-      /* Backend returns resend_after + attempts_left */
       const cooldown = Number(data.resend_after) || 60;
-      setResendAfter(cooldown);
       setCountdown(cooldown);
 
       if (typeof data.attempts_left === "number") {
@@ -414,8 +547,6 @@ export default function AirtimeClaimModal({
 
   /* ══════════════════════════════════════════════════════
      STEP 3 : verify OTP + redeem coupon (TWO API calls)
-     1. POST /api/airtime-coupons/verify-otp   → marks phone verified
-     2. POST /api/airtime-coupons/redeem       → claims the coupon
   ══════════════════════════════════════════════════════ */
   const verifyAndClaim = useCallback(async () => {
     if (otp.length < 6) {
@@ -427,7 +558,7 @@ export default function AirtimeClaimModal({
     setError(null);
 
     try {
-      /* ── STEP A: verify OTP ── */
+      /* STEP A: verify OTP */
       const verifyRes = await smartFetch(
         `${API}/airtime-coupons/verify-otp`,
         {
@@ -441,7 +572,7 @@ export default function AirtimeClaimModal({
         }
       );
 
-      /* ── STEP B: redeem the coupon ── */
+      /* STEP B: redeem the coupon */
       const claimRes = await smartFetch(
         `${API}/airtime-coupons/redeem`,
         {
@@ -451,7 +582,6 @@ export default function AirtimeClaimModal({
         }
       );
 
-      /* Success! */
       setStep(4);
 
       onSuccess?.(coupon?.code, {
@@ -462,10 +592,8 @@ export default function AirtimeClaimModal({
       });
 
     } catch (err) {
-      /* Handle specific error codes */
-      if (err.code === "ALREADY_REDEEMED" ||
-          err.code?.startsWith("ALREADY_")) {
-        /* Coupon was already claimed elsewhere — go to success anyway */
+      /* Coupon already redeemed → treat as success */
+      if (err.code === "ALREADY_REDEEMED" || err.code?.startsWith("ALREADY_")) {
         setStep(4);
         onSuccess?.(coupon?.code, {
           phone   : normalisePhone(phone),
@@ -477,26 +605,28 @@ export default function AirtimeClaimModal({
 
       setError(err);
 
-      /* Only clear OTP if it was wrong — keep it if it was a redeem-side error */
-      if (err.data?.remaining !== undefined ||
-          err.message?.toLowerCase().includes("otp") ||
-          err.message?.toLowerCase().includes("code")) {
-        setOtp("");
-      }
+      /* Only clear OTP on OTP-related errors */
+      const isOtpError =
+        err.data?.remaining !== undefined ||
+        err.message?.toLowerCase().includes("otp") ||
+        err.message?.toLowerCase().includes("code");
+
+      if (isOtpError) setOtp("");
+
     } finally {
       setLoading(false);
     }
   }, [otp, phone, network, coupon?.code, onSuccess]);
 
   /* Resend OTP */
-  const resendOtp = async () => {
+  const resendOtp = useCallback(async () => {
     setOtp("");
     setError(null);
     setDevOtp(null);
     await sendOtp();
-  };
+  }, [sendOtp]);
 
-  /* Go back */
+  /* Go back to step 1 */
   const changeNumber = () => {
     setStep(1);
     setOtp("");
@@ -718,7 +848,11 @@ export default function AirtimeClaimModal({
               </p>
             </div>
 
-            <ErrorBox error={error} />
+            <ErrorBox
+              error={error}
+              onRetry={sendOtp}
+              loading={loading}
+            />
 
             <button
               className="acm-primary-btn"
@@ -817,7 +951,11 @@ export default function AirtimeClaimModal({
               )}
             </div>
 
-            <ErrorBox error={error} />
+            <ErrorBox
+              error={error}
+              onRetry={verifyAndClaim}
+              loading={loading}
+            />
 
             <button
               className="acm-primary-btn"
