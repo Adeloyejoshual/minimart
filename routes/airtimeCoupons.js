@@ -6,6 +6,11 @@ import express      from "express";
 import crypto       from "crypto";
 import { pool }     from "../config/db.js";
 import authenticate from "../middleware/auth.js";
+import {
+  cacheGet,
+  cacheSet,
+  cacheDel,
+} from "../lib/redis.js";
 
 const router = express.Router();
 
@@ -14,6 +19,7 @@ const router = express.Router();
 ═══════════════════════════════════════════════════════════════ */
 const OTP_TTL_MINUTES      = 10;
 const OTP_MAX_ATTEMPTS     = 5;
+const OTP_SEND_LIMIT       = 3;      // per phone per 10 min
 const CHANGE_COOLDOWN_DAYS = 60;
 
 const AIRTIME_STATUS = Object.freeze({
@@ -29,60 +35,148 @@ const STATUS_CHECK = Object.values(AIRTIME_STATUS)
   .join(", ");
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPERS
+   REDIS KEYS
 ═══════════════════════════════════════════════════════════════ */
+const KEY = {
+  otpSendLimit : (userId, phone) => `airtime:otp:limit:${userId}:${phone}`,
+  phoneStatus  : (userId)        => `airtime:phone-status:${userId}`,
+  userCoupons  : (userId)        => `airtime:user-coupons:${userId}`,
+  userMe       : (userId)        => `user:me:${userId}`,
+};
+
+const TTL = {
+  RATE_LIMIT   : 10 * 60, // 10 min
+  PHONE_STATUS :  2 * 60, //  2 min
+  USER_COUPONS :  2 * 60, //  2 min
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   PHONE HELPERS
+═══════════════════════════════════════════════════════════════ */
+
 const generateOtp = () =>
   crypto.randomInt(100_000, 999_999).toString();
 
+/* Normalize any phone → 08012345678 (Nigerian local format) */
 const normalizePhone = (raw) => {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.startsWith("234")) return "+" + digits;
-  if (digits.startsWith("0"))   return "+234" + digits.slice(1);
-  return "+" + digits;
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  if (digits.startsWith("234")) return "0" + digits.slice(3);
+  if (digits.startsWith("0"))   return digits;
+  if (digits.length === 10)     return "0" + digits;
+  return digits;
 };
 
-const isValidNigerianPhone = (normalized) =>
-  /^\+234[789][01]\d{8}$/.test(normalized);
+/* Convert to international: 0812... → +2348012... (for SMS) */
+const toIntlPhone = (localPhone) => {
+  const digits = String(localPhone).replace(/\D/g, "");
+  if (digits.startsWith("234")) return "+" + digits;
+  if (digits.startsWith("0"))   return "+234" + digits.slice(1);
+  return "+234" + digits;
+};
+
+const isValidNigerianPhone = (localPhone) =>
+  /^0[789][01]\d{8}$/.test(localPhone);
 
 const maskPhone = (phone) => {
   if (!phone) return null;
-  const local = phone.replace("+234", "0");
+  const local = normalizePhone(phone);
+  if (local.length < 7) return local;
   return local.slice(0, 4) + "****" + local.slice(-3);
-};
-
-const localPhone = (phone) => {
-  if (!phone) return null;
-  if (phone.startsWith("+234")) return "0" + phone.slice(4);
-  return phone;
 };
 
 const daysSince = (date) =>
   Math.floor((Date.now() - new Date(date)) / 86_400_000);
 
+/* ═══════════════════════════════════════════════════════════════
+   NETWORK DETECTION
+═══════════════════════════════════════════════════════════════ */
 const PREFIX_MAP = Object.freeze({
   /* MTN */
-  "0703": "MTN", "0706": "MTN", "0803": "MTN", "0806": "MTN",
-  "0810": "MTN", "0813": "MTN", "0814": "MTN", "0816": "MTN",
+  "0703": "MTN", "0704": "MTN", "0706": "MTN",
+  "0803": "MTN", "0806": "MTN", "0810": "MTN",
+  "0813": "MTN", "0814": "MTN", "0816": "MTN",
   "0903": "MTN", "0906": "MTN", "0913": "MTN", "0916": "MTN",
+
   /* Airtel */
-  "0701": "Airtel", "0708": "Airtel", "0802": "Airtel", "0808": "Airtel",
-  "0812": "Airtel", "0901": "Airtel", "0902": "Airtel", "0904": "Airtel",
+  "0701": "Airtel", "0708": "Airtel",
+  "0802": "Airtel", "0808": "Airtel", "0812": "Airtel",
+  "0901": "Airtel", "0902": "Airtel", "0904": "Airtel",
   "0907": "Airtel", "0912": "Airtel",
+
   /* Glo */
-  "0705": "Glo", "0805": "Glo", "0807": "Glo", "0811": "Glo",
-  "0815": "Glo", "0905": "Glo", "0915": "Glo",
+  "0705": "Glo", "0805": "Glo", "0807": "Glo",
+  "0811": "Glo", "0815": "Glo",
+  "0905": "Glo", "0915": "Glo",
+
   /* 9mobile */
   "0809": "9mobile", "0817": "9mobile", "0818": "9mobile",
   "0908": "9mobile", "0909": "9mobile",
 });
 
 const detectNetwork = (phone) => {
-  const local   = phone.replace("+234", "0");
-  const prefix  = local.slice(0, 4);
+  const local  = normalizePhone(phone);
+  const prefix = local.slice(0, 4);
   const network = PREFIX_MAP[prefix];
   if (!network) throw new Error(`Unrecognized network prefix: ${prefix}`);
   return network;
 };
+
+/* ═══════════════════════════════════════════════════════════════
+   SMS SENDER
+═══════════════════════════════════════════════════════════════ */
+async function sendSms(intlPhone, message) {
+  /* Termii */
+  if (process.env.TERMII_API_KEY) {
+    const res = await fetch("https://api.ng.termii.com/api/sms/send", {
+      method  : "POST",
+      headers : { "Content-Type": "application/json" },
+      body    : JSON.stringify({
+        to      : intlPhone.replace(/\+/g, ""),
+        from    : process.env.TERMII_SENDER_ID || "N-Alert",
+        sms     : message,
+        type    : "plain",
+        channel : "dnd",
+        api_key : process.env.TERMII_API_KEY,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "SMS failed via Termii");
+    return data;
+  }
+
+  /* Twilio */
+  if (process.env.TWILIO_ACCOUNT_SID) {
+    const { default: Twilio } = await import("twilio");
+    const client = new Twilio(
+      process.env.TWILIO_ACCOUNT_SID,
+      process.env.TWILIO_AUTH_TOKEN
+    );
+    return client.messages.create({
+      body : message,
+      from : process.env.TWILIO_PHONE_NUMBER,
+      to   : intlPhone,
+    });
+  }
+
+  /* Dev fallback */
+  console.log(`\n[SMS DEV] ────────────────────────`);
+  console.log(`  To     : ${intlPhone}`);
+  console.log(`  Message: ${message}`);
+  console.log(`──────────────────────────────────\n`);
+  return { dev: true };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   CACHE INVALIDATION
+═══════════════════════════════════════════════════════════════ */
+async function invalidateUserPhoneCache(userId) {
+  await Promise.allSettled([
+    cacheDel(KEY.phoneStatus(userId)),
+    cacheDel(KEY.userCoupons(userId)),
+    cacheDel(KEY.userMe(userId)),
+  ]);
+}
 
 /* ═══════════════════════════════════════════════════════════════
    ENSURE TABLES + INDEXES
@@ -168,6 +262,8 @@ async function ensureTables() {
     CREATE INDEX IF NOT EXISTS idx_airtime_redeemed_by
     ON public.airtime_coupons (redeemed_by)
   `);
+
+  console.log("[airtime-coupons] ✓ tables ready");
 }
 
 ensureTables().catch((err) =>
@@ -178,10 +274,19 @@ ensureTables().catch((err) =>
    GET /api/airtime-coupons/phone-status
 ═══════════════════════════════════════════════════════════════ */
 router.get("/phone-status", authenticate, async (req, res) => {
+  const userId = req.user.id;
+
   try {
+    /* ── Try cache ── */
+    const cached = await cacheGet(KEY.phoneStatus(userId));
+    if (cached) {
+      return res.json({ ...cached, cached: true });
+    }
+
     const { rows } = await pool.query(
       `SELECT
          phone,
+         phone_number,
          phone_verified,
          phone_verified_at,
          phone_changed_at,
@@ -189,15 +294,23 @@ router.get("/phone-status", authenticate, async (req, res) => {
        FROM public.users
        WHERE id = $1
        LIMIT 1`,
-      [req.user.id]
+      [userId]
     );
 
     if (!rows.length) {
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
-    const u        = rows[0];
-    const hasPhone = !!u.phone;
+    const u = rows[0];
+
+    /* Prefer verified phone → fall back to registered phone_number */
+    const bestPhone =
+      (u.phone_verified && u.phone) ? normalizePhone(u.phone) :
+      u.phone_number                ? normalizePhone(u.phone_number) :
+      u.phone                       ? normalizePhone(u.phone) :
+      null;
+
+    const hasPhone = !!bestPhone;
 
     const canChange = !u.phone_changed_at ||
       daysSince(u.phone_changed_at) >= CHANGE_COOLDOWN_DAYS;
@@ -206,19 +319,33 @@ router.get("/phone-status", authenticate, async (req, res) => {
       ? Math.max(0, CHANGE_COOLDOWN_DAYS - daysSince(u.phone_changed_at))
       : 0;
 
-    return res.json({
+    const payload = {
       success: true,
       phone: {
         has_phone         : hasPhone,
-        local_number      : hasPhone && !u.phone_verified ? localPhone(u.phone) : null,
-        masked            : maskPhone(u.phone),
-        verified          : u.phone_verified   || false,
-        network           : u.phone_network    || null,
+        local_number      : hasPhone && !u.phone_verified ? bestPhone : null,
+        masked            : maskPhone(bestPhone),
+        verified          : u.phone_verified || false,
+        network           : u.phone_network  || null,
         verified_at       : u.phone_verified_at,
         can_change        : canChange,
         days_until_change : daysUntilChange,
+
+        /* NEW: which source it came from */
+        source            : u.phone_verified && u.phone
+          ? "verified"
+          : u.phone_number
+            ? "registered"
+            : u.phone
+              ? "unverified"
+              : null,
       },
-    });
+    };
+
+    /* Cache */
+    await cacheSet(KEY.phoneStatus(userId), payload, TTL.PHONE_STATUS);
+
+    return res.json(payload);
 
   } catch (err) {
     console.error("[airtime-coupons] GET /phone-status:", err.message);
@@ -238,17 +365,19 @@ router.post("/send-otp", authenticate, async (req, res) => {
     return res.status(400).json({ success: false, message: "Phone number is required." });
   }
 
-  const normalized = normalizePhone(phone.trim());
+  const localPhone = normalizePhone(phone.trim());
+  const intlPhone  = toIntlPhone(localPhone);
 
-  if (!isValidNigerianPhone(normalized)) {
+  if (!isValidNigerianPhone(localPhone)) {
     return res.status(400).json({
       success: false,
       message: "Enter a valid Nigerian phone number (e.g. 0803 123 4567).",
     });
   }
 
+  let network;
   try {
-    detectNetwork(normalized);
+    network = detectNetwork(localPhone);
   } catch {
     return res.status(400).json({
       success: false,
@@ -257,13 +386,14 @@ router.post("/send-otp", authenticate, async (req, res) => {
   }
 
   try {
+    /* ── Check if number is already linked to another verified account ── */
     const { rows: conflict } = await pool.query(
       `SELECT id FROM public.users
        WHERE phone          = $1
          AND phone_verified = true
          AND id            != $2
        LIMIT 1`,
-      [normalized, userId]
+      [localPhone, userId]
     );
 
     if (conflict.length) {
@@ -273,6 +403,7 @@ router.post("/send-otp", authenticate, async (req, res) => {
       });
     }
 
+    /* ── Change cooldown ── */
     if (purpose === "change") {
       const { rows: userRows } = await pool.query(
         `SELECT phone_changed_at FROM public.users WHERE id = $1 LIMIT 1`,
@@ -289,6 +420,27 @@ router.post("/send-otp", authenticate, async (req, res) => {
       }
     }
 
+    /* ══════════════════════════════════════════════════════
+       RATE LIMIT — max 3 sends per phone per 10 min (Redis)
+    ══════════════════════════════════════════════════════ */
+    const rateLimitKey = KEY.otpSendLimit(userId, localPhone);
+    const currentCount = await cacheGet(rateLimitKey);
+    const sendCount    = currentCount ? Number(currentCount) : 0;
+
+    if (sendCount >= OTP_SEND_LIMIT) {
+      return res.status(429).json({
+        success : false,
+        message : `Too many OTP requests. Please wait ${OTP_TTL_MINUTES} minutes before trying again.`,
+      });
+    }
+
+    await cacheSet(
+      rateLimitKey,
+      sendCount + 1,
+      sendCount === 0 ? TTL.RATE_LIMIT : undefined
+    );
+
+    /* ── Invalidate any pending OTPs for this purpose ── */
     await pool.query(
       `UPDATE public.phone_otps
        SET used = true
@@ -296,6 +448,7 @@ router.post("/send-otp", authenticate, async (req, res) => {
       [userId, purpose]
     );
 
+    /* ── Generate + store OTP ── */
     const otp       = generateOtp();
     const expiresAt = new Date(Date.now() + OTP_TTL_MINUTES * 60_000);
 
@@ -303,25 +456,36 @@ router.post("/send-otp", authenticate, async (req, res) => {
       `INSERT INTO public.phone_otps
          (user_id, phone, otp, purpose, expires_at)
        VALUES ($1, $2, $3, $4, $5)`,
-      [userId, normalized, otp, purpose, expiresAt]
+      [userId, localPhone, otp, purpose, expiresAt]
     );
 
-    /*
-     * ── SMS delivery ──
-     * await smsProvider.send({
-     *   to     : normalized,
-     *   message: `Your Loemart code is ${otp}. Valid for ${OTP_TTL_MINUTES} minutes. Do not share it.`,
-     * });
-     */
-    if (process.env.NODE_ENV !== "production") {
-      console.log(`[OTP DEV] ${normalized} → ${otp}`);
+    /* ── Send SMS ── */
+    try {
+      await sendSms(
+        intlPhone,
+        `Your Loemart code is ${otp}. Valid for ${OTP_TTL_MINUTES} minutes. Do not share it.`
+      );
+    } catch (smsErr) {
+      console.error("[airtime-coupons] SMS send failed:", smsErr.message);
+      return res.status(502).json({
+        success: false,
+        message: "Could not send SMS. Please check your number and try again.",
+      });
     }
+
+    console.log(
+      `[airtime-coupons] OTP sent | user=${userId} | ` +
+      `phone=${maskPhone(localPhone)} | purpose=${purpose} | ` +
+      `attempt=${sendCount + 1}/${OTP_SEND_LIMIT}`
+    );
 
     return res.json({
       success    : true,
-      message    : `OTP sent to ${maskPhone(normalized)}.`,
-      masked     : maskPhone(normalized),
+      message    : `OTP sent to ${maskPhone(localPhone)}.`,
+      masked     : maskPhone(localPhone),
+      network,
       expires_in : OTP_TTL_MINUTES * 60,
+      ...(process.env.NODE_ENV !== "production" && { dev_otp: otp }),
     });
 
   } catch (err) {
@@ -342,7 +506,7 @@ router.post("/verify-otp", authenticate, async (req, res) => {
     return res.status(400).json({ success: false, message: "Phone and OTP are required." });
   }
 
-  const normalized = normalizePhone(phone.trim());
+  const localPhone = normalizePhone(phone.trim());
 
   try {
     const { rows } = await pool.query(
@@ -355,7 +519,7 @@ router.post("/verify-otp", authenticate, async (req, res) => {
          AND expires_at > NOW()
        ORDER BY created_at DESC
        LIMIT 1`,
-      [userId, normalized, purpose]
+      [userId, localPhone, purpose]
     );
 
     if (!rows.length) {
@@ -386,14 +550,15 @@ router.post("/verify-otp", authenticate, async (req, res) => {
     if (record.otp !== otp.trim()) {
       const remaining = OTP_MAX_ATTEMPTS - (record.attempts + 1);
       return res.status(400).json({
-        success: false,
-        message: `Incorrect OTP. ${remaining} attempt(s) remaining.`,
+        success   : false,
+        message   : `Incorrect OTP. ${remaining} attempt(s) remaining.`,
+        remaining,
       });
     }
 
     let network;
     try {
-      network = detectNetwork(normalized);
+      network = detectNetwork(localPhone);
     } catch {
       return res.status(400).json({
         success: false,
@@ -401,11 +566,13 @@ router.post("/verify-otp", authenticate, async (req, res) => {
       });
     }
 
+    /* ── Mark OTP used ── */
     await pool.query(
       `UPDATE public.phone_otps SET used = true WHERE id = $1`,
       [record.id]
     );
 
+    /* ── Update user profile ── */
     await pool.query(
       `UPDATE public.users
        SET
@@ -413,9 +580,21 @@ router.post("/verify-otp", authenticate, async (req, res) => {
          phone_verified    = true,
          phone_verified_at = NOW(),
          phone_network     = $2,
-         phone_changed_at  = CASE WHEN $3 THEN NOW() ELSE phone_changed_at END
+         phone_changed_at  = CASE WHEN $3 THEN NOW() ELSE phone_changed_at END,
+         updated_at        = NOW()
        WHERE id = $4`,
-      [normalized, network, purpose === "change", userId]
+      [localPhone, network, purpose === "change", userId]
+    );
+
+    /* ── Invalidate caches ── */
+    await Promise.allSettled([
+      invalidateUserPhoneCache(userId),
+      cacheDel(KEY.otpSendLimit(userId, localPhone)),
+    ]);
+
+    console.log(
+      `[airtime-coupons] Phone verified ✓ | user=${userId} | ` +
+      `phone=${maskPhone(localPhone)} | network=${network} | purpose=${purpose}`
     );
 
     return res.json({
@@ -424,7 +603,7 @@ router.post("/verify-otp", authenticate, async (req, res) => {
       phone: {
         has_phone    : true,
         local_number : null,
-        masked       : maskPhone(normalized),
+        masked       : maskPhone(localPhone),
         network,
         verified     : true,
       },
@@ -432,6 +611,15 @@ router.post("/verify-otp", authenticate, async (req, res) => {
 
   } catch (err) {
     console.error("[airtime-coupons] POST /verify-otp:", err.message);
+
+    /* Unique constraint hit — phone linked to another account */
+    if (err.code === "23505") {
+      return res.status(409).json({
+        success: false,
+        message: "This phone number is already in use.",
+      });
+    }
+
     return res.status(500).json({ success: false, message: "Verification failed." });
   }
 });
@@ -441,7 +629,15 @@ router.post("/verify-otp", authenticate, async (req, res) => {
    Current user's airtime coupons
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
+  const userId = req.user.id;
+
   try {
+    /* ── Try cache ── */
+    const cached = await cacheGet(KEY.userCoupons(userId));
+    if (cached) {
+      return res.json({ ...cached, cached: true });
+    }
+
     const { rows } = await pool.query(
       `SELECT
          id, code, amount, status,
@@ -459,10 +655,10 @@ router.get("/", authenticate, async (req, res) => {
            ELSE 4
          END,
          created_at DESC`,
-      [req.user.id]
+      [userId]
     );
 
-    return res.json({
+    const payload = {
       success: true,
       coupons: rows.map((c) => ({
         id           : c.id,
@@ -473,11 +669,16 @@ router.get("/", authenticate, async (req, res) => {
         redeemed_at  : c.redeemed_at,
         processed_at : c.processed_at,
         phone_masked : maskPhone(c.phone),
+        phone_local  : c.phone ? normalizePhone(c.phone) : null,
         network      : c.network,
         admin_note   : c.admin_note,
         created_at   : c.created_at,
       })),
-    });
+    };
+
+    await cacheSet(KEY.userCoupons(userId), payload, TTL.USER_COUPONS);
+
+    return res.json(payload);
 
   } catch (err) {
     console.error("[airtime-coupons] GET /:", err.message);
@@ -502,6 +703,7 @@ router.post("/redeem", authenticate, async (req, res) => {
   try {
     await client.query("BEGIN");
 
+    /* ── Load coupon (locked) ── */
     const { rows: couponRows } = await client.query(
       `SELECT id, user_id, status, amount
        FROM public.airtime_coupons
@@ -534,6 +736,7 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
+    /* ── Load user's verified phone ── */
     const { rows: userRows } = await client.query(
       `SELECT phone, phone_verified, phone_network
        FROM public.users
@@ -553,17 +756,22 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    let network;
-    try {
-      network = detectNetwork(user.phone);
-    } catch {
-      await client.query("ROLLBACK");
-      return res.status(400).json({
-        success: false,
-        message: "Could not detect your network. Please contact support.",
-      });
+    const localPhone = normalizePhone(user.phone);
+
+    let network = user.phone_network;
+    if (!network) {
+      try {
+        network = detectNetwork(localPhone);
+      } catch {
+        await client.query("ROLLBACK");
+        return res.status(400).json({
+          success: false,
+          message: "Could not detect your network. Please contact support.",
+        });
+      }
     }
 
+    /* ── Atomic status transition ── */
     const { rows: updated } = await client.query(
       `UPDATE public.airtime_coupons
        SET
@@ -578,7 +786,7 @@ router.post("/redeem", authenticate, async (req, res) => {
       [
         AIRTIME_STATUS.REDEEMED,
         userId,
-        user.phone,
+        localPhone,
         network,
         coupon.id,
         AIRTIME_STATUS.AVAILABLE,
@@ -595,7 +803,16 @@ router.post("/redeem", authenticate, async (req, res) => {
 
     await client.query("COMMIT");
 
+    /* ── Invalidate caches ── */
+    await cacheDel(KEY.userCoupons(userId));
+
     const result = updated[0];
+
+    console.log(
+      `[airtime-coupons] Redeemed ✓ | user=${userId} | ` +
+      `code=${result.code} | amount=₦${result.amount} | ` +
+      `phone=${maskPhone(localPhone)} | network=${network}`
+    );
 
     return res.json({
       success: true,
@@ -608,6 +825,7 @@ router.post("/redeem", authenticate, async (req, res) => {
         can_redeem   : false,
         redeemed_at  : result.redeemed_at,
         phone_masked : maskPhone(result.phone),
+        phone_local  : normalizePhone(result.phone),
         network      : result.network,
       },
     });
