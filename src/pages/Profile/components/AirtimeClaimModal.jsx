@@ -1,5 +1,10 @@
 // src/pages/Profile/components/AirtimeClaimModal.jsx
-import { useState, useEffect, useRef, useCallback } from "react";
+import {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
 import "../styles/AirtimeClaimModal.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -7,19 +12,20 @@ import "../styles/AirtimeClaimModal.css";
 ═══════════════════════════════════════════════════════════════ */
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api`;
+const IS_DEV   = import.meta.env.DEV;
 
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("token") ||
+  localStorage.getItem("token")             ||
   null;
 
-const authH = () => ({
+const authHeaders = () => ({
   Authorization  : `Bearer ${getToken()}`,
   "Content-Type" : "application/json",
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   NIGERIAN NETWORKS
+   NETWORKS
 ═══════════════════════════════════════════════════════════════ */
 const NETWORKS = [
   { value: "mtn",     label: "MTN",     color: "#fbbf24" },
@@ -34,17 +40,20 @@ const NETWORKS = [
 const detectNetwork = (num) => {
   if (!num) return null;
   const n      = String(num).replace(/\D/g, "");
-  const prefix = n.startsWith("0") ? n.slice(1, 4) : n.slice(3, 6);
+  const prefix = n.startsWith("0") ? n.slice(0, 4) : "0" + n.slice(3, 6);
 
-  const mtn     = ["803","806","703","706","813","816","810","814","903","906","913","704","916"];
-  const airtel  = ["802","808","701","708","812","902","907","901","912","904"];
-  const glo     = ["805","807","705","815","811","905","915"];
-  const mobile9 = ["809","818","817","908","909"];
+  const map = {
+    mtn     : ["0803","0806","0703","0706","0813","0816","0810","0814",
+               "0903","0906","0913","0704","0916"],
+    airtel  : ["0802","0808","0701","0708","0812","0902","0907","0901",
+               "0912","0904"],
+    glo     : ["0805","0807","0705","0815","0811","0905","0915"],
+    "9mobile": ["0809","0818","0817","0908","0909"],
+  };
 
-  if (mtn.includes(prefix))     return "mtn";
-  if (airtel.includes(prefix))  return "airtel";
-  if (glo.includes(prefix))     return "glo";
-  if (mobile9.includes(prefix)) return "9mobile";
+  for (const [network, prefixes] of Object.entries(map)) {
+    if (prefixes.includes(prefix)) return network;
+  }
   return null;
 };
 
@@ -66,7 +75,7 @@ const formatPhone = (val) => {
 };
 
 const maskPhone = (val) => {
-  const d = String(val).replace(/\D/g, "");
+  const d = String(val || "").replace(/\D/g, "");
   if (d.length < 7) return formatPhone(d);
   return `${d.slice(0, 4)} *** ${d.slice(-3)}`;
 };
@@ -78,6 +87,9 @@ const isValidNgPhone = (num) => {
 
 /* ═══════════════════════════════════════════════════════════════
    SMART FETCH
+   - AbortController timeout
+   - HTML error page detection (Cloudflare, Nginx, Render)
+   - Structured error objects with layer/code/status
 ═══════════════════════════════════════════════════════════════ */
 const SERVER_ERROR_MESSAGES = {
   500 : "Our server ran into a problem.",
@@ -92,30 +104,27 @@ const SERVER_ERROR_MESSAGES = {
 };
 
 async function smartFetch(url, options = {}, timeoutMs = 30_000) {
-  let res;
-  let rawText = "";
-  let data;
-
-  /* AbortController for timeouts */
   const controller = new AbortController();
   const timer      = setTimeout(() => controller.abort(), timeoutMs);
+  const startTime  = Date.now();
 
-  const startTime = Date.now();
+  let res;
+  let rawText = "";
 
   try {
     res     = await fetch(url, { ...options, signal: controller.signal });
     rawText = await res.text();
   } catch (netErr) {
-    clearTimeout(timer);
     const duration = Date.now() - startTime;
+    clearTimeout(timer);
 
     if (netErr.name === "AbortError") {
-      console.error(`[AirtimeModal] Request timeout after ${duration}ms:`, url);
+      console.error(`[AirtimeModal] Timeout after ${duration}ms:`, url);
       throw {
         status   : 0,
         code     : "TIMEOUT",
         layer    : "network",
-        message  : `Request timed out after ${Math.round(timeoutMs / 1000)}s. The server might be sleeping or overloaded.`,
+        message  : `Request timed out after ${Math.round(timeoutMs / 1_000)}s. The server might be sleeping or overloaded.`,
         duration,
         url,
       };
@@ -136,26 +145,25 @@ async function smartFetch(url, options = {}, timeoutMs = 30_000) {
   }
 
   const duration = Date.now() - startTime;
+  const trimmed  = rawText.trim().toLowerCase();
 
-  /* Detect HTML error pages */
-  const trimmed = rawText.trim().toLowerCase();
-  const looksLikeHtml =
+  /* Detect HTML error pages from Cloudflare / Nginx / Render */
+  if (
     trimmed.startsWith("<!doctype") ||
     trimmed.startsWith("<html")     ||
-    trimmed.startsWith("<!--");
-
-  if (looksLikeHtml) {
-    /* Extract useful info from the HTML */
-    const titleMatch  = rawText.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const title       = titleMatch ? titleMatch[1].trim() : null;
+    trimmed.startsWith("<!--")
+  ) {
+    const titleMatch   = rawText.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title        = titleMatch?.[1]?.trim() ?? null;
     const isCloudflare = rawText.toLowerCase().includes("cloudflare");
     const isRender     = rawText.toLowerCase().includes("render");
     const isNginx      = rawText.toLowerCase().includes("nginx");
 
-    let provider = "server";
-    if (isCloudflare) provider = "Cloudflare";
-    else if (isRender) provider = "Render";
-    else if (isNginx)  provider = "Nginx";
+    const provider =
+      isCloudflare ? "Cloudflare" :
+      isRender     ? "Render"     :
+      isNginx      ? "Nginx"      :
+      "server";
 
     const friendly =
       SERVER_ERROR_MESSAGES[res.status] ||
@@ -163,9 +171,8 @@ async function smartFetch(url, options = {}, timeoutMs = 30_000) {
       `Server returned an error (${res.status})`;
 
     console.error(
-      `[AirtimeModal] ${provider} returned HTML (${res.status}) for ${url}\n` +
-      `  Title: ${title}\n` +
-      `  Duration: ${duration}ms`
+      `[AirtimeModal] ${provider} returned HTML (${res.status}) for ${url} — ` +
+      `title: "${title}" — ${duration}ms`
     );
 
     throw {
@@ -180,6 +187,8 @@ async function smartFetch(url, options = {}, timeoutMs = 30_000) {
     };
   }
 
+  /* Parse JSON */
+  let data;
   try {
     data = rawText ? JSON.parse(rawText) : {};
   } catch {
@@ -193,9 +202,9 @@ async function smartFetch(url, options = {}, timeoutMs = 30_000) {
 
   if (!res.ok || data?.success === false) {
     const msg =
-      data?.message ||
-      data?.error   ||
-      SERVER_ERROR_MESSAGES[res.status] ||
+      data?.message                    ||
+      data?.error                      ||
+      SERVER_ERROR_MESSAGES[res.status]||
       `Request failed (${res.status} ${res.statusText})`;
 
     throw {
@@ -215,19 +224,34 @@ async function smartFetch(url, options = {}, timeoutMs = 30_000) {
 
 /* ═══════════════════════════════════════════════════════════════
    DIAGNOSTIC RUNNER
-   Runs a series of tests to figure out what's broken
+   Uses explicit AbortController instead of AbortSignal.timeout
+   for broad browser compatibility.
 ═══════════════════════════════════════════════════════════════ */
+function makeTimeout(ms) {
+  const controller = new AbortController();
+  const timer      = setTimeout(() => controller.abort(), ms);
+  return {
+    signal : controller.signal,
+    clear  : () => clearTimeout(timer),
+  };
+}
+
 async function runDiagnostics() {
-  const results = [];
   const startTime = Date.now();
 
-  /* Test 1: Can we reach the internet? */
+  /* ── Test 1: Internet connectivity ── */
   const testInternet = async () => {
-    const t0 = Date.now();
+    const t0  = Date.now();
+    const ctl = makeTimeout(8_000);
     try {
-      await fetch("https://www.google.com/favicon.ico", {
-        mode: "no-cors",
-        cache: "no-store",
+      /*
+       * We ping our own origin instead of google.com/favicon.ico.
+       * no-cors mode returns an opaque response that always "succeeds"
+       * regardless of actual connectivity in some PWA environments.
+       */
+      await fetch(`${BASE_URL}/favicon.ico`, {
+        cache  : "no-store",
+        signal : ctl.signal,
       });
       return {
         name    : "Internet Connection",
@@ -240,23 +264,24 @@ async function runDiagnostics() {
         name    : "Internet Connection",
         ok      : false,
         duration: Date.now() - t0,
-        detail  : "No internet connection detected",
+        detail  : err.name === "AbortError"
+          ? "Connectivity check timed out"
+          : "No internet connection detected",
         error   : err.message,
       };
+    } finally {
+      ctl.clear();
     }
   };
 
-  /* Test 2: Can we reach the API base URL? */
+  /* ── Test 2: API base reachable ── */
   const testApiReachable = async () => {
-    const t0 = Date.now();
+    const t0  = Date.now();
+    const ctl = makeTimeout(10_000);
     try {
-      const res = await fetch(`${API}/health`, {
-        method: "GET",
-        signal: AbortSignal.timeout?.(10_000),
-      });
-      const text = await res.text();
+      const res    = await fetch(`${API}/health`, { signal: ctl.signal });
+      const text   = await res.text();
       const isJson = text.trim().startsWith("{");
-
       return {
         name    : "API Reachable",
         ok      : res.ok && isJson,
@@ -277,19 +302,20 @@ async function runDiagnostics() {
           : "Cannot reach API server",
         error   : err.message,
       };
+    } finally {
+      ctl.clear();
     }
   };
 
-  /* Test 3: Full diagnostics from server (if available) */
+  /* ── Test 3: Server-side diagnostics endpoint ── */
   const testServerDiag = async () => {
-    const t0 = Date.now();
+    const t0  = Date.now();
+    const ctl = makeTimeout(15_000);
     try {
       const res = await fetch(`${API}/diagnostics`, {
-        method: "GET",
-        headers: authH(),
-        signal: AbortSignal.timeout?.(15_000),
+        headers: authHeaders(),
+        signal : ctl.signal,
       });
-
       if (!res.ok) {
         return {
           name    : "Server Diagnostics",
@@ -299,7 +325,6 @@ async function runDiagnostics() {
           status  : res.status,
         };
       }
-
       const data = await res.json();
       return {
         name    : "Server Diagnostics",
@@ -313,15 +338,19 @@ async function runDiagnostics() {
         name    : "Server Diagnostics",
         ok      : false,
         duration: Date.now() - t0,
-        detail  : "Server diagnostic endpoint unavailable",
+        detail  : err.name === "AbortError"
+          ? "Diagnostics endpoint timed out"
+          : "Server diagnostic endpoint unavailable",
         error   : err.message,
       };
+    } finally {
+      ctl.clear();
     }
   };
 
-  /* Test 4: Can we auth? */
+  /* ── Test 4: Authentication token ── */
   const testAuth = async () => {
-    const t0 = Date.now();
+    const t0    = Date.now();
     const token = getToken();
 
     if (!token) {
@@ -333,10 +362,11 @@ async function runDiagnostics() {
       };
     }
 
+    const ctl = makeTimeout(10_000);
     try {
-      const res = await fetch(`${API}/users/me`, {
-        headers: authH(),
-        signal : AbortSignal.timeout?.(10_000),
+      const res    = await fetch(`${API}/users/me`, {
+        headers: authHeaders(),
+        signal : ctl.signal,
       });
       const text   = await res.text();
       const isJson = text.trim().startsWith("{");
@@ -351,21 +381,13 @@ async function runDiagnostics() {
         };
       }
 
-      if (!isJson) {
-        return {
-          name    : "Authentication",
-          ok      : false,
-          duration: Date.now() - t0,
-          detail  : `Server returned non-JSON (${res.status})`,
-          status  : res.status,
-        };
-      }
-
       return {
         name    : "Authentication",
-        ok      : res.ok,
+        ok      : res.ok && isJson,
         duration: Date.now() - t0,
-        detail  : res.ok ? "Token is valid" : `Failed with ${res.status}`,
+        detail  : res.ok && isJson
+          ? "Token is valid"
+          : `Server returned ${res.status}${!isJson ? " (non-JSON)" : ""}`,
         status  : res.status,
       };
     } catch (err) {
@@ -373,40 +395,37 @@ async function runDiagnostics() {
         name    : "Authentication",
         ok      : false,
         duration: Date.now() - t0,
-        detail  : "Could not verify token",
+        detail  : err.name === "AbortError"
+          ? "Auth check timed out"
+          : "Could not verify token",
         error   : err.message,
       };
+    } finally {
+      ctl.clear();
     }
   };
 
-  /* Test 5: Airtime endpoints */
+  /* ── Test 5: Airtime endpoint ── */
   const testAirtimeEndpoint = async () => {
-    const t0 = Date.now();
+    const t0  = Date.now();
+    const ctl = makeTimeout(10_000);
     try {
-      const res = await fetch(`${API}/airtime-coupons/phone-status`, {
-        headers: authH(),
-        signal : AbortSignal.timeout?.(10_000),
+      const res    = await fetch(`${API}/airtime-coupons/phone-status`, {
+        headers: authHeaders(),
+        signal : ctl.signal,
       });
       const text   = await res.text();
       const isJson = text.trim().startsWith("{");
 
-      if (!isJson) {
-        return {
-          name    : "Airtime API",
-          ok      : false,
-          duration: Date.now() - t0,
-          detail  : `Returned HTML instead of JSON (${res.status})`,
-          status  : res.status,
-        };
-      }
-
       return {
         name    : "Airtime API",
-        ok      : res.ok,
+        ok      : res.ok && isJson,
         duration: Date.now() - t0,
-        detail  : res.ok
+        detail  : res.ok && isJson
           ? "Airtime endpoints are responding"
-          : `Failed with ${res.status}`,
+          : isJson
+            ? `Failed with ${res.status}`
+            : `Returned HTML instead of JSON (${res.status})`,
         status  : res.status,
       };
     } catch (err) {
@@ -414,13 +433,16 @@ async function runDiagnostics() {
         name    : "Airtime API",
         ok      : false,
         duration: Date.now() - t0,
-        detail  : "Airtime endpoints unreachable",
+        detail  : err.name === "AbortError"
+          ? "Airtime endpoint timed out"
+          : "Airtime endpoints unreachable",
         error   : err.message,
       };
+    } finally {
+      ctl.clear();
     }
   };
 
-  /* Run all tests in parallel */
   const [internet, api, diag, auth, airtime] = await Promise.all([
     testInternet(),
     testApiReachable(),
@@ -429,7 +451,7 @@ async function runDiagnostics() {
     testAirtimeEndpoint(),
   ]);
 
-  results.push(internet, api, diag, auth, airtime);
+  const results = [internet, api, diag, auth, airtime];
 
   const summary = {
     timestamp     : new Date().toISOString(),
@@ -448,106 +470,101 @@ async function runDiagnostics() {
    ERROR LAYER CONFIG
 ═══════════════════════════════════════════════════════════════ */
 const ERROR_LAYERS = {
-  database: {
+  database : {
     icon: "🗄️", title: "Database Issue", color: "warn",
     tips: [
       "Our database is having trouble responding.",
       "This usually resolves within a few seconds.",
     ],
   },
-  cache: {
+  cache : {
     icon: "⚡", title: "Cache Issue", color: "warn",
     tips: [
       "Our cache service is temporarily down.",
       "Please retry — the request will bypass the cache.",
     ],
   },
-  sms: {
+  sms : {
     icon: "📵", title: "SMS Delivery Issue", color: "warn",
     tips: [
       "We couldn't send the SMS code.",
       "Check your phone number is correct and active.",
     ],
   },
-  network: {
+  network : {
     icon: "🌐", title: "Connection Issue", color: "neutral",
     tips: [
       "Cannot reach our servers.",
       "Check your internet connection.",
     ],
   },
-  auth: {
+  auth : {
     icon: "🔒", title: "Authentication Issue", color: "err",
     tips: [
       "Your session may have expired.",
       "Please log out and log in again.",
     ],
   },
-  server: {
+  server : {
     icon: "🔧", title: "Server Issue", color: "warn",
     tips: [
       "Something went wrong on our end.",
       "The server may be restarting or overloaded.",
     ],
   },
-  input: {
+  input : {
     icon: "✏️", title: "Invalid Input", color: "err",
     tips: null,
   },
-  policy: {
+  policy : {
     icon: "🛡️", title: "Not Allowed", color: "err",
     tips: null,
   },
 };
 
 const ERROR_CODE_HINTS = {
-  DB_UNAVAILABLE      : "Database connection failed.",
-  TABLE_MISSING       : "A required database table is missing.",
-  COLUMN_MISSING      : "A required database column is missing.",
-  SQL_SYNTAX          : "Invalid SQL query.",
-  DUPLICATE           : "This record already exists.",
-  MISSING_FIELD       : "A required field is missing.",
-  FK_VIOLATION        : "A referenced record does not exist.",
-  DB_CONFLICT         : "Another request modified the data. Please retry.",
-  RACE_CONDITION      : "The coupon was claimed by another request.",
-  COUPON_NOT_FOUND    : "This coupon does not exist.",
-
-  CACHE_UNAVAILABLE   : "Redis cache is not reachable.",
-
-  SMS_NO_CREDIT       : "SMS provider is out of credit.",
-  SMS_INVALID_NUMBER  : "SMS provider rejected the phone number.",
-  SMS_RATE_LIMITED    : "SMS provider is rate-limiting us.",
-  SMS_AUTH_FAILED     : "SMS provider auth failed (bad API key).",
-  SMS_PROVIDER_ERROR  : "SMS delivery failed.",
-
-  UPSTREAM_UNAVAILABLE: "Upstream service is unreachable.",
-  AUTH_INVALID        : "Invalid or expired token.",
-  USER_NOT_FOUND      : "Your account was not found.",
-
-  SERVER_UNAVAILABLE  : "Server is unreachable.",
-  NETWORK_ERROR       : "No internet connection.",
-  TIMEOUT             : "Server took too long to respond.",
-  INTERNAL_ERROR      : "Unexpected server error.",
-
-  PHONE_NOT_VERIFIED  : "Phone number not verified yet.",
-  PHONE_TAKEN         : "Phone number linked to another account.",
-  RESEND_COOLDOWN     : "Please wait before resending.",
-  RATE_LIMITED        : "Too many attempts.",
-  CHANGE_COOLDOWN     : "Phone number was recently changed.",
-
-  OTP_EXPIRED         : "OTP session expired.",
-  OTP_INCORRECT       : "Wrong OTP code.",
-  OTP_MAX_ATTEMPTS    : "Too many wrong OTP attempts.",
-  INVALID_OTP_FORMAT  : "OTP must be 6 digits.",
-
-  INVALID_PHONE       : "Phone number format is invalid.",
-  UNKNOWN_NETWORK     : "Could not detect network from phone.",
-  NOT_OWNER           : "You don't own this coupon.",
+  DB_UNAVAILABLE       : "Database connection failed.",
+  TABLE_MISSING        : "A required database table is missing.",
+  COLUMN_MISSING       : "A required database column is missing.",
+  SQL_SYNTAX           : "Invalid SQL query.",
+  DUPLICATE            : "This record already exists.",
+  MISSING_FIELD        : "A required field is missing.",
+  FK_VIOLATION         : "A referenced record does not exist.",
+  DB_CONFLICT          : "Another request modified the data. Please retry.",
+  RACE_CONDITION       : "The coupon was claimed by another request.",
+  COUPON_NOT_FOUND     : "This coupon does not exist.",
+  CACHE_UNAVAILABLE    : "Redis cache is not reachable.",
+  SMS_NO_CREDIT        : "SMS provider is out of credit.",
+  SMS_INVALID_NUMBER   : "SMS provider rejected the phone number.",
+  SMS_RATE_LIMITED     : "SMS provider is rate-limiting us.",
+  SMS_AUTH_FAILED      : "SMS provider auth failed (bad API key).",
+  SMS_PROVIDER_ERROR   : "SMS delivery failed.",
+  UPSTREAM_UNAVAILABLE : "Upstream service is unreachable.",
+  AUTH_INVALID         : "Invalid or expired token.",
+  USER_NOT_FOUND       : "Your account was not found.",
+  SERVER_UNAVAILABLE   : "Server is unreachable.",
+  NETWORK_ERROR        : "No internet connection.",
+  TIMEOUT              : "Server took too long to respond.",
+  INTERNAL_ERROR       : "Unexpected server error.",
+  PHONE_NOT_VERIFIED   : "Phone number not verified yet.",
+  PHONE_TAKEN          : "Phone number linked to another account.",
+  RESEND_COOLDOWN      : "Please wait before resending.",
+  RATE_LIMITED         : "Too many attempts.",
+  CHANGE_COOLDOWN      : "Phone number was recently changed.",
+  OTP_EXPIRED          : "OTP session expired.",
+  OTP_INCORRECT        : "Wrong OTP code.",
+  OTP_MAX_ATTEMPTS     : "Too many wrong OTP attempts.",
+  INVALID_OTP_FORMAT   : "OTP must be 6 digits.",
+  INVALID_PHONE        : "Phone number format is invalid.",
+  UNKNOWN_NETWORK      : "Could not detect network from phone.",
+  NOT_OWNER            : "You don't own this coupon.",
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   STEP INDICATOR
+   SUB-COMPONENTS
 ═══════════════════════════════════════════════════════════════ */
+
+/* ── Step Indicator ── */
 function StepIndicator({ step }) {
   const steps = ["Phone", "Confirm", "Verify", "Done"];
   return (
@@ -568,12 +585,20 @@ function StepIndicator({ step }) {
               {isDone ? "✓" : num}
             </div>
             <span
-              className={`acm-step-label${isActive ? " acm-step-label--active" : ""}`}
+              className={[
+                "acm-step-label",
+                isActive ? "acm-step-label--active" : "",
+              ].filter(Boolean).join(" ")}
             >
               {label}
             </span>
             {i < steps.length - 1 && (
-              <div className={`acm-step-line${isDone ? " acm-step-line--done" : ""}`} />
+              <div
+                className={[
+                  "acm-step-line",
+                  isDone ? "acm-step-line--done" : "",
+                ].filter(Boolean).join(" ")}
+              />
             )}
           </div>
         );
@@ -582,9 +607,7 @@ function StepIndicator({ step }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   OTP INPUT
-═══════════════════════════════════════════════════════════════ */
+/* ── OTP Input ── */
 function OtpInput({ value, onChange, disabled }) {
   const refs   = useRef([]);
   const digits = value.split("").concat(Array(6).fill("")).slice(0, 6);
@@ -609,21 +632,20 @@ function OtpInput({ value, onChange, disabled }) {
   const handleChange = (e, idx) => {
     const val = e.target.value.replace(/\D/g, "");
     if (!val) return;
-    const char = val.slice(-1);
     const next = [...digits];
-    next[idx]  = char;
+    next[idx]  = val.slice(-1);
     onChange(next.join(""));
     if (idx < 5) refs.current[idx + 1]?.focus();
   };
 
   const handlePaste = (e) => {
+    e.preventDefault();
     const pasted = e.clipboardData
       .getData("text")
       .replace(/\D/g, "")
       .slice(0, 6);
     onChange(pasted);
     refs.current[Math.min(pasted.length, 5)]?.focus();
-    e.preventDefault();
   };
 
   return (
@@ -632,7 +654,8 @@ function OtpInput({ value, onChange, disabled }) {
         <input
           key={i}
           ref={(el) => (refs.current[i] = el)}
-          className={`acm-otp-box${d ? " acm-otp-box--filled" : ""}`}
+          className={["acm-otp-box", d ? "acm-otp-box--filled" : ""]
+            .filter(Boolean).join(" ")}
           type="text"
           inputMode="numeric"
           maxLength={1}
@@ -648,22 +671,20 @@ function OtpInput({ value, onChange, disabled }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   DIAGNOSTIC PANEL
-═══════════════════════════════════════════════════════════════ */
+/* ── Diagnostic Panel ── */
 function DiagnosticPanel({ diagnostics, running, onRun, onClose }) {
   if (!diagnostics && !running) return null;
 
   return (
-    <div className="acm-diag" role="region" aria-label="Diagnostics">
+    <div className="acm-diag" role="region" aria-label="System diagnostics">
       <div className="acm-diag-header">
         <span className="acm-diag-icon">🔍</span>
         <div className="acm-diag-title">
           <p className="acm-diag-heading">System Diagnostics</p>
           {diagnostics && (
             <p className="acm-diag-sub">
-              {diagnostics.passed} passed · {diagnostics.failed} failed ·
-              {" "}{Math.round(diagnostics.total_duration / 1000)}s
+              {diagnostics.passed} passed · {diagnostics.failed} failed
+              {" · "}{Math.round(diagnostics.total_duration / 1_000)}s
             </p>
           )}
         </div>
@@ -701,20 +722,20 @@ function DiagnosticPanel({ diagnostics, running, onRun, onClose }) {
                   <p className="acm-diag-item-name">{test.name}</p>
                   <p className="acm-diag-item-detail">{test.detail}</p>
                 </div>
-                <span className="acm-diag-item-time">
-                  {test.duration}ms
-                </span>
+                <span className="acm-diag-item-time">{test.duration}ms</span>
               </div>
             ))}
           </div>
 
-          {/* Server diagnostics deep dive */}
+          {/* Server internals deep-dive */}
           {diagnostics.results.find((r) => r.name === "Server Diagnostics")?.data && (
             <details className="acm-diag-deep">
               <summary>Server internals ▾</summary>
               <pre>
                 {JSON.stringify(
-                  diagnostics.results.find((r) => r.name === "Server Diagnostics").data,
+                  diagnostics.results.find(
+                    (r) => r.name === "Server Diagnostics"
+                  ).data,
                   null,
                   2
                 )}
@@ -724,8 +745,7 @@ function DiagnosticPanel({ diagnostics, running, onRun, onClose }) {
 
           <div className="acm-diag-footer">
             <p className="acm-diag-info">
-              <strong>API URL:</strong>{" "}
-              <code>{diagnostics.api_url}</code>
+              <strong>API URL:</strong> <code>{diagnostics.api_url}</code>
             </p>
             <p className="acm-diag-info">
               <strong>Time:</strong> {diagnostics.timestamp}
@@ -748,15 +768,13 @@ function DiagnosticPanel({ diagnostics, running, onRun, onClose }) {
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   ERROR BOX — layered diagnostics
-═══════════════════════════════════════════════════════════════ */
+/* ── Error Box ── */
 function ErrorBox({ error, onRetry, loading, onDiagnose }) {
   const [expanded, setExpanded] = useState(false);
 
   if (!error) return null;
 
-  /* Plain string */
+  /* Plain string errors */
   if (typeof error === "string") {
     return (
       <div className="acm-error acm-error--err" role="alert">
@@ -768,14 +786,13 @@ function ErrorBox({ error, onRetry, loading, onDiagnose }) {
     );
   }
 
-  /* Resolve layer */
+  /* Resolve layer from error object */
   let layer = error.layer;
   if (!layer) {
     if (error.code === "NETWORK_ERROR" || error.code === "TIMEOUT") layer = "network";
     else if (error.code === "SERVER_UNAVAILABLE")                    layer = "server";
     else if (error.status >= 500)                                    layer = "server";
     else if (error.status === 401)                                   layer = "auth";
-    else                                                             layer = null;
   }
 
   const cfg      = layer ? ERROR_LAYERS[layer] : null;
@@ -785,7 +802,10 @@ function ErrorBox({ error, onRetry, loading, onDiagnose }) {
     layer && ["database", "cache", "sms", "network", "server"].includes(layer);
 
   const shouldOfferDiagnose =
-    layer === "server" || layer === "network" || error.status >= 500 || error.status === 0;
+    layer === "server"  ||
+    layer === "network" ||
+    (error.status >= 500) ||
+    error.status === 0;
 
   const wrapperClass = cfg
     ? `acm-error acm-error--${cfg.color}`
@@ -794,9 +814,7 @@ function ErrorBox({ error, onRetry, loading, onDiagnose }) {
   return (
     <div className={wrapperClass} role="alert">
       <div className="acm-error-main">
-        <span className="acm-error-icon">
-          {cfg?.icon || "⚠️"}
-        </span>
+        <span className="acm-error-icon">{cfg?.icon ?? "⚠️"}</span>
         <div className="acm-error-text">
           {cfg && <p className="acm-error-title">{cfg.title}</p>}
           <p className="acm-error-msg">{error.message}</p>
@@ -849,14 +867,10 @@ function ErrorBox({ error, onRetry, loading, onDiagnose }) {
             onClick={onRetry}
             disabled={loading}
           >
-            {loading ? (
-              <>
-                <span className="acm-spinner acm-spinner--sm" />
-                Retrying…
-              </>
-            ) : (
-              "🔄 Try Again"
-            )}
+            {loading
+              ? <><span className="acm-spinner acm-spinner--sm" /> Retrying…</>
+              : "🔄 Try Again"
+            }
           </button>
         )}
 
@@ -882,19 +896,426 @@ function ErrorBox({ error, onRetry, loading, onDiagnose }) {
         )}
       </div>
 
-      {/* Debug info */}
       {expanded && (error.debug || error.data) && (
         <pre className="acm-error-details">
-          {JSON.stringify(error.debug || error.data, null, 2)}
+          {JSON.stringify(error.debug ?? error.data, null, 2)}
         </pre>
       )}
 
-      {/* URL for reference */}
       {error.url && (
         <p className="acm-error-url">
           <strong>Request:</strong> <code>{error.url}</code>
         </p>
       )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   STEP COMPONENTS
+   Extracted for readability — each step receives only the props
+   it needs, keeping the main modal render clean.
+═══════════════════════════════════════════════════════════════ */
+
+function StepPhone({
+  phone, setPhone,
+  network, setNetwork,
+  error, setError,
+  isPrefilledPhone, setIsPrefilledPhone,
+  originalPhoneRef,
+  prefilledNetwork,
+  onContinue,
+  runDiag, showDiag, diagResults, diagRunning,
+}) {
+  const phoneRaw = normalisePhone(phone);
+
+  return (
+    <div className="acm-body">
+      <p className="acm-instruction">
+        Enter the phone number where you want to receive the airtime.
+      </p>
+
+      {isPrefilledPhone && (
+        <div className="acm-prefill-notice">
+          <span className="acm-prefill-icon">📋</span>
+          <div>
+            <p className="acm-prefill-title">Using your registered number</p>
+            <p className="acm-prefill-sub">Tap to edit if you want a different number.</p>
+          </div>
+        </div>
+      )}
+
+      <div className="acm-field">
+        <label className="acm-label">
+          Phone Number
+          {isPrefilledPhone && (
+            <span className="acm-registered-tag">Registered</span>
+          )}
+        </label>
+
+        <div
+          className={[
+            "acm-phone-row",
+            isPrefilledPhone ? "acm-phone-row--prefilled" : "",
+          ].filter(Boolean).join(" ")}
+        >
+          <span className="acm-prefix">🇳🇬 +234</span>
+          <input
+            className="acm-phone-input"
+            type="tel"
+            placeholder="0812 345 6789"
+            value={formatPhone(phoneRaw)}
+            onChange={(e) => {
+              const raw = e.target.value.replace(/\D/g, "");
+              setPhone(raw);
+              setError(null);
+              setIsPrefilledPhone(raw === originalPhoneRef.current);
+            }}
+            maxLength={14}
+            autoFocus={!isPrefilledPhone}
+            inputMode="numeric"
+            autoComplete="tel-national"
+          />
+          {phone && (
+            <button
+              className="acm-phone-clear"
+              type="button"
+              aria-label="Clear number"
+              onClick={() => {
+                setPhone("");
+                setNetwork("");
+                setIsPrefilledPhone(false);
+                setError(null);
+              }}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        {phoneRaw.length >= 4 && (
+          <p className="acm-phone-hint">
+            Will send to:{" "}
+            <strong>+234 {formatPhone(phoneRaw).slice(1)}</strong>
+          </p>
+        )}
+      </div>
+
+      <div className="acm-field">
+        <label className="acm-label">
+          Network
+          {network && (
+            <span className="acm-auto-detect">
+              {prefilledNetwork ? "✓ Saved" : "✓ Auto-detected"}
+            </span>
+          )}
+        </label>
+        <div className="acm-networks">
+          {NETWORKS.map((n) => (
+            <button
+              key={n.value}
+              type="button"
+              className={[
+                "acm-network-btn",
+                network === n.value ? "acm-network-btn--active" : "",
+              ].filter(Boolean).join(" ")}
+              style={
+                network === n.value
+                  ? {
+                      borderColor : n.color,
+                      background  : n.color + "18",
+                      color       : n.color,
+                    }
+                  : {}
+              }
+              onClick={() => {
+                setNetwork(n.value);
+                setError(null);
+              }}
+            >
+              {n.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="acm-info-box">
+        <span>ℹ️</span>
+        <p>
+          We will send a one-time code to verify this number.
+          Airtime is credited within <strong>24 hours</strong>.
+        </p>
+      </div>
+
+      <ErrorBox error={error} onDiagnose={runDiag} />
+
+      {showDiag && (
+        <DiagnosticPanel
+          diagnostics={diagResults}
+          running={diagRunning}
+          onRun={runDiag}
+          onClose={() => {/* handled by parent */}}
+        />
+      )}
+
+      <button
+        className="acm-primary-btn"
+        type="button"
+        onClick={onContinue}
+        disabled={!phoneRaw || !network}
+      >
+        Continue →
+      </button>
+    </div>
+  );
+}
+
+function StepConfirm({
+  phone, network, coupon,
+  error, loading,
+  onSend, onBack,
+  runDiag, showDiag, diagResults, diagRunning,
+}) {
+  const phoneRaw = normalisePhone(phone);
+  const netCfg   = NETWORKS.find((n) => n.value === network);
+
+  return (
+    <div className="acm-body">
+      <div className="acm-confirm-card">
+        <div className="acm-confirm-icon">📲</div>
+        <p className="acm-confirm-title">Send verification code?</p>
+        <p className="acm-confirm-sub">We'll send a 6-digit SMS code to:</p>
+
+        <div className="acm-confirm-number">
+          {netCfg && (
+            <span
+              className="acm-network-tag"
+              style={{ background: netCfg.color }}
+            >
+              {netCfg.label}
+            </span>
+          )}
+          <span className="acm-confirm-phone">{formatPhone(phoneRaw)}</span>
+        </div>
+
+        <div className="acm-confirm-amount">
+          <span className="acm-confirm-amount-label">Claiming</span>
+          <span className="acm-confirm-amount-value">
+            ₦{coupon?.value} Airtime
+          </span>
+        </div>
+      </div>
+
+      <div className="acm-confirm-warn">
+        <span>⚠️</span>
+        <p>
+          Make sure this number is correct and active.
+          The OTP will expire in <strong>10 minutes</strong>.
+        </p>
+      </div>
+
+      <ErrorBox
+        error={error}
+        onRetry={onSend}
+        loading={loading}
+        onDiagnose={runDiag}
+      />
+
+      {showDiag && (
+        <DiagnosticPanel
+          diagnostics={diagResults}
+          running={diagRunning}
+          onRun={runDiag}
+        />
+      )}
+
+      <button
+        className="acm-primary-btn"
+        type="button"
+        onClick={onSend}
+        disabled={loading}
+      >
+        {loading
+          ? <><span className="acm-spinner" /> Sending…</>
+          : "📨 Send Code Now"
+        }
+      </button>
+
+      <button
+        className="acm-ghost-btn"
+        type="button"
+        onClick={onBack}
+        disabled={loading}
+      >
+        ← Change Number
+      </button>
+    </div>
+  );
+}
+
+function StepVerify({
+  phone, network,
+  otp, setOtp,
+  countdown, attemptsLeft,
+  devOtp,
+  error, loading,
+  onVerify, onResend, onBack,
+  runDiag, showDiag, diagResults, diagRunning,
+}) {
+  const phoneRaw = normalisePhone(phone);
+  const netCfg   = NETWORKS.find((n) => n.value === network);
+
+  return (
+    <div className="acm-body">
+      <div className="acm-otp-sent">
+        <div className="acm-otp-sent-icon">💬</div>
+        <p className="acm-instruction">Code sent! Check your SMS.</p>
+        <p className="acm-phone-display">
+          {netCfg && (
+            <span
+              className="acm-network-tag"
+              style={{ background: netCfg.color }}
+            >
+              {netCfg.label}
+            </span>
+          )}
+          {maskPhone(phoneRaw)}
+        </p>
+
+        {attemptsLeft !== null && attemptsLeft <= 1 && (
+          <p className="acm-attempts-warn">
+            ⚠️ {attemptsLeft} resend attempt
+            {attemptsLeft !== 1 ? "s" : ""} left
+          </p>
+        )}
+      </div>
+
+      {/* Only shown in dev mode — never in production */}
+      {IS_DEV && devOtp && (
+        <div className="acm-dev-otp">
+          <span>🔧 Dev Mode</span>
+          <p>Your OTP: <strong>{devOtp}</strong></p>
+        </div>
+      )}
+
+      <div className="acm-field">
+        <label className="acm-label">Enter 6-digit code</label>
+        <OtpInput
+          value={otp}
+          onChange={(val) => {
+            setOtp(val);
+          }}
+          disabled={loading}
+        />
+      </div>
+
+      <div className="acm-resend">
+        {countdown > 0 ? (
+          <p className="acm-resend-timer">
+            Resend in <strong>{countdown}s</strong>
+          </p>
+        ) : (
+          <button
+            className="acm-resend-btn"
+            type="button"
+            onClick={onResend}
+            disabled={loading}
+          >
+            Resend Code
+          </button>
+        )}
+      </div>
+
+      <ErrorBox
+        error={error}
+        onRetry={onVerify}
+        loading={loading}
+        onDiagnose={runDiag}
+      />
+
+      {showDiag && (
+        <DiagnosticPanel
+          diagnostics={diagResults}
+          running={diagRunning}
+          onRun={runDiag}
+        />
+      )}
+
+      <button
+        className="acm-primary-btn"
+        type="button"
+        onClick={onVerify}
+        disabled={loading || otp.length < 6}
+      >
+        {loading
+          ? <><span className="acm-spinner" /> Verifying…</>
+          : "Verify & Claim Airtime ✓"
+        }
+      </button>
+
+      <button
+        className="acm-ghost-btn"
+        type="button"
+        onClick={onBack}
+        disabled={loading}
+      >
+        ← Change Number
+      </button>
+    </div>
+  );
+}
+
+function StepSuccess({ phone, network, coupon, onClose }) {
+  const phoneRaw = normalisePhone(phone);
+  const netCfg   = NETWORKS.find((n) => n.value === network);
+
+  return (
+    <div className="acm-body acm-body--success">
+      <div className="acm-success-animation">
+        <div className="acm-success-circle">
+          <span className="acm-success-check">✓</span>
+        </div>
+      </div>
+
+      <h3 className="acm-success-title">Claim Submitted!</h3>
+      <p className="acm-success-msg">
+        Your ₦{coupon?.value} airtime will be sent to
+      </p>
+
+      <p className="acm-success-phone">
+        {netCfg && (
+          <span
+            className="acm-network-tag"
+            style={{ background: netCfg.color }}
+          >
+            {netCfg.label}
+          </span>
+        )}
+        {formatPhone(phoneRaw)}
+      </p>
+
+      <div className="acm-success-timeline">
+        <div className="acm-timeline-item acm-timeline-item--done">
+          <span className="acm-tl-dot" />
+          <p>Phone number verified ✓</p>
+        </div>
+        <div className="acm-timeline-item acm-timeline-item--done">
+          <span className="acm-tl-dot" />
+          <p>Claim submitted ✓</p>
+        </div>
+        <div className="acm-timeline-item acm-timeline-item--pending">
+          <span className="acm-tl-dot" />
+          <p>Airtime credited <em>(within 24 hours)</em></p>
+        </div>
+      </div>
+
+      <button
+        className="acm-primary-btn"
+        type="button"
+        onClick={onClose}
+      >
+        Done
+      </button>
     </div>
   );
 }
@@ -922,20 +1343,21 @@ export default function AirtimeClaimModal({
   const [devOtp,           setDevOtp]           = useState(null);
 
   /* Diagnostic state */
-  const [showDiag,     setShowDiag]     = useState(false);
-  const [diagRunning,  setDiagRunning]  = useState(false);
-  const [diagResults,  setDiagResults]  = useState(null);
+  const [showDiag,    setShowDiag]    = useState(false);
+  const [diagRunning, setDiagRunning] = useState(false);
+  const [diagResults, setDiagResults] = useState(null);
 
   const timerRef         = useRef(null);
   const originalPhoneRef = useRef("");
   const mountedRef       = useRef(true);
 
+  /* Track mount state to avoid setting state after unmount */
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
 
-  /* Countdown */
+  /* Countdown timer */
   useEffect(() => {
     if (countdown <= 0) return;
     timerRef.current = setTimeout(() => {
@@ -944,10 +1366,9 @@ export default function AirtimeClaimModal({
     return () => clearTimeout(timerRef.current);
   }, [countdown]);
 
-  /* Reset on open */
+  /* Reset all state when modal opens */
   useEffect(() => {
     if (!isOpen) return;
-
     const clean = normalisePhone(prefilledPhone);
     originalPhoneRef.current = clean;
 
@@ -964,28 +1385,44 @@ export default function AirtimeClaimModal({
     setDiagResults(null);
   }, [isOpen, prefilledPhone, prefilledNetwork]);
 
-  /* Auto-detect network */
+  /* Auto-detect network as the user types */
   useEffect(() => {
     if (prefilledNetwork) return;
     const detected = detectNetwork(phone);
     if (detected && detected !== network) {
       setNetwork(detected);
     }
-  }, [phone, prefilledNetwork]); // eslint-disable-line
+  }, [phone, network, prefilledNetwork]);
 
-  const handleBackdrop = (e) => {
-    if (e.target === e.currentTarget && !loading) onClose();
-  };
+  /*
+   * OTP auto-submit — use an effect so we never close over a stale
+   * verifyAndClaim reference. The effect re-runs when `otp` changes
+   * and only fires when the code is complete.
+   */
+  useEffect(() => {
+    if (otp.length !== 6 || step !== 3 || loading) return;
+    const timer = setTimeout(() => {
+      if (mountedRef.current) verifyAndClaim();
+    }, 300);
+    return () => clearTimeout(timer);
+    // verifyAndClaim is defined below with useCallback — safe to include
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [otp, step, loading]);
 
   /* ESC to close */
   useEffect(() => {
     if (!isOpen) return;
-    const handleEsc = (e) => {
+    const onEsc = (e) => {
       if (e.key === "Escape" && !loading) onClose();
     };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
+    window.addEventListener("keydown", onEsc);
+    return () => window.removeEventListener("keydown", onEsc);
   }, [isOpen, loading, onClose]);
+
+  /* Backdrop click */
+  const handleBackdrop = (e) => {
+    if (e.target === e.currentTarget && !loading) onClose();
+  };
 
   /* Run diagnostics */
   const runDiag = useCallback(async () => {
@@ -1021,7 +1458,6 @@ export default function AirtimeClaimModal({
   /* Step 1 → 2 */
   const handleProceedToConfirm = () => {
     setError(null);
-
     if (!isValidNgPhone(phone)) {
       setError("Enter a valid 11-digit Nigerian number (e.g. 08012345678).");
       return;
@@ -1030,7 +1466,6 @@ export default function AirtimeClaimModal({
       setError("Please select your network provider.");
       return;
     }
-
     setStep(2);
   };
 
@@ -1041,19 +1476,26 @@ export default function AirtimeClaimModal({
     setShowDiag(false);
 
     try {
-      const data = await smartFetch(`${API}/airtime-coupons/send-otp`, {
-        method  : "POST",
-        headers : authH(),
-        body    : JSON.stringify({
-          phone   : normalisePhone(phone),
-          purpose : "verify",
-        }),
-      });
+      const data = await smartFetch(
+        `${API}/airtime-coupons/send-otp`,
+        {
+          method  : "POST",
+          headers : authHeaders(),
+          body    : JSON.stringify({
+            phone   : normalisePhone(phone),
+            network,       // included for reference; server re-detects
+            purpose : "verify",
+          }),
+        }
+      );
 
-      if (data.dev_otp) setDevOtp(data.dev_otp);
+      /*
+       * dev_otp is only present in non-production responses.
+       * Guard IS_DEV on the frontend too for belt-and-suspenders.
+       */
+      if (IS_DEV && data.dev_otp) setDevOtp(data.dev_otp);
 
-      const cooldown = Number(data.resend_after) || 60;
-      setCountdown(cooldown);
+      setCountdown(Number(data.resend_after) || OTP_RESEND_COOLDOWN);
 
       if (typeof data.attempts_left === "number") {
         setAttemptsLeft(data.attempts_left);
@@ -1065,9 +1507,12 @@ export default function AirtimeClaimModal({
     } finally {
       setLoading(false);
     }
-  }, [phone]);
+  }, [phone, network]);
 
-  /* Step 3 : verify + redeem */
+  /* Constant for the frontend countdown default */
+  const OTP_RESEND_COOLDOWN = 60;
+
+  /* Step 3 : verify OTP then redeem coupon */
   const verifyAndClaim = useCallback(async () => {
     if (otp.length < 6) {
       setError("Enter the 6-digit code.");
@@ -1079,11 +1524,16 @@ export default function AirtimeClaimModal({
     setShowDiag(false);
 
     try {
-      const verifyRes = await smartFetch(
+      /*
+       * verify-otp marks the phone as verified on the user account.
+       * redeem then reads the verified phone from the DB — so the order
+       * matters and is correct.
+       */
+      await smartFetch(
         `${API}/airtime-coupons/verify-otp`,
         {
           method  : "POST",
-          headers : authH(),
+          headers : authHeaders(),
           body    : JSON.stringify({
             phone   : normalisePhone(phone),
             otp,
@@ -1096,21 +1546,25 @@ export default function AirtimeClaimModal({
         `${API}/airtime-coupons/redeem`,
         {
           method  : "POST",
-          headers : authH(),
+          headers : authHeaders(),
           body    : JSON.stringify({ code: coupon?.code }),
         }
       );
 
       setStep(4);
-
       onSuccess?.(coupon?.code, {
         phone   : normalisePhone(phone),
-        network : verifyRes?.phone?.network || network,
+        network : claimRes.coupon?.network || network,
         coupon  : claimRes.coupon,
         ...claimRes,
       });
+
     } catch (err) {
-      if (err.code === "ALREADY_REDEEMED" || err.code?.startsWith("ALREADY_")) {
+      /* If already redeemed concurrently, treat as success */
+      if (
+        err.code === "ALREADY_REDEEMED" ||
+        err.code?.startsWith("ALREADY_")
+      ) {
         setStep(4);
         onSuccess?.(coupon?.code, {
           phone   : normalisePhone(phone),
@@ -1122,13 +1576,15 @@ export default function AirtimeClaimModal({
 
       setError(err);
 
+      /* Clear OTP on any OTP-related error so user can re-enter */
       const isOtpErr =
-        err.code?.startsWith("OTP_") ||
-        err.data?.remaining !== undefined ||
-        err.message?.toLowerCase().includes("otp") ||
+        err.code?.startsWith("OTP_")             ||
+        err.data?.remaining !== undefined         ||
+        err.message?.toLowerCase().includes("otp")  ||
         err.message?.toLowerCase().includes("code");
 
       if (isOtpErr) setOtp("");
+
     } finally {
       setLoading(false);
     }
@@ -1153,8 +1609,13 @@ export default function AirtimeClaimModal({
 
   if (!isOpen) return null;
 
-  const netCfg   = NETWORKS.find((n) => n.value === network);
-  const phoneRaw = normalisePhone(phone);
+  /* Shared diagnostic props passed to every step */
+  const diagProps = {
+    runDiag,
+    showDiag,
+    diagResults,
+    diagRunning,
+  };
 
   return (
     <div className="acm-backdrop" onClick={handleBackdrop}>
@@ -1184,390 +1645,57 @@ export default function AirtimeClaimModal({
 
         <StepIndicator step={step} />
 
-        {/* Step 1 */}
         {step === 1 && (
-          <div className="acm-body">
-            <p className="acm-instruction">
-              Enter the phone number where you want to receive the airtime.
-            </p>
-
-            {isPrefilledPhone && (
-              <div className="acm-prefill-notice">
-                <span className="acm-prefill-icon">📋</span>
-                <div>
-                  <p className="acm-prefill-title">
-                    Using your registered number
-                  </p>
-                  <p className="acm-prefill-sub">
-                    Tap to edit if you want a different number.
-                  </p>
-                </div>
-              </div>
-            )}
-
-            <div className="acm-field">
-              <label className="acm-label">
-                Phone Number
-                {isPrefilledPhone && (
-                  <span className="acm-registered-tag">Registered</span>
-                )}
-              </label>
-
-              <div
-                className={[
-                  "acm-phone-row",
-                  isPrefilledPhone ? "acm-phone-row--prefilled" : "",
-                ].filter(Boolean).join(" ")}
-              >
-                <span className="acm-prefix">🇳🇬 +234</span>
-                <input
-                  className="acm-phone-input"
-                  type="tel"
-                  placeholder="0812 345 6789"
-                  value={formatPhone(phoneRaw)}
-                  onChange={(e) => {
-                    const raw = e.target.value.replace(/\D/g, "");
-                    setPhone(raw);
-                    setError(null);
-                    setIsPrefilledPhone(raw === originalPhoneRef.current);
-                  }}
-                  maxLength={14}
-                  autoFocus={!isPrefilledPhone}
-                  inputMode="numeric"
-                  autoComplete="tel-national"
-                />
-                {phone && (
-                  <button
-                    className="acm-phone-clear"
-                    type="button"
-                    aria-label="Clear number"
-                    onClick={() => {
-                      setPhone("");
-                      setNetwork("");
-                      setIsPrefilledPhone(false);
-                      setError(null);
-                    }}
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-
-              {phoneRaw.length >= 4 && (
-                <p className="acm-phone-hint">
-                  Will send to:{" "}
-                  <strong>+234 {formatPhone(phoneRaw).slice(1)}</strong>
-                </p>
-              )}
-            </div>
-
-            <div className="acm-field">
-              <label className="acm-label">
-                Network
-                {network && (
-                  <span className="acm-auto-detect">
-                    {prefilledNetwork ? "✓ Saved" : "✓ Auto-detected"}
-                  </span>
-                )}
-              </label>
-              <div className="acm-networks">
-                {NETWORKS.map((n) => (
-                  <button
-                    key={n.value}
-                    type="button"
-                    className={[
-                      "acm-network-btn",
-                      network === n.value ? "acm-network-btn--active" : "",
-                    ].filter(Boolean).join(" ")}
-                    style={
-                      network === n.value
-                        ? { borderColor: n.color, background: n.color + "18", color: n.color }
-                        : {}
-                    }
-                    onClick={() => {
-                      setNetwork(n.value);
-                      setError(null);
-                    }}
-                  >
-                    {n.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div className="acm-info-box">
-              <span>ℹ️</span>
-              <p>
-                We will send a one-time code to verify this number.
-                Airtime is credited within <strong>24 hours</strong>.
-              </p>
-            </div>
-
-            <ErrorBox error={error} onDiagnose={runDiag} />
-
-            {showDiag && (
-              <DiagnosticPanel
-                diagnostics={diagResults}
-                running={diagRunning}
-                onRun={runDiag}
-                onClose={() => setShowDiag(false)}
-              />
-            )}
-
-            <button
-              className="acm-primary-btn"
-              type="button"
-              onClick={handleProceedToConfirm}
-              disabled={!phoneRaw || !network}
-            >
-              Continue →
-            </button>
-          </div>
+          <StepPhone
+            phone={phone}               setPhone={setPhone}
+            network={network}           setNetwork={setNetwork}
+            error={error}               setError={setError}
+            isPrefilledPhone={isPrefilledPhone}
+            setIsPrefilledPhone={setIsPrefilledPhone}
+            originalPhoneRef={originalPhoneRef}
+            prefilledNetwork={prefilledNetwork}
+            onContinue={handleProceedToConfirm}
+            {...diagProps}
+          />
         )}
 
-        {/* Step 2 */}
         {step === 2 && (
-          <div className="acm-body">
-            <div className="acm-confirm-card">
-              <div className="acm-confirm-icon">📲</div>
-              <p className="acm-confirm-title">Send verification code?</p>
-              <p className="acm-confirm-sub">
-                We'll send a 6-digit SMS code to:
-              </p>
-
-              <div className="acm-confirm-number">
-                {netCfg && (
-                  <span
-                    className="acm-network-tag"
-                    style={{ background: netCfg.color }}
-                  >
-                    {netCfg.label}
-                  </span>
-                )}
-                <span className="acm-confirm-phone">
-                  {formatPhone(phoneRaw)}
-                </span>
-              </div>
-
-              <div className="acm-confirm-amount">
-                <span className="acm-confirm-amount-label">Claiming</span>
-                <span className="acm-confirm-amount-value">
-                  ₦{coupon?.value} Airtime
-                </span>
-              </div>
-            </div>
-
-            <div className="acm-confirm-warn">
-              <span>⚠️</span>
-              <p>
-                Make sure this number is correct and active.
-                The OTP will expire in <strong>10 minutes</strong>.
-              </p>
-            </div>
-
-            <ErrorBox
-              error={error}
-              onRetry={sendOtp}
-              loading={loading}
-              onDiagnose={runDiag}
-            />
-
-            {showDiag && (
-              <DiagnosticPanel
-                diagnostics={diagResults}
-                running={diagRunning}
-                onRun={runDiag}
-                onClose={() => setShowDiag(false)}
-              />
-            )}
-
-            <button
-              className="acm-primary-btn"
-              type="button"
-              onClick={sendOtp}
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <span className="acm-spinner" />
-                  Sending…
-                </>
-              ) : (
-                "📨 Send Code Now"
-              )}
-            </button>
-
-            <button
-              className="acm-ghost-btn"
-              type="button"
-              onClick={changeNumber}
-              disabled={loading}
-            >
-              ← Change Number
-            </button>
-          </div>
+          <StepConfirm
+            phone={phone}
+            network={network}
+            coupon={coupon}
+            error={error}
+            loading={loading}
+            onSend={sendOtp}
+            onBack={changeNumber}
+            {...diagProps}
+          />
         )}
 
-        {/* Step 3 */}
         {step === 3 && (
-          <div className="acm-body">
-            <div className="acm-otp-sent">
-              <div className="acm-otp-sent-icon">💬</div>
-              <p className="acm-instruction">
-                Code sent! Check your SMS.
-              </p>
-              <p className="acm-phone-display">
-                {netCfg && (
-                  <span
-                    className="acm-network-tag"
-                    style={{ background: netCfg.color }}
-                  >
-                    {netCfg.label}
-                  </span>
-                )}
-                {maskPhone(phoneRaw)}
-              </p>
-
-              {attemptsLeft !== null && attemptsLeft <= 1 && (
-                <p className="acm-attempts-warn">
-                  ⚠️ {attemptsLeft} resend attempt{attemptsLeft !== 1 ? "s" : ""} left
-                </p>
-              )}
-            </div>
-
-            {devOtp && (
-              <div className="acm-dev-otp">
-                <span>🔧 Dev Mode</span>
-                <p>Your OTP: <strong>{devOtp}</strong></p>
-              </div>
-            )}
-
-            <div className="acm-field">
-              <label className="acm-label">Enter 6-digit code</label>
-              <OtpInput
-                value={otp}
-                onChange={(val) => {
-                  setOtp(val);
-                  setError(null);
-                  if (val.length === 6) {
-                    setTimeout(() => verifyAndClaim(), 300);
-                  }
-                }}
-                disabled={loading}
-              />
-            </div>
-
-            <div className="acm-resend">
-              {countdown > 0 ? (
-                <p className="acm-resend-timer">
-                  Resend in <strong>{countdown}s</strong>
-                </p>
-              ) : (
-                <button
-                  className="acm-resend-btn"
-                  type="button"
-                  onClick={resendOtp}
-                  disabled={loading}
-                >
-                  Resend Code
-                </button>
-              )}
-            </div>
-
-            <ErrorBox
-              error={error}
-              onRetry={verifyAndClaim}
-              loading={loading}
-              onDiagnose={runDiag}
-            />
-
-            {showDiag && (
-              <DiagnosticPanel
-                diagnostics={diagResults}
-                running={diagRunning}
-                onRun={runDiag}
-                onClose={() => setShowDiag(false)}
-              />
-            )}
-
-            <button
-              className="acm-primary-btn"
-              type="button"
-              onClick={verifyAndClaim}
-              disabled={loading || otp.length < 6}
-            >
-              {loading ? (
-                <>
-                  <span className="acm-spinner" />
-                  Verifying…
-                </>
-              ) : (
-                "Verify & Claim Airtime ✓"
-              )}
-            </button>
-
-            <button
-              className="acm-ghost-btn"
-              type="button"
-              onClick={changeNumber}
-              disabled={loading}
-            >
-              ← Change Number
-            </button>
-          </div>
+          <StepVerify
+            phone={phone}
+            network={network}
+            otp={otp}                   setOtp={setOtp}
+            countdown={countdown}
+            attemptsLeft={attemptsLeft}
+            devOtp={devOtp}
+            error={error}
+            loading={loading}
+            onVerify={verifyAndClaim}
+            onResend={resendOtp}
+            onBack={changeNumber}
+            {...diagProps}
+          />
         )}
 
-        {/* Step 4 */}
         {step === 4 && (
-          <div className="acm-body acm-body--success">
-            <div className="acm-success-animation">
-              <div className="acm-success-circle">
-                <span className="acm-success-check">✓</span>
-              </div>
-            </div>
-
-            <h3 className="acm-success-title">Claim Submitted!</h3>
-            <p className="acm-success-msg">
-              Your ₦{coupon?.value} airtime will be sent to
-            </p>
-            <p className="acm-success-phone">
-              {netCfg && (
-                <span
-                  className="acm-network-tag"
-                  style={{ background: netCfg.color }}
-                >
-                  {netCfg.label}
-                </span>
-              )}
-              {formatPhone(phoneRaw)}
-            </p>
-
-            <div className="acm-success-timeline">
-              <div className="acm-timeline-item acm-timeline-item--done">
-                <span className="acm-tl-dot" />
-                <p>Phone number verified ✓</p>
-              </div>
-              <div className="acm-timeline-item acm-timeline-item--done">
-                <span className="acm-tl-dot" />
-                <p>Claim submitted ✓</p>
-              </div>
-              <div className="acm-timeline-item acm-timeline-item--pending">
-                <span className="acm-tl-dot" />
-                <p>
-                  Airtime credited{" "}
-                  <em>(within 24 hours)</em>
-                </p>
-              </div>
-            </div>
-
-            <button
-              className="acm-primary-btn"
-              type="button"
-              onClick={onClose}
-            >
-              Done
-            </button>
-          </div>
+          <StepSuccess
+            phone={phone}
+            network={network}
+            coupon={coupon}
+            onClose={onClose}
+          />
         )}
 
       </div>
