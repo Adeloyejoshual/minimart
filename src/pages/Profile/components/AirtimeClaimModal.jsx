@@ -78,9 +78,6 @@ const isValidNgPhone = (num) => {
 
 /* ═══════════════════════════════════════════════════════════════
    SMART FETCH
-   - Detects HTML error pages (Cloudflare/Nginx/Render 502/503/504)
-   - Maps common HTTP errors to friendly messages
-   - Never exposes raw HTML to the user
 ═══════════════════════════════════════════════════════════════ */
 const SERVER_ERROR_MESSAGES = {
   500 : "Our server ran into a problem. Please try again shortly.",
@@ -99,7 +96,6 @@ async function smartFetch(url, options = {}) {
   let rawText = "";
   let data;
 
-  /* ── Perform request ── */
   try {
     res     = await fetch(url, options);
     rawText = await res.text();
@@ -108,12 +104,13 @@ async function smartFetch(url, options = {}) {
     throw {
       status  : 0,
       code    : "NETWORK_ERROR",
+      layer   : "network",
       message : "Network error. Please check your internet connection.",
       raw     : netErr.message,
     };
   }
 
-  /* ── Detect HTML error pages ── */
+  /* Detect HTML error pages */
   const trimmed = rawText.trim().toLowerCase();
   const looksLikeHtml =
     trimmed.startsWith("<!doctype") ||
@@ -121,7 +118,6 @@ async function smartFetch(url, options = {}) {
     trimmed.startsWith("<!--");
 
   if (looksLikeHtml) {
-    /* Try to extract page title for extra hint */
     const titleMatch = rawText.match(/<title[^>]*>([^<]+)<\/title>/i);
     const title      = titleMatch ? titleMatch[1].trim() : null;
 
@@ -138,25 +134,23 @@ async function smartFetch(url, options = {}) {
     throw {
       status  : res.status,
       code    : "SERVER_UNAVAILABLE",
+      layer   : "server",
       message : friendly,
-      data    : null,      // ← NEVER expose HTML in the "Show details"
+      data    : null,
     };
   }
 
-  /* ── Parse JSON ── */
   try {
     data = rawText ? JSON.parse(rawText) : {};
   } catch {
     data = { message: rawText.slice(0, 200) };
   }
 
-  /* ── Log for debugging ── */
   console.log(
     `[AirtimeModal] ${options.method || "GET"} ${url} → ${res.status}`,
     data
   );
 
-  /* ── Handle non-OK responses ── */
   if (!res.ok || data?.success === false) {
     const msg =
       data?.message ||
@@ -166,14 +160,116 @@ async function smartFetch(url, options = {}) {
 
     throw {
       status  : res.status,
-      code    : data?.code || (res.status >= 500 ? "SERVER_UNAVAILABLE" : null),
+      code    : data?.code  || (res.status >= 500 ? "SERVER_UNAVAILABLE" : null),
+      layer   : data?.layer || null,
       message : msg,
+      debug   : data?.debug || null,
       data,
     };
   }
 
   return data;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   ERROR LAYER CONFIG
+═══════════════════════════════════════════════════════════════ */
+const ERROR_LAYERS = {
+  database: {
+    icon: "🗄️", title: "Database Issue", color: "warn",
+    tips: [
+      "Our database is having trouble responding.",
+      "This usually resolves within a few seconds.",
+    ],
+  },
+  cache: {
+    icon: "⚡", title: "Cache Issue", color: "warn",
+    tips: [
+      "Our cache service is temporarily down.",
+      "Please retry — the request will bypass the cache.",
+    ],
+  },
+  sms: {
+    icon: "📵", title: "SMS Delivery Issue", color: "warn",
+    tips: [
+      "We couldn't send the SMS code.",
+      "Check your phone number is correct and active.",
+    ],
+  },
+  network: {
+    icon: "🌐", title: "Connection Issue", color: "neutral",
+    tips: [
+      "A background service is unreachable.",
+      "Please try again in a moment.",
+    ],
+  },
+  auth: {
+    icon: "🔒", title: "Authentication Issue", color: "err",
+    tips: [
+      "Your session may have expired.",
+      "Please log out and log in again.",
+    ],
+  },
+  server: {
+    icon: "🔧", title: "Server Issue", color: "warn",
+    tips: [
+      "Something went wrong on our end.",
+      "Our team has been notified.",
+    ],
+  },
+  input: {
+    icon: "✏️", title: "Invalid Input", color: "err",
+    tips: null,
+  },
+  policy: {
+    icon: "🛡️", title: "Not Allowed", color: "err",
+    tips: null,
+  },
+};
+
+const ERROR_CODE_HINTS = {
+  DB_UNAVAILABLE      : "Database connection failed.",
+  TABLE_MISSING       : "A required database table is missing.",
+  COLUMN_MISSING      : "A required database column is missing.",
+  SQL_SYNTAX          : "Invalid SQL query.",
+  DUPLICATE           : "This record already exists.",
+  MISSING_FIELD       : "A required field is missing.",
+  FK_VIOLATION        : "A referenced record does not exist.",
+  DB_CONFLICT         : "Another request modified the data. Please retry.",
+  RACE_CONDITION      : "The coupon was claimed by another request.",
+  COUPON_NOT_FOUND    : "This coupon does not exist.",
+
+  CACHE_UNAVAILABLE   : "Redis cache is not reachable.",
+
+  SMS_NO_CREDIT       : "SMS provider is out of credit.",
+  SMS_INVALID_NUMBER  : "SMS provider rejected the phone number.",
+  SMS_RATE_LIMITED    : "SMS provider is rate-limiting us.",
+  SMS_AUTH_FAILED     : "SMS provider auth failed (bad API key).",
+  SMS_PROVIDER_ERROR  : "SMS delivery failed.",
+
+  UPSTREAM_UNAVAILABLE: "Upstream service is unreachable.",
+  AUTH_INVALID        : "Invalid or expired token.",
+  USER_NOT_FOUND      : "Your account was not found.",
+
+  SERVER_UNAVAILABLE  : "Server is unreachable.",
+  NETWORK_ERROR       : "No internet connection.",
+  INTERNAL_ERROR      : "Unexpected server error.",
+
+  PHONE_NOT_VERIFIED  : "Phone number not verified yet.",
+  PHONE_TAKEN         : "Phone number linked to another account.",
+  RESEND_COOLDOWN     : "Please wait before resending.",
+  RATE_LIMITED        : "Too many attempts.",
+  CHANGE_COOLDOWN     : "Phone number was recently changed.",
+
+  OTP_EXPIRED         : "OTP session expired.",
+  OTP_INCORRECT       : "Wrong OTP code.",
+  OTP_MAX_ATTEMPTS    : "Too many wrong OTP attempts.",
+  INVALID_OTP_FORMAT  : "OTP must be 6 digits.",
+
+  INVALID_PHONE       : "Phone number format is invalid.",
+  UNKNOWN_NETWORK     : "Could not detect network from phone.",
+  NOT_OWNER           : "You don't own this coupon.",
+};
 
 /* ═══════════════════════════════════════════════════════════════
    STEP INDICATOR
@@ -279,108 +375,124 @@ function OtpInput({ value, onChange, disabled }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ERROR BOX
-   Handles 3 error variants:
-     • SERVER_UNAVAILABLE — friendly banner with retry
-     • NETWORK_ERROR      — offline / connection issue with retry
-     • normal errors      — with expandable JSON details
+   ERROR BOX — layered diagnostics
 ═══════════════════════════════════════════════════════════════ */
 function ErrorBox({ error, onRetry, loading }) {
   const [expanded, setExpanded] = useState(false);
 
   if (!error) return null;
 
-  /* Plain string error */
+  /* Plain string */
   if (typeof error === "string") {
     return (
-      <div className="acm-error" role="alert">
-        ⚠️ {error}
+      <div className="acm-error acm-error--err" role="alert">
+        <div className="acm-error-main">
+          <span className="acm-error-icon">⚠️</span>
+          <span className="acm-error-msg">{error}</span>
+        </div>
       </div>
     );
   }
 
-  const isServerDown =
-    error.code === "SERVER_UNAVAILABLE" ||
-    (error.status >= 500 && error.status < 600);
+  /* Resolve layer */
+  let layer = error.layer;
+  if (!layer) {
+    if (error.code === "NETWORK_ERROR")      layer = "network";
+    else if (error.code === "SERVER_UNAVAILABLE") layer = "server";
+    else if (error.status >= 500)            layer = "server";
+    else if (error.status === 401)           layer = "auth";
+    else                                     layer = null;
+  }
 
-  const isNetworkError =
-    error.code === "NETWORK_ERROR" || error.status === 0;
+  const cfg      = layer ? ERROR_LAYERS[layer] : null;
+  const codeHint = ERROR_CODE_HINTS[error.code];
+  const isRetryable =
+    layer && ["database", "cache", "sms", "network", "server"].includes(layer);
 
-  /* ── Server unavailable ── */
-  if (isServerDown) {
+  /* Layered error */
+  if (cfg) {
     return (
-      <div className="acm-error acm-error--server" role="alert">
+      <div className={`acm-error acm-error--${cfg.color}`} role="alert">
         <div className="acm-error-main">
-          <span className="acm-error-icon">🔧</span>
+          <span className="acm-error-icon">{cfg.icon}</span>
           <div className="acm-error-text">
-            <p className="acm-error-title">Server temporarily unavailable</p>
+            <p className="acm-error-title">{cfg.title}</p>
             <p className="acm-error-msg">{error.message}</p>
           </div>
           {error.status ? (
             <span className="acm-error-code">HTTP {error.status}</span>
           ) : null}
         </div>
-        {onRetry && (
-          <button
-            type="button"
-            className="acm-error-retry"
-            onClick={onRetry}
-            disabled={loading}
-          >
-            {loading ? (
-              <>
-                <span className="acm-spinner acm-spinner--sm" />
-                Retrying…
-              </>
-            ) : (
-              "🔄 Try Again"
-            )}
-          </button>
-        )}
-      </div>
-    );
-  }
 
-  /* ── Network error ── */
-  if (isNetworkError) {
-    return (
-      <div className="acm-error acm-error--network" role="alert">
-        <div className="acm-error-main">
-          <span className="acm-error-icon">📡</span>
-          <div className="acm-error-text">
-            <p className="acm-error-title">No connection</p>
-            <p className="acm-error-msg">{error.message}</p>
-          </div>
+        {/* Diagnostic pills */}
+        <div className="acm-error-pills">
+          {error.code && (
+            <span className="acm-error-pill">
+              <strong>Code:</strong> {error.code}
+            </span>
+          )}
+          <span className="acm-error-pill">
+            <strong>Layer:</strong> {layer}
+          </span>
         </div>
-        {onRetry && (
-          <button
-            type="button"
-            className="acm-error-retry"
-            onClick={onRetry}
-            disabled={loading}
-          >
-            {loading ? (
-              <>
-                <span className="acm-spinner acm-spinner--sm" />
-                Retrying…
-              </>
-            ) : (
-              "🔄 Try Again"
-            )}
-          </button>
+
+        {/* Contextual tips */}
+        {(codeHint || cfg.tips) && (
+          <ul className="acm-error-tips">
+            {codeHint && <li className="acm-error-tip-hint">{codeHint}</li>}
+            {cfg.tips?.map((t, i) => <li key={i}>{t}</li>)}
+          </ul>
+        )}
+
+        {/* Actions */}
+        <div className="acm-error-actions">
+          {onRetry && isRetryable && (
+            <button
+              type="button"
+              className="acm-error-retry"
+              onClick={onRetry}
+              disabled={loading}
+            >
+              {loading ? (
+                <>
+                  <span className="acm-spinner acm-spinner--sm" />
+                  Retrying…
+                </>
+              ) : (
+                "🔄 Try Again"
+              )}
+            </button>
+          )}
+
+          {error.debug && (
+            <button
+              type="button"
+              className="acm-error-toggle"
+              onClick={() => setExpanded((v) => !v)}
+            >
+              {expanded ? "Hide debug ▲" : "Show debug ▼"}
+            </button>
+          )}
+        </div>
+
+        {/* Debug info (dev only) */}
+        {expanded && error.debug && (
+          <pre className="acm-error-details">
+            {JSON.stringify(error.debug, null, 2)}
+          </pre>
         )}
       </div>
     );
   }
 
-  /* ── Regular error with expandable details ── */
+  /* Generic fallback */
   const hasDetails =
     error.data &&
     typeof error.data === "object" &&
     Object.keys(error.data).length > 0;
 
   return (
-    <div className="acm-error" role="alert">
+    <div className="acm-error acm-error--err" role="alert">
       <div className="acm-error-main">
         <span className="acm-error-icon">⚠️</span>
         <span className="acm-error-msg">{error.message}</span>
@@ -388,6 +500,14 @@ function ErrorBox({ error, onRetry, loading }) {
           <span className="acm-error-code">HTTP {error.status}</span>
         ) : null}
       </div>
+
+      {error.code && (
+        <div className="acm-error-pills">
+          <span className="acm-error-pill">
+            <strong>Code:</strong> {error.code}
+          </span>
+        </div>
+      )}
 
       {hasDetails && (
         <>
@@ -405,6 +525,17 @@ function ErrorBox({ error, onRetry, loading }) {
             </pre>
           )}
         </>
+      )}
+
+      {onRetry && (
+        <button
+          type="button"
+          className="acm-error-retry"
+          onClick={onRetry}
+          disabled={loading}
+        >
+          {loading ? "Retrying…" : "🔄 Try Again"}
+        </button>
       )}
     </div>
   );
@@ -511,7 +642,6 @@ export default function AirtimeClaimModal({
 
   /* ══════════════════════════════════════════════════════
      STEP 2 → 3 : send OTP
-     POST /api/airtime-coupons/send-otp
   ══════════════════════════════════════════════════════ */
   const sendOtp = useCallback(async () => {
     setLoading(true);
@@ -558,7 +688,6 @@ export default function AirtimeClaimModal({
     setError(null);
 
     try {
-      /* STEP A: verify OTP */
       const verifyRes = await smartFetch(
         `${API}/airtime-coupons/verify-otp`,
         {
@@ -572,7 +701,6 @@ export default function AirtimeClaimModal({
         }
       );
 
-      /* STEP B: redeem the coupon */
       const claimRes = await smartFetch(
         `${API}/airtime-coupons/redeem`,
         {
@@ -592,7 +720,7 @@ export default function AirtimeClaimModal({
       });
 
     } catch (err) {
-      /* Coupon already redeemed → treat as success */
+      /* Already redeemed → treat as success */
       if (err.code === "ALREADY_REDEEMED" || err.code?.startsWith("ALREADY_")) {
         setStep(4);
         onSuccess?.(coupon?.code, {
@@ -605,20 +733,20 @@ export default function AirtimeClaimModal({
 
       setError(err);
 
-      /* Only clear OTP on OTP-related errors */
-      const isOtpError =
+      /* Clear OTP only on OTP errors */
+      const isOtpErr =
+        err.code?.startsWith("OTP_") ||
         err.data?.remaining !== undefined ||
         err.message?.toLowerCase().includes("otp") ||
         err.message?.toLowerCase().includes("code");
 
-      if (isOtpError) setOtp("");
+      if (isOtpErr) setOtp("");
 
     } finally {
       setLoading(false);
     }
   }, [otp, phone, network, coupon?.code, onSuccess]);
 
-  /* Resend OTP */
   const resendOtp = useCallback(async () => {
     setOtp("");
     setError(null);
@@ -626,7 +754,6 @@ export default function AirtimeClaimModal({
     await sendOtp();
   }, [sendOtp]);
 
-  /* Go back to step 1 */
   const changeNumber = () => {
     setStep(1);
     setOtp("");
@@ -848,11 +975,7 @@ export default function AirtimeClaimModal({
               </p>
             </div>
 
-            <ErrorBox
-              error={error}
-              onRetry={sendOtp}
-              loading={loading}
-            />
+            <ErrorBox error={error} onRetry={sendOtp} loading={loading} />
 
             <button
               className="acm-primary-btn"
