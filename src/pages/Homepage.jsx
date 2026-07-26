@@ -152,6 +152,21 @@ const fmtCount = (n) => {
 };
 
 /* ══════════════════════════════════════════════════════════
+   AUTH TOKEN — try every known storage key
+══════════════════════════════════════════════════════════ */
+const getAuthToken = () => {
+  const keys = [
+    "token", "authToken", "accessToken", "access_token",
+    "jwt", "jwtToken", "userToken", "loemart_token",
+  ];
+  for (const k of keys) {
+    const v = localStorage.getItem(k) || sessionStorage.getItem(k);
+    if (v) return v;
+  }
+  return null;
+};
+
+/* ══════════════════════════════════════════════════════════
    SKELETONS
 ══════════════════════════════════════════════════════════ */
 const MasonrySkeleton = memo(() => (
@@ -419,10 +434,10 @@ export default function Homepage({ user }) {
   } = useStoredLocation();
 
   /* ── State ──────────────────────────────────────────── */
-  const [pickerOpen,    setPickerOpen]    = useState(false);
-  const [fallbackInfo,  setFallbackInfo]  = useState(null);
-  const [gpsCoords,     setGpsCoords]     = useState(() => readCachedGps());
-  const [unreadCount,   setUnreadCount]   = useState(0);
+  const [pickerOpen,   setPickerOpen]   = useState(false);
+  const [fallbackInfo, setFallbackInfo] = useState(null);
+  const [gpsCoords,    setGpsCoords]    = useState(() => readCachedGps());
+  const [unreadCount,  setUnreadCount]  = useState(0);
 
   const [products,    setProducts]    = useState([]);
   const [featured,    setFeatured]    = useState([]);
@@ -442,33 +457,51 @@ export default function Homepage({ user }) {
   const gpsAttempted = useRef(false);
 
   /* ════════════════════════════════════════════════════════
-     NOTIFICATION BADGE — fetch unread count
+     NOTIFICATION BADGE — matches Profile page auth strategy
+     - Tries any known token storage key
+     - Sends cookies (`credentials: "include"`) as fallback
+     - Never gated by `user` prop (may not be hydrated yet)
   ════════════════════════════════════════════════════════ */
   const fetchUnreadCount = useCallback(async () => {
-    if (!user) { setUnreadCount(0); return; }
     try {
-      const token =
-        localStorage.getItem("token") ||
-        sessionStorage.getItem("token");
-      if (!token) return;
-      const res = await fetch(`${API}/notifications/unread-count`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.success) setUnreadCount(data.count ?? 0);
-    } catch {
-      /* silent — badge is non-critical */
-    }
-  }, [user]);
+      const token   = getAuthToken();
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers.Authorization = `Bearer ${token}`;
 
-  /* ── Poll on mount + interval ────────────────────────── */
+      const res = await fetch(`${API}/notifications/unread-count`, {
+        method     : "GET",
+        headers,
+        credentials: "include",
+      });
+
+      if (!res.ok) {
+        if (res.status !== 401) {
+          console.warn("[Homepage] unread-count HTTP", res.status);
+        }
+        return;
+      }
+      const data = await res.json();
+      if (data?.success) setUnreadCount(data.count ?? 0);
+    } catch (err) {
+      console.warn("[Homepage] unread-count error:", err.message);
+    }
+  }, []);
+
+  /* ── Poll on mount + every 60s ────────────────────────── */
   useEffect(() => {
     fetchUnreadCount();
-    if (!user) return;
     const id = setInterval(fetchUnreadCount, NOTIF_POLL_MS);
     return () => clearInterval(id);
-  }, [fetchUnreadCount, user]);
+  }, [fetchUnreadCount]);
+
+  /* ── Refresh count when tab becomes visible ─────────── */
+  useEffect(() => {
+    const onVis = () => {
+      if (document.visibilityState === "visible") fetchUnreadCount();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, [fetchUnreadCount]);
 
   /* ── Auto-dismiss fallback banner after 6s ──────────── */
   useEffect(() => {
@@ -724,7 +757,7 @@ export default function Homepage({ user }) {
               </p>
             </div>
 
-            {/* ── Bell button with unread badge ── */}
+            {/* ── Bell with unread badge ── */}
             <button
               className="hm-notif-btn"
               aria-label={
