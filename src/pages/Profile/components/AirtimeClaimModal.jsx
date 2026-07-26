@@ -31,8 +31,6 @@ const NETWORKS = [
 /* ═══════════════════════════════════════════════════════════════
    PHONE HELPERS
 ═══════════════════════════════════════════════════════════════ */
-
-/* Detect network from Nigerian phone prefix */
 const detectNetwork = (num) => {
   if (!num) return null;
   const n      = String(num).replace(/\D/g, "");
@@ -50,7 +48,6 @@ const detectNetwork = (num) => {
   return null;
 };
 
-/* Normalise anything → 08012345678 */
 const normalisePhone = (raw) => {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
@@ -60,7 +57,6 @@ const normalisePhone = (raw) => {
   return digits;
 };
 
-/* Format for display: 0812 345 6789 */
 const formatPhone = (val) => {
   if (!val) return "";
   const d = String(val).replace(/\D/g, "").slice(0, 11);
@@ -69,22 +65,69 @@ const formatPhone = (val) => {
   return `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}`;
 };
 
-/* Mask for display: 0812 *** 678 */
 const maskPhone = (val) => {
   const d = String(val).replace(/\D/g, "");
   if (d.length < 7) return formatPhone(d);
   return `${d.slice(0, 4)} *** ${d.slice(-3)}`;
 };
 
-/* Validate Nigerian phone */
 const isValidNgPhone = (num) => {
   const d = normalisePhone(num);
   return d.length === 11 && /^0[789][01]\d{8}$/.test(d);
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   SMART FETCH — always extracts real error message
+═══════════════════════════════════════════════════════════════ */
+async function smartFetch(url, options = {}) {
+  let res, data, rawText;
+
+  try {
+    res     = await fetch(url, options);
+    rawText = await res.text();
+
+    /* Try to parse as JSON — fall back to raw text */
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      data = { message: rawText };
+    }
+  } catch (netErr) {
+    console.error("[AirtimeModal] Network error:", netErr);
+    throw {
+      status  : 0,
+      message : "Network error. Please check your internet connection.",
+      raw     : netErr.message,
+    };
+  }
+
+  /* Log for debugging — always visible in DevTools */
+  console.log(
+    `[AirtimeModal] ${options.method || "GET"} ${url}`,
+    `→ ${res.status}`,
+    data
+  );
+
+  if (!res.ok || data?.success === false) {
+    /* Prefer explicit backend message; else use HTTP text */
+    const msg =
+      data?.message ||
+      data?.error   ||
+      (typeof data === "string" ? data : null) ||
+      `Request failed (${res.status} ${res.statusText})`;
+
+    throw {
+      status  : res.status,
+      message : msg,
+      data,
+    };
+  }
+
+  return data;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    STEP INDICATOR
-   Steps: 1=Phone  2=Confirm  3=Verify  4=Done
 ═══════════════════════════════════════════════════════════════ */
 function StepIndicator({ step }) {
   const steps = ["Phone", "Confirm", "Verify", "Done"];
@@ -121,7 +164,7 @@ function StepIndicator({ step }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   OTP INPUT — 6 boxes
+   OTP INPUT
 ═══════════════════════════════════════════════════════════════ */
 function OtpInput({ value, onChange, disabled }) {
   const refs   = useRef([]);
@@ -187,6 +230,54 @@ function OtpInput({ value, onChange, disabled }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   ERROR BOX — expandable to show details
+═══════════════════════════════════════════════════════════════ */
+function ErrorBox({ error }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (!error) return null;
+
+  /* Simple string error */
+  if (typeof error === "string") {
+    return (
+      <div className="acm-error" role="alert">
+        ⚠️ {error}
+      </div>
+    );
+  }
+
+  /* Object error — show status + expandable details */
+  return (
+    <div className="acm-error" role="alert">
+      <div className="acm-error-main">
+        <span>⚠️ {error.message}</span>
+        {error.status ? (
+          <span className="acm-error-code">HTTP {error.status}</span>
+        ) : null}
+      </div>
+
+      {error.data && Object.keys(error.data).length > 0 && (
+        <>
+          <button
+            type="button"
+            className="acm-error-toggle"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? "Hide details ▲" : "Show details ▼"}
+          </button>
+
+          {expanded && (
+            <pre className="acm-error-details">
+              {JSON.stringify(error.data, null, 2)}
+            </pre>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN MODAL
 ═══════════════════════════════════════════════════════════════ */
 export default function AirtimeClaimModal({
@@ -197,7 +288,6 @@ export default function AirtimeClaimModal({
   prefilledPhone   = "",
   prefilledNetwork = "",
 }) {
-  /* ── State ── */
   const [step,             setStep]             = useState(1);
   const [phone,            setPhone]            = useState("");
   const [network,          setNetwork]          = useState("");
@@ -207,12 +297,12 @@ export default function AirtimeClaimModal({
   const [countdown,        setCountdown]        = useState(0);
   const [sessionId,        setSessionId]        = useState(null);
   const [isPrefilledPhone, setIsPrefilledPhone] = useState(false);
-  const [devOtp,           setDevOtp]           = useState(null); // dev mode only
+  const [devOtp,           setDevOtp]           = useState(null);
 
-  const timerRef       = useRef(null);
+  const timerRef         = useRef(null);
   const originalPhoneRef = useRef("");
 
-  /* ── Countdown timer ── */
+  /* Countdown */
   useEffect(() => {
     if (countdown <= 0) return;
     timerRef.current = setTimeout(
@@ -222,7 +312,7 @@ export default function AirtimeClaimModal({
     return () => clearTimeout(timerRef.current);
   }, [countdown]);
 
-  /* ── Reset when modal opens ── */
+  /* Reset on open */
   useEffect(() => {
     if (!isOpen) return;
 
@@ -240,7 +330,7 @@ export default function AirtimeClaimModal({
     setIsPrefilledPhone(!!clean);
   }, [isOpen, prefilledPhone, prefilledNetwork]);
 
-  /* ── Auto-detect network as user types ── */
+  /* Auto-detect network */
   useEffect(() => {
     if (prefilledNetwork) return;
     const detected = detectNetwork(phone);
@@ -249,12 +339,10 @@ export default function AirtimeClaimModal({
     }
   }, [phone, prefilledNetwork]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ── Backdrop close ── */
   const handleBackdrop = (e) => {
     if (e.target === e.currentTarget && !loading) onClose();
   };
 
-  /* ── ESC to close ── */
   useEffect(() => {
     if (!isOpen) return;
     const handleEsc = (e) => {
@@ -264,9 +352,9 @@ export default function AirtimeClaimModal({
     return () => window.removeEventListener("keydown", handleEsc);
   }, [isOpen, loading, onClose]);
 
-  /* ════════════════════════════════════════════════════════
-     STEP 1 → 2 : local validation then confirm screen
-  ════════════════════════════════════════════════════════ */
+  /* ══════════════════════════════════════════════════════
+     STEP 1 → 2 : local validation
+  ══════════════════════════════════════════════════════ */
   const handleProceedToConfirm = () => {
     setError(null);
 
@@ -282,15 +370,15 @@ export default function AirtimeClaimModal({
     setStep(2);
   };
 
-  /* ════════════════════════════════════════════════════════
-     STEP 2 → 3 : "Send Code" clicked — call API
-  ════════════════════════════════════════════════════════ */
+  /* ══════════════════════════════════════════════════════
+     STEP 2 → 3 : send OTP
+  ══════════════════════════════════════════════════════ */
   const sendOtp = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`${API}/coupons/airtime/send-otp`, {
+      const data = await smartFetch(`${API}/coupons/airtime/send-otp`, {
         method  : "POST",
         headers : authH(),
         body    : JSON.stringify({
@@ -299,26 +387,23 @@ export default function AirtimeClaimModal({
           code    : coupon?.code,
         }),
       });
-      const data = await res.json();
 
-      if (data.success) {
-        setSessionId(data.session_id);
-        if (data.dev_otp) setDevOtp(data.dev_otp);
-        setStep(3);
-        setCountdown(60);
-      } else {
-        setError(data.message || "Failed to send OTP. Try again.");
-      }
-    } catch {
-      setError("Network error. Please check your connection and try again.");
+      setSessionId(data.session_id);
+      if (data.dev_otp) setDevOtp(data.dev_otp);
+      setStep(3);
+      setCountdown(60);
+
+    } catch (err) {
+      /* err is either our thrown object or plain string */
+      setError(err);
     } finally {
       setLoading(false);
     }
   }, [phone, network, coupon?.code]);
 
-  /* ════════════════════════════════════════════════════════
+  /* ══════════════════════════════════════════════════════
      STEP 3 : verify OTP + claim
-  ════════════════════════════════════════════════════════ */
+  ══════════════════════════════════════════════════════ */
   const verifyAndClaim = useCallback(async () => {
     if (otp.length < 6) {
       setError("Enter the 6-digit code.");
@@ -329,7 +414,7 @@ export default function AirtimeClaimModal({
     setError(null);
 
     try {
-      const res = await fetch(`${API}/coupons/airtime/verify-claim`, {
+      const data = await smartFetch(`${API}/coupons/airtime/verify-claim`, {
         method  : "POST",
         headers : authH(),
         body    : JSON.stringify({
@@ -338,23 +423,19 @@ export default function AirtimeClaimModal({
           session_id : sessionId,
         }),
       });
-      const data = await res.json();
 
-      if (data.success) {
-        setStep(4);
-        onSuccess?.(coupon?.code, data);
-      } else {
-        setError(data.message || "Invalid code. Please try again.");
-        setOtp("");
-      }
-    } catch {
-      setError("Network error. Please try again.");
+      setStep(4);
+      onSuccess?.(coupon?.code, data);
+
+    } catch (err) {
+      setError(err);
+      setOtp("");
     } finally {
       setLoading(false);
     }
   }, [otp, sessionId, coupon?.code, onSuccess]);
 
-  /* ── Resend OTP ── */
+  /* Resend OTP */
   const resendOtp = async () => {
     setOtp("");
     setError(null);
@@ -363,7 +444,7 @@ export default function AirtimeClaimModal({
     await sendOtp();
   };
 
-  /* ── Go back to step 1 ── */
+  /* Go back */
   const changeNumber = () => {
     setStep(1);
     setOtp("");
@@ -373,7 +454,6 @@ export default function AirtimeClaimModal({
     setCountdown(0);
   };
 
-  /* ── Nothing to render ── */
   if (!isOpen) return null;
 
   const netCfg   = NETWORKS.find((n) => n.value === network);
@@ -383,9 +463,7 @@ export default function AirtimeClaimModal({
     <div className="acm-backdrop" onClick={handleBackdrop}>
       <div className="acm-modal" role="dialog" aria-modal="true">
 
-        {/* ══════════════════════════════════════════
-            HEADER
-        ══════════════════════════════════════════ */}
+        {/* Header */}
         <div className="acm-header">
           <div className="acm-header-left">
             <div className="acm-header-icon">📱</div>
@@ -407,11 +485,10 @@ export default function AirtimeClaimModal({
           </button>
         </div>
 
-        {/* Step indicator */}
         <StepIndicator step={step} />
 
         {/* ══════════════════════════════════════════
-            STEP 1 — Enter Phone + Network
+            STEP 1
         ══════════════════════════════════════════ */}
         {step === 1 && (
           <div className="acm-body">
@@ -420,7 +497,6 @@ export default function AirtimeClaimModal({
               Enter the phone number where you want to receive the airtime.
             </p>
 
-            {/* Prefilled banner */}
             {isPrefilledPhone && (
               <div className="acm-prefill-notice">
                 <span className="acm-prefill-icon">📋</span>
@@ -435,7 +511,6 @@ export default function AirtimeClaimModal({
               </div>
             )}
 
-            {/* Phone field */}
             <div className="acm-field">
               <label className="acm-label">
                 Phone Number
@@ -460,11 +535,7 @@ export default function AirtimeClaimModal({
                     const raw = e.target.value.replace(/\D/g, "");
                     setPhone(raw);
                     setError(null);
-                    if (raw !== originalPhoneRef.current) {
-                      setIsPrefilledPhone(false);
-                    } else {
-                      setIsPrefilledPhone(true);
-                    }
+                    setIsPrefilledPhone(raw === originalPhoneRef.current);
                   }}
                   maxLength={14}
                   autoFocus={!isPrefilledPhone}
@@ -496,7 +567,6 @@ export default function AirtimeClaimModal({
               )}
             </div>
 
-            {/* Network selector */}
             <div className="acm-field">
               <label className="acm-label">
                 Network
@@ -531,7 +601,6 @@ export default function AirtimeClaimModal({
               </div>
             </div>
 
-            {/* Info box */}
             <div className="acm-info-box">
               <span>ℹ️</span>
               <p>
@@ -540,14 +609,8 @@ export default function AirtimeClaimModal({
               </p>
             </div>
 
-            {/* Error */}
-            {error && (
-              <div className="acm-error" role="alert">
-                ⚠️ {error}
-              </div>
-            )}
+            <ErrorBox error={error} />
 
-            {/* Action */}
             <button
               className="acm-primary-btn"
               type="button"
@@ -561,7 +624,7 @@ export default function AirtimeClaimModal({
         )}
 
         {/* ══════════════════════════════════════════
-            STEP 2 — Confirm before sending OTP
+            STEP 2
         ══════════════════════════════════════════ */}
         {step === 2 && (
           <div className="acm-body">
@@ -603,9 +666,7 @@ export default function AirtimeClaimModal({
               </p>
             </div>
 
-            {error && (
-              <div className="acm-error" role="alert">⚠️ {error}</div>
-            )}
+            <ErrorBox error={error} />
 
             <button
               className="acm-primary-btn"
@@ -636,7 +697,7 @@ export default function AirtimeClaimModal({
         )}
 
         {/* ══════════════════════════════════════════
-            STEP 3 — Enter OTP
+            STEP 3
         ══════════════════════════════════════════ */}
         {step === 3 && (
           <div className="acm-body">
@@ -659,7 +720,6 @@ export default function AirtimeClaimModal({
               </p>
             </div>
 
-            {/* Dev-mode OTP hint */}
             {devOtp && (
               <div className="acm-dev-otp">
                 <span>🔧 Dev Mode</span>
@@ -667,7 +727,6 @@ export default function AirtimeClaimModal({
               </div>
             )}
 
-            {/* OTP boxes */}
             <div className="acm-field">
               <label className="acm-label">Enter 6-digit code</label>
               <OtpInput
@@ -683,7 +742,6 @@ export default function AirtimeClaimModal({
               />
             </div>
 
-            {/* Resend */}
             <div className="acm-resend">
               {countdown > 0 ? (
                 <p className="acm-resend-timer">
@@ -701,12 +759,8 @@ export default function AirtimeClaimModal({
               )}
             </div>
 
-            {/* Error */}
-            {error && (
-              <div className="acm-error" role="alert">⚠️ {error}</div>
-            )}
+            <ErrorBox error={error} />
 
-            {/* Actions */}
             <button
               className="acm-primary-btn"
               type="button"
@@ -736,7 +790,7 @@ export default function AirtimeClaimModal({
         )}
 
         {/* ══════════════════════════════════════════
-            STEP 4 — Success
+            STEP 4
         ══════════════════════════════════════════ */}
         {step === 4 && (
           <div className="acm-body acm-body--success">
