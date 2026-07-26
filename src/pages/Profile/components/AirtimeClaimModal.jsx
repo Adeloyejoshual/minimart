@@ -80,35 +80,62 @@ const isValidNgPhone = (num) => {
    SMART FETCH
 ═══════════════════════════════════════════════════════════════ */
 const SERVER_ERROR_MESSAGES = {
-  500 : "Our server ran into a problem. Please try again shortly.",
-  502 : "Our server is temporarily unavailable. Please try again in a moment.",
-  503 : "Our service is down for maintenance. Please try again soon.",
-  504 : "The server is taking too long to respond. Please try again.",
-  520 : "Connection issue with our server. Please try again.",
-  521 : "Our server is offline. Please try again in a few minutes.",
-  522 : "Connection timed out. Please try again.",
-  523 : "Our server is unreachable right now. Please try again.",
-  524 : "The request took too long. Please try again.",
+  500 : "Our server ran into a problem.",
+  502 : "Our server is temporarily unavailable.",
+  503 : "Our service is down for maintenance.",
+  504 : "The server is taking too long to respond.",
+  520 : "Connection issue with our server.",
+  521 : "Our server is offline.",
+  522 : "Connection timed out.",
+  523 : "Our server is unreachable.",
+  524 : "The request took too long.",
 };
 
-async function smartFetch(url, options = {}) {
+async function smartFetch(url, options = {}, timeoutMs = 30_000) {
   let res;
   let rawText = "";
   let data;
 
+  /* AbortController for timeouts */
+  const controller = new AbortController();
+  const timer      = setTimeout(() => controller.abort(), timeoutMs);
+
+  const startTime = Date.now();
+
   try {
-    res     = await fetch(url, options);
+    res     = await fetch(url, { ...options, signal: controller.signal });
     rawText = await res.text();
   } catch (netErr) {
-    console.error("[AirtimeModal] Network error:", netErr);
+    clearTimeout(timer);
+    const duration = Date.now() - startTime;
+
+    if (netErr.name === "AbortError") {
+      console.error(`[AirtimeModal] Request timeout after ${duration}ms:`, url);
+      throw {
+        status   : 0,
+        code     : "TIMEOUT",
+        layer    : "network",
+        message  : `Request timed out after ${Math.round(timeoutMs / 1000)}s. The server might be sleeping or overloaded.`,
+        duration,
+        url,
+      };
+    }
+
+    console.error(`[AirtimeModal] Network error after ${duration}ms:`, netErr);
     throw {
-      status  : 0,
-      code    : "NETWORK_ERROR",
-      layer   : "network",
-      message : "Network error. Please check your internet connection.",
-      raw     : netErr.message,
+      status   : 0,
+      code     : "NETWORK_ERROR",
+      layer    : "network",
+      message  : "Network error. Please check your internet connection.",
+      raw      : netErr.message,
+      duration,
+      url,
     };
+  } finally {
+    clearTimeout(timer);
   }
+
+  const duration = Date.now() - startTime;
 
   /* Detect HTML error pages */
   const trimmed = rawText.trim().toLowerCase();
@@ -118,8 +145,17 @@ async function smartFetch(url, options = {}) {
     trimmed.startsWith("<!--");
 
   if (looksLikeHtml) {
-    const titleMatch = rawText.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const title      = titleMatch ? titleMatch[1].trim() : null;
+    /* Extract useful info from the HTML */
+    const titleMatch  = rawText.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const title       = titleMatch ? titleMatch[1].trim() : null;
+    const isCloudflare = rawText.toLowerCase().includes("cloudflare");
+    const isRender     = rawText.toLowerCase().includes("render");
+    const isNginx      = rawText.toLowerCase().includes("nginx");
+
+    let provider = "server";
+    if (isCloudflare) provider = "Cloudflare";
+    else if (isRender) provider = "Render";
+    else if (isNginx)  provider = "Nginx";
 
     const friendly =
       SERVER_ERROR_MESSAGES[res.status] ||
@@ -127,16 +163,20 @@ async function smartFetch(url, options = {}) {
       `Server returned an error (${res.status})`;
 
     console.error(
-      `[AirtimeModal] Server returned HTML (${res.status}) for ${url}\n` +
-      `  Title: ${title}`
+      `[AirtimeModal] ${provider} returned HTML (${res.status}) for ${url}\n` +
+      `  Title: ${title}\n` +
+      `  Duration: ${duration}ms`
     );
 
     throw {
-      status  : res.status,
-      code    : "SERVER_UNAVAILABLE",
-      layer   : "server",
-      message : friendly,
-      data    : null,
+      status   : res.status,
+      code     : "SERVER_UNAVAILABLE",
+      layer    : "server",
+      provider,
+      message  : friendly,
+      data     : null,
+      duration,
+      url,
     };
   }
 
@@ -147,7 +187,7 @@ async function smartFetch(url, options = {}) {
   }
 
   console.log(
-    `[AirtimeModal] ${options.method || "GET"} ${url} → ${res.status}`,
+    `[AirtimeModal] ${options.method || "GET"} ${url} → ${res.status} (${duration}ms)`,
     data
   );
 
@@ -159,16 +199,249 @@ async function smartFetch(url, options = {}) {
       `Request failed (${res.status} ${res.statusText})`;
 
     throw {
-      status  : res.status,
-      code    : data?.code  || (res.status >= 500 ? "SERVER_UNAVAILABLE" : null),
-      layer   : data?.layer || null,
-      message : msg,
-      debug   : data?.debug || null,
+      status   : res.status,
+      code     : data?.code  || (res.status >= 500 ? "SERVER_UNAVAILABLE" : null),
+      layer    : data?.layer || null,
+      message  : msg,
+      debug    : data?.debug || null,
       data,
+      duration,
+      url,
     };
   }
 
-  return data;
+  return { ...data, __duration: duration };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DIAGNOSTIC RUNNER
+   Runs a series of tests to figure out what's broken
+═══════════════════════════════════════════════════════════════ */
+async function runDiagnostics() {
+  const results = [];
+  const startTime = Date.now();
+
+  /* Test 1: Can we reach the internet? */
+  const testInternet = async () => {
+    const t0 = Date.now();
+    try {
+      await fetch("https://www.google.com/favicon.ico", {
+        mode: "no-cors",
+        cache: "no-store",
+      });
+      return {
+        name    : "Internet Connection",
+        ok      : true,
+        duration: Date.now() - t0,
+        detail  : "Your device is online",
+      };
+    } catch (err) {
+      return {
+        name    : "Internet Connection",
+        ok      : false,
+        duration: Date.now() - t0,
+        detail  : "No internet connection detected",
+        error   : err.message,
+      };
+    }
+  };
+
+  /* Test 2: Can we reach the API base URL? */
+  const testApiReachable = async () => {
+    const t0 = Date.now();
+    try {
+      const res = await fetch(`${API}/health`, {
+        method: "GET",
+        signal: AbortSignal.timeout?.(10_000),
+      });
+      const text = await res.text();
+      const isJson = text.trim().startsWith("{");
+
+      return {
+        name    : "API Reachable",
+        ok      : res.ok && isJson,
+        duration: Date.now() - t0,
+        detail  : res.ok
+          ? (isJson ? `API is up (${res.status})` : `API returned non-JSON (${res.status})`)
+          : `API returned ${res.status}`,
+        status  : res.status,
+        isJson,
+      };
+    } catch (err) {
+      return {
+        name    : "API Reachable",
+        ok      : false,
+        duration: Date.now() - t0,
+        detail  : err.name === "AbortError"
+          ? "API timed out after 10s (server may be sleeping)"
+          : "Cannot reach API server",
+        error   : err.message,
+      };
+    }
+  };
+
+  /* Test 3: Full diagnostics from server (if available) */
+  const testServerDiag = async () => {
+    const t0 = Date.now();
+    try {
+      const res = await fetch(`${API}/diagnostics`, {
+        method: "GET",
+        headers: authH(),
+        signal: AbortSignal.timeout?.(15_000),
+      });
+
+      if (!res.ok) {
+        return {
+          name    : "Server Diagnostics",
+          ok      : false,
+          duration: Date.now() - t0,
+          detail  : `Endpoint returned ${res.status}`,
+          status  : res.status,
+        };
+      }
+
+      const data = await res.json();
+      return {
+        name    : "Server Diagnostics",
+        ok      : true,
+        duration: Date.now() - t0,
+        detail  : "Diagnostic data received",
+        data,
+      };
+    } catch (err) {
+      return {
+        name    : "Server Diagnostics",
+        ok      : false,
+        duration: Date.now() - t0,
+        detail  : "Server diagnostic endpoint unavailable",
+        error   : err.message,
+      };
+    }
+  };
+
+  /* Test 4: Can we auth? */
+  const testAuth = async () => {
+    const t0 = Date.now();
+    const token = getToken();
+
+    if (!token) {
+      return {
+        name    : "Authentication",
+        ok      : false,
+        duration: Date.now() - t0,
+        detail  : "No auth token found in localStorage",
+      };
+    }
+
+    try {
+      const res = await fetch(`${API}/users/me`, {
+        headers: authH(),
+        signal : AbortSignal.timeout?.(10_000),
+      });
+      const text   = await res.text();
+      const isJson = text.trim().startsWith("{");
+
+      if (res.status === 401) {
+        return {
+          name    : "Authentication",
+          ok      : false,
+          duration: Date.now() - t0,
+          detail  : "Token is invalid or expired",
+          status  : 401,
+        };
+      }
+
+      if (!isJson) {
+        return {
+          name    : "Authentication",
+          ok      : false,
+          duration: Date.now() - t0,
+          detail  : `Server returned non-JSON (${res.status})`,
+          status  : res.status,
+        };
+      }
+
+      return {
+        name    : "Authentication",
+        ok      : res.ok,
+        duration: Date.now() - t0,
+        detail  : res.ok ? "Token is valid" : `Failed with ${res.status}`,
+        status  : res.status,
+      };
+    } catch (err) {
+      return {
+        name    : "Authentication",
+        ok      : false,
+        duration: Date.now() - t0,
+        detail  : "Could not verify token",
+        error   : err.message,
+      };
+    }
+  };
+
+  /* Test 5: Airtime endpoints */
+  const testAirtimeEndpoint = async () => {
+    const t0 = Date.now();
+    try {
+      const res = await fetch(`${API}/airtime-coupons/phone-status`, {
+        headers: authH(),
+        signal : AbortSignal.timeout?.(10_000),
+      });
+      const text   = await res.text();
+      const isJson = text.trim().startsWith("{");
+
+      if (!isJson) {
+        return {
+          name    : "Airtime API",
+          ok      : false,
+          duration: Date.now() - t0,
+          detail  : `Returned HTML instead of JSON (${res.status})`,
+          status  : res.status,
+        };
+      }
+
+      return {
+        name    : "Airtime API",
+        ok      : res.ok,
+        duration: Date.now() - t0,
+        detail  : res.ok
+          ? "Airtime endpoints are responding"
+          : `Failed with ${res.status}`,
+        status  : res.status,
+      };
+    } catch (err) {
+      return {
+        name    : "Airtime API",
+        ok      : false,
+        duration: Date.now() - t0,
+        detail  : "Airtime endpoints unreachable",
+        error   : err.message,
+      };
+    }
+  };
+
+  /* Run all tests in parallel */
+  const [internet, api, diag, auth, airtime] = await Promise.all([
+    testInternet(),
+    testApiReachable(),
+    testServerDiag(),
+    testAuth(),
+    testAirtimeEndpoint(),
+  ]);
+
+  results.push(internet, api, diag, auth, airtime);
+
+  const summary = {
+    timestamp     : new Date().toISOString(),
+    total_duration: Date.now() - startTime,
+    api_url       : API,
+    passed        : results.filter((r) => r.ok).length,
+    failed        : results.filter((r) => !r.ok).length,
+    results,
+  };
+
+  console.log("[AirtimeModal] Diagnostics complete:", summary);
+  return summary;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -199,8 +472,8 @@ const ERROR_LAYERS = {
   network: {
     icon: "🌐", title: "Connection Issue", color: "neutral",
     tips: [
-      "A background service is unreachable.",
-      "Please try again in a moment.",
+      "Cannot reach our servers.",
+      "Check your internet connection.",
     ],
   },
   auth: {
@@ -214,7 +487,7 @@ const ERROR_LAYERS = {
     icon: "🔧", title: "Server Issue", color: "warn",
     tips: [
       "Something went wrong on our end.",
-      "Our team has been notified.",
+      "The server may be restarting or overloaded.",
     ],
   },
   input: {
@@ -253,6 +526,7 @@ const ERROR_CODE_HINTS = {
 
   SERVER_UNAVAILABLE  : "Server is unreachable.",
   NETWORK_ERROR       : "No internet connection.",
+  TIMEOUT             : "Server took too long to respond.",
   INTERNAL_ERROR      : "Unexpected server error.",
 
   PHONE_NOT_VERIFIED  : "Phone number not verified yet.",
@@ -375,9 +649,109 @@ function OtpInput({ value, onChange, disabled }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   DIAGNOSTIC PANEL
+═══════════════════════════════════════════════════════════════ */
+function DiagnosticPanel({ diagnostics, running, onRun, onClose }) {
+  if (!diagnostics && !running) return null;
+
+  return (
+    <div className="acm-diag" role="region" aria-label="Diagnostics">
+      <div className="acm-diag-header">
+        <span className="acm-diag-icon">🔍</span>
+        <div className="acm-diag-title">
+          <p className="acm-diag-heading">System Diagnostics</p>
+          {diagnostics && (
+            <p className="acm-diag-sub">
+              {diagnostics.passed} passed · {diagnostics.failed} failed ·
+              {" "}{Math.round(diagnostics.total_duration / 1000)}s
+            </p>
+          )}
+        </div>
+        {onClose && (
+          <button
+            type="button"
+            className="acm-diag-close"
+            onClick={onClose}
+            aria-label="Close diagnostics"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+
+      {running && (
+        <div className="acm-diag-running">
+          <span className="acm-spinner acm-spinner--sm" />
+          Running tests…
+        </div>
+      )}
+
+      {diagnostics && (
+        <>
+          <div className="acm-diag-list">
+            {diagnostics.results.map((test, i) => (
+              <div
+                key={i}
+                className={`acm-diag-item acm-diag-item--${test.ok ? "ok" : "fail"}`}
+              >
+                <span className="acm-diag-item-icon">
+                  {test.ok ? "✅" : "❌"}
+                </span>
+                <div className="acm-diag-item-body">
+                  <p className="acm-diag-item-name">{test.name}</p>
+                  <p className="acm-diag-item-detail">{test.detail}</p>
+                </div>
+                <span className="acm-diag-item-time">
+                  {test.duration}ms
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Server diagnostics deep dive */}
+          {diagnostics.results.find((r) => r.name === "Server Diagnostics")?.data && (
+            <details className="acm-diag-deep">
+              <summary>Server internals ▾</summary>
+              <pre>
+                {JSON.stringify(
+                  diagnostics.results.find((r) => r.name === "Server Diagnostics").data,
+                  null,
+                  2
+                )}
+              </pre>
+            </details>
+          )}
+
+          <div className="acm-diag-footer">
+            <p className="acm-diag-info">
+              <strong>API URL:</strong>{" "}
+              <code>{diagnostics.api_url}</code>
+            </p>
+            <p className="acm-diag-info">
+              <strong>Time:</strong> {diagnostics.timestamp}
+            </p>
+          </div>
+
+          {onRun && (
+            <button
+              type="button"
+              className="acm-diag-rerun"
+              onClick={onRun}
+              disabled={running}
+            >
+              🔄 Run Again
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    ERROR BOX — layered diagnostics
 ═══════════════════════════════════════════════════════════════ */
-function ErrorBox({ error, onRetry, loading }) {
+function ErrorBox({ error, onRetry, loading, onDiagnose }) {
   const [expanded, setExpanded] = useState(false);
 
   if (!error) return null;
@@ -397,145 +771,129 @@ function ErrorBox({ error, onRetry, loading }) {
   /* Resolve layer */
   let layer = error.layer;
   if (!layer) {
-    if (error.code === "NETWORK_ERROR")      layer = "network";
-    else if (error.code === "SERVER_UNAVAILABLE") layer = "server";
-    else if (error.status >= 500)            layer = "server";
-    else if (error.status === 401)           layer = "auth";
-    else                                     layer = null;
+    if (error.code === "NETWORK_ERROR" || error.code === "TIMEOUT") layer = "network";
+    else if (error.code === "SERVER_UNAVAILABLE")                    layer = "server";
+    else if (error.status >= 500)                                    layer = "server";
+    else if (error.status === 401)                                   layer = "auth";
+    else                                                             layer = null;
   }
 
   const cfg      = layer ? ERROR_LAYERS[layer] : null;
   const codeHint = ERROR_CODE_HINTS[error.code];
+
   const isRetryable =
     layer && ["database", "cache", "sms", "network", "server"].includes(layer);
 
-  /* Layered error */
-  if (cfg) {
-    return (
-      <div className={`acm-error acm-error--${cfg.color}`} role="alert">
-        <div className="acm-error-main">
-          <span className="acm-error-icon">{cfg.icon}</span>
-          <div className="acm-error-text">
-            <p className="acm-error-title">{cfg.title}</p>
-            <p className="acm-error-msg">{error.message}</p>
-          </div>
-          {error.status ? (
-            <span className="acm-error-code">HTTP {error.status}</span>
-          ) : null}
-        </div>
+  const shouldOfferDiagnose =
+    layer === "server" || layer === "network" || error.status >= 500 || error.status === 0;
 
-        {/* Diagnostic pills */}
+  const wrapperClass = cfg
+    ? `acm-error acm-error--${cfg.color}`
+    : "acm-error acm-error--err";
+
+  return (
+    <div className={wrapperClass} role="alert">
+      <div className="acm-error-main">
+        <span className="acm-error-icon">
+          {cfg?.icon || "⚠️"}
+        </span>
+        <div className="acm-error-text">
+          {cfg && <p className="acm-error-title">{cfg.title}</p>}
+          <p className="acm-error-msg">{error.message}</p>
+        </div>
+        {error.status !== undefined && error.status !== 0 && (
+          <span className="acm-error-code">HTTP {error.status}</span>
+        )}
+      </div>
+
+      {/* Diagnostic pills */}
+      {(error.code || layer || error.provider) && (
         <div className="acm-error-pills">
           {error.code && (
             <span className="acm-error-pill">
               <strong>Code:</strong> {error.code}
             </span>
           )}
-          <span className="acm-error-pill">
-            <strong>Layer:</strong> {layer}
-          </span>
-        </div>
-
-        {/* Contextual tips */}
-        {(codeHint || cfg.tips) && (
-          <ul className="acm-error-tips">
-            {codeHint && <li className="acm-error-tip-hint">{codeHint}</li>}
-            {cfg.tips?.map((t, i) => <li key={i}>{t}</li>)}
-          </ul>
-        )}
-
-        {/* Actions */}
-        <div className="acm-error-actions">
-          {onRetry && isRetryable && (
-            <button
-              type="button"
-              className="acm-error-retry"
-              onClick={onRetry}
-              disabled={loading}
-            >
-              {loading ? (
-                <>
-                  <span className="acm-spinner acm-spinner--sm" />
-                  Retrying…
-                </>
-              ) : (
-                "🔄 Try Again"
-              )}
-            </button>
+          {layer && (
+            <span className="acm-error-pill">
+              <strong>Layer:</strong> {layer}
+            </span>
           )}
-
-          {error.debug && (
-            <button
-              type="button"
-              className="acm-error-toggle"
-              onClick={() => setExpanded((v) => !v)}
-            >
-              {expanded ? "Hide debug ▲" : "Show debug ▼"}
-            </button>
+          {error.provider && (
+            <span className="acm-error-pill">
+              <strong>From:</strong> {error.provider}
+            </span>
           )}
-        </div>
-
-        {/* Debug info (dev only) */}
-        {expanded && error.debug && (
-          <pre className="acm-error-details">
-            {JSON.stringify(error.debug, null, 2)}
-          </pre>
-        )}
-      </div>
-    );
-  }
-
-  /* Generic fallback */
-  const hasDetails =
-    error.data &&
-    typeof error.data === "object" &&
-    Object.keys(error.data).length > 0;
-
-  return (
-    <div className="acm-error acm-error--err" role="alert">
-      <div className="acm-error-main">
-        <span className="acm-error-icon">⚠️</span>
-        <span className="acm-error-msg">{error.message}</span>
-        {error.status ? (
-          <span className="acm-error-code">HTTP {error.status}</span>
-        ) : null}
-      </div>
-
-      {error.code && (
-        <div className="acm-error-pills">
-          <span className="acm-error-pill">
-            <strong>Code:</strong> {error.code}
-          </span>
+          {error.duration && (
+            <span className="acm-error-pill">
+              <strong>Took:</strong> {error.duration}ms
+            </span>
+          )}
         </div>
       )}
 
-      {hasDetails && (
-        <>
+      {/* Contextual tips */}
+      {(codeHint || cfg?.tips) && (
+        <ul className="acm-error-tips">
+          {codeHint && <li className="acm-error-tip-hint">{codeHint}</li>}
+          {cfg?.tips?.map((t, i) => <li key={i}>{t}</li>)}
+        </ul>
+      )}
+
+      {/* Actions */}
+      <div className="acm-error-actions">
+        {onRetry && isRetryable && (
+          <button
+            type="button"
+            className="acm-error-retry"
+            onClick={onRetry}
+            disabled={loading}
+          >
+            {loading ? (
+              <>
+                <span className="acm-spinner acm-spinner--sm" />
+                Retrying…
+              </>
+            ) : (
+              "🔄 Try Again"
+            )}
+          </button>
+        )}
+
+        {shouldOfferDiagnose && onDiagnose && (
+          <button
+            type="button"
+            className="acm-error-diagnose"
+            onClick={onDiagnose}
+            disabled={loading}
+          >
+            🔍 Run Diagnostics
+          </button>
+        )}
+
+        {(error.debug || error.data) && (
           <button
             type="button"
             className="acm-error-toggle"
             onClick={() => setExpanded((v) => !v)}
           >
-            {expanded ? "Hide details ▲" : "Show details ▼"}
+            {expanded ? "Hide debug ▲" : "Show debug ▼"}
           </button>
+        )}
+      </div>
 
-          {expanded && (
-            <pre className="acm-error-details">
-              {JSON.stringify(error.data, null, 2)}
-            </pre>
-          )}
-        </>
+      {/* Debug info */}
+      {expanded && (error.debug || error.data) && (
+        <pre className="acm-error-details">
+          {JSON.stringify(error.debug || error.data, null, 2)}
+        </pre>
       )}
 
-      {onRetry && (
-        <button
-          type="button"
-          className="acm-error-retry"
-          onClick={onRetry}
-          disabled={loading}
-        >
-          {loading ? "Retrying…" : "🔄 Try Again"}
-        </button>
+      {/* URL for reference */}
+      {error.url && (
+        <p className="acm-error-url">
+          <strong>Request:</strong> <code>{error.url}</code>
+        </p>
       )}
     </div>
   );
@@ -562,6 +920,11 @@ export default function AirtimeClaimModal({
   const [attemptsLeft,     setAttemptsLeft]     = useState(null);
   const [isPrefilledPhone, setIsPrefilledPhone] = useState(false);
   const [devOtp,           setDevOtp]           = useState(null);
+
+  /* Diagnostic state */
+  const [showDiag,     setShowDiag]     = useState(false);
+  const [diagRunning,  setDiagRunning]  = useState(false);
+  const [diagResults,  setDiagResults]  = useState(null);
 
   const timerRef         = useRef(null);
   const originalPhoneRef = useRef("");
@@ -597,6 +960,8 @@ export default function AirtimeClaimModal({
     setAttemptsLeft(null);
     setDevOtp(null);
     setIsPrefilledPhone(!!clean);
+    setShowDiag(false);
+    setDiagResults(null);
   }, [isOpen, prefilledPhone, prefilledNetwork]);
 
   /* Auto-detect network */
@@ -606,7 +971,7 @@ export default function AirtimeClaimModal({
     if (detected && detected !== network) {
       setNetwork(detected);
     }
-  }, [phone, prefilledNetwork]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phone, prefilledNetwork]); // eslint-disable-line
 
   const handleBackdrop = (e) => {
     if (e.target === e.currentTarget && !loading) onClose();
@@ -622,9 +987,38 @@ export default function AirtimeClaimModal({
     return () => window.removeEventListener("keydown", handleEsc);
   }, [isOpen, loading, onClose]);
 
-  /* ══════════════════════════════════════════════════════
-     STEP 1 → 2 : local validation
-  ══════════════════════════════════════════════════════ */
+  /* Run diagnostics */
+  const runDiag = useCallback(async () => {
+    setShowDiag(true);
+    setDiagRunning(true);
+    setDiagResults(null);
+    try {
+      const results = await runDiagnostics();
+      if (mountedRef.current) setDiagResults(results);
+    } catch (err) {
+      console.error("[AirtimeModal] Diagnostics failed:", err);
+      if (mountedRef.current) {
+        setDiagResults({
+          timestamp     : new Date().toISOString(),
+          total_duration: 0,
+          api_url       : API,
+          passed        : 0,
+          failed        : 1,
+          results       : [{
+            name    : "Diagnostics Failed",
+            ok      : false,
+            duration: 0,
+            detail  : "Could not complete diagnostics",
+            error   : err.message,
+          }],
+        });
+      }
+    } finally {
+      if (mountedRef.current) setDiagRunning(false);
+    }
+  }, []);
+
+  /* Step 1 → 2 */
   const handleProceedToConfirm = () => {
     setError(null);
 
@@ -640,12 +1034,11 @@ export default function AirtimeClaimModal({
     setStep(2);
   };
 
-  /* ══════════════════════════════════════════════════════
-     STEP 2 → 3 : send OTP
-  ══════════════════════════════════════════════════════ */
+  /* Step 2 → 3 : send OTP */
   const sendOtp = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setShowDiag(false);
 
     try {
       const data = await smartFetch(`${API}/airtime-coupons/send-otp`, {
@@ -667,7 +1060,6 @@ export default function AirtimeClaimModal({
       }
 
       setStep(3);
-
     } catch (err) {
       setError(err);
     } finally {
@@ -675,9 +1067,7 @@ export default function AirtimeClaimModal({
     }
   }, [phone]);
 
-  /* ══════════════════════════════════════════════════════
-     STEP 3 : verify OTP + redeem coupon (TWO API calls)
-  ══════════════════════════════════════════════════════ */
+  /* Step 3 : verify + redeem */
   const verifyAndClaim = useCallback(async () => {
     if (otp.length < 6) {
       setError("Enter the 6-digit code.");
@@ -686,6 +1076,7 @@ export default function AirtimeClaimModal({
 
     setLoading(true);
     setError(null);
+    setShowDiag(false);
 
     try {
       const verifyRes = await smartFetch(
@@ -718,9 +1109,7 @@ export default function AirtimeClaimModal({
         coupon  : claimRes.coupon,
         ...claimRes,
       });
-
     } catch (err) {
-      /* Already redeemed → treat as success */
       if (err.code === "ALREADY_REDEEMED" || err.code?.startsWith("ALREADY_")) {
         setStep(4);
         onSuccess?.(coupon?.code, {
@@ -733,7 +1122,6 @@ export default function AirtimeClaimModal({
 
       setError(err);
 
-      /* Clear OTP only on OTP errors */
       const isOtpErr =
         err.code?.startsWith("OTP_") ||
         err.data?.remaining !== undefined ||
@@ -741,7 +1129,6 @@ export default function AirtimeClaimModal({
         err.message?.toLowerCase().includes("code");
 
       if (isOtpErr) setOtp("");
-
     } finally {
       setLoading(false);
     }
@@ -761,6 +1148,7 @@ export default function AirtimeClaimModal({
     setDevOtp(null);
     setCountdown(0);
     setAttemptsLeft(null);
+    setShowDiag(false);
   };
 
   if (!isOpen) return null;
@@ -796,12 +1184,9 @@ export default function AirtimeClaimModal({
 
         <StepIndicator step={step} />
 
-        {/* ══════════════════════════════════════════
-            STEP 1 — Enter Phone + Network
-        ══════════════════════════════════════════ */}
+        {/* Step 1 */}
         {step === 1 && (
           <div className="acm-body">
-
             <p className="acm-instruction">
               Enter the phone number where you want to receive the airtime.
             </p>
@@ -918,7 +1303,16 @@ export default function AirtimeClaimModal({
               </p>
             </div>
 
-            <ErrorBox error={error} />
+            <ErrorBox error={error} onDiagnose={runDiag} />
+
+            {showDiag && (
+              <DiagnosticPanel
+                diagnostics={diagResults}
+                running={diagRunning}
+                onRun={runDiag}
+                onClose={() => setShowDiag(false)}
+              />
+            )}
 
             <button
               className="acm-primary-btn"
@@ -928,16 +1322,12 @@ export default function AirtimeClaimModal({
             >
               Continue →
             </button>
-
           </div>
         )}
 
-        {/* ══════════════════════════════════════════
-            STEP 2 — Confirm before sending OTP
-        ══════════════════════════════════════════ */}
+        {/* Step 2 */}
         {step === 2 && (
           <div className="acm-body">
-
             <div className="acm-confirm-card">
               <div className="acm-confirm-icon">📲</div>
               <p className="acm-confirm-title">Send verification code?</p>
@@ -975,7 +1365,21 @@ export default function AirtimeClaimModal({
               </p>
             </div>
 
-            <ErrorBox error={error} onRetry={sendOtp} loading={loading} />
+            <ErrorBox
+              error={error}
+              onRetry={sendOtp}
+              loading={loading}
+              onDiagnose={runDiag}
+            />
+
+            {showDiag && (
+              <DiagnosticPanel
+                diagnostics={diagResults}
+                running={diagRunning}
+                onRun={runDiag}
+                onClose={() => setShowDiag(false)}
+              />
+            )}
 
             <button
               className="acm-primary-btn"
@@ -1001,16 +1405,12 @@ export default function AirtimeClaimModal({
             >
               ← Change Number
             </button>
-
           </div>
         )}
 
-        {/* ══════════════════════════════════════════
-            STEP 3 — Enter OTP
-        ══════════════════════════════════════════ */}
+        {/* Step 3 */}
         {step === 3 && (
           <div className="acm-body">
-
             <div className="acm-otp-sent">
               <div className="acm-otp-sent-icon">💬</div>
               <p className="acm-instruction">
@@ -1078,7 +1478,17 @@ export default function AirtimeClaimModal({
               error={error}
               onRetry={verifyAndClaim}
               loading={loading}
+              onDiagnose={runDiag}
             />
+
+            {showDiag && (
+              <DiagnosticPanel
+                diagnostics={diagResults}
+                running={diagRunning}
+                onRun={runDiag}
+                onClose={() => setShowDiag(false)}
+              />
+            )}
 
             <button
               className="acm-primary-btn"
@@ -1104,16 +1514,12 @@ export default function AirtimeClaimModal({
             >
               ← Change Number
             </button>
-
           </div>
         )}
 
-        {/* ══════════════════════════════════════════
-            STEP 4 — Success
-        ══════════════════════════════════════════ */}
+        {/* Step 4 */}
         {step === 4 && (
           <div className="acm-body acm-body--success">
-
             <div className="acm-success-animation">
               <div className="acm-success-circle">
                 <span className="acm-success-check">✓</span>
@@ -1161,7 +1567,6 @@ export default function AirtimeClaimModal({
             >
               Done
             </button>
-
           </div>
         )}
 
