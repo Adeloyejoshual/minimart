@@ -106,7 +106,6 @@ import AddProduct        from "./pages/AddProduct";
 import Conversations     from "./pages/Conversations";
 import Chat              from "./pages/Chat";
 import Coupons           from "./pages/Profile/Coupons";
-import AirtimeCoupons    from "./pages/Profile/AirtimeCoupons";
 import Dashboard         from "./pages/Profile/Dashboard";
 import SpinWheel         from "./pages/Profile/SpinWheel";
 import Leaderboard       from "./pages/Profile/Leaderboard";
