@@ -30,6 +30,7 @@ const PROMO_INTERVAL = 10;
 const REFRESH_MS     = 1_800_000;
 const MOVE_CHECK_MS  = 300_000;
 const MOVE_THRESHOLD = 2;
+const NOTIF_POLL_MS  = 60_000;
 
 const GPS_OPTIONS = {
   timeout            : 5_000,
@@ -520,12 +521,40 @@ export default function P2P({ user }) {
   const [activeSort, setActiveSort] = useState("smart");
   const [visible,    setVisible]    = useState(ITEMS_PER_PAGE);
 
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [postOpen,   setPostOpen]   = useState(false);
+  const [pickerOpen,   setPickerOpen]   = useState(false);
+  const [postOpen,     setPostOpen]     = useState(false);
+  const [unreadCount,  setUnreadCount]  = useState(0);
 
   const lastLocationRef = useRef(
     JSON.parse(localStorage.getItem("lastLocation") || "null")
   );
+
+  /* ════════════════════════════════════════════════════════════
+     NOTIFICATION BADGE — poll unread count
+  ════════════════════════════════════════════════════════════ */
+  const fetchUnreadCount = useCallback(async () => {
+    if (!user) { setUnreadCount(0); return; }
+    try {
+      const token = localStorage.getItem("token") || sessionStorage.getItem("token");
+      if (!token) return;
+      const res = await fetch(`${API}/notifications/unread-count`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.success) setUnreadCount(data.count ?? 0);
+    } catch {
+      /* silent — badge is non-critical */
+    }
+  }, [user]);
+
+  /* ── Poll on mount + interval ────────────────────────── */
+  useEffect(() => {
+    fetchUnreadCount();
+    if (!user) return;
+    const id = setInterval(fetchUnreadCount, NOTIF_POLL_MS);
+    return () => clearInterval(id);
+  }, [fetchUnreadCount, user]);
 
   /* ════════════════════════════════════════════════════════════
      LOAD OFFERS
@@ -730,6 +759,11 @@ export default function P2P({ user }) {
               onClick={() => navigate("/notifications")}
             >
               🔔
+              {unreadCount > 0 && (
+                <span className="p2p-notify-badge">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
             </button>
           </div>
 
