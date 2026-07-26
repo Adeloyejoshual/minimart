@@ -1280,6 +1280,55 @@
 
 .hm-error-btn:hover { background: #b71c1c; transform: translateY(-1px); }
 
+/* ══════════════════════════════════════════════
+   NOTIFICATION BELL + BADGE
+══════════════════════════════════════════════ */
+.hm-notif-btn {
+  position: relative;          /* needed for badge positioning */
+  background: rgba(255,255,255,.1);
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 50%;
+  width: 42px;
+  height: 42px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background .15s;
+}
+.hm-notif-btn:hover {
+  background: rgba(255,255,255,.18);
+}
+
+.hm-notif-badge {
+  position: absolute;
+  top: -3px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 18px;
+  text-align: center;
+  border-radius: 10px;
+  border: 2px solid #10193a;   /* matches hero background */
+  box-shadow: 0 2px 6px rgba(239,68,68,.45);
+  pointer-events: none;
+  white-space: nowrap;
+  animation: hm-badge-pop .3s cubic-bezier(.34,1.56,.64,1) both;
+}
+
+@keyframes hm-badge-pop {
+  0%   { transform: scale(0); opacity: 0; }
+  60%  { transform: scale(1.25); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 /* ══════════════════════════════════════════════════════════════
    EMPTY STATE
    ══════════════════════════════════════════════════════════════ */
