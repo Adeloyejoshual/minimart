@@ -96,28 +96,28 @@ import DesktopPlans        from "./desktop/Subscription/DesktopPlans";
 /* ════════════════════════════════════════════════════════════
    PAGES — USER (PROTECTED)
 ════════════════════════════════════════════════════════════ */
-import Profile           from "./pages/Profile";
-import EditProfile       from "./pages/Profile/EditProfile";
-import SavedItems        from "./pages/Profile/SavedItems";
-import NotificationsPage from "./pages/NotificationsPage";
+import Profile            from "./pages/Profile";
+import EditProfile        from "./pages/Profile/EditProfile";
+import SavedItems         from "./pages/Profile/SavedItems";
+import NotificationsPage  from "./pages/NotificationsPage";
 import NotificationDetail from "./pages/NotificationDetail";
-import SettingsPage      from "./pages/SettingsPage";
-import AddProduct        from "./pages/AddProduct";
-import Conversations     from "./pages/Conversations";
-import Chat              from "./pages/Chat";
-import Coupons           from "./pages/Profile/Coupons";
-import Dashboard         from "./pages/Profile/Dashboard";
-import SpinWheel         from "./pages/Profile/SpinWheel";
-import Leaderboard       from "./pages/Profile/Leaderboard";
-import Verification      from "./pages/Profile/Verification";
-import Wallet            from "./pages/Profile/Wallet";
-import FAQ               from "./pages/FAQ";
-import Invitation        from "./pages/Invitation";
-import PostAds           from "./pages/PostAds";
-import PaymentSuccess    from "./pages/PaymentSuccess";
-import CheckoutPage      from "./pages/CheckoutPage";
-import OrderSuccess      from "./pages/OrderSuccess";
-import OrderHistory      from "./pages/OrderHistory";
+import SettingsPage       from "./pages/SettingsPage";
+import AddProduct         from "./pages/AddProduct";
+import Conversations      from "./pages/Conversations";
+import Chat               from "./pages/Chat";
+import Coupons            from "./pages/Profile/Coupons";
+import Dashboard          from "./pages/Profile/Dashboard";
+import SpinWheel          from "./pages/Profile/SpinWheel";
+import Leaderboard        from "./pages/Profile/Leaderboard";
+import Verification       from "./pages/Profile/Verification";
+import Wallet             from "./pages/Profile/Wallet";
+import FAQ                from "./pages/FAQ";
+import Invitation         from "./pages/Invitation";
+import PostAds            from "./pages/PostAds";
+import PaymentSuccess     from "./pages/PaymentSuccess";
+import CheckoutPage       from "./pages/CheckoutPage";
+import OrderSuccess       from "./pages/OrderSuccess";
+import OrderHistory       from "./pages/OrderHistory";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — HELP & SUPPORT
@@ -299,6 +299,9 @@ function clearAllAuthStorage() {
   localStorage.removeItem("token");
   localStorage.removeItem("user");
   localStorage.removeItem("auth_user");
+  localStorage.removeItem("marketplace_user");
+  localStorage.removeItem("verified_phone");
+  localStorage.removeItem("verified_network");
   sessionStorage.removeItem(TOKEN_KEYS.marketplace);
   sessionStorage.removeItem("token");
   sessionStorage.removeItem("user");
@@ -454,17 +457,11 @@ function ProtectedRoute({ user, children }) {
    AdminProtectedRoute — role-based access control
 ────────────────────────────────────────────────────── */
 function AdminProtectedRoute({ admin, role, children }) {
-  // Not logged in → login page
   if (!admin) return <Navigate to="/admin/login" replace />;
-
-  // Super Admin can access any admin dashboard
   if (admin.role === "super_admin") return children;
-
-  // Wrong role → redirect to their own dashboard
   if (role && admin.role !== role) {
     return <Navigate to={getAdminHome(admin)} replace />;
   }
-
   return children;
 }
 
@@ -515,8 +512,8 @@ export default function App() {
   const [admin,       setAdmin]       = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
 
-  const { resetCache }  = useProductCache();
-  const loggingOutRef   = useRef(false);
+  const { resetCache } = useProductCache();
+  const loggingOutRef  = useRef(false);
 
   useSystemThemeWatcher();
 
@@ -532,8 +529,15 @@ export default function App() {
       })
       .then((res) => {
         if (loggingOutRef.current) return;
-        setUser(res.data?.user ?? res.data);
-        syncFavouritesOnLogin(token, (res.data?.user ?? res.data).id);
+        const userData = res.data?.user ?? res.data;
+        setUser(userData);
+
+        /* Cache user for the Coupons/Airtime modal fallback */
+        try {
+          localStorage.setItem("marketplace_user", JSON.stringify(userData));
+        } catch {}
+
+        syncFavouritesOnLogin(token, userData.id);
       })
       .catch(() => {
         clearAllAuthStorage();
@@ -560,6 +564,12 @@ export default function App() {
   const handleAuthSuccess = useCallback(
     (userData, token, navigateFn, from) => {
       localStorage.setItem(TOKEN_KEYS.marketplace, token);
+
+      /* Cache user so Coupons/Airtime page can prefill phone */
+      try {
+        localStorage.setItem("marketplace_user", JSON.stringify(userData));
+      } catch {}
+
       resetCache();
       ["lastLocation", "active_location", "cacheTime"].forEach((k) =>
         localStorage.removeItem(k)
@@ -608,12 +618,21 @@ export default function App() {
 
   /* ── Profile update ── */
   const handleProfileUpdate = useCallback((updatedData) => {
-    setUser((prev) => ({
-      ...prev,
-      ...Object.fromEntries(
-        Object.entries(updatedData).filter(([, v]) => v != null)
-      ),
-    }));
+    setUser((prev) => {
+      const merged = {
+        ...prev,
+        ...Object.fromEntries(
+          Object.entries(updatedData).filter(([, v]) => v != null)
+        ),
+      };
+
+      /* Keep cached user in sync */
+      try {
+        localStorage.setItem("marketplace_user", JSON.stringify(merged));
+      } catch {}
+
+      return merged;
+    });
   }, []);
 
   if (!authChecked) return <AuthLoader />;
@@ -793,7 +812,7 @@ export default function App() {
           }
         />
 
-        {/* ── OTHER PROTECTED ── */}
+        {/* ── COUPONS (includes Airtime tab) ── */}
         <Route path="/coupons"
           element={
             <ProtectedRoute user={user}>
@@ -801,13 +820,16 @@ export default function App() {
             </ProtectedRoute>
           }
         />
+
+        {/*
+          Legacy redirect — airtime coupons live inside /coupons now.
+          Any old link or bookmark to /airtime-coupons opens the
+          Coupons page with the Airtime tab pre-selected.
+        */}
         <Route path="/airtime-coupons"
-          element={
-            <ProtectedRoute user={user}>
-              <AirtimeCoupons user={user} />
-            </ProtectedRoute>
-          }
-        />
+          element={<Navigate to="/coupons?tab=airtime" replace />} />
+
+        {/* ── OTHER PROTECTED ── */}
         <Route path="/dashboard"
           element={
             <ProtectedRoute user={user}>
