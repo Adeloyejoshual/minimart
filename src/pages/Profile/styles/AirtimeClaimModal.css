@@ -1,7 +1,9 @@
-/* src/pages/Profile/styles/AirtimeClaimModal.css */
+/* ═══════════════════════════════════════════════════════════════
+   src/pages/Profile/styles/AirtimeClaimModal.css
+═══════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════
-   BACKDROP + MODAL
+   BACKDROP + MODAL SHELL
 ═══════════════════════════════════════════════════════════════ */
 .acm-backdrop {
   position: fixed;
@@ -12,6 +14,7 @@
   justify-content: center;
   background: rgba(0, 0, 0, 0.55);
   backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
   animation: acm-fade-in 0.2s ease;
 }
 
@@ -25,6 +28,7 @@
   box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.18);
   padding-bottom: env(safe-area-inset-bottom);
   animation: acm-slide-up 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+  -webkit-overflow-scrolling: touch;
 }
 
 @media (min-width: 640px) {
@@ -32,7 +36,6 @@
     align-items: center;
     padding: 24px;
   }
-
   .acm-modal {
     border-radius: 24px;
     max-height: 90vh;
@@ -55,6 +58,7 @@
   align-items: center;
   gap: 12px;
   min-width: 0;
+  flex: 1;
 }
 
 .acm-header-icon {
@@ -94,25 +98,36 @@
   cursor: pointer;
   display: grid;
   place-items: center;
-  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+  flex-shrink: 0;
+  transition: all 0.18s ease;
 }
 
-.acm-close:hover {
+.acm-close:hover:not(:disabled) {
   background: #e5e7eb;
   color: #111827;
-  transform: scale(1.03);
+  transform: scale(1.05);
+}
+
+.acm-close:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   STEPS
+   STEP INDICATOR
 ═══════════════════════════════════════════════════════════════ */
 .acm-steps {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0;
-  padding: 20px 20px 0;
+  padding: 20px 16px 0;
   overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.acm-steps::-webkit-scrollbar {
+  display: none;
 }
 
 .acm-step-item {
@@ -134,12 +149,14 @@
   display: grid;
   place-items: center;
   transition: all 0.25s ease;
+  flex-shrink: 0;
 }
 
 .acm-step-circle--active {
   border-color: #6366f1;
   background: #eef2ff;
   color: #6366f1;
+  transform: scale(1.05);
 }
 
 .acm-step-circle--done {
@@ -152,6 +169,7 @@
   font-size: 12px;
   color: #9ca3af;
   transition: color 0.2s ease;
+  white-space: nowrap;
 }
 
 .acm-step-label--active {
@@ -160,15 +178,22 @@
 }
 
 .acm-step-line {
-  width: 28px;
+  width: 24px;
   height: 2px;
   margin: 0 2px;
   background: #e5e7eb;
   transition: background 0.25s ease;
+  flex-shrink: 0;
 }
 
 .acm-step-line--done {
   background: #16a34a;
+}
+
+@media (min-width: 480px) {
+  .acm-step-line {
+    width: 32px;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -227,7 +252,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PHONE ROW
+   PHONE INPUT ROW
 ═══════════════════════════════════════════════════════════════ */
 .acm-phone-row {
   display: flex;
@@ -279,6 +304,7 @@
   padding: 0 14px;
   font-size: 15px;
   color: #111827;
+  letter-spacing: 0.3px;
 }
 
 .acm-phone-input::placeholder {
@@ -298,7 +324,7 @@
   display: grid;
   place-items: center;
   flex-shrink: 0;
-  transition: background 0.18s ease, color 0.18s ease;
+  transition: all 0.18s ease;
 }
 
 .acm-phone-clear:hover {
@@ -317,7 +343,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PREFILLED / REGISTERED PHONE NOTICE
+   PREFILL NOTICE + REGISTERED BADGE
 ═══════════════════════════════════════════════════════════════ */
 .acm-prefill-notice {
   display: flex;
@@ -332,6 +358,7 @@
 .acm-prefill-icon {
   flex-shrink: 0;
   font-size: 20px;
+  line-height: 1;
 }
 
 .acm-prefill-title {
@@ -360,7 +387,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   NETWORKS
+   NETWORK SELECTOR
 ═══════════════════════════════════════════════════════════════ */
 .acm-networks {
   display: grid;
@@ -375,7 +402,7 @@
 }
 
 .acm-network-btn {
-  min-height: 44px;
+  min-height: 46px;
   border: 1.5px solid #e5e7eb;
   border-radius: 12px;
   background: #ffffff;
@@ -383,20 +410,22 @@
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+  transition: all 0.18s ease;
 }
 
-.acm-network-btn:hover {
+.acm-network-btn:hover:not(.acm-network-btn--active) {
   transform: translateY(-1px);
   border-color: #cbd5e1;
+  background: #f9fafb;
 }
 
 .acm-network-btn--active {
-  box-shadow: inset 0 0 0 1px currentColor;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  transform: translateY(-1px);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   INFO / ERROR
+   INFO + ERROR + WARN BOXES
 ═══════════════════════════════════════════════════════════════ */
 .acm-info-box {
   display: flex;
@@ -423,6 +452,7 @@
   color: #dc2626;
   font-size: 13px;
   line-height: 1.5;
+  animation: acm-shake 0.35s ease;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -436,11 +466,12 @@
   font-size: 15px;
   font-weight: 700;
   cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+  transition: all 0.18s ease;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
+  font-family: inherit;
 }
 
 .acm-primary-btn {
@@ -453,6 +484,11 @@
 .acm-primary-btn:hover:not(:disabled) {
   background: #5458ee;
   transform: translateY(-1px);
+  box-shadow: 0 10px 22px rgba(99, 102, 241, 0.28);
+}
+
+.acm-primary-btn:active:not(:disabled) {
+  transform: translateY(0);
 }
 
 .acm-ghost-btn {
@@ -485,7 +521,7 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   STEP 2 — CONFIRM
+   STEP 2 — CONFIRM CARD
 ═══════════════════════════════════════════════════════════════ */
 .acm-confirm-card {
   display: flex;
@@ -617,12 +653,18 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 8px;
+}
+
+@media (min-width: 400px) {
+  .acm-otp-boxes {
+    gap: 10px;
+  }
 }
 
 .acm-otp-box {
-  width: 46px;
-  height: 54px;
+  width: 42px;
+  height: 52px;
   border: 2px solid #e5e7eb;
   border-radius: 12px;
   text-align: center;
@@ -630,17 +672,39 @@
   font-weight: 800;
   color: #111827;
   outline: none;
-  transition: border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
+  background: #ffffff;
+  transition: all 0.18s ease;
+  -moz-appearance: textfield;
+  font-family: inherit;
+}
+
+.acm-otp-box::-webkit-outer-spin-button,
+.acm-otp-box::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+@media (min-width: 400px) {
+  .acm-otp-box {
+    width: 46px;
+    height: 54px;
+  }
 }
 
 .acm-otp-box:focus {
   border-color: #6366f1;
   box-shadow: 0 0 0 3px #eef2ff;
+  transform: translateY(-1px);
 }
 
 .acm-otp-box--filled {
   border-color: #6366f1;
   background: #eef2ff;
+}
+
+.acm-otp-box:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .acm-resend {
@@ -661,10 +725,53 @@
   font-weight: 700;
   color: #6366f1;
   cursor: pointer;
+  font-family: inherit;
 }
 
-.acm-resend-btn:hover {
+.acm-resend-btn:hover:not(:disabled) {
   text-decoration: underline;
+}
+
+.acm-resend-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DEV MODE OTP DISPLAY
+═══════════════════════════════════════════════════════════════ */
+.acm-dev-otp {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #fef3c7;
+  border: 1px dashed #f59e0b;
+  border-radius: 12px;
+  font-size: 13px;
+  color: #92400e;
+}
+
+.acm-dev-otp span {
+  font-weight: 700;
+  font-size: 11px;
+  background: #f59e0b;
+  color: #ffffff;
+  padding: 3px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.acm-dev-otp p {
+  margin: 0;
+  flex: 1;
+}
+
+.acm-dev-otp strong {
+  font-size: 17px;
+  letter-spacing: 3px;
+  color: #78350f;
+  font-weight: 800;
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -691,6 +798,7 @@
   font-size: 36px;
   font-weight: 900;
   color: #ffffff;
+  line-height: 1;
 }
 
 .acm-success-title {
@@ -726,7 +834,7 @@
   padding: 16px;
   border-radius: 14px;
   background: #f9fafb;
-  margin-bottom: 4px;
+  margin-bottom: 16px;
 }
 
 .acm-timeline-item {
@@ -741,6 +849,12 @@
   margin: 0;
 }
 
+.acm-timeline-item em {
+  color: #9ca3af;
+  font-style: normal;
+  font-size: 12px;
+}
+
 .acm-tl-dot {
   width: 10px;
   height: 10px;
@@ -750,10 +864,13 @@
 
 .acm-timeline-item--done .acm-tl-dot {
   background: #16a34a;
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.15);
 }
 
 .acm-timeline-item--pending .acm-tl-dot {
   background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+  animation: acm-pulse 1.8s ease-in-out infinite;
 }
 
 .acm-timeline-item--pending {
@@ -785,11 +902,98 @@
 
 @keyframes acm-pop {
   0% {
-    transform: scale(0.75);
+    transform: scale(0.65);
     opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+    opacity: 1;
   }
   100% {
     transform: scale(1);
     opacity: 1;
+  }
+}
+
+@keyframes acm-shake {
+  0%, 100% { transform: translateX(0); }
+  25%      { transform: translateX(-4px); }
+  75%      { transform: translateX(4px); }
+}
+
+@keyframes acm-pulse {
+  0%, 100% {
+    opacity: 1;
+    box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+  }
+  50% {
+    opacity: 0.6;
+    box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.10);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REDUCED MOTION
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  .acm-backdrop,
+  .acm-modal,
+  .acm-primary-btn,
+  .acm-ghost-btn,
+  .acm-close,
+  .acm-network-btn,
+  .acm-otp-box,
+  .acm-step-circle,
+  .acm-tl-dot,
+  .acm-success-circle,
+  .acm-error {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE (optional — activate by adding "dark" class to <html>)
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  html.acm-dark .acm-modal {
+    background: #1f2937;
+  }
+  html.acm-dark .acm-title,
+  html.acm-dark .acm-confirm-title,
+  html.acm-dark .acm-confirm-phone,
+  html.acm-dark .acm-success-title,
+  html.acm-dark .acm-success-phone,
+  html.acm-dark .acm-phone-display,
+  html.acm-dark .acm-phone-input {
+    color: #f9fafb;
+  }
+  html.acm-dark .acm-subtitle,
+  html.acm-dark .acm-instruction,
+  html.acm-dark .acm-confirm-sub,
+  html.acm-dark .acm-success-msg {
+    color: #9ca3af;
+  }
+  html.acm-dark .acm-phone-row,
+  html.acm-dark .acm-otp-box,
+  html.acm-dark .acm-network-btn,
+  html.acm-dark .acm-confirm-number {
+    background: #374151;
+    border-color: #4b5563;
+    color: #f9fafb;
+  }
+  html.acm-dark .acm-prefix {
+    background: #4b5563;
+    color: #e5e7eb;
+    border-color: #6b7280;
+  }
+  html.acm-dark .acm-confirm-card,
+  html.acm-dark .acm-success-timeline {
+    background: #374151;
+    border-color: #4b5563;
+  }
+  html.acm-dark .acm-close {
+    background: #4b5563;
+    color: #d1d5db;
   }
 }
