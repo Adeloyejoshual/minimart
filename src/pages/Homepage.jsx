@@ -24,12 +24,11 @@ import "../styles/Homepage.css";
 /* ══════════════════════════════════════════════════════════
    CONSTANTS
 ══════════════════════════════════════════════════════════ */
-const BASE_URL      = import.meta.env.VITE_API_BASE_URL || window.location.origin;
-const API           = `${BASE_URL}/api`;
-const PAGE_SIZE     = 40;
-const PH            = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
-const STALE_MS      = 5 * 60_000;
-const NOTIF_POLL_MS = 60_000;
+const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API       = `${BASE_URL}/api`;
+const PAGE_SIZE = 40;
+const PH        = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
+const STALE_MS  = 5 * 60_000;
 
 const ALL_CAT  = { id: "all", name: "All", icon: "✦" };
 const CAT_LIST = [ALL_CAT, ...CATEGORIES];
@@ -38,6 +37,35 @@ const GPS_OPTS = {
   timeout           : 5_000,
   enableHighAccuracy: false,
   maximumAge        : 300_000,
+};
+
+/* ══════════════════════════════════════════════════════════
+   AUTH TOKEN — try every known storage key
+══════════════════════════════════════════════════════════ */
+const getAuthToken = () => {
+  const keys = [
+    "token", "authToken", "accessToken", "access_token",
+    "jwt", "jwtToken", "userToken", "loemart_token",
+  ];
+  for (const k of keys) {
+    const v = localStorage.getItem(k) || sessionStorage.getItem(k);
+    if (v) return v;
+  }
+  return null;
+};
+
+/* ══════════════════════════════════════════════════════════
+   AUTHED FETCH — sends Bearer token + cookies
+══════════════════════════════════════════════════════════ */
+const authedFetch = (url, opts = {}) => {
+  const token   = getAuthToken();
+  const headers = { ...(opts.headers || {}) };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return fetch(url, {
+    ...opts,
+    headers,
+    credentials: "include",
+  });
 };
 
 /* ══════════════════════════════════════════════════════════
@@ -67,7 +95,6 @@ const ChevUpIcon     = ({ size = 16 }) => <Ico size={size} sw={2.5}><path d="M18
 const DiamondIcon    = ({ size = 14 }) => <Ico size={size}><path d="M6 3h12l4 6-10 13L2 9z"/><path d="M2 9h20"/><path d="M10 3l-4 6 6 13 6-13-4-6"/></Ico>;
 const FlashIcon      = ({ size = 14 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></Ico>;
 const TagIcon        = ({ size = 18 }) => <Ico size={size}><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></Ico>;
-const StarIcon       = ({ size = 12 }) => <Ico size={size} fill="currentColor" stroke="none"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></Ico>;
 const ZapIcon        = ({ size = 20 }) => <Ico size={size}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></Ico>;
 const BagIcon        = ({ size = 40 }) => <Ico size={size} sw={1.5}><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></Ico>;
 const GlobeIcon      = ({ size = 14 }) => <Ico size={size}><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></Ico>;
@@ -149,21 +176,6 @@ const fmtCount = (n) => {
   if (num < 10_000)    return `${(num / 1_000).toFixed(1).replace(/\.0$/, "")}k+`;
   if (num < 1_000_000) return `${Math.round(num / 1_000)}k+`;
   return `${(num / 1_000_000).toFixed(1).replace(/\.0$/, "")}M+`;
-};
-
-/* ══════════════════════════════════════════════════════════
-   AUTH TOKEN — try every known storage key
-══════════════════════════════════════════════════════════ */
-const getAuthToken = () => {
-  const keys = [
-    "token", "authToken", "accessToken", "access_token",
-    "jwt", "jwtToken", "userToken", "loemart_token",
-  ];
-  for (const k of keys) {
-    const v = localStorage.getItem(k) || sessionStorage.getItem(k);
-    if (v) return v;
-  }
-  return null;
 };
 
 /* ══════════════════════════════════════════════════════════
@@ -456,53 +468,6 @@ export default function Homepage({ user }) {
   const hiddenAtRef  = useRef(null);
   const gpsAttempted = useRef(false);
 
-  /* ════════════════════════════════════════════════════════
-     NOTIFICATION BADGE — matches Profile page auth strategy
-     - Tries any known token storage key
-     - Sends cookies (`credentials: "include"`) as fallback
-     - Never gated by `user` prop (may not be hydrated yet)
-  ════════════════════════════════════════════════════════ */
-  const fetchUnreadCount = useCallback(async () => {
-    try {
-      const token   = getAuthToken();
-      const headers = { "Content-Type": "application/json" };
-      if (token) headers.Authorization = `Bearer ${token}`;
-
-      const res = await fetch(`${API}/notifications/unread-count`, {
-        method     : "GET",
-        headers,
-        credentials: "include",
-      });
-
-      if (!res.ok) {
-        if (res.status !== 401) {
-          console.warn("[Homepage] unread-count HTTP", res.status);
-        }
-        return;
-      }
-      const data = await res.json();
-      if (data?.success) setUnreadCount(data.count ?? 0);
-    } catch (err) {
-      console.warn("[Homepage] unread-count error:", err.message);
-    }
-  }, []);
-
-  /* ── Poll on mount + every 60s ────────────────────────── */
-  useEffect(() => {
-    fetchUnreadCount();
-    const id = setInterval(fetchUnreadCount, NOTIF_POLL_MS);
-    return () => clearInterval(id);
-  }, [fetchUnreadCount]);
-
-  /* ── Refresh count when tab becomes visible ─────────── */
-  useEffect(() => {
-    const onVis = () => {
-      if (document.visibilityState === "visible") fetchUnreadCount();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
-  }, [fetchUnreadCount]);
-
   /* ── Auto-dismiss fallback banner after 6s ──────────── */
   useEffect(() => {
     if (!fallbackInfo) return;
@@ -547,6 +512,7 @@ export default function Homepage({ user }) {
 
   /* ══════════════════════════════════════════════════════
      PROCESS API DATA
+     KEY CHANGE: reads meta.unread_notifications and sets badge
   ══════════════════════════════════════════════════════ */
   const applyData = useCallback((data, append = false) => {
     const raw        = Array.isArray(data.products) ? data.products : [];
@@ -579,6 +545,11 @@ export default function Homepage({ user }) {
     setHasMore(
       data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE
     );
+
+    /* ✅ Read notification count from homepage response */
+    if (typeof data.meta?.unread_notifications === "number") {
+      setUnreadCount(data.meta.unread_notifications);
+    }
   }, [setCachedProducts, setCacheLoaded]);
 
   /* ══════════════════════════════════════════════════════
@@ -590,7 +561,7 @@ export default function Homepage({ user }) {
     setPage(0);
     productsRef.current = [];
     try {
-      const res = await fetch(buildUrl(0, catId));
+      const res = await authedFetch(buildUrl(0, catId));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       applyData(await res.json(), false);
     } catch (err) {
@@ -609,7 +580,7 @@ export default function Homepage({ user }) {
     setLoadingMore(true);
     try {
       const next = page + 1;
-      const res  = await fetch(buildUrl(next, category));
+      const res  = await authedFetch(buildUrl(next, category));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       applyData(await res.json(), true);
       setPage(next);
@@ -677,7 +648,7 @@ export default function Homepage({ user }) {
   }, [hasMore, loadingMore, loadMore]);
 
   /* ══════════════════════════════════════════════════════
-     LOCATION PICKER — onSelect
+     LOCATION PICKER
   ══════════════════════════════════════════════════════ */
   const handleLocationSelect = useCallback((loc, pickMeta) => {
     if (pickMeta?.wasFallback) {
@@ -757,7 +728,7 @@ export default function Homepage({ user }) {
               </p>
             </div>
 
-            {/* ── Bell with unread badge ── */}
+            {/* ── Bell with unread badge (data comes from /homepage meta) ── */}
             <button
               className="hm-notif-btn"
               aria-label={
