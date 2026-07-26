@@ -2,8 +2,110 @@
 import express      from "express";
 import { pool }     from "../config/db.js";
 import authenticate from "../middleware/auth.js";
+import crypto       from "crypto";
+import {
+  cacheGet,
+  cacheSet,
+  cacheDel,
+  cacheStats,
+} from "../lib/redis.js";
 
 const router = express.Router();
+
+/* ═══════════════════════════════════════════════════════════════
+   REDIS KEY HELPERS
+═══════════════════════════════════════════════════════════════ */
+const KEY = {
+  /* OTP session — expires in 10 min */
+  otpSession  : (sessionId)       => `airtime:otp:session:${sessionId}`,
+
+  /* Rate limit — how many OTPs sent for a coupon by this user */
+  otpRateLimit: (userId, couponId) => `airtime:otp:ratelimit:${userId}:${couponId}`,
+
+  /* User's coupon list cache — expires in 2 min */
+  userCoupons : (userId)          => `coupons:user:${userId}`,
+
+  /* User's history cache — expires in 2 min */
+  userHistory : (userId)          => `coupons:history:${userId}`,
+};
+
+const TTL = {
+  OTP_SESSION   : 10 * 60,       // 10 minutes (seconds)
+  RATE_LIMIT    : 10 * 60,       // 10 minutes (seconds)
+  COUPON_CACHE  :  2 * 60,       //  2 minutes (seconds)
+  HISTORY_CACHE :  2 * 60,       //  2 minutes (seconds)
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   SMS SENDER — pluggable (Termii / Twilio / dev fallback)
+═══════════════════════════════════════════════════════════════ */
+async function sendSms(phone, message) {
+  /* ── Termii (popular in Nigeria) ── */
+  if (process.env.TERMII_API_KEY) {
+    const res = await fetch("https://api.ng.termii.com/api/sms/send", {
+      method  : "POST",
+      headers : { "Content-Type": "application/json" },
+      body    : JSON.stringify({
+        to      : phone,
+        from    : process.env.TERMII_SENDER_ID || "N-Alert",
+        sms     : message,
+        type    : "plain",
+        channel : "dnd",
+        api_key : process.env.TERMII_API_KEY,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || "SMS failed via Termii");
+    return data;
+  }
+
+  /* ── Twilio fallback ── */
+  if (process.env.TWILIO_ACCOUNT_SID) {
+    const { default: Twilio } = await import("twilio");
+    const client = new Twilio(
+      process.env.TWILIO_ACCOUNT_SID,
+      process.env.TWILIO_AUTH_TOKEN
+    );
+    return client.messages.create({
+      body : message,
+      from : process.env.TWILIO_PHONE_NUMBER,
+      to   : `+${phone}`,
+    });
+  }
+
+  /* ── Dev fallback — log only ── */
+  console.log(`\n[SMS DEV] ──────────────────────────`);
+  console.log(`  To     : ${phone}`);
+  console.log(`  Message: ${message}`);
+  console.log(`────────────────────────────────────\n`);
+  return { dev: true };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PHONE HELPERS
+═══════════════════════════════════════════════════════════════ */
+const toIntlFormat = (phone) => {
+  const digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("234")) return digits;
+  if (digits.startsWith("0"))   return "234" + digits.slice(1);
+  return "234" + digits;
+};
+
+const isValidNgPhone = (phone) => {
+  const digits = phone.replace(/\D/g, "");
+  const local  = digits.startsWith("234")
+    ? "0" + digits.slice(3)
+    : digits;
+  return /^0[789][01]\d{8}$/.test(local);
+};
+
+const VALID_NETWORKS = ["mtn", "airtel", "glo", "9mobile"];
+
+/* ── Mask phone for safe logging / responses ── */
+const maskPhone = (phone) => {
+  const d = phone.replace(/\D/g, "");
+  return d.slice(0, 4) + "****" + d.slice(-3);
+};
 
 /* ═══════════════════════════════════════════════════════════════
    ENSURE TABLES + INDEXES
@@ -45,27 +147,47 @@ async function ensureTables() {
     )
   `);
 
+  /* ── Airtime claims — stores verified phone + network ── */
   await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS unique_airtime_code
-    ON public.airtime_coupons (code)
+    CREATE TABLE IF NOT EXISTS public.airtime_claims (
+      id                UUID        NOT NULL DEFAULT gen_random_uuid(),
+      airtime_coupon_id UUID        NOT NULL,
+      user_id           UUID        NOT NULL,
+      phone             TEXT        NOT NULL,
+      network           TEXT        NOT NULL,
+      status            TEXT        NOT NULL DEFAULT 'pending',
+      claimed_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+      credited_at       TIMESTAMPTZ NULL,
+      admin_note        TEXT        NULL,
+      credited_by       UUID        NULL,
+      CONSTRAINT airtime_claims_pkey PRIMARY KEY (id)
+    )
   `);
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_airtime_user
-    ON public.airtime_coupons (user_id)
-  `);
-
-  /* ── Safe column migrations ── */
-  const couponMigrations = [
+  const allMigrations = [
+    /* coupons */
     `ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS is_private  BOOLEAN NOT NULL DEFAULT false`,
     `ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS created_by  UUID    NULL`,
     `ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS description TEXT    NULL`,
-    /* airtime_coupons extra columns */
+    /* airtime_coupons */
     `ALTER TABLE public.airtime_coupons ADD COLUMN IF NOT EXISTS claimed_at TIMESTAMPTZ NULL`,
     `ALTER TABLE public.airtime_coupons ADD COLUMN IF NOT EXISTS status     TEXT        NOT NULL DEFAULT 'available'`,
+    /* airtime_claims */
+    `ALTER TABLE public.airtime_claims ADD COLUMN IF NOT EXISTS credited_at TIMESTAMPTZ NULL`,
+    `ALTER TABLE public.airtime_claims ADD COLUMN IF NOT EXISTS admin_note  TEXT        NULL`,
+    `ALTER TABLE public.airtime_claims ADD COLUMN IF NOT EXISTS credited_by UUID        NULL`,
+    /* coupon_redemptions */
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin      UUID    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin_name TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_type            TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_value           DECIMAL NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_description     TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS admin_note             TEXT    NULL`,
+    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS verified_user_id       UUID    NULL`,
+    `ALTER TABLE public.coupon_redemptions ALTER COLUMN user_id DROP NOT NULL`,
   ];
 
-  for (const sql of couponMigrations) {
+  for (const sql of allMigrations) {
     try { await pool.query(sql); }
     catch (e) {
       if (!e.message.includes("already exists")) {
@@ -74,7 +196,7 @@ async function ensureTables() {
     }
   }
 
-  /* ── Mark existing spin wheel coupons as private ── */
+  /* ── Mark spin wheel coupons as private ── */
   await pool.query(`
     UPDATE public.coupons
     SET is_private = true
@@ -83,25 +205,22 @@ async function ensureTables() {
       AND description LIKE '%Spin & Win%'
   `);
 
-  await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS unique_coupon_code
-    ON public.coupons (code)
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_coupons_active
-    ON public.coupons (is_active)
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_coupons_expires
-    ON public.coupons (expires_at)
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_coupons_private
-    ON public.coupons (is_private, created_by)
-  `);
+  /* ── Indexes ── */
+  const indexes = [
+    `CREATE UNIQUE INDEX IF NOT EXISTS unique_coupon_code        ON public.coupons              (code)`,
+    `CREATE        INDEX IF NOT EXISTS idx_coupons_active        ON public.coupons              (is_active)`,
+    `CREATE        INDEX IF NOT EXISTS idx_coupons_expires       ON public.coupons              (expires_at)`,
+    `CREATE        INDEX IF NOT EXISTS idx_coupons_private       ON public.coupons              (is_private, created_by)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS unique_airtime_code       ON public.airtime_coupons      (code)`,
+    `CREATE        INDEX IF NOT EXISTS idx_airtime_user          ON public.airtime_coupons      (user_id)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS unique_airtime_claim      ON public.airtime_claims       (airtime_coupon_id)`,
+    `CREATE        INDEX IF NOT EXISTS idx_airtime_claims_user   ON public.airtime_claims       (user_id)`,
+    `CREATE        INDEX IF NOT EXISTS idx_airtime_claims_status ON public.airtime_claims       (status)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon        ON public.coupon_redemptions   (coupon_id, user_id) WHERE user_id IS NOT NULL`,
+    `CREATE        INDEX IF NOT EXISTS idx_redemptions_coupon    ON public.coupon_redemptions   (coupon_id)`,
+    `CREATE        INDEX IF NOT EXISTS idx_redemptions_user      ON public.coupon_redemptions   (user_id) WHERE user_id IS NOT NULL`,
+    `CREATE        INDEX IF NOT EXISTS idx_redemptions_admin     ON public.coupon_redemptions   (redeemed_by_admin)  WHERE redeemed_by_admin IS NOT NULL`,
+  ];
 
   /* ── Coupon redemptions ── */
   await pool.query(`
@@ -123,50 +242,16 @@ async function ensureTables() {
     )
   `);
 
-  const redemptionMigrations = [
-    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin      UUID    NULL`,
-    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS redeemed_by_admin_name TEXT    NULL`,
-    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_type            TEXT    NULL`,
-    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_value           DECIMAL NULL`,
-    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS reward_description     TEXT    NULL`,
-    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS admin_note             TEXT    NULL`,
-    `ALTER TABLE public.coupon_redemptions ADD COLUMN IF NOT EXISTS verified_user_id       UUID    NULL`,
-    `ALTER TABLE public.coupon_redemptions ALTER COLUMN user_id DROP NOT NULL`,
-  ];
-
-  for (const sql of redemptionMigrations) {
+  for (const sql of indexes) {
     try { await pool.query(sql); }
     catch (e) {
       if (!e.message.includes("already exists")) {
-        console.warn("[coupons] redemption migration:", e.message);
+        console.warn("[coupons] index:", e.message);
       }
     }
   }
 
-  await pool.query(`
-    CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon
-    ON public.coupon_redemptions (coupon_id, user_id)
-    WHERE user_id IS NOT NULL
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_redemptions_coupon
-    ON public.coupon_redemptions (coupon_id)
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_redemptions_user
-    ON public.coupon_redemptions (user_id)
-    WHERE user_id IS NOT NULL
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_redemptions_admin
-    ON public.coupon_redemptions (redeemed_by_admin)
-    WHERE redeemed_by_admin IS NOT NULL
-  `);
-
-  console.log("[coupons] ✓ all tables ready");
+  console.log("[coupons] ✓ all tables & indexes ready");
 }
 
 ensureTables().catch((err) =>
@@ -174,7 +259,7 @@ ensureTables().catch((err) =>
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPER — shape a raw coupons row into the API response shape
+   SHAPE HELPERS
 ═══════════════════════════════════════════════════════════════ */
 function shapeCoupon(c, now) {
   const expiresAt     = c.expires_at ? new Date(c.expires_at) : null;
@@ -208,82 +293,70 @@ function shapeCoupon(c, now) {
     is_full      : isFull,
     days_left    : daysLeft,
     usable,
-    /* tag so the frontend knows which tab to place it in */
     coupon_kind  : "discount",
   };
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   HELPER — shape an airtime_coupons row into the API response
-═══════════════════════════════════════════════════════════════ */
-function shapeAirtime(a, now) {
-  const isUsed   = a.status !== "available";
-  const daysLeft = null; // airtime coupons don't expire on a fixed schedule
-
+function shapeAirtime(a) {
+  const isUsed = a.status !== "available";
   return {
-    id           : a.id,
-    code         : a.code,
-    type         : "airtime",
-    description  : `🎡 Spin & Win — ₦${Number(a.amount)} Airtime`,
-    value        : Number(a.amount || 0),
-    min_purchase : 0,
-    max_discount : null,
-    usage_count  : isUsed ? 1 : 0,
-    usage_limit  : 1,
-    expires_at   : null,
-    created_at   : a.created_at,
-    is_private   : true,
-    is_active    : !isUsed,
-    is_expired   : false,
-    is_used      : isUsed,
-    is_full      : isUsed,
-    days_left    : daysLeft,
-    usable       : !isUsed,
-    coupon_kind  : "airtime",
-    /* airtime-specific */
-    status       : a.status,
-    claimed_at   : a.claimed_at ?? null,
+    id            : a.id,
+    code          : a.code,
+    type          : "airtime",
+    description   : `🎡 Spin & Win — ₦${Number(a.amount)} Airtime`,
+    value         : Number(a.amount || 0),
+    min_purchase  : 0,
+    max_discount  : null,
+    usage_count   : isUsed ? 1 : 0,
+    usage_limit   : 1,
+    expires_at    : null,
+    created_at    : a.created_at,
+    is_private    : true,
+    is_active     : !isUsed,
+    is_expired    : false,
+    is_used       : isUsed,
+    is_full       : isUsed,
+    days_left     : null,
+    usable        : !isUsed,
+    coupon_kind   : "airtime",
+    status        : a.status,
+    claimed_at    : a.claimed_at    ?? null,
+    claim_phone   : a.claim_phone   ?? null,
+    claim_network : a.claim_network ?? null,
   };
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   CACHE INVALIDATION HELPER
+   Call whenever a coupon or claim changes for a user.
+═══════════════════════════════════════════════════════════════ */
+async function invalidateUserCache(userId) {
+  await Promise.allSettled([
+    cacheDel(KEY.userCoupons(userId)),
+    cacheDel(KEY.userHistory(userId)),
+  ]);
+}
+
+/* ═══════════════════════════════════════════════════════════════
    GET /api/coupons
-   Returns discount coupons + airtime coupons merged together.
-
-   DISCOUNT COUPON RULES
-   ─────────────────────
-   Rule 1 — Active public coupons        (everyone sees these)
-   Rule 2 — Active private coupons owned by this user
-             (only the spin winner sees their coupon)
-   Rule 3 — Any coupon this user has already redeemed
-             (keeps history visible even after admin deactivates it)
-
-   AIRTIME COUPONS
-   ───────────────
-   All airtime_coupons rows WHERE user_id = this user.
-   They are always private by nature (stored per-user).
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
     const now    = new Date();
 
-    /* ── 1. Discount coupons ── */
+    /* ── Try Redis cache first ── */
+    const cached = await cacheGet(KEY.userCoupons(userId));
+    if (cached) {
+      return res.json({ ...cached, cached: true });
+    }
+
+    /* ── Discount coupons ── */
     const { rows: discountRows } = await pool.query(
       `SELECT
-         c.id,
-         c.code,
-         c.type,
-         c.value,
-         c.min_purchase,
-         c.max_discount,
-         c.usage_limit,
-         c.usage_count,
-         c.expires_at,
-         c.description,
-         c.is_private,
-         c.is_active,
-         c.created_at,
+         c.id, c.code, c.type, c.value, c.min_purchase, c.max_discount,
+         c.usage_limit, c.usage_count, c.expires_at, c.description,
+         c.is_private, c.is_active, c.created_at,
          COUNT(r.id) FILTER (WHERE r.user_id = $1)::int AS user_usage_count
        FROM public.coupons c
        LEFT JOIN public.coupon_redemptions r ON r.coupon_id = c.id
@@ -311,24 +384,23 @@ router.get("/", authenticate, async (req, res) => {
       [userId]
     );
 
-    /* ── 2. Airtime coupons ── */
+    /* ── Airtime coupons — join claims for phone/network ── */
     const { rows: airtimeRows } = await pool.query(
-      `SELECT id, code, amount, status, created_at, claimed_at
-       FROM   public.airtime_coupons
-       WHERE  user_id = $1
-       ORDER  BY created_at DESC`,
+      `SELECT
+         ac.id, ac.code, ac.amount, ac.status, ac.created_at, ac.claimed_at,
+         cl.phone   AS claim_phone,
+         cl.network AS claim_network
+       FROM public.airtime_coupons ac
+       LEFT JOIN public.airtime_claims cl ON cl.airtime_coupon_id = ac.id
+       WHERE ac.user_id = $1
+       ORDER BY ac.created_at DESC`,
       [userId]
     );
 
-    /* ── 3. Merge & return ── */
     const discountCoupons = discountRows.map((c) => shapeCoupon(c, now));
-    const airtimeCoupons  = airtimeRows.map((a)  => shapeAirtime(a, now));
+    const airtimeCoupons  = airtimeRows.map(shapeAirtime);
 
-    /*
-     * Put usable airtime at the very top, then usable discounts,
-     * then used/expired items at the bottom.
-     */
-    const usable  = [
+    const usable = [
       ...airtimeCoupons .filter((c) => c.usable),
       ...discountCoupons.filter((c) => c.usable),
     ];
@@ -339,7 +411,7 @@ router.get("/", authenticate, async (req, res) => {
 
     const coupons = [...usable, ...inactive];
 
-    return res.json({
+    const payload = {
       success : true,
       coupons,
       counts  : {
@@ -348,7 +420,12 @@ router.get("/", authenticate, async (req, res) => {
         airtime : airtimeCoupons.length,
         discount: discountCoupons.length,
       },
-    });
+    };
+
+    /* ── Cache result ── */
+    await cacheSet(KEY.userCoupons(userId), payload, TTL.COUPON_CACHE);
+
+    return res.json(payload);
 
   } catch (err) {
     console.error("[coupons] GET /:", err.message);
@@ -358,30 +435,454 @@ router.get("/", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/coupons/airtime
-   Returns only this user's airtime coupons.
-   Useful for a dedicated Airtime tab on the frontend.
 ═══════════════════════════════════════════════════════════════ */
 router.get("/airtime", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
-    const now    = new Date();
 
     const { rows } = await pool.query(
-      `SELECT id, code, amount, status, created_at, claimed_at
-       FROM   public.airtime_coupons
-       WHERE  user_id = $1
-       ORDER  BY created_at DESC`,
+      `SELECT
+         ac.id, ac.code, ac.amount, ac.status, ac.created_at, ac.claimed_at,
+         cl.phone   AS claim_phone,
+         cl.network AS claim_network
+       FROM public.airtime_coupons ac
+       LEFT JOIN public.airtime_claims cl ON cl.airtime_coupon_id = ac.id
+       WHERE ac.user_id = $1
+       ORDER BY ac.created_at DESC`,
       [userId]
     );
 
     return res.json({
       success         : true,
-      airtime_coupons : rows.map((a) => shapeAirtime(a, now)),
+      airtime_coupons : rows.map(shapeAirtime),
     });
 
   } catch (err) {
     console.error("[coupons] GET /airtime:", err.message);
     return res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/coupons/airtime/send-otp
+   Body: { code, phone, network }
+
+   Flow:
+   1. Validate coupon belongs to user and is 'available'
+   2. Validate phone + network
+   3. Rate-limit (max 3 sends per coupon per 10 min via Redis)
+   4. Generate 6-digit OTP
+   5. Store session in Redis with 10-min TTL
+   6. Send SMS
+   7. Return session_id to frontend
+═══════════════════════════════════════════════════════════════ */
+router.post("/airtime/send-otp", authenticate, async (req, res) => {
+  const { code, phone, network } = req.body;
+  const userId = req.user.id;
+
+  /* ── Input validation ── */
+  if (!code?.trim()) {
+    return res.status(400).json({ success: false, message: "Airtime code is required." });
+  }
+  if (!phone?.trim()) {
+    return res.status(400).json({ success: false, message: "Phone number is required." });
+  }
+  if (!network || !VALID_NETWORKS.includes(network.toLowerCase())) {
+    return res.status(400).json({
+      success : false,
+      message : `Network must be one of: ${VALID_NETWORKS.join(", ")}.`,
+    });
+  }
+
+  const cleanPhone = phone.replace(/\D/g, "");
+
+  if (!isValidNgPhone(cleanPhone)) {
+    return res.status(400).json({
+      success : false,
+      message : "Enter a valid 11-digit Nigerian phone number (e.g. 08012345678).",
+    });
+  }
+
+  try {
+    /* ── Verify coupon exists and belongs to this user ── */
+    const { rows } = await pool.query(
+      `SELECT id, amount, status, user_id
+       FROM   public.airtime_coupons
+       WHERE  UPPER(code) = UPPER($1)
+       LIMIT  1`,
+      [code.trim()]
+    );
+
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: "Airtime coupon not found." });
+    }
+
+    const ac = rows[0];
+
+    if (ac.user_id !== userId) {
+      return res.status(403).json({
+        success : false,
+        message : "This coupon does not belong to your account.",
+      });
+    }
+
+    if (ac.status !== "available") {
+      return res.status(409).json({
+        success : false,
+        message : `This coupon has already been ${ac.status}.`,
+      });
+    }
+
+    /* ══════════════════════════════════════════════════════
+       RATE LIMIT — Redis INCR + TTL pattern
+       Max 3 OTP sends per coupon per 10 minutes
+    ══════════════════════════════════════════════════════ */
+    const rateLimitKey  = KEY.otpRateLimit(userId, ac.id);
+    const currentCount  = await cacheGet(rateLimitKey);
+    const sendCount     = currentCount ? Number(currentCount) : 0;
+
+    if (sendCount >= 3) {
+      return res.status(429).json({
+        success : false,
+        message : "Too many OTP requests. Please wait 10 minutes before trying again.",
+      });
+    }
+
+    /* Increment counter — set TTL only on first request */
+    await cacheSet(
+      rateLimitKey,
+      sendCount + 1,
+      sendCount === 0 ? TTL.RATE_LIMIT : undefined   // only set TTL on first write
+    );
+
+    /* ── Generate OTP ── */
+    const otp        = crypto.randomInt(100_000, 999_999).toString();
+    const sessionId  = crypto.randomUUID();
+    const intlPhone  = toIntlFormat(cleanPhone);
+
+    /* ══════════════════════════════════════════════════════
+       STORE SESSION IN REDIS
+       {
+         otp, phone, network, code, couponId,
+         userId, amount, attempts
+       }
+       TTL: 10 minutes
+    ══════════════════════════════════════════════════════ */
+    await cacheSet(
+      KEY.otpSession(sessionId),
+      {
+        otp,
+        phone    : intlPhone,
+        network  : network.toLowerCase(),
+        code     : code.trim().toUpperCase(),
+        couponId : ac.id,
+        userId,
+        amount   : Number(ac.amount),
+        attempts : 0,
+      },
+      TTL.OTP_SESSION
+    );
+
+    /* ── Send SMS ── */
+    const smsText =
+      `Your airtime claim verification code is: ${otp}\n` +
+      `Valid for 10 minutes. Do not share this code with anyone.`;
+
+    await sendSms(intlPhone, smsText);
+
+    console.log(
+      `[coupons] OTP sent | user=${userId} | ` +
+      `phone=${maskPhone(intlPhone)} | coupon=${code.trim().toUpperCase()} | ` +
+      `attempt=${sendCount + 1}/3`
+    );
+
+    return res.json({
+      success    : true,
+      session_id : sessionId,
+      message    : `Verification code sent to ${maskPhone(cleanPhone)}.`,
+      expires_in : TTL.OTP_SESSION,
+      /* Only expose OTP in development */
+      ...(process.env.NODE_ENV === "development" && { dev_otp: otp }),
+    });
+
+  } catch (err) {
+    console.error("[coupons] POST /airtime/send-otp:", err.message);
+
+    if (err.message?.toLowerCase().includes("sms")) {
+      return res.status(502).json({
+        success : false,
+        message : "Could not send SMS. Please check your number and try again.",
+      });
+    }
+
+    return res.status(500).json({ success: false, message: "Server error." });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/coupons/airtime/verify-claim
+   Body: { code, otp, session_id, phone, network }
+
+   Flow:
+   1. Load session from Redis
+   2. Verify ownership, expiry, attempt count
+   3. Compare OTP (increment attempts on fail)
+   4. On success → DB transaction → mark claimed → save claim record
+   5. Delete Redis session + invalidate coupon cache
+═══════════════════════════════════════════════════════════════ */
+router.post("/airtime/verify-claim", authenticate, async (req, res) => {
+  const { otp, session_id } = req.body;
+  const userId = req.user.id;
+
+  /* ── Basic checks ── */
+  if (!session_id?.trim()) {
+    return res.status(400).json({ success: false, message: "Session ID is required." });
+  }
+  if (!otp || !/^\d{6}$/.test(otp.trim())) {
+    return res.status(400).json({ success: false, message: "Enter the 6-digit code." });
+  }
+
+  /* ══════════════════════════════════════════════════════
+     LOAD SESSION FROM REDIS
+  ══════════════════════════════════════════════════════ */
+  const sessionKey = KEY.otpSession(session_id);
+  const session    = await cacheGet(sessionKey);
+
+  if (!session) {
+    return res.status(400).json({
+      success : false,
+      message : "Verification session expired or not found. Please request a new code.",
+    });
+  }
+
+  /* ── Ownership check ── */
+  if (session.userId !== userId) {
+    return res.status(403).json({ success: false, message: "Session mismatch." });
+  }
+
+  /* ── Max wrong attempts (5) ── */
+  if (session.attempts >= 5) {
+    await cacheDel(sessionKey);
+    return res.status(429).json({
+      success : false,
+      message : "Too many incorrect attempts. Please request a new code.",
+    });
+  }
+
+  /* ── OTP comparison ── */
+  if (session.otp !== otp.trim()) {
+    /* Increment attempts in Redis */
+    const updatedSession = { ...session, attempts: session.attempts + 1 };
+    await cacheSet(sessionKey, updatedSession, TTL.OTP_SESSION);
+
+    const remaining = 5 - updatedSession.attempts;
+
+    if (remaining <= 0) {
+      await cacheDel(sessionKey);
+      return res.status(429).json({
+        success : false,
+        message : "Too many incorrect attempts. Please request a new code.",
+      });
+    }
+
+    return res.status(400).json({
+      success   : false,
+      message   : `Incorrect code. ${remaining} attempt${remaining !== 1 ? "s" : ""} remaining.`,
+      remaining,
+    });
+  }
+
+  /* ══════════════════════════════════════════════════════
+     OTP CORRECT — DB TRANSACTION
+  ══════════════════════════════════════════════════════ */
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    /* ── Re-check coupon with row lock ── */
+    const { rows } = await client.query(
+      `SELECT id, amount, status, user_id
+       FROM   public.airtime_coupons
+       WHERE  UPPER(code) = UPPER($1)
+       FOR    UPDATE`,
+      [session.code]
+    );
+
+    if (!rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Coupon not found." });
+    }
+
+    const ac = rows[0];
+
+    if (ac.user_id !== userId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        success : false,
+        message : "This coupon does not belong to your account.",
+      });
+    }
+
+    if (ac.status !== "available") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        success : false,
+        message : `This coupon has already been ${ac.status}.`,
+      });
+    }
+
+    /* ── Mark coupon as claimed ── */
+    await client.query(
+      `UPDATE public.airtime_coupons
+       SET    status     = 'claimed',
+              claimed_at = NOW()
+       WHERE  id = $1`,
+      [ac.id]
+    );
+
+    /* ── Insert claim record with verified phone + network ── */
+    await client.query(
+      `INSERT INTO public.airtime_claims
+         (airtime_coupon_id, user_id, phone, network, status)
+       VALUES ($1, $2, $3, $4, 'pending')
+       ON CONFLICT (airtime_coupon_id) DO NOTHING`,
+      [ac.id, userId, session.phone, session.network]
+    );
+
+    await client.query("COMMIT");
+
+    /* ── Clean up Redis ── */
+    await Promise.allSettled([
+      cacheDel(sessionKey),
+      cacheDel(KEY.otpRateLimit(userId, ac.id)),
+      invalidateUserCache(userId),
+    ]);
+
+    console.log(
+      `[coupons] Airtime claimed ✓ | user=${userId} | ` +
+      `coupon=${session.code} | phone=${maskPhone(session.phone)} | ` +
+      `network=${session.network}`
+    );
+
+    return res.json({
+      success : true,
+      message : `✅ ₦${ac.amount} airtime claim submitted! You'll receive it within 24 hours.`,
+      code    : session.code,
+      amount  : Number(ac.amount),
+      phone   : session.phone,
+      network : session.network,
+    });
+
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("[coupons] POST /airtime/verify-claim:", err.message);
+    return res.status(500).json({ success: false, message: "Server error." });
+  } finally {
+    client.release();
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /api/coupons/airtime/claim  (direct — phone already verified)
+   Body: { code, phone, network }
+   
+   Used when frontend has a verified phone saved in localStorage.
+   Skips OTP — goes straight to 'claimed' status.
+═══════════════════════════════════════════════════════════════ */
+router.post("/airtime/claim", authenticate, async (req, res) => {
+  const { code, phone, network } = req.body;
+  const userId = req.user.id;
+
+  if (!code?.trim()) {
+    return res.status(400).json({ success: false, message: "Airtime code is required." });
+  }
+
+  if (phone && !isValidNgPhone(phone.replace(/\D/g, ""))) {
+    return res.status(400).json({ success: false, message: "Invalid phone number." });
+  }
+
+  if (network && !VALID_NETWORKS.includes(network?.toLowerCase())) {
+    return res.status(400).json({ success: false, message: "Invalid network." });
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const { rows } = await client.query(
+      `SELECT id, amount, status, user_id
+       FROM   public.airtime_coupons
+       WHERE  UPPER(code) = UPPER($1)
+       FOR    UPDATE`,
+      [code.trim()]
+    );
+
+    if (!rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, message: "Airtime coupon not found." });
+    }
+
+    const ac = rows[0];
+
+    if (ac.user_id !== userId) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        success : false,
+        message : "This coupon does not belong to your account.",
+      });
+    }
+
+    if (ac.status !== "available") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({
+        success : false,
+        message : `This coupon has already been ${ac.status}.`,
+      });
+    }
+
+    /* ── Mark claimed ── */
+    await client.query(
+      `UPDATE public.airtime_coupons
+       SET    status     = 'claimed',
+              claimed_at = NOW()
+       WHERE  id = $1`,
+      [ac.id]
+    );
+
+    /* ── Insert claim record if phone provided ── */
+    if (phone && network) {
+      const intlPhone = toIntlFormat(phone.replace(/\D/g, ""));
+      await client.query(
+        `INSERT INTO public.airtime_claims
+           (airtime_coupon_id, user_id, phone, network, status)
+         VALUES ($1, $2, $3, $4, 'pending')
+         ON CONFLICT (airtime_coupon_id) DO NOTHING`,
+        [ac.id, userId, intlPhone, network.toLowerCase()]
+      );
+    }
+
+    await client.query("COMMIT");
+
+    /* ── Invalidate cache ── */
+    await invalidateUserCache(userId);
+
+    return res.json({
+      success : true,
+      message : `✅ ₦${Number(ac.amount)} airtime claim submitted. We'll credit your number shortly.`,
+      code    : code.trim().toUpperCase(),
+      amount  : Number(ac.amount),
+      phone   : phone ? toIntlFormat(phone.replace(/\D/g, "")) : null,
+      network : network?.toLowerCase() ?? null,
+    });
+
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("[coupons] POST /airtime/claim:", err.message);
+    return res.status(500).json({ success: false, message: "Server error." });
+  } finally {
+    client.release();
   }
 });
 
@@ -554,6 +1055,9 @@ router.post("/redeem", authenticate, async (req, res) => {
       [isSingleUse, coupon.id]
     );
 
+    /* ── Invalidate cache ── */
+    await invalidateUserCache(userId);
+
     return res.json({ success: true, message: "Coupon redeemed successfully." });
 
   } catch (err) {
@@ -563,89 +1067,24 @@ router.post("/redeem", authenticate, async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /api/coupons/airtime/claim
-   Body: { code }
-   Marks an airtime coupon as claimed (pending admin credit).
-═══════════════════════════════════════════════════════════════ */
-router.post("/airtime/claim", authenticate, async (req, res) => {
-  const { code } = req.body;
-  const userId   = req.user.id;
-
-  if (!code?.trim()) {
-    return res.status(400).json({ success: false, message: "Airtime code is required." });
-  }
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, amount, status, user_id
-       FROM   public.airtime_coupons
-       WHERE  UPPER(code) = UPPER($1)
-       LIMIT  1`,
-      [code.trim()]
-    );
-
-    if (!rows.length) {
-      return res.status(404).json({ success: false, message: "Airtime coupon not found." });
-    }
-
-    const ac = rows[0];
-
-    if (ac.user_id !== userId) {
-      return res.status(403).json({
-        success: false,
-        message: "This airtime coupon does not belong to your account.",
-      });
-    }
-
-    if (ac.status !== "available") {
-      return res.status(409).json({
-        success: false,
-        message: `This airtime coupon has already been ${ac.status}.`,
-      });
-    }
-
-    await pool.query(
-      `UPDATE public.airtime_coupons
-       SET    status     = 'claimed',
-              claimed_at = NOW()
-       WHERE  id = $1`,
-      [ac.id]
-    );
-
-    return res.json({
-      success : true,
-      message : `✅ ₦${Number(ac.amount)} airtime claim submitted. We will credit your number shortly.`,
-      code    : code.trim().toUpperCase(),
-      amount  : Number(ac.amount),
-    });
-
-  } catch (err) {
-    console.error("[coupons] POST /airtime/claim:", err.message);
-    return res.status(500).json({ success: false, message: "Server error." });
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
    GET /api/coupons/history
-   The current user's coupon redemption history
-   (discount coupons + airtime coupons merged)
 ═══════════════════════════════════════════════════════════════ */
 router.get("/history", authenticate, async (req, res) => {
   try {
     const userId = req.user.id;
 
+    /* ── Try cache ── */
+    const cached = await cacheGet(KEY.userHistory(userId));
+    if (cached) {
+      return res.json({ ...cached, cached: true });
+    }
+
     const [discountRes, airtimeRes] = await Promise.all([
       pool.query(
         `SELECT
-           r.id,
-           r.discount,
-           r.redeemed_at,
-           r.order_id,
+           r.id, r.discount, r.redeemed_at, r.order_id,
            r.redeemed_by_admin_name,
-           c.code,
-           c.type,
-           c.value,
-           c.description
+           c.code, c.type, c.value, c.description
          FROM public.coupon_redemptions r
          JOIN public.coupons c ON c.id = r.coupon_id
          WHERE r.user_id = $1
@@ -655,16 +1094,18 @@ router.get("/history", authenticate, async (req, res) => {
       ),
       pool.query(
         `SELECT
-           id,
-           code,
-           amount  AS value,
-           status,
-           created_at,
-           claimed_at AS redeemed_at
-         FROM public.airtime_coupons
-         WHERE user_id = $1
-           AND status  != 'available'
-         ORDER BY claimed_at DESC
+           ac.id, ac.code,
+           ac.amount     AS value,
+           ac.status,
+           ac.created_at,
+           ac.claimed_at AS redeemed_at,
+           cl.phone      AS claim_phone,
+           cl.network    AS claim_network
+         FROM public.airtime_coupons ac
+         LEFT JOIN public.airtime_claims cl ON cl.airtime_coupon_id = ac.id
+         WHERE ac.user_id = $1
+           AND ac.status  != 'available'
+         ORDER BY ac.claimed_at DESC
          LIMIT 50`,
         [userId]
       ),
@@ -689,17 +1130,23 @@ router.get("/history", authenticate, async (req, res) => {
       discount               : Number(r.value || 0),
       status                 : r.status,
       redeemed_at            : r.redeemed_at,
+      claim_phone            : r.claim_phone   ?? null,
+      claim_network          : r.claim_network ?? null,
       order_id               : null,
       redeemed_by_admin      : false,
       redeemed_by_admin_name : null,
     }));
 
-    /* merge & sort newest first */
     const history = [...discountHistory, ...airtimeHistory].sort(
       (a, b) => new Date(b.redeemed_at) - new Date(a.redeemed_at)
     );
 
-    return res.json({ success: true, history });
+    const payload = { success: true, history };
+
+    /* ── Cache result ── */
+    await cacheSet(KEY.userHistory(userId), payload, TTL.HISTORY_CACHE);
+
+    return res.json(payload);
 
   } catch (err) {
     console.error("[coupons] GET /history:", err.message);
