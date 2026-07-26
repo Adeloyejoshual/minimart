@@ -24,11 +24,12 @@ import "../styles/Homepage.css";
 /* ══════════════════════════════════════════════════════════
    CONSTANTS
 ══════════════════════════════════════════════════════════ */
-const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
-const API       = `${BASE_URL}/api`;
-const PAGE_SIZE = 40;
-const PH        = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
-const STALE_MS  = 5 * 60_000;
+const BASE_URL      = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const API           = `${BASE_URL}/api`;
+const PAGE_SIZE     = 40;
+const PH            = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
+const STALE_MS      = 5 * 60_000;
+const NOTIF_POLL_MS = 60_000;
 
 const ALL_CAT  = { id: "all", name: "All", icon: "✦" };
 const CAT_LIST = [ALL_CAT, ...CATEGORIES];
@@ -175,13 +176,14 @@ const FeaturedSkeleton = memo(() => (
 ══════════════════════════════════════════════════════════ */
 const LocationBar = memo(function LocationBar({ location, onOpen, onClear }) {
   const label = formatLocationLabel(location);
-
   return (
     <div className="hm-loc-bar">
       <button
         className={`hm-loc-bar-btn${label ? " hm-loc-bar-btn--active" : ""}`}
         onClick={onOpen}
-        aria-label={label ? `Location: ${label}. Change location` : "Set your location"}
+        aria-label={label
+          ? `Location: ${label}. Change location`
+          : "Set your location"}
       >
         <span className="hm-loc-bar-pin" aria-hidden="true">
           <PinIcon size={13} />
@@ -192,8 +194,6 @@ const LocationBar = memo(function LocationBar({ location, onOpen, onClear }) {
         }
         <ChevDownIcon size={13} />
       </button>
-
-      {/* Only show clear button when a location is actually set */}
       {label && (
         <button
           className="hm-loc-bar-clear"
@@ -325,7 +325,11 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
         <p className="hm-feat-title">{product.title}</p>
         <div className="hm-feat-bottom">
           <span className="hm-feat-price">{naira(product.price)}</span>
-          {loc && <span className="hm-feat-loc"><PinIcon size={10} /> {loc}</span>}
+          {loc && (
+            <span className="hm-feat-loc">
+              <PinIcon size={10} /> {loc}
+            </span>
+          )}
         </div>
         {product.seller?.subscriptionRank > 0 && (
           <span className="hm-feat-seller-badge">
@@ -418,6 +422,7 @@ export default function Homepage({ user }) {
   const [pickerOpen,    setPickerOpen]    = useState(false);
   const [fallbackInfo,  setFallbackInfo]  = useState(null);
   const [gpsCoords,     setGpsCoords]     = useState(() => readCachedGps());
+  const [unreadCount,   setUnreadCount]   = useState(0);
 
   const [products,    setProducts]    = useState([]);
   const [featured,    setFeatured]    = useState([]);
@@ -436,6 +441,35 @@ export default function Homepage({ user }) {
   const hiddenAtRef  = useRef(null);
   const gpsAttempted = useRef(false);
 
+  /* ════════════════════════════════════════════════════════
+     NOTIFICATION BADGE — fetch unread count
+  ════════════════════════════════════════════════════════ */
+  const fetchUnreadCount = useCallback(async () => {
+    if (!user) { setUnreadCount(0); return; }
+    try {
+      const token =
+        localStorage.getItem("token") ||
+        sessionStorage.getItem("token");
+      if (!token) return;
+      const res = await fetch(`${API}/notifications/unread-count`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.success) setUnreadCount(data.count ?? 0);
+    } catch {
+      /* silent — badge is non-critical */
+    }
+  }, [user]);
+
+  /* ── Poll on mount + interval ────────────────────────── */
+  useEffect(() => {
+    fetchUnreadCount();
+    if (!user) return;
+    const id = setInterval(fetchUnreadCount, NOTIF_POLL_MS);
+    return () => clearInterval(id);
+  }, [fetchUnreadCount, user]);
+
   /* ── Auto-dismiss fallback banner after 6s ──────────── */
   useEffect(() => {
     if (!fallbackInfo) return;
@@ -443,7 +477,7 @@ export default function Homepage({ user }) {
     return () => clearTimeout(t);
   }, [fallbackInfo]);
 
-  /* ── Silent GPS on first load (manual location skips) ─ */
+  /* ── Silent GPS on first load ────────────────────────── */
   useEffect(() => {
     if (savedLocation?.source === "manual") return;
     if (gpsAttempted.current || gpsCoords)  return;
@@ -462,20 +496,11 @@ export default function Homepage({ user }) {
 
   /* ══════════════════════════════════════════════════════
      BUILD URL
-     KEY FIX: when savedLocation is null, NO location
-     params are sent → API returns everything.
   ══════════════════════════════════════════════════════ */
   const buildUrl = useCallback((pg = 0, catId = "all") => {
-    const params = new URLSearchParams({
-      limit: PAGE_SIZE,
-      page : pg,
-    });
-
+    const params = new URLSearchParams({ limit: PAGE_SIZE, page: pg });
     if (catId !== "all") params.set("category_id", catId);
-
-    /* Only add location params when a location is actually chosen */
     if (savedLocation) {
-      /* GPS coords if available */
       const coords = savedLocation.coords || gpsCoords;
       if (coords?.lat && coords?.lng) {
         params.set("lat", coords.lat);
@@ -484,8 +509,6 @@ export default function Homepage({ user }) {
       if (savedLocation.state) params.set("state", savedLocation.state);
       if (savedLocation.city)  params.set("city",  savedLocation.city);
     }
-    /* savedLocation === null → no state/city/lat/lng → API shows all */
-
     return `${API}/homepage?${params}`;
   }, [savedLocation, gpsCoords]);
 
@@ -501,16 +524,13 @@ export default function Homepage({ user }) {
 
     productsRef.current = merged;
 
-    /* Update cache */
     try { setCachedProducts(merged); setCacheLoaded(true); } catch {}
 
-    /* Featured: prefer explicit field, else promoted items */
     const incomingFeat = Array.isArray(data.featured) ? data.featured : [];
     const feat = incomingFeat.length > 0
       ? incomingFeat.map(normalizeProduct).filter(Boolean)
       : merged.filter((p) => p.is_promoted).slice(0, 4);
 
-    /* Deals: discounted non-promoted items */
     const cheap = merged
       .filter((p) => {
         const orig = Number(p.attributes?.original_price || 0);
@@ -529,14 +549,13 @@ export default function Homepage({ user }) {
   }, [setCachedProducts, setCacheLoaded]);
 
   /* ══════════════════════════════════════════════════════
-     LOAD FEED  (full reload, page 0)
+     LOAD FEED
   ══════════════════════════════════════════════════════ */
   const loadFeed = useCallback(async (catId = "all") => {
     setLoading(true);
     setError(null);
     setPage(0);
     productsRef.current = [];
-
     try {
       const res = await fetch(buildUrl(0, catId));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -550,7 +569,7 @@ export default function Homepage({ user }) {
   }, [buildUrl, applyData]);
 
   /* ══════════════════════════════════════════════════════
-     LOAD MORE  (pagination)
+     LOAD MORE
   ══════════════════════════════════════════════════════ */
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
@@ -580,44 +599,26 @@ export default function Homepage({ user }) {
   /* ══════════════════════════════════════════════════════
      EFFECTS
   ══════════════════════════════════════════════════════ */
-
-  /* Initial load */
   useEffect(() => {
     loadFeed("all");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /*
-   * Reload when location changes.
-   *
-   * KEY FIX: locationKey must be unique for every state:
-   *   - location set to Lagos     → "Lagos-null-1719..."
-   *   - location set to null      → "showAll"
-   *   - location set to Abuja     → "FCT-null-1719..."
-   *
-   * Using "showAll" as the null token means switching from
-   * any location → null always triggers a reload.
-   */
   const locationKey = savedLocation
     ? `${savedLocation.state ?? ""}-${savedLocation.city ?? ""}-${savedLocation.savedAt ?? ""}`
     : "showAll";
 
   const isFirstRender = useRef(true);
   useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return; // skip — initial load handled above
-    }
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
     loadFeed(category);
   }, [locationKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Sync locationChanged events (from other tabs / LocationPicker) */
   useEffect(() => {
     const h = () => loadFeed(category);
     window.addEventListener("locationChanged", h);
     return () => window.removeEventListener("locationChanged", h);
   }, [category, loadFeed]);
 
-  /* Refresh on tab re-focus if data is stale */
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "hidden") {
@@ -631,7 +632,6 @@ export default function Homepage({ user }) {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loading, category, loadFeed]);
 
-  /* Infinite scroll sentinel */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -644,10 +644,7 @@ export default function Homepage({ user }) {
   }, [hasMore, loadingMore, loadMore]);
 
   /* ══════════════════════════════════════════════════════
-     LOCATION PICKER — onSelect handler
-     loc === null   → user chose "Show all of Nigeria"
-     loc !== null   → user chose a specific location
-     meta           → { wasFallback, requested, reason }
+     LOCATION PICKER — onSelect
   ══════════════════════════════════════════════════════ */
   const handleLocationSelect = useCallback((loc, pickMeta) => {
     if (pickMeta?.wasFallback) {
@@ -663,8 +660,6 @@ export default function Homepage({ user }) {
     } else {
       setFallbackInfo(null);
     }
-
-    /* saveLocation(null) correctly clears storage and fires locationChanged */
     saveLocation(loc ?? null);
     setPickerOpen(false);
   }, [saveLocation]);
@@ -688,14 +683,13 @@ export default function Homepage({ user }) {
   }, [navigate]);
 
   /* ══════════════════════════════════════════════════════
-     DERIVED VALUES
+     DERIVED
   ══════════════════════════════════════════════════════ */
-  const locationLabel = formatLocationLabel(savedLocation); // null when no location
+  const locationLabel = formatLocationLabel(savedLocation);
 
   const feedTitle = useMemo(() => {
-    if (category !== "all") {
+    if (category !== "all")
       return CAT_LIST.find((c) => c.id === category)?.name || "Products";
-    }
     return locationLabel ? `Near ${locationLabel}` : "Recommended for You";
   }, [category, locationLabel]);
 
@@ -729,16 +723,27 @@ export default function Homepage({ user }) {
                 Thousands of verified listings from sellers across Nigeria.
               </p>
             </div>
+
+            {/* ── Bell button with unread badge ── */}
             <button
               className="hm-notif-btn"
-              aria-label="View notifications"
+              aria-label={
+                unreadCount > 0
+                  ? `View notifications — ${unreadCount} unread`
+                  : "View notifications"
+              }
               onClick={() => navigate("/notifications")}
             >
               <BellIcon size={22} />
+              {unreadCount > 0 && (
+                <span className="hm-notif-badge" aria-hidden="true">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
             </button>
           </div>
 
-          {/* Location pill — only when we have a real location */}
+          {/* Location pill */}
           {locationLabel && (
             <button
               className="hm-hero-loc"
@@ -897,10 +902,8 @@ export default function Homepage({ user }) {
           {loading ? (
             <MasonrySkeleton />
           ) : error ? null : products.length === 0 ? (
-            /* ── Empty state ── */
             <div className="hm-empty" role="status">
               <span className="hm-empty-icon"><BagIcon size={40} /></span>
-
               <h3 className="hm-empty-title">
                 {category !== "all"
                   ? `No ${currentCatName} listings`
@@ -908,7 +911,6 @@ export default function Homepage({ user }) {
                     ? `No listings in ${locationLabel}`
                     : "No listings yet"}
               </h3>
-
               <p className="hm-empty-sub">
                 {category !== "all"
                   ? "Try a different category."
@@ -916,8 +918,6 @@ export default function Homepage({ user }) {
                     ? "Try a different location or show all of Nigeria."
                     : "New listings are added every day — check back soon."}
               </p>
-
-              {/* Helpful action buttons */}
               <div className="hm-empty-actions">
                 {category !== "all" && (
                   <button
@@ -960,12 +960,7 @@ export default function Homepage({ user }) {
                 ))}
               </div>
 
-              {/* Infinite scroll sentinel */}
-              <div
-                ref={sentinelRef}
-                aria-hidden="true"
-                style={{ height: 1 }}
-              />
+              <div ref={sentinelRef} aria-hidden="true" style={{ height: 1 }} />
 
               {loadingMore && (
                 <p className="hm-loading-more" aria-live="polite">
