@@ -7,7 +7,6 @@ import {
   cacheGet,
   cacheSet,
   cacheDel,
-  cacheStats,
 } from "../lib/redis.js";
 
 const router = express.Router();
@@ -16,25 +15,56 @@ const router = express.Router();
    REDIS KEY HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const KEY = {
-  /* OTP session — expires in 10 min */
-  otpSession  : (sessionId)       => `airtime:otp:session:${sessionId}`,
-
-  /* Rate limit — how many OTPs sent for a coupon by this user */
-  otpRateLimit: (userId, couponId) => `airtime:otp:ratelimit:${userId}:${couponId}`,
-
-  /* User's coupon list cache — expires in 2 min */
-  userCoupons : (userId)          => `coupons:user:${userId}`,
-
-  /* User's history cache — expires in 2 min */
-  userHistory : (userId)          => `coupons:history:${userId}`,
+  otpSession   : (sessionId)        => `airtime:otp:session:${sessionId}`,
+  otpRateLimit : (userId, couponId) => `airtime:otp:ratelimit:${userId}:${couponId}`,
+  userCoupons  : (userId)           => `coupons:user:${userId}`,
+  userHistory  : (userId)           => `coupons:history:${userId}`,
+  userMe       : (userId)           => `user:me:${userId}`, // ← invalidate /users/me too
 };
 
 const TTL = {
-  OTP_SESSION   : 10 * 60,       // 10 minutes (seconds)
-  RATE_LIMIT    : 10 * 60,       // 10 minutes (seconds)
-  COUPON_CACHE  :  2 * 60,       //  2 minutes (seconds)
-  HISTORY_CACHE :  2 * 60,       //  2 minutes (seconds)
+  OTP_SESSION   : 10 * 60,   // 10 min (seconds)
+  RATE_LIMIT    : 10 * 60,   // 10 min
+  COUPON_CACHE  :  2 * 60,   //  2 min
+  HISTORY_CACHE :  2 * 60,   //  2 min
 };
+
+/* ═══════════════════════════════════════════════════════════════
+   PHONE HELPERS
+═══════════════════════════════════════════════════════════════ */
+
+/* Normalise any phone → 08012345678 */
+const normalisePhone = (raw) => {
+  if (!raw) return null;
+  const digits = String(raw).replace(/\D/g, "");
+  if (digits.startsWith("234")) return "0" + digits.slice(3);
+  if (digits.startsWith("0"))   return digits;
+  if (digits.length === 10)     return "0" + digits;
+  return digits;
+};
+
+/* Convert 0812... → 2348012... (for SMS providers) */
+const toIntlFormat = (phone) => {
+  const digits = String(phone).replace(/\D/g, "");
+  if (digits.startsWith("234")) return digits;
+  if (digits.startsWith("0"))   return "234" + digits.slice(1);
+  return "234" + digits;
+};
+
+/* Validate Nigerian number */
+const isValidNgPhone = (phone) => {
+  const digits = normalisePhone(phone);
+  return !!digits && /^0[789][01]\d{8}$/.test(digits);
+};
+
+/* Mask phone for safe display: 0812****678 */
+const maskPhone = (phone) => {
+  const d = String(phone).replace(/\D/g, "");
+  if (d.length < 7) return d;
+  return d.slice(0, 4) + "****" + d.slice(-3);
+};
+
+const VALID_NETWORKS = ["mtn", "airtel", "glo", "9mobile"];
 
 /* ═══════════════════════════════════════════════════════════════
    SMS SENDER — pluggable (Termii / Twilio / dev fallback)
@@ -74,38 +104,12 @@ async function sendSms(phone, message) {
   }
 
   /* ── Dev fallback — log only ── */
-  console.log(`\n[SMS DEV] ──────────────────────────`);
+  console.log(`\n[SMS DEV] ────────────────────────────`);
   console.log(`  To     : ${phone}`);
   console.log(`  Message: ${message}`);
-  console.log(`────────────────────────────────────\n`);
+  console.log(`──────────────────────────────────────\n`);
   return { dev: true };
 }
-
-/* ═══════════════════════════════════════════════════════════════
-   PHONE HELPERS
-═══════════════════════════════════════════════════════════════ */
-const toIntlFormat = (phone) => {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.startsWith("234")) return digits;
-  if (digits.startsWith("0"))   return "234" + digits.slice(1);
-  return "234" + digits;
-};
-
-const isValidNgPhone = (phone) => {
-  const digits = phone.replace(/\D/g, "");
-  const local  = digits.startsWith("234")
-    ? "0" + digits.slice(3)
-    : digits;
-  return /^0[789][01]\d{8}$/.test(local);
-};
-
-const VALID_NETWORKS = ["mtn", "airtel", "glo", "9mobile"];
-
-/* ── Mask phone for safe logging / responses ── */
-const maskPhone = (phone) => {
-  const d = phone.replace(/\D/g, "");
-  return d.slice(0, 4) + "****" + d.slice(-3);
-};
 
 /* ═══════════════════════════════════════════════════════════════
    ENSURE TABLES + INDEXES
@@ -164,7 +168,27 @@ async function ensureTables() {
     )
   `);
 
-  const allMigrations = [
+  /* ── Coupon redemptions ── */
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS public.coupon_redemptions (
+      id                     UUID        NOT NULL DEFAULT gen_random_uuid(),
+      coupon_id              UUID        NOT NULL,
+      user_id                UUID        NULL,
+      order_id               UUID        NULL,
+      discount               DECIMAL     NOT NULL DEFAULT 0,
+      redeemed_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+      redeemed_by_admin      UUID        NULL,
+      redeemed_by_admin_name TEXT        NULL,
+      reward_type            TEXT        NULL,
+      reward_value           DECIMAL     NULL,
+      reward_description     TEXT        NULL,
+      admin_note             TEXT        NULL,
+      verified_user_id       UUID        NULL,
+      CONSTRAINT coupon_redemptions_pkey PRIMARY KEY (id)
+    )
+  `);
+
+  const migrations = [
     /* coupons */
     `ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS is_private  BOOLEAN NOT NULL DEFAULT false`,
     `ALTER TABLE public.coupons ADD COLUMN IF NOT EXISTS created_by  UUID    NULL`,
@@ -187,7 +211,7 @@ async function ensureTables() {
     `ALTER TABLE public.coupon_redemptions ALTER COLUMN user_id DROP NOT NULL`,
   ];
 
-  for (const sql of allMigrations) {
+  for (const sql of migrations) {
     try { await pool.query(sql); }
     catch (e) {
       if (!e.message.includes("already exists")) {
@@ -205,7 +229,6 @@ async function ensureTables() {
       AND description LIKE '%Spin & Win%'
   `);
 
-  /* ── Indexes ── */
   const indexes = [
     `CREATE UNIQUE INDEX IF NOT EXISTS unique_coupon_code        ON public.coupons              (code)`,
     `CREATE        INDEX IF NOT EXISTS idx_coupons_active        ON public.coupons              (is_active)`,
@@ -219,28 +242,8 @@ async function ensureTables() {
     `CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon        ON public.coupon_redemptions   (coupon_id, user_id) WHERE user_id IS NOT NULL`,
     `CREATE        INDEX IF NOT EXISTS idx_redemptions_coupon    ON public.coupon_redemptions   (coupon_id)`,
     `CREATE        INDEX IF NOT EXISTS idx_redemptions_user      ON public.coupon_redemptions   (user_id) WHERE user_id IS NOT NULL`,
-    `CREATE        INDEX IF NOT EXISTS idx_redemptions_admin     ON public.coupon_redemptions   (redeemed_by_admin)  WHERE redeemed_by_admin IS NOT NULL`,
+    `CREATE        INDEX IF NOT EXISTS idx_redemptions_admin     ON public.coupon_redemptions   (redeemed_by_admin) WHERE redeemed_by_admin IS NOT NULL`,
   ];
-
-  /* ── Coupon redemptions ── */
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS public.coupon_redemptions (
-      id                     UUID        NOT NULL DEFAULT gen_random_uuid(),
-      coupon_id              UUID        NOT NULL,
-      user_id                UUID        NULL,
-      order_id               UUID        NULL,
-      discount               DECIMAL     NOT NULL DEFAULT 0,
-      redeemed_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-      redeemed_by_admin      UUID        NULL,
-      redeemed_by_admin_name TEXT        NULL,
-      reward_type            TEXT        NULL,
-      reward_value           DECIMAL     NULL,
-      reward_description     TEXT        NULL,
-      admin_note             TEXT        NULL,
-      verified_user_id       UUID        NULL,
-      CONSTRAINT coupon_redemptions_pkey PRIMARY KEY (id)
-    )
-  `);
 
   for (const sql of indexes) {
     try { await pool.query(sql); }
@@ -328,13 +331,14 @@ function shapeAirtime(a) {
 
 /* ═══════════════════════════════════════════════════════════════
    CACHE INVALIDATION HELPER
-   Call whenever a coupon or claim changes for a user.
 ═══════════════════════════════════════════════════════════════ */
-async function invalidateUserCache(userId) {
-  await Promise.allSettled([
+async function invalidateUserCache(userId, alsoMe = false) {
+  const jobs = [
     cacheDel(KEY.userCoupons(userId)),
     cacheDel(KEY.userHistory(userId)),
-  ]);
+  ];
+  if (alsoMe) jobs.push(cacheDel(KEY.userMe(userId)));
+  await Promise.allSettled(jobs);
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -384,7 +388,7 @@ router.get("/", authenticate, async (req, res) => {
       [userId]
     );
 
-    /* ── Airtime coupons — join claims for phone/network ── */
+    /* ── Airtime coupons + joined claim info ── */
     const { rows: airtimeRows } = await pool.query(
       `SELECT
          ac.id, ac.code, ac.amount, ac.status, ac.created_at, ac.claimed_at,
@@ -401,8 +405,8 @@ router.get("/", authenticate, async (req, res) => {
     const airtimeCoupons  = airtimeRows.map(shapeAirtime);
 
     const usable = [
-      ...airtimeCoupons .filter((c) => c.usable),
-      ...discountCoupons.filter((c) => c.usable),
+      ...airtimeCoupons .filter((c) =>  c.usable),
+      ...discountCoupons.filter((c) =>  c.usable),
     ];
     const inactive = [
       ...airtimeCoupons .filter((c) => !c.usable),
@@ -415,16 +419,14 @@ router.get("/", authenticate, async (req, res) => {
       success : true,
       coupons,
       counts  : {
-        total   : coupons.length,
-        usable  : usable.length,
-        airtime : airtimeCoupons.length,
-        discount: discountCoupons.length,
+        total    : coupons.length,
+        usable   : usable.length,
+        airtime  : airtimeCoupons.length,
+        discount : discountCoupons.length,
       },
     };
 
-    /* ── Cache result ── */
     await cacheSet(KEY.userCoupons(userId), payload, TTL.COUPON_CACHE);
-
     return res.json(payload);
 
   } catch (err) {
@@ -466,27 +468,13 @@ router.get("/airtime", authenticate, async (req, res) => {
 /* ═══════════════════════════════════════════════════════════════
    POST /api/coupons/airtime/send-otp
    Body: { code, phone, network }
-
-   Flow:
-   1. Validate coupon belongs to user and is 'available'
-   2. Validate phone + network
-   3. Rate-limit (max 3 sends per coupon per 10 min via Redis)
-   4. Generate 6-digit OTP
-   5. Store session in Redis with 10-min TTL
-   6. Send SMS
-   7. Return session_id to frontend
 ═══════════════════════════════════════════════════════════════ */
 router.post("/airtime/send-otp", authenticate, async (req, res) => {
   const { code, phone, network } = req.body;
   const userId = req.user.id;
 
-  /* ── Input validation ── */
-  if (!code?.trim()) {
-    return res.status(400).json({ success: false, message: "Airtime code is required." });
-  }
-  if (!phone?.trim()) {
-    return res.status(400).json({ success: false, message: "Phone number is required." });
-  }
+  if (!code?.trim())  return res.status(400).json({ success: false, message: "Airtime code is required." });
+  if (!phone?.trim()) return res.status(400).json({ success: false, message: "Phone number is required." });
   if (!network || !VALID_NETWORKS.includes(network.toLowerCase())) {
     return res.status(400).json({
       success : false,
@@ -494,7 +482,7 @@ router.post("/airtime/send-otp", authenticate, async (req, res) => {
     });
   }
 
-  const cleanPhone = phone.replace(/\D/g, "");
+  const cleanPhone = normalisePhone(phone);
 
   if (!isValidNgPhone(cleanPhone)) {
     return res.status(400).json({
@@ -504,7 +492,7 @@ router.post("/airtime/send-otp", authenticate, async (req, res) => {
   }
 
   try {
-    /* ── Verify coupon exists and belongs to this user ── */
+    /* ── Verify coupon ownership + status ── */
     const { rows } = await pool.query(
       `SELECT id, amount, status, user_id
        FROM   public.airtime_coupons
@@ -533,13 +521,10 @@ router.post("/airtime/send-otp", authenticate, async (req, res) => {
       });
     }
 
-    /* ══════════════════════════════════════════════════════
-       RATE LIMIT — Redis INCR + TTL pattern
-       Max 3 OTP sends per coupon per 10 minutes
-    ══════════════════════════════════════════════════════ */
-    const rateLimitKey  = KEY.otpRateLimit(userId, ac.id);
-    const currentCount  = await cacheGet(rateLimitKey);
-    const sendCount     = currentCount ? Number(currentCount) : 0;
+    /* ── Rate limit ── */
+    const rateLimitKey = KEY.otpRateLimit(userId, ac.id);
+    const currentCount = await cacheGet(rateLimitKey);
+    const sendCount    = currentCount ? Number(currentCount) : 0;
 
     if (sendCount >= 3) {
       return res.status(429).json({
@@ -548,37 +533,29 @@ router.post("/airtime/send-otp", authenticate, async (req, res) => {
       });
     }
 
-    /* Increment counter — set TTL only on first request */
     await cacheSet(
       rateLimitKey,
       sendCount + 1,
-      sendCount === 0 ? TTL.RATE_LIMIT : undefined   // only set TTL on first write
+      sendCount === 0 ? TTL.RATE_LIMIT : undefined
     );
 
-    /* ── Generate OTP ── */
-    const otp        = crypto.randomInt(100_000, 999_999).toString();
-    const sessionId  = crypto.randomUUID();
-    const intlPhone  = toIntlFormat(cleanPhone);
+    /* ── Generate OTP + session ── */
+    const otp       = crypto.randomInt(100_000, 999_999).toString();
+    const sessionId = crypto.randomUUID();
+    const intlPhone = toIntlFormat(cleanPhone);
 
-    /* ══════════════════════════════════════════════════════
-       STORE SESSION IN REDIS
-       {
-         otp, phone, network, code, couponId,
-         userId, amount, attempts
-       }
-       TTL: 10 minutes
-    ══════════════════════════════════════════════════════ */
     await cacheSet(
       KEY.otpSession(sessionId),
       {
         otp,
-        phone    : intlPhone,
-        network  : network.toLowerCase(),
-        code     : code.trim().toUpperCase(),
-        couponId : ac.id,
+        phone     : cleanPhone,           // stored in 0812... format
+        intlPhone,                         // 234812... for SMS
+        network   : network.toLowerCase(),
+        code      : code.trim().toUpperCase(),
+        couponId  : ac.id,
         userId,
-        amount   : Number(ac.amount),
-        attempts : 0,
+        amount    : Number(ac.amount),
+        attempts  : 0,
       },
       TTL.OTP_SESSION
     );
@@ -591,9 +568,8 @@ router.post("/airtime/send-otp", authenticate, async (req, res) => {
     await sendSms(intlPhone, smsText);
 
     console.log(
-      `[coupons] OTP sent | user=${userId} | ` +
-      `phone=${maskPhone(intlPhone)} | coupon=${code.trim().toUpperCase()} | ` +
-      `attempt=${sendCount + 1}/3`
+      `[coupons] OTP sent | user=${userId} | phone=${maskPhone(cleanPhone)} | ` +
+      `coupon=${code.trim().toUpperCase()} | attempt=${sendCount + 1}/3`
     );
 
     return res.json({
@@ -601,7 +577,6 @@ router.post("/airtime/send-otp", authenticate, async (req, res) => {
       session_id : sessionId,
       message    : `Verification code sent to ${maskPhone(cleanPhone)}.`,
       expires_in : TTL.OTP_SESSION,
-      /* Only expose OTP in development */
       ...(process.env.NODE_ENV === "development" && { dev_otp: otp }),
     });
 
@@ -621,20 +596,20 @@ router.post("/airtime/send-otp", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/coupons/airtime/verify-claim
-   Body: { code, otp, session_id, phone, network }
+   Body: { code, otp, session_id }
 
    Flow:
-   1. Load session from Redis
-   2. Verify ownership, expiry, attempt count
-   3. Compare OTP (increment attempts on fail)
-   4. On success → DB transaction → mark claimed → save claim record
-   5. Delete Redis session + invalidate coupon cache
+   1. Load Redis session, validate OTP
+   2. DB transaction:
+        a. Mark coupon claimed
+        b. Insert airtime_claims record
+        c. Update user.phone + phone_verified + phone_network
+   3. Clean Redis + invalidate caches
 ═══════════════════════════════════════════════════════════════ */
 router.post("/airtime/verify-claim", authenticate, async (req, res) => {
   const { otp, session_id } = req.body;
   const userId = req.user.id;
 
-  /* ── Basic checks ── */
   if (!session_id?.trim()) {
     return res.status(400).json({ success: false, message: "Session ID is required." });
   }
@@ -642,9 +617,6 @@ router.post("/airtime/verify-claim", authenticate, async (req, res) => {
     return res.status(400).json({ success: false, message: "Enter the 6-digit code." });
   }
 
-  /* ══════════════════════════════════════════════════════
-     LOAD SESSION FROM REDIS
-  ══════════════════════════════════════════════════════ */
   const sessionKey = KEY.otpSession(session_id);
   const session    = await cacheGet(sessionKey);
 
@@ -655,7 +627,6 @@ router.post("/airtime/verify-claim", authenticate, async (req, res) => {
     });
   }
 
-  /* ── Ownership check ── */
   if (session.userId !== userId) {
     return res.status(403).json({ success: false, message: "Session mismatch." });
   }
@@ -671,12 +642,10 @@ router.post("/airtime/verify-claim", authenticate, async (req, res) => {
 
   /* ── OTP comparison ── */
   if (session.otp !== otp.trim()) {
-    /* Increment attempts in Redis */
-    const updatedSession = { ...session, attempts: session.attempts + 1 };
-    await cacheSet(sessionKey, updatedSession, TTL.OTP_SESSION);
+    const updated = { ...session, attempts: session.attempts + 1 };
+    await cacheSet(sessionKey, updated, TTL.OTP_SESSION);
 
-    const remaining = 5 - updatedSession.attempts;
-
+    const remaining = 5 - updated.attempts;
     if (remaining <= 0) {
       await cacheDel(sessionKey);
       return res.status(429).json({
@@ -692,9 +661,9 @@ router.post("/airtime/verify-claim", authenticate, async (req, res) => {
     });
   }
 
-  /* ══════════════════════════════════════════════════════
+  /* ════════════════════════════════════════════════════════
      OTP CORRECT — DB TRANSACTION
-  ══════════════════════════════════════════════════════ */
+  ════════════════════════════════════════════════════════ */
   const client = await pool.connect();
 
   try {
@@ -732,7 +701,7 @@ router.post("/airtime/verify-claim", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Mark coupon as claimed ── */
+    /* ── Mark coupon claimed ── */
     await client.query(
       `UPDATE public.airtime_coupons
        SET    status     = 'claimed',
@@ -741,7 +710,7 @@ router.post("/airtime/verify-claim", authenticate, async (req, res) => {
       [ac.id]
     );
 
-    /* ── Insert claim record with verified phone + network ── */
+    /* ── Insert claim record ── */
     await client.query(
       `INSERT INTO public.airtime_claims
          (airtime_coupon_id, user_id, phone, network, status)
@@ -750,13 +719,35 @@ router.post("/airtime/verify-claim", authenticate, async (req, res) => {
       [ac.id, userId, session.phone, session.network]
     );
 
+    /* ── Update user profile with verified phone ──
+       Uses "phone" column (not phone_number) so we don't
+       overwrite the registration phone.
+    */
+    try {
+      await client.query(
+        `UPDATE public.users
+         SET    phone             = $1,
+                phone_network     = $2,
+                phone_verified    = true,
+                phone_verified_at = NOW(),
+                updated_at        = NOW()
+         WHERE  id = $3`,
+        [session.phone, session.network, userId]
+      );
+    } catch (e) {
+      /* Non-fatal — most common cause is unique_phone conflict */
+      console.warn(
+        `[coupons] Could not update user.phone for user=${userId}: ${e.message}`
+      );
+    }
+
     await client.query("COMMIT");
 
-    /* ── Clean up Redis ── */
+    /* ── Clean up Redis + caches ── */
     await Promise.allSettled([
       cacheDel(sessionKey),
       cacheDel(KEY.otpRateLimit(userId, ac.id)),
-      invalidateUserCache(userId),
+      invalidateUserCache(userId, true), // also invalidate /users/me cache
     ]);
 
     console.log(
@@ -786,9 +777,7 @@ router.post("/airtime/verify-claim", authenticate, async (req, res) => {
 /* ═══════════════════════════════════════════════════════════════
    POST /api/coupons/airtime/claim  (direct — phone already verified)
    Body: { code, phone, network }
-   
-   Used when frontend has a verified phone saved in localStorage.
-   Skips OTP — goes straight to 'claimed' status.
+   Used when the user's phone is already verified.
 ═══════════════════════════════════════════════════════════════ */
 router.post("/airtime/claim", authenticate, async (req, res) => {
   const { code, phone, network } = req.body;
@@ -798,7 +787,7 @@ router.post("/airtime/claim", authenticate, async (req, res) => {
     return res.status(400).json({ success: false, message: "Airtime code is required." });
   }
 
-  if (phone && !isValidNgPhone(phone.replace(/\D/g, ""))) {
+  if (phone && !isValidNgPhone(phone)) {
     return res.status(400).json({ success: false, message: "Invalid phone number." });
   }
 
@@ -851,21 +840,47 @@ router.post("/airtime/claim", authenticate, async (req, res) => {
       [ac.id]
     );
 
-    /* ── Insert claim record if phone provided ── */
+    /* ── Insert claim record ── */
+    let finalPhone   = null;
+    let finalNetwork = null;
+
     if (phone && network) {
-      const intlPhone = toIntlFormat(phone.replace(/\D/g, ""));
+      finalPhone   = normalisePhone(phone);
+      finalNetwork = network.toLowerCase();
+
       await client.query(
         `INSERT INTO public.airtime_claims
            (airtime_coupon_id, user_id, phone, network, status)
          VALUES ($1, $2, $3, $4, 'pending')
          ON CONFLICT (airtime_coupon_id) DO NOTHING`,
-        [ac.id, userId, intlPhone, network.toLowerCase()]
+        [ac.id, userId, finalPhone, finalNetwork]
       );
+    } else {
+      /* Fall back to user's saved verified phone */
+      const { rows: uRows } = await client.query(
+        `SELECT phone, phone_network, phone_verified
+         FROM   public.users
+         WHERE  id = $1`,
+        [userId]
+      );
+
+      if (uRows[0]?.phone_verified && uRows[0]?.phone) {
+        finalPhone   = normalisePhone(uRows[0].phone);
+        finalNetwork = uRows[0].phone_network || null;
+
+        await client.query(
+          `INSERT INTO public.airtime_claims
+             (airtime_coupon_id, user_id, phone, network, status)
+           VALUES ($1, $2, $3, $4, 'pending')
+           ON CONFLICT (airtime_coupon_id) DO NOTHING`,
+          [ac.id, userId, finalPhone, finalNetwork]
+        );
+      }
     }
 
     await client.query("COMMIT");
 
-    /* ── Invalidate cache ── */
+    /* ── Invalidate caches ── */
     await invalidateUserCache(userId);
 
     return res.json({
@@ -873,8 +888,8 @@ router.post("/airtime/claim", authenticate, async (req, res) => {
       message : `✅ ₦${Number(ac.amount)} airtime claim submitted. We'll credit your number shortly.`,
       code    : code.trim().toUpperCase(),
       amount  : Number(ac.amount),
-      phone   : phone ? toIntlFormat(phone.replace(/\D/g, "")) : null,
-      network : network?.toLowerCase() ?? null,
+      phone   : finalPhone,
+      network : finalNetwork,
     });
 
   } catch (err) {
@@ -916,8 +931,8 @@ router.post("/validate", authenticate, async (req, res) => {
 
     if (c.is_private && c.created_by !== userId) {
       return res.status(403).json({
-        success: false,
-        message: "This coupon is not valid for your account.",
+        success : false,
+        message : "This coupon is not valid for your account.",
       });
     }
 
@@ -927,8 +942,8 @@ router.post("/validate", authenticate, async (req, res) => {
 
     if (c.usage_limit && Number(c.usage_count) >= Number(c.usage_limit)) {
       return res.status(400).json({
-        success: false,
-        message: "This coupon has reached its usage limit.",
+        success : false,
+        message : "This coupon has reached its usage limit.",
       });
     }
 
@@ -940,8 +955,8 @@ router.post("/validate", authenticate, async (req, res) => {
 
     if (used.length) {
       return res.status(400).json({
-        success: false,
-        message: "You have already used this coupon.",
+        success : false,
+        message : "You have already used this coupon.",
       });
     }
 
@@ -949,8 +964,8 @@ router.post("/validate", authenticate, async (req, res) => {
 
     if (Number(c.min_purchase) > 0 && amount < Number(c.min_purchase)) {
       return res.status(400).json({
-        success: false,
-        message: `A minimum order of ₦${Number(c.min_purchase).toLocaleString("en-NG")} is required.`,
+        success : false,
+        message : `A minimum order of ₦${Number(c.min_purchase).toLocaleString("en-NG")} is required.`,
       });
     }
 
@@ -971,9 +986,9 @@ router.post("/validate", authenticate, async (req, res) => {
     }
 
     return res.json({
-      success      : true,
-      valid        : true,
-      coupon: {
+      success : true,
+      valid   : true,
+      coupon  : {
         id          : c.id,
         code        : c.code,
         type        : c.type,
@@ -1018,8 +1033,8 @@ router.post("/redeem", authenticate, async (req, res) => {
 
     if (coupon.is_private && coupon.created_by !== userId) {
       return res.status(403).json({
-        success: false,
-        message: "This coupon is not valid for your account.",
+        success : false,
+        message : "This coupon is not valid for your account.",
       });
     }
 
@@ -1031,8 +1046,8 @@ router.post("/redeem", authenticate, async (req, res) => {
 
     if (existing.length) {
       return res.status(409).json({
-        success: false,
-        message: "You have already redeemed this coupon.",
+        success : false,
+        message : "You have already redeemed this coupon.",
       });
     }
 
@@ -1055,7 +1070,7 @@ router.post("/redeem", authenticate, async (req, res) => {
       [isSingleUse, coupon.id]
     );
 
-    /* ── Invalidate cache ── */
+    /* ── Invalidate caches ── */
     await invalidateUserCache(userId);
 
     return res.json({ success: true, message: "Coupon redeemed successfully." });
@@ -1142,8 +1157,6 @@ router.get("/history", authenticate, async (req, res) => {
     );
 
     const payload = { success: true, history };
-
-    /* ── Cache result ── */
     await cacheSet(KEY.userHistory(userId), payload, TTL.HISTORY_CACHE);
 
     return res.json(payload);
