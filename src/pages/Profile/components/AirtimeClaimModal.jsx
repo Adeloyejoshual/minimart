@@ -36,8 +36,8 @@ const detectNetwork = (num) => {
   const n      = String(num).replace(/\D/g, "");
   const prefix = n.startsWith("0") ? n.slice(1, 4) : n.slice(3, 6);
 
-  const mtn     = ["803","806","703","706","813","816","810","814","903","906","913","704"];
-  const airtel  = ["802","808","701","708","812","902","907","901","912"];
+  const mtn     = ["803","806","703","706","813","816","810","814","903","906","913","704","916"];
+  const airtel  = ["802","808","701","708","812","902","907","901","912","904"];
   const glo     = ["805","807","705","815","811","905","915"];
   const mobile9 = ["809","818","817","908","909"];
 
@@ -86,7 +86,6 @@ async function smartFetch(url, options = {}) {
     res     = await fetch(url, options);
     rawText = await res.text();
 
-    /* Try to parse as JSON — fall back to raw text */
     try {
       data = rawText ? JSON.parse(rawText) : {};
     } catch {
@@ -101,7 +100,7 @@ async function smartFetch(url, options = {}) {
     };
   }
 
-  /* Log for debugging — always visible in DevTools */
+  /* Log for debugging */
   console.log(
     `[AirtimeModal] ${options.method || "GET"} ${url}`,
     `→ ${res.status}`,
@@ -109,7 +108,6 @@ async function smartFetch(url, options = {}) {
   );
 
   if (!res.ok || data?.success === false) {
-    /* Prefer explicit backend message; else use HTTP text */
     const msg =
       data?.message ||
       data?.error   ||
@@ -118,6 +116,7 @@ async function smartFetch(url, options = {}) {
 
     throw {
       status  : res.status,
+      code    : data?.code || null,          // ← surface backend error codes
       message : msg,
       data,
     };
@@ -237,7 +236,6 @@ function ErrorBox({ error }) {
 
   if (!error) return null;
 
-  /* Simple string error */
   if (typeof error === "string") {
     return (
       <div className="acm-error" role="alert">
@@ -246,7 +244,6 @@ function ErrorBox({ error }) {
     );
   }
 
-  /* Object error — show status + expandable details */
   return (
     <div className="acm-error" role="alert">
       <div className="acm-error-main">
@@ -295,20 +292,26 @@ export default function AirtimeClaimModal({
   const [loading,          setLoading]          = useState(false);
   const [error,            setError]            = useState(null);
   const [countdown,        setCountdown]        = useState(0);
-  const [sessionId,        setSessionId]        = useState(null);
+  const [resendAfter,      setResendAfter]      = useState(60);
+  const [attemptsLeft,     setAttemptsLeft]     = useState(null);
   const [isPrefilledPhone, setIsPrefilledPhone] = useState(false);
   const [devOtp,           setDevOtp]           = useState(null);
 
   const timerRef         = useRef(null);
   const originalPhoneRef = useRef("");
+  const mountedRef       = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   /* Countdown */
   useEffect(() => {
     if (countdown <= 0) return;
-    timerRef.current = setTimeout(
-      () => setCountdown((c) => c - 1),
-      1_000
-    );
+    timerRef.current = setTimeout(() => {
+      if (mountedRef.current) setCountdown((c) => c - 1);
+    }, 1_000);
     return () => clearTimeout(timerRef.current);
   }, [countdown]);
 
@@ -325,7 +328,8 @@ export default function AirtimeClaimModal({
     setOtp("");
     setError(null);
     setCountdown(0);
-    setSessionId(null);
+    setResendAfter(60);
+    setAttemptsLeft(null);
     setDevOtp(null);
     setIsPrefilledPhone(!!clean);
   }, [isOpen, prefilledPhone, prefilledNetwork]);
@@ -372,37 +376,46 @@ export default function AirtimeClaimModal({
 
   /* ══════════════════════════════════════════════════════
      STEP 2 → 3 : send OTP
+     Hits POST /api/airtime-coupons/send-otp
   ══════════════════════════════════════════════════════ */
   const sendOtp = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const data = await smartFetch(`${API}/coupons/airtime/send-otp`, {
+      const data = await smartFetch(`${API}/airtime-coupons/send-otp`, {
         method  : "POST",
         headers : authH(),
         body    : JSON.stringify({
           phone   : normalisePhone(phone),
-          network,
-          code    : coupon?.code,
+          purpose : "verify",
         }),
       });
 
-      setSessionId(data.session_id);
       if (data.dev_otp) setDevOtp(data.dev_otp);
+
+      /* Backend returns resend_after + attempts_left */
+      const cooldown = Number(data.resend_after) || 60;
+      setResendAfter(cooldown);
+      setCountdown(cooldown);
+
+      if (typeof data.attempts_left === "number") {
+        setAttemptsLeft(data.attempts_left);
+      }
+
       setStep(3);
-      setCountdown(60);
 
     } catch (err) {
-      /* err is either our thrown object or plain string */
       setError(err);
     } finally {
       setLoading(false);
     }
-  }, [phone, network, coupon?.code]);
+  }, [phone]);
 
   /* ══════════════════════════════════════════════════════
-     STEP 3 : verify OTP + claim
+     STEP 3 : verify OTP + redeem coupon (TWO API calls)
+     1. POST /api/airtime-coupons/verify-otp   → marks phone verified
+     2. POST /api/airtime-coupons/redeem       → claims the coupon
   ══════════════════════════════════════════════════════ */
   const verifyAndClaim = useCallback(async () => {
     if (otp.length < 6) {
@@ -414,32 +427,71 @@ export default function AirtimeClaimModal({
     setError(null);
 
     try {
-      const data = await smartFetch(`${API}/coupons/airtime/verify-claim`, {
-        method  : "POST",
-        headers : authH(),
-        body    : JSON.stringify({
-          code       : coupon?.code,
-          otp,
-          session_id : sessionId,
-        }),
+      /* ── STEP A: verify OTP ── */
+      const verifyRes = await smartFetch(
+        `${API}/airtime-coupons/verify-otp`,
+        {
+          method  : "POST",
+          headers : authH(),
+          body    : JSON.stringify({
+            phone   : normalisePhone(phone),
+            otp,
+            purpose : "verify",
+          }),
+        }
+      );
+
+      /* ── STEP B: redeem the coupon ── */
+      const claimRes = await smartFetch(
+        `${API}/airtime-coupons/redeem`,
+        {
+          method  : "POST",
+          headers : authH(),
+          body    : JSON.stringify({ code: coupon?.code }),
+        }
+      );
+
+      /* Success! */
+      setStep(4);
+
+      onSuccess?.(coupon?.code, {
+        phone   : normalisePhone(phone),
+        network : verifyRes?.phone?.network || network,
+        coupon  : claimRes.coupon,
+        ...claimRes,
       });
 
-      setStep(4);
-      onSuccess?.(coupon?.code, data);
-
     } catch (err) {
+      /* Handle specific error codes */
+      if (err.code === "ALREADY_REDEEMED" ||
+          err.code?.startsWith("ALREADY_")) {
+        /* Coupon was already claimed elsewhere — go to success anyway */
+        setStep(4);
+        onSuccess?.(coupon?.code, {
+          phone   : normalisePhone(phone),
+          network,
+          alreadyRedeemed: true,
+        });
+        return;
+      }
+
       setError(err);
-      setOtp("");
+
+      /* Only clear OTP if it was wrong — keep it if it was a redeem-side error */
+      if (err.data?.remaining !== undefined ||
+          err.message?.toLowerCase().includes("otp") ||
+          err.message?.toLowerCase().includes("code")) {
+        setOtp("");
+      }
     } finally {
       setLoading(false);
     }
-  }, [otp, sessionId, coupon?.code, onSuccess]);
+  }, [otp, phone, network, coupon?.code, onSuccess]);
 
   /* Resend OTP */
   const resendOtp = async () => {
     setOtp("");
     setError(null);
-    setSessionId(null);
     setDevOtp(null);
     await sendOtp();
   };
@@ -449,9 +501,9 @@ export default function AirtimeClaimModal({
     setStep(1);
     setOtp("");
     setError(null);
-    setSessionId(null);
     setDevOtp(null);
     setCountdown(0);
+    setAttemptsLeft(null);
   };
 
   if (!isOpen) return null;
@@ -488,7 +540,7 @@ export default function AirtimeClaimModal({
         <StepIndicator step={step} />
 
         {/* ══════════════════════════════════════════
-            STEP 1
+            STEP 1 — Enter Phone + Network
         ══════════════════════════════════════════ */}
         {step === 1 && (
           <div className="acm-body">
@@ -624,7 +676,7 @@ export default function AirtimeClaimModal({
         )}
 
         {/* ══════════════════════════════════════════
-            STEP 2
+            STEP 2 — Confirm before sending OTP
         ══════════════════════════════════════════ */}
         {step === 2 && (
           <div className="acm-body">
@@ -697,7 +749,7 @@ export default function AirtimeClaimModal({
         )}
 
         {/* ══════════════════════════════════════════
-            STEP 3
+            STEP 3 — Enter OTP
         ══════════════════════════════════════════ */}
         {step === 3 && (
           <div className="acm-body">
@@ -718,6 +770,12 @@ export default function AirtimeClaimModal({
                 )}
                 {maskPhone(phoneRaw)}
               </p>
+
+              {attemptsLeft !== null && attemptsLeft <= 1 && (
+                <p className="acm-attempts-warn">
+                  ⚠️ {attemptsLeft} resend attempt{attemptsLeft !== 1 ? "s" : ""} left
+                </p>
+              )}
             </div>
 
             {devOtp && (
@@ -790,7 +848,7 @@ export default function AirtimeClaimModal({
         )}
 
         {/* ══════════════════════════════════════════
-            STEP 4
+            STEP 4 — Success
         ══════════════════════════════════════════ */}
         {step === 4 && (
           <div className="acm-body acm-body--success">
