@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import "./styles/Coupons.css";
+import AirtimeClaimModal from "./components/AirtimeClaimModal";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
@@ -199,13 +200,16 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
   const cfg      = COUPON_CONFIG.airtime;
   const isCopied = copied === coupon.code;
   const isUsed   = coupon.is_used;
+
   const statusMap = {
-    available : { label: "Ready to claim", color: "#16a34a" },
+    available : { label: "Ready to claim",  color: "#16a34a" },
     claimed   : { label: "Claim submitted", color: "#f59e0b" },
     credited  : { label: "Credited ✓",      color: "#6366f1" },
-    expired   : { label: "Expired",          color: "#dc2626" },
+    expired   : { label: "Expired",         color: "#dc2626" },
   };
-  const st = statusMap[coupon.status] ?? statusMap.available;
+
+  const effectiveStatus = coupon.status ?? "available";
+  const st = statusMap[effectiveStatus] ?? statusMap.available;
 
   return (
     <div className={`cp-card cp-card--airtime${isUsed ? " cp-card--used" : ""}`}>
@@ -237,16 +241,32 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
           )}
         </div>
 
-        {/* Claim button — only when status is available */}
-        {!isUsed && coupon.status === "available" && (
+        {/* Claim button — only when status is available and not used */}
+        {!isUsed && effectiveStatus === "available" && (
           <button
             className="cp-airtime-claim-btn"
-            onClick={() => onClaim(coupon.code, coupon.value)}
+            onClick={() => onClaim(coupon)}
             disabled={claiming === coupon.code}
           >
             <IconSend />
             {claiming === coupon.code ? "Submitting…" : "Claim Airtime"}
           </button>
+        )}
+
+        {/* Pending info */}
+        {effectiveStatus === "claimed" && (
+          <div className="cp-airtime-pending">
+            <IconClock />
+            <span>Processing — airtime sent within 24 hours</span>
+          </div>
+        )}
+
+        {/* Credited info */}
+        {effectiveStatus === "credited" && (
+          <div className="cp-airtime-credited">
+            <IconCheckCircle />
+            <span>Airtime has been sent to your number</span>
+          </div>
         )}
       </div>
 
@@ -374,7 +394,7 @@ function CouponCard({ coupon, onCopy, copied }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SMART COUPON CARD — routes to AirtimeCard or CouponCard
+   SMART CARD — routes to AirtimeCard or CouponCard
 ═══════════════════════════════════════════════════════════════ */
 function SmartCard({ coupon, onCopy, copied, onClaim, claiming }) {
   if (coupon.coupon_kind === "airtime" || coupon.type === "airtime") {
@@ -517,8 +537,9 @@ function AirtimeBanner() {
       <div>
         <p className="cp-airtime-banner-title">How airtime credits work</p>
         <p className="cp-airtime-banner-sub">
-          Tap <strong>Claim Airtime</strong> on any airtime coupon. Our team
-          will credit your registered phone number within 24 hours.
+          Tap <strong>Claim Airtime</strong> on any airtime coupon.
+          Verify your phone number and our team will credit
+          your airtime within 24 hours.
         </p>
       </div>
     </div>
@@ -531,6 +552,7 @@ function AirtimeBanner() {
 export default function Coupons() {
   const navigate = useNavigate();
 
+  /* ── Core state ── */
   const [coupons,  setCoupons]  = useState([]);
   const [history,  setHistory]  = useState([]);
   const [loading,  setLoading]  = useState(true);
@@ -538,16 +560,31 @@ export default function Coupons() {
   const [tab,      setTab]      = useState("available");
   const [copied,   setCopied]   = useState(null);
   const [toast,    setToast]    = useState(null);
-  const [claiming, setClaiming] = useState(null); // code of coupon being claimed
+  const [claiming, setClaiming] = useState(null);
 
-  const toastRef = useRef(null);
+  /* ── Modal state ── */
+  const [claimModal, setClaimModal] = useState({
+    open   : false,
+    coupon : null,
+  });
+
+  /* ── Refs ── */
+  const toastTimerRef  = useRef(null);
+  const copiedTimerRef = useRef(null);
 
   /* ── Auth guard ── */
   useEffect(() => {
     if (!getToken()) navigate("/auth?redirect=/coupons");
   }, [navigate]);
 
-  /* ── Load data ── */
+  /* ── Toast helper ── */
+  const showToast = useCallback((msg, isError = false) => {
+    setToast({ msg, isError });
+    clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => setToast(null), 3_000);
+  }, []);
+
+  /* ── Load coupons ── */
   const loadCoupons = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -556,16 +593,17 @@ export default function Coupons() {
         fetch(`${API}/coupons`,         { headers: authH() }),
         fetch(`${API}/coupons/history`, { headers: authH() }),
       ]);
-      if (couponRes.ok) {
-        const d = await couponRes.json();
-        setCoupons(d.coupons || []);
-      }
-      if (historyRes.ok) {
-        const d = await historyRes.json();
-        setHistory(d.history || []);
-      }
-    } catch {
-      setError("Could not load coupons. Please try again.");
+
+      if (!couponRes.ok) throw new Error("Failed to load coupons");
+      if (!historyRes.ok) throw new Error("Failed to load history");
+
+      const couponData  = await couponRes.json();
+      const historyData = await historyRes.json();
+
+      setCoupons(couponData.coupons   || []);
+      setHistory(historyData.history  || []);
+    } catch (err) {
+      setError(err.message || "Could not load coupons. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -573,25 +611,49 @@ export default function Coupons() {
 
   useEffect(() => {
     loadCoupons();
-    return () => clearTimeout(toastRef.current);
+    return () => {
+      clearTimeout(toastTimerRef.current);
+      clearTimeout(copiedTimerRef.current);
+    };
   }, [loadCoupons]);
 
-  /* ── Airtime claim handler ── */
-  const handleClaim = useCallback(async (code, amount) => {
+  /* ════════════════════════════════════════════════════════
+     CLAIM HANDLER — opens modal
+  ════════════════════════════════════════════════════════ */
+  const handleClaim = useCallback((coupon) => {
+    // Check if phone already verified in this session
+    const savedPhone   = localStorage.getItem("verified_phone")   || "";
+    const savedNetwork = localStorage.getItem("verified_network")  || "";
+
+    if (savedPhone && savedNetwork) {
+      // Phone already verified — skip modal, submit directly
+      submitClaim(coupon.code, coupon.value, savedPhone, savedNetwork);
+    } else {
+      // Open modal to collect + verify phone
+      setClaimModal({ open: true, coupon });
+    }
+  }, []); // eslint-disable-line
+
+  /* ════════════════════════════════════════════════════════
+     DIRECT SUBMIT — when phone already verified
+  ════════════════════════════════════════════════════════ */
+  const submitClaim = useCallback(async (code, value, phone, network) => {
     setClaiming(code);
     try {
       const res  = await fetch(`${API}/coupons/airtime/claim`, {
         method  : "POST",
         headers : authH(),
-        body    : JSON.stringify({ code }),
+        body    : JSON.stringify({ code, phone, network }),
       });
       const data = await res.json();
+
       if (data.success) {
-        showToast(`✅ ₦${amount} airtime claim submitted!`);
-        /* optimistically update status in local state */
+        showToast(`✅ ₦${value} airtime claim submitted!`);
         setCoupons((prev) =>
           prev.map((c) =>
-            c.code === code ? { ...c, status: "claimed", is_used: true, usable: false } : c
+            c.code === code
+              ? { ...c, status: "claimed", is_used: true, usable: false }
+              : c
           )
         );
       } else {
@@ -602,7 +664,38 @@ export default function Coupons() {
     } finally {
       setClaiming(null);
     }
-  }, []);
+  }, [showToast]);
+
+  /* ════════════════════════════════════════════════════════
+     MODAL SUCCESS CALLBACK
+  ════════════════════════════════════════════════════════ */
+  const handleModalSuccess = useCallback((code, data) => {
+    // Save verified phone for future claims
+    if (data.phone)   localStorage.setItem("verified_phone",   data.phone);
+    if (data.network) localStorage.setItem("verified_network", data.network);
+
+    // Update coupon in list
+    setCoupons((prev) =>
+      prev.map((c) =>
+        c.code === code
+          ? {
+              ...c,
+              status       : "claimed",
+              is_used      : true,
+              usable       : false,
+              claimed_at   : new Date().toISOString(),
+            }
+          : c
+      )
+    );
+
+    showToast(`✅ Airtime claim submitted! Credited within 24 hours.`);
+
+    // Close modal after short delay so user sees step 3 (success screen)
+    setTimeout(() => {
+      setClaimModal({ open: false, coupon: null });
+    }, 2_500);
+  }, [showToast]);
 
   /* ── Copy handler ── */
   const handleCopy = useCallback((code) => {
@@ -615,37 +708,38 @@ export default function Coupons() {
       document.execCommand("copy");
       document.body.removeChild(el);
     };
+
     if (navigator.clipboard) {
       navigator.clipboard.writeText(code).catch(fallback);
     } else {
       fallback();
     }
+
     setCopied(code);
     showToast(`Code "${code}" copied!`);
-    clearTimeout(toastRef.current);
-    toastRef.current = setTimeout(() => setCopied(null), 2_500);
-  }, []);
-
-  /* ── Toast helper ── */
-  const showToast = (msg, isError = false) => {
-    setToast({ msg, isError });
-    clearTimeout(toastRef.current);
-    toastRef.current = setTimeout(() => setToast(null), 3_000);
-  };
+    clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => setCopied(null), 2_500);
+  }, [showToast]);
 
   /* ── Derived lists ── */
-  const allAvailable  = coupons.filter((c) =>  c.usable);
-  const allUsed       = coupons.filter((c) => !c.usable);
-  const airtimeCoupons = coupons.filter((c) => c.coupon_kind === "airtime" || c.type === "airtime");
-  const totalSaved    = history.reduce((s, h) => s + Number(h.discount || 0), 0);
-
-  const hasAirtime = airtimeCoupons.length > 0;
+  const allAvailable   = coupons.filter((c) =>  c.usable);
+  const allUsed        = coupons.filter((c) => !c.usable);
+  const airtimeCoupons = coupons.filter(
+    (c) => c.coupon_kind === "airtime" || c.type === "airtime"
+  );
+  const totalSaved     = history.reduce((s, h) => s + Number(h.discount || 0), 0);
+  const hasAirtime     = airtimeCoupons.length > 0;
 
   const TABS = [
-    { key: "available", label: "Available", count: allAvailable.length  },
-    { key: "airtime",   label: "📱 Airtime", count: airtimeCoupons.length, hide: !hasAirtime },
-    { key: "used",      label: "Used",      count: allUsed.length       },
-    { key: "history",   label: "History",   count: history.length       },
+    { key: "available", label: "Available", count: allAvailable.length   },
+    {
+      key   : "airtime",
+      label : "📱 Airtime",
+      count : airtimeCoupons.length,
+      hide  : !hasAirtime && !loading,
+    },
+    { key: "used",    label: "Used",    count: allUsed.length    },
+    { key: "history", label: "History", count: history.length    },
   ].filter((t) => !t.hide);
 
   /* ══════════════════════════════════════════════
@@ -656,14 +750,20 @@ export default function Coupons() {
 
       {/* ── Topbar ── */}
       <div className="cp-topbar">
-        <button className="cp-back" onClick={() => navigate(-1)} aria-label="Go back">
+        <button
+          className="cp-back"
+          onClick={() => navigate(-1)}
+          aria-label="Go back"
+        >
           <IconBack />
         </button>
         <div className="cp-topbar-text">
           <h1 className="cp-topbar-title">My Coupons</h1>
           <p className="cp-topbar-sub">
             {allAvailable.length} available
-            {hasAirtime ? ` · ${airtimeCoupons.filter(c => c.usable).length} airtime` : ""}
+            {hasAirtime
+              ? ` · ${airtimeCoupons.filter((c) => !c.is_used).length} airtime`
+              : ""}
           </p>
         </div>
         <button
@@ -727,7 +827,9 @@ export default function Coupons() {
           </div>
         )}
 
-        {/* ── Available tab ── */}
+        {/* ══════════════════════════════════════════
+            AVAILABLE TAB
+        ══════════════════════════════════════════ */}
         {!loading && tab === "available" && (
           allAvailable.length === 0 ? (
             <div className="cp-empty">
@@ -751,7 +853,9 @@ export default function Coupons() {
           )
         )}
 
-        {/* ── Airtime tab ── */}
+        {/* ══════════════════════════════════════════
+            AIRTIME TAB
+        ══════════════════════════════════════════ */}
         {!loading && tab === "airtime" && (
           <>
             <AirtimeBanner />
@@ -778,7 +882,9 @@ export default function Coupons() {
           </>
         )}
 
-        {/* ── Used tab ── */}
+        {/* ══════════════════════════════════════════
+            USED TAB
+        ══════════════════════════════════════════ */}
         {!loading && tab === "used" && (
           allUsed.length === 0 ? (
             <div className="cp-empty">
@@ -801,7 +907,9 @@ export default function Coupons() {
           )
         )}
 
-        {/* ── History tab ── */}
+        {/* ══════════════════════════════════════════
+            HISTORY TAB
+        ══════════════════════════════════════════ */}
         {!loading && tab === "history" && (
           history.length === 0 ? (
             <div className="cp-empty">
@@ -857,7 +965,7 @@ export default function Coupons() {
               { icon: <IconCopy />,        t: "Copy the coupon code by tapping 'Copy'" },
               { icon: <IconTag />,         t: "Go to checkout and paste the code in the coupon field" },
               { icon: <IconCheckCircle />, t: "Your discount will be applied automatically" },
-              { icon: <IconPhone />,       t: "For airtime, tap 'Claim Airtime' — credited within 24 hours" },
+              { icon: <IconPhone />,       t: "For airtime, tap 'Claim Airtime' and verify your number" },
               { icon: <IconAlertCircle />, t: "Each coupon can only be used once per account" },
             ].map((tip, idx) => (
               <div key={idx} className="cp-tip">
@@ -869,6 +977,18 @@ export default function Coupons() {
         )}
 
       </div>
+
+      {/* ══════════════════════════════════════════
+          AIRTIME CLAIM MODAL
+      ══════════════════════════════════════════ */}
+      <AirtimeClaimModal
+        isOpen={claimModal.open}
+        coupon={claimModal.coupon}
+        prefilledPhone={localStorage.getItem("verified_phone")   || ""}
+        prefilledNetwork={localStorage.getItem("verified_network") || ""}
+        onClose={() => setClaimModal({ open: false, coupon: null })}
+        onSuccess={handleModalSuccess}
+      />
 
       {/* ── Toast ── */}
       {toast && (
