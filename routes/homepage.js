@@ -1,25 +1,23 @@
 /**
- * routes/homepage.js — v4
+ * routes/homepage.js — v5
  *
  * Feed ranking (top → bottom):
- *  1. is_promoted DESC          — paid per-product promotion
- *  2. promotion_priority DESC   — Elite=4 > Premium=3 > Basic=2 > Starter=1
- *  3. search_priority DESC      — subscription rank
- *                                 elite=10, diamond=5, business=3,
- *                                 pro=2, premium=1, free=0
- *  4. engagement_score DESC     — organic tiebreaker
- *  5. created_at DESC           — newest tiebreaker
+ *  1. is_promoted DESC
+ *  2. promotion_priority DESC
+ *  3. search_priority DESC
+ *  4. engagement_score DESC
+ *  5. created_at DESC
  *
- * v4 changes:
- *  - active_limited products are now visible on homepage
- *  - active_until expiry guard added (expired trials hidden)
- *  - trial badge added to shaped product
- *  - trial_listing flag passed to frontend for optional UI badge
+ * v5 changes:
+ *  - Optional auth (attachUser middleware) — never blocks anonymous
+ *  - meta.unread_notifications returned when logged in
+ *  - Frontend can use this directly for bell badge (no 2nd request)
  */
 
 import express from "express";
 import { pool } from "../config/db.js";
 import { cacheGet, cacheSet, cacheDel, cacheStats } from "../lib/redis.js";
+import { attachUser } from "../middleware/auth.js";
 
 const router = express.Router();
 
@@ -35,7 +33,7 @@ const CACHE_TTL = {
 };
 
 /* ══════════════════════════════════════════════════════════════
-   CACHE KEY
+   CACHE KEY  (excludes user-specific data)
 ══════════════════════════════════════════════════════════════ */
 function buildCacheKey(params) {
   const {
@@ -44,64 +42,55 @@ function buildCacheKey(params) {
     sort, state, city, lat, lng,
   } = params;
 
-  // GPS = personal data → never cache
-  if (lat && lng) return null;
+  if (lat && lng) return null;  // GPS = personal → skip cache
 
   return [
     "hp",
     section,
     `p${page}`,
     `l${limit}`,
-    category_id ? `c${String(category_id).slice(0, 8)}`                  : "",
-    max_price   ? `mx${max_price}`                                         : "",
-    min_price   ? `mn${min_price}`                                         : "",
-    sort        ? `s${sort}`                                               : "",
-    state       ? `st${String(state).toLowerCase().replace(/\s/g, "_")}`  : "",
-    city        ? `cy${String(city).toLowerCase().replace(/\s/g, "_")}`   : "",
+    category_id ? `c${String(category_id).slice(0, 8)}`                 : "",
+    max_price   ? `mx${max_price}`                                        : "",
+    min_price   ? `mn${min_price}`                                        : "",
+    sort        ? `s${sort}`                                              : "",
+    state       ? `st${String(state).toLowerCase().replace(/\s/g, "_")}` : "",
+    city        ? `cy${String(city).toLowerCase().replace(/\s/g, "_")}`  : "",
   ].filter(Boolean).join(":");
 }
 
 /* ══════════════════════════════════════════════════════════════
-   PROMOTION BADGE HELPER
+   HELPERS
 ══════════════════════════════════════════════════════════════ */
 function getPromotionBadge(isPromoted, promotionType) {
   if (!isPromoted) return null;
   const pt = String(promotionType ?? "").toLowerCase();
-  if (pt === "elite")   return "featured";  // ⭐ Elite badge
-  if (pt === "premium") return "premium";   // 🔝 Premium badge
-  return "promoted";                         // 📢 Starter / Basic
+  if (pt === "elite")   return "featured";
+  if (pt === "premium") return "premium";
+  return "promoted";
 }
 
-/* ══════════════════════════════════════════════════════════════
-   HAVERSINE  (JS fallback for distance display)
-══════════════════════════════════════════════════════════════ */
 function haversineKm(lat1, lng1, lat2, lng2) {
   const R    = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lng2 - lng1) * Math.PI) / 180;
-  const a    =
+  const a =
     Math.sin(dLat / 2) ** 2 +
     Math.cos((lat1 * Math.PI) / 180) *
     Math.cos((lat2 * Math.PI) / 180) *
     Math.sin(dLon / 2) ** 2;
-  return (
-    Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10
-  );
+  return Math.round(R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)) * 10) / 10;
 }
 
 /* ══════════════════════════════════════════════════════════════
    SHAPE ONE PRODUCT ROW
-   v4: adds trial_listing + trial_expires_at fields
 ══════════════════════════════════════════════════════════════ */
 function shapeProduct(p, lat, lng) {
-  /* ── Primary image ── */
   let image = p.main_image || p.thumbnail_url || null;
   if (!image && Array.isArray(p.images) && p.images.length > 0) {
     const first = p.images[0];
     image = typeof first === "string" ? first : first?.url || null;
   }
 
-  /* ── Images array ── */
   let imagesArr = [];
   if (Array.isArray(p.images) && p.images.length > 0) {
     imagesArr = p.images
@@ -111,7 +100,6 @@ function shapeProduct(p, lat, lng) {
     imagesArr = [image];
   }
 
-  /* ── Distance ── */
   let distance_km = null;
   if (lat && lng && p.latitude != null && p.longitude != null) {
     distance_km = haversineKm(
@@ -120,7 +108,6 @@ function shapeProduct(p, lat, lng) {
     );
   }
 
-  /* ── CTR ── */
   const impressions = Number(p.impression_count || 0);
   const clicks      = Number(p.clicks_count     || 0);
   const vw          = Number(p.views            || 0);
@@ -128,7 +115,6 @@ function shapeProduct(p, lat, lng) {
     ? clicks / impressions
     : vw > 0 ? clicks / vw : 0;
 
-  /* ── Discount ── */
   const origPrice = Number(p.attributes?.original_price || 0);
   const currPrice = Number(p.price || 0);
   const discountPct =
@@ -136,11 +122,9 @@ function shapeProduct(p, lat, lng) {
       ? Math.round(((origPrice - currPrice) / origPrice) * 100)
       : 0;
 
-  /* ── Trial listing flags (v4) ── */
   const isTrialListing = p.status === "active_limited";
   const trialExpiresAt = isTrialListing ? (p.active_until || null) : null;
 
-  /* ── Days remaining for trial ── */
   let trialDaysRemaining = null;
   if (isTrialListing && trialExpiresAt) {
     trialDaysRemaining = Math.max(
@@ -208,8 +192,6 @@ function shapeProduct(p, lat, lng) {
       label:
         [p.location_city, p.location_state].filter(Boolean).join(", ") || null,
     },
-
-    /* ── Trial fields (v4) ── */
     trial_listing       : isTrialListing,
     trial_expires_at    : trialExpiresAt,
     trial_days_remaining: trialDaysRemaining,
@@ -219,20 +201,35 @@ function shapeProduct(p, lat, lng) {
       name            : p.seller_name || null,
       verified        : !!p.seller_verified,
       subscriptionPlan: p.seller_subscription_plan || null,
-      /*
-       * subscriptionRank tells the frontend how prominent
-       * this seller's subscription is, for UI badges etc.
-       * free=0 premium=1 pro=2 business=3 diamond=5 elite=10
-       */
       subscriptionRank: Number(p.seller_subscription_rank || 0),
     },
   };
 }
 
 /* ══════════════════════════════════════════════════════════════
-   GET /api/homepage
+   GET UNREAD NOTIFICATION COUNT  (fire-and-forget safe)
 ══════════════════════════════════════════════════════════════ */
-router.get("/", async (req, res) => {
+async function getUnreadCount(userId) {
+  if (!userId) return 0;
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::INT AS count
+       FROM   public.notifications
+       WHERE  user_id = $1 AND is_read = FALSE`,
+      [userId]
+    );
+    return rows[0]?.count ?? 0;
+  } catch (err) {
+    console.warn("[homepage] unread-count fetch failed:", err.message);
+    return 0;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   GET /api/homepage
+   Optional auth via attachUser — never blocks anonymous requests
+══════════════════════════════════════════════════════════════ */
+router.get("/", attachUser, async (req, res) => {
   const {
     page        = 0,
     limit       = 40,
@@ -247,14 +244,28 @@ router.get("/", async (req, res) => {
     min_price,
   } = req.query;
 
-  /* ── Cache ── */
+  const userId = req.user?.id ?? null;
+
+  /* ── Cache lookup (products only — no user data cached) ── */
   const cacheKey = buildCacheKey(req.query);
+  let cachedPayload = null;
+
   if (cacheKey) {
-    const cached = await cacheGet(cacheKey);
-    if (cached) {
+    cachedPayload = await cacheGet(cacheKey);
+    if (cachedPayload) {
       res.set("X-Cache", "HIT");
       res.set("X-Cache-Key", cacheKey);
-      return res.json(cached);
+
+      /* Attach fresh unread count for this user (not cached) */
+      const unread = await getUnreadCount(userId);
+      return res.json({
+        ...cachedPayload,
+        meta: {
+          ...cachedPayload.meta,
+          unread_notifications: unread,
+          authenticated       : !!userId,
+        },
+      });
     }
   }
   res.set("X-Cache", "MISS");
@@ -265,41 +276,20 @@ router.get("/", async (req, res) => {
     const values    = [];
     const push      = (v) => { values.push(v); return `$${values.length}`; };
 
-    /* ══════════════════════════════════════════════════════════
-       BASE WHERE — v4
-       ─────────────────────────────────────────────────────────
-       Previously: p.status = 'active'
-       Now        : p.status IN ('active', 'active_limited')
-                  + active_until guard so expired trials are
-                    automatically hidden without a cron job
-    ══════════════════════════════════════════════════════════ */
     const where = [
       `p.is_active = TRUE`,
-
-      /* ✅ v4: include trial listings */
       `p.status IN ('active', 'active_limited')`,
-
       `p.status <> 'deleted'`,
-
-      /*
-       * ✅ v4: hide expired trials automatically.
-       * active = no expiry (NULL active_until) → always shown.
-       * active_limited = has active_until → hidden once it passes.
-       */
       `(p.active_until IS NULL OR p.active_until > NOW())`,
-
-      /* Only show promotions that are still active */
       `(p.promotion_expires_at IS NULL OR p.promotion_expires_at > NOW())`,
     ];
 
-    /* ── Filters ── */
     if (category_id) where.push(`p.category_id = ${push(category_id)}`);
     if (state)       where.push(`LOWER(p.location_state) = LOWER(${push(state)})`);
     if (city)        where.push(`LOWER(p.location_city)  = LOWER(${push(city)})`);
     if (max_price)   where.push(`p.price <= ${push(Number(max_price))}`);
     if (min_price)   where.push(`p.price >= ${push(Number(min_price))}`);
 
-    /* ── GPS bounding box (uses index) ── */
     let latN = null, lngN = null;
     if (lat && lng) {
       latN = Number(lat);
@@ -314,22 +304,6 @@ router.get("/", async (req, res) => {
       }
     }
 
-    /* ══════════════════════════════════════════════════════════
-       ORDER BY — full ranking stack
-
-       Column             Set by                    Max value
-       ──────────────────────────────────────────────────────────
-       is_promoted        payment.js                TRUE/FALSE
-       promotion_priority promotion_plans.priority  4
-       search_priority    subscription (plan.rank)  10
-       engagement_score   analytics                 100
-       created_at         product creation          timestamp
-
-       NOTE: active_limited (trial) listings have no paid
-       promotion or subscription boost, so they naturally
-       rank below verified/subscribed sellers. No extra
-       penalty needed — the ranking stack handles it.
-    ══════════════════════════════════════════════════════════ */
     const BASE_ORDER = `
       p.is_promoted        DESC,
       p.promotion_priority DESC,
@@ -392,7 +366,6 @@ router.get("/", async (req, res) => {
         break;
     }
 
-    /* ── Manual sort override — always keeps promoted first ── */
     switch (sort) {
       case "price_asc":
         orderBy = `p.is_promoted DESC, p.promotion_priority DESC, p.price ASC,  p.engagement_score DESC`;
@@ -408,7 +381,6 @@ router.get("/", async (req, res) => {
         break;
     }
 
-    /* ── Pagination ── */
     values.push(realLimit + 1);
     const limitP  = `$${values.length}`;
     values.push(offset);
@@ -416,7 +388,6 @@ router.get("/", async (req, res) => {
 
     const whereClause = `${where.join(" AND ")} ${sectionFilter}`;
 
-    /* ── Main query ── */
     const mainSql = `
       SELECT
         p.id,        p.title,       p.description,  p.price,       p.slug,
@@ -455,7 +426,6 @@ router.get("/", async (req, res) => {
       OFFSET ${offsetP}
     `;
 
-    /* ── Count (first page only — expensive on large tables) ── */
     const isFirstPage = Number(page) === 0;
     const countValues = values.slice(0, values.length - 2);
     const countSql    = `
@@ -465,20 +435,23 @@ router.get("/", async (req, res) => {
       WHERE  ${whereClause}
     `;
 
-    const queries = [pool.query(mainSql, values)];
-    if (isFirstPage) queries.push(pool.query(countSql, countValues));
+    /* ── Run all queries in parallel ── */
+    const promises = [
+      pool.query(mainSql, values),
+      getUnreadCount(userId),
+    ];
+    if (isFirstPage) promises.push(pool.query(countSql, countValues));
 
-    const [mainResult, countResult] = await Promise.all(queries);
+    const [mainResult, unreadNotifications, countResult] =
+      await Promise.all(promises);
 
     const { rows } = mainResult;
     const total    = isFirstPage ? (countResult?.rows[0]?.total ?? 0) : -1;
     const hasMore  = rows.length > realLimit;
     const records  = hasMore ? rows.slice(0, realLimit) : rows;
 
-    /* ── Shape ── */
     const products = records.map((p) => shapeProduct(p, latN, lngN));
 
-    /* ── Location label ── */
     const cityFreq = {};
     for (const p of products) {
       if (p.location_city)
@@ -492,11 +465,6 @@ router.get("/", async (req, res) => {
       (state         ? state               : null) ||
       topCity        || null;
 
-    /* ── Featured — Premium (priority ≥ 3) + Elite (priority 4) only ──
-       Trial listings are excluded from featured because they have
-       no paid promotion (is_promoted = FALSE, promotion_priority = 0).
-       This is automatic — no extra filter needed.
-    ── */
     const featured =
       Number(page) === 0 && !section
         ? products
@@ -504,12 +472,11 @@ router.get("/", async (req, res) => {
             .slice(0, 6)
         : [];
 
-    /* ── Stats breakdown (v4) — helps frontend show context ── */
-    const activeCount       = products.filter((p) => p.status === "active").length;
-    const activeTrialCount  = products.filter((p) => p.status === "active_limited").length;
+    const activeCount      = products.filter((p) => p.status === "active").length;
+    const activeTrialCount = products.filter((p) => p.status === "active_limited").length;
 
-    /* ── Payload ── */
-    const payload = {
+    /* ── Build payload (cacheable — no user data) ── */
+    const cacheablePayload = {
       products,
       featured,
       hasMore,
@@ -523,11 +490,8 @@ router.get("/", async (req, res) => {
         location         : locationLabel,
         nearbySource     :
           latN && lngN ? "gps" : state || city ? "manual" : null,
-
-        /* v4: breakdown so frontend knows mix */
         active_count      : activeCount,
         active_trial_count: activeTrialCount,
-
         filters: {
           category_id: category_id || null,
           max_price  : max_price   || null,
@@ -539,13 +503,21 @@ router.get("/", async (req, res) => {
       },
     };
 
-    /* ── Cache ── */
+    /* ── Cache the shared payload ── */
     if (cacheKey) {
       const ttl = CACHE_TTL[section] ?? CACHE_TTL.all;
-      if (ttl > 0) await cacheSet(cacheKey, payload, ttl);
+      if (ttl > 0) await cacheSet(cacheKey, cacheablePayload, ttl);
     }
 
-    return res.json(payload);
+    /* ── Add per-user data to response (not cached) ── */
+    return res.json({
+      ...cacheablePayload,
+      meta: {
+        ...cacheablePayload.meta,
+        unread_notifications: unreadNotifications,
+        authenticated       : !!userId,
+      },
+    });
 
   } catch (err) {
     console.error("[homepage] ERROR:", err.message, "\n", err.stack);
@@ -656,8 +628,6 @@ router.post("/analytics/batch", async (req, res) => {
 
 /* ══════════════════════════════════════════════════════════════
    CACHE INVALIDATION
-   Call this after: product create, update, promote, delete,
-   subscription activate, subscription expire.
 ══════════════════════════════════════════════════════════════ */
 export async function invalidateHomepageCache() {
   try {
