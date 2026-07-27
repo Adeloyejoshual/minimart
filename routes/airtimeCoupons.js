@@ -18,8 +18,7 @@ const normalizePhone = (raw) => {
   return digits;
 };
 
-const isValidPhone = (local) =>
-  /^0[789][01]\d{8}$/.test(local);
+const isValidPhone = (local) => /^0[789][01]\d{8}$/.test(local);
 
 const maskPhone = (phone) => {
   if (!phone) return null;
@@ -31,15 +30,14 @@ const detectNetwork = (phone) => {
   const local  = normalizePhone(phone);
   const prefix = local.slice(0, 4);
   const map = {
-    "0703":"MTN","0704":"MTN","0706":"MTN",
-    "0803":"MTN","0806":"MTN","0810":"MTN",
-    "0813":"MTN","0814":"MTN","0816":"MTN",
-    "0903":"MTN","0906":"MTN","0913":"MTN","0916":"MTN",
-    "0701":"Airtel","0708":"Airtel","0802":"Airtel",
-    "0808":"Airtel","0812":"Airtel","0901":"Airtel",
-    "0902":"Airtel","0904":"Airtel","0907":"Airtel","0912":"Airtel",
-    "0705":"Glo","0805":"Glo","0807":"Glo",
-    "0811":"Glo","0815":"Glo","0905":"Glo","0915":"Glo",
+    "0703":"MTN","0704":"MTN","0706":"MTN","0803":"MTN","0806":"MTN",
+    "0810":"MTN","0813":"MTN","0814":"MTN","0816":"MTN","0903":"MTN",
+    "0906":"MTN","0913":"MTN","0916":"MTN",
+    "0701":"Airtel","0708":"Airtel","0802":"Airtel","0808":"Airtel",
+    "0812":"Airtel","0901":"Airtel","0902":"Airtel","0904":"Airtel",
+    "0907":"Airtel","0912":"Airtel",
+    "0705":"Glo","0805":"Glo","0807":"Glo","0811":"Glo",
+    "0815":"Glo","0905":"Glo","0915":"Glo",
     "0809":"9mobile","0817":"9mobile","0818":"9mobile",
     "0908":"9mobile","0909":"9mobile",
   };
@@ -49,15 +47,17 @@ const detectNetwork = (phone) => {
 /* ═══════════════════════════════════════════════════════════════
    DB SETUP — runs once on startup
 ═══════════════════════════════════════════════════════════════ */
+let STATUS_PENDING = "redeemed"; // ← safe default; we'll detect the right one
+
 async function setup() {
-  /* Ensure email_verified columns exist on users */
+  /* ── Users email columns ── */
   await pool.query(`
     ALTER TABLE public.users
       ADD COLUMN IF NOT EXISTS email_verified    BOOLEAN     NOT NULL DEFAULT false,
       ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMPTZ NULL
   `).catch((e) => console.warn("[airtime] users email columns:", e.message));
 
-  /* Ensure airtime_coupons has all needed columns */
+  /* ── Airtime coupon columns ── */
   await pool.query(`
     ALTER TABLE public.airtime_coupons
       ADD COLUMN IF NOT EXISTS phone       TEXT        NULL,
@@ -66,7 +66,36 @@ async function setup() {
       ADD COLUMN IF NOT EXISTS redeemed_at TIMESTAMPTZ NULL
   `).catch((e) => console.warn("[airtime] coupon columns:", e.message));
 
-  /* Index for admin dashboard queries */
+  /* ── Detect what status values are ALLOWED ── */
+  try {
+    const test = await pool.query(`
+      SELECT conname, pg_get_constraintdef(oid) as def
+      FROM pg_constraint
+      WHERE conrelid = 'public.airtime_coupons'::regclass
+        AND contype  = 'c'
+    `);
+
+    const constraints = test.rows.map((r) => r.def).join(" | ");
+    console.log("[airtime] status constraints:", constraints || "(none)");
+
+    if (constraints.includes("'pending'")) {
+      STATUS_PENDING = "pending";
+    } else if (constraints.includes("'redeemed'")) {
+      STATUS_PENDING = "redeemed";
+    } else if (constraints.includes("'claimed'")) {
+      STATUS_PENDING = "claimed";
+    }
+    /* If no constraint at all, "pending" is safe */
+    else {
+      STATUS_PENDING = "pending";
+    }
+
+    console.log(`[airtime] Using status="${STATUS_PENDING}" for new claims`);
+  } catch (e) {
+    console.warn("[airtime] constraint check failed:", e.message);
+  }
+
+  /* Index for admin dashboard */
   await pool.query(`
     CREATE INDEX IF NOT EXISTS idx_airtime_coupons_status
       ON public.airtime_coupons (status, redeemed_at)
@@ -81,7 +110,6 @@ setup().catch((e) =>
 
 /* ═══════════════════════════════════════════════════════════════
    ROUTE 1 — GET /api/airtime-coupons
-   Returns the logged-in user's airtime coupons
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
   const userId = req.user.id;
@@ -122,19 +150,13 @@ router.get("/", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    ROUTE 2 — POST /api/airtime-coupons/redeem
-   Body: { code, phone }
-
-   Flow:
-     1. Validate inputs
-     2. Check email_verified === true  ← THE GATE
-     3. Validate phone number
-     4. Lock & validate coupon
-     5. Mark coupon as "pending" (admin processes manually)
 ═══════════════════════════════════════════════════════════════ */
 router.post("/redeem", authenticate, async (req, res) => {
   const userId = req.user.id;
   const code   = String(req.body?.code  || "").trim();
   const phone  = normalizePhone(req.body?.phone);
+
+  console.log("[redeem] START", { userId, code, phone });
 
   /* ── Input validation ── */
   if (!code) {
@@ -163,14 +185,18 @@ router.post("/redeem", authenticate, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* ── Step 1: Fetch user & check email_verified ── */
+    /* ── Step 1: Fetch user ── */
+    console.log("[redeem] Step 1: fetching user...");
+
     const { rows: userRows } = await client.query(
-      `SELECT email, email_verified
+      `SELECT id, email, email_verified
        FROM public.users
        WHERE id = $1
        LIMIT 1`,
       [userId]
     );
+
+    console.log("[redeem] user row:", userRows[0]);
 
     if (!userRows.length) {
       await client.query("ROLLBACK");
@@ -182,7 +208,6 @@ router.post("/redeem", authenticate, async (req, res) => {
 
     const user = userRows[0];
 
-    /* ── THE GATE — email must be verified ── */
     if (!user.email_verified) {
       await client.query("ROLLBACK");
       return res.status(403).json({
@@ -193,7 +218,9 @@ router.post("/redeem", authenticate, async (req, res) => {
       });
     }
 
-    /* ── Step 2: Lock coupon row to prevent race conditions ── */
+    /* ── Step 2: Lock coupon row ── */
+    console.log("[redeem] Step 2: locking coupon...");
+
     const { rows: couponRows } = await client.query(
       `SELECT id, user_id, status, amount
        FROM public.airtime_coupons
@@ -202,6 +229,8 @@ router.post("/redeem", authenticate, async (req, res) => {
        FOR UPDATE`,
       [code]
     );
+
+    console.log("[redeem] coupon row:", couponRows[0]);
 
     if (!couponRows.length) {
       await client.query("ROLLBACK");
@@ -233,14 +262,13 @@ router.post("/redeem", authenticate, async (req, res) => {
 
     const network = detectNetwork(phone);
 
-    /* ── Step 5: Mark as "pending" — admin processes manually ──
-       We use "pending" not "redeemed" so the admin dashboard
-       can clearly see what needs to be actioned.
-       Admin changes to "completed" after sending the airtime.   */
+    /* ── Step 5: Mark as redeemed/pending ── */
+    console.log("[redeem] Step 5: updating with status=", STATUS_PENDING);
+
     const { rows: updated } = await client.query(
       `UPDATE public.airtime_coupons
        SET
-         status      = 'pending',
+         status      = $5,
          redeemed_by = $1,
          redeemed_at = NOW(),
          phone       = $2,
@@ -248,10 +276,11 @@ router.post("/redeem", authenticate, async (req, res) => {
        WHERE id     = $4
          AND status = 'available'
        RETURNING id, code, amount, status, redeemed_at`,
-      [userId, phone, network, coupon.id]
+      [userId, phone, network, coupon.id, STATUS_PENDING]
     );
 
-    /* Race condition — another request beat us */
+    console.log("[redeem] update result:", updated[0]);
+
     if (!updated.length) {
       await client.query("ROLLBACK");
       return res.status(409).json({
@@ -277,7 +306,7 @@ router.post("/redeem", authenticate, async (req, res) => {
         id         : r.id,
         code       : r.code,
         amount     : Number(r.amount),
-        status     : r.status,          // "pending"
+        status     : r.status,
         redeemed_at: r.redeemed_at,
         phone      : maskPhone(phone),
         network,
@@ -286,11 +315,40 @@ router.post("/redeem", authenticate, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    console.error("[airtime] redeem error:", err.message);
+
+    /* ── DETAILED ERROR LOG ── */
+    console.error("╔═══ [airtime] REDEEM ERROR ═══");
+    console.error("║ message :", err.message);
+    console.error("║ code    :", err.code);
+    console.error("║ detail  :", err.detail);
+    console.error("║ table   :", err.table);
+    console.error("║ column  :", err.column);
+    console.error("║ constraint:", err.constraint);
+    console.error("║ hint    :", err.hint);
+    console.error("╚═══════════════════════════════");
+
+    /* Map common Postgres error codes to friendly messages */
+    let userMsg = "Redemption failed. Please try again.";
+    if (err.code === "23514") {
+      userMsg = "Invalid coupon state configuration. Contact support.";
+    } else if (err.code === "42703") {
+      userMsg = "Database schema issue (missing column). Contact support.";
+    } else if (err.code === "42P01") {
+      userMsg = "Database table missing. Contact support.";
+    } else if (err.code === "23503") {
+      userMsg = "Referenced record not found.";
+    }
+
     return res.status(500).json({
       success: false,
-      message: "Redemption failed. Please try again.",
-      ...(!IS_PROD && { debug: err.message }),
+      message: userMsg,
+      debug  : IS_PROD ? undefined : {
+        error     : err.message,
+        code      : err.code,
+        detail    : err.detail,
+        column    : err.column,
+        constraint: err.constraint,
+      },
     });
   } finally {
     client.release();
@@ -299,7 +357,6 @@ router.post("/redeem", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    ROUTE 3 — GET /api/airtime-coupons/status/:id
-   User can poll this to see pending → completed
 ═══════════════════════════════════════════════════════════════ */
 router.get("/status/:id", authenticate, async (req, res) => {
   const userId   = req.user.id;
