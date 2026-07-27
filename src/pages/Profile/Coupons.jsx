@@ -80,6 +80,18 @@ const AIRTIME_STATUS = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   HELPERS to identify airtime & availability
+═══════════════════════════════════════════════════════════════ */
+const isAirtimeCoupon = (c) =>
+  c?.coupon_kind === "airtime" || c?.type === "airtime";
+
+const isAirtimeAvailable = (c) =>
+  isAirtimeCoupon(c) && c.status === "available" && !c.is_used;
+
+const isDiscountAvailable = (c) =>
+  !isAirtimeCoupon(c) && c.usable;
+
+/* ═══════════════════════════════════════════════════════════════
    ICONS
 ═══════════════════════════════════════════════════════════════ */
 const IconBack = () => (
@@ -217,17 +229,16 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
   const status = coupon.status ?? "available";
   const st     = AIRTIME_STATUS[status] ?? AIRTIME_STATUS.available;
 
-  /* Derive amount — API returns "amount", spin wheel may return "value" */
   const amount = coupon.amount ?? coupon.value ?? 0;
 
-  const isAvailable = status === "available" && !coupon.is_used;
+  const isAvailable = status === "available";
   const isPending   = ["pending","redeemed","processing","claimed"].includes(status);
   const isCompleted = ["completed","credited"].includes(status);
   const isFailed    = status === "failed";
   const isCopied    = copied === coupon.code;
 
   return (
-    <div className={`cp-card cp-card--airtime${coupon.is_used ? " cp-card--used" : ""}`}>
+    <div className={`cp-card cp-card--airtime${!isAvailable ? " cp-card--used" : ""}`}>
       <div className="cp-card-strip" style={{ background: cfg.color }} />
 
       <div className="cp-card-main">
@@ -399,10 +410,7 @@ function CouponCard({ coupon, onCopy, copied }) {
    SMART CARD
 ═══════════════════════════════════════════════════════════════ */
 function SmartCard({ coupon, onCopy, copied, onClaim, claiming }) {
-  const isAirtime =
-    coupon.coupon_kind === "airtime" || coupon.type === "airtime";
-
-  if (isAirtime) {
+  if (isAirtimeCoupon(coupon)) {
     return (
       <AirtimeCard
         coupon={coupon}
@@ -611,8 +619,6 @@ export default function Coupons() {
 
   /* ════════════════════════════════════════════════════════
      LOAD PROFILE
-     Reads email_verified from /users/me response.
-     Covers every possible field name your backend might use.
   ════════════════════════════════════════════════════════ */
   const loadProfile = useCallback(async () => {
     if (!getToken()) return;
@@ -625,15 +631,11 @@ export default function Coupons() {
       }
 
       const body = await res.json();
-
-      /* Support { user: {...} } or flat { id, email, ... } */
       const user = body?.user ?? body;
-
       if (!user || !mounted.current) return;
 
       setMe(user);
 
-      /* Cover every field name variation */
       const verified =
         user.email_verified  === true ||
         user.emailVerified   === true ||
@@ -641,8 +643,6 @@ export default function Coupons() {
         user.isVerified      === true ||
         user.verified        === true ||
         String(user.email_verified) === "true";
-
-      console.log("[profile] loaded | email_verified:", verified, "| raw user:", user);
 
       setEmailVerified(verified);
 
@@ -656,26 +656,56 @@ export default function Coupons() {
   useEffect(() => { loadProfile(); }, [loadProfile]);
 
   /* ════════════════════════════════════════════════════════
-     LOAD COUPONS
+     LOAD COUPONS + AIRTIME COUPONS
+     We merge both endpoints into a single list.
   ════════════════════════════════════════════════════════ */
   const loadCoupons = useCallback(async () => {
     if (!getToken()) return;
     setLoading(true);
     setError(null);
     try {
-      const [cr, hr] = await Promise.all([
-        fetch(`${API}/coupons`,         { headers: authH() }),
-        fetch(`${API}/coupons/history`, { headers: authH() }),
+      const [cr, hr, ar] = await Promise.all([
+        fetch(`${API}/coupons`,           { headers: authH() }),
+        fetch(`${API}/coupons/history`,   { headers: authH() }),
+        fetch(`${API}/airtime-coupons`,   { headers: authH() }),
       ]);
+
       if (!cr.ok) throw new Error("Failed to load coupons");
       if (!hr.ok) throw new Error("Failed to load history");
 
       const cd = await cr.json();
       const hd = await hr.json();
+      const ad = ar.ok ? await ar.json() : { coupons: [] };
+
+      /* Normalise airtime coupons so they use the same shape as discount coupons */
+      const airtimeAsCoupons = (ad.coupons || []).map((a) => ({
+        id           : a.id,
+        code         : a.code,
+        type         : "airtime",
+        coupon_kind  : "airtime",
+        amount       : a.amount,
+        value        : a.amount,
+        status       : a.status,               // "available" | "pending" | ...
+        is_used      : a.status !== "available",
+        usable       : a.status === "available",
+        claim_phone  : a.phone,
+        claim_network: a.network,
+        claimed_at   : a.redeemed_at,
+        created_at   : a.created_at,
+        description  : `🎡 Spin & Win — ₦${a.amount} Airtime`,
+      }));
+
+      /* Dedupe by code — prefer the airtime coupon shape if same code appears */
+      const baseCoupons = cd.coupons || [];
+      const existingCodes = new Set(airtimeAsCoupons.map((c) => c.code));
+      const merged = [
+        ...airtimeAsCoupons,
+        ...baseCoupons.filter((c) => !existingCodes.has(c.code)),
+      ];
 
       if (mounted.current) {
-        setCoupons(cd.coupons  || []);
-        setHistory(hd.history  || []);
+        setCoupons(merged);
+        setHistory(hd.history || []);
       }
     } catch (err) {
       if (mounted.current) setError(err.message);
@@ -691,7 +721,7 @@ export default function Coupons() {
   , [loadCoupons, loadProfile]);
 
   /* ════════════════════════════════════════════════════════
-     RESOLVE PREFILL PHONE from /users/me response
+     PREFILL PHONE
   ════════════════════════════════════════════════════════ */
   const getPrefilledPhone = useCallback(() => {
     if (!me) return "";
@@ -706,7 +736,7 @@ export default function Coupons() {
   }, [me]);
 
   /* ════════════════════════════════════════════════════════
-     OPEN CLAIM MODAL (called after email is verified)
+     MODAL HANDLERS
   ════════════════════════════════════════════════════════ */
   const openClaimModal = useCallback((coupon) => {
     setClaimModal({
@@ -716,52 +746,23 @@ export default function Coupons() {
     });
   }, [getPrefilledPhone]);
 
-  /* ════════════════════════════════════════════════════════
-     HANDLE CLAIM BUTTON CLICK
-     This is the ONLY entry point from the card button.
-
-     Flow:
-       profileReady = false  → show loading toast, do nothing
-       emailVerified = true  → open AirtimeClaimModal directly
-       emailVerified = false → open VerificationModal first
-  ════════════════════════════════════════════════════════ */
   const handleClaim = useCallback((coupon) => {
-    console.log("[handleClaim] fired", { profileReady, emailVerified, coupon });
-
-    /* Still fetching profile — don't act yet */
     if (!profileReady) {
       showToast("⏳ Loading your profile…");
       return;
     }
-
     if (emailVerified) {
-      /* ✅ Verified — go straight to phone/confirm modal */
-      console.log("[handleClaim] → opening AirtimeClaimModal");
       openClaimModal(coupon);
     } else {
-      /* ❌ Not verified — show email OTP modal */
-      console.log("[handleClaim] → opening VerificationModal");
       setVerifyModal({ open: true, pendingCoupon: coupon });
     }
   }, [profileReady, emailVerified, openClaimModal, showToast]);
 
-  /* ════════════════════════════════════════════════════════
-     VERIFICATION SUCCESS
-     Email just verified → update state → open claim modal
-  ════════════════════════════════════════════════════════ */
   const handleVerifySuccess = useCallback(() => {
-    console.log("[handleVerifySuccess] email verified ✓");
-
     setEmailVerified(true);
-
     const pending = verifyModal.pendingCoupon;
-
-    /* Close verify modal */
     setVerifyModal({ open: false, pendingCoupon: null });
-
     showToast("✅ Email verified!");
-
-    /* Small delay so modals don't stack */
     if (pending) {
       setTimeout(() => {
         if (mounted.current) openClaimModal(pending);
@@ -769,13 +770,7 @@ export default function Coupons() {
     }
   }, [verifyModal.pendingCoupon, openClaimModal, showToast]);
 
-  /* ════════════════════════════════════════════════════════
-     CLAIM SUCCESS
-     Called by AirtimeClaimModal after successful /redeem call
-  ════════════════════════════════════════════════════════ */
   const handleClaimSuccess = useCallback((code, data) => {
-    console.log("[handleClaimSuccess] code:", code, "data:", data);
-
     setCoupons((prev) =>
       prev.map((c) =>
         c.code === code
@@ -824,25 +819,48 @@ export default function Coupons() {
     }, 2_500);
   }, [showToast]);
 
-  /* ── Derived ── */
-  const airtimeCoupons   = coupons.filter(
-    (c) => c.coupon_kind === "airtime" || c.type === "airtime"
+  /* ════════════════════════════════════════════════════════
+     DERIVED LISTS
+  ════════════════════════════════════════════════════════ */
+  const airtimeCoupons   = coupons.filter(isAirtimeCoupon);
+  const airtimeAvailable = airtimeCoupons.filter(isAirtimeAvailable);
+
+  /* Available tab — discount coupons + unclaimed airtime */
+  const allAvailable = coupons.filter(
+    (c) => isDiscountAvailable(c) || isAirtimeAvailable(c)
   );
-  const discountCoupons  = coupons.filter(
-    (c) => c.coupon_kind !== "airtime" && c.type !== "airtime"
+
+  /* Used tab — used discounts + claimed airtime */
+  const allUsed = coupons.filter((c) => {
+    if (isAirtimeCoupon(c)) {
+      return c.status !== "available";
+    }
+    return !c.usable;
+  });
+
+  /* Sort — airtime first, newest first */
+  const sortByAirtimeFirst = (a, b) => {
+    const aAir = isAirtimeCoupon(a) ? 0 : 1;
+    const bAir = isAirtimeCoupon(b) ? 0 : 1;
+    if (aAir !== bAir) return aAir - bAir;
+    return new Date(b.created_at) - new Date(a.created_at);
+  };
+
+  const allAvailableSorted = [...allAvailable].sort(sortByAirtimeFirst);
+  const allUsedSorted      = [...allUsed].sort(sortByAirtimeFirst);
+  const airtimeSorted      = [...airtimeCoupons].sort(
+    (a, b) => new Date(b.created_at) - new Date(a.created_at)
   );
-  const allAvailable     = discountCoupons.filter((c) =>  c.usable);
-  const allUsed          = discountCoupons.filter((c) => !c.usable);
-  const airtimeAvailable = airtimeCoupons.filter((c) =>  !c.is_used);
-  const totalSaved       = history.reduce((s, h) => s + Number(h.discount || 0), 0);
-  const hasAirtime       = airtimeCoupons.length > 0;
+
+  const totalSaved = history.reduce((s, h) => s + Number(h.discount || 0), 0);
+  const hasAirtime = airtimeCoupons.length > 0;
 
   const TABS = [
-    { key: "available", label: "Available",  count: allAvailable.length   },
+    { key: "available", label: "Available",  count: allAvailable.length  },
     { key: "airtime",   label: "📱 Airtime",  count: airtimeCoupons.length,
       hide: !hasAirtime && !loading },
-    { key: "used",      label: "Used",        count: allUsed.length        },
-    { key: "history",   label: "History",     count: history.length        },
+    { key: "used",      label: "Used",        count: allUsed.length       },
+    { key: "history",   label: "History",     count: history.length       },
   ].filter((t) => !t.hide);
 
   /* ════════════════════════════════════════════════════════
@@ -860,7 +878,9 @@ export default function Coupons() {
           <h1 className="cp-topbar-title">My Coupons</h1>
           <p className="cp-topbar-sub">
             {allAvailable.length} available
-            {hasAirtime ? ` · ${airtimeAvailable.length} airtime` : ""}
+            {airtimeAvailable.length > 0
+              ? ` · ${airtimeAvailable.length} airtime`
+              : ""}
           </p>
         </div>
         <button
@@ -922,9 +942,9 @@ export default function Coupons() {
           </div>
         )}
 
-        {/* ── AVAILABLE ── */}
+        {/* ── AVAILABLE (includes unclaimed airtime + discount) ── */}
         {!loading && tab === "available" && (
-          allAvailable.length === 0 ? (
+          allAvailableSorted.length === 0 ? (
             <div className="cp-empty">
               <span className="cp-empty-icon"><IconTag /></span>
               <p>No coupons available right now</p>
@@ -932,7 +952,7 @@ export default function Coupons() {
             </div>
           ) : (
             <div className="cp-list">
-              {allAvailable.map((c) => (
+              {allAvailableSorted.map((c) => (
                 <SmartCard
                   key={c.id}
                   coupon={c}
@@ -946,7 +966,7 @@ export default function Coupons() {
           )
         )}
 
-        {/* ── AIRTIME ── */}
+        {/* ── AIRTIME (all airtime — available + claimed) ── */}
         {!loading && tab === "airtime" && (
           <>
             <AirtimeBanner
@@ -954,7 +974,6 @@ export default function Coupons() {
               userEmail={me?.email}
             />
 
-            {/* Nudge only shown after profile loads and email not verified */}
             {profileReady && !emailVerified && (
               <div className="cp-verify-nudge">
                 <IconMail />
@@ -968,7 +987,7 @@ export default function Coupons() {
               </div>
             )}
 
-            {airtimeCoupons.length === 0 ? (
+            {airtimeSorted.length === 0 ? (
               <div className="cp-empty">
                 <span className="cp-empty-icon">📱</span>
                 <p>No airtime coupons yet</p>
@@ -976,7 +995,7 @@ export default function Coupons() {
               </div>
             ) : (
               <div className="cp-list">
-                {airtimeCoupons.map((c) => (
+                {airtimeSorted.map((c) => (
                   <AirtimeCard
                     key={c.id}
                     coupon={c}
@@ -991,16 +1010,16 @@ export default function Coupons() {
           </>
         )}
 
-        {/* ── USED ── */}
+        {/* ── USED (used discounts + claimed airtime) ── */}
         {!loading && tab === "used" && (
-          allUsed.length === 0 ? (
+          allUsedSorted.length === 0 ? (
             <div className="cp-empty">
               <span className="cp-empty-icon"><IconCheckCircle /></span>
               <p>No used or expired coupons</p>
             </div>
           ) : (
             <div className="cp-list">
-              {allUsed.map((c) => (
+              {allUsedSorted.map((c) => (
                 <SmartCard
                   key={c.id}
                   coupon={c}
@@ -1088,7 +1107,6 @@ export default function Coupons() {
 
       {/* ════ MODALS ════ */}
 
-      {/* Email verification — opens when email not verified */}
       <VerificationModal
         isOpen={verifyModal.open}
         userEmail={me?.email}
@@ -1096,7 +1114,6 @@ export default function Coupons() {
         onSuccess={handleVerifySuccess}
       />
 
-      {/* Airtime claim — opens when email IS verified */}
       <AirtimeClaimModal
         isOpen={claimModal.open}
         coupon={claimModal.coupon}
