@@ -1,6 +1,6 @@
 // src/pages/Profile/components/AirtimeClaimModal.jsx
 import { useState, useEffect, useCallback } from "react";
-import "../styles/AirtimeClaimModal.css";
+import "./styles/AirtimeClaimModal.css";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api`;
@@ -16,7 +16,7 @@ const authH = () => ({
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   PHONE HELPERS
+   HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const normalisePhone = (raw) => {
   if (!raw) return "";
@@ -51,39 +51,8 @@ const naira = (n) => {
   return isNaN(num) ? "₦0" : "₦" + num.toLocaleString("en-NG");
 };
 
-const NETWORK_STYLE = {
-  MTN     : { bg: "#fef9c3", color: "#854d0e", emoji: "🟡" },
-  Airtel  : { bg: "#fee2e2", color: "#991b1b", emoji: "🔴" },
-  Glo     : { bg: "#dcfce7", color: "#166534", emoji: "🟢" },
-  "9mobile": { bg: "#e0f2fe", color: "#075985", emoji: "🔵" },
-};
-
 /* ═══════════════════════════════════════════════════════════════
-   ICONS
-═══════════════════════════════════════════════════════════════ */
-const IconX = () => (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-    <line x1="18" y1="6"  x2="6"  y2="18"/>
-    <line x1="6"  y1="6"  x2="18" y2="18"/>
-  </svg>
-);
-const IconLoader = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"
-    className="acm-spin">
-    <path d="M21 12a9 9 0 11-6.219-8.56"/>
-  </svg>
-);
-const IconCheck = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none"
-    stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
-    <polyline points="20 6 9 17 4 12"/>
-  </svg>
-);
-
-/* ═══════════════════════════════════════════════════════════════
-   COMPONENT
+   MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function AirtimeClaimModal({
   isOpen,
@@ -92,20 +61,19 @@ export default function AirtimeClaimModal({
   onClose,
   onSuccess,
 }) {
+  /* ── LOG every render to confirm modal is mounted ── */
+  console.log("[AirtimeClaimModal] render | isOpen:", isOpen, "coupon:", coupon?.code);
+
   const [phone,     setPhone]     = useState("");
   const [network,   setNetwork]   = useState(null);
   const [loading,   setLoading]   = useState(false);
   const [error,     setError]     = useState(null);
   const [submitted, setSubmitted] = useState(false);
 
-  /* ── DEBUG log so you see the modal opening ── */
-  useEffect(() => {
-    console.log("[AirtimeClaimModal] isOpen:", isOpen, "coupon:", coupon);
-  }, [isOpen, coupon]);
-
   /* Reset when opened */
   useEffect(() => {
     if (isOpen) {
+      console.log("[AirtimeClaimModal] OPENED with phone:", prefilledPhone);
       const p = normalisePhone(prefilledPhone);
       setPhone(p);
       setNetwork(p ? detectNetwork(p) : null);
@@ -115,15 +83,15 @@ export default function AirtimeClaimModal({
     }
   }, [isOpen, prefilledPhone]);
 
-  /* Lock body scroll when open */
+  /* Lock body scroll */
   useEffect(() => {
     if (isOpen) {
+      const prev = document.body.style.overflow;
       document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = ""; };
+      return () => { document.body.style.overflow = prev; };
     }
   }, [isOpen]);
 
-  /* Phone change */
   const handlePhoneChange = (e) => {
     const raw = e.target.value.replace(/\D/g, "").slice(0, 11);
     setPhone(raw);
@@ -131,7 +99,6 @@ export default function AirtimeClaimModal({
     setError(null);
   };
 
-  /* Submit redeem */
   const handleSubmit = useCallback(async () => {
     const p = normalisePhone(phone);
 
@@ -151,12 +118,7 @@ export default function AirtimeClaimModal({
       });
       const data = await res.json();
 
-      console.log("[AirtimeClaimModal] redeem response:", data);
-
       if (!res.ok || !data.success) {
-        if (data.code === "EMAIL_NOT_VERIFIED") {
-          throw new Error("Your email is not verified. Please close and try again.");
-        }
         throw new Error(data.message || "Claim failed. Please try again.");
       }
 
@@ -177,12 +139,14 @@ export default function AirtimeClaimModal({
     }
   }, [phone, coupon, network, onSuccess]);
 
-  /* ── Guard render ── */
-  if (!isOpen)  return null;
-  if (!coupon)  return null;
+  /* ── Early return if not open ── */
+  if (!isOpen) return null;
+  if (!coupon) {
+    console.warn("[AirtimeClaimModal] isOpen=true but coupon is null!");
+    return null;
+  }
 
-  const netStyle = network ? NETWORK_STYLE[network] : null;
-  const amount   = coupon.amount ?? coupon.value ?? 0;
+  const amount = coupon.amount ?? coupon.value ?? 0;
 
   return (
     <div
@@ -201,14 +165,12 @@ export default function AirtimeClaimModal({
           disabled={loading}
           aria-label="Close"
         >
-          <IconX />
+          ✕
         </button>
 
         {submitted ? (
           <div className="acm-success">
-            <div className="acm-success-icon">
-              <IconCheck />
-            </div>
+            <div className="acm-success-icon">✓</div>
             <h2 className="acm-title">Claim submitted!</h2>
             <p className="acm-sub">
               {naira(amount)} airtime will be sent to{" "}
@@ -219,9 +181,7 @@ export default function AirtimeClaimModal({
           <>
             <div className="acm-header">
               <span className="acm-emoji">📱</span>
-              <h2 className="acm-title">
-                Claim {naira(amount)} Airtime
-              </h2>
+              <h2 className="acm-title">Claim {naira(amount)} Airtime</h2>
               <p className="acm-sub">
                 Confirm the number to receive your airtime.
                 You can edit it if needed.
@@ -248,28 +208,23 @@ export default function AirtimeClaimModal({
                 />
               </div>
 
-              {network && netStyle && (
-                <div
-                  className="acm-network-badge"
-                  style={{ background: netStyle.bg, color: netStyle.color }}
-                >
-                  {netStyle.emoji} {network} detected
+              {network && (
+                <div className="acm-network-badge">
+                  {network} detected
                 </div>
               )}
 
               {phone.length >= 7 && !network && (
                 <div className="acm-network-unknown">
-                  ⚠️ Network not detected — double-check your number
+                  ⚠️ Network not detected — check your number
                 </div>
               )}
             </div>
 
-            {error && (
-              <p className="acm-error" role="alert">{error}</p>
-            )}
+            {error && <p className="acm-error">{error}</p>}
 
             <div className="acm-note">
-              ℹ️ Our team processes airtime claims within 24 hours.
+              ℹ️ Our team processes claims within 24 hours.
             </div>
 
             <button
@@ -277,10 +232,7 @@ export default function AirtimeClaimModal({
               onClick={handleSubmit}
               disabled={loading || phone.length < 10}
             >
-              {loading
-                ? <><IconLoader /> Submitting…</>
-                : `Claim ${naira(amount)} Airtime`
-              }
+              {loading ? "Submitting…" : `Claim ${naira(amount)} Airtime`}
             </button>
 
             <button
