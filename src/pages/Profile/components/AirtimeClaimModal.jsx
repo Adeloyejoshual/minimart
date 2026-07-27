@@ -1,6 +1,6 @@
 // src/pages/Profile/components/AirtimeClaimModal.jsx
 import { useState, useEffect, useCallback } from "react";
-import "./styles/AirtimeClaimModal.css";
+import "../styles/AirtimeClaimModal.css";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api`;
