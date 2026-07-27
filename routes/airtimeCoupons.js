@@ -6,7 +6,7 @@ import authenticate from "../middleware/auth.js";
 
 const router = express.Router();
 
-const OTP_TTL_MINUTES = 10;
+const OTP_TTL_MINUTES  = 10;
 const OTP_MAX_ATTEMPTS = 5;
 const IS_PROD = process.env.NODE_ENV === "production";
 
@@ -63,36 +63,55 @@ const generateOtp = () =>
   crypto.randomInt(100_000, 999_999).toString();
 
 /* ═══════════════════════════════════════════════════════════════
-   SMS — Termii only
-   Returns { ok: true } or throws with a clear message
+   SMS — Termii v4
+   Uses the new v4 API endpoint (https://v4.api.termii.com)
+   which is what modern "tlv_" prefixed keys authenticate against.
 ═══════════════════════════════════════════════════════════════ */
 async function sendSms(intlPhone, otp) {
   const message =
     `Your Loemart verification code is ${otp}. ` +
     `Valid for ${OTP_TTL_MINUTES} minutes. Do not share it.`;
 
-  /* ── Termii ── */
   if (process.env.TERMII_API_KEY) {
-    const res = await fetch("https://api.ng.termii.com/api/sms/send", {
+    const payload = {
+      to      : intlPhone.replace(/^\+/, ""),          // "2348145244928"
+      from    : process.env.TERMII_SENDER_ID || "N-Alert",
+      sms     : message,
+      type    : "plain",
+      channel : "generic",                              // v4 default channel
+      api_key : process.env.TERMII_API_KEY,
+    };
+
+    const res = await fetch("https://v4.api.termii.com/api/sms/send", {
       method : "POST",
       headers: { "Content-Type": "application/json" },
-      body   : JSON.stringify({
-        to      : intlPhone.replace(/^\+/, ""),
-        from    : process.env.TERMII_SENDER_ID || "N-Alert",
-        sms     : message,
-        type    : "plain",
-        channel : "dnd",
-        api_key : process.env.TERMII_API_KEY,
-      }),
+      body   : JSON.stringify(payload),
     });
 
     const data = await res.json().catch(() => ({}));
 
-    if (!res.ok || data.code === "401" || /invalid/i.test(data.message)) {
-      throw new Error(data.message || `Termii HTTP ${res.status}`);
+    /* Log the raw Termii response for debugging */
+    console.log(
+      `[termii v4] status=${res.status} response=${JSON.stringify(data)}`
+    );
+
+    /* Detect failure — v4 returns various error shapes */
+    const failed =
+      !res.ok ||
+      data.code === "401" ||
+      data.code === "403" ||
+      /invalid|unauthor|forbidden/i.test(data.message || "") ||
+      /invalid|unauthor|forbidden/i.test(data.error   || "");
+
+    if (failed) {
+      throw new Error(
+        data.message ||
+        data.error   ||
+        `Termii HTTP ${res.status}`
+      );
     }
 
-    console.log(`[airtime] SMS sent via Termii to ${intlPhone}`);
+    console.log(`[airtime] ✓ SMS sent via Termii v4 to ${intlPhone}`);
     return { ok: true };
   }
 
@@ -178,7 +197,7 @@ setup().catch((e) =>
    Body: { phone }
    1. Validates phone
    2. Stores OTP in DB
-   3. Sends SMS
+   3. Sends SMS via Termii v4
 ═══════════════════════════════════════════════════════════════ */
 router.post("/send-otp", authenticate, async (req, res) => {
   const userId = req.user.id;
@@ -246,19 +265,27 @@ router.post("/send-otp", authenticate, async (req, res) => {
   } catch (err) {
     console.error("[airtime] send-otp error:", err.message);
 
+    const msg = String(err.message || "").toLowerCase();
+
     /* SMS-specific errors */
-    if (
-      err.message.includes("Invalid API Key") ||
-      err.message.includes("invalid api key")
-    ) {
+    if (msg.includes("invalid") && (msg.includes("api") || msg.includes("key"))) {
       return res.status(502).json({
         success: false,
         code   : "SMS_AUTH_FAILED",
-        message: "SMS service configuration error. Please contact support.",
+        message: "SMS service authentication failed. Please contact support.",
+        ...(!IS_PROD && { debug: err.message }),
       });
     }
 
-    if (err.message.includes("No SMS provider")) {
+    if (msg.includes("insufficient") || msg.includes("balance") || msg.includes("credit")) {
+      return res.status(502).json({
+        success: false,
+        code   : "SMS_NO_CREDIT",
+        message: "SMS service is out of credit. Please contact support.",
+      });
+    }
+
+    if (msg.includes("no sms provider")) {
       return res.status(503).json({
         success: false,
         code   : "SMS_NOT_CONFIGURED",
