@@ -8,9 +8,20 @@ import rateLimit    from "express-rate-limit";
 import { pool }     from "../config/db.js";
 import authenticate from "../middleware/auth.js";
 
-import { notify }                       from "../lib/notifications.js";
-import { addFraudPoints, isSuspended }  from "../lib/fraudScoring.js";
-import { checkSuspiciousActivity }      from "../lib/suspiciousActivity.js";
+import {
+  addFraudPoints,
+  isSuspended,
+  clearFraudScore,
+} from "../lib/fraudScoring.js";
+
+import {
+  sendAirtimeClaimSubmittedEmail,
+  sendAirtimeClaimApprovedEmail,
+  sendAirtimeClaimCompletedEmail,
+  sendAirtimeClaimRejectedEmail,
+  sendAirtimePhoneChangedEmail,
+  sendAirtimeCooldownReminderEmail,
+} from "../services/airtimenotifications.js";
 
 const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
@@ -71,6 +82,17 @@ const getDeviceHash = (req) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   SAFE EMAIL FIRE-AND-FORGET
+═══════════════════════════════════════════════════════════════ */
+const safeEmail = (fn, args) => {
+  try {
+    fn(args).catch((e) => console.warn(`[airtime] email failed:`, e.message));
+  } catch (e) {
+    console.warn(`[airtime] email threw:`, e.message);
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════════
    SETTINGS CACHE (5-minute TTL)
 ═══════════════════════════════════════════════════════════════ */
 let settingsCache     = null;
@@ -104,7 +126,7 @@ async function getSettings() {
 const invalidateSettings = () => { settingsCache = null; };
 
 /* ═══════════════════════════════════════════════════════════════
-   FRAUD LOG (structured event log for admin review)
+   FRAUD LOG (structured event log)
 ═══════════════════════════════════════════════════════════════ */
 async function logFraud(client, {
   userId, phone, event, metadata, ipAddress, userAgent,
@@ -188,6 +210,65 @@ async function checkClaimLimits(client, userId, settings) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   SUSPICIOUS PATTERN DETECTION (async, non-blocking)
+═══════════════════════════════════════════════════════════════ */
+async function checkSuspiciousActivity({ userId, phone, ip, deviceHash, settings }) {
+  try {
+    /* 1. Too many accounts from same IP in 24h */
+    if (ip) {
+      const { rows } = await pool.query(
+        `SELECT COUNT(DISTINCT user_id)::INT AS cnt
+         FROM   public.airtime_claims
+         WHERE  ip_address = $1
+           AND  submitted_at > NOW() - INTERVAL '24 hours'
+           AND  user_id != $2`,
+        [ip, userId]
+      );
+      if ((rows[0]?.cnt ?? 0) >= settings.max_accounts_per_ip) {
+        addFraudPoints(userId, "many_accounts_same_ip", {
+          ip, count: rows[0].cnt,
+        }).catch(() => {});
+      }
+    }
+
+    /* 2. Too many accounts from same device in 24h */
+    if (deviceHash) {
+      const { rows } = await pool.query(
+        `SELECT COUNT(DISTINCT user_id)::INT AS cnt
+         FROM   public.airtime_claims
+         WHERE  device_hash = $1
+           AND  submitted_at > NOW() - INTERVAL '24 hours'
+           AND  user_id != $2`,
+        [deviceHash, userId]
+      );
+      if ((rows[0]?.cnt ?? 0) >= settings.max_accounts_per_device) {
+        addFraudPoints(userId, "many_accounts_same_device", {
+          deviceHash, count: rows[0].cnt,
+        }).catch(() => {});
+      }
+    }
+
+    /* 3. Same phone historically registered to many users */
+    if (phone) {
+      const { rows } = await pool.query(
+        `SELECT COUNT(DISTINCT user_id)::INT AS cnt
+         FROM   public.airtime_phone_registry
+         WHERE  phone = $1`,
+        [phone]
+      );
+      if ((rows[0]?.cnt ?? 0) >= 3) {
+        addFraudPoints(userId, "suspicious_phone_pattern", {
+          phone: maskPhone(phone),
+          lifetime_users: rows[0].cnt,
+        }).catch(() => {});
+      }
+    }
+  } catch (e) {
+    console.warn("[suspicious-check] failed:", e.message);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    RATE LIMITERS
 ═══════════════════════════════════════════════════════════════ */
 const makeLimit = (opts) => rateLimit({
@@ -243,15 +324,14 @@ async function setup() {
 }
 setup().catch((e) => console.error("[airtime] setup failed:", e.message));
 
-/* ════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    ═══════════════════════════════════════════════════════════════
                             USER ROUTES
    ═══════════════════════════════════════════════════════════════
-════════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/airtime-coupons
-   List user's airtime coupons
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
   const userId = req.user.id;
@@ -286,7 +366,6 @@ router.get("/", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/airtime-coupons/airtime-phone
-   Returns saved airtime phone + cooldown info
 ═══════════════════════════════════════════════════════════════ */
 router.get("/airtime-phone", authenticate, async (req, res) => {
   const userId   = req.user.id;
@@ -330,7 +409,6 @@ router.get("/airtime-phone", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/airtime-coupons/check-phone/:phone
-   Live availability check (rate-limited, no info leak)
 ═══════════════════════════════════════════════════════════════ */
 router.get("/check-phone/:phone", authenticate, checkPhoneLimit, async (req, res) => {
   const userId   = req.user.id;
@@ -368,7 +446,7 @@ router.get("/check-phone/:phone", authenticate, checkPhoneLimit, async (req, res
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/airtime-coupons/redeem
-   Full redemption pipeline with fraud detection
+   Full redemption pipeline with fraud detection + email notifications
 ═══════════════════════════════════════════════════════════════ */
 router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
   const userId        = req.user.id;
@@ -396,7 +474,7 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
     });
   }
 
-  /* ── Suspension check (pre-transaction, cheap read) ── */
+  /* ── Pre-transaction suspension check ── */
   if (await isSuspended(userId)) {
     return res.status(403).json({
       success: false, code: "GIVEAWAYS_SUSPENDED",
@@ -475,10 +553,18 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
           ipAddress: ip, userAgent,
         });
 
-        /* Add fraud points (fire-and-forget) */
         addFraudPoints(userId, "cooldown_bypass_attempt", {
           current: user.airtime_phone, attempted: phone,
         }).catch(() => {});
+
+        /* Send friendly reminder email */
+        safeEmail(sendAirtimeCooldownReminderEmail, {
+          to             : user.email,
+          name           : user.name,
+          currentMasked  : maskPhone(user.airtime_phone),
+          nextChangeAt   : cooldown.next_change_at,
+          daysLeft       : cooldown.days_left,
+        });
 
         return res.status(400).json({
           success: false, code: "PHONE_COOLDOWN_ACTIVE",
@@ -590,7 +676,7 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
         [phone, network, userId]
       );
 
-      /* Mark old phone as released in registry */
+      /* Release old phone from registry */
       if (oldPhone) {
         await client.query(
           `UPDATE public.airtime_phone_registry
@@ -648,33 +734,44 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
       `₦${coupon.amount} | phone=${maskPhone(phone)}`
     );
 
-    /* ── Post-commit async tasks ── */
+    /* ═══════════════════════════════════════════════════════
+       POST-COMMIT ASYNC TASKS (fire and forget)
+    ═══════════════════════════════════════════════════════ */
 
-    /* Suspicious pattern check (non-blocking) */
-    checkSuspiciousActivity({ userId, phone, ip, deviceHash })
+    /* Suspicious pattern check */
+    checkSuspiciousActivity({ userId, phone, ip, deviceHash, settings })
       .catch((e) => console.warn("[suspicious-check]:", e.message));
 
-    /* Notify user of claim submission */
-    notify({
-      userId, template: "claim_submitted",
-      payload: {
-        name         : user.name,
-        amount       : Number(coupon.amount),
-        masked_phone : maskPhone(phone),
-      },
-    }).catch(() => {});
+    /* Notify user: claim submitted (or approved if auto-approve) */
+    if (finalStatus === "approved") {
+      safeEmail(sendAirtimeClaimApprovedEmail, {
+        to      : user.email,
+        name    : user.name,
+        amount  : Number(coupon.amount),
+        phone   : maskPhone(phone),
+        network,
+      });
+    } else {
+      safeEmail(sendAirtimeClaimSubmittedEmail, {
+        to      : user.email,
+        name    : user.name,
+        amount  : Number(coupon.amount),
+        phone   : maskPhone(phone),
+        network,
+        slaHours: settings.processing_sla_hours,
+      });
+    }
 
-    /* Notify user if their default phone changed */
+    /* Notify user if their default phone changed (security alert) */
     if (phoneIsChanging && phoneSaved) {
-      notify({
-        userId, template: "phone_changed",
-        payload: {
-          name         : user.name,
-          masked_phone : maskPhone(phone),
-          old_masked   : maskPhone(oldPhone),
-          ip,
-        },
-      }).catch(() => {});
+      safeEmail(sendAirtimePhoneChangedEmail, {
+        to        : user.email,
+        name      : user.name,
+        newMasked : maskPhone(phone),
+        oldMasked : maskPhone(oldPhone),
+        ip,
+        changedAt : new Date(),
+      });
     }
 
     return res.json({
@@ -719,7 +816,6 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    PATCH /api/airtime-coupons/airtime-phone
-   Update default airtime phone (respects cooldown + limit)
 ═══════════════════════════════════════════════════════════════ */
 router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) => {
   const userId    = req.user.id;
@@ -748,7 +844,7 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
     await client.query("BEGIN");
 
     const { rows: userRows } = await client.query(
-      `SELECT airtime_phone, airtime_phone_updated_at, name, deleted_at
+      `SELECT airtime_phone, airtime_phone_updated_at, name, email, deleted_at
        FROM   public.users WHERE id = $1 LIMIT 1 FOR UPDATE`,
       [userId]
     );
@@ -773,14 +869,25 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
       const cooldown = await getCooldownStatus(client, userId, settings.phone_change_cooldown_days);
       if (cooldown.in_cooldown) {
         await client.query("ROLLBACK");
+
         await logFraud(client, {
           userId, phone, event: "cooldown_bypass_attempt",
           metadata: { current: user.airtime_phone, attempted: phone, days_left: cooldown.days_left },
           ipAddress: ip, userAgent,
         });
+
         addFraudPoints(userId, "cooldown_bypass_attempt", {
           current: user.airtime_phone, attempted: phone,
         }).catch(() => {});
+
+        safeEmail(sendAirtimeCooldownReminderEmail, {
+          to             : user.email,
+          name           : user.name,
+          currentMasked  : maskPhone(user.airtime_phone),
+          nextChangeAt   : cooldown.next_change_at,
+          daysLeft       : cooldown.days_left,
+        });
+
         return res.status(400).json({
           success: false, code: "PHONE_COOLDOWN_ACTIVE",
           message: `You can change your default airtime number in ${cooldown.days_left} day${cooldown.days_left !== 1 ? "s" : ""}.`,
@@ -853,15 +960,14 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
     await client.query("COMMIT");
 
     /* Notify user (async) */
-    notify({
-      userId, template: "phone_changed",
-      payload: {
-        name         : user.name,
-        masked_phone : maskPhone(phone),
-        old_masked   : maskPhone(oldPhone),
-        ip,
-      },
-    }).catch(() => {});
+    safeEmail(sendAirtimePhoneChangedEmail, {
+      to        : user.email,
+      name      : user.name,
+      newMasked : maskPhone(phone),
+      oldMasked : maskPhone(oldPhone),
+      ip,
+      changedAt : new Date(),
+    });
 
     return res.json({
       success: true,
@@ -970,11 +1076,11 @@ router.get("/status/:id", authenticate, async (req, res) => {
   }
 });
 
-/* ════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════
    ═══════════════════════════════════════════════════════════════
                             ADMIN ROUTES
    ═══════════════════════════════════════════════════════════════
-════════════════════════════════════════════════════════════════ */
+═══════════════════════════════════════════════════════════════ */
 
 const requireAdmin = (req, res, next) => {
   const isAdmin = req.user?.role === "admin" || req.user?.is_admin === true;
@@ -1090,13 +1196,13 @@ router.get("/admin/claims", authenticate, requireAdmin, async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /admin/claims/:id/process — Approve/reject/complete claim
+   POST /admin/claims/:id/process — Approve/reject/complete
 ═══════════════════════════════════════════════════════════════ */
 router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req, res) => {
-  const adminId  = req.user.id;
-  const claimId  = req.params.id;
-  const action   = req.body?.action;
-  const remarks  = req.body?.remarks || null;
+  const adminId = req.user.id;
+  const claimId = req.params.id;
+  const action  = req.body?.action;
+  const remarks = req.body?.remarks || null;
 
   if (!["approve", "send", "complete", "reject", "fail"].includes(action)) {
     return res.status(400).json({ success: false, message: "Invalid action." });
@@ -1115,7 +1221,7 @@ router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req,
     await client.query("BEGIN");
 
     const { rows } = await client.query(
-      `SELECT id, status, coupon_id, user_id, amount, phone
+      `SELECT id, status, coupon_id, user_id, amount, phone, network
        FROM   public.airtime_claims
        WHERE  id = $1
        LIMIT  1
@@ -1153,37 +1259,46 @@ router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req,
 
     await client.query("COMMIT");
 
-    /* ── Post-commit notifications ── */
+    /* ═══════════════════════════════════════════════════════
+       POST-COMMIT NOTIFICATIONS
+    ═══════════════════════════════════════════════════════ */
     const { rows: userRow } = await pool.query(
-      `SELECT name FROM public.users WHERE id = $1`,
+      `SELECT name, email FROM public.users WHERE id = $1`,
       [claim.user_id]
     );
-    const userName = userRow[0]?.name;
+    const user = userRow[0];
 
-    const templateMap = {
-      approved : "claim_approved",
-      completed: "claim_completed",
-      rejected : "claim_rejected",
-    };
-
-    if (templateMap[newStatus]) {
-      notify({
-        userId  : claim.user_id,
-        template: templateMap[newStatus],
-        payload : {
-          name         : userName,
-          amount       : Number(claim.amount),
-          masked_phone : maskPhone(claim.phone),
+    if (user) {
+      if (newStatus === "approved") {
+        safeEmail(sendAirtimeClaimApprovedEmail, {
+          to      : user.email,
+          name    : user.name,
+          amount  : Number(claim.amount),
+          phone   : maskPhone(claim.phone),
+          network : claim.network,
+        });
+      } else if (newStatus === "completed" || newStatus === "sent") {
+        safeEmail(sendAirtimeClaimCompletedEmail, {
+          to      : user.email,
+          name    : user.name,
+          amount  : Number(claim.amount),
+          phone   : maskPhone(claim.phone),
+          network : claim.network,
+        });
+      } else if (newStatus === "rejected") {
+        safeEmail(sendAirtimeClaimRejectedEmail, {
+          to      : user.email,
+          name    : user.name,
+          amount  : Number(claim.amount),
+          phone   : maskPhone(claim.phone),
           remarks,
-        },
-      }).catch(() => {});
-    }
+        });
 
-    /* Fraud points for rejected claims */
-    if (newStatus === "rejected") {
-      addFraudPoints(claim.user_id, "claim_rejected_by_admin", {
-        claim_id: claimId, remarks,
-      }).catch(() => {});
+        /* Fraud points for rejected claims */
+        addFraudPoints(claim.user_id, "claim_rejected_by_admin", {
+          claim_id: claimId, remarks,
+        }).catch(() => {});
+      }
     }
 
     return res.json({ success: true, message: `Claim ${newStatus}.`, status: newStatus });
@@ -1260,7 +1375,7 @@ router.post("/admin/reset-cooldown/:userId", authenticate, requireAdmin, async (
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /admin/free-phone — Free a phone from all users
+   POST /admin/free-phone
 ═══════════════════════════════════════════════════════════════ */
 router.post("/admin/free-phone", authenticate, requireAdmin, async (req, res) => {
   const { phone } = req.body;
@@ -1295,11 +1410,11 @@ router.post("/admin/free-phone", authenticate, requireAdmin, async (req, res) =>
    POST /admin/change-user-phone
 ═══════════════════════════════════════════════════════════════ */
 router.post("/admin/change-user-phone", authenticate, requireAdmin, async (req, res) => {
-  const adminId    = req.user.id;
+  const adminId   = req.user.id;
   const { userId, phone, reason } = req.body;
-  const p          = normalizePhone(phone);
-  const ip         = getIp(req);
-  const userAgent  = req.headers["user-agent"];
+  const p         = normalizePhone(phone);
+  const ip        = getIp(req);
+  const userAgent = req.headers["user-agent"];
 
   if (!userId || !p || !isValidPhone(p)) {
     return res.status(400).json({ success: false, message: "Invalid inputs." });
@@ -1310,7 +1425,7 @@ router.post("/admin/change-user-phone", authenticate, requireAdmin, async (req, 
     await client.query("BEGIN");
 
     const { rows: [old] } = await client.query(
-      `SELECT airtime_phone, name FROM public.users WHERE id = $1`,
+      `SELECT airtime_phone, name, email FROM public.users WHERE id = $1`,
       [userId]
     );
 
@@ -1356,14 +1471,16 @@ router.post("/admin/change-user-phone", authenticate, requireAdmin, async (req, 
     await client.query("COMMIT");
 
     /* Notify user */
-    notify({
-      userId, template: "phone_changed",
-      payload: {
-        name         : old?.name,
-        masked_phone : maskPhone(p),
-        old_masked   : maskPhone(old?.airtime_phone),
-      },
-    }).catch(() => {});
+    if (old?.email) {
+      safeEmail(sendAirtimePhoneChangedEmail, {
+        to        : old.email,
+        name      : old.name,
+        newMasked : maskPhone(p),
+        oldMasked : maskPhone(old.airtime_phone),
+        ip        : `admin-override`,
+        changedAt : new Date(),
+      });
+    }
 
     return res.json({ success: true, message: "Phone changed by admin." });
   } catch (err) {
@@ -1379,16 +1496,7 @@ router.post("/admin/change-user-phone", authenticate, requireAdmin, async (req, 
 ═══════════════════════════════════════════════════════════════ */
 router.post("/admin/clear-fraud-score/:userId", authenticate, requireAdmin, async (req, res) => {
   try {
-    await pool.query(
-      `UPDATE public.users
-       SET    fraud_score          = 0,
-              fraud_status         = 'clean',
-              fraud_status_reason  = NULL,
-              giveaways_suspended  = false,
-              updated_at           = NOW()
-       WHERE  id = $1`,
-      [req.params.userId]
-    );
+    await clearFraudScore(req.params.userId, req.user.id);
     return res.json({ success: true, message: "Fraud score cleared." });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -1396,26 +1504,33 @@ router.post("/admin/clear-fraud-score/:userId", authenticate, requireAdmin, asyn
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /admin/suspend/:userId — Manual suspension
+   POST /admin/suspend/:userId
 ═══════════════════════════════════════════════════════════════ */
 router.post("/admin/suspend/:userId", authenticate, requireAdmin, async (req, res) => {
   const { reason } = req.body;
+
   try {
-    await pool.query(
+    const { rows } = await pool.query(
       `UPDATE public.users
        SET    giveaways_suspended = true,
               fraud_status        = 'suspended',
               fraud_status_reason = $1,
               fraud_status_at     = NOW()
-       WHERE  id = $2`,
+       WHERE  id = $2
+       RETURNING name, email`,
       [reason || "Manual admin suspension", req.params.userId]
     );
 
-    notify({
-      userId: req.params.userId,
-      template: "giveaways_suspended",
-      payload: { reason: reason || "Policy violation" },
-    }).catch(() => {});
+    if (rows[0]?.email) {
+      /* Import at top not needed — using safeEmail wrapper directly */
+      import("../services/airtimenotifications.js").then((mod) => {
+        safeEmail(mod.sendAirtimeGiveawaysSuspendedEmail, {
+          to     : rows[0].email,
+          name   : rows[0].name,
+          reason : reason || "Policy violation",
+        });
+      }).catch(() => {});
+    }
 
     return res.json({ success: true, message: "User suspended from giveaways." });
   } catch (err) {
@@ -1452,7 +1567,7 @@ router.get("/admin/phone-history/:userId", authenticate, requireAdmin, async (re
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /admin/phone-registry/:phone — Lifetime users of a phone
+   GET /admin/phone-registry/:phone
 ═══════════════════════════════════════════════════════════════ */
 router.get("/admin/phone-registry/:phone", authenticate, requireAdmin, async (req, res) => {
   const p = normalizePhone(req.params.phone);
@@ -1486,8 +1601,8 @@ router.get("/admin/phone-registry/:phone", authenticate, requireAdmin, async (re
    GET /admin/fraud-log
 ═══════════════════════════════════════════════════════════════ */
 router.get("/admin/fraud-log", authenticate, requireAdmin, async (req, res) => {
-  const limit  = Math.min(200, parseInt(req.query.limit ?? "50", 10));
-  const event  = req.query.event;
+  const limit = Math.min(200, parseInt(req.query.limit ?? "50", 10));
+  const event = req.query.event;
 
   try {
     const args = [limit];
