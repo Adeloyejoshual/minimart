@@ -1,8 +1,9 @@
 // src/pages/Profile/Coupons.jsx
 import { useState, useEffect, useCallback, useRef } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams }              from "react-router-dom";
 import "./styles/Coupons.css";
-import AirtimeClaimModal from "./components/AirtimeClaimModal";
+import AirtimeClaimModal   from "./components/AirtimeClaimModal";
+import VerificationModal   from "./components/VerificationModal";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API
@@ -19,12 +20,12 @@ const getToken = () =>
   null;
 
 const authH = () => ({
-  Authorization  : `Bearer ${getToken()}`,
-  "Content-Type" : "application/json",
+  Authorization : `Bearer ${getToken()}`,
+  "Content-Type": "application/json",
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   USER LOOKUP — checks EVERY common key + shape
+   USER LOOKUP
 ═══════════════════════════════════════════════════════════════ */
 const USER_KEYS = [
   "marketplace_user",
@@ -37,7 +38,7 @@ const USER_KEYS = [
 ];
 
 const PHONE_FIELDS = [
-  "best_phone",       // ← from /users/me shape
+  "best_phone",
   "phone_number",
   "phone",
   "phoneNumber",
@@ -50,14 +51,9 @@ const getStoredUser = () => {
     try {
       const raw = localStorage.getItem(key);
       if (!raw) continue;
-
       const parsed = JSON.parse(raw);
-
-      const directHasPhone = PHONE_FIELDS.some((f) => parsed?.[f]);
-      if (directHasPhone) return parsed;
-
-      const nestedHasPhone = PHONE_FIELDS.some((f) => parsed?.user?.[f]);
-      if (nestedHasPhone) return parsed.user;
+      if (PHONE_FIELDS.some((f) => parsed?.[f]))      return parsed;
+      if (PHONE_FIELDS.some((f) => parsed?.user?.[f])) return parsed.user;
     } catch { /* not JSON */ }
   }
   return null;
@@ -81,21 +77,13 @@ const normalisePhone = (raw) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   RESOLVE PREFILL — priority chain
+   PREFILL HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const resolvePrefilledPhone = () => {
-  const verified = localStorage.getItem("verified_phone");
-  if (verified) return normalisePhone(verified);
-
-  const user = getStoredUser();
+  const user  = getStoredUser();
   const phone = extractPhone(user);
-  if (phone) return normalisePhone(phone);
-
-  return "";
+  return phone ? normalisePhone(phone) : "";
 };
-
-const resolvePrefilledNetwork = () =>
-  localStorage.getItem("verified_network") || "";
 
 /* ═══════════════════════════════════════════════════════════════
    FORMATTING HELPERS
@@ -129,7 +117,7 @@ const COUPON_CONFIG = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SVG ICONS
+   SVG ICONS  (unchanged — keeping all your originals)
 ═══════════════════════════════════════════════════════════════ */
 const IconBack = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
@@ -137,7 +125,6 @@ const IconBack = () => (
     <path d="M19 12H5M12 19l-7-7 7-7"/>
   </svg>
 );
-
 const IconRefresh = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -147,7 +134,6 @@ const IconRefresh = () => (
     <path d="M3 21v-5h5"/>
   </svg>
 );
-
 const IconPercent = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
@@ -156,7 +142,6 @@ const IconPercent = () => (
     <path d="M5 19L19 5"/>
   </svg>
 );
-
 const IconTag = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -164,7 +149,6 @@ const IconTag = () => (
     <line x1="7" y1="7" x2="7.01" y2="7"/>
   </svg>
 );
-
 const IconTruck = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -174,7 +158,6 @@ const IconTruck = () => (
     <circle cx="18.5" cy="18.5" r="2.5"/>
   </svg>
 );
-
 const IconPhone = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -182,7 +165,6 @@ const IconPhone = () => (
     <line x1="12" y1="18" x2="12.01" y2="18"/>
   </svg>
 );
-
 const IconCopy = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -190,14 +172,12 @@ const IconCopy = () => (
     <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/>
   </svg>
 );
-
 const IconCheck = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="20 6 9 17 4 12"/>
   </svg>
 );
-
 const IconSearch = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -205,7 +185,6 @@ const IconSearch = () => (
     <line x1="21" y1="21" x2="16.65" y2="16.65"/>
   </svg>
 );
-
 const IconAlertCircle = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -214,7 +193,6 @@ const IconAlertCircle = () => (
     <line x1="12" y1="16" x2="12.01" y2="16"/>
   </svg>
 );
-
 const IconCheckCircle = () => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -222,7 +200,6 @@ const IconCheckCircle = () => (
     <polyline points="22 4 12 14.01 9 11.01"/>
   </svg>
 );
-
 const IconGift = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -233,7 +210,6 @@ const IconGift = () => (
     <path d="M12 7h4.5a2.5 2.5 0 000-5C13 2 12 7 12 7z"/>
   </svg>
 );
-
 const IconClock = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -241,7 +217,6 @@ const IconClock = () => (
     <polyline points="12 6 12 12 16 14"/>
   </svg>
 );
-
 const IconInfo = () => (
   <svg width="15" height="15" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -250,12 +225,18 @@ const IconInfo = () => (
     <line x1="12" y1="8"  x2="12.01" y2="8"/>
   </svg>
 );
-
 const IconSend = () => (
   <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <line x1="22" y1="2" x2="11" y2="13"/>
     <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+  </svg>
+);
+const IconMail = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="4" width="20" height="16" rx="2"/>
+    <polyline points="22,4 12,13 2,4"/>
   </svg>
 );
 
@@ -274,29 +255,28 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
   const isCopied = copied === coupon.code;
   const isUsed   = coupon.is_used;
 
-  /* Map backend statuses (from airtimeCoupons.js) to display */
   const statusMap = {
-    available  : { label: "Ready to claim",  color: "#16a34a" },
-    redeemed   : { label: "Claim submitted", color: "#f59e0b" },
-    processing : { label: "Processing…",     color: "#f59e0b" },
-    completed  : { label: "Credited ✓",      color: "#6366f1" },
-    failed     : { label: "Failed — retry",  color: "#dc2626" },
-    expired    : { label: "Expired",         color: "#dc2626" },
-    /* legacy */
-    claimed    : { label: "Claim submitted", color: "#f59e0b" },
-    credited   : { label: "Credited ✓",      color: "#6366f1" },
+    available : { label: "Ready to claim",  color: "#16a34a" },
+    pending   : { label: "Pending review",  color: "#f59e0b" },  // ← new status
+    redeemed  : { label: "Claim submitted", color: "#f59e0b" },
+    processing: { label: "Processing…",     color: "#f59e0b" },
+    completed : { label: "Credited ✓",      color: "#6366f1" },
+    failed    : { label: "Failed — retry",  color: "#dc2626" },
+    expired   : { label: "Expired",         color: "#dc2626" },
+    claimed   : { label: "Claim submitted", color: "#f59e0b" },
+    credited  : { label: "Credited ✓",      color: "#6366f1" },
   };
 
   const effectiveStatus = coupon.status ?? "available";
   const st = statusMap[effectiveStatus] ?? statusMap.available;
 
-  const isPending   = ["redeemed", "processing", "claimed"].includes(effectiveStatus);
+  const isPending   = ["pending", "redeemed", "processing", "claimed"]
+    .includes(effectiveStatus);
   const isCompleted = ["completed", "credited"].includes(effectiveStatus);
   const isFailed    = effectiveStatus === "failed";
 
   return (
     <div className={`cp-card cp-card--airtime${isUsed ? " cp-card--used" : ""}`}>
-
       <div className="cp-card-strip" style={{ background: cfg.color }} />
 
       <div className="cp-card-main">
@@ -316,9 +296,7 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
         <div className="cp-details">
           <span className="cp-detail">Won on {fmtDate(coupon.created_at)}</span>
           {coupon.claimed_at && (
-            <span className="cp-detail">
-              Claimed {fmtDate(coupon.claimed_at)}
-            </span>
+            <span className="cp-detail">Claimed {fmtDate(coupon.claimed_at)}</span>
           )}
           {coupon.claim_phone && (
             <span className="cp-detail">
@@ -328,6 +306,7 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
           )}
         </div>
 
+        {/* Claim button — only when available */}
         {!isUsed && effectiveStatus === "available" && (
           <button
             className="cp-airtime-claim-btn"
@@ -342,7 +321,7 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
         {isPending && (
           <div className="cp-airtime-pending">
             <IconClock />
-            <span>Processing — airtime sent within 24 hours</span>
+            <span>Pending — admin will process within 24 hours</span>
           </div>
         )}
 
@@ -384,7 +363,7 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   DISCOUNT COUPON CARD
+   DISCOUNT COUPON CARD  (unchanged)
 ═══════════════════════════════════════════════════════════════ */
 function CouponCard({ coupon, onCopy, copied }) {
   const cfg      = COUPON_CONFIG[coupon.type] || COUPON_CONFIG.percentage;
@@ -415,7 +394,6 @@ function CouponCard({ coupon, onCopy, copied }) {
 
   return (
     <div className={`cp-card${!coupon.usable ? " cp-card--used" : ""}`}>
-
       <div className="cp-card-strip" style={{ background: cfg.color }} />
 
       <div className="cp-card-main">
@@ -493,17 +471,11 @@ function SmartCard({ coupon, onCopy, copied, onClaim, claiming }) {
       />
     );
   }
-  return (
-    <CouponCard
-      coupon={coupon}
-      onCopy={onCopy}
-      copied={copied}
-    />
-  );
+  return <CouponCard coupon={coupon} onCopy={onCopy} copied={copied} />;
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   VALIDATE PANEL
+   VALIDATE PANEL  (unchanged)
 ═══════════════════════════════════════════════════════════════ */
 function ValidatePanel({ onValidated }) {
   const [code,    setCode]    = useState("");
@@ -519,11 +491,11 @@ function ValidatePanel({ onValidated }) {
     setResult(null);
     try {
       const res  = await fetch(`${API}/coupons/validate`, {
-        method  : "POST",
-        headers : authH(),
-        body    : JSON.stringify({
-          code         : code.trim().toUpperCase(),
-          order_amount : Math.max(0, Number(amount) || 0),
+        method : "POST",
+        headers: authH(),
+        body   : JSON.stringify({
+          code        : code.trim().toUpperCase(),
+          order_amount: Math.max(0, Number(amount) || 0),
         }),
       });
       const data = await res.json();
@@ -546,12 +518,9 @@ function ValidatePanel({ onValidated }) {
         <span className="cp-validate-header-icon"><IconSearch /></span>
         <div>
           <h3 className="cp-validate-title">Have a coupon code?</h3>
-          <p className="cp-validate-sub">
-            Enter your code below to check if it's valid
-          </p>
+          <p className="cp-validate-sub">Enter your code below to check validity</p>
         </div>
       </div>
-
       <div className="cp-validate-inputs">
         <input
           className="cp-validate-input"
@@ -578,7 +547,6 @@ function ValidatePanel({ onValidated }) {
           onKeyDown={(e) => e.key === "Enter" && validate()}
         />
       </div>
-
       <button
         className="cp-validate-btn"
         onClick={validate}
@@ -586,23 +554,18 @@ function ValidatePanel({ onValidated }) {
       >
         {loading ? "Checking…" : "Validate Coupon"}
       </button>
-
       {error && (
         <div className="cp-validate-error" role="alert">
-          <IconAlertCircle />
-          <span>{error}</span>
+          <IconAlertCircle /><span>{error}</span>
         </div>
       )}
-
       {result && (
         <div className="cp-validate-success" role="status">
           <div className="cp-validate-success-top">
             <span className="cp-validate-success-label">
               <IconCheckCircle /> Valid coupon!
             </span>
-            <span className="cp-validate-save">
-              {naira(result.discount)} off
-            </span>
+            <span className="cp-validate-save">{naira(result.discount)} off</span>
           </div>
           <p>{result.message}</p>
           {result.final_amount > 0 && (
@@ -617,30 +580,34 @@ function ValidatePanel({ onValidated }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   AIRTIME INFO BANNER
+   AIRTIME BANNER  — now reflects email verification
 ═══════════════════════════════════════════════════════════════ */
-function AirtimeBanner({ phoneStatus }) {
-  const isVerified = phoneStatus?.verified;
-
+function AirtimeBanner({ emailVerified, userEmail }) {
   return (
     <div className="cp-airtime-banner">
       <span className="cp-airtime-banner-icon">📱</span>
       <div>
         <p className="cp-airtime-banner-title">How airtime credits work</p>
         <p className="cp-airtime-banner-sub">
-          {isVerified ? (
+          {emailVerified ? (
             <>
-              Airtime will be sent to your verified number{" "}
-              <strong>{phoneStatus.masked}</strong> within 24 hours.
+              Your email <strong>{userEmail}</strong> is verified.
+              Tap <strong>Claim Airtime</strong>, confirm your phone number,
+              and our team will credit airtime within 24 hours.
             </>
           ) : (
             <>
-              Tap <strong>Claim Airtime</strong> on any airtime coupon.
-              Verify your phone number and our team will credit
-              your airtime within 24 hours.
+              Tap <strong>Claim Airtime</strong> to get started.
+              You'll need to verify your email{" "}
+              <strong>{userEmail}</strong> before we can process your claim.
             </>
           )}
         </p>
+        {emailVerified && (
+          <span className="cp-airtime-banner-badge">
+            <IconCheckCircle /> Email verified
+          </span>
+        )}
       </div>
     </div>
   );
@@ -653,29 +620,36 @@ export default function Coupons() {
   const navigate       = useNavigate();
   const [searchParams] = useSearchParams();
 
-  /* Read initial tab from URL: /coupons?tab=airtime */
   const urlTab     = searchParams.get("tab");
   const VALID_TABS = ["available", "airtime", "used", "history"];
   const initialTab = VALID_TABS.includes(urlTab) ? urlTab : "available";
 
   /* ── Core state ── */
-  const [coupons,     setCoupons]     = useState([]);
-  const [history,     setHistory]     = useState([]);
-  const [loading,     setLoading]     = useState(true);
-  const [error,       setError]       = useState(null);
-  const [tab,         setTab]         = useState(initialTab);
-  const [copied,      setCopied]      = useState(null);
-  const [toast,       setToast]       = useState(null);
-  const [claiming,    setClaiming]    = useState(null);
-  const [me,          setMe]          = useState(null);
-  const [phoneStatus, setPhoneStatus] = useState(null); // ← from /airtime-coupons/phone-status
+  const [coupons,       setCoupons]       = useState([]);
+  const [history,       setHistory]       = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState(null);
+  const [tab,           setTab]           = useState(initialTab);
+  const [copied,        setCopied]        = useState(null);
+  const [toast,         setToast]         = useState(null);
+  const [claiming,      setClaiming]      = useState(null);
+  const [me,            setMe]            = useState(null);
+
+  /* ── Email verification state ── */
+  const [emailVerified, setEmailVerified] = useState(false);
 
   /* ── Modal state ── */
   const [claimModal, setClaimModal] = useState({
-    open            : false,
-    coupon          : null,
-    prefilledPhone  : "",
-    prefilledNetwork: "",
+    open  : false,
+    coupon: null,
+    // Phone prefill — collected from profile, editable in modal
+    prefilledPhone: "",
+  });
+
+  /* ── Verification modal — shown when email NOT verified ── */
+  const [verifyModal, setVerifyModal] = useState({
+    open        : false,
+    pendingCoupon: null,   // ← coupon waiting to be claimed after verification
   });
 
   /* ── Refs ── */
@@ -703,7 +677,8 @@ export default function Coupons() {
   }, []);
 
   /* ════════════════════════════════════════════════════════
-     LOAD /users/me — fresh profile from DB
+     LOAD /users/me
+     Pulls email_verified + phone in one call
   ════════════════════════════════════════════════════════ */
   const loadProfile = useCallback(async () => {
     try {
@@ -713,48 +688,30 @@ export default function Coupons() {
       const data = await res.json();
       const user = data?.user || data;
 
-      if (user && (user.best_phone || user.phone_number || user.phone)) {
-        if (mountedRef.current) setMe(user);
+      if (!user || !mountedRef.current) return;
 
-        try {
-          localStorage.setItem("marketplace_user", JSON.stringify(user));
-        } catch { /* quota exceeded */ }
-      }
-    } catch { /* silent */ }
-  }, []);
+      setMe(user);
 
-  /* ════════════════════════════════════════════════════════
-     LOAD /airtime-coupons/phone-status — has_phone/verified/etc.
-  ════════════════════════════════════════════════════════ */
-  const loadPhoneStatus = useCallback(async () => {
-    try {
-      const res = await fetch(
-        `${API}/airtime-coupons/phone-status`,
-        { headers: authH() }
-      );
-      if (!res.ok) return;
+      /* ── Pull email_verified directly from profile ── */
+      const verified =
+        user.email_verified === true ||
+        user.emailVerified  === true ||
+        user.is_verified    === true;
 
-      const data = await res.json();
-      if (data.success && mountedRef.current) {
-        setPhoneStatus(data.phone);
+      setEmailVerified(verified);
 
-        /* Cache verified phone for future auto-skip */
-        if (data.phone?.verified && data.phone?.local_number == null) {
-          /* backend hides local_number when verified — use masked prefix */
-        }
-        if (data.phone?.network) {
-          try {
-            localStorage.setItem("verified_network", data.phone.network);
-          } catch {}
-        }
-      }
+      /* Cache in localStorage so AirtimeClaimModal can read it */
+      try {
+        localStorage.setItem("marketplace_user",  JSON.stringify(user));
+        localStorage.setItem("email_verified",     verified ? "1" : "0");
+      } catch { /* quota exceeded */ }
+
     } catch { /* silent */ }
   }, []);
 
   useEffect(() => {
     loadProfile();
-    loadPhoneStatus();
-  }, [loadProfile, loadPhoneStatus]);
+  }, [loadProfile]);
 
   /* ════════════════════════════════════════════════════════
      LOAD COUPONS + HISTORY
@@ -775,8 +732,8 @@ export default function Coupons() {
       const historyData = await historyRes.json();
 
       if (mountedRef.current) {
-        setCoupons(couponData.coupons  || []);
-        setHistory(historyData.history || []);
+        setCoupons(couponData.coupons   || []);
+        setHistory(historyData.history  || []);
       }
     } catch (err) {
       if (mountedRef.current) {
@@ -799,141 +756,91 @@ export default function Coupons() {
      REFRESH EVERYTHING
   ════════════════════════════════════════════════════════ */
   const refreshAll = useCallback(async () => {
-    await Promise.all([
-      loadCoupons(),
-      loadProfile(),
-      loadPhoneStatus(),
-    ]);
-  }, [loadCoupons, loadProfile, loadPhoneStatus]);
+    await Promise.all([loadCoupons(), loadProfile()]);
+  }, [loadCoupons, loadProfile]);
 
   /* ════════════════════════════════════════════════════════
-     RESOLVE PHONE
-     Priority:  verified_phone → phoneStatus → me → localStorage
+     RESOLVE PREFILL PHONE
+     Priority: me.best_phone → me.phone → localStorage
   ════════════════════════════════════════════════════════ */
   const resolvePhone = useCallback(() => {
-    const verified = localStorage.getItem("verified_phone");
-    if (verified) return normalisePhone(verified);
-
-    if (phoneStatus?.verified && phoneStatus?.masked) {
-      /* Backend won't return the full number if verified — that's fine,
-         the modal will use it as prefill. Use best_phone from /users/me
-         which returns the raw number. */
-    }
-
     if (me?.best_phone)   return normalisePhone(me.best_phone);
     if (me?.phone)        return normalisePhone(me.phone);
     if (me?.phone_number) return normalisePhone(me.phone_number);
-
-    if (phoneStatus?.local_number) return normalisePhone(phoneStatus.local_number);
-
     return resolvePrefilledPhone();
-  }, [me, phoneStatus]);
-
-  const resolveNetwork = useCallback(() => {
-    const saved = localStorage.getItem("verified_network");
-    if (saved) return saved;
-
-    if (phoneStatus?.network) return phoneStatus.network.toLowerCase();
-    if (me?.best_network)     return me.best_network.toLowerCase();
-    if (me?.phone_network)    return me.phone_network.toLowerCase();
-
-    return resolvePrefilledNetwork();
-  }, [me, phoneStatus]);
+  }, [me]);
 
   /* ════════════════════════════════════════════════════════
-     DIRECT REDEEM — when phone already verified
-  ════════════════════════════════════════════════════════ */
-  const submitRedeem = useCallback(async (code, value) => {
-    setClaiming(code);
-    try {
-      const res  = await fetch(`${API}/airtime-coupons/redeem`, {
-        method  : "POST",
-        headers : authH(),
-        body    : JSON.stringify({ code }),
-      });
-      const data = await res.json();
+     CLAIM HANDLER — called when user taps "Claim Airtime"
 
-      if (data.success) {
-        showToast(`✅ ₦${value} airtime claim submitted!`);
-        setCoupons((prev) =>
-          prev.map((c) =>
-            c.code === code
-              ? {
-                  ...c,
-                  status       : data.coupon?.status || "redeemed",
-                  is_used      : true,
-                  usable       : false,
-                  claim_phone  : data.coupon?.phone_local  ?? c.claim_phone,
-                  claim_network: data.coupon?.network      ?? c.claim_network,
-                }
-              : c
-          )
-        );
-      } else if (data.code === "PHONE_NOT_VERIFIED") {
-        /* Phone not verified → open modal for OTP */
-        const coupon = coupons.find((c) => c.code === code);
-        if (coupon) {
-          setClaimModal({
-            open : true,
-            coupon,
-            prefilledPhone   : resolvePhone(),
-            prefilledNetwork : resolveNetwork(),
-          });
-        } else {
-          showToast("Please verify your phone first.", true);
-        }
-      } else {
-        showToast(data.message || "Claim failed. Try again.", true);
-      }
-    } catch {
-      showToast("Network error. Please try again.", true);
-    } finally {
-      setClaiming(null);
-    }
-  }, [coupons, resolvePhone, resolveNetwork, showToast]);
-
-  /* ════════════════════════════════════════════════════════
-     CLAIM HANDLER
+     Two paths:
+       A. Email verified   → open AirtimeClaimModal (phone + submit)
+       B. Email NOT verified → open VerificationModal
   ════════════════════════════════════════════════════════ */
   const handleClaim = useCallback((coupon) => {
-    const isVerified =
-      phoneStatus?.verified ||
-      (!!localStorage.getItem("verified_phone") &&
-       !!localStorage.getItem("verified_network"));
-
-    if (isVerified) {
-      submitRedeem(coupon.code, coupon.value);
-      return;
+    if (emailVerified) {
+      /* ── Path A: verified — open phone/confirm modal ── */
+      setClaimModal({
+        open          : true,
+        coupon,
+        prefilledPhone: resolvePhone(),
+      });
+    } else {
+      /* ── Path B: not verified — open email OTP modal ── */
+      setVerifyModal({
+        open         : true,
+        pendingCoupon: coupon,   // remember which coupon to open after verify
+      });
     }
-
-    /* Open modal for OTP flow */
-    setClaimModal({
-      open : true,
-      coupon,
-      prefilledPhone   : resolvePhone(),
-      prefilledNetwork : resolveNetwork(),
-    });
-  }, [phoneStatus, submitRedeem, resolvePhone, resolveNetwork]);
+  }, [emailVerified, resolvePhone]);
 
   /* ════════════════════════════════════════════════════════
-     MODAL SUCCESS
+     VERIFICATION MODAL SUCCESS
+     User just verified their email → proceed to claim modal
   ════════════════════════════════════════════════════════ */
-  const handleModalSuccess = useCallback((code, data) => {
-    /* Persist verified phone info */
-    if (data.phone)   localStorage.setItem("verified_phone",   data.phone);
-    if (data.network) localStorage.setItem("verified_network", data.network);
+  const handleVerifySuccess = useCallback(() => {
+    /* Mark verified locally so future clicks skip this step */
+    setEmailVerified(true);
+    localStorage.setItem("email_verified", "1");
 
+    const pendingCoupon = verifyModal.pendingCoupon;
+
+    /* Close verification modal */
+    setVerifyModal({ open: false, pendingCoupon: null });
+
+    showToast("✅ Email verified! Now confirm your phone number.");
+
+    /* Open airtime claim modal for the pending coupon */
+    if (pendingCoupon) {
+      setTimeout(() => {
+        if (mountedRef.current) {
+          setClaimModal({
+            open          : true,
+            coupon        : pendingCoupon,
+            prefilledPhone: resolvePhone(),
+          });
+        }
+      }, 400); // small delay so modals don't overlap
+    }
+  }, [verifyModal.pendingCoupon, resolvePhone, showToast]);
+
+  /* ════════════════════════════════════════════════════════
+     AIRTIME CLAIM MODAL SUCCESS
+     Modal handles redeem API call internally and calls this on success
+  ════════════════════════════════════════════════════════ */
+  const handleClaimSuccess = useCallback((code, data) => {
+    /* Update coupon in list to reflect pending status */
     setCoupons((prev) =>
       prev.map((c) =>
         c.code === code
           ? {
               ...c,
-              status       : "redeemed",
+              status       : data.coupon?.status || "pending",
               is_used      : true,
               usable       : false,
               claimed_at   : new Date().toISOString(),
-              claim_phone  : data.phone   ?? c.claim_phone,
-              claim_network: data.network ?? c.claim_network,
+              claim_phone  : data.coupon?.phone   ?? c.claim_phone,
+              claim_network: data.coupon?.network ?? c.claim_network,
             }
           : c
       )
@@ -941,18 +848,16 @@ export default function Coupons() {
 
     showToast("✅ Airtime claim submitted! Credited within 24 hours.");
 
-    /* Refresh phone status so future claims skip OTP */
-    loadPhoneStatus();
+    /* Refresh profile to get latest phone saved on account */
+    loadProfile();
 
+    /* Close modal after short delay */
     setTimeout(() => {
       if (mountedRef.current) {
-        setClaimModal({
-          open : false, coupon: null,
-          prefilledPhone: "", prefilledNetwork: "",
-        });
+        setClaimModal({ open: false, coupon: null, prefilledPhone: "" });
       }
     }, 2_500);
-  }, [showToast, loadPhoneStatus]);
+  }, [showToast, loadProfile]);
 
   /* ── Copy handler ── */
   const handleCopy = useCallback((code) => {
@@ -965,12 +870,9 @@ export default function Coupons() {
       document.execCommand("copy");
       document.body.removeChild(el);
     };
-
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(code).catch(fallback);
-    } else {
-      fallback();
-    }
+    navigator.clipboard
+      ? navigator.clipboard.writeText(code).catch(fallback)
+      : fallback();
 
     setCopied(code);
     showToast(`Code "${code}" copied!`);
@@ -981,24 +883,24 @@ export default function Coupons() {
   }, [showToast]);
 
   /* ── Derived lists ── */
-  const allAvailable   = coupons.filter((c) =>  c.usable);
-  const allUsed        = coupons.filter((c) => !c.usable);
-  const airtimeCoupons = coupons.filter(
+  const allAvailable     = coupons.filter((c) =>  c.usable);
+  const allUsed          = coupons.filter((c) => !c.usable);
+  const airtimeCoupons   = coupons.filter(
     (c) => c.coupon_kind === "airtime" || c.type === "airtime"
   );
   const airtimeAvailable = airtimeCoupons.filter((c) => !c.is_used);
-  const totalSaved = history.reduce(
+  const totalSaved       = history.reduce(
     (s, h) => s + Number(h.discount || 0), 0
   );
   const hasAirtime = airtimeCoupons.length > 0;
 
   const TABS = [
-    { key: "available", label: "Available", count: allAvailable.length },
+    { key: "available", label: "Available",  count: allAvailable.length  },
     {
-      key   : "airtime",
-      label : "📱 Airtime",
-      count : airtimeCoupons.length,
-      hide  : !hasAirtime && !loading,
+      key  : "airtime",
+      label: "📱 Airtime",
+      count: airtimeCoupons.length,
+      hide : !hasAirtime && !loading,
     },
     { key: "used",    label: "Used",    count: allUsed.length  },
     { key: "history", label: "History", count: history.length  },
@@ -1012,20 +914,14 @@ export default function Coupons() {
 
       {/* ── Topbar ── */}
       <div className="cp-topbar">
-        <button
-          className="cp-back"
-          onClick={() => navigate(-1)}
-          aria-label="Go back"
-        >
+        <button className="cp-back" onClick={() => navigate(-1)} aria-label="Go back">
           <IconBack />
         </button>
         <div className="cp-topbar-text">
           <h1 className="cp-topbar-title">My Coupons</h1>
           <p className="cp-topbar-sub">
             {allAvailable.length} available
-            {hasAirtime
-              ? ` · ${airtimeAvailable.length} airtime`
-              : ""}
+            {hasAirtime ? ` · ${airtimeAvailable.length} airtime` : ""}
           </p>
         </div>
         <button
@@ -1114,7 +1010,28 @@ export default function Coupons() {
         {/* AIRTIME */}
         {!loading && tab === "airtime" && (
           <>
-            <AirtimeBanner phoneStatus={phoneStatus} />
+            {/* Banner shows email status */}
+            <AirtimeBanner
+              emailVerified={emailVerified}
+              userEmail={me?.email}
+            />
+
+            {/* Email not verified — nudge banner */}
+            {!emailVerified && (
+              <div className="cp-verify-nudge">
+                <IconMail />
+                <div>
+                  <p className="cp-verify-nudge-title">
+                    Email verification required
+                  </p>
+                  <p className="cp-verify-nudge-sub">
+                    Tap "Claim Airtime" on any coupon below to verify
+                    your email and submit your claim.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {airtimeCoupons.length === 0 ? (
               <div className="cp-empty">
                 <span className="cp-empty-icon">📱</span>
@@ -1175,10 +1092,8 @@ export default function Coupons() {
                 const cfg = COUPON_CONFIG[h.type] || COUPON_CONFIG.percentage;
                 return (
                   <div key={h.id} className="cp-history-item">
-                    <div
-                      className="cp-history-icon"
-                      style={{ background: cfg.bg, color: cfg.color }}
-                    >
+                    <div className="cp-history-icon"
+                         style={{ background: cfg.bg, color: cfg.color }}>
                       <CouponIcon type={h.type} />
                     </div>
                     <div className="cp-history-info">
@@ -1192,9 +1107,7 @@ export default function Coupons() {
                           {normalisePhone(h.claim_phone)}
                         </p>
                       )}
-                      <p className="cp-history-date">
-                        {timeAgo(h.redeemed_at)}
-                      </p>
+                      <p className="cp-history-date">{timeAgo(h.redeemed_at)}</p>
                     </div>
                     <div className="cp-history-save">
                       <p className="cp-history-amount">-{naira(h.discount)}</p>
@@ -1205,7 +1118,6 @@ export default function Coupons() {
                   </div>
                 );
               })}
-
               <div className="cp-history-total">
                 <p>Total saved across {history.length} orders</p>
                 <p className="cp-history-total-amount">{naira(totalSaved)}</p>
@@ -1225,7 +1137,7 @@ export default function Coupons() {
               { icon: <IconCopy />,        t: "Copy the coupon code by tapping 'Copy'" },
               { icon: <IconTag />,         t: "Go to checkout and paste the code in the coupon field" },
               { icon: <IconCheckCircle />, t: "Your discount will be applied automatically" },
-              { icon: <IconPhone />,       t: "For airtime, tap 'Claim Airtime' and verify your number" },
+              { icon: <IconMail />,        t: "For airtime, verify your email then confirm your phone" },
               { icon: <IconAlertCircle />, t: "Each coupon can only be used once per account" },
             ].map((tip, idx) => (
               <div key={idx} className="cp-tip">
@@ -1238,19 +1150,25 @@ export default function Coupons() {
 
       </div>
 
-      {/* Modal */}
+      {/* ── Email Verification Modal
+           Shows when user clicks Claim but email not verified ── */}
+      <VerificationModal
+        isOpen={verifyModal.open}
+        userEmail={me?.email}
+        onClose={() => setVerifyModal({ open: false, pendingCoupon: null })}
+        onSuccess={handleVerifySuccess}
+      />
+
+      {/* ── Airtime Claim Modal
+           Shows when email IS verified — collects/confirms phone ── */}
       <AirtimeClaimModal
         isOpen={claimModal.open}
         coupon={claimModal.coupon}
         prefilledPhone={claimModal.prefilledPhone}
-        prefilledNetwork={claimModal.prefilledNetwork}
         onClose={() =>
-          setClaimModal({
-            open : false, coupon: null,
-            prefilledPhone: "", prefilledNetwork: "",
-          })
+          setClaimModal({ open: false, coupon: null, prefilledPhone: "" })
         }
-        onSuccess={handleModalSuccess}
+        onSuccess={handleClaimSuccess}
       />
 
       {/* Toast */}
