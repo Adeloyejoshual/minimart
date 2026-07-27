@@ -1,6 +1,6 @@
 // src/pages/Profile/components/AirtimeClaimModal.jsx
 // ═══════════════════════════════════════════════════════════════
-// AIRTIME CLAIM MODAL — Production-grade UX
+// AIRTIME CLAIM MODAL — Production-grade with fail-open behavior
 // ═══════════════════════════════════════════════════════════════
 import { useState, useEffect, useCallback, useRef } from "react";
 import "../styles/AirtimeClaimModal.css";
@@ -8,15 +8,42 @@ import "../styles/AirtimeClaimModal.css";
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api`;
 
-const getToken = () =>
-  localStorage.getItem("marketplace_token") ||
-  localStorage.getItem("token")             ||
-  null;
+/* ═══════════════════════════════════════════════════════════════
+   AUTH — Check every possible token key
+═══════════════════════════════════════════════════════════════ */
+const TOKEN_KEYS = [
+  "marketplace_token",
+  "token",
+  "auth_token",
+  "authToken",
+  "access_token",
+  "accessToken",
+  "jwt",
+];
 
-const authH = () => ({
-  Authorization : `Bearer ${getToken()}`,
-  "Content-Type": "application/json",
-});
+const getToken = () => {
+  for (const key of TOKEN_KEYS) {
+    const val = localStorage.getItem(key);
+    if (val && val !== "null" && val !== "undefined") {
+      return val;
+    }
+  }
+  /* Also check sessionStorage */
+  for (const key of TOKEN_KEYS) {
+    const val = sessionStorage.getItem(key);
+    if (val && val !== "null" && val !== "undefined") {
+      return val;
+    }
+  }
+  return null;
+};
+
+const authH = () => {
+  const token = getToken();
+  const headers = { "Content-Type": "application/json" };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+};
 
 /* ═══════════════════════════════════════════════════════════════
    PHONE HELPERS
@@ -60,7 +87,6 @@ const naira = (n) => {
   return isNaN(num) ? "₦0" : "₦" + num.toLocaleString("en-NG");
 };
 
-/* Format date "27 August 2026" */
 const fmtDate = (iso) => {
   if (!iso) return "";
   return new Date(iso).toLocaleDateString("en-NG", {
@@ -113,6 +139,12 @@ export default function AirtimeClaimModal({
   ══════════════════════════════════════════════ */
   useEffect(() => {
     if (isOpen) {
+      console.log("[AirtimeClaimModal] opened with:", {
+        coupon      : coupon?.code,
+        savedPhone,
+        hasToken    : !!getToken(),
+      });
+
       const p = normalisePhone(savedPhone?.phone || "");
       setPhone(p);
       setNetwork(p ? detectNetwork(p) : null);
@@ -125,7 +157,7 @@ export default function AirtimeClaimModal({
       setPhoneCheck(null);
       setShowChangeBtn(false);
     }
-  }, [isOpen, savedPhone]);
+  }, [isOpen, savedPhone, coupon]);
 
   /* ══════════════════════════════════════════════
      LOCK body scroll
@@ -140,7 +172,7 @@ export default function AirtimeClaimModal({
 
   /* ══════════════════════════════════════════════
      LIVE PHONE AVAILABILITY CHECK
-     Debounced 500ms — only when phone was edited
+     Debounced 500ms — with timeout + fail-open
   ══════════════════════════════════════════════ */
   useEffect(() => {
     clearTimeout(checkTimer.current);
@@ -149,17 +181,77 @@ export default function AirtimeClaimModal({
     if (!wasEdited)           return;
     if (!isValidPhone(phone)) return;
 
+    /* Check we have a token before even trying */
+    const token = getToken();
+    if (!token) {
+      console.warn("[check-phone] no token — skipping check");
+      setPhoneCheck({
+        success  : true,
+        available: true,
+        message  : "",
+      });
+      return;
+    }
+
     setChecking(true);
+
     checkTimer.current = setTimeout(async () => {
+      const controller = new AbortController();
+      const timeoutId  = setTimeout(() => controller.abort(), 8_000);
+
       try {
-        const res  = await fetch(
+        console.log("[check-phone] checking:", phone);
+
+        const res = await fetch(
           `${API}/airtime-coupons/check-phone/${phone}`,
-          { headers: authH() }
+          {
+            headers: authH(),
+            signal : controller.signal,
+          }
         );
+
+        clearTimeout(timeoutId);
+
+        console.log("[check-phone] status:", res.status);
+
+        /* Handle known error codes */
+        if (res.status === 401) {
+          console.warn("[check-phone] auth failed — failing open");
+          setPhoneCheck({ success: true, available: true, message: "" });
+          return;
+        }
+
+        if (res.status === 429) {
+          console.warn("[check-phone] rate limited — failing open");
+          setPhoneCheck({ success: true, available: true, message: "" });
+          return;
+        }
+
+        if (!res.ok) {
+          console.warn(`[check-phone] HTTP ${res.status} — failing open`);
+          setPhoneCheck({ success: true, available: true, message: "" });
+          return;
+        }
+
         const data = await res.json();
+        console.log("[check-phone] result:", data);
+
         setPhoneCheck(data);
-      } catch { /* silent */ }
-      finally  { setChecking(false); }
+
+      } catch (err) {
+        clearTimeout(timeoutId);
+
+        if (err.name === "AbortError") {
+          console.warn("[check-phone] timed out — failing open");
+        } else {
+          console.warn("[check-phone] error:", err.message, "— failing open");
+        }
+
+        /* ── FAIL OPEN — never block the user ── */
+        setPhoneCheck({ success: true, available: true, message: "" });
+      } finally {
+        setChecking(false);
+      }
     }, 500);
 
     return () => clearTimeout(checkTimer.current);
@@ -178,7 +270,7 @@ export default function AirtimeClaimModal({
   };
 
   /* ══════════════════════════════════════════════
-     "Change Number" button — reveals input
+     "Change Number" button
   ══════════════════════════════════════════════ */
   const handleShowChange = () => {
     setShowChangeBtn(true);
@@ -196,12 +288,20 @@ export default function AirtimeClaimModal({
       return;
     }
 
-    if (phoneCheck && !phoneCheck.available) {
-      setError(phoneCheck.message);
+    /* Only block if we KNOW it's unavailable */
+    if (phoneCheck && phoneCheck.available === false) {
+      setError(phoneCheck.message || "This number cannot be used.");
       return;
     }
 
-    /* If editing during cooldown, force one-time use (don't save) */
+    /* Check token before submitting */
+    const token = getToken();
+    if (!token) {
+      setError("You are not logged in. Please refresh the page.");
+      return;
+    }
+
+    /* If editing during cooldown, force one-time use */
     const shouldSave = wasEdited && inCooldown ? false : saveAsDefault;
 
     setLoading(true);
@@ -218,7 +318,10 @@ export default function AirtimeClaimModal({
           save_as_default : shouldSave,
         }),
       });
-      const data = await res.json();
+
+      const data = await res.json().catch(() => ({}));
+
+      console.log("[redeem] response:", res.status, data);
 
       if (!res.ok || !data.success) {
         setErrorCode(data.code || null);
@@ -243,9 +346,14 @@ export default function AirtimeClaimModal({
         }
         if (data.code === "CLAIM_LIMIT_REACHED") {
           throw new Error(
-            `You've reached your claim limit. ` +
-            `Daily: ${data.limits?.daily_used}/${data.limits?.daily_used + data.limits?.daily_left}`
+            `You've reached your claim limit. Try again later.`
           );
+        }
+        if (res.status === 401) {
+          throw new Error("You are not logged in. Please refresh the page.");
+        }
+        if (res.status === 429) {
+          throw new Error("Too many attempts. Please wait a moment.");
         }
 
         throw new Error(data.message || "Claim failed. Please try again.");
@@ -264,6 +372,7 @@ export default function AirtimeClaimModal({
       }, 1_800);
 
     } catch (err) {
+      console.error("[redeem] error:", err);
       setError(err.message);
     } finally {
       setLoading(false);
@@ -280,13 +389,14 @@ export default function AirtimeClaimModal({
   const netStyle      = network ? NETWORK_COLORS[network] : null;
   const savedNetStyle = savedPhone?.network ? NETWORK_COLORS[savedPhone.network] : null;
 
-  /* ── Determine if user can submit ── */
+  /* ── Can submit? Only block on KNOWN unavailability ── */
   const canSubmit =
     !loading &&
     phone.length >= 10 &&
-    (!phoneCheck || phoneCheck.available);
+    isValidPhone(phone) &&
+    !(phoneCheck && phoneCheck.available === false);
 
-  /* ── Contextual sub-header text ── */
+  /* ── Sub-header ── */
   const subLabel =
     hasSavedPhone && !wasEdited && !showChangeBtn
       ? "Using your saved airtime number."
@@ -294,7 +404,6 @@ export default function AirtimeClaimModal({
         ? "Sending to a different number this time?"
         : "Enter the number that should receive the airtime.";
 
-  /* ── Save toggle disabled when in cooldown ── */
   const saveToggleDisabled = wasEdited && inCooldown;
   const effectiveSave      = saveToggleDisabled ? false : saveAsDefault;
 
@@ -329,7 +438,7 @@ export default function AirtimeClaimModal({
               <strong>{phone}</strong> within 24 hours.
             </p>
             <p className="acm-sub-small">
-              You'll receive a notification once processed.
+              You'll receive an email once processed.
             </p>
           </div>
         ) : (
@@ -344,7 +453,7 @@ export default function AirtimeClaimModal({
             </div>
 
             {/* ══════════════════════════════════════
-                 SAVED NUMBER DISPLAY (before editing)
+                 SAVED NUMBER DISPLAY
             ══════════════════════════════════════ */}
             {hasSavedPhone && !wasEdited && !showChangeBtn && (
               <div className="acm-saved-card">
@@ -364,7 +473,6 @@ export default function AirtimeClaimModal({
                   <span className="acm-saved-badge">💾 Saved</span>
                 </div>
 
-                {/* Cooldown notice */}
                 {inCooldown && (
                   <div className="acm-cooldown-info">
                     <span>🔒</span>
@@ -415,7 +523,6 @@ export default function AirtimeClaimModal({
                   />
                 </div>
 
-                {/* Network badge */}
                 {network && netStyle && (
                   <div
                     className="acm-network-badge"
@@ -431,7 +538,7 @@ export default function AirtimeClaimModal({
                   </div>
                 )}
 
-                {/* ── Live availability check ── */}
+                {/* ── Only show checking on active check ── */}
                 {checking && (
                   <div className="acm-phone-checking">
                     <span className="acm-spin-dot" />
@@ -439,7 +546,8 @@ export default function AirtimeClaimModal({
                   </div>
                 )}
 
-                {phoneCheck && !checking && (
+                {/* ── Only show result when we have one AND not checking ── */}
+                {phoneCheck && !checking && phoneCheck.message && (
                   phoneCheck.available ? (
                     <div className="acm-phone-ok">
                       ✓ Number can be used
