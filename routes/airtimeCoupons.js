@@ -1,13 +1,13 @@
 // routes/airtimeCoupons.js
 // ═══════════════════════════════════════════════════════════════
-// AIRTIME COUPONS — Matches actual DB schema
+// AIRTIME COUPONS — Bulletproof version matching actual schema
 //
-// Your schema:
-//   airtime_claims.airtime_coupon_id  (not coupon_id)
-//   airtime_claims.claimed_at         (not submitted_at)
-//   airtime_claims.credited_at        (not processed_at)
-//   airtime_claims.credited_by        (not processed_by)
-//   airtime_claims.admin_note         (not remarks)
+// Your actual airtime_claims schema:
+//   id, airtime_coupon_id, user_id, phone, network,
+//   status, claimed_at, credited_at, admin_note, credited_by
+//
+// Optional (added if columns exist):
+//   amount, approved_at, ip_address, user_agent, device_hash
 // ═══════════════════════════════════════════════════════════════
 import express      from "express";
 import crypto       from "crypto";
@@ -62,7 +62,7 @@ const detectNetwork = (phone) => {
     "0809":"9mobile","0817":"9mobile","0818":"9mobile",
     "0908":"9mobile","0909":"9mobile",
   };
-  return map[prefix] || null;
+  return map[prefix] || "MTN";  // ← default to MTN if not detected (network is NOT NULL)
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -94,7 +94,7 @@ const safeEmail = (fn, args) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   CONFIG (env vars — no DB dependency)
+   CONFIG (env vars)
 ═══════════════════════════════════════════════════════════════ */
 const CONFIG = {
   max_accounts_per_phone     : parseInt(process.env.MAX_ACCOUNTS_PER_PHONE     ?? "2",  10),
@@ -109,69 +109,234 @@ const CONFIG = {
 console.log("[airtime] config:", CONFIG);
 
 /* ═══════════════════════════════════════════════════════════════
+   SCHEMA INTROSPECTION — checks which optional columns exist
+═══════════════════════════════════════════════════════════════ */
+const SCHEMA = {
+  claims: {
+    has_amount      : false,
+    has_approved_at : false,
+    has_ip_address  : false,
+    has_user_agent  : false,
+    has_device_hash : false,
+  },
+  history: {
+    exists       : false,
+    has_networks : false,
+    has_ip       : false,
+    has_ua       : false,
+    has_device   : false,
+    has_reason   : false,
+    has_admin    : false,
+  },
+  users: {
+    has_airtime_phone     : false,
+    has_airtime_network   : false,
+    has_airtime_updated_at: false,
+    has_email_verified    : false,
+    has_name              : false,
+  },
+};
+
+async function detectSchema() {
+  try {
+    /* airtime_claims optional columns */
+    const { rows: claimCols } = await pool.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'airtime_claims'`
+    );
+    const cSet = new Set(claimCols.map((r) => r.column_name));
+    SCHEMA.claims.has_amount      = cSet.has("amount");
+    SCHEMA.claims.has_approved_at = cSet.has("approved_at");
+    SCHEMA.claims.has_ip_address  = cSet.has("ip_address");
+    SCHEMA.claims.has_user_agent  = cSet.has("user_agent");
+    SCHEMA.claims.has_device_hash = cSet.has("device_hash");
+
+    /* airtime_phone_history */
+    const { rows: histCols } = await pool.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'airtime_phone_history'`
+    );
+    SCHEMA.history.exists = histCols.length > 0;
+    if (SCHEMA.history.exists) {
+      const hSet = new Set(histCols.map((r) => r.column_name));
+      SCHEMA.history.has_networks = hSet.has("old_network") && hSet.has("new_network");
+      SCHEMA.history.has_ip       = hSet.has("ip_address");
+      SCHEMA.history.has_ua       = hSet.has("user_agent");
+      SCHEMA.history.has_device   = hSet.has("device_hash");
+      SCHEMA.history.has_reason   = hSet.has("reason");
+      SCHEMA.history.has_admin    = hSet.has("admin_id");
+    }
+
+    /* users optional columns */
+    const { rows: userCols } = await pool.query(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'users'`
+    );
+    const uSet = new Set(userCols.map((r) => r.column_name));
+    SCHEMA.users.has_airtime_phone      = uSet.has("airtime_phone");
+    SCHEMA.users.has_airtime_network    = uSet.has("airtime_network");
+    SCHEMA.users.has_airtime_updated_at = uSet.has("airtime_phone_updated_at");
+    SCHEMA.users.has_email_verified     = uSet.has("email_verified");
+    SCHEMA.users.has_name               = uSet.has("name");
+
+    console.log("[airtime] schema detected:", JSON.stringify(SCHEMA, null, 2));
+  } catch (err) {
+    console.error("[airtime] schema detection failed:", err.message);
+  }
+}
+
+detectSchema();
+
+/* ═══════════════════════════════════════════════════════════════
    ANTI-FRAUD CHECKS
 ═══════════════════════════════════════════════════════════════ */
 async function countAccountsUsingPhone(phone, excludeUserId) {
-  const { rows } = await pool.query(
-    `SELECT COUNT(*)::INT AS cnt
-     FROM   public.users
-     WHERE  airtime_phone = $1
-       AND  id           != $2`,
-    [phone, excludeUserId]
-  );
-  return rows[0]?.cnt ?? 0;
+  if (!SCHEMA.users.has_airtime_phone) return 0;
+  try {
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::INT AS cnt
+       FROM   public.users
+       WHERE  airtime_phone = $1
+         AND  id           != $2`,
+      [phone, excludeUserId]
+    );
+    return rows[0]?.cnt ?? 0;
+  } catch (e) {
+    console.warn("[count-accounts] failed:", e.message);
+    return 0;
+  }
 }
 
 async function getCooldownStatus(userId, cooldownDays) {
-  const { rows } = await pool.query(
-    `SELECT airtime_phone_updated_at
-     FROM   public.users
-     WHERE  id = $1
-     LIMIT  1`,
-    [userId]
-  );
-  const lastUpdate = rows[0]?.airtime_phone_updated_at;
-  if (!lastUpdate) return { in_cooldown: false, next_change_at: null, days_left: 0 };
+  if (!SCHEMA.users.has_airtime_updated_at) {
+    return { in_cooldown: false, next_change_at: null, days_left: 0 };
+  }
+  try {
+    const { rows } = await pool.query(
+      `SELECT airtime_phone_updated_at
+       FROM   public.users
+       WHERE  id = $1
+       LIMIT  1`,
+      [userId]
+    );
+    const lastUpdate = rows[0]?.airtime_phone_updated_at;
+    if (!lastUpdate) return { in_cooldown: false, next_change_at: null, days_left: 0 };
 
-  const nextChange = new Date(lastUpdate);
-  nextChange.setDate(nextChange.getDate() + cooldownDays);
-  const now       = new Date();
-  const inCool    = now < nextChange;
-  const daysLeft  = Math.max(0, Math.ceil((nextChange - now) / (1000 * 60 * 60 * 24)));
+    const nextChange = new Date(lastUpdate);
+    nextChange.setDate(nextChange.getDate() + cooldownDays);
+    const now       = new Date();
+    const inCool    = now < nextChange;
+    const daysLeft  = Math.max(0, Math.ceil((nextChange - now) / (1000 * 60 * 60 * 24)));
 
-  return {
-    in_cooldown    : inCool,
-    next_change_at : nextChange.toISOString(),
-    days_left      : daysLeft,
-    last_changed_at: lastUpdate,
-  };
+    return {
+      in_cooldown    : inCool,
+      next_change_at : nextChange.toISOString(),
+      days_left      : daysLeft,
+      last_changed_at: lastUpdate,
+    };
+  } catch {
+    return { in_cooldown: false, next_change_at: null, days_left: 0 };
+  }
 }
 
-/* Uses your actual column name: claimed_at */
 async function checkClaimLimits(userId) {
-  const { rows } = await pool.query(
-    `SELECT
-       COUNT(*) FILTER (WHERE claimed_at >= NOW() - INTERVAL '1 day')  AS daily,
-       COUNT(*) FILTER (WHERE claimed_at >= NOW() - INTERVAL '7 days') AS weekly,
-       COUNT(*) FILTER (WHERE claimed_at >= NOW() - INTERVAL '30 days')AS monthly
-     FROM public.airtime_claims
-     WHERE user_id = $1
-       AND status != 'rejected'`,
-    [userId]
-  );
-  const r = rows[0];
-  return {
-    daily_used   : Number(r.daily),
-    weekly_used  : Number(r.weekly),
-    monthly_used : Number(r.monthly),
-    daily_left   : Math.max(0, CONFIG.daily_claim_limit   - Number(r.daily)),
-    weekly_left  : Math.max(0, CONFIG.weekly_claim_limit  - Number(r.weekly)),
-    monthly_left : Math.max(0, CONFIG.monthly_claim_limit - Number(r.monthly)),
-    can_claim    :
-      Number(r.daily)   < CONFIG.daily_claim_limit &&
-      Number(r.weekly)  < CONFIG.weekly_claim_limit &&
-      Number(r.monthly) < CONFIG.monthly_claim_limit,
-  };
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE claimed_at >= NOW() - INTERVAL '1 day')  AS daily,
+         COUNT(*) FILTER (WHERE claimed_at >= NOW() - INTERVAL '7 days') AS weekly,
+         COUNT(*) FILTER (WHERE claimed_at >= NOW() - INTERVAL '30 days')AS monthly
+       FROM public.airtime_claims
+       WHERE user_id = $1
+         AND status != 'rejected'`,
+      [userId]
+    );
+    const r = rows[0];
+    return {
+      daily_used   : Number(r.daily),
+      weekly_used  : Number(r.weekly),
+      monthly_used : Number(r.monthly),
+      daily_left   : Math.max(0, CONFIG.daily_claim_limit   - Number(r.daily)),
+      weekly_left  : Math.max(0, CONFIG.weekly_claim_limit  - Number(r.weekly)),
+      monthly_left : Math.max(0, CONFIG.monthly_claim_limit - Number(r.monthly)),
+      can_claim    :
+        Number(r.daily)   < CONFIG.daily_claim_limit &&
+        Number(r.weekly)  < CONFIG.weekly_claim_limit &&
+        Number(r.monthly) < CONFIG.monthly_claim_limit,
+    };
+  } catch (e) {
+    console.warn("[claim-limits] failed:", e.message);
+    /* Fail open — don't block user due to counting error */
+    return {
+      daily_used: 0, weekly_used: 0, monthly_used: 0,
+      daily_left: 999, weekly_left: 999, monthly_left: 999,
+      can_claim: true,
+    };
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DYNAMIC INSERT BUILDER for airtime_claims
+   Includes only columns that actually exist in the schema
+═══════════════════════════════════════════════════════════════ */
+function buildClaimInsert({
+  userId, couponId, phone, network, amount, status,
+  ip, userAgent, deviceHash, approvedAt,
+}) {
+  /* Required columns (always present in your schema) */
+  const cols = ["user_id", "airtime_coupon_id", "phone", "network", "status"];
+  const vals = [userId, couponId, phone, network, status];
+
+  /* Optional columns — added only if they exist */
+  if (SCHEMA.claims.has_amount)      { cols.push("amount");      vals.push(amount);      }
+  if (SCHEMA.claims.has_ip_address)  { cols.push("ip_address");  vals.push(ip);          }
+  if (SCHEMA.claims.has_user_agent)  { cols.push("user_agent");  vals.push(userAgent);   }
+  if (SCHEMA.claims.has_device_hash) { cols.push("device_hash"); vals.push(deviceHash);  }
+  if (SCHEMA.claims.has_approved_at) { cols.push("approved_at"); vals.push(approvedAt);  }
+
+  const placeholders = vals.map((_, i) => `$${i + 1}`).join(", ");
+
+  const sql = `
+    INSERT INTO public.airtime_claims (${cols.join(", ")})
+    VALUES (${placeholders})
+    RETURNING id, status, claimed_at
+  `;
+
+  return { sql, vals };
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DYNAMIC INSERT BUILDER for airtime_phone_history
+═══════════════════════════════════════════════════════════════ */
+function buildHistoryInsert({
+  userId, oldPhone, newPhone, oldNetwork, newNetwork,
+  ip, userAgent, deviceHash, reason, adminId,
+}) {
+  if (!SCHEMA.history.exists) return null;
+
+  const cols = ["user_id", "old_phone", "new_phone"];
+  const vals = [userId, oldPhone, newPhone];
+
+  if (SCHEMA.history.has_networks) {
+    cols.push("old_network", "new_network");
+    vals.push(oldNetwork, newNetwork);
+  }
+  if (SCHEMA.history.has_ip)     { cols.push("ip_address");  vals.push(ip);         }
+  if (SCHEMA.history.has_ua)     { cols.push("user_agent");  vals.push(userAgent);  }
+  if (SCHEMA.history.has_device) { cols.push("device_hash"); vals.push(deviceHash); }
+  if (SCHEMA.history.has_reason) { cols.push("reason");      vals.push(reason);     }
+  if (SCHEMA.history.has_admin && adminId) {
+    cols.push("admin_id"); vals.push(adminId);
+  }
+
+  const placeholders = vals.map((_, i) => `$${i + 1}`).join(", ");
+
+  const sql = `
+    INSERT INTO public.airtime_phone_history (${cols.join(", ")})
+    VALUES (${placeholders})
+  `;
+
+  return { sql, vals };
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -197,6 +362,7 @@ const phoneUpdateLimit = makeLimit({ windowMs: 60_000, max: 10, msg: "Too many u
    RELEASE USER PHONES — call on account deletion
 ═══════════════════════════════════════════════════════════════ */
 export async function releaseUserPhones(userId) {
+  if (!SCHEMA.users.has_airtime_phone) return;
   try {
     await pool.query(
       `UPDATE public.users
@@ -219,7 +385,7 @@ export async function releaseUserPhones(userId) {
 ════════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /api/airtime-coupons/health  (public, no DB)
+   GET /health — no auth
 ═══════════════════════════════════════════════════════════════ */
 router.get("/health", (_req, res) => {
   return res.json({
@@ -227,37 +393,34 @@ router.get("/health", (_req, res) => {
     service  : "airtime-coupons",
     time     : new Date().toISOString(),
     config   : CONFIG,
+    schema   : SCHEMA,
     node_env : process.env.NODE_ENV || "unknown",
     uptime_s : Math.round(process.uptime()),
   });
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /api/airtime-coupons/health/db
+   GET /health/db
 ═══════════════════════════════════════════════════════════════ */
 router.get("/health/db", async (_req, res) => {
   try {
     const start = Date.now();
     const { rows } = await pool.query("SELECT NOW() AS now");
-    const latency = Date.now() - start;
     return res.json({
       success   : true,
       db        : "connected",
       db_time   : rows[0].now,
-      latency_ms: latency,
+      latency_ms: Date.now() - start,
     });
   } catch (err) {
     return res.status(500).json({
-      success: false,
-      db     : "error",
-      error  : err.message,
+      success: false, db: "error", error: err.message,
     });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/airtime-coupons
-   List user's airtime coupons
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
   const userId = req.user.id;
@@ -297,6 +460,18 @@ router.get("/airtime-phone", authenticate, async (req, res) => {
   const userId = req.user.id;
 
   try {
+    if (!SCHEMA.users.has_airtime_phone) {
+      return res.json({
+        success: true,
+        airtime: {
+          has_saved: false, phone: null, masked: null,
+          network: null, updated_at: null,
+          in_cooldown: false, next_change_at: null,
+          days_left: 0, cooldown_days: CONFIG.phone_change_cooldown_days,
+        },
+      });
+    }
+
     const { rows } = await pool.query(
       `SELECT airtime_phone, airtime_network, airtime_phone_updated_at
        FROM   public.users WHERE id = $1 LIMIT 1`,
@@ -336,22 +511,16 @@ router.get("/check-phone/:phone", authenticate, checkPhoneLimit, async (req, res
   const userId = req.user.id;
   const phone  = normalizePhone(req.params.phone);
 
-  console.log(`[check-phone] user=${userId} phone=${maskPhone(phone)}`);
-
   if (!phone || !isValidPhone(phone)) {
     return res.status(400).json({
-      success  : false,
-      available: false,
-      message  : "Invalid phone number format.",
+      success: false, available: false,
+      message: "Invalid phone number format.",
     });
   }
 
   try {
     const count     = await countAccountsUsingPhone(phone, userId);
     const available = count < CONFIG.max_accounts_per_phone;
-
-    console.log(`[check-phone] ✓ count=${count} available=${available}`);
-
     return res.json({
       success  : true,
       available,
@@ -361,18 +530,13 @@ router.get("/check-phone/:phone", authenticate, checkPhoneLimit, async (req, res
     });
   } catch (err) {
     console.error("[check-phone] error:", err.message);
-    /* Fail open */
-    return res.json({
-      success  : true,
-      available: true,
-      message  : "",
-    });
+    return res.json({ success: true, available: true, message: "" });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/airtime-coupons/redeem
-   Matches YOUR actual airtime_claims schema
+   ★ BULLETPROOF — uses schema introspection to build safe inserts
 ═══════════════════════════════════════════════════════════════ */
 router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
   const userId        = req.user.id;
@@ -385,7 +549,7 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
 
   console.log("[redeem] START", { userId, code, phone: maskPhone(phone), saveAsDefault });
 
-  /* ── Input validation ── */
+  /* Input validation */
   if (!code) {
     return res.status(400).json({ success: false, message: "Coupon code is required." });
   }
@@ -404,10 +568,16 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* ── Step 1: Fetch user + verify eligibility ── */
+    /* ── Step 1: Fetch user ── */
+    /* Build SELECT dynamically to avoid missing column errors */
+    const userCols = ["id", "email"];
+    if (SCHEMA.users.has_name)              userCols.push("name");
+    if (SCHEMA.users.has_email_verified)    userCols.push("email_verified");
+    if (SCHEMA.users.has_airtime_phone)     userCols.push("airtime_phone");
+    if (SCHEMA.users.has_airtime_updated_at) userCols.push("airtime_phone_updated_at");
+
     const { rows: userRows } = await client.query(
-      `SELECT id, email, name, email_verified,
-              airtime_phone, airtime_phone_updated_at
+      `SELECT ${userCols.join(", ")}
        FROM   public.users
        WHERE  id = $1
        LIMIT  1
@@ -422,7 +592,8 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
 
     const user = userRows[0];
 
-    if (!user.email_verified) {
+    /* Email verification check (only if column exists) */
+    if (SCHEMA.users.has_email_verified && !user.email_verified) {
       await client.query("ROLLBACK");
       return res.status(403).json({
         success: false, code: "EMAIL_NOT_VERIFIED",
@@ -431,7 +602,7 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
       });
     }
 
-    /* ── Step 2: Check per-user claim limits ── */
+    /* ── Step 2: Claim limits ── */
     const limits = await checkClaimLimits(userId);
     if (!limits.can_claim) {
       await client.query("ROLLBACK");
@@ -442,9 +613,9 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
       });
     }
 
-    /* ── Step 3: Cooldown check ── */
-    const phoneIsChanging = user.airtime_phone && user.airtime_phone !== phone;
-    const phoneIsNew      = !user.airtime_phone;
+    /* ── Step 3: Cooldown (only if we track phone) ── */
+    const phoneIsChanging = SCHEMA.users.has_airtime_phone && user.airtime_phone && user.airtime_phone !== phone;
+    const phoneIsNew      = SCHEMA.users.has_airtime_phone && !user.airtime_phone;
 
     if (phoneIsChanging && saveAsDefault) {
       const cooldown = await getCooldownStatus(userId, CONFIG.phone_change_cooldown_days);
@@ -467,8 +638,8 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
       }
     }
 
-    /* ── Step 4: Anti-fraud phone limit ── */
-    if (user.airtime_phone !== phone) {
+    /* ── Step 4: Phone limit ── */
+    if (SCHEMA.users.has_airtime_phone && user.airtime_phone !== phone) {
       const usedByOthers = await countAccountsUsingPhone(phone, userId);
       if (usedByOthers >= CONFIG.max_accounts_per_phone) {
         await client.query("ROLLBACK");
@@ -527,53 +698,98 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
       });
     }
 
-    /* ── Step 7: Create claim record ──
-       Uses YOUR actual schema:
-         airtime_coupon_id, claimed_at (default), credited_at, credited_by, admin_note
-    */
-    const { rows: claimRows } = await client.query(
-      `INSERT INTO public.airtime_claims
-         (user_id, airtime_coupon_id, phone, network, amount, status,
-          ip_address, user_agent, device_hash, approved_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-       RETURNING id, status, claimed_at`,
-      [
-        userId, coupon.id, phone, network, coupon.amount, finalStatus,
-        ip, userAgent, deviceHash,
-        finalStatus === "approved" ? new Date() : null,
-      ]
-    );
-    const claim = claimRows[0];
+    /* ── Step 7: Create claim record (using dynamic builder) ── */
+    const { sql: claimSql, vals: claimVals } = buildClaimInsert({
+      userId,
+      couponId  : coupon.id,
+      phone,
+      network,
+      amount    : coupon.amount,
+      status    : finalStatus,
+      ip,
+      userAgent,
+      deviceHash,
+      approvedAt: finalStatus === "approved" ? new Date() : null,
+    });
 
-    /* ── Step 8: Save airtime_phone ── */
+    console.log("[redeem] claim insert cols:", claimSql.match(/\(([^)]+)\)/)?.[1]);
+
+    let claim;
+    try {
+      const result = await client.query(claimSql, claimVals);
+      claim = result.rows[0];
+    } catch (insertErr) {
+      console.error(
+        "[redeem] claim insert FAILED:",
+        `code=${insertErr.code} column=${insertErr.column} ` +
+        `detail=${insertErr.detail} message=${insertErr.message}`
+      );
+
+      /* Minimal fallback — only the 5 columns your schema absolutely requires */
+      console.warn("[redeem] trying minimal insert fallback…");
+      const result = await client.query(
+        `INSERT INTO public.airtime_claims
+           (user_id, airtime_coupon_id, phone, network, status)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, status, claimed_at`,
+        [userId, coupon.id, phone, network, finalStatus]
+      );
+      claim = result.rows[0];
+      console.warn("[redeem] ✓ minimal insert worked");
+    }
+
+    /* ── Step 8: Save airtime_phone (only if column exists) ── */
     let phoneSaved = false;
     const oldPhone = user.airtime_phone;
 
-    if (phoneIsNew || (phoneIsChanging && saveAsDefault)) {
-      await client.query(
-        `UPDATE public.users
-         SET    airtime_phone            = $1,
-                airtime_network          = $2,
-                airtime_phone_updated_at = NOW(),
-                updated_at               = NOW()
-         WHERE  id = $3`,
-        [phone, network, userId]
-      );
+    if (SCHEMA.users.has_airtime_phone && (phoneIsNew || (phoneIsChanging && saveAsDefault))) {
+      /* Build UPDATE dynamically */
+      const updateFields = ["airtime_phone = $1"];
+      const updateVals   = [phone];
+      let paramIdx = 2;
+
+      if (SCHEMA.users.has_airtime_network) {
+        updateFields.push(`airtime_network = $${paramIdx++}`);
+        updateVals.push(network);
+      }
+      if (SCHEMA.users.has_airtime_updated_at) {
+        updateFields.push(`airtime_phone_updated_at = NOW()`);
+      }
+
+      updateVals.push(userId);
+
+      try {
+        await client.query(
+          `UPDATE public.users
+           SET    ${updateFields.join(", ")}
+           WHERE  id = $${paramIdx}`,
+          updateVals
+        );
+        phoneSaved = true;
+      } catch (e) {
+        console.warn("[redeem] user update failed:", e.message);
+      }
 
       /* History (best effort) */
-      await client.query(
-        `INSERT INTO public.airtime_phone_history
-           (user_id, old_phone, new_phone, old_network, new_network,
-            ip_address, user_agent, device_hash, reason)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [
-          userId, oldPhone, phone, null, network,
-          ip, userAgent, deviceHash,
-          phoneIsNew ? "first_claim" : "user_update",
-        ]
-      ).catch((e) => console.warn("[history] insert failed:", e.message));
+      const histQuery = buildHistoryInsert({
+        userId,
+        oldPhone,
+        newPhone   : phone,
+        oldNetwork : null,
+        newNetwork : network,
+        ip,
+        userAgent,
+        deviceHash,
+        reason     : phoneIsNew ? "first_claim" : "user_update",
+      });
 
-      phoneSaved = true;
+      if (histQuery) {
+        try {
+          await client.query(histQuery.sql, histQuery.vals);
+        } catch (e) {
+          console.warn("[history] insert failed:", e.message);
+        }
+      }
     }
 
     await client.query("COMMIT");
@@ -584,9 +800,8 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
     );
 
     /* ═══════════════════════════════════════════════════════
-       POST-COMMIT ASYNC TASKS
+       POST-COMMIT: notifications
     ═══════════════════════════════════════════════════════ */
-
     if (finalStatus === "approved") {
       safeEmail(sendAirtimeClaimApprovedEmail, {
         to      : user.email,
@@ -629,7 +844,7 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
         amount       : Number(coupon.amount),
         phone        : maskPhone(phone),
         network,
-        submitted_at : claim.claimed_at,   // ← from your schema
+        submitted_at : claim.claimed_at,
       },
     });
 
@@ -644,26 +859,21 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
     console.error("║ column    :", err.column);
     console.error("║ constraint:", err.constraint);
     console.error("║ hint      :", err.hint);
+    console.error("║ position  :", err.position);
+    console.error("║ routine   :", err.routine);
     console.error("╚═══════════════════════════════");
-
-    let userMsg = "Redemption failed. Please try again.";
-
-    if (err.code === "23514") userMsg = "Invalid coupon state. Contact support.";
-    else if (err.code === "42703") userMsg = `Database column missing: "${err.column || "unknown"}". Contact support.`;
-    else if (err.code === "42P01") userMsg = "Database table missing. Contact support.";
-    else if (err.code === "23505") userMsg = "Duplicate entry. Please try again.";
-    else if (err.code === "23503") userMsg = "Reference error. Contact support.";
-    else if (err.code === "23502") userMsg = `Required field missing: "${err.column || "unknown"}". Contact support.`;
 
     return res.status(500).json({
       success: false,
-      message: userMsg,
-      debug  : IS_PROD ? undefined : {
+      message: "Redemption failed. Please try again.",
+      debug  : {
         error     : err.message,
         code      : err.code,
-        column    : err.column,
-        table     : err.table,
+        column    : err.column || "(not provided)",
+        table     : err.table  || "(not provided)",
         constraint: err.constraint,
+        detail    : err.detail,
+        hint      : err.hint,
       },
     });
   } finally {
@@ -688,13 +898,23 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
     });
   }
 
+  if (!SCHEMA.users.has_airtime_phone) {
+    return res.status(501).json({
+      success: false,
+      message: "Airtime phone feature not enabled.",
+    });
+  }
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
+    const userCols = ["airtime_phone", "email"];
+    if (SCHEMA.users.has_name)               userCols.push("name");
+    if (SCHEMA.users.has_airtime_updated_at) userCols.push("airtime_phone_updated_at");
+
     const { rows: userRows } = await client.query(
-      `SELECT airtime_phone, airtime_phone_updated_at, name, email
-       FROM   public.users WHERE id = $1 LIMIT 1 FOR UPDATE`,
+      `SELECT ${userCols.join(", ")} FROM public.users WHERE id = $1 LIMIT 1 FOR UPDATE`,
       [userId]
     );
     if (!userRows.length) {
@@ -745,23 +965,46 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
     const network  = detectNetwork(phone);
     const oldPhone = user.airtime_phone;
 
-    await client.query(
-      `UPDATE public.users
-       SET    airtime_phone            = $1,
-              airtime_network          = $2,
-              airtime_phone_updated_at = NOW(),
-              updated_at               = NOW()
-       WHERE  id = $3`,
-      [phone, network, userId]
-    );
+    /* Dynamic UPDATE */
+    const updateFields = ["airtime_phone = $1"];
+    const updateVals   = [phone];
+    let paramIdx = 2;
+
+    if (SCHEMA.users.has_airtime_network) {
+      updateFields.push(`airtime_network = $${paramIdx++}`);
+      updateVals.push(network);
+    }
+    if (SCHEMA.users.has_airtime_updated_at) {
+      updateFields.push(`airtime_phone_updated_at = NOW()`);
+    }
+
+    updateVals.push(userId);
 
     await client.query(
-      `INSERT INTO public.airtime_phone_history
-         (user_id, old_phone, new_phone, new_network,
-          ip_address, user_agent, device_hash, reason)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, 'user_update')`,
-      [userId, oldPhone, phone, network, ip, userAgent, deviceHash]
-    ).catch((e) => console.warn("[history] insert failed:", e.message));
+      `UPDATE public.users SET ${updateFields.join(", ")} WHERE id = $${paramIdx}`,
+      updateVals
+    );
+
+    /* History best effort */
+    const histQuery = buildHistoryInsert({
+      userId,
+      oldPhone,
+      newPhone   : phone,
+      oldNetwork : null,
+      newNetwork : network,
+      ip,
+      userAgent,
+      deviceHash,
+      reason     : "user_update",
+    });
+
+    if (histQuery) {
+      try {
+        await client.query(histQuery.sql, histQuery.vals);
+      } catch (e) {
+        console.warn("[history] insert failed:", e.message);
+      }
+    }
 
     await client.query("COMMIT");
 
@@ -790,8 +1033,7 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /api/airtime-coupons/claims — user's claim history
-   Uses YOUR actual columns: airtime_coupon_id, claimed_at, credited_at, admin_note
+   GET /api/airtime-coupons/claims
 ═══════════════════════════════════════════════════════════════ */
 router.get("/claims", authenticate, async (req, res) => {
   const userId = req.user.id;
@@ -799,12 +1041,16 @@ router.get("/claims", authenticate, async (req, res) => {
   const page   = Math.max(1,  parseInt(req.query.page  ?? "1",  10));
   const offset = (page - 1) * limit;
 
+  /* Build SELECT — only include columns that exist */
+  const selectCols = ["ac.id", "ac.phone", "ac.network", "ac.status", "ac.claimed_at"];
+  if (SCHEMA.claims.has_amount)      selectCols.push("ac.amount");
+  if (SCHEMA.claims.has_approved_at) selectCols.push("ac.approved_at");
+  selectCols.push("ac.credited_at", "ac.admin_note", "c.code AS coupon_code");
+
   try {
     const [{ rows }, { rows: cnt }] = await Promise.all([
       pool.query(
-        `SELECT ac.id, ac.phone, ac.network, ac.amount, ac.status,
-                ac.claimed_at, ac.approved_at, ac.credited_at, ac.admin_note,
-                c.code AS coupon_code
+        `SELECT ${selectCols.join(", ")}
          FROM   public.airtime_claims ac
          JOIN   public.airtime_coupons c ON c.id = ac.airtime_coupon_id
          WHERE  ac.user_id = $1
@@ -830,10 +1076,10 @@ router.get("/claims", authenticate, async (req, res) => {
         phone        : maskPhone(c.phone),
         network      : c.network,
         status       : c.status,
-        submitted_at : c.claimed_at,     // ← mapped from your schema
-        approved_at  : c.approved_at,
-        processed_at : c.credited_at,    // ← mapped from your schema
-        remarks      : c.admin_note,     // ← mapped from your schema
+        submitted_at : c.claimed_at,
+        approved_at  : c.approved_at || null,
+        processed_at : c.credited_at,
+        remarks      : c.admin_note,
       })),
     });
   } catch (err) {
@@ -882,9 +1128,7 @@ router.get("/status/:id", authenticate, async (req, res) => {
 });
 
 /* ════════════════════════════════════════════════════════════════
-   ═══════════════════════════════════════════════════════════════
-                            ADMIN ROUTES
-   ═══════════════════════════════════════════════════════════════
+   ADMIN ROUTES
 ════════════════════════════════════════════════════════════════ */
 
 const requireAdmin = (req, res, next) => {
@@ -898,29 +1142,35 @@ const requireAdmin = (req, res, next) => {
 ═══════════════════════════════════════════════════════════════ */
 router.get("/admin/dashboard", authenticate, requireAdmin, async (_req, res) => {
   try {
+    const amountSelect = SCHEMA.claims.has_amount
+      ? `COALESCE(SUM(amount) FILTER (WHERE status IN ('completed','sent')), 0) AS total_paid,
+         COALESCE(SUM(amount) FILTER (WHERE status = 'pending'), 0)             AS pending_amount`
+      : `0 AS total_paid, 0 AS pending_amount`;
+
     const [claims, phones] = await Promise.all([
       pool.query(`
         SELECT
-          COUNT(*) FILTER (WHERE status = 'pending')                                AS pending,
-          COUNT(*) FILTER (WHERE status = 'approved')                               AS approved,
-          COUNT(*) FILTER (WHERE status = 'sent')                                   AS sent,
-          COUNT(*) FILTER (WHERE status = 'completed')                              AS completed,
-          COUNT(*) FILTER (WHERE status = 'rejected')                               AS rejected,
-          COUNT(*) FILTER (WHERE status = 'failed')                                 AS failed,
-          COUNT(*)                                                                  AS total,
-          COALESCE(SUM(amount) FILTER (WHERE status IN ('completed','sent')), 0)    AS total_paid,
-          COALESCE(SUM(amount) FILTER (WHERE status = 'pending'),             0)    AS pending_amount
+          COUNT(*) FILTER (WHERE status = 'pending')   AS pending,
+          COUNT(*) FILTER (WHERE status = 'approved')  AS approved,
+          COUNT(*) FILTER (WHERE status = 'sent')      AS sent,
+          COUNT(*) FILTER (WHERE status = 'completed') AS completed,
+          COUNT(*) FILTER (WHERE status = 'rejected')  AS rejected,
+          COUNT(*) FILTER (WHERE status = 'failed')    AS failed,
+          COUNT(*)                                     AS total,
+          ${amountSelect}
         FROM public.airtime_claims
       `),
-      pool.query(`
-        SELECT airtime_phone, COUNT(*)::INT AS user_count
-        FROM   public.users
-        WHERE  airtime_phone IS NOT NULL
-        GROUP  BY airtime_phone
-        HAVING COUNT(*) > 1
-        ORDER  BY user_count DESC
-        LIMIT  20
-      `),
+      SCHEMA.users.has_airtime_phone
+        ? pool.query(`
+            SELECT airtime_phone, COUNT(*)::INT AS user_count
+            FROM   public.users
+            WHERE  airtime_phone IS NOT NULL
+            GROUP  BY airtime_phone
+            HAVING COUNT(*) > 1
+            ORDER  BY user_count DESC
+            LIMIT  20
+          `)
+        : Promise.resolve({ rows: [] }),
     ]);
 
     return res.json({
@@ -940,7 +1190,7 @@ router.get("/admin/dashboard", authenticate, requireAdmin, async (_req, res) => 
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /admin/claims — search & filter
+   GET /admin/claims
 ═══════════════════════════════════════════════════════════════ */
 router.get("/admin/claims", authenticate, requireAdmin, async (req, res) => {
   const status = req.query.status || "pending";
@@ -948,6 +1198,16 @@ router.get("/admin/claims", authenticate, requireAdmin, async (req, res) => {
   const limit  = Math.min(100, parseInt(req.query.limit ?? "50", 10));
   const page   = Math.max(1,   parseInt(req.query.page  ?? "1",  10));
   const offset = (page - 1) * limit;
+
+  const selectCols = [
+    "ac.id", "ac.user_id", "ac.phone", "ac.network", "ac.status",
+    "ac.claimed_at", "ac.credited_at", "ac.admin_note",
+  ];
+  if (SCHEMA.claims.has_amount)      selectCols.push("ac.amount");
+  if (SCHEMA.claims.has_approved_at) selectCols.push("ac.approved_at");
+  if (SCHEMA.claims.has_ip_address)  selectCols.push("ac.ip_address");
+  selectCols.push("c.code AS coupon_code", "u.email");
+  if (SCHEMA.users.has_name)         selectCols.push("u.name");
 
   try {
     let where  = `WHERE ac.status = $1`;
@@ -963,11 +1223,7 @@ router.get("/admin/claims", authenticate, requireAdmin, async (req, res) => {
     }
 
     const { rows } = await pool.query(
-      `SELECT ac.id, ac.user_id, ac.phone, ac.network, ac.amount,
-              ac.status, ac.claimed_at, ac.approved_at, ac.credited_at,
-              ac.admin_note, ac.ip_address,
-              c.code AS coupon_code,
-              u.email, u.name
+      `SELECT ${selectCols.join(", ")}
        FROM   public.airtime_claims ac
        JOIN   public.airtime_coupons c ON c.id = ac.airtime_coupon_id
        JOIN   public.users u           ON u.id = ac.user_id
@@ -981,7 +1237,6 @@ router.get("/admin/claims", authenticate, requireAdmin, async (req, res) => {
       success: true,
       claims : rows.map((c) => ({
         ...c,
-        /* Aliases so frontend can use either name */
         submitted_at: c.claimed_at,
         processed_at: c.credited_at,
         remarks     : c.admin_note,
@@ -1007,23 +1262,20 @@ router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req,
   }
 
   const statusMap = {
-    approve : "approved",
-    send    : "sent",
-    complete: "completed",
-    reject  : "rejected",
-    fail    : "failed",
+    approve : "approved",  send : "sent",
+    complete: "completed", reject: "rejected", fail: "failed",
   };
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
+    const selectCols = ["id", "status", "airtime_coupon_id", "user_id", "phone", "network"];
+    if (SCHEMA.claims.has_amount) selectCols.push("amount");
+
     const { rows } = await client.query(
-      `SELECT id, status, airtime_coupon_id, user_id, amount, phone, network
-       FROM   public.airtime_claims
-       WHERE  id = $1
-       LIMIT  1
-       FOR UPDATE`,
+      `SELECT ${selectCols.join(", ")} FROM public.airtime_claims
+       WHERE id = $1 LIMIT 1 FOR UPDATE`,
       [claimId]
     );
     if (!rows.length) {
@@ -1034,19 +1286,24 @@ router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req,
     const claim     = rows[0];
     const newStatus = statusMap[action];
 
-    /* Update using YOUR schema: credited_at, credited_by, admin_note */
+    /* Build UPDATE dynamically */
+    const setFields = [
+      "status = $1",
+      "credited_at = CASE WHEN $1 IN ('completed','sent','rejected','failed') THEN NOW() ELSE credited_at END",
+      "credited_by = $2",
+      "admin_note = COALESCE($3, admin_note)",
+    ];
+    if (SCHEMA.claims.has_approved_at) {
+      setFields.push(
+        "approved_at = CASE WHEN $1 = 'approved' AND approved_at IS NULL THEN NOW() ELSE approved_at END"
+      );
+    }
+
     await client.query(
-      `UPDATE public.airtime_claims
-       SET    status       = $1,
-              credited_at  = CASE WHEN $1 IN ('completed','sent','rejected','failed') THEN NOW() ELSE credited_at END,
-              approved_at  = CASE WHEN $1 = 'approved' AND approved_at IS NULL THEN NOW() ELSE approved_at END,
-              credited_by  = $2,
-              admin_note   = COALESCE($3, admin_note)
-       WHERE  id = $4`,
+      `UPDATE public.airtime_claims SET ${setFields.join(", ")} WHERE id = $4`,
       [newStatus, adminId, remarks, claimId]
     );
 
-    /* If rejected, release the coupon */
     if (newStatus === "rejected") {
       await client.query(
         `UPDATE public.airtime_coupons
@@ -1060,35 +1317,28 @@ router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req,
 
     /* Notifications */
     const { rows: userRow } = await pool.query(
-      `SELECT name, email FROM public.users WHERE id = $1`,
+      `SELECT ${SCHEMA.users.has_name ? "name," : ""} email
+       FROM public.users WHERE id = $1`,
       [claim.user_id]
     );
     const user = userRow[0];
 
     if (user) {
+      const amount = Number(claim.amount || 0);
       if (newStatus === "approved") {
         safeEmail(sendAirtimeClaimApprovedEmail, {
-          to      : user.email,
-          name    : user.name,
-          amount  : Number(claim.amount || 0),
-          phone   : maskPhone(claim.phone),
-          network : claim.network,
+          to: user.email, name: user.name,
+          amount, phone: maskPhone(claim.phone), network: claim.network,
         });
       } else if (newStatus === "completed" || newStatus === "sent") {
         safeEmail(sendAirtimeClaimCompletedEmail, {
-          to      : user.email,
-          name    : user.name,
-          amount  : Number(claim.amount || 0),
-          phone   : maskPhone(claim.phone),
-          network : claim.network,
+          to: user.email, name: user.name,
+          amount, phone: maskPhone(claim.phone), network: claim.network,
         });
       } else if (newStatus === "rejected") {
         safeEmail(sendAirtimeClaimRejectedEmail, {
-          to      : user.email,
-          name    : user.name,
-          amount  : Number(claim.amount || 0),
-          phone   : maskPhone(claim.phone),
-          remarks,
+          to: user.email, name: user.name,
+          amount, phone: maskPhone(claim.phone), remarks,
         });
       }
     }
@@ -1108,6 +1358,9 @@ router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req,
    POST /admin/reset-cooldown/:userId
 ═══════════════════════════════════════════════════════════════ */
 router.post("/admin/reset-cooldown/:userId", authenticate, requireAdmin, async (req, res) => {
+  if (!SCHEMA.users.has_airtime_updated_at) {
+    return res.status(501).json({ success: false, message: "Cooldown tracking not enabled." });
+  }
   try {
     await pool.query(
       `UPDATE public.users SET airtime_phone_updated_at = NULL WHERE id = $1`,
@@ -1126,12 +1379,15 @@ router.post("/admin/free-phone", authenticate, requireAdmin, async (req, res) =>
   const { phone } = req.body;
   const p = normalizePhone(phone);
   if (!p) return res.status(400).json({ success: false, message: "Phone required." });
+  if (!SCHEMA.users.has_airtime_phone) {
+    return res.status(501).json({ success: false, message: "Not supported." });
+  }
 
   try {
     const { rowCount } = await pool.query(
       `UPDATE public.users
-       SET    airtime_phone   = NULL,
-              airtime_network = NULL
+       SET    airtime_phone   = NULL
+             ${SCHEMA.users.has_airtime_network ? ", airtime_network = NULL" : ""}
        WHERE  airtime_phone   = $1`,
       [p]
     );
@@ -1142,99 +1398,6 @@ router.post("/admin/free-phone", authenticate, requireAdmin, async (req, res) =>
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   POST /admin/change-user-phone
-═══════════════════════════════════════════════════════════════ */
-router.post("/admin/change-user-phone", authenticate, requireAdmin, async (req, res) => {
-  const adminId   = req.user.id;
-  const { userId, phone, reason } = req.body;
-  const p         = normalizePhone(phone);
-  const ip        = getIp(req);
-  const userAgent = req.headers["user-agent"];
-
-  if (!userId || !p || !isValidPhone(p)) {
-    return res.status(400).json({ success: false, message: "Invalid inputs." });
-  }
-
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    const { rows: [old] } = await client.query(
-      `SELECT airtime_phone, name, email FROM public.users WHERE id = $1`,
-      [userId]
-    );
-
-    const network = detectNetwork(p);
-
-    await client.query(
-      `UPDATE public.users
-       SET    airtime_phone            = $1,
-              airtime_network          = $2,
-              airtime_phone_updated_at = NOW()
-       WHERE  id = $3`,
-      [p, network, userId]
-    );
-
-    await client.query(
-      `INSERT INTO public.airtime_phone_history
-         (user_id, old_phone, new_phone, new_network,
-          ip_address, user_agent, admin_id, reason)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-      [userId, old?.airtime_phone, p, network, ip, userAgent, adminId,
-       `admin_override: ${reason || "N/A"}`]
-    ).catch((e) => console.warn("[history] insert failed:", e.message));
-
-    await client.query("COMMIT");
-
-    if (old?.email) {
-      safeEmail(sendAirtimePhoneChangedEmail, {
-        to        : old.email,
-        name      : old.name,
-        newMasked : maskPhone(p),
-        oldMasked : maskPhone(old.airtime_phone),
-        ip        : "admin-override",
-        changedAt : new Date(),
-      });
-    }
-
-    return res.json({ success: true, message: "Phone changed by admin." });
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    return res.status(500).json({ success: false, message: err.message });
-  } finally {
-    client.release();
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   GET /admin/phone-history/:userId
-═══════════════════════════════════════════════════════════════ */
-router.get("/admin/phone-history/:userId", authenticate, requireAdmin, async (req, res) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT id, old_phone, new_phone, old_network, new_network,
-              reason, ip_address, device_hash,
-              admin_id, user_agent, created_at
-       FROM   public.airtime_phone_history
-       WHERE  user_id = $1
-       ORDER  BY created_at DESC`,
-      [req.params.userId]
-    );
-    return res.json({
-      success: true,
-      history: rows.map((r) => ({
-        ...r,
-        old_phone: maskPhone(r.old_phone),
-        new_phone: maskPhone(r.new_phone),
-      })),
-    });
-  } catch (err) {
-    console.error("[admin/history]:", err.message);
-    return res.status(500).json({ success: false, message: "Failed to fetch history." });
   }
 });
 
