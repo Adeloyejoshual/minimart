@@ -549,7 +549,7 @@ export default function AirtimeClaimModal({
               <h2 className="acm-title">Claim submitted!</h2>
               <p className="acm-sub">
                 {naira(amount)} airtime will be sent to{" "}
-                <strong>{phone}</strong> within 24 hours.
+                <strong>{phone}</strong> shortly.
               </p>
               <p className="acm-sub-small">
                 You'll get an email once processed.
@@ -710,7 +710,7 @@ export default function AirtimeClaimModal({
               {/* ══════════════ INFO NOTE ══════════════ */}
               <div className="acm-note">
                 ℹ️ Send airtime to any Nigerian number — yours, family, or friends.
-                Processed within 24 hours.
+                Processed shortly after submission.
               </div>
 
               {/* ══════════════ ACTIONS ══════════════ */}
