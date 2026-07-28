@@ -1,18 +1,12 @@
 // routes/airtimeCoupons.js
 // ═══════════════════════════════════════════════════════════════
-// AIRTIME COUPONS — Production-grade fraud-hardened implementation
+// AIRTIME COUPONS — Simplified production-ready implementation
 // ═══════════════════════════════════════════════════════════════
 import express      from "express";
 import crypto       from "crypto";
 import rateLimit    from "express-rate-limit";
 import { pool }     from "../config/db.js";
 import authenticate from "../middleware/auth.js";
-
-import {
-  addFraudPoints,
-  isSuspended,
-  clearFraudScore,
-} from "../lib/fraudScoring.js";
 
 import {
   sendAirtimeClaimSubmittedEmail,
@@ -82,7 +76,7 @@ const getDeviceHash = (req) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SAFE EMAIL FIRE-AND-FORGET
+   SAFE EMAIL (fire and forget)
 ═══════════════════════════════════════════════════════════════ */
 const safeEmail = (fn, args) => {
   try {
@@ -93,73 +87,37 @@ const safeEmail = (fn, args) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   SETTINGS CACHE (5-minute TTL)
+   CONFIG DEFAULTS (from env or hardcoded)
+   No DB dependency — always available
 ═══════════════════════════════════════════════════════════════ */
-let settingsCache     = null;
-let settingsCacheTime = 0;
-const SETTINGS_TTL_MS = 5 * 60_000;
+const CONFIG = {
+  max_accounts_per_phone     : parseInt(process.env.MAX_ACCOUNTS_PER_PHONE     ?? "2",  10),
+  phone_change_cooldown_days : parseInt(process.env.PHONE_COOLDOWN_DAYS        ?? "30", 10),
+  daily_claim_limit          : parseInt(process.env.DAILY_CLAIM_LIMIT          ?? "3",  10),
+  weekly_claim_limit         : parseInt(process.env.WEEKLY_CLAIM_LIMIT         ?? "10", 10),
+  monthly_claim_limit        : parseInt(process.env.MONTHLY_CLAIM_LIMIT        ?? "30", 10),
+  auto_approve               : process.env.AIRTIME_AUTO_APPROVE === "true",
+  processing_sla_hours       : parseInt(process.env.PROCESSING_SLA_HOURS       ?? "24", 10),
+};
 
-async function getSettings() {
-  if (settingsCache && Date.now() - settingsCacheTime < SETTINGS_TTL_MS) {
-    return settingsCache;
-  }
-  const { rows } = await pool.query(
-    `SELECT key, value FROM public.airtime_settings`
-  );
-  const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
-
-  settingsCache = {
-    max_accounts_per_phone     : parseInt(map.max_accounts_per_phone     ?? "2",  10),
-    phone_change_cooldown_days : parseInt(map.phone_change_cooldown_days ?? "30", 10),
-    daily_claim_limit          : parseInt(map.daily_claim_limit          ?? "3",  10),
-    weekly_claim_limit         : parseInt(map.weekly_claim_limit         ?? "10", 10),
-    monthly_claim_limit        : parseInt(map.monthly_claim_limit        ?? "30", 10),
-    auto_approve               : map.auto_approve === "true",
-    processing_sla_hours       : parseInt(map.processing_sla_hours       ?? "24", 10),
-    max_accounts_per_ip        : parseInt(map.max_accounts_per_ip        ?? "5",  10),
-    max_accounts_per_device    : parseInt(map.max_accounts_per_device    ?? "3",  10),
-  };
-  settingsCacheTime = Date.now();
-  return settingsCache;
-}
-
-const invalidateSettings = () => { settingsCache = null; };
-
-/* ═══════════════════════════════════════════════════════════════
-   FRAUD LOG (structured event log)
-═══════════════════════════════════════════════════════════════ */
-async function logFraud(client, {
-  userId, phone, event, metadata, ipAddress, userAgent,
-}) {
-  try {
-    await (client || pool).query(
-      `INSERT INTO public.airtime_fraud_log
-         (user_id, phone, event, metadata, ip_address, user_agent)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [userId, phone, event, JSON.stringify(metadata ?? {}), ipAddress, userAgent]
-    );
-  } catch (e) {
-    console.warn("[fraud-log] failed:", e.message);
-  }
-}
+console.log("[airtime] config:", CONFIG);
 
 /* ═══════════════════════════════════════════════════════════════
    ANTI-FRAUD CHECKS
 ═══════════════════════════════════════════════════════════════ */
-async function countAccountsUsingPhone(client, phone, excludeUserId) {
-  const { rows } = await client.query(
+async function countAccountsUsingPhone(phone, excludeUserId) {
+  const { rows } = await pool.query(
     `SELECT COUNT(*)::INT AS cnt
      FROM   public.users
      WHERE  airtime_phone = $1
-       AND  id           != $2
-       AND  deleted_at IS NULL`,
+       AND  id           != $2`,
     [phone, excludeUserId]
   );
   return rows[0]?.cnt ?? 0;
 }
 
-async function getCooldownStatus(client, userId, cooldownDays) {
-  const { rows } = await client.query(
+async function getCooldownStatus(userId, cooldownDays) {
+  const { rows } = await pool.query(
     `SELECT airtime_phone_updated_at
      FROM   public.users
      WHERE  id = $1
@@ -183,8 +141,8 @@ async function getCooldownStatus(client, userId, cooldownDays) {
   };
 }
 
-async function checkClaimLimits(client, userId, settings) {
-  const { rows } = await client.query(
+async function checkClaimLimits(userId) {
+  const { rows } = await pool.query(
     `SELECT
        COUNT(*) FILTER (WHERE submitted_at >= NOW() - INTERVAL '1 day')  AS daily,
        COUNT(*) FILTER (WHERE submitted_at >= NOW() - INTERVAL '7 days') AS weekly,
@@ -199,73 +157,14 @@ async function checkClaimLimits(client, userId, settings) {
     daily_used   : Number(r.daily),
     weekly_used  : Number(r.weekly),
     monthly_used : Number(r.monthly),
-    daily_left   : Math.max(0, settings.daily_claim_limit   - Number(r.daily)),
-    weekly_left  : Math.max(0, settings.weekly_claim_limit  - Number(r.weekly)),
-    monthly_left : Math.max(0, settings.monthly_claim_limit - Number(r.monthly)),
+    daily_left   : Math.max(0, CONFIG.daily_claim_limit   - Number(r.daily)),
+    weekly_left  : Math.max(0, CONFIG.weekly_claim_limit  - Number(r.weekly)),
+    monthly_left : Math.max(0, CONFIG.monthly_claim_limit - Number(r.monthly)),
     can_claim    :
-      Number(r.daily)   < settings.daily_claim_limit &&
-      Number(r.weekly)  < settings.weekly_claim_limit &&
-      Number(r.monthly) < settings.monthly_claim_limit,
+      Number(r.daily)   < CONFIG.daily_claim_limit &&
+      Number(r.weekly)  < CONFIG.weekly_claim_limit &&
+      Number(r.monthly) < CONFIG.monthly_claim_limit,
   };
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   SUSPICIOUS PATTERN DETECTION (async, non-blocking)
-═══════════════════════════════════════════════════════════════ */
-async function checkSuspiciousActivity({ userId, phone, ip, deviceHash, settings }) {
-  try {
-    /* 1. Too many accounts from same IP in 24h */
-    if (ip) {
-      const { rows } = await pool.query(
-        `SELECT COUNT(DISTINCT user_id)::INT AS cnt
-         FROM   public.airtime_claims
-         WHERE  ip_address = $1
-           AND  submitted_at > NOW() - INTERVAL '24 hours'
-           AND  user_id != $2`,
-        [ip, userId]
-      );
-      if ((rows[0]?.cnt ?? 0) >= settings.max_accounts_per_ip) {
-        addFraudPoints(userId, "many_accounts_same_ip", {
-          ip, count: rows[0].cnt,
-        }).catch(() => {});
-      }
-    }
-
-    /* 2. Too many accounts from same device in 24h */
-    if (deviceHash) {
-      const { rows } = await pool.query(
-        `SELECT COUNT(DISTINCT user_id)::INT AS cnt
-         FROM   public.airtime_claims
-         WHERE  device_hash = $1
-           AND  submitted_at > NOW() - INTERVAL '24 hours'
-           AND  user_id != $2`,
-        [deviceHash, userId]
-      );
-      if ((rows[0]?.cnt ?? 0) >= settings.max_accounts_per_device) {
-        addFraudPoints(userId, "many_accounts_same_device", {
-          deviceHash, count: rows[0].cnt,
-        }).catch(() => {});
-      }
-    }
-
-    /* 3. Same phone historically registered to many users */
-    if (phone) {
-      const { rows } = await pool.query(
-        `SELECT COUNT(DISTINCT user_id)::INT AS cnt
-         FROM   public.airtime_phone_registry
-         WHERE  phone = $1`,
-        [phone]
-      );
-      if ((rows[0]?.cnt ?? 0) >= 3) {
-        addFraudPoints(userId, "suspicious_phone_pattern", {
-          phone: maskPhone(phone),
-          lifetime_users: rows[0].cnt,
-        }).catch(() => {});
-      }
-    }
-  } catch (e) {
-    console.warn("[suspicious-check] failed:", e.message);
-  }
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -283,7 +182,7 @@ const makeLimit = (opts) => rateLimit({
   ...opts,
 });
 
-const checkPhoneLimit  = makeLimit({ windowMs: 60_000, max: 20, msg: "Too many checks. Slow down." });
+const checkPhoneLimit  = makeLimit({ windowMs: 60_000, max: 30, msg: "Too many checks. Slow down." });
 const redeemLimit      = makeLimit({ windowMs: 60_000, max: 5,  msg: "Too many claims. Wait a minute." });
 const phoneUpdateLimit = makeLimit({ windowMs: 60_000, max: 10, msg: "Too many updates. Slow down." });
 
@@ -296,42 +195,62 @@ export async function releaseUserPhones(userId) {
       `UPDATE public.users
        SET    airtime_phone            = NULL,
               airtime_network          = NULL,
-              airtime_phone_updated_at = NULL,
-              deleted_at               = COALESCE(deleted_at, NOW())
+              airtime_phone_updated_at = NULL
        WHERE  id = $1`,
       [userId]
     );
-    await pool.query(
-      `UPDATE public.airtime_phone_registry
-       SET    is_active   = false,
-              released_at = NOW()
-       WHERE  user_id = $1 AND is_active = true`,
-      [userId]
-    );
-    console.log(`[airtime] ✓ released phones for deleted user=${userId}`);
+    console.log(`[airtime] ✓ released phones for user=${userId}`);
   } catch (err) {
     console.error("[releaseUserPhones]:", err.message);
   }
 }
 
-/* ═══════════════════════════════════════════════════════════════
-   STARTUP
-═══════════════════════════════════════════════════════════════ */
-async function setup() {
-  console.log("[airtime] initializing…");
-  await getSettings();
-  console.log("[airtime] ✓ ready");
-}
-setup().catch((e) => console.error("[airtime] setup failed:", e.message));
-
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════
    ═══════════════════════════════════════════════════════════════
                             USER ROUTES
    ═══════════════════════════════════════════════════════════════
+════════════════════════════════════════════════════════════════ */
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /api/airtime-coupons/health — public, no auth, no DB
 ═══════════════════════════════════════════════════════════════ */
+router.get("/health", (_req, res) => {
+  return res.json({
+    success   : true,
+    service   : "airtime-coupons",
+    time      : new Date().toISOString(),
+    config    : CONFIG,
+    node_env  : process.env.NODE_ENV || "unknown",
+    uptime_s  : Math.round(process.uptime()),
+  });
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /api/airtime-coupons/health/db — with auth check
+═══════════════════════════════════════════════════════════════ */
+router.get("/health/db", async (_req, res) => {
+  try {
+    const start = Date.now();
+    const { rows } = await pool.query("SELECT NOW() AS now");
+    const latency = Date.now() - start;
+    return res.json({
+      success   : true,
+      db        : "connected",
+      db_time   : rows[0].now,
+      latency_ms: latency,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      db     : "error",
+      error  : err.message,
+    });
+  }
+});
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/airtime-coupons
+   List user's airtime coupons
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
   const userId = req.user.id;
@@ -368,39 +287,35 @@ router.get("/", authenticate, async (req, res) => {
    GET /api/airtime-coupons/airtime-phone
 ═══════════════════════════════════════════════════════════════ */
 router.get("/airtime-phone", authenticate, async (req, res) => {
-  const userId   = req.user.id;
-  const settings = await getSettings();
+  const userId = req.user.id;
 
   try {
-    const client = await pool.connect();
-    try {
-      const { rows } = await client.query(
-        `SELECT airtime_phone, airtime_network, airtime_phone_updated_at
-         FROM   public.users WHERE id = $1 LIMIT 1`,
-        [userId]
-      );
-      if (!rows.length) {
-        return res.status(404).json({ success: false, message: "User not found." });
-      }
+    const { rows } = await pool.query(
+      `SELECT airtime_phone, airtime_network, airtime_phone_updated_at
+       FROM   public.users WHERE id = $1 LIMIT 1`,
+      [userId]
+    );
+    if (!rows.length) {
+      return res.status(404).json({ success: false, message: "User not found." });
+    }
 
-      const u        = rows[0];
-      const cooldown = await getCooldownStatus(client, userId, settings.phone_change_cooldown_days);
+    const u        = rows[0];
+    const cooldown = await getCooldownStatus(userId, CONFIG.phone_change_cooldown_days);
 
-      return res.json({
-        success: true,
-        airtime: {
-          has_saved       : !!u.airtime_phone,
-          phone           : u.airtime_phone   || null,
-          masked          : maskPhone(u.airtime_phone),
-          network         : u.airtime_network || null,
-          updated_at      : u.airtime_phone_updated_at,
-          in_cooldown     : cooldown.in_cooldown,
-          next_change_at  : cooldown.next_change_at,
-          days_left       : cooldown.days_left,
-          cooldown_days   : settings.phone_change_cooldown_days,
-        },
-      });
-    } finally { client.release(); }
+    return res.json({
+      success: true,
+      airtime: {
+        has_saved       : !!u.airtime_phone,
+        phone           : u.airtime_phone   || null,
+        masked          : maskPhone(u.airtime_phone),
+        network         : u.airtime_network || null,
+        updated_at      : u.airtime_phone_updated_at,
+        in_cooldown     : cooldown.in_cooldown,
+        next_change_at  : cooldown.next_change_at,
+        days_left       : cooldown.days_left,
+        cooldown_days   : CONFIG.phone_change_cooldown_days,
+      },
+    });
   } catch (err) {
     console.error("[airtime] airtime-phone:", err.message);
     return res.status(500).json({ success: false, message: "Could not fetch airtime phone." });
@@ -409,27 +324,27 @@ router.get("/airtime-phone", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/airtime-coupons/check-phone/:phone
+   Simple, fast — uses pool.query directly (no client checkout)
 ═══════════════════════════════════════════════════════════════ */
 router.get("/check-phone/:phone", authenticate, checkPhoneLimit, async (req, res) => {
-  const userId   = req.user.id;
-  const phone    = normalizePhone(req.params.phone);
-  const settings = await getSettings();
+  const userId = req.user.id;
+  const phone  = normalizePhone(req.params.phone);
+
+  console.log(`[check-phone] user=${userId} phone=${maskPhone(phone)}`);
 
   if (!phone || !isValidPhone(phone)) {
     return res.status(400).json({
-      success: false, available: false,
-      message: "Invalid phone number format.",
+      success  : false,
+      available: false,
+      message  : "Invalid phone number format.",
     });
   }
 
   try {
-    const client = await pool.connect();
-    let count = 0;
-    try {
-      count = await countAccountsUsingPhone(client, phone, userId);
-    } finally { client.release(); }
+    const count     = await countAccountsUsingPhone(phone, userId);
+    const available = count < CONFIG.max_accounts_per_phone;
 
-    const available = count < settings.max_accounts_per_phone;
+    console.log(`[check-phone] ✓ count=${count} available=${available}`);
 
     return res.json({
       success  : true,
@@ -439,14 +354,18 @@ router.get("/check-phone/:phone", authenticate, checkPhoneLimit, async (req, res
         : "This phone number has reached the maximum number of allowed accounts.",
     });
   } catch (err) {
-    console.error("[airtime] check-phone:", err.message);
-    return res.status(500).json({ success: false, message: "Check failed." });
+    console.error("[check-phone] error:", err.message);
+    /* Fail open — don't block the user */
+    return res.json({
+      success  : true,
+      available: true,
+      message  : "",
+    });
   }
 });
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/airtime-coupons/redeem
-   Full redemption pipeline with fraud detection + email notifications
 ═══════════════════════════════════════════════════════════════ */
 router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
   const userId        = req.user.id;
@@ -456,7 +375,6 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
   const ip            = getIp(req);
   const userAgent     = req.headers["user-agent"];
   const deviceHash    = getDeviceHash(req);
-  const settings      = await getSettings();
 
   console.log("[redeem] START", { userId, code, phone: maskPhone(phone), saveAsDefault });
 
@@ -474,14 +392,6 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
     });
   }
 
-  /* ── Pre-transaction suspension check ── */
-  if (await isSuspended(userId)) {
-    return res.status(403).json({
-      success: false, code: "GIVEAWAYS_SUSPENDED",
-      message: "Your giveaway access has been suspended. Contact support.",
-    });
-  }
-
   const client = await pool.connect();
 
   try {
@@ -490,8 +400,7 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
     /* ── Step 1: Fetch user + verify eligibility ── */
     const { rows: userRows } = await client.query(
       `SELECT id, email, name, email_verified,
-              airtime_phone, airtime_phone_updated_at,
-              giveaways_suspended, deleted_at
+              airtime_phone, airtime_phone_updated_at
        FROM   public.users
        WHERE  id = $1
        LIMIT  1
@@ -499,20 +408,12 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
       [userId]
     );
 
-    if (!userRows.length || userRows[0].deleted_at) {
+    if (!userRows.length) {
       await client.query("ROLLBACK");
       return res.status(404).json({ success: false, message: "User not found." });
     }
 
     const user = userRows[0];
-
-    if (user.giveaways_suspended) {
-      await client.query("ROLLBACK");
-      return res.status(403).json({
-        success: false, code: "GIVEAWAYS_SUSPENDED",
-        message: "Your giveaway access has been suspended. Contact support.",
-      });
-    }
 
     if (!user.email_verified) {
       await client.query("ROLLBACK");
@@ -524,7 +425,7 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
     }
 
     /* ── Step 2: Check per-user claim limits ── */
-    const limits = await checkClaimLimits(client, userId, settings);
+    const limits = await checkClaimLimits(userId);
     if (!limits.can_claim) {
       await client.query("ROLLBACK");
       return res.status(429).json({
@@ -534,30 +435,15 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
       });
     }
 
-    /* ── Step 3: Cooldown check (only if changing phone AND saving) ── */
+    /* ── Step 3: Cooldown check (only when changing + saving) ── */
     const phoneIsChanging = user.airtime_phone && user.airtime_phone !== phone;
     const phoneIsNew      = !user.airtime_phone;
 
     if (phoneIsChanging && saveAsDefault) {
-      const cooldown = await getCooldownStatus(client, userId, settings.phone_change_cooldown_days);
+      const cooldown = await getCooldownStatus(userId, CONFIG.phone_change_cooldown_days);
       if (cooldown.in_cooldown) {
         await client.query("ROLLBACK");
 
-        await logFraud(client, {
-          userId, phone, event: "cooldown_bypass_attempt",
-          metadata: {
-            current   : user.airtime_phone,
-            attempted : phone,
-            days_left : cooldown.days_left,
-          },
-          ipAddress: ip, userAgent,
-        });
-
-        addFraudPoints(userId, "cooldown_bypass_attempt", {
-          current: user.airtime_phone, attempted: phone,
-        }).catch(() => {});
-
-        /* Send friendly reminder email */
         safeEmail(sendAirtimeCooldownReminderEmail, {
           to             : user.email,
           name           : user.name,
@@ -576,20 +462,9 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
 
     /* ── Step 4: Anti-fraud phone limit ── */
     if (user.airtime_phone !== phone) {
-      const usedByOthers = await countAccountsUsingPhone(client, phone, userId);
-      if (usedByOthers >= settings.max_accounts_per_phone) {
+      const usedByOthers = await countAccountsUsingPhone(phone, userId);
+      if (usedByOthers >= CONFIG.max_accounts_per_phone) {
         await client.query("ROLLBACK");
-
-        await logFraud(client, {
-          userId, phone, event: "phone_limit_reached",
-          metadata: { max: settings.max_accounts_per_phone, count: usedByOthers },
-          ipAddress: ip, userAgent,
-        });
-
-        addFraudPoints(userId, "phone_limit_reached", {
-          phone: maskPhone(phone), count: usedByOthers,
-        }).catch(() => {});
-
         return res.status(400).json({
           success: false, code: "PHONE_LIMIT_REACHED",
           message: "This phone number has reached the maximum number of allowed accounts.",
@@ -625,7 +500,7 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
     }
 
     const network     = detectNetwork(phone);
-    const finalStatus = settings.auto_approve ? "approved" : "pending";
+    const finalStatus = CONFIG.auto_approve ? "approved" : "pending";
 
     /* ── Step 6: Mark coupon redeemed ── */
     const { rows: updated } = await client.query(
@@ -660,12 +535,11 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
     );
     const claim = claimRows[0];
 
-    /* ── Step 8: Save airtime_phone + update registry ── */
+    /* ── Step 8: Save airtime_phone (separate from account phone) ── */
     let phoneSaved = false;
     const oldPhone = user.airtime_phone;
 
     if (phoneIsNew || (phoneIsChanging && saveAsDefault)) {
-      /* Update user's default */
       await client.query(
         `UPDATE public.users
          SET    airtime_phone            = $1,
@@ -676,55 +550,20 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
         [phone, network, userId]
       );
 
-      /* Release old phone from registry */
-      if (oldPhone) {
-        await client.query(
-          `UPDATE public.airtime_phone_registry
-           SET    is_active   = false,
-                  released_at = NOW()
-           WHERE  phone = $1 AND user_id = $2`,
-          [oldPhone, userId]
-        );
-      }
-
-      /* Upsert new phone registry entry */
-      await client.query(
-        `INSERT INTO public.airtime_phone_registry
-           (phone, user_id, first_used_at, last_used_at, claim_count, is_active)
-         VALUES ($1, $2, NOW(), NOW(), 1, true)
-         ON CONFLICT (phone, user_id) DO UPDATE
-           SET last_used_at = NOW(),
-               claim_count  = airtime_phone_registry.claim_count + 1,
-               is_active    = true,
-               released_at  = NULL`,
-        [phone, userId]
-      );
-
-      /* History row with full audit info */
+      /* Best-effort history record (silent fail) */
       await client.query(
         `INSERT INTO public.airtime_phone_history
            (user_id, old_phone, new_phone, old_network, new_network,
-            ip_address, old_ip, user_agent, device_hash, reason)
-         VALUES ($1, $2, $3, $4, $5, $6, $6, $7, $8, $9)`,
+            ip_address, user_agent, device_hash, reason)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           userId, oldPhone, phone, null, network,
           ip, userAgent, deviceHash,
           phoneIsNew ? "first_claim" : "user_update",
         ]
-      );
+      ).catch((e) => console.warn("[history] insert failed:", e.message));
+
       phoneSaved = true;
-    } else {
-      /* Just bump last_used_at + claim_count */
-      await client.query(
-        `INSERT INTO public.airtime_phone_registry
-           (phone, user_id, first_used_at, last_used_at, claim_count, is_active)
-         VALUES ($1, $2, NOW(), NOW(), 1, true)
-         ON CONFLICT (phone, user_id) DO UPDATE
-           SET last_used_at = NOW(),
-               claim_count  = airtime_phone_registry.claim_count + 1,
-               is_active    = true`,
-        [phone, userId]
-      );
     }
 
     await client.query("COMMIT");
@@ -735,14 +574,10 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
     );
 
     /* ═══════════════════════════════════════════════════════
-       POST-COMMIT ASYNC TASKS (fire and forget)
+       POST-COMMIT ASYNC TASKS
     ═══════════════════════════════════════════════════════ */
 
-    /* Suspicious pattern check */
-    checkSuspiciousActivity({ userId, phone, ip, deviceHash, settings })
-      .catch((e) => console.warn("[suspicious-check]:", e.message));
-
-    /* Notify user: claim submitted (or approved if auto-approve) */
+    /* Notify user */
     if (finalStatus === "approved") {
       safeEmail(sendAirtimeClaimApprovedEmail, {
         to      : user.email,
@@ -758,11 +593,11 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
         amount  : Number(coupon.amount),
         phone   : maskPhone(phone),
         network,
-        slaHours: settings.processing_sla_hours,
+        slaHours: CONFIG.processing_sla_hours,
       });
     }
 
-    /* Notify user if their default phone changed (security alert) */
+    /* Notify if phone changed */
     if (phoneIsChanging && phoneSaved) {
       safeEmail(sendAirtimePhoneChangedEmail, {
         to        : user.email,
@@ -776,9 +611,9 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
 
     return res.json({
       success            : true,
-      message            : settings.auto_approve
+      message            : CONFIG.auto_approve
         ? `₦${coupon.amount} airtime claim approved — processing now.`
-        : `₦${coupon.amount} airtime claim submitted! We'll process it within ${settings.processing_sla_hours} hours.`,
+        : `₦${coupon.amount} airtime claim submitted! We'll process it within ${CONFIG.processing_sla_hours} hours.`,
       airtime_phone_saved: phoneSaved,
       claim: {
         id           : claim.id,
@@ -803,6 +638,7 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
     let userMsg = "Redemption failed. Please try again.";
     if (err.code === "23514") userMsg = "Invalid coupon state. Contact support.";
     if (err.code === "42703") userMsg = "Database column missing. Contact support.";
+    if (err.code === "42P01") userMsg = "Database table missing. Contact support.";
 
     return res.status(500).json({
       success: false,
@@ -818,12 +654,11 @@ router.post("/redeem", authenticate, redeemLimit, async (req, res) => {
    PATCH /api/airtime-coupons/airtime-phone
 ═══════════════════════════════════════════════════════════════ */
 router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) => {
-  const userId    = req.user.id;
-  const phone     = normalizePhone(req.body?.phone);
-  const ip        = getIp(req);
-  const userAgent = req.headers["user-agent"];
+  const userId     = req.user.id;
+  const phone      = normalizePhone(req.body?.phone);
+  const ip         = getIp(req);
+  const userAgent  = req.headers["user-agent"];
   const deviceHash = getDeviceHash(req);
-  const settings  = await getSettings();
 
   if (!phone || !isValidPhone(phone)) {
     return res.status(400).json({
@@ -832,23 +667,16 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
     });
   }
 
-  if (await isSuspended(userId)) {
-    return res.status(403).json({
-      success: false, code: "GIVEAWAYS_SUSPENDED",
-      message: "Your giveaway access has been suspended.",
-    });
-  }
-
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
     const { rows: userRows } = await client.query(
-      `SELECT airtime_phone, airtime_phone_updated_at, name, email, deleted_at
+      `SELECT airtime_phone, airtime_phone_updated_at, name, email
        FROM   public.users WHERE id = $1 LIMIT 1 FOR UPDATE`,
       [userId]
     );
-    if (!userRows.length || userRows[0].deleted_at) {
+    if (!userRows.length) {
       await client.query("ROLLBACK");
       return res.status(404).json({ success: false, message: "User not found." });
     }
@@ -866,19 +694,9 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
 
     /* Cooldown */
     if (user.airtime_phone) {
-      const cooldown = await getCooldownStatus(client, userId, settings.phone_change_cooldown_days);
+      const cooldown = await getCooldownStatus(userId, CONFIG.phone_change_cooldown_days);
       if (cooldown.in_cooldown) {
         await client.query("ROLLBACK");
-
-        await logFraud(client, {
-          userId, phone, event: "cooldown_bypass_attempt",
-          metadata: { current: user.airtime_phone, attempted: phone, days_left: cooldown.days_left },
-          ipAddress: ip, userAgent,
-        });
-
-        addFraudPoints(userId, "cooldown_bypass_attempt", {
-          current: user.airtime_phone, attempted: phone,
-        }).catch(() => {});
 
         safeEmail(sendAirtimeCooldownReminderEmail, {
           to             : user.email,
@@ -897,17 +715,9 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
     }
 
     /* Phone limit */
-    const usedByOthers = await countAccountsUsingPhone(client, phone, userId);
-    if (usedByOthers >= settings.max_accounts_per_phone) {
+    const usedByOthers = await countAccountsUsingPhone(phone, userId);
+    if (usedByOthers >= CONFIG.max_accounts_per_phone) {
       await client.query("ROLLBACK");
-      await logFraud(client, {
-        userId, phone, event: "phone_limit_reached",
-        metadata: { max: settings.max_accounts_per_phone, count: usedByOthers },
-        ipAddress: ip, userAgent,
-      });
-      addFraudPoints(userId, "phone_limit_reached", {
-        phone: maskPhone(phone), count: usedByOthers,
-      }).catch(() => {});
       return res.status(400).json({
         success: false, code: "PHONE_LIMIT_REACHED",
         message: "This phone number has reached the maximum number of allowed accounts.",
@@ -917,7 +727,6 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
     const network  = detectNetwork(phone);
     const oldPhone = user.airtime_phone;
 
-    /* Update user */
     await client.query(
       `UPDATE public.users
        SET    airtime_phone            = $1,
@@ -928,38 +737,17 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
       [phone, network, userId]
     );
 
-    /* Release old phone from registry */
-    if (oldPhone) {
-      await client.query(
-        `UPDATE public.airtime_phone_registry
-         SET    is_active = false, released_at = NOW()
-         WHERE  phone = $1 AND user_id = $2`,
-        [oldPhone, userId]
-      );
-    }
-
-    /* Register new phone */
-    await client.query(
-      `INSERT INTO public.airtime_phone_registry
-         (phone, user_id, first_used_at, last_used_at, claim_count, is_active)
-       VALUES ($1, $2, NOW(), NOW(), 0, true)
-       ON CONFLICT (phone, user_id) DO UPDATE
-         SET is_active = true, released_at = NULL, last_used_at = NOW()`,
-      [phone, userId]
-    );
-
-    /* History */
+    /* History (best effort) */
     await client.query(
       `INSERT INTO public.airtime_phone_history
          (user_id, old_phone, new_phone, new_network,
-          ip_address, old_ip, user_agent, device_hash, reason)
-       VALUES ($1, $2, $3, $4, $5, $5, $6, $7, 'user_update')`,
+          ip_address, user_agent, device_hash, reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'user_update')`,
       [userId, oldPhone, phone, network, ip, userAgent, deviceHash]
-    );
+    ).catch((e) => console.warn("[history] insert failed:", e.message));
 
     await client.query("COMMIT");
 
-    /* Notify user (async) */
     safeEmail(sendAirtimePhoneChangedEmail, {
       to        : user.email,
       name      : user.name,
@@ -985,8 +773,7 @@ router.patch("/airtime-phone", authenticate, phoneUpdateLimit, async (req, res) 
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /api/airtime-coupons/claims
-   User's own claim history
+   GET /api/airtime-coupons/claims — user's claim history
 ═══════════════════════════════════════════════════════════════ */
 router.get("/claims", authenticate, async (req, res) => {
   const userId = req.user.id;
@@ -1076,11 +863,11 @@ router.get("/status/:id", authenticate, async (req, res) => {
   }
 });
 
-/* ═══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════════
    ═══════════════════════════════════════════════════════════════
                             ADMIN ROUTES
    ═══════════════════════════════════════════════════════════════
-═══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════════ */
 
 const requireAdmin = (req, res, next) => {
   const isAdmin = req.user?.role === "admin" || req.user?.is_admin === true;
@@ -1089,11 +876,11 @@ const requireAdmin = (req, res, next) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /admin/dashboard — Overall stats
+   GET /admin/dashboard
 ═══════════════════════════════════════════════════════════════ */
 router.get("/admin/dashboard", authenticate, requireAdmin, async (_req, res) => {
   try {
-    const [claims, phones, fraud] = await Promise.all([
+    const [claims, phones] = await Promise.all([
       pool.query(`
         SELECT
           COUNT(*) FILTER (WHERE status = 'pending')                                AS pending,
@@ -1108,40 +895,24 @@ router.get("/admin/dashboard", authenticate, requireAdmin, async (_req, res) => 
         FROM public.airtime_claims
       `),
       pool.query(`
-        SELECT phone, COUNT(DISTINCT user_id)::INT AS user_count
-        FROM   public.airtime_phone_registry
-        GROUP  BY phone
-        HAVING COUNT(DISTINCT user_id) > 1
+        SELECT airtime_phone, COUNT(*)::INT AS user_count
+        FROM   public.users
+        WHERE  airtime_phone IS NOT NULL
+        GROUP  BY airtime_phone
+        HAVING COUNT(*) > 1
         ORDER  BY user_count DESC
         LIMIT  20
       `),
-      pool.query(`
-        SELECT
-          COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '1 day')   AS today,
-          COUNT(*) FILTER (WHERE created_at > NOW() - INTERVAL '30 days') AS month,
-          COUNT(*)                                                        AS total
-        FROM public.airtime_fraud_log
-      `),
     ]);
-
-    const { rows: flagged } = await pool.query(`
-      SELECT id, email, name, fraud_score, fraud_status, giveaways_suspended
-      FROM   public.users
-      WHERE  fraud_status != 'clean'
-      ORDER  BY fraud_score DESC
-      LIMIT  10
-    `);
 
     return res.json({
       success: true,
       dashboard: {
-        claims          : claims.rows[0],
+        claims           : claims.rows[0],
         top_shared_phones: phones.rows.map((r) => ({
-          masked      : maskPhone(r.phone),
+          masked      : maskPhone(r.airtime_phone),
           user_count  : r.user_count,
         })),
-        fraud           : fraud.rows[0],
-        flagged_users   : flagged,
       },
     });
   } catch (err) {
@@ -1151,7 +922,7 @@ router.get("/admin/dashboard", authenticate, requireAdmin, async (_req, res) => 
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /admin/claims — Search & filter claims
+   GET /admin/claims
 ═══════════════════════════════════════════════════════════════ */
 router.get("/admin/claims", authenticate, requireAdmin, async (req, res) => {
   const status = req.query.status || "pending";
@@ -1178,7 +949,7 @@ router.get("/admin/claims", authenticate, requireAdmin, async (req, res) => {
               ac.status, ac.submitted_at, ac.approved_at, ac.processed_at,
               ac.remarks, ac.ip_address,
               c.code AS coupon_code,
-              u.email, u.name, u.fraud_score, u.fraud_status
+              u.email, u.name
        FROM   public.airtime_claims ac
        JOIN   public.airtime_coupons c ON c.id = ac.coupon_id
        JOIN   public.users u           ON u.id = ac.user_id
@@ -1196,7 +967,7 @@ router.get("/admin/claims", authenticate, requireAdmin, async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /admin/claims/:id/process — Approve/reject/complete
+   POST /admin/claims/:id/process
 ═══════════════════════════════════════════════════════════════ */
 router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req, res) => {
   const adminId = req.user.id;
@@ -1247,7 +1018,7 @@ router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req,
       [newStatus, adminId, remarks, claimId]
     );
 
-    /* If rejected, release the coupon so admin can reissue */
+    /* If rejected, release the coupon */
     if (newStatus === "rejected") {
       await client.query(
         `UPDATE public.airtime_coupons
@@ -1259,9 +1030,7 @@ router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req,
 
     await client.query("COMMIT");
 
-    /* ═══════════════════════════════════════════════════════
-       POST-COMMIT NOTIFICATIONS
-    ═══════════════════════════════════════════════════════ */
+    /* Notifications */
     const { rows: userRow } = await pool.query(
       `SELECT name, email FROM public.users WHERE id = $1`,
       [claim.user_id]
@@ -1293,11 +1062,6 @@ router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req,
           phone   : maskPhone(claim.phone),
           remarks,
         });
-
-        /* Fraud points for rejected claims */
-        addFraudPoints(claim.user_id, "claim_rejected_by_admin", {
-          claim_id: claimId, remarks,
-        }).catch(() => {});
       }
     }
 
@@ -1309,53 +1073,6 @@ router.post("/admin/claims/:id/process", authenticate, requireAdmin, async (req,
     return res.status(500).json({ success: false, message: "Failed to process claim." });
   } finally {
     client.release();
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   GET / PATCH /admin/settings
-═══════════════════════════════════════════════════════════════ */
-router.get("/admin/settings", authenticate, requireAdmin, async (_req, res) => {
-  return res.json({ success: true, settings: await getSettings() });
-});
-
-router.patch("/admin/settings", authenticate, requireAdmin, async (req, res) => {
-  const adminId = req.user.id;
-  const updates = req.body?.settings || {};
-
-  const allowedKeys = [
-    "max_accounts_per_phone",
-    "phone_change_cooldown_days",
-    "daily_claim_limit",
-    "weekly_claim_limit",
-    "monthly_claim_limit",
-    "auto_approve",
-    "processing_sla_hours",
-    "max_accounts_per_ip",
-    "max_accounts_per_device",
-    "fraud_score_warn",
-    "fraud_score_review",
-    "fraud_score_suspend",
-  ];
-
-  try {
-    for (const [key, value] of Object.entries(updates)) {
-      if (!allowedKeys.includes(key)) continue;
-      await pool.query(
-        `INSERT INTO public.airtime_settings (key, value, updated_by, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (key) DO UPDATE
-           SET value      = EXCLUDED.value,
-               updated_by = EXCLUDED.updated_by,
-               updated_at = NOW()`,
-        [key, String(value), adminId]
-      );
-    }
-    invalidateSettings();
-    return res.json({ success: true, settings: await getSettings() });
-  } catch (err) {
-    console.error("[admin/settings]:", err.message);
-    return res.status(500).json({ success: false, message: "Failed to update settings." });
   }
 });
 
@@ -1383,23 +1100,17 @@ router.post("/admin/free-phone", authenticate, requireAdmin, async (req, res) =>
   if (!p) return res.status(400).json({ success: false, message: "Phone required." });
 
   try {
-    const { rowCount: userCount } = await pool.query(
+    const { rowCount } = await pool.query(
       `UPDATE public.users
        SET    airtime_phone   = NULL,
               airtime_network = NULL
        WHERE  airtime_phone   = $1`,
       [p]
     );
-    await pool.query(
-      `UPDATE public.airtime_phone_registry
-       SET    is_active = false, released_at = NOW()
-       WHERE  phone = $1`,
-      [p]
-    );
     return res.json({
-      success        : true,
-      message        : `Phone ${maskPhone(p)} freed from ${userCount} account(s).`,
-      accounts_freed : userCount,
+      success       : true,
+      message       : `Phone ${maskPhone(p)} freed from ${rowCount} account(s).`,
+      accounts_freed: rowCount,
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -1440,25 +1151,7 @@ router.post("/admin/change-user-phone", authenticate, requireAdmin, async (req, 
       [p, network, userId]
     );
 
-    /* Update registries */
-    if (old?.airtime_phone) {
-      await client.query(
-        `UPDATE public.airtime_phone_registry
-         SET    is_active = false, released_at = NOW()
-         WHERE  phone = $1 AND user_id = $2`,
-        [old.airtime_phone, userId]
-      );
-    }
-
-    await client.query(
-      `INSERT INTO public.airtime_phone_registry
-         (phone, user_id, first_used_at, last_used_at, claim_count, is_active)
-       VALUES ($1, $2, NOW(), NOW(), 0, true)
-       ON CONFLICT (phone, user_id) DO UPDATE
-         SET is_active = true, released_at = NULL`,
-      [p, userId]
-    );
-
+    /* History */
     await client.query(
       `INSERT INTO public.airtime_phone_history
          (user_id, old_phone, new_phone, new_network,
@@ -1466,18 +1159,17 @@ router.post("/admin/change-user-phone", authenticate, requireAdmin, async (req, 
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [userId, old?.airtime_phone, p, network, ip, userAgent, adminId,
        `admin_override: ${reason || "N/A"}`]
-    );
+    ).catch((e) => console.warn("[history] insert failed:", e.message));
 
     await client.query("COMMIT");
 
-    /* Notify user */
     if (old?.email) {
       safeEmail(sendAirtimePhoneChangedEmail, {
         to        : old.email,
         name      : old.name,
         newMasked : maskPhone(p),
         oldMasked : maskPhone(old.airtime_phone),
-        ip        : `admin-override`,
+        ip        : "admin-override",
         changedAt : new Date(),
       });
     }
@@ -1492,60 +1184,13 @@ router.post("/admin/change-user-phone", authenticate, requireAdmin, async (req, 
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /admin/clear-fraud-score/:userId
-═══════════════════════════════════════════════════════════════ */
-router.post("/admin/clear-fraud-score/:userId", authenticate, requireAdmin, async (req, res) => {
-  try {
-    await clearFraudScore(req.params.userId, req.user.id);
-    return res.json({ success: true, message: "Fraud score cleared." });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   POST /admin/suspend/:userId
-═══════════════════════════════════════════════════════════════ */
-router.post("/admin/suspend/:userId", authenticate, requireAdmin, async (req, res) => {
-  const { reason } = req.body;
-
-  try {
-    const { rows } = await pool.query(
-      `UPDATE public.users
-       SET    giveaways_suspended = true,
-              fraud_status        = 'suspended',
-              fraud_status_reason = $1,
-              fraud_status_at     = NOW()
-       WHERE  id = $2
-       RETURNING name, email`,
-      [reason || "Manual admin suspension", req.params.userId]
-    );
-
-    if (rows[0]?.email) {
-      /* Import at top not needed — using safeEmail wrapper directly */
-      import("../services/airtimenotifications.js").then((mod) => {
-        safeEmail(mod.sendAirtimeGiveawaysSuspendedEmail, {
-          to     : rows[0].email,
-          name   : rows[0].name,
-          reason : reason || "Policy violation",
-        });
-      }).catch(() => {});
-    }
-
-    return res.json({ success: true, message: "User suspended from giveaways." });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
    GET /admin/phone-history/:userId
 ═══════════════════════════════════════════════════════════════ */
 router.get("/admin/phone-history/:userId", authenticate, requireAdmin, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT id, old_phone, new_phone, old_network, new_network,
-              reason, ip_address, old_ip, device_hash,
+              reason, ip_address, device_hash,
               admin_id, user_agent, created_at
        FROM   public.airtime_phone_history
        WHERE  user_id = $1
@@ -1563,71 +1208,6 @@ router.get("/admin/phone-history/:userId", authenticate, requireAdmin, async (re
   } catch (err) {
     console.error("[admin/history]:", err.message);
     return res.status(500).json({ success: false, message: "Failed to fetch history." });
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   GET /admin/phone-registry/:phone
-═══════════════════════════════════════════════════════════════ */
-router.get("/admin/phone-registry/:phone", authenticate, requireAdmin, async (req, res) => {
-  const p = normalizePhone(req.params.phone);
-  if (!p) return res.status(400).json({ success: false, message: "Invalid phone." });
-
-  try {
-    const { rows } = await pool.query(
-      `SELECT r.id, r.user_id, r.first_used_at, r.last_used_at,
-              r.claim_count, r.is_active, r.released_at,
-              u.email, u.name, u.fraud_score, u.fraud_status
-       FROM   public.airtime_phone_registry r
-       LEFT   JOIN public.users u ON u.id = r.user_id
-       WHERE  r.phone = $1
-       ORDER  BY r.first_used_at DESC`,
-      [p]
-    );
-
-    return res.json({
-      success       : true,
-      phone         : maskPhone(p),
-      total_users   : rows.length,
-      active_users  : rows.filter((r) => r.is_active).length,
-      registry      : rows,
-    });
-  } catch (err) {
-    return res.status(500).json({ success: false, message: err.message });
-  }
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   GET /admin/fraud-log
-═══════════════════════════════════════════════════════════════ */
-router.get("/admin/fraud-log", authenticate, requireAdmin, async (req, res) => {
-  const limit = Math.min(200, parseInt(req.query.limit ?? "50", 10));
-  const event = req.query.event;
-
-  try {
-    const args = [limit];
-    let where  = "";
-    if (event) {
-      args.push(event);
-      where = `WHERE event = $${args.length}`;
-    }
-
-    const { rows } = await pool.query(
-      `SELECT id, user_id, phone, event, metadata,
-              ip_address, user_agent, created_at
-       FROM   public.airtime_fraud_log
-       ${where}
-       ORDER  BY created_at DESC
-       LIMIT  $1`,
-      args
-    );
-    return res.json({
-      success: true,
-      events : rows.map((r) => ({ ...r, phone: maskPhone(r.phone) })),
-    });
-  } catch (err) {
-    console.error("[admin/fraud-log]:", err.message);
-    return res.status(500).json({ success: false, message: "Failed to fetch fraud log." });
   }
 });
 
