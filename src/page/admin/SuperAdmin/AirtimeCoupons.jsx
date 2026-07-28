@@ -37,6 +37,20 @@ const FRAUD_COLORS = {
   suspended : { color: "#dc2626", label: "Suspended" },
 };
 
+/* Next status in the flow */
+const NEXT_STATUS = {
+  pending  : "approved",
+  approved : "sent",
+  sent     : "completed",
+};
+
+/* Action name for each transition */
+const NEXT_ACTION = {
+  pending  : "approve",
+  approved : "send",
+  sent     : "complete",
+};
+
 const naira = (n) => "₦" + Number(n || 0).toLocaleString("en-NG");
 
 const fmtDate = (d) => {
@@ -100,6 +114,7 @@ function AssignModal({ api, onClose, onSuccess }) {
             placeholder="User ID (UUID)"
             value={userId}
             onChange={(e) => { setUserId(e.target.value); setError(null); }}
+            autoFocus
           />
 
           <div style={{ display: "flex", gap: 8 }}>
@@ -156,12 +171,17 @@ function AssignModal({ api, onClose, onSuccess }) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   NOTE MODAL — used for reject/fail with mandatory note
+   NOTE MODAL — reject/fail with mandatory note
 ════════════════════════════════════════════════════════════ */
 function NoteModal({ claim, action, api, onClose, onSuccess }) {
   const [note,    setNote]    = useState("");
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState(null);
+  const textareaRef = useRef(null);
+
+  useEffect(() => {
+    setTimeout(() => textareaRef.current?.focus(), 100);
+  }, []);
 
   const cfg = {
     reject: {
@@ -217,13 +237,20 @@ function NoteModal({ claim, action, api, onClose, onSuccess }) {
         </div>
 
         <textarea
+          ref={textareaRef}
           className="inp"
           rows={4}
           placeholder={cfg.hint}
           value={note}
           onChange={(e) => { setNote(e.target.value); setError(null); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit();
+          }}
           style={{ resize: "vertical", width: "100%" }}
         />
+        <div style={{ fontSize: ".7rem", color: "var(--muted)", marginTop: 4 }}>
+          Ctrl/Cmd + Enter to submit
+        </div>
 
         {error && (
           <p style={{ fontSize: ".8rem", color: "#dc2626", margin: "6px 0 0" }}>
@@ -243,6 +270,295 @@ function NoteModal({ claim, action, api, onClose, onSuccess }) {
     </div>
   );
 }
+
+/* ════════════════════════════════════════════════════════════
+   ⚡ FAST CASCADE MODAL — auto-advances through approve→send→complete
+   
+   FEATURES:
+   • Auto-focuses primary button (press Enter to advance)
+   • Optimistic UI (advances immediately, syncs in background)
+   • Keyboard shortcuts: Enter=next, Esc=close, A=complete-all
+   • "Complete All" button skips all steps at once
+   • Auto-closes when done
+════════════════════════════════════════════════════════════ */
+function FastCascadeModal({ claim, api, onClose, onSuccess, showToast }) {
+  const [step,        setStep]        = useState(claim.status);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState(null);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const buttonRef = useRef(null);
+
+  /* Auto-focus primary button on step change */
+  useEffect(() => {
+    setTimeout(() => buttonRef.current?.focus(), 50);
+  }, [step]);
+
+  /* Keyboard shortcuts */
+  useEffect(() => {
+    const onKey = (e) => {
+      if (loading) return;
+      if (e.key === "Escape")      onClose();
+      if (e.key === "a" || e.key === "A") completeAll();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [loading, step]);
+
+  const stepConfig = {
+    pending: {
+      title: "Approve",
+      btnLabel: "✓ Approve & Continue",
+      btnColor: "#2563eb",
+      action: "approve",
+    },
+    approved: {
+      title: "Mark as Sent",
+      btnLabel: "📤 Sent & Continue",
+      btnColor: "#0891b2",
+      action: "send",
+    },
+    sent: {
+      title: "Complete",
+      btnLabel: "✅ Complete",
+      btnColor: "#16a34a",
+      action: "complete",
+    },
+  };
+
+  const cfg = stepConfig[step];
+
+  /* Show success screen when done */
+  useEffect(() => {
+    if (!cfg && !showSuccess) {
+      setShowSuccess(true);
+      setTimeout(() => onClose(), 1200);
+    }
+  }, [cfg, showSuccess, onClose]);
+
+  /* Single-step advance */
+  const advance = async () => {
+    if (!cfg || loading) return;
+    setLoading(true);
+    setError(null);
+
+    try {
+      await api.post(`/airtime-coupons/${claim.id}/${cfg.action}`);
+      showToast("success", `${cfg.title}: ${claim.coupon_code}`);
+      onSuccess();
+
+      /* Advance to next step */
+      const next = NEXT_STATUS[step];
+      if (next && stepConfig[next]) {
+        setStep(next);
+      } else {
+        setStep("done");
+      }
+    } catch (e) {
+      setError(e.response?.data?.message || "Action failed.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* ⚡ COMPLETE ALL — sends approve → send → complete in sequence */
+  const completeAll = async () => {
+    if (loading) return;
+    setLoading(true);
+    setError(null);
+
+    const stepsToRun = [];
+    let current = step;
+    while (stepConfig[current]) {
+      stepsToRun.push(stepConfig[current].action);
+      current = NEXT_STATUS[current];
+    }
+
+    try {
+      for (const action of stepsToRun) {
+        await api.post(`/airtime-coupons/${claim.id}/${action}`);
+      }
+      showToast("success", `${claim.coupon_code} fully processed! (${stepsToRun.length} steps)`);
+      onSuccess();
+      setStep("done");
+    } catch (e) {
+      setError(e.response?.data?.message || "Failed mid-flow. Refresh to see current state.");
+      onSuccess(); /* Refresh anyway to see partial progress */
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /* Success screen */
+  if (showSuccess || step === "done") {
+    return (
+      <div className="overlay" onClick={onClose}>
+        <div
+          className="modal"
+          onClick={(e) => e.stopPropagation()}
+          style={{ maxWidth: 340, textAlign: "center", padding: "24px 20px" }}
+        >
+          <div style={{
+            width: 64, height: 64, borderRadius: "50%",
+            background: "#dcfce7", color: "#16a34a",
+            fontSize: 40, fontWeight: "bold",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            margin: "0 auto 12px",
+            animation: "pop 0.3s ease",
+          }}>
+            ✓
+          </div>
+          <div style={{ fontSize: "1.1rem", fontWeight: 800, marginBottom: 4 }}>
+            Done!
+          </div>
+          <p style={{ fontSize: ".82rem", color: "var(--muted)", margin: "0 0 4px" }}>
+            {claim.coupon_code} completed
+          </p>
+          <p style={{ fontSize: ".7rem", color: "var(--muted)" }}>
+            Closing…
+          </p>
+        </div>
+        <style>{`
+          @keyframes pop {
+            0%   { transform: scale(0);   opacity: 0; }
+            60%  { transform: scale(1.15); opacity: 1; }
+            100% { transform: scale(1);   opacity: 1; }
+          }
+        `}</style>
+      </div>
+    );
+  }
+
+  const steps = ["pending", "approved", "sent"];
+  const currentIdx = steps.indexOf(step);
+
+  return (
+    <div className="overlay" onClick={loading ? null : onClose}>
+      <div
+        className="modal"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxWidth: 420 }}
+      >
+        {/* Header */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          marginBottom: 8,
+        }}>
+          <div className="modal-title" style={{ margin: 0 }}>
+            {cfg.title}
+          </div>
+          <span style={{
+            fontSize: ".7rem", color: "var(--muted)", fontWeight: 600,
+          }}>
+            Step {currentIdx + 1}/3
+          </span>
+        </div>
+
+        {/* Progress bar */}
+        <div style={{ display: "flex", gap: 3, marginBottom: 14 }}>
+          {steps.map((s, i) => (
+            <div
+              key={s}
+              style={{
+                flex: 1, height: 3, borderRadius: 2,
+                background: currentIdx >= i ? cfg.btnColor : "#e5e7eb",
+                transition: "background 0.3s",
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Compact claim info */}
+        <div style={{
+          background: "#f9fafb", padding: "10px 12px",
+          borderRadius: 8, fontSize: ".82rem", marginBottom: 12,
+          display: "flex", justifyContent: "space-between", alignItems: "center",
+        }}>
+          <div>
+            <div style={{ fontWeight: 800, color: "#e8630a", fontSize: "1.05rem" }}>
+              {naira(claim.amount)}
+            </div>
+            <div style={{ fontSize: ".75rem", color: "var(--muted)" }}>
+              {claim.user?.name}
+            </div>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <code style={{ fontSize: ".82rem", fontWeight: 700 }}>{claim.phone}</code>
+            <div style={{ fontSize: ".72rem", color: "var(--muted)" }}>
+              {claim.network} · <code>{claim.coupon_code}</code>
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <p style={{
+            padding: "6px 10px", background: "#fef2f2",
+            border: "1px solid #fecaca", borderRadius: 6,
+            fontSize: ".78rem", color: "#dc2626", margin: "0 0 10px",
+          }}>
+            ❌ {error}
+          </p>
+        )}
+
+        {/* Actions */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          <button
+            ref={buttonRef}
+            className="btn b-solid"
+            onClick={advance}
+            disabled={loading}
+            style={{
+              background: cfg.btnColor,
+              fontSize: ".9rem", padding: "10px",
+              fontWeight: 700,
+            }}
+          >
+            {loading ? "Processing…" : cfg.btnLabel}
+          </button>
+
+          <button
+            className="btn b-solid"
+            onClick={completeAll}
+            disabled={loading}
+            style={{
+              background: "#16a34a",
+              fontSize: ".8rem", padding: "8px",
+              fontWeight: 600,
+            }}
+            title="Press A"
+          >
+            ⚡ Complete All Steps (A)
+          </button>
+
+          <button
+            className="btn b-ghost"
+            onClick={onClose}
+            disabled={loading}
+            style={{ fontSize: ".78rem", padding: "6px" }}
+          >
+            Close (Esc)
+          </button>
+        </div>
+
+        <div style={{
+          fontSize: ".68rem", color: "var(--muted)",
+          textAlign: "center", marginTop: 8,
+        }}>
+          💡 Press <kbd style={kbdStyle}>Enter</kbd> for next step ·{" "}
+          <kbd style={kbdStyle}>A</kbd> for all
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const kbdStyle = {
+  background: "#f5f3ef",
+  padding: "1px 6px",
+  borderRadius: 3,
+  fontSize: ".68rem",
+  fontFamily: "monospace",
+  border: "1px solid #e5e7eb",
+};
 
 /* ════════════════════════════════════════════════════════════
    BULK ACTION BAR
@@ -277,12 +593,46 @@ function BulkActionBar({ selected, api, onClear, onSuccess, showToast, confirm }
     }
   };
 
+  /* ⚡ COMPLETE ALL SELECTED — approve, send, complete for all */
+  const bulkCompleteAll = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const ids = Array.from(selected);
+      let successCount = 0;
+      let failCount = 0;
+
+      /* Run all 3 steps sequentially for each */
+      for (const action of ["approve", "send", "complete"]) {
+        try {
+          const { data } = await api.post("/airtime-coupons/bulk-action", {
+            ids, action,
+          });
+          successCount = data.processed;
+          failCount    = data.failed;
+        } catch { /* continue to next step */ }
+      }
+
+      showToast(
+        failCount === 0 ? "success" : "warning",
+        `⚡ Completed ${successCount} of ${selected.size}${failCount ? ` (${failCount} skipped)` : ""}.`
+      );
+      onSuccess();
+    } catch (e) {
+      showToast("error", e.response?.data?.message || "Bulk complete failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <div style={{
         display: "flex", alignItems: "center", gap: 10,
         padding: "12px 16px", background: "#0891b2", color: "#fff",
         borderRadius: 10, flexWrap: "wrap",
+        position: "sticky", top: 0, zIndex: 10,
+        boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
       }}>
         <span style={{ fontWeight: 700, fontSize: ".9rem" }}>
           ✓ {selected.size} selected
@@ -290,13 +640,27 @@ function BulkActionBar({ selected, api, onClear, onSuccess, showToast, confirm }
 
         <div style={{ display: "flex", gap: 6, marginLeft: "auto", flexWrap: "wrap" }}>
           <button
+            className="btn b-solid"
+            style={{ fontSize: ".78rem", padding: "6px 14px", background: "#16a34a", fontWeight: 700 }}
+            disabled={busy}
+            onClick={() => confirm({
+              title  : `⚡ Complete all ${selected.size} claims?`,
+              body   : "Approves, sends, and completes all selected claims in one go. Users get emails at each step.",
+              confirm: "⚡ Complete All",
+              action : bulkCompleteAll,
+            })}
+          >
+            ⚡ Complete All
+          </button>
+
+          <button
             className="btn b-ghost"
-            style={{ fontSize: ".76rem", padding: "6px 12px", background: "#fff", color: "#0891b2" }}
+            style={{ fontSize: ".76rem", padding: "6px 12px", background: "#fff", color: "#2563eb" }}
             disabled={busy}
             onClick={() => confirm({
               title  : `Approve ${selected.size} claims?`,
-              body   : "All selected claims will move to 'approved' status.",
-              confirm: "✓ Approve All",
+              body   : "Selected claims will move to 'approved' status.",
+              confirm: "✓ Approve",
               action : () => doBulkAction("approve"),
             })}
           >
@@ -305,30 +669,16 @@ function BulkActionBar({ selected, api, onClear, onSuccess, showToast, confirm }
 
           <button
             className="btn b-ghost"
-            style={{ fontSize: ".76rem", padding: "6px 12px", background: "#fff", color: "#16a34a" }}
+            style={{ fontSize: ".76rem", padding: "6px 12px", background: "#fff", color: "#0891b2" }}
             disabled={busy}
             onClick={() => confirm({
-              title  : `Mark ${selected.size} as sent?`,
-              body   : "Confirm the airtime has been dispatched to users.",
+              title  : `Send ${selected.size} claims?`,
+              body   : "Confirm the airtime has been dispatched.",
               confirm: "📤 Mark Sent",
               action : () => doBulkAction("send"),
             })}
           >
             📤 Send
-          </button>
-
-          <button
-            className="btn b-ghost"
-            style={{ fontSize: ".76rem", padding: "6px 12px", background: "#fff", color: "#16a34a" }}
-            disabled={busy}
-            onClick={() => confirm({
-              title  : `Complete ${selected.size} claims?`,
-              body   : "Confirm all airtime has been successfully delivered.",
-              confirm: "✅ Complete All",
-              action : () => doBulkAction("complete"),
-            })}
-          >
-            ✅ Complete
           </button>
 
           <button
@@ -350,7 +700,6 @@ function BulkActionBar({ selected, api, onClear, onSuccess, showToast, confirm }
         </div>
       </div>
 
-      {/* Note prompt modal */}
       {noteAction && (
         <div className="overlay" onClick={() => setNoteAction(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 420 }}>
@@ -365,6 +714,7 @@ function BulkActionBar({ selected, api, onClear, onSuccess, showToast, confirm }
               value={note}
               onChange={(e) => setNote(e.target.value)}
               style={{ resize: "vertical", width: "100%" }}
+              autoFocus
             />
             <div className="modal-btns">
               <button className="btn b-ghost" onClick={() => setNoteAction(null)} disabled={busy}>
@@ -427,7 +777,6 @@ function ClaimDetailModal({ claim, api, onClose }) {
         ) : detail ? (
           <div style={{ display: "flex", flexDirection: "column", gap: 14, marginTop: 12 }}>
 
-            {/* Header info */}
             <div style={{ background: "#f9fafb", padding: 14, borderRadius: 10 }}>
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 10 }}>
                 <div>
@@ -449,7 +798,6 @@ function ClaimDetailModal({ claim, api, onClose }) {
               </div>
             </div>
 
-            {/* User info */}
             <Section title="👤 User">
               <Row label="Name"      value={detail.user?.name} />
               <Row label="Email"     value={detail.user?.email} />
@@ -474,31 +822,25 @@ function ClaimDetailModal({ claim, api, onClose }) {
               )}
             </Section>
 
-            {/* Claim info */}
             <Section title="📱 Airtime Details">
               <Row label="Phone"    value={<code>{detail.phone}</code>} />
               <Row label="Network"  value={detail.network} />
               <Row label="Claimed"  value={fmtDate(detail.claimed_at)} />
               {detail.approved_at && <Row label="Approved" value={fmtDate(detail.approved_at)} />}
               {detail.credited_at && <Row label="Credited" value={fmtDate(detail.credited_at)} />}
-              {detail.processed_by && (
-                <Row label="Processed By" value={detail.processed_by.name || detail.processed_by.email} />
-              )}
               {detail.admin_note && (
                 <Row label="Admin Note" value={<em>{detail.admin_note}</em>} />
               )}
             </Section>
 
-            {/* Metadata */}
-            <Section title="🔍 Metadata (Fraud Investigation)">
+            <Section title="🔍 Metadata">
               <Row label="IP Address"  value={<code>{detail.ip_address || "—"}</code>} />
               <Row label="Device Hash" value={<code style={{ fontSize: ".7rem" }}>{detail.device_hash || "—"}</code>} />
               <Row label="User Agent"  value={<span style={{ fontSize: ".7rem" }}>{detail.user_agent || "—"}</span>} />
             </Section>
 
-            {/* Recent claims */}
             {detail.recent_claims?.length > 0 && (
-              <Section title={`📋 User's Recent Claims (${detail.recent_claims.length})`}>
+              <Section title={`📋 Recent Claims (${detail.recent_claims.length})`}>
                 {detail.recent_claims.map((c) => (
                   <div key={c.id} style={{
                     display: "flex", justifyContent: "space-between",
@@ -509,40 +851,6 @@ function ClaimDetailModal({ claim, api, onClose }) {
                     <span style={{ color: STATUS_CFG[c.status]?.color, fontWeight: 700 }}>
                       {STATUS_CFG[c.status]?.label}
                     </span>
-                  </div>
-                ))}
-              </Section>
-            )}
-
-            {/* Phone history */}
-            {detail.phone_history?.length > 0 && (
-              <Section title={`📞 Phone History (${detail.phone_history.length})`}>
-                {detail.phone_history.map((h, i) => (
-                  <div key={i} style={{
-                    padding: "6px 0", borderBottom: "1px solid #f3f4f6",
-                    fontSize: ".78rem",
-                  }}>
-                    <div>{h.old_phone || "—"} → <strong>{h.new_phone}</strong></div>
-                    <div style={{ color: "var(--muted)", fontSize: ".7rem" }}>
-                      {h.reason} · {fmtDate(h.created_at)}
-                    </div>
-                  </div>
-                ))}
-              </Section>
-            )}
-
-            {/* Fraud events */}
-            {detail.fraud_events?.length > 0 && (
-              <Section title={`⚠️ Fraud Events (${detail.fraud_events.length})`}>
-                {detail.fraud_events.map((e, i) => (
-                  <div key={i} style={{
-                    padding: "6px 0", borderBottom: "1px solid #f3f4f6",
-                    fontSize: ".78rem",
-                  }}>
-                    <div style={{ color: "#dc2626", fontWeight: 700 }}>{e.event}</div>
-                    <div style={{ color: "var(--muted)", fontSize: ".7rem" }}>
-                      {fmtDate(e.created_at)}
-                    </div>
                   </div>
                 ))}
               </Section>
@@ -559,7 +867,6 @@ function ClaimDetailModal({ claim, api, onClose }) {
   );
 }
 
-/* ── Detail modal helpers ── */
 function Section({ title, children }) {
   return (
     <div style={{ background: "#fff", padding: 12, borderRadius: 10, border: "1px solid #ede9e3" }}>
@@ -584,35 +891,39 @@ function Row({ label, value }) {
    MAIN COMPONENT
 ════════════════════════════════════════════════════════════ */
 export default function AirtimeCoupons({ api, confirm, onMutation }) {
-  const [claims,      setClaims]      = useState([]);
-  const [summary,     setSummary]     = useState({});
-  const [stats,       setStats]       = useState(null);
-  const [loading,     setLoading]     = useState(true);
-  const [statusTab,   setStatusTab]   = useState("pending");
-  const [search,      setSearch]      = useState("");
-  const [sort,        setSort]        = useState("oldest");
-  const [page,        setPage]        = useState(1);
-  const [totalPages,  setTotalPages]  = useState(1);
-  const [total,       setTotal]       = useState(0);
-  const [pendingAmt,  setPendingAmt]  = useState(0);
-  const [toast,       setToast]       = useState(null);
-  const [showAssign,  setShowAssign]  = useState(false);
-  const [noteModal,   setNoteModal]   = useState(null);   // { claim, action }
-  const [detailModal, setDetailModal] = useState(null);
-  const [busy,        setBusy]        = useState(null);
-  const [selected,    setSelected]    = useState(new Set());
-  const toastRef = useRef(null);
+  const [claims,       setClaims]       = useState([]);
+  const [summary,      setSummary]      = useState({});
+  const [stats,        setStats]        = useState(null);
+  const [loading,      setLoading]      = useState(true);
+  const [statusTab,    setStatusTab]    = useState("pending");
+  const [search,       setSearch]       = useState("");
+  const [sort,         setSort]         = useState("oldest");
+  const [page,         setPage]         = useState(1);
+  const [totalPages,   setTotalPages]   = useState(1);
+  const [total,        setTotal]        = useState(0);
+  const [pendingAmt,   setPendingAmt]   = useState(0);
+  const [toast,        setToast]        = useState(null);
+  const [showAssign,   setShowAssign]   = useState(false);
+  const [noteModal,    setNoteModal]    = useState(null);
+  const [detailModal,  setDetailModal]  = useState(null);
+  const [cascadeModal, setCascadeModal] = useState(null);
+  const [busy,         setBusy]         = useState(null);
+  const [selected,     setSelected]     = useState(new Set());
+
+  const toastRef  = useRef(null);
+  const searchRef = useRef(null);
 
   /* ── Toast ── */
   const showToast = useCallback((type, text) => {
     setToast({ type, text });
     clearTimeout(toastRef.current);
-    toastRef.current = setTimeout(() => setToast(null), 4_000);
+    toastRef.current = setTimeout(() => setToast(null), 3_000);
   }, []);
 
   /* ── Load ── */
-  const load = useCallback(async (pg = page) => {
-    setLoading(true);
+  const load = useCallback(async (pg = page, opts = {}) => {
+    const { silent = false } = opts;
+    if (!silent) setLoading(true);
     try {
       const params = new URLSearchParams({
         status : statusTab,
@@ -634,12 +945,11 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
       setPendingAmt(listRes.data.pending_amount || 0);
       setStats(statsRes.data);
 
-      /* Clear selection when data changes */
-      setSelected(new Set());
+      if (!silent) setSelected(new Set());
     } catch (e) {
       showToast("error", e.response?.data?.message || "Failed to load data.");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [api, statusTab, search, sort, page, showToast]);
 
@@ -654,22 +964,64 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
 
   useEffect(() => () => clearTimeout(toastRef.current), []);
 
-  /* ── Single-claim action ── */
+  /* ── Global keyboard shortcuts ── */
+  useEffect(() => {
+    const onKey = (e) => {
+      /* Don't hijack when typing in inputs */
+      if (["INPUT", "TEXTAREA", "SELECT"].includes(e.target.tagName)) return;
+      if (cascadeModal || noteModal || detailModal || showAssign) return;
+
+      if (e.key === "/" || e.key === "s") {
+        e.preventDefault();
+        searchRef.current?.focus();
+      }
+      if (e.key === "r") {
+        e.preventDefault();
+        load(page);
+      }
+      if (e.key === "1") setStatusTab("pending");
+      if (e.key === "2") setStatusTab("approved");
+      if (e.key === "3") setStatusTab("sent");
+      if (e.key === "4") setStatusTab("completed");
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [cascadeModal, noteModal, detailModal, showAssign, load, page]);
+
+  /* ── Optimistic single action ── */
   const doAction = async (id, action, note) => {
     setBusy(id);
+
+    /* Optimistic update — remove from current tab if status changes */
+    const nextStatusMap = {
+      approve  : "approved",
+      send     : "sent",
+      complete : "completed",
+      reject   : "rejected",
+      fail     : "failed",
+    };
+    const newStatus = nextStatusMap[action];
+
+    if (newStatus && newStatus !== statusTab && statusTab !== "all") {
+      setClaims((prev) => prev.filter((c) => c.id !== id));
+    }
+
     try {
       await api.post(`/airtime-coupons/${id}/${action}`, note ? { note } : {});
       showToast("success", `Claim ${action}d.`);
       onMutation?.();
-      load(page);
+      /* Silent refresh to sync summary counts */
+      load(page, { silent: true });
     } catch (e) {
       showToast("error", e.response?.data?.message || "Action failed.");
+      /* Rollback by reloading */
+      load(page);
     } finally {
       setBusy(null);
     }
   };
 
-  /* ── Toggle selection ── */
+  /* ── Selection helpers ── */
   const toggleSelect = (id) => {
     setSelected((prev) => {
       const next = new Set(prev);
@@ -678,20 +1030,16 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
       return next;
     });
   };
-
-  const selectAll = () => {
-    setSelected(new Set(claims.map((c) => c.id)));
-  };
-
-  const clearSelection = () => setSelected(new Set());
+  const selectAll       = () => setSelected(new Set(claims.map((c) => c.id)));
+  const clearSelection  = () => setSelected(new Set());
 
   /* ── Tabs ── */
   const TABS = [
-    { key: "pending",   label: "Pending",   badge: summary.pending?.count   },
-    { key: "approved",  label: "Approved",  badge: summary.approved?.count  },
-    { key: "sent",      label: "Sent",      badge: summary.sent?.count      },
-    { key: "completed", label: "Completed", badge: summary.completed?.count },
-    { key: "rejected",  label: "Rejected",  badge: summary.rejected?.count  },
+    { key: "pending",   label: "Pending",   badge: summary.pending?.count,   hint: "1" },
+    { key: "approved",  label: "Approved",  badge: summary.approved?.count,  hint: "2" },
+    { key: "sent",      label: "Sent",      badge: summary.sent?.count,      hint: "3" },
+    { key: "completed", label: "Completed", badge: summary.completed?.count, hint: "4" },
+    { key: "rejected",  label: "Rejected",  badge: summary.rejected?.count },
     { key: "failed",    label: "Failed",    badge: summary.failed?.count    },
     { key: "all",       label: "All",       badge: null                     },
   ];
@@ -700,13 +1048,18 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
 
       {/* ── Header ── */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+      <div style={{
+        display: "flex", alignItems: "center", justifyContent: "space-between",
+        flexWrap: "wrap", gap: 10,
+      }}>
         <div>
           <h2 style={{ margin: 0, fontSize: "1.2rem", fontWeight: 800 }}>
             📱 Airtime Claims
           </h2>
           <p style={{ margin: "2px 0 0", fontSize: ".8rem", color: "var(--muted)" }}>
-            Review and process user airtime redemption requests
+            Press <kbd style={kbdStyle}>/</kbd> to search ·{" "}
+            <kbd style={kbdStyle}>1-4</kbd> switch tabs ·{" "}
+            <kbd style={kbdStyle}>R</kbd> refresh
           </p>
         </div>
         <button className="btn b-solid" onClick={() => setShowAssign(true)}>
@@ -716,7 +1069,11 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
 
       {/* ── Stats row ── */}
       {stats && (
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))", gap: 10 }}>
+        <div style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+          gap: 10,
+        }}>
           {[
             { label: "Total Sent",       value: naira(stats.total_sent),            color: "#16a34a" },
             { label: "Pending Amount",   value: naira(pendingAmt),                  color: "#d97706" },
@@ -784,7 +1141,11 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
             key={t.key}
             className={`tab${statusTab === t.key ? " active" : ""}`}
             onClick={() => { setStatusTab(t.key); setPage(1); }}
-            style={{ display: "flex", alignItems: "center", gap: 5 }}
+            style={{
+              display: "flex", alignItems: "center", gap: 5,
+              position: "relative",
+            }}
+            title={t.hint ? `Press ${t.hint}` : ""}
           >
             {t.label}
             {t.badge > 0 && (
@@ -804,8 +1165,9 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
       {/* ── Filters row ── */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <input
+          ref={searchRef}
           className="inp"
-          placeholder="Search by code, name, email or phone…"
+          placeholder="Search by code, name, email or phone… ( / )"
           value={search}
           onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           style={{ flex: 1, minWidth: 240 }}
@@ -853,7 +1215,7 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
                   <th>Network</th>
                   <th>Status</th>
                   <th>Claimed</th>
-                  <th>Actions</th>
+                  <th style={{ minWidth: 140 }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -862,6 +1224,7 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
                   const netCfg  = NETWORK_COLORS[r.network] || { bg: "#f5f3ef", color: "#555" };
                   const isBusy  = busy === r.id;
                   const canAct  = (r.allowed_transitions || []).length > 0;
+                  const inFlow  = [CLAIM_STATUS.PENDING, CLAIM_STATUS.APPROVED, CLAIM_STATUS.SENT].includes(r.status);
 
                   return (
                     <tr key={r.id} style={selected.has(r.id) ? { background: "#eff6ff" } : {}}>
@@ -931,7 +1294,6 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
                       <td>
                         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
 
-                          {/* View details always available */}
                           <button
                             className="btn b-ghost"
                             style={{ fontSize: ".72rem", padding: "3px 8px" }}
@@ -941,59 +1303,30 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
                             👁
                           </button>
 
-                          {/* pending → approve */}
-                          {r.status === CLAIM_STATUS.PENDING && (
+                          {/* ⚡ ONE-CLICK PROCESS — opens cascade modal */}
+                          {inFlow && (
                             <button
                               className="btn b-solid"
-                              style={{ fontSize: ".72rem", padding: "3px 8px", background: "#2563eb" }}
+                              style={{
+                                fontSize: ".72rem",
+                                padding: "3px 10px",
+                                background: r.status === CLAIM_STATUS.PENDING  ? "#2563eb"
+                                          : r.status === CLAIM_STATUS.APPROVED ? "#0891b2"
+                                          : "#16a34a",
+                                fontWeight: 700,
+                              }}
                               disabled={isBusy}
-                              onClick={() => confirm({
-                                title  : "Approve claim?",
-                                body   : `Approve ${naira(r.amount)} to ${r.user?.name} (${r.phone}).`,
-                                confirm: "✓ Approve",
-                                action : () => doAction(r.id, "approve"),
-                              })}
+                              onClick={() => setCascadeModal(r)}
+                              title="Fast track through steps"
                             >
-                              {isBusy ? "…" : "✓"}
+                              {r.status === CLAIM_STATUS.PENDING  ? "⚡ Process" :
+                               r.status === CLAIM_STATUS.APPROVED ? "▶ Continue" :
+                               "✅ Finish"}
                             </button>
                           )}
 
-                          {/* approved → sent */}
-                          {r.status === CLAIM_STATUS.APPROVED && (
-                            <button
-                              className="btn b-solid"
-                              style={{ fontSize: ".72rem", padding: "3px 8px", background: "#0891b2" }}
-                              disabled={isBusy}
-                              onClick={() => confirm({
-                                title  : "Mark as sent?",
-                                body   : `Confirm airtime dispatched to ${r.phone}.`,
-                                confirm: "📤 Sent",
-                                action : () => doAction(r.id, "send"),
-                              })}
-                            >
-                              {isBusy ? "…" : "📤"}
-                            </button>
-                          )}
-
-                          {/* sent → completed */}
-                          {r.status === CLAIM_STATUS.SENT && (
-                            <button
-                              className="btn b-solid"
-                              style={{ fontSize: ".72rem", padding: "3px 8px", background: "#16a34a" }}
-                              disabled={isBusy}
-                              onClick={() => confirm({
-                                title  : "Mark as completed?",
-                                body   : `Confirm ${naira(r.amount)} was successfully delivered to ${r.phone}.`,
-                                confirm: "✅ Complete",
-                                action : () => doAction(r.id, "complete"),
-                              })}
-                            >
-                              {isBusy ? "…" : "✅"}
-                            </button>
-                          )}
-
-                          {/* Reject (from pending, approved, sent) */}
-                          {[CLAIM_STATUS.PENDING, CLAIM_STATUS.APPROVED, CLAIM_STATUS.SENT].includes(r.status) && (
+                          {/* Reject */}
+                          {inFlow && (
                             <button
                               className="btn b-red"
                               style={{ fontSize: ".72rem", padding: "3px 8px" }}
@@ -1048,7 +1381,10 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
 
       {/* ── Pagination ── */}
       {totalPages > 1 && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, justifyContent: "center" }}>
+        <div style={{
+          display: "flex", alignItems: "center", gap: 10,
+          justifyContent: "center",
+        }}>
           <button
             className="btn b-ghost"
             onClick={() => setPage((p) => Math.max(1, p - 1))}
@@ -1101,6 +1437,27 @@ export default function AirtimeCoupons({ api, confirm, onMutation }) {
           claim={detailModal}
           api={api}
           onClose={() => setDetailModal(null)}
+        />
+      )}
+
+      {cascadeModal && (
+        <FastCascadeModal
+          claim={cascadeModal}
+          api={api}
+          showToast={showToast}
+          onClose={() => {
+            setCascadeModal(null);
+            load(page);
+          }}
+          onSuccess={() => {
+            onMutation?.();
+            /* Advance cascade modal to next step */
+            setCascadeModal((prev) => {
+              if (!prev) return null;
+              const nextStatus = NEXT_STATUS[prev.status];
+              return nextStatus ? { ...prev, status: nextStatus } : prev;
+            });
+          }}
         />
       )}
 
