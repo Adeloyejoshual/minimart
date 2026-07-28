@@ -114,7 +114,7 @@ const makeLimiter = ({ windowMin, max, message }) =>
   });
 
 const configLimiter  = makeLimiter({ windowMin: 1, max: 30, message: "Too many requests."                    });
-const spinLimiter    = makeLimiter({ windowMin: 1, max: 5,  message: "Slow down."                            });
+const spinLimiter    = (_req, _res, next) => next(); // ⬅️ disabled — daily caps enforced in DB
 const historyLimiter = makeLimiter({ windowMin: 1, max: 20, message: "Too many requests."                    });
 const taskLimiter    = makeLimiter({ windowMin: 1, max: 20, message: "Too many requests."                    });
 const claimLimiter   = makeLimiter({ windowMin: 5, max: 10, message: "Too many claim attempts. Please wait." });
