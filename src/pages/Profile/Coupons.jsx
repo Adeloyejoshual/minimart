@@ -80,7 +80,7 @@ const AIRTIME_STATUS = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   HELPERS to identify airtime & availability
+   HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const isAirtimeCoupon = (c) =>
   c?.coupon_kind === "airtime" || c?.type === "airtime";
@@ -520,7 +520,7 @@ function ValidatePanel() {
 /* ═══════════════════════════════════════════════════════════════
    AIRTIME BANNER
 ═══════════════════════════════════════════════════════════════ */
-function AirtimeBanner({ emailVerified, userEmail }) {
+function AirtimeBanner({ emailVerified, userEmail, savedPhone }) {
   return (
     <div className="cp-airtime-banner">
       <span className="cp-airtime-banner-icon">📱</span>
@@ -528,11 +528,18 @@ function AirtimeBanner({ emailVerified, userEmail }) {
         <p className="cp-airtime-banner-title">How airtime credits work</p>
         <p className="cp-airtime-banner-sub">
           {emailVerified ? (
-            <>
-              Your email <strong>{userEmail}</strong> is verified.
-              Tap <strong>Claim Airtime</strong>, confirm your phone,
-              and we'll credit you within 24 hours.
-            </>
+            savedPhone?.phone ? (
+              <>
+                Airtime will be sent to your saved number{" "}
+                <strong>{savedPhone.masked || savedPhone.phone}</strong>.
+                You can change it when claiming.
+              </>
+            ) : (
+              <>
+                Your email <strong>{userEmail}</strong> is verified.
+                Tap <strong>Claim Airtime</strong> to send airtime to any Nigerian number.
+              </>
+            )
           ) : (
             <>
               Tap <strong>Claim Airtime</strong> on any coupon.
@@ -577,15 +584,17 @@ export default function Coupons() {
   const [emailVerified,setEmailVerified]= useState(false);
   const [profileReady, setProfileReady] = useState(false);
 
+  /* ── NEW: Saved airtime phone ── */
+  const [savedPhone, setSavedPhone] = useState(null);
+
   /* ── Modals ── */
   const [verifyModal, setVerifyModal] = useState({
     open         : false,
     pendingCoupon: null,
   });
   const [claimModal, setClaimModal] = useState({
-    open          : false,
-    coupon        : null,
-    prefilledPhone: "",
+    open  : false,
+    coupon: null,
   });
 
   /* ── Refs ── */
@@ -656,8 +665,40 @@ export default function Coupons() {
   useEffect(() => { loadProfile(); }, [loadProfile]);
 
   /* ════════════════════════════════════════════════════════
+     LOAD SAVED AIRTIME PHONE — with cooldown info
+  ════════════════════════════════════════════════════════ */
+  const loadSavedPhone = useCallback(async () => {
+    if (!getToken()) return;
+    try {
+      const res = await fetch(
+        `${API}/airtime-coupons/airtime-phone`,
+        { headers: authH() }
+      );
+      if (!res.ok) {
+        console.warn("[savedPhone] failed:", res.status);
+        return;
+      }
+
+      const data = await res.json();
+      console.log("[savedPhone] loaded:", data);
+
+      if (!mounted.current) return;
+
+      if (data.success && data.airtime?.has_saved) {
+        setSavedPhone(data.airtime);
+      } else {
+        setSavedPhone(null);
+      }
+    } catch (err) {
+      console.warn("[savedPhone] error:", err.message);
+    }
+  }, []);
+
+  /* Load once on mount */
+  useEffect(() => { loadSavedPhone(); }, [loadSavedPhone]);
+
+  /* ════════════════════════════════════════════════════════
      LOAD COUPONS + AIRTIME COUPONS
-     We merge both endpoints into a single list.
   ════════════════════════════════════════════════════════ */
   const loadCoupons = useCallback(async () => {
     if (!getToken()) return;
@@ -677,7 +718,7 @@ export default function Coupons() {
       const hd = await hr.json();
       const ad = ar.ok ? await ar.json() : { coupons: [] };
 
-      /* Normalise airtime coupons so they use the same shape as discount coupons */
+      /* Normalise airtime coupons */
       const airtimeAsCoupons = (ad.coupons || []).map((a) => ({
         id           : a.id,
         code         : a.code,
@@ -685,7 +726,7 @@ export default function Coupons() {
         coupon_kind  : "airtime",
         amount       : a.amount,
         value        : a.amount,
-        status       : a.status,               // "available" | "pending" | ...
+        status       : a.status,
         is_used      : a.status !== "available",
         usable       : a.status === "available",
         claim_phone  : a.phone,
@@ -695,8 +736,7 @@ export default function Coupons() {
         description  : `🎡 Spin & Win — ₦${a.amount} Airtime`,
       }));
 
-      /* Dedupe by code — prefer the airtime coupon shape if same code appears */
-      const baseCoupons = cd.coupons || [];
+      const baseCoupons   = cd.coupons || [];
       const existingCodes = new Set(airtimeAsCoupons.map((c) => c.code));
       const merged = [
         ...airtimeAsCoupons,
@@ -716,14 +756,15 @@ export default function Coupons() {
 
   useEffect(() => { loadCoupons(); }, [loadCoupons]);
 
+  /* ── Refresh all — includes saved phone ── */
   const refreshAll = useCallback(() =>
-    Promise.all([loadCoupons(), loadProfile()])
-  , [loadCoupons, loadProfile]);
+    Promise.all([loadCoupons(), loadProfile(), loadSavedPhone()])
+  , [loadCoupons, loadProfile, loadSavedPhone]);
 
   /* ════════════════════════════════════════════════════════
-     PREFILL PHONE
+     FALLBACK PHONE (only used if no savedPhone yet)
   ════════════════════════════════════════════════════════ */
-  const getPrefilledPhone = useCallback(() => {
+  const getFallbackPhone = useCallback(() => {
     if (!me) return "";
     const raw =
       me.best_phone   ||
@@ -736,16 +777,24 @@ export default function Coupons() {
   }, [me]);
 
   /* ════════════════════════════════════════════════════════
-     MODAL HANDLERS
+     OPEN CLAIM MODAL
+     Always refresh savedPhone first so we have latest data
   ════════════════════════════════════════════════════════ */
-  const openClaimModal = useCallback((coupon) => {
-    setClaimModal({
-      open          : true,
-      coupon,
-      prefilledPhone: getPrefilledPhone(),
-    });
-  }, [getPrefilledPhone]);
+  const openClaimModal = useCallback(async (coupon) => {
+    /* Reload saved phone silently so modal shows freshest data */
+    await loadSavedPhone();
 
+    if (!mounted.current) return;
+
+    setClaimModal({
+      open  : true,
+      coupon,
+    });
+  }, [loadSavedPhone]);
+
+  /* ════════════════════════════════════════════════════════
+     HANDLE CLAIM
+  ════════════════════════════════════════════════════════ */
   const handleClaim = useCallback((coupon) => {
     if (!profileReady) {
       showToast("⏳ Loading your profile…");
@@ -758,6 +807,9 @@ export default function Coupons() {
     }
   }, [profileReady, emailVerified, openClaimModal, showToast]);
 
+  /* ════════════════════════════════════════════════════════
+     VERIFY SUCCESS
+  ════════════════════════════════════════════════════════ */
   const handleVerifySuccess = useCallback(() => {
     setEmailVerified(true);
     const pending = verifyModal.pendingCoupon;
@@ -770,18 +822,24 @@ export default function Coupons() {
     }
   }, [verifyModal.pendingCoupon, openClaimModal, showToast]);
 
+  /* ════════════════════════════════════════════════════════
+     CLAIM SUCCESS — refresh saved phone!
+  ════════════════════════════════════════════════════════ */
   const handleClaimSuccess = useCallback((code, data) => {
+    console.log("[handleClaimSuccess]", { code, data });
+
+    /* Update coupon in list */
     setCoupons((prev) =>
       prev.map((c) =>
         c.code === code
           ? {
               ...c,
-              status       : data.coupon?.status  || "pending",
+              status       : data.claim?.status  || data.coupon?.status || "pending",
               is_used      : true,
               usable       : false,
               claimed_at   : new Date().toISOString(),
-              claim_phone  : data.coupon?.phone   ?? c.claim_phone,
-              claim_network: data.coupon?.network ?? c.claim_network,
+              claim_phone  : data.claim?.phone   || data.coupon?.phone   || c.claim_phone,
+              claim_network: data.claim?.network || data.coupon?.network || c.claim_network,
             }
           : c
       )
@@ -789,12 +847,23 @@ export default function Coupons() {
 
     showToast("✅ Claim submitted! Airtime credited within 24 hours.");
 
+    /* ═══ CRITICAL: Reload saved phone so next modal shows it ═══ */
+    loadSavedPhone();
+
+    /* Also refresh full coupon list to get latest states */
     setTimeout(() => {
       if (mounted.current) {
-        setClaimModal({ open: false, coupon: null, prefilledPhone: "" });
+        loadCoupons();
+      }
+    }, 500);
+
+    /* Close modal after showing success */
+    setTimeout(() => {
+      if (mounted.current) {
+        setClaimModal({ open: false, coupon: null });
       }
     }, 2_000);
-  }, [showToast]);
+  }, [showToast, loadSavedPhone, loadCoupons]);
 
   /* ── Copy ── */
   const handleCopy = useCallback((code) => {
@@ -825,20 +894,15 @@ export default function Coupons() {
   const airtimeCoupons   = coupons.filter(isAirtimeCoupon);
   const airtimeAvailable = airtimeCoupons.filter(isAirtimeAvailable);
 
-  /* Available tab — discount coupons + unclaimed airtime */
   const allAvailable = coupons.filter(
     (c) => isDiscountAvailable(c) || isAirtimeAvailable(c)
   );
 
-  /* Used tab — used discounts + claimed airtime */
   const allUsed = coupons.filter((c) => {
-    if (isAirtimeCoupon(c)) {
-      return c.status !== "available";
-    }
+    if (isAirtimeCoupon(c)) return c.status !== "available";
     return !c.usable;
   });
 
-  /* Sort — airtime first, newest first */
   const sortByAirtimeFirst = (a, b) => {
     const aAir = isAirtimeCoupon(a) ? 0 : 1;
     const bAir = isAirtimeCoupon(b) ? 0 : 1;
@@ -942,7 +1006,7 @@ export default function Coupons() {
           </div>
         )}
 
-        {/* ── AVAILABLE (includes unclaimed airtime + discount) ── */}
+        {/* ── AVAILABLE ── */}
         {!loading && tab === "available" && (
           allAvailableSorted.length === 0 ? (
             <div className="cp-empty">
@@ -966,12 +1030,13 @@ export default function Coupons() {
           )
         )}
 
-        {/* ── AIRTIME (all airtime — available + claimed) ── */}
+        {/* ── AIRTIME ── */}
         {!loading && tab === "airtime" && (
           <>
             <AirtimeBanner
               emailVerified={emailVerified}
               userEmail={me?.email}
+              savedPhone={savedPhone}
             />
 
             {profileReady && !emailVerified && (
@@ -1010,7 +1075,7 @@ export default function Coupons() {
           </>
         )}
 
-        {/* ── USED (used discounts + claimed airtime) ── */}
+        {/* ── USED ── */}
         {!loading && tab === "used" && (
           allUsedSorted.length === 0 ? (
             <div className="cp-empty">
@@ -1117,8 +1182,9 @@ export default function Coupons() {
       <AirtimeClaimModal
         isOpen={claimModal.open}
         coupon={claimModal.coupon}
-        prefilledPhone={claimModal.prefilledPhone}
-        onClose={() => setClaimModal({ open: false, coupon: null, prefilledPhone: "" })}
+        savedPhone={savedPhone}
+        prefilledPhone={savedPhone?.phone || getFallbackPhone()}
+        onClose={() => setClaimModal({ open: false, coupon: null })}
         onSuccess={handleClaimSuccess}
       />
 
