@@ -1,7 +1,7 @@
 // routes/admin/airtimeCoupons.js
 // Base: /api/admin/airtime-coupons
 // ════════════════════════════════════════════════════════════
-// Admin operations for airtime coupons AND claims
+// Admin operations for airtime claims
 // Uses actual schema:
 //   airtime_coupons  → issued coupons users can redeem
 //   airtime_claims   → user redemption records (what admins process)
@@ -12,11 +12,19 @@ import crypto  from "crypto";
 import { pool } from "../../config/db.js";
 import { verifyAdmin } from "./middleware.js";
 
-import {
+/* Try to import notification services — non-fatal if missing */
+let notifications = {};
+try {
+  notifications = await import("../../services/airtimenotifications.js");
+} catch (e) {
+  console.warn("[admin/airtime] airtimenotifications not available:", e.message);
+}
+
+const {
   sendAirtimeClaimApprovedEmail,
   sendAirtimeClaimCompletedEmail,
   sendAirtimeClaimRejectedEmail,
-} from "../../services/airtimenotifications.js";
+} = notifications;
 
 const router = express.Router();
 
@@ -32,14 +40,24 @@ const CLAIM_STATUS = Object.freeze({
   FAILED    : "failed",
 });
 
+const ALL_STATUSES = Object.values(CLAIM_STATUS);
+
+/* Also accept these legacy status names so old data still shows up */
+const LEGACY_STATUS_ALIASES = {
+  redeemed  : CLAIM_STATUS.PENDING,   // old code used "redeemed"
+  claimed   : CLAIM_STATUS.PENDING,
+  processing: CLAIM_STATUS.APPROVED,
+  credited  : CLAIM_STATUS.COMPLETED,
+};
+
 /* Which transitions are allowed from each state */
 const CLAIM_TRANSITIONS = Object.freeze({
   [CLAIM_STATUS.PENDING]   : ["approved", "rejected"],
   [CLAIM_STATUS.APPROVED]  : ["sent", "failed", "rejected"],
   [CLAIM_STATUS.SENT]      : ["completed", "failed"],
-  [CLAIM_STATUS.COMPLETED] : [],   // terminal
-  [CLAIM_STATUS.REJECTED]  : [],   // terminal
-  [CLAIM_STATUS.FAILED]    : ["approved"],   // can retry
+  [CLAIM_STATUS.COMPLETED] : [],
+  [CLAIM_STATUS.REJECTED]  : [],
+  [CLAIM_STATUS.FAILED]    : ["approved"],
 });
 
 const COUPON_STATUS = Object.freeze({
@@ -62,6 +80,7 @@ const nairaFmt = (n) =>
   "₦" + Number(n || 0).toLocaleString("en-NG");
 
 const safeEmail = (fn, args) => {
+  if (typeof fn !== "function") return;
   try {
     fn(args).catch((e) => console.warn("[admin/airtime] email failed:", e.message));
   } catch (e) {
@@ -69,28 +88,101 @@ const safeEmail = (fn, args) => {
   }
 };
 
+/* Normalize any legacy status to the current schema */
+const normalizeStatus = (raw) => LEGACY_STATUS_ALIASES[raw] || raw;
+
+/* ═══════════════════════════════════════════════════════════════
+   ONE-TIME MIGRATION on startup
+   Fix any legacy status values so they show up in admin
+═══════════════════════════════════════════════════════════════ */
+async function fixLegacyStatuses() {
+  try {
+    for (const [oldStatus, newStatus] of Object.entries(LEGACY_STATUS_ALIASES)) {
+      const { rowCount } = await pool.query(
+        `UPDATE public.airtime_claims
+         SET    status = $1
+         WHERE  status = $2`,
+        [newStatus, oldStatus]
+      );
+      if (rowCount > 0) {
+        console.log(`[admin/airtime] migrated ${rowCount} claims from "${oldStatus}" → "${newStatus}"`);
+      }
+    }
+  } catch (err) {
+    console.warn("[admin/airtime] legacy status migration failed:", err.message);
+  }
+}
+
+fixLegacyStatuses();
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /api/admin/airtime-coupons/debug
+   Diagnostic endpoint — shows what's actually in the DB
+═══════════════════════════════════════════════════════════════ */
+router.get("/debug", verifyAdmin, async (_req, res) => {
+  try {
+    const [statusRows, tableInfo, sample] = await Promise.all([
+      pool.query(
+        `SELECT status, COUNT(*)::int AS count
+         FROM public.airtime_claims
+         GROUP BY status
+         ORDER BY count DESC`
+      ),
+      pool.query(
+        `SELECT column_name, data_type, column_default
+         FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name   = 'airtime_claims'
+         ORDER BY ordinal_position`
+      ),
+      pool.query(
+        `SELECT id, status, phone, claimed_at, credited_at
+         FROM public.airtime_claims
+         ORDER BY claimed_at DESC
+         LIMIT 5`
+      ),
+    ]);
+
+    return res.json({
+      success: true,
+      total_claims: statusRows.rows.reduce((s, r) => s + r.count, 0),
+      by_status   : statusRows.rows,
+      table_columns: tableInfo.rows,
+      recent_claims: sample.rows,
+      recognized_statuses: ALL_STATUSES,
+      legacy_aliases: LEGACY_STATUS_ALIASES,
+    });
+  } catch (err) {
+    console.error("[admin/airtime] debug:", err.message);
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 /* ═══════════════════════════════════════════════════════════════
    GET /api/admin/airtime-coupons
-   List all CLAIMS (not coupons) with filters + pagination
+   List all CLAIMS with filters + pagination
    Query: ?status=pending&page=1&limit=20&search=&sort=oldest
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", verifyAdmin, async (req, res) => {
   try {
-    const status = req.query.status || "pending";
-    const search = req.query.search?.trim() || "";
-    const sort   = req.query.sort   || "oldest";   // "oldest" | "newest" | "highest" | "lowest"
-    const page   = Math.max(1,   parseInt(req.query.page)  || 1);
-    const limit  = Math.min(100, parseInt(req.query.limit) || 20);
-    const offset = (page - 1) * limit;
+    const rawStatus = req.query.status || "pending";
+    const status    = normalizeStatus(rawStatus);
+    const search    = req.query.search?.trim() || "";
+    const sort      = req.query.sort   || "oldest";
+    const page      = Math.max(1,   parseInt(req.query.page)  || 1);
+    const limit     = Math.min(100, parseInt(req.query.limit) || 20);
+    const offset    = (page - 1) * limit;
 
     /* ── Validate status ── */
-    const validStatuses = [...Object.values(CLAIM_STATUS), "all"];
+    const validStatuses = [...ALL_STATUSES, "all"];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
-        message: `Invalid status. Must be one of: ${validStatuses.join(", ")}.`,
+        message: `Invalid status "${status}". Must be one of: ${validStatuses.join(", ")}.`,
       });
     }
+
+    console.log(`[admin/airtime] GET / status=${status} page=${page} search="${search}"`);
 
     /* ── Build WHERE ── */
     const conditions = [];
@@ -98,7 +190,23 @@ router.get("/", verifyAdmin, async (req, res) => {
 
     if (status !== "all") {
       params.push(status);
-      conditions.push(`ac.status = $${params.length}`);
+      /* Also match legacy aliases for backward compat */
+      const legacyForThisStatus = Object.entries(LEGACY_STATUS_ALIASES)
+        .filter(([_, v]) => v === status)
+        .map(([k]) => k);
+
+      if (legacyForThisStatus.length > 0) {
+        const placeholders = [params.length];
+        legacyForThisStatus.forEach((l) => {
+          params.push(l);
+          placeholders.push(params.length);
+        });
+        conditions.push(
+          `ac.status IN (${placeholders.map((i) => "$" + i).join(", ")})`
+        );
+      } else {
+        conditions.push(`ac.status = $${params.length}`);
+      }
     }
 
     if (search) {
@@ -120,43 +228,41 @@ router.get("/", verifyAdmin, async (req, res) => {
     const sortMap = {
       oldest  : "ac.claimed_at ASC",
       newest  : "ac.claimed_at DESC",
-      highest : "ac.amount DESC NULLS LAST",
-      lowest  : "ac.amount ASC NULLS LAST",
+      highest : "COALESCE(ac.amount, c.amount) DESC NULLS LAST",
+      lowest  : "COALESCE(ac.amount, c.amount) ASC NULLS LAST",
     };
     const orderBy = sortMap[sort] || sortMap.oldest;
 
     /* ── Main query ── */
-    const { rows } = await pool.query(
-      `SELECT
-         ac.id,
-         ac.status,
-         ac.phone,
-         ac.network,
-         ac.amount,
-         ac.claimed_at,
-         ac.approved_at,
-         ac.credited_at,
-         ac.admin_note,
-         ac.ip_address,
-         ac.user_agent,
-         ac.device_hash,
-         c.id       AS coupon_id,
-         c.code     AS coupon_code,
-         c.amount   AS coupon_amount,
-         u.id       AS user_id,
-         u.name     AS user_name,
-         u.email    AS user_email,
-         p.name     AS processed_by_name,
-         p.email    AS processed_by_email
-       FROM public.airtime_claims ac
-       JOIN public.airtime_coupons c ON c.id = ac.airtime_coupon_id
-       JOIN public.users u           ON u.id = ac.user_id
-       LEFT JOIN public.admins p     ON p.id = ac.credited_by
-       ${whereClause}
-       ORDER BY ${orderBy}
-       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
-      [...params, limit, offset]
-    );
+    const listQuery = `
+      SELECT
+        ac.id,
+        ac.status,
+        ac.phone,
+        ac.network,
+        COALESCE(ac.amount, c.amount) AS amount,
+        ac.claimed_at,
+        ac.approved_at,
+        ac.credited_at,
+        ac.admin_note,
+        ac.ip_address,
+        ac.user_agent,
+        ac.device_hash,
+        c.id       AS coupon_id,
+        c.code     AS coupon_code,
+        c.amount   AS coupon_amount,
+        u.id       AS user_id,
+        u.name     AS user_name,
+        u.email    AS user_email
+      FROM public.airtime_claims ac
+      JOIN public.airtime_coupons c ON c.id = ac.airtime_coupon_id
+      JOIN public.users u           ON u.id = ac.user_id
+      ${whereClause}
+      ORDER BY ${orderBy}
+      LIMIT $${params.length + 1} OFFSET $${params.length + 2}
+    `;
+
+    const { rows } = await pool.query(listQuery, [...params, limit, offset]);
 
     /* ── Total count for pagination ── */
     const { rows: countRows } = await pool.query(
@@ -168,68 +274,88 @@ router.get("/", verifyAdmin, async (req, res) => {
       params
     );
 
-    /* ── Summary counts (all statuses) ── */
+    /* ── Summary counts (all statuses) — always return all keys ── */
     const { rows: summaryRows } = await pool.query(
       `SELECT
          status,
          COUNT(*)::int AS count,
-         COALESCE(SUM(amount), 0)::numeric AS total_amount
+         COALESCE(SUM(COALESCE(amount, 0)), 0)::numeric AS total_amount
        FROM public.airtime_claims
        GROUP BY status`
     );
 
-    const summary = Object.fromEntries(
-      Object.values(CLAIM_STATUS).map((s) => [s, { count: 0, amount: 0 }])
-    );
+    const summary = {};
+    ALL_STATUSES.forEach((s) => {
+      summary[s] = { count: 0, amount: 0 };
+    });
+
+    /* Fold legacy statuses into their normalized counterparts */
     summaryRows.forEach((r) => {
-      summary[r.status] = { count: r.count, amount: Number(r.total_amount) };
+      const norm = normalizeStatus(r.status);
+      if (!summary[norm]) summary[norm] = { count: 0, amount: 0 };
+      summary[norm].count  += r.count;
+      summary[norm].amount += Number(r.total_amount || 0);
     });
 
     /* ── Total amount pending payout ── */
     const { rows: pendingAmtRows } = await pool.query(
-      `SELECT COALESCE(SUM(amount), 0)::numeric AS total
+      `SELECT COALESCE(SUM(COALESCE(amount, 0)), 0)::numeric AS total
        FROM public.airtime_claims
-       WHERE status IN ('pending', 'approved', 'sent')`
+       WHERE status IN ('pending', 'approved', 'sent', 'redeemed', 'claimed')`
+    );
+
+    console.log(
+      `[admin/airtime] returned ${rows.length}/${countRows[0].total} rows | ` +
+      `summary: ${Object.entries(summary).map(([k, v]) => `${k}=${v.count}`).join(" ")}`
     );
 
     return res.json({
       success        : true,
       total          : countRows[0].total,
       page,
-      pages          : Math.ceil(countRows[0].total / limit),
+      pages          : Math.max(1, Math.ceil(countRows[0].total / limit)),
       summary,
       pending_amount : Number(pendingAmtRows[0].total),
-      claims         : rows.map((r) => ({
-        id            : r.id,
-        coupon_id     : r.coupon_id,
-        coupon_code   : r.coupon_code,
-        amount        : Number(r.amount || r.coupon_amount || 0),
-        amount_fmt    : nairaFmt(r.amount || r.coupon_amount || 0),
-        status        : r.status,
-        phone         : r.phone,                  // full number for admin
-        phone_masked  : maskPhone(r.phone),
-        network       : r.network,
-        claimed_at    : r.claimed_at,
-        approved_at   : r.approved_at,
-        credited_at   : r.credited_at,
-        admin_note    : r.admin_note,
-        ip_address    : r.ip_address,
-        device_hash   : r.device_hash,
-        processed_by  : r.processed_by_name
-          ? { name: r.processed_by_name, email: r.processed_by_email }
-          : null,
-        user: {
-          id    : r.user_id,
-          name  : r.user_name,
-          email : r.user_email,
-        },
-        allowed_transitions: CLAIM_TRANSITIONS[r.status] || [],
-      })),
+      claims         : rows.map((r) => {
+        const normalizedStatus = normalizeStatus(r.status);
+        return {
+          id            : r.id,
+          coupon_id     : r.coupon_id,
+          coupon_code   : r.coupon_code,
+          amount        : Number(r.amount || 0),
+          amount_fmt    : nairaFmt(r.amount || 0),
+          status        : normalizedStatus,
+          raw_status    : r.status,
+          phone         : r.phone,
+          phone_masked  : maskPhone(r.phone),
+          network       : r.network,
+          claimed_at    : r.claimed_at,
+          approved_at   : r.approved_at,
+          credited_at   : r.credited_at,
+          admin_note    : r.admin_note,
+          ip_address    : r.ip_address,
+          device_hash   : r.device_hash,
+          user: {
+            id    : r.user_id,
+            name  : r.user_name,
+            email : r.user_email,
+          },
+          allowed_transitions: CLAIM_TRANSITIONS[normalizedStatus] || [],
+        };
+      }),
     });
 
   } catch (err) {
-    console.error("[admin/airtime] GET /:", err.message);
-    return res.status(500).json({ success: false, message: "Server error." });
+    console.error("[admin/airtime] GET /:", err.message, err.stack);
+    return res.status(500).json({
+      success: false,
+      message: "Server error.",
+      debug  : process.env.NODE_ENV === "production" ? undefined : {
+        error : err.message,
+        code  : err.code,
+        detail: err.detail,
+      },
+    });
   }
 });
 
@@ -241,46 +367,39 @@ router.get("/stats/summary", verifyAdmin, async (_req, res) => {
   try {
     const [statusRows, totalRows, todayRows, networkRows, topPhones] = await Promise.all([
 
-      /* Count by claim status */
       pool.query(
         `SELECT status, COUNT(*)::int AS count,
-                COALESCE(SUM(amount), 0)::numeric AS total_amount
+                COALESCE(SUM(COALESCE(amount, 0)), 0)::numeric AS total_amount
          FROM public.airtime_claims
          GROUP BY status`
       ),
 
-      /* Total sent (completed only) */
       pool.query(
-        `SELECT COALESCE(SUM(amount), 0)::numeric AS total
+        `SELECT COALESCE(SUM(COALESCE(amount, 0)), 0)::numeric AS total
          FROM public.airtime_claims
-         WHERE status = $1`,
-        [CLAIM_STATUS.COMPLETED]
+         WHERE status = 'completed'`
       ),
 
-      /* Today's activity */
       pool.query(
         `SELECT
-           COUNT(*)                            ::int      AS claim_count,
-           COALESCE(SUM(amount), 0)            ::numeric  AS claim_total,
-           COUNT(*) FILTER (WHERE status = 'completed')::int      AS completed_count,
-           COALESCE(SUM(amount) FILTER (WHERE status = 'completed'), 0)::numeric AS completed_total
+           COUNT(*)                                                     ::int      AS claim_count,
+           COALESCE(SUM(COALESCE(amount, 0)), 0)                        ::numeric  AS claim_total,
+           COUNT(*) FILTER (WHERE status = 'completed')                 ::int      AS completed_count,
+           COALESCE(SUM(COALESCE(amount, 0)) FILTER (WHERE status = 'completed'), 0)::numeric AS completed_total
          FROM public.airtime_claims
          WHERE claimed_at >= CURRENT_DATE`
       ),
 
-      /* Breakdown by network */
       pool.query(
         `SELECT network, COUNT(*)::int AS count,
-                COALESCE(SUM(amount), 0)::numeric AS total
+                COALESCE(SUM(COALESCE(amount, 0)), 0)::numeric AS total
          FROM public.airtime_claims
-         WHERE status = $1
+         WHERE status = 'completed'
            AND network IS NOT NULL
          GROUP BY network
-         ORDER BY total DESC`,
-        [CLAIM_STATUS.COMPLETED]
+         ORDER BY total DESC`
       ),
 
-      /* Top shared phone numbers (flagged for review) */
       pool.query(
         `SELECT airtime_phone AS phone,
                 COUNT(*)::int AS user_count
@@ -290,17 +409,20 @@ router.get("/stats/summary", verifyAdmin, async (_req, res) => {
          HAVING COUNT(*) > 1
          ORDER  BY user_count DESC
          LIMIT 10`
-      ),
+      ).catch(() => ({ rows: [] })),
     ]);
 
-    const byStatus = Object.fromEntries(
-      Object.values(CLAIM_STATUS).map((s) => [s, { count: 0, total: 0 }])
-    );
+    /* Fold legacy statuses into current ones */
+    const byStatus = {};
+    ALL_STATUSES.forEach((s) => {
+      byStatus[s] = { count: 0, total: 0 };
+    });
+
     statusRows.rows.forEach((r) => {
-      byStatus[r.status] = {
-        count : r.count,
-        total : Number(r.total_amount),
-      };
+      const norm = normalizeStatus(r.status);
+      if (!byStatus[norm]) byStatus[norm] = { count: 0, total: 0 };
+      byStatus[norm].count += r.count;
+      byStatus[norm].total += Number(r.total_amount || 0);
     });
 
     return res.json({
@@ -332,7 +454,7 @@ router.get("/stats/summary", verifyAdmin, async (_req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/admin/airtime-coupons/:id
-   Single claim detail
+   Single claim detail with full user context
 ═══════════════════════════════════════════════════════════════ */
 router.get("/:id", verifyAdmin, async (req, res) => {
   try {
@@ -346,16 +468,10 @@ router.get("/:id", verifyAdmin, async (req, res) => {
          u.email    AS user_email,
          u.airtime_phone       AS user_airtime_phone,
          u.airtime_network     AS user_airtime_network,
-         u.fraud_score         AS user_fraud_score,
-         u.fraud_status        AS user_fraud_status,
-         u.email_verified      AS user_email_verified,
-         u.giveaways_suspended AS user_suspended,
-         p.name     AS processed_by_name,
-         p.email    AS processed_by_email
+         u.email_verified      AS user_email_verified
        FROM public.airtime_claims ac
        JOIN public.airtime_coupons c ON c.id = ac.airtime_coupon_id
        JOIN public.users u           ON u.id = ac.user_id
-       LEFT JOIN public.admins p     ON p.id = ac.credited_by
        WHERE ac.id = $1
        LIMIT 1`,
       [req.params.id]
@@ -366,8 +482,9 @@ router.get("/:id", verifyAdmin, async (req, res) => {
     }
 
     const r = rows[0];
+    const normalizedStatus = normalizeStatus(r.status);
 
-    /* Also fetch user's other claims (context for admin) */
+    /* Fetch user's other recent claims (context for admin) */
     const { rows: otherClaims } = await pool.query(
       `SELECT id, status, amount, claimed_at
        FROM   public.airtime_claims
@@ -377,20 +494,10 @@ router.get("/:id", verifyAdmin, async (req, res) => {
       [r.user_id, r.id]
     );
 
-    /* User's phone history */
+    /* User's phone history (best effort) */
     const { rows: phoneHistory } = await pool.query(
       `SELECT old_phone, new_phone, reason, created_at
        FROM   public.airtime_phone_history
-       WHERE  user_id = $1
-       ORDER  BY created_at DESC
-       LIMIT 5`,
-      [r.user_id]
-    ).catch(() => ({ rows: [] }));
-
-    /* Recent fraud events for user */
-    const { rows: fraudEvents } = await pool.query(
-      `SELECT event, metadata, created_at
-       FROM   public.airtime_fraud_log
        WHERE  user_id = $1
        ORDER  BY created_at DESC
        LIMIT 5`,
@@ -405,7 +512,8 @@ router.get("/:id", verifyAdmin, async (req, res) => {
         coupon_code  : r.coupon_code,
         amount       : Number(r.amount || r.coupon_amount || 0),
         amount_fmt   : nairaFmt(r.amount || r.coupon_amount || 0),
-        status       : r.status,
+        status       : normalizedStatus,
+        raw_status   : r.status,
         phone        : r.phone,
         phone_masked : maskPhone(r.phone),
         network      : r.network,
@@ -416,24 +524,18 @@ router.get("/:id", verifyAdmin, async (req, res) => {
         ip_address   : r.ip_address,
         user_agent   : r.user_agent,
         device_hash  : r.device_hash,
-        processed_by : r.processed_by_name
-          ? { name: r.processed_by_name, email: r.processed_by_email }
-          : null,
         user: {
           id             : r.user_id,
           name           : r.user_name,
           email          : r.user_email,
           email_verified : r.user_email_verified,
-          suspended      : r.user_suspended,
-          fraud_score    : r.user_fraud_score,
-          fraud_status   : r.user_fraud_status,
           airtime_phone  : r.user_airtime_phone,
           airtime_network: r.user_airtime_network,
         },
-        allowed_transitions: CLAIM_TRANSITIONS[r.status] || [],
+        allowed_transitions: CLAIM_TRANSITIONS[normalizedStatus] || [],
         recent_claims      : otherClaims.map((c) => ({
           id         : c.id,
-          status     : c.status,
+          status     : normalizeStatus(c.status),
           amount     : Number(c.amount || 0),
           amount_fmt : nairaFmt(c.amount || 0),
           claimed_at : c.claimed_at,
@@ -444,7 +546,6 @@ router.get("/:id", verifyAdmin, async (req, res) => {
           reason     : h.reason,
           created_at : h.created_at,
         })),
-        fraud_events  : fraudEvents,
       },
     });
 
@@ -456,7 +557,6 @@ router.get("/:id", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/admin/airtime-coupons/:id/approve
-   pending → approved
 ═══════════════════════════════════════════════════════════════ */
 router.post("/:id/approve", verifyAdmin, async (req, res) => {
   await updateClaimStatus({ req, res, targetStatus: CLAIM_STATUS.APPROVED });
@@ -464,7 +564,6 @@ router.post("/:id/approve", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/admin/airtime-coupons/:id/send
-   approved → sent (airtime dispatched)
 ═══════════════════════════════════════════════════════════════ */
 router.post("/:id/send", verifyAdmin, async (req, res) => {
   await updateClaimStatus({ req, res, targetStatus: CLAIM_STATUS.SENT });
@@ -472,7 +571,6 @@ router.post("/:id/send", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/admin/airtime-coupons/:id/complete
-   sent → completed (delivery confirmed)
 ═══════════════════════════════════════════════════════════════ */
 router.post("/:id/complete", verifyAdmin, async (req, res) => {
   await updateClaimStatus({ req, res, targetStatus: CLAIM_STATUS.COMPLETED });
@@ -480,8 +578,7 @@ router.post("/:id/complete", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/admin/airtime-coupons/:id/reject
-   any → rejected (with mandatory reason)
-   Body: { note }
+   Body: { note }  (required)
 ═══════════════════════════════════════════════════════════════ */
 router.post("/:id/reject", verifyAdmin, async (req, res) => {
   if (!req.body.note?.trim()) {
@@ -491,15 +588,15 @@ router.post("/:id/reject", verifyAdmin, async (req, res) => {
     });
   }
   await updateClaimStatus({
-    req, res, targetStatus: CLAIM_STATUS.REJECTED,
-    releaseCoupon: true,
+    req, res,
+    targetStatus  : CLAIM_STATUS.REJECTED,
+    releaseCoupon : true,
   });
 });
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/admin/airtime-coupons/:id/fail
-   any → failed (with mandatory reason)
-   Body: { note }
+   Body: { note }  (required)
 ═══════════════════════════════════════════════════════════════ */
 router.post("/:id/fail", verifyAdmin, async (req, res) => {
   if (!req.body.note?.trim()) {
@@ -513,8 +610,7 @@ router.post("/:id/fail", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/admin/airtime-coupons/bulk-action
-   Batch approve, reject, complete
-   Body: { ids: [], action: "approve" | "reject" | "complete", note? }
+   Body: { ids: [], action: "approve"|"send"|"complete"|"reject"|"fail", note? }
 ═══════════════════════════════════════════════════════════════ */
 router.post("/bulk-action", verifyAdmin, async (req, res) => {
   const { ids, action, note } = req.body;
@@ -573,7 +669,6 @@ router.post("/bulk-action", verifyAdmin, async (req, res) => {
 
       if (result.success) {
         results.push({ id, status: targetStatus });
-        /* Fire notification (async) */
         notifyUserOfStatusChange(result.claim, targetStatus, note);
       } else {
         failures.push({ id, reason: result.error });
@@ -594,7 +689,6 @@ router.post("/bulk-action", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/admin/airtime-coupons/assign
-   Issue a new airtime coupon to a user
    Body: { user_id, amount, code?, expires_in_days? }
 ═══════════════════════════════════════════════════════════════ */
 router.post("/assign", verifyAdmin, async (req, res) => {
@@ -619,7 +713,6 @@ router.post("/assign", verifyAdmin, async (req, res) => {
     `AIR${Math.round(amount)}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
 
   try {
-    /* Validate user */
     const { rows: userRows } = await pool.query(
       `SELECT id, name, email, email_verified
        FROM public.users
@@ -633,10 +726,6 @@ router.post("/assign", verifyAdmin, async (req, res) => {
     }
 
     const user = userRows[0];
-
-    /* Insert coupon */
-    const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + Number(expires_in_days));
 
     const { rows } = await pool.query(
       `INSERT INTO public.airtime_coupons
@@ -683,11 +772,10 @@ router.post("/assign", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/admin/airtime-coupons/bulk-assign
-   Assign airtime coupons to multiple users at once
    Body: { assignments: [{ user_id, amount }], expires_in_days? }
 ═══════════════════════════════════════════════════════════════ */
 router.post("/bulk-assign", verifyAdmin, async (req, res) => {
-  const { assignments, expires_in_days = 30 } = req.body;
+  const { assignments } = req.body;
 
   if (!Array.isArray(assignments) || assignments.length === 0) {
     return res.status(400).json({
@@ -764,7 +852,6 @@ router.post("/bulk-assign", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/admin/airtime-coupons/user/:userId/claims
-   All claims for a specific user (fraud investigation)
 ═══════════════════════════════════════════════════════════════ */
 router.get("/user/:userId/claims", verifyAdmin, async (req, res) => {
   try {
@@ -786,6 +873,7 @@ router.get("/user/:userId/claims", verifyAdmin, async (req, res) => {
       total  : rows.length,
       claims : rows.map((r) => ({
         ...r,
+        status     : normalizeStatus(r.status),
         amount     : Number(r.amount || 0),
         amount_fmt : nairaFmt(r.amount || 0),
       })),
@@ -799,7 +887,6 @@ router.get("/user/:userId/claims", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/admin/airtime-coupons/search-by-ip/:ip
-   All claims from an IP (fraud investigation)
 ═══════════════════════════════════════════════════════════════ */
 router.get("/search-by-ip/:ip", verifyAdmin, async (req, res) => {
   try {
@@ -821,7 +908,10 @@ router.get("/search-by-ip/:ip", verifyAdmin, async (req, res) => {
       ip            : req.params.ip,
       total         : rows.length,
       unique_users  : new Set(rows.map((r) => r.user_id)).size,
-      claims        : rows,
+      claims        : rows.map((r) => ({
+        ...r,
+        status: normalizeStatus(r.status),
+      })),
     });
 
   } catch (err) {
@@ -831,7 +921,6 @@ router.get("/search-by-ip/:ip", verifyAdmin, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/admin/airtime-coupons/search-by-device/:hash
-   All claims from a device (fraud investigation)
 ═══════════════════════════════════════════════════════════════ */
 router.get("/search-by-device/:hash", verifyAdmin, async (req, res) => {
   try {
@@ -852,7 +941,10 @@ router.get("/search-by-device/:hash", verifyAdmin, async (req, res) => {
       device_hash  : req.params.hash,
       total        : rows.length,
       unique_users : new Set(rows.map((r) => r.user_id)).size,
-      claims       : rows,
+      claims       : rows.map((r) => ({
+        ...r,
+        status: normalizeStatus(r.status),
+      })),
     });
 
   } catch (err) {
@@ -861,12 +953,12 @@ router.get("/search-by-device/:hash", verifyAdmin, async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   INTERNAL — updateClaimStatus (used by single-claim actions)
+   INTERNAL — updateClaimStatus
 ═══════════════════════════════════════════════════════════════ */
 async function updateClaimStatus({ req, res, targetStatus, releaseCoupon = false }) {
-  const { id }    = req.params;
+  const { id }   = req.params;
   const { note } = req.body;
-  const adminId   = req.admin.id;
+  const adminId  = req.admin.id;
 
   try {
     const result = await performStatusUpdate({
@@ -874,7 +966,7 @@ async function updateClaimStatus({ req, res, targetStatus, releaseCoupon = false
     });
 
     if (!result.success) {
-      const statusCode = result.notFound ? 404
+      const statusCode = result.notFound          ? 404
                        : result.invalidTransition ? 409
                        : 500;
       return res.status(statusCode).json({
@@ -883,7 +975,6 @@ async function updateClaimStatus({ req, res, targetStatus, releaseCoupon = false
       });
     }
 
-    /* Notify user (async, non-blocking) */
     notifyUserOfStatusChange(result.claim, targetStatus, note);
 
     return res.json({
@@ -907,7 +998,7 @@ async function updateClaimStatus({ req, res, targetStatus, releaseCoupon = false
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   INTERNAL — performStatusUpdate (reusable transaction logic)
+   INTERNAL — performStatusUpdate (reusable transaction)
 ═══════════════════════════════════════════════════════════════ */
 async function performStatusUpdate({
   id, targetStatus, adminId, note = null, releaseCoupon = false,
@@ -917,10 +1008,11 @@ async function performStatusUpdate({
   try {
     await client.query("BEGIN");
 
-    /* Lock the claim */
+    /* Lock claim row */
     const { rows } = await client.query(
       `SELECT ac.id, ac.status, ac.airtime_coupon_id, ac.user_id,
-              ac.amount, ac.phone, ac.network,
+              COALESCE(ac.amount, c.amount) AS amount,
+              ac.phone, ac.network,
               c.code AS coupon_code,
               u.name AS user_name, u.email AS user_email
        FROM public.airtime_claims ac
@@ -938,15 +1030,15 @@ async function performStatusUpdate({
     }
 
     const claim   = rows[0];
-    const allowed = CLAIM_TRANSITIONS[claim.status] || [];
+    const currentNorm = normalizeStatus(claim.status);
+    const allowed = CLAIM_TRANSITIONS[currentNorm] || [];
 
-    /* Validate transition */
     if (!allowed.includes(targetStatus)) {
       await client.query("ROLLBACK");
       return {
         success            : false,
         invalidTransition  : true,
-        error              : `Cannot move from "${claim.status}" to "${targetStatus}". Allowed: ${allowed.join(", ") || "none"}.`,
+        error              : `Cannot move from "${currentNorm}" to "${targetStatus}". Allowed: ${allowed.join(", ") || "none"}.`,
       };
     }
 
@@ -957,24 +1049,21 @@ async function performStatusUpdate({
       "admin_note   = COALESCE($3, admin_note)",
     ];
 
-    /* approved_at set only when going TO approved */
     if (targetStatus === CLAIM_STATUS.APPROVED) {
       setFields.push("approved_at = NOW()");
     }
 
-    /* credited_at set on any terminal-ish state */
     if (["sent", "completed", "rejected", "failed"].includes(targetStatus)) {
       setFields.push("credited_at = NOW()");
     }
 
-    /* Apply update */
     const { rows: updated } = await client.query(
       `UPDATE public.airtime_claims
        SET ${setFields.join(", ")}
-       WHERE id     = $4
-         AND status = $5
-       RETURNING id, status, amount, credited_at, approved_at, admin_note`,
-      [targetStatus, adminId, note?.trim() || null, id, claim.status]
+       WHERE id = $4
+       RETURNING id, status, COALESCE(amount, 0) AS amount,
+                 credited_at, approved_at, admin_note`,
+      [targetStatus, adminId, note?.trim() || null, id]
     );
 
     if (!updated.length) {
@@ -985,7 +1074,7 @@ async function performStatusUpdate({
       };
     }
 
-    /* If rejected → release the coupon back to "available" */
+    /* Release coupon if rejected */
     if (releaseCoupon && targetStatus === CLAIM_STATUS.REJECTED) {
       await client.query(
         `UPDATE public.airtime_coupons
@@ -1000,7 +1089,6 @@ async function performStatusUpdate({
 
     await client.query("COMMIT");
 
-    /* Return combined claim + user info for notifications */
     return {
       success: true,
       claim  : {
@@ -1023,7 +1111,7 @@ async function performStatusUpdate({
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   INTERNAL — notifyUserOfStatusChange (async, non-blocking)
+   INTERNAL — notifyUserOfStatusChange
 ═══════════════════════════════════════════════════════════════ */
 function notifyUserOfStatusChange(claim, newStatus, adminNote = null) {
   if (!claim.user_email) return;
