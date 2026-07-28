@@ -1,7 +1,4 @@
 // src/pages/Profile/components/AirtimeClaimModal.jsx
-// ═══════════════════════════════════════════════════════════════
-// AIRTIME CLAIM MODAL — Production-grade with fail-open behavior
-// ═══════════════════════════════════════════════════════════════
 import { useState, useEffect, useCallback, useRef } from "react";
 import "../styles/AirtimeClaimModal.css";
 
@@ -9,52 +6,42 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api`;
 
 /* ═══════════════════════════════════════════════════════════════
-   AUTH — Check every possible token key
+   AUTH
 ═══════════════════════════════════════════════════════════════ */
 const TOKEN_KEYS = [
-  "marketplace_token",
-  "token",
-  "auth_token",
-  "authToken",
-  "access_token",
-  "accessToken",
-  "jwt",
+  "marketplace_token","token","auth_token","authToken",
+  "access_token","accessToken","jwt",
 ];
 
 const getToken = () => {
   for (const key of TOKEN_KEYS) {
-    const val = localStorage.getItem(key);
-    if (val && val !== "null" && val !== "undefined") {
-      return val;
-    }
+    const v = localStorage.getItem(key);
+    if (v && v !== "null" && v !== "undefined") return v;
   }
-  /* Also check sessionStorage */
   for (const key of TOKEN_KEYS) {
-    const val = sessionStorage.getItem(key);
-    if (val && val !== "null" && val !== "undefined") {
-      return val;
-    }
+    const v = sessionStorage.getItem(key);
+    if (v && v !== "null" && v !== "undefined") return v;
   }
   return null;
 };
 
 const authH = () => {
   const token = getToken();
-  const headers = { "Content-Type": "application/json" };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  return headers;
+  const h = { "Content-Type": "application/json" };
+  if (token) h.Authorization = `Bearer ${token}`;
+  return h;
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   PHONE HELPERS
+   HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const normalisePhone = (raw) => {
   if (!raw) return "";
-  const digits = String(raw).replace(/\D/g, "");
-  if (digits.startsWith("234")) return "0" + digits.slice(3);
-  if (digits.startsWith("0"))   return digits;
-  if (digits.length === 10)     return "0" + digits;
-  return digits;
+  const d = String(raw).replace(/\D/g, "");
+  if (d.startsWith("234")) return "0" + d.slice(3);
+  if (d.startsWith("0"))   return d;
+  if (d.length === 10)     return "0" + d;
+  return d;
 };
 
 const isValidPhone = (p) => /^0[789][01]\d{8}$/.test(p);
@@ -87,13 +74,6 @@ const naira = (n) => {
   return isNaN(num) ? "₦0" : "₦" + num.toLocaleString("en-NG");
 };
 
-const fmtDate = (iso) => {
-  if (!iso) return "";
-  return new Date(iso).toLocaleDateString("en-NG", {
-    day: "numeric", month: "long", year: "numeric",
-  });
-};
-
 const NETWORK_COLORS = {
   MTN     : { bg: "#fef9c3", color: "#854d0e", emoji: "🟡" },
   Airtel  : { bg: "#fee2e2", color: "#991b1b", emoji: "🔴" },
@@ -102,12 +82,111 @@ const NETWORK_COLORS = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   FLOATING DEBUG PANEL — separate component, ALWAYS visible
+═══════════════════════════════════════════════════════════════ */
+function DebugPanel({ logs, onClear, onCopy, onClose }) {
+  return (
+    <div style={{
+      position     : "fixed",
+      top          : 10,
+      left         : 10,
+      right        : 10,
+      maxHeight    : "50vh",
+      background   : "#000",
+      color        : "#0f0",
+      fontFamily   : "monospace",
+      fontSize     : "11px",
+      zIndex       : 9999999,
+      border       : "2px solid #0f0",
+      borderRadius : 8,
+      overflow     : "hidden",
+      display      : "flex",
+      flexDirection: "column",
+      boxShadow    : "0 4px 20px rgba(0,0,0,0.8)",
+    }}>
+      <div style={{
+        display        : "flex",
+        justifyContent : "space-between",
+        padding        : "6px 10px",
+        background     : "#0f0",
+        color          : "#000",
+        fontWeight     : "bold",
+      }}>
+        <span>🔧 DEBUG ({logs.length})</span>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            onClick={onCopy}
+            style={{
+              background: "#000",
+              color     : "#0f0",
+              border    : "1px solid #0f0",
+              padding   : "2px 8px",
+              fontSize  : 10,
+              cursor    : "pointer",
+              borderRadius: 4,
+            }}>📋</button>
+          <button
+            onClick={onClear}
+            style={{
+              background: "#000",
+              color     : "#0f0",
+              border    : "1px solid #0f0",
+              padding   : "2px 8px",
+              fontSize  : 10,
+              cursor    : "pointer",
+              borderRadius: 4,
+            }}>🗑</button>
+          <button
+            onClick={onClose}
+            style={{
+              background: "#000",
+              color     : "#f00",
+              border    : "1px solid #f00",
+              padding   : "2px 8px",
+              fontSize  : 10,
+              cursor    : "pointer",
+              borderRadius: 4,
+            }}>✕</button>
+        </div>
+      </div>
+
+      <div style={{
+        flex        : 1,
+        overflow    : "auto",
+        padding     : "6px 10px",
+        lineHeight  : 1.5,
+        wordBreak   : "break-all",
+        whiteSpace  : "pre-wrap",
+        WebkitOverflowScrolling: "touch",
+      }}>
+        {logs.length === 0 ? (
+          <div style={{ color: "#666", fontStyle: "italic" }}>
+            Waiting for events…
+          </div>
+        ) : (
+          logs.map((log, i) => (
+            <div key={i} style={{
+              color: log.level === "error" ? "#f66"
+                   : log.level === "warn"  ? "#fc0"
+                   : "#0f0",
+              marginBottom: 2,
+            }}>
+              [{log.time}] {log.line}
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function AirtimeClaimModal({
   isOpen,
   coupon,
-  savedPhone = null,   // { phone, masked, network, in_cooldown, days_left, next_change_at }
+  savedPhone = null,
   onClose,
   onSuccess,
 }) {
@@ -115,53 +194,59 @@ export default function AirtimeClaimModal({
   const [network,       setNetwork]       = useState(null);
   const [loading,       setLoading]       = useState(false);
   const [error,         setError]         = useState(null);
-  const [errorCode,     setErrorCode]     = useState(null);
   const [submitted,     setSubmitted]     = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(true);
   const [wasEdited,     setWasEdited]     = useState(false);
   const [checking,      setChecking]      = useState(false);
   const [phoneCheck,    setPhoneCheck]    = useState(null);
-  const [showChangeBtn, setShowChangeBtn] = useState(false);
+
+  /* Debug state — separate ref-based log so it never gets stuck */
+  const [debugLogs, setDebugLogs] = useState([]);
+  const [showDebug, setShowDebug] = useState(true);   // ← always show
 
   const checkTimer = useRef(null);
   const inputRef   = useRef(null);
 
-  /* ── Derived state ── */
-  const hasSavedPhone   = !!savedPhone?.phone;
-  const inCooldown      = savedPhone?.in_cooldown;
-  const daysLeft        = savedPhone?.days_left ?? 0;
-  const nextChangeDate  = savedPhone?.next_change_at
-    ? fmtDate(savedPhone.next_change_at)
-    : null;
+  /* addLog is stable — never causes re-renders that lose logs */
+  const addLog = useCallback((level, ...args) => {
+    const line = args.map((a) =>
+      typeof a === "object" ? JSON.stringify(a) : String(a)
+    ).join(" ");
+    const stamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
+    setDebugLogs((prev) => {
+      const next = [...prev, { time: stamp, level, line }];
+      return next.slice(-40);
+    });
+  }, []);
 
-  /* ══════════════════════════════════════════════
-     RESET when modal opens
-  ══════════════════════════════════════════════ */
+  const hasSavedPhone = !!savedPhone?.phone;
+
+  /* Reset on open */
   useEffect(() => {
     if (isOpen) {
-      console.log("[AirtimeClaimModal] opened with:", {
-        coupon      : coupon?.code,
-        savedPhone,
-        hasToken    : !!getToken(),
-      });
-
-      const p = normalisePhone(savedPhone?.phone || "");
+      const tok = getToken();
+      const p   = normalisePhone(savedPhone?.phone || "");
       setPhone(p);
       setNetwork(p ? detectNetwork(p) : null);
       setError(null);
-      setErrorCode(null);
       setLoading(false);
       setSubmitted(false);
       setSaveAsDefault(true);
       setWasEdited(false);
       setPhoneCheck(null);
-      setShowChangeBtn(false);
-    }
-  }, [isOpen, savedPhone, coupon]);
 
-  /* ══════════════════════════════════════════════
-     LOCK body scroll
-  ══════════════════════════════════════════════ */
+      setTimeout(() => {
+        addLog("log", "════ OPENED ════");
+        addLog("log", `API: ${API}`);
+        addLog("log", `Token: ${tok ? "✓ " + tok.slice(0, 20) + "..." : "✗ MISSING"}`);
+        addLog("log", `Coupon: ${coupon?.code}`);
+        addLog("log", `Origin: ${window.location.origin}`);
+        addLog("log", `Online: ${navigator.onLine}`);
+      }, 50);
+    }
+  }, [isOpen, savedPhone, coupon, addLog]);
+
+  /* Body scroll lock */
   useEffect(() => {
     if (isOpen) {
       const prev = document.body.style.overflow;
@@ -171,195 +256,180 @@ export default function AirtimeClaimModal({
   }, [isOpen]);
 
   /* ══════════════════════════════════════════════
-     LIVE PHONE AVAILABILITY CHECK
-     Debounced 500ms — with timeout + fail-open
+     LIVE PHONE CHECK
   ══════════════════════════════════════════════ */
   useEffect(() => {
     clearTimeout(checkTimer.current);
     setPhoneCheck(null);
 
-    if (!wasEdited)           return;
-    if (!isValidPhone(phone)) return;
+    if (!wasEdited || !isValidPhone(phone)) return;
 
-    /* Check we have a token before even trying */
     const token = getToken();
     if (!token) {
-      console.warn("[check-phone] no token — skipping check");
-      setPhoneCheck({
-        success  : true,
-        available: true,
-        message  : "",
-      });
+      addLog("warn", "check: no token, skip");
+      setPhoneCheck({ available: true, message: "" });
       return;
     }
 
     setChecking(true);
+    addLog("log", `check queued: ${phone}`);
 
     checkTimer.current = setTimeout(async () => {
-      const controller = new AbortController();
-      const timeoutId  = setTimeout(() => controller.abort(), 8_000);
+      const url = `${API}/airtime-coupons/check-phone/${phone}`;
+      addLog("log", `→ GET check-phone`);
+
+      const ctrl = new AbortController();
+      const timeout = setTimeout(() => {
+        ctrl.abort();
+        addLog("error", "check: TIMEOUT 8s");
+      }, 8000);
 
       try {
-        console.log("[check-phone] checking:", phone);
+        const res = await fetch(url, {
+          method : "GET",
+          headers: authH(),
+          signal : ctrl.signal,
+        });
+        clearTimeout(timeout);
 
-        const res = await fetch(
-          `${API}/airtime-coupons/check-phone/${phone}`,
-          {
-            headers: authH(),
-            signal : controller.signal,
-          }
-        );
+        addLog("log", `← ${res.status} check-phone`);
 
-        clearTimeout(timeoutId);
-
-        console.log("[check-phone] status:", res.status);
-
-        /* Handle known error codes */
-        if (res.status === 401) {
-          console.warn("[check-phone] auth failed — failing open");
-          setPhoneCheck({ success: true, available: true, message: "" });
-          return;
-        }
-
-        if (res.status === 429) {
-          console.warn("[check-phone] rate limited — failing open");
-          setPhoneCheck({ success: true, available: true, message: "" });
-          return;
+        let data = {};
+        try {
+          const text = await res.text();
+          if (text) data = JSON.parse(text);
+        } catch (e) {
+          addLog("error", `parse fail: ${e.message}`);
         }
 
         if (!res.ok) {
-          console.warn(`[check-phone] HTTP ${res.status} — failing open`);
-          setPhoneCheck({ success: true, available: true, message: "" });
+          addLog("warn", `check ${res.status} — fail open`);
+          setPhoneCheck({ available: true, message: "" });
           return;
         }
 
-        const data = await res.json();
-        console.log("[check-phone] result:", data);
-
+        addLog("log", `✓ available=${data.available}`);
         setPhoneCheck(data);
-
       } catch (err) {
-        clearTimeout(timeoutId);
-
-        if (err.name === "AbortError") {
-          console.warn("[check-phone] timed out — failing open");
-        } else {
-          console.warn("[check-phone] error:", err.message, "— failing open");
+        clearTimeout(timeout);
+        addLog("error", `check err: ${err.name} — ${err.message}`);
+        if (err.message === "Failed to fetch") {
+          addLog("error", "→ CORS/network issue");
         }
-
-        /* ── FAIL OPEN — never block the user ── */
-        setPhoneCheck({ success: true, available: true, message: "" });
+        setPhoneCheck({ available: true, message: "" });
       } finally {
         setChecking(false);
       }
     }, 500);
 
     return () => clearTimeout(checkTimer.current);
-  }, [phone, wasEdited]);
+  }, [phone, wasEdited, addLog]);
 
-  /* ══════════════════════════════════════════════
-     PHONE INPUT
-  ══════════════════════════════════════════════ */
   const handlePhoneChange = (e) => {
     const raw = e.target.value.replace(/\D/g, "").slice(0, 11);
     setPhone(raw);
     setNetwork(raw.length >= 4 ? detectNetwork(raw) : null);
     setError(null);
-    setErrorCode(null);
     setWasEdited(true);
   };
 
   /* ══════════════════════════════════════════════
-     "Change Number" button
-  ══════════════════════════════════════════════ */
-  const handleShowChange = () => {
-    setShowChangeBtn(true);
-    setTimeout(() => inputRef.current?.focus(), 100);
-  };
-
-  /* ══════════════════════════════════════════════
-     SUBMIT REDEEM
+     SUBMIT — with hard timeout + guaranteed reset
   ══════════════════════════════════════════════ */
   const handleSubmit = useCallback(async () => {
     const p = normalisePhone(phone);
+    addLog("log", "════ SUBMIT ════");
+    addLog("log", `phone=${p}`);
 
     if (!p || !isValidPhone(p)) {
-      setError("Enter a valid 11-digit Nigerian mobile number.");
+      setError("Enter a valid 11-digit Nigerian number.");
+      addLog("error", "invalid phone");
       return;
     }
 
-    /* Only block if we KNOW it's unavailable */
-    if (phoneCheck && phoneCheck.available === false) {
-      setError(phoneCheck.message || "This number cannot be used.");
-      return;
-    }
-
-    /* Check token before submitting */
     const token = getToken();
     if (!token) {
-      setError("You are not logged in. Please refresh the page.");
+      setError("Not logged in. Please refresh.");
+      addLog("error", "no token");
       return;
     }
-
-    /* If editing during cooldown, force one-time use */
-    const shouldSave = wasEdited && inCooldown ? false : saveAsDefault;
 
     setLoading(true);
     setError(null);
-    setErrorCode(null);
+
+    const url = `${API}/airtime-coupons/redeem`;
+    addLog("log", `→ POST redeem`);
+
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => {
+      ctrl.abort();
+      addLog("error", "submit: HARD TIMEOUT 20s");
+    }, 20000);
+
+    /* Safety net — force reset loading after 25s no matter what */
+    const safetyId = setTimeout(() => {
+      addLog("error", "SAFETY NET fired — forcing loading=false");
+      setLoading(false);
+      setError("Request took too long. Please try again.");
+    }, 25000);
 
     try {
-      const res  = await fetch(`${API}/airtime-coupons/redeem`, {
+      addLog("log", "fetch() starting...");
+
+      const res = await fetch(url, {
         method : "POST",
         headers: authH(),
+        signal : ctrl.signal,
         body   : JSON.stringify({
           code            : coupon.code,
           phone           : p,
-          save_as_default : shouldSave,
+          save_as_default : saveAsDefault,
         }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      clearTimeout(timeoutId);
+      clearTimeout(safetyId);
 
-      console.log("[redeem] response:", res.status, data);
+      addLog("log", `← ${res.status} redeem`);
+      addLog("log", `type: ${res.type}`);
+
+      let data = {};
+      try {
+        const text = await res.text();
+        addLog("log", `body length: ${text.length}`);
+        if (text) {
+          addLog("log", `body: ${text.slice(0, 150)}`);
+          data = JSON.parse(text);
+        }
+      } catch (e) {
+        addLog("error", `parse fail: ${e.message}`);
+        throw new Error("Server returned invalid response");
+      }
 
       if (!res.ok || !data.success) {
-        setErrorCode(data.code || null);
+        addLog("error", `fail code=${data.code} msg=${data.message}`);
 
-        /* Contextual error messages */
         if (data.code === "PHONE_COOLDOWN_ACTIVE") {
-          throw new Error(
-            `You can change your default number in ${data.cooldown?.days_left ?? "?"} days. ` +
-            `Uncheck "Save as default" to send airtime just this once.`
-          );
+          throw new Error(`Change locked for ${data.cooldown?.days_left} days.`);
         }
         if (data.code === "PHONE_LIMIT_REACHED") {
-          throw new Error(
-            "This phone number has reached the maximum number of allowed accounts."
-          );
+          throw new Error("Phone reached maximum allowed accounts.");
         }
         if (data.code === "GIVEAWAYS_SUSPENDED") {
-          throw new Error("Your giveaway access is suspended. Contact support.");
+          throw new Error("Giveaways suspended. Contact support.");
         }
         if (data.code === "EMAIL_NOT_VERIFIED") {
           throw new Error("Please verify your email first.");
         }
         if (data.code === "CLAIM_LIMIT_REACHED") {
-          throw new Error(
-            `You've reached your claim limit. Try again later.`
-          );
+          throw new Error("Claim limit reached.");
         }
-        if (res.status === 401) {
-          throw new Error("You are not logged in. Please refresh the page.");
-        }
-        if (res.status === 429) {
-          throw new Error("Too many attempts. Please wait a moment.");
-        }
-
-        throw new Error(data.message || "Claim failed. Please try again.");
+        if (res.status === 401) throw new Error("Not logged in.");
+        if (res.status === 429) throw new Error("Too many attempts.");
+        throw new Error(data.message || `HTTP ${res.status}`);
       }
 
-      /* ✓ Success */
+      addLog("log", "✓ SUCCESS");
       setSubmitted(true);
 
       setTimeout(() => {
@@ -369,143 +439,142 @@ export default function AirtimeClaimModal({
           claim  : data.claim,
           saved  : data.airtime_phone_saved,
         });
-      }, 1_800);
+      }, 1800);
 
     } catch (err) {
-      console.error("[redeem] error:", err);
-      setError(err.message);
+      clearTimeout(timeoutId);
+      clearTimeout(safetyId);
+
+      addLog("error", `catch: ${err.name} — ${err.message}`);
+
+      if (err.name === "AbortError") {
+        setError("Timed out. Please try again.");
+      } else if (err.message === "Failed to fetch") {
+        addLog("error", "═ FAILED TO FETCH ═");
+        addLog("error", "Likely CORS or backend down");
+        setError("Network error. Check connection.");
+      } else {
+        setError(err.message);
+      }
     } finally {
+      /* GUARANTEED reset */
+      addLog("log", "finally: loading=false");
       setLoading(false);
     }
-  }, [phone, coupon, network, saveAsDefault, wasEdited, inCooldown, phoneCheck, onSuccess]);
+  }, [phone, coupon, network, saveAsDefault, onSuccess, addLog]);
 
-  /* ══════════════════════════════════════════════
-     EARLY EXIT
-  ══════════════════════════════════════════════ */
-  if (!isOpen)  return null;
-  if (!coupon)  return null;
+  if (!isOpen || !coupon) return null;
 
-  const amount        = coupon.amount ?? coupon.value ?? 0;
-  const netStyle      = network ? NETWORK_COLORS[network] : null;
-  const savedNetStyle = savedPhone?.network ? NETWORK_COLORS[savedPhone.network] : null;
+  const amount   = coupon.amount ?? coupon.value ?? 0;
+  const netStyle = network ? NETWORK_COLORS[network] : null;
 
-  /* ── Can submit? Only block on KNOWN unavailability ── */
   const canSubmit =
     !loading &&
     phone.length >= 10 &&
     isValidPhone(phone) &&
     !(phoneCheck && phoneCheck.available === false);
 
-  /* ── Sub-header ── */
-  const subLabel =
-    hasSavedPhone && !wasEdited && !showChangeBtn
-      ? "Using your saved airtime number."
-      : hasSavedPhone && (wasEdited || showChangeBtn)
-        ? "Sending to a different number this time?"
-        : "Enter the number that should receive the airtime.";
+  const copyLogs = () => {
+    const text = debugLogs.map((l) => `[${l.time}] ${l.level.toUpperCase()}: ${l.line}`).join("\n");
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => alert("✓ Logs copied!"),
+        () => fallbackCopy(text)
+      );
+    } else {
+      fallbackCopy(text);
+    }
+  };
 
-  const saveToggleDisabled = wasEdited && inCooldown;
-  const effectiveSave      = saveToggleDisabled ? false : saveAsDefault;
+  const fallbackCopy = (text) => {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand("copy");
+      alert("✓ Logs copied!");
+    } catch {
+      alert("Copy failed. Screenshot the debug panel.");
+    }
+    document.body.removeChild(ta);
+  };
 
   return (
-    <div
-      className="acm-overlay"
-      role="dialog"
-      aria-modal="true"
-      onClick={(e) => e.target === e.currentTarget && !loading && onClose()}
-    >
-      <div className="acm-sheet">
+    <>
+      {/* Floating debug panel — outside modal, always on top */}
+      {showDebug && (
+        <DebugPanel
+          logs={debugLogs}
+          onClear={() => setDebugLogs([])}
+          onCopy={copyLogs}
+          onClose={() => setShowDebug(false)}
+        />
+      )}
 
-        {/* Close button */}
+      {/* Floating button to reopen debug */}
+      {!showDebug && (
         <button
-          className="acm-close"
-          onClick={onClose}
-          disabled={loading}
-          aria-label="Close"
-        >
-          ✕
+          onClick={() => setShowDebug(true)}
+          style={{
+            position    : "fixed",
+            top         : 10,
+            right       : 10,
+            zIndex      : 9999999,
+            background  : "#000",
+            color       : "#0f0",
+            border      : "2px solid #0f0",
+            borderRadius: "50%",
+            width       : 44,
+            height      : 44,
+            fontSize    : 20,
+            cursor      : "pointer",
+          }}>
+          🔧
         </button>
+      )}
 
-        {/* ══════════════════════════════════════
-             SUCCESS STATE
-        ══════════════════════════════════════ */}
-        {submitted ? (
-          <div className="acm-success">
-            <div className="acm-success-icon">✓</div>
-            <h2 className="acm-title">Claim submitted!</h2>
-            <p className="acm-sub">
-              {naira(amount)} airtime will be sent to{" "}
-              <strong>{phone}</strong> within 24 hours.
-            </p>
-            <p className="acm-sub-small">
-              You'll receive an email once processed.
-            </p>
-          </div>
-        ) : (
-          <>
-            {/* ══════════════════════════════════════
-                 HEADER
-            ══════════════════════════════════════ */}
-            <div className="acm-header">
-              <span className="acm-emoji">📱</span>
-              <h2 className="acm-title">Claim {naira(amount)} Airtime</h2>
-              <p className="acm-sub">{subLabel}</p>
+      <div
+        className="acm-overlay"
+        role="dialog"
+        aria-modal="true"
+        onClick={(e) => e.target === e.currentTarget && !loading && onClose()}
+      >
+        <div className="acm-sheet">
+
+          <button
+            className="acm-close"
+            onClick={onClose}
+            disabled={loading}
+            aria-label="Close"
+          >
+            ✕
+          </button>
+
+          {submitted ? (
+            <div className="acm-success">
+              <div className="acm-success-icon">✓</div>
+              <h2 className="acm-title">Claim submitted!</h2>
+              <p className="acm-sub">
+                {naira(amount)} airtime will be sent to{" "}
+                <strong>{phone}</strong> within 24 hours.
+              </p>
             </div>
-
-            {/* ══════════════════════════════════════
-                 SAVED NUMBER DISPLAY
-            ══════════════════════════════════════ */}
-            {hasSavedPhone && !wasEdited && !showChangeBtn && (
-              <div className="acm-saved-card">
-                <div className="acm-saved-row">
-                  <span className="acm-saved-flag">🇳🇬</span>
-                  <div className="acm-saved-main">
-                    <div className="acm-saved-phone">{phone}</div>
-                    {savedNetStyle && (
-                      <div
-                        className="acm-saved-net"
-                        style={{ color: savedNetStyle.color }}
-                      >
-                        {savedNetStyle.emoji} {savedPhone.network}
-                      </div>
-                    )}
-                  </div>
-                  <span className="acm-saved-badge">💾 Saved</span>
-                </div>
-
-                {inCooldown && (
-                  <div className="acm-cooldown-info">
-                    <span>🔒</span>
-                    <div>
-                      <strong>Current number locked.</strong>
-                      <br />
-                      Next change available:{" "}
-                      <strong>{nextChangeDate}</strong>{" "}
-                      ({daysLeft} day{daysLeft !== 1 ? "s" : ""})
-                    </div>
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  className="acm-change-btn"
-                  onClick={handleShowChange}
-                  disabled={loading}
-                >
-                  {inCooldown ? "Send to a different number (one-time)" : "Change number"}
-                </button>
+          ) : (
+            <>
+              <div className="acm-header">
+                <span className="acm-emoji">📱</span>
+                <h2 className="acm-title">Claim {naira(amount)} Airtime</h2>
+                <p className="acm-sub">
+                  Enter the number that should receive the airtime.
+                </p>
               </div>
-            )}
 
-            {/* ══════════════════════════════════════
-                 PHONE INPUT
-            ══════════════════════════════════════ */}
-            {(!hasSavedPhone || wasEdited || showChangeBtn) && (
               <div className="acm-field">
                 <label className="acm-label" htmlFor="acm-phone">
                   Airtime recipient number
                 </label>
-
                 <div className="acm-phone-wrap">
                   <span className="acm-prefix">🇳🇬 +234</span>
                   <input
@@ -532,13 +601,6 @@ export default function AirtimeClaimModal({
                   </div>
                 )}
 
-                {phone.length >= 7 && !network && (
-                  <div className="acm-network-unknown">
-                    ⚠️ Network not detected — check your number
-                  </div>
-                )}
-
-                {/* ── Only show checking on active check ── */}
                 {checking && (
                   <div className="acm-phone-checking">
                     <span className="acm-spin-dot" />
@@ -546,93 +608,50 @@ export default function AirtimeClaimModal({
                   </div>
                 )}
 
-                {/* ── Only show result when we have one AND not checking ── */}
                 {phoneCheck && !checking && phoneCheck.message && (
                   phoneCheck.available ? (
-                    <div className="acm-phone-ok">
-                      ✓ Number can be used
-                    </div>
+                    <div className="acm-phone-ok">✓ {phoneCheck.message}</div>
                   ) : (
-                    <div className="acm-phone-blocked">
-                      🚫 {phoneCheck.message}
-                    </div>
+                    <div className="acm-phone-blocked">🚫 {phoneCheck.message}</div>
                   )
                 )}
-
-                {/* ── Save toggle ── */}
-                {hasSavedPhone && wasEdited && (
-                  <>
-                    {inCooldown ? (
-                      <div className="acm-cooldown-warn">
-                        🔒 You can update your default number in{" "}
-                        <strong>{daysLeft} day{daysLeft !== 1 ? "s" : ""}</strong>.
-                        <br />
-                        This claim will use the new number{" "}
-                        <strong>this time only</strong>.
-                      </div>
-                    ) : (
-                      <label className="acm-save-toggle">
-                        <input
-                          type="checkbox"
-                          checked={effectiveSave}
-                          onChange={(e) => setSaveAsDefault(e.target.checked)}
-                          disabled={loading || saveToggleDisabled}
-                        />
-                        <span>Save as my default airtime number</span>
-                      </label>
-                    )}
-                  </>
-                )}
               </div>
-            )}
 
-            {/* ══════════════════════════════════════
-                 ERROR MESSAGE
-            ══════════════════════════════════════ */}
-            {error && (
-              <div className={`acm-error ${errorCode ? `acm-error--${errorCode.toLowerCase()}` : ""}`}>
-                <span className="acm-error-icon">⚠️</span>
-                <span>{error}</span>
-              </div>
-            )}
-
-            {/* ══════════════════════════════════════
-                 INFO NOTE
-            ══════════════════════════════════════ */}
-            <div className="acm-note">
-              ℹ️ Send airtime to any Nigerian number — yours, family, or friends.
-              We process claims within 24 hours.
-            </div>
-
-            {/* ══════════════════════════════════════
-                 ACTIONS
-            ══════════════════════════════════════ */}
-            <button
-              className="acm-btn acm-btn--primary"
-              onClick={handleSubmit}
-              disabled={!canSubmit}
-            >
-              {loading ? (
-                <>
-                  <span className="acm-spin-white" />
-                  Submitting…
-                </>
-              ) : (
-                `Claim ${naira(amount)} Airtime`
+              {error && (
+                <div className="acm-error">
+                  <span className="acm-error-icon">⚠️</span>
+                  <span>{error}</span>
+                </div>
               )}
-            </button>
 
-            <button
-              className="acm-btn acm-btn--ghost"
-              onClick={onClose}
-              disabled={loading}
-            >
-              Cancel
-            </button>
-          </>
-        )}
+              <div className="acm-note">
+                ℹ️ Send airtime to any Nigerian number. Processed within 24 hours.
+              </div>
 
+              <button
+                className="acm-btn acm-btn--primary"
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+              >
+                {loading ? (
+                  <><span className="acm-spin-white" /> Submitting…</>
+                ) : (
+                  `Claim ${naira(amount)} Airtime`
+                )}
+              </button>
+
+              <button
+                className="acm-btn acm-btn--ghost"
+                onClick={onClose}
+                disabled={loading}
+              >
+                Cancel
+              </button>
+            </>
+          )}
+
+        </div>
       </div>
-    </div>
+    </>
   );
 }
