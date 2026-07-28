@@ -265,6 +265,80 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   PENDING RESUME BANNER
+═══════════════════════════════════════════════════════════════ */
+.cp-pending-banner {
+  display        : flex;
+  align-items    : center;
+  gap            : 12px;
+  padding        : 12px 16px;
+  background     : #dcfce7;
+  border         : 1px solid #86efac;
+  border-radius  : 12px;
+  color          : #166534;
+  font-size      : 13px;
+  animation      : cp-slide-in 0.3s ease;
+}
+
+.cp-pending-banner-icon {
+  font-size   : 22px;
+  flex-shrink : 0;
+}
+
+.cp-pending-banner-text {
+  flex        : 1;
+  line-height : 1.5;
+}
+
+.cp-pending-banner-text code {
+  background   : #fff;
+  padding      : 2px 8px;
+  border-radius: 4px;
+  font-family  : monospace;
+  font-weight  : 700;
+  color        : #0891b2;
+}
+
+.cp-pending-dismiss {
+  background   : none;
+  border       : none;
+  cursor       : pointer;
+  font-size    : 18px;
+  color        : #166534;
+  padding      : 4px 8px;
+  border-radius: 4px;
+  flex-shrink  : 0;
+  transition   : background 0.15s;
+}
+.cp-pending-dismiss:hover { background: rgba(0,0,0,0.06); }
+
+/* ═══════════════════════════════════════════════════════════════
+   VERIFY CTA in banner
+═══════════════════════════════════════════════════════════════ */
+.cp-verify-cta {
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 6px;
+  margin-top     : 10px;
+  padding        : 8px 14px;
+  background     : #0891b2;
+  color          : #fff;
+  border         : none;
+  border-radius  : 8px;
+  font-size      : 12px;
+  font-weight    : 700;
+  cursor         : pointer;
+  transition     : background 0.15s;
+  font-family    : inherit;
+}
+.cp-verify-cta:hover { background: #0e7490; }
+
+@keyframes cp-slide-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ═══════════════════════════════════════════════════════════════
    TABS
 ═══════════════════════════════════════════════════════════════ */
 .cp-tabs {
