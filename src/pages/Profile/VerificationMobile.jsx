@@ -1,6 +1,6 @@
 // ════════════════════════════════════════════════════════════
-// FILE: Verification.jsx — v10 (Full Error Debug Edition)
-// Shows complete API error details for debugging
+// FILE: Verification.jsx — v11 (Return URL support)
+// Redirects back to source page after email verification succeeds
 // ════════════════════════════════════════════════════════════
 
 import {
@@ -10,7 +10,7 @@ import {
   useCallback,
   useReducer,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import "../../style/Verification.css";
 
 /* ══════════════════════════════════════════════════════════════
@@ -19,17 +19,14 @@ import "../../style/Verification.css";
 const getToken = () => localStorage.getItem("marketplace_token") ?? null;
 const API_BASE = `${import.meta.env.VITE_API_BASE_URL}/api/verification`;
 
-// Enhanced API helper that captures EVERYTHING
 const parseApiResponse = async (res, url) => {
   const raw = await res.text().catch(() => "");
-  
   let data = {};
   try {
     data = raw ? JSON.parse(raw) : {};
   } catch {
     data = { parseError: "Invalid JSON", raw };
   }
-
   return {
     ok: res.ok,
     status: res.status,
@@ -69,7 +66,6 @@ const apiFetch = async (path, options = {}) => {
   }
 };
 
-// Upload helper with full error capture
 const apiUpload = async (path, formData) => {
   const token = getToken();
   const url = `${API_BASE}${path}`;
@@ -141,6 +137,27 @@ const fmtBytes = (b) => {
   if (b < 1024) return `${b} B`;
   if (b < 1_048_576) return `${(b / 1024).toFixed(1)} KB`;
   return `${(b / 1_048_576).toFixed(1)} MB`;
+};
+
+/* ══════════════════════════════════════════════════════════════
+   RETURN URL VALIDATION — prevents open redirects
+══════════════════════════════════════════════════════════════ */
+const isSafeReturnUrl = (url) => {
+  if (!url) return false;
+  /* Only allow same-origin relative paths */
+  if (url.startsWith("/") && !url.startsWith("//")) return true;
+  return false;
+};
+
+const getReturnUrl = (searchParams) => {
+  const raw = searchParams.get("return");
+  if (!raw) return null;
+  try {
+    const decoded = decodeURIComponent(raw);
+    return isSafeReturnUrl(decoded) ? decoded : null;
+  } catch {
+    return null;
+  }
 };
 
 /* ══════════════════════════════════════════════════════════════
@@ -248,13 +265,17 @@ const Ic = {
       <path d="m17 15 3-1"/>
     </svg>
   ),
+  ArrowRight: ({ s = 16 }) => (
+    <svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="5" y1="12" x2="19" y2="12"/>
+      <polyline points="12 5 19 12 12 19"/>
+    </svg>
+  ),
 };
 
 /* ══════════════════════════════════════════════════════════════
    COMPONENTS
 ══════════════════════════════════════════════════════════════ */
-
-// Shows full API error details for debugging
 function ApiDebugError({ error }) {
   if (!error) return null;
 
@@ -275,44 +296,21 @@ function ApiDebugError({ error }) {
       <summary style={{ cursor: "pointer", fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
         <Ic.Bug s={14} /> Debug: Full Error Details
       </summary>
-      
       <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-        <div>
-          <strong>URL:</strong> {error.url}
-        </div>
-        <div>
-          <strong>Status:</strong> {error.status} {error.statusText}
-        </div>
-        <div>
-          <strong>Message:</strong> {error.message}
-        </div>
-        
+        <div><strong>URL:</strong> {error.url}</div>
+        <div><strong>Status:</strong> {error.status} {error.statusText}</div>
+        <div><strong>Message:</strong> {error.message}</div>
         {error.data?.stack && (
           <details style={{ marginTop: 4 }}>
             <summary style={{ cursor: "pointer", opacity: 0.8 }}>Server Stack Trace</summary>
-            <pre style={{ 
-              marginTop: 6, 
-              whiteSpace: "pre-wrap", 
-              background: "rgba(0,0,0,0.3)", 
-              padding: 8, 
-              borderRadius: 4,
-              fontSize: 11 
-            }}>
+            <pre style={{ marginTop: 6, whiteSpace: "pre-wrap", background: "rgba(0,0,0,0.3)", padding: 8, borderRadius: 4, fontSize: 11 }}>
               {error.data.stack}
             </pre>
           </details>
         )}
-        
         <details style={{ marginTop: 4 }}>
           <summary style={{ cursor: "pointer", opacity: 0.8 }}>Full Response Data</summary>
-          <pre style={{ 
-            marginTop: 6, 
-            whiteSpace: "pre-wrap", 
-            background: "rgba(0,0,0,0.3)", 
-            padding: 8, 
-            borderRadius: 4,
-            fontSize: 11 
-          }}>
+          <pre style={{ marginTop: 6, whiteSpace: "pre-wrap", background: "rgba(0,0,0,0.3)", padding: 8, borderRadius: 4, fontSize: 11 }}>
             {JSON.stringify(error.data, null, 2)}
           </pre>
         </details>
@@ -332,6 +330,32 @@ function Alert({ type = "info", children }) {
     <div className={`v-alert v-alert--${type}`}>
       <span className="v-alert__icon">{icons[type]}</span>
       <div className="v-alert__body">{children}</div>
+    </div>
+  );
+}
+
+/* Return URL banner shown when user came from another page */
+function ReturnBanner({ returnUrl, onCancel }) {
+  const label = returnUrl.includes("coupons")   ? "your coupons"
+              : returnUrl.includes("checkout")  ? "checkout"
+              : returnUrl.includes("dashboard") ? "your dashboard"
+              : "where you were";
+
+  return (
+    <div className="v-return-banner">
+      <div className="v-return-banner__icon">↩️</div>
+      <div className="v-return-banner__text">
+        <strong>Verify your email first</strong>
+        <br />
+        We'll bring you back to <strong>{label}</strong> after.
+      </div>
+      <button
+        className="v-btn v-btn--ghost v-btn--sm"
+        onClick={onCancel}
+        title="Cancel and go back"
+      >
+        Cancel
+      </button>
     </div>
   );
 }
@@ -649,9 +673,9 @@ function Checklist({ items }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   EMAIL GATE (with full error debug)
+   EMAIL GATE
 ══════════════════════════════════════════════════════════════ */
-function EmailGate({ status, onVerified }) {
+function EmailGate({ status, onVerified, returnUrl }) {
   const [phase, setPhase] = useState("idle");
   const [otp, setOtp] = useState("");
   const [otpError, setOtpError] = useState(false);
@@ -703,9 +727,13 @@ function EmailGate({ status, onVerified }) {
     if (result.ok) {
       const data = result.data;
       setPhase("done");
-      setMsg({ type: "success", text: "Email verified!" });
-      
-      // Fix: handle missing trust_score gracefully
+      setMsg({
+        type: "success",
+        text: returnUrl
+          ? "Email verified! Redirecting back…"
+          : "Email verified!",
+      });
+
       const newScore = typeof data.trust_score === "number" ? data.trust_score : null;
       setTimeout(() => onVerified(newScore), 900);
     } else {
@@ -718,7 +746,7 @@ function EmailGate({ status, onVerified }) {
     }
 
     verifyingRef.current = false;
-  }, [onVerified]);
+  }, [onVerified, returnUrl]);
 
   useEffect(() => {
     if (
@@ -748,7 +776,9 @@ function EmailGate({ status, onVerified }) {
       <h2 className="v-email-gate__title">Verify Your Email</h2>
 
       <p className="v-email-gate__sub">
-        Confirm your email before submitting identity documents.
+        {returnUrl
+          ? "Verify your email to continue."
+          : "Confirm your email before submitting identity documents."}
         {status?.email && (
           <>
             {" "}Your address: <strong style={{ color: "var(--v-orange)" }}>{status.email}</strong>
@@ -850,7 +880,7 @@ function EmailGate({ status, onVerified }) {
 
       {phase === "done" && (
         <div className="v-otp-panel__status">
-          <Ic.Check s={16} /> Redirecting…
+          <Ic.Check s={16} /> {returnUrl ? "Redirecting back…" : "Loading next step…"}
         </div>
       )}
     </div>
@@ -858,7 +888,7 @@ function EmailGate({ status, onVerified }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   VERIFICATION FORM (with full error debug)
+   VERIFICATION FORM
 ══════════════════════════════════════════════════════════════ */
 const INIT_FORM = {
   docType: "",
@@ -915,15 +945,12 @@ function VerificationForm({ onSuccess }) {
   ];
   const allDone = checklist.every((c) => c.done);
 
-  // Face check - SKIP if front is PDF
   const faceKey = useRef(null);
   useEffect(() => {
     if (!form.selfie || !form.front) {
       setFaceResult(null);
       return;
     }
-
-    // Skip face check for PDF documents
     if (!form.front.type.startsWith("image/")) {
       setFaceResult({
         skipped: true,
@@ -1316,20 +1343,32 @@ function StatusChip({ status }) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   ROOT COMPONENT (with full error debug)
+   ROOT COMPONENT
 ══════════════════════════════════════════════════════════════ */
 export default function Verification() {
-  const navigate = useNavigate();
+  const navigate               = useNavigate();
+  const [searchParams]         = useSearchParams();
+  const returnUrl              = getReturnUrl(searchParams);
 
-  const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState(null);
+  const [loading, setLoading]       = useState(true);
+  const [pageError, setPageError]   = useState(null);
   const [pageApiError, setPageApiError] = useState(null);
-  const [status, setStatus] = useState(null);
-  const [view, setView] = useState("loading");
+  const [status, setStatus]         = useState(null);
+  const [view, setView]             = useState("loading");
 
   const resolveView = useCallback((data) => {
     if (!data.email_verified) {
       setView("email-gate");
+      return;
+    }
+
+    /* If user came here just for email verification and email IS verified,
+       redirect them back immediately */
+    if (returnUrl) {
+      /* Add success flag to the URL so the destination page can show a toast */
+      const separator = returnUrl.includes("?") ? "&" : "?";
+      const finalUrl  = `${returnUrl}${separator}verified=1`;
+      navigate(finalUrl, { replace: true });
       return;
     }
 
@@ -1357,7 +1396,7 @@ export default function Verification() {
     }
 
     setView("form");
-  }, []);
+  }, [returnUrl, navigate]);
 
   const fetchStatus = useCallback(async () => {
     setLoading(true);
@@ -1401,6 +1440,37 @@ export default function Verification() {
         Boolean
       ).length
     : 0;
+
+  /* ── Handle email verification success ── */
+  const handleEmailVerified = useCallback((newScore) => {
+    setStatus((p) => ({
+      ...p,
+      email_verified: true,
+      trust_score: typeof newScore === "number" ? newScore : p?.trust_score ?? 0,
+    }));
+
+    if (returnUrl) {
+      /* Redirect back to source page after brief delay */
+      const separator = returnUrl.includes("?") ? "&" : "?";
+      const finalUrl  = `${returnUrl}${separator}verified=1`;
+      setTimeout(() => {
+        navigate(finalUrl, { replace: true });
+      }, 1200);
+      return;
+    }
+
+    /* Otherwise continue with normal ID verification flow */
+    setView("form");
+    fetchStatus();
+  }, [returnUrl, navigate, fetchStatus]);
+
+  const handleCancel = () => {
+    if (returnUrl) {
+      navigate(returnUrl, { replace: true });
+    } else {
+      navigate(-1);
+    }
+  };
 
   if (loading) {
     return (
@@ -1453,50 +1523,58 @@ export default function Verification() {
     <div className="v-page">
       <div className="v-container">
         <div className="v-topbar">
-          <button className="v-back-btn" onClick={() => navigate(-1)} aria-label="Go back">
+          <button className="v-back-btn" onClick={handleCancel} aria-label="Go back">
             <Ic.ArrowLeft s={18} />
           </button>
           <div className="v-topbar__center">
             <div className="v-topbar__shield">
               <Ic.Shield s={16} />
             </div>
-            <span className="v-topbar__title">Identity Verification</span>
+            <span className="v-topbar__title">
+              {returnUrl ? "Email Verification" : "Identity Verification"}
+            </span>
           </div>
           <div className="v-topbar__spacer" aria-hidden="true" />
         </div>
 
-        <p className="v-page-sub">Verify your identity to unlock full seller access and build buyer trust.</p>
+        <p className="v-page-sub">
+          {returnUrl
+            ? "Quick email verification to continue with your action."
+            : "Verify your identity to unlock full seller access and build buyer trust."}
+        </p>
 
-        {status && (
+        {/* Return-to banner */}
+        {returnUrl && view === "email-gate" && (
+          <ReturnBanner returnUrl={returnUrl} onCancel={handleCancel} />
+        )}
+
+        {/* Only show trust ring if NOT in return mode */}
+        {status && !returnUrl && (
           <div className="v-card v-card--trust">
             <TrustRing score={status.trust_score ?? 0} />
           </div>
         )}
 
-        {status && <ProgressBar steps={3} done={progressDone} />}
+        {/* Only show progress if NOT in return mode */}
+        {status && !returnUrl && <ProgressBar steps={3} done={progressDone} />}
 
-        {status?.limited_listings?.count > 0 && (
+        {status?.limited_listings?.count > 0 && !returnUrl && (
           <Alert type="warning">
             <strong>Listings expiring soon: </strong>
             {status.limited_listings.message}
           </Alert>
         )}
 
-        {status?.upgrade_benefits && view === "form" && <Alert type="info">{status.upgrade_benefits.message}</Alert>}
+        {status?.upgrade_benefits && view === "form" && (
+          <Alert type="info">{status.upgrade_benefits.message}</Alert>
+        )}
 
         <div className="v-card">
           {view === "email-gate" && (
             <EmailGate
               status={status}
-              onVerified={(newScore) => {
-                setStatus((p) => ({
-                  ...p,
-                  email_verified: true,
-                  trust_score: typeof newScore === "number" ? newScore : p?.trust_score ?? 0,
-                }));
-                setView("form");
-                fetchStatus();
-              }}
+              onVerified={handleEmailVerified}
+              returnUrl={returnUrl}
             />
           )}
 
@@ -1530,7 +1608,7 @@ export default function Verification() {
           )}
         </div>
 
-        {status && <StatusChip status={status} />}
+        {status && !returnUrl && <StatusChip status={status} />}
       </div>
     </div>
   );
