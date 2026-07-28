@@ -21,7 +21,7 @@ export const WHEEL_SEGMENTS = Object.freeze([
 ════════════════════════════════════════════════════════════ */
 export const SOCIAL_LINKS = Object.freeze({
   instagram : "https://www.instagram.com/loemartmarketplace?igsh=ZnVsemNjeXJqd25v",
-  tiktok    : "https://www.tiktok.com/@loemart01?_r=1&_t=ZS-98JWnHsupEN",
+  tiktok    : "https://www.tiktok.com/@loemartmarketplace?_r=1&_t=ZS-98Oc4twCrv5",
   facebook  : null,
   telegram  : "https://t.me/loemartmarketplace",
   whatsapp  : "https://whatsapp.com/channel/0029VbCkfHbGZNCm5XkWd347",
