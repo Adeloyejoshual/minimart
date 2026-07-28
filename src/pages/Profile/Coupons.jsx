@@ -68,13 +68,13 @@ const COUPON_CONFIG = {
 
 const AIRTIME_STATUS = {
   available : { label: "Ready to claim",  color: "#16a34a" },
-  pending   : { label: "Pending review",  color: "#f59e0b" },
-  redeemed  : { label: "Claim submitted", color: "#f59e0b" },
+  pending   : { label: "Processing",      color: "#f59e0b" },
+  redeemed  : { label: "Processing",      color: "#f59e0b" },
   processing: { label: "Processing…",     color: "#f59e0b" },
   completed : { label: "Credited ✓",      color: "#6366f1" },
   failed    : { label: "Failed",          color: "#dc2626" },
   expired   : { label: "Expired",         color: "#dc2626" },
-  claimed   : { label: "Claim submitted", color: "#f59e0b" },
+  claimed   : { label: "Processing",      color: "#f59e0b" },
   credited  : { label: "Credited ✓",      color: "#6366f1" },
 };
 
@@ -288,7 +288,7 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
         {isPending && (
           <div className="cp-airtime-pending">
             <IconClock />
-            <span>Pending — admin will process within 24 hours</span>
+            <span>Pending — it will be processed shortly</span>
           </div>
         )}
 
@@ -940,7 +940,7 @@ export default function Coupons() {
       )
     );
 
-    showToast("✅ Claim submitted! Airtime credited within 24 hours.");
+    showToast("✅ Claim submitted! Airtime will be credited shortly.");
 
     loadSavedPhone();
 
@@ -1255,6 +1255,7 @@ export default function Coupons() {
               { icon: <IconTag />,         t: "Paste the code at checkout to get your discount" },
               { icon: <IconCheckCircle />, t: "Discount is applied automatically"       },
               { icon: <IconMail />,        t: "For airtime, verify your email — you'll return here after" },
+              { icon: <IconClock />,       t: "Claims are processed shortly after submission" },
               { icon: <IconAlertCircle />, t: "Each coupon can only be used once"       },
             ].map((tip, i) => (
               <div key={i} className="cp-tip">
