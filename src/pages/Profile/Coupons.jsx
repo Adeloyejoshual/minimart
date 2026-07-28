@@ -3,7 +3,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams }              from "react-router-dom";
 import "./styles/Coupons.css";
 import AirtimeClaimModal from "./components/AirtimeClaimModal";
-import VerificationModal from "./components/VerificationModal";
 
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
@@ -211,6 +210,14 @@ const IconMail = () => (
     stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
     <rect x="2" y="4" width="20" height="16" rx="2"/>
     <polyline points="22,4 12,13 2,4"/>
+  </svg>
+);
+const IconExternal = () => (
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/>
+    <polyline points="15 3 21 3 21 9"/>
+    <line x1="10" y1="14" x2="21" y2="3"/>
   </svg>
 );
 
@@ -520,7 +527,7 @@ function ValidatePanel() {
 /* ═══════════════════════════════════════════════════════════════
    AIRTIME BANNER
 ═══════════════════════════════════════════════════════════════ */
-function AirtimeBanner({ emailVerified, userEmail, savedPhone }) {
+function AirtimeBanner({ emailVerified, userEmail, savedPhone, onGoVerify }) {
   return (
     <div className="cp-airtime-banner">
       <span className="cp-airtime-banner-icon">📱</span>
@@ -543,7 +550,7 @@ function AirtimeBanner({ emailVerified, userEmail, savedPhone }) {
           ) : (
             <>
               Tap <strong>Claim Airtime</strong> on any coupon.
-              You'll be asked to verify your email{" "}
+              You'll be redirected to verify your email{" "}
               <strong>{userEmail}</strong> first.
             </>
           )}
@@ -553,7 +560,29 @@ function AirtimeBanner({ emailVerified, userEmail, savedPhone }) {
             <IconCheckCircle /> Email verified
           </span>
         )}
+        {!emailVerified && userEmail && (
+          <button className="cp-verify-cta" onClick={onGoVerify}>
+            <IconMail /> Verify email now <IconExternal />
+          </button>
+        )}
       </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PENDING BANNER — shown when returning from verification
+═══════════════════════════════════════════════════════════════ */
+function PendingBanner({ code, onDismiss }) {
+  return (
+    <div className="cp-pending-banner">
+      <div className="cp-pending-banner-icon">✅</div>
+      <div className="cp-pending-banner-text">
+        <strong>Email verified!</strong>
+        <br />
+        Resuming your claim for coupon <code>{code}</code>…
+      </div>
+      <button className="cp-pending-dismiss" onClick={onDismiss}>✕</button>
     </div>
   );
 }
@@ -570,37 +599,35 @@ export default function Coupons() {
   const initialTab = VALID_TABS.includes(urlTab) ? urlTab : "available";
 
   /* ── State ── */
-  const [coupons,      setCoupons]      = useState([]);
-  const [history,      setHistory]      = useState([]);
-  const [loading,      setLoading]      = useState(true);
-  const [error,        setError]        = useState(null);
-  const [tab,          setTab]          = useState(initialTab);
-  const [copied,       setCopied]       = useState(null);
-  const [toast,        setToast]        = useState(null);
-  const [claiming,     setClaiming]     = useState(null);
+  const [coupons,       setCoupons]       = useState([]);
+  const [history,       setHistory]       = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [error,         setError]         = useState(null);
+  const [tab,           setTab]           = useState(initialTab);
+  const [copied,        setCopied]        = useState(null);
+  const [toast,         setToast]         = useState(null);
+  const [claiming,      setClaiming]      = useState(null);
+  const [pendingBanner, setPendingBanner] = useState(null);
 
   /* ── Profile ── */
-  const [me,           setMe]           = useState(null);
-  const [emailVerified,setEmailVerified]= useState(false);
-  const [profileReady, setProfileReady] = useState(false);
+  const [me,            setMe]            = useState(null);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [profileReady,  setProfileReady]  = useState(false);
 
-  /* ── NEW: Saved airtime phone ── */
+  /* ── Saved airtime phone ── */
   const [savedPhone, setSavedPhone] = useState(null);
 
-  /* ── Modals ── */
-  const [verifyModal, setVerifyModal] = useState({
-    open         : false,
-    pendingCoupon: null,
-  });
+  /* ── Modal state ── */
   const [claimModal, setClaimModal] = useState({
     open  : false,
     coupon: null,
   });
 
   /* ── Refs ── */
-  const toastTimer  = useRef(null);
-  const copiedTimer = useRef(null);
-  const mounted     = useRef(true);
+  const toastTimer      = useRef(null);
+  const copiedTimer     = useRef(null);
+  const mounted         = useRef(true);
+  const autoResumedRef  = useRef(false);   // Prevent multiple auto-resumes
 
   useEffect(() => {
     mounted.current = true;
@@ -633,11 +660,7 @@ export default function Coupons() {
     if (!getToken()) return;
     try {
       const res = await fetch(`${API}/users/me`, { headers: authH() });
-
-      if (!res.ok) {
-        console.warn("[profile] /users/me returned", res.status);
-        return;
-      }
+      if (!res.ok) return;
 
       const body = await res.json();
       const user = body?.user ?? body;
@@ -654,7 +677,6 @@ export default function Coupons() {
         String(user.email_verified) === "true";
 
       setEmailVerified(verified);
-
     } catch (err) {
       console.error("[profile] error:", err.message);
     } finally {
@@ -665,7 +687,7 @@ export default function Coupons() {
   useEffect(() => { loadProfile(); }, [loadProfile]);
 
   /* ════════════════════════════════════════════════════════
-     LOAD SAVED AIRTIME PHONE — with cooldown info
+     LOAD SAVED AIRTIME PHONE
   ════════════════════════════════════════════════════════ */
   const loadSavedPhone = useCallback(async () => {
     if (!getToken()) return;
@@ -674,14 +696,9 @@ export default function Coupons() {
         `${API}/airtime-coupons/airtime-phone`,
         { headers: authH() }
       );
-      if (!res.ok) {
-        console.warn("[savedPhone] failed:", res.status);
-        return;
-      }
+      if (!res.ok) return;
 
       const data = await res.json();
-      console.log("[savedPhone] loaded:", data);
-
       if (!mounted.current) return;
 
       if (data.success && data.airtime?.has_saved) {
@@ -694,11 +711,10 @@ export default function Coupons() {
     }
   }, []);
 
-  /* Load once on mount */
   useEffect(() => { loadSavedPhone(); }, [loadSavedPhone]);
 
   /* ════════════════════════════════════════════════════════
-     LOAD COUPONS + AIRTIME COUPONS
+     LOAD COUPONS + AIRTIME
   ════════════════════════════════════════════════════════ */
   const loadCoupons = useCallback(async () => {
     if (!getToken()) return;
@@ -718,7 +734,6 @@ export default function Coupons() {
       const hd = await hr.json();
       const ad = ar.ok ? await ar.json() : { coupons: [] };
 
-      /* Normalise airtime coupons */
       const airtimeAsCoupons = (ad.coupons || []).map((a) => ({
         id           : a.id,
         code         : a.code,
@@ -756,13 +771,12 @@ export default function Coupons() {
 
   useEffect(() => { loadCoupons(); }, [loadCoupons]);
 
-  /* ── Refresh all — includes saved phone ── */
   const refreshAll = useCallback(() =>
     Promise.all([loadCoupons(), loadProfile(), loadSavedPhone()])
   , [loadCoupons, loadProfile, loadSavedPhone]);
 
   /* ════════════════════════════════════════════════════════
-     FALLBACK PHONE (only used if no savedPhone yet)
+     FALLBACK PHONE
   ════════════════════════════════════════════════════════ */
   const getFallbackPhone = useCallback(() => {
     if (!me) return "";
@@ -777,58 +791,139 @@ export default function Coupons() {
   }, [me]);
 
   /* ════════════════════════════════════════════════════════
-     OPEN CLAIM MODAL
-     Always refresh savedPhone first so we have latest data
+     OPEN CLAIM MODAL — refreshes saved phone first
   ════════════════════════════════════════════════════════ */
   const openClaimModal = useCallback(async (coupon) => {
-    /* Reload saved phone silently so modal shows freshest data */
     await loadSavedPhone();
-
     if (!mounted.current) return;
-
-    setClaimModal({
-      open  : true,
-      coupon,
-    });
+    setClaimModal({ open: true, coupon });
   }, [loadSavedPhone]);
 
   /* ════════════════════════════════════════════════════════
-     HANDLE CLAIM
+     GO TO VERIFICATION PAGE
+     Preserves the current coupon so we can auto-resume
+  ════════════════════════════════════════════════════════ */
+  const goToVerification = useCallback((coupon = null) => {
+    if (coupon) {
+      try {
+        sessionStorage.setItem(
+          "pending_airtime_claim",
+          JSON.stringify({
+            code    : coupon.code,
+            savedAt : Date.now(),
+            returnTo: "/coupons?tab=airtime",
+          })
+        );
+      } catch { /* non-fatal */ }
+    }
+
+    showToast("📧 Redirecting to email verification…");
+
+    setTimeout(() => {
+      navigate("/verification?return=" +
+        encodeURIComponent("/coupons?tab=airtime"));
+    }, 600);
+  }, [navigate, showToast]);
+
+  /* ════════════════════════════════════════════════════════
+     HANDLE CLAIM CLICK
   ════════════════════════════════════════════════════════ */
   const handleClaim = useCallback((coupon) => {
+    console.log("[handleClaim]", {
+      profileReady,
+      emailVerified,
+      coupon: coupon?.code,
+    });
+
     if (!profileReady) {
       showToast("⏳ Loading your profile…");
       return;
     }
+
     if (emailVerified) {
       openClaimModal(coupon);
     } else {
-      setVerifyModal({ open: true, pendingCoupon: coupon });
+      goToVerification(coupon);
     }
-  }, [profileReady, emailVerified, openClaimModal, showToast]);
+  }, [profileReady, emailVerified, openClaimModal, goToVerification, showToast]);
 
   /* ════════════════════════════════════════════════════════
-     VERIFY SUCCESS
+     AUTO-RESUME after returning from /verification
   ════════════════════════════════════════════════════════ */
-  const handleVerifySuccess = useCallback(() => {
-    setEmailVerified(true);
-    const pending = verifyModal.pendingCoupon;
-    setVerifyModal({ open: false, pendingCoupon: null });
-    showToast("✅ Email verified!");
-    if (pending) {
-      setTimeout(() => {
-        if (mounted.current) openClaimModal(pending);
-      }, 350);
+  useEffect(() => {
+    if (autoResumedRef.current) return;
+    if (!emailVerified)         return;
+    if (!profileReady)          return;
+    if (coupons.length === 0)   return;
+
+    let pending = null;
+    try {
+      const raw = sessionStorage.getItem("pending_airtime_claim");
+      if (raw) pending = JSON.parse(raw);
+    } catch { /* ignore */ }
+
+    if (!pending?.code) return;
+
+    /* Expire pending claims after 10 minutes */
+    const AGE_MS = 10 * 60 * 1_000;
+    if (Date.now() - (pending.savedAt || 0) > AGE_MS) {
+      sessionStorage.removeItem("pending_airtime_claim");
+      return;
     }
-  }, [verifyModal.pendingCoupon, openClaimModal, showToast]);
+
+    /* Find the coupon */
+    const coupon = coupons.find((c) => c.code === pending.code);
+    if (!coupon) {
+      sessionStorage.removeItem("pending_airtime_claim");
+      return;
+    }
+
+    if (coupon.status !== "available") {
+      sessionStorage.removeItem("pending_airtime_claim");
+      showToast("Coupon already claimed — see status below.");
+      return;
+    }
+
+    /* Mark as resumed so this doesn't fire again */
+    autoResumedRef.current = true;
+    sessionStorage.removeItem("pending_airtime_claim");
+
+    /* Show inline banner */
+    setPendingBanner({ code: pending.code });
+
+    /* Switch to airtime tab */
+    setTab("airtime");
+
+    /* Open the claim modal */
+    setTimeout(() => {
+      if (mounted.current) {
+        openClaimModal(coupon);
+        /* Dismiss banner after modal opens */
+        setTimeout(() => {
+          if (mounted.current) setPendingBanner(null);
+        }, 2000);
+      }
+    }, 600);
+  }, [emailVerified, profileReady, coupons, openClaimModal, showToast]);
 
   /* ════════════════════════════════════════════════════════
-     CLAIM SUCCESS — refresh saved phone!
+     VERIFY SUCCESS handling (deep-link support)
+     If URL has ?verified=1, show success message
+  ════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    if (searchParams.get("verified") === "1") {
+      showToast("✅ Email verified successfully!");
+      /* Clean URL */
+      const url = new URL(window.location.href);
+      url.searchParams.delete("verified");
+      window.history.replaceState({}, "", url.toString());
+    }
+  }, [searchParams, showToast]);
+
+  /* ════════════════════════════════════════════════════════
+     CLAIM SUCCESS
   ════════════════════════════════════════════════════════ */
   const handleClaimSuccess = useCallback((code, data) => {
-    console.log("[handleClaimSuccess]", { code, data });
-
-    /* Update coupon in list */
     setCoupons((prev) =>
       prev.map((c) =>
         c.code === code
@@ -847,21 +942,14 @@ export default function Coupons() {
 
     showToast("✅ Claim submitted! Airtime credited within 24 hours.");
 
-    /* ═══ CRITICAL: Reload saved phone so next modal shows it ═══ */
     loadSavedPhone();
 
-    /* Also refresh full coupon list to get latest states */
     setTimeout(() => {
-      if (mounted.current) {
-        loadCoupons();
-      }
+      if (mounted.current) loadCoupons();
     }, 500);
 
-    /* Close modal after showing success */
     setTimeout(() => {
-      if (mounted.current) {
-        setClaimModal({ open: false, coupon: null });
-      }
+      if (mounted.current) setClaimModal({ open: false, coupon: null });
     }, 2_000);
   }, [showToast, loadSavedPhone, loadCoupons]);
 
@@ -959,6 +1047,14 @@ export default function Coupons() {
 
       <div className="cp-scroll">
 
+        {/* Pending resume banner */}
+        {pendingBanner && (
+          <PendingBanner
+            code={pendingBanner.code}
+            onDismiss={() => setPendingBanner(null)}
+          />
+        )}
+
         {/* Savings banner */}
         {totalSaved > 0 && (
           <div className="cp-savings-banner">
@@ -1037,6 +1133,7 @@ export default function Coupons() {
               emailVerified={emailVerified}
               userEmail={me?.email}
               savedPhone={savedPhone}
+              onGoVerify={() => goToVerification(null)}
             />
 
             {profileReady && !emailVerified && (
@@ -1045,8 +1142,8 @@ export default function Coupons() {
                 <div>
                   <p className="cp-verify-nudge-title">Email verification required</p>
                   <p className="cp-verify-nudge-sub">
-                    Tap "Claim Airtime" on any coupon to verify your email
-                    and submit your claim.
+                    Tap "Claim Airtime" on any coupon — we'll take you to
+                    verify your email, then bring you right back here.
                   </p>
                 </div>
               </div>
@@ -1157,7 +1254,7 @@ export default function Coupons() {
               { icon: <IconCopy />,        t: "Copy the coupon code by tapping 'Copy'" },
               { icon: <IconTag />,         t: "Paste the code at checkout to get your discount" },
               { icon: <IconCheckCircle />, t: "Discount is applied automatically"       },
-              { icon: <IconMail />,        t: "For airtime, verify your email then confirm your phone" },
+              { icon: <IconMail />,        t: "For airtime, verify your email — you'll return here after" },
               { icon: <IconAlertCircle />, t: "Each coupon can only be used once"       },
             ].map((tip, i) => (
               <div key={i} className="cp-tip">
@@ -1170,15 +1267,7 @@ export default function Coupons() {
 
       </div>
 
-      {/* ════ MODALS ════ */}
-
-      <VerificationModal
-        isOpen={verifyModal.open}
-        userEmail={me?.email}
-        onClose={() => setVerifyModal({ open: false, pendingCoupon: null })}
-        onSuccess={handleVerifySuccess}
-      />
-
+      {/* ════ MODAL ════ */}
       <AirtimeClaimModal
         isOpen={claimModal.open}
         coupon={claimModal.coupon}
