@@ -7,7 +7,6 @@
    1. TOKEN EXTENSIONS (mobile-specific aliases)
 ─────────────────────────────────────────────── */
 :root {
-  /* re-alias for readability inside this file */
   --mp-bg:         var(--bg);
   --mp-surface:    var(--wh);
   --mp-border:     var(--bd);
@@ -55,30 +54,9 @@
 }
 
 @keyframes mp-orb-drift {
-  0%, 100% { transform: translate(0,   0)   scale(1);    }
+  0%, 100% { transform: translate(0,    0)   scale(1);    }
   33%       { transform: translate(12px,-16px) scale(1.1); }
   66%       { transform: translate(-8px, 10px) scale(0.92);}
-}
-
-/* ── Meta row items ── */
-.mp-hero__meta-item {
-  display     : flex;
-  align-items : center;
-  gap         : 4px;
-}
-
-.mp-hero__meta-icon {
-  display     : flex;
-  align-items : center;
-  width       : 14px;
-  height      : 14px;
-  flex-shrink : 0;
-  opacity     : 0.7;
-}
-
-.mp-hero__meta-icon svg {
-  width  : 100%;
-  height : 100%;
 }
 
 /* ───────────────────────────────────────────────
@@ -174,7 +152,6 @@
   box-shadow: var(--s1);
 }
 
-/* ── Warm accent orbs ── */
 .mp-hero__bg {
   position: absolute;
   inset: 0;
@@ -422,14 +399,13 @@
   box-shadow: var(--s1);
 }
 
-/* Sub badge variants */
 .mp-sub-badge--premium  { background: linear-gradient(135deg,#667eea,#764ba2); }
 .mp-sub-badge--pro      { background: linear-gradient(135deg,#f093fb,#f5576c); }
 .mp-sub-badge--business { background: linear-gradient(135deg,#4facfe,#00f2fe); }
 .mp-sub-badge--elite    { background: linear-gradient(135deg,#d97706,#f59e0b); }
 .mp-sub-badge--diamond  { background: linear-gradient(135deg,#6366f1,#8b5cf6); }
 
-/* Meta */
+/* Meta row */
 .mp-hero__meta {
   display: flex;
   justify-content: center;
@@ -437,7 +413,24 @@
   font-size: 12px;
   color: var(--ink3);
   margin-bottom: 18px;
+  flex-wrap: wrap;
 }
+
+.mp-hero__meta-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.mp-hero__meta-icon {
+  display: flex;
+  align-items: center;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+.mp-hero__meta-icon svg { width: 100%; height: 100%; }
 
 /* ───────────────────────────────────────────────
    9. STATS STRIP
@@ -621,10 +614,6 @@
   transition: border-color 0.18s, transform 0.14s;
   will-change: transform;
   -webkit-tap-highlight-color: transparent;
-}
-.mp-lcard--pressed {
-  transform: scale(0.96);
-  border-color: var(--o);
 }
 
 .mp-lcard__img {
@@ -812,7 +801,7 @@
 .mp-sub-banner__arrow svg { width: 100%; height: 100%; }
 
 /* ───────────────────────────────────────────────
-   14. REFERRAL BANNER
+   14. REFERRAL CARD  — invite link + share/copy
 ─────────────────────────────────────────────── */
 .mp-referral {
   position: relative;
@@ -838,17 +827,18 @@
   pointer-events: none;
 }
 
+/* ── Header row ── */
 .mp-referral__top {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 12px;
-  margin-bottom: 13px;
+  margin-bottom: 14px;
   position: relative;
   z-index: 1;
 }
 
 .mp-referral__icon {
-  width: 38px; height: 38px;
+  width: 40px; height: 40px;
   border-radius: var(--r1);
   background: rgba(21,128,61,0.12);
   color: var(--gn);
@@ -856,58 +846,125 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  margin-top: 1px;
 }
-.mp-referral__icon svg { width: 18px; height: 18px; }
+.mp-referral__icon svg { width: 20px; height: 20px; }
+
+.mp-referral__header-text {
+  flex: 1;
+  min-width: 0;
+}
 
 .mp-referral__title {
   font-size: 14.5px;
   font-weight: 800;
   color: var(--ink);
-  margin: 0 0 1px;
+  margin: 0 0 3px;
+  line-height: 1.3;
   font-family: var(--fd);
 }
+
 .mp-referral__sub {
   font-size: 12px;
   color: var(--ink2);
   margin: 0;
+  font-weight: 500;
+  line-height: 1.4;
 }
 
-.mp-referral__pill {
+/* ── Invite link display pill ── */
+.mp-referral__link-row {
   position: relative;
   z-index: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 10px 14px;
+  gap: 8px;
   background: var(--wh);
   border: 1.5px dashed #86efac;
   border-radius: var(--r1);
-  color: var(--ink);
-  cursor: pointer;
-  transition: border-color 0.18s;
-}
-.mp-referral__pill--copied {
-  border-color: var(--gn);
-  background: rgba(21,128,61,0.04);
+  padding: 10px 13px;
+  margin-bottom: 12px;
+  overflow: hidden;
 }
 
-.mp-referral__code {
-  font-size: 15px;
-  font-weight: 800;
-  font-family: "SF Mono", "Fira Code", monospace;
-  letter-spacing: 0.1em;
-  color: var(--ink);
-}
-
-.mp-referral__icon-sm {
-  width: 17px; height: 17px;
+.mp-referral__link-icon {
   display: flex;
   align-items: center;
   justify-content: center;
+  width: 16px; height: 16px;
   color: var(--gn);
+  flex-shrink: 0;
 }
-.mp-referral__icon-sm svg { width: 100%; height: 100%; }
+.mp-referral__link-icon svg { width: 100%; height: 100%; }
+
+.mp-referral__link-text {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: "SF Mono", "Fira Code", monospace;
+  letter-spacing: 0.01em;
+}
+
+/* ── Action buttons ── */
+.mp-referral__actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 10px;
+}
+
+.mp-referral__action-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 12px 14px;
+  border-radius: var(--r2);
+  font-size: 13.5px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  font-family: var(--fb);
+  letter-spacing: -0.01em;
+  -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s, transform 0.12s;
+}
+.mp-referral__action-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.mp-referral__action-btn:active { opacity: 0.82; transform: scale(0.97); }
+
+/* Share */
+.mp-referral__action-btn--share {
+  background: rgba(21,128,61,0.12);
+  color: #15803d;
+  border: 1px solid #86efac;
+}
+.mp-referral__action-btn--share:hover {
+  background: rgba(21,128,61,0.18);
+}
+
+/* Copy */
+.mp-referral__action-btn--copy {
+  background: var(--gn);
+  color: var(--wh);
+  box-shadow: 0 4px 14px rgba(21,128,61,0.28);
+}
+
+/* Copied state */
+.mp-referral__action-btn--copied {
+  background: #15803d;
+  box-shadow: 0 4px 14px rgba(21,128,61,0.38);
+}
+
+.mp-referral__copy-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 
 /* ───────────────────────────────────────────────
    15. MENU SECTIONS
@@ -1088,10 +1145,8 @@
 }
 
 /* ───────────────────────────────────────────────
-   16. LOGOUT BUTTON + CONFIRMATION MODAL
+   16. LOGOUT BUTTON + CONFIRMATION SHEET
 ─────────────────────────────────────────────── */
-
-/* ── Trigger ── */
 .mp-logout-wrap {
   padding: 4px 0 8px;
 }
@@ -1103,43 +1158,39 @@
   gap: 14px;
   padding: 16px 18px;
   background: var(--wh);
-  border: 1.5px solid rgba(220, 38, 38, 0.18);
+  border: 1.5px solid rgba(220,38,38,0.18);
   border-radius: var(--r2);
   cursor: pointer;
   transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
-  box-shadow: 0 2px 12px rgba(220, 38, 38, 0.06);
+  box-shadow: 0 2px 12px rgba(220,38,38,0.06);
   text-align: left;
   -webkit-tap-highlight-color: transparent;
 }
 
 .mp-logout-btn:hover,
 .mp-logout-btn:focus-visible {
-  background: rgba(220, 38, 38, 0.04);
-  border-color: rgba(220, 38, 38, 0.35);
-  box-shadow: 0 4px 20px rgba(220, 38, 38, 0.12);
+  background: rgba(220,38,38,0.04);
+  border-color: rgba(220,38,38,0.35);
+  box-shadow: 0 4px 20px rgba(220,38,38,0.12);
   outline: none;
 }
 
 .mp-logout-btn:active {
-  background: rgba(220, 38, 38, 0.06);
+  background: rgba(220,38,38,0.06);
   transform: scale(0.985);
 }
 
 .mp-logout-btn__icon {
-  width: 40px;
-  height: 40px;
+  width: 40px; height: 40px;
   border-radius: 12px;
-  background: rgba(220, 38, 38, 0.1);
+  background: rgba(220,38,38,0.10);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--mp-red);
   flex-shrink: 0;
 }
-.mp-logout-btn__icon svg {
-  width: 20px;
-  height: 20px;
-}
+.mp-logout-btn__icon svg { width: 20px; height: 20px; }
 
 .mp-logout-btn__label {
   flex: 1;
@@ -1151,24 +1202,20 @@
 }
 
 .mp-logout-btn__arrow {
-  width: 18px;
-  height: 18px;
-  color: rgba(220, 38, 38, 0.45);
+  width: 18px; height: 18px;
+  color: rgba(220,38,38,0.45);
   display: flex;
   align-items: center;
   flex-shrink: 0;
 }
-.mp-logout-btn__arrow svg {
-  width: 100%;
-  height: 100%;
-}
+.mp-logout-btn__arrow svg { width: 100%; height: 100%; }
 
 /* ── Backdrop ── */
 .mp-logout-backdrop {
   position: fixed;
   inset: 0;
   z-index: 900;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0,0,0,0.55);
   backdrop-filter: blur(8px) saturate(140%);
   -webkit-backdrop-filter: blur(8px) saturate(140%);
 }
@@ -1176,9 +1223,7 @@
 /* ── Bottom sheet ── */
 .mp-logout-sheet {
   position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: 0; left: 0; right: 0;
   z-index: 901;
   background: var(--wh);
   border-radius: 24px 24px 0 0;
@@ -1188,38 +1233,30 @@
   align-items: center;
   gap: 10px;
   box-shadow:
-    0 -8px 40px rgba(0, 0, 0, 0.18),
-    0 -2px 12px rgba(0, 0, 0, 0.06);
+    0 -8px 40px rgba(0,0,0,0.18),
+    0 -2px 12px rgba(0,0,0,0.06);
 }
 
-/* drag handle */
 .mp-logout-sheet__handle {
-  width: 40px;
-  height: 4px;
+  width: 40px; height: 4px;
   border-radius: 99px;
   background: var(--bd);
   margin-bottom: 8px;
   flex-shrink: 0;
 }
 
-/* icon circle */
 .mp-logout-sheet__icon-wrap {
-  width: 64px;
-  height: 64px;
+  width: 64px; height: 64px;
   border-radius: 20px;
-  background: rgba(220, 38, 38, 0.1);
+  background: rgba(220,38,38,0.10);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--mp-red);
   margin-bottom: 2px;
 }
-.mp-logout-sheet__icon-wrap svg {
-  width: 30px;
-  height: 30px;
-}
+.mp-logout-sheet__icon-wrap svg { width: 30px; height: 30px; }
 
-/* title */
 .mp-logout-sheet__title {
   font-size: 20px;
   font-weight: 800;
@@ -1229,7 +1266,6 @@
   font-family: var(--fd);
 }
 
-/* subtitle */
 .mp-logout-sheet__sub {
   font-size: 14px;
   color: var(--ink2);
@@ -1239,7 +1275,6 @@
   max-width: 280px;
 }
 
-/* actions */
 .mp-logout-sheet__actions {
   width: 100%;
   display: flex;
@@ -1248,7 +1283,6 @@
   margin-top: 4px;
 }
 
-/* confirm btn */
 .mp-logout-sheet__confirm {
   width: 100%;
   padding: 15px;
@@ -1268,20 +1302,10 @@
   font-family: var(--fb);
   -webkit-tap-highlight-color: transparent;
 }
-.mp-logout-sheet__confirm:active {
-  background: #b91c1c;
-  transform: scale(0.97);
-}
-.mp-logout-sheet__confirm:disabled {
-  opacity: 0.7;
-  cursor: not-allowed;
-}
-.mp-logout-sheet__confirm svg {
-  width: 18px;
-  height: 18px;
-}
+.mp-logout-sheet__confirm:active  { background: #b91c1c; transform: scale(0.97); }
+.mp-logout-sheet__confirm:disabled { opacity: 0.7; cursor: not-allowed; }
+.mp-logout-sheet__confirm svg      { width: 18px; height: 18px; }
 
-/* cancel btn */
 .mp-logout-sheet__cancel {
   width: 100%;
   padding: 15px;
@@ -1297,18 +1321,11 @@
   font-family: var(--fb);
   -webkit-tap-highlight-color: transparent;
 }
-.mp-logout-sheet__cancel:active {
-  background: var(--bd);
-  transform: scale(0.97);
-}
-.mp-logout-sheet__cancel:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
+.mp-logout-sheet__cancel:active  { background: var(--bd); transform: scale(0.97); }
+.mp-logout-sheet__cancel:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* spinner inside confirm */
 .mp-logout-sheet__confirm .mp-spinner-sm {
-  border-color: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255,255,255,0.3);
   border-top-color: var(--wh);
 }
 
@@ -1482,17 +1499,14 @@
   letter-spacing: 0.01em;
 }
 
-/* Active bar (layoutId) */
 .mp-bottom-nav__indicator {
   position: absolute;
   top: 0;
-  width: 24px;
-  height: 2.5px;
+  width: 24px; height: 2.5px;
   border-radius: var(--r1);
   background: var(--o);
 }
 
-/* Primary FAB */
 .mp-bottom-nav__fab {
   width: 48px; height: 48px;
   border-radius: 50%;
@@ -1596,12 +1610,13 @@
   .mp-qa          { padding: 10px 5px; font-size: 11.5px; }
   .mp-lcard       { flex: 0 0 138px; }
 
-  .mp-logout-sheet {
-    padding-left: 18px;
-    padding-right: 18px;
-  }
-  .mp-logout-sheet__title { font-size: 18px; }
-  .mp-logout-sheet__sub   { font-size: 13px; }
+  .mp-referral__title         { font-size: 13.5px; }
+  .mp-referral__action-btn    { font-size: 12.5px; padding: 10px 10px; }
+  .mp-referral__link-text     { font-size: 11px; }
+
+  .mp-logout-sheet            { padding-left: 18px; padding-right: 18px; }
+  .mp-logout-sheet__title     { font-size: 18px; }
+  .mp-logout-sheet__sub       { font-size: 13px; }
 }
 
 /* ───────────────────────────────────────────────
