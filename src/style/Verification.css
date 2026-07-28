@@ -282,6 +282,32 @@
 .v-alert__icon { flex-shrink: 0; margin-top: 1px; }
 .v-alert__body { display: flex; flex-direction: column; gap: 3px; flex: 1; }
 
+/* ═══════════════════════════════════════════════════════════════
+   RETURN BANNER
+═══════════════════════════════════════════════════════════════ */
+.v-return-banner {
+  display        : flex;
+  align-items    : center;
+  gap            : 12px;
+  padding        : 14px 16px;
+  background     : var(--v-blue-dim, rgba(59,130,246,0.10));
+  border         : 1px solid var(--v-blue, #3b82f6);
+  border-radius  : 12px;
+  color          : var(--v-blue-fg, #60a5fa);
+  font-size      : 14px;
+  line-height    : 1.5;
+  margin-bottom  : 16px;
+}
+
+.v-return-banner__icon {
+  font-size   : 24px;
+  flex-shrink : 0;
+}
+
+.v-return-banner__text {
+  flex : 1;
+}
+
 /* ══════════════════════════════════════════════════════════════
    STATUS CARD
    Shown after submission — pending / approved / rejected
