@@ -2,6 +2,10 @@
  * src/product/shared/LocationDeliverySection.jsx
  * State · City · GPS · Delivery
  *
+ * v3 — Inline field errors (from v8 useAddProduct)
+ *      - State/City show "Select your state and city" inline
+ *      - Delivery days/fee show individual errors
+ *      - Delivery range mismatch still shown inline (local error)
  * v2 — Fixed dropdown z-index for desktop 2-column layout
  */
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -31,6 +35,7 @@ export default function LocationDeliverySection({ innerRef }) {
     detectedCoords,
     displayPrice,
     onlyNumbers,
+    fieldError,        /* ✅ v8: inline field errors */
   } = useAddProductContext();
 
   const [deliveryRangeError, setDeliveryRangeError] = useState("");
@@ -63,6 +68,9 @@ export default function LocationDeliverySection({ innerRef }) {
 
   const locationFilled = !!(state && city);
 
+  /* Helper — checks if a specific field has an error right now */
+  const hasError = (field) => fieldError?.field === field;
+
   return (
     <section ref={innerRef} className="section form-card">
       <h3 className="section-title">
@@ -70,6 +78,7 @@ export default function LocationDeliverySection({ innerRef }) {
         <SectionDot filled={locationFilled} />
       </h3>
 
+      {/* ── GPS button ── */}
       {detectLocation && (
         <div className="detect-location-row">
           <button
@@ -94,10 +103,9 @@ export default function LocationDeliverySection({ innerRef }) {
         </div>
       )}
 
-      {/* ✅ Wrapper with high z-index so dropdowns aren't
-          blocked by the desktop sticky right panel */}
+      {/* ── State + City ── */}
       <div className="form-row ap-location-row">
-        <div className="form-group ap-dropdown-container">
+        <div className={`form-group ap-dropdown-container ${hasError("location") ? "has-error" : ""}`}>
           <label>State *</label>
           <DropdownModal
             value={state}
@@ -111,7 +119,7 @@ export default function LocationDeliverySection({ innerRef }) {
           />
         </div>
         {state && (
-          <div className="form-group ap-dropdown-container">
+          <div className={`form-group ap-dropdown-container ${hasError("location") ? "has-error" : ""}`}>
             <label>City *</label>
             <DropdownModal
               value={city}
@@ -123,6 +131,15 @@ export default function LocationDeliverySection({ innerRef }) {
         )}
       </div>
 
+      {/* ✅ v8: Inline location error — shown once under the row */}
+      {hasError("location") && (
+        <div className="field-error" role="alert" style={{ marginTop: -4, marginBottom: 12 }}>
+          <WarningIcon />
+          <span>{fieldError.message}</span>
+        </div>
+      )}
+
+      {/* ── Delivery toggle ── */}
       <div className="form-group">
         <label htmlFor="ap-delivery-toggle">
           Delivery Available
@@ -149,10 +166,12 @@ export default function LocationDeliverySection({ innerRef }) {
         </label>
       </div>
 
+      {/* ── Delivery fields ── */}
       {form.delivery.available && (
         <div className="delivery-grid">
           <div className="form-row">
-            <div className="form-group">
+            {/* FROM DAY */}
+            <div className={`form-group ${hasError("delivery_from") ? "has-error" : ""}`}>
               <label htmlFor="ap-del-from">From Day *</label>
               <input
                 id="ap-del-from"
@@ -161,14 +180,21 @@ export default function LocationDeliverySection({ innerRef }) {
                 max="30"
                 value={form.delivery.duration.from}
                 onChange={(e) =>
-                  handleDeliveryDuration(
-                    "from",
-                    clampDay(e.target.value)
-                  )
+                  handleDeliveryDuration("from", clampDay(e.target.value))
                 }
+                aria-invalid={hasError("delivery_from") || undefined}
+                aria-describedby={hasError("delivery_from") ? "ap-del-from-error" : undefined}
               />
+              {hasError("delivery_from") && (
+                <div id="ap-del-from-error" className="field-error" role="alert">
+                  <WarningIcon />
+                  <span>{fieldError.message}</span>
+                </div>
+              )}
             </div>
-            <div className="form-group">
+
+            {/* TO DAY */}
+            <div className={`form-group ${hasError("delivery_to") ? "has-error" : ""}`}>
               <label htmlFor="ap-del-to">To Day *</label>
               <input
                 id="ap-del-to"
@@ -177,27 +203,35 @@ export default function LocationDeliverySection({ innerRef }) {
                 max="30"
                 value={form.delivery.duration.to}
                 onChange={(e) =>
-                  handleDeliveryDuration(
-                    "to",
-                    clampDay(e.target.value)
-                  )
+                  handleDeliveryDuration("to", clampDay(e.target.value))
                 }
+                aria-invalid={hasError("delivery_to") || undefined}
+                aria-describedby={hasError("delivery_to") ? "ap-del-to-error" : undefined}
               />
+              {hasError("delivery_to") && (
+                <div id="ap-del-to-error" className="field-error" role="alert">
+                  <WarningIcon />
+                  <span>{fieldError.message}</span>
+                </div>
+              )}
             </div>
           </div>
 
+          {/* Local range mismatch error */}
           {deliveryRangeError && (
             <div
-              className="form-error"
+              className="field-error"
               role="alert"
               style={{ marginBottom: 10 }}
             >
-              <WarningIcon /> {deliveryRangeError}
+              <WarningIcon />
+              <span>{deliveryRangeError}</span>
             </div>
           )}
 
           <div className="form-row">
-            <div className="form-group">
+            {/* FEE */}
+            <div className={`form-group ${hasError("delivery_fee") ? "has-error" : ""}`}>
               <label htmlFor="ap-del-fee">Fee (&#8358;) *</label>
               <input
                 id="ap-del-fee"
@@ -207,8 +241,18 @@ export default function LocationDeliverySection({ innerRef }) {
                 onChange={(e) =>
                   updateDelivery("fee", onlyNumbers(e.target.value))
                 }
+                aria-invalid={hasError("delivery_fee") || undefined}
+                aria-describedby={hasError("delivery_fee") ? "ap-del-fee-error" : undefined}
               />
+              {hasError("delivery_fee") && (
+                <div id="ap-del-fee-error" className="field-error" role="alert">
+                  <WarningIcon />
+                  <span>{fieldError.message}</span>
+                </div>
+              )}
             </div>
+
+            {/* NOTE */}
             <div className="form-group">
               <label htmlFor="ap-del-note">
                 Delivery Note{" "}
