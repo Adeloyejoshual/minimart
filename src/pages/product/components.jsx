@@ -2,13 +2,13 @@
  * src/pages/product/components.jsx
  * Main shell — imports all sub-components, owns page-level logic only
  *
- * v6 — EMAIL REMOVED FROM CONTACT INFORMATION
- *   • Email field completely removed from Contact Information section
- *   • Contact section now shows only: Phone + WhatsApp + WhatsApp Link
- *   • contactFilled no longer depends on email
- *   • SectionDot for contact now based on phone only
- *   • All email refs/selectors removed from UI layer
+ * v7 — INLINE FIELD ERRORS
+ *   • Accepts fieldError from parent
+ *   • Shows errors under each field (not just top banner)
+ *   • Adds .has-error class on form-group for red border
+ *   • Top banner only shown for non-field errors
  *
+ * v6 — EMAIL REMOVED FROM CONTACT INFORMATION
  * v5 — Subscription upsell modal integrated
  * v4 — TermsCheckbox moved outside sticky bar
  * v3 — image grid mount fix
@@ -87,6 +87,19 @@ async function hashImageFile(file) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   ✅ v7: INLINE FIELD ERROR COMPONENT
+═══════════════════════════════════════════════════════════════ */
+function InlineFieldError({ show, message, id }) {
+  if (!show || !message) return null;
+  return (
+    <div id={id} className="field-error" role="alert" aria-live="polite">
+      <WarningIcon />
+      <span>{message}</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function ProductComponents({
@@ -148,6 +161,11 @@ export default function ProductComponents({
   needsSubscription = false,
   subscriptionData  = null,
 
+  /* ─ ✅ v7: inline field errors ─ */
+  fieldError        = { field: null, message: "" },
+  clearFieldError,
+  clearAllFieldErrors,
+
   /* ─ handlers ─ */
   updateForm,
   updateAttribute,
@@ -196,7 +214,7 @@ export default function ProductComponents({
   const dropZoneRef     = useRef(null);
   const dragCounterRef  = useRef(0);
 
-  /* Static section refs — 6 form sections only */
+  /* Static section refs */
   const sec0 = useRef(null); const sec1 = useRef(null);
   const sec2 = useRef(null); const sec3 = useRef(null);
   const sec4 = useRef(null); const sec5 = useRef(null);
@@ -206,6 +224,12 @@ export default function ProductComponents({
   );
 
   const planRefs = useRef([]);
+
+  /* ✅ v7: Helper for field error checks */
+  const hasError = useCallback(
+    (fieldKey) => fieldError?.field === fieldKey,
+    [fieldError?.field]
+  );
 
   /* Card entrance animation */
   useEffect(() => {
@@ -239,6 +263,13 @@ export default function ProductComponents({
     if (isEditMode) return;
     if (needsSubscription) setShowSubscriptionModal(true);
   }, [needsSubscription, isEditMode]);
+
+  /* ✅ v7: Auto-clear "images" field error when user adds an image */
+  useEffect(() => {
+    if (totalImageCount > 0 && hasError("images")) {
+      clearFieldError?.("images");
+    }
+  }, [totalImageCount, hasError, clearFieldError]);
 
   /* ═══════════════════════════════════════════════════════════
      IMAGE VALIDATION
@@ -296,7 +327,6 @@ export default function ProductComponents({
     validateAndHashImages(newImages);
   }, [images, validateAndHashImages]);
 
-  /* Clean up removed image hashes */
   useEffect(() => {
     const currentIds = new Set(images.map((img) => img.id));
     for (const id of validatedIdsRef.current) {
@@ -541,7 +571,6 @@ export default function ProductComponents({
     [attributes?.features]
   );
 
-  /* Best value plan */
   const bestValuePlanId = useMemo(() => {
     if (!promotionPlans.length) return null;
     let best = null, bestDiscount = 0;
@@ -603,7 +632,6 @@ export default function ProductComponents({
 
   /* ═══════════════════════════════════════════════════════════
      DERIVED UI STATE
-     ✅ v6: contactFilled now based on phone only (no email)
   ═══════════════════════════════════════════════════════════ */
   const canAddMore     = totalImageCount < MAX_IMAGES;
   const hasImageErrors = Object.keys(imageErrors).length > 0;
@@ -612,11 +640,7 @@ export default function ProductComponents({
     form.title?.trim() && form.description?.trim() && form.price
   );
   const detailsFilled  = !!form.category_id;
-
-  /* ✅ v6: Contact is complete when phone is filled
-           Email is NOT required — comes from registration */
   const contactFilled  = !!form.contact?.phone;
-
   const locationFilled = !!(state && city);
   const imagesFilled   = totalImageCount > 0 && !hasImageErrors;
 
@@ -625,15 +649,14 @@ export default function ProductComponents({
   ].filter(Boolean).length;
 
   const submitBlocked =
-    loading                             ||
-    (!isEditMode && !agreedToTerms)     ||
-    (!isEditMode && plansLoading)       ||
-    !!deliveryRangeError                ||
+    loading                       ||
+    (!isEditMode && plansLoading) ||
+    !!deliveryRangeError          ||
     hasImageErrors;
+  /* Note: we intentionally DO NOT block on !agreedToTerms.
+     Let click go through → validator runs → inline error shows. */
 
-  const submitTitle = !agreedToTerms && !isEditMode
-    ? "Please accept the Terms & Conditions first"
-    : plansLoading && !isEditMode
+  const submitTitle = plansLoading && !isEditMode
     ? "Plans are still loading"
     : !!deliveryRangeError
     ? deliveryRangeError
@@ -650,6 +673,10 @@ export default function ProductComponents({
     return "Post Ad & Pay";
   })();
 
+  /* ✅ v7: Hide top banner if the error is a field error
+     (it's already shown inline under the field) */
+  const showTopErrorBanner = !!error && !fieldError?.field;
+
   /* ═══════════════════════════════════════════════════════════
      RENDER
   ═══════════════════════════════════════════════════════════ */
@@ -660,7 +687,6 @@ export default function ProductComponents({
         onClearDraft={isEditMode ? null : clearDraft}
       />
 
-      {/* ── VERIFICATION UPSELL — unverified at 3-cap ── */}
       {showVerificationModal && !isEditMode && (
         <VerificationUpsellModal
           onClose={() => setShowVerificationModal(false)}
@@ -668,7 +694,6 @@ export default function ProductComponents({
         />
       )}
 
-      {/* ── SUBSCRIPTION UPSELL — verified at 500-cap ── */}
       {showSubscriptionModal && !isEditMode && (
         <SubscriptionUpsellModal
           onClose={() => setShowSubscriptionModal(false)}
@@ -686,7 +711,6 @@ export default function ProductComponents({
         />
       )}
 
-      {/* ── PROGRESS BAR ── */}
       {!isEditMode && sectionsComplete < 5 && (
         <div className="ap-top-bar">
           <div className="form-progress" aria-label="Form completion">
@@ -701,7 +725,6 @@ export default function ProductComponents({
         </div>
       )}
 
-      {/* ── EDIT MODE BAR ── */}
       {isEditMode && (
         <div className="ap-edit-mode-bar">
           <span className="ap-edit-mode-icon" aria-hidden="true">
@@ -718,7 +741,6 @@ export default function ProductComponents({
         </div>
       )}
 
-      {/* ── DUPLICATE WARNING ── */}
       {!isEditMode && dupWarning && (
         <div className="duplicate-warning" role="alert">
           <WarningIcon />
@@ -743,8 +765,8 @@ export default function ProductComponents({
         </div>
       )}
 
-      {/* ── GLOBAL ERROR / SUCCESS ── */}
-      {error && (
+      {/* ✅ v7: Only show top error banner if NOT a field error */}
+      {showTopErrorBanner && (
         <div className="form-error ap-error-banner" role="alert">
           <WarningIcon /> {error}
         </div>
@@ -755,12 +777,10 @@ export default function ProductComponents({
         </div>
       )}
 
-      {/* ── VERIFICATION NUDGE ── */}
       {needsVerification && verificationData && (
         <VerificationNudgeBanner verificationData={verificationData} />
       )}
 
-      {/* ── PAYMENT RESUME BANNER ── */}
       {!isEditMode && paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
@@ -800,8 +820,8 @@ export default function ProductComponents({
           Basic Information <SectionDot filled={basicFilled} />
         </h3>
 
-        {/* Title */}
-        <div className="form-group">
+        {/* TITLE */}
+        <div className={`form-group ${hasError("title") ? "has-error" : ""}`}>
           <label htmlFor="ap-title">Product Title *</label>
           <input
             id="ap-title"
@@ -809,11 +829,19 @@ export default function ProductComponents({
             value={form.title}
             onChange={(e) => updateForm("title", e.target.value)}
             maxLength={120}
+            aria-invalid={hasError("title") || undefined}
+            aria-describedby={hasError("title") ? "ap-title-error" : undefined}
           />
           <div className="field-footer">
             <span />
             <CharCounter value={form.title} max={120} />
           </div>
+          <InlineFieldError
+            id="ap-title-error"
+            show={hasError("title")}
+            message={fieldError.message}
+          />
+
           {!isEditMode && titleSuggestions.length > 0 && (
             <div className="title-suggestions">
               <span className="title-suggestions-label">Suggestion:</span>
@@ -834,8 +862,8 @@ export default function ProductComponents({
           )}
         </div>
 
-        {/* Description */}
-        <div className="form-group">
+        {/* DESCRIPTION */}
+        <div className={`form-group ${hasError("description") ? "has-error" : ""}`}>
           <label htmlFor="ap-desc">Description *</label>
           <textarea
             id="ap-desc"
@@ -844,15 +872,22 @@ export default function ProductComponents({
             value={form.description}
             onChange={(e) => updateForm("description", e.target.value)}
             maxLength={2000}
+            aria-invalid={hasError("description") || undefined}
+            aria-describedby={hasError("description") ? "ap-desc-error" : undefined}
           />
           <div className="field-footer">
             <span />
             <CharCounter value={form.description} max={2000} min={10} />
           </div>
+          <InlineFieldError
+            id="ap-desc-error"
+            show={hasError("description")}
+            message={fieldError.message}
+          />
         </div>
 
-        {/* Price */}
-        <div className="form-group">
+        {/* PRICE */}
+        <div className={`form-group ${hasError("price") ? "has-error" : ""}`}>
           <label htmlFor="ap-price">Price (&#8358;) *</label>
           <input
             id="ap-price"
@@ -863,6 +898,13 @@ export default function ProductComponents({
             onChange={(e) =>
               updateForm("price", onlyNumbers(e.target.value))
             }
+            aria-invalid={hasError("price") || undefined}
+            aria-describedby={hasError("price") ? "ap-price-error" : undefined}
+          />
+          <InlineFieldError
+            id="ap-price-error"
+            show={hasError("price")}
+            message={fieldError.message}
           />
         </div>
       </section>
@@ -875,8 +917,8 @@ export default function ProductComponents({
           Product Details <SectionDot filled={detailsFilled} />
         </h3>
 
-        {/* Category */}
-        <div className="form-group">
+        {/* CATEGORY */}
+        <div className={`form-group ${hasError("category") ? "has-error" : ""}`}>
           <label>Category *</label>
           <DropdownModal
             value={normValue(form.category_id)}
@@ -894,9 +936,12 @@ export default function ProductComponents({
               }
             }}
           />
+          <InlineFieldError
+            show={hasError("category")}
+            message={fieldError.message}
+          />
         </div>
 
-        {/* Subcategory */}
         {subcategories.length > 0 && (
           <div className="form-group">
             <label>Subcategory</label>
@@ -912,7 +957,6 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* Brand */}
         {normalizedOptions.brand.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
@@ -924,7 +968,6 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* Model */}
         {showModelField && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
@@ -950,7 +993,6 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* Dynamic fields */}
         {fields.map((field) => {
           const fieldOptions = normalizedOptions[field] ?? [];
           if (!fieldOptions.length) return null;
@@ -970,7 +1012,6 @@ export default function ProductComponents({
           );
         })}
 
-        {/* Features */}
         {totalFeatureCount > 0 && (
           <div className="form-group">
             <label>Features</label>
@@ -1010,16 +1051,14 @@ export default function ProductComponents({
 
       {/* ════════════════════════════════════════════════════
           SECTION 2 — CONTACT INFORMATION
-          ✅ v6: Email completely removed
-                 Only Phone + WhatsApp + WhatsApp Link shown
       ════════════════════════════════════════════════════ */}
       <section ref={sec2} className="section form-card">
         <h3 className="section-title">
           Contact Information <SectionDot filled={contactFilled} />
         </h3>
 
-        {/* ✅ Phone Number — required */}
-        <div className="form-group">
+        {/* PHONE */}
+        <div className={`form-group ${hasError("phone") ? "has-error" : ""}`}>
           <label htmlFor="ap-phone">Phone Number *</label>
           <input
             id="ap-phone"
@@ -1031,14 +1070,23 @@ export default function ProductComponents({
             }
             maxLength={15}
             autoComplete="tel"
+            aria-invalid={hasError("phone") || undefined}
+            aria-describedby={hasError("phone") ? "ap-phone-error" : undefined}
           />
-          <small className="field-hint">
-            Buyers will use this to contact you
-          </small>
+          {!hasError("phone") && (
+            <small className="field-hint">
+              Buyers will use this to contact you
+            </small>
+          )}
+          <InlineFieldError
+            id="ap-phone-error"
+            show={hasError("phone")}
+            message={fieldError.message}
+          />
         </div>
 
-        {/* ✅ WhatsApp Number — optional */}
-        <div className="form-group">
+        {/* WHATSAPP */}
+        <div className={`form-group ${hasError("whatsapp") ? "has-error" : ""}`}>
           <label htmlFor="ap-wa">
             WhatsApp Number{" "}
             <span className="label-optional">(optional)</span>
@@ -1052,13 +1100,22 @@ export default function ProductComponents({
               updateContact("whatsapp", onlyDigits(e.target.value))
             }
             maxLength={15}
+            aria-invalid={hasError("whatsapp") || undefined}
+            aria-describedby={hasError("whatsapp") ? "ap-wa-error" : undefined}
           />
-          <small className="field-hint">
-            Leave blank if same as phone number
-          </small>
+          {!hasError("whatsapp") && (
+            <small className="field-hint">
+              Leave blank if same as phone number
+            </small>
+          )}
+          <InlineFieldError
+            id="ap-wa-error"
+            show={hasError("whatsapp")}
+            message={fieldError.message}
+          />
         </div>
 
-        {/* ✅ WhatsApp Link — optional */}
+        {/* WHATSAPP LINK */}
         <div className="form-group">
           <label htmlFor="ap-wa-link">
             WhatsApp Link{" "}
@@ -1071,11 +1128,10 @@ export default function ProductComponents({
             placeholder="https://wa.me/2348012345678"
             onChange={handleWaLinkChange}
             onBlur={handleWaLinkBlur}
+            aria-invalid={!!waLinkError || undefined}
           />
           {waLinkError ? (
-            <small className="field-hint field-hint--error">
-              {waLinkError}
-            </small>
+            <InlineFieldError show={true} message={waLinkError} />
           ) : (
             <small className="field-hint">
               Optional — buyers can tap to open a WhatsApp chat
@@ -1092,7 +1148,6 @@ export default function ProductComponents({
           Location &amp; Delivery <SectionDot filled={locationFilled} />
         </h3>
 
-        {/* Detect Location */}
         {detectLocation && (
           <div className="detect-location-row">
             <button
@@ -1115,9 +1170,9 @@ export default function ProductComponents({
           </div>
         )}
 
-        {/* State & City */}
+        {/* STATE + CITY */}
         <div className="form-row">
-          <div className="form-group">
+          <div className={`form-group ${hasError("location") ? "has-error" : ""}`}>
             <label>State *</label>
             <DropdownModal
               value={state}
@@ -1127,7 +1182,7 @@ export default function ProductComponents({
             />
           </div>
           {state && (
-            <div className="form-group">
+            <div className={`form-group ${hasError("location") ? "has-error" : ""}`}>
               <label>City *</label>
               <DropdownModal
                 value={city}
@@ -1139,7 +1194,13 @@ export default function ProductComponents({
           )}
         </div>
 
-        {/* Delivery Toggle */}
+        {/* Single location error below the row */}
+        <InlineFieldError
+          show={hasError("location")}
+          message={fieldError.message}
+        />
+
+        {/* DELIVERY TOGGLE */}
         <div className="form-group">
           <label htmlFor="ap-delivery-toggle">Delivery Available</label>
           <label className="toggle-switch">
@@ -1164,11 +1225,11 @@ export default function ProductComponents({
           </label>
         </div>
 
-        {/* Delivery Details */}
         {form.delivery.available && (
           <div className="delivery-grid">
             <div className="form-row">
-              <div className="form-group">
+              {/* FROM DAY */}
+              <div className={`form-group ${hasError("delivery_from") ? "has-error" : ""}`}>
                 <label htmlFor="ap-del-from">From Day *</label>
                 <input
                   id="ap-del-from"
@@ -1179,9 +1240,16 @@ export default function ProductComponents({
                   onChange={(e) =>
                     handleDeliveryDuration("from", clampDay(e.target.value))
                   }
+                  aria-invalid={hasError("delivery_from") || undefined}
+                />
+                <InlineFieldError
+                  show={hasError("delivery_from")}
+                  message={fieldError.message}
                 />
               </div>
-              <div className="form-group">
+
+              {/* TO DAY */}
+              <div className={`form-group ${hasError("delivery_to") ? "has-error" : ""}`}>
                 <label htmlFor="ap-del-to">To Day *</label>
                 <input
                   id="ap-del-to"
@@ -1192,22 +1260,23 @@ export default function ProductComponents({
                   onChange={(e) =>
                     handleDeliveryDuration("to", clampDay(e.target.value))
                   }
+                  aria-invalid={hasError("delivery_to") || undefined}
+                />
+                <InlineFieldError
+                  show={hasError("delivery_to")}
+                  message={fieldError.message}
                 />
               </div>
             </div>
 
+            {/* Local range mismatch error */}
             {deliveryRangeError && (
-              <div
-                className="form-error"
-                role="alert"
-                style={{ marginBottom: 10 }}
-              >
-                <WarningIcon /> {deliveryRangeError}
-              </div>
+              <InlineFieldError show={true} message={deliveryRangeError} />
             )}
 
             <div className="form-row">
-              <div className="form-group">
+              {/* FEE */}
+              <div className={`form-group ${hasError("delivery_fee") ? "has-error" : ""}`}>
                 <label htmlFor="ap-del-fee">Fee (&#8358;) *</label>
                 <input
                   id="ap-del-fee"
@@ -1217,8 +1286,14 @@ export default function ProductComponents({
                   onChange={(e) =>
                     updateDelivery("fee", onlyNumbers(e.target.value))
                   }
+                  aria-invalid={hasError("delivery_fee") || undefined}
+                />
+                <InlineFieldError
+                  show={hasError("delivery_fee")}
+                  message={fieldError.message}
                 />
               </div>
+
               <div className="form-group">
                 <label htmlFor="ap-del-note">
                   Delivery Note{" "}
@@ -1246,7 +1321,10 @@ export default function ProductComponents({
       {/* ════════════════════════════════════════════════════
           SECTION 4 — PRODUCT IMAGES
       ════════════════════════════════════════════════════ */}
-      <section ref={sec4} className="section form-card">
+      <section
+        ref={sec4}
+        className={`section form-card ${hasError("images") ? "has-error" : ""}`}
+      >
         <h3 className="section-title">
           Product Images * <SectionDot filled={imagesFilled} />
         </h3>
@@ -1268,16 +1346,25 @@ export default function ProductComponents({
           )}
         </div>
 
+        {/* Section-level error (from form validation) */}
+        <InlineFieldError
+          show={hasError("images")}
+          message={fieldError.message}
+        />
+
+        {/* Per-image validation errors */}
         {hasImageErrors && (
           <div
-            className="form-error"
+            className="field-error"
             role="alert"
             style={{ marginBottom: 10 }}
           >
-            <WarningIcon />{" "}
-            {Object.keys(imageErrors).length} image
-            {Object.keys(imageErrors).length !== 1 ? "s have" : " has"}{" "}
-            errors — fix before submitting
+            <WarningIcon />
+            <span>
+              {Object.keys(imageErrors).length} image
+              {Object.keys(imageErrors).length !== 1 ? "s have" : " has"}{" "}
+              errors — fix before submitting
+            </span>
           </div>
         )}
 
@@ -1440,7 +1527,13 @@ export default function ProductComponents({
       {/* ── TERMS CHECKBOX ── */}
       {!isEditMode && TermsCheckbox}
 
-      {/* ── EDIT BACK HINT ── */}
+      {/* ✅ v7: Inline error under TermsCheckbox */}
+      {!isEditMode && hasError("terms") && (
+        <div style={{ padding: "0 16px" }}>
+          <InlineFieldError show={true} message={fieldError.message} />
+        </div>
+      )}
+
       {isEditMode && (
         <p className="edit-back-hint">
           Changes are saved to your listing immediately.{" "}
