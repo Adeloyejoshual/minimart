@@ -3,22 +3,16 @@
  * Route: /minimart/add
  *       /minimart/add?edit=:productId  ← EDIT MODE
  *
- * v6 — VERIFY BEFORE PAY
+ * v7 — INLINE FIELD ERRORS
  * ─────────────────────────────────────────────────────────────
- *  - Unverified users who select a PAID plan see a
- *    "Verify First" modal BEFORE any upload or payment
- *  - Modal Cancel → stay on page (no Paystack redirect)
- *  - Modal Verify → navigate to /verification
- *  - Modal Free Plan → switch to free plan automatically
- *  - Verified + paid plan → normal Paystack flow
+ *  - Errors show under each field (not just top banner)
+ *  - Auto-clear when user starts editing that field
+ *  - Top banner only for non-field errors (network, server)
+ *  - Same UX as desktop shell
  *
+ * v6 — VERIFY BEFORE PAY
  * v5 — EMAIL FROM REGISTRATION
- *  - Email field removed from contact form
- *  - Email auto-set from user.email (registration)
- *  - Never sent in form body — backend reads from users table
- *
  * v4 — 3-TIER SUBSCRIPTION SUPPORT
- * v3 — TermsCheckbox extracted to shared component
  */
 
 import {
@@ -69,6 +63,7 @@ const ERROR_SELECTOR_MAP = [
   { match: "Title",          sel: "#ap-title"               },
   { match: "Description",    sel: "#ap-desc"                },
   { match: "price",          sel: "#ap-price"               },
+  { match: "Price",          sel: "#ap-price"               },
   { match: "Category",       sel: ".section:nth-of-type(2)" },
   { match: "Phone",          sel: "#ap-phone"               },
   { match: "WhatsApp",       sel: "#ap-wa"                  },
@@ -79,6 +74,32 @@ const ERROR_SELECTOR_MAP = [
   { match: "Delivery end",   sel: "#ap-del-to"              },
   { match: "delivery fee",   sel: "#ap-del-fee"             },
 ];
+
+/* ═══════════════════════════════════════════════════════════════
+   ✅ v7: ERROR → FIELD KEY MAPPING
+   Sections read `fieldError.field` to show inline errors.
+═══════════════════════════════════════════════════════════════ */
+const ERROR_FIELD_MAP = [
+  { match: "Title",          field: "title"          },
+  { match: "Description",    field: "description"    },
+  { match: "price",          field: "price"          },
+  { match: "Price",          field: "price"          },
+  { match: "Category",       field: "category"       },
+  { match: "Phone",          field: "phone"          },
+  { match: "WhatsApp",       field: "whatsapp"       },
+  { match: "image",          field: "images"         },
+  { match: "state and city", field: "location"       },
+  { match: "Terms",          field: "terms"          },
+  { match: "delivery days",  field: "delivery_from"  },
+  { match: "Delivery end",   field: "delivery_to"    },
+  { match: "delivery fee",   field: "delivery_fee"   },
+];
+
+const getFieldFromMessage = (msg) => {
+  if (!msg) return null;
+  const entry = ERROR_FIELD_MAP.find((e) => msg.includes(e.match));
+  return entry?.field ?? null;
+};
 
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
@@ -227,13 +248,8 @@ const scrollToError = (msg) => {
 
 /* ═══════════════════════════════════════════════════════════════
    VERIFY BEFORE PAY MODAL
-   ✅ v6: Shown when unverified user selects a paid plan
-          Cancel → stay on page (NO Paystack redirect)
-          Verify → /verification
-          Free Plan → switch to free plan
 ═══════════════════════════════════════════════════════════════ */
 function VerifyBeforePayModal({ onVerify, onCancel, onFreePlan }) {
-  /* Close on overlay click */
   const handleOverlayClick = (e) => {
     if (e.target === e.currentTarget) onCancel();
   };
@@ -247,61 +263,35 @@ function VerifyBeforePayModal({ onVerify, onCancel, onFreePlan }) {
       onClick={handleOverlayClick}
     >
       <div className="ap-modal">
-
-        {/* Icon */}
         <div className="ap-modal-icon" aria-hidden="true">🔒</div>
-
-        {/* Title */}
         <h2 id="vbp-title" className="ap-modal-title">
           Verify Your Identity First
         </h2>
-
-        {/* Message */}
         <p className="ap-modal-message">
           You need to verify your identity before purchasing
           a promotion plan. Verification is free and only
           takes a few minutes.
         </p>
-
-        {/* Benefits */}
         <ul className="ap-modal-list">
           <li>✅ Post up to 500 listings</li>
           <li>✅ Listings active for 30 days</li>
           <li>✅ Access all paid promotion plans</li>
           <li>✅ Build buyer trust with a verified badge</li>
         </ul>
-
-        {/* Actions */}
         <div className="ap-modal-actions">
-          <button
-            type="button"
-            className="primary-btn"
-            onClick={onVerify}
-          >
+          <button type="button" className="primary-btn" onClick={onVerify}>
             Verify My Account
           </button>
-
-          <button
-            type="button"
-            className="outline-btn"
-            onClick={onCancel}
-          >
+          <button type="button" className="outline-btn" onClick={onCancel}>
             Cancel
           </button>
         </div>
-
-        {/* Free plan hint */}
         <p className="ap-modal-hint">
           Want to post now?{" "}
-          <button
-            type="button"
-            className="link-btn"
-            onClick={onFreePlan}
-          >
+          <button type="button" className="link-btn" onClick={onFreePlan}>
             Use the free plan instead
           </button>
         </p>
-
       </div>
     </div>
   );
@@ -366,7 +356,6 @@ export default function AddProduct({ user }) {
     dailyRemaining, activeRemaining, cooldownSecs, canPost,
   } = useSellerLimits(API_BASE, isEditMode);
 
-  /* Derive tier fields */
   const tier              = sellerLimits?.tier               ?? "unverified";
   const isSubscriber      = sellerLimits?.is_subscriber      ?? false;
   const lifetimeExhausted = sellerLimits?.lifetime_exhausted ?? false;
@@ -398,24 +387,49 @@ export default function AddProduct({ user }) {
   const [needsVerification, setNeedsVerification] = useState(false);
   const [verificationData,  setVerificationData]  = useState(null);
 
-  /* ─── Subscription upsell state ─── */
   const [needsSubscription, setNeedsSubscription] = useState(false);
   const [subscriptionData,  setSubscriptionData]  = useState(null);
 
-  /* ─── Watermark state ─── */
   const [watermarkWarnings, setWatermarkWarnings] = useState([]);
   const [watermarkNotice,   setWatermarkNotice]   = useState("");
 
-  /* ─── ✅ v6: Verify before pay modal ─── */
   const [showVerifyBeforePay, setShowVerifyBeforePay] = useState(false);
 
-  /* ─── Feedback ─── */
+  /* ─── ✅ v7: Field-level error state ─── */
+  const [fieldError, setFieldError] = useState({ field: null, message: "" });
+
+  /* ─── Field error helpers ─── */
+  const clearFieldError = useCallback((field) => {
+    setFieldError((prev) =>
+      prev.field === field || !field
+        ? { field: null, message: "" }
+        : prev
+    );
+  }, []);
+
+  const clearAllFieldErrors = useCallback(() => {
+    setFieldError({ field: null, message: "" });
+  }, []);
+
+  /* ─── Feedback (now also sets field error) ─── */
   const showError = useCallback((msg) => {
     if (!mountedRef.current) return;
     setError(msg);
+
+    /* ✅ Also set field-level error if we can map it */
+    const field = getFieldFromMessage(msg);
+    if (field) {
+      setFieldError({ field, message: msg });
+    } else {
+      setFieldError({ field: null, message: "" });
+    }
+
     scrollToError(msg);
     const id = setTimeout(() => {
-      if (mountedRef.current) setError("");
+      if (mountedRef.current) {
+        setError("");
+        setFieldError({ field: null, message: "" });
+      }
       timeoutIdsRef.current.delete(id);
     }, 7_000);
     timeoutIdsRef.current.add(id);
@@ -452,6 +466,54 @@ export default function AddProduct({ user }) {
     setWatermarkNotice("");
   }, []);
 
+  /* ═══════════════════════════════════════════════════════════
+     ✅ v7: WRAPPED UPDATERS — auto-clear field errors on edit
+  ═══════════════════════════════════════════════════════════ */
+  const updateFormWithClear = useCallback((key, value) => {
+    updateForm(key, value);
+    const map = {
+      title       : "title",
+      description : "description",
+      price       : "price",
+      category_id : "category",
+    };
+    const errKey = map[key];
+    if (errKey) clearFieldError(errKey);
+  }, [updateForm, clearFieldError]);
+
+  const updateContactWithClear = useCallback((key, value) => {
+    updateContact(key, value);
+    if (key === "phone")    clearFieldError("phone");
+    if (key === "whatsapp") clearFieldError("whatsapp");
+  }, [updateContact, clearFieldError]);
+
+  const setLocationStateWithClear = useCallback((val) => {
+    setLocationState(val);
+    if (val) clearFieldError("location");
+  }, [clearFieldError]);
+
+  const setCityWithClear = useCallback((val) => {
+    setCity(val);
+    if (val) clearFieldError("location");
+  }, [clearFieldError]);
+
+  const setAgreedToTermsWithClear = useCallback((val) => {
+    setAgreedToTerms(val);
+    if (typeof val !== "function" && val) clearFieldError("terms");
+  }, [clearFieldError]);
+
+  const updateDeliveryWithClear = useCallback((key, value) => {
+    updateDelivery(key, value);
+    if (key === "fee")       clearFieldError("delivery_fee");
+    if (key === "available") clearAllFieldErrors();
+  }, [updateDelivery, clearFieldError, clearAllFieldErrors]);
+
+  const updateDeliveryDurationWithClear = useCallback((key, value) => {
+    updateDeliveryDuration(key, value);
+    if (key === "from") clearFieldError("delivery_from");
+    if (key === "to")   clearFieldError("delivery_to");
+  }, [updateDeliveryDuration, clearFieldError]);
+
   /* ─── Derived ─── */
   const selectedCategory = useMemo(
     () =>
@@ -468,10 +530,7 @@ export default function AddProduct({ user }) {
     () => form.attributes ?? INITIAL_FORM.attributes,
     [form.attributes]
   );
-  const states = useMemo(
-    () => Object.keys(locationsByState ?? {}),
-    []
-  );
+  const states = useMemo(() => Object.keys(locationsByState ?? {}), []);
   const cities = useMemo(
     () => (locationState ? locationsByState[locationState] ?? [] : []),
     [locationState]
@@ -481,7 +540,7 @@ export default function AddProduct({ user }) {
     !!selectedPlan && Number(selectedPlan?.price ?? 0) > 0;
 
   /* ═══════════════════════════════════════════════════════════
-     AUTO-SET EMAIL FROM LOGGED-IN USER
+     AUTO-SET EMAIL
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (user?.email) {
@@ -558,7 +617,6 @@ export default function AddProduct({ user }) {
       const p = d.product;
       if (!mountedRef.current) return;
 
-      /* ✅ email NOT loaded from product — set from user.email */
       loadForm({ ...p });
 
       if (p.location_state) setLocationState(p.location_state);
@@ -759,24 +817,75 @@ export default function AddProduct({ user }) {
     try {
       const result = await detectUserLocation();
       if (!mountedRef.current) return;
-      if (result.state) setLocationState(result.state);
-      if (result.city)  setCity(result.city);
+
+      let matchedState = "";
+      if (result.state) {
+        const availableStates = Object.keys(locationsByState ?? {});
+        const detected = String(result.state).trim();
+        matchedState =
+          availableStates.find(
+            (s) => s.toLowerCase() === detected.toLowerCase()
+          ) ??
+          availableStates.find(
+            (s) =>
+              s.toLowerCase() ===
+              detected.toLowerCase().replace(/\s*state$/i, "")
+          ) ??
+          availableStates.find(
+            (s) =>
+              detected.toLowerCase().includes(s.toLowerCase()) ||
+              s.toLowerCase().includes(detected.toLowerCase())
+          ) ??
+          "";
+      }
+
+      let matchedCity = "";
+      if (matchedState && result.city) {
+        const availableCities = locationsByState[matchedState] ?? [];
+        const detected = String(result.city).trim();
+        matchedCity =
+          availableCities.find(
+            (c) => c.toLowerCase() === detected.toLowerCase()
+          ) ??
+          availableCities.find(
+            (c) =>
+              detected.toLowerCase().includes(c.toLowerCase()) ||
+              c.toLowerCase().includes(detected.toLowerCase())
+          ) ??
+          "";
+      }
+
+      if (matchedState) {
+        setLocationState(matchedState);
+        clearFieldError("location");
+      }
+      if (matchedCity) setCity(matchedCity);
+
       setDetectedCoords({
         latitude : result.latitude,
         longitude: result.longitude,
       });
-      showSuccess(
-        result.state
-          ? "Location detected"
-          : "GPS captured — fill state/city manually"
-      );
+
+      if (matchedState && matchedCity) {
+        showSuccess("Location detected");
+      } else if (matchedState) {
+        showSuccess(
+          `State detected: ${matchedState} — please pick your city`
+        );
+      } else if (result.state) {
+        showError(
+          `Detected "${result.state}" but not in our list — please select manually`
+        );
+      } else {
+        showSuccess("GPS captured — fill state/city manually");
+      }
     } catch (err) {
       if (!mountedRef.current) return;
       showError(err.message || "Location detection failed");
     } finally {
       if (mountedRef.current) setDetectingLocation(false);
     }
-  }, [showError, showSuccess]);
+  }, [showError, showSuccess, clearFieldError]);
 
   /* ═══════════════════════════════════════════════════════════
      VALIDATION
@@ -852,15 +961,12 @@ export default function AddProduct({ user }) {
     fd.append("whatsapp_link",  form.contact.whatsapp_link ?? "");
     fd.append("seller_name",    user?.store_name || user?.name || BRAND_NAME);
 
-    /* ✅ email NOT appended — backend reads from users table */
-
     fd.append("attributes", JSON.stringify({
       ...attributes,
       features: toArray(attributes.features),
     }));
     fd.append("delivery", JSON.stringify(form.delivery));
 
-    /* ✅ Strip email from contact JSON */
     const { email: _email, ...contactWithoutEmail } = form.contact ?? {};
     fd.append("contact", JSON.stringify(contactWithoutEmail));
 
@@ -954,6 +1060,7 @@ export default function AddProduct({ user }) {
     setWatermarkWarnings([]);
     setWatermarkNotice("");
     setShowVerifyBeforePay(false);
+    clearAllFieldErrors();
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
     clearIdempotencyKey(IDEMPOTENCY_STORE);
@@ -964,7 +1071,7 @@ export default function AddProduct({ user }) {
   }, [
     STORAGE_DRAFT, IDEMPOTENCY_STORE,
     resetForm, resetImages, showSuccess,
-    user?.email, updateContact,
+    user?.email, updateContact, clearAllFieldErrors,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
@@ -1072,6 +1179,7 @@ export default function AddProduct({ user }) {
       return;
     }
 
+    clearAllFieldErrors();
     setProgressVisible(true);
     setProgressStep("uploading");
     setError("");
@@ -1123,12 +1231,11 @@ export default function AddProduct({ user }) {
     }
   }, [
     editId, validateForm, buildEditFormData,
-    navigate, showError, showSuccess, safeRedirect,
+    navigate, showError, showSuccess, safeRedirect, clearAllFieldErrors,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
-     CREATE SUBMIT — CORE LOGIC
-     Separated so it can be called after modal dismissal too
+     CREATE SUBMIT — CORE
   ═══════════════════════════════════════════════════════════ */
   const runCreateSubmit = useCallback(async (forcedPlan = null) => {
     if (!navigator.onLine) {
@@ -1146,6 +1253,7 @@ export default function AddProduct({ user }) {
       return;
     }
 
+    clearAllFieldErrors();
     setWatermarkWarnings([]);
     setWatermarkNotice("");
     setNeedsSubscription(false);
@@ -1192,7 +1300,6 @@ export default function AddProduct({ user }) {
 
       fetchLimits();
 
-      /* ── Free plan ── */
       if (isFreePlan) {
         setProgressStep("activating");
         const activateRes = await apiFetch(
@@ -1220,13 +1327,14 @@ export default function AddProduct({ user }) {
         return;
       }
 
-      /* ── Paid promotion plan ── */
       setProgressStep("payment");
       const rawPrice     = Number(finalPlan.price);
       const discount     = Number(finalPlan.discount_percent ?? 0);
       const effectiveAmt = Number(
         (rawPrice * (1 - discount / 100)).toFixed(2)
       );
+
+      const userEmail = user?.email ?? "";
 
       const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
         method : "POST",
@@ -1235,7 +1343,7 @@ export default function AddProduct({ user }) {
           Authorization : `Bearer ${token}`,
         },
         body: JSON.stringify({
-          /* ✅ email omitted — backend reads from users table */
+          ...(userEmail ? { email: userEmail } : {}),
           amount         : effectiveAmt,
           plan_id        : String(finalPlan.id),
           product_id     : product.id,
@@ -1274,7 +1382,6 @@ export default function AddProduct({ user }) {
       console.error("[AddProduct] create submit:", err);
       if (mountedRef.current) setProgressVisible(false);
 
-      /* ── Watermark block ── */
       if (err?.status === 400 && err?.data?.reason === "watermark_policy") {
         const blockedIndexes = Array.isArray(err.data?.blocked_images)
           ? err.data.blocked_images
@@ -1303,7 +1410,6 @@ export default function AddProduct({ user }) {
           "One or more photos were rejected. Please replace them and try again."
         );
 
-      /* ── 403 tier limit ── */
       } else if (
         err?.status === 403 &&
         err?.data?.upgrade_required === true
@@ -1334,7 +1440,6 @@ export default function AddProduct({ user }) {
         showError(err.message ?? "Submission failed — please try again");
       }
 
-      /* Clean up orphaned product */
       if (product?.id && !paymentInitiated) {
         const token = getToken();
         if (token) {
@@ -1357,18 +1462,15 @@ export default function AddProduct({ user }) {
     validateForm, selectedPlan, promotionPlans, plansLoading,
     buildCreateFormData, clearDraft, showError, showSuccess,
     handlePostSuccess, fetchLimits, navigate,
-    IDEMPOTENCY_STORE, lifetimeUsed,
+    IDEMPOTENCY_STORE, lifetimeUsed, user?.email, clearAllFieldErrors,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
-     CREATE SUBMIT — ENTRY POINT
-     ✅ v6: Blocks unverified users from paid plans
-            Shows VerifyBeforePayModal instead of Paystack
+     CREATE SUBMIT — ENTRY
   ═══════════════════════════════════════════════════════════ */
   const handleCreateSubmit = useCallback(() => {
     if (isSubmittingRef.current) return;
 
-    /* Determine the plan that would be used */
     const finalPlan =
       selectedPlan ??
       promotionPlans.find((p) => Number(p.price) === 0) ??
@@ -1376,18 +1478,11 @@ export default function AddProduct({ user }) {
 
     const isPaidPlan = !!finalPlan && Number(finalPlan.price) > 0;
 
-    /* ✅ v6: Unverified user + paid plan = show verify modal
-       Do NOT upload, do NOT go to Paystack              */
     if (isPaidPlan && !isVerifiedSeller) {
-      console.log(
-        "[AddProduct] ⛔ Blocking unverified user from paid plan —",
-        "showing VerifyBeforePayModal"
-      );
       setShowVerifyBeforePay(true);
       return;
     }
 
-    /* Verified or free plan — proceed normally */
     isSubmittingRef.current = true;
     runCreateSubmit();
   }, [
@@ -1395,32 +1490,25 @@ export default function AddProduct({ user }) {
     isVerifiedSeller, runCreateSubmit,
   ]);
 
-  /* ─── Modal handlers ─── */
   const handleVerifyBeforePayVerify = useCallback(() => {
-    /* User chose to verify — close modal and redirect */
     setShowVerifyBeforePay(false);
     navigate("/verification");
   }, [navigate]);
 
   const handleVerifyBeforePayCancel = useCallback(() => {
-    /* ✅ User cancelled — stay on page, do nothing */
     setShowVerifyBeforePay(false);
   }, []);
 
   const handleVerifyBeforePayFreePlan = useCallback(() => {
-    /* Switch to free plan and proceed */
     setShowVerifyBeforePay(false);
     const freePlan = promotionPlans.find(
       (p) => Number(p.price) === 0
     ) ?? null;
     setSelectedPlan(freePlan);
-
-    /* Submit with free plan */
     isSubmittingRef.current = true;
     runCreateSubmit(freePlan);
   }, [promotionPlans, runCreateSubmit]);
 
-  /* ─── Route to correct submit ─── */
   const handleSubmit = useCallback(
     () => (isEditMode ? handleEditSubmit() : handleCreateSubmit()),
     [isEditMode, handleEditSubmit, handleCreateSubmit]
@@ -1433,10 +1521,10 @@ export default function AddProduct({ user }) {
     () => (
       <TermsCheckbox
         checked={agreedToTerms}
-        onChange={setAgreedToTerms}
+        onChange={setAgreedToTermsWithClear}
       />
     ),
-    [agreedToTerms]
+    [agreedToTerms, setAgreedToTermsWithClear]
   );
 
   /* ═══════════════════════════════════════════════════════════
@@ -1474,7 +1562,6 @@ export default function AddProduct({ user }) {
   return (
     <div className="apd-page">
 
-      {/* ✅ v6: Verify Before Pay Modal */}
       {showVerifyBeforePay && !isEditMode && (
         <VerifyBeforePayModal
           onVerify   ={handleVerifyBeforePayVerify}
@@ -1575,15 +1662,20 @@ export default function AddProduct({ user }) {
         watermarkWarnings={watermarkWarnings}
         watermarkNotice={watermarkNotice}
 
-        /* ─ handlers ─ */
-        updateForm={updateForm}
+        /* ─ ✅ v7: inline field errors ─ */
+        fieldError={fieldError}
+        clearFieldError={clearFieldError}
+        clearAllFieldErrors={clearAllFieldErrors}
+
+        /* ─ handlers (wrapped with field-error clearing) ─ */
+        updateForm={updateFormWithClear}
         updateAttribute={updateAttribute}
-        updateContact={updateContact}
-        updateDelivery={updateDelivery}
-        updateDeliveryDuration={updateDeliveryDuration}
+        updateContact={updateContactWithClear}
+        updateDelivery={updateDeliveryWithClear}
+        updateDeliveryDuration={updateDeliveryDurationWithClear}
         toggleFeature={toggleFeature}
-        setState={setLocationState}
-        setCity={setCity}
+        setState={setLocationStateWithClear}
+        setCity={setCityWithClear}
         setSelectedPlan={setSelectedPlan}
         handleImages={handleImages}
         removeImage={removeImage}
