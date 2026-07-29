@@ -1,9 +1,15 @@
 // routes/coupons.js
 // ═══════════════════════════════════════════════════════════════
-// DISCOUNT COUPONS
-// Airtime coupons are handled by routes/airtimeCoupons.js
-// This file also merges airtime data into the /coupons and
-// /history endpoints so the frontend can show everything at once.
+// DISCOUNT COUPONS + AIRTIME MERGE
+//
+// This file:
+//   • Owns the discount coupons tables
+//   • Merges airtime data into /coupons and /history
+//   • Exports invalidateUserCache() so admin & other routes
+//     can clear cache after status changes
+//
+// Airtime CRUD lives in routes/airtimeCoupons.js
+// Admin airtime lives in routes/admin/airtimeCoupons.js
 // ═══════════════════════════════════════════════════════════════
 
 import express      from "express";
@@ -26,22 +32,32 @@ const KEY = {
   userMe      : (userId) => `user:me:${userId}`,
 };
 
+/* Short TTL — real-time updates matter here.
+   Cache is mainly to protect against burst traffic.
+   Admin actions immediately invalidate. */
 const TTL = {
-  COUPON_CACHE  : 2 * 60,   // 2 min
-  HISTORY_CACHE : 2 * 60,   // 2 min
+  COUPON_CACHE  : 30,   // 30 seconds
+  HISTORY_CACHE : 60,   // 1 minute
 };
 
-async function invalidateUserCache(userId, alsoMe = false) {
+/* ═══════════════════════════════════════════════════════════════
+   CACHE INVALIDATION — exported so admin routes can call it
+═══════════════════════════════════════════════════════════════ */
+export async function invalidateUserCache(userId, alsoMe = false) {
+  if (!userId) return;
+
   const jobs = [
     cacheDel(KEY.userCoupons(userId)),
     cacheDel(KEY.userHistory(userId)),
   ];
   if (alsoMe) jobs.push(cacheDel(KEY.userMe(userId)));
+
   await Promise.allSettled(jobs);
+  console.log(`[coupons] cache invalidated for user=${userId}`);
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   PHONE HELPERS (for masking / history display)
+   PHONE HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const normalisePhone = (raw) => {
   if (!raw) return null;
@@ -60,9 +76,43 @@ const maskPhone = (phone) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   ENSURE TABLES + INDEXES
-   Only creates discount-coupon tables here.
-   The airtime_coupons table is owned by routes/airtimeCoupons.js.
+   STATUS NORMALIZATION
+   Maps every legacy/new status to the canonical set
+═══════════════════════════════════════════════════════════════ */
+const STATUS_ALIAS = {
+  /* Canonical → same */
+  available : "available",
+  pending   : "pending",
+  approved  : "approved",
+  processing: "processing",
+  sent      : "sent",
+  completed : "completed",
+  rejected  : "rejected",
+  failed    : "failed",
+  expired   : "expired",
+
+  /* Legacy aliases */
+  redeemed  : "pending",
+  claimed   : "pending",
+  credited  : "completed",
+};
+
+const normalizeStatus = (raw) => STATUS_ALIAS[raw] || raw || "available";
+
+/* Which statuses are "used" (not available)?  */
+const USED_STATUSES = new Set([
+  "pending", "approved", "processing", "sent",
+  "completed", "rejected", "failed", "expired",
+]);
+
+/* Which statuses show up in history (terminal or in-progress)? */
+const HISTORY_STATUSES = new Set([
+  "pending", "approved", "processing", "sent",
+  "completed", "rejected", "failed",
+]);
+
+/* ═══════════════════════════════════════════════════════════════
+   ENSURE TABLES + INDEXES (discount only)
 ═══════════════════════════════════════════════════════════════ */
 async function ensureTables() {
 
@@ -132,7 +182,7 @@ async function ensureTables() {
     }
   }
 
-  /* ── Mark spin wheel coupons as private ── */
+  /* Mark spin wheel coupons as private */
   try {
     await pool.query(`
       UPDATE public.coupons
@@ -146,14 +196,22 @@ async function ensureTables() {
   }
 
   const indexes = [
-    `CREATE UNIQUE INDEX IF NOT EXISTS unique_coupon_code        ON public.coupons              (code)`,
-    `CREATE        INDEX IF NOT EXISTS idx_coupons_active        ON public.coupons              (is_active)`,
-    `CREATE        INDEX IF NOT EXISTS idx_coupons_expires       ON public.coupons              (expires_at)`,
-    `CREATE        INDEX IF NOT EXISTS idx_coupons_private       ON public.coupons              (is_private, created_by)`,
-    `CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon        ON public.coupon_redemptions   (coupon_id, user_id) WHERE user_id IS NOT NULL`,
-    `CREATE        INDEX IF NOT EXISTS idx_redemptions_coupon    ON public.coupon_redemptions   (coupon_id)`,
-    `CREATE        INDEX IF NOT EXISTS idx_redemptions_user      ON public.coupon_redemptions   (user_id) WHERE user_id IS NOT NULL`,
-    `CREATE        INDEX IF NOT EXISTS idx_redemptions_admin     ON public.coupon_redemptions   (redeemed_by_admin) WHERE redeemed_by_admin IS NOT NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS unique_coupon_code
+       ON public.coupons (code)`,
+    `CREATE        INDEX IF NOT EXISTS idx_coupons_active
+       ON public.coupons (is_active)`,
+    `CREATE        INDEX IF NOT EXISTS idx_coupons_expires
+       ON public.coupons (expires_at)`,
+    `CREATE        INDEX IF NOT EXISTS idx_coupons_private
+       ON public.coupons (is_private, created_by)`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS unique_user_coupon
+       ON public.coupon_redemptions (coupon_id, user_id) WHERE user_id IS NOT NULL`,
+    `CREATE        INDEX IF NOT EXISTS idx_redemptions_coupon
+       ON public.coupon_redemptions (coupon_id)`,
+    `CREATE        INDEX IF NOT EXISTS idx_redemptions_user
+       ON public.coupon_redemptions (user_id) WHERE user_id IS NOT NULL`,
+    `CREATE        INDEX IF NOT EXISTS idx_redemptions_admin
+       ON public.coupon_redemptions (redeemed_by_admin) WHERE redeemed_by_admin IS NOT NULL`,
   ];
 
   for (const sql of indexes) {
@@ -171,6 +229,37 @@ async function ensureTables() {
 ensureTables().catch((err) =>
   console.warn("[coupons] table init:", err.message)
 );
+
+/* ═══════════════════════════════════════════════════════════════
+   AIRTIME SCHEMA DETECTION — checks which optional columns exist
+═══════════════════════════════════════════════════════════════ */
+const AIRTIME_SCHEMA = {
+  has_admin_note   : false,
+  has_credited_at  : false,
+  has_approved_at  : false,
+  ready            : false,
+};
+
+async function detectAirtimeSchema() {
+  try {
+    const { rows } = await pool.query(
+      `SELECT column_name
+       FROM information_schema.columns
+       WHERE table_schema = 'public'
+         AND table_name   = 'airtime_coupons'`
+    );
+    const cols = new Set(rows.map((r) => r.column_name));
+    AIRTIME_SCHEMA.has_admin_note  = cols.has("admin_note");
+    AIRTIME_SCHEMA.has_credited_at = cols.has("credited_at");
+    AIRTIME_SCHEMA.has_approved_at = cols.has("approved_at");
+    AIRTIME_SCHEMA.ready = true;
+    console.log("[coupons] airtime schema:", AIRTIME_SCHEMA);
+  } catch (err) {
+    console.warn("[coupons] airtime schema detect failed:", err.message);
+  }
+}
+
+detectAirtimeSchema();
 
 /* ═══════════════════════════════════════════════════════════════
    SHAPE HELPERS
@@ -212,21 +301,35 @@ function shapeCoupon(c, now) {
 }
 
 /*
- * Shapes an airtime_coupons row (schema from routes/airtimeCoupons.js).
- * That table uses:
- *   status       : available | redeemed | processing | completed | failed
- *   redeemed_at  : when the user claimed it
- *   phone        : the number airtime will be sent to
- *   network      : MTN / Airtel / Glo / 9mobile
+ * Shapes an airtime_coupons row into the merged coupon format.
+ * Handles ALL possible statuses including legacy aliases.
  */
 function shapeAirtime(a) {
-  const isUsed = a.status !== "available";
+  const rawStatus  = a.status || "available";
+  const normStatus = normalizeStatus(rawStatus);
+  const isUsed     = USED_STATUSES.has(normStatus);
+
+  /* Build description based on status */
+  let description = `🎡 Spin & Win — ₦${Number(a.amount)} Airtime`;
+  if (normStatus === "completed") {
+    description = `✓ ₦${Number(a.amount)} Airtime credited`;
+  } else if (normStatus === "processing" || normStatus === "sent" || normStatus === "approved") {
+    description = `⚡ ₦${Number(a.amount)} Airtime processing`;
+  } else if (normStatus === "pending") {
+    description = `⏳ ₦${Number(a.amount)} Airtime pending`;
+  } else if (normStatus === "rejected") {
+    description = `✗ ₦${Number(a.amount)} Airtime rejected`;
+  } else if (normStatus === "failed") {
+    description = `⚠ ₦${Number(a.amount)} Airtime failed`;
+  }
+
   return {
     id            : a.id,
     code          : a.code,
     type          : "airtime",
-    description   : `🎡 Spin & Win — ₦${Number(a.amount)} Airtime`,
+    description,
     value         : Number(a.amount || 0),
+    amount        : Number(a.amount || 0),
     min_purchase  : 0,
     max_discount  : null,
     usage_count   : isUsed ? 1 : 0,
@@ -235,34 +338,70 @@ function shapeAirtime(a) {
     created_at    : a.created_at,
     is_private    : true,
     is_active     : !isUsed,
-    is_expired    : false,
+    is_expired    : normStatus === "expired",
     is_used       : isUsed,
     is_full       : isUsed,
     days_left     : null,
-    usable        : !isUsed,
+    usable        : normStatus === "available",
     coupon_kind   : "airtime",
-    status        : a.status,
+
+    /* Status fields */
+    status        : normStatus,
+    raw_status    : rawStatus,
+
+    /* Airtime-specific */
     claimed_at    : a.redeemed_at ?? null,
+    approved_at   : a.approved_at ?? null,
+    credited_at   : a.credited_at ?? a.redeemed_at ?? null,
     claim_phone   : a.phone ? normalisePhone(a.phone) : null,
     claim_masked  : maskPhone(a.phone),
     claim_network : a.network ?? null,
+    admin_note    : a.admin_note ?? null,
   };
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   BUILD AIRTIME QUERY based on available columns
+═══════════════════════════════════════════════════════════════ */
+function buildAirtimeSelect() {
+  const cols = [
+    "id",
+    "code",
+    "amount",
+    "status",
+    "created_at",
+    "redeemed_at",
+    "phone",
+    "network",
+  ];
+  if (AIRTIME_SCHEMA.has_admin_note)  cols.push("admin_note");
+  if (AIRTIME_SCHEMA.has_approved_at) cols.push("approved_at");
+  if (AIRTIME_SCHEMA.has_credited_at) cols.push("credited_at");
+  return cols.join(", ");
+}
+
+/* ═══════════════════════════════════════════════════════════════
    GET /api/coupons
-   Merged: discount coupons + airtime coupons
+   Merged: discount + airtime, with cache
+   
+   ★ Query param ?fresh=1 skips cache (useful for polling)
 ═══════════════════════════════════════════════════════════════ */
 router.get("/", authenticate, async (req, res) => {
   try {
-    const userId = req.user.id;
-    const now    = new Date();
+    const userId    = req.user.id;
+    const skipCache = req.query.fresh === "1";
+    const now       = new Date();
 
-    /* ── Try Redis cache first ── */
-    const cached = await cacheGet(KEY.userCoupons(userId));
-    if (cached) {
-      return res.json({ ...cached, cached: true });
+    /* ── Try cache (unless ?fresh=1) ── */
+    if (!skipCache) {
+      const cached = await cacheGet(KEY.userCoupons(userId));
+      if (cached) {
+        return res.json({ ...cached, cached: true });
+      }
     }
+
+    /* ── Ensure schema detected ── */
+    if (!AIRTIME_SCHEMA.ready) await detectAirtimeSchema();
 
     /* ── Discount coupons ── */
     const { rows: discountRows } = await pool.query(
@@ -297,14 +436,11 @@ router.get("/", authenticate, async (req, res) => {
       [userId]
     );
 
-    /* ── Airtime coupons (schema from airtimeCoupons.js) ── */
+    /* ── Airtime coupons ── */
     let airtimeRows = [];
     try {
       const r = await pool.query(
-        `SELECT
-           id, code, amount, status,
-           created_at, redeemed_at,
-           phone, network
+        `SELECT ${buildAirtimeSelect()}
          FROM public.airtime_coupons
          WHERE user_id = $1
          ORDER BY created_at DESC`,
@@ -312,13 +448,13 @@ router.get("/", authenticate, async (req, res) => {
       );
       airtimeRows = r.rows;
     } catch (e) {
-      /* Non-fatal — table may not exist yet if airtimeCoupons.js hasn't run */
       console.warn("[coupons] airtime query failed (non-fatal):", e.message);
     }
 
     const discountCoupons = discountRows.map((c) => shapeCoupon(c, now));
     const airtimeCoupons  = airtimeRows.map(shapeAirtime);
 
+    /* Split & sort */
     const usable = [
       ...airtimeCoupons .filter((c) =>  c.usable),
       ...discountCoupons.filter((c) =>  c.usable),
@@ -330,18 +466,29 @@ router.get("/", authenticate, async (req, res) => {
 
     const coupons = [...usable, ...inactive];
 
+    /* Count active airtime claims (pending/processing/sent) */
+    const airtimeActive = airtimeCoupons.filter((c) =>
+      ["pending", "approved", "processing", "sent"].includes(c.status)
+    ).length;
+
     const payload = {
       success : true,
       coupons,
       counts  : {
-        total    : coupons.length,
-        usable   : usable.length,
-        airtime  : airtimeCoupons.length,
-        discount : discountCoupons.length,
+        total          : coupons.length,
+        usable         : usable.length,
+        airtime        : airtimeCoupons.length,
+        discount       : discountCoupons.length,
+        airtime_active : airtimeActive,   // Frontend uses this to trigger polling
       },
+      /* Include schema info so frontend can adapt */
+      _schema : AIRTIME_SCHEMA,
     };
 
-    await cacheSet(KEY.userCoupons(userId), payload, TTL.COUPON_CACHE);
+    /* Cache with shorter TTL if user has active claims */
+    const ttl = airtimeActive > 0 ? 15 : TTL.COUPON_CACHE;
+    await cacheSet(KEY.userCoupons(userId), payload, ttl);
+
     return res.json(payload);
 
   } catch (err) {
@@ -352,7 +499,6 @@ router.get("/", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/coupons/validate
-   Body: { code, order_amount }
 ═══════════════════════════════════════════════════════════════ */
 router.post("/validate", authenticate, async (req, res) => {
   const { code, order_amount = 0 } = req.body;
@@ -457,7 +603,6 @@ router.post("/validate", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /api/coupons/redeem
-   Body: { code, order_id, discount }
 ═══════════════════════════════════════════════════════════════ */
 router.post("/redeem", authenticate, async (req, res) => {
   const { code, order_id, discount } = req.body;
@@ -531,17 +676,44 @@ router.post("/redeem", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/coupons/history
-   Merged: discount redemptions + airtime redemptions
+   Merged: discount + airtime redemptions
 ═══════════════════════════════════════════════════════════════ */
 router.get("/history", authenticate, async (req, res) => {
   try {
-    const userId = req.user.id;
+    const userId    = req.user.id;
+    const skipCache = req.query.fresh === "1";
 
     /* ── Try cache ── */
-    const cached = await cacheGet(KEY.userHistory(userId));
-    if (cached) {
-      return res.json({ ...cached, cached: true });
+    if (!skipCache) {
+      const cached = await cacheGet(KEY.userHistory(userId));
+      if (cached) {
+        return res.json({ ...cached, cached: true });
+      }
     }
+
+    if (!AIRTIME_SCHEMA.ready) await detectAirtimeSchema();
+
+    /* Build airtime SELECT dynamically */
+    const airtimeCols = [
+      "id",
+      "code",
+      "amount AS value",
+      "status",
+      "created_at",
+      "redeemed_at",
+      "phone   AS claim_phone",
+      "network AS claim_network",
+    ];
+    if (AIRTIME_SCHEMA.has_admin_note)  airtimeCols.push("admin_note");
+    if (AIRTIME_SCHEMA.has_credited_at) airtimeCols.push("credited_at");
+    if (AIRTIME_SCHEMA.has_approved_at) airtimeCols.push("approved_at");
+
+    const historyStatusList = [...HISTORY_STATUSES]
+      .map((s) => `'${s}'`)
+      .join(", ");
+
+    /* Include legacy statuses too */
+    const airtimeStatusFilter = `status IN (${historyStatusList}, 'redeemed', 'claimed', 'credited')`;
 
     const [discountRes, airtimeRes] = await Promise.all([
       pool.query(
@@ -556,20 +728,13 @@ router.get("/history", authenticate, async (req, res) => {
          LIMIT 50`,
         [userId]
       ),
-      /* Airtime — pulls from airtime_coupons directly */
+
       pool.query(
-        `SELECT
-           id, code,
-           amount   AS value,
-           status,
-           created_at,
-           redeemed_at,
-           phone    AS claim_phone,
-           network  AS claim_network
+        `SELECT ${airtimeCols.join(", ")}
          FROM public.airtime_coupons
          WHERE user_id = $1
-           AND status  != 'available'
-         ORDER BY redeemed_at DESC NULLS LAST
+           AND ${airtimeStatusFilter}
+         ORDER BY COALESCE(redeemed_at, created_at) DESC
          LIMIT 50`,
         [userId]
       ).catch((e) => {
@@ -578,32 +743,48 @@ router.get("/history", authenticate, async (req, res) => {
       }),
     ]);
 
+    /* Shape discount history */
     const discountHistory = discountRes.rows.map((r) => ({
-      ...r,
+      id                     : r.id,
       coupon_kind            : "discount",
+      code                   : r.code,
+      type                   : r.type,
+      description            : r.description,
       discount               : Number(r.discount || 0),
       value                  : Number(r.value    || 0),
+      redeemed_at            : r.redeemed_at,
+      order_id               : r.order_id,
       redeemed_by_admin      : !!r.redeemed_by_admin_name,
       redeemed_by_admin_name : r.redeemed_by_admin_name || null,
     }));
 
-    const airtimeHistory = airtimeRes.rows.map((r) => ({
-      id                     : r.id,
-      coupon_kind            : "airtime",
-      code                   : r.code,
-      type                   : "airtime",
-      description            : `₦${Number(r.value)} Airtime — ${r.status}`,
-      value                  : Number(r.value || 0),
-      discount               : Number(r.value || 0),
-      status                 : r.status,
-      redeemed_at            : r.redeemed_at,
-      claim_phone            : r.claim_phone ? normalisePhone(r.claim_phone) : null,
-      claim_masked           : maskPhone(r.claim_phone),
-      claim_network          : r.claim_network ?? null,
-      order_id               : null,
-      redeemed_by_admin      : false,
-      redeemed_by_admin_name : null,
-    }));
+    /* Shape airtime history */
+    const airtimeHistory = airtimeRes.rows.map((r) => {
+      const normStatus = normalizeStatus(r.status);
+      return {
+        id                     : r.id,
+        coupon_kind            : "airtime",
+        code                   : r.code,
+        type                   : "airtime",
+        description            : `₦${Number(r.value)} Airtime — ${normStatus}`,
+        value                  : Number(r.value || 0),
+        amount                 : Number(r.value || 0),
+        discount               : Number(r.value || 0),
+        status                 : normStatus,
+        raw_status             : r.status,
+        redeemed_at            : r.credited_at || r.approved_at || r.redeemed_at,
+        claimed_at             : r.redeemed_at,
+        approved_at            : r.approved_at || null,
+        credited_at            : r.credited_at || null,
+        claim_phone            : r.claim_phone ? normalisePhone(r.claim_phone) : null,
+        claim_masked           : maskPhone(r.claim_phone),
+        claim_network          : r.claim_network ?? null,
+        admin_note             : r.admin_note ?? null,
+        order_id               : null,
+        redeemed_by_admin      : false,
+        redeemed_by_admin_name : null,
+      };
+    });
 
     const history = [...discountHistory, ...airtimeHistory].sort(
       (a, b) => new Date(b.redeemed_at || 0) - new Date(a.redeemed_at || 0)
@@ -621,8 +802,21 @@ router.get("/history", authenticate, async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   POST /api/coupons/invalidate-cache
+   Convenience endpoint for the user to force-refresh their cache
+   (called by frontend after any airtime action)
+═══════════════════════════════════════════════════════════════ */
+router.post("/invalidate-cache", authenticate, async (req, res) => {
+  try {
+    await invalidateUserCache(req.user.id);
+    return res.json({ success: true, message: "Cache cleared." });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/* ═══════════════════════════════════════════════════════════════
    AIRTIME ENDPOINTS — 410 Gone (moved)
-   Everything airtime-related lives in /api/airtime-coupons now.
 ═══════════════════════════════════════════════════════════════ */
 const airtimeMovedResponse = (res) =>
   res.status(410).json({
@@ -646,5 +840,4 @@ router.post("/airtime/claim",        authenticate, (_req, res) => airtimeMovedRe
 /* ═══════════════════════════════════════════════════════════════
    EXPORTS
 ═══════════════════════════════════════════════════════════════ */
-export { invalidateUserCache };
 export default router;
