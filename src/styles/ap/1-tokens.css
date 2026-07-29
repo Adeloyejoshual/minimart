@@ -55,6 +55,16 @@
   --font-d      : var(--fd);
 }
 
+:root {
+  /* ... your existing tokens ... */
+
+  /* Error / danger tokens (v7) */
+  --err-bg     : #fff5f5;
+  --err-border : #fecaca;
+  --err-text   : #c62828;
+  --err-strong : #ef4444;
+}
+
 /* ───────────────────────────────────────────────────────────────
    DARK MODE — System Preference
 ─────────────────────────────────────────────────────────────── */
