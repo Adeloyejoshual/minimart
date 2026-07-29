@@ -1,6 +1,11 @@
 /**
  * src/product/shared/ImagesSection.jsx
  * Existing images + new uploads
+ *
+ * v3 — Inline field error (from v8 useAddProduct)
+ *      Shows "At least one image is required" inline
+ *      Section gets red highlight when validation fails
+ * v2 — Duplicate detection + drag & drop
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
@@ -27,6 +32,8 @@ export default function ImagesSection({ innerRef }) {
     totalImageCount, MAX_IMAGES,
     handleImages, removeImage, moveAllImages,
     isEditMode,
+    fieldError,           /* ✅ v8: inline field error */
+    clearFieldError,      /* ✅ v8: clear when user adds image */
   } = useAddProductContext();
 
   const [imageErrors, setImageErrors] = useState({});
@@ -37,6 +44,13 @@ export default function ImagesSection({ innerRef }) {
   const validatedIdsRef = useRef(new Set());
   const dropZoneRef     = useRef(null);
   const dragCounterRef  = useRef(0);
+
+  /* ✅ Clear "At least one image..." error the moment user adds one */
+  useEffect(() => {
+    if (totalImageCount > 0 && fieldError?.field === "images") {
+      clearFieldError?.("images");
+    }
+  }, [totalImageCount, fieldError?.field, clearFieldError]);
 
   const _validateImages = useCallback(async (incoming) => {
     const errors = {};
@@ -124,8 +138,14 @@ export default function ImagesSection({ innerRef }) {
   const hasImageErrors = Object.keys(imageErrors).length > 0;
   const imagesFilled   = totalImageCount > 0 && !hasImageErrors;
 
+  /* Section-level error state (from form validation) */
+  const hasSectionError = fieldError?.field === "images";
+
   return (
-    <section ref={innerRef} className="section form-card">
+    <section
+      ref={innerRef}
+      className={`section form-card ${hasSectionError ? "has-error" : ""}`}
+    >
       <h3 className="section-title">
         Product Images * <SectionDot filled={imagesFilled} />
       </h3>
@@ -141,12 +161,23 @@ export default function ImagesSection({ innerRef }) {
         )}
       </div>
 
+      {/* ✅ v8: Inline section-level error (from form validation) */}
+      {hasSectionError && (
+        <div className="field-error" role="alert" style={{ marginBottom: 10 }}>
+          <WarningIcon />
+          <span>{fieldError.message}</span>
+        </div>
+      )}
+
+      {/* Per-image errors (duplicates, wrong type, too large) */}
       {hasImageErrors && (
-        <div className="form-error" role="alert" style={{ marginBottom: 10 }}>
-          <WarningIcon />{" "}
-          {Object.keys(imageErrors).length} image
-          {Object.keys(imageErrors).length !== 1 ? "s have" : " has"} errors
-          — fix before submitting
+        <div className="field-error" role="alert" style={{ marginBottom: 10 }}>
+          <WarningIcon />
+          <span>
+            {Object.keys(imageErrors).length} image
+            {Object.keys(imageErrors).length !== 1 ? "s have" : " has"} errors
+            — fix before submitting
+          </span>
         </div>
       )}
 
