@@ -1,6 +1,9 @@
 /**
  * src/product/shared/ProductDetailsSection.jsx
  * Category · Subcategory · Brand · Model · Fields · Features
+ *
+ * v2 — Inline field error for Category (from v8 useAddProduct)
+ *      Shows "Category required." inline under the Category dropdown
  */
 import { useMemo, useState } from "react";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
@@ -8,6 +11,7 @@ import DropdownModal      from "../../components/DropdownModal.jsx";
 import { categoryFields } from "../../config/categoryFields.js";
 import { INITIAL_FORM }   from "../../hooks/useFormState.js";
 import SectionDot         from "../../pages/product/components/SectionDot.jsx";
+import { WarningIcon }    from "../../pages/product/components/icons/index.jsx";
 
 const safeStr   = (v) => (typeof v === "string" ? v : String(v ?? ""));
 const toArray   = (v) => (Array.isArray(v) ? v : []);
@@ -31,6 +35,7 @@ export default function ProductDetailsSection({ innerRef }) {
     form, updateForm, attributes, updateAttribute,
     categories, selectedCategory, options,
     isEditMode, toggleFeature, formatLabel,
+    fieldError,   /* ✅ v8: inline field errors */
   } = useAddProductContext();
 
   const [showAllFeatures, setShowAllFeatures] = useState(false);
@@ -95,13 +100,17 @@ export default function ProductDetailsSection({ innerRef }) {
   const showModelField = !!attributes?.brand;
   const detailsFilled  = !!form.category_id;
 
+  /* Helper — checks if a specific field has an error right now */
+  const hasError = (field) => fieldError?.field === field;
+
   return (
     <section ref={innerRef} className="section form-card">
       <h3 className="section-title">
         Product Details <SectionDot filled={detailsFilled} />
       </h3>
 
-      <div className="form-group">
+      {/* ── CATEGORY ── */}
+      <div className={`form-group ${hasError("category") ? "has-error" : ""}`}>
         <label>Category *</label>
         <DropdownModal
           value={String(form.category_id ?? "")}
@@ -115,8 +124,16 @@ export default function ProductDetailsSection({ innerRef }) {
               updateForm("attributes", deepClone(INITIAL_FORM.attributes));
           }}
         />
+
+        {hasError("category") && (
+          <div className="field-error" role="alert">
+            <WarningIcon />
+            <span>{fieldError.message}</span>
+          </div>
+        )}
       </div>
 
+      {/* ── SUBCATEGORY ── */}
       {subcategories.length > 0 && (
         <div className="form-group">
           <label>Subcategory</label>
@@ -129,6 +146,7 @@ export default function ProductDetailsSection({ innerRef }) {
         </div>
       )}
 
+      {/* ── BRAND ── */}
       {normalizedOptions.brand.length > 0 && (
         <div className="form-group">
           <label>{formatLabel("brand")}</label>
@@ -140,6 +158,7 @@ export default function ProductDetailsSection({ innerRef }) {
         </div>
       )}
 
+      {/* ── MODEL ── */}
       {showModelField && (
         <div className="form-group">
           <label>{formatLabel("model")}</label>
@@ -163,6 +182,7 @@ export default function ProductDetailsSection({ innerRef }) {
         </div>
       )}
 
+      {/* ── DYNAMIC CATEGORY FIELDS ── */}
       {fields.map((field) => {
         const fieldOptions = normalizedOptions[field] ?? [];
         if (!fieldOptions.length) return null;
@@ -179,6 +199,7 @@ export default function ProductDetailsSection({ innerRef }) {
         );
       })}
 
+      {/* ── FEATURES ── */}
       {totalFeatureCount > 0 && (
         <div className="form-group">
           <label>Features</label>
