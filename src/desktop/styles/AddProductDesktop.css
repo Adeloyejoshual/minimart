@@ -1,28 +1,18 @@
 /* src/desktop/styles/AddProductDesktop.css
    Desktop 2-column layout for AddProduct page.
-   Only kicks in ≥1024px — mobile CSS handles smaller screens.
+   Only kicks in ≥1200px — anything narrower uses mobile layout
+   to avoid squeezed columns.
 
-   v5 — BUG FIX: removed overflow-y / max-height from .apd-sticky
-   ─────────────────────────────────────────────────────────────────
-   Root cause of "dropdown not clickable" on desktop:
-
-   DropdownModal renders its panel via createPortal into document.body
-   with { position: fixed, zIndex: 10000 }. That is correct.
-
-   BUT — when a sticky element also has overflow-y: auto, the browser
-   creates a new scroll container AND a new stacking context for it.
-   That stacking context sits above the portal panel in the paint order
-   and intercepts pointer events before they reach the fixed panel.
-
-   Fix: remove overflow-y and max-height from .apd-sticky entirely.
-   The right column is not tall enough to need its own scrollbar —
-   the page scrolls. Sticky positioning still works perfectly.
+   v6 — Fixes:
+     • Bumped breakpoint 1024 → 1200px (was too tight at ~1080px)
+     • Right column overlap on narrow desktops
+     • Kept overflow-y removal (dropdown click fix)
 */
 
 /* ═══════════════════════════════════════════════════════════════
    PAGE OVERRIDES (desktop only)
 ═══════════════════════════════════════════════════════════════ */
-@media (min-width: 1024px) {
+@media (min-width: 1200px) {
 
   .apd-page {
     max-width: 1400px;
@@ -45,14 +35,15 @@
 
   /* ═════════════════════════════════════════════════════════
      GRID
+     Left: fluid — Right: fixed 380px
   ═════════════════════════════════════════════════════════ */
   .apd-grid {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(360px, 420px);
-    gap: 32px;
+    grid-template-columns: minmax(0, 1fr) 380px;
+    gap: 28px;
     margin-top: 20px;
     align-items: start;
-    position: relative;   /* stacking context for the grid only */
+    position: relative;
   }
 
   /* ═════════════════════════════════════════════════════════
@@ -62,17 +53,16 @@
     display: flex;
     flex-direction: column;
     gap: 20px;
-    min-width: 0;         /* prevents overflow blowout */
+    min-width: 0;
   }
 
   .apd-left .section,
   .apd-left .form-card {
-    margin: 0;            /* reset mobile margins */
-    padding: 32px;
+    margin: 0;
+    padding: 28px;
     border-radius: var(--r-xl);
   }
 
-  /* Inputs and textareas */
   .apd-left .form-group input[type="text"],
   .apd-left .form-group input[type="email"],
   .apd-left .form-group input[type="tel"],
@@ -83,14 +73,12 @@
     font-size: 0.95rem;
   }
 
-  /* Title gets extra breathing room */
   .apd-left #ap-title {
     padding: 20px 22px;
     font-size: 1.15rem;
     min-height: 62px;
   }
 
-  /* Section headings */
   .apd-left .section-title {
     font-size: 1.15rem;
     margin-bottom: 20px;
@@ -99,21 +87,10 @@
   /* ═════════════════════════════════════════════════════════
      RIGHT COLUMN — sticky sidebar
      ─────────────────────────────────────────────────────────
-     .apd-right is a normal grid cell — no special treatment.
-
-     .apd-sticky is position:sticky so it follows the scroll.
-
-     ✅ NO overflow-y, NO max-height on .apd-sticky.
-
-     Reason: overflow-y: auto would create a new stacking
-     context that sits above the DropdownModal portal panel
-     (position:fixed, zIndex:10000 in document.body) and
-     intercept pointer events — making dropdowns unclickable.
-
-     The sidebar content (ListingPreview + PromotionPlan +
-     SubmitSection) is short enough that the page scroll is
-     sufficient. If it ever overflows, the page scrolls —
-     which is the correct UX for a sidebar.
+     ✅ NO overflow-y / max-height
+        overflow on a sticky element creates a stacking context
+        that intercepts pointer events from portal-rendered
+        DropdownModal panels (position:fixed, zIndex:10000).
   ═════════════════════════════════════════════════════════ */
   .apd-right {
     min-width: 0;
@@ -125,19 +102,15 @@
     display: flex;
     flex-direction: column;
     gap: 16px;
-    /* ✅ overflow-y and max-height intentionally omitted —
-       see explanation above */
   }
 
-  /* Remove mobile margins from every direct child */
   .apd-sticky > * {
     margin: 0 !important;
   }
 
-  /* Compact cards inside the sidebar */
   .apd-sticky .section,
   .apd-sticky .form-card {
-    padding: 20px;
+    padding: 18px;
   }
 
   .apd-sticky .section-title {
@@ -145,7 +118,6 @@
     margin-bottom: 12px;
   }
 
-  /* Plans stack vertically in the narrow sidebar */
   .apd-sticky .plans-grid {
     grid-template-columns: 1fr;
     gap: 10px;
@@ -155,11 +127,10 @@
     padding: 14px;
   }
 
-  /* Submit section — static inside the sticky wrapper */
   .apd-sticky .button-section {
     position: static;
     bottom: auto;
-    padding: 20px;
+    padding: 18px;
     border-radius: var(--r-xl);
     background: var(--wh);
     box-shadow: var(--sh-sm);
@@ -170,13 +141,13 @@
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   EXTRA LARGE ≥1440px — wider sidebar, more padding
+   EXTRA LARGE ≥1440px
 ═══════════════════════════════════════════════════════════════ */
 @media (min-width: 1440px) {
 
   .apd-grid {
-    grid-template-columns: minmax(0, 1fr) 460px;
-    gap: 40px;
+    grid-template-columns: minmax(0, 1fr) 440px;
+    gap: 36px;
   }
 
   .apd-left .section,
@@ -188,7 +159,7 @@
 /* ═══════════════════════════════════════════════════════════════
    DARK MODE
 ═══════════════════════════════════════════════════════════════ */
-@media (min-width: 1024px) and (prefers-color-scheme: dark) {
+@media (min-width: 1200px) and (prefers-color-scheme: dark) {
 
   .apd-sticky .button-section {
     background: var(--wh);
