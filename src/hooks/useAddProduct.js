@@ -2,13 +2,16 @@
  * src/hooks/useAddProduct.js
  * All logic for AddProduct — state, effects, handlers, submit.
  *
- * v7 — DEBUG EDITION
+ * v8 — INLINE FIELD ERRORS
  * ─────────────────────────────────────────────────────────────
- *  - ZERO email validation on frontend
- *  - Sends user.email in payment/initiate body as safety net
- *    (in case backend still requires it — remove later)
- *  - Temporary console.trace on showError to catch stray callers
- *  - Full parity with pages/AddProduct.jsx v6
+ *  - Field-level error state (fieldError) alongside top banner
+ *  - Maps validation messages to specific field keys
+ *  - Auto-clears when user starts editing that field
+ *  - Sections can display errors inline under the offending input
+ *  - Top banner still shown for non-field errors (network, server)
+ *
+ * v7 — Verify-before-pay + 3-tier + watermark + state normalization
+ * v6 — Full parity with pages/AddProduct.jsx
  */
 
 import {
@@ -49,23 +52,54 @@ const ALLOWED_PAYMENT_HOSTS = new Set([
 
 const PHONE_RE = /^\+?[0-9]{7,15}$/;
 
-/* Enable to trace who's calling showError (helps find stray email errors) */
-const DEBUG_TRACE_ERRORS = true;
+/* Set false in production once email issue is fully resolved */
+const DEBUG_TRACE_ERRORS = false;
 
+/* ═══════════════════════════════════════════════════════════════
+   ERROR → SELECTOR MAPPING (for scroll-to-error)
+═══════════════════════════════════════════════════════════════ */
 const ERROR_SELECTOR_MAP = [
   { match: "Title",          sel: "#ap-title"               },
   { match: "Description",    sel: "#ap-desc"                },
   { match: "price",          sel: "#ap-price"               },
+  { match: "Price",          sel: "#ap-price"               },
   { match: "Category",       sel: ".section:nth-of-type(2)" },
   { match: "Phone",          sel: "#ap-phone"               },
   { match: "WhatsApp",       sel: "#ap-wa"                  },
   { match: "image",          sel: ".ap-image-box"           },
   { match: "state and city", sel: ".detect-location-row"    },
-  { match: "Terms",          sel: ".terms-wrapper"          },
+  { match: "Terms",          sel: ".ap-terms-row"           },
   { match: "delivery days",  sel: "#ap-del-from"            },
   { match: "Delivery end",   sel: "#ap-del-to"              },
   { match: "delivery fee",   sel: "#ap-del-fee"             },
 ];
+
+/* ═══════════════════════════════════════════════════════════════
+   ERROR → FIELD KEY MAPPING (for inline errors)
+   Sections read `fieldError.field` to decide which input
+   should show the error message + red border.
+═══════════════════════════════════════════════════════════════ */
+const ERROR_FIELD_MAP = [
+  { match: "Title",          field: "title"          },
+  { match: "Description",    field: "description"    },
+  { match: "price",          field: "price"          },
+  { match: "Price",          field: "price"          },
+  { match: "Category",       field: "category"       },
+  { match: "Phone",          field: "phone"          },
+  { match: "WhatsApp",       field: "whatsapp"       },
+  { match: "image",          field: "images"         },
+  { match: "state and city", field: "location"       },
+  { match: "Terms",          field: "terms"          },
+  { match: "delivery days",  field: "delivery_from"  },
+  { match: "Delivery end",   field: "delivery_to"    },
+  { match: "delivery fee",   field: "delivery_fee"   },
+];
+
+const getFieldFromMessage = (msg) => {
+  if (!msg) return null;
+  const entry = ERROR_FIELD_MAP.find((e) => msg.includes(e.match));
+  return entry?.field ?? null;
+};
 
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
@@ -218,7 +252,6 @@ export function useAddProduct({ user }) {
   const showSuccessRef  = useRef(() => {});
   const userRef         = useRef(user);
 
-  /* Keep userRef current so closures can read latest user.email */
   useEffect(() => { userRef.current = user; }, [user]);
 
   useEffect(() => {
@@ -295,15 +328,32 @@ export function useAddProduct({ user }) {
   /* Verify before pay modal */
   const [showVerifyBeforePay, setShowVerifyBeforePay] = useState(false);
 
+  /* ─── ✅ v8: Field-level error state ─── */
+  const [fieldError, setFieldError] = useState({ field: null, message: "" });
+
+  /* ═══════════════════════════════════════════════════════════
+     FIELD ERROR HELPERS
+  ═══════════════════════════════════════════════════════════ */
+  const clearFieldError = useCallback((field) => {
+    setFieldError((prev) =>
+      prev.field === field || !field
+        ? { field: null, message: "" }
+        : prev
+    );
+  }, []);
+
+  const clearAllFieldErrors = useCallback(() => {
+    setFieldError({ field: null, message: "" });
+  }, []);
+
   /* ═══════════════════════════════════════════════════════════
      FEEDBACK
-     ✅ v7: console.trace to find stray "Enter a valid email" callers
+     Now also sets field-level error so sections can render
+     the message inline under the exact input.
   ═══════════════════════════════════════════════════════════ */
   const showError = useCallback((msg) => {
     if (!mountedRef.current) return;
 
-    /* 🔍 TEMP DEBUG — logs the stack trace for every error
-       Remove after diagnosing the email error mystery */
     if (DEBUG_TRACE_ERRORS && import.meta.env.DEV) {
       console.group(
         "%c[showError]",
@@ -315,9 +365,22 @@ export function useAddProduct({ user }) {
     }
 
     setError(msg);
+
+    /* ✅ Also set field-level error if we can map it */
+    const field = getFieldFromMessage(msg);
+    if (field) {
+      setFieldError({ field, message: msg });
+    } else {
+      setFieldError({ field: null, message: "" });
+    }
+
     scrollToError(msg);
+
     const id = setTimeout(() => {
-      if (mountedRef.current) setError("");
+      if (mountedRef.current) {
+        setError("");
+        setFieldError({ field: null, message: "" });
+      }
       timeoutIdsRef.current.delete(id);
     }, 7_000);
     timeoutIdsRef.current.add(id);
@@ -353,6 +416,59 @@ export function useAddProduct({ user }) {
     setWatermarkWarnings([]);
     setWatermarkNotice("");
   }, []);
+
+  /* ═══════════════════════════════════════════════════════════
+     ✅ v8: WRAPPED UPDATERS
+     Automatically clear the relevant field error when the
+     user starts editing that field.
+  ═══════════════════════════════════════════════════════════ */
+  const updateFormWithClear = useCallback((key, value) => {
+    updateForm(key, value);
+    /* Map form key → field-error key */
+    const map = {
+      title       : "title",
+      description : "description",
+      price       : "price",
+      category_id : "category",
+    };
+    const errKey = map[key];
+    if (errKey) clearFieldError(errKey);
+  }, [updateForm, clearFieldError]);
+
+  const updateContactWithClear = useCallback((key, value) => {
+    updateContact(key, value);
+    /* Contact keys match field-error keys directly */
+    if (key === "phone")    clearFieldError("phone");
+    if (key === "whatsapp") clearFieldError("whatsapp");
+  }, [updateContact, clearFieldError]);
+
+  const setLocationStateWithClear = useCallback((val) => {
+    setLocationState(val);
+    if (val) clearFieldError("location");
+  }, [clearFieldError]);
+
+  const setCityWithClear = useCallback((val) => {
+    setCity(val);
+    if (val) clearFieldError("location");
+  }, [clearFieldError]);
+
+  const setAgreedToTermsWithClear = useCallback((val) => {
+    setAgreedToTerms(val);
+    if (typeof val === "function") return;   // functional updater
+    if (val) clearFieldError("terms");
+  }, [clearFieldError]);
+
+  const updateDeliveryWithClear = useCallback((key, value) => {
+    updateDelivery(key, value);
+    if (key === "fee")       clearFieldError("delivery_fee");
+    if (key === "available") clearAllFieldErrors();
+  }, [updateDelivery, clearFieldError, clearAllFieldErrors]);
+
+  const updateDeliveryDurationWithClear = useCallback((key, value) => {
+    updateDeliveryDuration(key, value);
+    if (key === "from") clearFieldError("delivery_from");
+    if (key === "to")   clearFieldError("delivery_to");
+  }, [updateDeliveryDuration, clearFieldError]);
 
   /* ─── Derived ─── */
   const selectedCategory = useMemo(
@@ -669,13 +785,6 @@ export function useAddProduct({ user }) {
               s.toLowerCase().includes(detected.toLowerCase())
           ) ??
           "";
-
-        if (import.meta.env.DEV) {
-          console.log(
-            "[detectLocation] GPS state:", detected,
-            "→ matched:", matchedState || "❌ none"
-          );
-        }
       }
 
       /* Normalize city */
@@ -695,8 +804,11 @@ export function useAddProduct({ user }) {
           "";
       }
 
-      if (matchedState) setLocationState(matchedState);
-      if (matchedCity)  setCity(matchedCity);
+      if (matchedState) {
+        setLocationState(matchedState);
+        clearFieldError("location");
+      }
+      if (matchedCity) setCity(matchedCity);
 
       setDetectedCoords({
         latitude : result.latitude,
@@ -722,11 +834,10 @@ export function useAddProduct({ user }) {
     } finally {
       if (mountedRef.current) setDetectingLocation(false);
     }
-  }, [showError, showSuccess]);
+  }, [showError, showSuccess, clearFieldError]);
 
   /* ═══════════════════════════════════════════════════════════
-     VALIDATION
-     ✅ v7: ABSOLUTELY NO EMAIL CHECK
+     VALIDATION — NO EMAIL CHECK
   ═══════════════════════════════════════════════════════════ */
   const validateForm = useCallback(() => {
     const t = form.title?.trim() ?? "";
@@ -746,8 +857,6 @@ export function useAddProduct({ user }) {
 
     if (!form.category_id)
       return "Category required.";
-
-    /* ❌ NO EMAIL VALIDATION — email comes from users table */
 
     if (!isValidPhone(form.contact?.phone))
       return "Phone number must be 7–15 digits (e.g. 08012345678).";
@@ -901,13 +1010,14 @@ export function useAddProduct({ user }) {
     setWatermarkWarnings([]);
     setWatermarkNotice("");
     setShowVerifyBeforePay(false);
+    clearAllFieldErrors();
     localStorage.removeItem(STORAGE_DRAFT);
     localStorage.removeItem(STORAGE_PAYMENT);
     clearIdempotencyKey(IDEMPOTENCY_STORE);
     showSuccess("Draft cleared");
   }, [
     STORAGE_DRAFT, IDEMPOTENCY_STORE,
-    resetForm, resetImages, showSuccess,
+    resetForm, resetImages, showSuccess, clearAllFieldErrors,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
@@ -1009,6 +1119,9 @@ export function useAddProduct({ user }) {
       return;
     }
 
+    /* Clear any lingering field errors on successful validation */
+    clearAllFieldErrors();
+
     setProgressVisible(true);
     setProgressStep("uploading");
     setError("");
@@ -1051,13 +1164,11 @@ export function useAddProduct({ user }) {
     }
   }, [
     editId, validateForm, buildEditFormData,
-    navigate, showError, showSuccess, safeRedirect,
+    navigate, showError, showSuccess, safeRedirect, clearAllFieldErrors,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
      CREATE SUBMIT — CORE
-     ✅ v7: Sends user.email in payment body as safety net
-            in case backend still requires it
   ═══════════════════════════════════════════════════════════ */
   const runCreateSubmit = useCallback(async (forcedPlan = null) => {
     if (!navigator.onLine) { showError("You appear to be offline."); return; }
@@ -1071,6 +1182,9 @@ export function useAddProduct({ user }) {
       isSubmittingRef.current = false;
       return;
     }
+
+    /* All checks pass — clear stale field errors */
+    clearAllFieldErrors();
 
     setWatermarkWarnings([]);
     setWatermarkNotice("");
@@ -1151,10 +1265,7 @@ export function useAddProduct({ user }) {
         (rawPrice * (1 - discount / 100)).toFixed(2)
       );
 
-      /* ✅ v7 safety net: include email from user.email if available
-         Backend should read from users table, but if it still requires
-         email in body we fall back to this. Safe to remove once backend
-         is confirmed to not need it. */
+      /* Safety net: send user.email if available */
       const userEmail = userRef.current?.email ?? "";
 
       const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
@@ -1286,11 +1397,11 @@ export function useAddProduct({ user }) {
     validateForm, selectedPlan, promotionPlans, plansLoading,
     buildCreateFormData, clearDraft, showError, showSuccess,
     handlePostSuccess, fetchLimits, navigate,
-    IDEMPOTENCY_STORE, lifetimeUsed,
+    IDEMPOTENCY_STORE, lifetimeUsed, clearAllFieldErrors,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
-     CREATE SUBMIT — ENTRY (v6 verify-before-pay guard)
+     CREATE SUBMIT — ENTRY (verify-before-pay guard)
   ═══════════════════════════════════════════════════════════ */
   const handleCreateSubmit = useCallback(() => {
     if (isSubmittingRef.current) return;
@@ -1353,10 +1464,14 @@ export function useAddProduct({ user }) {
     /* navigation */
     navigate,
 
-    /* form */
+    /* form — ✅ using wrapped updaters that auto-clear field errors */
     form, attributes,
-    updateForm, updateAttribute, updateContact,
-    updateDelivery, updateDeliveryDuration, toggleFeature,
+    updateForm            : updateFormWithClear,
+    updateAttribute,
+    updateContact         : updateContactWithClear,
+    updateDelivery        : updateDeliveryWithClear,
+    updateDeliveryDuration: updateDeliveryDurationWithClear,
+    toggleFeature,
     resetForm, loadForm,
 
     /* categories */
@@ -1366,11 +1481,12 @@ export function useAddProduct({ user }) {
     promotionPlans, plansLoading,
     selectedPlan, setSelectedPlan, isSelectedPlanPaid,
 
-    /* location — expose both names for section compatibility */
+    /* location — ✅ wrapped setters that clear field errors */
     locationState, city,
     state: locationState,
-    setState: setLocationState,
-    setLocationState, setCity,
+    setState        : setLocationStateWithClear,
+    setLocationState: setLocationStateWithClear,
+    setCity         : setCityWithClear,
     states, cities,
     detectLocation, detectingLocation, detectedCoords,
 
@@ -1391,6 +1507,11 @@ export function useAddProduct({ user }) {
 
     /* feedback */
     error, success, showError, showSuccess,
+
+    /* ✅ v8: field-level errors */
+    fieldError,
+    clearFieldError,
+    clearAllFieldErrors,
 
     /* payment */
     paymentData, resumePayment, cancelPendingPayment,
@@ -1413,8 +1534,9 @@ export function useAddProduct({ user }) {
     handleVerifyBeforePayCancel,
     handleVerifyBeforePayFreePlan,
 
-    /* terms */
-    agreedToTerms, setAgreedToTerms,
+    /* terms — ✅ wrapped to clear field error */
+    agreedToTerms,
+    setAgreedToTerms: setAgreedToTermsWithClear,
 
     /* draft */
     clearDraft,
