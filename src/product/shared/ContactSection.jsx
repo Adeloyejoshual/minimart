@@ -2,6 +2,7 @@
  * src/product/shared/ContactSection.jsx
  * Phone · WhatsApp · WhatsApp Link
  *
+ * v3 — Inline field errors (from v8 useAddProduct)
  * v2 — Email removed (v5 spec)
  *      Email auto-set from user.email at registration
  *      Backend reads email from users table — never from form
@@ -9,12 +10,14 @@
 import { useCallback, useMemo, useState } from "react";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import SectionDot from "../../pages/product/components/SectionDot.jsx";
+import { WarningIcon } from "../../pages/product/components/icons/index.jsx";
 
 export default function ContactSection({ innerRef }) {
   const {
     form,
     updateContact,
     onlyDigits,
+    fieldError,   /* ✅ v8: inline field errors */
   } = useAddProductContext();
 
   const [waLinkError, setWaLinkError] = useState("");
@@ -74,6 +77,9 @@ export default function ContactSection({ innerRef }) {
   /* ✅ v5: Only phone required — email no longer in form */
   const contactFilled = !!form.contact?.phone;
 
+  /* Helper — checks if a specific field has an error right now */
+  const hasError = (field) => fieldError?.field === field;
+
   return (
     <section ref={innerRef} className="section form-card">
       <h3 className="section-title">
@@ -88,7 +94,8 @@ export default function ContactSection({ innerRef }) {
 
       {/* ── Phone + WhatsApp ── */}
       <div className="form-row">
-        <div className="form-group">
+        {/* PHONE */}
+        <div className={`form-group ${hasError("phone") ? "has-error" : ""}`}>
           <label htmlFor="ap-phone">Phone *</label>
           <input
             id="ap-phone"
@@ -100,10 +107,19 @@ export default function ContactSection({ innerRef }) {
             onChange={(e) =>
               updateContact("phone", onlyDigits(e.target.value))
             }
+            aria-invalid={hasError("phone") || undefined}
+            aria-describedby={hasError("phone") ? "ap-phone-error" : undefined}
           />
+          {hasError("phone") && (
+            <div id="ap-phone-error" className="field-error" role="alert">
+              <WarningIcon />
+              <span>{fieldError.message}</span>
+            </div>
+          )}
         </div>
 
-        <div className="form-group">
+        {/* WHATSAPP */}
+        <div className={`form-group ${hasError("whatsapp") ? "has-error" : ""}`}>
           <label htmlFor="ap-wa">
             WhatsApp{" "}
             <span className="label-optional">(optional)</span>
@@ -117,7 +133,15 @@ export default function ContactSection({ innerRef }) {
             onChange={(e) =>
               updateContact("whatsapp", onlyDigits(e.target.value))
             }
+            aria-invalid={hasError("whatsapp") || undefined}
+            aria-describedby={hasError("whatsapp") ? "ap-wa-error" : undefined}
           />
+          {hasError("whatsapp") && (
+            <div id="ap-wa-error" className="field-error" role="alert">
+              <WarningIcon />
+              <span>{fieldError.message}</span>
+            </div>
+          )}
         </div>
       </div>
 
@@ -134,11 +158,13 @@ export default function ContactSection({ innerRef }) {
           placeholder="https://wa.me/2348012345678"
           onChange={handleWaLinkChange}
           onBlur={handleWaLinkBlur}
+          aria-invalid={!!waLinkError || undefined}
         />
         {waLinkError && (
-          <small className="field-hint field-hint--error">
-            {waLinkError}
-          </small>
+          <div className="field-error" role="alert">
+            <WarningIcon />
+            <span>{waLinkError}</span>
+          </div>
         )}
       </div>
     </section>
