@@ -66,17 +66,30 @@ const COUPON_CONFIG = {
   airtime      : { color: "#0891b2", bg: "#f0f9ff" },
 };
 
+/* ═══════════════════════════════════════════════════════════════
+   AIRTIME STATUS MAP — handles ALL possible backend statuses
+═══════════════════════════════════════════════════════════════ */
 const AIRTIME_STATUS = {
   available : { label: "Ready to claim",  color: "#16a34a" },
-  pending   : { label: "Processing",      color: "#f59e0b" },
-  redeemed  : { label: "Processing",      color: "#f59e0b" },
-  processing: { label: "Processing…",     color: "#f59e0b" },
-  completed : { label: "Credited ✓",      color: "#6366f1" },
+  pending   : { label: "Pending",         color: "#f59e0b" },
+  claimed   : { label: "Pending",         color: "#f59e0b" },
+  redeemed  : { label: "Pending",         color: "#f59e0b" },
+  approved  : { label: "Processing",      color: "#2563eb" },
+  processing: { label: "Processing",      color: "#2563eb" },
+  sent      : { label: "Sending…",        color: "#0891b2" },
+  completed : { label: "Credited ✓",      color: "#16a34a" },
+  credited  : { label: "Credited ✓",      color: "#16a34a" },
+  rejected  : { label: "Rejected",        color: "#dc2626" },
   failed    : { label: "Failed",          color: "#dc2626" },
-  expired   : { label: "Expired",         color: "#dc2626" },
-  claimed   : { label: "Processing",      color: "#f59e0b" },
-  credited  : { label: "Credited ✓",      color: "#6366f1" },
+  expired   : { label: "Expired",         color: "#6b7280" },
 };
+
+/* Groups for easier logic */
+const PENDING_STATUSES     = ["pending", "claimed", "redeemed"];
+const PROCESSING_STATUSES  = ["approved", "processing", "sent"];
+const COMPLETED_STATUSES   = ["completed", "credited"];
+const ACTIVE_STATUSES      = [...PENDING_STATUSES, ...PROCESSING_STATUSES];
+const TERMINAL_STATUSES    = [...COMPLETED_STATUSES, "rejected", "failed", "expired"];
 
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
@@ -86,6 +99,9 @@ const isAirtimeCoupon = (c) =>
 
 const isAirtimeAvailable = (c) =>
   isAirtimeCoupon(c) && c.status === "available" && !c.is_used;
+
+const isAirtimeActive = (c) =>
+  isAirtimeCoupon(c) && ACTIVE_STATUSES.includes(c.status);
 
 const isDiscountAvailable = (c) =>
   !isAirtimeCoupon(c) && c.usable;
@@ -229,7 +245,7 @@ const CouponIcon = ({ type }) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   AIRTIME CARD
+   AIRTIME CARD — handles all 6 statuses correctly
 ═══════════════════════════════════════════════════════════════ */
 function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
   const cfg    = COUPON_CONFIG.airtime;
@@ -238,11 +254,15 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
 
   const amount = coupon.amount ?? coupon.value ?? 0;
 
-  const isAvailable = status === "available";
-  const isPending   = ["pending","redeemed","processing","claimed"].includes(status);
-  const isCompleted = ["completed","credited"].includes(status);
-  const isFailed    = status === "failed";
-  const isCopied    = copied === coupon.code;
+  /* ═══════ STATUS DETECTION — fully mapped ═══════ */
+  const isAvailable  = status === "available";
+  const isPending    = PENDING_STATUSES.includes(status);
+  const isProcessing = PROCESSING_STATUSES.includes(status);
+  const isCompleted  = COMPLETED_STATUSES.includes(status);
+  const isRejected   = status === "rejected";
+  const isFailed     = status === "failed";
+  const isExpired    = status === "expired";
+  const isCopied     = copied === coupon.code;
 
   return (
     <div className={`cp-card cp-card--airtime${!isAvailable ? " cp-card--used" : ""}`}>
@@ -274,6 +294,7 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
           )}
         </div>
 
+        {/* ══ Available — show claim button ══ */}
         {isAvailable && (
           <button
             className="cp-airtime-claim-btn"
@@ -285,6 +306,7 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
           </button>
         )}
 
+        {/* ══ Pending — user just claimed, admin hasn't touched yet ══ */}
         {isPending && (
           <div className="cp-airtime-pending">
             <IconClock />
@@ -292,17 +314,43 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
           </div>
         )}
 
-        {isCompleted && (
-          <div className="cp-airtime-credited">
-            <IconCheckCircle />
-            <span>Airtime has been sent to your number</span>
+        {/* ══ Processing — admin approved / sending ══ */}
+        {isProcessing && (
+          <div className="cp-airtime-processing">
+            <IconClock />
+            <span>Processing — your airtime is being sent</span>
           </div>
         )}
 
+        {/* ══ Completed — done! ══ */}
+        {isCompleted && (
+          <div className="cp-airtime-credited">
+            <IconCheckCircle />
+            <span>Airtime credited to your number ✓</span>
+          </div>
+        )}
+
+        {/* ══ Rejected — admin rejected ══ */}
+        {isRejected && (
+          <div className="cp-airtime-failed">
+            <IconAlertCircle />
+            <span>{coupon.admin_note || "Claim was rejected. You can try again."}</span>
+          </div>
+        )}
+
+        {/* ══ Failed — technical failure ══ */}
         {isFailed && (
           <div className="cp-airtime-failed">
             <IconAlertCircle />
             <span>{coupon.admin_note || "Claim failed. Please contact support."}</span>
+          </div>
+        )}
+
+        {/* ══ Expired ══ */}
+        {isExpired && (
+          <div className="cp-airtime-failed">
+            <IconAlertCircle />
+            <span>This coupon has expired.</span>
           </div>
         )}
       </div>
@@ -588,6 +636,23 @@ function PendingBanner({ code, onDismiss }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
+   AUTO-REFRESH INDICATOR
+═══════════════════════════════════════════════════════════════ */
+function AutoRefreshBadge({ active, secondsUntilRefresh }) {
+  if (!active) return null;
+
+  return (
+    <div className="cp-auto-refresh">
+      <span className="cp-auto-refresh-dot" />
+      <span>
+        Auto-refreshing every 15s
+        {secondsUntilRefresh != null && ` (next in ${secondsUntilRefresh}s)`}
+      </span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN
 ═══════════════════════════════════════════════════════════════ */
 export default function Coupons() {
@@ -624,10 +689,15 @@ export default function Coupons() {
   });
 
   /* ── Refs ── */
-  const toastTimer      = useRef(null);
-  const copiedTimer     = useRef(null);
-  const mounted         = useRef(true);
-  const autoResumedRef  = useRef(false);   // Prevent multiple auto-resumes
+  const toastTimer          = useRef(null);
+  const copiedTimer         = useRef(null);
+  const mounted             = useRef(true);
+  const autoResumedRef      = useRef(false);
+  const pollTimer           = useRef(null);
+  const countdownTimer      = useRef(null);
+
+  /* ── Auto-refresh state ── */
+  const [nextRefreshIn, setNextRefreshIn] = useState(null);
 
   useEffect(() => {
     mounted.current = true;
@@ -635,6 +705,8 @@ export default function Coupons() {
       mounted.current = false;
       clearTimeout(toastTimer.current);
       clearTimeout(copiedTimer.current);
+      clearInterval(pollTimer.current);
+      clearInterval(countdownTimer.current);
     };
   }, []);
 
@@ -715,10 +787,11 @@ export default function Coupons() {
 
   /* ════════════════════════════════════════════════════════
      LOAD COUPONS + AIRTIME
+     silent=true skips loading spinner (used by polling)
   ════════════════════════════════════════════════════════ */
-  const loadCoupons = useCallback(async () => {
+  const loadCoupons = useCallback(async ({ silent = false } = {}) => {
     if (!getToken()) return;
-    setLoading(true);
+    if (!silent) setLoading(true);
     setError(null);
     try {
       const [cr, hr, ar] = await Promise.all([
@@ -734,6 +807,7 @@ export default function Coupons() {
       const hd = await hr.json();
       const ad = ar.ok ? await ar.json() : { coupons: [] };
 
+      /* Normalize airtime coupons — INCLUDES admin_note */
       const airtimeAsCoupons = (ad.coupons || []).map((a) => ({
         id           : a.id,
         code         : a.code,
@@ -749,6 +823,7 @@ export default function Coupons() {
         claimed_at   : a.redeemed_at,
         created_at   : a.created_at,
         description  : `🎡 Spin & Win — ₦${a.amount} Airtime`,
+        admin_note   : a.admin_note || null,
       }));
 
       const baseCoupons   = cd.coupons || [];
@@ -765,11 +840,69 @@ export default function Coupons() {
     } catch (err) {
       if (mounted.current) setError(err.message);
     } finally {
-      if (mounted.current) setLoading(false);
+      if (mounted.current && !silent) setLoading(false);
     }
   }, []);
 
   useEffect(() => { loadCoupons(); }, [loadCoupons]);
+
+  /* ════════════════════════════════════════════════════════
+     AUTO-REFRESH — polls every 15s while ANY claim is active
+     (pending, approved, processing, sent)
+  ════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    const hasActive = coupons.some(isAirtimeActive);
+
+    /* Clear existing timers */
+    clearInterval(pollTimer.current);
+    clearInterval(countdownTimer.current);
+
+    if (!hasActive) {
+      setNextRefreshIn(null);
+      return;
+    }
+
+    console.log("[coupons] Active claims detected — auto-refreshing every 15s");
+
+    /* Countdown timer for UI feedback */
+    let secondsLeft = 15;
+    setNextRefreshIn(secondsLeft);
+
+    countdownTimer.current = setInterval(() => {
+      secondsLeft -= 1;
+      if (secondsLeft <= 0) secondsLeft = 15;
+      if (mounted.current) setNextRefreshIn(secondsLeft);
+    }, 1_000);
+
+    /* Poll every 15 seconds */
+    pollTimer.current = setInterval(() => {
+      if (mounted.current) {
+        console.log("[coupons] Auto-refreshing…");
+        loadCoupons({ silent: true });
+      }
+    }, 15_000);
+
+    return () => {
+      clearInterval(pollTimer.current);
+      clearInterval(countdownTimer.current);
+    };
+  }, [coupons, loadCoupons]);
+
+  /* ────────────────────────────────────────────────────────
+     Refresh when tab becomes visible again
+     (e.g. user switches back to this browser tab)
+  ──────────────────────────────────────────────────────── */
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible" && mounted.current) {
+        console.log("[coupons] Tab visible — refreshing");
+        loadCoupons({ silent: true });
+        loadSavedPhone();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [loadCoupons, loadSavedPhone]);
 
   const refreshAll = useCallback(() =>
     Promise.all([loadCoupons(), loadProfile(), loadSavedPhone()])
@@ -791,7 +924,7 @@ export default function Coupons() {
   }, [me]);
 
   /* ════════════════════════════════════════════════════════
-     OPEN CLAIM MODAL — refreshes saved phone first
+     OPEN CLAIM MODAL
   ════════════════════════════════════════════════════════ */
   const openClaimModal = useCallback(async (coupon) => {
     await loadSavedPhone();
@@ -801,7 +934,6 @@ export default function Coupons() {
 
   /* ════════════════════════════════════════════════════════
      GO TO VERIFICATION PAGE
-     Preserves the current coupon so we can auto-resume
   ════════════════════════════════════════════════════════ */
   const goToVerification = useCallback((coupon = null) => {
     if (coupon) {
@@ -829,12 +961,6 @@ export default function Coupons() {
      HANDLE CLAIM CLICK
   ════════════════════════════════════════════════════════ */
   const handleClaim = useCallback((coupon) => {
-    console.log("[handleClaim]", {
-      profileReady,
-      emailVerified,
-      coupon: coupon?.code,
-    });
-
     if (!profileReady) {
       showToast("⏳ Loading your profile…");
       return;
@@ -864,14 +990,12 @@ export default function Coupons() {
 
     if (!pending?.code) return;
 
-    /* Expire pending claims after 10 minutes */
     const AGE_MS = 10 * 60 * 1_000;
     if (Date.now() - (pending.savedAt || 0) > AGE_MS) {
       sessionStorage.removeItem("pending_airtime_claim");
       return;
     }
 
-    /* Find the coupon */
     const coupon = coupons.find((c) => c.code === pending.code);
     if (!coupon) {
       sessionStorage.removeItem("pending_airtime_claim");
@@ -884,21 +1008,15 @@ export default function Coupons() {
       return;
     }
 
-    /* Mark as resumed so this doesn't fire again */
     autoResumedRef.current = true;
     sessionStorage.removeItem("pending_airtime_claim");
 
-    /* Show inline banner */
     setPendingBanner({ code: pending.code });
-
-    /* Switch to airtime tab */
     setTab("airtime");
 
-    /* Open the claim modal */
     setTimeout(() => {
       if (mounted.current) {
         openClaimModal(coupon);
-        /* Dismiss banner after modal opens */
         setTimeout(() => {
           if (mounted.current) setPendingBanner(null);
         }, 2000);
@@ -908,12 +1026,10 @@ export default function Coupons() {
 
   /* ════════════════════════════════════════════════════════
      VERIFY SUCCESS handling (deep-link support)
-     If URL has ?verified=1, show success message
   ════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (searchParams.get("verified") === "1") {
       showToast("✅ Email verified successfully!");
-      /* Clean URL */
       const url = new URL(window.location.href);
       url.searchParams.delete("verified");
       window.history.replaceState({}, "", url.toString());
@@ -924,6 +1040,7 @@ export default function Coupons() {
      CLAIM SUCCESS
   ════════════════════════════════════════════════════════ */
   const handleClaimSuccess = useCallback((code, data) => {
+    /* Optimistic update — mark as pending immediately */
     setCoupons((prev) =>
       prev.map((c) =>
         c.code === code
@@ -945,7 +1062,7 @@ export default function Coupons() {
     loadSavedPhone();
 
     setTimeout(() => {
-      if (mounted.current) loadCoupons();
+      if (mounted.current) loadCoupons({ silent: true });
     }, 500);
 
     setTimeout(() => {
@@ -981,6 +1098,7 @@ export default function Coupons() {
   ════════════════════════════════════════════════════════ */
   const airtimeCoupons   = coupons.filter(isAirtimeCoupon);
   const airtimeAvailable = airtimeCoupons.filter(isAirtimeAvailable);
+  const airtimeActive    = airtimeCoupons.filter(isAirtimeActive);
 
   const allAvailable = coupons.filter(
     (c) => isDiscountAvailable(c) || isAirtimeAvailable(c)
@@ -1033,6 +1151,9 @@ export default function Coupons() {
             {airtimeAvailable.length > 0
               ? ` · ${airtimeAvailable.length} airtime`
               : ""}
+            {airtimeActive.length > 0
+              ? ` · ${airtimeActive.length} pending`
+              : ""}
           </p>
         </div>
         <button
@@ -1040,12 +1161,21 @@ export default function Coupons() {
           onClick={refreshAll}
           disabled={loading}
           aria-label="Refresh"
+          title="Refresh"
         >
           <IconRefresh />
         </button>
       </div>
 
       <div className="cp-scroll">
+
+        {/* Auto-refresh badge */}
+        {tab === "airtime" && (
+          <AutoRefreshBadge
+            active={airtimeActive.length > 0}
+            secondsUntilRefresh={nextRefreshIn}
+          />
+        )}
 
         {/* Pending resume banner */}
         {pendingBanner && (
@@ -1075,7 +1205,7 @@ export default function Coupons() {
           <div className="cp-error" role="alert">
             <span className="cp-error-icon"><IconAlertCircle /></span>
             <p>{error}</p>
-            <button onClick={loadCoupons}>Retry</button>
+            <button onClick={() => loadCoupons()}>Retry</button>
           </div>
         )}
 
@@ -1087,7 +1217,7 @@ export default function Coupons() {
               role="tab"
               aria-selected={tab === t.key}
               className={`cp-tab${tab === t.key ? " cp-tab--active" : ""}`}
-              onClick={() => setTab(t.key)}
+              onClick={() => { setTab(t.key); setPendingBanner(null); }}
             >
               {t.label}
               <span className="cp-tab-count">{t.count}</span>
@@ -1255,7 +1385,7 @@ export default function Coupons() {
               { icon: <IconTag />,         t: "Paste the code at checkout to get your discount" },
               { icon: <IconCheckCircle />, t: "Discount is applied automatically"       },
               { icon: <IconMail />,        t: "For airtime, verify your email — you'll return here after" },
-              { icon: <IconClock />,       t: "Claims are processed shortly after submission" },
+              { icon: <IconClock />,       t: "Airtime claims are processed shortly — status auto-updates" },
               { icon: <IconAlertCircle />, t: "Each coupon can only be used once"       },
             ].map((tip, i) => (
               <div key={i} className="cp-tip">
