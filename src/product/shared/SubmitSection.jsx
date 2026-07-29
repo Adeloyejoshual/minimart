@@ -1,32 +1,43 @@
 /**
  * src/product/shared/SubmitSection.jsx
  * Terms + Submit button
+ *
+ * v3 — Uses shared TermsCheckbox component (matches mobile UI)
+ *      - Orange-filled checkbox
+ *      - Better copy (adds Privacy Policy + confirmation line)
+ *      - Inline error on submit-without-agreement
+ *      - Wired to v8 fieldError for submit-time validation
+ * v2 — Inline custom terms row (deprecated)
  */
-import { useMemo } from "react";
+import { useCallback } from "react";
 import { Link } from "react-router-dom";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
 import { SpinnerIcon } from "../../pages/product/components/icons/index.jsx";
+import TermsCheckbox from "../../pages/product/components/TermsCheckbox.jsx";
 
 export default function SubmitSection() {
   const {
     isEditMode, loading, handleSubmit,
     agreedToTerms, setAgreedToTerms,
     plansLoading, selectedPlan,
+    fieldError,           /* ✅ v8: shows terms error after submit attempt */
   } = useAddProductContext();
 
-  const isFreePlan = !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
+  const isFreePlan =
+    !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
 
   const submitBlocked =
     loading ||
-    (!isEditMode && !agreedToTerms) ||
     (!isEditMode && plansLoading);
+  /* Note: we intentionally DO NOT block on !agreedToTerms.
+     Let the click go through so validateForm() runs and
+     TermsCheckbox shows its inline error. Better UX than
+     a silently-disabled button. */
 
   const submitTitle =
-    !agreedToTerms && !isEditMode
-      ? "Please accept the Terms & Conditions first"
-      : plansLoading && !isEditMode
-        ? "Plans are still loading"
-        : undefined;
+    plansLoading && !isEditMode
+      ? "Plans are still loading"
+      : undefined;
 
   const submitLabel = (() => {
     if (loading)     return isEditMode ? "Saving…" : "Processing…";
@@ -35,59 +46,24 @@ export default function SubmitSection() {
     return "Post Ad & Pay";
   })();
 
-  const TermsCheckbox = useMemo(() => (
-    <div className="ap-terms-row">
-      <label
-        className="ap-terms-label"
-        onClick={(e) => {
-          if (e.target.tagName === "A") return;
-          e.preventDefault();
-          setAgreedToTerms((v) => !v);
-        }}
-      >
-        <span
-          className={`ap-terms-box ${agreedToTerms ? "ap-terms-box--on" : ""}`}
-          role="checkbox"
-          aria-checked={agreedToTerms}
-          tabIndex={0}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
-              e.preventDefault();
-              setAgreedToTerms((v) => !v);
-            }
-          }}
-        >
-          {agreedToTerms && (
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none"
-                 stroke="#fff" strokeWidth="3"
-                 strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="20 6 9 17 4 12"/>
-            </svg>
-          )}
-        </span>
-        <input
-          type="checkbox"
-          checked={agreedToTerms}
-          onChange={() => {}}
-          style={{ position: "absolute", opacity: 0, pointerEvents: "none" }}
-          aria-hidden="true"
-          tabIndex={-1}
-        />
-        <span className="ap-terms-text">
-          I agree to the{" "}
-          <Link to="/terms" target="_blank" rel="noopener noreferrer"
-                onClick={(e) => e.stopPropagation()}>
-            Terms &amp; Conditions
-          </Link>
-        </span>
-      </label>
-    </div>
-  ), [agreedToTerms, setAgreedToTerms]);
+  /* TermsCheckbox handles its own internal "touched" state,
+     but we also want to force-show the error when validateForm
+     flags "Terms" via the top-level submit. */
+  const handleTermsChange = useCallback((checked) => {
+    setAgreedToTerms(checked);
+  }, [setAgreedToTerms]);
 
   return (
     <div className="button-section">
-      {!isEditMode && TermsCheckbox}
+      {/* ── Terms checkbox (create mode only) ── */}
+      {!isEditMode && (
+        <TermsCheckbox
+          checked={agreedToTerms}
+          onChange={handleTermsChange}
+        />
+      )}
 
+      {/* ── Edit mode hint ── */}
       {isEditMode && (
         <p className="edit-back-hint">
           Changes are saved to your listing immediately.{" "}
@@ -95,10 +71,24 @@ export default function SubmitSection() {
         </p>
       )}
 
+      {/* ── v8: Extra error banner if form validation flagged Terms
+             (belt-and-suspenders — TermsCheckbox also shows its own) ── */}
+      {!isEditMode &&
+       !agreedToTerms &&
+       fieldError?.field === "terms" && (
+        <p className="terms-error-msg" role="alert" style={{ marginTop: 4 }}>
+          {fieldError.message}
+        </p>
+      )}
+
+      {/* Screen reader status */}
       <span className="sr-only" aria-live="polite" aria-atomic="true">
-        {loading ? (isEditMode ? "Saving changes" : "Processing submission") : ""}
+        {loading
+          ? (isEditMode ? "Saving changes" : "Processing submission")
+          : ""}
       </span>
 
+      {/* ── Submit button ── */}
       <button
         type="button"
         disabled={submitBlocked}
@@ -107,9 +97,14 @@ export default function SubmitSection() {
         aria-busy={loading}
         title={submitTitle}
       >
-        {loading
-          ? <><SpinnerIcon />{" "}{isEditMode ? "Saving…" : "Processing…"}</>
-          : submitLabel}
+        {loading ? (
+          <>
+            <SpinnerIcon />{" "}
+            {isEditMode ? "Saving…" : "Processing…"}
+          </>
+        ) : (
+          submitLabel
+        )}
       </button>
     </div>
   );
