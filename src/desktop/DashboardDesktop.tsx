@@ -6,6 +6,8 @@ import {
   useCallback,
   useMemo,
   useRef,
+  Component,
+  ReactNode,
 } from "react";
 import { useNavigate, Link } from "react-router-dom";
 
@@ -28,6 +30,230 @@ import DeskAnalytics from "./components/DeskAnalytics";
 import "./DashboardDesktop.css";
 
 /* ═══════════════════════════════════════════════════════
+   SECTION ERROR BOUNDARY
+   Same as mobile — shows the real error instead of
+   a blank screen when a section component crashes.
+═══════════════════════════════════════════════════════ */
+interface SectionErrorBoundaryProps {
+  section: string;
+  children: ReactNode;
+}
+
+interface SectionErrorBoundaryState {
+  error: Error | null;
+  info: { componentStack?: string } | null;
+}
+
+class SectionErrorBoundary extends Component<
+  SectionErrorBoundaryProps,
+  SectionErrorBoundaryState
+> {
+  state: SectionErrorBoundaryState = { error: null, info: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: any) {
+    console.error(
+      `[DashboardDesktop:${this.props.section}] RENDER CRASH:`,
+      error,
+      info
+    );
+    this.setState({ info });
+  }
+
+  render() {
+    const { error, info } = this.state;
+    if (!error) return this.props.children;
+
+    return (
+      <div
+        style={{
+          margin: "24px",
+          padding: "20px",
+          border: "1.5px solid #f87171",
+          borderRadius: "12px",
+          background: "#fff1f1",
+          fontFamily: "monospace",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            marginBottom: "12px",
+          }}
+        >
+          <span style={{ fontSize: 20 }}>⚠️</span>
+          <strong style={{ color: "#991b1b", fontSize: 14 }}>
+            Render error in{" "}
+            <code
+              style={{
+                background: "#fee2e2",
+                padding: "2px 6px",
+                borderRadius: 4,
+              }}
+            >
+              {this.props.section}
+            </code>
+          </strong>
+        </div>
+
+        <div
+          style={{
+            background: "#fef2f2",
+            border: "1px solid #fca5a5",
+            borderRadius: "8px",
+            padding: "12px",
+            marginBottom: "10px",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              color: "#6b7280",
+              marginBottom: 4,
+              textTransform: "uppercase",
+              letterSpacing: "0.05em",
+            }}
+          >
+            Error Message
+          </div>
+          <pre
+            style={{
+              margin: 0,
+              fontSize: 13,
+              color: "#7f1d1d",
+              whiteSpace: "pre-wrap",
+              wordBreak: "break-all",
+            }}
+          >
+            {error.message ?? String(error)}
+          </pre>
+        </div>
+
+        {error.stack && (
+          <details style={{ marginBottom: "10px" }}>
+            <summary
+              style={{
+                cursor: "pointer",
+                fontSize: 12,
+                color: "#9ca3af",
+                padding: "4px 0",
+              }}
+            >
+              Stack trace
+            </summary>
+            <pre
+              style={{
+                marginTop: "8px",
+                padding: "10px",
+                background: "#f9fafb",
+                borderRadius: "6px",
+                fontSize: 10,
+                color: "#374151",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all",
+                maxHeight: "200px",
+                overflowY: "auto",
+              }}
+            >
+              {error.stack}
+            </pre>
+          </details>
+        )}
+
+        {info?.componentStack && (
+          <details style={{ marginBottom: "14px" }}>
+            <summary
+              style={{
+                cursor: "pointer",
+                fontSize: 12,
+                color: "#9ca3af",
+                padding: "4px 0",
+              }}
+            >
+              Component tree
+            </summary>
+            <pre
+              style={{
+                marginTop: "8px",
+                padding: "10px",
+                background: "#f9fafb",
+                borderRadius: "6px",
+                fontSize: 10,
+                color: "#374151",
+                whiteSpace: "pre-wrap",
+                wordBreak: "break-all",
+                maxHeight: "200px",
+                overflowY: "auto",
+              }}
+            >
+              {info.componentStack}
+            </pre>
+          </details>
+        )}
+
+        <div style={{ display: "flex", gap: "8px" }}>
+          <button
+            style={{
+              padding: "8px 16px",
+              background: "#ef4444",
+              color: "#fff",
+              border: "none",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: 13,
+              fontWeight: 600,
+            }}
+            onClick={() => this.setState({ error: null, info: null })}
+          >
+            Try Again
+          </button>
+          <button
+            style={{
+              padding: "8px 16px",
+              background: "transparent",
+              color: "#6b7280",
+              border: "1px solid #d1d5db",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+            onClick={() => window.location.reload()}
+          >
+            Reload Page
+          </button>
+          <button
+            style={{
+              padding: "8px 16px",
+              background: "transparent",
+              color: "#6b7280",
+              border: "1px solid #d1d5db",
+              borderRadius: "8px",
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+            onClick={() => {
+              const text =
+                `Section: ${this.props.section}\n` +
+                `Error: ${error.message}\n\n` +
+                `Stack:\n${error.stack}\n\n` +
+                `Component tree:\n${info?.componentStack}`;
+              navigator.clipboard?.writeText(text);
+            }}
+          >
+            Copy Error
+          </button>
+        </div>
+      </div>
+    );
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
    NAV
 ═══════════════════════════════════════════════════════ */
 const NAV_ITEMS = [
@@ -35,6 +261,40 @@ const NAV_ITEMS = [
   { key: "products", label: "Listings", icon: <Ic.Package /> },
   { key: "analytics", label: "Analytics", icon: <Ic.TrendUp /> },
 ];
+
+/* ═══════════════════════════════════════════════════════
+   HELPER — resolve user email from any storage
+═══════════════════════════════════════════════════════ */
+const resolveEmail = (propEmail?: string): string => {
+  if (propEmail && propEmail.includes("@")) return propEmail;
+
+  const plainKeys = ["user_email", "userEmail", "email", "marketplace_email"];
+  for (const key of plainKeys) {
+    const val = localStorage.getItem(key);
+    if (val && val.includes("@")) return val;
+  }
+
+  const jsonKeys = [
+    "user",
+    "userData",
+    "marketplace_user",
+    "auth_user",
+    "currentUser",
+  ];
+  for (const key of jsonKeys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) continue;
+      const parsed = JSON.parse(raw);
+      const email = parsed?.email || parsed?.user?.email;
+      if (email && email.includes("@")) return email;
+    } catch {
+      /* skip */
+    }
+  }
+
+  return "";
+};
 
 /* ═══════════════════════════════════════════════════════
    MAIN
@@ -47,11 +307,15 @@ export default function DashboardDesktop({ user }: Props) {
   const navigate = useNavigate();
   const { toasts, show: showToast } = useToast();
 
-  /* ── state ── */
+  /* ── data ── */
   const [stats, setStats] = useState<any>(null);
   const [products, setProducts] = useState<any[]>([]);
   const [analytics, setAnalytics] = useState<any>(null);
   const [plans, setPlans] = useState<any[]>([]);
+  const [tier, setTier] = useState<string>("unverified");
+  const [isSubscriber, setIsSubscriber] = useState<boolean>(false);
+
+  /* ── ui ── */
   const [loading, setLoading] = useState(true);
   const [prodLoading, setProdLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -59,6 +323,8 @@ export default function DashboardDesktop({ user }: Props) {
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [verifying, setVerifying] = useState<string | null>(null);
+  const [renewing, setRenewing] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<any>(null);
   const [promoting, setPromoting] = useState<any>(null);
   const [section, setSection] = useState("overview");
@@ -98,6 +364,22 @@ export default function DashboardDesktop({ user }: Props) {
   /* ══════════════════════════════════════
      DATA LOADERS
   ══════════════════════════════════════ */
+  const loadOverview = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/seller-dashboard/overview`, {
+        headers: authH(),
+      });
+      const d = await res.json();
+      if (res.ok && d.success && d.data) {
+        setTier(d.data.tier ?? "unverified");
+        setIsSubscriber(d.data.is_subscriber ?? false);
+        if (d.data.stats) setStats(d.data.stats);
+      }
+    } catch (e) {
+      console.error("[dkd] overview:", e);
+    }
+  }, []);
+
   const loadStats = useCallback(async () => {
     try {
       const res = await fetch(`${API}/seller-dashboard/stats`, {
@@ -173,7 +455,12 @@ export default function DashboardDesktop({ user }: Props) {
       else setRefreshing(true);
       setError(null);
       try {
-        await Promise.all([loadStats(), loadProducts("all"), loadAnalytics()]);
+        await Promise.all([
+          loadOverview(),
+          loadStats(),
+          loadProducts("all"),
+          loadAnalytics(),
+        ]);
       } catch {
         setError("Failed to load dashboard.");
       } finally {
@@ -181,7 +468,7 @@ export default function DashboardDesktop({ user }: Props) {
         setRefreshing(false);
       }
     },
-    [loadStats, loadProducts, loadAnalytics]
+    [loadOverview, loadStats, loadProducts, loadAnalytics]
   );
 
   useEffect(() => {
@@ -263,6 +550,13 @@ export default function DashboardDesktop({ user }: Props) {
 
   const handleToggle = useCallback(
     async (product: any) => {
+      if (product.status === "pending_payment") {
+        showToast(
+          "Complete payment before activating this listing.",
+          "warning"
+        );
+        return;
+      }
       try {
         const res = await fetch(
           `${API}/seller-dashboard/products/${product.id}/toggle`,
@@ -294,6 +588,7 @@ export default function DashboardDesktop({ user }: Props) {
 
   const handleRenew = useCallback(
     async (product: any) => {
+      setRenewing(product.id);
       try {
         const res = await fetch(
           `${API}/seller-dashboard/products/${product.id}/renew`,
@@ -309,6 +604,8 @@ export default function DashboardDesktop({ user }: Props) {
                     active_until: d.active_until,
                     status: d.status,
                     is_active: true,
+                    renewal_count:
+                      d.renewal_count ?? (x.renewal_count ?? 0) + 1,
                   }
                 : x
             )
@@ -320,6 +617,8 @@ export default function DashboardDesktop({ user }: Props) {
         }
       } catch {
         showToast("Network error.", "error");
+      } finally {
+        setRenewing(null);
       }
     },
     [loadStats, showToast]
@@ -335,11 +634,84 @@ export default function DashboardDesktop({ user }: Props) {
     []
   );
 
+  const handlePayNow = useCallback(
+    async (product: any) => {
+      const email = resolveEmail(user?.email);
+      if (!email) {
+        showToast(
+          "We couldn't find your email. Please log out and log in again.",
+          "error"
+        );
+        return;
+      }
+      try {
+        const res = await fetch(`${API}/payment/initiate`, {
+          method: "POST",
+          headers: authH(),
+          body: JSON.stringify({ product_id: product.id, email }),
+        });
+        const d = await res.json();
+        if (res.ok && d.authorization_url) {
+          window.location.href = d.authorization_url;
+        } else {
+          showToast(d.message || "Could not initiate payment.", "error");
+        }
+      } catch {
+        showToast("Network error. Try again.", "error");
+      }
+    },
+    [user?.email, showToast]
+  );
+
+  const handleVerifyPayment = useCallback(
+    async (product: any) => {
+      setVerifying(product.id);
+      try {
+        const res = await fetch(
+          `${API}/seller-dashboard/products/${product.id}/verify-payment`,
+          { method: "POST", headers: authH() }
+        );
+        const d = await res.json();
+        if (res.ok && d.success) {
+          if (d.status === "active") {
+            setProducts((p) =>
+              p.map((x) =>
+                x.id === product.id
+                  ? { ...x, status: "active", is_active: true }
+                  : x
+              )
+            );
+            loadStats();
+            showToast("Payment verified! Your listing is now live.", "success");
+          } else if (d.status === "pending") {
+            showToast(
+              "Payment is still processing. Please wait a few minutes.",
+              "info"
+            );
+          } else {
+            showToast(
+              d.message || "Payment not confirmed. Please complete payment.",
+              "warning"
+            );
+          }
+        } else {
+          showToast(d.message || "Could not verify payment.", "error");
+        }
+      } catch {
+        showToast("Network error. Try again.", "error");
+      } finally {
+        setVerifying(null);
+      }
+    },
+    [loadStats, showToast]
+  );
+
   /* ── derived ── */
   const tabCounts = useMemo(
     () => ({
       all: stats?.total_products ?? products.length,
       active: stats?.active ?? 0,
+      active_limited: stats?.active_limited ?? 0,
       draft: stats?.draft ?? 0,
       paused: stats?.paused ?? 0,
       pending: stats?.pending_payment ?? 0,
@@ -363,7 +735,11 @@ export default function DashboardDesktop({ user }: Props) {
       >
         <div className="dkd-sidebar-header">
           <Link to="/" className="dkd-sidebar-logo">
-            {sidebarCollapsed ? <Ic.Store /> : <span className="dkd-logo-text">Seller Hub</span>}
+            {sidebarCollapsed ? (
+              <Ic.Store />
+            ) : (
+              <span className="dkd-logo-text">Seller Hub</span>
+            )}
           </Link>
           <button
             className="dkd-sidebar-toggle"
@@ -388,9 +764,7 @@ export default function DashboardDesktop({ user }: Props) {
               {!sidebarCollapsed &&
                 n.key === "products" &&
                 tabCounts.all > 0 && (
-                  <span className="dkd-sidebar-badge">
-                    {tabCounts.all}
-                  </span>
+                  <span className="dkd-sidebar-badge">{tabCounts.all}</span>
                 )}
             </button>
           ))}
@@ -449,6 +823,7 @@ export default function DashboardDesktop({ user }: Props) {
               }`}
               onClick={() => loadAll(true)}
               title="Refresh"
+              disabled={refreshing}
             >
               <Ic.Refresh />
             </button>
@@ -484,59 +859,79 @@ export default function DashboardDesktop({ user }: Props) {
             </div>
           )}
 
+          {/* ✅ Each section wrapped in error boundary — same as mobile */}
           {section === "overview" && (
             <div className="dkd-section dkd-fade-in">
-              <DeskOverview
-                stats={stats}
-                analytics={analytics}
-                products={products}
-                loading={loading}
-                userId={user?.id}
-                deleting={deleting}
-                onNavigate={navigate}
-                onSetSection={setSection}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onToggle={handleToggle}
-                onRenew={handleRenew}
-                onPromote={handlePromote}
-              />
+              <SectionErrorBoundary section="DeskOverview">
+                <DeskOverview
+                  stats={stats}
+                  analytics={analytics}
+                  products={products}
+                  loading={loading}
+                  userId={user?.id}
+                  deleting={deleting}
+                  verifying={verifying}
+                  tier={tier}
+                  isSubscriber={isSubscriber}
+                  onNavigate={navigate}
+                  onSetSection={setSection}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  onToggle={handleToggle}
+                  onRenew={handleRenew}
+                  onPromote={handlePromote}
+                  onPayNow={handlePayNow}
+                  onVerifyPayment={handleVerifyPayment}
+                />
+              </SectionErrorBoundary>
             </div>
           )}
 
           {section === "products" && (
             <div className="dkd-section dkd-fade-in">
-              <DeskListings
-                products={products}
-                prodLoading={prodLoading}
-                loadingMore={loadingMore}
-                hasMore={hasMore}
-                tab={tab}
-                search={search}
-                tabCounts={tabCounts}
-                deleting={deleting}
-                onTabChange={handleTabChange}
-                onSearch={handleSearch}
-                onLoadMore={handleLoadMore}
-                onNavigate={navigate}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onToggle={handleToggle}
-                onRenew={handleRenew}
-                onPromote={handlePromote}
-              />
+              <SectionErrorBoundary section="DeskListings">
+                <DeskListings
+                  products={products}
+                  prodLoading={prodLoading}
+                  loadingMore={loadingMore}
+                  hasMore={hasMore}
+                  tab={tab}
+                  search={search}
+                  tabCounts={tabCounts}
+                  deleting={deleting}
+                  verifying={verifying}
+                  renewing={renewing}
+                  tier={tier}
+                  isSubscriber={isSubscriber}
+                  onTabChange={handleTabChange}
+                  onSearch={handleSearch}
+                  onLoadMore={handleLoadMore}
+                  onNavigate={navigate}
+                  onEdit={handleEdit}
+                  onDelete={handleDelete}
+                  onToggle={handleToggle}
+                  onRenew={handleRenew}
+                  onPromote={handlePromote}
+                  onPayNow={handlePayNow}
+                  onVerifyPayment={handleVerifyPayment}
+                />
+              </SectionErrorBoundary>
             </div>
           )}
 
           {section === "analytics" && (
             <div className="dkd-section dkd-fade-in">
-              <DeskAnalytics
-                stats={stats}
-                analytics={analytics}
-                loading={loading}
-                onSetSection={setSection}
-                onTabChange={handleTabChange}
-              />
+              <SectionErrorBoundary section="DeskAnalytics">
+                <DeskAnalytics
+                  stats={stats}
+                  analytics={analytics}
+                  loading={loading}
+                  tier={tier}
+                  isSubscriber={isSubscriber}
+                  onSetSection={setSection}
+                  onTabChange={handleTabChange}
+                />
+              </SectionErrorBoundary>
             </div>
           )}
 
@@ -562,6 +957,7 @@ export default function DashboardDesktop({ user }: Props) {
         <PromoteModal
           product={promoting}
           plans={plans}
+          userEmail={user?.email}
           onClose={() => setPromoting(null)}
         />
       )}
