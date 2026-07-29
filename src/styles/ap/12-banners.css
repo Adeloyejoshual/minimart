@@ -196,3 +196,35 @@
   height    : 13px;
   flex-shrink: 0;
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   INLINE FIELD ERRORS (v7)
+   Small error row shown under a specific input,
+   not to be confused with the top-level .form-error banner.
+═══════════════════════════════════════════════════════════════ */
+.field-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 6px 10px;
+  background: var(--err-bg, #fff5f5);
+  border: 1px solid var(--err-border, #fecaca);
+  border-radius: var(--r-md, 6px);
+  color: var(--err-text, #c62828);
+  font-size: 13px;
+  line-height: 1.35;
+  animation: field-error-in 0.2s ease-out;
+}
+
+.field-error svg {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+/* Section-level error highlight (used for images section) */
+.section.form-card.has-error {
+  border-color: var(--err-border, #ef4444);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.08);
+}
