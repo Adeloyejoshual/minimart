@@ -1,16 +1,14 @@
 /**
  * src/hooks/useAddProduct.js
  * All logic for AddProduct — state, effects, handlers, submit.
- * Returns everything the shells (mobile/desktop) need to render.
  *
- * v6 — VERIFY BEFORE PAY + full parity with pages/AddProduct.jsx
+ * v7 — DEBUG EDITION
  * ─────────────────────────────────────────────────────────────
- *  - Email removed from form (v5) — comes from user.email
- *  - Verify-before-pay modal state (v6)
- *  - 3-tier subscription support (v4)
- *  - Watermark warning/block handling
- *  - Draft v4, state normalization on GPS
- *  - Subscription upsell state
+ *  - ZERO email validation on frontend
+ *  - Sends user.email in payment/initiate body as safety net
+ *    (in case backend still requires it — remove later)
+ *  - Temporary console.trace on showError to catch stray callers
+ *  - Full parity with pages/AddProduct.jsx v6
  */
 
 import {
@@ -50,6 +48,9 @@ const ALLOWED_PAYMENT_HOSTS = new Set([
 ]);
 
 const PHONE_RE = /^\+?[0-9]{7,15}$/;
+
+/* Enable to trace who's calling showError (helps find stray email errors) */
+const DEBUG_TRACE_ERRORS = true;
 
 const ERROR_SELECTOR_MAP = [
   { match: "Title",          sel: "#ap-title"               },
@@ -215,6 +216,10 @@ export function useAddProduct({ user }) {
   const timeoutIdsRef   = useRef(new Set());
   const showErrorRef    = useRef(() => {});
   const showSuccessRef  = useRef(() => {});
+  const userRef         = useRef(user);
+
+  /* Keep userRef current so closures can read latest user.email */
+  useEffect(() => { userRef.current = user; }, [user]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -290,9 +295,25 @@ export function useAddProduct({ user }) {
   /* Verify before pay modal */
   const [showVerifyBeforePay, setShowVerifyBeforePay] = useState(false);
 
-  /* ─── Feedback ─── */
+  /* ═══════════════════════════════════════════════════════════
+     FEEDBACK
+     ✅ v7: console.trace to find stray "Enter a valid email" callers
+  ═══════════════════════════════════════════════════════════ */
   const showError = useCallback((msg) => {
     if (!mountedRef.current) return;
+
+    /* 🔍 TEMP DEBUG — logs the stack trace for every error
+       Remove after diagnosing the email error mystery */
+    if (DEBUG_TRACE_ERRORS && import.meta.env.DEV) {
+      console.group(
+        "%c[showError]",
+        "color:#e53935;font-weight:bold;font-size:12px",
+        msg
+      );
+      console.trace("called from:");
+      console.groupEnd();
+    }
+
     setError(msg);
     scrollToError(msg);
     const id = setTimeout(() => {
@@ -395,7 +416,6 @@ export function useAddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      LOAD PRODUCT FOR EDIT
-     ✅ email NOT loaded from product
   ═══════════════════════════════════════════════════════════ */
   const loadProductForEdit = useCallback(async () => {
     if (!editId) return;
@@ -549,8 +569,7 @@ export function useAddProduct({ user }) {
   }, [isEditMode, showSuccess, safeRedirect]);
 
   /* ═══════════════════════════════════════════════════════════
-     RESTORE DRAFT
-     ✅ email stripped from draft on restore
+     RESTORE DRAFT — strip any leftover email
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -589,8 +608,7 @@ export function useAddProduct({ user }) {
   ]);
 
   /* ═══════════════════════════════════════════════════════════
-     AUTO-SAVE DRAFT
-     ✅ email stripped before save
+     AUTO-SAVE DRAFT — strip email before save
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -651,9 +669,16 @@ export function useAddProduct({ user }) {
               s.toLowerCase().includes(detected.toLowerCase())
           ) ??
           "";
+
+        if (import.meta.env.DEV) {
+          console.log(
+            "[detectLocation] GPS state:", detected,
+            "→ matched:", matchedState || "❌ none"
+          );
+        }
       }
 
-      /* Normalize city against matched state */
+      /* Normalize city */
       let matchedCity = "";
       if (matchedState && result.city) {
         const availableCities = locationsByState[matchedState] ?? [];
@@ -701,7 +726,7 @@ export function useAddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      VALIDATION
-     ✅ v5: NO email validation — email comes from users table
+     ✅ v7: ABSOLUTELY NO EMAIL CHECK
   ═══════════════════════════════════════════════════════════ */
   const validateForm = useCallback(() => {
     const t = form.title?.trim() ?? "";
@@ -721,6 +746,8 @@ export function useAddProduct({ user }) {
 
     if (!form.category_id)
       return "Category required.";
+
+    /* ❌ NO EMAIL VALIDATION — email comes from users table */
 
     if (!isValidPhone(form.contact?.phone))
       return "Phone number must be 7–15 digits (e.g. 08012345678).";
@@ -758,7 +785,6 @@ export function useAddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      BUILD FORM DATA
-     ✅ email NOT appended anywhere
   ═══════════════════════════════════════════════════════════ */
   const buildBaseFormData = useCallback(() => {
     const fd = new FormData();
@@ -1030,6 +1056,8 @@ export function useAddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      CREATE SUBMIT — CORE
+     ✅ v7: Sends user.email in payment body as safety net
+            in case backend still requires it
   ═══════════════════════════════════════════════════════════ */
   const runCreateSubmit = useCallback(async (forcedPlan = null) => {
     if (!navigator.onLine) { showError("You appear to be offline."); return; }
@@ -1123,6 +1151,12 @@ export function useAddProduct({ user }) {
         (rawPrice * (1 - discount / 100)).toFixed(2)
       );
 
+      /* ✅ v7 safety net: include email from user.email if available
+         Backend should read from users table, but if it still requires
+         email in body we fall back to this. Safe to remove once backend
+         is confirmed to not need it. */
+      const userEmail = userRef.current?.email ?? "";
+
       const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
         method : "POST",
         headers: {
@@ -1130,7 +1164,7 @@ export function useAddProduct({ user }) {
           Authorization : `Bearer ${token}`,
         },
         body: JSON.stringify({
-          /* ✅ email omitted — backend reads from users table */
+          ...(userEmail ? { email: userEmail } : {}),
           amount         : effectiveAmt,
           plan_id        : String(finalPlan.id),
           product_id     : product.id,
@@ -1229,7 +1263,7 @@ export function useAddProduct({ user }) {
         showError(err.message ?? "Submission failed — please try again");
       }
 
-      /* Cleanup */
+      /* Cleanup orphaned product */
       if (product?.id && !paymentInitiated) {
         const token = getToken();
         if (token) {
@@ -1332,9 +1366,8 @@ export function useAddProduct({ user }) {
     promotionPlans, plansLoading,
     selectedPlan, setSelectedPlan, isSelectedPlanPaid,
 
-    /* location */
+    /* location — expose both names for section compatibility */
     locationState, city,
-    /* also expose under `state` alias for sections that read it */
     state: locationState,
     setState: setLocationState,
     setLocationState, setCity,
