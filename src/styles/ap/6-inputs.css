@@ -260,3 +260,28 @@ input#ap-title:-webkit-autofill {
   height    : 15px;
   flex-shrink: 0;
 }
+/* ═══════════════════════════════════════════════════════════════
+   INPUT ERROR STATE (v7)
+   Applied when parent .form-group has .has-error class.
+   Works with text inputs, textarea, select, and DropdownModal trigger.
+═══════════════════════════════════════════════════════════════ */
+.form-group.has-error input,
+.form-group.has-error textarea,
+.form-group.has-error select,
+.form-group.has-error .dm-trigger {
+  border-color: var(--err-border, #ef4444) !important;
+  background: var(--err-bg, #fff5f5);
+}
+
+.form-group.has-error input:focus,
+.form-group.has-error textarea:focus,
+.form-group.has-error select:focus,
+.form-group.has-error .dm-trigger:focus {
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+  outline: none;
+}
+
+/* Field-flash animation used when scrollToError highlights a field */
+.ap-field-flash {
+  animation: ap-flash 0.6s ease 2;
+}
