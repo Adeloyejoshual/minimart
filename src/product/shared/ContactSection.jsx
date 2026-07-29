@@ -2,9 +2,9 @@
  * src/product/shared/ContactSection.jsx
  * Phone · WhatsApp · WhatsApp Link
  *
- * v5 — Email removed from form
- *       Email auto-set from user.email (registration)
- *       Backend reads email from users table
+ * v2 — Email removed (v5 spec)
+ *      Email auto-set from user.email at registration
+ *      Backend reads email from users table — never from form
  */
 import { useCallback, useMemo, useState } from "react";
 import { useAddProductContext } from "../../hooks/useAddProductContext.jsx";
@@ -38,7 +38,9 @@ export default function ContactSection({ innerRef }) {
         const url = new URL(trimmed);
         if (url.protocol !== "https:") return "";
         const ok = ALLOWED_WA_HOSTS.some(
-          (h) => url.hostname === h || url.hostname.endsWith(`.${h}`)
+          (h) =>
+            url.hostname === h ||
+            url.hostname.endsWith(`.${h}`)
         );
         return ok ? trimmed : "";
       } catch {
@@ -57,7 +59,7 @@ export default function ContactSection({ innerRef }) {
   };
 
   const handleWaLinkBlur = (e) => {
-    const val = e.target.value;
+    const val  = e.target.value;
     const safe = sanitizeWaLink(val);
     if (val && !safe) {
       updateContact("whatsapp_link", "");
@@ -69,8 +71,7 @@ export default function ContactSection({ innerRef }) {
     }
   };
 
-  /* ✅ v5: Email no longer part of the contact form
-     Only phone is required from the user */
+  /* ✅ v5: Only phone required — email no longer in form */
   const contactFilled = !!form.contact?.phone;
 
   return (
@@ -79,9 +80,13 @@ export default function ContactSection({ innerRef }) {
         Contact Information <SectionDot filled={contactFilled} />
       </h3>
 
-      {/* ✅ v5: Email removed — auto-set from user registration
-          Backend reads email from users table, never from form body */}
+      {/*
+        ✅ v5: Email field REMOVED
+        Auto-set from user.email on registration.
+        Backend reads email from users table — never appended here.
+      */}
 
+      {/* ── Phone + WhatsApp ── */}
       <div className="form-row">
         <div className="form-group">
           <label htmlFor="ap-phone">Phone *</label>
@@ -97,6 +102,7 @@ export default function ContactSection({ innerRef }) {
             }
           />
         </div>
+
         <div className="form-group">
           <label htmlFor="ap-wa">
             WhatsApp{" "}
@@ -115,6 +121,7 @@ export default function ContactSection({ innerRef }) {
         </div>
       </div>
 
+      {/* ── WhatsApp link — full width ── */}
       <div className="form-group">
         <label htmlFor="ap-wa-link">
           WhatsApp Link{" "}
