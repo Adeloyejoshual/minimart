@@ -1,0 +1,194 @@
+/* ═══════════════════════════════════════════════════════════════
+   16-image-upload.css
+   Fallback image upload button — always visible when user has
+   zero new images and can add more.
+   Introduced in v8 to fix disappearing upload area bug.
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Fallback upload zone (empty state / after error) ── */
+.ap-image-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px 20px;
+  margin-top: 12px;
+  border: 2px dashed var(--ap-border, #cbd5e1);
+  border-radius: var(--ap-radius-md, 12px);
+  background: var(--ap-surface-alt, #f8fafc);
+  cursor: pointer;
+  transition:
+    border-color var(--ap-motion-fast, 180ms) ease,
+    background   var(--ap-motion-fast, 180ms) ease,
+    transform    var(--ap-motion-fast, 180ms) ease;
+  text-align: center;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  min-height: 140px;
+}
+
+.ap-image-fallback:hover,
+.ap-image-fallback:focus-visible {
+  border-color: var(--ap-primary, #f97316);
+  background: var(--ap-primary-tint, #fff7ed);
+  outline: none;
+}
+
+.ap-image-fallback:focus-visible {
+  box-shadow: 0 0 0 3px var(--ap-primary-ring, rgba(249, 115, 22, 0.25));
+}
+
+.ap-image-fallback:active {
+  transform: scale(0.995);
+  border-color: var(--ap-primary, #f97316);
+  background: var(--ap-primary-tint, #fff7ed);
+}
+
+/* ── Error state ── */
+.ap-image-fallback--error {
+  border-color: var(--ap-danger, #dc2626);
+  background: var(--ap-danger-tint, #fef2f2);
+  animation: apFieldFlash 500ms ease-out;
+}
+
+.ap-image-fallback--error:hover,
+.ap-image-fallback--error:focus-visible,
+.ap-image-fallback--error:active {
+  border-color: var(--ap-danger-strong, #b91c1c);
+  background: var(--ap-danger-tint-strong, #fee2e2);
+}
+
+/* ── Content ── */
+.ap-image-fallback-icon {
+  font-size: 40px;
+  line-height: 1;
+  filter: grayscale(0.15);
+}
+
+.ap-image-fallback-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ap-text, #1e293b);
+}
+
+.ap-image-fallback-hint {
+  font-size: 12px;
+  color: var(--ap-text-muted, #64748b);
+  max-width: 260px;
+  line-height: 1.45;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   DARK MODE
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-color-scheme: dark) {
+  .ap-image-fallback {
+    border-color: var(--ap-border-dark, #334155);
+    background: var(--ap-surface-alt-dark, #1e293b);
+  }
+
+  .ap-image-fallback:hover,
+  .ap-image-fallback:focus-visible,
+  .ap-image-fallback:active {
+    border-color: var(--ap-primary, #f97316);
+    background: var(--ap-primary-tint-dark, rgba(249, 115, 22, 0.1));
+  }
+
+  .ap-image-fallback--error {
+    border-color: var(--ap-danger, #ef4444);
+    background: var(--ap-danger-tint-dark, rgba(239, 68, 68, 0.1));
+  }
+
+  .ap-image-fallback-title {
+    color: var(--ap-text-dark, #f1f5f9);
+  }
+
+  .ap-image-fallback-hint {
+    color: var(--ap-text-muted-dark, #94a3b8);
+  }
+
+  .ap-image-fallback-icon {
+    filter: grayscale(0) brightness(1.1);
+  }
+}
+
+/* Explicit dark class support (in case app uses .dark toggle) */
+.dark .ap-image-fallback,
+[data-theme="dark"] .ap-image-fallback {
+  border-color: var(--ap-border-dark, #334155);
+  background: var(--ap-surface-alt-dark, #1e293b);
+}
+
+.dark .ap-image-fallback:hover,
+.dark .ap-image-fallback:focus-visible,
+.dark .ap-image-fallback:active,
+[data-theme="dark"] .ap-image-fallback:hover,
+[data-theme="dark"] .ap-image-fallback:focus-visible,
+[data-theme="dark"] .ap-image-fallback:active {
+  border-color: var(--ap-primary, #f97316);
+  background: var(--ap-primary-tint-dark, rgba(249, 115, 22, 0.1));
+}
+
+.dark .ap-image-fallback--error,
+[data-theme="dark"] .ap-image-fallback--error {
+  border-color: var(--ap-danger, #ef4444);
+  background: var(--ap-danger-tint-dark, rgba(239, 68, 68, 0.1));
+}
+
+.dark .ap-image-fallback-title,
+[data-theme="dark"] .ap-image-fallback-title {
+  color: var(--ap-text-dark, #f1f5f9);
+}
+
+.dark .ap-image-fallback-hint,
+[data-theme="dark"] .ap-image-fallback-hint {
+  color: var(--ap-text-muted-dark, #94a3b8);
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MOBILE — bigger tap target
+═══════════════════════════════════════════════════════════════ */
+@media (max-width: 480px) {
+  .ap-image-fallback {
+    padding: 48px 16px;
+    min-height: 160px;
+  }
+
+  .ap-image-fallback-icon {
+    font-size: 44px;
+  }
+
+  .ap-image-fallback-title {
+    font-size: 16px;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   REDUCED MOTION
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  .ap-image-fallback,
+  .ap-image-fallback--error {
+    transition: none;
+    animation: none;
+  }
+
+  .ap-image-fallback:active {
+    transform: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   HIGH CONTRAST
+═══════════════════════════════════════════════════════════════ */
+@media (prefers-contrast: more) {
+  .ap-image-fallback {
+    border-width: 3px;
+    border-style: solid;
+  }
+
+  .ap-image-fallback--error {
+    border-width: 3px;
+  }
+}
