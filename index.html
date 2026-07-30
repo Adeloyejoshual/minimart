@@ -2,13 +2,47 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 
-    <!-- Primary SEO -->
+    <!-- ═══════════════════════════════════════════════════════════
+         SSR INJECTION ZONE — START
+         The Express SSR middleware replaces the block between
+         these comments with page-specific meta tags.
+         For unmatched routes, these defaults are used.
+    ═══════════════════════════════════════════════════════════ -->
+    <!--ssr:head:start-->
+
     <title>Loemart — Buy &amp; Sell Near You in Nigeria | Phones, Electronics, Fashion &amp; More</title>
-    <meta name="description"
-      content="Shop thousands of products on Loemart — Nigeria's trusted neighbourhood marketplace. Buy phones, laptops, fashion, groceries and more from verified sellers near you. Fast delivery, secure checkout, free listings." />
+    <meta name="description" content="Shop thousands of products on Loemart — Nigeria's trusted neighbourhood marketplace. Buy phones, laptops, fashion, groceries and more from verified sellers near you. Fast delivery, secure checkout, free listings." />
+    <link rel="canonical" href="https://www.loemart.com/" />
+
+    <!-- Open Graph (default) -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://www.loemart.com/" />
+    <meta property="og:title" content="Loemart — Buy &amp; Sell Near You in Nigeria" />
+    <meta property="og:description" content="Shop phones, electronics, fashion, groceries and more from verified sellers near you. Nigeria's trusted neighbourhood marketplace with fast delivery and secure checkout." />
+    <meta property="og:image" content="https://www.loemart.com/og-image.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Loemart — Nigeria's Neighbourhood Marketplace" />
+    <meta property="og:locale" content="en_NG" />
+    <meta property="og:site_name" content="Loemart" />
+
+    <!-- Twitter Card (default) -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:site" content="@loemart" />
+    <meta name="twitter:title" content="Loemart — Buy &amp; Sell Near You in Nigeria" />
+    <meta name="twitter:description" content="Shop phones, electronics, fashion and more from verified sellers. Fast delivery across Nigeria." />
+    <meta name="twitter:image" content="https://www.loemart.com/og-image.jpg" />
+    <meta name="twitter:image:alt" content="Loemart Marketplace" />
+
+    <!--ssr:head:end-->
+    <!-- ═══════════════════════════════════════════════════════════
+         SSR INJECTION ZONE — END
+    ═══════════════════════════════════════════════════════════ -->
+
+    <!-- Author / robots (universal) -->
     <meta name="author" content="Loemart" />
     <meta name="theme-color" content="#e8630a" />
     <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
@@ -27,34 +61,9 @@
     <meta name="geo.region" content="NG" />
     <meta name="geo.placename" content="Nigeria" />
 
-    <!-- Canonical -->
-    <link rel="canonical" href="https://www.loemart.com/" />
-
     <!-- Hreflang -->
     <link rel="alternate" hreflang="en-ng" href="https://www.loemart.com/" />
     <link rel="alternate" hreflang="x-default" href="https://www.loemart.com/" />
-
-    <!-- Open Graph -->
-    <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://www.loemart.com/" />
-    <meta property="og:title" content="Loemart — Buy &amp; Sell Near You in Nigeria" />
-    <meta property="og:description"
-      content="Shop phones, electronics, fashion, groceries and more from verified sellers near you. Nigeria's trusted neighbourhood marketplace with fast delivery and secure checkout." />
-    <meta property="og:image" content="https://www.loemart.com/og-image.jpg" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
-    <meta property="og:image:alt" content="Loemart — Nigeria's Neighbourhood Marketplace" />
-    <meta property="og:locale" content="en_NG" />
-    <meta property="og:site_name" content="Loemart" />
-
-    <!-- Twitter Card -->
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:site" content="@loemart" />
-    <meta name="twitter:title" content="Loemart — Buy &amp; Sell Near You in Nigeria" />
-    <meta name="twitter:description"
-      content="Shop phones, electronics, fashion and more from verified sellers. Fast delivery across Nigeria." />
-    <meta name="twitter:image" content="https://www.loemart.com/og-image.jpg" />
-    <meta name="twitter:image:alt" content="Loemart Marketplace" />
 
     <!-- Favicon -->
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
@@ -62,20 +71,30 @@
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon.png" />
     <link rel="manifest" href="/manifest.json" />
 
-    <!-- Preconnect -->
+    <!-- Preconnect (critical origins) -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://res.cloudinary.com" />
     <link rel="dns-prefetch" href="https://fonts.googleapis.com" />
     <link rel="dns-prefetch" href="https://res.cloudinary.com" />
 
-    <!-- Fonts -->
-    <link
+    <!-- Fonts (non-blocking) -->
+    <link rel="preload"
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap"
+      as="style" />
+    <link rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+      media="print" onload="this.media='all'" />
+    <noscript>
+      <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700;800&display=swap" />
+    </noscript>
 
-    <!-- Structured Data: WebSite -->
+    <!-- ═══════════════════════════════════════════════════════════
+         STRUCTURED DATA — Universal (safe on all pages)
+    ═══════════════════════════════════════════════════════════ -->
+
+    <!-- WebSite + SearchAction (helps Google show a search box in results) -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -96,7 +115,7 @@
     }
     </script>
 
-    <!-- Structured Data: Organization -->
+    <!-- Organization -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -123,16 +142,11 @@
         "areaServed": "NG"
       },
       "foundingDate": "2024",
-      "founders": [
-        {
-          "@type": "Person",
-          "name": "Adeloye Joshua Damilare"
-        }
-      ]
+      "founders": [{ "@type": "Person", "name": "Adeloye Joshua Damilare" }]
     }
     </script>
 
-    <!-- Structured Data: OnlineStore -->
+    <!-- OnlineStore -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -144,112 +158,42 @@
       "priceRange": "₦",
       "currenciesAccepted": "NGN",
       "paymentAccepted": ["Cash on Delivery", "Bank Transfer", "Card Payment"],
-      "areaServed": {
-        "@type": "Country",
-        "name": "Nigeria"
-      },
-      "address": {
-        "@type": "PostalAddress",
-        "addressCountry": "NG"
-      },
-      "hasOfferCatalog": {
-        "@type": "OfferCatalog",
-        "name": "Loemart Products",
-        "itemListElement": [
-          { "@type": "OfferCatalog", "name": "Phones & Tablets" },
-          { "@type": "OfferCatalog", "name": "Laptops & Computers" },
-          { "@type": "OfferCatalog", "name": "Electronics" },
-          { "@type": "OfferCatalog", "name": "Fashion & Clothing" },
-          { "@type": "OfferCatalog", "name": "Home & Garden" },
-          { "@type": "OfferCatalog", "name": "Groceries" },
-          { "@type": "OfferCatalog", "name": "Health & Beauty" },
-          { "@type": "OfferCatalog", "name": "Vehicles" }
-        ]
-      }
+      "areaServed": { "@type": "Country", "name": "Nigeria" }
     }
     </script>
 
-    <!-- Structured Data: BreadcrumbList -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "BreadcrumbList",
-      "itemListElement": [
-        {
-          "@type": "ListItem",
-          "position": 1,
-          "name": "Home",
-          "item": "https://www.loemart.com/"
-        },
-        {
-          "@type": "ListItem",
-          "position": 2,
-          "name": "Products",
-          "item": "https://www.loemart.com/products"
-        },
-        {
-          "@type": "ListItem",
-          "position": 3,
-          "name": "Categories",
-          "item": "https://www.loemart.com/categories"
-        }
-      ]
-    }
-    </script>
-
-    <!-- Structured Data: FAQPage -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "FAQPage",
-      "mainEntity": [
-        {
-          "@type": "Question",
-          "name": "What is Loemart?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Loemart is Nigeria's neighbourhood marketplace where you can buy and sell phones, electronics, fashion, groceries and thousands of products from verified sellers near you with fast delivery and secure checkout."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Is it free to sell on Loemart?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Yes, listing your products on Loemart is completely free. Simply create an account, upload your product photos and start selling to buyers near you."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "How does delivery work on Loemart?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Loemart connects you with sellers near your location for fast local delivery across Nigeria."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Is Loemart safe to buy from?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Yes, Loemart verifies sellers and provides secure checkout. You can view seller ratings and reviews before purchasing."
-          }
-        }
-      ]
-    }
-    </script>
+    <!-- ═══════════════════════════════════════════════════════════
+         SSR-INJECTED STRUCTURED DATA
+         Product / Category / Store JSON-LD gets injected here
+         by the SSR middleware. Do not remove this marker.
+    ═══════════════════════════════════════════════════════════ -->
+    <!--ssr:jsonld-->
 
     <!-- Critical CSS -->
     <style>
       *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
       html { scroll-behavior: smooth; }
       body {
-        font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+        font-family: 'DM Sans', system-ui, -apple-system, BlinkMacSystemFont,
+                     'Segoe UI', Roboto, sans-serif;
         -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
         background: #fff;
         color: #1a1a1a;
+        overflow-x: hidden;
       }
       #root { min-height: 100vh; }
+
+      /* SEO fallback — visible before JS loads, hidden after */
+      .seo-fallback {
+        position: absolute;
+        left: -9999px;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+      }
+
+      /* Preloader */
       #preloader {
         position: fixed;
         inset: 0;
@@ -281,10 +225,22 @@
   <body>
 
     <!-- Preloader -->
-    <div id="preloader">
-      <img src="/favicon.png" alt="Loemart" width="64" height="64" />
+    <div id="preloader" aria-hidden="true">
+      <img src="/favicon.png" alt="" width="64" height="64" />
       <p>Loading marketplace...</p>
     </div>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         SEO FALLBACK — visible to bots that don't run JS well
+         Also a good semantic landmark. Hidden visually.
+         SSR overrides this block per page.
+    ═══════════════════════════════════════════════════════════ -->
+    <!--ssr:body:start-->
+    <div class="seo-fallback">
+      <h1>Loemart — Nigeria's Neighbourhood Marketplace</h1>
+      <p>Buy and sell phones, electronics, fashion, groceries and thousands of products from verified sellers near you. Fast local delivery across Nigeria.</p>
+    </div>
+    <!--ssr:body:end-->
 
     <!-- No JavaScript Fallback -->
     <noscript>
@@ -294,25 +250,28 @@
         <h1 style="color:#e8630a;font-size:28px;margin-bottom:8px">Loemart</h1>
         <h2 style="font-size:18px;margin-bottom:16px">Nigeria's Neighbourhood Marketplace</h2>
         <p style="margin-bottom:12px">
-          Buy and sell phones, electronics, fashion, groceries and thousands of
-          products from verified sellers near you.
+          Buy and sell phones, electronics, fashion, groceries and thousands of products from verified sellers near you.
         </p>
-        <p style="font-size:14px;color:#888">
+        <p style="font-size:14px;color:#888;margin-bottom:20px">
           Please enable JavaScript in your browser to use Loemart.
         </p>
+
         <div style="margin-top:32px;padding:20px;background:#fff8f0;border-radius:8px;text-align:left;">
           <p style="font-weight:600;margin-bottom:12px">Popular Categories</p>
           <ul style="list-style:none;line-height:2.2;">
-            <li>📱 Phones &amp; Tablets</li>
-            <li>💻 Laptops &amp; Computers</li>
-            <li>👗 Fashion &amp; Clothing</li>
-            <li>🏠 Home &amp; Garden</li>
-            <li>🛒 Groceries</li>
-            <li>💄 Health &amp; Beauty</li>
-            <li>🚗 Vehicles</li>
-            <li>🎮 Gaming &amp; Entertainment</li>
+            <li><a href="/category/phones" style="color:#e8630a;text-decoration:none">📱 Phones &amp; Tablets</a></li>
+            <li><a href="/category/laptops" style="color:#e8630a;text-decoration:none">💻 Laptops &amp; Computers</a></li>
+            <li><a href="/category/fashion" style="color:#e8630a;text-decoration:none">👗 Fashion &amp; Clothing</a></li>
+            <li><a href="/category/home" style="color:#e8630a;text-decoration:none">🏠 Home &amp; Garden</a></li>
+            <li><a href="/category/groceries" style="color:#e8630a;text-decoration:none">🛒 Groceries</a></li>
+            <li><a href="/category/beauty" style="color:#e8630a;text-decoration:none">💄 Health &amp; Beauty</a></li>
+            <li><a href="/category/vehicles" style="color:#e8630a;text-decoration:none">🚗 Vehicles</a></li>
           </ul>
         </div>
+
+        <p style="margin-top:24px;font-size:13px">
+          <a href="/sitemap.xml" style="color:#666">Browse all products →</a>
+        </p>
       </div>
     </noscript>
 
@@ -322,15 +281,20 @@
     <!-- Entry Point -->
     <script type="module" src="/src/main.jsx"></script>
 
-    <!-- Remove Preloader After Load -->
+    <!-- Preloader removal (with safety timeout) -->
     <script>
-      window.addEventListener('load', function () {
-        var p = document.getElementById('preloader');
-        if (p) {
-          p.style.opacity = '0';
-          setTimeout(function () { p.remove(); }, 300);
+      (function () {
+        function removePreloader() {
+          var p = document.getElementById('preloader');
+          if (p) {
+            p.style.opacity = '0';
+            setTimeout(function () { p.remove(); }, 300);
+          }
         }
-      });
+        window.addEventListener('load', removePreloader);
+        // Safety net — always remove after 5s even if load fails
+        setTimeout(removePreloader, 5000);
+      })();
     </script>
 
   </body>
