@@ -506,13 +506,21 @@ export default function DashboardDesktop({ user }: Props) {
   }, [hasMore, loadingMore, nextCursor, tab, search, loadProducts]);
 
   /* ══════════════════════════════════════
-     PRODUCT ACTIONS
+     DELETE FLOW
+     ✅ v2: Auto-pause active products before delete
+            Warns user in confirm dialog if product is live
   ══════════════════════════════════════ */
   const handleDelete = useCallback((product: any) => {
     pendingDelete.current = product;
-    setConfirm({
-      message: `Delete "${product.title}"? This action cannot be undone.`,
-    });
+
+    const isActive =
+      product.is_active === true || product.status === "active";
+
+    const message = isActive
+      ? `"${product.title}" is currently live. Deleting will remove it from the marketplace immediately.\n\nThis cannot be undone — but the listing is recoverable for 30 days from your account.`
+      : `Delete "${product.title}"?\n\nThis cannot be undone — but the listing is recoverable for 30 days.`;
+
+    setConfirm({ message });
   }, []);
 
   const confirmDelete = useCallback(async () => {
@@ -521,14 +529,35 @@ export default function DashboardDesktop({ user }: Props) {
     pendingDelete.current = null;
     setConfirm(null);
     setDeleting(product.id);
+
+    /* Optimistic UI — remove immediately */
     setProducts((p) => p.filter((x) => x.id !== product.id));
 
     try {
+      /* ✅ Step 1: If active, pause it first
+         Backend requires pausing before delete for active listings. */
+      const isActive =
+        product.is_active === true || product.status === "active";
+
+      if (isActive) {
+        try {
+          await fetch(
+            `${API}/seller-dashboard/products/${product.id}/toggle`,
+            { method: "PATCH", headers: authH() }
+          );
+        } catch {
+          /* Non-fatal — continue to delete anyway */
+          console.warn("[dkd] auto-pause failed, attempting delete anyway");
+        }
+      }
+
+      /* ✅ Step 2: Delete */
       const res = await fetch(
         `${API}/seller-dashboard/products/${product.id}`,
         { method: "DELETE", headers: authH() }
       );
       const d = await res.json();
+
       if (res.ok && d.success) {
         loadStats();
         showToast(
@@ -537,6 +566,7 @@ export default function DashboardDesktop({ user }: Props) {
           5000
         );
       } else {
+        /* Rollback optimistic UI on failure */
         setProducts((p) => [product, ...p]);
         showToast(d.message || "Could not delete.", "error");
       }
@@ -548,6 +578,14 @@ export default function DashboardDesktop({ user }: Props) {
     }
   }, [loadStats, showToast]);
 
+  const cancelDelete = useCallback(() => {
+    pendingDelete.current = null;
+    setConfirm(null);
+  }, []);
+
+  /* ══════════════════════════════════════
+     TOGGLE / RENEW / EDIT / PROMOTE
+  ══════════════════════════════════════ */
   const handleToggle = useCallback(
     async (product: any) => {
       if (product.status === "pending_payment") {
@@ -859,7 +897,6 @@ export default function DashboardDesktop({ user }: Props) {
             </div>
           )}
 
-          {/* ✅ Each section wrapped in error boundary — same as mobile */}
           {section === "overview" && (
             <div className="dkd-section dkd-fade-in">
               <SectionErrorBoundary section="DeskOverview">
@@ -946,10 +983,7 @@ export default function DashboardDesktop({ user }: Props) {
         <ConfirmDialog
           message={confirm.message}
           onConfirm={confirmDelete}
-          onCancel={() => {
-            pendingDelete.current = null;
-            setConfirm(null);
-          }}
+          onCancel={cancelDelete}
         />
       )}
 
