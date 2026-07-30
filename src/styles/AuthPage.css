@@ -1,6 +1,7 @@
 /* ══════════════════════════════════════════════════════════════
    AuthPage.css — Premium warm-orange theme
    Covers: /auth  /forgot-password  /reset-password
+   Layouts: Desktop  +  Mobile (.ap--mobile)
 ══════════════════════════════════════════════════════════════ */
 
 /* ── Animations ─────────────────────────────────────────────── */
@@ -112,7 +113,7 @@ a       { color: inherit; text-decoration: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════
-   PAGE SHELL
+   PAGE SHELL (Desktop)
 ══════════════════════════════════════════════════════════════ */
 .ap {
   position: fixed;
@@ -127,7 +128,7 @@ a       { color: inherit; text-decoration: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════
-   LEFT PANEL
+   LEFT PANEL (Desktop)
 ══════════════════════════════════════════════════════════════ */
 .ap-left {
   flex: 0 0 44%;
@@ -199,6 +200,11 @@ a       { color: inherit; text-decoration: none; }
     inset 0 -2px  4px rgba(0, 0, 0, 0.08);
 }
 
+.ap-logo-icon--sm {
+  width: 38px; height: 38px;
+  border-radius: 10px;
+}
+
 .ap-logo-ring {
   position: absolute;
   inset: -4px;
@@ -216,6 +222,10 @@ a       { color: inherit; text-decoration: none; }
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
 }
 
+.ap-logo-icon--sm .ap-logo-bag {
+  width: 18px; height: 16px;
+}
+
 .ap-logo-bag::before {
   content: "";
   position: absolute;
@@ -225,6 +235,12 @@ a       { color: inherit; text-decoration: none; }
   border: 2.5px solid #fff;
   border-bottom: none;
   border-radius: 8px 8px 0 0;
+}
+
+.ap-logo-icon--sm .ap-logo-bag::before {
+  width: 9px; height: 6px;
+  top: -6px;
+  border-width: 2px;
 }
 
 .ap-logo-pin {
@@ -398,7 +414,7 @@ a       { color: inherit; text-decoration: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════
-   RIGHT PANEL
+   RIGHT PANEL (Desktop)
 ══════════════════════════════════════════════════════════════ */
 .ap-right {
   flex: 1;
@@ -1453,7 +1469,7 @@ a       { color: inherit; text-decoration: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════
-   RESPONSIVE
+   RESPONSIVE — DESKTOP TIERS
 ══════════════════════════════════════════════════════════════ */
 @media (min-width: 1400px) {
   .ap-left-inner  { padding: 46px 52px; }
@@ -1476,8 +1492,12 @@ a       { color: inherit; text-decoration: none; }
   .ap-otp-cell      { width: 46px; height: 52px; font-size: 22px; border-radius: 12px; }
 }
 
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE — TABLET / SMALL DESKTOP FALLBACK
+   (only affects non-mobile .ap layout that still has .ap-left)
+══════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
-  .ap, .rp {
+  .ap:not(.ap--mobile), .rp {
     position: relative;
     flex-direction: column;
     min-height: 100vh; min-height: 100dvh;
@@ -1505,7 +1525,7 @@ a       { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 520px) {
-  .ap-left, .rp-left { min-height: 210px; }
+  .ap:not(.ap--mobile) .ap-left, .rp-left { min-height: 210px; }
   .ap-logo-name      { font-size: 19px; }
   .ap-heading h3     { font-size: 20px; }
   .ap-otp-title      { font-size: 20px; }
@@ -1517,8 +1537,8 @@ a       { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 380px) {
-  .ap-left-inner, .rp-left__inner { padding: 18px 14px; }
-  .ap-right-scroll  { padding: 18px 14px 24px; }
+  .ap:not(.ap--mobile) .ap-left-inner, .rp-left__inner { padding: 18px 14px; }
+  .ap:not(.ap--mobile) .ap-right-scroll  { padding: 18px 14px 24px; }
   .rp-right__scroll { padding: 18px 14px 24px; }
   .ap-heading h3    { font-size: 18px; }
   .ap-iw input, .ap-iw select { font-size: 13px; }
@@ -1526,8 +1546,15 @@ a       { color: inherit; text-decoration: none; }
   .ap-otp-group     { gap: 6px; }
 }
 
-@media (max-height: 520px) and (orientation: landscape) {
-  .ap, .rp    { position: relative; flex-direction: row; min-height: 100vh; overflow-y: auto; }
+/* ══════════════════════════════════════════════════════════════
+   RESPONSIVE — REAL LANDSCAPE (wide tablets/laptops in landscape)
+   MUST require min-width so phone keyboards never trigger this.
+══════════════════════════════════════════════════════════════ */
+@media (max-height: 520px) and (orientation: landscape) and (min-width: 720px) {
+  .ap:not(.ap--mobile), .rp {
+    position: relative; flex-direction: row;
+    min-height: 100vh; overflow-y: auto;
+  }
   .ap-left, .rp-left { flex: 0 0 34%; }
   .ap-left-inner, .rp-left__inner { padding: 16px; }
   .ap-hero h2 { font-size: 18px; }
@@ -1536,7 +1563,88 @@ a       { color: inherit; text-decoration: none; }
   .rp-right__scroll { padding: 14px 20px; }
 }
 
-/* ── Reduced motion ─────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════
+   MOBILE LAYOUT  (.ap--mobile)
+   Dedicated single-column shell used by AuthPageMobile.jsx
+   Always vertical stack — never affected by keyboard height.
+══════════════════════════════════════════════════════════════ */
+.ap.ap--mobile {
+  position: relative;              /* not fixed → scrolls with keyboard */
+  inset: auto;
+  display: flex;
+  flex-direction: column !important;
+  align-items: stretch;
+  min-height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* ── Mobile header (compact branded bar) ────────────────────── */
+.ap-mobile-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  width: 100%;
+  padding: 20px 20px 16px;
+  flex-shrink: 0;
+  background: linear-gradient(160deg, #fffdfb 0%, #fff4ec 100%);
+  border-bottom: 1px solid var(--ap-border-soft);
+}
+
+.ap-logo--mobile {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 0;
+}
+
+.ap-mobile-tagline {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ap-text-2);
+  width: 100%;
+  line-height: 1.4;
+}
+
+/* ── Mobile body ────────────────────────────────────────────── */
+.ap-mobile-body {
+  display: flex;
+  flex-direction: column !important;
+  width: 100%;
+  flex: 1 1 auto;
+  padding: 20px 16px 32px;
+}
+
+.ap-box--mobile {
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   MOBILE — KEYBOARD-OPEN GUARD
+   When the software keyboard opens, viewport height drops
+   dramatically. Force column layout no matter what other
+   media queries try to say.
+══════════════════════════════════════════════════════════════ */
+@media (max-height: 700px) {
+  .ap.ap--mobile,
+  .ap.ap--mobile .ap-mobile-body,
+  .ap.ap--mobile .ap-mobile-header {
+    flex-direction: column !important;
+  }
+  .ap.ap--mobile .ap-logo--mobile {
+    flex-direction: row !important;
+  }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   REDUCED MOTION
+══════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
