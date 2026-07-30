@@ -211,6 +211,12 @@ import settingsRouter from "./routes/settings.js";
 ──────────────────────────────────────────────────────────────*/
 import supportRouter from "./routes/support.js";
 
+/* ── SSR ── */
+import ssrRouter from "./routes/ssr.js";
+
+/* ── Sitemap ── */
+import sitemapRouter from "./routes/sitemap.js";
+
 /* ── Background jobs ── */
 import { startListingExpiryJob }    from "./jobs/listingExpiry.js";
 import { startCleanupJob }          from "./jobs/cleanupDeletedProducts.js";
@@ -420,10 +426,22 @@ app.get("/api/health", async (_req, res) => {
 });
 
 /* ══════════════════════════════════════════════════════════════
-   SPA FALLBACK  — production only
+   SSR + SPA FALLBACK  — production only
 ══════════════════════════════════════════════════════════════ */
 if (IS_PROD) {
   const dist = path.join(__dirname, "dist");
+
+  /* SSR must come BEFORE static file serving so it can render
+     routes that need server-side rendering (e.g. for SEO/social
+     previews) before the static file server or SPA catch-all
+     have a chance to intercept the request. */
+  app.use(ssrRouter);
+
+  /* Sitemap must also come BEFORE static file serving so dynamic
+     sitemap routes are matched before the static server / SPA
+     catch-all can intercept them. */
+  app.use(sitemapRouter);
+
   app.use(express.static(dist, {
     maxAge     : "1d",
     setHeaders(res, fp) {
