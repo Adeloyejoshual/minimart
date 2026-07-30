@@ -80,10 +80,7 @@ export const categoryFields = {
   ],
   "Services": [
     "skills", "features",
-  ],
-  
-  // --- NEWLY ADDED CATEGORIES BELOW ---
-  
+  ], 
   "Mobile & Tech Accessories": [
     "brand", "model", "color", "condition", "used_detail", "features",
   ],
