@@ -2,12 +2,11 @@
  * src/pages/product/components.jsx
  * Main shell — imports all sub-components, owns page-level logic only
  *
- * v8 — IMAGE UPLOAD ALWAYS VISIBLE
- *   • Fixed: Upload area disappeared after image validation error
- *   • Fixed: Upload area disappeared after user cancelled gallery
- *   • Added fallback <label> upload button that always renders
- *     when images.length === 0 && canAddMore
- *   • Section 4 no longer conditionally hides upload UI on error
+ * v8.3 — IMAGE UPLOAD ALWAYS VISIBLE (FINAL FIX)
+ *   • ImageGrid is now ALWAYS mounted (it has built-in EmptyState)
+ *   • Removed FallbackImageUpload (was duplicating EmptyState)
+ *   • Image errors moved BELOW the grid (consistent with other sections)
+ *   • Fixes: upload area disappearing after gallery cancel / validation error
  *
  * v7 — INLINE FIELD ERRORS
  *   • Accepts fieldError from parent
@@ -102,59 +101,6 @@ function InlineFieldError({ show, message, id }) {
     <div id={id} className="field-error" role="alert" aria-live="polite">
       <WarningIcon />
       <span>{message}</span>
-    </div>
-  );
-}
-
-/* ═══════════════════════════════════════════════════════════════
-   ✅ v8: FALLBACK IMAGE UPLOAD BUTTON
-   Always visible when user has zero new images and can add more.
-   Guarantees the upload UI is never hidden by error states or
-   gallery cancellations.
-═══════════════════════════════════════════════════════════════ */
-function FallbackImageUpload({ onAdd, maxImages, hasError }) {
-  const inputRef = useRef(null);
-
-  const handleClick = useCallback((e) => {
-    // If click landed on the hidden <input>, let it bubble normally.
-    if (e.target.tagName === "INPUT") return;
-    inputRef.current?.click();
-  }, []);
-
-  const handleChange = useCallback((e) => {
-    const files = e.target.files;
-    if (files?.length) onAdd(files);
-    // Reset so the SAME file can be picked again after error
-    e.target.value = "";
-  }, [onAdd]);
-
-  return (
-    <div
-      className={`ap-image-fallback${hasError ? " ap-image-fallback--error" : ""}`}
-      onClick={handleClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          inputRef.current?.click();
-        }
-      }}
-      aria-label="Tap to add product photos"
-    >
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/jpeg,image/png,image/webp"
-        multiple
-        style={{ display: "none" }}
-        onChange={handleChange}
-      />
-      <div className="ap-image-fallback-icon" aria-hidden="true">📷</div>
-      <strong className="ap-image-fallback-title">Tap to add photos</strong>
-      <small className="ap-image-fallback-hint">
-        Up to {maxImages} images · JPEG, PNG, or WebP · max 5&nbsp;MB each
-      </small>
     </div>
   );
 }
@@ -695,14 +641,6 @@ export default function ProductComponents({
   ═══════════════════════════════════════════════════════════ */
   const canAddMore     = totalImageCount < MAX_IMAGES;
   const hasImageErrors = Object.keys(imageErrors).length > 0;
-
-  /* ✅ v8: Decide when to show fallback upload button
-     Show it whenever user has ZERO new images but slots remain.
-     This guarantees a visible upload target even after:
-       - gallery cancellation
-       - image validation failure
-       - server error clearing images */
-  const showFallbackUpload = images.length === 0 && canAddMore;
 
   const basicFilled   = !!(
     form.title?.trim() && form.description?.trim() && form.price
@@ -1379,13 +1317,10 @@ export default function ProductComponents({
 
       {/* ════════════════════════════════════════════════════
           SECTION 4 — PRODUCT IMAGES
-          ✅ v8: Upload UI ALWAYS visible when user can add more.
-                 No conditional wrappers around ImageGrid/fallback.
+          ✅ v8.3: ImageGrid ALWAYS mounted — has built-in EmptyState.
+                   Errors positioned BELOW grid to match other fields.
       ════════════════════════════════════════════════════ */}
-      <section
-        ref={sec4}
-        className={`section form-card ${hasError("images") ? "has-error" : ""}`}
-      >
+      <section ref={sec4} className="section form-card">
         <h3 className="section-title">
           Product Images * <SectionDot filled={imagesFilled} />
         </h3>
@@ -1407,7 +1342,41 @@ export default function ProductComponents({
           )}
         </div>
 
-        {/* Section-level error (from form validation) */}
+        {/* Existing images (edit mode only) */}
+        {isEditMode && existingImages.length > 0 && (
+          <ExistingImageGrid
+            existingImages={existingImages}
+            onRemove={removeExistingImage}
+          />
+        )}
+
+        {/* ✅ ImageGrid is ALWAYS mounted — it renders EmptyState internally
+              when there are no images. This is what fixes the disappearing
+              upload area bug (v8.3). */}
+        <ImageGrid
+          images={images}
+          imageErrors={imageErrors}
+          MAX_IMAGES={MAX_IMAGES}
+          canAddMore={canAddMore}
+          isDragging={isDragging}
+          dropZoneRef={dropZoneRef}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDrop}
+          onRemove={(id) => {
+            removeImage(id);
+            setImageErrors((prev) => {
+              const next = { ...prev };
+              delete next[id];
+              return next;
+            });
+          }}
+          onMove={moveImage}
+          onAdd={handleImages}
+        />
+
+        {/* ✅ Section-level error BELOW the grid (like all other sections) */}
         <InlineFieldError
           show={hasError("images")}
           message={fieldError.message}
@@ -1418,7 +1387,7 @@ export default function ProductComponents({
           <div
             className="field-error"
             role="alert"
-            style={{ marginBottom: 10 }}
+            style={{ marginTop: 10 }}
           >
             <WarningIcon />
             <span>
@@ -1427,52 +1396,6 @@ export default function ProductComponents({
               errors — fix before submitting
             </span>
           </div>
-        )}
-
-        {/* Existing images (edit mode only) */}
-        {isEditMode && existingImages.length > 0 && (
-          <ExistingImageGrid
-            existingImages={existingImages}
-            onRemove={removeExistingImage}
-          />
-        )}
-
-        {/* ✅ v8: FALLBACK UPLOAD — always shows when 0 new images + slots remain
-                  This is what the user sees after cancelling gallery or on error. */}
-        {showFallbackUpload && (
-          <FallbackImageUpload
-            onAdd={handleImages}
-            maxImages={MAX_IMAGES}
-            hasError={hasError("images") || hasImageErrors}
-          />
-        )}
-
-        {/* ✅ v8: ImageGrid only renders when there ARE new images.
-                  When empty, the FallbackImageUpload above handles the UX.
-                  This avoids relying on ImageGrid's internal empty-state logic. */}
-        {images.length > 0 && (
-          <ImageGrid
-            images={images}
-            imageErrors={imageErrors}
-            MAX_IMAGES={MAX_IMAGES}
-            canAddMore={canAddMore}
-            isDragging={isDragging}
-            dropZoneRef={dropZoneRef}
-            onDragEnter={handleDragEnter}
-            onDragOver={handleDragOver}
-            onDragLeave={handleDragLeave}
-            onDrop={handleDrop}
-            onRemove={(id) => {
-              removeImage(id);
-              setImageErrors((prev) => {
-                const next = { ...prev };
-                delete next[id];
-                return next;
-              });
-            }}
-            onMove={moveImage}
-            onAdd={handleImages}
-          />
         )}
 
         {totalImageCount > 0 && (
