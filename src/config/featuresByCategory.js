@@ -103,5 +103,25 @@ export const featuresByCategory = {
   "Toys & Games": [
     "Battery Included", "Age Appropriate", "Educational", "Collectible", 
     "Complete Set"
-  ]
+  ],
+
+  // --- NEWLY ADDED CATEGORIES BELOW ---
+
+  "Mobile & Tech Accessories": [
+    "Fast Charging", "USB Type-C", "Wireless Charging", "MagSafe Compatible",
+    "Bluetooth", "Universal Fit", "Braided Cable", "Tangle Free",
+    "Surge Protection", "LED Indicator", "Compact Design", "Lightweight",
+    "Waterproof", "Durable", "Warranty Included"
+  ],
+  "Watches, Jewelry & Accessories": [
+    "Handmade", "Limited Edition", "Stainless Steel", "Gold Plated",
+    "Silver Plated", "Leather Strap", "Water Resistant", "Scratch Resistant",
+    "Anti-allergic", "Adjustable", "Genuine Leather", "Imported",
+    "Gift Box Included", "Certificate of Authenticity", "Engraved"
+  ],
+  "Miscellaneous / Others": [
+    "Portable", "Durable", "Lightweight", "Multi-purpose", 
+    "Eco-Friendly", "Handmade", "Limited Edition", "Warranty Included",
+    "New", "Used"
+  ],
 };
