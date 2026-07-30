@@ -1,7 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════
    DESKTOP HEADER — DesktopHeader.css
-   Sits BELOW TopNavDesktop on desktop (≥1024px)
-   Handles tablet (768–1023px) standalone
+   Shows on ALL sizes ≥ 768px by default
+   TopNavDesktop (if rendered) can visually replace it via layout,
+   but DesktopHeader always has a valid display state.
 ═══════════════════════════════════════════════════════════════ */
 
 /* ══ TOKENS ══════════════════════════════════════════════════ */
@@ -13,13 +14,14 @@
   --dh-radius-sm   : 8px;
   --dh-radius-pill : 999px;
 
-  /* z-index ladder — must stay below TopNavDesktop */
   --dh-z-header    : 900;
   --dh-z-dropdown  : 910;
 }
 
-/* ══ 1. HEADER SHELL ══════════════════════════════════════════ */
+/* ══ 1. HEADER SHELL — ALWAYS FLEX BY DEFAULT ═══════════════ */
 .dh {
+  display       : flex;                    /* ← default state */
+  align-items   : center;
   position      : fixed;
   top           : 0;
   left          : 0;
@@ -32,9 +34,6 @@
     background   var(--dh-trans),
     border-color var(--dh-trans),
     box-shadow   var(--dh-trans);
-
-  /* Never overlap TopNavDesktop dropdowns */
-  isolation     : auto;
 }
 
 .dh--scrolled {
@@ -49,6 +48,7 @@
   display     : flex;
   align-items : center;
   gap         : 16px;
+  width       : 100%;
   max-width   : var(--dh-max);
   height      : 100%;
   margin      : 0 auto;
@@ -238,7 +238,6 @@
 .dh__account-wrap {
   position   : relative;
   flex-shrink: 0;
-  /* Own stacking context so dropdown escapes correctly */
   isolation  : isolate;
 }
 
@@ -315,25 +314,16 @@
   position      : absolute;
   top           : calc(100% + 8px);
   right         : 0;
-  width         : 272px;
+  width         : 340px;
+  max-width     : calc(100vw - 32px);
   background    : var(--wh);
   border        : 1px solid var(--bd);
   border-radius : var(--dh-radius);
   box-shadow    : var(--s3);
   overflow      : hidden;
-
-  /*
-   * KEY: z-index relative to .dh__account-wrap's isolation context.
-   * A large number here is safe because .dh__account-wrap is isolated,
-   * so this only stacks within that context — it will NOT escape above
-   * .dtn-wrap (TopNavDesktop) which is in the document root context.
-   *
-   * To make it appear above the header bar itself we use a positive value.
-   */
   z-index       : var(--dh-z-dropdown);
 }
 
-/* Header row */
 .dh-dropdown__header {
   display       : flex;
   align-items   : center;
@@ -399,7 +389,6 @@
   white-space   : nowrap;
 }
 
-/* Body */
 .dh-dropdown__body {
   padding   : 6px;
   overflow-y: auto;
@@ -408,9 +397,9 @@
 .dh-dropdown__item {
   display       : flex;
   align-items   : center;
-  gap           : 10px;
+  gap           : 12px;
   width         : 100%;
-  padding       : 10px 12px;
+  padding       : 11px 14px;
   background    : transparent;
   border        : none;
   border-radius : var(--dh-radius-sm);
@@ -421,8 +410,17 @@
   text-align    : left;
   font-family   : var(--fb);
   transition    : background 0.13s;
+  min-width     : 0;
 }
 .dh-dropdown__item:hover { background: var(--bg); }
+
+.dh-dropdown__item > span:not(.dh-dropdown__item-icon) {
+  flex          : 1;
+  min-width     : 0;
+  overflow      : hidden;
+  text-overflow : ellipsis;
+  white-space   : nowrap;
+}
 
 .dh-dropdown__item-icon {
   width       : 18px;
@@ -441,7 +439,6 @@
   margin    : 4px 8px;
 }
 
-/* Footer / logout */
 .dh-dropdown__footer {
   padding   : 6px;
   border-top: 1px solid var(--bd);
@@ -525,43 +522,45 @@
 
 /*
   < 768px  → hidden (mobile nav handles it)
-  768–1023px → visible as standalone tablet header (no TopNavDesktop)
-  ≥ 1024px → HIDDEN — TopNavDesktop takes over completely
+  ≥ 768px  → SHOWS by default (see .dh { display: flex; } above)
+
+  NOTE: TopNavDesktop handles hiding itself via its own CSS.
+  We do NOT hide .dh on desktop anymore — that was causing the
+  header to disappear when TopNavDesktop wasn't actually rendered.
+
+  If you want TopNavDesktop to REPLACE .dh on desktop,
+  render only ONE of them from React based on screen size,
+  OR add a body class like `.has-topnav .dh { display: none }`.
 */
 
-/* Mobile: hide */
 @media (max-width: 767px) {
   .dh { display: none; }
 }
 
-/* Tablet: show standalone */
+/* Tablet spacing tweaks */
 @media (min-width: 768px) and (max-width: 1023px) {
-  .dh {
-    display  : flex;            /* flex so .dh__inner fills correctly */
-    z-index  : var(--dh-z-header);
-  }
-
-  .dh__inner  { padding: 0 20px; gap: 12px; }
-  .dh-search  { max-width: 260px; }
+  .dh__inner        { padding: 0 20px; gap: 12px; }
+  .dh-search        { max-width: 260px; }
   .dh-account__name { max-width: 72px; }
 }
 
-/* Desktop: hide — TopNavDesktop renders instead */
-@media (min-width: 1024px) {
-  .dh { display: none; }
+/* Narrow desktop */
+@media (min-width: 1024px) and (max-width: 1279px) {
+  .dh__inner        { padding: 0 24px; gap: 14px; }
+  .dh-search        { max-width: 380px; }
+  .dh-account__name { max-width: 80px; }
+}
+
+/* Full desktop */
+@media (min-width: 1280px) {
+  .dh__inner        { padding: 0 32px; gap: 16px; }
+  .dh-search        { max-width: 520px; }
+  .dh-account__name { max-width: 100px; }
 }
 
 /* ══ 11. CONTENT SPACER ═══════════════════════════════════════ */
-/*
-  Only needed on tablet where .dh is fixed.
-  On desktop TopNavDesktop is sticky so no spacer needed.
-*/
 .dh-spacer {
-  height: var(--dh-h);         /* 64px */
-}
-
-@media (min-width: 1024px) {
-  .dh-spacer { display: none; }
+  height: var(--dh-h);
 }
 
 @media (max-width: 767px) {
