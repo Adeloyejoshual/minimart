@@ -1,17 +1,15 @@
-// routes/sellerprofile.js — v2
+// routes/sellerprofile.js — v3
 //
-// Changes from v1:
-//  - ACTIVE_STATUSES constant added — single source of truth
-//  - ACTIVE_WHERE helper added — includes active_until expiry guard
-//  - All product queries now show active + active_limited listings
-//  - Expired trial listings automatically hidden (active_until > NOW())
-//  - Seller info query: added identity_verified, subscription fields
-//  - normalizeProduct: added trial_listing, trial_expires_at,
-//    trial_days_remaining, status, active_until fields
-//  - Stats queries: now count active_limited listings too
-//  - /stats endpoint: added trial_listings count breakdown
-//  - Subscription info added to seller response
-//  - hasMore fixed to use < limit instead of === limit
+// Changes from v2:
+//  - NEW: All :id params accept EITHER a UUID or a username
+//         /api/seller/abc-uuid           → looks up by users.id
+//         /api/seller/loemart            → looks up by users.username
+//  - NEW: resolveSellerId() helper — one DB round-trip to detect
+//         UUID vs username and return the canonical UUID
+//  - Case-insensitive username matching
+//  - 301 redirect suggestion: frontend can call /:id and, if a
+//    username was passed, use canonical_id in the response
+//  - Consistent 404 shape for both lookups
 
 import express  from "express";
 import { pool } from "../config/db.js";
@@ -20,19 +18,9 @@ const router = express.Router();
 
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
-   Mirrors productDetail.js v2 and homepage.js v4.
-   Both statuses mean "publicly visible".
-     active         → verified / subscribed seller
-     active_limited → unverified seller, 7-day trial window
 ═══════════════════════════════════════════════════════════════ */
 const ACTIVE_STATUSES = `('active', 'active_limited')`;
 
-/*
- * ACTIVE_WHERE — paste into any products WHERE clause.
- * The active_until guard auto-hides expired trials without
- * needing a cron job to have run first.
- * Verified / subscribed listings have NULL active_until → always shown.
- */
 const ACTIVE_WHERE = `
   is_active  = TRUE
   AND is_deleted IS NOT TRUE
@@ -43,8 +31,17 @@ const ACTIVE_WHERE = `
 /* ═══════════════════════════════════════════════════════════════
    HELPERS
 ═══════════════════════════════════════════════════════════════ */
-const safeInt   = (n, fb = 0)  => { const p = parseInt(n,   10); return isNaN(p) ? fb : p; };
-const safeFloat = (n, fb = 0)  => { const p = parseFloat(n);     return isNaN(p) ? fb : p; };
+const safeInt   = (n, fb = 0) => { const p = parseInt(n, 10); return isNaN(p) ? fb : p; };
+const safeFloat = (n, fb = 0) => { const p = parseFloat(n);   return isNaN(p) ? fb : p; };
+
+/* ✅ UUID v4 detector */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const isUUID = (v) => typeof v === "string" && UUID_RE.test(v);
+
+/* ✅ Username format — matches editProfile.js validation */
+const USERNAME_RE = /^[a-z0-9_]{3,20}$/;
+const isValidUsername = (v) =>
+  typeof v === "string" && USERNAME_RE.test(v.toLowerCase());
 
 const daysUntilExpiry = (date) => {
   if (!date) return null;
@@ -73,11 +70,43 @@ const getSubscriptionLabel = (planSlug, rank) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   ✅ RESOLVE SELLER ID
+   Accepts either a UUID or a username and returns the canonical
+   users.id (UUID). Returns null if not found or invalid.
+═══════════════════════════════════════════════════════════════ */
+async function resolveSellerId(param) {
+  if (!param || typeof param !== "string") return null;
+
+  const trimmed = param.trim();
+  if (!trimmed) return null;
+
+  /* Case 1: UUID — verify it exists */
+  if (isUUID(trimmed)) {
+    const { rows } = await pool.query(
+      `SELECT id FROM public.users WHERE id = $1 LIMIT 1`,
+      [trimmed]
+    );
+    return rows[0]?.id ?? null;
+  }
+
+  /* Case 2: Username — look up (case-insensitive) */
+  if (isValidUsername(trimmed)) {
+    const { rows } = await pool.query(
+      `SELECT id
+       FROM   public.users
+       WHERE  LOWER(username) = LOWER($1)
+       LIMIT  1`,
+      [trimmed]
+    );
+    return rows[0]?.id ?? null;
+  }
+
+  /* Neither UUID nor valid username format */
+  return null;
+}
+
+/* ═══════════════════════════════════════════════════════════════
    NORMALIZE PRODUCT
-   Converts a raw DB row into the shape the frontend expects.
-   Matches homepage.js v4 shapeProduct() trial fields so the
-   frontend receives consistent data regardless of which route
-   serves the product.
 ═══════════════════════════════════════════════════════════════ */
 const normalizeProduct = (p) => {
   const isTrialListing     = p.status === "active_limited";
@@ -91,7 +120,7 @@ const normalizeProduct = (p) => {
     slug                : p.slug,
     status              : p.status,
     image               : p.main_image || p.thumbnail_url || null,
-    images              : p.main_image ? [p.main_image]  : [],
+    images              : p.main_image ? [p.main_image] : [],
     views               : safeInt(p.views, 0),
     created_at          : p.created_at,
     is_promoted         : !!p.is_promoted,
@@ -102,7 +131,6 @@ const normalizeProduct = (p) => {
     location_state      : p.location_state ?? null,
     active_until        : p.active_until   ?? null,
 
-    /* Trial fields — mirrors homepage.js v4 + productDetail.js v2 */
     trial_listing       : isTrialListing,
     trial_expires_at    : trialExpiresAt,
     trial_days_remaining: trialDaysRemaining,
@@ -111,8 +139,6 @@ const normalizeProduct = (p) => {
 
 /* ═══════════════════════════════════════════════════════════════
    SHARED PRODUCT COLUMNS
-   Used by both GET /:id and GET /:id/products so the column
-   list stays in sync automatically.
 ═══════════════════════════════════════════════════════════════ */
 const PRODUCT_COLS = `
   id,
@@ -135,16 +161,28 @@ const PRODUCT_COLS = `
 
 /* ═══════════════════════════════════════════════════════════════
    GET /api/seller/:id
+   :id can be UUID or username
 ═══════════════════════════════════════════════════════════════ */
 router.get("/:id", async (req, res) => {
-  const { id } = req.params;
+  const { id: rawParam } = req.params;
 
   try {
+    /* ✅ Resolve UUID or username → canonical UUID */
+    const sellerId = await resolveSellerId(rawParam);
+
+    if (!sellerId) {
+      return res.status(404).json({
+        error: "Seller not found",
+        detail: `No seller with id or username "${rawParam}"`,
+      });
+    }
+
     /* ── Seller info ── */
     const { rows: userRows } = await pool.query(
       `SELECT
          u.id,
          u.name,
+         u.username,
          u.store_name,
          u.store_description,
          u.store_logo,
@@ -160,7 +198,6 @@ router.get("/:id", async (req, res) => {
          u.is_online,
          u.trust_score,
 
-         /* Subscription */
          u.subscription_plan,
          u.subscription_status,
          u.subscription_expires_at,
@@ -173,7 +210,7 @@ router.get("/:id", async (req, res) => {
               AND sp.is_active = TRUE
        WHERE  u.id = $1
        LIMIT  1`,
-      [id]
+      [sellerId]
     );
 
     if (!userRows[0]) {
@@ -181,15 +218,12 @@ router.get("/:id", async (req, res) => {
     }
 
     const u          = userRows[0];
-    const subActive  = isSubscriptionActive(
-      u.subscription_status, u.subscription_expires_at
-    );
-    const subLabel   = getSubscriptionLabel(
-      u.subscription_plan, safeInt(u.subscription_rank, 0)
-    );
+    const subActive  = isSubscriptionActive(u.subscription_status, u.subscription_expires_at);
+    const subLabel   = getSubscriptionLabel(u.subscription_plan, safeInt(u.subscription_rank, 0));
 
     const seller = {
       id                : u.id,
+      username          : u.username          ?? null,   /* ✅ canonical username */
       name              : u.name,
       store_name        : u.store_name        ?? null,
       store_description : u.store_description ?? null,
@@ -198,15 +232,14 @@ router.get("/:id", async (req, res) => {
       verified          : !!u.verified,
       identity_verified : !!u.identity_verified,
       store_verified    : !!u.store_verified,
-      rating            : safeFloat(u.rating,         0),
-      products_count    : safeInt(u.products_count,   0),
-      total_sales       : safeInt(u.total_sales,      0),
+      rating            : safeFloat(u.rating,       0),
+      products_count    : safeInt(u.products_count, 0),
+      total_sales       : safeInt(u.total_sales,    0),
       created_at        : u.created_at,
       last_login        : u.last_login        ?? null,
       is_online         : !!u.is_online,
-      trust_score       : safeFloat(u.trust_score,   50),
+      trust_score       : safeFloat(u.trust_score, 50),
 
-      /* Subscription — for seller badge on public profile */
       subscription: {
         plan      : u.subscription_plan       ?? null,
         plan_name : u.subscription_plan_name  ?? null,
@@ -230,7 +263,7 @@ router.get("/:id", async (req, res) => {
          promotion_priority DESC,
          created_at         DESC
        LIMIT 50`,
-      [id]
+      [sellerId]
     );
 
     /* ── Stats ── */
@@ -240,8 +273,6 @@ router.get("/:id", async (req, res) => {
          COALESCE(SUM(views),            0)::int   AS total_views,
          COALESCE(SUM(clicks_count),     0)::int   AS total_clicks,
          COALESCE(AVG(conversion_rate),  0)        AS avg_conversion,
-
-         /* v2: breakdown by status so frontend can show trial count */
          SUM(CASE WHEN status = 'active'         THEN 1 ELSE 0 END)::int
            AS verified_listings,
          SUM(CASE WHEN status = 'active_limited' THEN 1 ELSE 0 END)::int
@@ -249,7 +280,7 @@ router.get("/:id", async (req, res) => {
        FROM public.products
        WHERE seller_id = $1
          AND ${ACTIVE_WHERE}`,
-      [id]
+      [sellerId]
     );
 
     const s = statsRows[0] ?? {};
@@ -258,19 +289,20 @@ router.get("/:id", async (req, res) => {
       seller,
       products: productRows.map(normalizeProduct),
       stats: {
-        total_products   : safeInt(s.total_products,   0),
-        total_views      : safeInt(s.total_views,      0),
-        total_clicks     : safeInt(s.total_clicks,     0),
-        avg_conversion   : safeFloat(s.avg_conversion, 0),
-        verified_listings: safeInt(s.verified_listings,0),
-        trial_listings   : safeInt(s.trial_listings,   0),
+        total_products   : safeInt(s.total_products,    0),
+        total_views      : safeInt(s.total_views,       0),
+        total_clicks     : safeInt(s.total_clicks,      0),
+        avg_conversion   : safeFloat(s.avg_conversion,  0),
+        verified_listings: safeInt(s.verified_listings, 0),
+        trial_listings   : safeInt(s.trial_listings,    0),
       },
-      /*
-       * hasMore — true when exactly 50 rows returned, meaning
-       * there may be more pages. Use /:id/products?page=2 to paginate.
-       * Fixed: was === 50 which fails if limit ever changes.
-       */
       hasMore: productRows.length >= 50,
+
+      /* ✅ Tell frontend which param type was used — enables
+         canonical URL redirect if desired */
+      resolved_by: isUUID(rawParam) ? "id" : "username",
+      canonical_id      : u.id,
+      canonical_username: u.username ?? null,
     });
 
   } catch (err) {
@@ -280,15 +312,23 @@ router.get("/:id", async (req, res) => {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /api/seller/:id/products?page=&limit=
+   GET /api/seller/:id/products
 ═══════════════════════════════════════════════════════════════ */
 router.get("/:id/products", async (req, res) => {
-  const { id }  = req.params;
-  const page    = Math.max(1,  safeInt(req.query.page,  1));
-  const limit   = Math.min(50, safeInt(req.query.limit, 20));
-  const offset  = (page - 1) * limit;
+  const { id: rawParam } = req.params;
+  const page   = Math.max(1,  safeInt(req.query.page,  1));
+  const limit  = Math.min(50, safeInt(req.query.limit, 20));
+  const offset = (page - 1) * limit;
 
   try {
+    const sellerId = await resolveSellerId(rawParam);
+    if (!sellerId) {
+      return res.status(404).json({
+        error: "Seller not found",
+        detail: `No seller with id or username "${rawParam}"`,
+      });
+    }
+
     const { rows } = await pool.query(
       `SELECT ${PRODUCT_COLS}
        FROM   public.products
@@ -300,7 +340,7 @@ router.get("/:id/products", async (req, res) => {
          created_at         DESC
        LIMIT  $2
        OFFSET $3`,
-      [id, limit, offset]
+      [sellerId, limit, offset]
     );
 
     return res.json({
@@ -320,9 +360,17 @@ router.get("/:id/products", async (req, res) => {
    GET /api/seller/:id/stats
 ═══════════════════════════════════════════════════════════════ */
 router.get("/:id/stats", async (req, res) => {
-  const { id } = req.params;
+  const { id: rawParam } = req.params;
 
   try {
+    const sellerId = await resolveSellerId(rawParam);
+    if (!sellerId) {
+      return res.status(404).json({
+        error: "Seller not found",
+        detail: `No seller with id or username "${rawParam}"`,
+      });
+    }
+
     const { rows } = await pool.query(
       `SELECT
          COUNT(*)::int                               AS total_products,
@@ -330,8 +378,6 @@ router.get("/:id/stats", async (req, res) => {
          COALESCE(SUM(clicks_count),      0)::int   AS total_clicks,
          COALESCE(SUM(favorites_count),   0)::int   AS total_favorites,
          COALESCE(SUM(share_count),       0)::int   AS total_shares,
-
-         /* v2: status breakdown */
          SUM(CASE WHEN status = 'active'         THEN 1 ELSE 0 END)::int
            AS verified_listings,
          SUM(CASE WHEN status = 'active_limited' THEN 1 ELSE 0 END)::int
@@ -339,7 +385,7 @@ router.get("/:id/stats", async (req, res) => {
        FROM public.products
        WHERE seller_id = $1
          AND ${ACTIVE_WHERE}`,
-      [id]
+      [sellerId]
     );
 
     const s = rows[0] ?? {};
