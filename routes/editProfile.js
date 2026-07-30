@@ -36,6 +36,9 @@ const MAX_NAME        = 60;
 const MAX_STORE_NAME  = 60;
 const MAX_USERNAME    = 20;
 
+/* ✅ Username can be changed once every 30 days */
+const USERNAME_COOLDOWN_DAYS = 30;
+
 // ═══════════════════════════════════════════════════════════════
 // MULTER — memory storage, image only, 5 MB limit
 // ═══════════════════════════════════════════════════════════════
@@ -86,47 +89,102 @@ const deleteFromR2 = (url) => {
     .catch((e) => console.error("[R2 delete]", key, e.message));
 };
 
+/* ═══════════════════════════════════════════════════════════════
+   USERNAME COOLDOWN HELPER
+   Returns { canChange, daysLeft, nextChangeAt, lastChangedAt, cooldownDays }
+═══════════════════════════════════════════════════════════════ */
+const getUsernameCooldown = (usernameChangedAt) => {
+  if (!usernameChangedAt) {
+    return {
+      canChange:     true,
+      daysLeft:      0,
+      nextChangeAt:  null,
+      lastChangedAt: null,
+      cooldownDays:  USERNAME_COOLDOWN_DAYS,
+    };
+  }
+
+  const lastChange   = new Date(usernameChangedAt);
+  const nextChangeAt = new Date(lastChange);
+  nextChangeAt.setDate(nextChangeAt.getDate() + USERNAME_COOLDOWN_DAYS);
+
+  const now = new Date();
+  if (now >= nextChangeAt) {
+    return {
+      canChange:     true,
+      daysLeft:      0,
+      nextChangeAt:  null,
+      lastChangedAt: usernameChangedAt,
+      cooldownDays:  USERNAME_COOLDOWN_DAYS,
+    };
+  }
+
+  const msLeft   = nextChangeAt - now;
+  const daysLeft = Math.ceil(msLeft / (1000 * 60 * 60 * 24));
+
+  return {
+    canChange:     false,
+    daysLeft,
+    nextChangeAt,
+    lastChangedAt: usernameChangedAt,
+    cooldownDays:  USERNAME_COOLDOWN_DAYS,
+  };
+};
+
 // Build the exact profile shape the frontend expects
-const formatProfile = (row) => ({
-  id:                row.id,
-  name:              row.name              ?? "",
-  username:          row.username          ?? "",
-  email:             row.email             ?? "",
-  email_verified:    row.email_verified    ?? false,
-  phone:             row.phone_number      ?? "",   // ← DB: phone_number → API: phone
-  bio:               row.bio               ?? "",
-  profile_image:     row.profile_image     ?? "",
-  store_logo:        row.store_logo        ?? "",
-  store_name:        row.store_name        ?? "",
-  store_description: row.store_description ?? "",
-  store_category:    row.store_category    ?? "",
-  business_hours:    row.business_hours    ?? {},
-  location: {                                       // ← nested for frontend
-    state: row.state   ?? "",
-    city:  row.city    ?? "",
-  },
-  // Flat versions too so frontend fallback works
-  location_state:    row.state             ?? "",
-  location_city:     row.city              ?? "",
-  // Extra fields used by other parts of the app
-  store_verified:    row.store_verified    ?? false,
-  status:            row.status            ?? "active",
-  role:              row.role              ?? "user",
-  seller_type:       row.seller_type       ?? "individual",
-  identity_verified: row.identity_verified ?? false,
-  cover_image:       row.cover_image       ?? "",
-  store_banner:      row.store_banner      ?? "",
-  store_slug:        row.store_slug        ?? "",
-  rating:            row.rating            ?? 0,
-  trust_score:       row.trust_score       ?? 0,
-  is_premium:        row.is_premium        ?? false,
-  created_at:        row.created_at,
-  updated_at:        row.updated_at,
-});
+const formatProfile = (row) => {
+  const cooldown = getUsernameCooldown(row.username_changed_at);
+
+  return {
+    id:                row.id,
+    name:              row.name              ?? "",
+    username:          row.username          ?? "",
+    email:             row.email             ?? "",
+    email_verified:    row.email_verified    ?? false,
+    phone:             row.phone_number      ?? "",   // ← DB: phone_number → API: phone
+    bio:               row.bio               ?? "",
+    profile_image:     row.profile_image     ?? "",
+    store_logo:        row.store_logo        ?? "",
+    store_name:        row.store_name        ?? "",
+    store_description: row.store_description ?? "",
+    store_category:    row.store_category    ?? "",
+    business_hours:    row.business_hours    ?? {},
+    location: {                                       // ← nested for frontend
+      state: row.state   ?? "",
+      city:  row.city    ?? "",
+    },
+    // Flat versions too so frontend fallback works
+    location_state:    row.state             ?? "",
+    location_city:     row.city              ?? "",
+    // Extra fields used by other parts of the app
+    store_verified:    row.store_verified    ?? false,
+    status:            row.status            ?? "active",
+    role:              row.role              ?? "user",
+    seller_type:       row.seller_type       ?? "individual",
+    identity_verified: row.identity_verified ?? false,
+    cover_image:       row.cover_image       ?? "",
+    store_banner:      row.store_banner      ?? "",
+    store_slug:        row.store_slug        ?? "",
+    rating:            row.rating            ?? 0,
+    trust_score:       row.trust_score       ?? 0,
+    is_premium:        row.is_premium        ?? false,
+    created_at:        row.created_at,
+    updated_at:        row.updated_at,
+
+    /* ✅ Username change cooldown info for frontend */
+    username_cooldown: {
+      can_change:      cooldown.canChange,
+      days_left:       cooldown.daysLeft,
+      next_change_at:  cooldown.nextChangeAt,
+      last_changed_at: cooldown.lastChangedAt,
+      cooldown_days:   cooldown.cooldownDays,
+    },
+  };
+};
 
 // ═══════════════════════════════════════════════════════════════
 // ROUTE 1 — GET /api/edit-profile/me
-// Returns full profile for EditProfile page
+// Returns full profile for EditProfile page (includes cooldown)
 // ═══════════════════════════════════════════════════════════════
 router.get("/me", authenticate, async (req, res) => {
   try {
@@ -139,7 +197,8 @@ router.get("/me", authenticate, async (req, res) => {
          store_verified, store_slug, store_banner,
          cover_image, status, "role", seller_type,
          identity_verified, rating, trust_score,
-         is_premium, created_at, updated_at
+         is_premium, username_changed_at,
+         created_at, updated_at
        FROM public.users
        WHERE id = $1`,
       [req.user.id]
@@ -159,7 +218,7 @@ router.get("/me", authenticate, async (req, res) => {
 
 // ═══════════════════════════════════════════════════════════════
 // ROUTE 2 — PATCH /api/edit-profile/me
-// Partial update — only sends changed fields
+// Partial update — enforces 30-day username cooldown
 // ═══════════════════════════════════════════════════════════════
 router.patch("/me", authenticate, async (req, res) => {
   const body = req.body;
@@ -181,6 +240,63 @@ router.patch("/me", authenticate, async (req, res) => {
     state:             body.location?.state   !== undefined ? clean(body.location.state)    : undefined,
     city:              body.location?.city    !== undefined ? clean(body.location.city)     : undefined,
   });
+
+  // ═══════════════════════════════════════════════════════════
+  // ✅ USERNAME COOLDOWN CHECK (before validation)
+  // ═══════════════════════════════════════════════════════════
+  let isUsernameChanging = false;
+  let currentUsername    = null;
+
+  if (updates.username !== undefined) {
+    try {
+      const { rows: userRows } = await pool.query(
+        `SELECT username, username_changed_at
+         FROM public.users
+         WHERE id = $1`,
+        [req.user.id]
+      );
+
+      if (!userRows[0]) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      currentUsername = userRows[0].username;
+      isUsernameChanging =
+        updates.username &&
+        updates.username.toLowerCase() !== (currentUsername || "").toLowerCase();
+
+      if (isUsernameChanging) {
+        const cooldown = getUsernameCooldown(userRows[0].username_changed_at);
+
+        if (!cooldown.canChange) {
+          console.log(
+            `[edit-profile] username cooldown active for user=${req.user.id} ` +
+            `daysLeft=${cooldown.daysLeft}`
+          );
+
+          return res.status(429).json({
+            message:
+              `You can change your username once every ${USERNAME_COOLDOWN_DAYS} days. ` +
+              `Try again in ${cooldown.daysLeft} day${cooldown.daysLeft !== 1 ? "s" : ""}.`,
+            errors: {
+              username:
+                `Available in ${cooldown.daysLeft} day${cooldown.daysLeft !== 1 ? "s" : ""}`,
+            },
+            username_cooldown: {
+              can_change:      false,
+              days_left:       cooldown.daysLeft,
+              next_change_at:  cooldown.nextChangeAt,
+              last_changed_at: cooldown.lastChangedAt,
+              cooldown_days:   cooldown.cooldownDays,
+            },
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[edit-profile cooldown check]", err.message);
+      return res.status(500).json({ message: "Could not verify username eligibility." });
+    }
+  }
 
   // ── Validation
   const errors = {};
@@ -251,6 +367,11 @@ router.patch("/me", authenticate, async (req, res) => {
     paramIndex++;
   }
 
+  /* ✅ If username is actually changing, stamp username_changed_at */
+  if (isUsernameChanging) {
+    setClauses.push(`username_changed_at = NOW()`);
+  }
+
   setClauses.push(`updated_at = NOW()`);
   values.push(req.user.id); // last param = WHERE id
 
@@ -266,7 +387,8 @@ router.patch("/me", authenticate, async (req, res) => {
       store_verified, store_slug, store_banner,
       cover_image, status, "role", seller_type,
       identity_verified, rating, trust_score,
-      is_premium, created_at, updated_at
+      is_premium, username_changed_at,
+      created_at, updated_at
   `;
 
   try {
@@ -274,6 +396,13 @@ router.patch("/me", authenticate, async (req, res) => {
 
     if (!rows[0]) {
       return res.status(404).json({ message: "User not found" });
+    }
+
+    if (isUsernameChanging) {
+      console.log(
+        `[edit-profile] username changed for user=${req.user.id} ` +
+        `from="${currentUsername}" to="${rows[0].username}"`
+      );
     }
 
     return res.json(formatProfile(rows[0]));
@@ -284,9 +413,17 @@ router.patch("/me", authenticate, async (req, res) => {
     if (err.code === "23505") {
       const detail = (err.detail || "").toLowerCase();
       if (detail.includes("username"))
-        return res.status(409).json({ message: "Username already taken", field: "username" });
+        return res.status(409).json({
+          message: "Username already taken",
+          field:   "username",
+          errors:  { username: "Username already taken" },
+        });
       if (detail.includes("phone"))
-        return res.status(409).json({ message: "Phone number already in use", field: "phone" });
+        return res.status(409).json({
+          message: "Phone number already in use",
+          field:   "phone",
+          errors:  { phone: "Phone number already in use" },
+        });
     }
 
     return res.status(500).json({ message: "Failed to save profile. Please try again." });
@@ -296,6 +433,7 @@ router.patch("/me", authenticate, async (req, res) => {
 // ═══════════════════════════════════════════════════════════════
 // ROUTE 3 — GET /api/edit-profile/check-username
 // Real-time username availability check with cache headers
+// ✅ Also returns cooldown status so frontend never wastes a lookup
 // ═══════════════════════════════════════════════════════════════
 router.get("/check-username", authenticate, async (req, res) => {
   const { username } = req.query;
@@ -309,6 +447,41 @@ router.get("/check-username", authenticate, async (req, res) => {
   }
 
   try {
+    /* Check cooldown first — no point checking availability if user can't change */
+    const { rows: userRows } = await pool.query(
+      `SELECT username, username_changed_at
+       FROM public.users
+       WHERE id = $1`,
+      [req.user.id]
+    );
+
+    if (!userRows[0]) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const cooldown = getUsernameCooldown(userRows[0].username_changed_at);
+    const isSameAsCurrent =
+      username.toLowerCase() === (userRows[0].username || "").toLowerCase();
+
+    /* If user is locked and trying a different username, return locked status */
+    if (!cooldown.canChange && !isSameAsCurrent) {
+      return res.status(200).json({
+        available: false,
+        username,
+        locked:    true,
+        message:
+          `Username locked. Available in ${cooldown.daysLeft} day${cooldown.daysLeft !== 1 ? "s" : ""}.`,
+        username_cooldown: {
+          can_change:      false,
+          days_left:       cooldown.daysLeft,
+          next_change_at:  cooldown.nextChangeAt,
+          last_changed_at: cooldown.lastChangedAt,
+          cooldown_days:   cooldown.cooldownDays,
+        },
+      });
+    }
+
+    /* Normal availability check */
     const { rows } = await pool.query(
       `SELECT id FROM public.users
        WHERE LOWER(username) = LOWER($1)
@@ -378,7 +551,7 @@ router.post(
         // Public read so the URL works in <img> tags
         ACL:         "public-read",
         Metadata: {
-          uploadedBy: req.user.id,
+          uploadedBy:   req.user.id,
           originalName: req.file.originalname || "upload",
         },
       }));
