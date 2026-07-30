@@ -1,6 +1,6 @@
 // src/pages/Profile/EditProfileMobile.jsx
 
-import { useState, useCallback } from "react";
+import { useState } from "react";
 import ProfileHeader from "../../components/ProfileHeader.jsx";
 import "../../styles/EditProfile.css";
 
@@ -8,7 +8,7 @@ import { useEditProfile } from "./useEditProfile";
 import {
   useToast, ToastStack, useSaveFlash,
   SkeletonPage, DiscardModal, RetryModal, CropModal,
-  TabPersonal, TabStore, UnsavedBanner, Ic,
+  TabPersonal, TabStore,
 } from "./EditProfileShared.jsx";
 
 const TABS = [
@@ -49,7 +49,9 @@ export default function EditProfileMobile({ onProfileUpdate }) {
           rightAction={
             <button
               className={`ep-hdr-save ${savedFlash?"ep-hdr-save--flash":""} ep-hdr-save--desktop-only`}
-              onClick={ep.save} disabled={ep.saveDisabled} type="button"
+              onClick={ep.save}
+              disabled={ep.saveDisabled}
+              type="button"
               title="Save Changes (Ctrl+S)"
             >
               {ep.saving
@@ -61,15 +63,21 @@ export default function EditProfileMobile({ onProfileUpdate }) {
 
         <div className="ep-tabs" role="tablist">
           {TABS.map(t => (
-            <button key={t.id} role="tab" aria-selected={tab===t.id}
-                    className={`ep-tab${tab===t.id?" ep-tab--active":""}`}
-                    onClick={() => setTab(t.id)} type="button">
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              className={`ep-tab${tab === t.id ? " ep-tab--active" : ""}`}
+              onClick={() => setTab(t.id)}
+              type="button"
+            >
               <span className="ep-tab-emoji">{t.emoji}</span>
               <span className="ep-tab-label">{t.label}</span>
             </button>
           ))}
         </div>
 
+        {/* Draft restored banner */}
         {ep.hasDraft && (
           <div className="ep-draft-banner" role="status">
             <span>📝 Restored unsaved draft</span>
@@ -77,17 +85,9 @@ export default function EditProfileMobile({ onProfileUpdate }) {
           </div>
         )}
 
-        {ep.dirty && (
-          <UnsavedBanner
-            onSave={ep.save}
-            onDiscard={() => ep.reqDiscard(null)}
-            saving={ep.saving}
-            uploading={ep.upl}
-            flash={savedFlash}
-            disabled={ep.saveDisabled}
-          />
-        )}
+        {/* ❌ Removed top UnsavedBanner — only bottom action bar shows now */}
 
+        {/* Username block notice */}
         {showBlockNotice && blockNoticeText && (
           <div className="ep-username-block-notice" role="alert">
             {blockNoticeText}
@@ -95,11 +95,15 @@ export default function EditProfileMobile({ onProfileUpdate }) {
         )}
 
         <div className="ep-body">
-          <div role="tabpanel" hidden={tab!=="personal"}>
+          <div role="tabpanel" hidden={tab !== "personal"}>
             <TabPersonal
-              form={ep.form} errors={ep.errors} onChange={ep.onChange}
-              profilePreview={ep.ppv} uploading={ep.upl}
-              uploadProgress={ep.uplPct} uploadPhase={ep.uplPh}
+              form={ep.form}
+              errors={ep.errors}
+              onChange={ep.onChange}
+              profilePreview={ep.ppv}
+              uploading={ep.upl}
+              uploadProgress={ep.uplPct}
+              uploadPhase={ep.uplPh}
               onPickPhoto={f => ep.pickImg(f, "profile")}
               onRemovePhoto={ep.rmProfile}
               onVerify={() => ep.nav("/verification")}
@@ -108,29 +112,37 @@ export default function EditProfileMobile({ onProfileUpdate }) {
               onUsernameStatus={ep.setUsernameStatus}
             />
           </div>
-          <div role="tabpanel" hidden={tab!=="store"}>
+          <div role="tabpanel" hidden={tab !== "store"}>
             <TabStore
-              form={ep.form} errors={ep.errors} onChange={ep.onChange}
-              storePreview={ep.spv} uploading={ep.upl}
-              uploadProgress={ep.uplPct} uploadPhase={ep.uplPh}
+              form={ep.form}
+              errors={ep.errors}
+              onChange={ep.onChange}
+              storePreview={ep.spv}
+              uploading={ep.upl}
+              uploadProgress={ep.uplPct}
+              uploadPhase={ep.uplPh}
               onPickLogo={f => ep.pickImg(f, "store")}
               onRemoveLogo={ep.rmStore}
             />
           </div>
         </div>
 
+        {/* ✅ Single bottom action bar — appears only when there are changes */}
         {ep.dirty && (
           <div className="ep-bottom-actions">
             <button
               className="ep-bottom-btn ep-bottom-btn--discard"
               onClick={() => ep.reqDiscard(null)}
-              disabled={ep.saving || !!ep.upl} type="button"
+              disabled={ep.saving || !!ep.upl}
+              type="button"
             >
               Discard Changes
             </button>
             <button
               className={`ep-bottom-btn ep-bottom-btn--save ${savedFlash?"ep-bottom-btn--flash":""}`}
-              onClick={ep.save} disabled={ep.saveDisabled} type="button"
+              onClick={ep.save}
+              disabled={ep.saveDisabled}
+              type="button"
             >
               {ep.saving
                 ? <><span className="ep-spinner ep-spinner--sm ep-spinner--white"/> Saving…</>
@@ -139,20 +151,33 @@ export default function EditProfileMobile({ onProfileUpdate }) {
           </div>
         )}
 
-        <p className="ep-footer">Loemart Technologies Ltd · © {new Date().getFullYear()}</p>
+        <p className="ep-footer">
+          Loemart Technologies Ltd · © {new Date().getFullYear()}
+        </p>
       </div>
 
+      {/* Modals */}
       {ep.cropSrc && (
-        <CropModal src={ep.cropSrc} shape={ep.cropTgt==="profile"?"circle":"square"}
-                   onConfirm={ep.onCropOk} onCancel={() => ep.setCropSrc(null)}/>
+        <CropModal
+          src={ep.cropSrc}
+          shape={ep.cropTgt === "profile" ? "circle" : "square"}
+          onConfirm={ep.onCropOk}
+          onCancel={() => ep.setCropSrc(null)}
+        />
       )}
-      {ep.showDiscard && <DiscardModal onConfirm={ep.doDiscard} onCancel={ep.cancelDiscard}/>}
+      {ep.showDiscard && (
+        <DiscardModal onConfirm={ep.doDiscard} onCancel={ep.cancelDiscard} />
+      )}
       {ep.showRetry && (
-        <RetryModal target={ep.failUp?.target} errorMsg={ep.failUp?.errorMsg}
-                    previewUrl={ep.failUp?.previewUrl}
-                    onRetry={ep.retryUp} onCancel={ep.cancelRetry}/>
+        <RetryModal
+          target={ep.failUp?.target}
+          errorMsg={ep.failUp?.errorMsg}
+          previewUrl={ep.failUp?.previewUrl}
+          onRetry={ep.retryUp}
+          onCancel={ep.cancelRetry}
+        />
       )}
-      <ToastStack toasts={toasts} dismiss={dismiss}/>
+      <ToastStack toasts={toasts} dismiss={dismiss} />
     </>
   );
 }
