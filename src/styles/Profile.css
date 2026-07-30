@@ -4,6 +4,18 @@
 ═══════════════════════════════════════════════════════════════ */
 
 /* ───────────────────────────────────────────────
+   0. DISABLE BROWSER PULL-TO-REFRESH
+      Prevents Chrome/Samsung/Firefox pull-refresh
+      when user swipes down at top of Profile page.
+─────────────────────────────────────────────── */
+html,
+body {
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+  overscroll-behavior-x: none;
+}
+
+/* ───────────────────────────────────────────────
    1. TOKEN EXTENSIONS (mobile-specific aliases)
 ─────────────────────────────────────────────── */
 :root {
@@ -75,13 +87,16 @@
 
 /* ───────────────────────────────────────────────
    4. PAGE SCAFFOLD
+      Height locked → outer never scrolls
+      Only .mp-scroll handles scroll internally.
 ─────────────────────────────────────────────── */
 .mp-root {
   position: relative;
-  min-height: 100dvh;
+  height: 100dvh;
+  overflow: hidden;
   background: var(--bg);
   color: var(--ink);
-  overflow: hidden;
+  overscroll-behavior: none;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -102,7 +117,8 @@
   height: 100dvh;
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
+  overscroll-behavior: none;
+  -webkit-overflow-scrolling: touch;
   padding: 0 16px;
   padding-bottom: calc(var(--mp-nav-h) + var(--mp-safe-b) + 24px);
   max-width: 540px;
@@ -112,7 +128,7 @@
 .mp-scroll::-webkit-scrollbar { display: none; }
 
 /* ───────────────────────────────────────────────
-   5. PULL TO REFRESH
+   5. PULL TO REFRESH (custom in-app widget)
 ─────────────────────────────────────────────── */
 .mp-ptr {
   display: flex;
@@ -592,6 +608,7 @@
   display: flex;
   gap: 12px;
   overflow-x: auto;
+  overscroll-behavior-x: contain;
   scroll-snap-type: x mandatory;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -1427,6 +1444,59 @@
 .mp-sk-line {
   height: 11px;
   border-radius: 6px;
+}
+
+/* Full-page skeleton wrapper (used before first data loads) */
+.mp-skeleton-wrap {
+  padding: 14px 0 24px;
+}
+
+.mp-sk-hero {
+  padding: 24px 20px;
+  background: var(--wh);
+  border: 1px solid var(--bd);
+  border-radius: var(--r3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.mp-sk-avatar {
+  width: 88px; height: 88px;
+  border-radius: 50%;
+}
+
+.mp-sk-line--lg { width: 60%; height: 18px; border-radius: 6px; }
+.mp-sk-line--md { width: 40%; height: 14px; border-radius: 6px; }
+.mp-sk-line--sm { width: 30%; height: 12px; border-radius: 6px; margin-bottom: 10px; }
+
+.mp-sk-stats {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.mp-sk-stat {
+  width: 68px; height: 48px;
+  border-radius: var(--r2);
+}
+
+.mp-sk-section {
+  margin-bottom: 22px;
+}
+
+.mp-sk-cards-row {
+  display: flex;
+  gap: 12px;
+  overflow: hidden;
+}
+
+.mp-sk-row {
+  height: 60px;
+  border-radius: var(--r2);
+  margin-bottom: 8px;
 }
 
 /* ───────────────────────────────────────────────
