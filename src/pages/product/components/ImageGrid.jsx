@@ -1,22 +1,21 @@
 /**
  * src/pages/product/components/ImageGrid.jsx
  *
- * v2 — image previews now render whenever there are images,
- * regardless of whether the max limit is reached. Previously
- * the entire grid was unmounted when canAddMore was false,
- * hiding all previews and leaving the user with no way to
- * see, remove, or reorder their photos.
+ * v3 — NEVER-BLANK IMAGE TILES
+ *   • Every tile has guaranteed min-height + aspect-ratio (no collapse)
+ *   • Skeleton shimmer while image is loading
+ *   • Broken image placeholder when preview URL is invalid/revoked
+ *   • Error overlay banner for validation errors
+ *   • Auto-regenerates preview URLs if they're missing (draft restore)
+ *   • Drag/reorder disabled on broken tiles
  *
- * Changes:
- *  - Grid stays mounted as long as images.length > 0
- *  - "Add" tile hidden only when canAddMore is false
- *  - Rules moved above the grid (SVG icons instead of ✓/✗)
- *  - Empty state renders when no images yet
- *  - MAX_BYTES bumped to 5 MB to match backend multer limit
- *  - Touch reorder uses passive listeners where safe
+ * v2 — image previews now render whenever there are images
+ * v1 — initial
  */
 
-import { memo, useRef, useEffect, useCallback } from "react";
+import {
+  memo, useRef, useEffect, useCallback, useState,
+} from "react";
 import { WarningIcon, ImageIcon } from "./icons/index.jsx";
 import "./styles/ImageGrid.css";
 
@@ -93,6 +92,17 @@ const InfoIcon = ({ size = 13 }) => (
   </svg>
 );
 
+const BrokenImageIcon = ({ size = 32 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={1.5} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
+    <circle cx="8.5" cy="8.5" r="1.5" />
+    <path d="M21 15l-5-5L5 21" />
+    <line x1="3" y1="3" x2="21" y2="21" strokeWidth={2} />
+  </svg>
+);
+
 /* ═══════════════════════════════════════════════════════════════
    UPLOAD RULES  (SVG icons, not emoji)
 ═══════════════════════════════════════════════════════════════ */
@@ -119,7 +129,7 @@ function ImageUploadRules() {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   SINGLE IMAGE THUMB
+   SINGLE IMAGE THUMB — never-blank version
 ═══════════════════════════════════════════════════════════════ */
 const ImageThumb = memo(function ImageThumb({
   img,
@@ -135,45 +145,78 @@ const ImageThumb = memo(function ImageThumb({
   onTouchMove,
   onTouchEnd,
 }) {
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [loaded,     setLoaded]     = useState(false);
+
+  /* Reset when preview URL changes (e.g. regenerated after draft restore) */
+  useEffect(() => {
+    setLoadFailed(false);
+    setLoaded(false);
+  }, [img.preview]);
+
+  const hasValidPreview = typeof img.preview === "string" && img.preview.length > 0;
+  const showBroken      = !hasValidPreview || loadFailed;
+  const showError       = !!error || showBroken;
+  const errorMessage    = error || (showBroken ? "Preview unavailable" : "");
+  const draggable       = !showError;
+
   return (
     <div
-      className={`preview-thumb${error ? " preview-thumb--error" : ""}`}
+      className={`preview-thumb${showError ? " preview-thumb--error" : ""}`}
       data-image-index={index}
-      draggable
-      onDragStart={() => onDragStart(index)}
+      draggable={draggable}
+      onDragStart={() => draggable && onDragStart(index)}
       onDragEnter={() => onDragEnter(index)}
       onDragEnd={onDragEnd}
       onDragOver={(e) => e.preventDefault()}
-      onTouchStart={(e) => onTouchStart(e, index)}
+      onTouchStart={(e) => draggable && onTouchStart(e, index)}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
       aria-label={[
         `Image ${index + 1} of ${total}`,
         index === 0 ? "— main photo" : "",
-        error       ? `— ${error}`  : "",
+        showError    ? `— ${errorMessage}` : "",
       ].filter(Boolean).join(" ")}
-      style={{ cursor: "grab", touchAction: "none" }}
+      style={{
+        cursor      : draggable ? "grab" : "default",
+        touchAction : "none",
+      }}
     >
-      <img
-        src={img.preview}
-        alt={`Product image ${index + 1}`}
-        loading="lazy"
-        decoding="async"
-        draggable={false}
-        className={error ? "preview-img preview-img--error" : "preview-img"}
-        onError={(e) => {
-          /* Hide broken image icon — show placeholder styling instead */
-          e.currentTarget.style.opacity = "0.3";
-        }}
-      />
+      {/* Skeleton shimmer while image is loading */}
+      {!loaded && !showBroken && (
+        <div className="preview-skeleton" aria-hidden="true" />
+      )}
 
-      {error && (
+      {/* Broken image placeholder — shown when preview is invalid or img fails */}
+      {showBroken ? (
+        <div className="preview-broken-placeholder" aria-hidden="true">
+          <BrokenImageIcon size={32} />
+          <small>Image unavailable</small>
+        </div>
+      ) : (
+        <img
+          src={img.preview}
+          alt={`Product image ${index + 1}`}
+          loading="lazy"
+          decoding="async"
+          draggable={false}
+          className={
+            error ? "preview-img preview-img--error" : "preview-img"
+          }
+          onLoad={() => setLoaded(true)}
+          onError={() => setLoadFailed(true)}
+        />
+      )}
+
+      {/* Error banner overlay — shown on top of image or placeholder */}
+      {showError && errorMessage && (
         <div className="preview-error-overlay" role="alert">
           <WarningIcon />
-          <span>{error}</span>
+          <span>{errorMessage}</span>
         </div>
       )}
 
+      {/* Remove button — always available so user can delete broken images */}
       <button
         type="button"
         className="preview-remove-btn"
@@ -183,34 +226,41 @@ const ImageThumb = memo(function ImageThumb({
         <RemoveIcon />
       </button>
 
-      <span className="preview-drag-handle" aria-hidden="true">
-        <DragHandleIcon />
-      </span>
+      {/* Drag handle — only for valid images */}
+      {!showError && (
+        <span className="preview-drag-handle" aria-hidden="true">
+          <DragHandleIcon />
+        </span>
+      )}
 
-      {index === 0 && !error && (
+      {/* Main badge — only if this is the first valid image */}
+      {index === 0 && !showError && (
         <span className="preview-primary-badge">Main</span>
       )}
 
-      <div className="preview-reorder">
-        {index > 0 && (
-          <button
-            type="button"
-            aria-label="Move image left"
-            onClick={() => onMove(index, index - 1)}
-          >
-            <ArrowLeftIcon size={12} />
-          </button>
-        )}
-        {index < total - 1 && (
-          <button
-            type="button"
-            aria-label="Move image right"
-            onClick={() => onMove(index, index + 1)}
-          >
-            <ArrowRightIcon size={12} />
-          </button>
-        )}
-      </div>
+      {/* Reorder buttons — only for valid images */}
+      {!showError && (
+        <div className="preview-reorder">
+          {index > 0 && (
+            <button
+              type="button"
+              aria-label="Move image left"
+              onClick={() => onMove(index, index - 1)}
+            >
+              <ArrowLeftIcon size={12} />
+            </button>
+          )}
+          {index < total - 1 && (
+            <button
+              type="button"
+              aria-label="Move image right"
+              onClick={() => onMove(index, index + 1)}
+            >
+              <ArrowRightIcon size={12} />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 });
@@ -407,13 +457,7 @@ const ImageGrid = memo(function ImageGrid({
         onDrop={onDrop}
         aria-label={isDragging ? "Drop images here" : "Image upload area"}
       >
-        {/*
-          FIX: Existing image previews ALWAYS render when there are images.
-          Previously the whole grid was hidden when the max was reached
-          because {canAddMore && <ImageGrid />} was in the parent.
-          Now the grid stays mounted and only the "Add more" tile is
-          conditionally shown at the end.
-        */}
+        {/* Image previews — always mounted when there are images */}
         {hasImages && images.map((img, index) => (
           <ImageThumb
             key={img.id}
@@ -432,10 +476,7 @@ const ImageGrid = memo(function ImageGrid({
           />
         ))}
 
-        {/*
-          Add tile — shown INSIDE the grid when there is room for more.
-          When max is reached, this disappears but the thumbs above stay.
-        */}
+        {/* Add tile — inside the grid when there's room */}
         {hasImages && canAddMore && (
           <AddImageTile
             isDragging={isDragging}
@@ -445,10 +486,7 @@ const ImageGrid = memo(function ImageGrid({
           />
         )}
 
-        {/*
-          Empty state — shown ONLY when there are no images yet.
-          Larger, more inviting than the small add tile.
-        */}
+        {/* Empty state — only when there are no images yet */}
         {!hasImages && canAddMore && (
           <EmptyState
             isDragging={isDragging}
@@ -458,10 +496,7 @@ const ImageGrid = memo(function ImageGrid({
         )}
       </div>
 
-      {/*
-        Limit notice — shown below the grid when max is reached.
-        Previously this replaced the grid entirely, hiding previews.
-      */}
+      {/* Limit notice — shown below the grid when max is reached */}
       {!canAddMore && (
         <div className="image-limit-notice" role="status" aria-live="polite">
           <span className="image-limit-notice-icon" aria-hidden="true">
