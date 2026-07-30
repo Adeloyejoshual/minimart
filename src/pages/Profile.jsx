@@ -663,7 +663,7 @@ const MobileSubscriptionCard = memo(function MobileSubscriptionCard({ sub, onCli
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   REFERRAL CARD  — full invite-link + share/copy design
+   REFERRAL CARD
 ═══════════════════════════════════════════════════════════════ */
 const MobileReferralCard = memo(function MobileReferralCard({ code }) {
   const [copied, setCopied] = useState(false);
@@ -675,7 +675,6 @@ const MobileReferralCard = memo(function MobileReferralCard({ code }) {
     `🎁 Invite Friends & Earn Up to ₦15,000 on the Leaderboard!\n\n` +
     `Join Loemart using my invite link:\n${inviteLink}`;
 
-  /* ── Copy full link to clipboard ── */
   const handleCopy = useCallback(async () => {
     try {
       await navigator.clipboard.writeText(inviteLink);
@@ -684,7 +683,6 @@ const MobileReferralCard = memo(function MobileReferralCard({ code }) {
     } catch { /* silent */ }
   }, [inviteLink]);
 
-  /* ── Native share sheet → fallback to copy ── */
   const handleShare = useCallback(async () => {
     if (navigator.share) {
       try {
@@ -708,10 +706,8 @@ const MobileReferralCard = memo(function MobileReferralCard({ code }) {
       viewport={viewOnce}
       transition={{ ...spring, delay: 0.1 }}
     >
-      {/* decorative shine */}
       <div className="mp-referral__shine" aria-hidden="true" />
 
-      {/* ── Header ── */}
       <div className="mp-referral__top">
         <div className="mp-referral__icon">
           <Icon.gift />
@@ -726,7 +722,6 @@ const MobileReferralCard = memo(function MobileReferralCard({ code }) {
         </div>
       </div>
 
-      {/* ── Invite link pill ── */}
       <div className="mp-referral__link-row" aria-label="Your invite link">
         <span className="mp-referral__link-icon" aria-hidden="true">
           <Icon.link />
@@ -736,9 +731,7 @@ const MobileReferralCard = memo(function MobileReferralCard({ code }) {
         </span>
       </div>
 
-      {/* ── Actions ── */}
       <div className="mp-referral__actions">
-        {/* Share */}
         <motion.button
           className="mp-referral__action-btn mp-referral__action-btn--share"
           onClick={handleShare}
@@ -749,7 +742,6 @@ const MobileReferralCard = memo(function MobileReferralCard({ code }) {
           <span>Share</span>
         </motion.button>
 
-        {/* Copy Link */}
         <motion.button
           className={`mp-referral__action-btn mp-referral__action-btn--copy${
             copied ? " mp-referral__action-btn--copied" : ""
@@ -988,7 +980,6 @@ const LogoutButton = memo(function LogoutButton({ onLogout }) {
 
   return (
     <>
-      {/* ── Trigger ── */}
       <motion.div
         className="mp-logout-wrap"
         variants={fadeUp}
@@ -1013,7 +1004,6 @@ const LogoutButton = memo(function LogoutButton({ onLogout }) {
         </motion.button>
       </motion.div>
 
-      {/* ── Confirm sheet ── */}
       <AnimatePresence>
         {showConfirm && (
           <>
@@ -1080,64 +1070,132 @@ const LogoutButton = memo(function LogoutButton({ onLogout }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
+   SKELETON LOADER
+═══════════════════════════════════════════════════════════════ */
+const ProfileSkeleton = memo(function ProfileSkeleton() {
+  return (
+    <div className="mp-skeleton-wrap" aria-busy="true" aria-label="Loading profile">
+      {/* Hero skeleton */}
+      <div className="mp-sk-hero">
+        <div className="mp-sk-avatar mp-shimmer" />
+        <div className="mp-sk-line mp-sk-line--lg mp-shimmer" />
+        <div className="mp-sk-line mp-sk-line--md mp-shimmer" />
+        <div className="mp-sk-stats">
+          <div className="mp-sk-stat mp-shimmer" />
+          <div className="mp-sk-stat mp-shimmer" />
+          <div className="mp-sk-stat mp-shimmer" />
+        </div>
+      </div>
+      {/* Listings skeleton */}
+      <div className="mp-sk-section">
+        <div className="mp-sk-line mp-sk-line--sm mp-shimmer" />
+        <div className="mp-sk-cards-row">
+          <div className="mp-sk-card mp-shimmer" />
+          <div className="mp-sk-card mp-shimmer" />
+          <div className="mp-sk-card mp-shimmer" />
+        </div>
+      </div>
+      {/* Menu skeleton */}
+      <div className="mp-sk-section">
+        {[1, 2, 3, 4].map((n) => (
+          <div key={n} className="mp-sk-row mp-shimmer" />
+        ))}
+      </div>
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   PROFILE QUERY KEYS  — centralised so invalidation is exact
+═══════════════════════════════════════════════════════════════ */
+const QUERY_KEYS = {
+  user:         ["profile-user"],
+  listings:     ["profile-listings"],
+  unread:       ["profile-unread-count"],
+  subscription: ["profile-subscription-status"],
+};
+
+/* ═══════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function MobileProfile({ onLogout }) {
   const navigate    = useNavigate();
   const location    = useLocation();
-  const currentPath = location.pathname;
   const queryClient = useQueryClient();
 
-  const pageRef     = useRef(null);
   const [isRetrying, setIsRetrying] = useState(false);
 
-  /* ── Queries ── */
+  /* ─────────────────────────────────────────────────────────
+     INVALIDATE ALL PROFILE QUERIES every time this page is
+     visited (location.key changes on every navigation event,
+     including after a fresh login redirect).
+  ───────────────────────────────────────────────────────── */
+  useEffect(() => {
+    if (!getToken()) return;
+    Object.values(QUERY_KEYS).forEach((key) =>
+      queryClient.invalidateQueries({ queryKey: key }),
+    );
+  }, [location.key, queryClient]);
+
+  /* ── User query ── */
   const {
     data:    user,
     error:   userError,
     isError: userIsError,
+    isLoading: userLoading,
     refetch: refetchUser,
   } = useQuery({
-    queryKey : ["profile-user"],
-    queryFn  : fetchUserData,
-    staleTime: 2 * 60 * 1000,
-    gcTime   : 30 * 60 * 1000,
-    retry    : (count, err) =>
+    queryKey:           QUERY_KEYS.user,
+    queryFn:            fetchUserData,
+    staleTime:          2 * 60 * 1000,
+    gcTime:             30 * 60 * 1000,
+    refetchOnMount:     true,
+    refetchOnWindowFocus: true,
+    retry: (count, err) =>
       err?.response?.status !== 401 &&
       err?.response?.status !== 403 &&
       count < 3,
   });
 
+  /* ── Listings query ── */
   const {
     data:      listings = [],
     isLoading: listingsLoading,
     refetch:   refetchListings,
   } = useQuery({
-    queryKey : ["profile-listings"],
-    queryFn  : fetchUserListings,
-    staleTime: 3 * 60 * 1000,
-    gcTime   : 30 * 60 * 1000,
-    retry    : 1,
-    enabled  : !!getToken(),
+    queryKey:           QUERY_KEYS.listings,
+    queryFn:            fetchUserListings,
+    staleTime:          3 * 60 * 1000,
+    gcTime:             30 * 60 * 1000,
+    refetchOnMount:     true,
+    refetchOnWindowFocus: true,
+    retry:              1,
+    enabled:            !!getToken(),
   });
 
+  /* ── Unread count query ── */
   const { data: unreadCount = 0 } = useQuery({
-    queryKey        : ["profile-unread-count"],
-    queryFn         : fetchUnreadCount,
-    staleTime       : 60 * 1000,
-    gcTime          : 5 * 60 * 1000,
-    retry           : 1,
-    enabled         : !!getToken(),
-    refetchInterval : 60 * 1000,
+    queryKey:           QUERY_KEYS.unread,
+    queryFn:            fetchUnreadCount,
+    staleTime:          60 * 1000,
+    gcTime:             5 * 60 * 1000,
+    retry:              1,
+    enabled:            !!getToken(),
+    refetchInterval:    60 * 1000,
+    refetchOnMount:     true,
+    refetchOnWindowFocus: true,
   });
 
+  /* ── Subscription query ── */
   const { data: subStatus = null } = useQuery({
-    queryKey : ["profile-subscription-status"],
-    queryFn  : fetchSubscriptionStatus,
-    staleTime: 2 * 60 * 1000,
-    gcTime   : 10 * 60 * 1000,
-    retry    : 1,
-    enabled  : !!getToken(),
+    queryKey:           QUERY_KEYS.subscription,
+    queryFn:            fetchSubscriptionStatus,
+    staleTime:          2 * 60 * 1000,
+    gcTime:             10 * 60 * 1000,
+    retry:              1,
+    enabled:            !!getToken(),
+    refetchOnMount:     true,
+    refetchOnWindowFocus: true,
   });
 
   const menuSections = useMemo(
@@ -1147,10 +1205,11 @@ export default function MobileProfile({ onLogout }) {
 
   /* ── Pull to refresh ── */
   const handleRefresh = useCallback(async () => {
-    await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["profile-user"] }),
-      queryClient.invalidateQueries({ queryKey: ["profile-listings"] }),
-    ]);
+    await Promise.all(
+      Object.values(QUERY_KEYS).map((key) =>
+        queryClient.invalidateQueries({ queryKey: key }),
+      ),
+    );
   }, [queryClient]);
 
   const { containerRef, pullY, refreshing } =
@@ -1158,7 +1217,10 @@ export default function MobileProfile({ onLogout }) {
 
   /* ── Auth guard ── */
   useEffect(() => {
-    if (!getToken()) { navigate("/auth"); return; }
+    if (!getToken()) {
+      navigate("/auth");
+      return;
+    }
     if (userIsError) {
       const s = userError?.response?.status;
       if (s === 401 || s === 403) {
@@ -1169,22 +1231,30 @@ export default function MobileProfile({ onLogout }) {
     }
   }, [userIsError, userError, navigate]);
 
-  /* ── Retry ── */
+  /* ── Retry handler ── */
   const handleRetry = useCallback(async () => {
     setIsRetrying(true);
-    try { await Promise.all([refetchUser(), refetchListings()]); }
-    finally { setIsRetrying(false); }
+    try {
+      await Promise.all([refetchUser(), refetchListings()]);
+    } finally {
+      setIsRetrying(false);
+    }
   }, [refetchUser, refetchListings]);
 
-  /* ── Logout ── */
+  /* ── Logout — clears entire query cache so next login
+        always fetches fresh data for the new user ── */
   const handleLogout = useCallback(async () => {
     localStorage.removeItem("marketplace_token");
     localStorage.removeItem("token");
+
+    // Wipe ALL cached data — critical for multi-account / re-login scenarios
+    queryClient.clear();
+
     if (typeof onLogout === "function") {
       try { await onLogout(); } catch { /* ignore */ }
     }
     navigate("/auth", { replace: true });
-  }, [navigate, onLogout]);
+  }, [navigate, onLogout, queryClient]);
 
   const joinedLabel = fmtJoined(user?.created_at || user?.joined_at);
 
@@ -1196,6 +1266,9 @@ export default function MobileProfile({ onLogout }) {
         ? "Server is temporarily unavailable."
         : "Connection error."
       : null;
+
+  /* ── Show full skeleton only on very first load (no cached data yet) ── */
+  const showSkeleton = userLoading && !user;
 
   /* ── Render ── */
   return (
@@ -1210,18 +1283,15 @@ export default function MobileProfile({ onLogout }) {
         />
       </div>
 
-      {/* Pull indicator sits outside scroll */}
+      {/* Pull indicator sits outside the scroll container */}
       <PullIndicator pullY={pullY} refreshing={refreshing} />
 
       {/* Scrollable body */}
       <div
         className="mp-scroll"
-        ref={(node) => {
-          pageRef.current      = node;
-          containerRef.current = node;
-        }}
+        ref={containerRef}
       >
-        {/* Error */}
+        {/* Error banner */}
         <AnimatePresence>
           {errorMessage && (
             <MobileErrorBanner
@@ -1232,95 +1302,102 @@ export default function MobileProfile({ onLogout }) {
           )}
         </AnimatePresence>
 
-        {/* Hero */}
-        <HeroProfileCard
-          user={user}
-          joinedLabel={joinedLabel}
-          subStatus={subStatus}
-          onEdit={() => navigate("/profile/edit")}
-          listingsCount={listings.length}
-        />
-
-        {/* Listings */}
-        {listingsLoading ? (
-          <div className="mp-skeletons">
-            <div className="mp-sk-card">
-              <div className="mp-sk-img mp-shimmer" />
-            </div>
-          </div>
+        {/* ── Skeleton while first-load ── */}
+        {showSkeleton ? (
+          <ProfileSkeleton />
         ) : (
-          <MobileRecentListings
-            listings={listings}
-            onViewAll={() => navigate("/dashboard")}
-          />
-        )}
+          <>
+            {/* Hero */}
+            <HeroProfileCard
+              user={user}
+              joinedLabel={joinedLabel}
+              subStatus={subStatus}
+              onEdit={() => navigate("/profile/edit")}
+              listingsCount={listings.length}
+            />
 
-        {/* Subscription */}
-        <MobileSubscriptionCard
-          sub={subStatus}
-          onClick={() =>
-            navigate(
-              subStatus?.isActive
-                ? "/seller/subscription"
-                : "/seller/subscription/plans",
-            )
-          }
-        />
-
-        {/* Referral */}
-        <MobileReferralCard code={user?.referral_code} />
-
-        {/* Menu sections */}
-        <div className="mp-menu-wrap">
-          {menuSections.map((section, si) => (
-            <motion.section
-              key={section.title}
-              className="mp-msection"
-              variants={fadeUp}
-              initial="hidden"
-              whileInView="visible"
-              viewport={viewOnce}
-              transition={{ ...spring, delay: si * 0.035 }}
-            >
-              <div className="mp-msection__hdr">
-                <span className="mp-msection__icon" style={{ color: section.color }}>
-                  {section.icon}
-                </span>
-                <h3 className="mp-msection__title">{section.title}</h3>
+            {/* Listings */}
+            {listingsLoading ? (
+              <div className="mp-skeletons">
+                <div className="mp-sk-card">
+                  <div className="mp-sk-img mp-shimmer" />
+                </div>
               </div>
+            ) : (
+              <MobileRecentListings
+                listings={listings}
+                onViewAll={() => navigate("/dashboard")}
+              />
+            )}
 
-              <motion.div
-                className="mp-msection__list"
-                variants={stagger}
-                initial="hidden"
-                whileInView="visible"
-                viewport={viewOnce}
-              >
-                {section.items.map((item, i) => (
-                  <MobileMenuItem
-                    key={item.to}
-                    to={item.to}
-                    Ic={item.Ic}
-                    label={item.label}
-                    desc={item.desc}
-                    badge={item.badge}
-                    badgeType={item.badgeType}
-                    currentPath={currentPath}
-                    index={i}
-                  />
-                ))}
-              </motion.div>
-            </motion.section>
-          ))}
-        </div>
+            {/* Subscription */}
+            <MobileSubscriptionCard
+              sub={subStatus}
+              onClick={() =>
+                navigate(
+                  subStatus?.isActive
+                    ? "/seller/subscription"
+                    : "/seller/subscription/plans",
+                )
+              }
+            />
 
-        {/* Logout */}
-        <LogoutButton onLogout={handleLogout} />
+            {/* Referral */}
+            <MobileReferralCard code={user?.referral_code} />
 
-        {/* Footer */}
-        <p className="mp-footer">
-          Loemart Technologies Ltd · {new Date().getFullYear()}
-        </p>
+            {/* Menu sections */}
+            <div className="mp-menu-wrap">
+              {menuSections.map((section, si) => (
+                <motion.section
+                  key={section.title}
+                  className="mp-msection"
+                  variants={fadeUp}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={viewOnce}
+                  transition={{ ...spring, delay: si * 0.035 }}
+                >
+                  <div className="mp-msection__hdr">
+                    <span className="mp-msection__icon" style={{ color: section.color }}>
+                      {section.icon}
+                    </span>
+                    <h3 className="mp-msection__title">{section.title}</h3>
+                  </div>
+
+                  <motion.div
+                    className="mp-msection__list"
+                    variants={stagger}
+                    initial="hidden"
+                    whileInView="visible"
+                    viewport={viewOnce}
+                  >
+                    {section.items.map((item, i) => (
+                      <MobileMenuItem
+                        key={item.to}
+                        to={item.to}
+                        Ic={item.Ic}
+                        label={item.label}
+                        desc={item.desc}
+                        badge={item.badge}
+                        badgeType={item.badgeType}
+                        currentPath={location.pathname}
+                        index={i}
+                      />
+                    ))}
+                  </motion.div>
+                </motion.section>
+              ))}
+            </div>
+
+            {/* Logout */}
+            <LogoutButton onLogout={handleLogout} />
+
+            {/* Footer */}
+            <p className="mp-footer">
+              Loemart Technologies Ltd · {new Date().getFullYear()}
+            </p>
+          </>
+        )}
       </div>
 
       <BottomNav />
