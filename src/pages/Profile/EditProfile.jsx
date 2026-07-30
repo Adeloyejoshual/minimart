@@ -504,19 +504,23 @@ function EmailField({ email, verified, onVerify }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// USERNAME FIELD — with 30-day cooldown support
+// USERNAME FIELD — with 30-day cooldown + status callback
 // ═══════════════════════════════════════════════════════════════
 const unCache = new Map();
 
-function UsernameField({ value, orig, onChange, error, cooldown }) {
+function UsernameField({ value, orig, onChange, error, cooldown, onStatusChange }) {
   const [status, setStatus] = useState("idle");
   const [sugs,   setSugs]   = useState([]);
   const [copied, setCopied] = useState(false);
   const dRef = useRef(null);
 
-  /* Cooldown from server */
   const canChange = cooldown?.can_change ?? true;
   const daysLeft  = cooldown?.days_left  ?? 0;
+
+  /* ✅ Notify parent whenever status changes — powers save-button gating */
+  useEffect(() => {
+    onStatusChange?.(status);
+  }, [status, onStatusChange]);
 
   const mkSugs = useCallback(b => {
     const sx = [
@@ -531,9 +535,9 @@ function UsernameField({ value, orig, onChange, error, cooldown }) {
 
   useEffect(() => {
     setSugs([]);
-    if (!value || value === orig) { setStatus("idle"); return; }
-    if (!canChange)                { setStatus("locked"); return; }
-    if (!/^[a-z0-9_]{3,20}$/.test(value)) { setStatus("idle"); return; }
+    if (!value || value === orig)         { setStatus("idle");   return; }
+    if (!canChange)                       { setStatus("locked"); return; }
+    if (!/^[a-z0-9_]{3,20}$/.test(value)) { setStatus("idle");   return; }
 
     if (unCache.has(value)) {
       const c = unCache.get(value);
@@ -547,10 +551,7 @@ function UsernameField({ value, orig, onChange, error, cooldown }) {
     dRef.current = setTimeout(async () => {
       try {
         const { data } = await api.get("/check-username", { params: { username: value } });
-
-        /* Server can return locked status */
         if (data.locked) { setStatus("locked"); return; }
-
         const r = data.available ? "available" : "taken";
         unCache.set(value, r);
         setStatus(r);
@@ -595,7 +596,6 @@ function UsernameField({ value, orig, onChange, error, cooldown }) {
     );
   }, [status, value, orig, daysLeft]);
 
-  /* Nice date format for "next change available on" */
   const nextChangeFormatted = useMemo(() => {
     if (!cooldown?.next_change_at) return null;
     try {
@@ -617,7 +617,6 @@ function UsernameField({ value, orig, onChange, error, cooldown }) {
         {!canChange && <span className="ep-label-locked" aria-hidden="true"> 🔒</span>}
       </label>
 
-      {/* Input */}
       <div className={`ep-prefix-wrap ${!canChange ? "ep-prefix-wrap--locked" : ""}`}>
         <span className="ep-prefix" aria-hidden="true">@</span>
         <input
@@ -640,7 +639,6 @@ function UsernameField({ value, orig, onChange, error, cooldown }) {
         />
       </div>
 
-      {/* ✅ Cooldown banner — shown when locked */}
       {!canChange && (
         <div className="ep-username-cooldown" role="status">
           <span className="ep-username-cooldown-icon" aria-hidden="true"><Ic.lock/></span>
@@ -656,10 +654,8 @@ function UsernameField({ value, orig, onChange, error, cooldown }) {
         </div>
       )}
 
-      {/* Status line */}
       {stEl}
 
-      {/* Suggestions when taken */}
       {status === "taken" && sugs.length > 0 && canChange && (
         <div className="ep-username-suggestions" role="group" aria-label="Suggestions">
           <span className="ep-username-suggestions-label">Try:</span>
@@ -670,10 +666,8 @@ function UsernameField({ value, orig, onChange, error, cooldown }) {
         </div>
       )}
 
-      {/* Server error */}
       {error && <p id="username-error" className="ep-error-msg" role="alert">{error}</p>}
 
-      {/* Public URL preview */}
       {value && (
         <div className="ep-url-row">
           <span className="ep-url-text">loemart.com/seller/<strong>{value}</strong></span>
@@ -756,7 +750,7 @@ function HoursEditor({ hours, onChange }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// SAVE FLASH + UNSAVED BANNER
+// SAVE FLASH + UNSAVED BANNER (inline, not sticky)
 // ═══════════════════════════════════════════════════════════════
 function useSaveFlash() {
   const [f, sF] = useState(false);
@@ -805,7 +799,7 @@ function TabPersonal({
   form, errors, onChange, profilePreview,
   uploading, uploadProgress, uploadPhase,
   onPickPhoto, onRemovePhoto, onVerify, origUN,
-  cooldown,
+  cooldown, onUsernameStatus,
 }) {
   const cities = getCities(form.location_state);
 
@@ -838,6 +832,7 @@ function TabPersonal({
           onChange={v => onChange("username", v)}
           error={errors.username}
           cooldown={cooldown}
+          onStatusChange={onUsernameStatus}
         />
 
         <EmailField email={form.email} verified={form.email_verified} onVerify={onVerify}/>
@@ -851,7 +846,6 @@ function TabPersonal({
         </Field>
       </Card>
 
-      {/* Location */}
       <Card title="Your Location" sub="Helps buyers find local sellers">
         <div className="ep-field">
           <label className="ep-label">State</label>
@@ -974,8 +968,11 @@ export default function EditProfile({ onProfileUpdate }) {
   const [errors, setErrors] = useState({});
   const [dirty,  setDirty]  = useState(false);
 
-  /* ✅ Username cooldown from server */
+  /* Username cooldown from server */
   const [cooldown, setCooldown] = useState(null);
+
+  /* ✅ Live username check status — lifted from UsernameField */
+  const [usernameStatus, setUsernameStatus] = useState("idle");
 
   // Images
   const [ppv, setPpv] = useState(""), [spv, setSpv] = useState("");
@@ -1147,7 +1144,6 @@ export default function EditProfile({ onProfileUpdate }) {
     if ((form.bio?.length||0) > MAX_BIO) e.bio = `Max ${MAX_BIO} characters`;
     if ((form.store_description?.length||0) > MAX_STORE_DESC) e.store_description = `Max ${MAX_STORE_DESC} characters`;
 
-    /* ✅ Local guard: block username change during cooldown */
     if (cooldown && !cooldown.can_change &&
         form.username && form.username !== orig?.username) {
       e.username = `Available in ${cooldown.days_left} day${cooldown.days_left !== 1 ? "s" : ""}`;
@@ -1178,13 +1174,20 @@ export default function EditProfile({ onProfileUpdate }) {
     return ch;
   }, [form, orig]);
 
-  // ── Username blocking
+  /* ═══════════════════════════════════════════════════════════
+     ✅ USERNAME BLOCKING — reactive to live status
+     Blocks save only when:
+       - username actually changed AND
+       - cooldown locked, OR status is "checking"/"taken"/"locked"
+     Unblocks the moment status flips to "available".
+  ═══════════════════════════════════════════════════════════ */
   const unBlocking = useMemo(() => {
     if (!form.username || form.username === orig?.username) return false;
-    if (cooldown && !cooldown.can_change) return true;   /* ✅ locked = blocked */
-    const c = unCache.get(form.username);
-    return !c || c === "taken";
-  }, [form.username, orig?.username, cooldown]);
+    if (cooldown && !cooldown.can_change) return true;
+    return usernameStatus === "checking" ||
+           usernameStatus === "taken"    ||
+           usernameStatus === "locked";
+  }, [form.username, orig?.username, cooldown, usernameStatus]);
 
   const saveDisabled = saving || !!upl || !dirty || unBlocking;
 
@@ -1194,7 +1197,14 @@ export default function EditProfile({ onProfileUpdate }) {
     if (unBlocking) {
       const isLocked = cooldown && !cooldown.can_change &&
                        form.username && form.username !== orig?.username;
-      push(isLocked ? "Username locked. Change back or wait 30 days." : "Wait for username check.", "error");
+      push(
+        isLocked
+          ? "Username locked. Change back or wait 30 days."
+          : usernameStatus === "taken"
+            ? `"${form.username}" is already taken.`
+            : "Still checking username, please wait…",
+        "error"
+      );
       return;
     }
     if (!validate()) { push("Fix the errors below.", "error"); return; }
@@ -1213,7 +1223,6 @@ export default function EditProfile({ onProfileUpdate }) {
         headers: { "Content-Type": "application/json" },
       });
 
-      /* ✅ Refresh cooldown after successful save */
       if (data?.username_cooldown) setCooldown(data.username_cooldown);
 
       setPpv(old => { rmUrl(old); return ""; });
@@ -1230,12 +1239,10 @@ export default function EditProfile({ onProfileUpdate }) {
         email_verified:  form.email_verified,
       });
     } catch (e) {
-      /* Rollback */
       setForm(prevF);
       setOrig(prevO);
       setDirty(true);
 
-      /* ✅ Update cooldown on 429 responses */
       if (e.response?.data?.username_cooldown) {
         setCooldown(e.response.data.username_cooldown);
       }
@@ -1247,7 +1254,10 @@ export default function EditProfile({ onProfileUpdate }) {
       setSaving(false);
       savingRef.current = false;
     }
-  }, [unBlocking, cooldown, form, orig, validate, getChanged, push, flashSaved, rmUrl, onProfileUpdate]);
+  }, [
+    unBlocking, cooldown, form, orig, usernameStatus,
+    validate, getChanged, push, flashSaved, rmUrl, onProfileUpdate,
+  ]);
 
   // ── Discard
   const reqDiscard = useCallback(fn => {
@@ -1296,6 +1306,22 @@ export default function EditProfile({ onProfileUpdate }) {
 
   if (loading) return <SkeletonPage/>;
 
+  /* ═══════════════════════════════════════════════════════════
+     BLOCK NOTICE TEXT — precise, no false "waiting"
+  ═══════════════════════════════════════════════════════════ */
+  const showBlockNotice = unBlocking && dirty;
+  let blockNoticeText = "";
+  if (showBlockNotice) {
+    if ((cooldown && !cooldown.can_change) || usernameStatus === "locked") {
+      const dl = cooldown?.days_left ?? 0;
+      blockNoticeText = `🔒 Username locked for ${dl} more day${dl !== 1 ? "s" : ""}`;
+    } else if (usernameStatus === "taken") {
+      blockNoticeText = `✗ "${form.username}" is already taken`;
+    } else if (usernameStatus === "checking") {
+      blockNoticeText = "⏳ Checking username…";
+    }
+  }
+
   return (
     <>
       <div className="ep-page">
@@ -1333,17 +1359,22 @@ export default function EditProfile({ onProfileUpdate }) {
           </div>
         )}
 
+        {/* ✅ Unsaved banner — inline (CSS controls positioning) */}
         {dirty && (
-          <UnsavedBanner onSave={save} onDiscard={() => reqDiscard(null)}
-                         saving={saving} uploading={upl} flash={savedFlash}
-                         disabled={saveDisabled}/>
+          <UnsavedBanner
+            onSave={save}
+            onDiscard={() => reqDiscard(null)}
+            saving={saving}
+            uploading={upl}
+            flash={savedFlash}
+            disabled={saveDisabled}
+          />
         )}
 
-        {unBlocking && dirty && (
+        {/* ✅ Precise notice — no false "waiting" */}
+        {showBlockNotice && blockNoticeText && (
           <div className="ep-username-block-notice" role="alert">
-            {cooldown && !cooldown.can_change && form.username !== orig?.username
-              ? `🔒 Username locked for ${cooldown.days_left} more day${cooldown.days_left !== 1 ? "s" : ""}`
-              : "⏳ Waiting for username check…"}
+            {blockNoticeText}
           </div>
         )}
 
@@ -1362,6 +1393,7 @@ export default function EditProfile({ onProfileUpdate }) {
               onVerify={() => nav("/verification")}
               origUN={orig?.username || ""}
               cooldown={cooldown}
+              onUsernameStatus={setUsernameStatus}
             />
           </div>
           <div id="tp-store" role="tabpanel" aria-labelledby="t-store" hidden={tab!=="store"}>
@@ -1378,6 +1410,30 @@ export default function EditProfile({ onProfileUpdate }) {
             />
           </div>
         </div>
+
+        {/* ✅ Bottom save actions — inline, below content */}
+        {dirty && (
+          <div className="ep-bottom-actions">
+            <button
+              className="ep-bottom-btn ep-bottom-btn--discard"
+              onClick={() => reqDiscard(null)}
+              disabled={saving || !!upl}
+              type="button"
+            >
+              Discard Changes
+            </button>
+            <button
+              className={`ep-bottom-btn ep-bottom-btn--save ${savedFlash?"ep-bottom-btn--flash":""}`}
+              onClick={save}
+              disabled={saveDisabled}
+              type="button"
+            >
+              {saving
+                ? <><span className="ep-spinner ep-spinner--sm ep-spinner--white" aria-hidden="true"/> Saving…</>
+                : savedFlash ? "✔ Saved" : "Save Changes"}
+            </button>
+          </div>
+        )}
 
         <p className="ep-footer">Loemart Technologies Ltd · © {new Date().getFullYear()}</p>
       </div>
