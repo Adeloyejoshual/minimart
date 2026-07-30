@@ -4,6 +4,22 @@
 ═══════════════════════════════════════════════════════════════ */
 
 /* ───────────────────────────────────────────────
+   0. ROOT / BODY OVERSCROLL LOCK
+   Fixes: scrolling to top triggers native browser
+   pull-to-refresh / full page reload on some browsers
+   (older iOS Safari, some Android WebViews).
+   .mp-scroll's own overscroll-behavior isn't enough
+   because the gesture can fall through to html/body.
+─────────────────────────────────────────────── */
+html, body {
+  height: 100%;
+  overflow: hidden;           /* body itself must never scroll */
+  overscroll-behavior-y: none;
+  overscroll-behavior-x: none;
+  overscroll-behavior: none;  /* shorthand fallback for older browsers */
+}
+
+/* ───────────────────────────────────────────────
    1. TOKEN EXTENSIONS (mobile-specific aliases)
 ─────────────────────────────────────────────── */
 :root {
@@ -102,7 +118,10 @@
   height: 100dvh;
   overflow-y: auto;
   overflow-x: hidden;
-  overscroll-behavior-y: contain;
+  overscroll-behavior-y: contain;   /* stop bounce from reaching parent */
+  overscroll-behavior: contain;     /* shorthand fallback */
+  touch-action: pan-y;              /* helps some Android browsers respect the above */
+  -webkit-overflow-scrolling: touch;
   padding: 0 16px;
   padding-bottom: calc(var(--mp-nav-h) + var(--mp-safe-b) + 24px);
   max-width: 540px;
