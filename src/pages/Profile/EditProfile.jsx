@@ -319,7 +319,7 @@ const Field = memo(function Field({ label, hint, error, required, id, children }
   const ch = Array.isArray(children) ? children : [children];
   const en = ch.map((c,i) => { if (!c || typeof c !== "object" || i > 0) return c; const db = [hId,eId].filter(Boolean).join(" ") || undefined; return {...c, props:{...c.props,"aria-invalid":error?"true":undefined,"aria-describedby":db,"aria-required":required?"true":undefined}}; });
   return (
-    <div className="ep-field">
+    <div className={`ep-field ${error ? "ep-field--error" : ""}`}>
       {label && <label className="ep-label" htmlFor={id}>{label}{required && <span className="ep-required" aria-hidden="true">*</span>}{required && <span className="sr-only"> (required)</span>}</label>}
       {en}
       {hint && !error && <p className="ep-hint" id={hId}>{hint}</p>}
@@ -446,29 +446,81 @@ function Card({ title, sub, children }) {
 // ═══════════════════════════════════════════════════════════════
 // TAB: PERSONAL
 // ═══════════════════════════════════════════════════════════════
-function TabPersonal({ form, errors, onChange, profilePreview, uploading, uploadProgress, uploadPhase, onPickPhoto, onRemovePhoto, onVerify, stDO, setStDO, ctDO, setCtDO, origUN }) {
+function TabPersonal({ form, errors, onChange, profilePreview, uploading, uploadProgress, uploadPhase, onPickPhoto, onRemovePhoto, onVerify, origUN }) {
   const cities = getCities(form.location_state);
+
   return (
     <div className="ep-tab-content">
-      <Card title="Profile Photo"><AvatarPicker current={form.profile_image} preview={profilePreview} name={form.name} uploading={uploading==="profile"?uploading:""} uploadProgress={uploadProgress} uploadPhase={uploadPhase} shape="circle" onPickFile={onPickPhoto} onRemove={onRemovePhoto}/></Card>
+      <Card title="Profile Photo">
+        <AvatarPicker
+          current={form.profile_image}
+          preview={profilePreview}
+          name={form.name}
+          uploading={uploading==="profile"?uploading:""}
+          uploadProgress={uploadProgress}
+          uploadPhase={uploadPhase}
+          shape="circle"
+          onPickFile={onPickPhoto}
+          onRemove={onRemovePhoto}
+        />
+      </Card>
+
       <Card title="Basic Information">
-        <Field label="Full Name" id="name" required error={errors.name}><input id="name" className="ep-input" type="text" value={form.name} onChange={e=>onChange("name",e.target.value)} placeholder="e.g. Chidi Okafor" maxLength={60}/></Field>
+        <Field label="Full Name" id="name" required error={errors.name}>
+          <input id="name" className="ep-input" type="text" value={form.name} onChange={e=>onChange("name",e.target.value)} placeholder="e.g. Chidi Okafor" maxLength={60}/>
+        </Field>
         <UsernameField value={form.username} orig={origUN} onChange={v=>onChange("username",v)} error={errors.username}/>
         <EmailField email={form.email} verified={form.email_verified} onVerify={onVerify}/>
         <PhoneField value={form.phone} onChange={v=>onChange("phone",v)} error={errors.phone}/>
-        <Field label="About You" id="bio" hint={`${form.bio?.length||0} / ${MAX_BIO}`} error={errors.bio}><textarea id="bio" className="ep-textarea" value={form.bio} onChange={e=>onChange("bio",e.target.value)} placeholder="Tell buyers about yourself…" maxLength={MAX_BIO} rows={3}/></Field>
+        <Field label="About You" id="bio" hint={`${form.bio?.length||0} / ${MAX_BIO}`} error={errors.bio}>
+          <textarea id="bio" className="ep-textarea" value={form.bio} onChange={e=>onChange("bio",e.target.value)} placeholder="Tell buyers about yourself…" maxLength={MAX_BIO} rows={3}/>
+        </Field>
       </Card>
+
+      {/* ✅ Location — uses DropdownModal with correct API */}
       <Card title="Your Location" sub="Helps buyers find local sellers">
-        <Field label="State" id="location_state" error={errors.location_state}>
-          <button type="button" id="location_state" className="ep-dropdown-trigger" onClick={()=>setStDO(true)} aria-haspopup="listbox" aria-expanded={stDO}><span className={form.location_state?"":"ep-placeholder"}>{form.location_state||"Select state"}</span><span className="ep-dropdown-arrow" aria-hidden="true">▾</span></button>
-          <DropdownModal open={stDO} onClose={()=>setStDO(false)} title="Select State" items={STATES.map(s=>({label:s,value:s,selected:s===form.location_state}))} onSelect={v=>{onChange("location_state",v);onChange("location_city","");setStDO(false);}} searchable/>
-        </Field>
-        <Field label="City / LGA" id="location_city" error={errors.location_city}>
-          {cities.length > 0 ? <>
-            <button type="button" id="location_city" className="ep-dropdown-trigger" onClick={()=>setCtDO(true)} aria-haspopup="listbox" aria-expanded={ctDO}><span className={form.location_city?"":"ep-placeholder"}>{form.location_city||"Select city"}</span><span className="ep-dropdown-arrow" aria-hidden="true">▾</span></button>
-            <DropdownModal open={ctDO} onClose={()=>setCtDO(false)} title="Select City / LGA" items={cities.map(c=>({label:c,value:c,selected:c===form.location_city}))} onSelect={v=>{onChange("location_city",v);setCtDO(false);}} searchable/>
-          </> : <input id="location_city" className="ep-input" type="text" value={form.location_city} onChange={e=>onChange("location_city",e.target.value)} placeholder="Enter your city or LGA" maxLength={60}/>}
-        </Field>
+        <div className="ep-field">
+          <label className="ep-label">State</label>
+          <DropdownModal
+            value={form.location_state}
+            onChange={(val) => {
+              onChange("location_state", val);
+              /* Reset city when state changes */
+              if (val !== form.location_state) onChange("location_city", "");
+            }}
+            options={STATES.map((s) => ({ id: s, name: s }))}
+            placeholder="Select state"
+          />
+          {errors.location_state && (
+            <p className="ep-error-msg" role="alert">{errors.location_state}</p>
+          )}
+        </div>
+
+        {form.location_state && (
+          <div className="ep-field">
+            <label className="ep-label">City / LGA</label>
+            {cities.length > 0 ? (
+              <DropdownModal
+                value={form.location_city}
+                onChange={(val) => onChange("location_city", val)}
+                options={cities.map((c) => ({ id: c, name: c }))}
+                placeholder="Select city"
+              />
+            ) : (
+              <input
+                className="ep-input"
+                type="text"
+                value={form.location_city}
+                onChange={e => onChange("location_city", e.target.value)}
+                placeholder="Enter your city or LGA"
+                maxLength={60}
+              />
+            )}
+            {errors.location_city && (
+              <p className="ep-error-msg" role="alert">{errors.location_city}</p>
+            )}
+          </div>
+        )}
       </Card>
     </div>
   );
@@ -477,18 +529,44 @@ function TabPersonal({ form, errors, onChange, profilePreview, uploading, upload
 // ═══════════════════════════════════════════════════════════════
 // TAB: STORE
 // ═══════════════════════════════════════════════════════════════
-function TabStore({ form, errors, onChange, storePreview, uploading, uploadProgress, uploadPhase, onPickLogo, onRemoveLogo, catDO, setCatDO }) {
+function TabStore({ form, errors, onChange, storePreview, uploading, uploadProgress, uploadPhase, onPickLogo, onRemoveLogo }) {
   return (
     <div className="ep-tab-content">
-      <Card title="Store Logo"><AvatarPicker current={form.store_logo} preview={storePreview} name={form.store_name} uploading={uploading==="store"?uploading:""} uploadProgress={uploadProgress} uploadPhase={uploadPhase} shape="square" onPickFile={onPickLogo} onRemove={onRemoveLogo} label="Change Logo"/></Card>
-      <Card title="Store Details">
-        <Field label="Store Name" id="store_name" required error={errors.store_name} hint="Your brand name on Loemart"><input id="store_name" className="ep-input" type="text" value={form.store_name} onChange={e=>onChange("store_name",e.target.value)} placeholder="e.g. Chidi's Electronics" maxLength={60}/></Field>
-        <Field label="Store Description" id="store_description" hint={`${form.store_description?.length||0} / ${MAX_STORE_DESC}`} error={errors.store_description}><textarea id="store_description" className="ep-textarea" value={form.store_description} onChange={e=>onChange("store_description",e.target.value)} placeholder="What do you sell?" maxLength={MAX_STORE_DESC} rows={4}/></Field>
-        <Field label="Store Category" id="store_category">
-          <button type="button" id="store_category" className="ep-dropdown-trigger" onClick={()=>setCatDO(true)} aria-haspopup="listbox" aria-expanded={catDO}><span className={form.store_category?"":"ep-placeholder"}>{form.store_category||"Choose a category"}</span><span className="ep-dropdown-arrow" aria-hidden="true">▾</span></button>
-          <DropdownModal open={catDO} onClose={()=>setCatDO(false)} title="Store Category" items={STORE_CATEGORIES.map(c=>({label:c,value:c,selected:c===form.store_category}))} onSelect={v=>{onChange("store_category",v);setCatDO(false);}}/>
-        </Field>
+      <Card title="Store Logo">
+        <AvatarPicker
+          current={form.store_logo}
+          preview={storePreview}
+          name={form.store_name}
+          uploading={uploading==="store"?uploading:""}
+          uploadProgress={uploadProgress}
+          uploadPhase={uploadPhase}
+          shape="square"
+          onPickFile={onPickLogo}
+          onRemove={onRemoveLogo}
+          label="Change Logo"
+        />
       </Card>
+
+      <Card title="Store Details">
+        <Field label="Store Name" id="store_name" required error={errors.store_name} hint="Your brand name on Loemart">
+          <input id="store_name" className="ep-input" type="text" value={form.store_name} onChange={e=>onChange("store_name",e.target.value)} placeholder="e.g. Chidi's Electronics" maxLength={60}/>
+        </Field>
+        <Field label="Store Description" id="store_description" hint={`${form.store_description?.length||0} / ${MAX_STORE_DESC}`} error={errors.store_description}>
+          <textarea id="store_description" className="ep-textarea" value={form.store_description} onChange={e=>onChange("store_description",e.target.value)} placeholder="What do you sell?" maxLength={MAX_STORE_DESC} rows={4}/>
+        </Field>
+
+        {/* ✅ Store Category — uses DropdownModal with correct API */}
+        <div className="ep-field">
+          <label className="ep-label">Store Category</label>
+          <DropdownModal
+            value={form.store_category}
+            onChange={(val) => onChange("store_category", val)}
+            options={STORE_CATEGORIES.map((c) => ({ id: c, name: c }))}
+            placeholder="Choose a category"
+          />
+        </div>
+      </Card>
+
       <Card title="Business Hours" sub="When you're available">
         <HoursEditor hours={form.business_hours||{}} onChange={(day,val)=>onChange("business_hours",{...(form.business_hours||{}),[day]:val})}/>
       </Card>
@@ -531,9 +609,6 @@ export default function EditProfile({ onProfileUpdate }) {
   // UI
   const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [hasDraft, setHasDraft] = useState(false);
   const [showDiscard, setShowDiscard] = useState(false), [pendingDiscard, setPendingDiscard] = useState(null);
-
-  // Dropdowns
-  const [stDO, setStDO] = useState(false), [ctDO, setCtDO] = useState(false), [catDO, setCatDO] = useState(false);
 
   // Object URLs
   const urlsRef = useRef([]);
@@ -701,7 +776,6 @@ export default function EditProfile({ onProfileUpdate }) {
   useEffect(() => {
     const h = e => {
       if ((e.ctrlKey||e.metaKey)&&e.key==="s") { e.preventDefault(); if (!saveDisabled) save(); return; }
-      if (e.key==="Escape") { setStDO(false); setCtDO(false); setCatDO(false); }
     };
     window.addEventListener("keydown",h); return ()=>window.removeEventListener("keydown",h);
   }, [saveDisabled, save]);
@@ -711,7 +785,6 @@ export default function EditProfile({ onProfileUpdate }) {
 
   if (loading) return <SkeletonPage/>;
 
-  // ═══════════════════════════════════════════════════════════
   return (
     <>
       <div className="ep-page">
@@ -743,10 +816,32 @@ export default function EditProfile({ onProfileUpdate }) {
 
         <div className="ep-body">
           <div id="tp-personal" role="tabpanel" aria-labelledby="t-personal" hidden={tab!=="personal"}>
-            <TabPersonal form={form} errors={errors} onChange={onChange} profilePreview={ppv} uploading={upl} uploadProgress={uplPct} uploadPhase={uplPh} onPickPhoto={f=>pickImg(f,"profile")} onRemovePhoto={rmProfile} onVerify={()=>nav("/verification")} stDO={stDO} setStDO={setStDO} ctDO={ctDO} setCtDO={setCtDO} origUN={orig?.username||""}/>
+            <TabPersonal
+              form={form}
+              errors={errors}
+              onChange={onChange}
+              profilePreview={ppv}
+              uploading={upl}
+              uploadProgress={uplPct}
+              uploadPhase={uplPh}
+              onPickPhoto={f=>pickImg(f,"profile")}
+              onRemovePhoto={rmProfile}
+              onVerify={()=>nav("/verification")}
+              origUN={orig?.username||""}
+            />
           </div>
           <div id="tp-store" role="tabpanel" aria-labelledby="t-store" hidden={tab!=="store"}>
-            <TabStore form={form} errors={errors} onChange={onChange} storePreview={spv} uploading={upl} uploadProgress={uplPct} uploadPhase={uplPh} onPickLogo={f=>pickImg(f,"store")} onRemoveLogo={rmStore} catDO={catDO} setCatDO={setCatDO}/>
+            <TabStore
+              form={form}
+              errors={errors}
+              onChange={onChange}
+              storePreview={spv}
+              uploading={upl}
+              uploadProgress={uplPct}
+              uploadPhase={uplPh}
+              onPickLogo={f=>pickImg(f,"store")}
+              onRemoveLogo={rmStore}
+            />
           </div>
         </div>
 
