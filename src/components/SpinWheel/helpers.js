@@ -4,7 +4,7 @@
 
 /* ── Social links (set to null to auto-hide that task) ── */
 export const SOCIAL_LINKS = {
-  instagram : "https://www.instagram.com/loemartmarketplace?igsh=ZnVsemNjeXJqd25v",
+  instagram : "https://www.instagram.com/officialloemart?igsh=MW9vazJoajZkYmxhaw==",
   tiktok    : "https://www.tiktok.com/@loemartmarketplace?_r=1&_t=ZS-98Oc4twCrv5",
   facebook  : null,
   telegram  : "https://t.me/loemartmarketplace",
