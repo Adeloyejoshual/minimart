@@ -18,3 +18,4 @@
 @import "./ap/13-dark.css";      /* All dark-mode surface overrides consolidated                    */
 @import "./ap/14-responsive.css";/* Reduced motion, safe area, high contrast, print                 */
 @import "./ap/15-utilities.css"; /* .sr-only, flex, spacing, text & display helpers                 */
+@import "./ap/16-image-upload.css"; /* v8: Fallback image upload button — bulletproof empty state  */
