@@ -1435,23 +1435,7 @@
   .ep-hdr-save--desktop-only { display: none; }
 }
 
-/* ✅ Mobile — make bottom action bar sticky when scrolling */
-@media (max-width: 1023px) {
-  .ep-bottom-actions {
-    position: sticky;
-    bottom: 0;
-    z-index: 50;
-    margin: 20px 0 0;
-    border-radius: 16px 16px 0 0;
-    border-bottom: none;
-    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.08);
-  }
 
-  /* Add padding so content doesn't hide under sticky bar */
-  .ep-body {
-    padding-bottom: 100px;
-  }
-}
 
 /* ────────────────────────────────────────
    ACCESSIBILITY UTILITY
