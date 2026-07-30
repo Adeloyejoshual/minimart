@@ -15,7 +15,6 @@ import {
 } from "react-router-dom";
 import axios              from "axios";
 import toast, { Toaster } from "react-hot-toast";
-import { useQueryClient } from "@tanstack/react-query";
 import { useProductCache } from "./context/ProductCacheContext";
 
 /* ── Global design tokens ── */
@@ -155,11 +154,11 @@ import PaymentFailedPage   from "./pages/Checkout/Payment/PaymentFailedPage";
    PAGES — ADMIN
 ════════════════════════════════════════════════════════════ */
 import AdminLogin         from "./pages/admin/AdminLogin";
-import AdminDashboard     from "./page/admin/AdminDashboard";
-import ManagerDashboard   from "./page/admin/Manager/ManagerDashboard";
-import FinanceDashboard   from "./page/admin/Finance/FinanceDashboard";
-import ModeratorDashboard from "./page/admin/Moderator/ModeratorDashboard";
-import SupportDashboard   from "./page/admin/Support/SupportDashboard";
+import AdminDashboard     from "./page/admin/AdminDashboard";                 // super_admin
+import ManagerDashboard   from "./page/admin/Manager/ManagerDashboard";       // admin
+import FinanceDashboard   from "./page/admin/Finance/FinanceDashboard";       // finance_admin
+import ModeratorDashboard from "./page/admin/Moderator/ModeratorDashboard";   // content_moderator
+import SupportDashboard   from "./page/admin/Support/SupportDashboard";       // support_admin
 
 /* ════════════════════════════════════════════════════════════
    COMPONENTS
@@ -185,11 +184,11 @@ const FAV_KEY = "loemart_favs";
 
 /* ── Map every admin role to its dashboard URL ── */
 const ADMIN_ROUTES = {
-  super_admin       : "/admin/dashboard",
-  admin             : "/admin/manager",
-  finance_admin     : "/admin/finance",
-  content_moderator : "/admin/moderator",
-  support_admin     : "/admin/support",
+  super_admin        : "/admin/dashboard",
+  admin              : "/admin/manager",
+  finance_admin      : "/admin/finance",
+  content_moderator  : "/admin/moderator",
+  support_admin      : "/admin/support",
 };
 
 const getAdminHome = (admin) =>
@@ -309,21 +308,11 @@ function clearAllAuthStorage() {
 }
 
 /* ════════════════════════════════════════════════════════════
-   QUERY KEYS — centralised so Profile & App use same keys
-════════════════════════════════════════════════════════════ */
-export const PROFILE_QUERY_KEYS = [
-  ["profile-user"],
-  ["profile-listings"],
-  ["profile-unread-count"],
-  ["profile-subscription-status"],
-];
-
-/* ════════════════════════════════════════════════════════════
    HOOKS
 ════════════════════════════════════════════════════════════ */
 function useSystemThemeWatcher() {
   useEffect(() => {
-    const mq      = window.matchMedia("(prefers-color-scheme: dark)");
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const handler = () => {
       const saved = localStorage.getItem(THEME_KEY) ?? "system";
       if (saved === "system") applyTheme("system");
@@ -366,7 +355,10 @@ function SiteHeader({ user, onLogout }) {
   if (hidden) return null;
   return (
     <>
-      <DesktopHeader user={user} onLogout={() => onLogout(navigate)} />
+      <DesktopHeader
+        user={user}
+        onLogout={() => onLogout(navigate)}
+      />
       <div className="dh-spacer" aria-hidden="true" />
     </>
   );
@@ -461,6 +453,9 @@ function ProtectedRoute({ user, children }) {
   return children;
 }
 
+/* ────────────────────────────────────────────────────
+   AdminProtectedRoute — role-based access control
+────────────────────────────────────────────────────── */
 function AdminProtectedRoute({ admin, role, children }) {
   if (!admin) return <Navigate to="/admin/login" replace />;
   if (admin.role === "super_admin") return children;
@@ -510,32 +505,17 @@ const AuthLoader = memo(() => (
 ));
 
 /* ════════════════════════════════════════════════════════════
-   INNER APP  — has access to QueryClient inside Router
+   APP
 ════════════════════════════════════════════════════════════ */
-function AppInner() {
+export default function App() {
   const [user,        setUser]        = useState(null);
   const [admin,       setAdmin]       = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
 
   const { resetCache } = useProductCache();
-  const queryClient    = useQueryClient();   // ← available here (inside QueryClientProvider)
   const loggingOutRef  = useRef(false);
-  const navigate       = useNavigate();
 
   useSystemThemeWatcher();
-
-  /* ─────────────────────────────────────────────────────────
-     Wipe ALL user-specific React Query cache
-     Call this on logout AND before setting a new user
-  ───────────────────────────────────────────────────────── */
-  const clearQueryCache = useCallback(() => {
-    // removeQueries wipes data immediately — no stale flash
-    PROFILE_QUERY_KEYS.forEach((key) =>
-      queryClient.removeQueries({ queryKey: key })
-    );
-    // Also nuke everything else that might carry user data
-    queryClient.clear();
-  }, [queryClient]);
 
   /* ── Auth check on mount ── */
   useEffect(() => {
@@ -551,19 +531,20 @@ function AppInner() {
         if (loggingOutRef.current) return;
         const userData = res.data?.user ?? res.data;
         setUser(userData);
+
+        /* Cache user for the Coupons/Airtime modal fallback */
         try {
           localStorage.setItem("marketplace_user", JSON.stringify(userData));
         } catch {}
+
         syncFavouritesOnLogin(token, userData.id);
       })
       .catch(() => {
         clearAllAuthStorage();
         clearFavouritesOnLogout();
-        clearQueryCache();
         setUser(null);
       })
       .finally(() => setAuthChecked(true));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   /* ── Admin — matches AdminLogin.jsx key "admin" ── */
@@ -579,81 +560,60 @@ function AppInner() {
     }
   }, []);
 
-  /* ════════════════════════════════════════════════════════
-     LOGIN SUCCESS
-     ─ Clear old cache FIRST, then set new user.
-     ─ This prevents the 1-frame flash of old user data.
-  ════════════════════════════════════════════════════════ */
+  /* ── Login success ── */
   const handleAuthSuccess = useCallback(
     (userData, token, navigateFn, from) => {
-      // 1. Wipe any previous user's cached queries immediately
-      clearQueryCache();
-
-      // 2. Persist token + user snapshot
       localStorage.setItem(TOKEN_KEYS.marketplace, token);
+
+      /* Cache user so Coupons/Airtime page can prefill phone */
       try {
         localStorage.setItem("marketplace_user", JSON.stringify(userData));
       } catch {}
 
-      // 3. Reset product cache (location-based etc.)
       resetCache();
       ["lastLocation", "active_location", "cacheTime"].forEach((k) =>
         localStorage.removeItem(k)
       );
-
-      // 4. Set new user in state — Profile queries now run fresh
       setUser(userData);
-
-      // 5. Background tasks
       syncCartAfterLogin(token);
       syncFavouritesOnLogin(token, userData.id);
-
       toast.success(`Welcome back, ${userData.name}!`);
       navigateFn(from || "/", { replace: true });
     },
-    [resetCache, clearQueryCache]
+    [resetCache]
   );
 
   /* ════════════════════════════════════════════════════════
      LOGOUT
-     ─ Wipe state + cache + storage atomically
   ════════════════════════════════════════════════════════ */
   const handleLogout = useCallback(
     async (navigateFn) => {
       if (loggingOutRef.current) return;
       loggingOutRef.current = true;
 
-      // Fire server-side logout (best-effort)
       const token = localStorage.getItem(TOKEN_KEYS.marketplace);
       if (token) {
-        fetch(`${USERS_API}/logout`, {
-          method    : "POST",
+        fetch(`${USERS_API}/me`, {
+          method    : "DELETE",
           headers   : { Authorization: `Bearer ${token}` },
           keepalive : true,
         }).catch(() => {});
       }
 
-      // 1. Kill React Query cache — must happen before setUser(null)
-      //    so nothing re-fetches with the old token in-flight
-      clearQueryCache();
-
-      // 2. Clear storage
       clearAllAuthStorage();
-      clearFavouritesOnLogout();
-      resetCache();
-
-      // 3. Clear React state
       setUser(null);
+      resetCache();
+      clearFavouritesOnLogout();
 
       toast.success("Signed out");
 
-      // 4. Navigate
-      const nav = typeof navigateFn === "function" ? navigateFn : navigate;
-      nav("/auth", { replace: true });
+      if (typeof navigateFn === "function") {
+        navigateFn("/auth", { replace: true });
+      }
 
       setTimeout(() => { loggingOutRef.current = false; }, 100);
     },
-    [resetCache, clearQueryCache, navigate]
+    [resetCache]
   );
 
   /* ── Profile update ── */
@@ -665,23 +625,20 @@ function AppInner() {
           Object.entries(updatedData).filter(([, v]) => v != null)
         ),
       };
+
+      /* Keep cached user in sync */
       try {
         localStorage.setItem("marketplace_user", JSON.stringify(merged));
       } catch {}
+
       return merged;
     });
-
-    // Also update the React Query cache so Profile page reflects
-    // the edit immediately without a full refetch
-    queryClient.setQueryData(["profile-user"], (old) =>
-      old ? { ...old, ...updatedData } : old
-    );
-  }, [queryClient]);
+  }, []);
 
   if (!authChecked) return <AuthLoader />;
 
   return (
-    <>
+    <Router>
       <ScrollToTop />
       <Toaster position="top-right" toastOptions={TOASTER_OPTIONS} />
       <SiteHeader user={user} onLogout={handleLogout} />
@@ -855,7 +812,7 @@ function AppInner() {
           }
         />
 
-        {/* ── COUPONS ── */}
+        {/* ── COUPONS (includes Airtime tab) ── */}
         <Route path="/coupons"
           element={
             <ProtectedRoute user={user}>
@@ -863,6 +820,12 @@ function AppInner() {
             </ProtectedRoute>
           }
         />
+
+        {/*
+          Legacy redirect — airtime coupons live inside /coupons now.
+          Any old link or bookmark to /airtime-coupons opens the
+          Coupons page with the Airtime tab pre-selected.
+        */}
         <Route path="/airtime-coupons"
           element={<Navigate to="/coupons?tab=airtime" replace />} />
 
@@ -927,7 +890,7 @@ function AppInner() {
         <Route path="/help/article/:slug"
           element={<HelpArticleDetail user={user} />} />
 
-        {/* ── SUPPORT ── */}
+        {/* ── SUPPORT (public / user-facing) ── */}
         <Route path="/support"
           element={<SupportHub user={user} />} />
         <Route path="/support/contact"
@@ -1016,9 +979,11 @@ function AppInner() {
         <Route path="/payment-failed/:orderId"
           element={<PaymentFailedPage />} />
 
-        {/* ══════════════════════════════════════════════
+        {/* ═══════════════════════════════════════════════
              ADMIN AREA
-        ══════════════════════════════════════════════ */}
+        ═══════════════════════════════════════════════ */}
+
+        {/* Landing — routes to the correct dashboard for the role */}
         <Route path="/admin"
           element={
             admin
@@ -1026,6 +991,8 @@ function AppInner() {
               : <Navigate to="/admin/login" replace />
           }
         />
+
+        {/* Login — if already logged in, send to their dashboard */}
         <Route path="/admin/login"
           element={
             admin
@@ -1034,7 +1001,7 @@ function AppInner() {
           }
         />
 
-        {/* Super Admin */}
+        {/* ── Super Admin ─────────────────────────── */}
         <Route path="/admin/dashboard"
           element={
             <AdminProtectedRoute admin={admin} role="super_admin">
@@ -1050,7 +1017,7 @@ function AppInner() {
           }
         />
 
-        {/* Admin / Manager */}
+        {/* ── Admin / Manager ─────────────────────── */}
         <Route path="/admin/manager"
           element={
             <AdminProtectedRoute admin={admin} role="admin">
@@ -1066,7 +1033,7 @@ function AppInner() {
           }
         />
 
-        {/* Finance Admin */}
+        {/* ── Finance Admin ───────────────────────── */}
         <Route path="/admin/finance"
           element={
             <AdminProtectedRoute admin={admin} role="finance_admin">
@@ -1082,7 +1049,7 @@ function AppInner() {
           }
         />
 
-        {/* Content Moderator */}
+        {/* ── Content Moderator ───────────────────── */}
         <Route path="/admin/moderator"
           element={
             <AdminProtectedRoute admin={admin} role="content_moderator">
@@ -1098,7 +1065,7 @@ function AppInner() {
           }
         />
 
-        {/* Support Admin */}
+        {/* ── Support Admin ───────────────────────── */}
         <Route path="/admin/support"
           element={
             <AdminProtectedRoute admin={admin} role="support_admin">
@@ -1117,17 +1084,6 @@ function AppInner() {
         {/* ── FALLBACK ── */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
-    </>
-  );
-}
-
-/* ════════════════════════════════════════════════════════════
-   ROOT EXPORT  — Router wraps AppInner so useNavigate works
-════════════════════════════════════════════════════════════ */
-export default function App() {
-  return (
-    <Router>
-      <AppInner />
     </Router>
   );
 }
