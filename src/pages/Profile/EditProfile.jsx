@@ -72,6 +72,7 @@ function classifyError(err) {
   if (s === 401) return "Session expired. Please log in again.";
   if (s === 409) return m || "That value is already taken.";
   if (s === 422) return m || "Validation error. Check your inputs.";
+  if (s === 429) return m || "Please wait before trying again.";
   if (s >= 500)  return "Server error. Please try again shortly.";
   return m || `Unexpected error (${s}).`;
 }
@@ -105,14 +106,25 @@ function checkDimensions(file) {
   return new Promise((res, rej) => {
     const u = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => { URL.revokeObjectURL(u); img.width < MIN_IMG || img.height < MIN_IMG ? rej(new Error(`Image must be at least ${MIN_IMG}×${MIN_IMG} px (yours is ${img.width}×${img.height}).`)) : res(); };
+    img.onload = () => {
+      URL.revokeObjectURL(u);
+      img.width < MIN_IMG || img.height < MIN_IMG
+        ? rej(new Error(`Image must be at least ${MIN_IMG}×${MIN_IMG} px (yours is ${img.width}×${img.height}).`))
+        : res();
+    };
     img.onerror = () => { URL.revokeObjectURL(u); rej(new Error("Could not read image file.")); };
     img.src = u;
   });
 }
 async function compress(file) {
-  try { return await imageCompression(file, { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: true, fileType: "image/jpeg" }); }
-  catch { return file; }
+  try {
+    return await imageCompression(file, {
+      maxSizeMB: 1,
+      maxWidthOrHeight: 1200,
+      useWebWorker: true,
+      fileType: "image/jpeg",
+    });
+  } catch { return file; }
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -123,13 +135,22 @@ function saveDraft(data) {
   clearTimeout(_dt);
   _dt = setTimeout(() => {
     try {
-      const ex = (() => { try { const r = localStorage.getItem(DRAFT_KEY); return r ? JSON.parse(r).data || {} : {}; } catch { return {}; } })();
+      const ex = (() => {
+        try { const r = localStorage.getItem(DRAFT_KEY); return r ? JSON.parse(r).data || {} : {}; }
+        catch { return {}; }
+      })();
       localStorage.setItem(DRAFT_KEY, JSON.stringify({ data: { ...ex, ...data }, ts: Date.now() }));
     } catch {}
   }, DRAFT_DEBOUNCE);
 }
 function loadDraft() {
-  try { const r = localStorage.getItem(DRAFT_KEY); if (!r) return null; const { data, ts } = JSON.parse(r); if (Date.now() - ts > 86400000) { localStorage.removeItem(DRAFT_KEY); return null; } return data; } catch { return null; }
+  try {
+    const r = localStorage.getItem(DRAFT_KEY);
+    if (!r) return null;
+    const { data, ts } = JSON.parse(r);
+    if (Date.now() - ts > 86400000) { localStorage.removeItem(DRAFT_KEY); return null; }
+    return data;
+  } catch { return null; }
 }
 function clearDraft() { clearTimeout(_dt); localStorage.removeItem(DRAFT_KEY); }
 
@@ -144,6 +165,7 @@ const Ic = {
   refresh: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>,
   warning: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>,
   upload:  () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>,
+  lock:    () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>,
 };
 
 // ═══════════════════════════════════════════════════════════════
@@ -152,9 +174,14 @@ const Ic = {
 function useToast() {
   const [toasts, set] = useState([]);
   const refs = useRef(new Map());
-  const dismiss = useCallback((id) => { set(p => p.filter(t => t.id !== id)); if (refs.current.has(id)) { clearTimeout(refs.current.get(id)); refs.current.delete(id); } }, []);
+  const dismiss = useCallback((id) => {
+    set(p => p.filter(t => t.id !== id));
+    if (refs.current.has(id)) { clearTimeout(refs.current.get(id)); refs.current.delete(id); }
+  }, []);
   const push = useCallback((msg, type = "success", opts = {}) => {
-    const id = Date.now() + Math.random(), dur = opts.duration ?? 3500, action = opts.action ?? null;
+    const id = Date.now() + Math.random();
+    const dur = opts.duration ?? 3500;
+    const action = opts.action ?? null;
     set(p => [...p, { id, msg, type, action }]);
     const tm = setTimeout(() => dismiss(id), dur);
     refs.current.set(id, tm);
@@ -185,8 +212,24 @@ function SkeletonPage() {
       <div className="ep-skeleton-header"><div className="ep-skel ep-skel--back"/><div className="ep-skel ep-skel--hdr-title"/><div className="ep-skel ep-skel--btn"/></div>
       <div className="ep-skeleton-tabs"><div className="ep-skel ep-skel--tab"/><div className="ep-skel ep-skel--tab"/></div>
       <div className="ep-body">
-        <div className="ep-card ep-skeleton-card" aria-hidden="true"><div className="ep-card-head"><div className="ep-skel ep-skel--title"/></div><div className="ep-card-body ep-skeleton-avatar-body"><div className="ep-skel ep-skel--avatar-circle"/><div className="ep-skel ep-skel--avatar-btn"/></div></div>
-        {[4,2].map((n,i) => <div key={i} className="ep-card ep-skeleton-card" aria-hidden="true"><div className="ep-card-head"><div className="ep-skel ep-skel--title"/></div><div className="ep-card-body">{Array.from({length:n}).map((_,j)=><div key={j} className="ep-field"><div className="ep-skel ep-skel--label"/><div className="ep-skel ep-skel--input"/></div>)}</div></div>)}
+        <div className="ep-card ep-skeleton-card" aria-hidden="true">
+          <div className="ep-card-head"><div className="ep-skel ep-skel--title"/></div>
+          <div className="ep-card-body ep-skeleton-avatar-body">
+            <div className="ep-skel ep-skel--avatar-circle"/><div className="ep-skel ep-skel--avatar-btn"/>
+          </div>
+        </div>
+        {[4,2].map((n,i) => (
+          <div key={i} className="ep-card ep-skeleton-card" aria-hidden="true">
+            <div className="ep-card-head"><div className="ep-skel ep-skel--title"/></div>
+            <div className="ep-card-body">
+              {Array.from({length:n}).map((_,j) => (
+                <div key={j} className="ep-field">
+                  <div className="ep-skel ep-skel--label"/><div className="ep-skel ep-skel--input"/>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -196,9 +239,14 @@ function SkeletonPage() {
 // MODALS: Discard + Retry
 // ═══════════════════════════════════════════════════════════════
 function DiscardModal({ onConfirm, onCancel }) {
-  useEffect(() => { const h = e => { if (e.key === "Escape") onCancel(); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [onCancel]);
+  useEffect(() => {
+    const h = e => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onCancel]);
   return (
-    <div className="ep-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="discard-title" onClick={e => e.target === e.currentTarget && onCancel()}>
+    <div className="ep-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="discard-title"
+         onClick={e => e.target === e.currentTarget && onCancel()}>
       <div className="ep-modal">
         <div className="ep-modal-icon ep-modal-icon--warn"><Ic.warning/></div>
         <h3 id="discard-title" className="ep-modal-title">Discard Changes?</h3>
@@ -212,11 +260,21 @@ function DiscardModal({ onConfirm, onCancel }) {
   );
 }
 function RetryModal({ target, errorMsg, previewUrl, onRetry, onCancel }) {
-  useEffect(() => { const h = e => { if (e.key === "Escape") onCancel(); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [onCancel]);
+  useEffect(() => {
+    const h = e => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onCancel]);
   return (
-    <div className="ep-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="retry-title" onClick={e => e.target === e.currentTarget && onCancel()}>
+    <div className="ep-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="retry-title"
+         onClick={e => e.target === e.currentTarget && onCancel()}>
       <div className="ep-modal">
-        {previewUrl && <div className="ep-retry-preview"><img src={previewUrl} alt="Failed upload" className={`ep-retry-preview-img ${target === "profile" ? "ep-retry-preview-img--circle" : ""}`}/></div>}
+        {previewUrl && (
+          <div className="ep-retry-preview">
+            <img src={previewUrl} alt="Failed upload"
+                 className={`ep-retry-preview-img ${target === "profile" ? "ep-retry-preview-img--circle" : ""}`}/>
+          </div>
+        )}
         <div className="ep-modal-icon ep-modal-icon--error">❌</div>
         <h3 id="retry-title" className="ep-modal-title">Upload Failed</h3>
         <p className="ep-modal-body">{errorMsg || `Couldn't upload your ${target === "profile" ? "photo" : "logo"}.`}</p>
@@ -238,23 +296,76 @@ const CropModal = memo(function CropModal({ src, shape, onConfirm, onCancel }) {
   const [drag, setDrag] = useState(false), [ready, setReady] = useState(false);
   const ds = useRef({x:0,y:0});
   const SZ = 240, OUT = 400;
-  useEffect(() => { const h = e => { if (e.key === "Escape") onCancel(); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [onCancel]);
-  useEffect(() => { const img = new Image(); img.crossOrigin = "anonymous"; img.onload = () => { imgR.current = img; const s = Math.max(SZ/img.width,SZ/img.height)*1.2; setScale(s); setPos({x:(SZ-img.width*s)/2,y:(SZ-img.height*s)/2}); setReady(true); }; img.src = src; }, [src]);
-  const pd = e => { setDrag(true); ds.current = {x:e.clientX-pos.x,y:e.clientY-pos.y}; e.currentTarget.setPointerCapture(e.pointerId); };
-  const pm = e => { if (!drag) return; setPos({x:e.clientX-ds.current.x,y:e.clientY-ds.current.y}); };
+
+  useEffect(() => {
+    const h = e => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  }, [onCancel]);
+
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.onload = () => {
+      imgR.current = img;
+      const s = Math.max(SZ/img.width, SZ/img.height) * 1.2;
+      setScale(s);
+      setPos({ x:(SZ-img.width*s)/2, y:(SZ-img.height*s)/2 });
+      setReady(true);
+    };
+    img.src = src;
+  }, [src]);
+
+  const pd = e => {
+    setDrag(true);
+    ds.current = { x:e.clientX-pos.x, y:e.clientY-pos.y };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+  const pm = e => { if (!drag) return; setPos({ x:e.clientX-ds.current.x, y:e.clientY-ds.current.y }); };
   const pu = () => setDrag(false);
-  const wh = e => { e.preventDefault(); setScale(s => Math.max(0.2,Math.min(5,s-e.deltaY*0.001))); };
-  const confirm = () => { const c = cvs.current; if (!c || !imgR.current) return; const ctx = c.getContext("2d"), r = OUT/SZ; c.width=OUT; c.height=OUT; if (shape==="circle") { ctx.beginPath(); ctx.arc(OUT/2,OUT/2,OUT/2,0,Math.PI*2); ctx.clip(); } ctx.drawImage(imgR.current,pos.x*r,pos.y*r,imgR.current.width*scale*r,imgR.current.height*scale*r); c.toBlob(b => { if (b) onConfirm(b); },"image/jpeg",0.9); };
+  const wh = e => { e.preventDefault(); setScale(s => Math.max(0.2, Math.min(5, s-e.deltaY*0.001))); };
+
+  const confirm = () => {
+    const c = cvs.current;
+    if (!c || !imgR.current) return;
+    const ctx = c.getContext("2d");
+    const r = OUT/SZ;
+    c.width = OUT; c.height = OUT;
+    if (shape === "circle") {
+      ctx.beginPath();
+      ctx.arc(OUT/2, OUT/2, OUT/2, 0, Math.PI*2);
+      ctx.clip();
+    }
+    ctx.drawImage(imgR.current, pos.x*r, pos.y*r, imgR.current.width*scale*r, imgR.current.height*scale*r);
+    c.toBlob(b => { if (b) onConfirm(b); }, "image/jpeg", 0.9);
+  };
+
   return (
-    <div className="crop-overlay" role="dialog" aria-modal="true" onClick={e => e.target === e.currentTarget && onCancel()}>
+    <div className="crop-overlay" role="dialog" aria-modal="true"
+         onClick={e => e.target === e.currentTarget && onCancel()}>
       <div className="crop-modal">
-        <div className="crop-header"><h3 className="crop-title">Adjust Photo</h3><p className="crop-hint">Drag to position · Scroll to zoom</p></div>
-        <div className="crop-viewport" style={{width:SZ,height:SZ}} onPointerDown={pd} onPointerMove={pm} onPointerUp={pu} onWheel={wh}>
-          <div className={`crop-mask crop-mask--${shape}`}/>
-          {ready && <img src={src} alt="" aria-hidden="true" className="crop-image" draggable={false} style={{transform:`translate(${pos.x}px,${pos.y}px) scale(${scale})`,transformOrigin:"0 0"}}/>}
+        <div className="crop-header">
+          <h3 className="crop-title">Adjust Photo</h3>
+          <p className="crop-hint">Drag to position · Scroll to zoom</p>
         </div>
-        <div className="crop-zoom-row"><span className="crop-zoom-label" aria-hidden="true">🔍</span><input type="range" className="crop-zoom-slider" aria-label="Zoom" min="0.2" max="3" step="0.01" value={scale} onChange={e => setScale(parseFloat(e.target.value))}/></div>
-        <div className="crop-actions"><button className="crop-btn crop-btn--cancel" onClick={onCancel}>Cancel</button><button className="crop-btn crop-btn--save" onClick={confirm}><Ic.crop/> Save</button></div>
+        <div className="crop-viewport" style={{width:SZ,height:SZ}}
+             onPointerDown={pd} onPointerMove={pm} onPointerUp={pu} onWheel={wh}>
+          <div className={`crop-mask crop-mask--${shape}`}/>
+          {ready && (
+            <img src={src} alt="" aria-hidden="true" className="crop-image" draggable={false}
+                 style={{transform:`translate(${pos.x}px,${pos.y}px) scale(${scale})`, transformOrigin:"0 0"}}/>
+          )}
+        </div>
+        <div className="crop-zoom-row">
+          <span className="crop-zoom-label" aria-hidden="true">🔍</span>
+          <input type="range" className="crop-zoom-slider" aria-label="Zoom"
+                 min="0.2" max="3" step="0.01" value={scale}
+                 onChange={e => setScale(parseFloat(e.target.value))}/>
+        </div>
+        <div className="crop-actions">
+          <button className="crop-btn crop-btn--cancel" onClick={onCancel}>Cancel</button>
+          <button className="crop-btn crop-btn--save" onClick={confirm}><Ic.crop/> Save</button>
+        </div>
         <canvas ref={cvs} style={{display:"none"}}/>
       </div>
     </div>
@@ -267,7 +378,13 @@ const CropModal = memo(function CropModal({ src, shape, onConfirm, onCancel }) {
 function UploadProgress({ progress, phase }) {
   const label = phase === "saving" ? "Saving…" : phase === "processing" ? "Processing…" : `Uploading… ${progress}%`;
   return (
-    <div className="ep-upload-progress" role="status" aria-live="polite"><div className="ep-upload-progress-bar"><div className={`ep-upload-progress-fill ${phase !== "uploading" ? "ep-upload-progress-fill--indeterminate" : ""}`} style={phase === "uploading" ? {width:`${progress}%`} : undefined}/></div><span className="ep-upload-progress-label">{label}</span></div>
+    <div className="ep-upload-progress" role="status" aria-live="polite">
+      <div className="ep-upload-progress-bar">
+        <div className={`ep-upload-progress-fill ${phase !== "uploading" ? "ep-upload-progress-fill--indeterminate" : ""}`}
+             style={phase === "uploading" ? {width:`${progress}%`} : undefined}/>
+      </div>
+      <span className="ep-upload-progress-label">{label}</span>
+    </div>
   );
 }
 
@@ -278,9 +395,15 @@ function DropZone({ onFileDrop, disabled, children }) {
   const [over, setOver] = useState(false);
   const dOver = useCallback(e => { e.preventDefault(); e.stopPropagation(); if (!disabled) setOver(true); }, [disabled]);
   const dLeave = useCallback(e => { e.preventDefault(); e.stopPropagation(); setOver(false); }, []);
-  const dDrop = useCallback(e => { e.preventDefault(); e.stopPropagation(); setOver(false); if (disabled) return; const f = e.dataTransfer?.files?.[0]; if (f?.type.startsWith("image/")) onFileDrop(f); }, [disabled, onFileDrop]);
+  const dDrop = useCallback(e => {
+    e.preventDefault(); e.stopPropagation(); setOver(false);
+    if (disabled) return;
+    const f = e.dataTransfer?.files?.[0];
+    if (f?.type.startsWith("image/")) onFileDrop(f);
+  }, [disabled, onFileDrop]);
   return (
-    <div className={`ep-dropzone ${over ? "ep-dropzone--over" : ""}`} onDragOver={dOver} onDragLeave={dLeave} onDrop={dDrop}>
+    <div className={`ep-dropzone ${over ? "ep-dropzone--over" : ""}`}
+         onDragOver={dOver} onDragLeave={dLeave} onDrop={dDrop}>
       {children}
       {over && <div className="ep-dropzone-overlay"><Ic.upload/><span>Drop image here</span></div>}
     </div>
@@ -290,22 +413,41 @@ function DropZone({ onFileDrop, disabled, children }) {
 // ═══════════════════════════════════════════════════════════════
 // AVATAR PICKER
 // ═══════════════════════════════════════════════════════════════
-const AvatarPicker = memo(function AvatarPicker({ current, preview, name, uploading, uploadProgress, uploadPhase, shape="circle", onPickFile, onRemove, label="Change Photo" }) {
+const AvatarPicker = memo(function AvatarPicker({
+  current, preview, name, uploading, uploadProgress, uploadPhase,
+  shape="circle", onPickFile, onRemove, label="Change Photo"
+}) {
   const fRef = useRef(null), src = preview || current, up = !!uploading;
   return (
     <DropZone onFileDrop={onPickFile} disabled={up}>
       <div className="ep-avatar-section">
         <div className={`ep-avatar-wrap ep-avatar-wrap--${shape}`}>
-          {src ? <img src={src} alt="Photo" className="ep-avatar-img" onError={e => { e.currentTarget.style.display="none"; }}/> : <div className="ep-avatar-letter">{(name||"U").charAt(0).toUpperCase()}</div>}
-          <button className="ep-avatar-camera" onClick={() => fRef.current?.click()} disabled={up} aria-label={label} type="button">{up ? <span className="ep-spinner ep-spinner--sm" aria-hidden="true"/> : <Ic.camera/>}</button>
+          {src
+            ? <img src={src} alt="Photo" className="ep-avatar-img" onError={e => { e.currentTarget.style.display="none"; }}/>
+            : <div className="ep-avatar-letter">{(name||"U").charAt(0).toUpperCase()}</div>
+          }
+          <button className="ep-avatar-camera" onClick={() => fRef.current?.click()}
+                  disabled={up} aria-label={label} type="button">
+            {up ? <span className="ep-spinner ep-spinner--sm" aria-hidden="true"/> : <Ic.camera/>}
+          </button>
         </div>
         {up && <UploadProgress progress={uploadProgress} phase={uploadPhase}/>}
-        <input ref={fRef} type="file" accept="image/jpeg,image/png,image/webp" style={{display:"none"}} aria-hidden="true" onChange={e => { const f=e.target.files?.[0]; if (f) onPickFile(f); e.target.value=""; }}/>
+        <input ref={fRef} type="file" accept="image/jpeg,image/png,image/webp"
+               style={{display:"none"}} aria-hidden="true"
+               onChange={e => { const f=e.target.files?.[0]; if (f) onPickFile(f); e.target.value=""; }}/>
         <div className="ep-avatar-btns">
-          <button className="ep-avatar-btn ep-avatar-btn--change" onClick={() => fRef.current?.click()} disabled={up} type="button">{up ? "Uploading…" : label}</button>
-          {(preview||current) && !up && <button className="ep-avatar-btn ep-avatar-btn--remove" onClick={onRemove} type="button">Remove</button>}
+          <button className="ep-avatar-btn ep-avatar-btn--change" onClick={() => fRef.current?.click()}
+                  disabled={up} type="button">
+            {up ? "Uploading…" : label}
+          </button>
+          {(preview||current) && !up && (
+            <button className="ep-avatar-btn ep-avatar-btn--remove" onClick={onRemove} type="button">Remove</button>
+          )}
         </div>
-        <p className="ep-avatar-hint">JPG, PNG or WebP · max 5 MB · min 100×100 px<span className="ep-avatar-hint-drag"> · or drag & drop</span></p>
+        <p className="ep-avatar-hint">
+          JPG, PNG or WebP · max 5 MB · min 100×100 px
+          <span className="ep-avatar-hint-drag"> · or drag & drop</span>
+        </p>
       </div>
     </DropZone>
   );
@@ -315,12 +457,23 @@ const AvatarPicker = memo(function AvatarPicker({ current, preview, name, upload
 // FIELD
 // ═══════════════════════════════════════════════════════════════
 const Field = memo(function Field({ label, hint, error, required, id, children }) {
-  const hId = hint ? `${id}-hint` : undefined, eId = error ? `${id}-error` : undefined;
+  const hId = hint ? `${id}-hint` : undefined;
+  const eId = error ? `${id}-error` : undefined;
   const ch = Array.isArray(children) ? children : [children];
-  const en = ch.map((c,i) => { if (!c || typeof c !== "object" || i > 0) return c; const db = [hId,eId].filter(Boolean).join(" ") || undefined; return {...c, props:{...c.props,"aria-invalid":error?"true":undefined,"aria-describedby":db,"aria-required":required?"true":undefined}}; });
+  const en = ch.map((c,i) => {
+    if (!c || typeof c !== "object" || i > 0) return c;
+    const db = [hId,eId].filter(Boolean).join(" ") || undefined;
+    return {...c, props:{...c.props,"aria-invalid":error?"true":undefined,"aria-describedby":db,"aria-required":required?"true":undefined}};
+  });
   return (
     <div className={`ep-field ${error ? "ep-field--error" : ""}`}>
-      {label && <label className="ep-label" htmlFor={id}>{label}{required && <span className="ep-required" aria-hidden="true">*</span>}{required && <span className="sr-only"> (required)</span>}</label>}
+      {label && (
+        <label className="ep-label" htmlFor={id}>
+          {label}
+          {required && <span className="ep-required" aria-hidden="true">*</span>}
+          {required && <span className="sr-only"> (required)</span>}
+        </label>
+      )}
       {en}
       {hint && !error && <p className="ep-hint" id={hId}>{hint}</p>}
       {error && <p className="ep-error-msg" id={eId} role="alert">{error}</p>}
@@ -336,9 +489,13 @@ function EmailField({ email, verified, onVerify }) {
     <div className="ep-field">
       <label className="ep-label" htmlFor="email">Email Address</label>
       <div className="ep-email-row">
-        <input id="email" className="ep-input ep-input--disabled" type="email" value={email||""} disabled readOnly aria-describedby="email-status"/>
+        <input id="email" className="ep-input ep-input--disabled" type="email"
+               value={email||""} disabled readOnly aria-describedby="email-status"/>
         <div className="ep-email-badge-wrap">
-          {verified ? <span id="email-status" className="ep-email-badge ep-email-badge--verified"><Ic.verified/> Verified</span> : <button id="email-status" className="ep-email-badge ep-email-badge--unverified" onClick={onVerify} type="button">Verify Email →</button>}
+          {verified
+            ? <span id="email-status" className="ep-email-badge ep-email-badge--verified"><Ic.verified/> Verified</span>
+            : <button id="email-status" className="ep-email-badge ep-email-badge--unverified" onClick={onVerify} type="button">Verify Email →</button>
+          }
         </div>
       </div>
       <p className="ep-hint">{verified ? "Your email is verified." : "Verify your email to unlock full access."}</p>
@@ -347,45 +504,190 @@ function EmailField({ email, verified, onVerify }) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-// USERNAME FIELD (cached + suggestions)
+// USERNAME FIELD — with 30-day cooldown support
 // ═══════════════════════════════════════════════════════════════
 const unCache = new Map();
-function UsernameField({ value, orig, onChange, error }) {
-  const [status, setStatus] = useState("idle"), [sugs, setSugs] = useState([]), [copied, setCopied] = useState(false);
+
+function UsernameField({ value, orig, onChange, error, cooldown }) {
+  const [status, setStatus] = useState("idle");
+  const [sugs,   setSugs]   = useState([]);
+  const [copied, setCopied] = useState(false);
   const dRef = useRef(null);
+
+  /* Cooldown from server */
+  const canChange = cooldown?.can_change ?? true;
+  const daysLeft  = cooldown?.days_left  ?? 0;
+
   const mkSugs = useCallback(b => {
-    const sx = [Math.floor(Math.random()*999),Math.floor(Math.random()*99),new Date().getFullYear().toString().slice(2),"_ng",`${Math.floor(Math.random()*9)}${Math.floor(Math.random()*9)}`];
-    return sx.map(s=>`${b}${s}`).filter(u=>u.length<=20&&u!==b).slice(0,3);
+    const sx = [
+      Math.floor(Math.random()*999),
+      Math.floor(Math.random()*99),
+      new Date().getFullYear().toString().slice(2),
+      "_ng",
+      `${Math.floor(Math.random()*9)}${Math.floor(Math.random()*9)}`,
+    ];
+    return sx.map(s => `${b}${s}`).filter(u => u.length <= 20 && u !== b).slice(0, 3);
   }, []);
+
   useEffect(() => {
     setSugs([]);
     if (!value || value === orig) { setStatus("idle"); return; }
+    if (!canChange)                { setStatus("locked"); return; }
     if (!/^[a-z0-9_]{3,20}$/.test(value)) { setStatus("idle"); return; }
-    if (unCache.has(value)) { const c = unCache.get(value); setStatus(c); if (c==="taken") setSugs(mkSugs(value)); return; }
+
+    if (unCache.has(value)) {
+      const c = unCache.get(value);
+      setStatus(c);
+      if (c === "taken") setSugs(mkSugs(value));
+      return;
+    }
+
     setStatus("checking");
     if (dRef.current) clearTimeout(dRef.current);
     dRef.current = setTimeout(async () => {
-      try { const { data } = await api.get("/check-username",{params:{username:value}}); const r = data.available ? "available" : "taken"; unCache.set(value,r); setStatus(r); if (r==="taken") setSugs(mkSugs(value)); }
-      catch(e) { if (e.response?.status===409) { unCache.set(value,"taken"); setStatus("taken"); setSugs(mkSugs(value)); } else setStatus("error"); }
+      try {
+        const { data } = await api.get("/check-username", { params: { username: value } });
+
+        /* Server can return locked status */
+        if (data.locked) { setStatus("locked"); return; }
+
+        const r = data.available ? "available" : "taken";
+        unCache.set(value, r);
+        setStatus(r);
+        if (r === "taken") setSugs(mkSugs(value));
+      } catch (e) {
+        if (e.response?.status === 409) {
+          unCache.set(value, "taken"); setStatus("taken"); setSugs(mkSugs(value));
+        } else if (e.response?.status === 429) {
+          setStatus("locked");
+        } else {
+          setStatus("error");
+        }
+      }
     }, 500);
     return () => { if (dRef.current) clearTimeout(dRef.current); };
-  }, [value, orig, mkSugs]);
-  const copyUrl = async () => { try { await navigator.clipboard.writeText(`${window.location.origin}/seller/${value}`); setCopied(true); setTimeout(()=>setCopied(false),2000); } catch {} };
+  }, [value, orig, mkSugs, canChange]);
+
+  const copyUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/seller/${value}`);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {}
+  };
+
   const stEl = useMemo(() => {
-    if (!value || value===orig) return null;
-    const m = { checking:{cls:"checking",ic:<span className="ep-spinner ep-spinner--xs" aria-hidden="true"/>,tx:"Checking…"}, available:{cls:"available",ic:"✓",tx:"Available"}, taken:{cls:"taken",ic:"✗",tx:"Username already taken"}, error:{cls:"error",ic:"⚠",tx:"Could not check"} };
-    const s = m[status]; if (!s) return null;
-    return <span id="username-status" className={`ep-username-status ep-username-status--${s.cls}`} role="status" aria-live="polite">{s.ic} {s.tx}</span>;
-  }, [status, value, orig]);
+    if (!value || value === orig) return null;
+    const m = {
+      checking:  { cls:"checking",  ic:<span className="ep-spinner ep-spinner--xs" aria-hidden="true"/>, tx:"Checking…" },
+      available: { cls:"available", ic:"✓", tx:"Available" },
+      taken:     { cls:"taken",     ic:"✗", tx:"Username already taken" },
+      error:     { cls:"error",     ic:"⚠", tx:"Could not check" },
+      locked:    { cls:"locked",    ic:"🔒", tx:`Available in ${daysLeft} day${daysLeft !== 1 ? "s" : ""}` },
+    };
+    const s = m[status];
+    if (!s) return null;
+    return (
+      <span id="username-status" className={`ep-username-status ep-username-status--${s.cls}`}
+            role="status" aria-live="polite">
+        {s.ic} {s.tx}
+      </span>
+    );
+  }, [status, value, orig, daysLeft]);
+
+  /* Nice date format for "next change available on" */
+  const nextChangeFormatted = useMemo(() => {
+    if (!cooldown?.next_change_at) return null;
+    try {
+      return new Date(cooldown.next_change_at).toLocaleDateString("en-NG", {
+        weekday: "long",
+        year:    "numeric",
+        month:   "long",
+        day:     "numeric",
+      });
+    } catch {
+      return null;
+    }
+  }, [cooldown?.next_change_at]);
+
   return (
     <div className="ep-field">
-      <label className="ep-label" htmlFor="username">Username</label>
-      <div className="ep-prefix-wrap"><span className="ep-prefix" aria-hidden="true">@</span><input id="username" className="ep-input ep-input--prefixed" type="text" value={value} onChange={e=>onChange(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g,"").slice(0,20))} placeholder="yourusername" maxLength={20} autoCapitalize="none" autoCorrect="off" aria-invalid={error||status==="taken"?"true":undefined} aria-describedby={["username-status",error?"username-error":""].filter(Boolean).join(" ")}/></div>
+      <label className="ep-label" htmlFor="username">
+        Username
+        {!canChange && <span className="ep-label-locked" aria-hidden="true"> 🔒</span>}
+      </label>
+
+      {/* Input */}
+      <div className={`ep-prefix-wrap ${!canChange ? "ep-prefix-wrap--locked" : ""}`}>
+        <span className="ep-prefix" aria-hidden="true">@</span>
+        <input
+          id="username"
+          className={`ep-input ep-input--prefixed ${!canChange ? "ep-input--locked" : ""}`}
+          type="text"
+          value={value}
+          onChange={e => {
+            if (!canChange) return;
+            onChange(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 20));
+          }}
+          placeholder={canChange ? "yourusername" : "Username locked"}
+          maxLength={20}
+          autoCapitalize="none"
+          autoCorrect="off"
+          disabled={!canChange}
+          readOnly={!canChange}
+          aria-invalid={error || status === "taken" ? "true" : undefined}
+          aria-describedby={["username-status", error ? "username-error" : ""].filter(Boolean).join(" ")}
+        />
+      </div>
+
+      {/* ✅ Cooldown banner — shown when locked */}
+      {!canChange && (
+        <div className="ep-username-cooldown" role="status">
+          <span className="ep-username-cooldown-icon" aria-hidden="true"><Ic.lock/></span>
+          <div className="ep-username-cooldown-content">
+            <strong>Username locked for {daysLeft} more day{daysLeft !== 1 ? "s" : ""}</strong>
+            <p>
+              You can change your username once every 30 days.
+              {nextChangeFormatted && (
+                <> Next change available on <strong>{nextChangeFormatted}</strong>.</>
+              )}
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Status line */}
       {stEl}
-      {status==="taken" && sugs.length>0 && <div className="ep-username-suggestions" role="group" aria-label="Suggestions"><span className="ep-username-suggestions-label">Try:</span>{sugs.map(s=><button key={s} type="button" className="ep-username-suggestion-btn" onClick={()=>onChange(s)}>@{s}</button>)}</div>}
+
+      {/* Suggestions when taken */}
+      {status === "taken" && sugs.length > 0 && canChange && (
+        <div className="ep-username-suggestions" role="group" aria-label="Suggestions">
+          <span className="ep-username-suggestions-label">Try:</span>
+          {sugs.map(s => (
+            <button key={s} type="button" className="ep-username-suggestion-btn"
+                    onClick={() => onChange(s)}>@{s}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Server error */}
       {error && <p id="username-error" className="ep-error-msg" role="alert">{error}</p>}
-      {value && <div className="ep-url-row"><span className="ep-url-text">loemart.com/seller/<strong>{value}</strong></span><button className="ep-url-copy" onClick={copyUrl} type="button" aria-label="Copy URL">{copied ? <span className="ep-url-copied">✔ Copied</span> : <Ic.copy/>}</button></div>}
-      <p className="ep-hint">3–20 characters · letters, numbers, underscores</p>
+
+      {/* Public URL preview */}
+      {value && (
+        <div className="ep-url-row">
+          <span className="ep-url-text">loemart.com/seller/<strong>{value}</strong></span>
+          <button className="ep-url-copy" onClick={copyUrl} type="button" aria-label="Copy URL">
+            {copied ? <span className="ep-url-copied">✔ Copied</span> : <Ic.copy/>}
+          </button>
+        </div>
+      )}
+
+      <p className="ep-hint">
+        {canChange
+          ? "3–20 characters · letters, numbers, underscores · changeable every 30 days"
+          : "Username cannot be changed right now"}
+      </p>
     </div>
   );
 }
@@ -397,7 +699,11 @@ function PhoneField({ value, onChange, error }) {
   return (
     <div className="ep-field">
       <label className="ep-label" htmlFor="phone">Phone Number</label>
-      <input id="phone" className="ep-input" type="tel" inputMode="tel" value={value} onChange={e=>onChange(fmtPhone(e.target.value))} placeholder="0803 123 4567" maxLength={18} aria-invalid={error?"true":undefined} aria-describedby={error?"phone-error":"phone-hint"}/>
+      <input id="phone" className="ep-input" type="tel" inputMode="tel"
+             value={value} onChange={e => onChange(fmtPhone(e.target.value))}
+             placeholder="0803 123 4567" maxLength={18}
+             aria-invalid={error?"true":undefined}
+             aria-describedby={error?"phone-error":"phone-hint"}/>
       {!error && <p className="ep-hint" id="phone-hint">Format: 0803 123 4567 · Not shown publicly</p>}
       {error && <p className="ep-error-msg" id="phone-error" role="alert">{error}</p>}
     </div>
@@ -408,29 +714,68 @@ function PhoneField({ value, onChange, error }) {
 // BUSINESS HOURS
 // ═══════════════════════════════════════════════════════════════
 function HoursEditor({ hours, onChange }) {
-  const dl = d => d.charAt(0).toUpperCase()+d.slice(1);
-  const toggle = d => { const c=hours[d]; onChange(d, c?.isOpen ? {open:"",close:"",isOpen:false} : {open:"09:00",close:"17:00",isOpen:true}); };
+  const dl = d => d.charAt(0).toUpperCase() + d.slice(1);
+  const toggle = d => {
+    const c = hours[d];
+    onChange(d, c?.isOpen ? { open:"", close:"", isOpen:false } : { open:"09:00", close:"17:00", isOpen:true });
+  };
   return (
-    <div className="ep-hours">{DAYS.map(day => { const d = hours[day]||{open:"",close:"",isOpen:false}; return (
-      <div key={day} className="ep-hours-row">
-        <label className="ep-hours-toggle-wrap"><span className={`ep-hours-dot ${d.isOpen?"ep-hours-dot--on":""}`} role="switch" aria-checked={d.isOpen} aria-label={`${dl(day)} open`} tabIndex={0} onClick={()=>toggle(day)} onKeyDown={e=>(e.key===" "||e.key==="Enter")&&toggle(day)}/><span className="ep-hours-day-label">{dl(day)}</span></label>
-        {d.isOpen ? <div className="ep-hours-times"><select className="ep-hours-select" aria-label={`${dl(day)} opens`} value={d.open} onChange={e=>onChange(day,{...d,open:e.target.value})}>{TIME_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select><span className="ep-hours-to" aria-hidden="true">to</span><select className="ep-hours-select" aria-label={`${dl(day)} closes`} value={d.close} onChange={e=>onChange(day,{...d,close:e.target.value})}>{TIME_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}</select></div> : <span className="ep-hours-closed">Closed</span>}
-      </div>
-    ); })}</div>
+    <div className="ep-hours">
+      {DAYS.map(day => {
+        const d = hours[day] || { open:"", close:"", isOpen:false };
+        return (
+          <div key={day} className="ep-hours-row">
+            <label className="ep-hours-toggle-wrap">
+              <span className={`ep-hours-dot ${d.isOpen?"ep-hours-dot--on":""}`}
+                    role="switch" aria-checked={d.isOpen} aria-label={`${dl(day)} open`}
+                    tabIndex={0}
+                    onClick={() => toggle(day)}
+                    onKeyDown={e => (e.key===" "||e.key==="Enter") && toggle(day)}/>
+              <span className="ep-hours-day-label">{dl(day)}</span>
+            </label>
+            {d.isOpen ? (
+              <div className="ep-hours-times">
+                <select className="ep-hours-select" aria-label={`${dl(day)} opens`} value={d.open}
+                        onChange={e => onChange(day, {...d, open:e.target.value})}>
+                  {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+                <span className="ep-hours-to" aria-hidden="true">to</span>
+                <select className="ep-hours-select" aria-label={`${dl(day)} closes`} value={d.close}
+                        onChange={e => onChange(day, {...d, close:e.target.value})}>
+                  {TIME_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                </select>
+              </div>
+            ) : (
+              <span className="ep-hours-closed">Closed</span>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════
 // SAVE FLASH + UNSAVED BANNER
 // ═══════════════════════════════════════════════════════════════
-function useSaveFlash() { const [f, sF] = useState(false); const flash = useCallback(()=>{ sF(true); setTimeout(()=>sF(false),1200); },[]); return { f, flash }; }
+function useSaveFlash() {
+  const [f, sF] = useState(false);
+  const flash = useCallback(() => { sF(true); setTimeout(() => sF(false), 1200); }, []);
+  return { f, flash };
+}
 function UnsavedBanner({ onSave, onDiscard, saving, uploading, flash, disabled }) {
   return (
     <div className="ep-unsaved" role="status">
-      <span className="ep-unsaved-dot" aria-hidden="true"/><span className="ep-unsaved-text">Unsaved changes</span>
-      <button className="ep-unsaved-discard" onClick={onDiscard} type="button" disabled={saving||!!uploading}>Discard</button>
-      <button className={`ep-unsaved-save ${flash?"ep-unsaved-save--flash":""}`} onClick={onSave} disabled={disabled} type="button" aria-label={saving?"Saving":"Save Changes"}>
-        {saving ? <span className="ep-spinner ep-spinner--sm ep-spinner--white" aria-hidden="true"/> : flash ? "✔ Saved" : "Save Changes"}
+      <span className="ep-unsaved-dot" aria-hidden="true"/>
+      <span className="ep-unsaved-text">Unsaved changes</span>
+      <button className="ep-unsaved-discard" onClick={onDiscard} type="button"
+              disabled={saving||!!uploading}>Discard</button>
+      <button className={`ep-unsaved-save ${flash?"ep-unsaved-save--flash":""}`}
+              onClick={onSave} disabled={disabled} type="button"
+              aria-label={saving?"Saving":"Save Changes"}>
+        {saving
+          ? <span className="ep-spinner ep-spinner--sm ep-spinner--white" aria-hidden="true"/>
+          : flash ? "✔ Saved" : "Save Changes"}
       </button>
     </div>
   );
@@ -440,13 +785,28 @@ function UnsavedBanner({ onSave, onDiscard, saving, uploading, flash, disabled }
 // SECTION CARD
 // ═══════════════════════════════════════════════════════════════
 function Card({ title, sub, children }) {
-  return <div className="ep-card">{(title||sub) && <div className="ep-card-head">{title && <h3 className="ep-card-title">{title}</h3>}{sub && <p className="ep-card-sub">{sub}</p>}</div>}<div className="ep-card-body">{children}</div></div>;
+  return (
+    <div className="ep-card">
+      {(title||sub) && (
+        <div className="ep-card-head">
+          {title && <h3 className="ep-card-title">{title}</h3>}
+          {sub && <p className="ep-card-sub">{sub}</p>}
+        </div>
+      )}
+      <div className="ep-card-body">{children}</div>
+    </div>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════
 // TAB: PERSONAL
 // ═══════════════════════════════════════════════════════════════
-function TabPersonal({ form, errors, onChange, profilePreview, uploading, uploadProgress, uploadPhase, onPickPhoto, onRemovePhoto, onVerify, origUN }) {
+function TabPersonal({
+  form, errors, onChange, profilePreview,
+  uploading, uploadProgress, uploadPhase,
+  onPickPhoto, onRemovePhoto, onVerify, origUN,
+  cooldown,
+}) {
   const cities = getCities(form.location_state);
 
   return (
@@ -467,33 +827,44 @@ function TabPersonal({ form, errors, onChange, profilePreview, uploading, upload
 
       <Card title="Basic Information">
         <Field label="Full Name" id="name" required error={errors.name}>
-          <input id="name" className="ep-input" type="text" value={form.name} onChange={e=>onChange("name",e.target.value)} placeholder="e.g. Chidi Okafor" maxLength={60}/>
+          <input id="name" className="ep-input" type="text" value={form.name}
+                 onChange={e => onChange("name", e.target.value)}
+                 placeholder="e.g. Chidi Okafor" maxLength={60}/>
         </Field>
-        <UsernameField value={form.username} orig={origUN} onChange={v=>onChange("username",v)} error={errors.username}/>
+
+        <UsernameField
+          value={form.username}
+          orig={origUN}
+          onChange={v => onChange("username", v)}
+          error={errors.username}
+          cooldown={cooldown}
+        />
+
         <EmailField email={form.email} verified={form.email_verified} onVerify={onVerify}/>
-        <PhoneField value={form.phone} onChange={v=>onChange("phone",v)} error={errors.phone}/>
+        <PhoneField value={form.phone} onChange={v => onChange("phone", v)} error={errors.phone}/>
+
         <Field label="About You" id="bio" hint={`${form.bio?.length||0} / ${MAX_BIO}`} error={errors.bio}>
-          <textarea id="bio" className="ep-textarea" value={form.bio} onChange={e=>onChange("bio",e.target.value)} placeholder="Tell buyers about yourself…" maxLength={MAX_BIO} rows={3}/>
+          <textarea id="bio" className="ep-textarea" value={form.bio}
+                    onChange={e => onChange("bio", e.target.value)}
+                    placeholder="Tell buyers about yourself…"
+                    maxLength={MAX_BIO} rows={3}/>
         </Field>
       </Card>
 
-      {/* ✅ Location — uses DropdownModal with correct API */}
+      {/* Location */}
       <Card title="Your Location" sub="Helps buyers find local sellers">
         <div className="ep-field">
           <label className="ep-label">State</label>
           <DropdownModal
             value={form.location_state}
-            onChange={(val) => {
+            onChange={val => {
               onChange("location_state", val);
-              /* Reset city when state changes */
               if (val !== form.location_state) onChange("location_city", "");
             }}
-            options={STATES.map((s) => ({ id: s, name: s }))}
+            options={STATES.map(s => ({ id: s, name: s }))}
             placeholder="Select state"
           />
-          {errors.location_state && (
-            <p className="ep-error-msg" role="alert">{errors.location_state}</p>
-          )}
+          {errors.location_state && <p className="ep-error-msg" role="alert">{errors.location_state}</p>}
         </div>
 
         {form.location_state && (
@@ -502,23 +873,17 @@ function TabPersonal({ form, errors, onChange, profilePreview, uploading, upload
             {cities.length > 0 ? (
               <DropdownModal
                 value={form.location_city}
-                onChange={(val) => onChange("location_city", val)}
-                options={cities.map((c) => ({ id: c, name: c }))}
+                onChange={val => onChange("location_city", val)}
+                options={cities.map(c => ({ id: c, name: c }))}
                 placeholder="Select city"
               />
             ) : (
               <input
-                className="ep-input"
-                type="text"
-                value={form.location_city}
+                className="ep-input" type="text" value={form.location_city}
                 onChange={e => onChange("location_city", e.target.value)}
-                placeholder="Enter your city or LGA"
-                maxLength={60}
-              />
+                placeholder="Enter your city or LGA" maxLength={60}/>
             )}
-            {errors.location_city && (
-              <p className="ep-error-msg" role="alert">{errors.location_city}</p>
-            )}
+            {errors.location_city && <p className="ep-error-msg" role="alert">{errors.location_city}</p>}
           </div>
         )}
       </Card>
@@ -529,7 +894,11 @@ function TabPersonal({ form, errors, onChange, profilePreview, uploading, upload
 // ═══════════════════════════════════════════════════════════════
 // TAB: STORE
 // ═══════════════════════════════════════════════════════════════
-function TabStore({ form, errors, onChange, storePreview, uploading, uploadProgress, uploadPhase, onPickLogo, onRemoveLogo }) {
+function TabStore({
+  form, errors, onChange, storePreview,
+  uploading, uploadProgress, uploadPhase,
+  onPickLogo, onRemoveLogo,
+}) {
   return (
     <div className="ep-tab-content">
       <Card title="Store Logo">
@@ -548,27 +917,36 @@ function TabStore({ form, errors, onChange, storePreview, uploading, uploadProgr
       </Card>
 
       <Card title="Store Details">
-        <Field label="Store Name" id="store_name" required error={errors.store_name} hint="Your brand name on Loemart">
-          <input id="store_name" className="ep-input" type="text" value={form.store_name} onChange={e=>onChange("store_name",e.target.value)} placeholder="e.g. Chidi's Electronics" maxLength={60}/>
-        </Field>
-        <Field label="Store Description" id="store_description" hint={`${form.store_description?.length||0} / ${MAX_STORE_DESC}`} error={errors.store_description}>
-          <textarea id="store_description" className="ep-textarea" value={form.store_description} onChange={e=>onChange("store_description",e.target.value)} placeholder="What do you sell?" maxLength={MAX_STORE_DESC} rows={4}/>
+        <Field label="Store Name" id="store_name" required error={errors.store_name}
+               hint="Your brand name on Loemart">
+          <input id="store_name" className="ep-input" type="text" value={form.store_name}
+                 onChange={e => onChange("store_name", e.target.value)}
+                 placeholder="e.g. Chidi's Electronics" maxLength={60}/>
         </Field>
 
-        {/* ✅ Store Category — uses DropdownModal with correct API */}
+        <Field label="Store Description" id="store_description"
+               hint={`${form.store_description?.length||0} / ${MAX_STORE_DESC}`}
+               error={errors.store_description}>
+          <textarea id="store_description" className="ep-textarea" value={form.store_description}
+                    onChange={e => onChange("store_description", e.target.value)}
+                    placeholder="What do you sell?" maxLength={MAX_STORE_DESC} rows={4}/>
+        </Field>
+
         <div className="ep-field">
           <label className="ep-label">Store Category</label>
           <DropdownModal
             value={form.store_category}
-            onChange={(val) => onChange("store_category", val)}
-            options={STORE_CATEGORIES.map((c) => ({ id: c, name: c }))}
+            onChange={val => onChange("store_category", val)}
+            options={STORE_CATEGORIES.map(c => ({ id: c, name: c }))}
             placeholder="Choose a category"
           />
         </div>
       </Card>
 
       <Card title="Business Hours" sub="When you're available">
-        <HoursEditor hours={form.business_hours||{}} onChange={(day,val)=>onChange("business_hours",{...(form.business_hours||{}),[day]:val})}/>
+        <HoursEditor
+          hours={form.business_hours||{}}
+          onChange={(day,val) => onChange("business_hours", {...(form.business_hours||{}), [day]: val})}/>
       </Card>
     </div>
   );
@@ -589,12 +967,15 @@ export default function EditProfile({ onProfileUpdate }) {
   // Form
   const [orig, setOrig] = useState(null);
   const [form, setForm] = useState({
-    name:"",username:"",email:"",email_verified:false,phone:"",bio:"",
-    profile_image:"",store_logo:"",location_state:"",location_city:"",
-    store_name:"",store_description:"",store_category:"",business_hours:{},
+    name:"", username:"", email:"", email_verified:false, phone:"", bio:"",
+    profile_image:"", store_logo:"", location_state:"", location_city:"",
+    store_name:"", store_description:"", store_category:"", business_hours:{},
   });
   const [errors, setErrors] = useState({});
-  const [dirty, setDirty] = useState(false);
+  const [dirty,  setDirty]  = useState(false);
+
+  /* ✅ Username cooldown from server */
+  const [cooldown, setCooldown] = useState(null);
 
   // Images
   const [ppv, setPpv] = useState(""), [spv, setSpv] = useState("");
@@ -607,13 +988,20 @@ export default function EditProfile({ onProfileUpdate }) {
   const [cropSrc, setCropSrc] = useState(null), [cropTgt, setCropTgt] = useState("");
 
   // UI
-  const [loading, setLoading] = useState(true), [saving, setSaving] = useState(false), [hasDraft, setHasDraft] = useState(false);
-  const [showDiscard, setShowDiscard] = useState(false), [pendingDiscard, setPendingDiscard] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving,  setSaving]  = useState(false);
+  const [hasDraft, setHasDraft] = useState(false);
+  const [showDiscard, setShowDiscard] = useState(false);
+  const [pendingDiscard, setPendingDiscard] = useState(null);
 
   // Object URLs
   const urlsRef = useRef([]);
   const mkUrl = useCallback(b => { const u = URL.createObjectURL(b); urlsRef.current.push(u); return u; }, []);
-  const rmUrl = useCallback(u => { if (!u?.startsWith("blob:")) return; URL.revokeObjectURL(u); urlsRef.current = urlsRef.current.filter(x=>x!==u); }, []);
+  const rmUrl = useCallback(u => {
+    if (!u?.startsWith("blob:")) return;
+    URL.revokeObjectURL(u);
+    urlsRef.current = urlsRef.current.filter(x => x !== u);
+  }, []);
   useEffect(() => () => { urlsRef.current.forEach(URL.revokeObjectURL); }, []);
 
   // ── Fetch profile
@@ -623,37 +1011,62 @@ export default function EditProfile({ onProfileUpdate }) {
       try {
         setLoading(true);
         const { data } = await api.get("/me");
+
         const init = {
-          name:data.name||"",username:data.username||"",email:data.email||"",
-          email_verified:data.email_verified??false,
-          phone:data.phone?fmtPhone(data.phone):"",bio:data.bio||"",
-          profile_image:data.profile_image||"",store_logo:data.store_logo||"",
-          location_state:data.location?.state||data.location_state||"",
-          location_city:data.location?.city||data.location_city||"",
-          store_name:data.store_name||"",store_description:data.store_description||"",
-          store_category:data.store_category||"",business_hours:data.business_hours||{},
+          name:              data.name || "",
+          username:          data.username || "",
+          email:             data.email || "",
+          email_verified:    data.email_verified ?? false,
+          phone:             data.phone ? fmtPhone(data.phone) : "",
+          bio:               data.bio || "",
+          profile_image:     data.profile_image || "",
+          store_logo:        data.store_logo || "",
+          location_state:    data.location?.state || data.location_state || "",
+          location_city:     data.location?.city  || data.location_city  || "",
+          store_name:        data.store_name || "",
+          store_description: data.store_description || "",
+          store_category:    data.store_category || "",
+          business_hours:    data.business_hours || {},
         };
         setOrig(init);
+        setCooldown(data.username_cooldown ?? null);
+
         const dr = loadDraft();
-        if (dr) { setForm({...init,...dr}); setHasDraft(true); setDirty(true); }
+        if (dr) { setForm({ ...init, ...dr }); setHasDraft(true); setDirty(true); }
         else setForm(init);
-      } catch(e) { if (e.response?.status===401) nav("/auth"); else push(classifyError(e),"error"); }
-      finally { setLoading(false); }
+      } catch (e) {
+        if (e.response?.status === 401) nav("/auth");
+        else push(classifyError(e), "error");
+      } finally {
+        setLoading(false);
+      }
     })();
   }, [nav, push]);
 
   // ── onChange
-  const onChange = useCallback((k,v) => {
-    setForm(p => { const n = {...p,[k]:v}; if (["bio","store_description","store_name","name","phone","username"].includes(k)) saveDraft({[k]:v}); return n; });
-    setErrors(p => ({...p,[k]:""})); setDirty(true);
+  const onChange = useCallback((k, v) => {
+    setForm(p => {
+      const n = { ...p, [k]: v };
+      if (["bio","store_description","store_name","name","phone","username"].includes(k)) {
+        saveDraft({ [k]: v });
+      }
+      return n;
+    });
+    setErrors(p => ({ ...p, [k]: "" }));
+    setDirty(true);
   }, []);
 
-  const dismissDraft = useCallback(() => { clearDraft(); setForm(orig); setHasDraft(false); setDirty(false); }, [orig]);
+  const dismissDraft = useCallback(() => {
+    clearDraft();
+    setForm(orig);
+    setHasDraft(false);
+    setDirty(false);
+  }, [orig]);
 
   // ── Image pick
   const pickImg = useCallback(async (file, tgt) => {
-    if (file.size > MAX_FILE) { push("Image must be under 5 MB.","error"); return; }
-    try { await checkDimensions(file); } catch(e) { push(e.message,"error"); return; }
+    if (file.size > MAX_FILE) { push("Image must be under 5 MB.", "error"); return; }
+    try { await checkDimensions(file); } catch (e) { push(e.message, "error"); return; }
     const c = await compress(file);
     const rd = new FileReader();
     rd.onload = e => { setCropSrc(e.target.result); setCropTgt(tgt); };
@@ -664,124 +1077,222 @@ export default function EditProfile({ onProfileUpdate }) {
   const doUpload = useCallback(async (blob, tgt, existUrl) => {
     setUpl(tgt); setUplPct(0); setUplPh("uploading");
     const pUrl = existUrl || mkUrl(blob);
-    if (tgt==="profile") setPpv(old=>{if(old!==pUrl)rmUrl(old);return pUrl;});
-    else setSpv(old=>{if(old!==pUrl)rmUrl(old);return pUrl;});
+    if (tgt === "profile") setPpv(old => { if (old !== pUrl) rmUrl(old); return pUrl; });
+    else setSpv(old => { if (old !== pUrl) rmUrl(old); return pUrl; });
+
     try {
-      const fd = new FormData(); fd.append("image",blob,"avatar.jpg");
-      const oldUrl = tgt==="profile" ? form.profile_image : form.store_logo;
-      if (oldUrl) fd.append("old_url",oldUrl);
-      const { data } = await api.post("/upload/image",fd,{
-        headers:{"Content-Type":"multipart/form-data"},
-        onUploadProgress:ev=>{ if(ev.total){const p=Math.round(ev.loaded/ev.total*100);setUplPct(p);if(p===100)setUplPh("processing");} },
+      const fd = new FormData();
+      fd.append("image", blob, "avatar.jpg");
+      const oldUrl = tgt === "profile" ? form.profile_image : form.store_logo;
+      if (oldUrl) fd.append("old_url", oldUrl);
+
+      const { data } = await api.post("/upload/image", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+        onUploadProgress: ev => {
+          if (ev.total) {
+            const p = Math.round(ev.loaded / ev.total * 100);
+            setUplPct(p);
+            if (p === 100) setUplPh("processing");
+          }
+        },
       });
+
       setUplPh("saving");
       if (!data.url) throw new Error("No URL returned");
-      onChange(tgt==="profile"?"profile_image":"store_logo",data.url);
-      setFailUp(null); push("Photo uploaded ✔");
-    } catch(e) {
+      onChange(tgt === "profile" ? "profile_image" : "store_logo", data.url);
+      setFailUp(null);
+      push("Photo uploaded ✔");
+    } catch (e) {
       const msg = classifyError(e);
-      setFailUp({blob,target:tgt,errorMsg:msg,previewUrl:pUrl}); setShowRetry(true);
-      if (tgt==="profile") setPpv(""); else setSpv("");
-    } finally { setUpl(""); setUplPct(0); setUplPh("uploading"); }
+      setFailUp({ blob, target: tgt, errorMsg: msg, previewUrl: pUrl });
+      setShowRetry(true);
+      if (tgt === "profile") setPpv(""); else setSpv("");
+    } finally {
+      setUpl(""); setUplPct(0); setUplPh("uploading");
+    }
   }, [mkUrl, rmUrl, onChange, push, form.profile_image, form.store_logo]);
 
-  const onCropOk = useCallback(async b => { setCropSrc(null); await doUpload(b,cropTgt,null); }, [cropTgt, doUpload]);
-  const retryUp = useCallback(async () => { setShowRetry(false); if (!failUp) return; await doUpload(failUp.blob,failUp.target,failUp.previewUrl); }, [failUp, doUpload]);
+  const onCropOk    = useCallback(async b => { setCropSrc(null); await doUpload(b, cropTgt, null); }, [cropTgt, doUpload]);
+  const retryUp     = useCallback(async () => { setShowRetry(false); if (!failUp) return; await doUpload(failUp.blob, failUp.target, failUp.previewUrl); }, [failUp, doUpload]);
   const cancelRetry = useCallback(() => { setShowRetry(false); if (failUp?.previewUrl) rmUrl(failUp.previewUrl); setFailUp(null); }, [failUp, rmUrl]);
 
   // ── Remove (undo)
   const rmProfile = useCallback(() => {
     const sv = form.profile_image, sp = ppv;
-    rmUrl(ppv); setPpv(""); onChange("profile_image","");
-    push("Profile photo removed.","info",{duration:5000,action:{label:"Undo",onClick:()=>{setPpv(sp);onChange("profile_image",sv);}}});
+    rmUrl(ppv); setPpv(""); onChange("profile_image", "");
+    push("Profile photo removed.", "info", {
+      duration: 5000,
+      action: { label: "Undo", onClick: () => { setPpv(sp); onChange("profile_image", sv); } },
+    });
   }, [form.profile_image, ppv, rmUrl, onChange, push]);
 
   const rmStore = useCallback(() => {
     const sv = form.store_logo, sp = spv;
-    rmUrl(spv); setSpv(""); onChange("store_logo","");
-    push("Store logo removed.","info",{duration:5000,action:{label:"Undo",onClick:()=>{setSpv(sp);onChange("store_logo",sv);}}});
+    rmUrl(spv); setSpv(""); onChange("store_logo", "");
+    push("Store logo removed.", "info", {
+      duration: 5000,
+      action: { label: "Undo", onClick: () => { setSpv(sp); onChange("store_logo", sv); } },
+    });
   }, [form.store_logo, spv, rmUrl, onChange, push]);
 
   // ── Validate
   const validate = useCallback(() => {
     const e = {};
-    if (!form.name.trim()) e.name = "Name is required";
+    if (!form.name.trim())          e.name = "Name is required";
     else if (form.name.trim().length < 2) e.name = "At least 2 characters";
     if (form.username && !/^[a-z0-9_]{3,20}$/.test(form.username)) e.username = "3–20 chars: letters, numbers, underscores";
+
     const rp = stripPhone(form.phone);
     if (rp && !/^\+?\d{7,15}$/.test(rp)) e.phone = "Enter a valid phone number";
-    if ((form.bio?.length||0)>MAX_BIO) e.bio = `Max ${MAX_BIO} characters`;
-    if ((form.store_description?.length||0)>MAX_STORE_DESC) e.store_description = `Max ${MAX_STORE_DESC} characters`;
-    setErrors(e); return Object.keys(e).length === 0;
-  }, [form]);
+    if ((form.bio?.length||0) > MAX_BIO) e.bio = `Max ${MAX_BIO} characters`;
+    if ((form.store_description?.length||0) > MAX_STORE_DESC) e.store_description = `Max ${MAX_STORE_DESC} characters`;
+
+    /* ✅ Local guard: block username change during cooldown */
+    if (cooldown && !cooldown.can_change &&
+        form.username && form.username !== orig?.username) {
+      e.username = `Available in ${cooldown.days_left} day${cooldown.days_left !== 1 ? "s" : ""}`;
+    }
+
+    setErrors(e);
+    return Object.keys(e).length === 0;
+  }, [form, cooldown, orig?.username]);
 
   // ── Changed fields
   const getChanged = useCallback(() => {
     if (!orig) return {};
     const ch = {};
     for (const k of Object.keys(form)) {
-      if (k==="email"||k==="email_verified") continue;
-      const ov = k==="phone" ? stripPhone(orig[k]||"") : JSON.stringify(orig[k]);
-      const cv = k==="phone" ? stripPhone(form[k]||"") : JSON.stringify(form[k]);
+      if (k === "email" || k === "email_verified") continue;
+      const ov = k === "phone" ? stripPhone(orig[k]||"") : JSON.stringify(orig[k]);
+      const cv = k === "phone" ? stripPhone(form[k]||"") : JSON.stringify(form[k]);
       if (ov !== cv) {
-        if (k==="phone") ch.phone = stripPhone(form[k]);
-        else if (k==="location_state"||k==="location_city") { if (!ch.location) ch.location = {state:form.location_state,city:form.location_city}; }
+        if (k === "phone") ch.phone = stripPhone(form[k]);
+        else if (k === "location_state" || k === "location_city") {
+          if (!ch.location) ch.location = { state: form.location_state, city: form.location_city };
+        }
         else ch[k] = form[k];
       }
     }
-    delete ch.location_state; delete ch.location_city;
+    delete ch.location_state;
+    delete ch.location_city;
     return ch;
   }, [form, orig]);
 
   // ── Username blocking
   const unBlocking = useMemo(() => {
     if (!form.username || form.username === orig?.username) return false;
+    if (cooldown && !cooldown.can_change) return true;   /* ✅ locked = blocked */
     const c = unCache.get(form.username);
     return !c || c === "taken";
-  }, [form.username, orig?.username]);
+  }, [form.username, orig?.username, cooldown]);
 
   const saveDisabled = saving || !!upl || !dirty || unBlocking;
 
   // ── Save
   const save = useCallback(async () => {
     if (savingRef.current) return;
-    if (unBlocking) { push("Wait for username check.","error"); return; }
-    if (!validate()) { push("Fix the errors below.","error"); return; }
+    if (unBlocking) {
+      const isLocked = cooldown && !cooldown.can_change &&
+                       form.username && form.username !== orig?.username;
+      push(isLocked ? "Username locked. Change back or wait 30 days." : "Wait for username check.", "error");
+      return;
+    }
+    if (!validate()) { push("Fix the errors below.", "error"); return; }
+
     const ch = getChanged();
     if (!Object.keys(ch).length) { flashSaved(); setDirty(false); return; }
-    const prevF = {...form}, prevO = orig ? {...orig} : null;
-    savingRef.current = true; setSaving(true); setDirty(false); setOrig(p=>({...p,...form}));
+
+    const prevF = { ...form }, prevO = orig ? { ...orig } : null;
+    savingRef.current = true;
+    setSaving(true);
+    setDirty(false);
+    setOrig(p => ({ ...p, ...form }));
+
     try {
-      await api.patch("/me",ch,{headers:{"Content-Type":"application/json"}});
-      setPpv(old=>{rmUrl(old);return"";}); setSpv(old=>{rmUrl(old);return"";}); clearDraft(); setHasDraft(false); flashSaved();
-      onProfileUpdate?.({name:form.name,profile_image:form.profile_image,username:form.username,store_name:form.store_name,email_verified:form.email_verified});
-    } catch(e) {
-      setForm(prevF); setOrig(prevO); setDirty(true);
-      const se = e.response?.data?.errors; if (se) setErrors(se);
-      push(classifyError(e),"error");
-    } finally { setSaving(false); savingRef.current = false; }
-  }, [unBlocking, validate, getChanged, form, orig, push, flashSaved, rmUrl, onProfileUpdate]);
+      const { data } = await api.patch("/me", ch, {
+        headers: { "Content-Type": "application/json" },
+      });
+
+      /* ✅ Refresh cooldown after successful save */
+      if (data?.username_cooldown) setCooldown(data.username_cooldown);
+
+      setPpv(old => { rmUrl(old); return ""; });
+      setSpv(old => { rmUrl(old); return ""; });
+      clearDraft();
+      setHasDraft(false);
+      flashSaved();
+
+      onProfileUpdate?.({
+        name:            form.name,
+        profile_image:   form.profile_image,
+        username:        form.username,
+        store_name:      form.store_name,
+        email_verified:  form.email_verified,
+      });
+    } catch (e) {
+      /* Rollback */
+      setForm(prevF);
+      setOrig(prevO);
+      setDirty(true);
+
+      /* ✅ Update cooldown on 429 responses */
+      if (e.response?.data?.username_cooldown) {
+        setCooldown(e.response.data.username_cooldown);
+      }
+
+      const se = e.response?.data?.errors;
+      if (se) setErrors(se);
+      push(classifyError(e), "error");
+    } finally {
+      setSaving(false);
+      savingRef.current = false;
+    }
+  }, [unBlocking, cooldown, form, orig, validate, getChanged, push, flashSaved, rmUrl, onProfileUpdate]);
 
   // ── Discard
-  const reqDiscard = useCallback(fn => { if (!dirty) { fn?.(); return; } setPendingDiscard(()=>fn||null); setShowDiscard(true); }, [dirty]);
+  const reqDiscard = useCallback(fn => {
+    if (!dirty) { fn?.(); return; }
+    setPendingDiscard(() => fn || null);
+    setShowDiscard(true);
+  }, [dirty]);
+
   const doDiscard = useCallback(() => {
-    setShowDiscard(false); if (!orig) return;
-    setForm(orig); setErrors({}); setDirty(false);
-    rmUrl(ppv); rmUrl(spv); setPpv(""); setSpv(""); clearDraft(); setHasDraft(false);
-    pendingDiscard?.(); setPendingDiscard(null);
+    setShowDiscard(false);
+    if (!orig) return;
+    setForm(orig);
+    setErrors({});
+    setDirty(false);
+    rmUrl(ppv); rmUrl(spv);
+    setPpv(""); setSpv("");
+    clearDraft();
+    setHasDraft(false);
+    pendingDiscard?.();
+    setPendingDiscard(null);
   }, [orig, ppv, spv, rmUrl, pendingDiscard]);
-  const cancelDiscard = useCallback(() => { setShowDiscard(false); setPendingDiscard(null); }, []);
+
+  const cancelDiscard = useCallback(() => {
+    setShowDiscard(false);
+    setPendingDiscard(null);
+  }, []);
 
   // ── Keyboard
   useEffect(() => {
     const h = e => {
-      if ((e.ctrlKey||e.metaKey)&&e.key==="s") { e.preventDefault(); if (!saveDisabled) save(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        if (!saveDisabled) save();
+      }
     };
-    window.addEventListener("keydown",h); return ()=>window.removeEventListener("keydown",h);
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
   }, [saveDisabled, save]);
 
   // ── beforeunload
-  useEffect(() => { const h=e=>{if(dirty){e.preventDefault();e.returnValue="";}}; window.addEventListener("beforeunload",h); return()=>window.removeEventListener("beforeunload",h); }, [dirty]);
+  useEffect(() => {
+    const h = e => { if (dirty) { e.preventDefault(); e.returnValue = ""; } };
+    window.addEventListener("beforeunload", h);
+    return () => window.removeEventListener("beforeunload", h);
+  }, [dirty]);
 
   if (loading) return <SkeletonPage/>;
 
@@ -794,25 +1305,47 @@ export default function EditProfile({ onProfileUpdate }) {
           showMenu={false}
           rightAction={
             <button className={`ep-hdr-save ${savedFlash?"ep-hdr-save--flash":""} ep-hdr-save--desktop-only`}
-              onClick={save} disabled={saveDisabled} type="button" title="Save Changes (Ctrl+S)">
-              {saving ? <span className="ep-spinner ep-spinner--sm ep-spinner--white" aria-hidden="true"/>
+                    onClick={save} disabled={saveDisabled} type="button"
+                    title="Save Changes (Ctrl+S)">
+              {saving
+                ? <span className="ep-spinner ep-spinner--sm ep-spinner--white" aria-hidden="true"/>
                 : savedFlash ? "✔ Saved" : "Save"}
             </button>
           }
         />
 
         <div className="ep-tabs" role="tablist" aria-label="Profile sections">
-          {TABS.map(t=>(
-            <button key={t.id} role="tab" aria-selected={tab===t.id} aria-controls={`tp-${t.id}`} id={`t-${t.id}`}
-              className={`ep-tab${tab===t.id?" ep-tab--active":""}`} onClick={()=>setTab(t.id)} type="button">
-              <span className="ep-tab-emoji" aria-hidden="true">{t.emoji}</span><span className="ep-tab-label">{t.label}</span>
+          {TABS.map(t => (
+            <button key={t.id} role="tab" aria-selected={tab===t.id}
+                    aria-controls={`tp-${t.id}`} id={`t-${t.id}`}
+                    className={`ep-tab${tab===t.id?" ep-tab--active":""}`}
+                    onClick={() => setTab(t.id)} type="button">
+              <span className="ep-tab-emoji" aria-hidden="true">{t.emoji}</span>
+              <span className="ep-tab-label">{t.label}</span>
             </button>
           ))}
         </div>
 
-        {hasDraft && <div className="ep-draft-banner" role="status"><span>📝 Restored unsaved draft</span><button className="ep-draft-dismiss" onClick={dismissDraft} type="button">Dismiss</button></div>}
-        {dirty && <UnsavedBanner onSave={save} onDiscard={()=>reqDiscard(null)} saving={saving} uploading={upl} flash={savedFlash} disabled={saveDisabled}/>}
-        {unBlocking && dirty && <div className="ep-username-block-notice" role="alert">⏳ Waiting for username check…</div>}
+        {hasDraft && (
+          <div className="ep-draft-banner" role="status">
+            <span>📝 Restored unsaved draft</span>
+            <button className="ep-draft-dismiss" onClick={dismissDraft} type="button">Dismiss</button>
+          </div>
+        )}
+
+        {dirty && (
+          <UnsavedBanner onSave={save} onDiscard={() => reqDiscard(null)}
+                         saving={saving} uploading={upl} flash={savedFlash}
+                         disabled={saveDisabled}/>
+        )}
+
+        {unBlocking && dirty && (
+          <div className="ep-username-block-notice" role="alert">
+            {cooldown && !cooldown.can_change && form.username !== orig?.username
+              ? `🔒 Username locked for ${cooldown.days_left} more day${cooldown.days_left !== 1 ? "s" : ""}`
+              : "⏳ Waiting for username check…"}
+          </div>
+        )}
 
         <div className="ep-body">
           <div id="tp-personal" role="tabpanel" aria-labelledby="t-personal" hidden={tab!=="personal"}>
@@ -824,10 +1357,11 @@ export default function EditProfile({ onProfileUpdate }) {
               uploading={upl}
               uploadProgress={uplPct}
               uploadPhase={uplPh}
-              onPickPhoto={f=>pickImg(f,"profile")}
+              onPickPhoto={f => pickImg(f, "profile")}
               onRemovePhoto={rmProfile}
-              onVerify={()=>nav("/verification")}
-              origUN={orig?.username||""}
+              onVerify={() => nav("/verification")}
+              origUN={orig?.username || ""}
+              cooldown={cooldown}
             />
           </div>
           <div id="tp-store" role="tabpanel" aria-labelledby="t-store" hidden={tab!=="store"}>
@@ -839,7 +1373,7 @@ export default function EditProfile({ onProfileUpdate }) {
               uploading={upl}
               uploadProgress={uplPct}
               uploadPhase={uplPh}
-              onPickLogo={f=>pickImg(f,"store")}
+              onPickLogo={f => pickImg(f, "store")}
               onRemoveLogo={rmStore}
             />
           </div>
@@ -848,9 +1382,15 @@ export default function EditProfile({ onProfileUpdate }) {
         <p className="ep-footer">Loemart Technologies Ltd · © {new Date().getFullYear()}</p>
       </div>
 
-      {cropSrc && <CropModal src={cropSrc} shape={cropTgt==="profile"?"circle":"square"} onConfirm={onCropOk} onCancel={()=>setCropSrc(null)}/>}
+      {cropSrc && (
+        <CropModal src={cropSrc} shape={cropTgt==="profile"?"circle":"square"}
+                   onConfirm={onCropOk} onCancel={() => setCropSrc(null)}/>
+      )}
       {showDiscard && <DiscardModal onConfirm={doDiscard} onCancel={cancelDiscard}/>}
-      {showRetry && <RetryModal target={failUp?.target} errorMsg={failUp?.errorMsg} previewUrl={failUp?.previewUrl} onRetry={retryUp} onCancel={cancelRetry}/>}
+      {showRetry && (
+        <RetryModal target={failUp?.target} errorMsg={failUp?.errorMsg}
+                    previewUrl={failUp?.previewUrl} onRetry={retryUp} onCancel={cancelRetry}/>
+      )}
       <ToastStack toasts={toasts} dismiss={dismiss}/>
     </>
   );
