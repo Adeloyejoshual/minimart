@@ -1002,7 +1002,22 @@ router.get("/products/:id/renew-info", authenticate, async (req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    DELETE /api/seller-dashboard/products/:id
-   Soft delete — stays in DB 30 days for scam investigation
+   ─────────────────────────────────────────────────────────────
+   Soft delete — stays in DB for scam investigation window.
+
+   ✅ v2: NO status restrictions
+     Previously blocked deletion of "active" listings and required
+     users to pause first. This was bad UX with no security benefit.
+     Deletion inherently deactivates the listing.
+
+     Now works on ANY status:
+       draft | active | active_limited | paused | pending_payment
+
+     Backend guarantees:
+       - Ownership check (seller_id must match)
+       - Auth required
+       - Soft delete (30-day recovery window)
+       - Flagged products get 365-day hold for investigation
 ═══════════════════════════════════════════════════════════════ */
 router.delete("/products/:id", authenticate, async (req, res) => {
   const { id } = req.params;
@@ -1027,12 +1042,8 @@ router.delete("/products/:id", authenticate, async (req, res) => {
       return res.status(400).json({ success: false, message: "Already deleted" });
     }
 
-    if (check[0].status === "active") {
-      return res.status(409).json({
-        success: false,
-        message: "Active listings must be paused before deleting.",
-      });
-    }
+    /* ✅ v2: NO status guard — delete works on any status
+       Removed: "Active listings must be paused before deleting" */
 
     /* Check for active reports — extend hold period */
     let holdDays = DELETE_HOLD_DAYS;
@@ -1063,7 +1074,10 @@ router.delete("/products/:id", authenticate, async (req, res) => {
     cacheDel(`stats:${userId}`);
     cacheDel(`overview:${userId}`);
 
-    console.log(`[dashboard/delete] id=${id} soft-deleted — hold ${holdDays} days`);
+    console.log(
+      `[dashboard/delete] id=${id} was="${check[0].status}" ` +
+      `→ soft-deleted (hold ${holdDays} days)`
+    );
 
     return res.json({
       success:   true,
