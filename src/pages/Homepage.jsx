@@ -40,7 +40,21 @@ const GPS_OPTS = {
 };
 
 /* ══════════════════════════════════════════════════════════
-   AUTH TOKEN — try every known storage key
+   SUBSCRIPTION PLANS THAT ARE CONSIDERED "PAID"
+   Add / remove plan names here to control verified status
+══════════════════════════════════════════════════════════ */
+const FREE_PLAN_NAMES = new Set(["free", "none", "", "basic"]);
+
+const isPaidSubscriber = (seller) => {
+  if (!seller) return false;
+  const rank   = Number(seller.subscriptionRank || seller.subscription_rank || 0);
+  const plan   = (seller.subscriptionPlan || seller.subscription_plan || "").toLowerCase().trim();
+  const status = (seller.subscriptionStatus || seller.subscription_status || "active").toLowerCase().trim();
+  return rank > 0 && !FREE_PLAN_NAMES.has(plan) && status === "active";
+};
+
+/* ══════════════════════════════════════════════════════════
+   AUTH TOKEN
 ══════════════════════════════════════════════════════════ */
 const getAuthToken = () => {
   const keys = [
@@ -55,71 +69,93 @@ const getAuthToken = () => {
 };
 
 /* ══════════════════════════════════════════════════════════
-   AUTHED FETCH — sends Bearer token + cookies
+   AUTHED FETCH
 ══════════════════════════════════════════════════════════ */
 const authedFetch = (url, opts = {}) => {
   const token   = getAuthToken();
   const headers = { ...(opts.headers || {}) };
   if (token) headers.Authorization = `Bearer ${token}`;
-  return fetch(url, {
-    ...opts,
-    headers,
-    credentials: "include",
-  });
+  return fetch(url, { ...opts, headers, credentials: "include" });
 };
 
 /* ══════════════════════════════════════════════════════════
    ICONS
 ══════════════════════════════════════════════════════════ */
-const Ico = ({ children, size = 18, fill = "none",
-               stroke = "currentColor", sw = 2, ...r }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24"
-       fill={fill} stroke={stroke} strokeWidth={sw}
-       strokeLinecap="round" strokeLinejoin="round"
-       aria-hidden="true" {...r}>
+const Ico = ({
+  children, size = 18, fill = "none",
+  stroke = "currentColor", sw = 2, ...r
+}) => (
+  <svg
+    width={size} height={size} viewBox="0 0 24 24"
+    fill={fill} stroke={stroke} strokeWidth={sw}
+    strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true" {...r}
+  >
     {children}
   </svg>
 );
 
-const TrendingIcon   = ({ size = 18 }) => <Ico size={size}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></Ico>;
-const DealsIcon      = ({ size = 18 }) => <Ico size={size}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></Ico>;
-const NewIcon        = ({ size = 18 }) => <Ico size={size}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></Ico>;
-const NearbyIcon     = ({ size = 18 }) => <Ico size={size}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></Ico>;
-const SearchIcon     = ({ size = 17 }) => <Ico size={size} sw={2.2}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></Ico>;
-const BellIcon       = ({ size = 22 }) => <Ico size={size}><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></Ico>;
-const CartIcon       = ({ size = 18 }) => <Ico size={size}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></Ico>;
-const PlusIcon       = ({ size = 18 }) => <Ico size={size} sw={2.5}><path d="M12 5v14M5 12h14"/></Ico>;
-const ChevRightIcon  = ({ size = 14 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></Ico>;
-const ChevDownIcon   = ({ size = 13 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></Ico>;
-const ChevUpIcon     = ({ size = 16 }) => <Ico size={size} sw={2.5}><path d="M18 15l-6-6-6 6"/></Ico>;
-const DiamondIcon    = ({ size = 14 }) => <Ico size={size}><path d="M6 3h12l4 6-10 13L2 9z"/><path d="M2 9h20"/><path d="M10 3l-4 6 6 13 6-13-4-6"/></Ico>;
-const FlashIcon      = ({ size = 14 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></Ico>;
-const TagIcon        = ({ size = 18 }) => <Ico size={size}><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></Ico>;
-const ZapIcon        = ({ size = 20 }) => <Ico size={size}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></Ico>;
-const BagIcon        = ({ size = 40 }) => <Ico size={size} sw={1.5}><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></Ico>;
-const GlobeIcon      = ({ size = 14 }) => <Ico size={size}><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></Ico>;
-const SponsoredIcon  = ({ size = 12 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></Ico>;
-const AlertIcon      = ({ size = 14 }) => <Ico size={size} sw={1.5}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" strokeWidth={2.5}/></Ico>;
+const TrendingIcon  = ({ size = 18 }) => <Ico size={size}><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></Ico>;
+const DealsIcon     = ({ size = 18 }) => <Ico size={size}><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></Ico>;
+const NewIcon       = ({ size = 18 }) => <Ico size={size}><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></Ico>;
+const NearbyIcon    = ({ size = 18 }) => <Ico size={size}><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0118 0z"/><circle cx="12" cy="10" r="3"/></Ico>;
+const SearchIcon    = ({ size = 17 }) => <Ico size={size} sw={2.2}><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></Ico>;
+const BellIcon      = ({ size = 22 }) => <Ico size={size}><path d="M18 8A6 6 0 006 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 01-3.46 0"/></Ico>;
+const CartIcon      = ({ size = 18 }) => <Ico size={size}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></Ico>;
+const PlusIcon      = ({ size = 18 }) => <Ico size={size} sw={2.5}><path d="M12 5v14M5 12h14"/></Ico>;
+const ChevRightIcon = ({ size = 14 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></Ico>;
+const ChevDownIcon  = ({ size = 13 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></Ico>;
+const ChevUpIcon    = ({ size = 16 }) => <Ico size={size} sw={2.5}><path d="M18 15l-6-6-6 6"/></Ico>;
+const DiamondIcon   = ({ size = 14 }) => <Ico size={size}><path d="M6 3h12l4 6-10 13L2 9z"/><path d="M2 9h20"/><path d="M10 3l-4 6 6 13 6-13-4-6"/></Ico>;
+const FlashIcon     = ({ size = 14 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></Ico>;
+const TagIcon       = ({ size = 18 }) => <Ico size={size}><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></Ico>;
+const ZapIcon       = ({ size = 20 }) => <Ico size={size}><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></Ico>;
+const BagIcon       = ({ size = 40 }) => <Ico size={size} sw={1.5}><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></Ico>;
+const GlobeIcon     = ({ size = 14 }) => <Ico size={size}><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></Ico>;
+const SponsoredIcon = ({ size = 12 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></Ico>;
+const AlertIcon     = ({ size = 14 }) => <Ico size={size} sw={1.5}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" strokeWidth={2.5}/></Ico>;
+const ShieldIcon    = ({ size = 11 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M12 1l9 4v5c0 5.25-3.75 10.15-9 11.35C6.75 20.15 3 15.25 3 10V5l9-4z"/></Ico>;
 
 /* ══════════════════════════════════════════════════════════
    SECTION CARDS CONFIG
 ══════════════════════════════════════════════════════════ */
 const SECTION_CARDS = [
-  { label:"Trending", sub:"Most popular", Icon:TrendingIcon, path:"/trending",
-    grad:"linear-gradient(135deg,#ff416c,#ff4b2b)", shadow:"rgba(255,65,108,.4)" },
-  { label:"Deals",    sub:"Under ₦50k",   Icon:DealsIcon,    path:"/deals",
-    grad:"linear-gradient(135deg,#11998e,#38ef7d)", shadow:"rgba(17,153,142,.4)" },
-  { label:"New",      sub:"Just listed",  Icon:NewIcon,      path:"/latest",
-    grad:"linear-gradient(135deg,#667eea,#764ba2)", shadow:"rgba(102,126,234,.4)" },
-  { label:"Near You", sub:"Closest first",Icon:NearbyIcon,   path:"/nearby",
-    grad:"linear-gradient(135deg,#f093fb,#f5576c)", shadow:"rgba(240,147,251,.4)" },
+  {
+    label: "Trending", sub: "Most popular", Icon: TrendingIcon, path: "/trending",
+    grad: "linear-gradient(135deg,#ff416c,#ff4b2b)", shadow: "rgba(255,65,108,.4)",
+  },
+  {
+    label: "Deals", sub: "Under ₦50k", Icon: DealsIcon, path: "/deals",
+    grad: "linear-gradient(135deg,#11998e,#38ef7d)", shadow: "rgba(17,153,142,.4)",
+  },
+  {
+    label: "New", sub: "Just listed", Icon: NewIcon, path: "/latest",
+    grad: "linear-gradient(135deg,#667eea,#764ba2)", shadow: "rgba(102,126,234,.4)",
+  },
+  {
+    label: "Near You", sub: "Closest first", Icon: NearbyIcon, path: "/nearby",
+    grad: "linear-gradient(135deg,#f093fb,#f5576c)", shadow: "rgba(240,147,251,.4)",
+  },
 ];
 
 /* ══════════════════════════════════════════════════════════
    DATA HELPERS
 ══════════════════════════════════════════════════════════ */
+
+/**
+ * normalizeProduct
+ *
+ * KEY RULE: seller.verified = true ONLY when the seller
+ * has an active paid subscription (rank > 0, plan ≠ free/none,
+ * status === "active").  Free / unsubscribed sellers get
+ * verified: false regardless of what the API sends.
+ */
 const normalizeProduct = (p) => {
   if (!p || typeof p !== "object" || !p.id) return null;
+
+  const rawSeller = p.seller || {};
+  const sellerVerified = isPaidSubscriber(rawSeller);
+
   return {
     ...p,
     price             : Number(p.price              || 0),
@@ -145,12 +181,15 @@ const normalizeProduct = (p) => {
       null,
     location_city : p.location?.city  || p.location_city  || null,
     location_state: p.location?.state || p.location_state || null,
+
+    /* ── Seller — verified flag is subscription-gated ── */
     seller: {
-      id              : p.seller?.id               || p.seller_id   || null,
-      name            : p.seller?.name             || p.seller_name || null,
-      verified        : !!p.seller?.verified,
-      subscriptionPlan: p.seller?.subscriptionPlan || null,
-      subscriptionRank: Number(p.seller?.subscriptionRank || 0),
+      id                : rawSeller.id               || p.seller_id   || null,
+      name              : rawSeller.name             || p.seller_name || null,
+      verified          : sellerVerified,               // ← subscription-gated
+      subscriptionPlan  : rawSeller.subscriptionPlan || rawSeller.subscription_plan  || null,
+      subscriptionRank  : Number(rawSeller.subscriptionRank || rawSeller.subscription_rank || 0),
+      subscriptionStatus: rawSeller.subscriptionStatus || rawSeller.subscription_status || null,
     },
   };
 };
@@ -183,16 +222,18 @@ const fmtCount = (n) => {
 ══════════════════════════════════════════════════════════ */
 const MasonrySkeleton = memo(() => (
   <div className="hm-masonry" aria-busy="true">
-    {[180,220,160,200,180,190,220,170,200,180].map((h, i) => (
-      <div key={i} className="hm-sk hm-shimmer"
-           style={{ height: h }} aria-hidden="true" />
+    {[180, 220, 160, 200, 180, 190, 220, 170, 200, 180].map((h, i) => (
+      <div
+        key={i} className="hm-sk hm-shimmer"
+        style={{ height: h }} aria-hidden="true"
+      />
     ))}
   </div>
 ));
 
 const FeaturedSkeleton = memo(() => (
   <div className="hm-feat-row" aria-busy="true">
-    {[1,2,3].map((i) => (
+    {[1, 2, 3].map((i) => (
       <div key={i} className="hm-sk hm-sk-feat hm-shimmer" aria-hidden="true" />
     ))}
   </div>
@@ -311,6 +352,25 @@ const SectionCards = memo(function SectionCards({ onNavigate }) {
 });
 
 /* ══════════════════════════════════════════════════════════
+   VERIFIED SELLER BADGE
+   Reusable — only renders when seller is a paid subscriber
+══════════════════════════════════════════════════════════ */
+const VerifiedBadge = memo(function VerifiedBadge({ seller }) {
+  if (!seller?.verified) return null;          // free / unsubscribed → nothing
+  const plan = seller.subscriptionPlan || "Verified";
+  return (
+    <span
+      className="hm-verified-badge"
+      title={`${plan} subscriber — Verified Seller`}
+      aria-label={`Verified seller — ${plan} plan`}
+    >
+      <ShieldIcon size={11} />
+      Verified Seller
+    </span>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════
    FEATURED CARD
 ══════════════════════════════════════════════════════════ */
 const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
@@ -338,7 +398,9 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
         />
         <div className="hm-feat-overlay" aria-hidden="true" />
       </div>
+
       <div className="hm-feat-body">
+        {/* ── Promotion badge + discount ── */}
         <div className="hm-feat-top">
           <span className={`hm-feat-tag hm-feat-tag--${badge}`}>
             {badge === "featured"
@@ -349,7 +411,10 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
           </span>
           {disc && <span className="hm-feat-disc">{disc}</span>}
         </div>
+
         <p className="hm-feat-title">{product.title}</p>
+
+        {/* ── Price + location ── */}
         <div className="hm-feat-bottom">
           <span className="hm-feat-price">{naira(product.price)}</span>
           {loc && (
@@ -358,11 +423,9 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
             </span>
           )}
         </div>
-        {product.seller?.subscriptionRank > 0 && (
-          <span className="hm-feat-seller-badge">
-            <SponsoredIcon size={10} /> {product.seller.subscriptionPlan}
-          </span>
-        )}
+
+        {/* ── Verified seller badge (paid subscribers only) ── */}
+        <VerifiedBadge seller={product.seller} />
       </div>
     </article>
   );
@@ -401,6 +464,8 @@ const DealCard = memo(function DealCard({ product, onClick }) {
       <div className="hm-deal-body">
         <p className="hm-deal-title">{product.title}</p>
         <span className="hm-deal-price">{naira(product.price)}</span>
+        {/* ── Verified badge on deal cards too ── */}
+        <VerifiedBadge seller={product.seller} />
       </div>
     </article>
   );
@@ -468,14 +533,14 @@ export default function Homepage({ user }) {
   const hiddenAtRef  = useRef(null);
   const gpsAttempted = useRef(false);
 
-  /* ── Auto-dismiss fallback banner after 6s ──────────── */
+  /* ── Auto-dismiss fallback banner after 6s ── */
   useEffect(() => {
     if (!fallbackInfo) return;
     const t = setTimeout(() => setFallbackInfo(null), 6_000);
     return () => clearTimeout(t);
   }, [fallbackInfo]);
 
-  /* ── Silent GPS on first load ────────────────────────── */
+  /* ── Silent GPS on first load ── */
   useEffect(() => {
     if (savedLocation?.source === "manual") return;
     if (gpsAttempted.current || gpsCoords)  return;
@@ -488,7 +553,7 @@ export default function Homepage({ user }) {
         setGpsCoords(result);
       },
       () => {},
-      GPS_OPTS
+      GPS_OPTS,
     );
   }, [savedLocation, gpsCoords]);
 
@@ -512,7 +577,9 @@ export default function Homepage({ user }) {
 
   /* ══════════════════════════════════════════════════════
      PROCESS API DATA
-     KEY CHANGE: reads meta.unread_notifications and sets badge
+     normalizeProduct gates seller.verified on subscription,
+     so every card downstream automatically shows / hides
+     the verified badge based on paid status.
   ══════════════════════════════════════════════════════ */
   const applyData = useCallback((data, append = false) => {
     const raw        = Array.isArray(data.products) ? data.products : [];
@@ -525,11 +592,13 @@ export default function Homepage({ user }) {
 
     try { setCachedProducts(merged); setCacheLoaded(true); } catch {}
 
+    /* Featured: prefer API-supplied list, fall back to promoted items */
     const incomingFeat = Array.isArray(data.featured) ? data.featured : [];
     const feat = incomingFeat.length > 0
       ? incomingFeat.map(normalizeProduct).filter(Boolean)
       : merged.filter((p) => p.is_promoted).slice(0, 4);
 
+    /* Deals: non-promoted items with a price reduction */
     const cheap = merged
       .filter((p) => {
         const orig = Number(p.attributes?.original_price || 0);
@@ -542,11 +611,9 @@ export default function Homepage({ user }) {
     setProducts(merged.filter((p) => !p.is_promoted));
     setMeta(data.meta || {});
     setTotal(data.meta?.total ?? merged.length);
-    setHasMore(
-      data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE
-    );
+    setHasMore(data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE);
 
-    /* ✅ Read notification count from homepage response */
+    /* Notification count from homepage meta */
     if (typeof data.meta?.unread_notifications === "number") {
       setUnreadCount(data.meta.unread_notifications);
     }
@@ -603,10 +670,12 @@ export default function Homepage({ user }) {
   /* ══════════════════════════════════════════════════════
      EFFECTS
   ══════════════════════════════════════════════════════ */
+  /* Initial load */
   useEffect(() => {
     loadFeed("all");
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* Reload when location changes */
   const locationKey = savedLocation
     ? `${savedLocation.state ?? ""}-${savedLocation.city ?? ""}-${savedLocation.savedAt ?? ""}`
     : "showAll";
@@ -617,12 +686,14 @@ export default function Homepage({ user }) {
     loadFeed(category);
   }, [locationKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* External location change events */
   useEffect(() => {
     const h = () => loadFeed(category);
     window.addEventListener("locationChanged", h);
     return () => window.removeEventListener("locationChanged", h);
   }, [category, loadFeed]);
 
+  /* Refresh stale feed on tab focus */
   useEffect(() => {
     const onVis = () => {
       if (document.visibilityState === "hidden") {
@@ -636,19 +707,20 @@ export default function Homepage({ user }) {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loading, category, loadFeed]);
 
+  /* Infinite scroll sentinel */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
     const io = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting) loadMore(); },
-      { threshold: 0.1 }
+      { threshold: 0.1 },
     );
     io.observe(el);
     return () => io.disconnect();
   }, [hasMore, loadingMore, loadMore]);
 
   /* ══════════════════════════════════════════════════════
-     LOCATION PICKER
+     LOCATION PICKER HANDLER
   ══════════════════════════════════════════════════════ */
   const handleLocationSelect = useCallback((loc, pickMeta) => {
     if (pickMeta?.wasFallback) {
@@ -728,7 +800,7 @@ export default function Homepage({ user }) {
               </p>
             </div>
 
-            {/* ── Bell with unread badge (data comes from /homepage meta) ── */}
+            {/* Bell with unread badge */}
             <button
               className="hm-notif-btn"
               aria-label={
@@ -764,12 +836,12 @@ export default function Homepage({ user }) {
           {/* Stats row */}
           <div className="hm-hero-stats" aria-label="Marketplace stats">
             {loading ? (
-              [1,2,3].map((i) => (
+              [1, 2, 3].map((i) => (
                 <div key={i} className="hm-hero-stat">
                   <div className="hm-sk hm-shimmer"
-                       style={{ width:48, height:22, borderRadius:6 }} />
+                       style={{ width: 48, height: 22, borderRadius: 6 }} />
                   <div className="hm-sk hm-shimmer"
-                       style={{ width:56, height:12, borderRadius:4, marginTop:4 }} />
+                       style={{ width: 56, height: 12, borderRadius: 4, marginTop: 4 }} />
                 </div>
               ))
             ) : (
@@ -951,6 +1023,11 @@ export default function Homepage({ user }) {
             </div>
           ) : (
             <>
+              {/*
+                MasonryCard receives product.seller.verified which is
+                already subscription-gated by normalizeProduct.
+                No extra prop needed — MasonryCard just reads seller.verified.
+              */}
               <div className="hm-masonry" role="list">
                 {products.map((p, i) => p && (
                   <div key={p.id} role="listitem">
