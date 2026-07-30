@@ -3,13 +3,14 @@
  * Route: /minimart/add
  *       /minimart/add?edit=:productId  ← EDIT MODE
  *
- * v7 — INLINE FIELD ERRORS
+ * v8 — WATERMARK ERROR CLEANUP
  * ─────────────────────────────────────────────────────────────
- *  - Errors show under each field (not just top banner)
- *  - Auto-clear when user starts editing that field
- *  - Top banner only for non-field errors (network, server)
- *  - Same UX as desktop shell
+ *  - Watermark errors no longer duplicated as inline field error
+ *  - WatermarkWarningBanner is the sole display for these errors
+ *  - Scrolls to top banner (not image section) on watermark failure
+ *  - All other error handling unchanged
  *
+ * v7 — INLINE FIELD ERRORS
  * v6 — VERIFY BEFORE PAY
  * v5 — EMAIL FROM REGISTRATION
  * v4 — 3-TIER SUBSCRIPTION SUPPORT
@@ -76,8 +77,7 @@ const ERROR_SELECTOR_MAP = [
 ];
 
 /* ═══════════════════════════════════════════════════════════════
-   ✅ v7: ERROR → FIELD KEY MAPPING
-   Sections read `fieldError.field` to show inline errors.
+   ERROR → FIELD KEY MAPPING (v7 — inline errors)
 ═══════════════════════════════════════════════════════════════ */
 const ERROR_FIELD_MAP = [
   { match: "Title",          field: "title"          },
@@ -247,6 +247,27 @@ const scrollToError = (msg) => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   ✅ v8: SCROLL TO TOP OF PAGE (used for watermark banners)
+   Scrolls smoothly to the top so user sees the WatermarkWarningBanner.
+═══════════════════════════════════════════════════════════════ */
+const scrollToTop = () => {
+  requestAnimationFrame(() => {
+    try {
+      /* Try the watermark banner first — if it renders, scroll to it */
+      const banner = document.querySelector(".wm-banner");
+      if (banner) {
+        banner.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      /* Fallback — scroll window to top */
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch {
+      window.scrollTo(0, 0);
+    }
+  });
+};
+
+/* ═══════════════════════════════════════════════════════════════
    VERIFY BEFORE PAY MODAL
 ═══════════════════════════════════════════════════════════════ */
 function VerifyBeforePayModal({ onVerify, onCancel, onFreePlan }) {
@@ -395,7 +416,7 @@ export default function AddProduct({ user }) {
 
   const [showVerifyBeforePay, setShowVerifyBeforePay] = useState(false);
 
-  /* ─── ✅ v7: Field-level error state ─── */
+  /* ─── Field-level error state (v7) ─── */
   const [fieldError, setFieldError] = useState({ field: null, message: "" });
 
   /* ─── Field error helpers ─── */
@@ -411,12 +432,12 @@ export default function AddProduct({ user }) {
     setFieldError({ field: null, message: "" });
   }, []);
 
-  /* ─── Feedback (now also sets field error) ─── */
+  /* ─── Feedback (also sets field error) ─── */
   const showError = useCallback((msg) => {
     if (!mountedRef.current) return;
     setError(msg);
 
-    /* ✅ Also set field-level error if we can map it */
+    /* Also set field-level error if we can map it */
     const field = getFieldFromMessage(msg);
     if (field) {
       setFieldError({ field, message: msg });
@@ -467,7 +488,7 @@ export default function AddProduct({ user }) {
   }, []);
 
   /* ═══════════════════════════════════════════════════════════
-     ✅ v7: WRAPPED UPDATERS — auto-clear field errors on edit
+     WRAPPED UPDATERS — auto-clear field errors on edit (v7)
   ═══════════════════════════════════════════════════════════ */
   const updateFormWithClear = useCallback((key, value) => {
     updateForm(key, value);
@@ -1382,6 +1403,12 @@ export default function AddProduct({ user }) {
       console.error("[AddProduct] create submit:", err);
       if (mountedRef.current) setProgressVisible(false);
 
+      /* ═══════════════════════════════════════════════════════
+         ✅ v8: WATERMARK POLICY ERROR
+         The WatermarkWarningBanner is the sole display for these.
+         No showError() call — avoids duplicate error banner.
+         Scroll to top so user sees the WatermarkWarningBanner.
+      ═══════════════════════════════════════════════════════ */
       if (err?.status === 400 && err?.data?.reason === "watermark_policy") {
         const blockedIndexes = Array.isArray(err.data?.blocked_images)
           ? err.data.blocked_images
@@ -1400,15 +1427,8 @@ export default function AddProduct({ user }) {
         setWatermarkNotice(
           "Please replace the flagged photo(s) with original images and try again."
         );
-        requestAnimationFrame(() => {
-          document
-            .querySelector(".wm-banner")
-            ?.scrollIntoView({ behavior: "smooth", block: "center" });
-        });
-        showError(
-          err.message ??
-          "One or more photos were rejected. Please replace them and try again."
-        );
+        /* Scroll up to the WatermarkWarningBanner so user sees it */
+        scrollToTop();
 
       } else if (
         err?.status === 403 &&
@@ -1662,7 +1682,7 @@ export default function AddProduct({ user }) {
         watermarkWarnings={watermarkWarnings}
         watermarkNotice={watermarkNotice}
 
-        /* ─ ✅ v7: inline field errors ─ */
+        /* ─ inline field errors (v7) ─ */
         fieldError={fieldError}
         clearFieldError={clearFieldError}
         clearAllFieldErrors={clearAllFieldErrors}
