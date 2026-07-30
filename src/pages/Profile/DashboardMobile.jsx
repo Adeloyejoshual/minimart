@@ -61,7 +61,6 @@ class SectionErrorBoundary extends Component {
             fontFamily   : "monospace",
           }}
         >
-          {/* Title */}
           <div
             style={{
               display    : "flex",
@@ -85,7 +84,6 @@ class SectionErrorBoundary extends Component {
             </strong>
           </div>
 
-          {/* Error message */}
           <div
             style={{
               background   : "#fef2f2",
@@ -119,7 +117,6 @@ class SectionErrorBoundary extends Component {
             </pre>
           </div>
 
-          {/* Stack trace */}
           {error?.stack && (
             <details style={{ marginBottom: "10px" }}>
               <summary
@@ -151,7 +148,6 @@ class SectionErrorBoundary extends Component {
             </details>
           )}
 
-          {/* Component stack */}
           {info?.componentStack && (
             <details style={{ marginBottom: "14px" }}>
               <summary
@@ -183,7 +179,6 @@ class SectionErrorBoundary extends Component {
             </details>
           )}
 
-          {/* Actions */}
           <div style={{ display: "flex", gap: "8px" }}>
             <button
               style={{
@@ -463,20 +458,53 @@ function useDashboard(showToast, userEmail, navigate) {
     fetchProducts(tab, nextCursor, search);
   }, [hasMore, loadingMore, nextCursor, tab, search, fetchProducts]);
 
+  /* ═══════════════════════════════════════════════════════════
+     DELETE
+     ✅ v2: Auto-pause active products before delete
+            Backend requires pausing before delete for active listings.
+  ═══════════════════════════════════════════════════════════ */
   const deleteProduct = useCallback(
     async (product) => {
       setDeleting(product.id);
+
+      /* Optimistic UI — remove immediately */
       setProducts((prev) => prev.filter((p) => p.id !== product.id));
+
       try {
+        /* ✅ Step 1: If active, pause it first */
+        const isActive =
+          product.is_active === true || product.status === "active";
+
+        if (isActive) {
+          try {
+            await fetch(
+              `${API}/seller-dashboard/products/${product.id}/toggle`,
+              { method: "PATCH", headers: authH() }
+            );
+          } catch {
+            /* Non-fatal — continue to delete anyway */
+            console.warn(
+              "[dashboard] auto-pause failed, attempting delete anyway"
+            );
+          }
+        }
+
+        /* ✅ Step 2: Delete */
         const res = await fetch(
           `${API}/seller-dashboard/products/${product.id}`,
           { method: "DELETE", headers: authH() }
         );
         const d = await res.json();
+
         if (res.ok && d.success) {
           fetchStats();
-          showToast(`Deleted — recoverable for ${d.hold_days ?? 30} days`, "info", 5000);
+          showToast(
+            `Deleted — recoverable for ${d.hold_days ?? 30} days`,
+            "info",
+            5000
+          );
         } else {
+          /* Rollback optimistic UI on failure */
           setProducts((prev) => [product, ...prev]);
           showToast(d.message || "Could not delete.", "error");
         }
@@ -854,11 +882,22 @@ export default function Dashboard({ user }) {
 
   const db = useDashboard(showToast, user?.email, navigate);
 
-  /* ── delete flow ── */
+  /* ═══════════════════════════════════════════════════════════
+     DELETE FLOW
+     ✅ v2: Better warning if product is active
+  ═══════════════════════════════════════════════════════════ */
   const handleDeleteRequest = useCallback(
     (product) => {
       db.pendingDelete.current = product;
-      setConfirm({ message: `Delete "${product.title}"? This cannot be undone.` });
+
+      const isActive =
+        product.is_active === true || product.status === "active";
+
+      const message = isActive
+        ? `"${product.title}" is currently live. Deleting will remove it from the marketplace immediately.\n\nRecoverable for 30 days.`
+        : `Delete "${product.title}"?\n\nRecoverable for 30 days.`;
+
+      setConfirm({ message });
     },
     [db.pendingDelete]
   );
