@@ -2,6 +2,13 @@
  * src/pages/product/components.jsx
  * Main shell — imports all sub-components, owns page-level logic only
  *
+ * v8 — IMAGE UPLOAD ALWAYS VISIBLE
+ *   • Fixed: Upload area disappeared after image validation error
+ *   • Fixed: Upload area disappeared after user cancelled gallery
+ *   • Added fallback <label> upload button that always renders
+ *     when images.length === 0 && canAddMore
+ *   • Section 4 no longer conditionally hides upload UI on error
+ *
  * v7 — INLINE FIELD ERRORS
  *   • Accepts fieldError from parent
  *   • Shows errors under each field (not just top banner)
@@ -87,7 +94,7 @@ async function hashImageFile(file) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   ✅ v7: INLINE FIELD ERROR COMPONENT
+   INLINE FIELD ERROR COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 function InlineFieldError({ show, message, id }) {
   if (!show || !message) return null;
@@ -95,6 +102,59 @@ function InlineFieldError({ show, message, id }) {
     <div id={id} className="field-error" role="alert" aria-live="polite">
       <WarningIcon />
       <span>{message}</span>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   ✅ v8: FALLBACK IMAGE UPLOAD BUTTON
+   Always visible when user has zero new images and can add more.
+   Guarantees the upload UI is never hidden by error states or
+   gallery cancellations.
+═══════════════════════════════════════════════════════════════ */
+function FallbackImageUpload({ onAdd, maxImages, hasError }) {
+  const inputRef = useRef(null);
+
+  const handleClick = useCallback((e) => {
+    // If click landed on the hidden <input>, let it bubble normally.
+    if (e.target.tagName === "INPUT") return;
+    inputRef.current?.click();
+  }, []);
+
+  const handleChange = useCallback((e) => {
+    const files = e.target.files;
+    if (files?.length) onAdd(files);
+    // Reset so the SAME file can be picked again after error
+    e.target.value = "";
+  }, [onAdd]);
+
+  return (
+    <div
+      className={`ap-image-fallback${hasError ? " ap-image-fallback--error" : ""}`}
+      onClick={handleClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          inputRef.current?.click();
+        }
+      }}
+      aria-label="Tap to add product photos"
+    >
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        multiple
+        style={{ display: "none" }}
+        onChange={handleChange}
+      />
+      <div className="ap-image-fallback-icon" aria-hidden="true">📷</div>
+      <strong className="ap-image-fallback-title">Tap to add photos</strong>
+      <small className="ap-image-fallback-hint">
+        Up to {maxImages} images · JPEG, PNG, or WebP · max 5&nbsp;MB each
+      </small>
     </div>
   );
 }
@@ -161,7 +221,7 @@ export default function ProductComponents({
   needsSubscription = false,
   subscriptionData  = null,
 
-  /* ─ ✅ v7: inline field errors ─ */
+  /* ─ inline field errors (v7) ─ */
   fieldError        = { field: null, message: "" },
   clearFieldError,
   clearAllFieldErrors,
@@ -225,7 +285,7 @@ export default function ProductComponents({
 
   const planRefs = useRef([]);
 
-  /* ✅ v7: Helper for field error checks */
+  /* Helper for field error checks */
   const hasError = useCallback(
     (fieldKey) => fieldError?.field === fieldKey,
     [fieldError?.field]
@@ -264,7 +324,7 @@ export default function ProductComponents({
     if (needsSubscription) setShowSubscriptionModal(true);
   }, [needsSubscription, isEditMode]);
 
-  /* ✅ v7: Auto-clear "images" field error when user adds an image */
+  /* Auto-clear "images" field error when user adds an image */
   useEffect(() => {
     if (totalImageCount > 0 && hasError("images")) {
       clearFieldError?.("images");
@@ -636,6 +696,14 @@ export default function ProductComponents({
   const canAddMore     = totalImageCount < MAX_IMAGES;
   const hasImageErrors = Object.keys(imageErrors).length > 0;
 
+  /* ✅ v8: Decide when to show fallback upload button
+     Show it whenever user has ZERO new images but slots remain.
+     This guarantees a visible upload target even after:
+       - gallery cancellation
+       - image validation failure
+       - server error clearing images */
+  const showFallbackUpload = images.length === 0 && canAddMore;
+
   const basicFilled   = !!(
     form.title?.trim() && form.description?.trim() && form.price
   );
@@ -653,8 +721,6 @@ export default function ProductComponents({
     (!isEditMode && plansLoading) ||
     !!deliveryRangeError          ||
     hasImageErrors;
-  /* Note: we intentionally DO NOT block on !agreedToTerms.
-     Let click go through → validator runs → inline error shows. */
 
   const submitTitle = plansLoading && !isEditMode
     ? "Plans are still loading"
@@ -673,8 +739,7 @@ export default function ProductComponents({
     return "Post Ad & Pay";
   })();
 
-  /* ✅ v7: Hide top banner if the error is a field error
-     (it's already shown inline under the field) */
+  /* Hide top banner if the error is a field error (shown inline instead) */
   const showTopErrorBanner = !!error && !fieldError?.field;
 
   /* ═══════════════════════════════════════════════════════════
@@ -765,7 +830,6 @@ export default function ProductComponents({
         </div>
       )}
 
-      {/* ✅ v7: Only show top error banner if NOT a field error */}
       {showTopErrorBanner && (
         <div className="form-error ap-error-banner" role="alert">
           <WarningIcon /> {error}
@@ -1194,7 +1258,6 @@ export default function ProductComponents({
           )}
         </div>
 
-        {/* Single location error below the row */}
         <InlineFieldError
           show={hasError("location")}
           message={fieldError.message}
@@ -1228,7 +1291,6 @@ export default function ProductComponents({
         {form.delivery.available && (
           <div className="delivery-grid">
             <div className="form-row">
-              {/* FROM DAY */}
               <div className={`form-group ${hasError("delivery_from") ? "has-error" : ""}`}>
                 <label htmlFor="ap-del-from">From Day *</label>
                 <input
@@ -1248,7 +1310,6 @@ export default function ProductComponents({
                 />
               </div>
 
-              {/* TO DAY */}
               <div className={`form-group ${hasError("delivery_to") ? "has-error" : ""}`}>
                 <label htmlFor="ap-del-to">To Day *</label>
                 <input
@@ -1269,13 +1330,11 @@ export default function ProductComponents({
               </div>
             </div>
 
-            {/* Local range mismatch error */}
             {deliveryRangeError && (
               <InlineFieldError show={true} message={deliveryRangeError} />
             )}
 
             <div className="form-row">
-              {/* FEE */}
               <div className={`form-group ${hasError("delivery_fee") ? "has-error" : ""}`}>
                 <label htmlFor="ap-del-fee">Fee (&#8358;) *</label>
                 <input
@@ -1320,6 +1379,8 @@ export default function ProductComponents({
 
       {/* ════════════════════════════════════════════════════
           SECTION 4 — PRODUCT IMAGES
+          ✅ v8: Upload UI ALWAYS visible when user can add more.
+                 No conditional wrappers around ImageGrid/fallback.
       ════════════════════════════════════════════════════ */}
       <section
         ref={sec4}
@@ -1368,14 +1429,28 @@ export default function ProductComponents({
           </div>
         )}
 
-        {isEditMode && (
+        {/* Existing images (edit mode only) */}
+        {isEditMode && existingImages.length > 0 && (
           <ExistingImageGrid
             existingImages={existingImages}
             onRemove={removeExistingImage}
           />
         )}
 
-        {(images.length > 0 || canAddMore) && (
+        {/* ✅ v8: FALLBACK UPLOAD — always shows when 0 new images + slots remain
+                  This is what the user sees after cancelling gallery or on error. */}
+        {showFallbackUpload && (
+          <FallbackImageUpload
+            onAdd={handleImages}
+            maxImages={MAX_IMAGES}
+            hasError={hasError("images") || hasImageErrors}
+          />
+        )}
+
+        {/* ✅ v8: ImageGrid only renders when there ARE new images.
+                  When empty, the FallbackImageUpload above handles the UX.
+                  This avoids relying on ImageGrid's internal empty-state logic. */}
+        {images.length > 0 && (
           <ImageGrid
             images={images}
             imageErrors={imageErrors}
@@ -1527,7 +1602,6 @@ export default function ProductComponents({
       {/* ── TERMS CHECKBOX ── */}
       {!isEditMode && TermsCheckbox}
 
-      {/* ✅ v7: Inline error under TermsCheckbox */}
       {!isEditMode && hasError("terms") && (
         <div style={{ padding: "0 16px" }}>
           <InlineFieldError show={true} message={fieldError.message} />
