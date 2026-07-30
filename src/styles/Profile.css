@@ -1,49 +1,49 @@
-/* ═══════════════════════════════════════════════════════════════
-   MOBILE PROFILE CSS — Loemart Design System
-   Uses project tokens from :root
-═══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   FILE: src/styles/Profile.css
+   Mobile Profile — Loemart Design System
+   Depends on tokens.css (:root variables)
+════════════════════════════════════════════════════════════ */
 
 /* ───────────────────────────────────────────────
-   0. ROOT / BODY OVERSCROLL LOCK
-   Fixes: scrolling to top triggers native browser
-   pull-to-refresh / full page reload on some browsers
-   (older iOS Safari, some Android WebViews).
-   .mp-scroll's own overscroll-behavior isn't enough
-   because the gesture can fall through to html/body.
-─────────────────────────────────────────────── */
-html, body {
-  height: 100%;
-  overflow: hidden;           /* body itself must never scroll */
-  overscroll-behavior-y: none;
-  overscroll-behavior-x: none;
-  overscroll-behavior: none;  /* shorthand fallback for older browsers */
-}
-
-/* ───────────────────────────────────────────────
-   1. TOKEN EXTENSIONS (mobile-specific aliases)
+   1. TOKEN EXTENSIONS  (mobile-specific aliases)
 ─────────────────────────────────────────────── */
 :root {
-  --mp-bg:         var(--bg);
-  --mp-surface:    var(--wh);
-  --mp-border:     var(--bd);
-  --mp-border-2:   var(--bd2);
-  --mp-text:       var(--ink);
-  --mp-text-2:     var(--ink2);
-  --mp-text-3:     var(--ink3);
-  --mp-accent:     var(--o);
-  --mp-accent-2:   var(--o2);
-  --mp-accent-bg:  var(--o-bg);
-  --mp-green:      var(--gn);
-  --mp-green-bg:   var(--gn2);
-  --mp-red:        #dc2626;
-  --mp-gold:       #d97706;
-  --mp-nav-h:      64px;
-  --mp-safe-t:     env(safe-area-inset-top,  0px);
-  --mp-safe-b:     env(safe-area-inset-bottom, 0px);
+  --mp-bg          : var(--bg);
+  --mp-surface     : var(--wh);
+  --mp-border      : var(--bd);
+  --mp-border-2    : var(--bd2);
+  --mp-text        : var(--ink);
+  --mp-text-2      : var(--ink2);
+  --mp-text-3      : var(--ink3);
+  --mp-accent      : var(--o);
+  --mp-accent-2    : var(--o2);
+  --mp-accent-bg   : var(--o-bg);
+  --mp-green       : var(--gn);
+  --mp-green-bg    : var(--gn2);
+  --mp-red         : #dc2626;
+  --mp-gold        : #d97706;
+  --mp-nav-h       : 64px;
+  --mp-safe-t      : env(safe-area-inset-top,    0px);
+  --mp-safe-b      : env(safe-area-inset-bottom, 0px);
 }
 
 /* ───────────────────────────────────────────────
-   2. KEYFRAMES
+   2. OVERSCROLL LOCK
+   Prevents scroll-to-top from triggering the
+   browser's native pull-to-refresh / page reload
+   on iOS Safari, Chrome Android, and some WebViews.
+   We lock the html/body and let only .mp-scroll
+   scroll, which has its own overscroll-behavior.
+─────────────────────────────────────────────── */
+html,
+body {
+  height              : 100%;
+  overflow            : hidden;
+  overscroll-behavior : none;
+}
+
+/* ───────────────────────────────────────────────
+   3. KEYFRAMES
 ─────────────────────────────────────────────── */
 @keyframes mp-spin {
   to { transform: rotate(360deg); }
@@ -59,7 +59,7 @@ html, body {
 }
 
 @keyframes mp-pulse-dot {
-  0%, 100% { opacity: 1;   transform: scale(1);    }
+  0%, 100% { opacity: 1;    transform: scale(1);    }
   50%       { opacity: 0.4; transform: scale(0.75); }
 }
 
@@ -70,606 +70,689 @@ html, body {
 }
 
 @keyframes mp-orb-drift {
-  0%, 100% { transform: translate(0,    0)   scale(1);    }
-  33%       { transform: translate(12px,-16px) scale(1.1); }
-  66%       { transform: translate(-8px, 10px) scale(0.92);}
+  0%, 100% { transform: translate(0,     0)    scale(1);    }
+  33%       { transform: translate(12px, -16px) scale(1.1);  }
+  66%       { transform: translate(-8px,  10px) scale(0.92); }
 }
 
 /* ───────────────────────────────────────────────
-   3. SHIMMER UTILITY
+   4. SHIMMER UTILITY
 ─────────────────────────────────────────────── */
 .mp-shimmer {
-  background: linear-gradient(
+  background      : linear-gradient(
     90deg,
     var(--bd)  25%,
     var(--bd2) 50%,
     var(--bd)  75%
   );
-  background-size: 200% 100%;
-  animation: mp-shimmer 1.7s ease infinite;
+  background-size : 200% 100%;
+  animation       : mp-shimmer 1.7s ease infinite;
 }
 
 /* ───────────────────────────────────────────────
-   4. PAGE SCAFFOLD
+   5. PAGE SCAFFOLD
 ─────────────────────────────────────────────── */
 .mp-root {
-  position: relative;
-  min-height: 100dvh;
-  background: var(--bg);
-  color: var(--ink);
-  overflow: hidden;
+  position              : relative;
+  display               : flex;
+  flex-direction        : column;
+  height                : 100dvh;
+  background            : var(--bg);
+  color                 : var(--ink);
+  overflow              : hidden;
   -webkit-font-smoothing: antialiased;
 }
 
 /* ── Sticky top bar ── */
 .mp-top-bar {
-  position: sticky;
-  top: 0;
-  z-index: 120;
-  padding-top: var(--mp-safe-t);
-  background: rgba(247, 244, 239, 0.92);
-  backdrop-filter: blur(16px);
+  position              : sticky;
+  top                   : 0;
+  z-index               : 120;
+  flex-shrink           : 0;
+  padding-top           : var(--mp-safe-t);
+  background            : rgba(247, 244, 239, 0.92);
+  backdrop-filter       : blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--bd);
+  border-bottom         : 1px solid var(--bd);
+}
+
+[data-theme="dark"] .mp-top-bar {
+  background: rgba(14, 13, 12, 0.92);
 }
 
 /* ── Scroll container ── */
 .mp-scroll {
-  height: 100dvh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  overscroll-behavior-y: contain;   /* stop bounce from reaching parent */
-  overscroll-behavior: contain;     /* shorthand fallback */
-  touch-action: pan-y;              /* helps some Android browsers respect the above */
+  flex                     : 1;
+  height                   : 0;          /* forces flex child to respect parent height */
+  overflow-y               : auto;
+  overflow-x               : hidden;
+  overscroll-behavior-y    : contain;    /* stop bounce from reaching html/body */
+  overscroll-behavior      : contain;    /* shorthand for older browsers */
+  touch-action             : pan-y;      /* let Android respect overscroll-behavior */
   -webkit-overflow-scrolling: touch;
-  padding: 0 16px;
-  padding-bottom: calc(var(--mp-nav-h) + var(--mp-safe-b) + 24px);
-  max-width: 540px;
-  margin: 0 auto;
-  scrollbar-width: none;
+  padding                  : 0 16px;
+  padding-bottom           : calc(var(--mp-nav-h) + var(--mp-safe-b) + 24px);
+  max-width                : 540px;
+  width                    : 100%;
+  margin                   : 0 auto;
+  scrollbar-width          : none;
 }
 .mp-scroll::-webkit-scrollbar { display: none; }
 
 /* ───────────────────────────────────────────────
-   5. PULL TO REFRESH
+   6. PULL TO REFRESH INDICATOR
 ─────────────────────────────────────────────── */
 .mp-ptr {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  overflow        : hidden;
+  flex-shrink     : 0;
+  max-width       : 540px;
+  width           : 100%;
+  margin          : 0 auto;
 }
 
 .mp-ptr__inner {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width           : 32px;
+  height          : 32px;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
 }
 
 .mp-ptr__spinner {
-  width: 22px;
-  height: 22px;
-  border: 2.5px solid var(--bd2);
+  width          : 22px;
+  height         : 22px;
+  border         : 2.5px solid var(--bd2);
   border-top-color: var(--o);
-  border-radius: 50%;
-  animation: mp-spin 0.7s linear infinite;
+  border-radius  : 50%;
+  animation      : mp-spin 0.7s linear infinite;
 }
 
 /* ───────────────────────────────────────────────
-   6. HERO SECTION
+   7. SKELETON LOADER
 ─────────────────────────────────────────────── */
-.mp-hero {
-  position: relative;
-  margin-top: 14px;
-  padding: 28px 20px 24px;
-  background: var(--wh);
-  border: 1px solid var(--bd);
-  border-radius: var(--r3);
-  overflow: hidden;
-  box-shadow: var(--s1);
+.mp-skeleton-wrap {
+  padding-top : 14px;
 }
 
+.mp-sk-hero {
+  height        : 320px;
+  border-radius : var(--r3);
+  margin-bottom : 16px;
+}
+
+.mp-sk-strip {
+  display : flex;
+  gap     : 10px;
+  margin-bottom: 20px;
+}
+
+.mp-sk-pill {
+  height        : 36px;
+  flex          : 1;
+  border-radius : var(--r2);
+}
+
+.mp-sk-section {
+  display        : flex;
+  flex-direction : column;
+  gap            : 10px;
+}
+
+.mp-sk-row {
+  height        : 18px;
+  border-radius : var(--r1);
+  width         : 100%;
+}
+
+/* listing skeleton */
+.mp-skeletons {
+  display    : flex;
+  gap        : 12px;
+  margin-top : 22px;
+  overflow   : hidden;
+}
+
+.mp-sk-card {
+  flex          : 0 0 158px;
+  border-radius : var(--r2);
+  overflow      : hidden;
+  background    : var(--wh);
+  border        : 1px solid var(--bd);
+}
+
+.mp-sk-img {
+  width        : 100%;
+  aspect-ratio : 1;
+}
+
+.mp-sk-body {
+  padding        : 10px;
+  display        : flex;
+  flex-direction : column;
+  gap            : 6px;
+}
+
+.mp-sk-line {
+  height        : 11px;
+  border-radius : 6px;
+}
+
+/* ───────────────────────────────────────────────
+   8. HERO SECTION
+─────────────────────────────────────────────── */
+.mp-hero {
+  position      : relative;
+  margin-top    : 14px;
+  padding       : 28px 20px 24px;
+  background    : var(--wh);
+  border        : 1px solid var(--bd);
+  border-radius : var(--r3);
+  overflow      : hidden;
+  box-shadow    : var(--s1);
+}
+
+/* Background decoration */
 .mp-hero__bg {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  overflow: hidden;
-  border-radius: inherit;
+  position       : absolute;
+  inset          : 0;
+  pointer-events : none;
+  overflow       : hidden;
+  border-radius  : inherit;
 }
 
 .mp-hero__mesh {
-  position: absolute;
-  inset: 0;
-  background:
+  position   : absolute;
+  inset      : 0;
+  background :
     repeating-linear-gradient(
       0deg,
       transparent,
       transparent 39px,
-      rgba(255,92,0,0.025) 40px
+      rgba(255, 92, 0, 0.025) 40px
     ),
     repeating-linear-gradient(
       90deg,
       transparent,
       transparent 39px,
-      rgba(255,92,0,0.025) 40px
+      rgba(255, 92, 0, 0.025) 40px
     );
 }
 
 .mp-orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(52px);
-  pointer-events: none;
-  will-change: transform;
+  position       : absolute;
+  border-radius  : 50%;
+  filter         : blur(52px);
+  pointer-events : none;
+  will-change    : transform;
 }
-
 .mp-orb--1 {
-  width: 160px; height: 160px;
-  background: var(--o);
-  opacity: 0.10;
-  top: -60px; right: -40px;
-  animation: mp-orb-drift 10s ease-in-out infinite;
+  width      : 160px;
+  height     : 160px;
+  background : var(--o);
+  opacity    : 0.10;
+  top        : -60px;
+  right      : -40px;
+  animation  : mp-orb-drift 10s ease-in-out infinite;
 }
 .mp-orb--2 {
-  width: 120px; height: 120px;
-  background: var(--o2);
-  opacity: 0.08;
-  bottom: -50px; left: -30px;
-  animation: mp-orb-drift 13s ease-in-out infinite reverse;
+  width      : 120px;
+  height     : 120px;
+  background : var(--o2);
+  opacity    : 0.08;
+  bottom     : -50px;
+  left       : -30px;
+  animation  : mp-orb-drift 13s ease-in-out infinite reverse;
 }
 .mp-orb--3 {
-  width: 80px; height: 80px;
-  background: var(--o-bg);
-  opacity: 0.6;
-  top: 40%; left: 44%;
-  animation: mp-orb-drift 16s ease-in-out infinite 2s;
+  width      : 80px;
+  height     : 80px;
+  background : var(--o-bg);
+  opacity    : 0.6;
+  top        : 40%;
+  left       : 44%;
+  animation  : mp-orb-drift 16s ease-in-out infinite 2s;
 }
 
 /* ── Edit button ── */
 .mp-hero__edit {
-  position: absolute;
-  top: 14px; right: 14px;
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  padding: 6px 12px;
-  background: var(--o-bg);
-  border: 1px solid var(--bd);
-  border-radius: var(--r1);
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--o);
-  cursor: pointer;
-  transition: background 0.18s;
+  position      : absolute;
+  top           : 14px;
+  right         : 14px;
+  z-index       : 4;
+  display       : flex;
+  align-items   : center;
+  gap           : 5px;
+  padding       : 6px 12px;
+  background    : var(--o-bg);
+  border        : 1px solid var(--bd);
+  border-radius : var(--r1);
+  font-size     : 12px;
+  font-weight   : 700;
+  color         : var(--o);
+  cursor        : pointer;
+  transition    : background var(--t1);
+  font-family   : var(--fb);
 }
-.mp-hero__edit svg { width: 13px; height: 13px; }
-.mp-hero__edit:active { background: #ffe4d6; }
+.mp-hero__edit svg      { width: 13px; height: 13px; }
+.mp-hero__edit:active   { background: #ffe4d6; }
 
 /* ───────────────────────────────────────────────
-   7. AVATAR
+   9. AVATAR
 ─────────────────────────────────────────────── */
+.mp-avatar-section {
+  position : relative;
+  z-index  : 2;
+}
+
 .mp-avatar-wrap {
-  position: relative;
-  width: 88px;
-  height: 88px;
-  margin: 0 auto 14px;
+  position  : relative;
+  width     : 88px;
+  height    : 88px;
+  margin    : 0 auto 14px;
 }
 
 .mp-avatar-ring {
-  position: absolute;
-  inset: -3px;
-  border-radius: 50%;
-  background: conic-gradient(
-    var(--o),
-    var(--o2),
-    #fbbf24,
-    var(--gn),
-    var(--o)
+  position      : absolute;
+  inset         : -3px;
+  border-radius : 50%;
+  background    : conic-gradient(
+    var(--o), var(--o2), #fbbf24, var(--gn), var(--o)
   );
-  animation: mp-ring-spin 7s linear infinite;
-  opacity: 0.75;
+  animation     : mp-ring-spin 7s linear infinite;
+  opacity       : 0.75;
 }
 
 .mp-avatar {
-  position: absolute;
-  inset: 3px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--o), var(--o2));
-  overflow: hidden;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position        : absolute;
+  inset           : 3px;
+  border-radius   : 50%;
+  background      : linear-gradient(135deg, var(--o), var(--o2));
+  overflow        : hidden;
+  z-index         : 2;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
 }
 
 .mp-avatar__img {
-  width: 100%; height: 100%;
-  object-fit: cover;
+  width      : 100%;
+  height     : 100%;
+  object-fit : cover;
 }
 
 .mp-avatar__letter {
-  font-size: 30px;
-  font-weight: 800;
-  color: var(--wh);
-  font-family: var(--fd);
+  font-size   : 30px;
+  font-weight : 800;
+  color       : var(--wh);
+  font-family : var(--fd);
 }
 
 .mp-avatar__online {
-  position: absolute;
-  bottom: 5px; right: 5px;
-  width: 14px; height: 14px;
-  border-radius: 50%;
-  background: var(--gn);
-  border: 3px solid var(--wh);
-  z-index: 4;
-  animation: mp-pulse-dot 2.2s ease-in-out infinite;
+  position      : absolute;
+  bottom        : 5px;
+  right         : 5px;
+  width         : 14px;
+  height        : 14px;
+  border-radius : 50%;
+  background    : var(--gn);
+  border        : 3px solid var(--wh);
+  z-index       : 4;
+  animation     : mp-pulse-dot 2.2s ease-in-out infinite;
 }
 
 .mp-avatar__cam {
-  position: absolute;
-  bottom: 2px; right: 2px;
-  z-index: 5;
-  width: 26px; height: 26px;
-  border-radius: 50%;
-  background: var(--o);
-  color: var(--wh);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  cursor: pointer;
-  box-shadow: var(--s1);
+  position        : absolute;
+  bottom          : 2px;
+  right           : 2px;
+  z-index         : 5;
+  width           : 26px;
+  height          : 26px;
+  border-radius   : 50%;
+  background      : var(--o);
+  color           : var(--wh);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  border          : none;
+  cursor          : pointer;
+  box-shadow      : var(--s1);
 }
 .mp-avatar__cam svg { width: 13px; height: 13px; }
 
-.mp-avatar__crown {
-  position: absolute;
-  top: -4px; right: -4px;
-  z-index: 6;
-  width: 22px; height: 22px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--wh);
-  box-shadow: var(--s1);
-}
-.mp-avatar__crown svg { width: 12px; height: 12px; }
-
 /* ───────────────────────────────────────────────
-   8. HERO INFO
+   10. HERO INFO
 ─────────────────────────────────────────────── */
 .mp-hero__info {
-  text-align: center;
-  position: relative;
-  z-index: 2;
+  text-align : center;
+  position   : relative;
+  z-index    : 2;
 }
 
 .mp-hero__name {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 22px;
-  font-weight: 800;
-  letter-spacing: -0.025em;
-  margin: 0 0 3px;
-  color: var(--ink);
-  font-family: var(--fd);
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 6px;
+  font-size      : 22px;
+  font-weight    : 800;
+  letter-spacing : -0.025em;
+  margin         : 0 0 3px;
+  color          : var(--ink);
+  font-family    : var(--fd);
 }
 
 .mp-hero__verified {
-  width: 19px; height: 19px;
-  border-radius: 50%;
-  background: var(--o);
-  color: var(--wh);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  width           : 19px;
+  height          : 19px;
+  border-radius   : 50%;
+  background      : var(--o);
+  color           : var(--wh);
+  display         : inline-flex;
+  align-items     : center;
+  justify-content : center;
+  flex-shrink     : 0;
 }
 .mp-hero__verified svg { width: 10px; height: 10px; }
 
 .mp-hero__store {
-  font-size: 13px;
-  color: var(--ink2);
-  font-weight: 500;
-  margin: 0 0 12px;
+  font-size   : 13px;
+  color       : var(--ink2);
+  font-weight : 500;
+  margin      : 0 0 12px;
 }
 
-/* Badges */
+/* ── Badges ── */
 .mp-hero__badges {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px;
-  margin-bottom: 10px;
+  display         : flex;
+  flex-wrap       : wrap;
+  justify-content : center;
+  gap             : 6px;
+  margin-bottom   : 10px;
 }
 
 .mp-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  font-size: 10.5px;
-  font-weight: 700;
-  border-radius: var(--r1);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-family: var(--fb);
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 4px;
+  padding        : 3px 10px;
+  font-size      : 10.5px;
+  font-weight    : 700;
+  border-radius  : var(--r1);
+  text-transform : uppercase;
+  letter-spacing : 0.04em;
+  font-family    : var(--fb);
 }
 .mp-chip svg { width: 10px; height: 10px; }
 
 .mp-chip--seller {
-  background: var(--o-bg);
-  color: var(--o);
-  border: 1px solid #ffd4c2;
+  background : var(--o-bg);
+  color      : var(--o);
+  border     : 1px solid #ffd4c2;
 }
 .mp-chip--top {
-  background: #fef3c7;
-  color: #92400e;
-  border: 1px solid #fde68a;
+  background : #fef3c7;
+  color      : #92400e;
+  border     : 1px solid #fde68a;
 }
 .mp-chip--sub {
-  color: var(--wh);
-  border: none;
-  box-shadow: var(--s1);
+  color      : var(--wh);
+  border     : none;
+  box-shadow : var(--s1);
 }
 
-.mp-sub-badge--premium  { background: linear-gradient(135deg,#667eea,#764ba2); }
-.mp-sub-badge--pro      { background: linear-gradient(135deg,#f093fb,#f5576c); }
-.mp-sub-badge--business { background: linear-gradient(135deg,#4facfe,#00f2fe); }
-.mp-sub-badge--elite    { background: linear-gradient(135deg,#d97706,#f59e0b); }
-.mp-sub-badge--diamond  { background: linear-gradient(135deg,#6366f1,#8b5cf6); }
-
-/* Meta row */
+/* ── Meta row ── */
 .mp-hero__meta {
-  display: flex;
-  justify-content: center;
-  gap: 14px;
-  font-size: 12px;
-  color: var(--ink3);
-  margin-bottom: 18px;
-  flex-wrap: wrap;
+  display         : flex;
+  justify-content : center;
+  gap             : 14px;
+  font-size       : 12px;
+  color           : var(--ink3);
+  margin-bottom   : 18px;
+  flex-wrap       : wrap;
 }
 
 .mp-hero__meta-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  display     : flex;
+  align-items : center;
+  gap         : 4px;
 }
 
 .mp-hero__meta-icon {
-  display: flex;
-  align-items: center;
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-  opacity: 0.7;
+  display     : flex;
+  align-items : center;
+  width       : 14px;
+  height      : 14px;
+  flex-shrink : 0;
+  opacity     : 0.7;
 }
 .mp-hero__meta-icon svg { width: 100%; height: 100%; }
 
 /* ───────────────────────────────────────────────
-   9. STATS STRIP
+   11. STATS STRIP
 ─────────────────────────────────────────────── */
 .mp-stats-strip {
-  display: flex;
-  justify-content: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin-bottom: 20px;
-  position: relative;
-  z-index: 2;
+  display         : flex;
+  justify-content : center;
+  gap             : 8px;
+  flex-wrap       : wrap;
+  margin-bottom   : 20px;
+  position        : relative;
+  z-index         : 2;
 }
 
 .mp-stat {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 10px 14px;
-  background: var(--bg);
-  border: 1px solid var(--bd);
-  border-radius: var(--r2);
-  min-width: 68px;
+  display        : flex;
+  flex-direction : column;
+  align-items    : center;
+  gap            : 2px;
+  padding        : 10px 14px;
+  background     : var(--bg);
+  border         : 1px solid var(--bd);
+  border-radius  : var(--r2);
+  min-width      : 68px;
 }
 
 .mp-stat__icon {
-  width: 16px; height: 16px;
-  color: var(--o);
+  width  : 16px;
+  height : 16px;
+  color  : var(--o);
 }
 .mp-stat__icon svg { width: 100%; height: 100%; }
 
 .mp-stat__value {
-  font-size: 16px;
-  font-weight: 900;
-  line-height: 1;
-  color: var(--ink);
-  letter-spacing: -0.02em;
-  font-family: var(--fd);
+  font-size      : 16px;
+  font-weight    : 900;
+  line-height    : 1;
+  color          : var(--ink);
+  letter-spacing : -0.02em;
+  font-family    : var(--fd);
 }
 
 .mp-stat__label {
-  font-size: 10px;
-  color: var(--ink3);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  font-weight: 600;
+  font-size      : 10px;
+  color          : var(--ink3);
+  text-transform : uppercase;
+  letter-spacing : 0.06em;
+  font-weight    : 600;
 }
 
 /* ───────────────────────────────────────────────
-   10. HERO QUICK ACTIONS
+   12. HERO QUICK ACTIONS
 ─────────────────────────────────────────────── */
 .mp-hero__actions {
-  display: flex;
-  gap: 8px;
-  position: relative;
-  z-index: 2;
+  display  : flex;
+  gap      : 8px;
+  position : relative;
+  z-index  : 2;
 }
 
 .mp-qa {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 11px 6px;
-  border-radius: var(--r2);
-  font-size: 12.5px;
-  font-weight: 700;
-  white-space: nowrap;
-  cursor: pointer;
-  border: none;
-  transition: opacity 0.15s, transform 0.12s;
-  font-family: var(--fb);
+  flex            : 1;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  gap             : 6px;
+  padding         : 11px 6px;
+  border-radius   : var(--r2);
+  font-size       : 12.5px;
+  font-weight     : 700;
+  white-space     : nowrap;
+  cursor          : pointer;
+  border          : none;
+  transition      : opacity var(--t1), transform 0.12s;
+  font-family     : var(--fb);
+  -webkit-tap-highlight-color: transparent;
 }
-.mp-qa svg { width: 16px; height: 16px; flex-shrink: 0; }
+.mp-qa svg    { width: 16px; height: 16px; flex-shrink: 0; }
 .mp-qa:active { opacity: 0.82; transform: scale(0.97); }
 
 .mp-qa--primary {
-  background: var(--o);
-  color: var(--wh);
-  box-shadow: 0 4px 16px rgba(255,92,0,0.28);
+  background : var(--o);
+  color      : var(--wh);
+  box-shadow : 0 4px 16px rgba(255, 92, 0, 0.28);
 }
-
 .mp-qa--ghost {
-  background: var(--bg);
-  color: var(--ink);
-  border: 1px solid var(--bd);
+  background : var(--bg);
+  color      : var(--ink);
+  border     : 1px solid var(--bd);
 }
 
 /* ───────────────────────────────────────────────
-   11. SECTION HEADER
+   13. SECTION HEADER
 ─────────────────────────────────────────────── */
 .mp-section-hdr {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  margin-bottom   : 14px;
 }
 
 .mp-section-hdr__l {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+  display     : flex;
+  align-items : center;
+  gap         : 10px;
 }
 
 .mp-section-hdr__icon {
-  width: 34px; height: 34px;
-  border-radius: var(--r1);
-  background: var(--o-bg);
-  color: var(--o);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
+  width           : 34px;
+  height          : 34px;
+  border-radius   : var(--r1);
+  background      : var(--o-bg);
+  color           : var(--o);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  flex-shrink     : 0;
 }
 .mp-section-hdr__icon svg { width: 17px; height: 17px; }
 
 .mp-section-hdr__title {
-  font-size: 16px;
-  font-weight: 800;
-  color: var(--ink);
-  letter-spacing: -0.015em;
-  font-family: var(--fd);
+  font-size      : 16px;
+  font-weight    : 800;
+  color          : var(--ink);
+  letter-spacing : -0.015em;
+  font-family    : var(--fd);
 }
 .mp-section-hdr__sub {
-  font-size: 12px;
-  color: var(--ink3);
-  font-weight: 500;
-  margin-top: 1px;
+  font-size   : 12px;
+  color       : var(--ink3);
+  font-weight : 500;
+  margin-top  : 1px;
 }
 
 .mp-section-hdr__btn {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--o);
-  padding: 6px 10px;
+  display     : flex;
+  align-items : center;
+  gap         : 3px;
+  font-size   : 13px;
+  font-weight : 700;
+  color       : var(--o);
+  padding     : 6px 10px;
   border-radius: var(--r1);
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  font-family: var(--fb);
-  transition: background 0.15s;
+  border      : none;
+  background  : transparent;
+  cursor      : pointer;
+  font-family : var(--fb);
+  transition  : background var(--t1);
+  -webkit-tap-highlight-color: transparent;
 }
-.mp-section-hdr__btn svg { width: 14px; height: 14px; }
+.mp-section-hdr__btn svg    { width: 14px; height: 14px; }
 .mp-section-hdr__btn:active { background: var(--o-bg); }
 
 /* ───────────────────────────────────────────────
-   12. LISTINGS SECTION
+   14. LISTINGS SECTION
 ─────────────────────────────────────────────── */
 .mp-listings {
-  margin-top: 22px;
+  margin-top : 22px;
 }
 
 .mp-listings__scroll {
-  display: flex;
-  gap: 12px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
+  display                  : flex;
+  gap                      : 12px;
+  overflow-x               : auto;
+  scroll-snap-type         : x mandatory;
+  scrollbar-width          : none;
   -webkit-overflow-scrolling: touch;
-  padding: 4px 2px 10px;
-  margin: 0 -16px;
-  padding-left: 16px;
-  padding-right: 16px;
+  /* extend flush to screen edges */
+  margin  : 0 -16px;
+  padding : 4px 16px 10px;
 }
 .mp-listings__scroll::-webkit-scrollbar { display: none; }
 
 /* ── Listing card ── */
 .mp-lcard {
-  flex: 0 0 158px;
+  flex          : 0 0 158px;
   scroll-snap-align: start;
-  background: var(--wh);
-  border: 1px solid var(--bd);
-  border-radius: var(--r2);
-  overflow: hidden;
-  cursor: pointer;
-  transition: border-color 0.18s, transform 0.14s;
-  will-change: transform;
+  background    : var(--wh);
+  border        : 1px solid var(--bd);
+  border-radius : var(--r2);
+  overflow      : hidden;
+  cursor        : pointer;
+  transition    : border-color var(--t1), transform 0.14s;
+  will-change   : transform;
   -webkit-tap-highlight-color: transparent;
 }
 
 .mp-lcard__img {
-  position: relative;
-  width: 100%;
-  aspect-ratio: 1;
-  background: var(--bg);
-  overflow: hidden;
+  position     : relative;
+  width        : 100%;
+  aspect-ratio : 1;
+  background   : var(--bg);
+  overflow     : hidden;
 }
 .mp-lcard__img img {
-  width: 100%; height: 100%;
-  object-fit: cover;
-  transition: transform 0.35s;
+  width      : 100%;
+  height     : 100%;
+  object-fit : cover;
+  transition : transform 0.35s;
 }
 
 .mp-lcard__placeholder {
-  width: 100%; height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--ink3);
+  width           : 100%;
+  height          : 100%;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  color           : var(--ink3);
 }
 .mp-lcard__placeholder svg { width: 30px; height: 30px; }
 
 .mp-lcard__badge {
-  position: absolute;
-  top: 6px; left: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  padding: 3px 8px;
-  font-size: 9.5px;
-  font-weight: 800;
-  text-transform: uppercase;
-  border-radius: var(--r1);
-  letter-spacing: 0.04em;
-  font-family: var(--fb);
+  position       : absolute;
+  top            : 6px;
+  left           : 6px;
+  display        : inline-flex;
+  align-items    : center;
+  gap            : 3px;
+  padding        : 3px 8px;
+  font-size      : 9.5px;
+  font-weight    : 800;
+  text-transform : uppercase;
+  border-radius  : var(--r1);
+  letter-spacing : 0.04em;
+  font-family    : var(--fb);
 }
 .mp-lcard__badge svg { width: 10px; height: 10px; }
 
@@ -678,931 +761,761 @@ html, body {
 .mp-lcard__badge--hot     { background: var(--o-bg); color: var(--o); border: 1px solid #ffd4c2; }
 
 .mp-lcard__overlay {
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  height: 44%;
-  background: linear-gradient(to top, rgba(20,18,16,0.55), transparent);
-  pointer-events: none;
+  position       : absolute;
+  bottom         : 0;
+  left           : 0;
+  right          : 0;
+  height         : 44%;
+  background     : linear-gradient(to top, rgba(20, 18, 16, 0.55), transparent);
+  pointer-events : none;
 }
 
 .mp-lcard__price-float {
-  position: absolute;
-  bottom: 7px; left: 8px;
-  font-size: 13px;
-  font-weight: 900;
-  color: var(--wh);
-  text-shadow: 0 1px 4px rgba(0,0,0,0.45);
-  margin: 0;
+  position      : absolute;
+  bottom        : 7px;
+  left          : 8px;
+  font-size     : 13px;
+  font-weight   : 900;
+  color         : var(--wh);
+  text-shadow   : 0 1px 4px rgba(0, 0, 0, 0.45);
+  margin        : 0;
   letter-spacing: -0.01em;
-  font-family: var(--fd);
+  font-family   : var(--fd);
 }
 
 .mp-lcard__body { padding: 10px 10px 12px; }
 
 .mp-lcard__title {
-  font-size: 12.5px;
-  font-weight: 700;
-  margin: 0 0 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink);
-  line-height: 1.3;
+  font-size     : 12.5px;
+  font-weight   : 700;
+  margin        : 0 0 6px;
+  overflow      : hidden;
+  text-overflow : ellipsis;
+  white-space   : nowrap;
+  color         : var(--ink);
+  line-height   : 1.3;
 }
 
 .mp-lcard__meta {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 10.5px;
-  color: var(--ink3);
+  display         : flex;
+  align-items     : center;
+  justify-content : space-between;
+  font-size       : 10.5px;
+  color           : var(--ink3);
 }
 .mp-lcard__meta span { display: flex; align-items: center; gap: 3px; }
 .mp-lcard__meta svg  { width: 11px; height: 11px; }
 
 /* ───────────────────────────────────────────────
-   13. SUBSCRIPTION BANNER
+   15. SUBSCRIPTION BANNER
 ─────────────────────────────────────────────── */
 .mp-sub-banner {
-  position: relative;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 20px;
-  padding: 14px 16px;
-  background: var(--wh);
-  border: 1px solid var(--bd);
-  border-radius: var(--r2);
-  overflow: hidden;
-  cursor: pointer;
-  transition: border-color 0.18s, box-shadow 0.18s;
+  position      : relative;
+  display       : flex;
+  align-items   : center;
+  gap           : 12px;
+  margin-top    : 20px;
+  padding       : 14px 16px;
+  background    : var(--wh);
+  border        : 1px solid var(--bd);
+  border-radius : var(--r2);
+  overflow      : hidden;
+  cursor        : pointer;
+  transition    : border-color var(--t2), box-shadow var(--t2);
   -webkit-tap-highlight-color: transparent;
 }
 .mp-sub-banner:active {
-  border-color: var(--o);
-  box-shadow: 0 0 0 3px var(--o-bg);
+  border-color : var(--o);
+  box-shadow   : 0 0 0 3px var(--o-bg);
 }
-
 .mp-sub-banner--active {
-  background: var(--o-bg);
-  border-color: #ffd4c2;
+  background   : var(--o-bg);
+  border-color : #ffd4c2;
 }
 
 .mp-sub-banner__glow {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(ellipse at 80% 50%, rgba(255,92,0,0.06), transparent 65%);
-  pointer-events: none;
+  position       : absolute;
+  inset          : 0;
+  background     : radial-gradient(ellipse at 80% 50%, rgba(255, 92, 0, 0.06), transparent 65%);
+  pointer-events : none;
 }
 
 .mp-sub-banner__icon {
-  width: 40px; height: 40px;
-  border-radius: var(--r1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--o-bg);
-  color: var(--o);
-  flex-shrink: 0;
-  position: relative;
-  z-index: 1;
+  width           : 40px;
+  height          : 40px;
+  border-radius   : var(--r1);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  background      : var(--o-bg);
+  color           : var(--o);
+  flex-shrink     : 0;
+  position        : relative;
+  z-index         : 1;
 }
-.mp-sub-banner--active .mp-sub-banner__icon {
-  color: var(--wh);
-}
+.mp-sub-banner--active .mp-sub-banner__icon { color: var(--wh); }
 .mp-sub-banner__icon svg { width: 20px; height: 20px; }
 
 .mp-sub-banner__body {
-  flex: 1;
-  min-width: 0;
-  position: relative;
-  z-index: 1;
+  flex      : 1;
+  min-width : 0;
+  position  : relative;
+  z-index   : 1;
 }
 
 .mp-sub-banner__name {
-  display: block;
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--ink);
-  margin-bottom: 2px;
-  font-family: var(--fd);
+  display       : block;
+  font-size     : 14px;
+  font-weight   : 800;
+  color         : var(--ink);
+  margin-bottom : 2px;
+  font-family   : var(--fd);
 }
 
 .mp-sub-banner__tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  color: var(--gn);
-  font-weight: 600;
+  display     : inline-flex;
+  align-items : center;
+  gap         : 5px;
+  font-size   : 12px;
+  color       : var(--gn);
+  font-weight : 600;
 }
 
 .mp-sub-banner__dot {
-  width: 6px; height: 6px;
-  border-radius: 50%;
-  background: var(--gn);
-  animation: mp-pulse-dot 2s ease-in-out infinite;
+  width         : 6px;
+  height        : 6px;
+  border-radius : 50%;
+  background    : var(--gn);
+  animation     : mp-pulse-dot 2s ease-in-out infinite;
 }
 
 .mp-sub-banner__tag--cta {
-  color: var(--o);
-  font-size: 12px;
+  color     : var(--o);
+  font-size : 12px;
 }
 .mp-sub-banner__tag--cta svg { width: 11px; height: 11px; }
 
 .mp-sub-banner__arrow {
-  width: 18px; height: 18px;
-  color: var(--ink3);
-  flex-shrink: 0;
-  position: relative;
-  z-index: 1;
+  width       : 18px;
+  height      : 18px;
+  color       : var(--ink3);
+  flex-shrink : 0;
+  position    : relative;
+  z-index     : 1;
 }
 .mp-sub-banner__arrow svg { width: 100%; height: 100%; }
 
 /* ───────────────────────────────────────────────
-   14. REFERRAL CARD  — invite link + share/copy
+   16. REFERRAL CARD
 ─────────────────────────────────────────────── */
 .mp-referral {
-  position: relative;
-  margin-top: 14px;
-  padding: 18px;
-  background: var(--gn2);
-  border: 1px solid #bbf7d0;
-  border-radius: var(--r2);
-  overflow: hidden;
+  position      : relative;
+  margin-top    : 14px;
+  padding       : 18px;
+  background    : var(--gn2);
+  border        : 1px solid #bbf7d0;
+  border-radius : var(--r2);
+  overflow      : hidden;
 }
 
 .mp-referral__shine {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(
+  position         : absolute;
+  inset            : 0;
+  background       : linear-gradient(
     108deg,
     transparent 38%,
-    rgba(21,128,61,0.06) 50%,
+    rgba(21, 128, 61, 0.06) 50%,
     transparent 62%
   );
-  background-size: 200% 100%;
-  animation: mp-shimmer 3s ease infinite;
-  pointer-events: none;
+  background-size  : 200% 100%;
+  animation        : mp-shimmer 3s ease infinite;
+  pointer-events   : none;
 }
 
-/* ── Header row ── */
 .mp-referral__top {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  margin-bottom: 14px;
-  position: relative;
-  z-index: 1;
+  display       : flex;
+  align-items   : flex-start;
+  gap           : 12px;
+  margin-bottom : 14px;
+  position      : relative;
+  z-index       : 1;
 }
 
 .mp-referral__icon {
-  width: 40px; height: 40px;
-  border-radius: var(--r1);
-  background: rgba(21,128,61,0.12);
-  color: var(--gn);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-top: 1px;
+  width           : 40px;
+  height          : 40px;
+  border-radius   : var(--r1);
+  background      : rgba(21, 128, 61, 0.12);
+  color           : var(--gn);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  flex-shrink     : 0;
+  margin-top      : 1px;
 }
 .mp-referral__icon svg { width: 20px; height: 20px; }
 
 .mp-referral__header-text {
-  flex: 1;
-  min-width: 0;
+  flex      : 1;
+  min-width : 0;
 }
 
 .mp-referral__title {
-  font-size: 14.5px;
-  font-weight: 800;
-  color: var(--ink);
-  margin: 0 0 3px;
-  line-height: 1.3;
-  font-family: var(--fd);
+  font-size   : 14.5px;
+  font-weight : 800;
+  color       : var(--ink);
+  margin      : 0 0 3px;
+  line-height : 1.3;
+  font-family : var(--fd);
 }
 
 .mp-referral__sub {
-  font-size: 12px;
-  color: var(--ink2);
-  margin: 0;
-  font-weight: 500;
-  line-height: 1.4;
+  font-size   : 12px;
+  color       : var(--ink2);
+  margin      : 0;
+  font-weight : 500;
+  line-height : 1.4;
 }
 
-/* ── Invite link display pill ── */
+/* ── Invite link pill ── */
 .mp-referral__link-row {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--wh);
-  border: 1.5px dashed #86efac;
-  border-radius: var(--r1);
-  padding: 10px 13px;
-  margin-bottom: 12px;
-  overflow: hidden;
+  position      : relative;
+  z-index       : 1;
+  display       : flex;
+  align-items   : center;
+  gap           : 8px;
+  background    : var(--wh);
+  border        : 1.5px dashed #86efac;
+  border-radius : var(--r1);
+  padding       : 10px 13px;
+  margin-bottom : 12px;
+  overflow      : hidden;
 }
 
 .mp-referral__link-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px; height: 16px;
-  color: var(--gn);
-  flex-shrink: 0;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  width           : 16px;
+  height          : 16px;
+  color           : var(--gn);
+  flex-shrink     : 0;
 }
 .mp-referral__link-icon svg { width: 100%; height: 100%; }
 
 .mp-referral__link-text {
-  flex: 1;
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink2);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: "SF Mono", "Fira Code", monospace;
+  flex          : 1;
+  font-size     : 12px;
+  font-weight   : 700;
+  color         : var(--ink2);
+  white-space   : nowrap;
+  overflow      : hidden;
+  text-overflow : ellipsis;
+  font-family   : "SF Mono", "Fira Code", monospace;
   letter-spacing: 0.01em;
 }
 
 /* ── Action buttons ── */
 .mp-referral__actions {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  gap: 10px;
+  position : relative;
+  z-index  : 1;
+  display  : flex;
+  gap      : 10px;
 }
 
 .mp-referral__action-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  padding: 12px 14px;
-  border-radius: var(--r2);
-  font-size: 13.5px;
-  font-weight: 700;
-  cursor: pointer;
-  border: none;
-  font-family: var(--fb);
-  letter-spacing: -0.01em;
+  flex            : 1;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  gap             : 7px;
+  padding         : 12px 14px;
+  border-radius   : var(--r2);
+  font-size       : 13.5px;
+  font-weight     : 700;
+  cursor          : pointer;
+  border          : none;
+  font-family     : var(--fb);
+  letter-spacing  : -0.01em;
   -webkit-tap-highlight-color: transparent;
-  transition: opacity 0.15s, transform 0.12s;
+  transition      : opacity var(--t1), transform 0.12s;
 }
-.mp-referral__action-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
+.mp-referral__action-btn svg    { width: 16px; height: 16px; flex-shrink: 0; }
 .mp-referral__action-btn:active { opacity: 0.82; transform: scale(0.97); }
 
-/* Share */
 .mp-referral__action-btn--share {
-  background: rgba(21,128,61,0.12);
-  color: #15803d;
-  border: 1px solid #86efac;
+  background : rgba(21, 128, 61, 0.12);
+  color      : #15803d;
+  border     : 1px solid #86efac;
 }
-.mp-referral__action-btn--share:hover {
-  background: rgba(21,128,61,0.18);
-}
+.mp-referral__action-btn--share:hover { background: rgba(21, 128, 61, 0.18); }
 
-/* Copy */
 .mp-referral__action-btn--copy {
-  background: var(--gn);
-  color: var(--wh);
-  box-shadow: 0 4px 14px rgba(21,128,61,0.28);
+  background : var(--gn);
+  color      : var(--wh);
+  box-shadow : 0 4px 14px rgba(21, 128, 61, 0.28);
 }
-
-/* Copied state */
 .mp-referral__action-btn--copied {
-  background: #15803d;
-  box-shadow: 0 4px 14px rgba(21,128,61,0.38);
+  background : #15803d;
+  box-shadow : 0 4px 14px rgba(21, 128, 61, 0.38);
 }
 
 .mp-referral__copy-inner {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display     : inline-flex;
+  align-items : center;
+  gap         : 6px;
 }
 
 /* ───────────────────────────────────────────────
-   15. MENU SECTIONS
+   17. MENU SECTIONS
 ─────────────────────────────────────────────── */
 .mp-menu-wrap {
-  margin-top: 24px;
+  margin-top : 24px;
 }
 
 .mp-msection {
-  margin-bottom: 20px;
+  margin-bottom : 20px;
 }
 
 .mp-msection__hdr {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  margin-bottom: 8px;
-  padding-left: 2px;
+  display       : flex;
+  align-items   : center;
+  gap           : 7px;
+  margin-bottom : 8px;
+  padding-left  : 2px;
 }
 
 .mp-msection__icon {
-  width: 14px; height: 14px;
+  width  : 14px;
+  height : 14px;
 }
 .mp-msection__icon svg { width: 100%; height: 100%; }
 
 .mp-msection__title {
-  font-size: 11px;
-  font-weight: 800;
-  text-transform: uppercase;
-  letter-spacing: 0.09em;
-  color: var(--ink3);
-  margin: 0;
+  font-size      : 11px;
+  font-weight    : 800;
+  text-transform : uppercase;
+  letter-spacing : 0.09em;
+  color          : var(--ink3);
+  margin         : 0;
 }
 
 .mp-msection__list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display        : flex;
+  flex-direction : column;
+  gap            : 2px;
 }
 
 /* ── Menu Item ── */
 .mp-mitem {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 13px 14px;
-  background: var(--wh);
-  border: 1px solid var(--bd);
-  border-radius: var(--r2);
-  color: var(--ink);
-  text-decoration: none;
-  cursor: pointer;
+  display         : flex;
+  align-items     : center;
+  gap             : 12px;
+  padding         : 13px 14px;
+  background      : var(--wh);
+  border          : 1px solid var(--bd);
+  border-radius   : var(--r2);
+  color           : var(--ink);
+  text-decoration : none;
+  cursor          : pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background 0.12s, border-color 0.12s;
+  transition      : background var(--t1), border-color var(--t1);
 }
 
-.mp-mitem:first-child {
-  border-radius: var(--r2) var(--r2) var(--r1) var(--r1);
-}
-.mp-mitem:last-child {
-  border-radius: var(--r1) var(--r1) var(--r2) var(--r2);
-}
-.mp-mitem:only-child { border-radius: var(--r2); }
+/* Grouped card corners */
+.mp-msection__list > div:first-child  .mp-mitem { border-radius: var(--r2) var(--r2) var(--r1) var(--r1); }
+.mp-msection__list > div:last-child   .mp-mitem { border-radius: var(--r1) var(--r1) var(--r2) var(--r2); }
+.mp-msection__list > div:only-child   .mp-mitem { border-radius: var(--r2); }
 
-.mp-mitem:active {
-  background: var(--bg);
-  border-color: var(--bd2);
-}
-
-.mp-mitem--active {
-  background: var(--o-bg);
-  border-color: #ffd4c2;
-}
+.mp-mitem:active     { background: var(--bg); border-color: var(--bd2); }
+.mp-mitem--active    { background: var(--o-bg); border-color: #ffd4c2; }
 
 .mp-mitem__icon {
-  position: relative;
-  width: 36px; height: 36px;
-  border-radius: var(--r1);
-  background: var(--bg);
-  color: var(--ink2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  transition: background 0.15s, color 0.15s;
+  position        : relative;
+  width           : 36px;
+  height          : 36px;
+  border-radius   : var(--r1);
+  background      : var(--bg);
+  color           : var(--ink2);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  flex-shrink     : 0;
+  transition      : background var(--t1), color var(--t1);
 }
 .mp-mitem__icon svg { width: 18px; height: 18px; }
-
-.mp-mitem__icon--on {
-  background: var(--o-bg);
-  color: var(--o);
-}
+.mp-mitem__icon--on { background: var(--o-bg); color: var(--o); }
 
 .mp-mitem__dot {
-  position: absolute;
-  top: 4px; right: 4px;
-  width: 7px; height: 7px;
-  border-radius: 50%;
-  background: var(--mp-red);
-  border: 2px solid var(--wh);
-  animation: mp-pulse-dot 2s ease-in-out infinite;
+  position      : absolute;
+  top           : 4px;
+  right         : 4px;
+  width         : 7px;
+  height        : 7px;
+  border-radius : 50%;
+  background    : var(--mp-red);
+  border        : 2px solid var(--wh);
+  animation     : mp-pulse-dot 2s ease-in-out infinite;
 }
 
-.mp-mitem__body { flex: 1; min-width: 0; }
+.mp-mitem__body   { flex: 1; min-width: 0; }
 
 .mp-mitem__label {
-  display: block;
-  font-size: 14px;
-  font-weight: 700;
-  line-height: 1.25;
-  color: var(--ink);
+  display     : block;
+  font-size   : 14px;
+  font-weight : 700;
+  line-height : 1.25;
+  color       : var(--ink);
 }
-
 .mp-mitem__desc {
-  display: block;
-  font-size: 11.5px;
-  color: var(--ink3);
-  margin-top: 1px;
-  font-weight: 500;
+  display     : block;
+  font-size   : 11.5px;
+  color       : var(--ink3);
+  margin-top  : 1px;
+  font-weight : 500;
 }
 
 .mp-mitem__arrow {
-  width: 16px; height: 16px;
-  color: var(--ink3);
-  flex-shrink: 0;
-  margin-left: auto;
+  width        : 16px;
+  height       : 16px;
+  color        : var(--ink3);
+  flex-shrink  : 0;
+  margin-left  : auto;
 }
 .mp-mitem__arrow svg { width: 100%; height: 100%; }
 
 /* ── Badge Pills ── */
 .mp-pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 2px 8px;
-  min-width: 22px;
-  font-size: 10px;
-  font-weight: 900;
-  border-radius: var(--r1);
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  flex-shrink: 0;
-  background: var(--bg);
-  color: var(--ink2);
-  border: 1px solid var(--bd);
-  font-family: var(--fb);
+  display         : inline-flex;
+  align-items     : center;
+  justify-content : center;
+  padding         : 2px 8px;
+  min-width       : 22px;
+  font-size       : 10px;
+  font-weight     : 900;
+  border-radius   : var(--r1);
+  letter-spacing  : 0.03em;
+  text-transform  : uppercase;
+  flex-shrink     : 0;
+  background      : var(--bg);
+  color           : var(--ink2);
+  border          : 1px solid var(--bd);
+  font-family     : var(--fb);
 }
 
 .mp-pill--notif {
-  background: #fef2f2;
-  color: var(--mp-red);
+  background : #fef2f2;
+  color      : var(--mp-red);
   border-color: #fecaca;
-  animation: mp-badge-pop 0.32s cubic-bezier(0.16,1,0.3,1) both;
+  animation  : mp-badge-pop 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
-
-.mp-pill--sub {
-  background: var(--o);
-  color: var(--wh);
-  border-color: var(--o);
-}
-
-.mp-pill--win {
-  background: #fffbeb;
-  color: #92400e;
-  border-color: #fde68a;
-}
-
-.mp-pill--new {
-  background: var(--gn2);
-  color: var(--gn);
-  border-color: #bbf7d0;
-}
-
-.mp-pill--money {
-  background: var(--gn2);
-  color: var(--gn);
-  border-color: #bbf7d0;
-}
+.mp-pill--sub    { background: var(--o); color: var(--wh); border-color: var(--o); }
+.mp-pill--win    { background: #fffbeb; color: #92400e; border-color: #fde68a; }
+.mp-pill--new    { background: var(--gn2); color: var(--gn); border-color: #bbf7d0; }
+.mp-pill--money  { background: var(--gn2); color: var(--gn); border-color: #bbf7d0; }
 
 /* ───────────────────────────────────────────────
-   16. LOGOUT BUTTON + CONFIRMATION SHEET
+   18. LOGOUT BUTTON + CONFIRM SHEET
 ─────────────────────────────────────────────── */
 .mp-logout-wrap {
-  padding: 4px 0 8px;
+  padding : 4px 0 8px;
 }
 
 .mp-logout-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 18px;
-  background: var(--wh);
-  border: 1.5px solid rgba(220,38,38,0.18);
-  border-radius: var(--r2);
-  cursor: pointer;
-  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
-  box-shadow: 0 2px 12px rgba(220,38,38,0.06);
-  text-align: left;
+  width           : 100%;
+  display         : flex;
+  align-items     : center;
+  gap             : 14px;
+  padding         : 16px 18px;
+  background      : var(--wh);
+  border          : 1.5px solid rgba(220, 38, 38, 0.18);
+  border-radius   : var(--r2);
+  cursor          : pointer;
+  transition      : background var(--t2), border-color var(--t2), box-shadow var(--t2), transform 0.12s;
+  box-shadow      : 0 2px 12px rgba(220, 38, 38, 0.06);
+  text-align      : left;
   -webkit-tap-highlight-color: transparent;
+  font-family     : var(--fb);
 }
-
 .mp-logout-btn:hover,
 .mp-logout-btn:focus-visible {
-  background: rgba(220,38,38,0.04);
-  border-color: rgba(220,38,38,0.35);
-  box-shadow: 0 4px 20px rgba(220,38,38,0.12);
-  outline: none;
+  background   : rgba(220, 38, 38, 0.04);
+  border-color : rgba(220, 38, 38, 0.35);
+  box-shadow   : 0 4px 20px rgba(220, 38, 38, 0.12);
+  outline      : none;
 }
-
 .mp-logout-btn:active {
-  background: rgba(220,38,38,0.06);
-  transform: scale(0.985);
+  background : rgba(220, 38, 38, 0.06);
+  transform  : scale(0.985);
 }
 
 .mp-logout-btn__icon {
-  width: 40px; height: 40px;
-  border-radius: 12px;
-  background: rgba(220,38,38,0.10);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--mp-red);
-  flex-shrink: 0;
+  width           : 40px;
+  height          : 40px;
+  border-radius   : 12px;
+  background      : rgba(220, 38, 38, 0.10);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  color           : var(--mp-red);
+  flex-shrink     : 0;
 }
 .mp-logout-btn__icon svg { width: 20px; height: 20px; }
 
 .mp-logout-btn__label {
-  flex: 1;
-  font-size: 15px;
-  font-weight: 700;
-  color: var(--mp-red);
-  letter-spacing: -0.01em;
-  font-family: var(--fb);
+  flex           : 1;
+  font-size      : 15px;
+  font-weight    : 700;
+  color          : var(--mp-red);
+  letter-spacing : -0.01em;
 }
 
 .mp-logout-btn__arrow {
-  width: 18px; height: 18px;
-  color: rgba(220,38,38,0.45);
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
+  width       : 18px;
+  height      : 18px;
+  color       : rgba(220, 38, 38, 0.45);
+  display     : flex;
+  align-items : center;
+  flex-shrink : 0;
 }
 .mp-logout-btn__arrow svg { width: 100%; height: 100%; }
 
 /* ── Backdrop ── */
 .mp-logout-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 900;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(8px) saturate(140%);
+  position          : fixed;
+  inset             : 0;
+  z-index           : 900;
+  background        : rgba(0, 0, 0, 0.55);
+  backdrop-filter   : blur(8px) saturate(140%);
   -webkit-backdrop-filter: blur(8px) saturate(140%);
 }
 
 /* ── Bottom sheet ── */
 .mp-logout-sheet {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  z-index: 901;
-  background: var(--wh);
-  border-radius: 24px 24px 0 0;
-  padding: 12px 24px calc(24px + var(--mp-safe-b));
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  box-shadow:
-    0 -8px 40px rgba(0,0,0,0.18),
-    0 -2px 12px rgba(0,0,0,0.06);
+  position        : fixed;
+  bottom          : 0;
+  left            : 0;
+  right           : 0;
+  z-index         : 901;
+  background      : var(--wh);
+  border-radius   : 24px 24px 0 0;
+  padding         : 12px 24px calc(24px + var(--mp-safe-b));
+  display         : flex;
+  flex-direction  : column;
+  align-items     : center;
+  gap             : 10px;
+  box-shadow      :
+    0 -8px 40px rgba(0, 0, 0, 0.18),
+    0 -2px 12px rgba(0, 0, 0, 0.06);
 }
 
 .mp-logout-sheet__handle {
-  width: 40px; height: 4px;
-  border-radius: 99px;
-  background: var(--bd);
-  margin-bottom: 8px;
-  flex-shrink: 0;
+  width         : 40px;
+  height        : 4px;
+  border-radius : 99px;
+  background    : var(--bd);
+  margin-bottom : 8px;
+  flex-shrink   : 0;
 }
 
 .mp-logout-sheet__icon-wrap {
-  width: 64px; height: 64px;
-  border-radius: 20px;
-  background: rgba(220,38,38,0.10);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--mp-red);
-  margin-bottom: 2px;
+  width           : 64px;
+  height          : 64px;
+  border-radius   : 20px;
+  background      : rgba(220, 38, 38, 0.10);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  color           : var(--mp-red);
+  margin-bottom   : 2px;
 }
 .mp-logout-sheet__icon-wrap svg { width: 30px; height: 30px; }
 
 .mp-logout-sheet__title {
-  font-size: 20px;
-  font-weight: 800;
-  color: var(--ink);
-  letter-spacing: -0.02em;
-  margin: 0;
-  font-family: var(--fd);
+  font-size      : 20px;
+  font-weight    : 800;
+  color          : var(--ink);
+  letter-spacing : -0.02em;
+  margin         : 0;
+  font-family    : var(--fd);
 }
 
 .mp-logout-sheet__sub {
-  font-size: 14px;
-  color: var(--ink2);
-  text-align: center;
-  margin: 0 0 8px;
-  line-height: 1.5;
-  max-width: 280px;
+  font-size   : 14px;
+  color       : var(--ink2);
+  text-align  : center;
+  margin      : 0 0 8px;
+  line-height : 1.5;
+  max-width   : 280px;
 }
 
 .mp-logout-sheet__actions {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 4px;
+  width          : 100%;
+  display        : flex;
+  flex-direction : column;
+  gap            : 10px;
+  margin-top     : 4px;
 }
 
 .mp-logout-sheet__confirm {
-  width: 100%;
-  padding: 15px;
-  border-radius: 14px;
-  background: var(--mp-red);
-  color: var(--wh);
-  font-size: 15px;
-  font-weight: 800;
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  transition: background 0.18s, opacity 0.18s, transform 0.12s;
-  letter-spacing: -0.01em;
-  font-family: var(--fb);
+  width           : 100%;
+  padding         : 15px;
+  border-radius   : 14px;
+  background      : var(--mp-red);
+  color           : var(--wh);
+  font-size       : 15px;
+  font-weight     : 800;
+  border          : none;
+  cursor          : pointer;
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  gap             : 8px;
+  transition      : background var(--t1), opacity var(--t1), transform 0.12s;
+  letter-spacing  : -0.01em;
+  font-family     : var(--fb);
   -webkit-tap-highlight-color: transparent;
 }
-.mp-logout-sheet__confirm:active  { background: #b91c1c; transform: scale(0.97); }
-.mp-logout-sheet__confirm:disabled { opacity: 0.7; cursor: not-allowed; }
 .mp-logout-sheet__confirm svg      { width: 18px; height: 18px; }
+.mp-logout-sheet__confirm:active   { background: #b91c1c; transform: scale(0.97); }
+.mp-logout-sheet__confirm:disabled { opacity: 0.7; cursor: not-allowed; }
 
 .mp-logout-sheet__cancel {
-  width: 100%;
-  padding: 15px;
-  border-radius: 14px;
-  background: var(--bg);
-  color: var(--ink);
-  font-size: 15px;
-  font-weight: 700;
-  border: 1px solid var(--bd);
-  cursor: pointer;
-  transition: background 0.18s, opacity 0.18s, transform 0.12s;
-  letter-spacing: -0.01em;
-  font-family: var(--fb);
+  width          : 100%;
+  padding        : 15px;
+  border-radius  : 14px;
+  background     : var(--bg);
+  color          : var(--ink);
+  font-size      : 15px;
+  font-weight    : 700;
+  border         : 1px solid var(--bd);
+  cursor         : pointer;
+  transition     : background var(--t1), transform 0.12s;
+  letter-spacing : -0.01em;
+  font-family    : var(--fb);
   -webkit-tap-highlight-color: transparent;
 }
-.mp-logout-sheet__cancel:active  { background: var(--bd); transform: scale(0.97); }
+.mp-logout-sheet__cancel:active   { background: var(--bd); transform: scale(0.97); }
 .mp-logout-sheet__cancel:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Spinner inside confirm button */
 .mp-logout-sheet__confirm .mp-spinner-sm {
-  border-color: rgba(255,255,255,0.3);
-  border-top-color: var(--wh);
+  border-color     : rgba(255, 255, 255, 0.3);
+  border-top-color : var(--wh);
 }
 
 /* ───────────────────────────────────────────────
-   17. ERROR BANNER
+   19. ERROR BANNER
 ─────────────────────────────────────────────── */
 .mp-error {
-  margin-top: 12px;
-  padding: 14px 16px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: var(--r2);
+  margin-top    : 12px;
+  padding       : 14px 16px;
+  background    : #fef2f2;
+  border        : 1px solid #fecaca;
+  border-radius : var(--r2);
 }
 
 .mp-error__row {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-  margin-bottom: 12px;
+  display       : flex;
+  gap           : 12px;
+  align-items   : flex-start;
+  margin-bottom : 12px;
 }
 
 .mp-error__icon {
-  width: 22px; height: 22px;
-  color: var(--mp-red);
-  flex-shrink: 0;
+  width       : 22px;
+  height      : 22px;
+  color       : var(--mp-red);
+  flex-shrink : 0;
 }
 .mp-error__icon svg { width: 100%; height: 100%; }
 
 .mp-error__title {
-  font-size: 14px;
-  font-weight: 800;
-  margin: 0 0 2px;
-  color: var(--ink);
+  font-size   : 14px;
+  font-weight : 800;
+  margin      : 0 0 2px;
+  color       : var(--ink);
 }
 .mp-error__msg {
-  font-size: 12px;
-  color: var(--ink2);
-  margin: 0;
+  font-size : 12px;
+  color     : var(--ink2);
+  margin    : 0;
 }
 
 .mp-error__btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  width: 100%;
-  padding: 10px;
-  background: #fee2e2;
-  border: 1px solid #fecaca;
-  border-radius: var(--r1);
-  color: var(--mp-red);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  font-family: var(--fb);
+  display         : flex;
+  align-items     : center;
+  justify-content : center;
+  gap             : 7px;
+  width           : 100%;
+  padding         : 10px;
+  background      : #fee2e2;
+  border          : 1px solid #fecaca;
+  border-radius   : var(--r1);
+  color           : var(--mp-red);
+  font-size       : 13px;
+  font-weight     : 700;
+  cursor          : pointer;
+  font-family     : var(--fb);
+  transition      : opacity var(--t1);
 }
-.mp-error__btn svg { width: 15px; height: 15px; }
+.mp-error__btn svg      { width: 15px; height: 15px; }
 .mp-error__btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
+/* ── Shared small spinner ── */
 .mp-spinner-sm {
-  display: inline-block;
-  width: 14px; height: 14px;
-  border: 2px solid #fecaca;
+  display       : inline-block;
+  width         : 14px;
+  height        : 14px;
+  border        : 2px solid #fecaca;
   border-top-color: var(--mp-red);
-  border-radius: 50%;
-  animation: mp-spin 0.75s linear infinite;
+  border-radius : 50%;
+  animation     : mp-spin 0.75s linear infinite;
 }
 
 /* ───────────────────────────────────────────────
-   18. SKELETON LOADER
-─────────────────────────────────────────────── */
-.mp-skeletons {
-  display: flex;
-  gap: 12px;
-  margin-top: 22px;
-  overflow: hidden;
-}
-
-.mp-sk-card {
-  flex: 0 0 158px;
-  border-radius: var(--r2);
-  overflow: hidden;
-  background: var(--wh);
-  border: 1px solid var(--bd);
-}
-
-.mp-sk-img {
-  width: 100%;
-  aspect-ratio: 1;
-}
-
-.mp-sk-body {
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.mp-sk-line {
-  height: 11px;
-  border-radius: 6px;
-}
-
-/* ───────────────────────────────────────────────
-   19. BOTTOM NAV
-─────────────────────────────────────────────── */
-.mp-bottom-nav {
-  position: fixed;
-  bottom: 0; left: 0; right: 0;
-  z-index: 130;
-  height: calc(var(--mp-nav-h) + var(--mp-safe-b));
-  padding-bottom: var(--mp-safe-b);
-  background: rgba(255,255,255,0.95);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-top: 1px solid var(--bd);
-  display: flex;
-  align-items: center;
-  justify-content: space-around;
-  padding-left: 4px;
-  padding-right: 4px;
-}
-
-.mp-bottom-nav__tab {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 3px;
-  padding: 10px 4px;
-  color: var(--ink3);
-  position: relative;
-  background: none;
-  border: none;
-  cursor: pointer;
-  transition: color 0.2s;
-  font-family: var(--fb);
-}
-.mp-bottom-nav__tab--active { color: var(--o); }
-
-.mp-bottom-nav__icon {
-  position: relative;
-  width: 24px; height: 24px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.mp-bottom-nav__icon svg { width: 22px; height: 22px; }
-
-.mp-bottom-nav__badge {
-  position: absolute;
-  top: -4px; right: -8px;
-  min-width: 16px; height: 16px;
-  padding: 0 3px;
-  background: var(--mp-red);
-  color: var(--wh);
-  font-size: 9px;
-  font-weight: 900;
-  border-radius: var(--r1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 2px solid var(--wh);
-  animation: mp-badge-pop 0.32s cubic-bezier(0.16,1,0.3,1) both;
-}
-
-.mp-bottom-nav__label {
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: capitalize;
-  letter-spacing: 0.01em;
-}
-
-.mp-bottom-nav__indicator {
-  position: absolute;
-  top: 0;
-  width: 24px; height: 2.5px;
-  border-radius: var(--r1);
-  background: var(--o);
-}
-
-.mp-bottom-nav__fab {
-  width: 48px; height: 48px;
-  border-radius: 50%;
-  background: var(--o);
-  color: var(--wh);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 4px 18px rgba(255,92,0,0.3);
-  border: none;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: transform 0.15s, box-shadow 0.15s;
-}
-.mp-bottom-nav__fab svg { width: 22px; height: 22px; }
-.mp-bottom-nav__fab:active {
-  transform: scale(0.9);
-  box-shadow: 0 2px 10px rgba(255,92,0,0.2);
-}
-
-/* ───────────────────────────────────────────────
-   20. SCROLL TO TOP FAB
-─────────────────────────────────────────────── */
-.mp-fab-top {
-  position: fixed;
-  bottom: calc(var(--mp-nav-h) + var(--mp-safe-b) + 16px);
-  right: 18px;
-  z-index: 125;
-  width: 42px; height: 42px;
-  border-radius: 50%;
-  background: var(--wh);
-  border: 1px solid var(--bd2);
-  color: var(--ink2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: var(--s2);
-  cursor: pointer;
-}
-.mp-fab-top svg { width: 19px; height: 19px; }
-.mp-fab-top:active { background: var(--bg); }
-
-/* ───────────────────────────────────────────────
-   21. TOAST
-─────────────────────────────────────────────── */
-.mp-toast {
-  position: fixed;
-  bottom: calc(var(--mp-nav-h) + var(--mp-safe-b) + 12px);
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 200;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 18px;
-  background: var(--ink);
-  border-radius: var(--r2);
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--wh);
-  box-shadow: var(--s3);
-  white-space: nowrap;
-  pointer-events: none;
-  font-family: var(--fb);
-}
-.mp-toast svg { width: 15px; height: 15px; color: var(--gn); }
-
-/* ───────────────────────────────────────────────
-   22. FOOTER
+   20. FOOTER
 ─────────────────────────────────────────────── */
 .mp-footer {
-  text-align: center;
-  font-size: 11px;
-  color: var(--ink3);
-  padding: 26px 0 8px;
-  margin: 0;
-  font-family: var(--fb);
+  text-align  : center;
+  font-size   : 11px;
+  color       : var(--ink3);
+  padding     : 26px 0 8px;
+  margin      : 0;
+  font-family : var(--fb);
+}
+
+/* ───────────────────────────────────────────────
+   21. SAFE AREA  (@supports block)
+─────────────────────────────────────────────── */
+@supports (padding: max(0px)) {
+  .mp-top-bar {
+    padding-top : max(var(--mp-safe-t), 0px);
+  }
+  .mp-scroll {
+    padding-bottom : calc(var(--mp-nav-h) + max(var(--mp-safe-b), 0px) + 24px);
+  }
+  .mp-logout-sheet {
+    padding-bottom : calc(24px + max(var(--mp-safe-b), 0px));
+  }
+}
+
+/* ───────────────────────────────────────────────
+   22. SMALL SCREENS  (< 360 px)
+─────────────────────────────────────────────── */
+@media (max-width: 359px) {
+  .mp-hero__name                  { font-size: 19px; }
+  .mp-stats-strip                 { gap: 5px; }
+  .mp-stat                        { padding: 8px 9px; min-width: 56px; }
+  .mp-stat__value                 { font-size: 14px; }
+  .mp-qa                          { padding: 10px 5px; font-size: 11.5px; }
+  .mp-lcard                       { flex: 0 0 138px; }
+  .mp-referral__title             { font-size: 13.5px; }
+  .mp-referral__action-btn        { font-size: 12.5px; padding: 10px; }
+  .mp-referral__link-text         { font-size: 11px; }
+  .mp-logout-sheet                { padding-left: 18px; padding-right: 18px; }
+  .mp-logout-sheet__title         { font-size: 18px; }
+  .mp-logout-sheet__sub           { font-size: 13px; }
 }
 
 /* ───────────────────────────────────────────────
@@ -1615,48 +1528,7 @@ html, body {
   .mp-sub-banner__dot,
   .mp-referral__shine,
   .mp-pill--notif,
-  .mp-ptr__spinner { animation: none !important; }
-}
-
-/* ───────────────────────────────────────────────
-   24. SMALL SCREENS  (< 360px)
-─────────────────────────────────────────────── */
-@media (max-width: 359px) {
-  .mp-hero__name  { font-size: 19px; }
-  .mp-stats-strip { gap: 5px; }
-  .mp-stat        { padding: 8px 9px; min-width: 56px; }
-  .mp-stat__value { font-size: 14px; }
-  .mp-qa          { padding: 10px 5px; font-size: 11.5px; }
-  .mp-lcard       { flex: 0 0 138px; }
-
-  .mp-referral__title         { font-size: 13.5px; }
-  .mp-referral__action-btn    { font-size: 12.5px; padding: 10px 10px; }
-  .mp-referral__link-text     { font-size: 11px; }
-
-  .mp-logout-sheet            { padding-left: 18px; padding-right: 18px; }
-  .mp-logout-sheet__title     { font-size: 18px; }
-  .mp-logout-sheet__sub       { font-size: 13px; }
-}
-
-/* ───────────────────────────────────────────────
-   25. SAFE AREA SUPPORT
-─────────────────────────────────────────────── */
-@supports (padding: max(0px)) {
-  .mp-top-bar    { padding-top: max(var(--mp-safe-t), 0px); }
-  .mp-bottom-nav {
-    height: calc(var(--mp-nav-h) + max(var(--mp-safe-b), 0px));
-    padding-bottom: max(var(--mp-safe-b), 0px);
-  }
-  .mp-fab-top {
-    bottom: calc(var(--mp-nav-h) + max(var(--mp-safe-b), 0px) + 14px);
-  }
-  .mp-toast {
-    bottom: calc(var(--mp-nav-h) + max(var(--mp-safe-b), 0px) + 10px);
-  }
-  .mp-scroll {
-    padding-bottom: calc(var(--mp-nav-h) + max(var(--mp-safe-b), 0px) + 24px);
-  }
-  .mp-logout-sheet {
-    padding-bottom: calc(24px + max(var(--mp-safe-b), 0px));
+  .mp-ptr__spinner {
+    animation: none !important;
   }
 }
