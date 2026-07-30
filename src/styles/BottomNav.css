@@ -1,279 +1,260 @@
 /*
   FILE: src/styles/BottomNav.css
-  Responsive Bottom Navigation
+  BottomNav — Minimart
 */
 
 :root {
-  --bn-bg: #fff;
-  --bn-border: #e9e6e1;
-  --bn-shadow: 0 -4px 18px rgba(0, 0, 0, 0.06);
+  --bn-bg: #ffffff;
+  --bn-border: #eae6e0;
+  --bn-shadow: 0 -4px 20px rgba(0, 0, 0, 0.06);
 
-  --bn-text: #9b968f;
-  --bn-active: #ff5c00;
+  --bn-text: #a8a39d;
+  --bn-text-active: #ff5c00;
+  --bn-icon-active: #ff5c00;
 
+  --bn-indicator: #ff5c00;
   --bn-badge: #ef4444;
-  --bn-badge-text: #fff;
+  --bn-badge-text: #ffffff;
 }
 
-/* Global */
-*,
-*::before,
-*::after {
-  box-sizing: border-box;
-}
-
-html {
-  -webkit-text-size-adjust: 100%;
-}
-
-body {
-  overflow-x: hidden;
-}
-
-/* Navigation */
+/* ── WRAP ────────────────────────────────── */
 .bn-wrap {
   position: fixed;
   left: 0;
   right: 0;
   bottom: 0;
-
-  width: 100%;
-  min-height: 64px;
+  z-index: 90;
 
   display: flex;
-  justify-content: space-between;
   align-items: stretch;
+  justify-content: space-between;
 
-  padding: 0 max(4px, env(safe-area-inset-left));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding: 0 4px;
+  padding-bottom: max(env(safe-area-inset-bottom), 0px);
 
   background: var(--bn-bg);
-  border-top: 1px solid var(--bn-border);
+  border-top: 1.5px solid var(--bn-border);
   box-shadow: var(--bn-shadow);
-
-  z-index: 999;
 }
 
-/* Item */
+/* ── NAV ITEM ─────────────────────────────── */
 .bn-item {
-  position: relative;
   flex: 1;
   min-width: 0;
+  position: relative;
 
   display: flex;
   flex-direction: column;
-  justify-content: center;
   align-items: center;
-
+  justify-content: center;
   gap: 4px;
 
-  min-height: 64px;
-  padding: 8px 4px;
+  padding: 10px 4px 11px;
+  min-height: 60px;
 
-  border: none;
   background: transparent;
-  text-decoration: none;
-  color: inherit;
+  border: none;
+  outline: none;
   cursor: pointer;
-
+  user-select: none;
   -webkit-tap-highlight-color: transparent;
+  text-decoration: none;
 }
 
-/* Active indicator */
+/* active top indicator */
 .bn-item::before {
   content: "";
   position: absolute;
   top: 0;
   left: 50%;
-
   width: 28px;
-  height: 3px;
-
-  background: var(--bn-active);
-  border-radius: 0 0 8px 8px;
-
+  height: 2.5px;
+  border-radius: 0 0 4px 4px;
+  background: var(--bn-indicator);
   transform: translateX(-50%) scaleX(0);
-  transition: transform .25s ease;
+  transform-origin: center;
+  transition: transform 0.22s cubic-bezier(.34,1.56,.64,1);
 }
 
 .bn-item.active::before {
   transform: translateX(-50%) scaleX(1);
 }
 
-/* Icon */
+/* ── ICON ─────────────────────────────────── */
 .bn-icon {
   position: relative;
-
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-
-  width: 22px;
-  height: 22px;
-
+  font-size: 20px;
+  line-height: 1;
   color: var(--bn-text);
-
-  transition: .2s;
+  transition:
+    color 0.16s ease,
+    transform 0.16s ease,
+    opacity 0.16s ease;
 }
 
 .bn-icon svg {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
+  display: block;
 }
 
 .bn-item.active .bn-icon {
-  color: var(--bn-active);
+  color: var(--bn-icon-active);
   transform: translateY(-1px);
 }
 
-/* Label */
-.bn-label {
-  width: 100%;
+.bn-item:active .bn-icon {
+  transform: scale(0.9);
+}
 
-  text-align: center;
-  white-space: nowrap;
+/* ── LABEL ────────────────────────────────── */
+.bn-label {
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 
+  font-family: "Plus Jakarta Sans", system-ui, sans-serif;
   font-size: 10px;
   font-weight: 600;
-  line-height: 1.2;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
 
   color: var(--bn-text);
-
-  transition: color .2s;
+  transition: color 0.16s ease;
 }
 
 .bn-item.active .bn-label {
-  color: var(--bn-active);
+  color: var(--bn-text-active);
 }
 
-/* Badge */
+/* ── BADGE ────────────────────────────────── */
 .bn-badge {
   position: absolute;
-  top: -5px;
+  top: -6px;
   right: -8px;
 
   min-width: 17px;
   height: 17px;
-
   padding: 0 4px;
 
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
 
   border-radius: 999px;
-
+  border: 1.5px solid #fff;
   background: var(--bn-badge);
   color: var(--bn-badge-text);
 
-  border: 2px solid var(--bn-bg);
-
-  font-size: 9px;
-  font-weight: 700;
+  font-size: 10px;
+  font-weight: 800;
   line-height: 1;
+  text-align: center;
 
+  box-shadow: 0 2px 8px rgba(239, 68, 68, 0.28);
   pointer-events: none;
 }
 
-/* Focus */
+/* ── FOCUS ────────────────────────────────── */
 .bn-item:focus-visible {
-  background: rgba(255, 92, 0, .06);
+  background: rgba(255, 92, 0, 0.06);
 }
 
-/* Sell Button */
+/* ── OPTIONAL SPECIAL CTA SUPPORT ─────────── */
 .bn-item.bn-sell {
-  flex: 1.1;
+  flex: 1.15;
 }
 
 .bn-sell-ic {
   width: 38px;
   height: 38px;
+  margin-bottom: 1px;
 
   display: flex;
   align-items: center;
   justify-content: center;
 
   border-radius: 50%;
-
-  background: var(--bn-active);
+  background: #ff5c00;
   color: #fff;
-
   font-size: 20px;
+  line-height: 1;
 
-  box-shadow: 0 5px 14px rgba(255, 92, 0, .35);
-
-  transition: .2s;
+  box-shadow: 0 4px 14px rgba(255, 92, 0, 0.4);
+  transition:
+    transform 0.15s cubic-bezier(.34,1.56,.64,1),
+    box-shadow 0.15s ease;
 }
 
 .bn-item.bn-sell:active .bn-sell-ic {
-  transform: scale(.92);
+  transform: scale(0.9);
+  box-shadow: 0 2px 6px rgba(255, 92, 0, 0.3);
 }
 
 .bn-item.bn-sell .bn-label {
-  color: var(--bn-active);
+  color: #ff5c00;
   font-weight: 700;
 }
 
-/* Small phones */
-@media (max-width:360px) {
-
+/* ── SMALL DEVICES ────────────────────────── */
+@media (max-width: 360px) {
   .bn-wrap {
-    min-height: 60px;
-    padding: 0 2px;
-    padding-bottom: env(safe-area-inset-bottom, 0px);
+    padding-left: 2px;
+    padding-right: 2px;
   }
 
   .bn-item {
-    min-height: 60px;
-    padding: 6px 2px;
-  }
-
-  .bn-icon,
-  .bn-icon svg {
-    width: 20px;
-    height: 20px;
+    padding: 9px 2px 10px;
   }
 
   .bn-label {
     font-size: 9px;
   }
+
+  .bn-icon {
+    font-size: 18px;
+  }
+
+  .bn-icon svg {
+    width: 18px;
+    height: 18px;
+  }
 }
 
-/* Tablet/Desktop */
-@media (min-width:768px) {
-
+/* ── DESKTOP / TABLET ─────────────────────── */
+@media (min-width: 768px) {
   .bn-wrap {
-    width: 520px;
+    max-width: 520px;
     left: 50%;
     right: auto;
-
     transform: translateX(-50%);
-
     border: 1px solid var(--bn-border);
-    border-bottom: none;
     border-radius: 18px 18px 0 0;
   }
 }
 
-/* Dark mode */
+/* ── DARK MODE ────────────────────────────── */
 @media (prefers-color-scheme: dark) {
-
   :root {
     --bn-bg: #121212;
-    --bn-border: rgba(255,255,255,.08);
-    --bn-shadow: 0 -6px 24px rgba(0,0,0,.4);
+    --bn-border: rgba(255, 255, 255, 0.08);
+    --bn-shadow: 0 -6px 24px rgba(0, 0, 0, 0.35);
 
     --bn-text: #9f9a94;
-    --bn-active: #ff8a42;
+    --bn-text-active: #ff8a42;
+    --bn-icon-active: #ff8a42;
+    --bn-indicator: #ff7a1a;
+  }
+
+  .bn-item:focus-visible {
+    background: rgba(255, 122, 26, 0.08);
   }
 
   .bn-badge {
     border-color: #121212;
-  }
-
-  .bn-item:focus-visible {
-    background: rgba(255,138,66,.08);
   }
 }
