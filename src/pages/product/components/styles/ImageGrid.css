@@ -1,6 +1,14 @@
 /* ══════════════════════════════════════════════════════════════
    src/pages/product/components/styles/ImageGrid.css
-   v2 — matches ImageGrid.jsx v2 upgrade
+   v3 — matches ImageGrid.jsx v3 (NEVER-BLANK image tiles)
+   
+   New in v3:
+     • .preview-skeleton — shimmer animation while loading
+     • .preview-broken-placeholder — visible fallback for failed URLs
+     • .preview-error-overlay redesigned as bottom banner (not full overlay)
+     • Guaranteed min-height on all tiles (no collapse)
+     • Broken tiles have diagonal-stripe background for clarity
+     • Preserves all v2 tokens, dark mode, responsive breakpoints
 ════════════════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════════════
@@ -78,22 +86,27 @@
   grid-template-columns : repeat(3, 1fr);
   gap                   : 8px;
   padding               : 12px;
-  min-height            : 120px;
+  min-height            : 140px;
 }
 
 /* ══════════════════════════════════════════════════════════════
-   THUMBNAIL
+   THUMBNAIL — guaranteed never-blank
 ════════════════════════════════════════════════════════════════ */
 .preview-thumb {
   position      : relative;
   aspect-ratio  : 1;
+  min-height    : 100px;   /* ✅ v3: never collapse */
+  min-width     : 100px;   /* ✅ v3: never collapse */
   border-radius : var(--r-sm);
   overflow      : hidden;
   box-shadow    : var(--sh-xs);
-  transition    :
-    transform    var(--tr),
-    box-shadow   var(--tr);
   background    : var(--wh2);
+  transition    :
+    transform  var(--tr),
+    box-shadow var(--tr),
+    border-color var(--tr);
+  user-select   : none;
+  -webkit-user-select : none;
 }
 
 .preview-thumb:hover {
@@ -102,6 +115,8 @@
 }
 
 .preview-img {
+  position   : relative;
+  z-index    : 1;
   width      : 100%;
   height     : 100%;
   object-fit : cover;
@@ -111,33 +126,113 @@
 
 .preview-thumb:hover .preview-img { transform: scale(1.03); }
 
-.preview-img--error   { opacity: 0.4; }
-.preview-thumb--error { border : 2px solid var(--rd); }
+.preview-img--error {
+  opacity : 0.4;
+  filter  : grayscale(0.5);
+}
+
+.preview-thumb--error {
+  border     : 2px solid var(--rd);
+  background : var(--rd-dim);
+}
 
 /* ══════════════════════════════════════════════════════════════
-   ERROR OVERLAY
+   ✅ v3: SKELETON SHIMMER — shown while image is loading
 ════════════════════════════════════════════════════════════════ */
-.preview-error-overlay {
+.preview-skeleton {
+  position   : absolute;
+  inset      : 0;
+  z-index    : 0;
+  background : linear-gradient(
+    90deg,
+    var(--wh2)  0%,
+    var(--bd2)  50%,
+    var(--wh2)  100%
+  );
+  background-size : 200% 100%;
+  animation       : preview-skeleton-shimmer 1.4s infinite ease-in-out;
+}
+
+@keyframes preview-skeleton-shimmer {
+  0%   { background-position:  200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ✅ v3: BROKEN IMAGE PLACEHOLDER
+   Shown when img.preview is invalid or <img> onError fires
+════════════════════════════════════════════════════════════════ */
+.preview-broken-placeholder {
   position         : absolute;
   inset            : 0;
-  background       : rgba(220, 38, 38, 0.14);
+  z-index          : 1;
   display          : flex;
   flex-direction   : column;
   align-items      : center;
   justify-content  : center;
-  gap              : 4px;
-  color            : var(--rd);
-  font-size        : 0.7rem;
-  font-weight      : 700;
-  padding          : 6px;
+  gap              : 6px;
+  padding          : 8px;
   text-align       : center;
-  backdrop-filter  : blur(1px);
-  -webkit-backdrop-filter: blur(1px);
+  color            : var(--rd);
+  background       : repeating-linear-gradient(
+    45deg,
+    var(--rd-dim),
+    var(--rd-dim) 8px,
+    rgba(220, 38, 38, 0.10) 8px,
+    rgba(220, 38, 38, 0.10) 16px
+  );
+}
+
+.preview-broken-placeholder svg {
+  width       : 32px;
+  height      : 32px;
+  opacity     : 0.85;
+  flex-shrink : 0;
+}
+
+.preview-broken-placeholder small {
+  font-size   : 0.68rem;
+  font-weight : 700;
+  line-height : 1.2;
+  max-width   : 100%;
+  word-break  : break-word;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ✅ v3: ERROR OVERLAY — now a bottom banner, not full overlay
+   (Full overlay hid the broken placeholder icon — bad UX)
+════════════════════════════════════════════════════════════════ */
+.preview-error-overlay {
+  position         : absolute;
+  bottom           : 0;
+  left             : 0;
+  right            : 0;
+  z-index          : 4;
+  display          : flex;
+  align-items      : center;
+  gap              : 4px;
+  padding          : 5px 6px;
+  background       : rgba(220, 38, 38, 0.95);
+  color            : #fff;
+  font-size        : 0.65rem;
+  font-weight      : 600;
+  line-height      : 1.2;
+  backdrop-filter  : blur(4px);
+  -webkit-backdrop-filter : blur(4px);
 }
 
 .preview-error-overlay svg {
-  width  : 14px;
-  height : 14px;
+  width       : 11px;
+  height      : 11px;
+  flex-shrink : 0;
+}
+
+.preview-error-overlay span {
+  overflow      : hidden;
+  text-overflow : ellipsis;
+  white-space   : nowrap;
+  min-width     : 0;
+  flex          : 1;
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -147,6 +242,7 @@
   position         : absolute;
   top              : 5px;
   right            : 5px;
+  z-index          : 5;                  /* ✅ v3: above overlays */
   width            : 24px;
   height           : 24px;
   border-radius    : 50%;
@@ -171,6 +267,13 @@
   transform : scale(1);
 }
 
+/* ✅ v3: always visible on broken tiles so user can delete them */
+.preview-thumb--error .preview-remove-btn {
+  opacity    : 1;
+  transform  : scale(1);
+  background : var(--rd);
+}
+
 .preview-remove-btn:hover         { background: var(--rd); }
 .preview-remove-btn:focus-visible {
   outline        : 2px solid #fff;
@@ -184,6 +287,7 @@
   position         : absolute;
   bottom           : 5px;
   left             : 5px;
+  z-index          : 3;
   background       : rgba(0, 0, 0, 0.45);
   border-radius    : var(--r-xs);
   color            : #fff;
@@ -205,6 +309,7 @@
   position       : absolute;
   bottom         : 5px;
   right          : 5px;
+  z-index        : 3;
   background     : var(--o);
   color          : #fff;
   font-size      : 0.65rem;
@@ -222,6 +327,7 @@
   position   : absolute;
   top        : 5px;
   left       : 5px;
+  z-index    : 3;
   display    : flex;
   gap        : 2px;
   opacity    : 0;
@@ -263,6 +369,7 @@
 .add-image-box,
 .add-image-btn {
   aspect-ratio    : 1;
+  min-height      : 100px;               /* ✅ v3: never collapse */
   display         : flex;
   flex-direction  : column;
   align-items     : center;
@@ -318,6 +425,7 @@
    EMPTY STATE  (full-width dropzone — no images yet)
 ════════════════════════════════════════════════════════════════ */
 .image-empty-state {
+  grid-column      : 1 / -1;             /* ✅ v3: span all columns */
   display          : flex;
   flex-direction   : column;
   align-items      : center;
@@ -407,6 +515,33 @@
     background : rgba(0, 0, 0, 0.7);
   }
 
+  /* ✅ v3: skeleton uses darker tones in dark mode */
+  .preview-skeleton {
+    background : linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.04) 0%,
+      rgba(255, 255, 255, 0.10) 50%,
+      rgba(255, 255, 255, 0.04) 100%
+    );
+    background-size : 200% 100%;
+  }
+
+  /* ✅ v3: broken placeholder — brighter red in dark mode */
+  .preview-broken-placeholder {
+    color      : #fca5a5;
+    background : repeating-linear-gradient(
+      45deg,
+      rgba(220, 38, 38, 0.18),
+      rgba(220, 38, 38, 0.18) 8px,
+      rgba(220, 38, 38, 0.28) 8px,
+      rgba(220, 38, 38, 0.28) 16px
+    );
+  }
+
+  .preview-thumb--error {
+    background : rgba(220, 38, 38, 0.18);
+  }
+
   .add-image-btn {
     background   : rgba(255, 92, 0, 0.06);
     border-color : rgba(255, 92, 0, 0.25);
@@ -428,9 +563,9 @@
   }
 
   .image-limit-notice {
-    background : rgba(245, 158, 11, 0.15);
+    background  : rgba(245, 158, 11, 0.15);
     border-color: rgba(245, 158, 11, 0.35);
-    color      : #fbbf24;
+    color       : #fbbf24;
   }
 
   .image-limit-notice-icon {
@@ -458,6 +593,12 @@
   .image-empty-state {
     transition : none;
   }
+
+  /* ✅ v3: disable shimmer for reduced motion */
+  .preview-skeleton {
+    animation  : none;
+    background : var(--bd2);
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -478,10 +619,10 @@
     transform : scale(1);
   }
 
-  .preview-thumb:hover                 { transform: none; box-shadow: var(--sh-sm); }
-  .preview-thumb:hover .preview-img    { transform: none; }
-  .add-image-btn:hover                 { transform: none; }
-  .image-empty-state:hover             { transform: none; }
+  .preview-thumb:hover              { transform: none; box-shadow: var(--sh-sm); }
+  .preview-thumb:hover .preview-img { transform: none; }
+  .add-image-btn:hover              { transform: none; }
+  .image-empty-state:hover          { transform: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -506,6 +647,21 @@
     top       : 4px;
     right     : 4px;
     transform : scale(1);
+  }
+
+  /* ✅ v3: smaller broken placeholder on mobile */
+  .preview-broken-placeholder svg {
+    width  : 24px;
+    height : 24px;
+  }
+
+  .preview-broken-placeholder small {
+    font-size : 0.6rem;
+  }
+
+  .preview-error-overlay {
+    font-size : 0.6rem;
+    padding   : 4px 5px;
   }
 
   .image-empty-state {
@@ -552,6 +708,12 @@
     width  : 44px;
     height : 44px;
   }
+
+  /* ✅ v3: larger broken placeholder on desktop */
+  .preview-broken-placeholder svg {
+    width  : 36px;
+    height : 36px;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -579,6 +741,18 @@
   .image-rule {
     border : 1px solid ButtonText;
   }
+
+  /* ✅ v3: ensure broken placeholder is visible in high contrast */
+  .preview-broken-placeholder {
+    border     : 2px solid ButtonText;
+    background : Canvas;
+    color      : ButtonText;
+  }
+
+  .preview-error-overlay {
+    background : ButtonText;
+    color      : Canvas;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -588,11 +762,20 @@
   .add-image-btn,
   .image-empty-state,
   .image-limit-notice,
-  .image-upload-rules {
+  .image-upload-rules,
+  .preview-skeleton,
+  .preview-error-overlay {
     display : none !important;
   }
 
   .preview-thumb button {
     display : none;
+  }
+
+  /* ✅ v3: show broken placeholder as text in print */
+  .preview-broken-placeholder {
+    background : #fff;
+    color      : #000;
+    border     : 1px solid #000;
   }
 }
