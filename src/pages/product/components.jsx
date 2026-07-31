@@ -1,24 +1,20 @@
 /**
  * src/pages/product/components.jsx
- * Main shell — imports all sub-components, owns page-level logic only
  *
- * v8.3 — IMAGE UPLOAD ALWAYS VISIBLE (FINAL FIX)
- *   • ImageGrid is now ALWAYS mounted (it has built-in EmptyState)
- *   • Removed FallbackImageUpload (was duplicating EmptyState)
- *   • Image errors moved BELOW the grid (consistent with other sections)
- *   • Fixes: upload area disappearing after gallery cancel / validation error
- *
- * v7 — INLINE FIELD ERRORS
- *   • Accepts fieldError from parent
- *   • Shows errors under each field (not just top banner)
- *   • Adds .has-error class on form-group for red border
- *   • Top banner only shown for non-field errors
- *
- * v6 — EMAIL REMOVED FROM CONTACT INFORMATION
- * v5 — Subscription upsell modal integrated
- * v4 — TermsCheckbox moved outside sticky bar
- * v3 — image grid mount fix
+ * v9 — COMPLETE REWRITE
+ * ─────────────────────────────────────────────────────────────
+ *  - MAX_IMAGES updated to 8
+ *  - Phone label updated to show "(optional)"
+ *  - Phone field hint updated
+ *  - contactFilled no longer requires phone
+ *  - All v8.3 fixes maintained:
+ *      ImageGrid always mounted
+ *      No FallbackImageUpload
+ *      Image errors below grid
+ *  - All v7 inline field errors maintained
+ *  - Email completely removed from contact section
  */
+
 import {
   useMemo, useState, useEffect, useCallback, useRef,
 } from "react";
@@ -58,7 +54,8 @@ function normalizeOptions(list) {
   if (!Array.isArray(list)) return [];
   return list
     .map((item) => {
-      if (typeof item === "string") return { id: item, name: item };
+      if (typeof item === "string")
+        return { id: item, name: item };
       return {
         id  : String(item.id    ?? item.value ?? item.name ?? ""),
         name: String(item.name  ?? item.label ?? item.id   ?? ""),
@@ -69,7 +66,9 @@ function normalizeOptions(list) {
 
 function getSelectedCategory(categories, id) {
   if (!Array.isArray(categories) || !id) return null;
-  return categories.find((item) => String(item.id) === String(id)) ?? null;
+  return (
+    categories.find((item) => String(item.id) === String(id)) ?? null
+  );
 }
 
 const toArray  = (v) => (Array.isArray(v) ? v : []);
@@ -77,7 +76,6 @@ const safeStr  = (v) => (typeof v === "string" ? v : String(v ?? ""));
 const getToken = () =>
   localStorage.getItem("marketplace_token") ||
   localStorage.getItem("token");
-
 const deepClone = (obj) => structuredClone(obj);
 
 async function hashImageFile(file) {
@@ -98,7 +96,12 @@ async function hashImageFile(file) {
 function InlineFieldError({ show, message, id }) {
   if (!show || !message) return null;
   return (
-    <div id={id} className="field-error" role="alert" aria-live="polite">
+    <div
+      id={id}
+      className="field-error"
+      role="alert"
+      aria-live="polite"
+    >
       <WarningIcon />
       <span>{message}</span>
     </div>
@@ -109,7 +112,7 @@ function InlineFieldError({ show, message, id }) {
    MAIN COMPONENT
 ═══════════════════════════════════════════════════════════════ */
 export default function ProductComponents({
-  /* ─ data ─ */
+  /* ─ core data ─ */
   form,
   attributes,
   images,
@@ -129,7 +132,7 @@ export default function ProductComponents({
   detectingLocation = false,
   agreedToTerms     = false,
   TermsCheckbox,
-  MAX_IMAGES        = 6,
+  MAX_IMAGES        = 8,       /* ✅ updated default to 8 */
   promotionPlans    = [],
   plansLoading      = false,
 
@@ -140,7 +143,7 @@ export default function ProductComponents({
   removeExistingImage,
   totalImageCount   = 0,
 
-  /* ─ seller limits (legacy) ─ */
+  /* ─ seller limits ─ */
   sellerLimits      = null,
   limitsLoading     = false,
   isVerifiedSeller  = false,
@@ -151,7 +154,7 @@ export default function ProductComponents({
   trialExhausted    = false,
   trialRemaining    = null,
 
-  /* ─ v4 tier-aware ─ */
+  /* ─ 3-tier ─ */
   tier              = "unverified",
   isSubscriber      = false,
   lifetimeExhausted = false,
@@ -167,7 +170,7 @@ export default function ProductComponents({
   needsSubscription = false,
   subscriptionData  = null,
 
-  /* ─ inline field errors (v7) ─ */
+  /* ─ inline field errors ─ */
   fieldError        = { field: null, message: "" },
   clearFieldError,
   clearAllFieldErrors,
@@ -203,16 +206,26 @@ export default function ProductComponents({
     : "/api",
 }) {
   /* ── Local state ── */
-  const [showAllFeatures,       setShowAllFeatures]       = useState(false);
-  const [isDragging,            setIsDragging]            = useState(false);
-  const [waLinkError,           setWaLinkError]           = useState("");
-  const [deliveryRangeError,    setDeliveryRangeError]    = useState("");
-  const [showVerificationModal, setShowVerificationModal] = useState(false);
-  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
-  const [titleSuggestions,      setTitleSuggestions]      = useState([]);
-  const [dupWarning,            setDupWarning]            = useState("");
-  const [dupChecking,           setDupChecking]           = useState(false);
-  const [imageErrors,           setImageErrors]           = useState({});
+  const [showAllFeatures,       setShowAllFeatures]
+    = useState(false);
+  const [isDragging,            setIsDragging]
+    = useState(false);
+  const [waLinkError,           setWaLinkError]
+    = useState("");
+  const [deliveryRangeError,    setDeliveryRangeError]
+    = useState("");
+  const [showVerificationModal, setShowVerificationModal]
+    = useState(false);
+  const [showSubscriptionModal, setShowSubscriptionModal]
+    = useState(false);
+  const [titleSuggestions,      setTitleSuggestions]
+    = useState([]);
+  const [dupWarning,            setDupWarning]
+    = useState("");
+  const [dupChecking,           setDupChecking]
+    = useState(false);
+  const [imageErrors,           setImageErrors]
+    = useState({});
 
   const sessionHashMap  = useRef(new Map());
   const validationQueue = useRef(Promise.resolve());
@@ -220,7 +233,7 @@ export default function ProductComponents({
   const dropZoneRef     = useRef(null);
   const dragCounterRef  = useRef(0);
 
-  /* Static section refs */
+  /* Section refs for entrance animations */
   const sec0 = useRef(null); const sec1 = useRef(null);
   const sec2 = useRef(null); const sec3 = useRef(null);
   const sec4 = useRef(null); const sec5 = useRef(null);
@@ -228,10 +241,9 @@ export default function ProductComponents({
     () => [sec0, sec1, sec2, sec3, sec4, sec5],
     []
   );
-
   const planRefs = useRef([]);
 
-  /* Helper for field error checks */
+  /* Field error helper */
   const hasError = useCallback(
     (fieldKey) => fieldError?.field === fieldKey,
     [fieldError?.field]
@@ -253,16 +265,14 @@ export default function ProductComponents({
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
-    if (trialExhausted && tier === "unverified") {
+    if (trialExhausted && tier === "unverified")
       setShowVerificationModal(true);
-    }
   }, [trialExhausted, tier, isEditMode]);
 
   useEffect(() => {
     if (isEditMode) return;
-    if (lifetimeExhausted && tier === "verified" && !isSubscriber) {
+    if (lifetimeExhausted && tier === "verified" && !isSubscriber)
       setShowSubscriptionModal(true);
-    }
   }, [lifetimeExhausted, tier, isSubscriber, isEditMode]);
 
   useEffect(() => {
@@ -270,59 +280,74 @@ export default function ProductComponents({
     if (needsSubscription) setShowSubscriptionModal(true);
   }, [needsSubscription, isEditMode]);
 
-  /* Auto-clear "images" field error when user adds an image */
+  /* Auto-clear image field error when user adds an image */
   useEffect(() => {
-    if (totalImageCount > 0 && hasError("images")) {
+    if (totalImageCount > 0 && hasError("images"))
       clearFieldError?.("images");
-    }
   }, [totalImageCount, hasError, clearFieldError]);
 
   /* ═══════════════════════════════════════════════════════════
      IMAGE VALIDATION
   ═══════════════════════════════════════════════════════════ */
-  const _validateImages = useCallback(async (incomingImages) => {
-    const errors = {};
-    const newMap = new Map(sessionHashMap.current);
+  const _validateImages = useCallback(
+    async (incomingImages) => {
+      const errors = {};
+      const newMap = new Map(sessionHashMap.current);
 
-    for (const img of incomingImages) {
-      if (!["image/jpeg","image/png","image/webp"].includes(img.file.type)) {
-        errors[img.id] = "Wrong type — use JPEG, PNG or WebP"; continue;
-      }
-      if (img.file.size > 5 * 1024 * 1024) {
-        errors[img.id] = `Too large (${(img.file.size / 1_048_576).toFixed(1)} MB) — max 5 MB`;
-        continue;
-      }
-      if (validatedIdsRef.current.has(img.id)) continue;
+      for (const img of incomingImages) {
+        if (
+          !["image/jpeg", "image/png", "image/webp"].includes(
+            img.file.type
+          )
+        ) {
+          errors[img.id] = "Wrong type — use JPEG, PNG or WebP";
+          continue;
+        }
+        if (img.file.size > 5 * 1024 * 1024) {
+          errors[img.id] =
+            `Too large (${(img.file.size / 1_048_576).toFixed(1)} MB)` +
+            ` — max 5 MB`;
+          continue;
+        }
+        if (validatedIdsRef.current.has(img.id)) continue;
 
-      const hash        = await hashImageFile(img.file);
-      const isDuplicate = [...newMap.entries()].some(
-        ([id, h]) => h === hash && id !== img.id
-      );
-      if (isDuplicate) {
-        errors[img.id] = "Duplicate — this photo is already added"; continue;
+        const hash      = await hashImageFile(img.file);
+        const isDup     = [...newMap.entries()].some(
+          ([id, h]) => h === hash && id !== img.id
+        );
+        if (isDup) {
+          errors[img.id] =
+            "Duplicate — this photo is already added";
+          continue;
+        }
+        newMap.set(img.id, hash);
+        validatedIdsRef.current.add(img.id);
       }
-      newMap.set(img.id, hash);
-      validatedIdsRef.current.add(img.id);
-    }
 
-    sessionHashMap.current = newMap;
-    setImageErrors((prev) => {
-      const next = { ...prev };
-      incomingImages.forEach((img) => {
-        if (errors[img.id]) next[img.id] = errors[img.id];
-        else delete next[img.id];
+      sessionHashMap.current = newMap;
+      setImageErrors((prev) => {
+        const next = { ...prev };
+        incomingImages.forEach((img) => {
+          if (errors[img.id]) next[img.id] = errors[img.id];
+          else delete next[img.id];
+        });
+        return next;
       });
-      return next;
-    });
-  }, []);
+    },
+    []
+  );
 
-  const validateAndHashImages = useCallback((incomingImages) => {
-    validationQueue.current = validationQueue.current
-      .then(() => _validateImages(incomingImages))
-      .catch((err) => {
-        if (import.meta.env.DEV) console.warn("[ImageValidation]", err);
-      });
-  }, [_validateImages]);
+  const validateAndHashImages = useCallback(
+    (incomingImages) => {
+      validationQueue.current = validationQueue.current
+        .then(() => _validateImages(incomingImages))
+        .catch((err) => {
+          if (import.meta.env.DEV)
+            console.warn("[ImageValidation]", err);
+        });
+    },
+    [_validateImages]
+  );
 
   useEffect(() => {
     if (!images.length) return;
@@ -348,7 +373,11 @@ export default function ProductComponents({
   ═══════════════════════════════════════════════════════════ */
   const checkServerDuplicate = useCallback(async () => {
     if (isEditMode) return;
-    if (!form.title?.trim() || !form.price || !form.category_id) return;
+    if (
+      !form.title?.trim() ||
+      !form.price          ||
+      !form.category_id
+    ) return;
     const token = getToken();
     if (!token) return;
 
@@ -360,10 +389,10 @@ export default function ProductComponents({
       const res = await fetch(
         `${apiBase}/addproduct/products/check-duplicate`,
         {
-          method  : "POST",
-          headers : {
-            "Content-Type" : "application/json",
-            Authorization  : `Bearer ${token}`,
+          method : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization : `Bearer ${token}`,
           },
           body: JSON.stringify({
             title       : form.title.trim(),
@@ -381,15 +410,24 @@ export default function ProductComponents({
           : ""
       );
     } catch (err) {
-      if (import.meta.env.DEV) console.warn("[DupCheck]", err.message);
+      if (import.meta.env.DEV)
+        console.warn("[DupCheck]", err.message);
     } finally {
       setDupChecking(false);
     }
-  }, [isEditMode, form.title, form.price, form.category_id, images, apiBase]);
+  }, [
+    isEditMode, form.title, form.price,
+    form.category_id, images, apiBase,
+  ]);
 
   useEffect(() => {
-    if (isEditMode || !form.title?.trim() || form.title.length < 8) {
-      setDupWarning(""); return;
+    if (
+      isEditMode ||
+      !form.title?.trim() ||
+      form.title.length < 8
+    ) {
+      setDupWarning("");
+      return;
     }
     const t = setTimeout(checkServerDuplicate, 1_200);
     return () => clearTimeout(t);
@@ -402,19 +440,23 @@ export default function ProductComponents({
      WHATSAPP LINK
   ═══════════════════════════════════════════════════════════ */
   const ALLOWED_WA_HOSTS = useMemo(() => [
-    "wa.me", "web.whatsapp.com", "api.whatsapp.com",
-    "chat.whatsapp.com", "business.whatsapp.com",
+    "wa.me",
+    "web.whatsapp.com",
+    "api.whatsapp.com",
+    "chat.whatsapp.com",
+    "business.whatsapp.com",
   ], []);
 
   const sanitizeWhatsAppLink = useCallback((val) => {
     const trimmed = val.trim();
     if (!trimmed) return "";
     try {
-      const url = new URL(trimmed);
+      const url     = new URL(trimmed);
       if (url.protocol !== "https:") return "";
       const allowed = ALLOWED_WA_HOSTS.some(
         (host) =>
-          url.hostname === host || url.hostname.endsWith(`.${host}`)
+          url.hostname === host ||
+          url.hostname.endsWith(`.${host}`)
       );
       return allowed ? trimmed : "";
     } catch { return ""; }
@@ -504,7 +546,8 @@ export default function ProductComponents({
       .filter((cat) => cat.id && cat.name);
   }, [categories]);
 
-  const activeCategory = selectedCategory ??
+  const activeCategory =
+    selectedCategory ??
     getSelectedCategory(categories, form.category_id);
   const subcategories  = activeCategory?.subcategories ?? [];
 
@@ -522,7 +565,8 @@ export default function ProductComponents({
       .filter((f) => typeof f === "string" && f.trim().length > 0)
       .filter((f) => {
         if (seen.has(f)) return false;
-        seen.add(f); return true;
+        seen.add(f);
+        return true;
       })
       .filter((f) => f !== "brand" && f !== "model");
   }, [activeCategory, options]);
@@ -530,7 +574,9 @@ export default function ProductComponents({
   const modelOptions = useMemo(() => {
     if (!attributes?.brand) return [];
     return normalizeOptions(
-      options?.models?.[String(attributes.brand).toLowerCase()] ?? []
+      options?.models?.[
+        String(attributes.brand).toLowerCase()
+      ] ?? []
     );
   }, [attributes?.brand, options]);
 
@@ -563,12 +609,13 @@ export default function ProductComponents({
   }), [options]);
 
   const showModelField = !!attributes?.brand;
-  const isFreePlan     = !selectedPlan ||
-    Number(selectedPlan?.price ?? 0) === 0;
+  const isFreePlan     =
+    !selectedPlan || Number(selectedPlan?.price ?? 0) === 0;
 
   const allFeatures = normalizedOptions.features;
   const visibleFeatures = useMemo(
-    () => (showAllFeatures ? allFeatures : allFeatures.slice(0, 12)),
+    () =>
+      showAllFeatures ? allFeatures : allFeatures.slice(0, 12),
     [allFeatures, showAllFeatures]
   );
   const totalFeatureCount   = allFeatures.length;
@@ -582,19 +629,23 @@ export default function ProductComponents({
     let best = null, bestDiscount = 0;
     for (const p of promotionPlans) {
       const d = Number(p.discount_percent ?? 0);
-      if (d > bestDiscount) { bestDiscount = d; best = p.id; }
+      if (d > bestDiscount) {
+        bestDiscount = d;
+        best         = p.id;
+      }
     }
     return bestDiscount > 0 ? best : null;
   }, [promotionPlans]);
 
   const planPriceLabel = useCallback((plan) => {
-    const price    = Number(plan.price ?? 0);
+    const price    = Number(plan.price         ?? 0);
     const discount = Number(plan.discount_percent ?? 0);
     if (price === 0) return "Free";
     if (discount > 0) {
-      const effective = Number(plan.effective_price) > 0
-        ? Number(plan.effective_price)
-        : price * (1 - discount / 100);
+      const effective =
+        Number(plan.effective_price) > 0
+          ? Number(plan.effective_price)
+          : price * (1 - discount / 100);
       return (
         <>
           <span className="plan-price-original">
@@ -603,7 +654,9 @@ export default function ProductComponents({
           <span className="plan-price-effective">
             &#8358;{displayPrice(effective.toFixed(2))}
           </span>{" "}
-          <span className="plan-price-badge">-{discount}%</span>
+          <span className="plan-price-badge">
+            -{discount}%
+          </span>
         </>
       );
     }
@@ -611,12 +664,14 @@ export default function ProductComponents({
   }, [displayPrice]);
 
   const clampDay = useCallback((val) => {
-    const n = parseInt(String(val).replace(/[^0-9]/g, ""), 10);
+    const n = parseInt(
+      String(val).replace(/[^0-9]/g, ""), 10
+    );
     if (Number.isNaN(n) || n < 1) return "";
     return String(Math.min(n, 30));
   }, []);
 
-  /* Title suggestions */
+  /* Title suggestions from description */
   useEffect(() => {
     if (isEditMode) return;
     if (
@@ -624,14 +679,17 @@ export default function ProductComponents({
       form.description.length < 30 ||
       form.title?.trim().length >= 10
     ) {
-      setTitleSuggestions([]); return;
+      setTitleSuggestions([]);
+      return;
     }
     const t = setTimeout(() => {
       const words = form.description
         .split(/[\s,.\-|]+/)
         .filter((w) => w.length > 3)
         .slice(0, 5);
-      setTitleSuggestions(words.length >= 3 ? [words.join(" ")] : []);
+      setTitleSuggestions(
+        words.length >= 3 ? [words.join(" ")] : []
+      );
     }, 600);
     return () => clearTimeout(t);
   }, [isEditMode, form.description, form.title]);
@@ -643,15 +701,29 @@ export default function ProductComponents({
   const hasImageErrors = Object.keys(imageErrors).length > 0;
 
   const basicFilled   = !!(
-    form.title?.trim() && form.description?.trim() && form.price
+    form.title?.trim() &&
+    form.description?.trim() &&
+    form.price
   );
-  const detailsFilled  = !!form.category_id;
-  const contactFilled  = !!form.contact?.phone;
+  const detailsFilled = !!form.category_id;
+
+  /*
+   * ✅ contactFilled no longer requires phone
+   *    Phone is optional — section is "filled" if any contact
+   *    field has data, or always true since it's all optional.
+   *    We mark it filled by default so the progress bar doesn't
+   *    block users who choose not to add a phone number.
+   */
+  const contactFilled  = true;
   const locationFilled = !!(state && city);
   const imagesFilled   = totalImageCount > 0 && !hasImageErrors;
 
   const sectionsComplete = [
-    basicFilled, detailsFilled, contactFilled, locationFilled, imagesFilled,
+    basicFilled,
+    detailsFilled,
+    contactFilled,
+    locationFilled,
+    imagesFilled,
   ].filter(Boolean).length;
 
   const submitBlocked =
@@ -660,13 +732,14 @@ export default function ProductComponents({
     !!deliveryRangeError          ||
     hasImageErrors;
 
-  const submitTitle = plansLoading && !isEditMode
-    ? "Plans are still loading"
-    : !!deliveryRangeError
-    ? deliveryRangeError
-    : hasImageErrors
-    ? "Fix image errors before submitting"
-    : undefined;
+  const submitTitle =
+    plansLoading && !isEditMode
+      ? "Plans are still loading"
+      : !!deliveryRangeError
+      ? deliveryRangeError
+      : hasImageErrors
+      ? "Fix image errors before submitting"
+      : undefined;
 
   const submitLabel = (() => {
     if (loading)            return isEditMode ? "Saving…" : "Processing…";
@@ -677,7 +750,7 @@ export default function ProductComponents({
     return "Post Ad & Pay";
   })();
 
-  /* Hide top banner if the error is a field error (shown inline instead) */
+  /* Only show top banner if error is NOT a field-level error */
   const showTopErrorBanner = !!error && !fieldError?.field;
 
   /* ═══════════════════════════════════════════════════════════
@@ -690,13 +763,13 @@ export default function ProductComponents({
         onClearDraft={isEditMode ? null : clearDraft}
       />
 
+      {/* ── Upsell modals ── */}
       {showVerificationModal && !isEditMode && (
         <VerificationUpsellModal
           onClose={() => setShowVerificationModal(false)}
           trialRemaining={trialRemaining}
         />
       )}
-
       {showSubscriptionModal && !isEditMode && (
         <SubscriptionUpsellModal
           onClose={() => setShowSubscriptionModal(false)}
@@ -714,12 +787,18 @@ export default function ProductComponents({
         />
       )}
 
+      {/* ── Progress bar ── */}
       {!isEditMode && sectionsComplete < 5 && (
         <div className="ap-top-bar">
-          <div className="form-progress" aria-label="Form completion">
+          <div
+            className="form-progress"
+            aria-label="Form completion"
+          >
             <div
               className="form-progress-bar"
-              style={{ width: `${(sectionsComplete / 5) * 100}%` }}
+              style={{
+                width: `${(sectionsComplete / 5) * 100}%`,
+              }}
             />
             <span className="form-progress-label">
               {sectionsComplete}/5 sections complete
@@ -728,13 +807,16 @@ export default function ProductComponents({
         </div>
       )}
 
+      {/* ── Edit mode indicator ── */}
       {isEditMode && (
         <div className="ap-edit-mode-bar">
           <span className="ap-edit-mode-icon" aria-hidden="true">
             <svg
               width="14" height="14" viewBox="0 0 24 24"
               fill="none" stroke="currentColor"
-              strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
               <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7" />
               <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
@@ -744,6 +826,7 @@ export default function ProductComponents({
         </div>
       )}
 
+      {/* ── Duplicate warning ── */}
       {!isEditMode && dupWarning && (
         <div className="duplicate-warning" role="alert">
           <WarningIcon />
@@ -768,8 +851,12 @@ export default function ProductComponents({
         </div>
       )}
 
+      {/* ── Top error / success banners ── */}
       {showTopErrorBanner && (
-        <div className="form-error ap-error-banner" role="alert">
+        <div
+          className="form-error ap-error-banner"
+          role="alert"
+        >
           <WarningIcon /> {error}
         </div>
       )}
@@ -779,10 +866,14 @@ export default function ProductComponents({
         </div>
       )}
 
+      {/* ── Verification nudge ── */}
       {needsVerification && verificationData && (
-        <VerificationNudgeBanner verificationData={verificationData} />
+        <VerificationNudgeBanner
+          verificationData={verificationData}
+        />
       )}
 
+      {/* ── Stale payment resume banner ── */}
       {!isEditMode && paymentData?.authUrl && (
         <div className="payment-resume-banner" role="alert">
           <div className="payment-resume-info">
@@ -823,7 +914,11 @@ export default function ProductComponents({
         </h3>
 
         {/* TITLE */}
-        <div className={`form-group ${hasError("title") ? "has-error" : ""}`}>
+        <div
+          className={`form-group ${
+            hasError("title") ? "has-error" : ""
+          }`}
+        >
           <label htmlFor="ap-title">Product Title *</label>
           <input
             id="ap-title"
@@ -832,7 +927,9 @@ export default function ProductComponents({
             onChange={(e) => updateForm("title", e.target.value)}
             maxLength={120}
             aria-invalid={hasError("title") || undefined}
-            aria-describedby={hasError("title") ? "ap-title-error" : undefined}
+            aria-describedby={
+              hasError("title") ? "ap-title-error" : undefined
+            }
           />
           <div className="field-footer">
             <span />
@@ -846,7 +943,9 @@ export default function ProductComponents({
 
           {!isEditMode && titleSuggestions.length > 0 && (
             <div className="title-suggestions">
-              <span className="title-suggestions-label">Suggestion:</span>
+              <span className="title-suggestions-label">
+                Suggestion:
+              </span>
               {titleSuggestions.map((s) => (
                 <button
                   key={s}
@@ -865,21 +964,33 @@ export default function ProductComponents({
         </div>
 
         {/* DESCRIPTION */}
-        <div className={`form-group ${hasError("description") ? "has-error" : ""}`}>
+        <div
+          className={`form-group ${
+            hasError("description") ? "has-error" : ""
+          }`}
+        >
           <label htmlFor="ap-desc">Description *</label>
           <textarea
             id="ap-desc"
             rows={4}
             placeholder="Describe your product — condition, features, reason for selling"
             value={form.description}
-            onChange={(e) => updateForm("description", e.target.value)}
+            onChange={(e) =>
+              updateForm("description", e.target.value)
+            }
             maxLength={2000}
             aria-invalid={hasError("description") || undefined}
-            aria-describedby={hasError("description") ? "ap-desc-error" : undefined}
+            aria-describedby={
+              hasError("description") ? "ap-desc-error" : undefined
+            }
           />
           <div className="field-footer">
             <span />
-            <CharCounter value={form.description} max={2000} min={10} />
+            <CharCounter
+              value={form.description}
+              max={2000}
+              min={10}
+            />
           </div>
           <InlineFieldError
             id="ap-desc-error"
@@ -889,7 +1000,11 @@ export default function ProductComponents({
         </div>
 
         {/* PRICE */}
-        <div className={`form-group ${hasError("price") ? "has-error" : ""}`}>
+        <div
+          className={`form-group ${
+            hasError("price") ? "has-error" : ""
+          }`}
+        >
           <label htmlFor="ap-price">Price (&#8358;) *</label>
           <input
             id="ap-price"
@@ -901,7 +1016,9 @@ export default function ProductComponents({
               updateForm("price", onlyNumbers(e.target.value))
             }
             aria-invalid={hasError("price") || undefined}
-            aria-describedby={hasError("price") ? "ap-price-error" : undefined}
+            aria-describedby={
+              hasError("price") ? "ap-price-error" : undefined
+            }
           />
           <InlineFieldError
             id="ap-price-error"
@@ -920,14 +1037,20 @@ export default function ProductComponents({
         </h3>
 
         {/* CATEGORY */}
-        <div className={`form-group ${hasError("category") ? "has-error" : ""}`}>
+        <div
+          className={`form-group ${
+            hasError("category") ? "has-error" : ""
+          }`}
+        >
           <label>Category *</label>
           <DropdownModal
             value={normValue(form.category_id)}
             options={categoryOptions}
             placeholder="Select category"
             onChange={(value) => {
-              if (normValue(value) === normValue(form.category_id)) return;
+              if (
+                normValue(value) === normValue(form.category_id)
+              ) return;
               updateForm("category_id",    value);
               updateForm("subcategory_id", "");
               if (!isEditMode) {
@@ -944,6 +1067,7 @@ export default function ProductComponents({
           />
         </div>
 
+        {/* SUBCATEGORY */}
         {subcategories.length > 0 && (
           <div className="form-group">
             <label>Subcategory</label>
@@ -954,11 +1078,14 @@ export default function ProductComponents({
                 name: sub.name,
               }))}
               placeholder="Select subcategory"
-              onChange={(value) => updateForm("subcategory_id", value)}
+              onChange={(value) =>
+                updateForm("subcategory_id", value)
+              }
             />
           </div>
         )}
 
+        {/* BRAND */}
         {normalizedOptions.brand.length > 0 && (
           <div className="form-group">
             <label>{formatLabel("brand")}</label>
@@ -970,6 +1097,7 @@ export default function ProductComponents({
           </div>
         )}
 
+        {/* MODEL */}
         {showModelField && (
           <div className="form-group">
             <label>{formatLabel("model")}</label>
@@ -988,13 +1116,16 @@ export default function ProductComponents({
                 placeholder="e.g. Pavilion 15-eg3000"
                 value={attributes?.model ?? ""}
                 onChange={(e) =>
-                  updateAttribute("model", e.target.value.trimStart())
+                  updateAttribute(
+                    "model", e.target.value.trimStart()
+                  )
                 }
               />
             )}
           </div>
         )}
 
+        {/* DYNAMIC FIELDS */}
         {fields.map((field) => {
           const fieldOptions = normalizedOptions[field] ?? [];
           if (!fieldOptions.length) return null;
@@ -1014,6 +1145,7 @@ export default function ProductComponents({
           );
         })}
 
+        {/* FEATURES */}
         {totalFeatureCount > 0 && (
           <div className="form-group">
             <label>Features</label>
@@ -1053,15 +1185,26 @@ export default function ProductComponents({
 
       {/* ════════════════════════════════════════════════════
           SECTION 2 — CONTACT INFORMATION
+          ✅ Phone is OPTIONAL
+          ✅ Email removed — lives in users table only
       ════════════════════════════════════════════════════ */}
       <section ref={sec2} className="section form-card">
         <h3 className="section-title">
-          Contact Information <SectionDot filled={contactFilled} />
+          Contact Information{" "}
+          <SectionDot filled={contactFilled} />
         </h3>
 
-        {/* PHONE */}
-        <div className={`form-group ${hasError("phone") ? "has-error" : ""}`}>
-          <label htmlFor="ap-phone">Phone Number *</label>
+        {/* PHONE — OPTIONAL */}
+        <div
+          className={`form-group ${
+            hasError("phone") ? "has-error" : ""
+          }`}
+        >
+          <label htmlFor="ap-phone">
+            Phone Number{" "}
+            {/* ✅ Updated: now shows (optional) */}
+            <span className="label-optional">(optional)</span>
+          </label>
           <input
             id="ap-phone"
             type="tel"
@@ -1073,11 +1216,14 @@ export default function ProductComponents({
             maxLength={15}
             autoComplete="tel"
             aria-invalid={hasError("phone") || undefined}
-            aria-describedby={hasError("phone") ? "ap-phone-error" : undefined}
+            aria-describedby={
+              hasError("phone") ? "ap-phone-error" : undefined
+            }
           />
           {!hasError("phone") && (
             <small className="field-hint">
-              Buyers will use this to contact you
+              {/* ✅ Updated hint — no longer says required */}
+              Add your phone number so buyers can contact you
             </small>
           )}
           <InlineFieldError
@@ -1087,8 +1233,12 @@ export default function ProductComponents({
           />
         </div>
 
-        {/* WHATSAPP */}
-        <div className={`form-group ${hasError("whatsapp") ? "has-error" : ""}`}>
+        {/* WHATSAPP — OPTIONAL */}
+        <div
+          className={`form-group ${
+            hasError("whatsapp") ? "has-error" : ""
+          }`}
+        >
           <label htmlFor="ap-wa">
             WhatsApp Number{" "}
             <span className="label-optional">(optional)</span>
@@ -1103,7 +1253,9 @@ export default function ProductComponents({
             }
             maxLength={15}
             aria-invalid={hasError("whatsapp") || undefined}
-            aria-describedby={hasError("whatsapp") ? "ap-wa-error" : undefined}
+            aria-describedby={
+              hasError("whatsapp") ? "ap-wa-error" : undefined
+            }
           />
           {!hasError("whatsapp") && (
             <small className="field-hint">
@@ -1117,7 +1269,7 @@ export default function ProductComponents({
           />
         </div>
 
-        {/* WHATSAPP LINK */}
+        {/* WHATSAPP LINK — OPTIONAL */}
         <div className="form-group">
           <label htmlFor="ap-wa-link">
             WhatsApp Link{" "}
@@ -1147,9 +1299,11 @@ export default function ProductComponents({
       ════════════════════════════════════════════════════ */}
       <section ref={sec3} className="section form-card">
         <h3 className="section-title">
-          Location &amp; Delivery <SectionDot filled={locationFilled} />
+          Location &amp; Delivery{" "}
+          <SectionDot filled={locationFilled} />
         </h3>
 
+        {/* GPS DETECT */}
         {detectLocation && (
           <div className="detect-location-row">
             <button
@@ -1159,7 +1313,9 @@ export default function ProductComponents({
               disabled={detectingLocation}
             >
               {detectingLocation ? (
-                <><SpinnerIcon /> Detecting location&#8230;</>
+                <>
+                  <SpinnerIcon /> Detecting location&#8230;
+                </>
               ) : (
                 <>
                   <LocationPinIcon />
@@ -1174,7 +1330,11 @@ export default function ProductComponents({
 
         {/* STATE + CITY */}
         <div className="form-row">
-          <div className={`form-group ${hasError("location") ? "has-error" : ""}`}>
+          <div
+            className={`form-group ${
+              hasError("location") ? "has-error" : ""
+            }`}
+          >
             <label>State *</label>
             <DropdownModal
               value={state}
@@ -1184,7 +1344,11 @@ export default function ProductComponents({
             />
           </div>
           {state && (
-            <div className={`form-group ${hasError("location") ? "has-error" : ""}`}>
+            <div
+              className={`form-group ${
+                hasError("location") ? "has-error" : ""
+              }`}
+            >
               <label>City *</label>
               <DropdownModal
                 value={city}
@@ -1195,7 +1359,6 @@ export default function ProductComponents({
             </div>
           )}
         </div>
-
         <InlineFieldError
           show={hasError("location")}
           message={fieldError.message}
@@ -1203,7 +1366,9 @@ export default function ProductComponents({
 
         {/* DELIVERY TOGGLE */}
         <div className="form-group">
-          <label htmlFor="ap-delivery-toggle">Delivery Available</label>
+          <label htmlFor="ap-delivery-toggle">
+            Delivery Available
+          </label>
           <label className="toggle-switch">
             <input
               id="ap-delivery-toggle"
@@ -1216,7 +1381,9 @@ export default function ProductComponents({
             <span className="slider" />
             <span
               className={`toggle-status${
-                form.delivery.available ? " toggle-status--on" : ""
+                form.delivery.available
+                  ? " toggle-status--on"
+                  : ""
               }`}
             >
               {form.delivery.available
@@ -1226,10 +1393,15 @@ export default function ProductComponents({
           </label>
         </div>
 
+        {/* DELIVERY FIELDS */}
         {form.delivery.available && (
           <div className="delivery-grid">
             <div className="form-row">
-              <div className={`form-group ${hasError("delivery_from") ? "has-error" : ""}`}>
+              <div
+                className={`form-group ${
+                  hasError("delivery_from") ? "has-error" : ""
+                }`}
+              >
                 <label htmlFor="ap-del-from">From Day *</label>
                 <input
                   id="ap-del-from"
@@ -1238,9 +1410,13 @@ export default function ProductComponents({
                   max="30"
                   value={form.delivery.duration.from}
                   onChange={(e) =>
-                    handleDeliveryDuration("from", clampDay(e.target.value))
+                    handleDeliveryDuration(
+                      "from", clampDay(e.target.value)
+                    )
                   }
-                  aria-invalid={hasError("delivery_from") || undefined}
+                  aria-invalid={
+                    hasError("delivery_from") || undefined
+                  }
                 />
                 <InlineFieldError
                   show={hasError("delivery_from")}
@@ -1248,7 +1424,11 @@ export default function ProductComponents({
                 />
               </div>
 
-              <div className={`form-group ${hasError("delivery_to") ? "has-error" : ""}`}>
+              <div
+                className={`form-group ${
+                  hasError("delivery_to") ? "has-error" : ""
+                }`}
+              >
                 <label htmlFor="ap-del-to">To Day *</label>
                 <input
                   id="ap-del-to"
@@ -1257,9 +1437,13 @@ export default function ProductComponents({
                   max="30"
                   value={form.delivery.duration.to}
                   onChange={(e) =>
-                    handleDeliveryDuration("to", clampDay(e.target.value))
+                    handleDeliveryDuration(
+                      "to", clampDay(e.target.value)
+                    )
                   }
-                  aria-invalid={hasError("delivery_to") || undefined}
+                  aria-invalid={
+                    hasError("delivery_to") || undefined
+                  }
                 />
                 <InlineFieldError
                   show={hasError("delivery_to")}
@@ -1269,21 +1453,34 @@ export default function ProductComponents({
             </div>
 
             {deliveryRangeError && (
-              <InlineFieldError show={true} message={deliveryRangeError} />
+              <InlineFieldError
+                show={true}
+                message={deliveryRangeError}
+              />
             )}
 
             <div className="form-row">
-              <div className={`form-group ${hasError("delivery_fee") ? "has-error" : ""}`}>
-                <label htmlFor="ap-del-fee">Fee (&#8358;) *</label>
+              <div
+                className={`form-group ${
+                  hasError("delivery_fee") ? "has-error" : ""
+                }`}
+              >
+                <label htmlFor="ap-del-fee">
+                  Fee (&#8358;) *
+                </label>
                 <input
                   id="ap-del-fee"
                   type="text"
                   inputMode="numeric"
                   value={displayPrice(form.delivery.fee)}
                   onChange={(e) =>
-                    updateDelivery("fee", onlyNumbers(e.target.value))
+                    updateDelivery(
+                      "fee", onlyNumbers(e.target.value)
+                    )
                   }
-                  aria-invalid={hasError("delivery_fee") || undefined}
+                  aria-invalid={
+                    hasError("delivery_fee") || undefined
+                  }
                 />
                 <InlineFieldError
                   show={hasError("delivery_fee")}
@@ -1307,7 +1504,10 @@ export default function ProductComponents({
                 />
                 <div className="field-footer">
                   <span />
-                  <CharCounter value={form.delivery.note} max={200} />
+                  <CharCounter
+                    value={form.delivery.note}
+                    max={200}
+                  />
                 </div>
               </div>
             </div>
@@ -1317,12 +1517,14 @@ export default function ProductComponents({
 
       {/* ════════════════════════════════════════════════════
           SECTION 4 — PRODUCT IMAGES
-          ✅ v8.3: ImageGrid ALWAYS mounted — has built-in EmptyState.
-                   Errors positioned BELOW grid to match other fields.
+          ✅ MAX_IMAGES = 8
+          ✅ ImageGrid always mounted (v8.3 fix)
+          ✅ Errors positioned below grid
       ════════════════════════════════════════════════════ */}
       <section ref={sec4} className="section form-card">
         <h3 className="section-title">
-          Product Images * <SectionDot filled={imagesFilled} />
+          Product Images *{" "}
+          <SectionDot filled={imagesFilled} />
         </h3>
 
         <div className="image-count-status">
@@ -1337,12 +1539,13 @@ export default function ProductComponents({
           </span>
           {isEditMode && existingImages.length > 0 && (
             <span className="image-count-existing">
-              {existingImages.length} existing · {images.length} new
+              {existingImages.length} existing ·{" "}
+              {images.length} new
             </span>
           )}
         </div>
 
-        {/* Existing images (edit mode only) */}
+        {/* Existing images — edit mode only */}
         {isEditMode && existingImages.length > 0 && (
           <ExistingImageGrid
             existingImages={existingImages}
@@ -1350,9 +1553,11 @@ export default function ProductComponents({
           />
         )}
 
-        {/* ✅ ImageGrid is ALWAYS mounted — it renders EmptyState internally
-              when there are no images. This is what fixes the disappearing
-              upload area bug (v8.3). */}
+        {/*
+         * ✅ ImageGrid ALWAYS mounted — it renders EmptyState
+         *    internally when images = [].
+         *    This fixes the disappearing upload area bug.
+         */}
         <ImageGrid
           images={images}
           imageErrors={imageErrors}
@@ -1376,13 +1581,13 @@ export default function ProductComponents({
           onAdd={handleImages}
         />
 
-        {/* ✅ Section-level error BELOW the grid (like all other sections) */}
+        {/* Field-level error below grid */}
         <InlineFieldError
           show={hasError("images")}
           message={fieldError.message}
         />
 
-        {/* Per-image validation errors */}
+        {/* Per-image validation errors summary */}
         {hasImageErrors && (
           <div
             className="field-error"
@@ -1392,7 +1597,9 @@ export default function ProductComponents({
             <WarningIcon />
             <span>
               {Object.keys(imageErrors).length} image
-              {Object.keys(imageErrors).length !== 1 ? "s have" : " has"}{" "}
+              {Object.keys(imageErrors).length !== 1
+                ? "s have"
+                : " has"}{" "}
               errors — fix before submitting
             </span>
           </div>
@@ -1427,7 +1634,8 @@ export default function ProductComponents({
 
           {!plansLoading && promotionPlans.length === 0 && (
             <div className="form-error" role="alert">
-              <WarningIcon /> Could not load promotion plans. Please refresh.
+              <WarningIcon />
+              Could not load promotion plans. Please refresh.
             </div>
           )}
 
@@ -1442,6 +1650,7 @@ export default function ProductComponents({
                   String(selectedPlan?.id) === String(plan.id);
                 const isBestValue =
                   String(plan.id) === String(bestValuePlanId);
+
                 return (
                   <div
                     key={plan.id}
@@ -1452,7 +1661,9 @@ export default function ProductComponents({
                       "plan-card",
                       isSelected  ? "selected"        : "",
                       isBestValue ? "plan-card--best" : "",
-                    ].filter(Boolean).join(" ")}
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
                     onClick={() =>
                       setSelectedPlan(isSelected ? null : plan)
                     }
@@ -1463,9 +1674,14 @@ export default function ProductComponents({
                       isBestValue ? " — Best Value" : ""
                     }`}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === " ") {
+                      if (
+                        e.key === "Enter" ||
+                        e.key === " "
+                      ) {
                         e.preventDefault();
-                        setSelectedPlan(isSelected ? null : plan);
+                        setSelectedPlan(
+                          isSelected ? null : plan
+                        );
                         return;
                       }
                       const total = promotionPlans.length;
@@ -1483,7 +1699,8 @@ export default function ProductComponents({
                         e.key === "ArrowUp"
                       ) {
                         e.preventDefault();
-                        const prev = (planIndex - 1 + total) % total;
+                        const prev =
+                          (planIndex - 1 + total) % total;
                         setSelectedPlan(promotionPlans[prev]);
                         planRefs.current[prev]?.focus();
                       }
@@ -1527,7 +1744,10 @@ export default function ProductComponents({
 
       {!isEditMode && hasError("terms") && (
         <div style={{ padding: "0 16px" }}>
-          <InlineFieldError show={true} message={fieldError.message} />
+          <InlineFieldError
+            show={true}
+            message={fieldError.message}
+          />
         </div>
       )}
 
