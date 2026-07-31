@@ -79,25 +79,61 @@
   padding    : 0;
 }
 
+/* ── App root sizing + pull-to-refresh prevention ── */
+html,
+body,
+#root {
+  width      : 100%;
+  min-height : 100%;
+}
+
 html {
-  font-size              : 16px;
+  font-size               : 16px;
   -webkit-text-size-adjust: 100%;
-  scroll-behavior        : smooth;
+  scroll-behavior         : smooth;
+
+  /* Prevent browser pull-to-refresh / overscroll chaining */
+  overscroll-behavior     : none;
+  overscroll-behavior-y   : none;
+  overscroll-behavior-x   : none;
+
+  background              : var(--bg);
 }
 
 body {
-  background             : var(--bg);
-  font-family            : var(--fb);
-  color                  : var(--ink);
-  -webkit-font-smoothing : antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  line-height            : 1.5;
-  min-height             : 100dvh;
+  background              : var(--bg);
+  font-family             : var(--fb);
+  color                   : var(--ink);
+  -webkit-font-smoothing  : antialiased;
+  -moz-osx-font-smoothing : grayscale;
+  line-height             : 1.5;
+  min-height              : 100vh;
+  min-height              : 100dvh;
+  overflow-x              : hidden;
+
+  /* Prevent browser pull-to-refresh / bounce */
+  overscroll-behavior     : none;
+  overscroll-behavior-y   : none;
+  overscroll-behavior-x   : none;
 }
 
-button, input, select, textarea {
+#root {
+  min-height : 100vh;
+  min-height : 100dvh;
+  isolation  : isolate;
+}
+
+button,
+input,
+select,
+textarea {
   font-family : var(--fb);
   font-size   : inherit;
+  color       : inherit;
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
 }
 
 a {
@@ -109,7 +145,8 @@ a:hover {
   text-decoration : underline;
 }
 
-img, video {
+img,
+video {
   max-width : 100%;
   display   : block;
 }
@@ -143,6 +180,6 @@ img, video {
   padding  : 0;
   margin   : -1px;
   overflow : hidden;
-  clip     : rect(0,0,0,0);
+  clip     : rect(0, 0, 0, 0);
   border   : 0;
 }
