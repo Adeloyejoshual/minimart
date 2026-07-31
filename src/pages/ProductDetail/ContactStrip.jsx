@@ -1,13 +1,13 @@
 /**
  * src/pages/ProductDetail/ContactStrip.jsx
  *
- * v2 — PROFESSIONAL REWRITE
+ * v3 — SILENT OPTIONAL CONTACTS
  * ─────────────────────────────────────────────────────────────
- *  - Phone and WhatsApp are OPTIONAL
- *  - Each button only renders if data exists
- *  - Strip hides entirely if no contact methods available
+ *  - Phone/WhatsApp buttons only show if data exists
+ *  - NO toast for missing phone/whatsapp — just don't show button
+ *  - If only seller_id exists → only Chat button shown
+ *  - Strip hides entirely if no contact methods at all
  *  - All actions auth-gated
- *  - Clean, professional UI
  */
 
 import { memo } from "react";
@@ -60,10 +60,10 @@ const CallIcon = () => (
 
 /* ═══════════════════════════════════════════════════════════
    CONTACT STRIP
-   ✅ Phone and WhatsApp are optional
-   ✅ Each button only renders if its data exists
-   ✅ Strip hides entirely if no contact methods available
-   ✅ All actions require auth
+   ✅ Phone and WhatsApp optional — buttons only render if data exists
+   ✅ NO toast for missing contacts — silently omit
+   ✅ Only Chat shown if no phone/whatsapp
+   ✅ Strip hidden entirely if owner or no contacts at all
 ═══════════════════════════════════════════════════════════ */
 function ContactStrip({
   product,
@@ -79,22 +79,25 @@ function ContactStrip({
   /* ── Resolve contact data ── */
   const waNumber =
     product?.whatsapp ||
-    product?.contact?.whatsapp   || "";
-  const waLink   =
+    product?.contact?.whatsapp || "";
+  const waLink =
     product?.whatsapp_link ||
     product?.contact?.whatsapp_link || "";
-  const phone    =
+  const phone =
     product?.phone ||
-    product?.contact?.phone      || "";
+    product?.contact?.phone || "";
 
-  /* ── Check what's available ── */
+  /* ── What's actually available ── */
   const hasWA     = !!(waNumber || waLink);
   const hasPhone  = !!phone;
   const hasSeller = !!product?.seller_id;
 
-  /* ── Nothing to show ── */
-  const hasAnyContact = hasWA || hasPhone || hasSeller;
-  if (!hasAnyContact || isOwn) return null;
+  /*
+   * Strip hides entirely if:
+   *   - owner viewing their own listing, OR
+   *   - no contact methods at all
+   */
+  if (isOwn || !hasSeller) return null;
 
   /* ── Auth gate wrapper ── */
   const requireAuth = (action) => () => {
@@ -109,17 +112,17 @@ function ContactStrip({
     action();
   };
 
-  /* ── Layout: 1 button = full width, 2 = half, 3 = thirds ── */
-  const buttonCount =
-    (hasSeller ? 1 : 0) +
-    (hasWA     ? 1 : 0) +
-    (hasPhone  ? 1 : 0);
+  /* ── Button count for layout ── */
+  const count =
+    1 +                    /* chat always shown */
+    (hasWA    ? 1 : 0) +
+    (hasPhone ? 1 : 0);
 
   const stripClass = [
     "pd-contact-strip",
-    buttonCount === 1 ? "pd-contact-strip--one"   : "",
-    buttonCount === 2 ? "pd-contact-strip--two"   : "",
-    buttonCount === 3 ? "pd-contact-strip--three" : "",
+    count === 1 ? "pd-contact-strip--one"   : "",
+    count === 2 ? "pd-contact-strip--two"   : "",
+    count === 3 ? "pd-contact-strip--three" : "",
   ]
     .filter(Boolean)
     .join(" ");
@@ -131,30 +134,23 @@ function ContactStrip({
       aria-label="Contact seller"
     >
 
-      {/* ── Chat ──────────────────────────────────── */}
-      {hasSeller && (
-        <button
-          className="pd-btn pd-btn--chat"
-          onClick={onChat}
-          disabled={chatBusy}
-          aria-label={
-            chatBusy ? "Opening chat…" : "Chat with seller"
-          }
-          aria-busy={chatBusy}
-        >
-          {chatBusy ? (
-            <span
-              className="pd-spinner"
-              aria-hidden="true"
-            />
-          ) : (
-            <ChatIcon />
-          )}
-          <span>{chatBusy ? "Opening…" : "Chat"}</span>
-        </button>
-      )}
+      {/* ── Chat — always shown when hasSeller ── */}
+      <button
+        className="pd-btn pd-btn--chat"
+        onClick={onChat}
+        disabled={chatBusy}
+        aria-label={chatBusy ? "Opening chat…" : "Chat with seller"}
+        aria-busy={chatBusy}
+      >
+        {chatBusy ? (
+          <span className="pd-spinner" aria-hidden="true" />
+        ) : (
+          <ChatIcon />
+        )}
+        <span>{chatBusy ? "Opening…" : "Chat"}</span>
+      </button>
 
-      {/* ── WhatsApp ──────────────────────────────── */}
+      {/* ── WhatsApp — only if number or link exists ── */}
       {hasWA && (
         <button
           className="pd-btn pd-btn--whatsapp"
@@ -166,12 +162,12 @@ function ContactStrip({
         </button>
       )}
 
-      {/* ── Call ──────────────────────────────────── */}
+      {/* ── Call — only if phone number exists ── */}
       {hasPhone && (
         <button
           className="pd-btn pd-btn--call"
           onClick={requireAuth(onCall)}
-          aria-label={`Call seller`}
+          aria-label="Call seller"
         >
           <CallIcon />
           <span>Call</span>
