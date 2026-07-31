@@ -11,6 +11,74 @@
   padding-bottom: calc(var(--bottom-nav-h, 68px) + 32px);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   🎯 ADSTERRA ADS
+═══════════════════════════════════════════════════════════════ */
+.adsterra-wrap {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 0;
+  background: #faf8f5;
+  border-bottom: 1px solid #eee;
+  position: relative;
+}
+.adsterra-label {
+  font-size: 9px;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  font-weight: 500;
+}
+.adsterra-slot {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  overflow: hidden;
+  min-height: 50px;
+}
+.adsterra-slot:empty + .adsterra-label,
+.adsterra-wrap:has(.adsterra-slot:empty) {
+  display: none;
+}
+
+/* Top ad — sits right below TopNav */
+.sp-top-ad {
+  margin: 0;
+  border-top: none;
+}
+
+/* Bottom ad — sits after all listings */
+.sp-bottom-ad {
+  margin-top: 24px;
+  border-bottom: none;
+  border-top: 1px solid #eee;
+  background: #faf8f5;
+  border-radius: 12px;
+  padding: 12px 0;
+}
+
+/* In-feed ad — spans full width of product grid */
+.sp-grid-ad {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+  margin: 4px 0;
+  background: transparent;
+  border-radius: 8px;
+}
+.sp-infeed-ad {
+  border: 1px solid #ede9e3;
+  border-radius: 12px;
+  background: #fff;
+  padding: 10px 0;
+  width: 100%;
+  max-width: 340px;
+}
+
 /* ─── Toast ─── */
 .sp-toast {
   position: fixed;
@@ -983,6 +1051,14 @@
   }
   .sp-quick-stats {
     grid-template-columns: repeat(3, 1fr);
+  }
+
+  /* Ads: tighter padding on small screens */
+  .adsterra-wrap {
+    padding: 6px 0;
+  }
+  .sp-bottom-ad {
+    margin-top: 16px;
   }
 }
 @media (min-width: 540px) {
