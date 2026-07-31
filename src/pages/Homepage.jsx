@@ -26,7 +26,7 @@ import "../styles/Homepage.css";
 ══════════════════════════════════════════════════════════ */
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API       = `${BASE_URL}/api`;
-const PAGE_SIZE = 40;
+const PAGE_SIZE = 80;                       // ⚡ 80 products per page
 const PH        = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
 const STALE_MS  = 5 * 60_000;
 
@@ -40,8 +40,7 @@ const GPS_OPTS = {
 };
 
 /* ══════════════════════════════════════════════════════════
-   SUBSCRIPTION PLANS THAT ARE CONSIDERED "PAID"
-   Add / remove plan names here to control verified status
+   PAID SUBSCRIPTION HELPERS
 ══════════════════════════════════════════════════════════ */
 const FREE_PLAN_NAMES = new Set(["free", "none", "", "basic"]);
 
@@ -54,7 +53,7 @@ const isPaidSubscriber = (seller) => {
 };
 
 /* ══════════════════════════════════════════════════════════
-   AUTH TOKEN
+   AUTH
 ══════════════════════════════════════════════════════════ */
 const getAuthToken = () => {
   const keys = [
@@ -68,9 +67,6 @@ const getAuthToken = () => {
   return null;
 };
 
-/* ══════════════════════════════════════════════════════════
-   AUTHED FETCH
-══════════════════════════════════════════════════════════ */
 const authedFetch = (url, opts = {}) => {
   const token   = getAuthToken();
   const headers = { ...(opts.headers || {}) };
@@ -120,36 +116,19 @@ const ShieldIcon    = ({ size = 11 }) => <Ico size={size} fill="currentColor" st
    SECTION CARDS CONFIG
 ══════════════════════════════════════════════════════════ */
 const SECTION_CARDS = [
-  {
-    label: "Trending", sub: "Most popular", Icon: TrendingIcon, path: "/trending",
-    grad: "linear-gradient(135deg,#ff416c,#ff4b2b)", shadow: "rgba(255,65,108,.4)",
-  },
-  {
-    label: "Deals", sub: "Under ₦50k", Icon: DealsIcon, path: "/deals",
-    grad: "linear-gradient(135deg,#11998e,#38ef7d)", shadow: "rgba(17,153,142,.4)",
-  },
-  {
-    label: "New", sub: "Just listed", Icon: NewIcon, path: "/latest",
-    grad: "linear-gradient(135deg,#667eea,#764ba2)", shadow: "rgba(102,126,234,.4)",
-  },
-  {
-    label: "Near You", sub: "Closest first", Icon: NearbyIcon, path: "/nearby",
-    grad: "linear-gradient(135deg,#f093fb,#f5576c)", shadow: "rgba(240,147,251,.4)",
-  },
+  { label: "Trending", sub: "Most popular", Icon: TrendingIcon, path: "/trending",
+    grad: "linear-gradient(135deg,#ff416c,#ff4b2b)", shadow: "rgba(255,65,108,.4)" },
+  { label: "Deals",    sub: "Under ₦50k",    Icon: DealsIcon,    path: "/deals",
+    grad: "linear-gradient(135deg,#11998e,#38ef7d)", shadow: "rgba(17,153,142,.4)" },
+  { label: "New",      sub: "Just listed",   Icon: NewIcon,      path: "/latest",
+    grad: "linear-gradient(135deg,#667eea,#764ba2)", shadow: "rgba(102,126,234,.4)" },
+  { label: "Near You", sub: "Closest first", Icon: NearbyIcon,   path: "/nearby",
+    grad: "linear-gradient(135deg,#f093fb,#f5576c)", shadow: "rgba(240,147,251,.4)" },
 ];
 
 /* ══════════════════════════════════════════════════════════
-   DATA HELPERS
+   NORMALIZERS
 ══════════════════════════════════════════════════════════ */
-
-/**
- * normalizeProduct
- *
- * KEY RULE: seller.verified = true ONLY when the seller
- * has an active paid subscription (rank > 0, plan ≠ free/none,
- * status === "active").  Free / unsubscribed sellers get
- * verified: false regardless of what the API sends.
- */
 const normalizeProduct = (p) => {
   if (!p || typeof p !== "object" || !p.id) return null;
 
@@ -181,13 +160,11 @@ const normalizeProduct = (p) => {
       null,
     location_city : p.location?.city  || p.location_city  || null,
     location_state: p.location?.state || p.location_state || null,
-
-    /* ── Seller — verified flag is subscription-gated ── */
     seller: {
-      id                : rawSeller.id               || p.seller_id   || null,
-      name              : rawSeller.name             || p.seller_name || null,
-      verified          : sellerVerified,               // ← subscription-gated
-      subscriptionPlan  : rawSeller.subscriptionPlan || rawSeller.subscription_plan  || null,
+      id                : rawSeller.id                                  || p.seller_id   || null,
+      name              : rawSeller.name                                || p.seller_name || null,
+      verified          : sellerVerified,
+      subscriptionPlan  : rawSeller.subscriptionPlan   || rawSeller.subscription_plan   || null,
       subscriptionRank  : Number(rawSeller.subscriptionRank || rawSeller.subscription_rank || 0),
       subscriptionStatus: rawSeller.subscriptionStatus || rawSeller.subscription_status || null,
     },
@@ -222,11 +199,9 @@ const fmtCount = (n) => {
 ══════════════════════════════════════════════════════════ */
 const MasonrySkeleton = memo(() => (
   <div className="hm-masonry" aria-busy="true">
-    {[180, 220, 160, 200, 180, 190, 220, 170, 200, 180].map((h, i) => (
-      <div
-        key={i} className="hm-sk hm-shimmer"
-        style={{ height: h }} aria-hidden="true"
-      />
+    {[180, 220, 160, 200, 180, 190, 220, 170, 200, 180, 210, 190].map((h, i) => (
+      <div key={i} className="hm-sk hm-shimmer"
+           style={{ height: h }} aria-hidden="true" />
     ))}
   </div>
 ));
@@ -249,17 +224,14 @@ const LocationBar = memo(function LocationBar({ location, onOpen, onClear }) {
       <button
         className={`hm-loc-bar-btn${label ? " hm-loc-bar-btn--active" : ""}`}
         onClick={onOpen}
-        aria-label={label
-          ? `Location: ${label}. Change location`
-          : "Set your location"}
+        aria-label={label ? `Location: ${label}. Change location` : "Set your location"}
       >
         <span className="hm-loc-bar-pin" aria-hidden="true">
           <PinIcon size={13} />
         </span>
         {label
           ? <span className="hm-loc-bar-label">{label}</span>
-          : <span className="hm-loc-bar-placeholder">Set location</span>
-        }
+          : <span className="hm-loc-bar-placeholder">Set location</span>}
         <ChevDownIcon size={13} />
       </button>
       {label && (
@@ -286,10 +258,8 @@ const FallbackBanner = memo(function FallbackBanner({ info, onDismiss }) {
         <AlertIcon size={14} />
       </span>
       <p className="hm-fallback-banner-text">
-        No listings found in{" "}
-        <strong>"{info.original}"</strong>.{" "}
-        Showing results from{" "}
-        <strong>{info.fallback}</strong> instead.
+        No listings found in <strong>"{info.original}"</strong>.{" "}
+        Showing results from <strong>{info.fallback}</strong> instead.
       </p>
       <button
         className="hm-fallback-banner-close"
@@ -352,11 +322,10 @@ const SectionCards = memo(function SectionCards({ onNavigate }) {
 });
 
 /* ══════════════════════════════════════════════════════════
-   VERIFIED SELLER BADGE
-   Reusable — only renders when seller is a paid subscriber
+   VERIFIED BADGE
 ══════════════════════════════════════════════════════════ */
 const VerifiedBadge = memo(function VerifiedBadge({ seller }) {
-  if (!seller?.verified) return null;          // free / unsubscribed → nothing
+  if (!seller?.verified) return null;
   const plan = seller.subscriptionPlan || "Verified";
   return (
     <span
@@ -400,13 +369,10 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
       </div>
 
       <div className="hm-feat-body">
-        {/* ── Promotion badge + discount ── */}
         <div className="hm-feat-top">
           <span className={`hm-feat-tag hm-feat-tag--${badge}`}>
-            {badge === "featured"
-              ? <><DiamondIcon size={11} /> Featured</>
-              : badge === "premium"
-              ? <><SponsoredIcon size={11} /> Premium</>
+            {badge === "featured" ? <><DiamondIcon size={11} /> Featured</>
+              : badge === "premium" ? <><SponsoredIcon size={11} /> Premium</>
               : <><FlashIcon size={11} /> Promoted</>}
           </span>
           {disc && <span className="hm-feat-disc">{disc}</span>}
@@ -414,7 +380,6 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
 
         <p className="hm-feat-title">{product.title}</p>
 
-        {/* ── Price + location ── */}
         <div className="hm-feat-bottom">
           <span className="hm-feat-price">{naira(product.price)}</span>
           {loc && (
@@ -424,7 +389,6 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
           )}
         </div>
 
-        {/* ── Verified seller badge (paid subscribers only) ── */}
         <VerifiedBadge seller={product.seller} />
       </div>
     </article>
@@ -464,7 +428,6 @@ const DealCard = memo(function DealCard({ product, onClick }) {
       <div className="hm-deal-body">
         <p className="hm-deal-title">{product.title}</p>
         <span className="hm-deal-price">{naira(product.price)}</span>
-        {/* ── Verified badge on deal cards too ── */}
         <VerifiedBadge seller={product.seller} />
       </div>
     </article>
@@ -532,8 +495,9 @@ export default function Homepage({ user }) {
   const sentinelRef  = useRef(null);
   const hiddenAtRef  = useRef(null);
   const gpsAttempted = useRef(false);
+  const abortRef     = useRef(null);      // ⚡ cancel in-flight requests
 
-  /* ── Auto-dismiss fallback banner after 6s ── */
+  /* ── Auto-dismiss fallback banner ── */
   useEffect(() => {
     if (!fallbackInfo) return;
     const t = setTimeout(() => setFallbackInfo(null), 6_000);
@@ -576,15 +540,13 @@ export default function Homepage({ user }) {
   }, [savedLocation, gpsCoords]);
 
   /* ══════════════════════════════════════════════════════
-     PROCESS API DATA
-     normalizeProduct gates seller.verified on subscription,
-     so every card downstream automatically shows / hides
-     the verified badge based on paid status.
+     APPLY DATA — fast, batched, resilient
   ══════════════════════════════════════════════════════ */
   const applyData = useCallback((data, append = false) => {
     const raw        = Array.isArray(data.products) ? data.products : [];
     const normalized = dedup(raw).map(normalizeProduct).filter(Boolean);
-    const merged     = append
+
+    const merged = append
       ? dedup([...productsRef.current, ...normalized])
       : normalized;
 
@@ -592,13 +554,11 @@ export default function Homepage({ user }) {
 
     try { setCachedProducts(merged); setCacheLoaded(true); } catch {}
 
-    /* Featured: prefer API-supplied list, fall back to promoted items */
     const incomingFeat = Array.isArray(data.featured) ? data.featured : [];
     const feat = incomingFeat.length > 0
       ? incomingFeat.map(normalizeProduct).filter(Boolean)
       : merged.filter((p) => p.is_promoted).slice(0, 4);
 
-    /* Deals: non-promoted items with a price reduction */
     const cheap = merged
       .filter((p) => {
         const orig = Number(p.attributes?.original_price || 0);
@@ -606,36 +566,64 @@ export default function Homepage({ user }) {
       })
       .slice(0, 12);
 
+    const nonPromoted = merged.filter((p) => !p.is_promoted);
+
+    /* React 18 auto-batches all setters below into one render */
     setFeatured(feat);
     setDeals(cheap);
-    setProducts(merged.filter((p) => !p.is_promoted));
+    setProducts(nonPromoted);
     setMeta(data.meta || {});
-    setTotal(data.meta?.total ?? merged.length);
-    setHasMore(data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE);
+    setHasMore(
+      data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE
+    );
 
-    /* Notification count from homepage meta */
+    /* Total: functional, never regress */
+    const incomingTotal = Number(data.meta?.total);
+    const hasValidTotal = Number.isFinite(incomingTotal) && incomingTotal > 0;
+
+    setTotal((prev) => {
+      if (hasValidTotal) return incomingTotal;
+      if (append)        return Math.max(prev, merged.length);
+      return merged.length;
+    });
+
     if (typeof data.meta?.unread_notifications === "number") {
       setUnreadCount(data.meta.unread_notifications);
     }
   }, [setCachedProducts, setCacheLoaded]);
 
   /* ══════════════════════════════════════════════════════
-     LOAD FEED
+     LOAD FEED — doesn't blank UI, aborts stale requests
   ══════════════════════════════════════════════════════ */
   const loadFeed = useCallback(async (catId = "all") => {
+    /* Cancel any in-flight request */
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setLoading(true);
     setError(null);
     setPage(0);
-    productsRef.current = [];
+
     try {
-      const res = await authedFetch(buildUrl(0, catId));
+      const res = await authedFetch(buildUrl(0, catId), {
+        signal: controller.signal,
+      });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      applyData(await res.json(), false);
+      const data = await res.json();
+
+      /* Reset ref only right before applying new data */
+      productsRef.current = [];
+      applyData(data, false);
     } catch (err) {
+      if (err.name === "AbortError") return;   // silent ignore
       console.error("[Homepage] loadFeed:", err);
       setError("Could not load listings. Check your connection and try again.");
     } finally {
-      setLoading(false);
+      if (abortRef.current === controller) {
+        setLoading(false);
+        abortRef.current = null;
+      }
     }
   }, [buildUrl, applyData]);
 
@@ -645,12 +633,14 @@ export default function Homepage({ user }) {
   const loadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
+    const next = page + 1;
+
     try {
-      const next = page + 1;
-      const res  = await authedFetch(buildUrl(next, category));
+      const res = await authedFetch(buildUrl(next, category));
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      applyData(await res.json(), true);
+      const data = await res.json();
       setPage(next);
+      applyData(data, true);
     } catch (err) {
       console.error("[Homepage] loadMore:", err);
     } finally {
@@ -673,9 +663,12 @@ export default function Homepage({ user }) {
   /* Initial load */
   useEffect(() => {
     loadFeed("all");
+    return () => {
+      if (abortRef.current) abortRef.current.abort();
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Reload when location changes */
+  /* Reload on location change */
   const locationKey = savedLocation
     ? `${savedLocation.state ?? ""}-${savedLocation.city ?? ""}-${savedLocation.savedAt ?? ""}`
     : "showAll";
@@ -707,13 +700,13 @@ export default function Homepage({ user }) {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loading, category, loadFeed]);
 
-  /* Infinite scroll sentinel */
+  /* Infinite scroll sentinel — pre-load 800px early */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
     const io = new IntersectionObserver(
       ([entry]) => { if (entry.isIntersecting) loadMore(); },
-      { threshold: 0.1 },
+      { threshold: 0, rootMargin: "800px 0px" },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -741,7 +734,7 @@ export default function Homepage({ user }) {
   }, [saveLocation]);
 
   /* ══════════════════════════════════════════════════════
-     TRACKING
+     TRACKING (fire-and-forget)
   ══════════════════════════════════════════════════════ */
   const trackView = useCallback((id) => {
     if (!id) return;
@@ -772,6 +765,14 @@ export default function Homepage({ user }) {
   const currentCatName =
     CAT_LIST.find((c) => c.id === category)?.name || "Products";
 
+  /* Always-valid listing count — prefer server total, fall back to live data */
+  const displayCount = useMemo(() => {
+    if (total > 0) return total;
+    return products.length + featured.length;
+  }, [total, products.length, featured.length]);
+
+  const showStatsSkeleton = loading && displayCount === 0;
+
   /* ══════════════════════════════════════════════════════
      RENDER
   ══════════════════════════════════════════════════════ */
@@ -800,7 +801,6 @@ export default function Homepage({ user }) {
               </p>
             </div>
 
-            {/* Bell with unread badge */}
             <button
               className="hm-notif-btn"
               aria-label={
@@ -819,7 +819,6 @@ export default function Homepage({ user }) {
             </button>
           </div>
 
-          {/* Location pill */}
           {locationLabel && (
             <button
               className="hm-hero-loc"
@@ -833,9 +832,9 @@ export default function Homepage({ user }) {
             </button>
           )}
 
-          {/* Stats row */}
+          {/* Stats row — always shows real count once we have data */}
           <div className="hm-hero-stats" aria-label="Marketplace stats">
-            {loading ? (
+            {showStatsSkeleton ? (
               [1, 2, 3].map((i) => (
                 <div key={i} className="hm-hero-stat">
                   <div className="hm-sk hm-shimmer"
@@ -846,9 +845,9 @@ export default function Homepage({ user }) {
               ))
             ) : (
               [
-                { val: fmtCount(total), label: "Listings" },
-                { val: "24/7",          label: "Live"     },
-                { val: "Free",          label: "To list"  },
+                { val: fmtCount(displayCount), label: "Listings" },
+                { val: "24/7",                 label: "Live"     },
+                { val: "Free",                 label: "To list"  },
               ].map((s) => (
                 <div key={s.label} className="hm-hero-stat">
                   <span className="hm-hero-stat-val">{s.val}</span>
@@ -917,7 +916,7 @@ export default function Homepage({ user }) {
                 <DiamondIcon size={15} /> Featured
               </h2>
             </div>
-            {loading
+            {loading && featured.length === 0
               ? <FeaturedSkeleton />
               : (
                 <div className="hm-feat-row">
@@ -975,7 +974,7 @@ export default function Homepage({ user }) {
             )}
           </div>
 
-          {loading ? (
+          {loading && products.length === 0 ? (
             <MasonrySkeleton />
           ) : error ? null : products.length === 0 ? (
             <div className="hm-empty" role="status">
@@ -1023,11 +1022,6 @@ export default function Homepage({ user }) {
             </div>
           ) : (
             <>
-              {/*
-                MasonryCard receives product.seller.verified which is
-                already subscription-gated by normalizeProduct.
-                No extra prop needed — MasonryCard just reads seller.verified.
-              */}
               <div className="hm-masonry" role="list">
                 {products.map((p, i) => p && (
                   <div key={p.id} role="listitem">
