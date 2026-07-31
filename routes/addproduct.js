@@ -3,40 +3,33 @@
  *
  * Targets CockroachDB (serverless / dedicated).
  *
- * v7 — EMAIL REMOVED FROM PRODUCTS TABLE
+ * v8 — COMPLETE REWRITE
  * ─────────────────────────────────────────────────────────────
  *  - Email is NEVER stored in products table
  *  - Email lives only in users table (registration email)
- *  - Email still fetched from users table for:
- *      → Payment initiation
- *      → Audit logs
- *      → Notifications
- *  - 3-TIER SYSTEM maintained:
+ *  - 3-TIER SYSTEM:
  *      unverified  → 3 lifetime trial listings   (7-day expiry)
  *      verified    → 500 lifetime listings       (30-day expiry)
  *      subscriber  → Unlimited                   (90-day expiry)
- *
- * CockroachDB-specific compatibility:
- *  - pg_advisory_xact_lock removed
- *  - FOR NO KEY UPDATE → FOR UPDATE
- *  - SAVEPOINT retry replaced with app-level slug retry
- *  - FILTER (WHERE …) on COUNT() → CASE WHEN
- *  - PERCENTILE_CONT → ORDER BY / OFFSET
- *  - unnest() in INSERT → parallel INSERTs
- *  - product_images insert wrapped in try/catch
- *  - ::int casts → CAST(… AS INT)
- *  - NOW() + interval → NOW() + make_interval(days=>$n)
+ *  - PROMOTION FLOW:
+ *      GET  /products/promotion-plans
+ *      POST /products/:id/promote        (free + paid)
+ *      GET  /products/promotion/callback (Paystack redirect)
+ *      POST /products/promotion/webhook  (Paystack webhook)
+ *      GET  /products/:id/promotion-status
+ *  - CockroachDB compatible
  */
 
-import express      from "express";
-import multer       from "multer";
-import rateLimit    from "express-rate-limit";
-import crypto       from "crypto";
-import path         from "path";
-import fs           from "fs";
-import sharp        from "sharp";
-import pLimit       from "p-limit";
-import * as Sentry  from "@sentry/node";
+import express     from "express";
+import multer      from "multer";
+import rateLimit   from "express-rate-limit";
+import crypto      from "crypto";
+import path        from "path";
+import fs          from "fs";
+import sharp       from "sharp";
+import pLimit      from "p-limit";
+import axios       from "axios";
+import * as Sentry from "@sentry/node";
 import { fileURLToPath } from "url";
 
 import {
@@ -65,6 +58,20 @@ const router    = express.Router();
 const IS_PROD   = process.env.NODE_ENV === "production";
 
 /* ═══════════════════════════════════════════════════════════════
+   SENTRY
+═══════════════════════════════════════════════════════════════ */
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn             : process.env.SENTRY_DSN,
+    environment     : process.env.NODE_ENV ?? "development",
+    tracesSampleRate: 0.2,
+  });
+  console.log("[addproduct] Sentry initialised");
+} else {
+  console.warn("[addproduct] SENTRY_DSN not set — error tracking disabled");
+}
+
+/* ═══════════════════════════════════════════════════════════════
    DEBUG LOGGER
 ═══════════════════════════════════════════════════════════════ */
 const logError = (area, err, extra = {}) => {
@@ -86,20 +93,6 @@ const logError = (area, err, extra = {}) => {
   );
   console.error("╚══════════════════════════════════════════════════╝\n");
 };
-
-/* ═══════════════════════════════════════════════════════════════
-   SENTRY
-═══════════════════════════════════════════════════════════════ */
-if (process.env.SENTRY_DSN) {
-  Sentry.init({
-    dsn             : process.env.SENTRY_DSN,
-    environment     : process.env.NODE_ENV ?? "development",
-    tracesSampleRate: 0.2,
-  });
-  console.log("[addproduct] Sentry initialised");
-} else {
-  console.warn("[addproduct] SENTRY_DSN not set — error tracking disabled");
-}
 
 /* ═══════════════════════════════════════════════════════════════
    R2 CLIENT
@@ -136,10 +129,15 @@ const destroyR2Assets = async (keys) => {
     await r2.send(
       new DeleteObjectsCommand({
         Bucket: R2_BUCKET,
-        Delete: { Objects: keys.map((k) => ({ Key: k })), Quiet: true },
+        Delete: {
+          Objects: keys.map((k) => ({ Key: k })),
+          Quiet  : true,
+        },
       })
     );
-    console.log(`[addproduct] R2 cleanup: ${keys.length} image(s) deleted`);
+    console.log(
+      `[addproduct] R2 cleanup: ${keys.length} image(s) deleted`
+    );
   } catch (e) {
     console.error("[addproduct] R2 cleanup failed:", e.message);
   }
@@ -158,6 +156,13 @@ const TITLE_MAX           = 120;
 const DESC_MIN            = 10;
 const DESC_MAX            = 2_000;
 const DELETE_HOLD_DAYS    = 30;
+const PAYMENT_MAX_AGE_MS  = 30 * 60 * 1_000; // 30 minutes
+const PROMO_DEFAULT_DAYS  = 7;
+const ACCEPTED_CURRENCY   = "NGN";
+
+const PAYSTACK_SECRET = process.env.PAYSTACK_SECRET_KEY;
+const APP_URL         = process.env.APP_URL?.replace(/\/$/, "");
+const FRONTEND_URL    = process.env.FRONTEND_URL?.replace(/\/$/, "");
 
 const ALLOWED_WA_HOSTS = new Set([
   "wa.me",
@@ -253,11 +258,14 @@ const buildTextWatermarkSvg = (imgW, imgH) => {
   const wm       = IMAGE_CONFIG.watermark;
   const fontSize = Math.max(14, Math.round(imgW * wm.fontSizeRatio));
   return Buffer.from(`
-    <svg width="${imgW}" height="${imgH}" xmlns="http://www.w3.org/2000/svg">
+    <svg width="${imgW}" height="${imgH}"
+         xmlns="http://www.w3.org/2000/svg">
       <defs>
-        <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+        <filter id="shadow" x="-20%" y="-20%"
+                width="140%" height="140%">
           <feDropShadow dx="1" dy="1" stdDeviation="2"
-            flood-color="black" flood-opacity="${wm.shadowOpacity}" />
+            flood-color="black"
+            flood-opacity="${wm.shadowOpacity}" />
         </filter>
       </defs>
       <text
@@ -305,7 +313,9 @@ const compressImage = async (buffer, mimetype) => {
   try {
     meta = await sharp(buffer).metadata();
   } catch (err) {
-    Sentry.captureException(err, { tags: { area: "image", step: "metadata" } });
+    Sentry.captureException(err, {
+      tags: { area: "image", step: "metadata" },
+    });
     throw new Error("Invalid or corrupt image file.");
   }
 
@@ -318,7 +328,8 @@ const compressImage = async (buffer, mimetype) => {
   )
     throw new Error(
       `Image too small (${meta.width}×${meta.height}px). ` +
-      `Minimum is ${IMAGE_CONFIG.minDimension}×${IMAGE_CONFIG.minDimension}px.`
+      `Minimum is ${IMAGE_CONFIG.minDimension}×` +
+      `${IMAGE_CONFIG.minDimension}px.`
     );
 
   let resized;
@@ -333,13 +344,18 @@ const compressImage = async (buffer, mimetype) => {
       })
       .toBuffer();
   } catch (err) {
-    Sentry.captureException(err, { tags: { area: "image", step: "resize" } });
-    throw new Error("Failed to process image. Please try a different photo.");
+    Sentry.captureException(err, {
+      tags: { area: "image", step: "resize" },
+    });
+    throw new Error(
+      "Failed to process image. Please try a different photo."
+    );
   }
 
   let composite = null;
   if (IMAGE_CONFIG.watermark.enabled) {
-    const { width: imgW, height: imgH } = await sharp(resized).metadata();
+    const { width: imgW, height: imgH } =
+      await sharp(resized).metadata();
     const logoBuffer = await getWatermarkLogo();
     if (logoBuffer) {
       try {
@@ -370,7 +386,9 @@ const compressImage = async (buffer, mimetype) => {
       finalBuffer = candidate;
       if (candidate.length <= IMAGE_CONFIG.maxOutputBytes) break;
       if (quality <= IMAGE_CONFIG.webpQualityMin) {
-        console.warn(`[addproduct] quality floor hit at q${quality}`);
+        console.warn(
+          `[addproduct] quality floor hit at q${quality}`
+        );
         break;
       }
       quality = Math.max(
@@ -378,14 +396,19 @@ const compressImage = async (buffer, mimetype) => {
         IMAGE_CONFIG.webpQualityMin
       );
     } catch (err) {
-      Sentry.captureException(err, { tags: { area: "image", step: "encode" } });
-      throw new Error("Failed to encode image. Please try a different photo.");
+      Sentry.captureException(err, {
+        tags: { area: "image", step: "encode" },
+      });
+      throw new Error(
+        "Failed to encode image. Please try a different photo."
+      );
     }
   }
 
   console.log(
-    `[addproduct] compress: ${(buffer.length / 1_024).toFixed(0)} KB` +
-    ` → ${(finalBuffer.length / 1_024).toFixed(0)} KB @ q${quality}`
+    `[addproduct] compress: ` +
+    `${(buffer.length / 1_024).toFixed(0)} KB → ` +
+    `${(finalBuffer.length / 1_024).toFixed(0)} KB @ q${quality}`
   );
 
   return { buffer: finalBuffer, mimetype: "image/webp" };
@@ -407,7 +430,9 @@ let redis = null;
   try {
     const { createClient } = await import("redis");
     redis = createClient({ url: process.env.REDIS_URL });
-    redis.on("error", (e) => console.warn("[addproduct] Redis:", e.message));
+    redis.on("error", (e) =>
+      console.warn("[addproduct] Redis:", e.message)
+    );
     await redis.connect();
     console.log("[addproduct] Redis connected");
   } catch (e) {
@@ -422,7 +447,9 @@ const trackTrending = async (productId) => {
     const now    = Math.floor(Date.now() / 1_000);
     const cutoff = now - TRENDING_WINDOW_SEC;
     const pipe   = redis.multi();
-    pipe.zAdd(TRENDING_KEY, { score: now, value: String(productId) });
+    pipe.zAdd(TRENDING_KEY, {
+      score: now, value: String(productId),
+    });
     pipe.zRemRangeByScore(TRENDING_KEY, "-inf", cutoff);
     pipe.expire(TRENDING_KEY, TRENDING_TTL_SEC);
     await pipe.exec();
@@ -436,11 +463,15 @@ const trackTrending = async (productId) => {
 ═══════════════════════════════════════════════════════════════ */
 const upload = multer({
   storage   : multer.memoryStorage(),
-  limits    : { fileSize: IMAGE_CONFIG.maxInputBytes, files: MAX_IMAGES },
+  limits    : {
+    fileSize: IMAGE_CONFIG.maxInputBytes,
+    files   : MAX_IMAGES,
+  },
   fileFilter(_req, file, cb) {
     if (!ALLOWED_IMAGE_TYPES.has(file.mimetype)) {
       const err  = new Error(
-        `Invalid image type "${file.mimetype}". Only JPEG, PNG, WebP allowed.`
+        `Invalid image type "${file.mimetype}". ` +
+        `Only JPEG, PNG, WebP allowed.`
       );
       err.code   = "INVALID_MIME";
       return cb(err);
@@ -452,8 +483,13 @@ const upload = multer({
 const withImageUpload = (handler) => (req, res, next) =>
   handler(req, res, (err) => {
     if (!err) return next();
-    if (["LIMIT_FILE_SIZE", "LIMIT_FILE_COUNT", "INVALID_MIME"].includes(err.code))
-      return res.status(400).json({ success: false, message: err.message });
+    if (
+      ["LIMIT_FILE_SIZE", "LIMIT_FILE_COUNT", "INVALID_MIME"]
+        .includes(err.code)
+    )
+      return res
+        .status(400)
+        .json({ success: false, message: err.message });
     return next(err);
   });
 
@@ -471,11 +507,36 @@ const makeLimiter = ({ windowMin, max, message }) =>
       res.status(429).json({ success: false, message }),
   });
 
-const createLimiter   = makeLimiter({ windowMin: 60, max: IS_PROD ? 20  : 500,   message: "Too many submissions. Please wait."    });
-const activateLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 30  : 500,   message: "Too many activation requests."         });
-const readLimiter     = makeLimiter({ windowMin: 5,  max: IS_PROD ? 120 : 1_000, message: "Too many requests. Slow down."         });
-const dupLimiter      = makeLimiter({ windowMin: 5,  max: IS_PROD ? 30  : 500,   message: "Too many duplicate checks."            });
-const editLimiter     = makeLimiter({ windowMin: 30, max: IS_PROD ? 60  : 500,   message: "Too many edit requests. Please wait."  });
+const createLimiter   = makeLimiter({
+  windowMin: 60,
+  max      : IS_PROD ? 20  : 500,
+  message  : "Too many submissions. Please wait.",
+});
+const activateLimiter = makeLimiter({
+  windowMin: 15,
+  max      : IS_PROD ? 30  : 500,
+  message  : "Too many activation requests.",
+});
+const readLimiter     = makeLimiter({
+  windowMin: 5,
+  max      : IS_PROD ? 120 : 1_000,
+  message  : "Too many requests. Slow down.",
+});
+const dupLimiter      = makeLimiter({
+  windowMin: 5,
+  max      : IS_PROD ? 30  : 500,
+  message  : "Too many duplicate checks.",
+});
+const editLimiter     = makeLimiter({
+  windowMin: 30,
+  max      : IS_PROD ? 60  : 500,
+  message  : "Too many edit requests. Please wait.",
+});
+const promoteLimiter  = makeLimiter({
+  windowMin: 10,
+  max      : IS_PROD ? 15  : 200,
+  message  : "Too many promotion requests.",
+});
 
 /* ═══════════════════════════════════════════════════════════════
    PURE HELPERS
@@ -490,6 +551,11 @@ const cleanText = (v) => {
 const cleanUuid = (v) => {
   const s = String(v ?? "").trim();
   return UUID_RE.test(s) ? s : null;
+};
+const cleanId = (v) => {
+  const s = String(v ?? "").trim();
+  if (!s || s === "null" || s === "undefined") return null;
+  return s;
 };
 const toFinite = (v) => {
   const n = Number(v);
@@ -512,7 +578,7 @@ const safeParseGuarded = (v, fallback) => {
   return safeParse(v, fallback);
 };
 
-const getTodayUTC = () => new Date().toISOString().slice(0, 10);
+const getTodayUTC    = () => new Date().toISOString().slice(0, 10);
 const getTomorrowUTC = () => {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() + 1);
@@ -540,7 +606,9 @@ const sanitizeWhatsAppLink = (raw) => {
     if (url.protocol !== "https:") return null;
     const allowed =
       ALLOWED_WA_HOSTS.has(url.hostname) ||
-      [...ALLOWED_WA_HOSTS].some((h) => url.hostname.endsWith(`.${h}`));
+      [...ALLOWED_WA_HOSTS].some((h) =>
+        url.hostname.endsWith(`.${h}`)
+      );
     return allowed ? url.href : null;
   } catch { return null; }
 };
@@ -548,7 +616,9 @@ const sanitizeWhatsAppLink = (raw) => {
 const validateImageHashes = (raw) => {
   if (!Array.isArray(raw)) return [];
   return raw
-    .filter((h) => typeof h === "string" && /^[a-f0-9]{64}$/i.test(h))
+    .filter(
+      (h) => typeof h === "string" && /^[a-f0-9]{64}$/i.test(h)
+    )
     .slice(0, MAX_IMAGES);
 };
 
@@ -556,7 +626,7 @@ const computeActiveUntil = (tier) => {
   const policy = POLICY[tier] ?? POLICY.unverified;
   if (tier === "subscriber" && policy.expiryDays === 0) return null;
   const days = policy.freeListingDays ?? policy.expiryDays;
-  const d = new Date();
+  const d    = new Date();
   d.setUTCDate(d.getUTCDate() + days);
   return d;
 };
@@ -568,13 +638,264 @@ const daysUntilExpiry = (activeUntil) => {
   );
 };
 
+const makeReference = () =>
+  `promo_${Date.now()}_${crypto.randomBytes(6).toString("hex")}`;
+
+const promotionExpiresAt = (durationDays) => {
+  const d = new Date();
+  d.setDate(d.getDate() + Number(durationDays || PROMO_DEFAULT_DAYS));
+  return d;
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   PAYSTACK HELPERS
+═══════════════════════════════════════════════════════════════ */
+const paystackHeaders = () => ({
+  Authorization : `Bearer ${PAYSTACK_SECRET}`,
+  "Content-Type": "application/json",
+});
+
+const paystackInitialize = async ({
+  email,
+  amountNaira,
+  reference,
+  metadata,
+  productId,
+}) => {
+  try {
+    const callbackUrl =
+      `${FRONTEND_URL}/payment/complete` +
+      `?reference=${encodeURIComponent(reference)}` +
+      `&product_id=${encodeURIComponent(productId ?? "")}` +
+      `&source=promotion`;
+
+    const { data: axiosData } = await axios.post(
+      "https://api.paystack.co/transaction/initialize",
+      {
+        email,
+        amount      : Math.round(amountNaira * 100),
+        reference,
+        currency    : ACCEPTED_CURRENCY,
+        callback_url: callbackUrl,
+        metadata,
+      },
+      { headers: paystackHeaders(), timeout: 15_000 }
+    );
+
+    return {
+      ok              : !!axiosData?.status,
+      authorizationUrl: axiosData?.data?.authorization_url ?? null,
+      reference       : axiosData?.data?.reference ?? reference,
+      message         : axiosData?.message ?? "Unknown error",
+    };
+  } catch (err) {
+    console.error(
+      "[addproduct] Paystack initialize error:", err.message
+    );
+    return {
+      ok              : false,
+      authorizationUrl: null,
+      reference,
+      message         : err.message,
+    };
+  }
+};
+
+const paystackVerify = async (reference) => {
+  try {
+    const { data: axiosData } = await axios.get(
+      `https://api.paystack.co/transaction/verify/` +
+      `${encodeURIComponent(reference)}`,
+      { headers: paystackHeaders(), timeout: 15_000 }
+    );
+    return {
+      ok        : !!axiosData?.status,
+      status    : axiosData?.data?.status    ?? null,
+      amountKobo: axiosData?.data?.amount    ?? 0,
+      currency  : axiosData?.data?.currency  ?? null,
+      message   : axiosData?.message         ?? "Unknown",
+    };
+  } catch (err) {
+    console.error("[addproduct] Paystack verify error:", err.message);
+    return {
+      ok: false, status: null,
+      amountKobo: 0, currency: null,
+      message: err.message,
+    };
+  }
+};
+
+const verifyWebhookSignature = (rawBody, signature) => {
+  if (
+    typeof signature !== "string" ||
+    signature.length !== 128      ||
+    !/^[0-9a-f]+$/i.test(signature)
+  ) return false;
+
+  const hash = crypto
+    .createHmac("sha512", PAYSTACK_SECRET)
+    .update(rawBody)
+    .digest("hex");
+
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(hash,      "hex"),
+      Buffer.from(signature, "hex")
+    );
+  } catch { return false; }
+};
+
+const hashWebhookPayload = (rawBody) =>
+  crypto.createHash("sha256").update(rawBody).digest("hex");
+
+/* ═══════════════════════════════════════════════════════════════
+   PROMOTION PLAN HELPERS
+═══════════════════════════════════════════════════════════════ */
+const loadPromotionPlan = async (planId) => {
+  const { rows } = await pool.query(
+    `SELECT
+       id::text                                                    AS id,
+       name,
+       price::numeric                                              AS price,
+       COALESCE(discount_percent, 0)::numeric                      AS discount_percent,
+       COALESCE(duration_days, $2)::int                            AS duration_days,
+       COALESCE(priority,      0)::int                             AS priority,
+       description,
+       ROUND(
+         price::numeric * (1 - COALESCE(discount_percent,0)/100.0),
+         2
+       )                                                           AS effective_price
+     FROM  promotion_plans
+     WHERE id        = $1
+       AND is_active = TRUE`,
+    [planId, PROMO_DEFAULT_DAYS]
+  );
+  return rows[0] ?? null;
+};
+
+const isSellerVerified = async (sellerId) => {
+  const { rows } = await pool.query(
+    `SELECT identity_verified FROM public.users WHERE id = $1`,
+    [sellerId]
+  );
+  return Boolean(rows[0]?.identity_verified);
+};
+
+/* ═══════════════════════════════════════════════════════════════
+   ACTIVATE PRODUCT AFTER PROMOTION PAYMENT
+   Works for both free and paid plans.
+   Called inside an existing transaction.
+═══════════════════════════════════════════════════════════════ */
+const activateProductPromotion = async (client, {
+  paymentId,
+  productId,
+  planId,
+  sellerId,
+  plan,
+}) => {
+  const verified    = await isSellerVerified(sellerId);
+  const finalStatus = verified ? "active" : "active_limited";
+  const expiresAt   = promotionExpiresAt(plan.duration_days);
+
+  let activeUntil = null;
+  if (!verified) {
+    const d = new Date();
+    d.setDate(d.getDate() + PROMO_DEFAULT_DAYS);
+    activeUntil = d;
+  }
+
+  /* Mark payment success */
+  await client.query(
+    `UPDATE payments
+     SET    status = 'success', updated_at = NOW()
+     WHERE  id = $1`,
+    [paymentId]
+  );
+
+  /* Activate + promote product */
+  const { rowCount } = await client.query(
+    `UPDATE products
+     SET
+       status               = $1,
+       is_active            = TRUE,
+       is_promoted          = TRUE,
+       promotion_id         = $2,
+       promotion_start      = NOW(),
+       promotion_end        = $3,
+       promotion_expires_at = $3,
+       promotion_type       = $4,
+       promotion_priority   = $5,
+       boost_score          = COALESCE(boost_score, 0) + 50,
+       active_until         = $6,
+       updated_at           = NOW()
+     WHERE id        = $7
+       AND seller_id = $8`,
+    [
+      finalStatus,
+      planId,
+      expiresAt,
+      plan.name,
+      plan.priority,
+      activeUntil,
+      productId,
+      sellerId,
+    ]
+  );
+
+  if (!rowCount)
+    throw new Error(
+      "Could not activate product — ownership mismatch."
+    );
+
+  return {
+    finalStatus,
+    verified,
+    activeUntil,
+    expiresAt,
+    planName: plan.name,
+  };
+};
+
+/* Expire a stale pending promotion payment */
+const expirePendingPromoPayment = async (paymentId, productId) => {
+  await pool.query(
+    `UPDATE payments
+     SET    status = 'expired', updated_at = NOW()
+     WHERE  id = $1`,
+    [paymentId]
+  );
+  await pool.query(
+    `UPDATE products
+     SET    status = 'draft', updated_at = NOW()
+     WHERE  id     = $1
+       AND  status = 'pending_payment'`,
+    [productId]
+  );
+  console.log("[addproduct] expired stale promo payment:", paymentId);
+};
+
+/* Log payment event — fire and forget */
+const logPaymentEvent = async (paymentId, event, source, payload = {}) => {
+  try {
+    await pool.query(
+      `INSERT INTO payment_events
+         (payment_id, event, source, payload)
+       VALUES ($1, $2, $3, $4)`,
+      [paymentId, event, source, JSON.stringify(payload)]
+    );
+  } catch (err) {
+    console.error("[addproduct] logPaymentEvent:", err.message);
+  }
+};
+
 /* ═══════════════════════════════════════════════════════════════
    CATEGORY VALIDATION
 ═══════════════════════════════════════════════════════════════ */
 const validateCategory = async (db, categoryId, subcategoryId) => {
   try {
     const { rows: cat } = await db.query(
-      "SELECT id FROM categories WHERE id = $1 AND is_active = TRUE",
+      `SELECT id FROM categories
+       WHERE id = $1 AND is_active = TRUE`,
       [categoryId]
     );
     if (!cat.length)
@@ -619,20 +940,20 @@ const fetchSellerStats = (db, sellerId) => {
           AND created_at <  $3::timestamptz
           AND status     <> 'deleted'
          THEN 1 ELSE 0
-       END)::INT          AS today_count,
+       END)::INT       AS today_count,
 
        SUM(CASE
          WHEN is_active = TRUE
-          AND status IN ('active', 'active_limited')
+          AND status IN ('active','active_limited')
          THEN 1 ELSE 0
-       END)::INT          AS active_count,
+       END)::INT       AS active_count,
 
-       COUNT(*)::INT      AS lifetime_count,
+       COUNT(*)::INT   AS lifetime_count,
 
        MAX(CASE
          WHEN status <> 'deleted' THEN created_at
          ELSE NULL
-       END)               AS last_submit_at
+       END)            AS last_submit_at
 
      FROM products
      WHERE seller_id = $1`,
@@ -663,7 +984,9 @@ const buildContext = (tier, stats, extras = {}) => {
   if (policy.cooldownMinutes > 0 && lastSubmitAt) {
     const elapsedMs  = Date.now() - new Date(lastSubmitAt).getTime();
     const limitMs    = policy.cooldownMinutes * 60_000;
-    cooldownSecsLeft = Math.max(0, Math.ceil((limitMs - elapsedMs) / 1_000));
+    cooldownSecsLeft = Math.max(
+      0, Math.ceil((limitMs - elapsedMs) / 1_000)
+    );
   }
 
   return {
@@ -682,17 +1005,14 @@ const buildContext = (tier, stats, extras = {}) => {
     cooldownSecsLeft,
     subscriptionPlan     : extras.subscriptionPlan      ?? null,
     subscriptionExpiresAt: extras.subscriptionExpiresAt ?? null,
-    /* ✅ email fetched from users table
-       used for payment/audit ONLY
-       NOT stored in products table      */
     email                : extras.email ?? null,
   };
 };
 
 /* ═══════════════════════════════════════════════════════════════
    SELLER CONTEXT
-   ✅ v7: Fetches email from users table for payment/audit use
-          Email is NEVER written to products table
+   ✅ Fetches email from users table — NEVER from req.body
+      Email NOT written to products table
 ═══════════════════════════════════════════════════════════════ */
 const getSellerContext = async (db, sellerId, lock = false) => {
   const lockSql = lock ? "FOR UPDATE" : "";
@@ -715,21 +1035,12 @@ const getSellerContext = async (db, sellerId, lock = false) => {
   );
 
   if (!users.length) {
-    console.error(`[addproduct] ❌ Seller not found: ${sellerId}`);
     throw new Error(`Seller account not found (id: ${sellerId}).`);
   }
 
   const u = users[0];
 
-  console.log(`[addproduct] seller record:`, {
-    email              : u.email              ?? "NULL ⚠️",
-    identity_verified  : u.identity_verified,
-    subscription_status: u.subscription_status,
-    subscription_plan  : u.subscription_plan,
-  });
-
   if (!u.email) {
-    console.error(`[addproduct] ❌ No email for seller ${sellerId}`);
     throw new Error(
       `Account email missing for seller ${sellerId}. ` +
       `Please contact support.`
@@ -739,10 +1050,10 @@ const getSellerContext = async (db, sellerId, lock = false) => {
   const nowMs = Date.now();
 
   const hasActiveSubscription =
-    u.subscription_status === "active" &&
-    u.subscription_plan                &&
-    u.subscription_plan !== "free"     &&
-    u.subscription_expires_at          &&
+    u.subscription_status === "active"     &&
+    u.subscription_plan                    &&
+    u.subscription_plan !== "free"         &&
+    u.subscription_expires_at              &&
     new Date(u.subscription_expires_at).getTime() > nowMs;
 
   const isVerified = Boolean(u.identity_verified);
@@ -775,9 +1086,11 @@ const enforcePolicyLimits = (ctx) => {
 
   if (lifetimeExhausted) {
     if (tier === "unverified") return {
-      status : 403,
-      message: "You have used all 3 free trial listings. Verify your identity to keep posting.",
-      extra  : {
+      status: 403,
+      message:
+        "You have used all 3 free trial listings. " +
+        "Verify your identity to keep posting.",
+      extra: {
         trial_exhausted   : true,
         lifetime_exhausted: true,
         lifetime_used     : lifetimeCount,
@@ -788,9 +1101,11 @@ const enforcePolicyLimits = (ctx) => {
       },
     };
     if (tier === "verified") return {
-      status : 403,
-      message: "You have reached your 500-listing limit. Subscribe for unlimited listings.",
-      extra  : {
+      status: 403,
+      message:
+        "You have reached your 500-listing limit. " +
+        "Subscribe for unlimited listings.",
+      extra: {
         lifetime_exhausted: true,
         lifetime_used     : lifetimeCount,
         lifetime_max      : POLICY.verified.totalLifetimeMax,
@@ -803,38 +1118,54 @@ const enforcePolicyLimits = (ctx) => {
 
   if (todayCount >= policy.dailyLimit) {
     const suffix =
-      tier === "subscriber" ? "Try tomorrow."
-      : tier === "verified" ? "Try tomorrow or subscribe for higher limits."
-      : "Verify your identity to increase limits.";
+      tier === "subscriber"
+        ? "Try tomorrow."
+        : tier === "verified"
+        ? "Try tomorrow or subscribe for higher limits."
+        : "Verify your identity to increase limits.";
     return {
-      status : 429,
-      message: `Daily posting limit reached (${policy.dailyLimit}/day). ${suffix}`,
-      extra  : {
+      status: 429,
+      message:
+        `Daily posting limit reached (${policy.dailyLimit}/day). ${suffix}`,
+      extra: {
         daily_limit       : policy.dailyLimit,
         daily_used        : todayCount,
         lifetime_remaining: lifetimeRemaining,
-        ...(tier === "verified"   && { upgrade_to: "subscriber", upgrade_url: "/subscribe"    }),
-        ...(tier === "unverified" && { upgrade_to: "verified",   upgrade_url: "/verification" }),
+        ...(tier === "verified" && {
+          upgrade_to : "subscriber",
+          upgrade_url: "/subscribe",
+        }),
+        ...(tier === "unverified" && {
+          upgrade_to : "verified",
+          upgrade_url: "/verification",
+        }),
       },
     };
   }
 
   if (activeCount >= policy.activeLimit) {
     return {
-      status : 429,
-      message: tier === "unverified"
-        ? `You can have ${policy.activeLimit} active trial listings at a time.`
-        : `Active listing limit reached (${policy.activeLimit}). Delete or pause some listings.`,
-      extra: { active_limit: policy.activeLimit, active_count: activeCount },
+      status: 429,
+      message:
+        tier === "unverified"
+          ? `You can have ${policy.activeLimit} active trial listings at a time.`
+          : `Active listing limit reached (${policy.activeLimit}). ` +
+            `Delete or pause some listings.`,
+      extra: {
+        active_limit: policy.activeLimit,
+        active_count: activeCount,
+      },
     };
   }
 
   if (cooldownSecsLeft > 0) {
     const mins = Math.ceil(cooldownSecsLeft / 60);
     return {
-      status : 429,
-      message: `Please wait ${mins} minute${mins !== 1 ? "s" : ""} before posting again.`,
-      extra  : { retry_after_seconds: cooldownSecsLeft },
+      status: 429,
+      message:
+        `Please wait ${mins} minute${mins !== 1 ? "s" : ""} ` +
+        `before posting again.`,
+      extra: { retry_after_seconds: cooldownSecsLeft },
     };
   }
 
@@ -896,21 +1227,9 @@ const buildTrialInfo = (ctx) => {
 
 /* ═══════════════════════════════════════════════════════════════
    INSERT PRODUCT
-   ✅ v7: NO email column — email lives in users table only
+   ✅ NO email column — email lives in users table only
 ═══════════════════════════════════════════════════════════════ */
 const runProductInsert = async (client, p) => {
-  console.log("[addproduct] runProductInsert params:", {
-    title        : p.title,
-    sellerId     : p.sellerId,
-    categoryId   : p.categoryId,
-    slug         : p.slug,
-    finalStatus  : p.finalStatus,
-    phone        : p.phone,
-    locationState: p.locationState,
-    locationCity : p.locationCity,
-    /* ✅ email NOT included — not stored in products */
-  });
-
   const { rows } = await client.query(
     `INSERT INTO products (
        title,            description,     price,
@@ -925,10 +1244,10 @@ const runProductInsert = async (client, p) => {
        attributes,       delivery,        contact
      )
      VALUES (
-       $1,  $2,  $3,  $4,  $5,  $6,
-       $7,  $8,  $9,  $10, $11, $12,
-       $13, $14, $15, $16, $17, $18,
-       $19, $20, $21, $22, $23, $24, $25
+       $1,$2,$3,$4,$5,$6,
+       $7,$8,$9,$10,$11,$12,
+       $13,$14,$15,$16,$17,$18,
+       $19,$20,$21,$22,$23,$24,$25
      )
      RETURNING *`,
     [
@@ -944,10 +1263,8 @@ const runProductInsert = async (client, p) => {
       JSON.stringify(p.attributes),
       JSON.stringify(p.delivery),
       JSON.stringify(p.contact),
-      /* ✅ email intentionally omitted — not in products table */
     ]
   );
-
   console.log(`[addproduct] ✅ inserted product id: ${rows[0]?.id}`);
   return rows[0];
 };
@@ -970,8 +1287,11 @@ const notifyListing = (
         ? "Last Free Trial Listing Posted"
         : "Trial Listing Posted",
       message: remaining === 0
-        ? `"${title}" is your last free trial listing. Verify your identity to keep posting.`
-        : `"${title}" is live for ${POLICY.unverified.expiryDays} days. ${remaining} trial listing(s) remaining.`,
+        ? `"${title}" is your last free trial listing. ` +
+          `Verify your identity to keep posting.`
+        : `"${title}" is live for ` +
+          `${POLICY.unverified.expiryDays} days. ` +
+          `${remaining} trial listing(s) remaining.`,
     }).catch(() => {});
     return;
   }
@@ -987,9 +1307,10 @@ const notifyListing = (
   }
 
   if (finalStatus === "active") {
-    const durationText = tier === "subscriber" && !activeUntil
-      ? "permanently"
-      : `for ${days} days`;
+    const durationText =
+      tier === "subscriber" && !activeUntil
+        ? "permanently"
+        : `for ${days} days`;
     createNotification({
       userId : sellerId,
       type   : "listing_posted",
@@ -1000,7 +1321,7 @@ const notifyListing = (
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   CRON UTILITIES
+   CRON UTILITIES  (exported for scheduler)
 ═══════════════════════════════════════════════════════════════ */
 export const reactivateLimitedListings = async (sellerId) => {
   const client = await pool.connect();
@@ -1021,11 +1342,13 @@ export const reactivateLimitedListings = async (sellerId) => {
       u.subscription_expires_at          &&
       new Date(u.subscription_expires_at).getTime() > Date.now();
 
-    const tier = hasActiveSub       ? "subscriber"
-              : u.identity_verified ? "verified"
-              : "unverified";
+    const tier =
+      hasActiveSub          ? "subscriber"
+      : u.identity_verified ? "verified"
+      :                       "unverified";
 
-    const days = POLICY[tier].freeListingDays ?? POLICY[tier].expiryDays;
+    const days =
+      POLICY[tier].freeListingDays ?? POLICY[tier].expiryDays;
 
     const { rows, rowCount } = await client.query(
       `UPDATE products
@@ -1042,21 +1365,27 @@ export const reactivateLimitedListings = async (sellerId) => {
 
     if (rowCount > 0) {
       console.log(
-        `[addproduct] reactivated ${rowCount} listing(s) for seller ${sellerId}`
+        `[addproduct] reactivated ${rowCount} listing(s) ` +
+        `for seller ${sellerId}`
       );
       createNotification({
         userId : sellerId,
         type   : "listings_reactivated",
         title  : "Listings Made Permanent 🎉",
-        message: `${rowCount} listing${rowCount !== 1 ? "s" : ""} upgraded for ${days} days.`,
+        message:
+          `${rowCount} listing${rowCount !== 1 ? "s" : ""} ` +
+          `upgraded for ${days} days.`,
       }).catch(() => {});
-      if (redis) rows.forEach((r) => trackTrending(r.id).catch(() => {}));
+      if (redis)
+        rows.forEach((r) => trackTrending(r.id).catch(() => {}));
     }
 
     return rowCount;
   } catch (err) {
     logError("reactivateLimitedListings", err, { sellerId });
-    Sentry.captureException(err, { tags: { area: "cron_reactivate" } });
+    Sentry.captureException(err, {
+      tags: { area: "cron_reactivate" },
+    });
     return 0;
   } finally {
     client.release();
@@ -1075,13 +1404,16 @@ export const pauseExpiredListings = async () => {
          AND  active_until IS NOT NULL
          AND  active_until < NOW()
          AND  seller_id IN (
-           SELECT id FROM public.users WHERE identity_verified = FALSE
+           SELECT id FROM public.users
+           WHERE  identity_verified = FALSE
          )
        RETURNING id, seller_id, title`
     );
 
     if (rowCount > 0) {
-      console.log(`[addproduct] paused ${rowCount} expired trial listing(s)`);
+      console.log(
+        `[addproduct] paused ${rowCount} expired trial listing(s)`
+      );
       const bySeller = rows.reduce((acc, r) => {
         (acc[String(r.seller_id)] ??= []).push(r.title);
         return acc;
@@ -1091,7 +1423,10 @@ export const pauseExpiredListings = async () => {
           userId : sid,
           type   : "listings_paused",
           title  : "Listings Paused — Verification Required",
-          message: `${titles.length} listing${titles.length !== 1 ? "s" : ""} paused. Verify to restore.`,
+          message:
+            `${titles.length} listing` +
+            `${titles.length !== 1 ? "s" : ""} paused. ` +
+            `Verify to restore.`,
         }).catch(() => {});
       }
     }
@@ -1107,13 +1442,15 @@ export const pauseExpiredListings = async () => {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   GET /categories
+   ─────────────────────────────────────────────────────────────
+   ROUTES
+   ─────────────────────────────────────────────────────────────
 ═══════════════════════════════════════════════════════════════ */
+
+/* ── GET /categories ── */
 router.get("/categories", getCategoriesHandler);
 
-/* ═══════════════════════════════════════════════════════════════
-   GET /categories/:id/price-guidance
-═══════════════════════════════════════════════════════════════ */
+/* ── GET /categories/:id/price-guidance ── */
 router.get(
   "/categories/:id/price-guidance",
   readLimiter,
@@ -1131,7 +1468,7 @@ router.get(
          FROM products
          WHERE category_id = $1
            AND is_active   = TRUE
-           AND status      IN ('active', 'active_limited')
+           AND status      IN ('active','active_limited')
            AND price       > 0`,
         [id]
       );
@@ -1150,7 +1487,7 @@ router.get(
         `SELECT price FROM products
          WHERE  category_id = $1
            AND  is_active   = TRUE
-           AND  status      IN ('active', 'active_limited')
+           AND  status      IN ('active','active_limited')
            AND  price       > 0
          ORDER  BY price
          LIMIT  1
@@ -1158,7 +1495,8 @@ router.get(
         [id, Math.floor(total / 2)]
       );
 
-      const medianPrice = Number(medRows[0]?.price ?? agg.avg);
+      const medianPrice =
+        Number(medRows[0]?.price ?? agg.avg);
 
       return res.json({
         success : true,
@@ -1171,8 +1509,10 @@ router.get(
           currency      : "NGN",
           tip           :
             `Most sellers price between ` +
-            `₦${Math.round(Number(agg.min)).toLocaleString("en-NG")} and ` +
-            `₦${Math.round(Number(agg.max)).toLocaleString("en-NG")}.`,
+            `₦${Math.round(Number(agg.min))
+                .toLocaleString("en-NG")} and ` +
+            `₦${Math.round(Number(agg.max))
+                .toLocaleString("en-NG")}.`,
         },
       });
     } catch (err) {
@@ -1182,9 +1522,7 @@ router.get(
   }
 );
 
-/* ═══════════════════════════════════════════════════════════════
-   GET /seller/limits
-═══════════════════════════════════════════════════════════════ */
+/* ── GET /seller/limits ── */
 router.get(
   "/seller/limits",
   authenticate,
@@ -1198,34 +1536,39 @@ router.get(
       const ctx = await getSellerContext(client, sellerId);
 
       return res.json({
-        success              : true,
-        tier                 : ctx.tier,
-        seller_verified      : ctx.isVerified,
-        is_subscriber        : ctx.isSubscriber,
-        subscription_plan    : ctx.subscriptionPlan,
-        subscription_expires : ctx.subscriptionExpiresAt,
-        daily_limit          : ctx.policy.dailyLimit,
-        daily_used           : ctx.todayCount,
-        daily_remaining      : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount),
-        active_limit         : ctx.policy.activeLimit,
-        active_count         : ctx.activeCount,
-        active_remaining     : Math.max(0, ctx.policy.activeLimit - ctx.activeCount),
-        cooldown_seconds     : ctx.cooldownSecsLeft,
-        expiry_days          : ctx.policy.freeListingDays ?? ctx.policy.expiryDays,
-        can_reactivate       : ctx.policy.canReactivate,
-        lifetime_used        : ctx.lifetimeCount,
-        lifetime_max         : ctx.policy.totalLifetimeMax,
-        lifetime_remaining   : ctx.lifetimeRemaining,
-        lifetime_exhausted   : ctx.lifetimeExhausted,
-        trial_exhausted      : ctx.trialExhausted,
-        trial_remaining      : ctx.trialRemaining,
-        can_upgrade          : ctx.tier !== "subscriber",
-        upgrade_to           : ctx.tier === "unverified" ? "verified"
-                             : ctx.tier === "verified"   ? "subscriber"
-                             : null,
-        upgrade_url          : ctx.tier === "unverified" ? "/verification"
-                             : ctx.tier === "verified"   ? "/subscribe"
-                             : null,
+        success             : true,
+        tier                : ctx.tier,
+        seller_verified     : ctx.isVerified,
+        is_subscriber       : ctx.isSubscriber,
+        subscription_plan   : ctx.subscriptionPlan,
+        subscription_expires: ctx.subscriptionExpiresAt,
+        daily_limit         : ctx.policy.dailyLimit,
+        daily_used          : ctx.todayCount,
+        daily_remaining     : Math.max(
+          0, ctx.policy.dailyLimit - ctx.todayCount
+        ),
+        active_limit        : ctx.policy.activeLimit,
+        active_count        : ctx.activeCount,
+        active_remaining    : Math.max(
+          0, ctx.policy.activeLimit - ctx.activeCount
+        ),
+        cooldown_seconds    : ctx.cooldownSecsLeft,
+        expiry_days         : ctx.policy.freeListingDays ??
+                              ctx.policy.expiryDays,
+        can_reactivate      : ctx.policy.canReactivate,
+        lifetime_used       : ctx.lifetimeCount,
+        lifetime_max        : ctx.policy.totalLifetimeMax,
+        lifetime_remaining  : ctx.lifetimeRemaining,
+        lifetime_exhausted  : ctx.lifetimeExhausted,
+        trial_exhausted     : ctx.trialExhausted,
+        trial_remaining     : ctx.trialRemaining,
+        can_upgrade         : ctx.tier !== "subscriber",
+        upgrade_to          : ctx.tier === "unverified" ? "verified"
+                            : ctx.tier === "verified"   ? "subscriber"
+                            : null,
+        upgrade_url         : ctx.tier === "unverified" ? "/verification"
+                            : ctx.tier === "verified"   ? "/subscribe"
+                            : null,
       });
     } catch (err) {
       logError("GET /seller/limits", err, { sellerId });
@@ -1236,9 +1579,7 @@ router.get(
   }
 );
 
-/* ═══════════════════════════════════════════════════════════════
-   POST /products/check-duplicate
-═══════════════════════════════════════════════════════════════ */
+/* ── POST /products/check-duplicate ── */
 router.post(
   "/products/check-duplicate",
   authenticate,
@@ -1248,14 +1589,15 @@ router.post(
     const { title }   = req.body;
     const imageHashes = validateImageHashes(req.body.image_hashes);
 
-    if (!sellerId || !title) return res.json({ isDuplicate: false });
+    if (!sellerId || !title)
+      return res.json({ isDuplicate: false });
 
     const client = await pool.connect();
     try {
       const { rows: titleMatch } = await client.query(
         `SELECT id FROM products
          WHERE  seller_id   = $1
-           AND  status      NOT IN ('deleted', 'draft')
+           AND  status      NOT IN ('deleted','draft')
            AND  created_at  > NOW() - INTERVAL '7 days'
            AND  LOWER(TRIM(title)) = LOWER(TRIM($2))
          LIMIT 1`,
@@ -1275,7 +1617,8 @@ router.post(
         if (hashMatch.length)
           return res.json({
             isDuplicate: true,
-            message    : `Photos already used in "${hashMatch[0].title}".`,
+            message    :
+              `Photos already used in "${hashMatch[0].title}".`,
           });
       }
 
@@ -1289,9 +1632,7 @@ router.post(
   }
 );
 
-/* ═══════════════════════════════════════════════════════════════
-   GET /products/:id/status
-═══════════════════════════════════════════════════════════════ */
+/* ── GET /products/:id/status ── */
 router.get(
   "/products/:id/status",
   authenticate,
@@ -1305,6 +1646,8 @@ router.get(
       const { rows } = await pool.query(
         `SELECT p.id, p.status, p.is_active, p.active_until,
                 p.is_first_product,
+                p.is_promoted, p.promotion_end,
+                p.promotion_type,
                 u.identity_verified AS seller_verified
          FROM   products p
          JOIN   public.users u ON u.id = p.seller_id
@@ -1317,31 +1660,42 @@ router.get(
       if (!rows.length) return fail(res, 404, "Product not found.");
 
       const p       = rows[0];
-      const expired = p.active_until &&
+      const expired =
+        p.active_until &&
         new Date(p.active_until) < new Date();
 
+      const promotionActive =
+        p.is_promoted &&
+        p.promotion_end &&
+        new Date(p.promotion_end) > new Date();
+
       return res.json({
-        success           : true,
-        status            : p.status,
-        is_active         : p.is_active,
-        active_until      : p.active_until,
-        is_first_product  : p.is_first_product,
-        seller_verified   : p.seller_verified,
-        needs_verification: p.status === "active_limited" && !expired,
-        is_expired        : !!expired,
-        days_remaining    : daysUntilExpiry(p.active_until),
+        success            : true,
+        status             : p.status,
+        is_active          : p.is_active,
+        active_until       : p.active_until,
+        is_first_product   : p.is_first_product,
+        seller_verified    : p.seller_verified,
+        needs_verification : p.status === "active_limited" && !expired,
+        is_expired         : !!expired,
+        days_remaining     : daysUntilExpiry(p.active_until),
+        is_promoted        : !!p.is_promoted,
+        promotion_active   : !!promotionActive,
+        promotion_end      : p.promotion_end ?? null,
+        promotion_type     : p.promotion_type ?? null,
       });
     } catch (err) {
-      logError("GET /products/:id/status", err, { productId, sellerId });
+      logError("GET /products/:id/status", err, {
+        productId, sellerId,
+      });
       return fail(res, 500, `Status error: ${err.message}`);
     }
   }
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   POST /products  — Create
-   ✅ v7: No email in products table
-          Email fetched from users table for payment/audit only
+   POST /products  — Create listing
+   ✅ No email in products table
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/products",
@@ -1369,42 +1723,45 @@ router.post(
     const phone          = cleanText(req.body.phone);
     const whatsapp       = cleanText(req.body.whatsapp);
     const idempotencyKey = cleanText(req.body.idempotency_key);
-    const whatsappLink   = sanitizeWhatsAppLink(cleanText(req.body.whatsapp_link));
-    const imageHashes    = validateImageHashes(safeParse(req.body.image_hashes, []));
+    const whatsappLink   = sanitizeWhatsAppLink(
+      cleanText(req.body.whatsapp_link)
+    );
+    const imageHashes    = validateImageHashes(
+      safeParse(req.body.image_hashes, [])
+    );
     const attributes     = safeParseGuarded(req.body.attributes, {});
     const delivery       = safeParseGuarded(req.body.delivery,   {});
     const contact        = safeParseGuarded(req.body.contact,    {});
     const files          = req.files ?? [];
 
     const rawStatus       = cleanText(req.body.status) ?? "draft";
-    const requestedStatus = ALLOWED_STATUSES.has(rawStatus) ? rawStatus : "draft";
-
-    console.log("[addproduct] parsed:", {
-      title, price, categoryId, locationState,
-      locationCity, phone, fileCount: files.length,
-      requestedStatus,
-    });
+    const requestedStatus =
+      ALLOWED_STATUSES.has(rawStatus) ? rawStatus : "draft";
 
     /* ── Validate ── */
     if (!title)
       return fail(res, 400, "Title is required.");
     if (title.length > TITLE_MAX)
-      return fail(res, 400, `Title must be ≤ ${TITLE_MAX} characters.`);
+      return fail(res, 400,
+        `Title must be ≤ ${TITLE_MAX} characters.`);
     if (!description || description.length < DESC_MIN)
-      return fail(res, 400, `Description must be at least ${DESC_MIN} characters.`);
+      return fail(res, 400,
+        `Description must be at least ${DESC_MIN} characters.`);
     if (description.length > DESC_MAX)
-      return fail(res, 400, `Description must be ≤ ${DESC_MAX} characters.`);
+      return fail(res, 400,
+        `Description must be ≤ ${DESC_MAX} characters.`);
     if (!price || price <= 0 || !Number.isFinite(price))
-      return fail(res, 400, `Enter a valid price. Received: "${req.body.price}"`);
+      return fail(res, 400,
+        `Enter a valid price. Received: "${req.body.price}"`);
     if (price > PRICE_MAX)
       return fail(res, 400, "Price exceeds maximum.");
     if (!categoryId)
-      return fail(res, 400, `Category is required. Received: "${req.body.category_id}"`);
+      return fail(res, 400,
+        `Category is required. Received: "${req.body.category_id}"`);
     if (!locationState || !locationCity)
-      return fail(
-        res, 400,
-        `State and city required. Got: state="${locationState}" city="${locationCity}"`
-      );
+      return fail(res, 400,
+        `State and city required. Got: ` +
+        `state="${locationState}" city="${locationCity}"`);
 
     const phoneErr = validatePhone(phone, "Phone number");
     if (phoneErr) return fail(res, 400, phoneErr);
@@ -1429,17 +1786,22 @@ router.post(
           [sellerId, idempotencyKey]
         );
         if (dup.length) {
-          console.log("[addproduct] idempotent hit →", dup[0].id);
+          console.log(
+            "[addproduct] idempotent hit →", dup[0].id
+          );
           const { rows: existing } = await pool.query(
             "SELECT * FROM products WHERE id = $1",
             [dup[0].id]
           );
-          return res.status(200).json({
-            success: true, product: existing[0],
-          });
+          return res
+            .status(200)
+            .json({ success: true, product: existing[0] });
         }
       } catch (idempErr) {
-        console.warn("[addproduct] idempotency check failed:", idempErr.message);
+        console.warn(
+          "[addproduct] idempotency check failed:",
+          idempErr.message
+        );
       }
     }
 
@@ -1461,23 +1823,31 @@ router.post(
         const preCtx = await getSellerContext(pool, sellerId);
         const preErr = enforcePolicyLimits(preCtx);
         if (preErr) {
-          console.log("[addproduct] pre-upload policy block:", preErr.message);
-          return fail(res, preErr.status, preErr.message, preErr.extra ?? {});
+          console.log(
+            "[addproduct] pre-upload policy block:", preErr.message
+          );
+          return fail(
+            res, preErr.status, preErr.message, preErr.extra ?? {}
+          );
         }
       } catch (preErr) {
         logError("pre-upload policy check", preErr, { sellerId });
-        /* Non-fatal — continue to transaction */
       }
     }
 
     /* ── Early category validation ── */
-    const catEarly = await validateCategory(pool, categoryId, subcategoryId);
-    if (!catEarly.valid) return fail(res, 400, catEarly.message);
+    const catEarly = await validateCategory(
+      pool, categoryId, subcategoryId
+    );
+    if (!catEarly.valid)
+      return fail(res, 400, catEarly.message);
 
     /* ── Watermark analysis ── */
     let wmAnalysis = null;
     try {
-      wmAnalysis = await analyzeImageBatch(files.map((f) => f.buffer));
+      wmAnalysis = await analyzeImageBatch(
+        files.map((f) => f.buffer)
+      );
       console.log(
         "[addproduct] watermark scan:",
         `${wmAnalysis.summary.clean} clean,`,
@@ -1485,7 +1855,9 @@ router.post(
       );
 
       if (wmAnalysis.overallVerdict === "block") {
-        const first = wmAnalysis.results.find((r) => r.verdict === "block");
+        const first = wmAnalysis.results.find(
+          (r) => r.verdict === "block"
+        );
         console.warn("[addproduct] watermark block:", sellerId);
         return fail(
           res, 400,
@@ -1497,15 +1869,19 @@ router.post(
         );
       }
     } catch (wmErr) {
-      console.warn("[addproduct] watermark analysis error:", wmErr.message);
+      console.warn(
+        "[addproduct] watermark analysis error:", wmErr.message
+      );
       Sentry.captureException(wmErr, {
         tags: { area: "watermark", seller_id: sellerId },
       });
       wmAnalysis = null;
     }
 
-    /* ── Compress + Upload ── */
-    console.log(`[addproduct] processing ${files.length} image(s)...`);
+    /* ── Compress + Upload images ── */
+    console.log(
+      `[addproduct] processing ${files.length} image(s)...`
+    );
     let uploaded;
     try {
       uploaded = await Promise.all(
@@ -1514,8 +1890,12 @@ router.post(
             const { buffer, mimetype } = await compressImage(
               file.buffer, file.mimetype
             );
-            const { url, key } = await uploadToR2(buffer, mimetype);
-            console.log(`[addproduct] image ${i + 1}/${files.length} → ${key}`);
+            const { url, key } = await uploadToR2(
+              buffer, mimetype
+            );
+            console.log(
+              `[addproduct] image ${i + 1}/${files.length} → ${key}`
+            );
             return { url, key, order: i };
           })
         )
@@ -1550,15 +1930,6 @@ router.post(
 
       const ctx = await getSellerContext(client, sellerId, true);
 
-      console.log("[addproduct] ctx OK:", {
-        tier             : ctx.tier,
-        email            : ctx.email,  // for audit only
-        todayCount       : ctx.todayCount,
-        activeCount      : ctx.activeCount,
-        lifetimeCount    : ctx.lifetimeCount,
-        lifetimeExhausted: ctx.lifetimeExhausted,
-      });
-
       const catCheck = await validateCategory(
         client, categoryId, subcategoryId
       );
@@ -1574,7 +1945,10 @@ router.post(
           await client.query("ROLLBACK");
           await destroyR2Assets(r2Keys);
           return fail(
-            res, policyErr.status, policyErr.message, policyErr.extra ?? {}
+            res,
+            policyErr.status,
+            policyErr.message,
+            policyErr.extra ?? {}
           );
         }
       }
@@ -1585,7 +1959,8 @@ router.post(
       let activeUntil = null;
 
       if (requestedStatus === "active") {
-        finalStatus = ctx.tier === "unverified" ? "active_limited" : "active";
+        finalStatus =
+          ctx.tier === "unverified" ? "active_limited" : "active";
         finalActive = true;
         activeUntil = computeActiveUntil(ctx.tier);
       }
@@ -1597,10 +1972,12 @@ router.post(
 
       /* Slug */
       const baseSlug  = generateBaseSlug(title).slice(0, SLUG_MAX);
-      const shortId   = crypto.randomUUID().replace(/-/g, "").slice(0, 8);
+      const shortId   = crypto
+        .randomUUID()
+        .replace(/-/g, "")
+        .slice(0, 8);
       const firstSlug = generateSlugWithId(title, shortId);
 
-      /* ✅ v7: No email in insertParams */
       const insertParams = {
         title, description, price,
         sellerId, categoryId, subcategoryId,
@@ -1610,7 +1987,6 @@ router.post(
         locationState, locationCity, latitude, longitude,
         sellerName, phone, whatsapp, whatsappLink,
         attributes, delivery, contact,
-        /* email intentionally omitted */
       };
 
       let product;
@@ -1621,7 +1997,7 @@ router.post(
           ...insertParams, slug: firstSlug,
         });
       } catch (firstErr) {
-        logError("runProductInsert (first attempt)", firstErr, {
+        logError("runProductInsert (first)", firstErr, {
           sellerId, slug: firstSlug,
         });
 
@@ -1639,16 +2015,16 @@ router.post(
           await client.query("ROLLBACK");
           const { rows: existing } = await pool.query(
             `SELECT * FROM products
-             WHERE seller_id = $1
+             WHERE seller_id       = $1
                AND idempotency_key = $2
-               AND status <> 'deleted'
+               AND status         <> 'deleted'
              LIMIT 1`,
             [sellerId, idempotencyKey]
           );
           if (existing.length)
-            return res.status(200).json({
-              success: true, product: existing[0],
-            });
+            return res
+              .status(200)
+              .json({ success: true, product: existing[0] });
           return fail(res, 409, "Duplicate submission detected.");
         }
 
@@ -1657,8 +2033,11 @@ router.post(
           await client.query("ROLLBACK");
           await client.query("BEGIN");
 
-          const ctx2      = await getSellerContext(client, sellerId, true);
-          const retrySlug = `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`;
+          const ctx2      = await getSellerContext(
+            client, sellerId, true
+          );
+          const retrySlug =
+            `${baseSlug}-${crypto.randomUUID().slice(0, 8)}`;
 
           try {
             product = await runProductInsert(client, {
@@ -1673,7 +2052,10 @@ router.post(
             await client.query("ROLLBACK");
             await destroyR2Assets(r2Keys);
             Sentry.captureException(retryErr, {
-              tags: { area: "product_insert_retry", seller_id: sellerId },
+              tags: {
+                area     : "product_insert_retry",
+                seller_id: sellerId,
+              },
             });
             return fail(
               res, 500,
@@ -1700,7 +2082,9 @@ router.post(
         return fail(res, 500, "Product insert returned no rows.");
       }
 
-      console.log("[addproduct] product row created → id:", product.id);
+      console.log(
+        "[addproduct] product row created → id:", product.id
+      );
 
       /* Insert product_images */
       try {
@@ -1708,14 +2092,20 @@ router.post(
           uploaded.map((img) =>
             client.query(
               `INSERT INTO product_images
-                 (product_id, image_url, r2_key, position_order, is_primary)
-               VALUES ($1, $2, $3, $4, $5)
+                 (product_id, image_url, r2_key,
+                  position_order, is_primary)
+               VALUES ($1,$2,$3,$4,$5)
                ON CONFLICT DO NOTHING`,
-              [product.id, img.url, img.key, img.order, img.order === 0]
+              [
+                product.id, img.url, img.key,
+                img.order, img.order === 0,
+              ]
             )
           )
         );
-        console.log(`[addproduct] ${uploaded.length} image row(s) inserted`);
+        console.log(
+          `[addproduct] ${uploaded.length} image row(s) inserted`
+        );
       } catch (imgInsertErr) {
         logError("product_images insert", imgInsertErr, {
           productId: product.id,
@@ -1738,14 +2128,6 @@ router.post(
       await client.query("COMMIT");
       console.log("[addproduct] ✅ transaction committed");
 
-      console.log(
-        `[addproduct] ✓ created  id:${product.id}`,
-        ` tier:${ctx.tier}`,
-        ` email:${ctx.email}`,   // audit only — NOT in products table
-        ` status:${finalStatus}`,
-        ` expires:${activeUntil?.toISOString() ?? "never"}`
-      );
-
       /* Post-commit side effects */
       const trialInfo = buildTrialInfo(ctx);
 
@@ -1762,7 +2144,7 @@ router.post(
             title,
             status        : finalStatus,
             tier          : ctx.tier,
-            email         : ctx.email,   // audit log only
+            email         : ctx.email,
             active_until  : activeUntil,
             is_verified   : ctx.isVerified,
             is_subscriber : ctx.isSubscriber,
@@ -1778,7 +2160,8 @@ router.post(
         trackTrending(product.id).catch(() => {});
 
         notifyListing(
-          sellerId, title, ctx.tier, finalStatus, activeUntil, trialInfo
+          sellerId, title, ctx.tier,
+          finalStatus, activeUntil, trialInfo
         );
       });
 
@@ -1790,20 +2173,22 @@ router.post(
         wmAnalysis.warnings?.length > 0;
 
       return res.status(201).json({
-        success           : true,
+        success            : true,
         product,
-        tier              : ctx.tier,
-        first_product     : ctx.isFirstProduct,
-        needs_verification: needsVerification,
-        active_until      : activeUntil ?? null,
-        days_remaining    : expiryDays,
-        seller_verified   : ctx.isVerified,
-        is_subscriber     : ctx.isSubscriber,
-        trial             : trialInfo,
+        tier               : ctx.tier,
+        first_product      : ctx.isFirstProduct,
+        needs_verification : needsVerification,
+        active_until       : activeUntil ?? null,
+        days_remaining     : expiryDays,
+        seller_verified    : ctx.isVerified,
+        is_subscriber      : ctx.isSubscriber,
+        trial              : trialInfo,
         limits: {
           daily_limit       : ctx.policy.dailyLimit,
           daily_used        : ctx.todayCount + 1,
-          daily_left        : Math.max(0, ctx.policy.dailyLimit - ctx.todayCount - 1),
+          daily_left        : Math.max(
+            0, ctx.policy.dailyLimit - ctx.todayCount - 1
+          ),
           active_limit      : ctx.policy.activeLimit,
           active_count      : ctx.activeCount + 1,
           lifetime_used     : ctx.lifetimeCount + 1,
@@ -1812,7 +2197,8 @@ router.post(
         },
         ...(activeUntil && {
           expiry_message: needsVerification
-            ? `Your listing is live for ${expiryDays} days (trial). Verify to post permanently.`
+            ? `Your listing is live for ${expiryDays} days (trial). ` +
+              `Verify to post permanently.`
             : `Your listing is live for ${expiryDays} days.`,
         }),
         ...(!activeUntil && ctx.isSubscriber && {
@@ -1820,17 +2206,23 @@ router.post(
         }),
         ...(needsVerification && {
           verification_message: trialInfo?.trial_exhausted
-            ? "You have used all free trial listings. Verify to keep posting."
-            : `${trialInfo?.trial_remaining ?? 0} free trial listing(s) remaining.`,
+            ? "You have used all free trial listings. " +
+              "Verify to keep posting."
+            : `${trialInfo?.trial_remaining ?? 0} free trial ` +
+              `listing(s) remaining.`,
         }),
-        ...(ctx.tier === "verified" && trialInfo?.lifetime_remaining === 0 && {
-          upgrade_message: "You've reached your 500-listing limit. Subscribe for unlimited listings.",
-          upgrade_to     : "subscriber",
-          upgrade_url    : "/subscribe",
-        }),
+        ...(ctx.tier === "verified" &&
+          trialInfo?.lifetime_remaining === 0 && {
+            upgrade_message:
+              "You've reached your 500-listing limit. " +
+              "Subscribe for unlimited listings.",
+            upgrade_to : "subscriber",
+            upgrade_url: "/subscribe",
+          }),
         ...(hasWmWarnings && {
           watermark_warnings: wmAnalysis.warnings,
-          watermark_notice  : "One or more photos may contain a third-party watermark.",
+          watermark_notice  :
+            "One or more photos may contain a third-party watermark.",
         }),
       });
 
@@ -1866,8 +2258,7 @@ router.post(
 );
 
 /* ═══════════════════════════════════════════════════════════════
-   PATCH /products/:id  — Edit
-   ✅ v7: No email column in products table
+   PATCH /products/:id  — Edit listing
 ═══════════════════════════════════════════════════════════════ */
 router.patch(
   "/products/:id",
@@ -1880,7 +2271,8 @@ router.patch(
     const ip        = getIp(req);
 
     console.log(
-      "\n[addproduct] ▶ EDIT  product:", productId, " seller:", sellerId
+      "\n[addproduct] ▶ EDIT  product:", productId,
+      " seller:", sellerId
     );
     if (!sellerId)  return fail(res, 401, "Not authenticated.");
     if (!productId) return fail(res, 400, "Product ID required.");
@@ -1897,7 +2289,9 @@ router.patch(
     const sellerName    = cleanText(req.body.seller_name);
     const phone         = cleanText(req.body.phone);
     const whatsapp      = cleanText(req.body.whatsapp);
-    const whatsappLink  = sanitizeWhatsAppLink(cleanText(req.body.whatsapp_link));
+    const whatsappLink  = sanitizeWhatsAppLink(
+      cleanText(req.body.whatsapp_link)
+    );
     const attributes    = safeParseGuarded(req.body.attributes, {});
     const delivery      = safeParseGuarded(req.body.delivery,   {});
     const contact       = safeParseGuarded(req.body.contact,    {});
@@ -1908,11 +2302,14 @@ router.patch(
     if (!title)
       return fail(res, 400, "Title is required.");
     if (title.length > TITLE_MAX)
-      return fail(res, 400, `Title must be ≤ ${TITLE_MAX} characters.`);
+      return fail(res, 400,
+        `Title must be ≤ ${TITLE_MAX} characters.`);
     if (!description || description.length < DESC_MIN)
-      return fail(res, 400, `Description must be at least ${DESC_MIN} characters.`);
+      return fail(res, 400,
+        `Description must be at least ${DESC_MIN} characters.`);
     if (description.length > DESC_MAX)
-      return fail(res, 400, `Description must be ≤ ${DESC_MAX} characters.`);
+      return fail(res, 400,
+        `Description must be ≤ ${DESC_MAX} characters.`);
     if (!price || price <= 0 || !Number.isFinite(price))
       return fail(res, 400, "Enter a valid price.");
     if (price > PRICE_MAX)
@@ -1930,7 +2327,9 @@ router.patch(
       if (waErr) return fail(res, 400, waErr);
     }
 
-    const catEarly = await validateCategory(pool, categoryId, subcategoryId);
+    const catEarly = await validateCategory(
+      pool, categoryId, subcategoryId
+    );
     if (!catEarly.valid) return fail(res, 400, catEarly.message);
 
     let newUploaded = [];
@@ -1944,7 +2343,9 @@ router.patch(
               const { buffer, mimetype } = await compressImage(
                 file.buffer, file.mimetype
               );
-              const { url, key } = await uploadToR2(buffer, mimetype);
+              const { url, key } = await uploadToR2(
+                buffer, mimetype
+              );
               newR2Keys.push(key);
               return { url, key, order: i };
             })
@@ -1985,7 +2386,8 @@ router.patch(
       if (existing[0].seller_id !== sellerId) {
         await client.query("ROLLBACK");
         await destroyR2Assets(newR2Keys);
-        return fail(res, 403, "Not authorised to edit this listing.");
+        return fail(res, 403,
+          "Not authorised to edit this listing.");
       }
 
       const catCheck = await validateCategory(
@@ -2002,7 +2404,6 @@ router.patch(
         crypto.randomUUID().replace(/-/g, "").slice(0, 8)
       );
 
-      /* ✅ v7: No email column in UPDATE */
       const { rows: updated } = await client.query(
         `UPDATE products SET
            title          = $1,
@@ -2037,7 +2438,6 @@ router.patch(
           JSON.stringify(contact),
           newSlug,
           productId,
-          /* ✅ email removed — not in products table */
         ]
       );
 
@@ -2045,7 +2445,10 @@ router.patch(
 
       /* Remove images not in keep list */
       try {
-        if (Array.isArray(keepImageIds) && keepImageIds.length > 0) {
+        if (
+          Array.isArray(keepImageIds) &&
+          keepImageIds.length > 0
+        ) {
           await client.query(
             `DELETE FROM product_images
              WHERE product_id = $1
@@ -2060,13 +2463,15 @@ router.patch(
         }
       } catch (delImgErr) {
         console.warn(
-          "[addproduct] product_images delete failed:", delImgErr.message
+          "[addproduct] product_images delete failed:",
+          delImgErr.message
         );
       }
 
       /* Insert new images */
       const existingCount = Array.isArray(keepImageIds)
-        ? keepImageIds.length : 0;
+        ? keepImageIds.length
+        : 0;
 
       if (newUploaded.length) {
         try {
@@ -2074,8 +2479,9 @@ router.patch(
             newUploaded.map((img, i) =>
               client.query(
                 `INSERT INTO product_images
-                   (product_id, image_url, r2_key, position_order, is_primary)
-                 VALUES ($1, $2, $3, $4, $5)
+                   (product_id, image_url, r2_key,
+                    position_order, is_primary)
+                 VALUES ($1,$2,$3,$4,$5)
                  ON CONFLICT DO NOTHING`,
                 [
                   productId, img.url, img.key,
@@ -2087,7 +2493,8 @@ router.patch(
           );
         } catch (insImgErr) {
           console.warn(
-            "[addproduct] product_images insert failed:", insImgErr.message
+            "[addproduct] product_images insert failed:",
+            insImgErr.message
           );
         }
       }
@@ -2106,11 +2513,13 @@ router.patch(
         allImages = imgRows;
       } catch (fetchImgErr) {
         console.warn(
-          "[addproduct] product_images fetch failed:", fetchImgErr.message
+          "[addproduct] product_images fetch failed:",
+          fetchImgErr.message
         );
       }
 
-      const newThumb = allImages[0]?.url ?? product.thumbnail_url;
+      const newThumb =
+        allImages[0]?.url ?? product.thumbnail_url;
       await client.query(
         `UPDATE products
          SET images        = $1,
@@ -2188,7 +2597,8 @@ router.post(
       await client.query("BEGIN");
 
       const { rows: productRows } = await client.query(
-        `SELECT id, seller_id, status, is_first_product, active_until
+        `SELECT id, seller_id, status, is_first_product,
+                active_until
          FROM   products
          WHERE  id     = $1
            AND  status <> 'deleted'
@@ -2211,23 +2621,27 @@ router.post(
       if (product.status === "active") {
         await client.query("ROLLBACK");
         return res.json({
-          success           : true,
-          message           : "Already active.",
+          success            : true,
+          message            : "Already active.",
           product,
-          needs_verification: false,
-          active_until      : product.active_until,
-          days_remaining    : daysUntilExpiry(product.active_until),
-          seller_verified   : true,
+          needs_verification : false,
+          active_until       : product.active_until,
+          days_remaining     : daysUntilExpiry(product.active_until),
+          seller_verified    : true,
         });
       }
 
       const ctx = await getSellerContext(client, sellerId, true);
 
-      if (product.status === "paused" && !ctx.policy.canReactivate) {
+      if (
+        product.status === "paused" &&
+        !ctx.policy.canReactivate
+      ) {
         await client.query("ROLLBACK");
         return fail(
           res, 403,
-          "Expired listings cannot be reactivated until you verify your identity.",
+          "Expired listings cannot be reactivated until you " +
+          "verify your identity.",
           {
             upgrade_required: true,
             upgrade_to      : "verified",
@@ -2242,13 +2656,15 @@ router.post(
       if (policyErr) {
         await client.query("ROLLBACK");
         return fail(
-          res, policyErr.status, policyErr.message, policyErr.extra ?? {}
+          res,
+          policyErr.status,
+          policyErr.message,
+          policyErr.extra ?? {}
         );
       }
 
-      const finalStatus = ctx.tier === "unverified"
-        ? "active_limited"
-        : "active";
+      const finalStatus =
+        ctx.tier === "unverified" ? "active_limited" : "active";
       const activeUntil = computeActiveUntil(ctx.tier);
 
       const { rows: updatedRows } = await client.query(
@@ -2277,7 +2693,7 @@ router.post(
             status      : finalStatus,
             active_until: activeUntil,
             tier        : ctx.tier,
-            email       : ctx.email,   // audit only
+            email       : ctx.email,
           },
           ipAddress: ip,
         }).catch(() => {});
@@ -2285,24 +2701,26 @@ router.post(
       });
 
       console.log(
-        `[addproduct] ✓ activated  status:${finalStatus}  tier:${ctx.tier}`
+        `[addproduct] ✓ activated  status:${finalStatus}` +
+        `  tier:${ctx.tier}`
       );
 
       return res.json({
-        success           : true,
-        product           : updatedRows[0],
-        tier              : ctx.tier,
-        needs_verification: needsVerification,
-        active_until      : activeUntil,
-        days_remaining    : expiryDays,
-        seller_verified   : ctx.isVerified,
-        is_subscriber     : ctx.isSubscriber,
-        expiry_message    :
+        success            : true,
+        product            : updatedRows[0],
+        tier               : ctx.tier,
+        needs_verification : needsVerification,
+        active_until       : activeUntil,
+        days_remaining     : expiryDays,
+        seller_verified    : ctx.isVerified,
+        is_subscriber      : ctx.isSubscriber,
+        expiry_message     :
           !activeUntil && ctx.isSubscriber
             ? "Your listing is live permanently."
             : needsVerification
-              ? `Your listing is live for ${expiryDays} days (trial). Verify to post permanently.`
-              : `Your listing is live for ${expiryDays} days.`,
+            ? `Your listing is live for ${expiryDays} days (trial). ` +
+              `Verify to post permanently.`
+            : `Your listing is live for ${expiryDays} days.`,
         ...(needsVerification && {
           verification_message:
             "Verify your identity to make this listing permanent.",
@@ -2311,7 +2729,9 @@ router.post(
 
     } catch (err) {
       await client.query("ROLLBACK").catch(() => {});
-      logError("POST /products/:id/activate", err, { sellerId, productId });
+      logError("POST /products/:id/activate", err, {
+        sellerId, productId,
+      });
       Sentry.captureException(err, {
         tags: { area: "product_activate", seller_id: sellerId },
       });
@@ -2356,14 +2776,13 @@ router.delete("/products/:id", authenticate, async (req, res) => {
     );
 
     if (!check.length)
-      return fail(res, 404, "Product not found or not owned by you.");
+      return fail(res, 404,
+        "Product not found or not owned by you.");
     if (check[0].is_deleted || check[0].status === "deleted")
       return fail(res, 400, "Product already deleted.");
     if (check[0].status === "active")
-      return fail(
-        res, 409,
-        "Active listings must be paused before deleting."
-      );
+      return fail(res, 409,
+        "Active listings must be paused before deleting.");
 
     const { rows } = await pool.query(
       `UPDATE products
@@ -2373,7 +2792,8 @@ router.delete("/products/:id", authenticate, async (req, res) => {
          status                = 'deleted',
          deletion_requested_at = NOW(),
          deletion_reason       = 'user_deleted',
-         permanent_delete_at   = NOW() + make_interval(days => $1::INT),
+         permanent_delete_at   =
+           NOW() + make_interval(days => $1::INT),
          deleted_at            = NOW(),
          updated_at            = NOW()
        WHERE id        = $2
@@ -2384,7 +2804,8 @@ router.delete("/products/:id", authenticate, async (req, res) => {
     );
 
     if (!rows.length)
-      return fail(res, 404, "Product not found or already deleted.");
+      return fail(res, 404,
+        "Product not found or already deleted.");
 
     setImmediate(() => {
       writeAudit({
@@ -2392,8 +2813,11 @@ router.delete("/products/:id", authenticate, async (req, res) => {
         action    : "product_soft_deleted",
         targetType: "product",
         targetId  : productId,
-        metadata  : { title: rows[0].title, hold_days: DELETE_HOLD_DAYS },
-        ipAddress : ip,
+        metadata  : {
+          title    : rows[0].title,
+          hold_days: DELETE_HOLD_DAYS,
+        },
+        ipAddress: ip,
       }).catch(() => {});
     });
 
@@ -2425,5 +2849,1057 @@ router.delete("/products/:id", authenticate, async (req, res) => {
     );
   }
 });
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /products/promotion-plans
+   Public — lists all active promotion plans
+═══════════════════════════════════════════════════════════════ */
+router.get(
+  "/products/promotion-plans",
+  readLimiter,
+  async (_req, res) => {
+    try {
+      const { rows } = await pool.query(
+        `SELECT
+           id::text                                                AS id,
+           name,
+           price::numeric                                          AS price,
+           COALESCE(discount_percent, 0)::numeric                  AS discount_percent,
+           duration,
+           COALESCE(duration_days, $1)::int                        AS duration_days,
+           COALESCE(priority, 0)::int                              AS priority,
+           COALESCE(features, '[]'::jsonb)                         AS features,
+           description,
+           ROUND(
+             price::numeric *
+             (1 - COALESCE(discount_percent, 0) / 100.0),
+             2
+           )                                                       AS effective_price
+         FROM  promotion_plans
+         WHERE is_active = TRUE
+         ORDER BY sort_order ASC NULLS LAST, price ASC`,
+        [PROMO_DEFAULT_DAYS]
+      );
+
+      return res.json({ success: true, plans: rows });
+    } catch (err) {
+      logError("GET /products/promotion-plans", err);
+      return fail(res, 500, "Failed to load promotion plans.");
+    }
+  }
+);
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /products/:id/promote
+   ✅ Free plans  → activate directly, no Paystack
+   ✅ Paid plans  → Paystack checkout
+   ✅ Email always from users table
+═══════════════════════════════════════════════════════════════ */
+router.post(
+  "/products/:id/promote",
+  authenticate,
+  promoteLimiter,
+  async (req, res) => {
+    const sellerId  = req.user?.id;
+    const productId = req.params.id;
+    const planId    = cleanId(req.body.plan_id);
+
+    console.log(
+      "\n[addproduct] ▶ PROMOTE  product:", productId,
+      " seller:", sellerId,
+      " plan:", planId
+    );
+
+    if (!sellerId)  return fail(res, 401, "Not authenticated.");
+    if (!productId) return fail(res, 400, "Product ID required.");
+    if (!planId)    return fail(res, 400, "Plan ID required.");
+
+    /* ── Load plan ── */
+    let plan;
+    try {
+      plan = await loadPromotionPlan(planId);
+      if (!plan)
+        return fail(res, 400,
+          `Promotion plan not found (id: ${planId}).`);
+    } catch (err) {
+      logError("loadPromotionPlan", err, { planId });
+      return fail(res, 500, "Failed to load plan details.");
+    }
+
+    const finalAmount = Number(plan.effective_price ?? 0);
+    const isFree      = finalAmount === 0;
+
+    console.log(
+      "[addproduct] plan:", plan.name,
+      "| amount:", finalAmount,
+      "| isFree:", isFree
+    );
+
+    /* ── Verify product ownership ── */
+    let product;
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, status, is_promoted, promotion_end
+         FROM   products
+         WHERE  id        = $1
+           AND  seller_id = $2
+           AND  status   <> 'deleted'`,
+        [productId, sellerId]
+      );
+      if (!rows.length)
+        return fail(res, 404,
+          "Product not found or not owned by you.");
+      product = rows[0];
+    } catch (err) {
+      logError("product ownership check", err, {
+        sellerId, productId,
+      });
+      return fail(res, 500, "Failed to verify product.");
+    }
+
+    /* ── Check already actively promoted ── */
+    const promotionStillActive =
+      product.is_promoted &&
+      product.promotion_end &&
+      new Date(product.promotion_end) > new Date();
+
+    if (promotionStillActive) {
+      const daysLeft = Math.ceil(
+        (new Date(product.promotion_end).getTime() - Date.now()) /
+        86_400_000
+      );
+      return fail(
+        res, 409,
+        `This listing is already promoted for ` +
+        `${daysLeft} more day(s).`,
+        {
+          is_promoted   : true,
+          promoted_until: product.promotion_end,
+          days_remaining: daysLeft,
+        }
+      );
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       FREE PLAN — activate directly
+    ══════════════════════════════════════════════════════════ */
+    if (isFree) {
+      console.log("[addproduct] free plan — activating directly");
+
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        /* Insert payment row as already succeeded */
+        const { rows: payRows } = await client.query(
+          `INSERT INTO payments
+             (seller_id, product_id, plan_id,
+              amount, reference,
+              status, type, method, metadata)
+           VALUES
+             ($1, $2, $3,
+              0, $4,
+              'success', 'promotion', 'free', $5)
+           RETURNING id`,
+          [
+            sellerId,
+            productId,
+            plan.id,
+            `free_${Date.now()}_` +
+            `${crypto.randomBytes(4).toString("hex")}`,
+            JSON.stringify({
+              plan_name: plan.name,
+              is_free  : true,
+              currency : ACCEPTED_CURRENCY,
+            }),
+          ]
+        );
+
+        const paymentId = payRows[0].id;
+
+        /* Activate + promote */
+        const result = await activateProductPromotion(client, {
+          paymentId,
+          productId,
+          planId  : plan.id,
+          sellerId,
+          plan,
+        });
+
+        await client.query("COMMIT");
+
+        console.log(
+          "[addproduct] ✓ free promotion activated",
+          "status:", result.finalStatus
+        );
+
+        logPaymentEvent(
+          paymentId, "promotion.free_activated", "api",
+          { plan: plan.name, status: result.finalStatus }
+        );
+
+        setImmediate(() => {
+          createNotification({
+            userId : sellerId,
+            type   : "promotion_active",
+            title  : "Promotion Active 🚀",
+            message:
+              `Your listing is now promoted with the ` +
+              `"${plan.name}" plan.`,
+          }).catch(() => {});
+
+          writeAudit({
+            actorId   : sellerId,
+            action    : "promotion_free_activated",
+            targetType: "payment",
+            targetId  : String(paymentId),
+            metadata  : {
+              plan     : plan.name,
+              productId,
+              isFree   : true,
+            },
+          }).catch(() => {});
+        });
+
+        const days = daysUntilExpiry(
+          result.activeUntil ?? result.expiresAt
+        );
+
+        return res.json({
+          success            : true,
+          is_free            : true,
+          is_promoted        : true,
+          product_id         : productId,
+          plan_name          : plan.name,
+          status             : result.finalStatus,
+          needs_verification : !result.verified,
+          active_until       : result.activeUntil  ?? null,
+          promoted_until     : result.expiresAt    ?? null,
+          days_remaining     : days,
+          ...(!result.verified && {
+            verification_message:
+              `Your listing is live for ${days ?? 7} day(s). ` +
+              "Verify your identity to make it permanent.",
+          }),
+        });
+
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        logError("free promotion activate", err, {
+          sellerId, productId,
+        });
+        Sentry.captureException(err, {
+          tags: { area: "promotion_free", seller_id: sellerId },
+        });
+        return fail(
+          res, 500,
+          IS_PROD
+            ? "Failed to activate free promotion. Please try again."
+            : err.message
+        );
+      } finally {
+        client.release();
+      }
+    }
+
+    /* ══════════════════════════════════════════════════════════
+       PAID PLAN — go through Paystack
+    ══════════════════════════════════════════════════════════ */
+
+    /* Fetch seller email from users table */
+    let email;
+    try {
+      const { rows } = await pool.query(
+        `SELECT email FROM public.users WHERE id = $1 LIMIT 1`,
+        [sellerId]
+      );
+      if (!rows.length || !rows[0].email)
+        return fail(res, 400,
+          "Account email not found. Please contact support.");
+      email = rows[0].email;
+    } catch (err) {
+      logError("email fetch", err, { sellerId });
+      return fail(res, 500, "Failed to fetch account details.");
+    }
+
+    /* ── Reuse or expire existing pending payment ── */
+    const { rows: pendingRows } = await pool.query(
+      `SELECT id, reference, created_at
+       FROM   payments
+       WHERE  product_id = $1
+         AND  seller_id  = $2
+         AND  status     = 'pending'
+       ORDER  BY created_at DESC
+       LIMIT  1`,
+      [productId, sellerId]
+    );
+
+    if (pendingRows.length) {
+      const ep    = pendingRows[0];
+      const ageMs =
+        Date.now() - new Date(ep.created_at).getTime();
+
+      console.log(
+        "[addproduct] found pending payment:", ep.id,
+        "| age:", Math.round(ageMs / 1_000) + "s"
+      );
+
+      if (ageMs > PAYMENT_MAX_AGE_MS) {
+        console.log(
+          "[addproduct] pending payment expired — clearing"
+        );
+        await expirePendingPromoPayment(ep.id, productId);
+
+      } else {
+        /* Re-initialize with Paystack for a fresh URL */
+        console.log(
+          "[addproduct] re-initializing with Paystack…"
+        );
+        const newRef = makeReference();
+        const reinit = await paystackInitialize({
+          email,
+          amountNaira: finalAmount,
+          reference  : newRef,
+          productId,
+          metadata   : {
+            paymentId : String(ep.id),
+            productId,
+            sellerId,
+            planId    : String(plan.id),
+            planAmount: finalAmount,
+            currency  : ACCEPTED_CURRENCY,
+          },
+        });
+
+        if (reinit.ok && reinit.authorizationUrl) {
+          await pool.query(
+            `UPDATE payments
+             SET    reference  = $1,
+                    updated_at = NOW()
+             WHERE  id = $2`,
+            [reinit.reference, ep.id]
+          );
+          console.log(
+            "[addproduct] ✓ re-initialized"
+          );
+          return res.json({
+            success          : true,
+            is_free          : false,
+            reference        : reinit.reference,
+            authorization_url: reinit.authorizationUrl,
+          });
+        }
+
+        console.warn(
+          "[addproduct] Paystack re-init failed:",
+          reinit.message
+        );
+        await expirePendingPromoPayment(ep.id, productId);
+      }
+    }
+
+    /* ── Create new payment ── */
+    console.log("[addproduct] creating new payment…");
+
+    const reference = makeReference();
+    const client    = await pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      await client.query(
+        `UPDATE products
+         SET    status     = 'pending_payment',
+                updated_at = NOW()
+         WHERE  id = $1`,
+        [productId]
+      );
+
+      const { rows: payRows } = await client.query(
+        `INSERT INTO payments
+           (seller_id, product_id, plan_id,
+            amount, email, reference,
+            status, type, method, metadata)
+         VALUES
+           ($1,$2,$3,
+            $4,$5,$6,
+            'pending','promotion','paystack',$7)
+         RETURNING id, reference`,
+        [
+          sellerId,
+          productId,
+          plan.id,
+          finalAmount,
+          email,
+          reference,
+          JSON.stringify({
+            plan_name       : plan.name,
+            original_price  : plan.price,
+            discount_percent: plan.discount_percent,
+            effective_price : finalAmount,
+            currency        : ACCEPTED_CURRENCY,
+          }),
+        ]
+      );
+
+      const paymentId      = payRows[0].id;
+      const savedReference = payRows[0].reference;
+
+      console.log("[addproduct] payment row:", paymentId);
+
+      await client.query("COMMIT");
+
+      /* Call Paystack */
+      const init = await paystackInitialize({
+        email,
+        amountNaira: finalAmount,
+        reference  : savedReference,
+        productId,
+        metadata   : {
+          paymentId : String(paymentId),
+          productId,
+          sellerId,
+          planId    : String(plan.id),
+          planAmount: finalAmount,
+          currency  : ACCEPTED_CURRENCY,
+        },
+      });
+
+      console.log(
+        "[addproduct] Paystack init:",
+        init.ok, "|", init.message
+      );
+
+      if (!init.ok || !init.authorizationUrl) {
+        await pool.query(
+          `UPDATE products
+           SET status='draft', updated_at=NOW()
+           WHERE id=$1`,
+          [productId]
+        );
+        await pool.query(
+          `UPDATE payments
+           SET status='failed', updated_at=NOW()
+           WHERE id=$1`,
+          [paymentId]
+        );
+        logPaymentEvent(
+          paymentId, "payment.initiate_failed", "api",
+          { message: init.message }
+        );
+        return fail(
+          res, 502,
+          init.message || "Payment gateway error. Please try again."
+        );
+      }
+
+      logPaymentEvent(
+        paymentId, "payment.initiated", "api",
+        { plan: plan.name, amount: finalAmount }
+      );
+
+      writeAudit({
+        actorId   : sellerId,
+        action    : "promotion_initiated",
+        targetType: "payment",
+        targetId  : String(paymentId),
+        metadata  : {
+          plan     : plan.name,
+          amount   : finalAmount,
+          reference: savedReference,
+          email,
+        },
+        ipAddress: getIp(req),
+      }).catch(() => {});
+
+      console.log(
+        "[addproduct] ✓ initiated — returning authorization_url"
+      );
+
+      return res.json({
+        success          : true,
+        is_free          : false,
+        reference        : savedReference,
+        authorization_url: init.authorizationUrl,
+        plan_name        : plan.name,
+        amount_naira     : finalAmount,
+        duration_days    : plan.duration_days,
+      });
+
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      logError("paid promotion initiate", err, {
+        sellerId, productId,
+      });
+      Sentry.captureException(err, {
+        tags: { area: "promotion_paid", seller_id: sellerId },
+      });
+      return fail(
+        res, 500,
+        IS_PROD
+          ? "Payment initialization failed. Please try again."
+          : err.message
+      );
+    } finally {
+      client.release();
+    }
+  }
+);
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /products/promotion/callback
+   Paystack redirects here after payment.
+   Auto-verifies + activates → redirects to frontend.
+═══════════════════════════════════════════════════════════════ */
+router.get(
+  "/products/promotion/callback",
+  async (req, res) => {
+    const reference = cleanId(req.query.reference);
+    const source    = String(req.query.source ?? "promotion");
+
+    console.log(
+      "\n[addproduct] ▶ PROMO CALLBACK  ref:", reference,
+      "source:", source
+    );
+
+    const redirectFail = (msg) =>
+      res.redirect(
+        `${FRONTEND_URL}/payment/complete` +
+        `?status=error` +
+        `&message=${encodeURIComponent(msg)}` +
+        `&reference=${encodeURIComponent(reference ?? "")}`
+      );
+
+    if (!reference) return redirectFail("Missing payment reference.");
+
+    /* ── Verify with Paystack ── */
+    const ps = await paystackVerify(reference);
+
+    if (!ps.ok)
+      return redirectFail("Could not reach payment provider.");
+
+    if (ps.currency && ps.currency !== ACCEPTED_CURRENCY)
+      return redirectFail(
+        `Invalid currency: ${ps.currency}.`
+      );
+
+    if (ps.status === "pending") {
+      return res.redirect(
+        `${FRONTEND_URL}/payment/complete` +
+        `?status=pending` +
+        `&reference=${encodeURIComponent(reference)}`
+      );
+    }
+
+    /* ── Find payment row ── */
+    const { rows: payRows } = await pool.query(
+      `SELECT id, seller_id, product_id,
+              plan_id::text AS plan_id,
+              amount, status
+       FROM   payments
+       WHERE  reference = $1
+       LIMIT  1`,
+      [reference]
+    );
+
+    if (!payRows.length)
+      return redirectFail("Payment record not found.");
+
+    const payment   = payRows[0];
+    const productId = payment.product_id;
+    const sellerId  = payment.seller_id;
+    const planId    = payment.plan_id;
+
+    /* ── Already confirmed ── */
+    if (payment.status === "success") {
+      return res.redirect(
+        `${FRONTEND_URL}/payment/complete` +
+        `?status=success` +
+        `&reference=${encodeURIComponent(reference)}` +
+        `&product_id=${encodeURIComponent(productId)}` +
+        `&already_confirmed=true`
+      );
+    }
+
+    /* ── Payment succeeded at Paystack ── */
+    if (ps.status === "success") {
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+
+        /* Re-lock — guard against race with webhook */
+        const { rows: locked } = await client.query(
+          `SELECT id, status FROM payments
+           WHERE  id = $1 FOR UPDATE`,
+          [payment.id]
+        );
+
+        if (locked[0]?.status === "success") {
+          await client.query("ROLLBACK");
+          return res.redirect(
+            `${FRONTEND_URL}/payment/complete` +
+            `?status=success` +
+            `&reference=${encodeURIComponent(reference)}` +
+            `&product_id=${encodeURIComponent(productId)}` +
+            `&already_confirmed=true`
+          );
+        }
+
+        /* Amount check */
+        const expectedKobo =
+          Math.round(Number(payment.amount) * 100);
+        if (ps.amountKobo && ps.amountKobo < expectedKobo) {
+          await client.query("ROLLBACK");
+          logPaymentEvent(
+            payment.id, "payment.amount_mismatch", "callback",
+            { expected: expectedKobo, received: ps.amountKobo }
+          );
+          return redirectFail(
+            "Payment amount mismatch. Contact support."
+          );
+        }
+
+        /* Load plan */
+        const plan = await loadPromotionPlan(planId);
+        if (!plan) {
+          await client.query("ROLLBACK");
+          return redirectFail("Promotion plan no longer available.");
+        }
+
+        /* Activate */
+        const result = await activateProductPromotion(client, {
+          paymentId : payment.id,
+          productId,
+          planId,
+          sellerId,
+          plan,
+        });
+
+        await client.query("COMMIT");
+
+        logPaymentEvent(
+          payment.id, "charge.success", "callback",
+          {
+            status           : result.finalStatus,
+            needsVerification: !result.verified,
+          }
+        );
+
+        setImmediate(() => {
+          createNotification({
+            userId : sellerId,
+            type   : "promotion_active",
+            title  : "Promotion Active 🚀",
+            message: result.verified
+              ? `Your listing is now promoted with the ` +
+                `"${plan.name}" plan.`
+              : "Your listing is promoted for 7 days. " +
+                "Verify your identity to extend it.",
+          }).catch(() => {});
+
+          writeAudit({
+            actorId   : sellerId,
+            action    : "promotion_activated_via_callback",
+            targetType: "payment",
+            targetId  : String(payment.id),
+            metadata  : { reference, source, status: "success" },
+          }).catch(() => {});
+        });
+
+        return res.redirect(
+          `${FRONTEND_URL}/payment/complete` +
+          `?status=success` +
+          `&reference=${encodeURIComponent(reference)}` +
+          `&product_id=${encodeURIComponent(productId)}` +
+          `&plan=${encodeURIComponent(plan.id)}` +
+          `&plan_name=${encodeURIComponent(plan.name)}` +
+          `&promoted_until=${encodeURIComponent(
+            result.expiresAt?.toISOString() ?? ""
+          )}` +
+          `&needs_verification=${!result.verified}`
+        );
+
+      } catch (err) {
+        await client.query("ROLLBACK").catch(() => {});
+        logError("promotion callback", err, { reference });
+        Sentry.captureException(err, {
+          tags: { area: "promotion_callback", reference },
+        });
+        logPaymentEvent(
+          payment.id, "payment.callback_error", "callback",
+          { error: err.message }
+        );
+        return redirectFail(
+          "Activation failed. Please contact support."
+        );
+      } finally {
+        client.release();
+      }
+    }
+
+    /* ── Failed / abandoned ── */
+    const newStatus =
+      ps.status === "abandoned" ? "cancelled" : "failed";
+
+    await pool.query(
+      `UPDATE payments
+       SET status=$1, updated_at=NOW()
+       WHERE id=$2`,
+      [newStatus, payment.id]
+    );
+    await pool.query(
+      `UPDATE products
+       SET status='draft', is_active=FALSE, updated_at=NOW()
+       WHERE id=$1`,
+      [productId]
+    );
+
+    logPaymentEvent(
+      payment.id, `payment.${newStatus}`, "callback",
+      { paystackStatus: ps.status }
+    );
+
+    return res.redirect(
+      `${FRONTEND_URL}/payment/complete` +
+      `?status=${newStatus}` +
+      `&reference=${encodeURIComponent(reference)}` +
+      `&product_id=${encodeURIComponent(productId)}` +
+      `&message=${encodeURIComponent(
+        ps.status === "abandoned"
+          ? "Payment was cancelled."
+          : "Payment failed."
+      )}`
+    );
+  }
+);
+
+/* ═══════════════════════════════════════════════════════════════
+   POST /products/promotion/webhook
+   Paystack server-to-server webhook.
+   Must be mounted BEFORE express.json() in server.js.
+═══════════════════════════════════════════════════════════════ */
+router.post(
+  "/products/promotion/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const signature = req.headers["x-paystack-signature"];
+    const rawBody   = req.body;
+
+    console.log("\n[addproduct] ▶ PROMO WEBHOOK received");
+
+    /* Signature check */
+    if (
+      !signature ||
+      !verifyWebhookSignature(rawBody, signature)
+    ) {
+      console.warn("[addproduct] ❌ invalid webhook signature");
+      return res.status(401).send("Unauthorized");
+    }
+
+    /* Parse event */
+    let event;
+    try {
+      event = JSON.parse(rawBody.toString("utf-8"));
+    } catch {
+      return res.status(400).send("Invalid JSON");
+    }
+
+    if (event.event !== "charge.success")
+      return res.status(200).send("OK");
+
+    /* Dedup by payload hash */
+    const payloadHash = hashWebhookPayload(rawBody);
+    try {
+      const { rows: dupRows } = await pool.query(
+        `SELECT id FROM payment_webhook_events
+         WHERE payload_hash = $1 LIMIT 1`,
+        [payloadHash]
+      );
+      if (dupRows.length) {
+        console.log(
+          "[addproduct] duplicate webhook:",
+          payloadHash.slice(0, 16)
+        );
+        return res.status(200).send("OK");
+      }
+      await pool.query(
+        `INSERT INTO payment_webhook_events
+           (payload_hash, event_type, received_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (payload_hash) DO NOTHING`,
+        [payloadHash, event.event]
+      );
+    } catch (err) {
+      console.error(
+        "[addproduct] webhook dedup error:", err.message
+      );
+    }
+
+    /* Acknowledge immediately */
+    res.status(200).send("OK");
+
+    /* Process async */
+    const txnData  = event.data ?? {};
+    const metadata = txnData.metadata ?? {};
+
+    const paystackRef        = txnData.reference;
+    const paystackAmountKobo = txnData.amount;
+    const paystackCurrency   = txnData.currency;
+
+    /* Currency check */
+    if (
+      paystackCurrency &&
+      paystackCurrency !== ACCEPTED_CURRENCY
+    ) {
+      console.error(
+        "[addproduct] webhook wrong currency:", paystackCurrency
+      );
+      return;
+    }
+
+    const paymentId  = cleanId(metadata.paymentId);
+    const productId  = cleanId(metadata.productId);
+    const sellerId   = cleanId(metadata.sellerId);
+    const planId     = cleanId(metadata.planId);
+    const planAmount = Number(metadata.planAmount ?? 0);
+
+    if (!paymentId || !productId || !sellerId || !planId) {
+      console.warn(
+        "[addproduct] webhook missing metadata:", metadata
+      );
+      return;
+    }
+
+    /* Amount check */
+    const expectedKobo = Math.round(planAmount * 100);
+    if (planAmount > 0 && paystackAmountKobo < expectedKobo) {
+      console.error(
+        "[addproduct] webhook amount mismatch",
+        "expected:", expectedKobo,
+        "received:", paystackAmountKobo
+      );
+      logPaymentEvent(
+        paymentId, "payment.amount_mismatch", "webhook",
+        { expected: expectedKobo, received: paystackAmountKobo }
+      );
+      return;
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+
+      /* Lock payment row */
+      const { rows: paymentRows } = await client.query(
+        `SELECT id, reference, product_id,
+                plan_id::text AS plan_id,
+                seller_id, amount, status
+         FROM   payments
+         WHERE  id = $1
+         FOR UPDATE`,
+        [paymentId]
+      );
+
+      if (!paymentRows.length) {
+        console.warn(
+          "[addproduct] webhook payment not found:", paymentId
+        );
+        await client.query("ROLLBACK");
+        return;
+      }
+
+      const payment = paymentRows[0];
+
+      /* Idempotency */
+      if (payment.status === "success") {
+        await client.query("ROLLBACK");
+        return;
+      }
+
+      /* Ownership validation */
+      if (
+        payment.product_id !== productId  ||
+        payment.seller_id  !== sellerId   ||
+        String(payment.plan_id) !== String(planId)
+      ) {
+        console.error(
+          "[addproduct] webhook metadata mismatch", {
+            db      : {
+              product_id: payment.product_id,
+              seller_id : payment.seller_id,
+            },
+            received: { productId, sellerId, planId },
+          }
+        );
+        logPaymentEvent(
+          paymentId, "payment.metadata_mismatch", "webhook",
+          {
+            db      : {
+              product_id: payment.product_id,
+              seller_id : payment.seller_id,
+            },
+            received: { productId, sellerId, planId },
+          }
+        );
+        await client.query("ROLLBACK");
+        return;
+      }
+
+      /* Reference validation */
+      if (paystackRef && payment.reference !== paystackRef) {
+        console.error(
+          "[addproduct] webhook reference mismatch", {
+            db     : payment.reference,
+            paystack: paystackRef,
+          }
+        );
+        await client.query("ROLLBACK");
+        return;
+      }
+
+      /* Load plan */
+      const plan = await loadPromotionPlan(planId);
+      if (!plan) {
+        console.error(
+          "[addproduct] webhook plan not found:", planId
+        );
+        await client.query("ROLLBACK");
+        return;
+      }
+
+      /* Activate */
+      const result = await activateProductPromotion(client, {
+        paymentId,
+        productId,
+        planId,
+        sellerId,
+        plan,
+      });
+
+      await client.query("COMMIT");
+
+      console.log(
+        `[addproduct] ✓ webhook promotion applied`,
+        ` product:${productId}`,
+        ` plan:${plan.name}`,
+        ` status:${result.finalStatus}`
+      );
+
+      logPaymentEvent(
+        paymentId, "charge.success", "webhook",
+        {
+          plan             : plan.name,
+          status           : result.finalStatus,
+          needsVerification: !result.verified,
+        }
+      );
+
+      setImmediate(() => {
+        createNotification({
+          userId : sellerId,
+          type   : "promotion_active",
+          title  : "Payment Confirmed — Promotion Active 🚀",
+          message: result.verified
+            ? `Your listing is now promoted with the ` +
+              `"${plan.name}" plan.`
+            : "Your listing is promoted for 7 days. " +
+              "Verify your identity to make it permanent.",
+        }).catch(() => {});
+
+        writeAudit({
+          actorId   : sellerId,
+          action    : "promotion_webhook_success",
+          targetType: "payment",
+          targetId  : String(paymentId),
+          metadata  : {
+            productId,
+            planId,
+            status: result.finalStatus,
+          },
+        }).catch(() => {});
+      });
+
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      logError("promotion webhook", err, { paymentId, productId });
+      Sentry.captureException(err, {
+        tags: { area: "promotion_webhook", payment_id: paymentId },
+      });
+      logPaymentEvent(
+        paymentId, "payment.webhook_error", "webhook",
+        { error: err.message }
+      );
+    } finally {
+      client.release();
+    }
+  }
+);
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /products/:id/promotion-status
+   Returns current promotion status for a product.
+═══════════════════════════════════════════════════════════════ */
+router.get(
+  "/products/:id/promotion-status",
+  authenticate,
+  readLimiter,
+  async (req, res) => {
+    const sellerId  = req.user?.id;
+    const productId = req.params.id;
+
+    if (!sellerId)  return fail(res, 401, "Not authenticated.");
+    if (!productId) return fail(res, 400, "Product ID required.");
+
+    try {
+      const { rows } = await pool.query(
+        `SELECT
+           p.id,
+           p.is_promoted,
+           p.promotion_end,
+           p.promotion_type,
+           p.promotion_start,
+           p.promotion_id,
+           p.promotion_priority,
+           p.boost_score
+         FROM   products p
+         WHERE  p.id        = $1
+           AND  p.seller_id = $2
+           AND  p.status   <> 'deleted'
+         LIMIT  1`,
+        [productId, sellerId]
+      );
+
+      if (!rows.length)
+        return fail(res, 404, "Product not found.");
+
+      const row = rows[0];
+      const isActivePromotion =
+        row.is_promoted &&
+        row.promotion_end &&
+        new Date(row.promotion_end) > new Date();
+
+      return res.json({
+        success        : true,
+        product_id     : productId,
+        is_promoted    : !!row.is_promoted,
+        is_active      : !!isActivePromotion,
+        promotion_start: row.promotion_start ?? null,
+        promoted_until : row.promotion_end   ?? null,
+        days_remaining : daysUntilExpiry(row.promotion_end),
+        plan_name      : row.promotion_type  ?? null,
+        boost_score    : row.boost_score     ?? 0,
+      });
+
+    } catch (err) {
+      logError("GET /products/:id/promotion-status", err, {
+        sellerId, productId,
+      });
+      return fail(
+        res, 500,
+        `Status check failed: ${err.message}`
+      );
+    }
+  }
+);
 
 export default router;
