@@ -1,3 +1,4 @@
+
 // ════════════════════════════════════════════════════════════
 // FILE: routes/verification.js
 // ════════════════════════════════════════════════════════════
@@ -8,6 +9,12 @@ import crypto    from "crypto";
 import multer    from "multer";
 import path      from "path";
 import rateLimit from "express-rate-limit";
+import sharp     from "sharp";
+
+import {
+  S3Client,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
 
 import { pool }         from "../config/db.js";
 import { authenticate } from "../middleware/auth.js";
@@ -60,8 +67,8 @@ const EXT_MIME = {
   ".webp" : "image/webp",
   ".pdf"  : "application/pdf",
 };
-const MAX_DOC_BYTES  = 5 * 1_048_576;
-const MAX_LOGO_BYTES = 2 * 1_048_576;
+const MAX_DOC_BYTES  = 5 * 1_048_576;   // 5 MB accepted from client
+const MAX_LOGO_BYTES = 2 * 1_048_576;   // 2 MB accepted from client
 
 const VALID_DOC_TYPES = new Set([
   "nin","passport","drivers_license","voters_card",
@@ -73,6 +80,21 @@ const DOC_VALIDATORS = {
   drivers_license : (v) => /^[A-Za-z]{3}\d{6}[A-Za-z]{2}$/.test(v.replace(/[\s-]/g,"")),
   voters_card     : (v) => /^[A-Za-z0-9]{19}$/.test(v.replace(/\s/g,"")),
 };
+
+/* ════════════════════════════════════════════════════════════
+   COMPRESSION POLICY  (target sizes to keep R2 storage small)
+
+   Every uploaded image is re-encoded to WebP and resized so
+   that the LONGEST edge does not exceed the max below.
+   PDF files are passed through unchanged.
+════════════════════════════════════════════════════════════ */
+const COMPRESSION = Object.freeze({
+  id_documents    : { maxEdge: 1600, quality: 78 }, // sharpish for OCR/reviewer
+  selfies         : { maxEdge: 1024, quality: 72 },
+  liveness_frames : { maxEdge:  800, quality: 65 },
+  store_logos     : { maxEdge:  512, quality: 78 },
+  default         : { maxEdge: 1280, quality: 75 },
+});
 
 /* ════════════════════════════════════════════════════════════
    MULTER
@@ -122,51 +144,91 @@ const withUpload = (handler) => (req, res, next) =>
   });
 
 /* ════════════════════════════════════════════════════════════
-   CLOUDINARY
+   CLOUDFLARE R2  (S3-compatible)
 ════════════════════════════════════════════════════════════ */
-let _cld = null;
-let _sf  = null;
+const r2 = new S3Client({
+  region     : process.env.R2_REGION ?? "auto",
+  endpoint   : process.env.R2_ENDPOINT,
+  credentials: {
+    accessKeyId    : process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  },
+});
 
-async function getCld() {
-  if (_cld) return _cld;
-  const {
-    CLOUDINARY_CLOUD_NAME : cn,
-    CLOUDINARY_API_KEY    : ak,
-    CLOUDINARY_API_SECRET : as,
-  } = process.env;
-  if (!cn || !ak || !as) return null;
+const R2_BUCKET     = process.env.R2_BUCKET_NAME;
+const R2_PUBLIC_URL = process.env.R2_PUBLIC_URL?.replace(/\/$/, "");
+
+/* ── Compress + convert to WebP (skip PDFs) ─────────────── */
+async function compressForStorage(buffer, mime, folder) {
+  if (mime === "application/pdf") {
+    return { buffer, mime: "application/pdf", ext: "pdf" };
+  }
+
+  const opts = COMPRESSION[folder] || COMPRESSION.default;
+
   try {
-    const { v2: cld } = await import("cloudinary");
-    const sf = await import("streamifier");
-    cld.config({ cloud_name: cn, api_key: ak, api_secret: as, secure: true });
-    _cld = cld;
-    _sf  = sf.default ?? sf;
-    return _cld;
-  } catch (e) {
-    console.error("[cloudinary] init failed:", e.message);
-    return null;
+    const out = await sharp(buffer, { failOn: "none" })
+      .rotate()                                    // honour EXIF orientation
+      .resize({
+        width       : opts.maxEdge,
+        height      : opts.maxEdge,
+        fit         : "inside",
+        withoutEnlargement: true,
+      })
+      .webp({
+        quality      : opts.quality,
+        effort       : 4,       // higher = smaller file, slower CPU (0-6)
+        smartSubsample: true,
+      })
+      .toBuffer();
+
+    return { buffer: out, mime: "image/webp", ext: "webp" };
+  } catch (err) {
+    /* If sharp can't decode (corrupt file etc.), fall back to original */
+    console.warn(`[compress] failed (${err.message}) — using original`);
+    const ext = mime === "image/png"  ? "png"
+              : mime === "image/webp" ? "webp"
+              : "jpg";
+    return { buffer, mime, ext };
   }
 }
 
-const uploadBuffer = async (buffer, folder, userId) => {
-  const cld = await getCld();
-  if (!cld) {
-    return { secure_url: `local://${folder}/${userId}/${Date.now()}` };
+/* ── Upload buffer to R2 and return { secure_url, key, size } ─ */
+async function uploadBuffer(buffer, folder, userId, originalMime = "image/jpeg") {
+  if (!R2_BUCKET || !R2_PUBLIC_URL || !process.env.R2_ENDPOINT) {
+    /* Env not configured — return a local marker so dev doesn't break */
+    return {
+      secure_url : `local://${folder}/${userId}/${Date.now()}`,
+      key        : null,
+      size       : buffer.length,
+    };
   }
-  return new Promise((ok, no) => {
-    const s = cld.uploader.upload_stream(
-      {
-        folder          : `loemart/verification/${folder}/${userId}`,
-        resource_type   : "auto",
-        allowed_formats : ["jpg","jpeg","png","webp","pdf"],
-        overwrite       : false,
-        unique_filename : true,
-      },
-      (e, r) => (e ? no(new Error(`Cloudinary: ${e.message}`)) : ok(r))
-    );
-    _sf.createReadStream(buffer).pipe(s);
-  });
-};
+
+  /* Compress first */
+  const {
+    buffer: outBuffer,
+    mime  : outMime,
+    ext   : outExt,
+  } = await compressForStorage(buffer, originalMime, folder);
+
+  const key =
+    `verification/${folder}/${userId}/` +
+    `${Date.now()}-${crypto.randomBytes(6).toString("hex")}.${outExt}`;
+
+  await r2.send(new PutObjectCommand({
+    Bucket       : R2_BUCKET,
+    Key          : key,
+    Body         : outBuffer,
+    ContentType  : outMime,
+    CacheControl : "public, max-age=31536000, immutable",
+  }));
+
+  return {
+    secure_url : `${R2_PUBLIC_URL}/${key}`,
+    key,
+    size       : outBuffer.length,
+  };
+}
 
 /* ════════════════════════════════════════════════════════════
    FACE MATCH SERVICE
@@ -306,21 +368,6 @@ const hashDocNumber   = (docType, docNumber) => {
 
 /* ════════════════════════════════════════════════════════════
    GRANT REFERRAL REWARD ON VERIFY
-
-   ✅ FIXED: Replaced grant_referral_reward($1) DB function
-      (which doesn't exist in CockroachDB) with inline JS logic.
-
-   Flow:
-     1. Find pending referral for this user
-     2. Check BOTH referee_id and invitee_id (schema compat)
-     3. Atomic UPDATE pending → verified (prevents double grant)
-     4. Log email_verified event
-     5. Inline: UPDATE referrals status → rewarded
-     6. Inline: UPDATE users bonus_spins + 1 (inviter)
-     7. Log reward_granted event
-     8. Update inviter's total_referrals count
-
-   Never throws — referral failure must NOT break verification.
 ════════════════════════════════════════════════════════════ */
 async function grantReferralRewardOnVerify(verifiedUserId, ip) {
   if (!verifiedUserId) return;
@@ -330,9 +377,6 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
   );
 
   try {
-    /* ── 1. Find pending referral ──
-            Check BOTH referee_id AND invitee_id because some rows
-            were inserted before the schema migration.              ── */
     const { rows: [referral] } = await pool.query(
       `SELECT id, inviter_id, status
        FROM   referrals
@@ -353,14 +397,11 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
       `status=${referral.status} inviter=${referral.inviter_id}`
     );
 
-    /* ── 2. Already rewarded? Skip ── */
     if (referral.status === "rewarded") {
       console.log(`[referral] already rewarded — skipping`);
       return;
     }
 
-    /* ── 3. Atomic: pending → verified ──
-            WHERE status = 'pending' prevents double processing.    ── */
     const { rowCount: verifiedCount } = await pool.query(
       `UPDATE referrals
        SET    status      = 'verified',
@@ -379,7 +420,6 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
       console.log(`[referral] ✓ status → verified`);
     }
 
-    /* ── 4. Log email_verified event ── */
     try {
       await pool.query(
         `INSERT INTO referral_events
@@ -397,13 +437,9 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
       );
       console.log(`[referral] ✓ email_verified event logged`);
     } catch (evtErr) {
-      /* Non-fatal — referral_events may not exist yet */
       console.warn(`[referral] email_verified event skipped: ${evtErr.message}`);
     }
 
-    /* ── 5. Atomic: verified → rewarded ──
-            ✅ INLINE — no DB stored function needed.
-            Only fires when status = 'verified' (idempotent).       ── */
     const REWARD_VALUE = 1;
 
     const { rowCount: rewardedCount } = await pool.query(
@@ -417,7 +453,6 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
     );
 
     if (rewardedCount === 0) {
-      /* Check current state for debugging */
       const { rows: [cur] } = await pool.query(
         `SELECT status FROM referrals WHERE id = $1`,
         [referral.id]
@@ -431,7 +466,6 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
 
     console.log(`[referral] ✓ status → rewarded`);
 
-    /* ── 6. Credit inviter +1 bonus spin ── */
     const { rows: [updatedUser] } = await pool.query(
       `UPDATE users
        SET    bonus_spins = COALESCE(bonus_spins, 0) + $1,
@@ -447,7 +481,6 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
       `new_total=${updatedUser?.bonus_spins ?? "?"}`
     );
 
-    /* ── 7. Log reward_granted event ── */
     try {
       await pool.query(
         `INSERT INTO referral_events
@@ -469,7 +502,6 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
       console.warn(`[referral] reward_granted event skipped: ${evtErr.message}`);
     }
 
-    /* ── 8. Sync inviter's total_referrals count ── */
     try {
       await pool.query(
         `UPDATE users
@@ -490,7 +522,6 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
       console.warn(`[referral] total_referrals sync skipped: ${cntErr.message}`);
     }
 
-    /* ── 9. Audit log ── */
     writeAudit({
       actorId    : verifiedUserId,
       action     : "referral_reward_granted",
@@ -510,7 +541,6 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
     );
 
   } catch (err) {
-    /* NEVER crash email verification because of a referral error */
     console.error(
       `[referral] grantReferralRewardOnVerify FAILED (non-fatal): ` +
       `${err.message}\n${err.stack}`
@@ -678,10 +708,6 @@ router.post(
 
 /* ════════════════════════════════════════════════════════════
    POST /verify-email-otp
-
-   ✅ Calls grantReferralRewardOnVerify AFTER transaction
-      commits so the new user row is visible to the
-      referral query.
 ════════════════════════════════════════════════════════════ */
 router.post(
   "/verify-email-otp",
@@ -699,7 +725,6 @@ router.post(
     try {
       await client.query("BEGIN");
 
-      /* ── Find active OTP ── */
       const { rows } = await client.query(
         `SELECT id, otp_hash, attempts FROM email_verifications
          WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
@@ -713,7 +738,6 @@ router.post(
 
       const rec = rows[0];
 
-      /* ── Max attempts ── */
       if (rec.attempts >= POLICY.MAX_VERIFY_ATTEMPTS) {
         await client.query(
           `UPDATE email_verifications SET status = 'blocked' WHERE id = $1`,
@@ -724,7 +748,6 @@ router.post(
         return fail(res, 429, "Too many failed attempts. Account flagged.");
       }
 
-      /* ── Verify OTP ── */
       const valid = await bcrypt.compare(rawOtp, rec.otp_hash);
       if (!valid) {
         await client.query(
@@ -737,7 +760,6 @@ router.post(
         });
       }
 
-      /* ── Mark OTP used ── */
       const { rows: marked } = await client.query(
         `UPDATE email_verifications
          SET status = 'used', used_at = NOW()
@@ -750,7 +772,6 @@ router.post(
         return fail(res, 400, "Code already used.");
       }
 
-      /* ── Mark user email verified ── */
       await client.query(
         `UPDATE users
          SET email_verified    = TRUE,
@@ -761,33 +782,22 @@ router.post(
         [userId]
       );
 
-      /* ── Refresh trust score ── */
       const trustScore = await refreshTrustScore(client, userId);
 
       await client.query("COMMIT");
 
-      /* ══════════════════════════════════════════════════════
-         GRANT REFERRAL REWARD — after COMMIT
-         ✅ Runs AFTER the transaction commits so the user's
-            email_verified = true is visible to the query.
-         ✅ Uses inline JS — no DB stored function.
-         ✅ Awaited so errors are logged immediately.
-      ══════════════════════════════════════════════════════ */
       try {
         await grantReferralRewardOnVerify(userId, ip);
       } catch (refErr) {
-        /* Already caught inside the function — belt and braces */
         console.error(
           "[verify-otp] referral reward outer catch:", refErr.message
         );
       }
 
-      /* ── Reactivate limited listings ── */
       reactivateLimitedListings(userId).catch((e) =>
         console.error("[verify-otp] reactivate failed:", e.message)
       );
 
-      /* ── Audit ── */
       writeAudit({
         actorId    : userId,
         action     : "email_verified",
@@ -797,7 +807,6 @@ router.post(
         ipAddress  : ip,
       }).catch(() => {});
 
-      /* ── Welcome email ── */
       pool.query(
         `SELECT email, name FROM users WHERE id = $1`, [userId]
       ).then(({ rows: u }) => {
@@ -972,19 +981,27 @@ router.post(
       return fail(res, 422, "Selfie face does not match document photo.");
     }
 
+    /* ── Upload all files (compressed + WebP) to R2 in parallel ── */
     let front, back, selfie, logo, liveness;
     try {
       [front, back, selfie, logo, liveness] = await Promise.all([
-        uploadBuffer(frontFile.buffer,  "id_documents",   userId),
-        uploadBuffer(backFile.buffer,   "id_documents",   userId),
-        uploadBuffer(selfieFile.buffer, "selfies",         userId),
-        logoFile ? uploadBuffer(logoFile.buffer, "store_logos",    userId) : Promise.resolve(null),
-        lvFile   ? uploadBuffer(lvFile.buffer,  "liveness_frames", userId) : Promise.resolve(null),
+        uploadBuffer(frontFile.buffer,  "id_documents",    userId, frontFile.mimetype),
+        uploadBuffer(backFile.buffer,   "id_documents",    userId, backFile.mimetype),
+        uploadBuffer(selfieFile.buffer, "selfies",         userId, selfieFile.mimetype),
+        logoFile ? uploadBuffer(logoFile.buffer, "store_logos",    userId, logoFile.mimetype) : Promise.resolve(null),
+        lvFile   ? uploadBuffer(lvFile.buffer,   "liveness_frames", userId, lvFile.mimetype)   : Promise.resolve(null),
       ]);
     } catch (uploadErr) {
       console.error("[submit] upload error:", uploadErr.message);
       return fail(res, 500, `Upload failed: ${uploadErr.message}`);
     }
+
+    /* Log compressed sizes for visibility */
+    console.log(
+      `[submit] R2 uploads (compressed sizes)  ` +
+      `front=${front.size}B back=${back.size}B selfie=${selfie.size}B ` +
+      `logo=${logo?.size ?? 0}B liveness=${liveness?.size ?? 0}B`
+    );
 
     const storeDocuments = {
       ...(logo?.secure_url ? { logo_url: logo.secure_url } : {}),
@@ -1038,6 +1055,13 @@ router.post(
         face_confidence  : faceResult.confidence,
         face_skipped     : faceResult.skipped,
         store_logo_saved : !!logo?.secure_url,
+        upload_sizes     : {
+          front    : front.size,
+          back     : back.size,
+          selfie   : selfie.size,
+          logo     : logo?.size     ?? 0,
+          liveness : liveness?.size ?? 0,
+        },
       },
       ipAddress  : ip,
     }).catch(() => {});
