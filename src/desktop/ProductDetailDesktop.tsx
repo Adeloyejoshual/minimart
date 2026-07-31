@@ -1,8 +1,12 @@
 /**
  * src/desktop/ProductDetailDesktop.jsx
  *
- * Desktop layout for product detail page.
- * Uses the same sub-components + data hooks as mobile.
+ * v3 — COMPLETE REWRITE
+ * ─────────────────────────────────────────────────────────────
+ *  - Stock status removed entirely
+ *  - Phone/WhatsApp optional — no toasts for missing contacts
+ *  - ContactStrip only shows available contact methods
+ *  - Clean professional layout
  *
  * Layout:
  *   ┌─────────────────────────────────────────────┐
@@ -41,7 +45,8 @@ import "./ProductDetailDesktop.css";
 /* ═══════════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════════ */
-const BASE_URL      = import.meta.env.VITE_API_BASE_URL || window.location.origin;
+const BASE_URL      =
+  import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API           = `${BASE_URL}/api`;
 const FAV_KEY       = "loemart_favs";
 const REVIEWS_LIMIT = 5;
@@ -64,7 +69,9 @@ const decodeJWT = (token) => {
   try {
     const parts = token.split(".");
     if (parts.length !== 3) return null;
-    const b64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const b64 = parts[1]
+      .replace(/-/g, "+")
+      .replace(/_/g, "/");
     return JSON.parse(atob(b64));
   } catch {
     return null;
@@ -96,39 +103,59 @@ const readUserId = () => {
    FAVOURITES
 ═══════════════════════════════════════════════════════════════ */
 const loadFavs = () => {
-  try { return JSON.parse(localStorage.getItem(FAV_KEY) || "{}"); }
-  catch { return {}; }
+  try {
+    return JSON.parse(localStorage.getItem(FAV_KEY) || "{}");
+  } catch {
+    return {};
+  }
 };
 
 const saveFavs = (f) => {
-  try { localStorage.setItem(FAV_KEY, JSON.stringify(f)); } catch {}
+  try {
+    localStorage.setItem(FAV_KEY, JSON.stringify(f));
+  } catch {}
 };
 
 /* ═══════════════════════════════════════════════════════════════
    FORMAT HELPERS
 ═══════════════════════════════════════════════════════════════ */
 const fmt = (n) =>
-  "₦" + Number(n || 0).toLocaleString("en-NG", { minimumFractionDigits: 0 });
+  "₦" +
+  Number(n || 0).toLocaleString("en-NG", {
+    minimumFractionDigits: 0,
+  });
 
 const timeAgo = (d) => {
   if (!d) return "";
-  const s = Math.floor((Date.now() - new Date(d).getTime()) / 1_000);
+  const s = Math.floor(
+    (Date.now() - new Date(d).getTime()) / 1_000
+  );
   if (s < 3_600)     return `${Math.floor(s / 60)}m ago`;
   if (s < 86_400)    return `${Math.floor(s / 3_600)}h ago`;
   if (s < 2_592_000) return `${Math.floor(s / 86_400)}d ago`;
-  return new Date(d).toLocaleDateString("en-NG", { month: "short", year: "numeric" });
+  return new Date(d).toLocaleDateString("en-NG", {
+    month: "short",
+    year : "numeric",
+  });
 };
 
 const compactNum = (n) => {
   const num = Number(n) || 0;
-  if (num >= 1_000_000) return `${(num / 1_000_000).toFixed(1)}M`;
-  if (num >= 1_000)     return `${(num / 1_000).toFixed(1)}K`;
+  if (num >= 1_000_000)
+    return `${(num / 1_000_000).toFixed(1)}M`;
+  if (num >= 1_000)
+    return `${(num / 1_000).toFixed(1)}K`;
   return String(num);
 };
 
 const onEnter = (fn) => (e) => {
   if (e.key === "Enter" || e.key === " ") fn();
 };
+
+const prettify = (k) =>
+  String(k)
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
 
 const formatDeliveryValue = (v) => {
   if (typeof v === "boolean") return v ? "Yes" : "No";
@@ -140,17 +167,34 @@ const formatDeliveryValue = (v) => {
 ═══════════════════════════════════════════════════════════════ */
 const DesktopSkeleton = memo(function DesktopSkeleton() {
   return (
-    <div className="pdd-page pdd-page--loading" aria-busy="true" aria-label="Loading product">
+    <div
+      className="pdd-page pdd-page--loading"
+      aria-busy="true"
+      aria-label="Loading product"
+    >
       <div className="pdd-sk-breadcrumb" />
       <div className="pdd-sk-body">
         <div className="pdd-sk-gallery" />
         <div className="pdd-sk-panel">
-          <div className="pdd-sk-line" style={{ width: "40%",  height: 14 }} />
-          <div className="pdd-sk-line" style={{ width: "80%",  height: 32, marginTop: 12 }} />
-          <div className="pdd-sk-line" style={{ width: "30%",  height: 40, marginTop: 16 }} />
-          <div className="pdd-sk-line" style={{ width: "100%", height: 56, marginTop: 24, borderRadius: 10 }} />
-          <div className="pdd-sk-line" style={{ width: "100%", height: 56, marginTop: 8,  borderRadius: 10 }} />
-          <div className="pdd-sk-line" style={{ width: "100%", height: 56, marginTop: 8,  borderRadius: 10 }} />
+          {[
+            { w: "40%",  h: 14, mt: 0  },
+            { w: "80%",  h: 32, mt: 12 },
+            { w: "30%",  h: 40, mt: 16 },
+            { w: "100%", h: 56, mt: 24, r: 10 },
+            { w: "100%", h: 56, mt: 8,  r: 10 },
+            { w: "100%", h: 56, mt: 8,  r: 10 },
+          ].map(({ w, h, mt, r }, i) => (
+            <div
+              key={i}
+              className="pdd-sk-line"
+              style={{
+                width    : w,
+                height   : h,
+                marginTop: mt,
+                ...(r ? { borderRadius: r } : {}),
+              }}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -160,30 +204,47 @@ const DesktopSkeleton = memo(function DesktopSkeleton() {
 /* ═══════════════════════════════════════════════════════════════
    BREADCRUMB
 ═══════════════════════════════════════════════════════════════ */
-const Breadcrumb = memo(function Breadcrumb({ title, category, subcategory }) {
+const Breadcrumb = memo(function Breadcrumb({
+  title,
+  category,
+  subcategory,
+}) {
   return (
     <nav className="pdd-breadcrumb" aria-label="Breadcrumb">
       <ol>
         <li><Link to="/">Home</Link></li>
         <li aria-hidden="true">›</li>
+
         {category && (
           <>
             <li>
-              <Link to={`/?category=${encodeURIComponent(category)}`}>
+              <Link
+                to={`/?category=${encodeURIComponent(
+                  category
+                )}`}
+              >
                 {category}
               </Link>
             </li>
             <li aria-hidden="true">›</li>
           </>
         )}
+
         {subcategory && (
           <>
             <li><span>{subcategory}</span></li>
             <li aria-hidden="true">›</li>
           </>
         )}
+
         <li aria-current="page">
-          <span>{title ? (title.length > 50 ? title.slice(0, 50) + "…" : title) : "Product"}</span>
+          <span>
+            {title
+              ? title.length > 50
+                ? `${title.slice(0, 50)}…`
+                : title
+              : "Product"}
+          </span>
         </li>
       </ol>
     </nav>
@@ -191,9 +252,13 @@ const Breadcrumb = memo(function Breadcrumb({ title, category, subcategory }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   GALLERY — desktop version with side thumbnails
+   GALLERY — desktop with side thumbnails
 ═══════════════════════════════════════════════════════════════ */
-const DesktopGallery = memo(function DesktopGallery({ images, title, slug }) {
+const DesktopGallery = memo(function DesktopGallery({
+  images,
+  title,
+  slug,
+}) {
   const [active, setActive] = useState(0);
   const [loaded, setLoaded] = useState(false);
   const navigate = useNavigate();
@@ -201,7 +266,9 @@ const DesktopGallery = memo(function DesktopGallery({ images, title, slug }) {
   const urls = useMemo(() => {
     if (!Array.isArray(images) || !images.length) return [];
     return images
-      .map((img) => (typeof img === "string" ? img : img?.url))
+      .map((img) =>
+        typeof img === "string" ? img : img?.url
+      )
       .filter(Boolean);
   }, [images]);
 
@@ -213,7 +280,11 @@ const DesktopGallery = memo(function DesktopGallery({ images, title, slug }) {
   const openViewer = useCallback(() => {
     if (slug && urls.length) {
       navigate(`/product/${slug}/images`, {
-        state: { images: urls, startIndex: active, title },
+        state: {
+          images    : urls,
+          startIndex: active,
+          title,
+        },
       });
     }
   }, [slug, urls, active, title, navigate]);
@@ -221,8 +292,14 @@ const DesktopGallery = memo(function DesktopGallery({ images, title, slug }) {
   if (!urls.length) {
     return (
       <div className="pdd-gallery-empty">
-        <svg width="48" height="48" viewBox="0 0 24 24" fill="none"
-          stroke="currentColor" strokeWidth="1.2" aria-hidden="true">
+        <svg
+          width="48" height="48"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          aria-hidden="true"
+        >
           <rect x="3" y="3" width="18" height="18" rx="3" />
           <circle cx="8.5" cy="8.5" r="1.5" />
           <path d="M21 15l-5-5L5 21" />
@@ -240,13 +317,28 @@ const DesktopGallery = memo(function DesktopGallery({ images, title, slug }) {
           {urls.map((url, i) => (
             <button
               key={i}
-              className={`pdd-gallery-thumb${i === active ? " pdd-gallery-thumb--active" : ""}`}
-              onClick={() => { setLoaded(false); setActive(i); }}
-              aria-label={`Image ${i + 1}`}
+              className={
+                `pdd-gallery-thumb` +
+                (i === active
+                  ? " pdd-gallery-thumb--active"
+                  : "")
+              }
+              onClick={() => {
+                setLoaded(false);
+                setActive(i);
+              }}
+              aria-label={`Photo ${i + 1}`}
               aria-current={i === active}
             >
-              <img src={url} alt="" loading="lazy" draggable={false}
-                onError={(e) => { e.currentTarget.style.opacity = "0.25"; }} />
+              <img
+                src={url}
+                alt=""
+                loading="lazy"
+                draggable={false}
+                onError={(e) => {
+                  e.currentTarget.style.opacity = "0.25";
+                }}
+              />
             </button>
           ))}
         </div>
@@ -258,30 +350,50 @@ const DesktopGallery = memo(function DesktopGallery({ images, title, slug }) {
         onClick={openViewer}
         role="button"
         tabIndex={0}
-        aria-label="Click to view full image"
-        onKeyDown={(e) => { if (e.key === "Enter") openViewer(); }}
+        aria-label="View full image"
+        onKeyDown={(e) => {
+          if (e.key === "Enter") openViewer();
+        }}
       >
-        {!loaded && <div className="pdd-gallery-shimmer" />}
+        {!loaded && (
+          <div className="pdd-gallery-shimmer" />
+        )}
 
         <img
           key={urls[active]}
           src={urls[active]}
-          alt={`${title} — image ${active + 1}`}
-          className={`pdd-gallery-img${loaded ? " pdd-gallery-img--loaded" : ""}`}
+          alt={`${title} — photo ${active + 1}`}
+          className={
+            `pdd-gallery-img` +
+            (loaded ? " pdd-gallery-img--loaded" : "")
+          }
           loading="eager"
           draggable={false}
           onLoad={() => setLoaded(true)}
           onError={(e) => {
             e.currentTarget.src =
-              "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='300'%3E%3Crect fill='%23f3f4f6' width='400' height='300'/%3E%3Ctext x='50%25' y='50%25' dominant-baseline='middle' text-anchor='middle' fill='%23999' font-size='14'%3ENo image%3C/text%3E%3C/svg%3E";
+              "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' " +
+              "width='400' height='300'%3E%3Crect fill='%23f3f4f6' " +
+              "width='400' height='300'/%3E%3Ctext x='50%25' y='50%25' " +
+              "dominant-baseline='middle' text-anchor='middle' " +
+              "fill='%23999' font-size='14'%3ENo image%3C/text%3E%3C/svg%3E";
             setLoaded(true);
           }}
         />
 
-        {/* Expand hint */}
-        <div className="pdd-gallery-expand" aria-hidden="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+        {/* Expand icon */}
+        <div
+          className="pdd-gallery-expand"
+          aria-hidden="true"
+        >
+          <svg
+            width="16" height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+          >
             <path d="M15 3h6v6" />
             <path d="M9 21H3v-6" />
             <path d="M21 3l-7 7" />
@@ -301,16 +413,31 @@ const DesktopGallery = memo(function DesktopGallery({ images, title, slug }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   META BADGES — condition, brand, model, location
+   META BADGES
+   ✅ No stock badge
 ═══════════════════════════════════════════════════════════════ */
 const MetaBadges = memo(function MetaBadges({ product }) {
   const items = [
-    product.condition && { label: "Condition", value: product.condition },
-    product.brand     && { label: "Brand",     value: product.brand     },
-    product.model     && { label: "Model",     value: product.model     },
+    product.condition && {
+      label: "Condition",
+      value: product.condition,
+    },
+    product.brand && {
+      label: "Brand",
+      value: product.brand,
+    },
+    product.model && {
+      label: "Model",
+      value: product.model,
+    },
     (product.location_city || product.location_state) && {
       label: "Location",
-      value: [product.location_city, product.location_state].filter(Boolean).join(", "),
+      value: [
+        product.location_city,
+        product.location_state,
+      ]
+        .filter(Boolean)
+        .join(", "),
     },
   ].filter(Boolean);
 
@@ -320,8 +447,12 @@ const MetaBadges = memo(function MetaBadges({ product }) {
     <div className="pdd-meta-badges">
       {items.map(({ label, value }) => (
         <div key={label} className="pdd-meta-badge">
-          <span className="pdd-meta-badge-label">{label}</span>
-          <span className="pdd-meta-badge-value">{value}</span>
+          <span className="pdd-meta-badge-label">
+            {label}
+          </span>
+          <span className="pdd-meta-badge-value">
+            {value}
+          </span>
         </div>
       ))}
     </div>
@@ -333,14 +464,18 @@ const MetaBadges = memo(function MetaBadges({ product }) {
 ═══════════════════════════════════════════════════════════════ */
 const Description = memo(function Description({ text }) {
   const [expanded, setExpanded] = useState(false);
-  if (!text) return null;
+  if (!text?.trim()) return null;
 
-  const LIMIT = 500;
+  const LIMIT  = 500;
   const isLong = text.length > LIMIT;
-  const shown = !isLong || expanded ? text : `${text.slice(0, LIMIT)}…`;
+  const shown  =
+    !isLong || expanded ? text : `${text.slice(0, LIMIT)}…`;
 
   return (
-    <section className="pdd-tab-section" aria-label="Description">
+    <section
+      className="pdd-tab-section"
+      aria-label="Description"
+    >
       <h3 className="pdd-tab-section-h">Description</h3>
       <p className="pdd-description">{shown}</p>
       {isLong && (
@@ -361,15 +496,43 @@ const Description = memo(function Description({ text }) {
 ═══════════════════════════════════════════════════════════════ */
 const Features = memo(function Features({ features }) {
   if (!Array.isArray(features) || !features.length) return null;
-
   return (
     <section className="pdd-tab-section" aria-label="Features">
       <h3 className="pdd-tab-section-h">Features</h3>
       <ul className="pdd-features-list">
         {features.map((f, i) => (
           <li key={i} className="pdd-features-item">
-            <span className="pdd-features-dot" aria-hidden="true">✓</span>
+            <span
+              className="pdd-features-dot"
+              aria-hidden="true"
+            >
+              ✓
+            </span>
             {f}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════
+   HIGHLIGHTS
+═══════════════════════════════════════════════════════════════ */
+const Highlights = memo(function Highlights({ highlights }) {
+  if (!Array.isArray(highlights) || !highlights.length)
+    return null;
+  return (
+    <section
+      className="pdd-tab-section"
+      aria-label="Highlights"
+    >
+      <h3 className="pdd-tab-section-h">Highlights</h3>
+      <ul className="pdd-highlights-list">
+        {highlights.map((h, i) => (
+          <li key={i} className="pdd-highlights-item">
+            <span aria-hidden="true">⚡</span>
+            {h}
           </li>
         ))}
       </ul>
@@ -380,42 +543,39 @@ const Features = memo(function Features({ features }) {
 /* ═══════════════════════════════════════════════════════════════
    SPECIFICATIONS
 ═══════════════════════════════════════════════════════════════ */
-const Specifications = memo(function Specifications({ specifications }) {
-  if (!Array.isArray(specifications) || !specifications.length) return null;
-
+const Specifications = memo(function Specifications({
+  specifications,
+}) {
+  if (!Array.isArray(specifications) || !specifications.length)
+    return null;
   return (
-    <section className="pdd-tab-section" aria-label="Specifications">
+    <section
+      className="pdd-tab-section"
+      aria-label="Specifications"
+    >
       <h3 className="pdd-tab-section-h">Specifications</h3>
       <table className="pdd-specs-table">
         <tbody>
           {specifications.map(({ label, value }, i) => (
-            <tr key={i} className={i % 2 === 0 ? "pdd-specs-row--even" : ""}>
-              <th className="pdd-specs-label" scope="row">{label}</th>
-              <td className="pdd-specs-value">{String(value)}</td>
+            <tr
+              key={i}
+              className={
+                i % 2 === 0 ? "pdd-specs-row--even" : ""
+              }
+            >
+              <th
+                className="pdd-specs-label"
+                scope="row"
+              >
+                {label}
+              </th>
+              <td className="pdd-specs-value">
+                {String(value)}
+              </td>
             </tr>
           ))}
         </tbody>
       </table>
-    </section>
-  );
-});
-
-/* ═══════════════════════════════════════════════════════════════
-   HIGHLIGHTS
-═══════════════════════════════════════════════════════════════ */
-const Highlights = memo(function Highlights({ highlights }) {
-  if (!Array.isArray(highlights) || !highlights.length) return null;
-
-  return (
-    <section className="pdd-tab-section" aria-label="Highlights">
-      <h3 className="pdd-tab-section-h">Highlights</h3>
-      <ul className="pdd-highlights-list">
-        {highlights.map((h, i) => (
-          <li key={i} className="pdd-highlights-item">
-            <span aria-hidden="true">⚡</span>{h}
-          </li>
-        ))}
-      </ul>
     </section>
   );
 });
@@ -427,20 +587,26 @@ const Attributes = memo(function Attributes({ attributes }) {
   if (!attributes || typeof attributes !== "object") return null;
 
   const rows = Object.entries(attributes).filter(
-    ([, v]) => v !== null && v !== undefined && String(v).trim() !== ""
+    ([k, v]) =>
+      k !== "features" &&
+      v !== null       &&
+      v !== undefined  &&
+      String(v).trim() !== ""
   );
   if (!rows.length) return null;
 
-  const prettify = (k) =>
-    k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-
   return (
-    <section className="pdd-tab-section" aria-label="Additional details">
+    <section
+      className="pdd-tab-section"
+      aria-label="Additional details"
+    >
       <h3 className="pdd-tab-section-h">Additional Details</h3>
       <div className="pdd-attrs-grid">
         {rows.map(([k, v]) => (
           <div key={k} className="pdd-attrs-row">
-            <span className="pdd-attrs-label">{prettify(k)}</span>
+            <span className="pdd-attrs-label">
+              {prettify(k)}
+            </span>
             <span className="pdd-attrs-value">{String(v)}</span>
           </div>
         ))}
@@ -455,22 +621,35 @@ const Attributes = memo(function Attributes({ attributes }) {
 const DeliveryInfo = memo(function DeliveryInfo({ delivery }) {
   if (!delivery || typeof delivery !== "object") return null;
 
+  const available =
+    delivery.available === true ||
+    delivery.available === "Yes";
+
   const rows = Object.entries(delivery).filter(
-    ([, v]) => v !== null && v !== undefined && String(v).trim() !== ""
+    ([key, value]) => {
+      if (value == null || String(value).trim() === "")
+        return false;
+      if (key === "duration" && !available) return false;
+      if (typeof value === "object") return false;
+      return true;
+    }
   );
   if (!rows.length) return null;
 
-  const prettify = (k) =>
-    k.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
-
   return (
     <section className="pdd-tab-section" aria-label="Delivery">
-      <h3 className="pdd-tab-section-h">Delivery &amp; Shipping</h3>
+      <h3 className="pdd-tab-section-h">
+        Delivery &amp; Shipping
+      </h3>
       <div className="pdd-delivery-grid">
         {rows.map(([k, v]) => (
           <div key={k} className="pdd-delivery-row">
-            <span className="pdd-delivery-label">{prettify(k)}</span>
-            <span className="pdd-delivery-value">{formatDeliveryValue(v)}</span>
+            <span className="pdd-delivery-label">
+              {prettify(k)}
+            </span>
+            <span className="pdd-delivery-value">
+              {formatDeliveryValue(v)}
+            </span>
           </div>
         ))}
       </div>
@@ -490,20 +669,30 @@ const FAQ = memo(function FAQ({ faq }) {
       <h3 className="pdd-tab-section-h">FAQ</h3>
       <div className="pdd-faq">
         {faq.map((item, i) => {
-          const isOpen = openIdx === i;
+          const isOpen   = openIdx === i;
+          const question = item.question || item.q || "";
+          const answer   = item.answer   || item.a || "";
           return (
             <div key={i} className="pdd-faq-item">
               <button
                 className="pdd-faq-q"
                 onClick={() => setOpenIdx(isOpen ? null : i)}
                 aria-expanded={isOpen}
+                aria-controls={`pdd-faq-a-${i}`}
               >
-                <span>{item.question || item.q}</span>
-                <span aria-hidden="true">{isOpen ? "▲" : "▼"}</span>
+                <span>{question}</span>
+                <span aria-hidden="true">
+                  {isOpen ? "▲" : "▼"}
+                </span>
               </button>
               {isOpen && (
-                <div className="pdd-faq-a" role="region">
-                  {item.answer || item.a}
+                <div
+                  id={`pdd-faq-a-${i}`}
+                  className="pdd-faq-a"
+                  role="region"
+                  aria-label={question}
+                >
+                  {answer}
                 </div>
               )}
             </div>
@@ -515,13 +704,18 @@ const FAQ = memo(function FAQ({ faq }) {
 });
 
 /* ═══════════════════════════════════════════════════════════════
-   SELLER CARD — desktop sidebar version
+   SELLER CARD — desktop sidebar
 ═══════════════════════════════════════════════════════════════ */
-const DesktopSellerCard = memo(function DesktopSellerCard({ product, onNavigate }) {
+const DesktopSellerCard = memo(function DesktopSellerCard({
+  product,
+  onNavigate,
+}) {
   if (!product?.seller_id) return null;
 
-  const name     = product.seller_store || product.seller_name || "Seller";
-  const avatar   = product.seller_image ?? null;
+  const name     =
+    product.seller_store ||
+    product.seller_name  || "Seller";
+  const avatar   = product.seller_image  ?? null;
   const verified = product.seller_verified;
   const trust    = product.seller_trust;
   const rating   = product.seller_rating;
@@ -541,42 +735,66 @@ const DesktopSellerCard = memo(function DesktopSellerCard({ product, onNavigate 
       >
         <div className="pdd-seller-avatar">
           {avatar ? (
-            <img src={avatar} alt={name} loading="lazy"
-              onError={(e) => { e.currentTarget.style.display = "none"; }} />
+            <img
+              src={avatar}
+              alt={name}
+              loading="lazy"
+              onError={(e) => {
+                e.currentTarget.style.display = "none";
+              }}
+            />
           ) : (
-            <span aria-hidden="true">{name.charAt(0).toUpperCase()}</span>
+            <span aria-hidden="true">
+              {name.charAt(0).toUpperCase()}
+            </span>
           )}
-          {online && <span className="pdd-seller-online" aria-label="Online" />}
+          {online && (
+            <span
+              className="pdd-seller-online"
+              aria-label="Currently online"
+            />
+          )}
         </div>
 
         <div className="pdd-seller-info">
           <div className="pdd-seller-name-row">
             <span className="pdd-seller-name">{name}</span>
             {verified && (
-              <span className="pdd-seller-badge">✔ Verified</span>
+              <span className="pdd-seller-badge">
+                ✔ Verified
+              </span>
             )}
           </div>
-
           {rating > 0 && (
             <div className="pdd-seller-rating">
               {Number(rating).toFixed(1)}★
             </div>
           )}
-
           {trust != null && (
             <div className="pdd-seller-trust">
               <div className="pdd-seller-trust-bar">
                 <div
                   className="pdd-seller-trust-fill"
-                  style={{ width: `${Math.min(100, trust)}%` }}
+                  style={{
+                    width: `${Math.min(
+                      100, Number(trust)
+                    )}%`,
+                  }}
                 />
               </div>
-              <span className="pdd-seller-trust-label">{trust}% trust</span>
+              <span className="pdd-seller-trust-label">
+                {trust}% trust
+              </span>
             </div>
           )}
         </div>
 
-        <span className="pdd-seller-chevron" aria-hidden="true">›</span>
+        <span
+          className="pdd-seller-chevron"
+          aria-hidden="true"
+        >
+          ›
+        </span>
       </div>
     </div>
   );
@@ -592,9 +810,15 @@ const TABS = [
 ];
 
 const ProductTabs = memo(function ProductTabs({
-  product, slug, userId,
-  reviews, reviewStats, reviewTotal, reviewPage,
-  onLoadMore, onReviewDone,
+  product,
+  slug,
+  userId,
+  reviews,
+  reviewStats,
+  reviewTotal,
+  reviewPage,
+  onLoadMore,
+  onReviewDone,
 }) {
   const [activeTab, setActiveTab] = useState("description");
 
@@ -606,14 +830,21 @@ const ProductTabs = memo(function ProductTabs({
           <button
             key={tab.id}
             role="tab"
-            className={`pdd-tab-btn${activeTab === tab.id ? " pdd-tab-btn--active" : ""}`}
+            className={
+              `pdd-tab-btn` +
+              (activeTab === tab.id
+                ? " pdd-tab-btn--active"
+                : "")
+            }
             onClick={() => setActiveTab(tab.id)}
             aria-selected={activeTab === tab.id}
             aria-controls={`pdd-panel-${tab.id}`}
           >
             {tab.label}
             {tab.id === "reviews" && reviewTotal > 0 && (
-              <span className="pdd-tab-badge">{reviewTotal}</span>
+              <span className="pdd-tab-badge">
+                {reviewTotal}
+              </span>
             )}
           </button>
         ))}
@@ -622,26 +853,28 @@ const ProductTabs = memo(function ProductTabs({
       {/* Tab panels */}
       <div className="pdd-tabs-content">
 
-        {/* Description */}
         {activeTab === "description" && (
-          <div id="pdd-panel-description" role="tabpanel">
-            <Description text={product.description} />
-            <Features features={product.features} />
-            <Highlights highlights={product.highlights} />
-            <DeliveryInfo delivery={product.delivery} />
-            <FAQ faq={product.faq} />
+          <div
+            id="pdd-panel-description"
+            role="tabpanel"
+          >
+            <Description text={product.description}    />
+            <Features    features={product.features}   />
+            <Highlights  highlights={product.highlights} />
+            <DeliveryInfo delivery={product.delivery}  />
+            <FAQ         faq={product.faq}             />
           </div>
         )}
 
-        {/* Details */}
         {activeTab === "details" && (
           <div id="pdd-panel-details" role="tabpanel">
-            <Specifications specifications={product.specifications} />
+            <Specifications
+              specifications={product.specifications}
+            />
             <Attributes attributes={product.attributes} />
           </div>
         )}
 
-        {/* Reviews */}
         {activeTab === "reviews" && (
           <div id="pdd-panel-reviews" role="tabpanel">
             <ReviewSection
@@ -664,13 +897,33 @@ const ProductTabs = memo(function ProductTabs({
 /* ═══════════════════════════════════════════════════════════════
    TOAST
 ═══════════════════════════════════════════════════════════════ */
-const Toast = memo(function Toast({ message, onDismiss, type = "error" }) {
+const Toast = memo(function Toast({
+  message,
+  type = "error",
+  onDismiss,
+}) {
+  useEffect(() => {
+    if (!message) return;
+    const id = setTimeout(onDismiss, 4_000);
+    return () => clearTimeout(id);
+  }, [message, onDismiss]);
+
   if (!message) return null;
 
   return (
-    <div className={`pdd-toast pdd-toast--${type}`} role="alert" aria-live="assertive">
+    <div
+      className={`pdd-toast pdd-toast--${type}`}
+      role="alert"
+      aria-live="assertive"
+    >
       <span>{message}</span>
-      <button className="pdd-toast-close" onClick={onDismiss} aria-label="Dismiss">✕</button>
+      <button
+        className="pdd-toast-close"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+      >
+        ✕
+      </button>
     </div>
   );
 });
@@ -702,14 +955,25 @@ export default function ProductDetailDesktop({ user }) {
   const abortRef    = useRef(null);
 
   /* ── Derived ────────────────────────────────────────── */
-  const userId = useMemo(() => user?.id || readUserId(), [user]);
+  const userId = useMemo(
+    () => (user?.id ? String(user.id) : readUserId()),
+    [user]
+  );
 
   const isOwn = useMemo(
-    () => !!(userId && product?.seller_id && userId === String(product.seller_id)),
+    () =>
+      !!(
+        userId             &&
+        product?.seller_id &&
+        userId === String(product.seller_id)
+      ),
     [userId, product?.seller_id]
   );
 
-  const showToast    = useCallback((message, type = "error") => setToast({ message, type }), []);
+  const showToast = useCallback(
+    (message, type = "error") => setToast({ message, type }),
+    []
+  );
   const dismissToast = useCallback(() => setToast(null), []);
 
   /* ═════════════════════════════════════════════════════
@@ -726,24 +990,26 @@ export default function ProductDetailDesktop({ user }) {
     const controller = new AbortController();
     abortRef.current = controller;
 
-    try {
-      setLoading(true);
-      setError(null);
+    setLoading(true);
+    setError(null);
 
+    try {
       const res = await fetch(
         `${API}/product/slug/${encodeURIComponent(slug)}`,
         { signal: controller.signal }
       );
-
-      if (res.status === 404) throw new Error("Product not found");
-      if (!res.ok) throw new Error("Could not load product");
+      if (res.status === 404)
+        throw new Error("Product not found");
+      if (!res.ok)
+        throw new Error("Could not load product");
 
       const data = await res.json();
       setProduct(data);
       addSingleProduct?.(data);
       setFav(!!loadFavs()[data.id]);
     } catch (err) {
-      if (err.name !== "AbortError") setError(err.message);
+      if (err.name !== "AbortError")
+        setError(err.message || "Something went wrong");
     } finally {
       setLoading(false);
     }
@@ -764,22 +1030,37 @@ export default function ProductDetailDesktop({ user }) {
     if (!product?.id) return;
     const { id, seller_id, category_id } = product;
 
-    const fetches = [
+    const jobs = [
       seller_id &&
-        fetch(`${API}/product/by-seller?${new URLSearchParams({
-          seller_id, exclude: id, limit: "8",
-        })}`)
+        fetch(
+          `${API}/product/by-seller?${new URLSearchParams({
+            seller_id,
+            exclude: id,
+            limit  : "8",
+          })}`
+        )
           .then((r) => (r.ok ? r.json() : []))
-          .then((d) => setMoreSeller(Array.isArray(d) ? d : [])),
+          .then((d) =>
+            setMoreSeller(Array.isArray(d) ? d : [])
+          )
+          .catch(() => {}),
+
       category_id &&
-        fetch(`${API}/product/similar?${new URLSearchParams({
-          category_id, exclude: id, limit: "8",
-        })}`)
+        fetch(
+          `${API}/product/similar?${new URLSearchParams({
+            category_id,
+            exclude: id,
+            limit  : "8",
+          })}`
+        )
           .then((r) => (r.ok ? r.json() : []))
-          .then((d) => setSimilar(Array.isArray(d) ? d : [])),
+          .then((d) =>
+            setSimilar(Array.isArray(d) ? d : [])
+          )
+          .catch(() => {}),
     ].filter(Boolean);
 
-    Promise.allSettled(fetches);
+    Promise.allSettled(jobs);
   }, [product]);
 
   /* ═════════════════════════════════════════════════════
@@ -792,29 +1073,40 @@ export default function ProductDetailDesktop({ user }) {
     setReviewTotal(0);
   }, [slug]);
 
-  const loadReviews = useCallback(async (page = 1) => {
-    if (!slug) return;
-    try {
-      const res = await fetch(
-        `${API}/product/slug/${encodeURIComponent(slug)}/reviews?limit=${REVIEWS_LIMIT}&page=${page}`
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      setReviews((prev) =>
-        page === 1 ? data.reviews || [] : [...prev, ...(data.reviews || [])]
-      );
-      if (data.stats) {
-        setReviewStats(data.stats);
-        setReviewTotal(data.stats.total || 0);
-      }
-    } catch {}
-  }, [slug]);
+  const loadReviews = useCallback(
+    async (page = 1) => {
+      if (!slug) return;
+      try {
+        const res = await fetch(
+          `${API}/product/slug/` +
+          `${encodeURIComponent(slug)}/reviews` +
+          `?limit=${REVIEWS_LIMIT}&page=${page}`
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        setReviews((prev) =>
+          page === 1
+            ? data.reviews || []
+            : [...prev, ...(data.reviews || [])]
+        );
+        if (data.stats) {
+          setReviewStats(data.stats);
+          setReviewTotal(data.stats.total || 0);
+        }
+      } catch {}
+    },
+    [slug]
+  );
 
-  useEffect(() => { loadReviews(1); }, [loadReviews]);
+  useEffect(() => {
+    loadReviews(1);
+  }, [loadReviews]);
 
   /* ═════════════════════════════════════════════════════
      ACTIONS
   ═════════════════════════════════════════════════════ */
+
+  /* ── Favourite ────────────────────────────────────── */
   const toggleFav = useCallback(() => {
     if (!product?.id) return;
     const next = !fav;
@@ -829,46 +1121,79 @@ export default function ProductDetailDesktop({ user }) {
 
     clearTimeout(favTimerRef.current);
     favTimerRef.current = setTimeout(() => {
-      fetch(`${API}/product/products/${product.id}/favorite`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ user_id: userId }),
-      }).catch(() => {
+      fetch(
+        `${API}/product/products/${product.id}/favorite`,
+        {
+          method : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders(),
+          },
+          body: JSON.stringify({ user_id: userId }),
+        }
+      ).catch(() => {
         setFav(!next);
-        const rollback = loadFavs();
-        if (next) delete rollback[product.id];
-        else rollback[product.id] = true;
-        saveFavs(rollback);
+        const rb = loadFavs();
+        if (next) delete rb[product.id];
+        else rb[product.id] = true;
+        saveFavs(rb);
       });
     }, FAV_DEBOUNCE);
   }, [fav, product, userId]);
 
+  /* ── WhatsApp ─────────────────────────────────────── */
   const openWhatsApp = useCallback(() => {
     if (!product || isOwn) return;
-    fetch(`${API}/product/products/${product.id}/click`, { method: "POST" }).catch(() => {});
 
-    const waNumber = product.whatsapp || product.contact?.whatsapp;
-    const waLink   = product.whatsapp_link || product.contact?.whatsapp_link;
-    const msg = encodeURIComponent(
-      `Hi, I'm interested in: ${product.title} — ${window.location.href}`
+    fetch(
+      `${API}/product/products/${product.id}/click`,
+      { method: "POST" }
+    ).catch(() => {});
+
+    const waNumber =
+      product.whatsapp || product.contact?.whatsapp;
+    const waLink   =
+      product.whatsapp_link ||
+      product.contact?.whatsapp_link;
+    const msg      = encodeURIComponent(
+      `Hi, I'm interested in: ${product.title} — ` +
+      `${window.location.href}`
     );
-    const url = waLink ||
-      (waNumber ? `https://wa.me/${waNumber.replace(/\D/g, "")}?text=${msg}` : null);
+    const url =
+      waLink ||
+      (waNumber
+        ? `https://wa.me/${
+            String(waNumber).replace(/\D/g, "")
+          }?text=${msg}`
+        : null);
 
-    if (url) window.open(url, "_blank", "noopener,noreferrer");
-    else showToast("No WhatsApp contact available.", "info");
-  }, [product, isOwn, showToast]);
+    /*
+     * ✅ No toast — button only renders when url exists
+     */
+    if (url) {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  }, [product, isOwn]);
 
+  /* ── Call ─────────────────────────────────────────── */
   const openCall = useCallback(() => {
     if (isOwn) return;
-    const phone = product?.phone || product?.contact?.phone;
-    if (phone) window.location.href = `tel:${phone}`;
-    else showToast("No phone number available.", "info");
-  }, [product, isOwn, showToast]);
+    const phone =
+      product?.phone || product?.contact?.phone;
+    /*
+     * ✅ No toast — button only renders when phone exists
+     */
+    if (phone) {
+      window.location.href = `tel:${phone}`;
+    }
+  }, [product, isOwn]);
 
+  /* ── Chat ─────────────────────────────────────────── */
   const openChat = useCallback(async () => {
     if (!userId) {
-      navigate(`/auth?redirect=/product/${encodeURIComponent(slug)}`);
+      navigate(
+        `/auth?redirect=/product/${encodeURIComponent(slug)}`
+      );
       return;
     }
     if (isOwn || !product?.seller_id) return;
@@ -878,18 +1203,26 @@ export default function ProductDetailDesktop({ user }) {
 
     try {
       const res = await fetch(`${API}/conversations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders() },
+        method : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(),
+        },
         body: JSON.stringify({
-          buyerId: userId,
-          sellerId: product.seller_id,
+          buyerId  : userId,
+          sellerId : product.seller_id,
           productId: product.id,
         }),
       });
+
       const data = await res.json();
-      if (!res.ok) throw new Error(data.message || "Server error");
+      if (!res.ok)
+        throw new Error(data.message || "Server error");
+
       const threadId = data.thread_id || data.id;
-      if (!threadId) throw new Error("No thread ID returned");
+      if (!threadId)
+        throw new Error("No thread ID returned");
+
       navigate(`/chat/${threadId}`);
     } catch (err) {
       showToast(err.message || "Could not open chat.");
@@ -898,13 +1231,14 @@ export default function ProductDetailDesktop({ user }) {
     }
   }, [userId, isOwn, product, slug, navigate, showToast]);
 
+  /* ── Navigation ───────────────────────────────────── */
   const goProduct = useCallback(
     (p) => navigate(`/product/${p.slug || p.id}`),
     [navigate]
   );
 
   /* ═════════════════════════════════════════════════════
-     RENDER
+     RENDER GUARDS
   ═════════════════════════════════════════════════════ */
   if (loading) return <DesktopSkeleton />;
 
@@ -912,12 +1246,30 @@ export default function ProductDetailDesktop({ user }) {
     return (
       <div className="pdd-page" role="main">
         <div className="pdd-error" role="alert">
-          <span className="pdd-error-emoji" aria-hidden="true">🔍</span>
+          <span
+            className="pdd-error-emoji"
+            aria-hidden="true"
+          >
+            🔍
+          </span>
           <h2 className="pdd-error-title">{error}</h2>
           <p className="pdd-error-sub">
-            This listing may have been removed or the link is incorrect.
+            This listing may have been removed or the link
+            is incorrect.
           </p>
-          <Link to="/" className="pdd-error-btn">Browse Marketplace</Link>
+          <div className="pdd-error-actions">
+            {error !== "Invalid product link." && (
+              <button
+                className="pdd-error-btn pdd-error-btn--secondary"
+                onClick={loadProduct}
+              >
+                Try Again
+              </button>
+            )}
+            <Link to="/" className="pdd-error-btn">
+              Browse Marketplace
+            </Link>
+          </div>
         </div>
       </div>
     );
@@ -925,6 +1277,9 @@ export default function ProductDetailDesktop({ user }) {
 
   if (!product) return null;
 
+  /* ═════════════════════════════════════════════════════
+     RENDER
+  ═════════════════════════════════════════════════════ */
   return (
     <div className="pdd-page" role="main">
 
@@ -959,14 +1314,22 @@ export default function ProductDetailDesktop({ user }) {
         {/* Right: Product info + contact */}
         <div className="pdd-hero-panel">
 
-          {/* Title + meta */}
           <header className="pdd-product-header">
-            <h1 className="pdd-product-title">{product.title}</h1>
+            <h1 className="pdd-product-title">
+              {product.title}
+            </h1>
 
             <div className="pdd-product-meta-row">
-              {(product.location_city || product.location_state) && (
+              {(product.location_city ||
+                product.location_state) && (
                 <span className="pdd-product-loc">
-                  📍 {[product.location_city, product.location_state].filter(Boolean).join(", ")}
+                  📍{" "}
+                  {[
+                    product.location_city,
+                    product.location_state,
+                  ]
+                    .filter(Boolean)
+                    .join(", ")}
                 </span>
               )}
               {product.views > 0 && (
@@ -981,19 +1344,26 @@ export default function ProductDetailDesktop({ user }) {
               )}
             </div>
 
-            {/* Rating */}
             {product.average_rating > 0 && (
               <div className="pdd-product-rating-row">
-                <span className="pdd-product-stars" aria-hidden="true">
-                  {"★".repeat(Math.round(product.average_rating))}
-                  {"☆".repeat(5 - Math.round(product.average_rating))}
+                <span
+                  className="pdd-product-stars"
+                  aria-hidden="true"
+                >
+                  {"★".repeat(
+                    Math.round(product.average_rating)
+                  )}
+                  {"☆".repeat(
+                    5 - Math.round(product.average_rating)
+                  )}
                 </span>
                 <span className="pdd-product-rating-num">
                   {Number(product.average_rating).toFixed(1)}
                 </span>
                 {product.reviews_count > 0 && (
                   <span className="pdd-product-rating-count">
-                    ({product.reviews_count} review{product.reviews_count !== 1 ? "s" : ""})
+                    ({product.reviews_count} review
+                    {product.reviews_count !== 1 ? "s" : ""})
                   </span>
                 )}
               </div>
@@ -1002,26 +1372,40 @@ export default function ProductDetailDesktop({ user }) {
 
           {/* Price */}
           <div className="pdd-price-block">
-            <span className="pdd-price">{fmt(product.price)}</span>
-            {product.original_price != null && product.original_price > product.price && (
-              <>
-                <span className="pdd-price-old">{fmt(product.original_price)}</span>
-                {product.discount_percent > 0 && (
-                  <span className="pdd-price-off">-{product.discount_percent}%</span>
-                )}
-              </>
-            )}
+            <span className="pdd-price">
+              {fmt(product.price)}
+            </span>
+            {product.original_price != null &&
+              product.original_price > product.price && (
+                <>
+                  <span className="pdd-price-old">
+                    {fmt(product.original_price)}
+                  </span>
+                  {product.discount_percent > 0 && (
+                    <span className="pdd-price-off">
+                      -{product.discount_percent}%
+                    </span>
+                  )}
+                </>
+              )}
           </div>
 
-          {/* Meta badges */}
+          {/* Meta badges — no stock */}
           <MetaBadges product={product} />
 
-          {/* Fav + Share row */}
+          {/* Save + Edit */}
           <div className="pdd-action-row">
             <button
-              className={`pdd-action-btn${fav ? " pdd-action-btn--active" : ""}`}
+              className={
+                `pdd-action-btn` +
+                (fav ? " pdd-action-btn--active" : "")
+              }
               onClick={toggleFav}
-              aria-label={fav ? "Remove from favourites" : "Add to favourites"}
+              aria-label={
+                fav
+                  ? "Remove from favourites"
+                  : "Add to favourites"
+              }
               aria-pressed={fav}
             >
               {fav ? "♥ Saved" : "♡ Save"}
@@ -1030,14 +1414,21 @@ export default function ProductDetailDesktop({ user }) {
             {isOwn && (
               <button
                 className="pdd-action-btn pdd-action-btn--edit"
-                onClick={() => navigate(`/listings/edit/${product.id}`)}
+                onClick={() =>
+                  navigate(`/listings/edit/${product.id}`)
+                }
               >
-                Edit Listing
+                ✏️ Edit Listing
               </button>
             )}
           </div>
 
-          {/* Contact buttons */}
+          {/*
+           * ✅ ContactStrip — only shows buttons with data
+           *    Phone optional, WhatsApp optional
+           *    No toasts for missing contacts
+           *    Only Chat if no phone/whatsapp
+           */}
           <div className="pdd-contact-block">
             <ContactStrip
               product={product}
@@ -1057,7 +1448,6 @@ export default function ProductDetailDesktop({ user }) {
       ══════════════════════════════════════════════ */}
       <div className="pdd-content-area">
 
-        {/* Left: Tabs */}
         <div className="pdd-tabs-col">
           <ProductTabs
             product={product}
@@ -1079,13 +1469,13 @@ export default function ProductDetailDesktop({ user }) {
           />
         </div>
 
-        {/* Right: Sidebar */}
         <aside className="pdd-sidebar">
           <SafetyTips />
-
           <DesktopSellerCard
             product={product}
-            onNavigate={() => navigate(`/seller/${product.seller_id}`)}
+            onNavigate={() =>
+              navigate(`/seller/${product.seller_id}`)
+            }
           />
         </aside>
       </div>
@@ -1096,7 +1486,7 @@ export default function ProductDetailDesktop({ user }) {
       <MoreFromSeller
         products={moreSeller}
         seller={{
-          name: product.seller_store || product.seller_name,
+          name : product.seller_store || product.seller_name,
           image: product.seller_image,
         }}
         sellerId={product.seller_id}
@@ -1110,6 +1500,7 @@ export default function ProductDetailDesktop({ user }) {
         products={similar}
         onProductClick={goProduct}
       />
+
     </div>
   );
 }
