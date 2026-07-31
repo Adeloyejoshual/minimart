@@ -171,11 +171,18 @@ function useAnimatedCounter(to, duration = 1.2) {
   return display;
 }
 
+/* ─────────────────────────────────────────────
+   Pull-to-refresh hook
+   Uses an `isPulling` ref so state churn no
+   longer forces the touch listeners to re-bind,
+   and gracefully handles touchcancel.
+───────────────────────────────────────────── */
 function usePullToRefresh(onRefresh, threshold = 80) {
   const [pulling,    setPulling]    = useState(false);
   const [pullY,      setPullY]      = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const startY       = useRef(null);
+  const isPulling    = useRef(false);
   const containerRef = useRef(null);
 
   useEffect(() => {
@@ -183,41 +190,62 @@ function usePullToRefresh(onRefresh, threshold = 80) {
     if (!el) return;
 
     const onTouchStart = (e) => {
-      if (el.scrollTop > 0) return;
-      startY.current = e.touches[0].clientY;
+      if (el.scrollTop > 0) {
+        startY.current    = null;
+        isPulling.current = false;
+        return;
+      }
+      startY.current    = e.touches[0].clientY;
+      isPulling.current = false;
     };
 
     const onTouchMove = (e) => {
       if (startY.current === null) return;
       const delta = e.touches[0].clientY - startY.current;
-      if (delta <= 0) { startY.current = null; return; }
-      const resistance = Math.min(delta * 0.45, threshold * 1.4);
+      if (delta <= 0) {
+        startY.current    = null;
+        isPulling.current = false;
+        return;
+      }
+      isPulling.current  = true;
+      const resistance   = Math.min(delta * 0.45, threshold * 1.4);
       setPulling(true);
       setPullY(resistance);
     };
 
     const onTouchEnd = async () => {
-      if (!pulling) return;
+      if (!isPulling.current) {
+        setPulling(false);
+        setPullY(0);
+        startY.current    = null;
+        return;
+      }
+
       if (pullY >= threshold) {
         setRefreshing(true);
         setPullY(threshold * 0.6);
-        try { await onRefresh(); } finally { setRefreshing(false); }
+        try   { await onRefresh(); }
+        finally { setRefreshing(false); }
       }
+
       setPulling(false);
       setPullY(0);
-      startY.current = null;
+      startY.current    = null;
+      isPulling.current = false;
     };
 
-    el.addEventListener("touchstart", onTouchStart, { passive: true });
-    el.addEventListener("touchmove",  onTouchMove,  { passive: true });
-    el.addEventListener("touchend",   onTouchEnd);
+    el.addEventListener("touchstart",  onTouchStart,  { passive: true });
+    el.addEventListener("touchmove",   onTouchMove,   { passive: true });
+    el.addEventListener("touchend",    onTouchEnd,    { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd,    { passive: true });
 
     return () => {
-      el.removeEventListener("touchstart", onTouchStart);
-      el.removeEventListener("touchmove",  onTouchMove);
-      el.removeEventListener("touchend",   onTouchEnd);
+      el.removeEventListener("touchstart",  onTouchStart);
+      el.removeEventListener("touchmove",   onTouchMove);
+      el.removeEventListener("touchend",    onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
     };
-  }, [pulling, pullY, threshold, onRefresh]);
+  }, [pullY, threshold, onRefresh]);
 
   return { containerRef, pullY, pulling, refreshing };
 }
@@ -1086,6 +1114,7 @@ const ProfileSkeleton = memo(function ProfileSkeleton() {
           <div className="mp-sk-stat mp-shimmer" />
         </div>
       </div>
+
       {/* Listings skeleton */}
       <div className="mp-sk-section">
         <div className="mp-sk-line mp-sk-line--sm mp-shimmer" />
@@ -1095,6 +1124,7 @@ const ProfileSkeleton = memo(function ProfileSkeleton() {
           <div className="mp-sk-card mp-shimmer" />
         </div>
       </div>
+
       {/* Menu skeleton */}
       <div className="mp-sk-section">
         {[1, 2, 3, 4].map((n) => (
@@ -1139,17 +1169,17 @@ export default function MobileProfile({ onLogout }) {
 
   /* ── User query ── */
   const {
-    data:    user,
-    error:   userError,
-    isError: userIsError,
+    data:      user,
+    error:     userError,
+    isError:   userIsError,
     isLoading: userLoading,
-    refetch: refetchUser,
+    refetch:   refetchUser,
   } = useQuery({
-    queryKey:           QUERY_KEYS.user,
-    queryFn:            fetchUserData,
-    staleTime:          2 * 60 * 1000,
-    gcTime:             30 * 60 * 1000,
-    refetchOnMount:     true,
+    queryKey:             QUERY_KEYS.user,
+    queryFn:              fetchUserData,
+    staleTime:            2 * 60 * 1000,
+    gcTime:               30 * 60 * 1000,
+    refetchOnMount:       true,
     refetchOnWindowFocus: true,
     retry: (count, err) =>
       err?.response?.status !== 401 &&
@@ -1163,38 +1193,38 @@ export default function MobileProfile({ onLogout }) {
     isLoading: listingsLoading,
     refetch:   refetchListings,
   } = useQuery({
-    queryKey:           QUERY_KEYS.listings,
-    queryFn:            fetchUserListings,
-    staleTime:          3 * 60 * 1000,
-    gcTime:             30 * 60 * 1000,
-    refetchOnMount:     true,
+    queryKey:             QUERY_KEYS.listings,
+    queryFn:              fetchUserListings,
+    staleTime:            3 * 60 * 1000,
+    gcTime:               30 * 60 * 1000,
+    refetchOnMount:       true,
     refetchOnWindowFocus: true,
-    retry:              1,
-    enabled:            !!getToken(),
+    retry:                1,
+    enabled:              !!getToken(),
   });
 
   /* ── Unread count query ── */
   const { data: unreadCount = 0 } = useQuery({
-    queryKey:           QUERY_KEYS.unread,
-    queryFn:            fetchUnreadCount,
-    staleTime:          60 * 1000,
-    gcTime:             5 * 60 * 1000,
-    retry:              1,
-    enabled:            !!getToken(),
-    refetchInterval:    60 * 1000,
-    refetchOnMount:     true,
+    queryKey:             QUERY_KEYS.unread,
+    queryFn:              fetchUnreadCount,
+    staleTime:            60 * 1000,
+    gcTime:               5 * 60 * 1000,
+    retry:                1,
+    enabled:              !!getToken(),
+    refetchInterval:      60 * 1000,
+    refetchOnMount:       true,
     refetchOnWindowFocus: true,
   });
 
   /* ── Subscription query ── */
   const { data: subStatus = null } = useQuery({
-    queryKey:           QUERY_KEYS.subscription,
-    queryFn:            fetchSubscriptionStatus,
-    staleTime:          2 * 60 * 1000,
-    gcTime:             10 * 60 * 1000,
-    retry:              1,
-    enabled:            !!getToken(),
-    refetchOnMount:     true,
+    queryKey:             QUERY_KEYS.subscription,
+    queryFn:              fetchSubscriptionStatus,
+    staleTime:            2 * 60 * 1000,
+    gcTime:               10 * 60 * 1000,
+    retry:                1,
+    enabled:              !!getToken(),
+    refetchOnMount:       true,
     refetchOnWindowFocus: true,
   });
 
