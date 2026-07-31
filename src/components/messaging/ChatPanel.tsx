@@ -15,14 +15,15 @@ import axios           from "axios";
    EXISTING CHAT SUB-COMPONENTS
    (same ones used by the mobile Chat.jsx)
 ═══════════════════════════════════════════════════════════════ */
-import ChatHeader        from "../../pages/chat/ChatHeader";
-import SuggestionsBar    from "../../pages/chat/SuggestionsBar";
-import MakeOfferModal    from "../../pages/chat/MakeOfferModal";
-import CounterOfferModal from "../../pages/chat/CounterOfferModal";
-import LocationModal     from "../../pages/chat/LocationModal";
-import ContextMenu       from "../../pages/chat/ContextMenu";
-import ReportModal       from "../../pages/chat/ReportModal";
-import DeleteChatConfirm from "../../pages/chat/DeleteChatConfirm";
+import ChatHeader           from "../../pages/chat/ChatHeader";
+import SuggestionsBar       from "../../pages/chat/SuggestionsBar";
+import MakeOfferModal       from "../../pages/chat/MakeOfferModal";
+import CounterOfferModal    from "../../pages/chat/CounterOfferModal";
+import LocationModal        from "../../pages/chat/LocationModal";
+import ContextMenu          from "../../pages/chat/ContextMenu";
+import ReportModal          from "../../pages/chat/ReportModal";
+import DeleteChatConfirm    from "../../pages/chat/DeleteChatConfirm";
+import DeleteMessageConfirm from "../../pages/chat/DeleteMessageConfirm";
 import Bubble, { TypingBubble, DateSep } from "../../pages/chat/Bubble";
 import { Icon } from "../../pages/chat/icons";
 import {
@@ -50,33 +51,12 @@ const SEND_TIMEOUT = 15_000;
 /* ═══════════════════════════════════════════════════════════════
    UPLOAD LIMITS  (must match server)
 ═══════════════════════════════════════════════════════════════ */
-const IMAGE_MAX_COUNT   = 10;
-const IMAGE_MAX_BYTES   = 5  * 1024 * 1024;   // 5  MB
-const VIDEO_MAX_COUNT   = 3;
-const VIDEO_MAX_BYTES   = 10 * 1024 * 1024;   // 10 MB
-const VIDEO_MAX_SECONDS = 60;
+const IMAGE_MAX_COUNT = 10;
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
 
 /* ═══════════════════════════════════════════════════════════════
    UPLOAD HELPERS
 ═══════════════════════════════════════════════════════════════ */
-
-/** Read video duration (seconds) from a File object */
-function getClientVideoDuration(file: File): Promise<number> {
-  return new Promise((resolve) => {
-    const url   = URL.createObjectURL(file);
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.onloadedmetadata = () => {
-      URL.revokeObjectURL(url);
-      resolve(video.duration);
-    };
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(0);
-    };
-    video.src = url;
-  });
-}
 
 /** Validate image files → { valid, errors } */
 function validateImages(files: File[]): { valid: File[]; errors: string[] } {
@@ -98,37 +78,6 @@ function validateImages(files: File[]): { valid: File[]; errors: string[] } {
   return { valid, errors };
 }
 
-/** Validate video files (async — duration check) */
-async function validateVideos(
-  files: File[]
-): Promise<{ valid: File[]; errors: string[] }> {
-  const errors: string[] = [];
-  if (files.length > VIDEO_MAX_COUNT) {
-    errors.push(`Max ${VIDEO_MAX_COUNT} videos per message.`);
-    return { valid: [], errors };
-  }
-  const valid: File[] = [];
-  for (const f of files) {
-    if (!f.type.startsWith("video/")) {
-      errors.push(`"${f.name}" is not a video.`);
-      continue;
-    }
-    if (f.size > VIDEO_MAX_BYTES) {
-      errors.push(`"${f.name}" exceeds 10 MB.`);
-      continue;
-    }
-    const dur = await getClientVideoDuration(f);
-    if (dur > VIDEO_MAX_SECONDS) {
-      errors.push(
-        `"${f.name}" is ${Math.round(dur)}s — max ${VIDEO_MAX_SECONDS}s.`
-      );
-      continue;
-    }
-    valid.push(f);
-  }
-  return { valid, errors };
-}
-
 /** Normalise media_url → always string[] */
 function asMediaArray(raw: unknown): string[] {
   if (!raw) return [];
@@ -136,9 +85,68 @@ function asMediaArray(raw: unknown): string[] {
   return [raw as string];
 }
 
-/** Is a URL a video file? */
+/** Is a URL a video file? (kept only for lightbox display of legacy videos) */
 function isVideoUrl(url: string): boolean {
   return /\.(mp4|webm|mov|3gp|mkv)(\?|$)/i.test(url);
+}
+
+/** Auto-resize textarea (max 120px / ~5 lines) */
+function resizeTextarea(el: HTMLTextAreaElement | null) {
+  if (!el) return;
+  el.style.height = "auto";
+  el.style.height = Math.min(el.scrollHeight, 120) + "px";
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MESSAGE CACHE  (localStorage)
+═══════════════════════════════════════════════════════════════ */
+const CACHE_PREFIX   = "chat_msgs_";
+const CACHE_MAX_MSGS = 200;
+const CACHE_TTL_MS   = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function cacheKey(threadId: string): string {
+  return `${CACHE_PREFIX}${threadId}`;
+}
+
+function loadCachedMessages(threadId: string): Message[] | null {
+  if (!threadId) return null;
+  try {
+    const raw = localStorage.getItem(cacheKey(threadId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.messages || !Array.isArray(parsed.messages)) return null;
+    if (Date.now() - (parsed.savedAt || 0) > CACHE_TTL_MS) {
+      localStorage.removeItem(cacheKey(threadId));
+      return null;
+    }
+    return parsed.messages as Message[];
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedMessages(threadId: string, messages: Message[]) {
+  if (!threadId || !Array.isArray(messages)) return;
+  try {
+    const clean = messages
+      .filter(
+        (m: any) => !m._temp && !m._failed && !m._timedOut
+      )
+      .slice(-CACHE_MAX_MSGS);
+    localStorage.setItem(
+      cacheKey(threadId),
+      JSON.stringify({ savedAt: Date.now(), messages: clean })
+    );
+  } catch {
+    /* quota exceeded — ignore */
+  }
+}
+
+function clearCachedMessages(threadId: string) {
+  if (!threadId) return;
+  try {
+    localStorage.removeItem(cacheKey(threadId));
+  } catch {}
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -286,7 +294,6 @@ const ChatPanel: FC<ChatPanelProps> = ({
 
   /* Upload state */
   const [uploadingImages, setUploadingImages] = useState(false);
-  const [uploadingVideos, setUploadingVideos] = useState(false);
 
   /* ── UI state ───────────────────────────────────────────── */
   const [showMenu,        setShowMenu]        = useState(false);
@@ -306,11 +313,12 @@ const ChatPanel: FC<ChatPanelProps> = ({
   const [locationModal,     setLocationModal]     = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showReportModal,   setShowReportModal]   = useState(false);
+  const [deleteMsgTarget,   setDeleteMsgTarget]   = useState<Message | null>(null);
 
   /* ── Refs ───────────────────────────────────────────────── */
   const socketRef     = useRef<Socket | null>(null);
   const bottomRef     = useRef<HTMLDivElement>(null);
-  const inputRef      = useRef<HTMLInputElement>(null);
+  const inputRef      = useRef<HTMLTextAreaElement>(null);
   const typingTimer   = useRef<ReturnType<typeof setTimeout> | null>(null);
   const historyLoaded = useRef(false);
   const pendingMsgs   = useRef<Message[]>([]);
@@ -319,7 +327,6 @@ const ChatPanel: FC<ChatPanelProps> = ({
     new Map<string | number, ReturnType<typeof setTimeout>>()
   );
   const imageFileRef  = useRef<HTMLInputElement>(null);  // gallery images
-  const videoFileRef  = useRef<HTMLInputElement>(null);  // gallery videos
   const cameraRef     = useRef<HTMLInputElement>(null);  // camera capture
 
   /* Always-fresh refs */
@@ -517,15 +524,27 @@ const ChatPanel: FC<ChatPanelProps> = ({
   }, [user?.id, threadId, safe]);
 
   /* ════════════════════════════════════════════════════════════
-     LOAD HISTORY
+     LOAD HISTORY  (with localStorage cache)
   ════════════════════════════════════════════════════════════ */
   const loadHistory = useCallback(async () => {
     if (!user?.id || !threadId) return;
 
     historyLoaded.current = false;
     pendingMsgs.current   = [];
-    safe(() => { setLoading(true); setError(null); });
 
+    /* 1) Hydrate from cache first so UI never looks broken */
+    const cached = loadCachedMessages(threadId);
+    if (cached && cached.length) {
+      safe(() => {
+        dispatch({ type: "SET", payload: cached });
+        setLoading(false);
+        setError(null);
+      });
+    } else {
+      safe(() => { setLoading(true); setError(null); });
+    }
+
+    /* 2) Fetch fresh from network */
     try {
       const { data } = await axios.get(`${API}/messages`, {
         params:  { threadId, userId: user.id },
@@ -541,7 +560,13 @@ const ChatPanel: FC<ChatPanelProps> = ({
       pendingMsgs.current   = [];
       historyLoaded.current = true;
 
-      safe(() => dispatch({ type: "SET", payload: all }));
+      safe(() => {
+        dispatch({ type: "SET", payload: all });
+        setError(null);
+      });
+
+      /* 3) Update cache with fresh data */
+      saveCachedMessages(threadId, all);
 
       socketRef.current?.emit("markRead", { threadId, userId: user.id });
       axios
@@ -552,19 +577,35 @@ const ChatPanel: FC<ChatPanelProps> = ({
         )
         .catch(() => {});
     } catch (err: any) {
-      safe(() =>
-        setError(
-          `${err.response?.status ?? "Network"} — ${
-            err.response?.data?.message ?? err.message
-          }`
-        )
-      );
+      historyLoaded.current = true;
+
+      /* Only show error if we have NOTHING to display */
+      if (!cached || cached.length === 0) {
+        safe(() =>
+          setError(
+            `${err.response?.status ?? "Network"} — ${
+              err.response?.data?.message ?? err.message
+            }`
+          )
+        );
+      } else {
+        console.warn("Message refresh failed, using cache:", err.message);
+      }
     } finally {
       safe(() => setLoading(false));
     }
   }, [user?.id, threadId, safe]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  /* ════════════════════════════════════════════════════════════
+     PERSIST MESSAGES TO LOCALSTORAGE
+  ════════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    if (!threadId || !historyLoaded.current) return;
+    if (!messages.length) return;
+    saveCachedMessages(threadId, messages);
+  }, [messages, threadId]);
 
   /* ════════════════════════════════════════════════════════════
      AUTO-SCROLL
@@ -580,6 +621,13 @@ const ChatPanel: FC<ChatPanelProps> = ({
     const t = setTimeout(() => inputRef.current?.focus(), 120);
     return () => clearTimeout(t);
   }, [threadId]);
+
+  /* ════════════════════════════════════════════════════════════
+     TEXTAREA AUTO-RESIZE on newMsg change
+  ════════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    resizeTextarea(inputRef.current);
+  }, [newMsg]);
 
   /* ════════════════════════════════════════════════════════════
      TYPING
@@ -646,7 +694,13 @@ const ChatPanel: FC<ChatPanelProps> = ({
       };
 
       dispatch({ type: "APPEND", payload: temp });
+
+      /* reset textarea */
       setNewMsg("");
+      if (inputRef.current) {
+        inputRef.current.style.height = "auto";
+      }
+
       setSending(true);
       sendingRef.current = true;
       setShowSuggestions(false);
@@ -832,89 +886,6 @@ const ChatPanel: FC<ChatPanelProps> = ({
   );
 
   /* ════════════════════════════════════════════════════════════
-     VIDEO UPLOAD  (multi — max 3 | 10 MB each | 60 sec each)
-  ════════════════════════════════════════════════════════════ */
-  const handleVideoChange = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const raw = Array.from(e.target.files || []);
-      e.target.value = "";
-      setShowAttach(false);
-      if (!raw.length) return;
-
-      /* validate (async — duration check) */
-      const { valid, errors } = await validateVideos(raw);
-      if (errors.length) { alert(errors.join("\n")); return; }
-      if (!valid.length) return;
-
-      const clientMsgId = `${user.id}_${Date.now()}`;
-      const tempId      = `temp_${clientMsgId}`;
-
-      const localUrls = valid.map((f) => URL.createObjectURL(f));
-      const count     = valid.length;
-      const preview   = count === 1 ? "Video" : `${count} Videos`;
-
-      dispatch({
-        type: "APPEND",
-        payload: {
-          id:                tempId,
-          client_message_id: clientMsgId,
-          thread_id:         threadId,
-          sender_id:         user.id,
-          message:           preview,
-          message_type:      MESSAGE_TYPES.VIDEO ?? "video",
-          media_url:         localUrls,
-          created_at:        new Date().toISOString(),
-          status:            "sending",
-          _temp:             true,
-          _failed:           false,
-          _timedOut:         false,
-          ...(replyTo ? { reply_to_id: replyTo.id } : {}),
-        } as any,
-      });
-
-      setUploadingVideos(true);
-      setReplyTo(null);
-
-      try {
-        const form = new FormData();
-        valid.forEach((f) => form.append("files", f));
-        form.append("threadId",        threadId);
-        form.append("senderId",        String(user.id));
-        form.append("clientMessageId", clientMsgId);
-        if (replyTo) form.append("reply_to_id", String(replyTo.id));
-
-        const { data: saved } = await axios.post(
-          `${API}/messages/upload-video`,
-          form,
-          {
-            headers: { ...authH(), "Content-Type": "multipart/form-data" },
-            timeout: 60_000,
-          }
-        );
-
-        localUrls.forEach((u) => URL.revokeObjectURL(u));
-
-        if (mounted.current)
-          dispatch({ type: "REPLACE", tempId, payload: saved });
-
-        socketRef.current?.emit("sendMessage", saved);
-      } catch (err: any) {
-        console.error("Video upload failed:", err.message);
-        localUrls.forEach((u) => URL.revokeObjectURL(u));
-        if (mounted.current)
-          dispatch({
-            type:  "PATCH",
-            id:    tempId,
-            patch: { _temp: false, _failed: true } as any,
-          });
-      } finally {
-        safe(() => setUploadingVideos(false));
-      }
-    },
-    [threadId, user?.id, replyTo, safe]
-  );
-
-  /* ════════════════════════════════════════════════════════════
      OFFER HANDLERS
   ════════════════════════════════════════════════════════════ */
   const handleSendOffer = useCallback(
@@ -961,27 +932,37 @@ const ChatPanel: FC<ChatPanelProps> = ({
   );
 
   /* ════════════════════════════════════════════════════════════
-     OTHER HANDLERS
+     DELETE MESSAGE  (custom modal)
   ════════════════════════════════════════════════════════════ */
-  const handleDelete = useCallback(
-    (msg: Message) => {
-      if (!window.confirm("Delete this message?")) return;
-      if (mounted.current)
-        dispatch({ type: "SOFT_DELETE", id: msg.id });
-      socketRef.current?.emit("deleteMessage", {
-        threadId,
-        messageId: msg.id,
-      });
-      axios
-        .delete(`${API}/messages/${msg.id}`, {
-          data:    { userId: user.id },
-          headers: authH(),
-        })
-        .catch(() => {});
-    },
-    [threadId, user?.id]
+  const handleDelete = useCallback((msg: Message) => {
+    setDeleteMsgTarget(msg);
+  }, []);
+
+  const confirmDeleteMessage = useCallback(() => {
+    const msg = deleteMsgTarget;
+    setDeleteMsgTarget(null);
+    if (!msg) return;
+    if (mounted.current) dispatch({ type: "SOFT_DELETE", id: msg.id });
+    socketRef.current?.emit("deleteMessage", {
+      threadId,
+      messageId: msg.id,
+    });
+    axios
+      .delete(`${API}/messages/${msg.id}`, {
+        data:    { userId: user.id },
+        headers: authH(),
+      })
+      .catch(() => {});
+  }, [deleteMsgTarget, threadId, user?.id]);
+
+  const cancelDeleteMessage = useCallback(
+    () => setDeleteMsgTarget(null),
+    []
   );
 
+  /* ════════════════════════════════════════════════════════════
+     OTHER HANDLERS
+  ════════════════════════════════════════════════════════════ */
   const handleCopy = useCallback((msg: Message) => {
     navigator.clipboard?.writeText(msg.message || "").catch(() => {});
   }, []);
@@ -1023,6 +1004,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
         data:    { userId: user.id },
         headers: authH(),
       });
+      clearCachedMessages(threadId);
       if (onDeselectThread) {
         onDeselectThread();
       } else {
@@ -1076,24 +1058,23 @@ const ChatPanel: FC<ChatPanelProps> = ({
   const retryMessage = useCallback((fm: Message) => {
     dispatch({ type: "REMOVE", id: fm.id });
     setNewMsg(fm.message || "");
+    setTimeout(() => resizeTextarea(inputRef.current), 0);
     inputRef.current?.focus();
   }, []);
 
-  /* Keyboard */
+  /* Keyboard — Enter inserts newline, Escape clears reply */
   const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent<HTMLInputElement>) => {
-      if (e.key === "Enter" && !e.shiftKey) {
-        e.preventDefault();
-        handleSend(e);
-      }
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === "Escape") setReplyTo(null);
+      /* Enter → newline (default textarea behavior). Send only via button. */
     },
-    [handleSend]
+    []
   );
 
   const handleInputChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
+    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
       setNewMsg(e.target.value);
+      resizeTextarea(e.target);
       handleTyping();
     },
     [handleTyping]
@@ -1166,7 +1147,6 @@ const ChatPanel: FC<ChatPanelProps> = ({
   const handleMute           = useCallback(() => setMuted((v) => !v),          []);
   const openCamera           = useCallback(() => cameraRef.current?.click(),   []);
   const openGallery          = useCallback(() => imageFileRef.current?.click(),[]);
-  const openVideoGallery     = useCallback(() => videoFileRef.current?.click(),[]);
   const clearReply           = useCallback(() => setReplyTo(null),             []);
   const openDeleteConfirm    = useCallback(() => setShowDeleteConfirm(true),   []);
   const closeDeleteConfirm   = useCallback(() => setShowDeleteConfirm(false),  []);
@@ -1176,6 +1156,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
   const handleSelectSuggestion = useCallback((s: string) => {
     setNewMsg(s);
     setShowSuggestions(false);
+    setTimeout(() => resizeTextarea(inputRef.current), 0);
     inputRef.current?.focus();
   }, []);
 
@@ -1292,17 +1273,11 @@ const ChatPanel: FC<ChatPanelProps> = ({
 
         {isTyping && <TypingBubble />}
 
-        {/* Upload progress banners */}
+        {/* Upload progress banner */}
         {uploadingImages && (
           <div className="cp-upload-banner">
             <div className="cp-spinner cp-spinner--sm" />
             <span>Uploading photos…</span>
-          </div>
-        )}
-        {uploadingVideos && (
-          <div className="cp-upload-banner">
-            <div className="cp-spinner cp-spinner--sm" />
-            <span>Uploading videos…</span>
           </div>
         )}
 
@@ -1424,16 +1399,6 @@ const ChatPanel: FC<ChatPanelProps> = ({
               </span>
             </button>
 
-            <button className="cp-attach-option" onClick={openVideoGallery}>
-              {(Icon as any).video || "🎥"}
-              <span>
-                Video
-                <small className="cp-attach-option__hint">
-                  max {VIDEO_MAX_COUNT} · 10 MB · 60 s
-                </small>
-              </span>
-            </button>
-
             <button className="cp-attach-option" onClick={openLocationModal}>
               {Icon.location}
               <span>Location</span>
@@ -1461,15 +1426,6 @@ const ChatPanel: FC<ChatPanelProps> = ({
           className="cp-footer__file-input"
           onChange={handleImageChange}
         />
-        {/* videos — multi-select */}
-        <input
-          ref={videoFileRef}
-          type="file"
-          accept="video/*"
-          multiple
-          className="cp-footer__file-input"
-          onChange={handleVideoChange}
-        />
 
         {/* Attach toggle */}
         <button
@@ -1480,17 +1436,18 @@ const ChatPanel: FC<ChatPanelProps> = ({
           {Icon.plus}
         </button>
 
-        {/* Text input */}
-        <input
+        {/* Textarea — Enter = newline, tap Send to send */}
+        <textarea
           ref={inputRef}
           className="cp-footer__input"
-          type="text"
           value={newMsg}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
+          enterKeyHint="enter"
           placeholder={replyTo ? "Write a reply…" : "Type a message…"}
           aria-label="Message"
           maxLength={5000}
+          rows={1}
         />
 
         {/* Send button */}
@@ -1513,7 +1470,7 @@ const ChatPanel: FC<ChatPanelProps> = ({
 
       </footer>
 
-      {/* ── Lightbox (multi-image / video + keyboard nav) ──── */}
+      {/* ── Lightbox (multi-image + keyboard nav) ──────────── */}
       {lightbox && lightbox.urls.length > 0 && (
         <div className="cp-lightbox" onClick={closeLightbox}>
 
@@ -1612,6 +1569,14 @@ const ChatPanel: FC<ChatPanelProps> = ({
           otherUserName={otherUser?.name || "Seller"}
           onClose={closeReportModal}
           onSuccess={() => {}}
+        />
+      )}
+
+      {/* ── Delete Message Confirm (custom themed) ─────────── */}
+      {deleteMsgTarget && (
+        <DeleteMessageConfirm
+          onConfirm={confirmDeleteMessage}
+          onCancel={cancelDeleteMessage}
         />
       )}
 
