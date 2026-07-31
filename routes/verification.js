@@ -1,4 +1,3 @@
-
 // ════════════════════════════════════════════════════════════
 // FILE: routes/verification.js
 // ════════════════════════════════════════════════════════════
@@ -32,13 +31,16 @@ const IS_PROD = process.env.NODE_ENV === "production";
    POLICY
 ════════════════════════════════════════════════════════════ */
 const POLICY = Object.freeze({
-  DAILY_SEND_LIMIT     : IS_PROD ?  3 : 50,
-  RESEND_COOLDOWN_SECS : IS_PROD ? 60 : 30,
-  OTP_EXPIRY_MINUTES   : 10,
-  MAX_VERIFY_ATTEMPTS  : IS_PROD ?  5 : 10,
-  ABUSE_WINDOW_MINUTES : 10,
-  ABUSE_THRESHOLD      : IS_PROD ?  5 : 40,
-  BCRYPT_ROUNDS        : 10,
+  DAILY_SEND_LIMIT      : IS_PROD ?  3 : 50,
+  RESEND_COOLDOWN_SECS  : IS_PROD ? 60 : 30,
+  OTP_EXPIRY_MINUTES    : 10,
+  MAX_VERIFY_ATTEMPTS   : IS_PROD ?  5 : 10,
+  ABUSE_WINDOW_MINUTES  : 10,
+  ABUSE_THRESHOLD       : IS_PROD ?  5 : 40,
+  BCRYPT_ROUNDS         : 10,
+  FACE_TIMEOUT_MS       : parseInt(process.env.FACE_CHECK_TIMEOUT_MS ?? "5000", 10),
+  FACE_RETRIES          : 1,
+  FACE_RETRY_DELAY_MS   : 300,
 });
 
 /* ════════════════════════════════════════════════════════════
@@ -58,8 +60,19 @@ const computeTrustScore = (user) => {
 /* ════════════════════════════════════════════════════════════
    FILE POLICY
 ════════════════════════════════════════════════════════════ */
-const DOC_MIME = new Set(["image/jpeg","image/png","image/webp","application/pdf"]);
-const IMG_MIME = new Set(["image/jpeg","image/png","image/webp"]);
+const DOC_MIME = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+]);
+
+const IMG_MIME = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
+
 const EXT_MIME = {
   ".jpg"  : "image/jpeg",
   ".jpeg" : "image/jpeg",
@@ -67,29 +80,32 @@ const EXT_MIME = {
   ".webp" : "image/webp",
   ".pdf"  : "application/pdf",
 };
-const MAX_DOC_BYTES  = 5 * 1_048_576;   // 5 MB accepted from client
-const MAX_LOGO_BYTES = 2 * 1_048_576;   // 2 MB accepted from client
+
+const MAX_DOC_BYTES  = 5 * 1_048_576;  // 5 MB
+const MAX_LOGO_BYTES = 2 * 1_048_576;  // 2 MB
 
 const VALID_DOC_TYPES = new Set([
-  "nin","passport","drivers_license","voters_card",
+  "nin",
+  "passport",
+  "drivers_license",
+  "voters_card",
 ]);
 
 const DOC_VALIDATORS = {
-  nin             : (v) => /^\d{11}$/.test(v.replace(/\s/g,"")),
-  passport        : (v) => /^[A-Za-z]\d{8}$/.test(v.replace(/\s/g,"")),
-  drivers_license : (v) => /^[A-Za-z]{3}\d{6}[A-Za-z]{2}$/.test(v.replace(/[\s-]/g,"")),
-  voters_card     : (v) => /^[A-Za-z0-9]{19}$/.test(v.replace(/\s/g,"")),
+  nin             : (v) => /^\d{11}$/.test(v.replace(/\s/g, "")),
+  passport        : (v) => /^[A-Za-z]\d{8}$/.test(v.replace(/\s/g, "")),
+  drivers_license : (v) => /^[A-Za-z]{3}\d{6}[A-Za-z]{2}$/.test(v.replace(/[\s-]/g, "")),
+  voters_card     : (v) => /^[A-Za-z0-9]{19}$/.test(v.replace(/\s/g, "")),
 };
 
 /* ════════════════════════════════════════════════════════════
-   COMPRESSION POLICY  (target sizes to keep R2 storage small)
-
+   COMPRESSION POLICY
    Every uploaded image is re-encoded to WebP and resized so
-   that the LONGEST edge does not exceed the max below.
+   the longest edge does not exceed the max below.
    PDF files are passed through unchanged.
 ════════════════════════════════════════════════════════════ */
 const COMPRESSION = Object.freeze({
-  id_documents    : { maxEdge: 1600, quality: 78 }, // sharpish for OCR/reviewer
+  id_documents    : { maxEdge: 1600, quality: 78 },
   selfies         : { maxEdge: 1024, quality: 72 },
   liveness_frames : { maxEdge:  800, quality: 65 },
   store_logos     : { maxEdge:  512, quality: 78 },
@@ -103,8 +119,8 @@ const memStore = multer.memoryStorage();
 
 const makeFilter = (allowed) => (_req, file, cb) => {
   if (allowed.has(file.mimetype)) return cb(null, true);
-  const err = new Error(`Invalid file type "${file.mimetype}".`);
-  err.code  = "INVALID_MIME";
+  const err  = new Error(`Invalid file type "${file.mimetype}".`);
+  err.code   = "INVALID_MIME";
   cb(err);
 };
 
@@ -114,8 +130,8 @@ const uploadSubmit = multer({
   fileFilter : (_req, file, cb) => {
     const all = new Set([...DOC_MIME, ...IMG_MIME]);
     if (all.has(file.mimetype)) return cb(null, true);
-    const err = new Error(`Invalid file type "${file.mimetype}".`);
-    err.code  = "INVALID_MIME";
+    const err  = new Error(`Invalid file type "${file.mimetype}".`);
+    err.code   = "INVALID_MIME";
     cb(err);
   },
 }).fields([
@@ -138,8 +154,11 @@ const uploadFaceCheck = multer({
 const withUpload = (handler) => (req, res, next) =>
   handler(req, res, (err) => {
     if (!err) return next();
-    if (["LIMIT_FILE_SIZE","LIMIT_FILE_COUNT","INVALID_MIME"].includes(err.code))
+    if (
+      ["LIMIT_FILE_SIZE", "LIMIT_FILE_COUNT", "INVALID_MIME"].includes(err.code)
+    ) {
       return res.status(400).json({ success: false, message: err.message });
+    }
     return next(err);
   });
 
@@ -147,11 +166,11 @@ const withUpload = (handler) => (req, res, next) =>
    CLOUDFLARE R2  (S3-compatible)
 ════════════════════════════════════════════════════════════ */
 const r2 = new S3Client({
-  region     : process.env.R2_REGION ?? "auto",
-  endpoint   : process.env.R2_ENDPOINT,
-  credentials: {
-    accessKeyId    : process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+  region      : process.env.R2_REGION ?? "auto",
+  endpoint    : process.env.R2_ENDPOINT,
+  credentials : {
+    accessKeyId     : process.env.R2_ACCESS_KEY_ID,
+    secretAccessKey : process.env.R2_SECRET_ACCESS_KEY,
   },
 });
 
@@ -164,39 +183,37 @@ async function compressForStorage(buffer, mime, folder) {
     return { buffer, mime: "application/pdf", ext: "pdf" };
   }
 
-  const opts = COMPRESSION[folder] || COMPRESSION.default;
+  const opts = COMPRESSION[folder] ?? COMPRESSION.default;
 
   try {
     const out = await sharp(buffer, { failOn: "none" })
-      .rotate()                                    // honour EXIF orientation
+      .rotate()
       .resize({
-        width       : opts.maxEdge,
-        height      : opts.maxEdge,
-        fit         : "inside",
-        withoutEnlargement: true,
+        width              : opts.maxEdge,
+        height             : opts.maxEdge,
+        fit                : "inside",
+        withoutEnlargement : true,
       })
       .webp({
-        quality      : opts.quality,
-        effort       : 4,       // higher = smaller file, slower CPU (0-6)
-        smartSubsample: true,
+        quality        : opts.quality,
+        effort         : 4,
+        smartSubsample : true,
       })
       .toBuffer();
 
     return { buffer: out, mime: "image/webp", ext: "webp" };
   } catch (err) {
-    /* If sharp can't decode (corrupt file etc.), fall back to original */
     console.warn(`[compress] failed (${err.message}) — using original`);
-    const ext = mime === "image/png"  ? "png"
-              : mime === "image/webp" ? "webp"
-              : "jpg";
+    const ext =
+      mime === "image/png"  ? "png" :
+      mime === "image/webp" ? "webp" : "jpg";
     return { buffer, mime, ext };
   }
 }
 
-/* ── Upload buffer to R2 and return { secure_url, key, size } ─ */
+/* ── Upload buffer to R2, return { secure_url, key, size } ─ */
 async function uploadBuffer(buffer, folder, userId, originalMime = "image/jpeg") {
   if (!R2_BUCKET || !R2_PUBLIC_URL || !process.env.R2_ENDPOINT) {
-    /* Env not configured — return a local marker so dev doesn't break */
     return {
       secure_url : `local://${folder}/${userId}/${Date.now()}`,
       key        : null,
@@ -204,11 +221,10 @@ async function uploadBuffer(buffer, folder, userId, originalMime = "image/jpeg")
     };
   }
 
-  /* Compress first */
   const {
-    buffer: outBuffer,
-    mime  : outMime,
-    ext   : outExt,
+    buffer : outBuffer,
+    mime   : outMime,
+    ext    : outExt,
   } = await compressForStorage(buffer, originalMime, folder);
 
   const key =
@@ -232,6 +248,10 @@ async function uploadBuffer(buffer, folder, userId, originalMime = "image/jpeg")
 
 /* ════════════════════════════════════════════════════════════
    FACE MATCH SERVICE
+   - Hard timeout (FACE_TIMEOUT_MS, default 5 s)
+   - On timeout  → skip immediately, no retry (service overloaded)
+   - On network  → 1 retry after FACE_RETRY_DELAY_MS
+   - Any failure → skipped:true so submission still proceeds
 ════════════════════════════════════════════════════════════ */
 const FACE_SERVICE_URL = process.env.FACE_SERVICE_URL ?? null;
 
@@ -244,27 +264,70 @@ const compareFaces = async (selfieBuffer, docFrontBuffer) => {
       message    : "Face service not configured",
     };
   }
-  try {
-    const fd = new FormData();
-    fd.append("selfie",    new Blob([selfieBuffer]),   "selfie.jpg");
-    fd.append("doc_front", new Blob([docFrontBuffer]), "doc_front.jpg");
-    const r = await fetch(`${FACE_SERVICE_URL}/compare`, {
-      method : "POST",
-      body   : fd,
-      signal : AbortSignal.timeout(15_000),
-    });
-    if (!r.ok) throw new Error(`Face service ${r.status}`);
-    const d = await r.json();
-    return {
-      match      : Boolean(d.match),
-      confidence : d.confidence ?? null,
-      skipped    : false,
-      message    : d.message ?? "OK",
-    };
-  } catch (e) {
-    console.error("[face-check] service:", e.message);
-    return { match: null, confidence: null, skipped: true, message: e.message };
+
+  let lastError = null;
+
+  for (let attempt = 0; attempt <= POLICY.FACE_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer      = setTimeout(
+      () => controller.abort(),
+      POLICY.FACE_TIMEOUT_MS
+    );
+
+    try {
+      const fd = new FormData();
+      fd.append("selfie",    new Blob([selfieBuffer]),   "selfie.jpg");
+      fd.append("doc_front", new Blob([docFrontBuffer]), "doc_front.jpg");
+
+      const r = await fetch(`${FACE_SERVICE_URL}/compare`, {
+        method : "POST",
+        body   : fd,
+        signal : controller.signal,
+      });
+
+      clearTimeout(timer);
+
+      if (!r.ok) throw new Error(`Face service HTTP ${r.status}`);
+
+      const d = await r.json();
+      return {
+        match      : Boolean(d.match),
+        confidence : d.confidence ?? null,
+        skipped    : false,
+        message    : d.message ?? "OK",
+      };
+
+    } catch (e) {
+      clearTimeout(timer);
+      lastError          = e;
+      const isTimeout    = e.name === "AbortError";
+
+      console.warn(
+        `[face-check] attempt ${attempt + 1} failed — ` +
+        (isTimeout
+          ? `timeout after ${POLICY.FACE_TIMEOUT_MS}ms`
+          : e.message)
+      );
+
+      // Timeout = service is overloaded; skip immediately, do not retry
+      if (isTimeout) break;
+
+      // Network/other error — wait briefly then retry
+      if (attempt < POLICY.FACE_RETRIES) {
+        await new Promise((resolve) =>
+          setTimeout(resolve, POLICY.FACE_RETRY_DELAY_MS)
+        );
+      }
+    }
   }
+
+  console.error("[face-check] all attempts failed:", lastError?.message);
+  return {
+    match      : null,
+    confidence : null,
+    skipped    : true,
+    message    : lastError?.message ?? "Face check unavailable",
+  };
 };
 
 /* ════════════════════════════════════════════════════════════
@@ -289,21 +352,31 @@ const faceCheckLimiter = makeLimiter({ windowMin: 15, max: IS_PROD ? 20 : 100, m
 /* ════════════════════════════════════════════════════════════
    HELPERS
 ════════════════════════════════════════════════════════════ */
-const generateOtp = () => crypto.randomInt(100_000, 999_999).toString();
-const getIp       = (req) => req.ip ?? req.socket?.remoteAddress ?? null;
-const maskEmail   = (e) => String(e).replace(/(.{2})(.*)(@.*)/, (_, a, _b, c) => `${a}***${c}`);
-const getTodayUTC = () => new Date().toISOString().slice(0, 10);
-const fail        = (res, status, message, extra = {}) =>
+const generateOtp = () =>
+  crypto.randomInt(100_000, 999_999).toString();
+
+const getIp = (req) =>
+  req.ip ?? req.socket?.remoteAddress ?? null;
+
+const maskEmail = (e) =>
+  String(e).replace(/(.{2})(.*)(@.*)/, (_, a, _b, c) => `${a}***${c}`);
+
+const getTodayUTC = () =>
+  new Date().toISOString().slice(0, 10);
+
+const fail = (res, status, message, extra = {}) =>
   res.status(status).json({ success: false, message, ...extra });
 
 const makeDeviceHash = (req) =>
   crypto
     .createHash("sha256")
-    .update([
-      req.headers["user-agent"]      ?? "",
-      req.headers["accept-language"] ?? "",
-      req.headers["sec-ch-ua"]       ?? "",
-    ].join("|"))
+    .update(
+      [
+        req.headers["user-agent"]      ?? "",
+        req.headers["accept-language"] ?? "",
+        req.headers["sec-ch-ua"]       ?? "",
+      ].join("|")
+    )
     .digest("hex");
 
 const extMatchesMime = (file) =>
@@ -313,10 +386,10 @@ const getDailySendCount = async (db, userId) => {
   const today = getTodayUTC();
   const { rows } = await db.query(
     `SELECT COUNT(*) AS cnt
-     FROM email_verifications
-     WHERE user_id    = $1
-       AND created_at >= $2::date
-       AND created_at <  ($2::date + INTERVAL '1 day')`,
+     FROM   email_verifications
+     WHERE  user_id    = $1
+       AND  created_at >= $2::date
+       AND  created_at <  ($2::date + INTERVAL '1 day')`,
     [userId, today]
   );
   return parseInt(rows[0].cnt, 10);
@@ -325,10 +398,10 @@ const getDailySendCount = async (db, userId) => {
 const flagAccount = async (db, userId, reason, ip) => {
   await db.query(
     `UPDATE users
-     SET status = 'flagged',
-         total_reports = COALESCE(total_reports, 0) + 1,
-         updated_at = NOW()
-     WHERE id = $1`,
+     SET    status        = 'flagged',
+            total_reports = COALESCE(total_reports, 0) + 1,
+            updated_at    = NOW()
+     WHERE  id = $1`,
     [userId]
   );
   writeAudit({
@@ -344,7 +417,7 @@ const flagAccount = async (db, userId, reason, ip) => {
 const refreshTrustScore = async (client, userId) => {
   const { rows } = await client.query(
     `SELECT email_verified, identity_verified, store_verified, created_at
-     FROM users WHERE id = $1`,
+     FROM   users WHERE id = $1`,
     [userId]
   );
   if (!rows.length) return 0;
@@ -357,9 +430,13 @@ const refreshTrustScore = async (client, userId) => {
 };
 
 const DOC_HASH_SECRET = process.env.DOC_HASH_SECRET ?? null;
-const hashDocNumber   = (docType, docNumber) => {
+
+const hashDocNumber = (docType, docNumber) => {
   if (!DOC_HASH_SECRET) return null;
-  const norm = String(docNumber).toLowerCase().replace(/[\s\-_]/g,"").trim();
+  const norm = String(docNumber)
+    .toLowerCase()
+    .replace(/[\s\-_]/g, "")
+    .trim();
   return crypto
     .createHmac("sha256", DOC_HASH_SECRET)
     .update(`${docType.toLowerCase()}:${norm}`)
@@ -398,7 +475,7 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
     );
 
     if (referral.status === "rewarded") {
-      console.log(`[referral] already rewarded — skipping`);
+      console.log("[referral] already rewarded — skipping");
       return;
     }
 
@@ -417,7 +494,7 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
         `may already be rewarded, referral=${referral.id}`
       );
     } else {
-      console.log(`[referral] ✓ status → verified`);
+      console.log("[referral] ✓ status → verified");
     }
 
     try {
@@ -435,7 +512,7 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
           }),
         ]
       );
-      console.log(`[referral] ✓ email_verified event logged`);
+      console.log("[referral] ✓ email_verified event logged");
     } catch (evtErr) {
       console.warn(`[referral] email_verified event skipped: ${evtErr.message}`);
     }
@@ -453,10 +530,9 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
     );
 
     if (rewardedCount === 0) {
-      const { rows: [cur] } = await pool.query(
-        `SELECT status FROM referrals WHERE id = $1`,
-        [referral.id]
-      ).catch(() => ({ rows: [] }));
+      const { rows: [cur] } = await pool
+        .query(`SELECT status FROM referrals WHERE id = $1`, [referral.id])
+        .catch(() => ({ rows: [] }));
       console.warn(
         `[referral] verified→rewarded returned 0 rows ` +
         `current_status=${cur?.status ?? "not found"}`
@@ -464,7 +540,7 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
       return;
     }
 
-    console.log(`[referral] ✓ status → rewarded`);
+    console.log("[referral] ✓ status → rewarded");
 
     const { rows: [updatedUser] } = await pool.query(
       `UPDATE users
@@ -497,7 +573,7 @@ async function grantReferralRewardOnVerify(verifiedUserId, ip) {
           }),
         ]
       );
-      console.log(`[referral] ✓ reward_granted event logged`);
+      console.log("[referral] ✓ reward_granted event logged");
     } catch (evtErr) {
       console.warn(`[referral] reward_granted event skipped: ${evtErr.message}`);
     }
@@ -566,7 +642,7 @@ router.post(
 
       const { rows: users } = await client.query(
         `SELECT id, email, name, email_verified, status
-         FROM users WHERE id = $1`,
+         FROM   users WHERE id = $1`,
         [userId]
       );
       if (!users.length) {
@@ -595,15 +671,21 @@ router.post(
         );
       }
 
-      const cooldownCutoff = new Date(Date.now() - POLICY.RESEND_COOLDOWN_SECS * 1_000);
-      const abuseCutoff    = new Date(Date.now() - POLICY.ABUSE_WINDOW_MINUTES * 60 * 1_000);
-      const expiresAt      = new Date(Date.now() + POLICY.OTP_EXPIRY_MINUTES * 60 * 1_000);
+      const cooldownCutoff = new Date(
+        Date.now() - POLICY.RESEND_COOLDOWN_SECS * 1_000
+      );
+      const abuseCutoff = new Date(
+        Date.now() - POLICY.ABUSE_WINDOW_MINUTES * 60 * 1_000
+      );
+      const expiresAt = new Date(
+        Date.now() + POLICY.OTP_EXPIRY_MINUTES * 60 * 1_000
+      );
 
       const { rows: recent } = await client.query(
         `SELECT created_at FROM email_verifications
-         WHERE user_id    = $1
-           AND created_at > $2
-         ORDER BY created_at DESC LIMIT 1`,
+         WHERE  user_id    = $1
+           AND  created_at > $2
+         ORDER  BY created_at DESC LIMIT 1`,
         [userId, cooldownCutoff]
       );
       if (recent.length) {
@@ -624,7 +706,7 @@ router.post(
 
       const { rows: abr } = await client.query(
         `SELECT COUNT(*) AS cnt FROM email_verifications
-         WHERE user_id = $1 AND created_at > $2`,
+         WHERE  user_id = $1 AND created_at > $2`,
         [userId, abuseCutoff]
       );
       if (parseInt(abr[0].cnt, 10) >= POLICY.ABUSE_THRESHOLD) {
@@ -635,8 +717,8 @@ router.post(
 
       await client.query(
         `UPDATE email_verifications
-         SET status = 'expired', used_at = NOW()
-         WHERE user_id = $1 AND status = 'active'`,
+         SET    status = 'expired', used_at = NOW()
+         WHERE  user_id = $1 AND status = 'active'`,
         [userId]
       );
 
@@ -669,8 +751,8 @@ router.post(
       } catch (mailErr) {
         pool.query(
           `UPDATE email_verifications
-           SET status = 'expired', used_at = NOW()
-           WHERE user_id = $1 AND status = 'active'`,
+           SET    status = 'expired', used_at = NOW()
+           WHERE  user_id = $1 AND status = 'active'`,
           [userId]
         ).catch(() => {});
         return fail(res, 500, `Email delivery failed: ${mailErr.message}`);
@@ -718,7 +800,7 @@ router.post(
     const userId = req.user?.id;
     const ip     = getIp(req);
 
-    if (!userId)                 return fail(res, 401, "Not authenticated.");
+    if (!userId)                  return fail(res, 401, "Not authenticated.");
     if (!/^\d{6}$/.test(rawOtp)) return fail(res, 400, "OTP must be 6 digits.");
 
     const client = await pool.connect();
@@ -727,8 +809,8 @@ router.post(
 
       const { rows } = await client.query(
         `SELECT id, otp_hash, attempts FROM email_verifications
-         WHERE user_id = $1 AND status = 'active' AND expires_at > NOW()
-         ORDER BY created_at DESC LIMIT 1`,
+         WHERE  user_id = $1 AND status = 'active' AND expires_at > NOW()
+         ORDER  BY created_at DESC LIMIT 1`,
         [userId]
       );
       if (!rows.length) {
@@ -756,14 +838,17 @@ router.post(
         );
         await client.query("COMMIT");
         return fail(res, 400, "Incorrect code.", {
-          attemptsLeft: Math.max(0, POLICY.MAX_VERIFY_ATTEMPTS - 1 - rec.attempts),
+          attemptsLeft : Math.max(
+            0,
+            POLICY.MAX_VERIFY_ATTEMPTS - 1 - rec.attempts
+          ),
         });
       }
 
       const { rows: marked } = await client.query(
         `UPDATE email_verifications
-         SET status = 'used', used_at = NOW()
-         WHERE id = $1 AND status = 'active'
+         SET    status = 'used', used_at = NOW()
+         WHERE  id = $1 AND status = 'active'
          RETURNING id`,
         [rec.id]
       );
@@ -774,11 +859,11 @@ router.post(
 
       await client.query(
         `UPDATE users
-         SET email_verified    = TRUE,
-             email_verified_at = NOW(),
-             verified          = TRUE,
-             updated_at        = NOW()
-         WHERE id = $1`,
+         SET    email_verified    = TRUE,
+                email_verified_at = NOW(),
+                verified          = TRUE,
+                updated_at        = NOW()
+         WHERE  id = $1`,
         [userId]
       );
 
@@ -786,17 +871,22 @@ router.post(
 
       await client.query("COMMIT");
 
-      try {
-        await grantReferralRewardOnVerify(userId, ip);
-      } catch (refErr) {
-        console.error(
-          "[verify-otp] referral reward outer catch:", refErr.message
-        );
-      }
+      // Fire-and-forget post-verify tasks
+      grantReferralRewardOnVerify(userId, ip).catch((e) =>
+        console.error("[verify-otp] referral reward failed:", e.message)
+      );
 
       reactivateLimitedListings(userId).catch((e) =>
         console.error("[verify-otp] reactivate failed:", e.message)
       );
+
+      pool.query(
+        `SELECT email, name FROM users WHERE id = $1`, [userId]
+      ).then(({ rows: u }) => {
+        if (u[0]) {
+          sendWelcomeEmail({ to: u[0].email, name: u[0].name }).catch(() => {});
+        }
+      }).catch(() => {});
 
       writeAudit({
         actorId    : userId,
@@ -805,17 +895,6 @@ router.post(
         targetId   : userId,
         metadata   : { trust_score: trustScore },
         ipAddress  : ip,
-      }).catch(() => {});
-
-      pool.query(
-        `SELECT email, name FROM users WHERE id = $1`, [userId]
-      ).then(({ rows: u }) => {
-        if (u[0]) {
-          sendWelcomeEmail({
-            to   : u[0].email,
-            name : u[0].name,
-          }).catch(() => {});
-        }
       }).catch(() => {});
 
       return res.json({
@@ -853,7 +932,10 @@ router.post(
     if (!docFrontFile) return fail(res, 400, "Document front image is required.");
 
     try {
-      const result = await compareFaces(selfieFile.buffer, docFrontFile.buffer);
+      const result = await compareFaces(
+        selfieFile.buffer,
+        docFrontFile.buffer
+      );
       return res.json({
         success    : true,
         match      : result.match,
@@ -864,10 +946,10 @@ router.post(
     } catch (err) {
       console.error("[face-check] ERROR:", err.message, "\n", err.stack);
       return res.json({
-        success  : true,
-        match    : null,
-        skipped  : true,
-        message  : err.message,
+        success : true,
+        match   : null,
+        skipped : true,
+        message : err.message,
       });
     }
   }
@@ -886,6 +968,7 @@ router.post(
     const ip     = getIp(req);
     if (!userId) return fail(res, 401, "Not authenticated.");
 
+    /* ── Validate form fields ─────────────────────────────── */
     const docType        = (req.body.document_type   ?? "").trim();
     const docNumber      = (req.body.document_number ?? "").trim();
     const livenessPassed = req.body.liveness_passed  === "true";
@@ -895,13 +978,14 @@ router.post(
 
     const validateDoc = DOC_VALIDATORS[docType];
     if (!validateDoc || !validateDoc(docNumber))
-      return fail(res, 400, `Invalid ${docType.replace(/_/g," ")} format.`);
+      return fail(res, 400, `Invalid ${docType.replace(/_/g, " ")} format.`);
 
-    const frontFile  = req.files?.doc_front?.[0]     ?? null;
-    const backFile   = req.files?.doc_back?.[0]      ?? null;
-    const selfieFile = req.files?.selfie?.[0]         ?? null;
-    const logoFile   = req.files?.store_logo?.[0]     ?? null;
-    const lvFile     = req.files?.liveness_frame?.[0] ?? null;
+    /* ── Validate uploaded files ──────────────────────────── */
+    const frontFile  = req.files?.doc_front?.[0]      ?? null;
+    const backFile   = req.files?.doc_back?.[0]       ?? null;
+    const selfieFile = req.files?.selfie?.[0]          ?? null;
+    const logoFile   = req.files?.store_logo?.[0]      ?? null;
+    const lvFile     = req.files?.liveness_frame?.[0]  ?? null;
 
     if (!frontFile)  return fail(res, 400, "Document front photo is required.");
     if (!backFile)   return fail(res, 400, "Document back photo is required.");
@@ -920,39 +1004,46 @@ router.post(
 
     const docHash = hashDocNumber(docType, docNumber);
 
+    /* ── DB pre-checks (all in parallel) ─────────────────── */
     const [userRes, pendingIdRes, pendingStRes, dupRes] = await Promise.all([
       pool.query(
         `SELECT email_verified, identity_verified, store_verified, status
-         FROM users WHERE id = $1`,
+         FROM   users WHERE id = $1`,
         [userId]
       ),
       pool.query(
         `SELECT id FROM identity_verifications
-         WHERE user_id = $1 AND status IN ('pending','approved') LIMIT 1`,
+         WHERE  user_id = $1 AND status IN ('pending','approved') LIMIT 1`,
         [userId]
       ),
       pool.query(
         `SELECT id FROM store_verifications
-         WHERE user_id = $1 AND status IN ('pending','approved') LIMIT 1`,
+         WHERE  user_id = $1 AND status IN ('pending','approved') LIMIT 1`,
         [userId]
       ),
       docHash
         ? pool.query(
             `SELECT id FROM identity_verifications
-             WHERE document_number_hash = $1
-               AND status IN ('pending','approved') LIMIT 1`,
+             WHERE  document_number_hash = $1
+               AND  status IN ('pending','approved') LIMIT 1`,
             [docHash]
           )
         : Promise.resolve({ rows: [] }),
     ]);
 
     const user = userRes.rows[0];
-    if (!user)                                                   return fail(res, 404, "User account not found.");
-    if (user.status === "flagged" || user.status === "banned")   return fail(res, 403, "Account restricted.");
-    if (!user.email_verified)                                    return fail(res, 403, "Verify email address first.");
-    if (user.identity_verified)                                  return fail(res, 400, "Identity already verified.");
-    if (pendingIdRes.rows.length)                                return fail(res, 409, "Identity review is already pending.");
-    if (pendingStRes.rows.length)                                return fail(res, 409, "Store review is already pending.");
+    if (!user)
+      return fail(res, 404, "User account not found.");
+    if (user.status === "flagged" || user.status === "banned")
+      return fail(res, 403, "Account restricted.");
+    if (!user.email_verified)
+      return fail(res, 403, "Verify email address first.");
+    if (user.identity_verified)
+      return fail(res, 400, "Identity already verified.");
+    if (pendingIdRes.rows.length)
+      return fail(res, 409, "Identity review is already pending.");
+    if (pendingStRes.rows.length)
+      return fail(res, 409, "Store review is already pending.");
     if (dupRes.rows.length) {
       writeAudit({
         actorId    : userId,
@@ -965,10 +1056,40 @@ router.post(
       return fail(res, 409, "This document number is already registered.");
     }
 
-    const faceResult = await compareFaces(
-      selfieFile.buffer, frontFile.buffer
+    /* ── Face check + all uploads run in parallel ─────────
+       Face check uses original buffers (before compression)
+       for maximum accuracy. Uploads compress + push to R2.
+       If face check times out it is marked skipped and the
+       submission still proceeds for manual review.
+    ────────────────────────────────────────────────────── */
+    let faceResult, front, back, selfie, logo, liveness;
+
+    try {
+      [faceResult, front, back, selfie, logo, liveness] = await Promise.all([
+        compareFaces(selfieFile.buffer, frontFile.buffer),
+        uploadBuffer(frontFile.buffer,  "id_documents",     userId, frontFile.mimetype),
+        uploadBuffer(backFile.buffer,   "id_documents",     userId, backFile.mimetype),
+        uploadBuffer(selfieFile.buffer, "selfies",          userId, selfieFile.mimetype),
+        logoFile
+          ? uploadBuffer(logoFile.buffer, "store_logos",    userId, logoFile.mimetype)
+          : Promise.resolve(null),
+        lvFile
+          ? uploadBuffer(lvFile.buffer,  "liveness_frames", userId, lvFile.mimetype)
+          : Promise.resolve(null),
+      ]);
+    } catch (uploadErr) {
+      console.error("[submit] upload/face error:", uploadErr.message);
+      return fail(res, 500, `Upload failed: ${uploadErr.message}`);
+    }
+
+    console.log(
+      `[submit] done (face_skipped=${faceResult.skipped}) ` +
+      `front=${front.size}B back=${back.size}B ` +
+      `selfie=${selfie.size}B logo=${logo?.size ?? 0}B ` +
+      `liveness=${liveness?.size ?? 0}B`
     );
 
+    /* ── Reject on confirmed face mismatch ───────────────── */
     if (!faceResult.skipped && faceResult.match === false) {
       writeAudit({
         actorId    : userId,
@@ -981,28 +1102,7 @@ router.post(
       return fail(res, 422, "Selfie face does not match document photo.");
     }
 
-    /* ── Upload all files (compressed + WebP) to R2 in parallel ── */
-    let front, back, selfie, logo, liveness;
-    try {
-      [front, back, selfie, logo, liveness] = await Promise.all([
-        uploadBuffer(frontFile.buffer,  "id_documents",    userId, frontFile.mimetype),
-        uploadBuffer(backFile.buffer,   "id_documents",    userId, backFile.mimetype),
-        uploadBuffer(selfieFile.buffer, "selfies",         userId, selfieFile.mimetype),
-        logoFile ? uploadBuffer(logoFile.buffer, "store_logos",    userId, logoFile.mimetype) : Promise.resolve(null),
-        lvFile   ? uploadBuffer(lvFile.buffer,   "liveness_frames", userId, lvFile.mimetype)   : Promise.resolve(null),
-      ]);
-    } catch (uploadErr) {
-      console.error("[submit] upload error:", uploadErr.message);
-      return fail(res, 500, `Upload failed: ${uploadErr.message}`);
-    }
-
-    /* Log compressed sizes for visibility */
-    console.log(
-      `[submit] R2 uploads (compressed sizes)  ` +
-      `front=${front.size}B back=${back.size}B selfie=${selfie.size}B ` +
-      `logo=${logo?.size ?? 0}B liveness=${liveness?.size ?? 0}B`
-    );
-
+    /* ── DB write ─────────────────────────────────────────── */
     const storeDocuments = {
       ...(logo?.secure_url ? { logo_url: logo.secure_url } : {}),
     };
@@ -1063,7 +1163,7 @@ router.post(
           liveness : liveness?.size ?? 0,
         },
       },
-      ipAddress  : ip,
+      ipAddress : ip,
     }).catch(() => {});
 
     return res.status(202).json({
@@ -1088,29 +1188,29 @@ router.get("/status", authenticate, async (req, res) => {
                 identity_verified, store_verified,
                 trust_score, created_at,
                 referral_code, bonus_spins, total_referrals
-         FROM users WHERE id = $1`,
+         FROM   users WHERE id = $1`,
         [userId]
       ),
       pool.query(
         `SELECT document_type, status, rejection_reason,
                 face_match, face_confidence, face_skipped,
                 liveness_passed, updated_at
-         FROM identity_verifications
-         WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+         FROM   identity_verifications
+         WHERE  user_id = $1 ORDER BY created_at DESC LIMIT 1`,
         [userId]
       ),
       pool.query(
         `SELECT status, rejection_reason, updated_at
-         FROM store_verifications
-         WHERE user_id = $1 ORDER BY created_at DESC LIMIT 1`,
+         FROM   store_verifications
+         WHERE  user_id = $1 ORDER BY created_at DESC LIMIT 1`,
         [userId]
       ),
       pool.query(
         `SELECT COUNT(*) AS cnt, MIN(active_until) AS soonest
-         FROM products
-         WHERE seller_id  = $1
-           AND status     = 'active_limited'
-           AND (active_until IS NULL OR active_until > NOW())`,
+         FROM   products
+         WHERE  seller_id    = $1
+           AND  status       = 'active_limited'
+           AND  (active_until IS NULL OR active_until > NOW())`,
         [userId]
       ),
     ]);
@@ -1125,9 +1225,12 @@ router.get("/status", authenticate, async (req, res) => {
     const limitedCount = parseInt(limitedRes.rows[0].cnt, 10);
     const soonest      = limitedRes.rows[0].soonest ?? null;
     const daysLeft     = soonest
-      ? Math.max(0, Math.ceil(
-          (new Date(soonest).getTime() - Date.now()) / 86_400_000
-        ))
+      ? Math.max(
+          0,
+          Math.ceil(
+            (new Date(soonest).getTime() - Date.now()) / 86_400_000
+          )
+        )
       : null;
 
     return res.json({
@@ -1147,8 +1250,8 @@ router.get("/status", authenticate, async (req, res) => {
       resend_remaining  : Math.max(0, POLICY.DAILY_SEND_LIMIT - dailyCount),
       resend_limit      : POLICY.DAILY_SEND_LIMIT,
       referral          : {
-        code            : user.referral_code  ?? null,
-        bonus_spins     : user.bonus_spins    ?? 0,
+        code            : user.referral_code   ?? null,
+        bonus_spins     : user.bonus_spins     ?? 0,
         total_referrals : user.total_referrals ?? 0,
       },
       limited_listings  : {
@@ -1156,7 +1259,8 @@ router.get("/status", authenticate, async (req, res) => {
         soonest_expiry : soonest,
         days_remaining : daysLeft,
         message        : limitedCount > 0
-          ? `${limitedCount} listing${limitedCount !== 1 ? "s" : ""} will expire in ${daysLeft ?? "?"} day${daysLeft !== 1 ? "s" : ""}.`
+          ? `${limitedCount} listing${limitedCount !== 1 ? "s" : ""} will expire in ` +
+            `${daysLeft ?? "?"} day${daysLeft !== 1 ? "s" : ""}.`
           : null,
       },
     });
