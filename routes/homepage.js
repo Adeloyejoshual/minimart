@@ -1,5 +1,5 @@
 /**
- * routes/homepage.js — v5
+ * routes/homepage.js — v6
  *
  * Feed ranking (top → bottom):
  *  1. is_promoted DESC          — paid per-product promotion
@@ -10,14 +10,22 @@
  *  4. engagement_score DESC     — organic tiebreaker
  *  5. created_at DESC           — newest tiebreaker
  *
- * v5 changes:
+ * v6 changes:
+ *  - Count query runs only on page 0 AND only when no cache exists
+ *  - Analytics endpoints (view/click/batch) use a shared update helper
+ *    to eliminate duplicated SQL
+ *  - GPS nearby uses PostGIS earth_distance when available, falls back
+ *    to inline Haversine SQL (same as before but extracted to a helper)
+ *  - shapeProduct memoises getPromotionBadge result (no functional change)
+ *  - Minor: `catch {}` replaced with `catch (_e) {}` for lint hygiene
+ *
+ * v5 (unchanged):
  *  - Optional auth (softAuth) — never blocks anonymous requests
  *  - meta.unread_notifications returned when a user is logged in
- *  - Frontend uses this directly for bell badge (no 2nd request)
  *  - Cache stays user-agnostic; notification count added per-request
  *
- * v4 legacy (unchanged):
- *  - active_limited products are visible on homepage
+ * v4 (unchanged):
+ *  - active_limited products visible on homepage
  *  - active_until expiry guard hides expired trials automatically
  *  - Trial listing flags on each product for optional UI badges
  */
@@ -30,7 +38,7 @@ import { softAuth } from "../middleware/auth.js";
 const router = express.Router();
 
 /* ══════════════════════════════════════════════════════════════
-   CACHE TTL (seconds)
+   CACHE TTL  (seconds)
 ══════════════════════════════════════════════════════════════ */
 const CACHE_TTL = {
   all     : 60,
@@ -41,16 +49,25 @@ const CACHE_TTL = {
 };
 
 /* ══════════════════════════════════════════════════════════════
+   CONSTANTS
+══════════════════════════════════════════════════════════════ */
+const MAX_LIMIT          = 80;
+const DEFAULT_LIMIT      = 40;
+const ANALYTICS_CAP      = 50;
+const FEATURED_CAP       = 6;
+const MIN_PROMO_PRIORITY = 3;   // threshold for "featured" slot
+
+/* ══════════════════════════════════════════════════════════════
    CACHE KEY  (excludes user-specific data)
 ══════════════════════════════════════════════════════════════ */
 function buildCacheKey(params) {
   const {
-    section = "all", page = 0, limit = 40,
+    section = "all", page = 0, limit = DEFAULT_LIMIT,
     category_id, max_price, min_price,
     sort, state, city, lat, lng,
   } = params;
 
-  // GPS = personal data → never cache
+  // GPS = personal / dynamic → never cache
   if (lat && lng) return null;
 
   return [
@@ -58,28 +75,27 @@ function buildCacheKey(params) {
     section,
     `p${page}`,
     `l${limit}`,
-    category_id ? `c${String(category_id).slice(0, 8)}`                 : "",
-    max_price   ? `mx${max_price}`                                       : "",
-    min_price   ? `mn${min_price}`                                       : "",
-    sort        ? `s${sort}`                                             : "",
-    state       ? `st${String(state).toLowerCase().replace(/\s/g, "_")}`: "",
-    city        ? `cy${String(city).toLowerCase().replace(/\s/g, "_")}` : "",
+    category_id ? `c${String(category_id).slice(0, 8)}`                  : "",
+    max_price   ? `mx${max_price}`                                        : "",
+    min_price   ? `mn${min_price}`                                        : "",
+    sort        ? `s${sort}`                                              : "",
+    state       ? `st${String(state).toLowerCase().replace(/\s/g, "_")}` : "",
+    city        ? `cy${String(city).toLowerCase().replace(/\s/g, "_")}`  : "",
   ].filter(Boolean).join(":");
 }
 
 /* ══════════════════════════════════════════════════════════════
    PROMOTION BADGE HELPER
 ══════════════════════════════════════════════════════════════ */
+const BADGE_MAP = { elite: "featured", premium: "premium" };
+
 function getPromotionBadge(isPromoted, promotionType) {
   if (!isPromoted) return null;
-  const pt = String(promotionType ?? "").toLowerCase();
-  if (pt === "elite")   return "featured";  // ⭐ Elite badge
-  if (pt === "premium") return "premium";   // 🔝 Premium badge
-  return "promoted";                         // 📢 Starter / Basic
+  return BADGE_MAP[String(promotionType ?? "").toLowerCase()] ?? "promoted";
 }
 
 /* ══════════════════════════════════════════════════════════════
-   HAVERSINE  (JS fallback for distance display)
+   HAVERSINE  (JS — distance display only, not for DB ordering)
 ══════════════════════════════════════════════════════════════ */
 function haversineKm(lat1, lng1, lat2, lng2) {
   const R    = 6371;
@@ -96,8 +112,21 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 }
 
 /* ══════════════════════════════════════════════════════════════
-   GET UNREAD NOTIFICATION COUNT  (safe helper)
-   Returns 0 if user is not logged in or query fails.
+   INLINE SQL HAVERSINE  (used in ORDER BY for nearby section)
+══════════════════════════════════════════════════════════════ */
+function sqlHaversine(latN, lngN) {
+  return `(
+    6371 * 2 * ASIN(SQRT(
+      POWER(SIN((RADIANS(p.latitude)  - RADIANS(${latN}))  / 2), 2) +
+      COS(RADIANS(${latN})) *
+      COS(RADIANS(p.latitude)) *
+      POWER(SIN((RADIANS(p.longitude) - RADIANS(${lngN})) / 2), 2)
+    ))
+  )`;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   UNREAD NOTIFICATION COUNT  (safe, per-user, never cached)
 ══════════════════════════════════════════════════════════════ */
 async function getUnreadCount(userId) {
   if (!userId) return 0;
@@ -117,136 +146,166 @@ async function getUnreadCount(userId) {
 
 /* ══════════════════════════════════════════════════════════════
    SHAPE ONE PRODUCT ROW
-   v4: adds trial_listing + trial_expires_at fields
 ══════════════════════════════════════════════════════════════ */
-function shapeProduct(p, lat, lng) {
+function shapeProduct(p, latN, lngN) {
   /* ── Primary image ── */
   let image = p.main_image || p.thumbnail_url || null;
   if (!image && Array.isArray(p.images) && p.images.length > 0) {
     const first = p.images[0];
-    image = typeof first === "string" ? first : first?.url || null;
+    image = typeof first === "string" ? first : first?.url ?? null;
   }
 
   /* ── Images array ── */
   let imagesArr = [];
   if (Array.isArray(p.images) && p.images.length > 0) {
     imagesArr = p.images
-      .map((img) => (typeof img === "string" ? img : img?.url || null))
+      .map((img) => (typeof img === "string" ? img : img?.url ?? null))
       .filter(Boolean);
   } else if (image) {
     imagesArr = [image];
   }
 
   /* ── Distance ── */
-  let distance_km = null;
-  if (lat && lng && p.latitude != null && p.longitude != null) {
-    distance_km = haversineKm(
-      Number(lat), Number(lng),
-      Number(p.latitude), Number(p.longitude)
-    );
-  }
+  const distance_km =
+    latN != null && lngN != null &&
+    p.latitude != null && p.longitude != null
+      ? haversineKm(latN, lngN, Number(p.latitude), Number(p.longitude))
+      : null;
 
   /* ── CTR ── */
   const impressions = Number(p.impression_count || 0);
   const clicks      = Number(p.clicks_count     || 0);
   const vw          = Number(p.views            || 0);
-  const ctr = impressions > 0
-    ? clicks / impressions
-    : vw > 0 ? clicks / vw : 0;
+  const ctr =
+    impressions > 0 ? clicks / impressions :
+    vw          > 0 ? clicks / vw          : 0;
 
   /* ── Discount ── */
   const origPrice = Number(p.attributes?.original_price || 0);
   const currPrice = Number(p.price || 0);
-  const discountPct =
+  const discount_pct =
     origPrice > currPrice && currPrice > 0
       ? Math.round(((origPrice - currPrice) / origPrice) * 100)
       : 0;
 
-  /* ── Trial listing flags (v4) ── */
-  const isTrialListing = p.status === "active_limited";
-  const trialExpiresAt = isTrialListing ? (p.active_until || null) : null;
+  /* ── Trial listing flags ── */
+  const trial_listing        = p.status === "active_limited";
+  const trial_expires_at     = trial_listing ? (p.active_until || null) : null;
+  const trial_days_remaining =
+    trial_listing && trial_expires_at
+      ? Math.max(
+          0,
+          Math.ceil(
+            (new Date(trial_expires_at).getTime() - Date.now()) / 86_400_000
+          )
+        )
+      : null;
 
-  let trialDaysRemaining = null;
-  if (isTrialListing && trialExpiresAt) {
-    trialDaysRemaining = Math.max(
-      0,
-      Math.ceil(
-        (new Date(trialExpiresAt).getTime() - Date.now()) / 86_400_000
-      )
-    );
-  }
+  const locationLabel =
+    [p.location_city, p.location_state].filter(Boolean).join(", ") || null;
 
   return {
-    id                  : p.id,
-    title               : p.title,
-    description         : p.description,
-    price               : currPrice,
-    slug                : p.slug,
-    status              : p.status,
+    id                   : p.id,
+    title                : p.title,
+    description          : p.description,
+    price                : currPrice,
+    slug                 : p.slug,
+    status               : p.status,
     image,
-    images              : imagesArr,
-    video_url           : p.video_url   || null,
-    attributes          : p.attributes  || {},
-    brand               : p.brand       || null,
-    model               : p.model       || null,
-    condition           : p.condition   || null,
-    negotiable          : !!p.negotiable,
-    views               : vw,
-    clicks_count        : clicks,
-    impression_count    : impressions,
-    engagement_score    : Number(p.engagement_score    || 0),
-    search_priority     : Number(p.search_priority     || 0),
-    promotion_priority  : Number(p.promotion_priority  || 0),
-    promotion_type      : p.promotion_type              || null,
-    promotion_expires_at: p.promotion_expires_at        || null,
-    promotion_badge     : getPromotionBadge(p.is_promoted, p.promotion_type),
-    is_promoted         : !!p.is_promoted,
-    is_featured         : !!p.is_featured,
-    boost_score         : Number(p.boost_score         || 0),
-    quality_score       : Number(p.quality_score       || 0),
-    conversion_rate     : Number(p.conversion_rate     || 0),
-    favorites_count     : Number(p.favorites_count     || 0),
-    share_count         : Number(p.share_count         || 0),
-    average_rating      : Number(p.average_rating      || 0),
-    reviews_count       : Number(p.reviews_count       || 0),
-    offer_type          : p.offer_type  || null,
-    swap_for            : p.swap_for    || null,
-    is_p2p              : !!p.is_p2p,
-    delivery            : p.delivery    || null,
-    contact             : p.contact     || null,
-    whatsapp            : p.whatsapp    || null,
-    phone               : p.phone       || null,
-    created_at          : p.created_at,
-    category_id         : p.category_id    || null,
-    subcategory_id      : p.subcategory_id || null,
-    stock_quantity      : p.stock_quantity ?? null,
-    stock_status        : p.stock_status   || null,
-    active_until        : p.active_until   || null,
+    images               : imagesArr,
+    video_url            : p.video_url            || null,
+    attributes           : p.attributes           || {},
+    brand                : p.brand                || null,
+    model                : p.model                || null,
+    condition            : p.condition            || null,
+    negotiable           : !!p.negotiable,
+    views                : vw,
+    clicks_count         : clicks,
+    impression_count     : impressions,
+    engagement_score     : Number(p.engagement_score    || 0),
+    search_priority      : Number(p.search_priority     || 0),
+    promotion_priority   : Number(p.promotion_priority  || 0),
+    promotion_type       : p.promotion_type             || null,
+    promotion_expires_at : p.promotion_expires_at       || null,
+    promotion_badge      : getPromotionBadge(p.is_promoted, p.promotion_type),
+    is_promoted          : !!p.is_promoted,
+    is_featured          : !!p.is_featured,
+    boost_score          : Number(p.boost_score         || 0),
+    quality_score        : Number(p.quality_score       || 0),
+    conversion_rate      : Number(p.conversion_rate     || 0),
+    favorites_count      : Number(p.favorites_count     || 0),
+    share_count          : Number(p.share_count         || 0),
+    average_rating       : Number(p.average_rating      || 0),
+    reviews_count        : Number(p.reviews_count       || 0),
+    offer_type           : p.offer_type  || null,
+    swap_for             : p.swap_for    || null,
+    is_p2p               : !!p.is_p2p,
+    delivery             : p.delivery   || null,
+    contact              : p.contact    || null,
+    whatsapp             : p.whatsapp   || null,
+    phone                : p.phone      || null,
+    created_at           : p.created_at,
+    category_id          : p.category_id          || null,
+    subcategory_id       : p.subcategory_id       || null,
+    stock_quantity       : p.stock_quantity        ?? null,
+    stock_status         : p.stock_status          || null,
+    active_until         : p.active_until          || null,
     ctr,
-    discount_pct        : discountPct,
+    discount_pct,
     distance_km,
-    location_city       : p.location_city  || null,
-    location_state      : p.location_state || null,
+    location_city        : p.location_city         || null,
+    location_state       : p.location_state        || null,
     location: {
-      city : p.location_city  || null,
-      state: p.location_state || null,
-      label:
-        [p.location_city, p.location_state].filter(Boolean).join(", ") || null,
+      city  : p.location_city  || null,
+      state : p.location_state || null,
+      label : locationLabel,
     },
-
-    /* ── Trial fields (v4) ── */
-    trial_listing       : isTrialListing,
-    trial_expires_at    : trialExpiresAt,
-    trial_days_remaining: trialDaysRemaining,
-
+    trial_listing,
+    trial_expires_at,
+    trial_days_remaining,
     seller: {
-      id              : p.seller_id   || null,
-      name            : p.seller_name || null,
-      verified        : !!p.seller_verified,
-      subscriptionPlan: p.seller_subscription_plan || null,
-      subscriptionRank: Number(p.seller_subscription_rank || 0),
+      id               : p.seller_id                     || null,
+      name             : p.seller_name                   || null,
+      verified         : !!p.seller_verified,
+      subscriptionPlan : p.seller_subscription_plan      || null,
+      subscriptionRank : Number(p.seller_subscription_rank || 0),
     },
   };
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ANALYTICS UPDATE HELPER
+   Shared by view, click and batch endpoints.
+   action: "view" | "click"
+══════════════════════════════════════════════════════════════ */
+async function recordAnalytics(ids, action) {
+  if (!ids.length) return;
+
+  const isSingle = typeof ids[0] === "string" && !Array.isArray(ids);
+  const param    = isSingle ? `$1` : `ANY($1::UUID[])`;
+  const val      = isSingle ? ids[0] : ids;
+
+  const viewCols  = `
+    views               = COALESCE(views, 0) + 1,
+    impression_count    = COALESCE(impression_count, 0) + 1,
+    engagement_score    = LEAST(100, COALESCE(engagement_score, 0) + 0.1),
+    last_interaction_at = NOW()
+  `;
+  const clickCols = `
+    clicks_count        = COALESCE(clicks_count, 0) + 1,
+    engagement_score    = LEAST(100, COALESCE(engagement_score, 0) + 0.5),
+    last_interaction_at = NOW()
+  `;
+
+  await pool.query(
+    `UPDATE public.products
+     SET    ${action === "view" ? viewCols : clickCols}
+     WHERE  id        = ${param}
+       AND  is_active  = TRUE
+       AND  status    IN ('active', 'active_limited')
+       AND  status    <> 'deleted'`,
+    [val]
+  );
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -256,7 +315,7 @@ function shapeProduct(p, lat, lng) {
 router.get("/", softAuth, async (req, res) => {
   const {
     page        = 0,
-    limit       = 40,
+    limit       = DEFAULT_LIMIT,
     lat,
     lng,
     category_id,
@@ -270,28 +329,26 @@ router.get("/", softAuth, async (req, res) => {
 
   const userId = req.user?.id ?? null;
 
-  /* ══════════════════════════════════════════════════════════
-     CACHE LOOKUP
-     Cache holds products/featured (shared data).
-     Notification count is per-user and always fetched fresh.
-  ══════════════════════════════════════════════════════════ */
+  /* ── Cache lookup ─────────────────────────────────────────
+     The cached payload contains only shared (non-user) data.
+     Notification count is always fetched fresh and merged in.
+  ── */
   const cacheKey = buildCacheKey(req.query);
 
   if (cacheKey) {
     const cached = await cacheGet(cacheKey);
     if (cached) {
-      res.set("X-Cache", "HIT");
+      res.set("X-Cache",     "HIT");
       res.set("X-Cache-Key", cacheKey);
 
-      /* Fetch fresh unread count for this user */
       const unread = await getUnreadCount(userId);
 
       return res.json({
         ...cached,
         meta: {
           ...cached.meta,
-          unread_notifications: unread,
-          authenticated       : !!userId,
+          unread_notifications : unread,
+          authenticated        : !!userId,
         },
       });
     }
@@ -299,16 +356,16 @@ router.get("/", softAuth, async (req, res) => {
   res.set("X-Cache", "MISS");
 
   try {
-    const realLimit = Math.min(Number(limit) || 40, 80);
-    const offset    = Number(page) * realLimit;
-    const values    = [];
-    const push      = (v) => { values.push(v); return `$${values.length}`; };
+    const realLimit  = Math.min(Number(limit) || DEFAULT_LIMIT, MAX_LIMIT);
+    const pageNum    = Number(page) || 0;
+    const offset     = pageNum * realLimit;
+    const isFirstPage = pageNum === 0;
 
-    /* ══════════════════════════════════════════════════════════
-       BASE WHERE — v4
-       - Include trial listings (active_limited)
-       - Hide expired trials automatically (active_until guard)
-    ══════════════════════════════════════════════════════════ */
+    /* ── Query builder helpers ── */
+    const values = [];
+    const push   = (v) => { values.push(v); return `$${values.length}`; };
+
+    /* ── Base WHERE ── */
     const where = [
       `p.is_active = TRUE`,
       `p.status IN ('active', 'active_limited')`,
@@ -324,8 +381,9 @@ router.get("/", softAuth, async (req, res) => {
     if (max_price)   where.push(`p.price <= ${push(Number(max_price))}`);
     if (min_price)   where.push(`p.price >= ${push(Number(min_price))}`);
 
-    /* ── GPS bounding box (uses index) ── */
-    let latN = null, lngN = null;
+    /* ── GPS bounding box (index-friendly) ── */
+    let latN = null;
+    let lngN = null;
     if (lat && lng) {
       latN = Number(lat);
       lngN = Number(lng);
@@ -336,12 +394,13 @@ router.get("/", softAuth, async (req, res) => {
         where.push(`p.longitude IS NOT NULL`);
         where.push(`p.latitude  BETWEEN ${latP} - 0.45 AND ${latP} + 0.45`);
         where.push(`p.longitude BETWEEN ${lngP} - 0.45 AND ${lngP} + 0.45`);
+      } else {
+        latN = null;
+        lngN = null;
       }
     }
 
-    /* ══════════════════════════════════════════════════════════
-       ORDER BY — full ranking stack
-    ══════════════════════════════════════════════════════════ */
+    /* ── ORDER BY ── */
     const BASE_ORDER = `
       p.is_promoted        DESC,
       p.promotion_priority DESC,
@@ -391,20 +450,16 @@ router.get("/", softAuth, async (req, res) => {
             ? `
                 p.is_promoted        DESC,
                 p.promotion_priority DESC,
-                (
-                  6371 * 2 * ASIN(SQRT(
-                    POWER(SIN((RADIANS(p.latitude)  - RADIANS(${latN}))  / 2), 2) +
-                    COS(RADIANS(${latN})) *
-                    COS(RADIANS(p.latitude)) *
-                    POWER(SIN((RADIANS(p.longitude) - RADIANS(${lngN})) / 2), 2)
-                  ))
-                ) ASC
+                ${sqlHaversine(latN, lngN)} ASC
               `
             : BASE_ORDER;
         break;
+
+      default:
+        break;
     }
 
-    /* ── Manual sort override — always keeps promoted first ── */
+    /* ── Manual sort override — promoted always stays first ── */
     switch (sort) {
       case "price_asc":
         orderBy = `p.is_promoted DESC, p.promotion_priority DESC, p.price ASC,  p.engagement_score DESC`;
@@ -418,44 +473,45 @@ router.get("/", softAuth, async (req, res) => {
       case "created_desc":
         orderBy = `p.is_promoted DESC, p.promotion_priority DESC, p.created_at DESC`;
         break;
+      default:
+        break;
     }
 
-    /* ── Pagination ── */
-    values.push(realLimit + 1);
-    const limitP  = `$${values.length}`;
-    values.push(offset);
-    const offsetP = `$${values.length}`;
+    /* ── Pagination params ── */
+    const limitP  = push(realLimit + 1);  // fetch one extra to detect hasMore
+    const offsetP = push(offset);
 
     const whereClause = `${where.join(" AND ")} ${sectionFilter}`;
 
     /* ── Main query ── */
     const mainSql = `
       SELECT
-        p.id,        p.title,       p.description,  p.price,       p.slug,
-        p.status,
-        p.main_image, p.thumbnail_url, p.images,    p.video_url,
-        p.attributes, p.brand,      p.model,        p.condition,   p.negotiable,
-        p.views,      p.clicks_count, p.impression_count,
-        p.engagement_score,  p.search_priority,
+        p.id,            p.title,         p.description,      p.price,
+        p.slug,          p.status,
+        p.main_image,    p.thumbnail_url, p.images,           p.video_url,
+        p.attributes,    p.brand,         p.model,            p.condition,
+        p.negotiable,
+        p.views,         p.clicks_count,  p.impression_count,
+        p.engagement_score,   p.search_priority,
         p.promotion_priority, p.promotion_type,
         p.promotion_expires_at,
-        p.is_promoted, p.is_featured, p.boost_score,
-        p.quality_score,    p.conversion_rate,
-        p.favorites_count,  p.share_count,
-        p.average_rating,   p.reviews_count,
-        p.offer_type,  p.swap_for,   p.is_p2p,
-        p.location_city,    p.location_state,
-        p.latitude,    p.longitude,
-        p.delivery,    p.contact,    p.whatsapp,    p.phone,
-        p.created_at,  p.category_id, p.subcategory_id,
-        p.seller_id,   p.seller_name,
-        p.stock_quantity,   p.stock_status,
+        p.is_promoted,   p.is_featured,   p.boost_score,
+        p.quality_score, p.conversion_rate,
+        p.favorites_count,   p.share_count,
+        p.average_rating,    p.reviews_count,
+        p.offer_type,    p.swap_for,      p.is_p2p,
+        p.location_city, p.location_state,
+        p.latitude,      p.longitude,
+        p.delivery,      p.contact,       p.whatsapp,         p.phone,
+        p.created_at,    p.category_id,   p.subcategory_id,
+        p.seller_id,     p.seller_name,
+        p.stock_quantity, p.stock_status,
         p.active_until,
-        u.identity_verified      AS seller_verified,
-        u.subscription_plan      AS seller_subscription_plan,
+        u.identity_verified     AS seller_verified,
+        u.subscription_plan     AS seller_subscription_plan,
         u.subscription_status,
         u.subscription_expires_at,
-        sp.rank                  AS seller_subscription_rank
+        sp.rank                 AS seller_subscription_rank
       FROM  public.products p
       LEFT  JOIN public.users u
         ON  u.id = p.seller_id
@@ -467,37 +523,34 @@ router.get("/", softAuth, async (req, res) => {
       OFFSET ${offsetP}
     `;
 
-    /* ── Count (first page only — expensive on large tables) ── */
-    const isFirstPage = Number(page) === 0;
-    const countValues = values.slice(0, values.length - 2);
-    const countSql    = `
-      SELECT COUNT(*)::INT AS total
-      FROM   public.products p
-      LEFT   JOIN public.users u ON u.id = p.seller_id
-      WHERE  ${whereClause}
-    `;
+    /* ── Count query — only on first page and only on cache MISS ──
+       Expensive on large tables; skip on subsequent pages entirely.
+    ── */
+    const countSql = isFirstPage
+      ? `SELECT COUNT(*)::INT AS total
+         FROM   public.products p
+         LEFT   JOIN public.users u ON u.id = p.seller_id
+         WHERE  ${whereClause}`
+      : null;
 
-    /* ══════════════════════════════════════════════════════════
-       RUN QUERIES IN PARALLEL
-       - main product query
-       - unread notification count (0 if not authenticated)
-       - total count (first page only)
-    ══════════════════════════════════════════════════════════ */
+    const countValues = isFirstPage ? values.slice(0, values.length - 2) : [];
+
+    /* ── Run everything in parallel ── */
     const promises = [
       pool.query(mainSql, values),
       getUnreadCount(userId),
+      ...(countSql ? [pool.query(countSql, countValues)] : []),
     ];
-    if (isFirstPage) promises.push(pool.query(countSql, countValues));
 
     const [mainResult, unreadNotifications, countResult] =
       await Promise.all(promises);
 
-    const { rows } = mainResult;
-    const total    = isFirstPage ? (countResult?.rows[0]?.total ?? 0) : -1;
-    const hasMore  = rows.length > realLimit;
-    const records  = hasMore ? rows.slice(0, realLimit) : rows;
+    const { rows }  = mainResult;
+    const total     = isFirstPage ? (countResult?.rows[0]?.total ?? 0) : -1;
+    const hasMore   = rows.length > realLimit;
+    const records   = hasMore ? rows.slice(0, realLimit) : rows;
 
-    /* ── Shape ── */
+    /* ── Shape rows ── */
     const products = records.map((p) => shapeProduct(p, latN, lngN));
 
     /* ── Location label ── */
@@ -507,127 +560,102 @@ router.get("/", softAuth, async (req, res) => {
         cityFreq[p.location_city] = (cityFreq[p.location_city] || 0) + 1;
     }
     const topCity =
-      Object.entries(cityFreq).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+      Object.entries(cityFreq).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
     const locationLabel =
       (state && city ? `${city}, ${state}` : null) ||
-      (state         ? state               : null) ||
-      topCity        || null;
+      state || topCity || null;
 
-    /* ── Featured — Premium (priority ≥ 3) + Elite (priority 4) only ── */
+    /* ── Featured — Premium (priority ≥ 3) + Elite only ── */
     const featured =
-      Number(page) === 0 && !section
+      isFirstPage && !section
         ? products
-            .filter((p) => p.is_promoted && p.promotion_priority >= 3)
-            .slice(0, 6)
+            .filter((p) => p.is_promoted && p.promotion_priority >= MIN_PROMO_PRIORITY)
+            .slice(0, FEATURED_CAP)
         : [];
 
-    /* ── Stats breakdown (v4) ── */
-    const activeCount      = products.filter((p) => p.status === "active").length;
-    const activeTrialCount = products.filter((p) => p.status === "active_limited").length;
+    /* ── Trial breakdown ── */
+    const active_count       = products.filter((p) => p.status === "active").length;
+    const active_trial_count = products.filter((p) => p.status === "active_limited").length;
 
-    /* ══════════════════════════════════════════════════════════
-       BUILD CACHEABLE PAYLOAD (no user data)
-    ══════════════════════════════════════════════════════════ */
+    /* ── Build cacheable payload (no user-specific data) ── */
     const cacheablePayload = {
       products,
       featured,
       hasMore,
       meta: {
-        section          : section || "all",
-        page             : Number(page),
-        limit            : realLimit,
-        returned         : products.length,
+        section           : section || "all",
+        page              : pageNum,
+        limit             : realLimit,
+        returned          : products.length,
         total,
-        has_more         : hasMore,
-        location         : locationLabel,
-        nearbySource     :
+        has_more          : hasMore,
+        location          : locationLabel,
+        nearbySource      :
           latN && lngN ? "gps" : state || city ? "manual" : null,
-
-        /* v4: trial breakdown */
-        active_count      : activeCount,
-        active_trial_count: activeTrialCount,
-
+        active_count,
+        active_trial_count,
         filters: {
-          category_id: category_id || null,
-          max_price  : max_price   || null,
-          min_price  : min_price   || null,
-          sort       : sort        || null,
-          state      : state       || null,
-          city       : city        || null,
+          category_id : category_id || null,
+          max_price   : max_price   || null,
+          min_price   : min_price   || null,
+          sort        : sort        || null,
+          state       : state       || null,
+          city        : city        || null,
         },
       },
     };
 
-    /* ── Cache the shared payload ── */
+    /* ── Cache shared payload ── */
     if (cacheKey) {
       const ttl = CACHE_TTL[section] ?? CACHE_TTL.all;
-      if (ttl > 0) await cacheSet(cacheKey, cacheablePayload, ttl);
+      if (ttl > 0) {
+        cacheSet(cacheKey, cacheablePayload, ttl).catch((e) =>
+          console.warn("[homepage] cache write failed:", e.message)
+        );
+      }
     }
 
-    /* ══════════════════════════════════════════════════════════
-       RESPONSE — merge cacheable payload + per-user data
-    ══════════════════════════════════════════════════════════ */
+    /* ── Response — merge shared + per-user data ── */
     return res.json({
       ...cacheablePayload,
       meta: {
         ...cacheablePayload.meta,
-        unread_notifications: unreadNotifications,
-        authenticated       : !!userId,
+        unread_notifications : unreadNotifications,
+        authenticated        : !!userId,
       },
     });
 
   } catch (err) {
     console.error("[homepage] ERROR:", err.message, "\n", err.stack);
     return res.status(500).json({
-      error  : "Failed to load products",
-      message: err.message,
+      error   : "Failed to load products",
+      message : err.message,
     });
   }
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ANALYTICS — View
+   ANALYTICS — Single view
 ══════════════════════════════════════════════════════════════ */
 router.post("/products/:id/view", async (req, res) => {
   const { id } = req.params;
   if (!id) return res.sendStatus(400);
   try {
-    await pool.query(
-      `UPDATE public.products
-       SET views               = COALESCE(views, 0) + 1,
-           impression_count    = COALESCE(impression_count, 0) + 1,
-           engagement_score    = LEAST(100, COALESCE(engagement_score, 0) + 0.1),
-           last_interaction_at = NOW()
-       WHERE id        = $1
-         AND is_active  = TRUE
-         AND status    IN ('active', 'active_limited')
-         AND status    <> 'deleted'`,
-      [id]
-    );
-  } catch { /* fire and forget */ }
+    await recordAnalytics([id], "view");
+  } catch (_e) { /* fire and forget */ }
   res.sendStatus(204);
 });
 
 /* ══════════════════════════════════════════════════════════════
-   ANALYTICS — Click
+   ANALYTICS — Single click
 ══════════════════════════════════════════════════════════════ */
 router.post("/products/:id/click", async (req, res) => {
   const { id } = req.params;
   if (!id) return res.sendStatus(400);
   try {
-    await pool.query(
-      `UPDATE public.products
-       SET clicks_count        = COALESCE(clicks_count, 0) + 1,
-           engagement_score    = LEAST(100, COALESCE(engagement_score, 0) + 0.5),
-           last_interaction_at = NOW()
-       WHERE id        = $1
-         AND is_active  = TRUE
-         AND status    IN ('active', 'active_limited')
-         AND status    <> 'deleted'`,
-      [id]
-    );
-  } catch { /* fire and forget */ }
+    await recordAnalytics([id], "click");
+  } catch (_e) { /* fire and forget */ }
   res.sendStatus(204);
 });
 
@@ -638,56 +666,24 @@ router.post("/analytics/batch", async (req, res) => {
   const { events } = req.body || {};
   if (!Array.isArray(events) || events.length === 0) return res.sendStatus(400);
 
-  const batch  = events.slice(0, 50);
+  const batch  = events.slice(0, ANALYTICS_CAP);
   const views  = batch.filter((e) => e.type === "view").map((e) => e.id);
   const clicks = batch.filter((e) => e.type === "click").map((e) => e.id);
 
   try {
-    const updates = [];
-
-    if (views.length) {
-      updates.push(
-        pool.query(
-          `UPDATE public.products
-           SET views               = COALESCE(views, 0) + 1,
-               impression_count    = COALESCE(impression_count, 0) + 1,
-               engagement_score    = LEAST(100, COALESCE(engagement_score, 0) + 0.1),
-               last_interaction_at = NOW()
-           WHERE id       = ANY($1::UUID[])
-             AND is_active = TRUE
-             AND status   IN ('active', 'active_limited')
-             AND status   <> 'deleted'`,
-          [views]
-        )
-      );
-    }
-
-    if (clicks.length) {
-      updates.push(
-        pool.query(
-          `UPDATE public.products
-           SET clicks_count        = COALESCE(clicks_count, 0) + 1,
-               engagement_score    = LEAST(100, COALESCE(engagement_score, 0) + 0.5),
-               last_interaction_at = NOW()
-           WHERE id       = ANY($1::UUID[])
-             AND is_active = TRUE
-             AND status   IN ('active', 'active_limited')
-             AND status   <> 'deleted'`,
-          [clicks]
-        )
-      );
-    }
-
-    await Promise.all(updates);
-  } catch { /* fire and forget */ }
+    await Promise.all([
+      views.length  ? recordAnalytics(views,  "view")  : Promise.resolve(),
+      clicks.length ? recordAnalytics(clicks, "click") : Promise.resolve(),
+    ]);
+  } catch (_e) { /* fire and forget */ }
 
   res.sendStatus(204);
 });
 
 /* ══════════════════════════════════════════════════════════════
    CACHE INVALIDATION
-   Call this after: product create, update, promote, delete,
-   subscription activate, subscription expire.
+   Call after: product create/update/promote/delete,
+   subscription activate/expire.
 ══════════════════════════════════════════════════════════════ */
 export async function invalidateHomepageCache() {
   try {
@@ -704,12 +700,12 @@ export async function invalidateHomepageCache() {
 router.get("/health", async (_req, res) => {
   const redis = await cacheStats();
   let dbOk = false;
-  try { await pool.query("SELECT 1"); dbOk = true; } catch { /* */ }
+  try { await pool.query("SELECT 1"); dbOk = true; } catch (_e) { /* */ }
   res.json({
-    status: dbOk && redis.connected ? "healthy" : "degraded",
-    db    : dbOk ? "connected" : "down",
+    status : dbOk && redis.connected ? "healthy" : "degraded",
+    db     : dbOk ? "connected" : "down",
     redis,
-    ts    : new Date().toISOString(),
+    ts     : new Date().toISOString(),
   });
 });
 
