@@ -1,17 +1,15 @@
 /**
- * src/hooks/useAddProduct.js
- * All logic for AddProduct — state, effects, handlers, submit.
+ * hooks/useAddProduct.js
  *
- * v8 — INLINE FIELD ERRORS
+ * v9 — COMPLETE REWRITE
  * ─────────────────────────────────────────────────────────────
- *  - Field-level error state (fieldError) alongside top banner
- *  - Maps validation messages to specific field keys
- *  - Auto-clears when user starts editing that field
- *  - Sections can display errors inline under the offending input
- *  - Top banner still shown for non-field errors (network, server)
- *
- * v7 — Verify-before-pay + 3-tier + watermark + state normalization
- * v6 — Full parity with pages/AddProduct.jsx
+ *  - MAX_IMAGES updated to 8
+ *  - Phone is OPTIONAL — validation only checks format if given
+ *  - Email never sent from frontend — backend reads users table
+ *  - All v8 inline field errors maintained
+ *  - All v7 verify-before-pay + 3-tier + watermark maintained
+ *  - buildBaseFormData: phone/whatsapp only sent if non-empty
+ *  - ERROR_FIELD_MAP / ERROR_SELECTOR_MAP updated for optional phone
  */
 
 import {
@@ -29,19 +27,19 @@ import { useSellerLimits }            from "./useSellerLimits.js";
 /* ═══════════════════════════════════════════════════════════════
    CONFIG
 ═══════════════════════════════════════════════════════════════ */
-const API_BASE          = `${import.meta.env.VITE_API_BASE_URL}/api`;
-const STORAGE_PAYMENT   = "payment_retry";
-const DRAFT_VERSION     = 4;
-const MAX_IMAGES        = 6;
-const UPLOAD_TIMEOUT    = 120_000;
-const PAYMENT_MAX_AGE   = 30 * 60 * 1_000;
-const DRAFT_DELAY_MS    = 1_200;
-const BRAND_NAME        = "Loemart";
-const DESCRIPTION_MIN   = 10;
-const REDIRECT_DELAY_MS = 1_500;
-const VERIFY_DELAY_MS   = 2_000;
-const STEP_DELAY_MS     = 400;
+const API_BASE        = `${import.meta.env.VITE_API_BASE_URL}/api`;
+const STORAGE_PAYMENT = "payment_retry";
+const DRAFT_VERSION   = 4;
+const MAX_IMAGES      = 8;           /* ✅ updated from 6 → 8 */
+const UPLOAD_TIMEOUT  = 120_000;
+const PAYMENT_MAX_AGE = 30 * 60 * 1_000;
+const DRAFT_DELAY_MS  = 1_200;
+const BRAND_NAME      = "Loemart";
+const DESCRIPTION_MIN = 10;
 
+const REDIRECT_DELAY_MS      = 1_500;
+const VERIFY_DELAY_MS        = 2_000;
+const STEP_DELAY_MS          = 400;
 const WM_WARN_EXTRA_DELAY_MS = 3_000;
 const UPGRADE_EXTRA_DELAY_MS = 4_000;
 
@@ -50,55 +48,61 @@ const ALLOWED_PAYMENT_HOSTS = new Set([
   "standard.paystack.com",
 ]);
 
-const PHONE_RE = /^\+?[0-9]{7,15}$/;
-
-/* Set false in production once email issue is fully resolved */
-const DEBUG_TRACE_ERRORS = false;
+/* ✅ Phone optional — only validate format if value provided */
+const PHONE_RE      = /^\+?[0-9]{7,15}$/;
+const sanitizePhone = (v = "") => v.replace(/[\s\-().]/g, "");
+const isValidPhone  = (v) =>
+  !!v && PHONE_RE.test(sanitizePhone(String(v)));
 
 /* ═══════════════════════════════════════════════════════════════
-   ERROR → SELECTOR MAPPING (for scroll-to-error)
+   ERROR → SELECTOR MAP
+   Used to scroll to the relevant field on error.
+   ✅ Updated: "Phone number" / "WhatsApp number" more specific
+      so they only fire on format errors, not on missing phone.
 ═══════════════════════════════════════════════════════════════ */
 const ERROR_SELECTOR_MAP = [
-  { match: "Title",          sel: "#ap-title"               },
-  { match: "Description",    sel: "#ap-desc"                },
-  { match: "price",          sel: "#ap-price"               },
-  { match: "Price",          sel: "#ap-price"               },
-  { match: "Category",       sel: ".section:nth-of-type(2)" },
-  { match: "Phone",          sel: "#ap-phone"               },
-  { match: "WhatsApp",       sel: "#ap-wa"                  },
-  { match: "image",          sel: ".ap-image-box"           },
-  { match: "state and city", sel: ".detect-location-row"    },
-  { match: "Terms",          sel: ".ap-terms-row"           },
-  { match: "delivery days",  sel: "#ap-del-from"            },
-  { match: "Delivery end",   sel: "#ap-del-to"              },
-  { match: "delivery fee",   sel: "#ap-del-fee"             },
+  { match: "Title",           sel: "#ap-title"               },
+  { match: "Description",     sel: "#ap-desc"                },
+  { match: "price",           sel: "#ap-price"               },
+  { match: "Price",           sel: "#ap-price"               },
+  { match: "Category",        sel: ".section:nth-of-type(2)" },
+  { match: "Phone number",    sel: "#ap-phone"               },
+  { match: "WhatsApp number", sel: "#ap-wa"                  },
+  { match: "image",           sel: ".ap-image-box"           },
+  { match: "state and city",  sel: ".detect-location-row"    },
+  { match: "Terms",           sel: ".ap-terms-row"           },
+  { match: "delivery days",   sel: "#ap-del-from"            },
+  { match: "Delivery end",    sel: "#ap-del-to"              },
+  { match: "delivery fee",    sel: "#ap-del-fee"             },
 ];
 
 /* ═══════════════════════════════════════════════════════════════
-   ERROR → FIELD KEY MAPPING (for inline errors)
-   Sections read `fieldError.field` to decide which input
-   should show the error message + red border.
+   ERROR → FIELD KEY MAP
+   Used for inline field-level error highlighting.
+   ✅ Updated: more specific match strings for phone/whatsapp
 ═══════════════════════════════════════════════════════════════ */
 const ERROR_FIELD_MAP = [
-  { match: "Title",          field: "title"          },
-  { match: "Description",    field: "description"    },
-  { match: "price",          field: "price"          },
-  { match: "Price",          field: "price"          },
-  { match: "Category",       field: "category"       },
-  { match: "Phone",          field: "phone"          },
-  { match: "WhatsApp",       field: "whatsapp"       },
-  { match: "image",          field: "images"         },
-  { match: "state and city", field: "location"       },
-  { match: "Terms",          field: "terms"          },
-  { match: "delivery days",  field: "delivery_from"  },
-  { match: "Delivery end",   field: "delivery_to"    },
-  { match: "delivery fee",   field: "delivery_fee"   },
+  { match: "Title",           field: "title"         },
+  { match: "Description",     field: "description"   },
+  { match: "price",           field: "price"         },
+  { match: "Price",           field: "price"         },
+  { match: "Category",        field: "category"      },
+  /* ✅ Only triggers on format error — not on missing phone */
+  { match: "Phone number",    field: "phone"         },
+  { match: "WhatsApp number", field: "whatsapp"      },
+  { match: "image",           field: "images"        },
+  { match: "state and city",  field: "location"      },
+  { match: "Terms",           field: "terms"         },
+  { match: "delivery days",   field: "delivery_from" },
+  { match: "Delivery end",    field: "delivery_to"   },
+  { match: "delivery fee",    field: "delivery_fee"  },
 ];
 
 const getFieldFromMessage = (msg) => {
   if (!msg) return null;
-  const entry = ERROR_FIELD_MAP.find((e) => msg.includes(e.match));
-  return entry?.field ?? null;
+  return (
+    ERROR_FIELD_MAP.find((e) => msg.includes(e.match))?.field ?? null
+  );
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -107,9 +111,6 @@ const getFieldFromMessage = (msg) => {
 export const onlyNumbers = (v = "") => v.replace(/[^0-9.]/g, "");
 export const onlyDigits  = (v = "") => v.replace(/[^0-9]/g, "");
 const toArray            = (v)      => (Array.isArray(v) ? v : []);
-const sanitizePhone      = (v = "") => v.replace(/[\s\-().]/g, "");
-const isValidPhone       = (v)      =>
-  !!v && PHONE_RE.test(sanitizePhone(String(v)));
 
 export const displayPrice = (v) => {
   const n = Number(v);
@@ -141,13 +142,15 @@ const getTokenOrRedirect = (navigate, returnPath) => {
 const safeOpenPayment = (url, onError) => {
   try {
     const parsed = new URL(url);
-    if (parsed.protocol !== "https:") throw new Error("Non-HTTPS URL");
+    if (parsed.protocol !== "https:")
+      throw new Error("Non-HTTPS URL");
     const hostAllowed = [...ALLOWED_PAYMENT_HOSTS].some(
       (host) =>
         parsed.hostname === host ||
         parsed.hostname.endsWith(`.${host}`)
     );
-    if (!hostAllowed) throw new Error(`Untrusted host: ${parsed.hostname}`);
+    if (!hostAllowed)
+      throw new Error(`Untrusted host: ${parsed.hostname}`);
     window.open(url, "_blank", "noopener,noreferrer");
   } catch (err) {
     console.error("[Payment] Blocked unsafe URL:", err.message);
@@ -157,8 +160,10 @@ const safeOpenPayment = (url, onError) => {
 
 const isValidPaymentSession = (obj) =>
   obj &&
-  typeof obj.reference === "string" && obj.reference.length > 0 &&
-  typeof obj.authUrl   === "string" && obj.authUrl.startsWith("https://") &&
+  typeof obj.reference === "string" &&
+  obj.reference.length > 0          &&
+  typeof obj.authUrl   === "string" &&
+  obj.authUrl.startsWith("https://") &&
   typeof obj.createdAt === "number";
 
 const getOrCreateIdempotencyKey = (storageKey) => {
@@ -173,7 +178,11 @@ const clearIdempotencyKey = (storageKey) =>
   sessionStorage.removeItem(storageKey);
 
 const multipartRequest = async (
-  url, method = "POST", formData, token, timeoutMs = UPLOAD_TIMEOUT
+  url,
+  method = "POST",
+  formData,
+  token,
+  timeoutMs = UPLOAD_TIMEOUT
 ) => {
   const ctrl = new AbortController();
   const tid  = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -181,13 +190,15 @@ const multipartRequest = async (
   try {
     res = await fetch(url, {
       method,
-      headers : { Authorization: `Bearer ${token}` },
-      body    : formData,
-      signal  : ctrl.signal,
+      headers: { Authorization: `Bearer ${token}` },
+      body   : formData,
+      signal : ctrl.signal,
     });
   } catch (err) {
     if (err.name === "AbortError")
-      throw new ApiError("Upload timed out — check your connection", 0);
+      throw new ApiError(
+        "Upload timed out — check your connection", 0
+      );
     throw new ApiError(
       "Cannot reach the server. Check your connection.", 0
     );
@@ -206,8 +217,10 @@ const multipartRequest = async (
 
 const scrollToError = (msg) => {
   if (!msg) return;
-  const entry = ERROR_SELECTOR_MAP.find((e) => msg.includes(e.match));
-  const sel   = entry?.sel ?? ".ap-error-banner";
+  const entry = ERROR_SELECTOR_MAP.find(
+    (e) => msg.includes(e.match)
+  );
+  const sel = entry?.sel ?? ".ap-error-banner";
   requestAnimationFrame(() => {
     try {
       const el = document.querySelector(sel);
@@ -217,9 +230,12 @@ const scrollToError = (msg) => {
         setTimeout(() => el.focus({ preventScroll: true }), 350);
       }
       el.classList.add("ap-field-flash");
-      setTimeout(() => el.classList.remove("ap-field-flash"), 2_000);
+      setTimeout(
+        () => el.classList.remove("ap-field-flash"), 2_000
+      );
     } catch {
-      if (import.meta.env.DEV) console.warn("[scrollToError] failed");
+      if (import.meta.env.DEV)
+        console.warn("[scrollToError] failed");
     }
   });
 };
@@ -285,7 +301,7 @@ export function useAddProduct({ user }) {
     dailyRemaining, activeRemaining, cooldownSecs, canPost,
   } = useSellerLimits(API_BASE, isEditMode);
 
-  /* Derive 3-tier fields */
+  /* ─── Derived seller data ─── */
   const tier              = sellerLimits?.tier               ?? "unverified";
   const isSubscriber      = sellerLimits?.is_subscriber      ?? false;
   const lifetimeExhausted = sellerLimits?.lifetime_exhausted ?? false;
@@ -295,7 +311,7 @@ export function useAddProduct({ user }) {
   const upgradeTo         = sellerLimits?.upgrade_to         ?? null;
   const upgradeUrl        = sellerLimits?.upgrade_url        ?? null;
 
-  /* ─── Local state ─── */
+  /* ─── UI state ─── */
   const [categories,        setCategories]        = useState([]);
   const [categoriesLoaded,  setCategoriesLoaded]  = useState(false);
   const [promotionPlans,    setPromotionPlans]    = useState([]);
@@ -314,22 +330,25 @@ export function useAddProduct({ user }) {
   const [progressStep,      setProgressStep]      = useState("compressing");
   const [editLoading,       setEditLoading]       = useState(isEditMode);
   const [editError,         setEditError]         = useState(null);
+
+  /* ─── Post-submit state ─── */
   const [needsVerification, setNeedsVerification] = useState(false);
   const [verificationData,  setVerificationData]  = useState(null);
-
-  /* Subscription upsell */
   const [needsSubscription, setNeedsSubscription] = useState(false);
   const [subscriptionData,  setSubscriptionData]  = useState(null);
 
-  /* Watermark */
+  /* ─── Watermark state ─── */
   const [watermarkWarnings, setWatermarkWarnings] = useState([]);
   const [watermarkNotice,   setWatermarkNotice]   = useState("");
 
-  /* Verify before pay modal */
+  /* ─── Verify before pay modal ─── */
   const [showVerifyBeforePay, setShowVerifyBeforePay] = useState(false);
 
-  /* ─── ✅ v8: Field-level error state ─── */
-  const [fieldError, setFieldError] = useState({ field: null, message: "" });
+  /* ─── Inline field error state ─── */
+  const [fieldError, setFieldError] = useState({
+    field  : null,
+    message: "",
+  });
 
   /* ═══════════════════════════════════════════════════════════
      FIELD ERROR HELPERS
@@ -347,32 +366,18 @@ export function useAddProduct({ user }) {
   }, []);
 
   /* ═══════════════════════════════════════════════════════════
-     FEEDBACK
-     Now also sets field-level error so sections can render
-     the message inline under the exact input.
+     FEEDBACK HELPERS
   ═══════════════════════════════════════════════════════════ */
   const showError = useCallback((msg) => {
     if (!mountedRef.current) return;
-
-    if (DEBUG_TRACE_ERRORS && import.meta.env.DEV) {
-      console.group(
-        "%c[showError]",
-        "color:#e53935;font-weight:bold;font-size:12px",
-        msg
-      );
-      console.trace("called from:");
-      console.groupEnd();
-    }
-
     setError(msg);
 
-    /* ✅ Also set field-level error if we can map it */
     const field = getFieldFromMessage(msg);
-    if (field) {
-      setFieldError({ field, message: msg });
-    } else {
-      setFieldError({ field: null, message: "" });
-    }
+    setFieldError(
+      field
+        ? { field, message: msg }
+        : { field: null, message: "" }
+    );
 
     scrollToError(msg);
 
@@ -418,26 +423,21 @@ export function useAddProduct({ user }) {
   }, []);
 
   /* ═══════════════════════════════════════════════════════════
-     ✅ v8: WRAPPED UPDATERS
-     Automatically clear the relevant field error when the
-     user starts editing that field.
+     WRAPPED UPDATERS — clear field error on user edit
   ═══════════════════════════════════════════════════════════ */
   const updateFormWithClear = useCallback((key, value) => {
     updateForm(key, value);
-    /* Map form key → field-error key */
     const map = {
-      title       : "title",
-      description : "description",
-      price       : "price",
-      category_id : "category",
+      title      : "title",
+      description: "description",
+      price      : "price",
+      category_id: "category",
     };
-    const errKey = map[key];
-    if (errKey) clearFieldError(errKey);
+    if (map[key]) clearFieldError(map[key]);
   }, [updateForm, clearFieldError]);
 
   const updateContactWithClear = useCallback((key, value) => {
     updateContact(key, value);
-    /* Contact keys match field-error keys directly */
     if (key === "phone")    clearFieldError("phone");
     if (key === "whatsapp") clearFieldError("whatsapp");
   }, [updateContact, clearFieldError]);
@@ -454,8 +454,7 @@ export function useAddProduct({ user }) {
 
   const setAgreedToTermsWithClear = useCallback((val) => {
     setAgreedToTerms(val);
-    if (typeof val === "function") return;   // functional updater
-    if (val) clearFieldError("terms");
+    if (typeof val !== "function" && val) clearFieldError("terms");
   }, [clearFieldError]);
 
   const updateDeliveryWithClear = useCallback((key, value) => {
@@ -470,7 +469,7 @@ export function useAddProduct({ user }) {
     if (key === "to")   clearFieldError("delivery_to");
   }, [updateDeliveryDuration, clearFieldError]);
 
-  /* ─── Derived ─── */
+  /* ─── Derived values ─── */
   const selectedCategory = useMemo(
     () =>
       categories.find(
@@ -478,7 +477,7 @@ export function useAddProduct({ user }) {
       ) ?? null,
     [categories, form.category_id]
   );
-  const options = useMemo(
+  const options    = useMemo(
     () => selectedCategory?.dynamicOptions ?? {},
     [selectedCategory]
   );
@@ -486,9 +485,12 @@ export function useAddProduct({ user }) {
     () => form.attributes ?? INITIAL_FORM.attributes,
     [form.attributes]
   );
-  const states = useMemo(() => Object.keys(locationsByState ?? {}), []);
+  const states = useMemo(
+    () => Object.keys(locationsByState ?? {}),
+    []
+  );
   const cities = useMemo(
-    () => (locationState ? locationsByState[locationState] ?? [] : []),
+    () => locationState ? locationsByState[locationState] ?? [] : [],
     [locationState]
   );
 
@@ -514,7 +516,7 @@ export function useAddProduct({ user }) {
   }, [showError]);
 
   /* ═══════════════════════════════════════════════════════════
-     LOAD PLANS
+     LOAD PROMOTION PLANS
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) { setPlansLoading(false); return; }
@@ -523,11 +525,17 @@ export function useAddProduct({ user }) {
       .then((data) => {
         if (!mountedRef.current) return;
         setPromotionPlans(
-          data.success && Array.isArray(data.plans) ? data.plans : []
+          data.success && Array.isArray(data.plans)
+            ? data.plans
+            : []
         );
       })
-      .catch(() => { if (mountedRef.current) setPromotionPlans([]); })
-      .finally(() => { if (mountedRef.current) setPlansLoading(false); });
+      .catch(() => {
+        if (mountedRef.current) setPromotionPlans([]);
+      })
+      .finally(() => {
+        if (mountedRef.current) setPlansLoading(false);
+      });
   }, [isEditMode]);
 
   /* ═══════════════════════════════════════════════════════════
@@ -561,10 +569,8 @@ export function useAddProduct({ user }) {
       if (!mountedRef.current) return;
 
       loadForm({ ...p });
-
       if (p.location_state) setLocationState(p.location_state);
       if (p.location_city)  setCity(p.location_city);
-
       if (p.latitude && p.longitude) {
         setDetectedCoords({
           latitude : p.latitude,
@@ -577,9 +583,9 @@ export function useAddProduct({ user }) {
           p.product_images.map((img) => ({
             id        : img.id,
             url       : img.image_url,
-            r2_key    : img.r2_key          || null,
-            position  : img.position_order  ?? 0,
-            is_primary: img.is_primary      ?? false,
+            r2_key    : img.r2_key         || null,
+            position  : img.position_order ?? 0,
+            is_primary: img.is_primary     ?? false,
             isExisting: true,
           }))
         );
@@ -632,10 +638,14 @@ export function useAddProduct({ user }) {
 
         let session;
         try { session = JSON.parse(saved); }
-        catch { localStorage.removeItem(STORAGE_PAYMENT); return; }
+        catch {
+          localStorage.removeItem(STORAGE_PAYMENT);
+          return;
+        }
 
         if (!isValidPaymentSession(session)) {
-          localStorage.removeItem(STORAGE_PAYMENT); return;
+          localStorage.removeItem(STORAGE_PAYMENT);
+          return;
         }
 
         const ageMs = Date.now() - session.createdAt;
@@ -652,13 +662,16 @@ export function useAddProduct({ user }) {
           if (token) {
             try {
               const result = await apiFetch(
-                `${API_BASE}/payment/verify`, {
+                `${API_BASE}/payment/verify`,
+                {
                   method : "POST",
                   headers: {
                     "Content-Type": "application/json",
                     Authorization : `Bearer ${token}`,
                   },
-                  body: JSON.stringify({ reference: session.reference }),
+                  body: JSON.stringify({
+                    reference: session.reference,
+                  }),
                 }
               );
               if (!mountedRef.current) return;
@@ -685,7 +698,7 @@ export function useAddProduct({ user }) {
   }, [isEditMode, showSuccess, safeRedirect]);
 
   /* ═══════════════════════════════════════════════════════════
-     RESTORE DRAFT — strip any leftover email
+     RESTORE DRAFT
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -695,15 +708,15 @@ export function useAddProduct({ user }) {
       if (!raw) return;
       const draft = JSON.parse(raw);
       if (!draft.version || draft.version < DRAFT_VERSION) {
-        localStorage.removeItem(STORAGE_DRAFT); return;
+        localStorage.removeItem(STORAGE_DRAFT);
+        return;
       }
       if (!mountedRef.current) return;
 
       const { form: draftForm = {} } = draft;
       const { contact, ...restForm } = draftForm;
-      const contactWithoutEmail = contact
-        ? (({ email, ...rest }) => rest)(contact)
-        : {};
+      /* Strip email from contact even if accidentally saved */
+      const { email: _e, ...contactWithoutEmail } = contact ?? {};
 
       loadForm({ ...restForm, contact: contactWithoutEmail });
       setLocationState(draft.locationState ?? "");
@@ -724,7 +737,7 @@ export function useAddProduct({ user }) {
   ]);
 
   /* ═══════════════════════════════════════════════════════════
-     AUTO-SAVE DRAFT — strip email before save
+     AUTO-SAVE DRAFT
   ═══════════════════════════════════════════════════════════ */
   useEffect(() => {
     if (isEditMode) return;
@@ -733,15 +746,17 @@ export function useAddProduct({ user }) {
       if (!mountedRef.current) return;
       try {
         const { contact, ...restForm } = form;
-        const contactWithoutEmail = contact
-          ? (({ email, ...rest }) => rest)(contact)
-          : {};
+        /* Never persist email in draft */
+        const { email: _e, ...contactWithoutEmail } = contact ?? {};
 
         localStorage.setItem(
           STORAGE_DRAFT,
           JSON.stringify({
             version     : DRAFT_VERSION,
-            form        : { ...restForm, contact: contactWithoutEmail },
+            form        : {
+              ...restForm,
+              contact: contactWithoutEmail,
+            },
             locationState,
             city,
             selectedPlan: selectedPlan?.id ?? null,
@@ -750,14 +765,16 @@ export function useAddProduct({ user }) {
       } catch { /* non-critical */ }
     }, DRAFT_DELAY_MS);
     return () => {
-      if (autoSaveTimer.current) clearTimeout(autoSaveTimer.current);
+      if (autoSaveTimer.current)
+        clearTimeout(autoSaveTimer.current);
     };
   }, [
-    isEditMode, form, locationState, city, selectedPlan, STORAGE_DRAFT,
+    isEditMode, form, locationState,
+    city, selectedPlan, STORAGE_DRAFT,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
-     GPS — with state/city normalization
+     GPS LOCATION DETECTION
   ═══════════════════════════════════════════════════════════ */
   const detectLocation = useCallback(async () => {
     if (mountedRef.current) setDetectingLocation(true);
@@ -765,21 +782,20 @@ export function useAddProduct({ user }) {
       const result = await detectUserLocation();
       if (!mountedRef.current) return;
 
-      /* Normalize state */
       let matchedState = "";
       if (result.state) {
-        const availableStates = Object.keys(locationsByState ?? {});
-        const detected = String(result.state).trim();
+        const available = Object.keys(locationsByState ?? {});
+        const detected  = String(result.state).trim();
         matchedState =
-          availableStates.find(
+          available.find(
             (s) => s.toLowerCase() === detected.toLowerCase()
           ) ??
-          availableStates.find(
+          available.find(
             (s) =>
               s.toLowerCase() ===
               detected.toLowerCase().replace(/\s*state$/i, "")
           ) ??
-          availableStates.find(
+          available.find(
             (s) =>
               detected.toLowerCase().includes(s.toLowerCase()) ||
               s.toLowerCase().includes(detected.toLowerCase())
@@ -787,16 +803,15 @@ export function useAddProduct({ user }) {
           "";
       }
 
-      /* Normalize city */
       let matchedCity = "";
       if (matchedState && result.city) {
-        const availableCities = locationsByState[matchedState] ?? [];
-        const detected = String(result.city).trim();
+        const available = locationsByState[matchedState] ?? [];
+        const detected  = String(result.city).trim();
         matchedCity =
-          availableCities.find(
+          available.find(
             (c) => c.toLowerCase() === detected.toLowerCase()
           ) ??
-          availableCities.find(
+          available.find(
             (c) =>
               detected.toLowerCase().includes(c.toLowerCase()) ||
               c.toLowerCase().includes(detected.toLowerCase())
@@ -823,7 +838,8 @@ export function useAddProduct({ user }) {
         );
       } else if (result.state) {
         showError(
-          `Detected "${result.state}" but not in our list — please select manually`
+          `Detected "${result.state}" but not in our list — ` +
+          `please select manually`
         );
       } else {
         showSuccess("GPS captured — fill state/city manually");
@@ -837,7 +853,8 @@ export function useAddProduct({ user }) {
   }, [showError, showSuccess, clearFieldError]);
 
   /* ═══════════════════════════════════════════════════════════
-     VALIDATION — NO EMAIL CHECK
+     VALIDATION
+     ✅ Phone is OPTIONAL — only validate format if provided
   ═══════════════════════════════════════════════════════════ */
   const validateForm = useCallback(() => {
     const t = form.title?.trim() ?? "";
@@ -847,7 +864,7 @@ export function useAddProduct({ user }) {
     const d = form.description?.trim() ?? "";
     if (d.length < DESCRIPTION_MIN)
       return `Description must be at least ${DESCRIPTION_MIN} characters.`;
-    if (d.length > 2000)
+    if (d.length > 2_000)
       return "Description must be at most 2000 characters.";
 
     if (!form.price || Number(form.price) <= 0)
@@ -858,10 +875,18 @@ export function useAddProduct({ user }) {
     if (!form.category_id)
       return "Category required.";
 
-    if (!isValidPhone(form.contact?.phone))
-      return "Phone number must be 7–15 digits (e.g. 08012345678).";
+    /* ✅ Phone optional — only validate format if user typed something */
+    const rawPhone = form.contact?.phone;
+    if (rawPhone && String(rawPhone).trim() !== "") {
+      if (!isValidPhone(rawPhone))
+        return "Phone number must be 7–15 digits (e.g. 08012345678).";
+    }
 
-    if (form.contact?.whatsapp && !isValidPhone(form.contact.whatsapp))
+    /* ✅ WhatsApp always optional */
+    if (
+      form.contact?.whatsapp &&
+      !isValidPhone(form.contact.whatsapp)
+    )
       return "WhatsApp number must be 7–15 digits.";
 
     if (totalImageCount === 0)
@@ -894,21 +919,38 @@ export function useAddProduct({ user }) {
 
   /* ═══════════════════════════════════════════════════════════
      BUILD FORM DATA
+     ✅ Phone/WhatsApp only appended if non-empty
+     ✅ Email never sent — backend reads from users table
   ═══════════════════════════════════════════════════════════ */
   const buildBaseFormData = useCallback(() => {
     const fd = new FormData();
-    fd.append("title",         form.title.trim());
-    fd.append("description",   form.description.trim());
-    fd.append("price",         Number(form.price).toFixed(2));
-    fd.append("category_id",   form.category_id);
+
+    fd.append("title",       form.title.trim());
+    fd.append("description", form.description.trim());
+    fd.append("price",       Number(form.price).toFixed(2));
+    fd.append("category_id", form.category_id);
+
     if (form.subcategory_id)
       fd.append("subcategory_id", form.subcategory_id);
+
     fd.append("location_state", locationState ?? "");
-    fd.append("location_city",  city ?? "");
-    fd.append("phone",          sanitizePhone(form.contact.phone    ?? ""));
-    fd.append("whatsapp",       sanitizePhone(form.contact.whatsapp ?? ""));
-    fd.append("whatsapp_link",  form.contact.whatsapp_link ?? "");
-    fd.append("seller_name",    user?.store_name || user?.name || BRAND_NAME);
+    fd.append("location_city",  city          ?? "");
+    fd.append(
+      "seller_name",
+      user?.store_name || user?.name || BRAND_NAME
+    );
+
+    /* ✅ Phone optional — only send if user filled it in */
+    const cleanedPhone = sanitizePhone(form.contact?.phone ?? "");
+    if (cleanedPhone) fd.append("phone", cleanedPhone);
+
+    /* ✅ WhatsApp always optional */
+    const cleanedWa = sanitizePhone(form.contact?.whatsapp ?? "");
+    if (cleanedWa) fd.append("whatsapp", cleanedWa);
+
+    /* WhatsApp link optional */
+    const waLink = form.contact?.whatsapp_link ?? "";
+    if (waLink) fd.append("whatsapp_link", waLink);
 
     fd.append("attributes", JSON.stringify({
       ...attributes,
@@ -916,14 +958,22 @@ export function useAddProduct({ user }) {
     }));
     fd.append("delivery", JSON.stringify(form.delivery));
 
-    /* Strip email from contact JSON */
-    const { email: _e, ...contactWithoutEmail } = form.contact ?? {};
-    fd.append("contact", JSON.stringify(contactWithoutEmail));
+    /* ✅ Strip email + individual contact fields from JSON
+          (phone/whatsapp sent as top-level fields above) */
+    const {
+      email       : _email,
+      phone       : _phone,
+      whatsapp    : _wa,
+      whatsapp_link: _wal,
+      ...restContact
+    } = form.contact ?? {};
+    fd.append("contact", JSON.stringify(restContact));
 
     if (detectedCoords) {
       fd.append("latitude",  String(detectedCoords.latitude));
       fd.append("longitude", String(detectedCoords.longitude));
     }
+
     return fd;
   }, [form, attributes, locationState, city, detectedCoords, user]);
 
@@ -936,7 +986,9 @@ export function useAddProduct({ user }) {
         "idempotency_key",
         getOrCreateIdempotencyKey(IDEMPOTENCY_STORE)
       );
-      const imageHashes = images.map((img) => img.hash).filter(Boolean);
+      const imageHashes = images
+        .map((img) => img.hash)
+        .filter(Boolean);
       if (imageHashes.length)
         fd.append("image_hashes", JSON.stringify(imageHashes));
       images.forEach((img) => fd.append("images", img.file));
@@ -952,7 +1004,10 @@ export function useAddProduct({ user }) {
       JSON.stringify(existingImages.map((img) => img.id))
     );
     if (removedImageKeys.length)
-      fd.append("remove_image_keys", JSON.stringify(removedImageKeys));
+      fd.append(
+        "remove_image_keys",
+        JSON.stringify(removedImageKeys)
+      );
     images.forEach((img) => fd.append("images", img.file));
     return fd;
   }, [buildBaseFormData, existingImages, removedImageKeys, images]);
@@ -983,7 +1038,8 @@ export function useAddProduct({ user }) {
           body: JSON.stringify({ reference: paymentData.reference }),
         });
       }
-    } catch { /* non-critical */ } finally {
+    } catch { /* non-critical */ }
+    finally {
       localStorage.removeItem(STORAGE_PAYMENT);
       if (mountedRef.current) setPaymentData(null);
       showSuccess("Payment cancelled — listing saved as draft");
@@ -1023,90 +1079,101 @@ export function useAddProduct({ user }) {
   /* ═══════════════════════════════════════════════════════════
      POST SUCCESS HANDLER
   ═══════════════════════════════════════════════════════════ */
-  const handlePostSuccess = useCallback((responseData) => {
-    if (!mountedRef.current) return;
-    clearIdempotencyKey(IDEMPOTENCY_STORE);
+  const handlePostSuccess = useCallback(
+    (responseData) => {
+      if (!mountedRef.current) return;
+      clearIdempotencyKey(IDEMPOTENCY_STORE);
 
-    const verificationNeeded = responseData?.needs_verification === true;
-    const daysRemaining      = responseData?.days_remaining ?? 7;
-    const respTier           = responseData?.tier           ?? tier;
-    const respIsSubscriber   = responseData?.is_subscriber  ?? isSubscriber;
+      const verificationNeeded =
+        responseData?.needs_verification === true;
+      const daysRemaining    = responseData?.days_remaining ?? 7;
+      const respTier         = responseData?.tier           ?? tier;
+      const respIsSubscriber =
+        responseData?.is_subscriber ?? isSubscriber;
 
-    const warnings = Array.isArray(responseData?.watermark_warnings)
-      ? responseData.watermark_warnings
-      : [];
-    const notice = responseData?.watermark_notice ?? "";
+      const warnings = Array.isArray(
+        responseData?.watermark_warnings
+      )
+        ? responseData.watermark_warnings
+        : [];
+      const notice = responseData?.watermark_notice ?? "";
+      if (warnings.length > 0) {
+        setWatermarkWarnings(warnings);
+        setWatermarkNotice(notice);
+      }
 
-    if (warnings.length > 0) {
-      setWatermarkWarnings(warnings);
-      setWatermarkNotice(notice);
-    }
+      const upgradeMessage = responseData?.upgrade_message ?? null;
+      const upgradeToNext  = responseData?.upgrade_to      ?? null;
+      const upgradeUrlNext = responseData?.upgrade_url     ?? "/subscribe";
+      const showSubscribeUpsell =
+        upgradeToNext === "subscriber" &&
+        respTier === "verified"        &&
+        !respIsSubscriber;
 
-    const upgradeMessage = responseData?.upgrade_message ?? null;
-    const upgradeToNext  = responseData?.upgrade_to      ?? null;
-    const upgradeUrlNext = responseData?.upgrade_url     ?? "/subscribe";
+      if (showSubscribeUpsell) {
+        setSubscriptionData({
+          message     : upgradeMessage,
+          upgradeUrl  : upgradeUrlNext,
+          lifetimeUsed:
+            responseData?.limits?.lifetime_used ?? lifetimeUsed,
+          lifetimeMax :
+            responseData?.limits?.lifetime_max  ?? 500,
+        });
+        setNeedsSubscription(true);
+      }
 
-    const showSubscribeUpsell =
-      upgradeToNext === "subscriber" &&
-      respTier === "verified" &&
-      !respIsSubscriber;
+      const extraDelay =
+        (warnings.length > 0 ? WM_WARN_EXTRA_DELAY_MS : 0) +
+        (showSubscribeUpsell  ? UPGRADE_EXTRA_DELAY_MS  : 0);
 
-    if (showSubscribeUpsell) {
-      setSubscriptionData({
-        message     : upgradeMessage,
-        upgradeUrl  : upgradeUrlNext,
-        lifetimeUsed: responseData?.limits?.lifetime_used ?? lifetimeUsed,
-        lifetimeMax : responseData?.limits?.lifetime_max  ?? 500,
-      });
-      setNeedsSubscription(true);
-    }
-
-    const extraDelay =
-      (warnings.length > 0 ? WM_WARN_EXTRA_DELAY_MS : 0) +
-      (showSubscribeUpsell ? UPGRADE_EXTRA_DELAY_MS  : 0);
-
-    if (verificationNeeded) {
-      setVerificationData({
-        productId    : responseData.product?.id,
-        activeUntil  : responseData.active_until,
-        daysRemaining,
-        message      : responseData.verification_message,
-        limits       : responseData.limits,
-      });
-      setNeedsVerification(true);
-      showSuccess(
-        warnings.length > 0
-          ? `Listing live for ${daysRemaining} days. Review the photo tip below.`
-          : `Listing live for ${daysRemaining} days. Redirecting…`
-      );
-      safeRedirect("/verification", VERIFY_DELAY_MS + extraDelay);
-    } else if (showSubscribeUpsell) {
-      showSuccess(
-        respIsSubscriber
-          ? "Product live! Redirecting…"
-          : "Product live! You've reached your 500-listing limit."
-      );
-    } else {
-      showSuccess(
-        warnings.length > 0
-          ? "Product live! Review the photo tip below."
-          : respIsSubscriber
-            ? "Product live permanently!"
-            : "Product live! Redirecting…"
-      );
-      safeRedirect("/", REDIRECT_DELAY_MS + extraDelay);
-    }
-  }, [
-    IDEMPOTENCY_STORE, showSuccess, safeRedirect,
-    tier, isSubscriber, lifetimeUsed,
-  ]);
+      if (verificationNeeded) {
+        setVerificationData({
+          productId    : responseData.product?.id,
+          activeUntil  : responseData.active_until,
+          daysRemaining,
+          message      : responseData.verification_message,
+          limits       : responseData.limits,
+        });
+        setNeedsVerification(true);
+        showSuccess(
+          warnings.length > 0
+            ? `Listing live for ${daysRemaining} days. ` +
+              `Review the photo tip below.`
+            : `Listing live for ${daysRemaining} days. Redirecting…`
+        );
+        safeRedirect(
+          "/verification", VERIFY_DELAY_MS + extraDelay
+        );
+      } else if (showSubscribeUpsell) {
+        showSuccess(
+          "Product live! You've reached your 500-listing limit."
+        );
+      } else {
+        showSuccess(
+          warnings.length > 0
+            ? "Product live! Review the photo tip below."
+            : respIsSubscriber
+              ? "Product live permanently!"
+              : "Product live! Redirecting…"
+        );
+        safeRedirect("/", REDIRECT_DELAY_MS + extraDelay);
+      }
+    },
+    [
+      IDEMPOTENCY_STORE, showSuccess, safeRedirect,
+      tier, isSubscriber, lifetimeUsed,
+    ]
+  );
 
   /* ═══════════════════════════════════════════════════════════
      EDIT SUBMIT
   ═══════════════════════════════════════════════════════════ */
   const handleEditSubmit = useCallback(async () => {
     if (isSubmittingRef.current) return;
-    if (!navigator.onLine) { showError("You appear to be offline."); return; }
+    if (!navigator.onLine) {
+      showError("You appear to be offline.");
+      return;
+    }
 
     isSubmittingRef.current = true;
     setLoading(true);
@@ -1119,23 +1186,24 @@ export function useAddProduct({ user }) {
       return;
     }
 
-    /* Clear any lingering field errors on successful validation */
     clearAllFieldErrors();
-
     setProgressVisible(true);
     setProgressStep("uploading");
     setError("");
 
     try {
       const token = getTokenOrRedirect(
-        navigate, `/minimart/add?edit=${editId}`
+        navigate,
+        `/minimart/add?edit=${editId}`
       );
       if (!token) return;
 
       const fd = buildEditFormData();
       await multipartRequest(
         `${API_BASE}/addproduct/products/${editId}`,
-        "PATCH", fd, token
+        "PATCH",
+        fd,
+        token
       );
 
       if (!mountedRef.current) return;
@@ -1151,11 +1219,15 @@ export function useAddProduct({ user }) {
       if (mountedRef.current) setProgressVisible(false);
 
       const msg =
-        err?.status === 404 ? "Listing not found — it may have been deleted."
-        : err?.status === 403 ? "You don't have permission to edit this listing."
-        : err?.status === 409 ? err.message
-        : err?.status === 413 ? "Images are too large. Please compress and retry."
-        : err.message ?? "Update failed — please try again.";
+        err?.status === 404
+          ? "Listing not found — it may have been deleted."
+          : err?.status === 403
+          ? "You don't have permission to edit this listing."
+          : err?.status === 409
+          ? err.message
+          : err?.status === 413
+          ? "Images are too large. Please compress and retry."
+          : err.message ?? "Update failed — please try again.";
 
       showError(msg);
     } finally {
@@ -1164,244 +1236,287 @@ export function useAddProduct({ user }) {
     }
   }, [
     editId, validateForm, buildEditFormData,
-    navigate, showError, showSuccess, safeRedirect, clearAllFieldErrors,
+    navigate, showError, showSuccess,
+    safeRedirect, clearAllFieldErrors,
   ]);
 
   /* ═══════════════════════════════════════════════════════════
      CREATE SUBMIT — CORE
   ═══════════════════════════════════════════════════════════ */
-  const runCreateSubmit = useCallback(async (forcedPlan = null) => {
-    if (!navigator.onLine) { showError("You appear to be offline."); return; }
+  const runCreateSubmit = useCallback(
+    async (forcedPlan = null) => {
+      if (!navigator.onLine) {
+        showError("You appear to be offline.");
+        return;
+      }
 
-    setLoading(true);
+      setLoading(true);
 
-    const validationError = validateForm();
-    if (validationError) {
-      showError(validationError);
-      setLoading(false);
-      isSubmittingRef.current = false;
-      return;
-    }
+      const validationError = validateForm();
+      if (validationError) {
+        showError(validationError);
+        setLoading(false);
+        isSubmittingRef.current = false;
+        return;
+      }
 
-    /* All checks pass — clear stale field errors */
-    clearAllFieldErrors();
+      clearAllFieldErrors();
+      setWatermarkWarnings([]);
+      setWatermarkNotice("");
+      setNeedsSubscription(false);
+      setSubscriptionData(null);
+      setProgressVisible(true);
+      setProgressStep("compressing");
+      setError("");
 
-    setWatermarkWarnings([]);
-    setWatermarkNotice("");
-    setNeedsSubscription(false);
-    setSubscriptionData(null);
-    setProgressVisible(true);
-    setProgressStep("compressing");
-    setError("");
+      let product          = null;
+      let paymentInitiated = false;
 
-    let product          = null;
-    let paymentInitiated = false;
+      try {
+        const finalPlan =
+          forcedPlan ??
+          selectedPlan ??
+          promotionPlans.find((p) => Number(p.price) === 0) ??
+          null;
 
-    try {
-      const finalPlan =
-        forcedPlan ??
-        selectedPlan ??
-        promotionPlans.find((p) => Number(p.price) === 0) ??
-        null;
+        if (!finalPlan)
+          throw new ApiError(
+            plansLoading
+              ? "Plans are still loading"
+              : "No plan available.",
+            400
+          );
 
-      if (!finalPlan)
-        throw new ApiError(
-          plansLoading ? "Plans are still loading" : "No plan available.",
-          400
+        const isFreePlan = Number(finalPlan.price) === 0;
+        const token      = getTokenOrRedirect(
+          navigate, "/minimart/add"
+        );
+        if (!token) return;
+
+        await new Promise((r) => setTimeout(r, STEP_DELAY_MS));
+        if (!mountedRef.current) return;
+
+        /* ── Upload product ── */
+        setProgressStep("uploading");
+        const fd         = buildCreateFormData(isFreePlan);
+        const uploadData = await multipartRequest(
+          `${API_BASE}/addproduct/products`,
+          "POST",
+          fd,
+          token
+        );
+        if (!mountedRef.current) return;
+        if (!uploadData.product?.id)
+          throw new ApiError("Product creation failed", 500);
+        product = uploadData.product;
+
+        fetchLimits();
+
+        /* ── Free plan — activate directly ── */
+        if (isFreePlan) {
+          setProgressStep("activating");
+          const activateRes = await apiFetch(
+            `${API_BASE}/addproduct/products/${product.id}/activate`,
+            {
+              method : "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization : `Bearer ${token}`,
+              },
+              body: JSON.stringify({ promotion_id: null }),
+            }
+          );
+          if (!mountedRef.current) return;
+          setProgressStep("finalizing");
+          await new Promise((r) => setTimeout(r, 600));
+          if (!mountedRef.current) return;
+          setProgressVisible(false);
+          handlePostSuccess({
+            ...uploadData,
+            ...activateRes,
+            product: activateRes.product ?? uploadData.product,
+          });
+          clearDraft();
+          return;
+        }
+
+        /* ── Paid plan — initiate payment ── */
+        setProgressStep("payment");
+        const rawPrice     = Number(finalPlan.price);
+        const discount     = Number(finalPlan.discount_percent ?? 0);
+        const effectiveAmt = Number(
+          (rawPrice * (1 - discount / 100)).toFixed(2)
         );
 
-      const isFreePlan = Number(finalPlan.price) === 0;
-      const token      = getTokenOrRedirect(navigate, "/minimart/add");
-      if (!token) return;
-
-      await new Promise((r) => setTimeout(r, STEP_DELAY_MS));
-      if (!mountedRef.current) return;
-
-      setProgressStep("uploading");
-      const fd         = buildCreateFormData(isFreePlan);
-      const uploadData = await multipartRequest(
-        `${API_BASE}/addproduct/products`, "POST", fd, token
-      );
-      if (!mountedRef.current) return;
-      if (!uploadData.product?.id)
-        throw new ApiError("Product creation failed", 500);
-      product = uploadData.product;
-
-      fetchLimits();
-
-      /* Free plan */
-      if (isFreePlan) {
-        setProgressStep("activating");
-        const activateRes = await apiFetch(
-          `${API_BASE}/addproduct/products/${product.id}/activate`,
+        const payData = await apiFetch(
+          `${API_BASE}/payment/initiate`,
           {
             method : "POST",
             headers: {
               "Content-Type": "application/json",
               Authorization : `Bearer ${token}`,
             },
-            body: JSON.stringify({ promotion_id: null }),
+            body: JSON.stringify({
+              amount         : effectiveAmt,
+              plan_id        : String(finalPlan.id),
+              product_id     : product.id,
+              idempotency_key:
+                getOrCreateIdempotencyKey(IDEMPOTENCY_STORE),
+              /* ✅ Email NOT sent — fetched server-side */
+            }),
           }
         );
-        if (!mountedRef.current) return;
+
+        if (!payData.authorization_url)
+          throw new ApiError("Payment setup failed", 500);
+
+        paymentInitiated = true;
+
+        const session = {
+          reference        : payData.reference,
+          authUrl          : payData.authorization_url,
+          planId           : String(finalPlan.id),
+          productId        : product.id,
+          amount           : effectiveAmt,
+          createdAt        : Date.now(),
+          needsVerification:
+            uploadData.needs_verification ?? false,
+          activeUntil      : uploadData.active_until      ?? null,
+          daysRemaining    : uploadData.days_remaining    ?? null,
+        };
+        localStorage.setItem(
+          STORAGE_PAYMENT,
+          JSON.stringify(session)
+        );
+
         setProgressStep("finalizing");
-        await new Promise((r) => setTimeout(r, 600));
+        await new Promise((r) => setTimeout(r, STEP_DELAY_MS));
         if (!mountedRef.current) return;
+
         setProgressVisible(false);
-        handlePostSuccess({
-          ...uploadData,
-          ...activateRes,
-          product: activateRes.product ?? uploadData.product,
-        });
-        clearDraft();
-        return;
-      }
+        setPaymentData(session);
+        showSuccess("Redirecting to payment…");
+        safeOpenPayment(payData.authorization_url, showError);
 
-      /* Paid plan */
-      setProgressStep("payment");
-      const rawPrice     = Number(finalPlan.price);
-      const discount     = Number(finalPlan.discount_percent ?? 0);
-      const effectiveAmt = Number(
-        (rawPrice * (1 - discount / 100)).toFixed(2)
-      );
+      } catch (err) {
+        console.error("[useAddProduct] create submit:", err);
+        if (mountedRef.current) setProgressVisible(false);
 
-      /* Safety net: send user.email if available */
-      const userEmail = userRef.current?.email ?? "";
-
-      const payData = await apiFetch(`${API_BASE}/payment/initiate`, {
-        method : "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization : `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          ...(userEmail ? { email: userEmail } : {}),
-          amount         : effectiveAmt,
-          plan_id        : String(finalPlan.id),
-          product_id     : product.id,
-          idempotency_key: getOrCreateIdempotencyKey(IDEMPOTENCY_STORE),
-        }),
-      });
-
-      if (!payData.authorization_url)
-        throw new ApiError("Payment setup failed", 500);
-
-      paymentInitiated = true;
-
-      const session = {
-        reference        : payData.reference,
-        authUrl          : payData.authorization_url,
-        planId           : String(finalPlan.id),
-        productId        : product.id,
-        amount           : effectiveAmt,
-        createdAt        : Date.now(),
-        needsVerification: uploadData.needs_verification ?? false,
-        activeUntil      : uploadData.active_until       ?? null,
-        daysRemaining    : uploadData.days_remaining     ?? null,
-      };
-      localStorage.setItem(STORAGE_PAYMENT, JSON.stringify(session));
-
-      setProgressStep("finalizing");
-      await new Promise((r) => setTimeout(r, STEP_DELAY_MS));
-      if (!mountedRef.current) return;
-
-      setProgressVisible(false);
-      setPaymentData(session);
-      showSuccess("Redirecting to payment…");
-      safeOpenPayment(payData.authorization_url, showError);
-
-    } catch (err) {
-      console.error("[useAddProduct] create submit:", err);
-      if (mountedRef.current) setProgressVisible(false);
-
-      /* Watermark block */
-      if (err?.status === 400 && err?.data?.reason === "watermark_policy") {
-        const blockedIndexes = Array.isArray(err.data?.blocked_images)
-          ? err.data.blocked_images
-          : [];
-        setWatermarkWarnings(
-          blockedIndexes.length > 0
-            ? blockedIndexes.map((index) => ({
-                imageIndex: index,
-                competitor: null,
-                message   : err.message,
-                isBlocked : true,
-              }))
-            : [{ imageIndex: null, competitor: null,
-                 message: err.message, isBlocked: true }]
-        );
-        setWatermarkNotice(
-          "Please replace the flagged photo(s) with original images and try again."
-        );
-        requestAnimationFrame(() => {
-          document
-            .querySelector(".wm-banner")
-            ?.scrollIntoView({ behavior: "smooth", block: "center" });
-        });
-        showError(
-          err.message ??
-          "One or more photos were rejected. Please replace them and try again."
-        );
-
-      /* 403 tier limit */
-      } else if (
-        err?.status === 403 &&
-        err?.data?.upgrade_required === true
-      ) {
-        const upTo  = err.data?.upgrade_to  ?? "verified";
-        const upUrl = err.data?.upgrade_url ?? "/verification";
-
-        if (upTo === "subscriber") {
-          setSubscriptionData({
-            message     : err.message ?? "You've reached your 500-listing limit.",
-            upgradeUrl  : upUrl,
-            lifetimeUsed: err.data?.lifetime_used ?? lifetimeUsed,
-            lifetimeMax : err.data?.lifetime_max  ?? 500,
+        /* ── Watermark policy error ── */
+        if (
+          err?.status === 400 &&
+          err?.data?.reason === "watermark_policy"
+        ) {
+          const blockedIndexes = Array.isArray(
+            err.data?.blocked_images
+          )
+            ? err.data.blocked_images
+            : [];
+          setWatermarkWarnings(
+            blockedIndexes.length > 0
+              ? blockedIndexes.map((index) => ({
+                  imageIndex: index,
+                  competitor: null,
+                  message   : err.message,
+                  isBlocked : true,
+                }))
+              : [{
+                  imageIndex: null,
+                  competitor: null,
+                  message   : err.message,
+                  isBlocked : true,
+                }]
+          );
+          setWatermarkNotice(
+            "Please replace the flagged photo(s) with " +
+            "original images and try again."
+          );
+          requestAnimationFrame(() => {
+            document
+              .querySelector(".wm-banner")
+              ?.scrollIntoView({
+                behavior: "smooth",
+                block   : "center",
+              });
           });
-          setNeedsSubscription(true);
+          /* No showError — WatermarkWarningBanner is the display */
+
+        /* ── Policy / limit errors ── */
+        } else if (
+          err?.status === 403 &&
+          err?.data?.upgrade_required === true
+        ) {
+          const upTo  = err.data?.upgrade_to  ?? "verified";
+          const upUrl = err.data?.upgrade_url ?? "/verification";
+
+          if (upTo === "subscriber") {
+            setSubscriptionData({
+              message     :
+                err.message ??
+                "You've reached your 500-listing limit.",
+              upgradeUrl  : upUrl,
+              lifetimeUsed:
+                err.data?.lifetime_used ?? lifetimeUsed,
+              lifetimeMax :
+                err.data?.lifetime_max  ?? 500,
+            });
+            setNeedsSubscription(true);
+          } else {
+            setVerificationData({
+              message     :
+                err.message ??
+                "You've used all free trial listings.",
+              upgradeUrl  : upUrl,
+              lifetimeUsed:
+                err.data?.lifetime_used ?? lifetimeUsed,
+              lifetimeMax :
+                err.data?.lifetime_max  ?? 3,
+            });
+            setNeedsVerification(true);
+          }
+          showError(err.message ?? "Posting limit reached.");
+
+        /* ── All other errors ── */
         } else {
-          setVerificationData({
-            message     : err.message ?? "You've used all free trial listings.",
-            upgradeUrl  : upUrl,
-            lifetimeUsed: err.data?.lifetime_used ?? lifetimeUsed,
-            lifetimeMax : err.data?.lifetime_max  ?? 3,
-          });
-          setNeedsVerification(true);
-        }
-        showError(err.message ?? "Posting limit reached.");
-
-      } else {
-        showError(err.message ?? "Submission failed — please try again");
-      }
-
-      /* Cleanup orphaned product */
-      if (product?.id && !paymentInitiated) {
-        const token = getToken();
-        if (token) {
-          fetch(`${API_BASE}/addproduct/products/${product.id}`, {
-            method : "DELETE",
-            headers: { Authorization: `Bearer ${token}` },
-          }).catch((e) =>
-            console.error("[useAddProduct] cleanup failed:", e)
+          showError(
+            err.message ?? "Submission failed — please try again"
           );
         }
+
+        /* Clean up orphaned product */
+        if (product?.id && !paymentInitiated) {
+          const token = getToken();
+          if (token) {
+            fetch(
+              `${API_BASE}/addproduct/products/${product.id}`,
+              {
+                method : "DELETE",
+                headers: { Authorization: `Bearer ${token}` },
+              }
+            ).catch((e) =>
+              console.error("[useAddProduct] cleanup failed:", e)
+            );
+          }
+        }
+
+        if (err?.status === 403) fetchLimits();
+
+      } finally {
+        if (mountedRef.current) setLoading(false);
+        isSubmittingRef.current = false;
       }
-
-      if (err?.status === 403) fetchLimits();
-
-    } finally {
-      if (mountedRef.current) setLoading(false);
-      isSubmittingRef.current = false;
-    }
-  }, [
-    validateForm, selectedPlan, promotionPlans, plansLoading,
-    buildCreateFormData, clearDraft, showError, showSuccess,
-    handlePostSuccess, fetchLimits, navigate,
-    IDEMPOTENCY_STORE, lifetimeUsed, clearAllFieldErrors,
-  ]);
+    },
+    [
+      validateForm, selectedPlan, promotionPlans, plansLoading,
+      buildCreateFormData, clearDraft, showError, showSuccess,
+      handlePostSuccess, fetchLimits, navigate,
+      IDEMPOTENCY_STORE, lifetimeUsed, clearAllFieldErrors,
+    ]
+  );
 
   /* ═══════════════════════════════════════════════════════════
-     CREATE SUBMIT — ENTRY (verify-before-pay guard)
+     CREATE SUBMIT — ENTRY POINT
+     Checks if paid plan + unverified → show modal first
   ═══════════════════════════════════════════════════════════ */
   const handleCreateSubmit = useCallback(() => {
     if (isSubmittingRef.current) return;
@@ -1411,7 +1526,8 @@ export function useAddProduct({ user }) {
       promotionPlans.find((p) => Number(p.price) === 0) ??
       null;
 
-    const isPaidPlan = !!finalPlan && Number(finalPlan.price) > 0;
+    const isPaidPlan =
+      !!finalPlan && Number(finalPlan.price) > 0;
 
     if (isPaidPlan && !isVerifiedSeller) {
       setShowVerifyBeforePay(true);
@@ -1425,7 +1541,7 @@ export function useAddProduct({ user }) {
     isVerifiedSeller, runCreateSubmit,
   ]);
 
-  /* Modal handlers */
+  /* ─── Verify Before Pay modal handlers ─── */
   const handleVerifyBeforePayVerify = useCallback(() => {
     setShowVerifyBeforePay(false);
     navigate("/verification");
@@ -1444,9 +1560,10 @@ export function useAddProduct({ user }) {
     runCreateSubmit(freePlan);
   }, [promotionPlans, runCreateSubmit]);
 
-  /* Route to correct submit */
+  /* ─── Unified submit ─── */
   const handleSubmit = useCallback(
-    () => (isEditMode ? handleEditSubmit() : handleCreateSubmit()),
+    () =>
+      isEditMode ? handleEditSubmit() : handleCreateSubmit(),
     [isEditMode, handleEditSubmit, handleCreateSubmit]
   );
 
@@ -1459,74 +1576,122 @@ export function useAddProduct({ user }) {
     apiBase: API_BASE,
 
     /* mode */
-    editId, isEditMode, editLoading, editError,
+    editId,
+    isEditMode,
+    editLoading,
+    editError,
 
     /* navigation */
     navigate,
 
-    /* form — ✅ using wrapped updaters that auto-clear field errors */
-    form, attributes,
+    /* form — wrapped updaters auto-clear field errors */
+    form,
+    attributes,
     updateForm            : updateFormWithClear,
     updateAttribute,
     updateContact         : updateContactWithClear,
     updateDelivery        : updateDeliveryWithClear,
     updateDeliveryDuration: updateDeliveryDurationWithClear,
     toggleFeature,
-    resetForm, loadForm,
+    resetForm,
+    loadForm,
 
     /* categories */
-    categories, categoriesLoaded, selectedCategory, options,
+    categories,
+    categoriesLoaded,
+    selectedCategory,
+    options,
 
     /* plans */
-    promotionPlans, plansLoading,
-    selectedPlan, setSelectedPlan, isSelectedPlanPaid,
+    promotionPlans,
+    plansLoading,
+    selectedPlan,
+    setSelectedPlan,
+    isSelectedPlanPaid,
 
-    /* location — ✅ wrapped setters that clear field errors */
-    locationState, city,
-    state: locationState,
+    /* location — wrapped setters clear field errors */
+    locationState,
+    city,
+    state           : locationState,
     setState        : setLocationStateWithClear,
     setLocationState: setLocationStateWithClear,
     setCity         : setCityWithClear,
-    states, cities,
-    detectLocation, detectingLocation, detectedCoords,
+    states,
+    cities,
+    detectLocation,
+    detectingLocation,
+    detectedCoords,
 
     /* images */
-    images, existingImages, removedImageKeys, totalImageCount,
-    compressingCount, compressingTotal,
-    loadExistingImages, handleImages, removeImage,
-    removeExistingImage, moveImage, moveAllImages, resetImages,
+    images,
+    existingImages,
+    removedImageKeys,
+    totalImageCount,
+    compressingCount,
+    compressingTotal,
+    loadExistingImages,
+    handleImages,
+    removeImage,
+    removeExistingImage,
+    moveImage,
+    moveAllImages,
+    resetImages,
 
     /* seller limits */
-    sellerLimits, limitsLoading, fetchLimits,
-    isVerifiedSeller, trialExhausted, trialRemaining,
-    dailyRemaining, activeRemaining, cooldownSecs, canPost,
+    sellerLimits,
+    limitsLoading,
+    fetchLimits,
+    isVerifiedSeller,
+    trialExhausted,
+    trialRemaining,
+    dailyRemaining,
+    activeRemaining,
+    cooldownSecs,
+    canPost,
 
     /* 3-tier */
-    tier, isSubscriber, lifetimeExhausted, lifetimeRemaining,
-    lifetimeUsed, lifetimeMax, upgradeTo, upgradeUrl,
+    tier,
+    isSubscriber,
+    lifetimeExhausted,
+    lifetimeRemaining,
+    lifetimeUsed,
+    lifetimeMax,
+    upgradeTo,
+    upgradeUrl,
 
     /* feedback */
-    error, success, showError, showSuccess,
+    error,
+    success,
+    showError,
+    showSuccess,
 
-    /* ✅ v8: field-level errors */
+    /* inline field errors */
     fieldError,
     clearFieldError,
     clearAllFieldErrors,
 
     /* payment */
-    paymentData, resumePayment, cancelPendingPayment,
+    paymentData,
+    resumePayment,
+    cancelPendingPayment,
 
     /* progress */
-    loading, progressVisible, progressStep,
+    loading,
+    progressVisible,
+    progressStep,
 
     /* verification */
-    needsVerification, verificationData,
+    needsVerification,
+    verificationData,
 
     /* subscription upsell */
-    needsSubscription, subscriptionData,
+    needsSubscription,
+    subscriptionData,
 
     /* watermark */
-    watermarkWarnings, watermarkNotice, dismissWatermarkWarnings,
+    watermarkWarnings,
+    watermarkNotice,
+    dismissWatermarkWarnings,
 
     /* verify-before-pay modal */
     showVerifyBeforePay,
@@ -1534,7 +1699,7 @@ export function useAddProduct({ user }) {
     handleVerifyBeforePayCancel,
     handleVerifyBeforePayFreePlan,
 
-    /* terms — ✅ wrapped to clear field error */
+    /* terms — wrapped to clear field error */
     agreedToTerms,
     setAgreedToTerms: setAgreedToTermsWithClear,
 
@@ -1546,6 +1711,9 @@ export function useAddProduct({ user }) {
     runCreateSubmit,
 
     /* formatters */
-    displayPrice, formatLabel, onlyNumbers, onlyDigits,
+    displayPrice,
+    formatLabel,
+    onlyNumbers,
+    onlyDigits,
   };
 }
