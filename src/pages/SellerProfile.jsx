@@ -2,16 +2,17 @@
  * src/pages/SellerProfile.jsx
  * Route: /seller/:id
  *
- * Pure public seller profile page.
+ * Pure public seller profile page with Adsterra ads.
  * No edit, no role checks, no dashboard links.
  * Uses GET /api/seller/:id and GET /api/seller/:id/products
  */
 
 import { useCallback, useEffect, useRef, useState, memo, useMemo } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import TopNav    from "../components/TopNav";
-import BottomNav from "../components/BottomNav";
+import TopNav        from "../components/TopNav";
+import BottomNav     from "../components/BottomNav";
 import SellerHeader, { fmtNum } from "../components/SellerHeader";
+import AdsterraBanner from "../components/AdsterraBanner";
 import "../styles/SellerProfile.css";
 
 /* ═══════════════════════════════════════════════════════════════
@@ -21,6 +22,16 @@ const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api`;
 const PH       = "https://placehold.co/400x300/f0ede8/b0a89e?text=Loemart";
 const PAGE_SZ  = 20;
+
+/* ── Adsterra ad keys (replace with your real keys from dashboard) ── */
+const AD_KEYS = {
+  topBanner:    "YOUR_TOP_BANNER_KEY_HERE",     // 320x50 mobile banner
+  inFeedBanner: "YOUR_INFEED_BANNER_KEY_HERE",  // 300x250 rectangle
+  bottomBanner: "YOUR_BOTTOM_BANNER_KEY_HERE",  // 320x50 mobile banner
+};
+
+/* Show an in-feed ad every N products */
+const AD_INTERVAL = 6;
 
 const SORT_OPTIONS = [
   { value: "newest",     label: "Newest"           },
@@ -601,6 +612,19 @@ export default function SellerProfile({ user }) {
   /* ── Product click ── */
   const onProductClick = useCallback((p) => navigate(`/product/${p.slug || p.id}`), [navigate]);
 
+  /* ── Build product grid items with injected ads ── */
+  const gridItems = useMemo(() => {
+    const items = [];
+    displayed.forEach((p, i) => {
+      items.push({ type: "product", data: p, key: `p-${p.id}` });
+      // Inject in-feed ad after every AD_INTERVAL items (but not at very end)
+      if ((i + 1) % AD_INTERVAL === 0 && i !== displayed.length - 1) {
+        items.push({ type: "ad", key: `ad-${i}` });
+      }
+    });
+    return items;
+  }, [displayed]);
+
   /* ══════════════════════════════════════════════════════════
      RENDER
   ══════════════════════════════════════════════════════════ */
@@ -612,6 +636,16 @@ export default function SellerProfile({ user }) {
         {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
         {showReport && <ReportModal sellerId={id} onClose={() => setShowReport(false)} showToast={showToast} navigate={navigate} user={user} />}
         {showQMsg && <QuickMessageModal onSelect={handleQMsg} onClose={() => setShowQMsg(false)} />}
+
+        {/* ══════════════════════════════════════════════════════
+            🎯 TOP AD BANNER (Adsterra)
+        ══════════════════════════════════════════════════════ */}
+        <AdsterraBanner
+          adKey={AD_KEYS.topBanner}
+          width={320}
+          height={50}
+          className="sp-top-ad"
+        />
 
         {/* ── Top bar ── */}
         <div className="sp-topbar">
@@ -706,9 +740,32 @@ export default function SellerProfile({ user }) {
               </div>
             )}
 
-            {displayed.length > 0 && (
+            {/* ══════════════════════════════════════════════════
+                Product grid with injected in-feed ads
+            ══════════════════════════════════════════════════ */}
+            {gridItems.length > 0 && (
               <div className="sp-grid" role="list" aria-label="Seller's listings">
-                {displayed.map((p) => <ProductCard key={p.id} product={p} onClick={onProductClick} />)}
+                {gridItems.map((item) => {
+                  if (item.type === "ad") {
+                    return (
+                      <div key={item.key} className="sp-grid-ad">
+                        <AdsterraBanner
+                          adKey={AD_KEYS.inFeedBanner}
+                          width={300}
+                          height={250}
+                          className="sp-infeed-ad"
+                        />
+                      </div>
+                    );
+                  }
+                  return (
+                    <ProductCard
+                      key={item.key}
+                      product={item.data}
+                      onClick={onProductClick}
+                    />
+                  );
+                })}
               </div>
             )}
 
@@ -723,6 +780,18 @@ export default function SellerProfile({ user }) {
 
             {!hasMore && products.length > 0 && !query && (
               <p className="sp-end-label">— All listings shown —</p>
+            )}
+
+            {/* ══════════════════════════════════════════════════
+                🎯 BOTTOM AD BANNER (Adsterra)
+            ══════════════════════════════════════════════════ */}
+            {!loading && seller && (
+              <AdsterraBanner
+                adKey={AD_KEYS.bottomBanner}
+                width={320}
+                height={50}
+                className="sp-bottom-ad"
+              />
             )}
           </div>
         )}
