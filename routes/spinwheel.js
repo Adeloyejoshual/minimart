@@ -10,7 +10,7 @@ import { writeAudit }   from "../lib/audit.js";
 
 import {
   WHEEL_SEGMENTS,
-  EARN_TASKS_DEF,
+  EARN_TASKS,
   TASK_MAP,
   SPIN_CONSTANTS,
 } from "../config/spinwheel.config.js";
