@@ -1,13 +1,14 @@
 /**
  * src/pages/ProductDetail.jsx
  *
- * v2 — PROFESSIONAL REWRITE
+ * Route: /product/:slug
+ *
+ * v3 — COMPLETE REWRITE
  * ─────────────────────────────────────────────────────────────
- *  - Stock status completely removed
- *  - Phone/WhatsApp optional — contact strip only shows
- *    buttons that have actual data
- *  - ContactStrip hides gracefully if no contact methods
- *  - All other features maintained
+ *  - Stock status removed entirely
+ *  - Phone/WhatsApp optional — no toasts for missing contacts
+ *  - ContactStrip only shows available contact methods
+ *  - Clean, professional UI
  */
 
 import {
@@ -33,14 +34,13 @@ import SafetyTips          from "./ProductDetail/SafetyTips";
 import SimilarProducts     from "./ProductDetail/SimilarProducts";
 import MoreFromSeller      from "./ProductDetail/MoreFromSeller";
 
-/* ── Styles ─────────────────────────────────────────────── */
 import "../styles/ProductDetail.css";
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTS
 ═══════════════════════════════════════════════════════════ */
-const BASE_URL      = import.meta.env.VITE_API_BASE_URL ||
-                      window.location.origin;
+const BASE_URL      =
+  import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API           = `${BASE_URL}/api`;
 const FAV_KEY       = "loemart_favs";
 const REVIEWS_LIMIT = 5;
@@ -94,7 +94,7 @@ const readUserId = () => {
 };
 
 /* ═══════════════════════════════════════════════════════════
-   FAVOURITES HELPERS
+   FAVOURITES
 ═══════════════════════════════════════════════════════════ */
 const loadFavs = () => {
   try {
@@ -128,9 +128,9 @@ const formatDeliveryValue = (v) => {
 };
 
 /* ═══════════════════════════════════════════════════════════
-   IMAGE URL HELPERS
+   IMAGE HELPERS
 ═══════════════════════════════════════════════════════════ */
-const optimizedUrl = (url, width = 1600) => {
+const optimizedUrl = (url, width = 1_600) => {
   if (!url || typeof url !== "string") return url;
   if (
     url.includes("res.cloudinary.com") &&
@@ -151,10 +151,6 @@ const optimizedUrl = (url, width = 1600) => {
   return url;
 };
 
-/* ═══════════════════════════════════════════════════════════
-   NORMALIZE IMAGES
-   Backend: [{ url, key, order }] → string[]
-═══════════════════════════════════════════════════════════ */
 const normalizeImages = (raw) => {
   if (Array.isArray(raw) && raw.length) {
     return raw
@@ -210,7 +206,10 @@ const Skeleton = memo(function Skeleton() {
 /* ═══════════════════════════════════════════════════════════
    ERROR STATE
 ═══════════════════════════════════════════════════════════ */
-const ErrorState = memo(function ErrorState({ message, onRetry }) {
+const ErrorState = memo(function ErrorState({
+  message,
+  onRetry,
+}) {
   return (
     <div className="pd-page" role="main">
       <div className="pd-error-wrap" role="alert">
@@ -375,10 +374,7 @@ const Specifications = memo(function Specifications({
                 i % 2 === 0 ? "pd-specs-row--even" : ""
               }
             >
-              <th
-                className="pd-specs-label"
-                scope="row"
-              >
+              <th className="pd-specs-label" scope="row">
                 {label}
               </th>
               <td className="pd-specs-value">
@@ -416,7 +412,9 @@ const Attributes = memo(function Attributes({ attributes }) {
       <div className="pd-attrs-grid">
         {rows.map(([k, v]) => (
           <div key={k} className="pd-attrs-row">
-            <span className="pd-attrs-label">{prettify(k)}</span>
+            <span className="pd-attrs-label">
+              {prettify(k)}
+            </span>
             <span className="pd-attrs-value">{String(v)}</span>
           </div>
         ))}
@@ -435,13 +433,15 @@ const DeliveryInfo = memo(function DeliveryInfo({ delivery }) {
     delivery.available === true ||
     delivery.available === "Yes";
 
-  const rows = Object.entries(delivery).filter(([key, value]) => {
-    if (value == null || String(value).trim() === "") return false;
-    if (key === "duration" && !available) return false;
-    if (typeof value === "object") return false;
-    return true;
-  });
-
+  const rows = Object.entries(delivery).filter(
+    ([key, value]) => {
+      if (value == null || String(value).trim() === "")
+        return false;
+      if (key === "duration" && !available) return false;
+      if (typeof value === "object") return false;
+      return true;
+    }
+  );
   if (!rows.length) return null;
 
   return (
@@ -449,7 +449,9 @@ const DeliveryInfo = memo(function DeliveryInfo({ delivery }) {
       className="pd-section"
       aria-label="Delivery information"
     >
-      <h3 className="pd-section-h">Delivery &amp; Shipping</h3>
+      <h3 className="pd-section-h">
+        Delivery &amp; Shipping
+      </h3>
       <div className="pd-delivery-grid">
         {rows.map(([k, v]) => (
           <div key={k} className="pd-delivery-row">
@@ -519,9 +521,10 @@ const SellerCard = memo(function SellerCard({
   product,
   onNavigate,
 }) {
-  const name     = product.seller_store ||
-                   product.seller_name  || "Seller";
-  const avatar   = product.seller_image  ?? null;
+  const name     =
+    product.seller_store ||
+    product.seller_name  || "Seller";
+  const avatar   = product.seller_image ?? null;
   const verified = product.seller_verified;
   const rating   = product.seller_rating;
   const trust    = product.seller_trust;
@@ -541,7 +544,6 @@ const SellerCard = memo(function SellerCard({
         aria-label={`View seller profile for ${name}`}
         onKeyDown={onEnter(onNavigate)}
       >
-        {/* Avatar */}
         <div className="pd-seller-avatar">
           {avatar ? (
             <img
@@ -565,7 +567,6 @@ const SellerCard = memo(function SellerCard({
           )}
         </div>
 
-        {/* Info */}
         <div className="pd-seller-info">
           <div className="pd-seller-name-row">
             <span className="pd-seller-name">{name}</span>
@@ -578,13 +579,11 @@ const SellerCard = memo(function SellerCard({
               </span>
             )}
           </div>
-
           {rating > 0 && (
             <div className="pd-seller-stats">
               <span>{Number(rating).toFixed(1)}★</span>
             </div>
           )}
-
           {trust != null && (
             <div
               className="pd-trust"
@@ -623,7 +622,6 @@ const SellerCard = memo(function SellerCard({
 ═══════════════════════════════════════════════════════════ */
 const SwapBadge = memo(function SwapBadge({ product }) {
   if (!product.is_p2p && !product.offer_type) return null;
-
   return (
     <div
       className="pd-section pd-swap-wrap"
@@ -645,11 +643,6 @@ const SwapBadge = memo(function SwapBadge({ product }) {
     </div>
   );
 });
-
-/*
- * ✅ StockStatus component REMOVED entirely.
- *    No stock-related UI anywhere in this page.
- */
 
 /* ═══════════════════════════════════════════════════════════
    MAIN COMPONENT
@@ -704,23 +697,22 @@ export default function ProductDetail({ user }) {
   );
 
   const viewerUrls = useMemo(
-    () => productImages.map((u) => optimizedUrl(u, 1600)),
+    () => productImages.map((u) => optimizedUrl(u, 1_600)),
     [productImages]
   );
 
-  /* ── Toast helpers ──────────────────────────────────── */
+  /* ── Toast ──────────────────────────────────────────── */
   const showToast = useCallback(
     (message, type = "error") => setToast({ message, type }),
     []
   );
   const dismissToast = useCallback(() => setToast(null), []);
 
-  /* ── Viewer helpers ─────────────────────────────────── */
+  /* ── Viewer ─────────────────────────────────────────── */
   const openViewer = useCallback((index = 0) => {
     setViewerIndex(index);
     setViewerOpen(true);
   }, []);
-
   const closeViewer = useCallback(
     () => setViewerOpen(false),
     []
@@ -737,8 +729,8 @@ export default function ProductDetail({ user }) {
     }
 
     abortRef.current?.abort();
-    const controller  = new AbortController();
-    abortRef.current  = controller;
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setLoading(true);
     setError(null);
@@ -748,7 +740,6 @@ export default function ProductDetail({ user }) {
         `${API}/product/slug/${encodeURIComponent(slug)}`,
         { signal: controller.signal }
       );
-
       if (res.status === 404)
         throw new Error("Product not found");
       if (!res.ok)
@@ -759,9 +750,8 @@ export default function ProductDetail({ user }) {
       addSingleProduct?.(data);
       setFav(!!loadFavs()[data.id]);
     } catch (err) {
-      if (err.name !== "AbortError") {
+      if (err.name !== "AbortError")
         setError(err.message || "Something went wrong");
-      }
     } finally {
       setLoading(false);
     }
@@ -780,7 +770,6 @@ export default function ProductDetail({ user }) {
   ═════════════════════════════════════════════════════ */
   useEffect(() => {
     if (!product?.id) return;
-
     const { id, seller_id, category_id } = product;
 
     const jobs = [
@@ -793,7 +782,9 @@ export default function ProductDetail({ user }) {
           })}`
         )
           .then((r) => (r.ok ? r.json() : []))
-          .then((d) => setMoreSeller(Array.isArray(d) ? d : []))
+          .then((d) =>
+            setMoreSeller(Array.isArray(d) ? d : [])
+          )
           .catch(() => {}),
 
       category_id &&
@@ -805,7 +796,9 @@ export default function ProductDetail({ user }) {
           })}`
         )
           .then((r) => (r.ok ? r.json() : []))
-          .then((d) => setSimilar(Array.isArray(d) ? d : []))
+          .then((d) =>
+            setSimilar(Array.isArray(d) ? d : [])
+          )
           .catch(() => {}),
     ].filter(Boolean);
 
@@ -902,7 +895,8 @@ export default function ProductDetail({ user }) {
     const waNumber =
       product.whatsapp || product.contact?.whatsapp;
     const waLink   =
-      product.whatsapp_link || product.contact?.whatsapp_link;
+      product.whatsapp_link ||
+      product.contact?.whatsapp_link;
     const msg      = encodeURIComponent(
       `Hi, I'm interested in: ${product.title} — ` +
       `${window.location.href}`
@@ -915,24 +909,26 @@ export default function ProductDetail({ user }) {
           }?text=${msg}`
         : null);
 
+    /*
+     * ✅ No toast — button only renders when url exists
+     */
     if (url) {
       window.open(url, "_blank", "noopener,noreferrer");
-    } else {
-      showToast("No WhatsApp contact available.", "info");
     }
-  }, [product, isOwn, showToast]);
+  }, [product, isOwn]);
 
   /* ── Call ─────────────────────────────────────────── */
   const openCall = useCallback(() => {
     if (isOwn) return;
     const phone =
       product?.phone || product?.contact?.phone;
+    /*
+     * ✅ No toast — button only renders when phone exists
+     */
     if (phone) {
       window.location.href = `tel:${phone}`;
-    } else {
-      showToast("No phone number available.", "info");
     }
-  }, [product, isOwn, showToast]);
+  }, [product, isOwn]);
 
   /* ── Chat ─────────────────────────────────────────── */
   const openChat = useCallback(async () => {
@@ -977,7 +973,7 @@ export default function ProductDetail({ user }) {
     }
   }, [userId, isOwn, product, slug, navigate, showToast]);
 
-  /* ── Navigation helpers ───────────────────────────── */
+  /* ── Navigation ───────────────────────────────────── */
   const goProduct = useCallback(
     (p) => navigate(`/product/${p.slug || p.id}`),
     [navigate]
@@ -1051,10 +1047,6 @@ export default function ProductDetail({ user }) {
           onClose={closeViewer}
         />
       )}
-
-      {/*
-       * ✅ StockStatus REMOVED — no stock UI anywhere
-       */}
 
       {/* ── Swap / P2P badge ───────────────────────── */}
       <SwapBadge product={product} />
