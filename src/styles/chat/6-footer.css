@@ -151,7 +151,8 @@
 ═══════════════════════════════════════════════════════════════ */
 .chat-footer {
   display: flex;
-  align-items: center;
+  align-items: flex-end;   /* ← changed from center so send btn
+                               stays pinned to bottom as textarea grows */
   gap: 8px;
   padding: 8px 10px;
   background: var(--chat-surface);
@@ -163,6 +164,7 @@
   color: var(--brand);
 }
 
+/* ── Textarea (was <input type="text">) ── */
 .chat-input {
   flex: 1;
   padding: 11px 16px;
@@ -176,6 +178,21 @@
   transition: background .15s, border-color .15s, box-shadow .15s;
   -webkit-appearance: none;
   appearance: none;
+
+  /* ── textarea-specific additions ── */
+  resize: none;             /* hide the drag handle           */
+  overflow-y: auto;         /* scroll when capped at max      */
+  min-height: 44px;         /* same visual height as before   */
+  max-height: 120px;        /* ~5 lines before it scrolls     */
+  line-height: 1.45;
+  display: block;           /* removes inline baseline gap    */
+
+  /* smooth height animation */
+  transition:
+    background  .15s,
+    border-color .15s,
+    box-shadow  .15s,
+    height      .1s ease;
 }
 .chat-input::placeholder { color: var(--text-muted); }
 .chat-input:focus {
@@ -184,6 +201,7 @@
   box-shadow: 0 0 0 2px var(--brand-soft);
 }
 
+/* ── Send button ── */
 .chat-send-btn {
   width: 42px;
   height: 42px;
@@ -197,6 +215,10 @@
   justify-content: center;
   transition: background .15s, transform .1s;
   flex-shrink: 0;
+
+  /* keep btn pinned to bottom edge while textarea grows */
+  align-self: flex-end;
+  margin-bottom: 1px;
 }
 .chat-send-btn:hover:not(:disabled)  { background: var(--brand-hover) !important; }
 .chat-send-btn:active:not(:disabled) { transform: scale(.94); }
@@ -206,7 +228,14 @@
   cursor: default;
 }
 
-/* Attach popover */
+/* ── Attach icon button — same bottom-pin ── */
+.chat-icon-btn {
+  align-self: flex-end;
+  margin-bottom: 1px;
+  flex-shrink: 0;
+}
+
+/* ── Attach popover ── */
 .attach-popover {
   position: absolute;
   bottom: 62px;
