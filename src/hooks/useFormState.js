@@ -1,10 +1,10 @@
 /**
  * hooks/useFormState.js
  *
- * v3 — COMPLETE REWRITE
+ * v4 — COMPLETE REWRITE
  * ─────────────────────────────────────────────────────────────
  *  - Email removed from contact (lives in users table only)
- *  - Phone is optional
+ *  - Phone is OPTIONAL (empty string is valid)
  *  - Clean, minimal, well-commented
  */
 
@@ -53,9 +53,8 @@ export const INITIAL_FORM = Object.freeze({
   }),
 
   /*
-   * ✅ Contact — phone is OPTIONAL (empty string is valid)
-   * ✅ Email is intentionally absent — never stored here
-   *    Email is always read fresh from users table by backend
+   * ✅ Phone OPTIONAL — empty string is valid
+   * ✅ Email intentionally absent — always read from users table
    */
   contact: Object.freeze({
     phone        : "",   /* optional */
@@ -85,7 +84,6 @@ export function useFormState(initial = null) {
   const updateAttribute = useCallback((key, value) => {
     setForm((prev) => {
       const next = { ...prev.attributes, [key]: value };
-      /* Reset dependent fields */
       if (key === "brand")     next.model      = "";
       if (key === "condition") next.used_detail = "";
       return { ...prev, attributes: next };
@@ -94,8 +92,8 @@ export function useFormState(initial = null) {
 
   /*
    * ── Update contact field ──
-   * ✅ email key silently ignored — never stored in form state
-   *    backend always reads fresh from users table
+   * ✅ email key silently ignored — email is never stored in
+   *    form state. Backend always reads from users table.
    */
   const updateContact = useCallback((key, value) => {
     if (key === "email") {
@@ -189,7 +187,8 @@ export function useFormState(initial = null) {
 
       /*
        * ✅ Phone loaded from product data — may be empty string
-       * ✅ Email intentionally excluded — backend reads from users table
+       * ✅ Email intentionally excluded — backend reads from
+       *    users table, not from product data
        */
       contact: {
         phone        : data.phone         ||
