@@ -4,17 +4,23 @@
  * GET  /api/payment/plans
  * POST /api/payment/initiate
  * POST /api/payment/verify
- * POST /api/payment/webhook   (mount with express.raw)
+ * POST /api/payment/verify-by-product   ← NEW: Fallback for "Check Status"
+ * GET  /api/payment/status/:productId   ← NEW: Poll payment status
+ * GET  /api/payment/debug/:productId    ← NEW: Debugging (protected)
+ * POST /api/payment/webhook             (mount with express.raw)
  *
- * v6 — COMPLETE REWRITE
+ * v7 — COMPLETE REWRITE with Recovery Logic
  * ─────────────────────────────────────────────────────────────
- *  - Email ALWAYS from users table — never from req.body
- *  - Free plans skip Paystack → direct activation
- *  - Paid plans go through Paystack
- *  - Shared applyPromotion helper (idempotent)
- *  - Webhook deduplication via payload hash
- *  - Full CockroachDB compatibility
- *  - Cleanup cron exported for scheduler
+ *  ✅ Email ALWAYS from users table
+ *  ✅ Free plans skip Paystack → direct activation
+ *  ✅ Paid plans go through Paystack
+ *  ✅ Auto-recovery: /verify-by-product for stuck payments
+ *  ✅ Status polling endpoint for frontend
+ *  ✅ Debug endpoint for troubleshooting
+ *  ✅ Shared verify logic (DRY)
+ *  ✅ Webhook deduplication via payload hash
+ *  ✅ Full CockroachDB compatibility
+ *  ✅ Cleanup cron exported for scheduler
  */
 
 import express   from "express";
@@ -40,29 +46,18 @@ const FRONTEND_URL      = process.env.FRONTEND_URL?.replace(/\/$/, "");
    DEBUG LOGGER
 ═══════════════════════════════════════════════════════════════ */
 const logError = (area, err, extra = {}) => {
-  console.error(
-    "\n╔══════════════════════════════════════════════════╗"
-  );
+  console.error("\n╔══════════════════════════════════════════════════╗");
   console.error(`║ [payment] ❌ ERROR in: ${area}`);
-  console.error(
-    "╠══════════════════════════════════════════════════╣"
-  );
+  console.error("╠══════════════════════════════════════════════════╣");
   console.error("║ Message   :", err.message);
   console.error("║ Code      :", err.code       ?? "none");
   console.error("║ Detail    :", err.detail     ?? "none");
   console.error("║ Constraint:", err.constraint ?? "none");
   if (Object.keys(extra).length) {
-    console.error(
-      "║ Extra     :", JSON.stringify(extra, null, 2)
-    );
+    console.error("║ Extra     :", JSON.stringify(extra, null, 2));
   }
-  console.error(
-    "║ Stack     :",
-    err.stack?.split("\n")[1]?.trim() ?? "none"
-  );
-  console.error(
-    "╚══════════════════════════════════════════════════╝\n"
-  );
+  console.error("║ Stack     :", err.stack?.split("\n")[1]?.trim() ?? "none");
+  console.error("╚══════════════════════════════════════════════════╝\n");
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -86,8 +81,13 @@ const initiateLimiter = makeLimiter({
 });
 const verifyLimiter   = makeLimiter({
   windowMin: 5,
-  max      : IS_PROD ? 20 : 500,
+  max      : IS_PROD ? 30 : 500,
   message  : "Too many verification requests. Slow down.",
+});
+const statusLimiter   = makeLimiter({
+  windowMin: 1,
+  max      : IS_PROD ? 60 : 500,
+  message  : "Too many status checks. Slow down.",
 });
 
 /* ═══════════════════════════════════════════════════════════════
@@ -105,9 +105,7 @@ const cleanUuid = (v) => {
 
 const fail = (res, status, message, extra = {}) => {
   console.log(`[payment] ↩ ${status}: ${message}`);
-  return res
-    .status(status)
-    .json({ success: false, message, ...extra });
+  return res.status(status).json({ success: false, message, ...extra });
 };
 
 const getIp = (req) =>
@@ -128,9 +126,7 @@ const daysFromNow = (date) => {
   if (!date) return null;
   return Math.max(
     0,
-    Math.ceil(
-      (new Date(date).getTime() - Date.now()) / 86_400_000
-    )
+    Math.ceil((new Date(date).getTime() - Date.now()) / 86_400_000)
   );
 };
 
@@ -174,7 +170,7 @@ const paystackInitialize = async ({
   reference,
   metadata,
   productId,
-  callbackPath = "/payment/success",
+  callbackPath = "/payment/complete",
 }) => {
   try {
     const callbackUrl =
@@ -202,9 +198,7 @@ const paystackInitialize = async ({
       message         : data?.message                 ?? "Unknown error",
     };
   } catch (err) {
-    console.error(
-      "[payment] Paystack initialize error:", err.message
-    );
+    console.error("[payment] Paystack initialize error:", err.message);
     return {
       ok: false, authorizationUrl: null,
       reference, message: err.message,
@@ -215,8 +209,7 @@ const paystackInitialize = async ({
 const paystackVerify = async (reference) => {
   try {
     const { data } = await axios.get(
-      `https://api.paystack.co/transaction/verify/` +
-      `${encodeURIComponent(reference)}`,
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,
       { headers: paystackHeaders(), timeout: 15_000 }
     );
     return {
@@ -240,20 +233,14 @@ const paystackVerify = async (reference) => {
    DB HELPERS
 ═══════════════════════════════════════════════════════════════ */
 
-/* Always fetch email from users table — never req.body */
 const getSellerEmail = async (db, sellerId) => {
   const { rows } = await db.query(
     `SELECT email FROM public.users WHERE id = $1 LIMIT 1`,
     [sellerId]
   );
   if (!rows.length || !rows[0].email)
-    throw new Error(
-      "Account email not found. Please contact support."
-    );
-  console.log(
-    `[payment] ✅ email fetched from users table ` +
-    `for seller: ${sellerId}`
-  );
+    throw new Error("Account email not found. Please contact support.");
+  console.log(`[payment] ✅ email fetched from users table for seller: ${sellerId}`);
   return rows[0].email;
 };
 
@@ -283,10 +270,7 @@ const isSellerVerified = async (db, sellerId) => {
   return Boolean(rows[0]?.identity_verified);
 };
 
-/* Log payment event — fire and forget */
-const logPaymentEvent = async (
-  paymentId, event, source, payload = {}
-) => {
+const logPaymentEvent = async (paymentId, event, source, payload = {}) => {
   try {
     await pool.query(
       `INSERT INTO payment_events
@@ -299,7 +283,6 @@ const logPaymentEvent = async (
   }
 };
 
-/* Deduplicated notification */
 const sendPaymentNotification = async ({
   userId,
   type,
@@ -325,16 +308,12 @@ const sendPaymentNotification = async ({
       ]
     );
   } catch (err) {
-    console.error(
-      "[payment] sendPaymentNotification:", err.message
-    );
+    console.error("[payment] sendPaymentNotification:", err.message);
   }
 };
 
 /* ═══════════════════════════════════════════════════════════════
    CORE: ACTIVATE PRODUCT FOR PAYMENT
-   Called inside an existing transaction.
-   ✅ Works for both free and paid plans.
 ═══════════════════════════════════════════════════════════════ */
 const activateProductForPayment = async (client, {
   paymentId,
@@ -343,7 +322,6 @@ const activateProductForPayment = async (client, {
   sellerId,
   source = "unknown",
 }) => {
-  /* Fetch plan */
   const { rows: planRows } = await client.query(
     `SELECT name, duration_days, priority
      FROM   promotion_plans
@@ -356,7 +334,6 @@ const activateProductForPayment = async (client, {
   const plan      = planRows[0];
   const expiresAt = promotionExpiresAt(plan.duration_days);
 
-  /* Lock product row */
   const { rows: lockRows } = await client.query(
     `SELECT id, seller_id, status
      FROM   products
@@ -369,11 +346,8 @@ const activateProductForPayment = async (client, {
     throw new Error(`Product ${productId} not found.`);
 
   if (lockRows[0].seller_id !== sellerId)
-    throw new Error(
-      `Product ${productId} not owned by seller ${sellerId}.`
-    );
+    throw new Error(`Product ${productId} not owned by seller ${sellerId}.`);
 
-  /* Mark payment success */
   await client.query(
     `UPDATE payments
      SET    status = 'success', updated_at = NOW()
@@ -381,7 +355,6 @@ const activateProductForPayment = async (client, {
     [paymentId]
   );
 
-  /* Check seller verification */
   const verified    = await isSellerVerified(client, sellerId);
   const finalStatus = verified ? "active" : "active_limited";
 
@@ -392,7 +365,6 @@ const activateProductForPayment = async (client, {
     activeUntil = d;
   }
 
-  /* Activate + promote */
   const { rowCount } = await client.query(
     `UPDATE products
      SET
@@ -424,8 +396,7 @@ const activateProductForPayment = async (client, {
 
   if (!rowCount)
     throw new Error(
-      `Could not activate product ${productId} — ` +
-      `ownership mismatch.`
+      `Could not activate product ${productId} — ownership mismatch.`
     );
 
   console.log(
@@ -448,14 +419,284 @@ const activateProductForPayment = async (client, {
 };
 
 /* ═══════════════════════════════════════════════════════════════
+   SHARED: VERIFY PAYMENT BY REFERENCE
+   Used by /verify AND /verify-by-product
+═══════════════════════════════════════════════════════════════ */
+const performVerification = async ({ reference, sellerId, req }) => {
+  const ps = await paystackVerify(reference);
+
+  console.log(
+    "[payment] Paystack:",
+    ps.status, "|", ps.currency, "|", ps.amountKobo
+  );
+
+  if (!ps.ok) {
+    return {
+      httpStatus: 502,
+      body: { success: false, message: "Could not reach payment provider." },
+    };
+  }
+
+  if (ps.currency && ps.currency !== ACCEPTED_CURRENCY) {
+    console.error("[payment] wrong currency:", ps.currency);
+    return {
+      httpStatus: 402,
+      body: {
+        success: false,
+        message: `Invalid currency "${ps.currency}". Only ${ACCEPTED_CURRENCY} is accepted.`,
+      },
+    };
+  }
+
+  if (ps.status === "pending") {
+    return {
+      httpStatus: 200,
+      body: {
+        success: false,
+        status : "pending",
+        message: "Payment is still processing. Please check back in a few minutes.",
+      },
+    };
+  }
+
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    const { rows: payRows } = await client.query(
+      `SELECT id, product_id,
+              plan_id::text AS plan_id,
+              amount, status
+       FROM   payments
+       WHERE  reference = $1
+         AND  seller_id = $2
+       FOR UPDATE`,
+      [reference, sellerId]
+    );
+
+    if (!payRows.length) {
+      await client.query("ROLLBACK");
+      return {
+        httpStatus: 404,
+        body: { success: false, message: "Payment record not found." },
+      };
+    }
+
+    const payment   = payRows[0];
+    const productId = payment.product_id;
+    const planId    = payment.plan_id;
+
+    /* Already confirmed */
+    if (payment.status === "success") {
+      await client.query("ROLLBACK");
+
+      const { rows: pRows } = await pool.query(
+        `SELECT status, active_until, is_promoted, promotion_end
+         FROM   products WHERE id = $1`,
+        [productId]
+      );
+      const p    = pRows[0] ?? {};
+      const days = daysFromNow(p.active_until);
+
+      return {
+        httpStatus: 200,
+        body: {
+          success            : true,
+          status             : "success",
+          already_confirmed  : true,
+          message            : "Payment already confirmed — your listing is live.",
+          is_promoted        : !!p.is_promoted,
+          needs_verification : p.status === "active_limited",
+          active_until       : p.active_until   ?? null,
+          promoted_until     : p.promotion_end  ?? null,
+          days_remaining     : days,
+        },
+      };
+    }
+
+    /* Success */
+    if (ps.status === "success") {
+      const expectedKobo = Math.round(Number(payment.amount) * 100);
+      if (ps.amountKobo && ps.amountKobo < expectedKobo) {
+        console.error(
+          "[payment] amount mismatch",
+          "expected:", expectedKobo,
+          "received:", ps.amountKobo
+        );
+        logPaymentEvent(
+          payment.id, "payment.amount_mismatch", "verify",
+          { expected: expectedKobo, received: ps.amountKobo }
+        );
+        await client.query("ROLLBACK");
+        return {
+          httpStatus: 402,
+          body: {
+            success: false,
+            message: "Payment amount does not match. Contact support.",
+          },
+        };
+      }
+
+      const result = await activateProductForPayment(client, {
+        paymentId : payment.id,
+        productId,
+        planId,
+        sellerId,
+        source    : "verify",
+      });
+
+      await client.query("COMMIT");
+
+      logPaymentEvent(
+        payment.id, "charge.success", "verify",
+        {
+          status           : result.finalStatus,
+          needsVerification: result.needsVerification,
+        }
+      );
+
+      setImmediate(() => {
+        if (!result.needsVerification)
+          reactivateLimitedListings(sellerId).catch(() => {});
+
+        sendPaymentNotification({
+          userId   : sellerId,
+          type     : "payment_success",
+          title    : "Payment Confirmed",
+          paymentId: payment.id,
+          message  : result.needsVerification
+            ? "Your listing is live for 7 days. Verify to make it permanent."
+            : "Payment confirmed — your listing is now live.",
+        });
+
+        writeAudit({
+          actorId   : sellerId,
+          action    : "payment_verified",
+          targetType: "payment",
+          targetId  : String(payment.id),
+          metadata  : { reference, status: "success", source: "verify" },
+          ipAddress : getIp(req),
+        }).catch(() => {});
+      });
+
+      const days = daysFromNow(result.activeUntil);
+
+      return {
+        httpStatus: 200,
+        body: {
+          success            : true,
+          status             : "success",
+          message            : "Payment confirmed — your listing is now live.",
+          is_promoted        : true,
+          needs_verification : result.needsVerification,
+          active_until       : result.activeUntil  ?? null,
+          promoted_until     : result.expiresAt    ?? null,
+          days_remaining     : days,
+          ...(result.needsVerification && {
+            verification_message:
+              `Your listing is live for ${days ?? PROMO_DEFAULT_DAYS} day(s). ` +
+              "Verify your identity to make it permanent.",
+          }),
+        },
+      };
+    }
+
+    /* Failed / abandoned */
+    const newStatus = ps.status === "abandoned" ? "cancelled" : "failed";
+
+    await client.query(
+      `UPDATE payments
+       SET status=$1, updated_at=NOW()
+       WHERE id=$2`,
+      [newStatus, payment.id]
+    );
+    await client.query(
+      `UPDATE products
+       SET status='draft', is_active=FALSE, updated_at=NOW()
+       WHERE id=$1`,
+      [productId]
+    );
+
+    await client.query("COMMIT");
+
+    logPaymentEvent(
+      payment.id, `payment.${newStatus}`, "verify",
+      { paystackStatus: ps.status }
+    );
+
+    setImmediate(() => {
+      sendPaymentNotification({
+        userId   : sellerId,
+        type     : "payment_failed",
+        title    : ps.status === "abandoned" ? "Payment Cancelled" : "Payment Failed",
+        message  : ps.status === "abandoned"
+          ? "Payment cancelled. Your listing was saved as a draft."
+          : "Payment failed. Please try again.",
+        paymentId: payment.id,
+      });
+    });
+
+    return {
+      httpStatus: 200,
+      body: {
+        success: false,
+        status : newStatus,
+        message: ps.status === "abandoned"
+          ? "Payment was cancelled — your listing has been saved as a draft."
+          : "Payment failed — your listing has been saved as a draft. Please try again.",
+      },
+    };
+
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    logError("performVerification", err, { reference, sellerId });
+    return {
+      httpStatus: 500,
+      body: { success: false, message: "Verification failed. Please contact support." },
+    };
+  } finally {
+    client.release();
+  }
+};
+
+/* ═══════════════════════════════════════════════════════════════
    CRON UTILITY — cleanupStuckPendingPayments
-   Reverts products stuck in pending_payment.
-   Call every 15 minutes from your scheduler.
 ═══════════════════════════════════════════════════════════════ */
 export const cleanupStuckPendingPayments = async () => {
   const client = await pool.connect();
   try {
-    /* 1. Revert stuck products */
+    /* 1. Try to verify pending payments before killing them */
+    const { rows: pending } = await client.query(
+      `SELECT id, reference, seller_id, product_id
+       FROM   payments
+       WHERE  status     = 'pending'
+         AND  method     = 'paystack'
+         AND  created_at < NOW() - INTERVAL '10 minutes'
+         AND  created_at > NOW() - INTERVAL '30 minutes'
+       LIMIT  50`
+    );
+
+    for (const p of pending) {
+      try {
+        const ps = await paystackVerify(p.reference);
+        if (ps.ok && ps.status === "success") {
+          console.log(
+            `[payment] cron: recovering payment ${p.id} (${p.reference})`
+          );
+          const result = await performVerification({
+            reference: p.reference,
+            sellerId : p.seller_id,
+            req      : { ip: "cron" },
+          });
+          console.log(`[payment] cron: recovery result:`, result.body.status);
+        }
+      } catch (err) {
+        console.error(`[payment] cron recovery error ${p.reference}:`, err.message);
+      }
+    }
+
+    /* 2. Revert stuck products (older than 30 min) */
     const { rows: products, rowCount } = await client.query(
       `UPDATE products
        SET    status     = 'draft',
@@ -465,7 +706,7 @@ export const cleanupStuckPendingPayments = async () => {
        RETURNING id, seller_id, title`
     );
 
-    /* 2. Expire associated pending payment rows */
+    /* 3. Expire associated pending payment rows */
     if (products.length) {
       await client.query(
         `UPDATE payments
@@ -477,7 +718,7 @@ export const cleanupStuckPendingPayments = async () => {
       );
     }
 
-    /* 3. Expire orphaned pending payments > 30 min */
+    /* 4. Expire orphaned pending payments > 30 min */
     await client.query(
       `UPDATE payments
        SET    status     = 'expired',
@@ -487,9 +728,7 @@ export const cleanupStuckPendingPayments = async () => {
     );
 
     if (rowCount > 0) {
-      console.log(
-        `[payment] cleanup: reverted ${rowCount} stuck listing(s)`
-      );
+      console.log(`[payment] cleanup: reverted ${rowCount} stuck listing(s)`);
 
       const bySeller = products.reduce((acc, r) => {
         const key = String(r.seller_id);
@@ -503,8 +742,7 @@ export const cleanupStuckPendingPayments = async () => {
           type   : "payment_expired",
           title  : "Payment Session Expired",
           message:
-            `${titles.length} listing` +
-            `${titles.length !== 1 ? "s" : ""} ` +
+            `${titles.length} listing${titles.length !== 1 ? "s" : ""} ` +
             "returned to draft because the payment session expired. " +
             "Please try again.",
         }).catch(() => {});
@@ -555,9 +793,6 @@ router.get("/plans", async (_req, res) => {
 
 /* ═══════════════════════════════════════════════════════════════
    POST /initiate
-   ✅ Free plans → direct activation
-   ✅ Paid plans → Paystack
-   ✅ Email always from users table
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/initiate",
@@ -567,32 +802,21 @@ router.post(
     const sellerId       = cleanUuid(req.user?.id);
     const productId      = cleanUuid(req.body.product_id);
     const planId         = cleanBigInt(req.body.plan_id);
-    const idempotencyKey =
-      String(req.body.idempotency_key ?? "").trim() || null;
+    const idempotencyKey = String(req.body.idempotency_key ?? "").trim() || null;
 
     console.log("\n[payment] ▶ /initiate");
     console.log("  seller :", sellerId);
     console.log("  product:", productId);
     console.log("  plan   :", planId);
-    console.log(
-      "  NOTE: email fetched from users table — " +
-      "req.body.email ignored"
-    );
 
     if (!sellerId)  return fail(res, 401, "Authentication required.");
     if (!productId) return fail(res, 400, "Product ID required.");
-    if (!planId)    return fail(res, 400,
-      `Plan ID required. Received: ` +
-      `${JSON.stringify(req.body.plan_id)}`
-    );
+    if (!planId)    return fail(res, 400, `Plan ID required.`);
 
-    /* ── Load plan ── */
     let plan;
     try {
       plan = await loadPlan(planId);
-      if (!plan)
-        return fail(res, 400,
-          `Promotion plan not found (id: ${planId}).`);
+      if (!plan) return fail(res, 400, `Promotion plan not found (id: ${planId}).`);
     } catch (err) {
       logError("loadPlan", err, { planId });
       return fail(res, 500, "Failed to load plan details.");
@@ -601,13 +825,8 @@ router.post(
     const finalAmount = Number(plan.effective_price ?? 0);
     const isFree      = finalAmount === 0;
 
-    console.log(
-      "  plan   :", plan.name,
-      "| amount:", finalAmount,
-      "| isFree:", isFree
-    );
+    console.log("  plan   :", plan.name, "| amount:", finalAmount, "| isFree:", isFree);
 
-    /* ── Verify product ownership ── */
     let product;
     try {
       const { rows } = await pool.query(
@@ -619,17 +838,13 @@ router.post(
         [productId, sellerId]
       );
       if (!rows.length)
-        return fail(res, 404,
-          "Product not found or not owned by you.");
+        return fail(res, 404, "Product not found or not owned by you.");
       product = rows[0];
     } catch (err) {
-      logError("product ownership check", err, {
-        sellerId, productId,
-      });
+      logError("product ownership check", err, { sellerId, productId });
       return fail(res, 500, "Failed to verify product.");
     }
 
-    /* ── Check already actively promoted ── */
     const promotionStillActive =
       product.is_promoted &&
       product.promotion_end &&
@@ -639,8 +854,7 @@ router.post(
       const daysLeft = daysFromNow(product.promotion_end);
       return fail(
         res, 409,
-        `This listing is already promoted for ` +
-        `${daysLeft} more day(s).`,
+        `This listing is already promoted for ${daysLeft} more day(s).`,
         {
           is_promoted   : true,
           promoted_until: product.promotion_end,
@@ -659,24 +873,18 @@ router.post(
       try {
         await client.query("BEGIN");
 
-        const ref = `free_${Date.now()}_` +
-                    `${crypto.randomBytes(4).toString("hex")}`;
+        const ref = `free_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
 
         const { rows: payRows } = await client.query(
           `INSERT INTO payments
-             (seller_id, product_id, plan_id,
-              amount, reference,
+             (seller_id, product_id, plan_id, amount, reference,
               status, type, method, metadata)
            VALUES
-             ($1,$2,$3,
-              0,$4,
+             ($1,$2,$3, 0,$4,
               'success','promotion','free',$5)
            RETURNING id`,
           [
-            sellerId,
-            productId,
-            plan.id,
-            ref,
+            sellerId, productId, plan.id, ref,
             JSON.stringify({
               plan_name: plan.name,
               is_free  : true,
@@ -697,10 +905,7 @@ router.post(
 
         await client.query("COMMIT");
 
-        console.log(
-          "[payment] ✓ free plan activated  status:",
-          result.finalStatus
-        );
+        console.log("[payment] ✓ free plan activated  status:", result.finalStatus);
 
         logPaymentEvent(
           paymentId, "promotion.free_activated", "api",
@@ -712,9 +917,7 @@ router.post(
             userId   : sellerId,
             type     : "promotion_active",
             title    : "Promotion Active 🚀",
-            message  :
-              `Your listing is now promoted with ` +
-              `the "${plan.name}" plan.`,
+            message  : `Your listing is now promoted with the "${plan.name}" plan.`,
             paymentId,
           });
 
@@ -723,21 +926,15 @@ router.post(
             action    : "promotion_free_activated",
             targetType: "payment",
             targetId  : String(paymentId),
-            metadata  : {
-              plan     : plan.name,
-              productId,
-              isFree   : true,
-            },
-            ipAddress: getIp(req),
+            metadata  : { plan: plan.name, productId, isFree: true },
+            ipAddress : getIp(req),
           }).catch(() => {});
 
           if (!result.needsVerification)
             reactivateLimitedListings(sellerId).catch(() => {});
         });
 
-        const days = daysFromNow(
-          result.activeUntil ?? result.expiresAt
-        );
+        const days = daysFromNow(result.activeUntil ?? result.expiresAt);
 
         return res.json({
           success            : true,
@@ -763,8 +960,7 @@ router.post(
         return fail(
           res, 500,
           IS_PROD
-            ? "Failed to activate free promotion. " +
-              "Please try again."
+            ? "Failed to activate free promotion. Please try again."
             : err.message
         );
       } finally {
@@ -773,10 +969,9 @@ router.post(
     }
 
     /* ══════════════════════════════════════════════════════════
-       PAID PLAN — go through Paystack
+       PAID PLAN — Paystack
     ══════════════════════════════════════════════════════════ */
 
-    /* Fetch email from users table */
     let email;
     try {
       email = await getSellerEmail(pool, sellerId);
@@ -785,7 +980,7 @@ router.post(
       return fail(res, 400, err.message);
     }
 
-    /* ── Idempotency check ── */
+    /* Idempotency check */
     if (idempotencyKey) {
       const { rows: existing } = await pool.query(
         `SELECT id, reference, status
@@ -799,26 +994,18 @@ router.post(
 
       if (existing.length) {
         const ep = existing[0];
-        console.log(
-          "[payment] idempotent hit — existing payment:", ep.id
-        );
-
-        let authUrl = null;
-        if (ep.status === "pending") {
-          const ps = await paystackVerify(ep.reference);
-          authUrl  = null; /* Paystack verify doesn't return auth_url */
-        }
+        console.log("[payment] idempotent hit — existing payment:", ep.id);
 
         return res.json({
           success          : true,
           reference        : ep.reference,
-          authorization_url: authUrl,
+          authorization_url: null,
           idempotent       : true,
         });
       }
     }
 
-    /* ── Check existing pending payment ── */
+    /* Check existing pending payment */
     const { rows: pendingRows } = await pool.query(
       `SELECT id, reference
        FROM   payments
@@ -830,9 +1017,7 @@ router.post(
 
     if (pendingRows.length) {
       const ep = pendingRows[0];
-      console.log(
-        "[payment] reusing existing pending payment:", ep.id
-      );
+      console.log("[payment] reusing existing pending payment:", ep.id);
       return res.json({
         success          : true,
         reference        : ep.reference,
@@ -841,7 +1026,6 @@ router.post(
       });
     }
 
-    /* ── Lock product + create payment ── */
     const reference = makeReference();
     const client    = await pool.connect();
 
@@ -860,8 +1044,7 @@ router.post(
 
       if (!productRows.length) {
         await client.query("ROLLBACK");
-        return fail(res, 404,
-          "Product not found or not owned by you.");
+        return fail(res, 404, "Product not found or not owned by you.");
       }
 
       const prod = productRows[0];
@@ -871,14 +1054,9 @@ router.post(
         return fail(res, 409, "Product is already active.");
       }
 
-      if (
-        !["draft", "pending_payment"].includes(prod.status)
-      ) {
+      if (!["draft", "pending_payment"].includes(prod.status)) {
         await client.query("ROLLBACK");
-        return fail(
-          res, 409,
-          `Cannot initiate payment from status '${prod.status}'.`
-        );
+        return fail(res, 409, `Cannot initiate payment from status '${prod.status}'.`);
       }
 
       await client.query(
@@ -901,12 +1079,8 @@ router.post(
             $7,$8)
          RETURNING id, reference`,
         [
-          sellerId,
-          productId,
-          planId,
-          finalAmount,
-          email,       /* ✅ Registration email from users table */
-          reference,
+          sellerId, productId, planId,
+          finalAmount, email, reference,
           idempotencyKey,
           JSON.stringify({
             original_price  : plan.price,
@@ -930,12 +1104,10 @@ router.post(
           plan    : plan.name,
           amount  : finalAmount,
           currency: ACCEPTED_CURRENCY,
-          /* ✅ email in audit only — never in response */
           email,
         }
       );
 
-      /* ── Call Paystack ── */
       const init = await paystackInitialize({
         email,
         amountNaira : finalAmount,
@@ -943,36 +1115,26 @@ router.post(
         productId,
         callbackPath: "/payment/complete",
         metadata    : {
-          paymentId,
-          productId,
-          sellerId,
-          planId,
-          planAmount : finalAmount,
-          currency   : ACCEPTED_CURRENCY,
+          paymentId, productId, sellerId, planId,
+          planAmount: finalAmount,
+          currency  : ACCEPTED_CURRENCY,
         },
       });
 
       if (!init.ok || !init.authorizationUrl) {
         await pool.query(
-          `UPDATE products
-           SET status='draft', updated_at=NOW()
-           WHERE id=$1`,
+          `UPDATE products SET status='draft', updated_at=NOW() WHERE id=$1`,
           [productId]
         );
         await pool.query(
-          `UPDATE payments
-           SET status='failed', updated_at=NOW()
-           WHERE id=$1`,
+          `UPDATE payments SET status='failed', updated_at=NOW() WHERE id=$1`,
           [paymentId]
         );
         logPaymentEvent(
           paymentId, "payment.initiate_failed", "api",
           { message: init.message }
         );
-        return fail(
-          res, 502,
-          init.message ?? "Payment initialization failed."
-        );
+        return fail(res, 502, init.message ?? "Payment initialization failed.");
       }
 
       writeAudit({
@@ -981,15 +1143,12 @@ router.post(
         targetType: "payment",
         targetId  : String(paymentId),
         metadata  : {
-          plan     : plan.name,
-          amount   : finalAmount,
-          reference: savedReference,
-          email,
+          plan: plan.name, amount: finalAmount,
+          reference: savedReference, email,
         },
-        ipAddress: getIp(req),
+        ipAddress : getIp(req),
       }).catch(() => {});
 
-      /* ✅ Never expose email in response */
       return res.json({
         success          : true,
         is_free          : false,
@@ -1002,9 +1161,7 @@ router.post(
       logError("paid initiate", err, { sellerId, productId });
       return fail(
         res, 500,
-        IS_PROD
-          ? "Payment initialization failed. Please try again."
-          : err.message
+        IS_PROD ? "Payment initialization failed. Please try again." : err.message
       );
     } finally {
       client.release();
@@ -1014,271 +1171,250 @@ router.post(
 
 /* ═══════════════════════════════════════════════════════════════
    POST /verify
-   ✅ Currency validated
-   ✅ Amount validated
-   ✅ Idempotent
+   Verify a specific payment by reference
 ═══════════════════════════════════════════════════════════════ */
 router.post(
   "/verify",
   authenticate,
   verifyLimiter,
   async (req, res) => {
-    const reference = cleanUuid(req.body.reference);
+    const reference = String(req.body.reference ?? "").trim() || null;
     const sellerId  = cleanUuid(req.user?.id);
 
-    console.log(
-      "\n[payment] ▶ /verify  ref:", reference,
-      " seller:", sellerId
-    );
+    console.log("\n[payment] ▶ /verify  ref:", reference, " seller:", sellerId);
 
     if (!reference) return fail(res, 400, "Reference required.");
     if (!sellerId)  return fail(res, 401, "Authentication required.");
 
-    /* ── Ask Paystack ── */
-    const ps = await paystackVerify(reference);
+    const result = await performVerification({ reference, sellerId, req });
+    return res.status(result.httpStatus).json(result.body);
+  }
+);
 
-    console.log(
-      "[payment] Paystack:",
-      ps.status, "|", ps.currency, "|", ps.amountKobo
+/* ═══════════════════════════════════════════════════════════════
+   POST /verify-by-product   ← NEW
+   Fallback for "Check Status" button — verifies latest payment
+   for a given product. Handles cases where webhook failed.
+═══════════════════════════════════════════════════════════════ */
+router.post(
+  "/verify-by-product",
+  authenticate,
+  verifyLimiter,
+  async (req, res) => {
+    const productId = cleanUuid(req.body.product_id);
+    const sellerId  = cleanUuid(req.user?.id);
+
+    console.log("\n[payment] ▶ /verify-by-product  product:", productId);
+
+    if (!productId) return fail(res, 400, "Product ID required.");
+    if (!sellerId)  return fail(res, 401, "Authentication required.");
+
+    /* First check if already active */
+    const { rows: prodRows } = await pool.query(
+      `SELECT status, is_promoted, promotion_end, active_until
+       FROM   products
+       WHERE  id = $1 AND seller_id = $2`,
+      [productId, sellerId]
     );
 
-    if (!ps.ok)
-      return fail(res, 502, "Could not reach payment provider.");
+    if (!prodRows.length)
+      return fail(res, 404, "Product not found.");
 
-    /* Currency check */
-    if (ps.currency && ps.currency !== ACCEPTED_CURRENCY) {
-      console.error("[payment] wrong currency:", ps.currency);
-      return fail(
-        res, 402,
-        `Invalid currency "${ps.currency}". ` +
-        `Only ${ACCEPTED_CURRENCY} is accepted.`
-      );
-    }
+    const prod = prodRows[0];
 
-    /* Still pending */
-    if (ps.status === "pending") {
+    if (prod.is_promoted && prod.promotion_end && new Date(prod.promotion_end) > new Date()) {
       return res.json({
-        success: false,
-        status : "pending",
-        message:
-          "Payment is still processing. " +
-          "Please check back in a few minutes.",
+        success            : true,
+        status             : "success",
+        already_active     : true,
+        message            : "Listing is already live.",
+        is_promoted        : true,
+        needs_verification : prod.status === "active_limited",
+        active_until       : prod.active_until  ?? null,
+        promoted_until     : prod.promotion_end ?? null,
+        days_remaining     : daysFromNow(prod.active_until ?? prod.promotion_end),
       });
     }
 
-    const client = await pool.connect();
+    /* Find latest payment for this product */
+    const { rows: payRows } = await pool.query(
+      `SELECT reference, status, created_at
+       FROM   payments
+       WHERE  product_id = $1
+         AND  seller_id  = $2
+         AND  method     = 'paystack'
+       ORDER BY created_at DESC
+       LIMIT 1`,
+      [productId, sellerId]
+    );
+
+    if (!payRows.length) {
+      return fail(res, 404, "No payment found for this product.");
+    }
+
+    const payment = payRows[0];
+
+    if (payment.status === "expired" || payment.status === "cancelled") {
+      return res.json({
+        success: false,
+        status : payment.status,
+        message: "Payment session expired. Please initiate a new payment.",
+      });
+    }
+
+    if (payment.status === "failed") {
+      return res.json({
+        success: false,
+        status : "failed",
+        message: "Payment failed. Please try again.",
+      });
+    }
+
+    /* Reuse shared verification logic */
+    const result = await performVerification({
+      reference: payment.reference,
+      sellerId,
+      req,
+    });
+    return res.status(result.httpStatus).json(result.body);
+  }
+);
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /status/:productId   ← NEW
+   Lightweight poll — check listing status without hitting Paystack
+═══════════════════════════════════════════════════════════════ */
+router.get(
+  "/status/:productId",
+  authenticate,
+  statusLimiter,
+  async (req, res) => {
+    const productId = cleanUuid(req.params.productId);
+    const sellerId  = cleanUuid(req.user?.id);
+
+    if (!productId) return fail(res, 400, "Product ID required.");
+    if (!sellerId)  return fail(res, 401, "Authentication required.");
 
     try {
-      await client.query("BEGIN");
+      const { rows: prodRows } = await pool.query(
+        `SELECT id, status, is_promoted, is_active,
+                promotion_end, active_until
+         FROM   products
+         WHERE  id = $1 AND seller_id = $2`,
+        [productId, sellerId]
+      );
 
-      /* Lock payment row */
-      const { rows: payRows } = await client.query(
-        `SELECT id, product_id,
-                plan_id::text AS plan_id,
-                amount, status
+      if (!prodRows.length)
+        return fail(res, 404, "Product not found.");
+
+      const prod = prodRows[0];
+
+      const { rows: payRows } = await pool.query(
+        `SELECT reference, status, created_at
          FROM   payments
-         WHERE  reference = $1
-           AND  seller_id = $2
-         FOR UPDATE`,
-        [reference, sellerId]
+         WHERE  product_id = $1
+           AND  seller_id  = $2
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [productId, sellerId]
       );
 
-      if (!payRows.length) {
-        await client.query("ROLLBACK");
-        return fail(res, 404, "Payment record not found.");
-      }
-
-      const payment   = payRows[0];
-      const productId = payment.product_id;
-      const planId    = payment.plan_id;
-
-      /* Idempotency — already confirmed */
-      if (payment.status === "success") {
-        await client.query("ROLLBACK");
-
-        const { rows: pRows } = await pool.query(
-          `SELECT status, active_until, is_promoted,
-                  promotion_end
-           FROM   products WHERE id = $1`,
-          [productId]
-        );
-        const p    = pRows[0] ?? {};
-        const days = daysFromNow(p.active_until);
-
-        return res.json({
-          success            : true,
-          status             : "success",
-          already_confirmed  : true,
-          message            :
-            "Payment already confirmed — your listing is live.",
-          is_promoted        : !!p.is_promoted,
-          needs_verification : p.status === "active_limited",
-          active_until       : p.active_until   ?? null,
-          promoted_until     : p.promotion_end  ?? null,
-          days_remaining     : days,
-        });
-      }
-
-      /* ── Success ── */
-      if (ps.status === "success") {
-        /* Amount check */
-        const expectedKobo =
-          Math.round(Number(payment.amount) * 100);
-        if (
-          ps.amountKobo &&
-          ps.amountKobo < expectedKobo
-        ) {
-          console.error(
-            "[payment] amount mismatch",
-            "expected:", expectedKobo,
-            "received:", ps.amountKobo
-          );
-          logPaymentEvent(
-            payment.id, "payment.amount_mismatch", "verify",
-            { expected: expectedKobo, received: ps.amountKobo }
-          );
-          await client.query("ROLLBACK");
-          return fail(
-            res, 402,
-            "Payment amount does not match. Contact support."
-          );
-        }
-
-        const result = await activateProductForPayment(client, {
-          paymentId : payment.id,
-          productId,
-          planId,
-          sellerId,
-          source    : "verify",
-        });
-
-        await client.query("COMMIT");
-
-        logPaymentEvent(
-          payment.id, "charge.success", "verify",
-          {
-            status           : result.finalStatus,
-            needsVerification: result.needsVerification,
-          }
-        );
-
-        setImmediate(() => {
-          if (!result.needsVerification)
-            reactivateLimitedListings(sellerId).catch(() => {});
-
-          sendPaymentNotification({
-            userId   : sellerId,
-            type     : "payment_success",
-            title    : "Payment Confirmed",
-            paymentId: payment.id,
-            message  : result.needsVerification
-              ? "Your listing is live for 7 days. " +
-                "Verify to make it permanent."
-              : "Payment confirmed — your listing is now live.",
-          });
-
-          writeAudit({
-            actorId   : sellerId,
-            action    : "payment_verified",
-            targetType: "payment",
-            targetId  : String(payment.id),
-            metadata  : {
-              reference,
-              status: "success",
-              source: "verify",
-            },
-            ipAddress: getIp(req),
-          }).catch(() => {});
-        });
-
-        const days = daysFromNow(result.activeUntil);
-
-        return res.json({
-          success            : true,
-          status             : "success",
-          message            :
-            "Payment confirmed — your listing is now live.",
-          is_promoted        : true,
-          needs_verification : result.needsVerification,
-          active_until       : result.activeUntil  ?? null,
-          promoted_until     : result.expiresAt    ?? null,
-          days_remaining     : days,
-          ...(result.needsVerification && {
-            verification_message:
-              `Your listing is live for ` +
-              `${days ?? PROMO_DEFAULT_DAYS} day(s). ` +
-              "Verify your identity to make it permanent.",
-          }),
-        });
-      }
-
-      /* ── Failed / abandoned ── */
-      const newStatus =
-        ps.status === "abandoned" ? "cancelled" : "failed";
-
-      await client.query(
-        `UPDATE payments
-         SET status=$1, updated_at=NOW()
-         WHERE id=$2`,
-        [newStatus, payment.id]
-      );
-      await client.query(
-        `UPDATE products
-         SET status='draft', is_active=FALSE, updated_at=NOW()
-         WHERE id=$1`,
-        [productId]
-      );
-
-      await client.query("COMMIT");
-
-      logPaymentEvent(
-        payment.id, `payment.${newStatus}`, "verify",
-        { paystackStatus: ps.status }
-      );
-
-      setImmediate(() => {
-        sendPaymentNotification({
-          userId   : sellerId,
-          type     : "payment_failed",
-          title    : ps.status === "abandoned"
-            ? "Payment Cancelled"
-            : "Payment Failed",
-          message  : ps.status === "abandoned"
-            ? "Payment cancelled. " +
-              "Your listing was saved as a draft."
-            : "Payment failed. Please try again.",
-          paymentId: payment.id,
-        });
-      });
+      const payment = payRows[0] ?? null;
 
       return res.json({
-        success: false,
-        status : newStatus,
-        message: ps.status === "abandoned"
-          ? "Payment was cancelled — " +
-            "your listing has been saved as a draft."
-          : "Payment failed — " +
-            "your listing has been saved as a draft. " +
-            "Please try again.",
+        success           : true,
+        product_status    : prod.status,
+        is_active         : prod.is_active,
+        is_promoted       : prod.is_promoted,
+        promoted_until    : prod.promotion_end ?? null,
+        active_until      : prod.active_until  ?? null,
+        days_remaining    : daysFromNow(prod.active_until ?? prod.promotion_end),
+        needs_verification: prod.status === "active_limited",
+        latest_payment    : payment
+          ? {
+              reference : payment.reference,
+              status    : payment.status,
+              created_at: payment.created_at,
+            }
+          : null,
       });
-
     } catch (err) {
-      await client.query("ROLLBACK").catch(() => {});
-      logError("/verify", err, { reference, sellerId });
-      return fail(
-        res, 500,
-        "Verification failed. Please contact support."
+      logError("GET /status/:productId", err, { productId, sellerId });
+      return fail(res, 500, "Failed to load status.");
+    }
+  }
+);
+
+/* ═══════════════════════════════════════════════════════════════
+   GET /debug/:productId   ← NEW (protected)
+   Full diagnostic info for a product
+═══════════════════════════════════════════════════════════════ */
+router.get(
+  "/debug/:productId",
+  authenticate,
+  async (req, res) => {
+    const productId = cleanUuid(req.params.productId);
+    const sellerId  = cleanUuid(req.user?.id);
+
+    if (!productId) return fail(res, 400, "Product ID required.");
+    if (!sellerId)  return fail(res, 401, "Authentication required.");
+
+    try {
+      const { rows: product } = await pool.query(
+        `SELECT id, status, is_promoted, is_active,
+                promotion_end, active_until, updated_at, created_at
+         FROM   products
+         WHERE  id = $1 AND seller_id = $2`,
+        [productId, sellerId]
       );
-    } finally {
-      client.release();
+
+      if (!product.length)
+        return fail(res, 404, "Product not found.");
+
+      const { rows: payments } = await pool.query(
+        `SELECT id, reference, status, amount, method,
+                created_at, updated_at, metadata
+         FROM   payments
+         WHERE  product_id = $1 AND seller_id = $2
+         ORDER BY created_at DESC
+         LIMIT 10`,
+        [productId, sellerId]
+      );
+
+      let events = [];
+      if (payments.length) {
+        const { rows } = await pool.query(
+          `SELECT payment_id, event, source, created_at, payload
+           FROM   payment_events
+           WHERE  payment_id = ANY($1::uuid[])
+           ORDER BY created_at DESC
+           LIMIT 30`,
+          [payments.map(p => p.id)]
+        );
+        events = rows;
+      }
+
+      return res.json({
+        success : true,
+        product : product[0],
+        payments,
+        events,
+        hints   : {
+          webhook_url_should_be:
+            `${process.env.API_BASE_URL || "https://loemart.com"}/api/payment/webhook`,
+          callback_url_should_be:
+            `${FRONTEND_URL || "https://loemart.com"}/payment/complete`,
+        },
+      });
+    } catch (err) {
+      logError("GET /debug/:productId", err, { productId, sellerId });
+      return fail(res, 500, "Debug failed.");
     }
   }
 );
 
 /* ═══════════════════════════════════════════════════════════════
    WEBHOOK ROUTER
-   Mount with express.raw({ type: "application/json" })
-   BEFORE express.json() in server.js
 ═══════════════════════════════════════════════════════════════ */
 webhookRouter.post("/", async (req, res) => {
   const secret    = process.env.PAYSTACK_SECRET_KEY;
@@ -1287,13 +1423,17 @@ webhookRouter.post("/", async (req, res) => {
 
   console.log("\n[payment] ▶ WEBHOOK received");
 
-  /* Signature validation */
+  if (!Buffer.isBuffer(rawBody)) {
+    console.error("[payment] ❌ webhook body is not a Buffer!");
+    console.error("[payment] Did you forget express.raw() middleware?");
+    return res.status(400).send("Invalid body");
+  }
+
   if (!signature || !verifySignature(rawBody, secret, signature)) {
     console.warn("[payment] ❌ invalid webhook signature");
     return res.status(401).send("Unauthorized");
   }
 
-  /* Parse event */
   let event;
   try {
     event = JSON.parse(rawBody.toString("utf-8"));
@@ -1306,7 +1446,6 @@ webhookRouter.post("/", async (req, res) => {
   if (event.event !== "charge.success")
     return res.status(200).send("OK");
 
-  /* Dedup by payload hash */
   const payloadHash = hashWebhookPayload(rawBody);
   try {
     const { rows: dupRows } = await pool.query(
@@ -1315,10 +1454,7 @@ webhookRouter.post("/", async (req, res) => {
       [payloadHash]
     );
     if (dupRows.length) {
-      console.log(
-        "[payment] duplicate webhook:",
-        payloadHash.slice(0, 16)
-      );
+      console.log("[payment] duplicate webhook:", payloadHash.slice(0, 16));
       return res.status(200).send("OK");
     }
     await pool.query(
@@ -1332,10 +1468,8 @@ webhookRouter.post("/", async (req, res) => {
     console.error("[payment] webhook dedup error:", err.message);
   }
 
-  /* Acknowledge immediately */
   res.status(200).send("OK");
 
-  /* Process async */
   const txnData    = event.data ?? {};
   const metadata   = txnData.metadata ?? {};
 
@@ -1343,14 +1477,8 @@ webhookRouter.post("/", async (req, res) => {
   const paystackAmountKobo = txnData.amount;
   const paystackCurrency   = txnData.currency;
 
-  /* Currency check */
-  if (
-    paystackCurrency &&
-    paystackCurrency !== ACCEPTED_CURRENCY
-  ) {
-    console.error(
-      "[payment] webhook wrong currency:", paystackCurrency
-    );
+  if (paystackCurrency && paystackCurrency !== ACCEPTED_CURRENCY) {
+    console.error("[payment] webhook wrong currency:", paystackCurrency);
     return;
   }
 
@@ -1360,21 +1488,49 @@ webhookRouter.post("/", async (req, res) => {
   const planId     = cleanBigInt(metadata.planId);
   const planAmount = Number(metadata.planAmount ?? 0);
 
-  if (!paymentId || !productId || !sellerId || !planId) {
-    console.warn("[payment] webhook missing metadata:", metadata);
+  /* Fallback: look up payment by reference if metadata is missing */
+  let recoveredPayment = null;
+  if ((!paymentId || !productId || !sellerId || !planId) && paystackRef) {
+    console.warn("[payment] webhook missing metadata, looking up by reference:", paystackRef);
+    try {
+      const { rows } = await pool.query(
+        `SELECT id, product_id, seller_id, plan_id::text AS plan_id, amount
+         FROM   payments
+         WHERE  reference = $1
+         LIMIT  1`,
+        [paystackRef]
+      );
+      if (rows.length) {
+        recoveredPayment = rows[0];
+        console.log("[payment] ✅ recovered payment via reference:", recoveredPayment.id);
+      }
+    } catch (err) {
+      console.error("[payment] recovery lookup error:", err.message);
+    }
+  }
+
+  const finalPaymentId  = paymentId  ?? recoveredPayment?.id;
+  const finalProductId  = productId  ?? recoveredPayment?.product_id;
+  const finalSellerId   = sellerId   ?? recoveredPayment?.seller_id;
+  const finalPlanId     = planId     ?? recoveredPayment?.plan_id;
+  const finalPlanAmount = planAmount || Number(recoveredPayment?.amount ?? 0);
+
+  if (!finalPaymentId || !finalProductId || !finalSellerId || !finalPlanId) {
+    console.warn("[payment] webhook unable to resolve payment info:", {
+      metadata, paystackRef,
+    });
     return;
   }
 
-  /* Amount check */
-  const expectedKobo = Math.round(planAmount * 100);
-  if (planAmount > 0 && paystackAmountKobo < expectedKobo) {
+  const expectedKobo = Math.round(finalPlanAmount * 100);
+  if (finalPlanAmount > 0 && paystackAmountKobo < expectedKobo) {
     console.error(
       "[payment] webhook amount mismatch",
       "expected:", expectedKobo,
       "received:", paystackAmountKobo
     );
     logPaymentEvent(
-      paymentId, "payment.amount_mismatch", "webhook",
+      finalPaymentId, "payment.amount_mismatch", "webhook",
       { expected: expectedKobo, received: paystackAmountKobo }
     );
     return;
@@ -1385,7 +1541,6 @@ webhookRouter.post("/", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    /* Lock payment row */
     const { rows: payRows } = await client.query(
       `SELECT id, reference, product_id,
               plan_id::text AS plan_id,
@@ -1393,54 +1548,57 @@ webhookRouter.post("/", async (req, res) => {
        FROM   payments
        WHERE  id = $1
        FOR UPDATE`,
-      [paymentId]
+      [finalPaymentId]
     );
 
     if (!payRows.length) {
-      console.warn("[payment] webhook payment not found:", paymentId);
+      console.warn("[payment] webhook payment not found:", finalPaymentId);
       await client.query("ROLLBACK");
       return;
     }
 
     const payment = payRows[0];
 
-    /* Idempotency */
     if (payment.status === "success") {
       await client.query("ROLLBACK");
-      console.log(
-        "[payment] webhook already processed:", paymentId
-      );
+      console.log("[payment] webhook already processed:", finalPaymentId);
       return;
     }
 
-    /* Ownership validation */
     if (
-      payment.product_id !== productId  ||
-      payment.seller_id  !== sellerId   ||
-      String(payment.plan_id) !== String(planId)
+      payment.product_id !== finalProductId  ||
+      payment.seller_id  !== finalSellerId   ||
+      String(payment.plan_id) !== String(finalPlanId)
     ) {
       console.error("[payment] webhook metadata mismatch", {
         db      : {
           product_id: payment.product_id,
           seller_id : payment.seller_id,
         },
-        received: { productId, sellerId, planId },
+        received: {
+          productId: finalProductId,
+          sellerId : finalSellerId,
+          planId   : finalPlanId,
+        },
       });
       logPaymentEvent(
-        paymentId, "payment.metadata_mismatch", "webhook",
+        finalPaymentId, "payment.metadata_mismatch", "webhook",
         {
-          db      : {
+          db: {
             product_id: payment.product_id,
             seller_id : payment.seller_id,
           },
-          received: { productId, sellerId, planId },
+          received: {
+            productId: finalProductId,
+            sellerId : finalSellerId,
+            planId   : finalPlanId,
+          },
         }
       );
       await client.query("ROLLBACK");
       return;
     }
 
-    /* Reference validation */
     if (paystackRef && payment.reference !== paystackRef) {
       console.error("[payment] webhook reference mismatch", {
         db      : payment.reference,
@@ -1450,26 +1608,25 @@ webhookRouter.post("/", async (req, res) => {
       return;
     }
 
-    /* Activate */
     const result = await activateProductForPayment(client, {
-      paymentId,
-      productId,
-      planId,
-      sellerId,
-      source: "webhook",
+      paymentId: finalPaymentId,
+      productId: finalProductId,
+      planId   : finalPlanId,
+      sellerId : finalSellerId,
+      source   : "webhook",
     });
 
     await client.query("COMMIT");
 
     console.log(
       `[payment] ✓ webhook activation complete`,
-      ` product:${productId}`,
+      ` product:${finalProductId}`,
       ` status:${result.finalStatus}`,
       ` plan:${result.planName}`
     );
 
     logPaymentEvent(
-      paymentId, "charge.success", "webhook",
+      finalPaymentId, "charge.success", "webhook",
       {
         plan             : result.planName,
         status           : result.finalStatus,
@@ -1479,42 +1636,39 @@ webhookRouter.post("/", async (req, res) => {
 
     setImmediate(() => {
       if (!result.needsVerification)
-        reactivateLimitedListings(sellerId).catch(() => {});
+        reactivateLimitedListings(finalSellerId).catch(() => {});
 
       sendPaymentNotification({
-        userId   : sellerId,
+        userId   : finalSellerId,
         type     : "payment_success",
         title    : "Payment Confirmed",
-        paymentId,
+        paymentId: finalPaymentId,
         message  : result.needsVerification
-          ? "Your listing is live for 7 days. " +
-            "Verify to make it permanent."
+          ? "Your listing is live for 7 days. Verify to make it permanent."
           : "Payment confirmed — your listing is now live.",
       });
 
       writeAudit({
-        actorId   : sellerId,
+        actorId   : finalSellerId,
         action    : "payment_webhook_success",
         targetType: "payment",
-        targetId  : String(paymentId),
+        targetId  : String(finalPaymentId),
         metadata  : {
-          productId,
-          planId,
-          status: result.finalStatus,
+          productId: finalProductId,
+          planId   : finalPlanId,
+          status   : result.finalStatus,
         },
       }).catch(() => {});
     });
 
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
-    logError("webhook activation", err, { paymentId, productId });
+    logError("webhook activation", err, { finalPaymentId, finalProductId });
 
     logPaymentEvent(
-      paymentId, "payment.webhook_error", "webhook",
+      finalPaymentId, "payment.webhook_error", "webhook",
       { error: err.message }
     );
-
-    /* 500 → Paystack will retry */
   } finally {
     client.release();
   }
