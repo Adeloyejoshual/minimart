@@ -19,7 +19,9 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 const IS_PROD    = process.env.NODE_ENV === "production";
 
-/* ── Env validation ── */
+/* ════════════════════════════════════════════════════════════
+   ENV VALIDATION
+════════════════════════════════════════════════════════════ */
 const REQUIRED_ENV = ["COCKROACH_URI", "JWT_SECRET", "PAYSTACK_SECRET_KEY"];
 const missing      = REQUIRED_ENV.filter((k) => !process.env[k]);
 if (missing.length) {
@@ -27,7 +29,9 @@ if (missing.length) {
   process.exit(1);
 }
 
-/* ── Database ── */
+/* ════════════════════════════════════════════════════════════
+   DATABASE
+════════════════════════════════════════════════════════════ */
 export const pool = new Pool({
   connectionString            : process.env.COCKROACH_URI,
   ssl                         : { rejectUnauthorized: false },
@@ -40,42 +44,60 @@ export const pool = new Pool({
   application_name            : "loemart-server",
 });
 
-pool.on("error", (err) => console.error("🔥 Pool error:", err.message));
+pool.on("error", (err) =>
+  console.error("🔥 Pool error:", err.message)
+);
 
-/* ── App + server ── */
+/* ════════════════════════════════════════════════════════════
+   APP + SERVER
+════════════════════════════════════════════════════════════ */
 const app    = express();
 const PORT   = Number(process.env.PORT) || 5000;
 const server = http.createServer(app);
 app.set("trust proxy", 1);
 
-/* ── Socket.IO ── */
+/* ════════════════════════════════════════════════════════════
+   SOCKET.IO
+════════════════════════════════════════════════════════════ */
 import { initSocket, getOnlineCount } from "./socket.js";
+
 const ALLOWED_ORIGIN = process.env.CLIENT_ORIGIN || "*";
 export const io      = initSocket(server, ALLOWED_ORIGIN);
 
-/* ── Cache ── */
+/* ════════════════════════════════════════════════════════════
+   IN-MEMORY CACHE
+════════════════════════════════════════════════════════════ */
 const _cache    = new Map();
 const CACHE_TTL = 60_000;
+
 export const setCache = (key, value, ttl = CACHE_TTL) =>
   _cache.set(key, { value, expires: Date.now() + ttl });
+
 export const getCache = (key) => {
   const item = _cache.get(key);
   if (!item)                     return null;
   if (Date.now() > item.expires) { _cache.delete(key); return null; }
   return item.value;
 };
-export const deleteCache       = (key)    => _cache.delete(key);
+
+export const deleteCache = (key) => _cache.delete(key);
+
 export const clearCachePattern = (prefix) => {
   for (const key of _cache.keys())
     if (key.startsWith(prefix)) _cache.delete(key);
 };
-const _ev = setInterval(() => {
-  const now = Date.now();
-  for (const [k, v] of _cache.entries()) if (now > v.expires) _cache.delete(k);
-}, 60_000);
-_ev.unref();
 
-/* ── CORS ── */
+/* Periodic cache eviction — unref so it doesn't block shutdown */
+const _cacheEviction = setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of _cache.entries())
+    if (now > v.expires) _cache.delete(k);
+}, 60_000);
+_cacheEviction.unref();
+
+/* ════════════════════════════════════════════════════════════
+   CORS
+════════════════════════════════════════════════════════════ */
 const HARD_ALLOWED = [
   "https://www.loemart.com",
   "https://loemart.com",
@@ -83,12 +105,14 @@ const HARD_ALLOWED = [
   "http://localhost:3000",
   "http://localhost:4173",
 ];
-const _envOrigins     = ALLOWED_ORIGIN === "*"
+
+const _envOrigins = ALLOWED_ORIGIN === "*"
   ? []
   : ALLOWED_ORIGIN.split(",").map((s) => s.trim()).filter(Boolean);
+
 const ALLOWED_ORIGINS = new Set([..._envOrigins, ...HARD_ALLOWED]);
 
-app.use(cors({
+const corsOptions = {
   origin(origin, cb) {
     if (!origin || ALLOWED_ORIGIN === "*" || ALLOWED_ORIGINS.has(origin))
       return cb(null, true);
@@ -96,12 +120,21 @@ app.use(cors({
     cb(new Error(`CORS blocked: ${origin}`));
   },
   credentials    : true,
-  methods        : ["GET","POST","PUT","PATCH","DELETE","OPTIONS"],
-  allowedHeaders : ["Content-Type","Authorization","x-requested-with","x-request-id"],
-}));
+  methods        : ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders : [
+    "Content-Type",
+    "Authorization",
+    "x-requested-with",
+    "x-request-id",
+  ],
+};
+
+app.use(cors(corsOptions));
 app.options("*", cors({ origin: true, credentials: true }));
 
-/* ── Helmet ── */
+/* ════════════════════════════════════════════════════════════
+   HELMET
+════════════════════════════════════════════════════════════ */
 app.use(helmet({
   contentSecurityPolicy     : false,
   crossOriginEmbedderPolicy : false,
@@ -112,21 +145,32 @@ app.use(helmet({
   referrerPolicy            : { policy: "strict-origin-when-cross-origin" },
 }));
 
-/* ── Static uploads ── */
-app.use("/uploads", express.static(path.join(__dirname, "uploads"), {
-  maxAge: "7d", etag: true,
-}));
+/* ════════════════════════════════════════════════════════════
+   STATIC UPLOADS
+════════════════════════════════════════════════════════════ */
+app.use(
+  "/uploads",
+  express.static(path.join(__dirname, "uploads"), {
+    maxAge : "7d",
+    etag   : true,
+  })
+);
 
-/* ── Rate limiters ── */
+/* ════════════════════════════════════════════════════════════
+   RATE LIMITERS
+════════════════════════════════════════════════════════════ */
+const ipKey = (req) =>
+  req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
+  req.socket.remoteAddress ??
+  "unknown";
+
 const globalLimiter = rateLimit({
   windowMs        : 60_000,
   max             : IS_PROD ? 120 : 1_000,
   standardHeaders : true,
   legacyHeaders   : false,
-  keyGenerator    : (req) =>
-    req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
-    req.socket.remoteAddress ?? "unknown",
-  handler: (_req, res) =>
+  keyGenerator    : ipKey,
+  handler         : (_req, res) =>
     res.status(429).json({ success: false, message: "Too many requests." }),
 });
 
@@ -135,16 +179,14 @@ const uploadLimiter = rateLimit({
   max             : IS_PROD ? 20 : 200,
   standardHeaders : true,
   legacyHeaders   : false,
-  keyGenerator    : (req) =>
-    req.headers["x-forwarded-for"]?.split(",")[0].trim() ??
-    req.socket.remoteAddress ?? "unknown",
-  handler: (_req, res) =>
+  keyGenerator    : ipKey,
+  handler         : (_req, res) =>
     res.status(429).json({ success: false, message: "Too many upload requests." }),
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    ROUTE IMPORTS
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 
 /* ── Payments ── */
 import paymentRouter, { webhookRouter } from "./routes/payment.js";
@@ -202,36 +244,34 @@ import subscriptionRouter  from "./routes/subscription/index.js";
 /* ── Settings ── */
 import settingsRouter from "./routes/settings.js";
 
-/* ── Help & Support ─────────────────────────────────────────
-   /api/support        → routes/support.js       (user-facing)
-   /api/admin/support  → routes/admin/support.js (admin panel)
-   NOTE: adminRouter already mounts routes/admin/support.js
-   internally via router.use("/support", supportAdminRouter)
-   so we only need to mount the user-facing router here.
-──────────────────────────────────────────────────────────────*/
+/* ── Support ── */
 import supportRouter from "./routes/support.js";
 
-/* ── SSR ── */
-import ssrRouter from "./routes/ssr.js";
-
-/* ── Sitemap ── */
+/* ── SSR + Sitemap ── */
+import ssrRouter     from "./routes/ssr.js";
 import sitemapRouter from "./routes/sitemap.js";
 
 /* ── Background jobs ── */
-import { startListingExpiryJob }    from "./jobs/listingExpiry.js";
-import { startCleanupJob }          from "./jobs/cleanupDeletedProducts.js";
-import { initLeaderboardCron }      from "./services/leaderboardCron.js";
-import { purgeDeletedAccounts }     from "./crons/purgeDeletedAccounts.js";
+import { startListingExpiryJob } from "./jobs/listingExpiry.js";
+import { startCleanupJob }       from "./jobs/cleanupDeletedProducts.js";
+import { initLeaderboardCron }   from "./services/leaderboardCron.js";
+import { purgeDeletedAccounts }  from "./crons/purgeDeletedAccounts.js";
 
-/* ══════════════════════════════════════════════════════════════
+/* ── Email services ── */
+import { sendWeeklyNewsletter } from "./services/weeklyNewsletter.js";
+import { processInactiveUsers } from "./services/inactiveUsers.js";
+
+/* ════════════════════════════════════════════════════════════
    WEBHOOKS  — must be BEFORE body parsers
-══════════════════════════════════════════════════════════════ */
-app.use("/api/payment/webhook",
+════════════════════════════════════════════════════════════ */
+app.use(
+  "/api/payment/webhook",
   express.raw({ type: "*/*" }),
   webhookRouter
 );
 
-app.use("/api/webhooks/flutterwave",
+app.use(
+  "/api/webhooks/flutterwave",
   express.raw({ type: "*/*" }),
   (req, _res, next) => {
     try   { req.body = JSON.parse(req.body.toString()); }
@@ -241,55 +281,75 @@ app.use("/api/webhooks/flutterwave",
   flwWebhookRouter
 );
 
-app.post("/api/webhooks/flw-capture",
+app.post(
+  "/api/webhooks/flw-capture",
   express.raw({ type: "*/*" }),
   async (req, res) => {
     const raw  = req.body?.toString?.() ?? "";
-    const body = (() => { try { return JSON.parse(raw); } catch { return { raw }; } })();
+    const body = (() => {
+      try { return JSON.parse(raw); } catch { return { raw }; }
+    })();
+
     console.log("[webhook] FLW CAPTURE:", body?.event);
+
     try {
       await pool.query(
-        `INSERT INTO market.webhook_logs (source, event, payload, headers, created_at)
+        `INSERT INTO market.webhook_logs
+           (source, event, payload, headers, created_at)
          VALUES ('flw_capture', $1, $2, $3, NOW())`,
-        [body?.event ?? "unknown", JSON.stringify(body), JSON.stringify(req.headers)]
+        [
+          body?.event ?? "unknown",
+          JSON.stringify(body),
+          JSON.stringify(req.headers),
+        ]
       );
-    } catch { /* non-critical */ }
+    } catch (_e) { /* non-critical */ }
+
     return res.status(200).json({ captured: true });
   }
 );
 
-app.use("/api/checkout/webhook/payment",
+app.use(
+  "/api/checkout/webhook/payment",
   express.raw({ type: "*/*" }),
   checkoutWebhookRouter
 );
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    BODY PARSERS  — after webhooks
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-/* ── Request ID ── */
+/* ════════════════════════════════════════════════════════════
+   REQUEST ID
+════════════════════════════════════════════════════════════ */
 app.use((req, res, next) => {
-  const id = req.headers["x-request-id"] || crypto.randomUUID();
+  const id    = req.headers["x-request-id"] || crypto.randomUUID();
   req.requestId = id;
   res.setHeader("X-Request-Id", id);
   next();
 });
 
-/* ── Request logger ── */
+/* ════════════════════════════════════════════════════════════
+   REQUEST LOGGER
+════════════════════════════════════════════════════════════ */
 app.use((req, _res, next) => {
   if (process.env.NODE_ENV !== "test")
-    console.log(`${new Date().toISOString()} | ${req.method} ${req.originalUrl}`);
+    console.log(
+      `${new Date().toISOString()} | ${req.method} ${req.originalUrl}`
+    );
   next();
 });
 
-/* ── Global rate limit ── */
+/* ════════════════════════════════════════════════════════════
+   GLOBAL RATE LIMIT
+════════════════════════════════════════════════════════════ */
 app.use(globalLimiter);
 
-/* ══════════════════════════════════════════════════════════════
-   ROUTES
-══════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════
+   API ROUTES
+════════════════════════════════════════════════════════════ */
 
 /* ── Payments ── */
 app.use("/api/payment",  paymentRouter);
@@ -344,40 +404,15 @@ app.use("/api/subscription",    subscriptionRouter);
 /* ── Settings ── */
 app.use("/api/settings", settingsRouter);
 
-/* ── Help & Support ─────────────────────────────────────────
-   User-facing:  POST /api/support/tickets
-                 GET  /api/support/tickets
-                 GET  /api/support/tickets/:id
-                 POST /api/support/tickets/:id/messages
-                 POST /api/support/tickets/:id/reopen
-                 POST /api/support/tickets/:id/rate
-                 PATCH /api/support/tickets/:id
-                 POST /api/support/reports
-                 GET  /api/support/reports
-                 POST /api/support/disputes
-                 GET  /api/support/disputes
-                 GET  /api/support/disputes/:id
-                 POST /api/support/disputes/:id/messages
-                 POST /api/support/appeals
-                 GET  /api/support/appeals
-                 POST /api/support/feedback
-                 GET  /api/support/notifications
-                 PATCH /api/support/notifications/:id/read
-                 PATCH /api/support/notifications/read-all
-                 GET  /api/support/faq/categories
-                 GET  /api/support/faq/articles
-                 GET  /api/support/faq/articles/:slug
-                 POST /api/support/faq/articles/:id/helpful
-
-   Admin-facing: All under /api/admin/support/*
-                 Mounted inside adminRouter (routes/admin.js)
-                 via router.use("/support", supportAdminRouter)
-──────────────────────────────────────────────────────────────*/
+/* ── Support ──────────────────────────────────────────────
+   User-facing : /api/support/*
+   Admin-facing: /api/admin/support/* (mounted inside adminRouter)
+──────────────────────────────────────────────────────────*/
 app.use("/api/support", supportRouter);
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    STATIC — sitemap + robots
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 const PUBLIC_DIR = path.join(__dirname, "public");
 
 app.get("/sitemap-index.xml", (_req, res) =>
@@ -389,16 +424,17 @@ app.get("/sitemap.xml", (_req, res) =>
 app.get("/sitemaps/:file", (req, res) => {
   const safe = path.basename(req.params.file);
   res.sendFile(path.join(PUBLIC_DIR, "sitemaps", safe), (err) => {
-    if (err) res.status(404).json({ success: false, message: "Sitemap not found" });
+    if (err)
+      res.status(404).json({ success: false, message: "Sitemap not found" });
   });
 });
 app.get("/robots.txt", (_req, res) =>
   res.sendFile(path.join(PUBLIC_DIR, "robots.txt"))
 );
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    HEALTH
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 app.get("/api/health", async (_req, res) => {
   let dbOk = false, dbLatency = null, dbError = null;
   try {
@@ -425,32 +461,29 @@ app.get("/api/health", async (_req, res) => {
   });
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    SSR + SPA FALLBACK  — production only
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 if (IS_PROD) {
   const dist = path.join(__dirname, "dist");
 
-  /* SSR must come BEFORE static file serving so it can render
-     routes that need server-side rendering (e.g. for SEO/social
-     previews) before the static file server or SPA catch-all
-     have a chance to intercept the request. */
+  /* SSR before static — handles SEO / social-preview routes */
   app.use(ssrRouter);
 
-  /* Sitemap must also come BEFORE static file serving so dynamic
-     sitemap routes are matched before the static server / SPA
-     catch-all can intercept them. */
+  /* Sitemap before static — handles dynamic sitemap routes */
   app.use(sitemapRouter);
 
-  app.use(express.static(dist, {
-    maxAge     : "1d",
-    setHeaders(res, fp) {
-      if (/\.html?$/i.test(fp))
-        res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-    },
-  }));
+  app.use(
+    express.static(dist, {
+      maxAge     : "1d",
+      setHeaders(res, fp) {
+        if (/\.html?$/i.test(fp))
+          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+      },
+    })
+  );
 
-  /* API 404 — must come before the SPA catch-all */
+  /* API 404 — before SPA catch-all */
   app.use((req, res, next) => {
     if (req.path.startsWith("/api/"))
       return res.status(404).json({
@@ -466,9 +499,9 @@ if (IS_PROD) {
   );
 }
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    404  — development only
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 app.use((req, res) =>
   res.status(404).json({
     success : false,
@@ -476,31 +509,36 @@ app.use((req, res) =>
   })
 );
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    GLOBAL ERROR HANDLER
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, _next) => {
   const reqId = req.requestId ?? "unknown";
   console.error(`🔥 [${reqId}] ${err.message}`);
   if (!IS_PROD) console.error(err.stack);
 
+  /* Known error codes */
+  const PG_ERRORS = {
+    "23505" : [409, "Duplicate entry"],
+    "23503" : [400, "Referenced record not found"],
+    "23514" : [400, "Constraint violated"],
+    "22P02" : [400, "Invalid input format"],
+  };
+
   if (err.code === "LIMIT_FILE_SIZE")
-    return res.status(400).json({ success: false, message: "File too large",              reqId });
+    return res.status(400).json({ success: false, message: "File too large",        reqId });
   if (err.code === "LIMIT_FILE_COUNT")
-    return res.status(400).json({ success: false, message: "Too many files",              reqId });
+    return res.status(400).json({ success: false, message: "Too many files",        reqId });
   if (err.code === "LIMIT_UNEXPECTED_FILE")
-    return res.status(400).json({ success: false, message: "Unexpected file field",       reqId });
+    return res.status(400).json({ success: false, message: "Unexpected file field", reqId });
   if (err.message?.startsWith("CORS"))
-    return res.status(403).json({ success: false, message: err.message,                   reqId });
-  if (err.code === "23505")
-    return res.status(409).json({ success: false, message: "Duplicate entry",             reqId });
-  if (err.code === "23503")
-    return res.status(400).json({ success: false, message: "Referenced record not found", reqId });
-  if (err.code === "23514")
-    return res.status(400).json({ success: false, message: "Constraint violated",         reqId });
-  if (err.code === "22P02")
-    return res.status(400).json({ success: false, message: "Invalid input format",        reqId });
+    return res.status(403).json({ success: false, message: err.message,             reqId });
+
+  if (PG_ERRORS[err.code]) {
+    const [status, message] = PG_ERRORS[err.code];
+    return res.status(status).json({ success: false, message, reqId });
+  }
 
   const status  = err.status ?? err.statusCode ?? 500;
   const message = IS_PROD && status === 500
@@ -510,16 +548,16 @@ app.use((err, req, res, _next) => {
   return res.status(status).json({ success: false, message, reqId });
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    GRACEFUL SHUTDOWN
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 let isShuttingDown = false;
 
 async function shutdown(signal) {
   if (isShuttingDown) return;
   isShuttingDown = true;
   console.log(`\n[server] ${signal} received — shutting down gracefully…`);
-  clearInterval(_ev);
+  clearInterval(_cacheEviction);
 
   const forceExit = setTimeout(() => {
     console.error("[server] forced exit after 15 s");
@@ -528,8 +566,8 @@ async function shutdown(signal) {
   forceExit.unref();
 
   server.close(async () => {
-    try { io.close();       } catch { /* ignore */ }
-    try { await pool.end(); } catch { /* ignore */ }
+    try { io.close();       } catch (_e) { /* ignore */ }
+    try { await pool.end(); } catch (_e) { /* ignore */ }
     clearTimeout(forceExit);
     console.log("[server] clean exit");
     process.exit(0);
@@ -547,9 +585,9 @@ process.on("uncaughtException",  (err) => {
   shutdown("uncaughtException");
 });
 
-/* ══════════════════════════════════════════════════════════════
+/* ════════════════════════════════════════════════════════════
    START
-══════════════════════════════════════════════════════════════ */
+════════════════════════════════════════════════════════════ */
 try {
   const { rows } = await pool.query("SELECT version()");
   console.log("✅ CockroachDB:", rows[0].version.split(" ")[0]);
@@ -563,68 +601,101 @@ startListingExpiryJob();
 startCleanupJob();
 initLeaderboardCron();
 
-/* ── Account purge cron — runs daily at 02:00 UTC ── */
+/* ── Cron jobs — loaded dynamically so missing node-cron doesn't crash ── */
 (async () => {
+  let cron;
   try {
-    const { default: cron } = await import("node-cron");
-    cron.schedule("0 2 * * *", () => {
-      purgeDeletedAccounts().catch((err) =>
-        console.error("[cron] purgeDeletedAccounts error:", err.message)
-      );
-    });
-    console.log("✅ Account purge cron scheduled (daily 02:00 UTC)");
-  } catch (err) {
-    /* node-cron not installed — log and continue, purge won't run */
+    ({ default: cron } = await import("node-cron"));
+  } catch (_e) {
     console.warn(
-      "[cron] node-cron not available — account purge disabled.",
-      "Run: npm install node-cron"
+      "[cron] node-cron not available — scheduled jobs disabled.\n" +
+      "       Run: npm install node-cron"
     );
+    return;
   }
+
+  /* ── Account purge — daily 02:00 UTC ── */
+  cron.schedule("0 2 * * *", () => {
+    purgeDeletedAccounts().catch((err) =>
+      console.error("[cron] purgeDeletedAccounts:", err.message)
+    );
+  });
+  console.log("✅ [cron] Account purge       → daily 02:00 UTC");
+
+  /* ── Weekly newsletter — every Monday 08:00 UTC (09:00 WAT) ── */
+  cron.schedule("0 8 * * 1", () => {
+    sendWeeklyNewsletter().catch((err) =>
+      console.error("[cron] weeklyNewsletter:", err.message)
+    );
+  });
+  console.log("✅ [cron] Weekly newsletter   → Monday 08:00 UTC");
+
+  /* ── Inactive user re-engagement — daily 09:00 UTC (10:00 WAT) ── */
+  cron.schedule("0 9 * * *", () => {
+    processInactiveUsers().catch((err) =>
+      console.error("[cron] inactiveUsers:", err.message)
+    );
+  });
+  console.log("✅ [cron] Inactive users      → daily 09:00 UTC");
 })();
 
+/* ── HTTP server ── */
 server.listen(PORT, () => {
-  console.log(`\n🚀 Loemart on port ${PORT} | ${process.env.NODE_ENV || "development"}`);
-  console.log(`   Auth             → /api/auth`);
-  console.log(`   Settings         → /api/settings`);
-  console.log(`                        GET  /profile`);
-  console.log(`                        PATCH /profile`);
-  console.log(`                        POST /change-password`);
-  console.log(`                        PATCH /email`);
-  console.log(`                        PATCH /phone`);
-  console.log(`                        GET  /preferences`);
-  console.log(`                        PATCH /preferences`);
-  console.log(`                        GET  /notifications`);
-  console.log(`                        PATCH /notifications`);
-  console.log(`                        GET  /blocked-users`);
-  console.log(`                        POST /blocked-users`);
-  console.log(`                        DELETE /blocked-users/:id`);
-  console.log(`                        GET  /login-activity`);
-  console.log(`                        GET  /sessions`);
-  console.log(`                        DELETE /sessions/:id`);
-  console.log(`                        DELETE /sessions`);
-  console.log(`                        POST /logout`);
-  console.log(`                        DELETE /delete-account`);
-  console.log(`                        POST /restore-account`);
-  console.log(`   Support (user)   → /api/support`);
-  console.log(`                        POST /tickets`);
-  console.log(`                        GET  /tickets`);
-  console.log(`                        GET  /tickets/:id`);
-  console.log(`                        POST /tickets/:id/messages`);
-  console.log(`                        POST /tickets/:id/reopen`);
-  console.log(`                        POST /tickets/:id/rate`);
-  console.log(`                        PATCH /tickets/:id`);
-  console.log(`                        POST /reports`);
-  console.log(`                        POST /disputes`);
-  console.log(`                        POST /appeals`);
-  console.log(`                        POST /feedback`);
-  console.log(`                        GET  /faq/categories`);
-  console.log(`                        GET  /faq/articles`);
-  console.log(`   Support (admin)  → /api/admin/support`);
-  console.log(`                        GET  /tickets`);
-  console.log(`                        PATCH /tickets/:id`);
-  console.log(`                        POST /tickets/:id/reply`);
-  console.log(`                        POST /tickets/:id/escalate`);
-  console.log(`                        GET  /analytics\n`);
+  const env = process.env.NODE_ENV || "development";
+  console.log(`\n🚀 Loemart server  |  port=${PORT}  |  env=${env}`);
+
+  console.log(`
+  ── Auth ───────────────────────────────────────────
+    /api/auth
+
+  ── Settings ───────────────────────────────────────
+    GET    /api/settings/profile
+    PATCH  /api/settings/profile
+    POST   /api/settings/change-password
+    PATCH  /api/settings/email
+    PATCH  /api/settings/phone
+    GET    /api/settings/preferences
+    PATCH  /api/settings/preferences
+    GET    /api/settings/notifications
+    PATCH  /api/settings/notifications
+    GET    /api/settings/blocked-users
+    POST   /api/settings/blocked-users
+    DELETE /api/settings/blocked-users/:id
+    GET    /api/settings/login-activity
+    GET    /api/settings/sessions
+    DELETE /api/settings/sessions/:id
+    DELETE /api/settings/sessions
+    POST   /api/settings/logout
+    DELETE /api/settings/delete-account
+    POST   /api/settings/restore-account
+
+  ── Support (user) ──────────────────────────────────
+    POST   /api/support/tickets
+    GET    /api/support/tickets
+    GET    /api/support/tickets/:id
+    POST   /api/support/tickets/:id/messages
+    POST   /api/support/tickets/:id/reopen
+    POST   /api/support/tickets/:id/rate
+    PATCH  /api/support/tickets/:id
+    POST   /api/support/reports
+    POST   /api/support/disputes
+    POST   /api/support/appeals
+    POST   /api/support/feedback
+    GET    /api/support/faq/categories
+    GET    /api/support/faq/articles
+
+  ── Support (admin) ─────────────────────────────────
+    GET    /api/admin/support/tickets
+    PATCH  /api/admin/support/tickets/:id
+    POST   /api/admin/support/tickets/:id/reply
+    POST   /api/admin/support/tickets/:id/escalate
+    GET    /api/admin/support/analytics
+
+  ── Crons ───────────────────────────────────────────
+    Account purge     → daily    02:00 UTC
+    Weekly newsletter → Monday   08:00 UTC
+    Inactive users    → daily    09:00 UTC
+  `);
 });
 
 export default app;
