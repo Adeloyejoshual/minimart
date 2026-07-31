@@ -263,6 +263,7 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
   const isFailed     = status === "failed";
   const isExpired    = status === "expired";
   const isCopied     = copied === coupon.code;
+  const isClaiming   = claiming === coupon.code;
 
   return (
     <div className={`cp-card cp-card--airtime${!isAvailable ? " cp-card--used" : ""}`}>
@@ -299,10 +300,10 @@ function AirtimeCard({ coupon, onCopy, copied, onClaim, claiming }) {
           <button
             className="cp-airtime-claim-btn"
             onClick={() => onClaim(coupon)}
-            disabled={claiming === coupon.code}
+            disabled={isClaiming}
           >
             <IconSend />
-            {claiming === coupon.code ? "Submitting…" : "Claim Airtime"}
+            {isClaiming ? "Opening…" : "Claim Airtime"}
           </button>
         )}
 
@@ -691,6 +692,7 @@ export default function Coupons() {
   /* ── Refs ── */
   const toastTimer          = useRef(null);
   const copiedTimer         = useRef(null);
+  const claimingTimer       = useRef(null);
   const mounted             = useRef(true);
   const autoResumedRef      = useRef(false);
   const pollTimer           = useRef(null);
@@ -705,6 +707,7 @@ export default function Coupons() {
       mounted.current = false;
       clearTimeout(toastTimer.current);
       clearTimeout(copiedTimer.current);
+      clearTimeout(claimingTimer.current);
       clearInterval(pollTimer.current);
       clearInterval(countdownTimer.current);
     };
@@ -924,16 +927,18 @@ export default function Coupons() {
   }, [me]);
 
   /* ════════════════════════════════════════════════════════
-     OPEN CLAIM MODAL
+     OPEN CLAIM MODAL — instant, refreshes phone in background
   ════════════════════════════════════════════════════════ */
-  const openClaimModal = useCallback(async (coupon) => {
-    await loadSavedPhone();
-    if (!mounted.current) return;
+  const openClaimModal = useCallback((coupon) => {
+    // Open modal INSTANTLY with whatever data we already have
     setClaimModal({ open: true, coupon });
+
+    // Refresh saved phone in the background — modal re-renders when it arrives
+    loadSavedPhone();
   }, [loadSavedPhone]);
 
   /* ════════════════════════════════════════════════════════
-     GO TO VERIFICATION PAGE
+     GO TO VERIFICATION PAGE — instant redirect
   ════════════════════════════════════════════════════════ */
   const goToVerification = useCallback((coupon = null) => {
     if (coupon) {
@@ -949,23 +954,32 @@ export default function Coupons() {
       } catch { /* non-fatal */ }
     }
 
+    // Show toast AND navigate immediately — no delay
     showToast("📧 Redirecting to email verification…");
-
-    setTimeout(() => {
-      navigate("/verification?return=" +
-        encodeURIComponent("/coupons?tab=airtime"));
-    }, 600);
+    navigate("/verification?return=" +
+      encodeURIComponent("/coupons?tab=airtime"));
   }, [navigate, showToast]);
 
   /* ════════════════════════════════════════════════════════
-     HANDLE CLAIM CLICK
+     HANDLE CLAIM CLICK — instant response with visual feedback
   ════════════════════════════════════════════════════════ */
   const handleClaim = useCallback((coupon) => {
+    // Instant guard — if profile is still loading, show toast (no network wait)
     if (!profileReady) {
       showToast("⏳ Loading your profile…");
       return;
     }
 
+    // Immediate visual feedback — flip the button state right away
+    setClaiming(coupon.code);
+
+    // Auto-clear claiming state after a short window so button doesn't get stuck
+    clearTimeout(claimingTimer.current);
+    claimingTimer.current = setTimeout(() => {
+      if (mounted.current) setClaiming(null);
+    }, 800);
+
+    // Route decision happens synchronously — no await, no delay
     if (emailVerified) {
       openClaimModal(coupon);
     } else {
@@ -1014,14 +1028,13 @@ export default function Coupons() {
     setPendingBanner({ code: pending.code });
     setTab("airtime");
 
+    // Open modal instantly on resume too
+    openClaimModal(coupon);
+
+    // Dismiss the pending banner after a short delay
     setTimeout(() => {
-      if (mounted.current) {
-        openClaimModal(coupon);
-        setTimeout(() => {
-          if (mounted.current) setPendingBanner(null);
-        }, 2000);
-      }
-    }, 600);
+      if (mounted.current) setPendingBanner(null);
+    }, 2000);
   }, [emailVerified, profileReady, coupons, openClaimModal, showToast]);
 
   /* ════════════════════════════════════════════════════════
