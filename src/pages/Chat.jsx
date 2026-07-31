@@ -4,17 +4,17 @@
  *
  * Real-time chat with:
  * - Socket.IO messaging
- * - Shift+Enter for paragraphs / Enter to send
+ * - Enter inserts newline (mobile) — Send button sends
  * - Auto-growing textarea (max 120px / ~5 lines)
  * - Offers / Counter-offers
  * - Multi-image upload    (max 10 | 5 MB each)
- * - Multi-video upload    (max 3  | 10 MB each | 60 sec)
  * - Location sharing
  * - Product sharing
  * - Context menu
  * - Typing indicators
  * - Full-screen media viewer (swipe / keyboard / zoom / download)
  * - Custom themed delete-message confirmation (no native alert)
+ * - localStorage message cache (7-day TTL, per thread)
  */
 
 import {
@@ -56,11 +56,8 @@ const SEND_TIMEOUT = 15_000;
 /* ═══════════════════════════════════════════════════════════════
    UPLOAD LIMITS  (must match server)
 ═══════════════════════════════════════════════════════════════ */
-const IMAGE_MAX_COUNT   = 10;
-const IMAGE_MAX_BYTES   = 5  * 1024 * 1024;
-const VIDEO_MAX_COUNT   = 3;
-const VIDEO_MAX_BYTES   = 10 * 1024 * 1024;
-const VIDEO_MAX_SECONDS = 60;
+const IMAGE_MAX_COUNT = 10;
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 /* ═══════════════════════════════════════════════════════════════
    MESSAGE REDUCER
@@ -142,24 +139,6 @@ function msgsReducer(state, action) {
    HELPERS
 ═══════════════════════════════════════════════════════════════ */
 
-/** Read video duration from a File object */
-function getClientVideoDuration(file) {
-  return new Promise((resolve) => {
-    const url   = URL.createObjectURL(file);
-    const video = document.createElement("video");
-    video.preload = "metadata";
-    video.onloadedmetadata = () => {
-      URL.revokeObjectURL(url);
-      resolve(video.duration);
-    };
-    video.onerror = () => {
-      URL.revokeObjectURL(url);
-      resolve(0);
-    };
-    video.src = url;
-  });
-}
-
 /** Validate image files → { valid, errors } */
 function validateImages(files) {
   const errors = [];
@@ -179,40 +158,59 @@ function validateImages(files) {
   return { valid, errors };
 }
 
-/** Validate video files (async — needs duration check) */
-async function validateVideos(files) {
-  const errors = [];
-  if (files.length > VIDEO_MAX_COUNT) {
-    errors.push(`Max ${VIDEO_MAX_COUNT} videos per message.`);
-    return { valid: [], errors };
-  }
-  const valid = [];
-  for (const f of files) {
-    if (!f.type.startsWith("video/")) {
-      errors.push(`"${f.name}" is not a video.`);
-      continue;
-    }
-    if (f.size > VIDEO_MAX_BYTES) {
-      errors.push(`"${f.name}" exceeds 10 MB.`);
-      continue;
-    }
-    const dur = await getClientVideoDuration(f);
-    if (dur > VIDEO_MAX_SECONDS) {
-      errors.push(
-        `"${f.name}" is ${Math.round(dur)}s — max ${VIDEO_MAX_SECONDS}s.`
-      );
-      continue;
-    }
-    valid.push(f);
-  }
-  return { valid, errors };
-}
-
 /** Reset textarea height to auto then fit content (max 120px) */
 function resizeTextarea(el) {
   if (!el) return;
   el.style.height = "auto";
   el.style.height = Math.min(el.scrollHeight, 120) + "px";
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MESSAGE CACHE  (localStorage)
+═══════════════════════════════════════════════════════════════ */
+const CACHE_PREFIX   = "chat_msgs_";
+const CACHE_MAX_MSGS = 200;
+const CACHE_TTL_MS   = 7 * 24 * 60 * 60 * 1000; // 7 days
+
+function cacheKey(threadId) {
+  return `${CACHE_PREFIX}${threadId}`;
+}
+
+function loadCachedMessages(threadId) {
+  if (!threadId) return null;
+  try {
+    const raw = localStorage.getItem(cacheKey(threadId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.messages || !Array.isArray(parsed.messages)) return null;
+    if (Date.now() - (parsed.savedAt || 0) > CACHE_TTL_MS) {
+      localStorage.removeItem(cacheKey(threadId));
+      return null;
+    }
+    return parsed.messages;
+  } catch {
+    return null;
+  }
+}
+
+function saveCachedMessages(threadId, messages) {
+  if (!threadId || !Array.isArray(messages)) return;
+  try {
+    const clean = messages
+      .filter((m) => !m._temp && !m._failed && !m._timedOut)
+      .slice(-CACHE_MAX_MSGS);
+    localStorage.setItem(
+      cacheKey(threadId),
+      JSON.stringify({ savedAt: Date.now(), messages: clean })
+    );
+  } catch {
+    /* quota exceeded — ignore */
+  }
+}
+
+function clearCachedMessages(threadId) {
+  if (!threadId) return;
+  try { localStorage.removeItem(cacheKey(threadId)); } catch {}
 }
 
 /* ═══════════════════════════════════════════════════════════════
@@ -236,7 +234,6 @@ export default function Chat({ user }) {
 
   /* ── Upload state ── */
   const [uploadingImages, setUploadingImages] = useState(false);
-  const [uploadingVideos, setUploadingVideos] = useState(false);
 
   /* ── UI state ── */
   const [showMenu,        setShowMenu]        = useState(false);
@@ -261,14 +258,13 @@ export default function Chat({ user }) {
   /* ── Refs ── */
   const socketRef     = useRef(null);
   const bottomRef     = useRef(null);
-  const inputRef      = useRef(null);        // now a <textarea>
+  const inputRef      = useRef(null);
   const typingTimer   = useRef(null);
   const historyLoaded = useRef(false);
   const pendingMsgs   = useRef([]);
   const mounted       = useRef(true);
   const sendTimers    = useRef(new Map());
   const imageFileRef  = useRef(null);
-  const videoFileRef  = useRef(null);
   const cameraRef     = useRef(null);
 
   const newMsgRef  = useRef("");
@@ -455,14 +451,26 @@ export default function Chat({ user }) {
   }, [user?.id, threadId]); // eslint-disable-line
 
   /* ══════════════════════════════════════════════════════════
-     LOAD HISTORY
+     LOAD HISTORY  (with localStorage cache)
   ══════════════════════════════════════════════════════════ */
   const loadHistory = useCallback(async () => {
     if (!user?.id || !threadId) return;
     historyLoaded.current = false;
     pendingMsgs.current   = [];
-    safe(() => { setLoading(true); setError(null); });
 
+    /* 1) Hydrate from cache first so UI never looks broken */
+    const cached = loadCachedMessages(threadId);
+    if (cached && cached.length) {
+      safe(() => {
+        dispatch({ type: "SET", payload: cached });
+        setLoading(false);
+        setError(null);
+      });
+    } else {
+      safe(() => { setLoading(true); setError(null); });
+    }
+
+    /* 2) Fetch fresh from network */
     try {
       const { data } = await axios.get(`${API}/messages`, {
         params : { threadId, userId: user.id },
@@ -477,7 +485,14 @@ export default function Chat({ user }) {
 
       pendingMsgs.current   = [];
       historyLoaded.current = true;
-      safe(() => dispatch({ type: "SET", payload: all }));
+
+      safe(() => {
+        dispatch({ type: "SET", payload: all });
+        setError(null);
+      });
+
+      /* 3) Update cache with fresh data */
+      saveCachedMessages(threadId, all);
 
       socketRef.current?.emit("markRead", { threadId, userId: user.id });
       axios
@@ -489,19 +504,35 @@ export default function Chat({ user }) {
         .catch(() => {});
 
     } catch (err) {
-      safe(() =>
-        setError(
-          `${err.response?.status ?? "Network"} — ${
-            err.response?.data?.message ?? err.message
-          }`
-        )
-      );
+      historyLoaded.current = true;
+
+      /* Only show error if we have NOTHING to display */
+      if (!cached || cached.length === 0) {
+        safe(() =>
+          setError(
+            `${err.response?.status ?? "Network"} — ${
+              err.response?.data?.message ?? err.message
+            }`
+          )
+        );
+      } else {
+        console.warn("Message refresh failed, using cache:", err.message);
+      }
     } finally {
       safe(() => setLoading(false));
     }
   }, [user?.id, threadId, safe]);
 
   useEffect(() => { loadHistory(); }, [loadHistory]);
+
+  /* ══════════════════════════════════════════════════════════
+     PERSIST MESSAGES TO LOCALSTORAGE
+  ══════════════════════════════════════════════════════════ */
+  useEffect(() => {
+    if (!threadId || !historyLoaded.current) return;
+    if (!messages.length) return;
+    saveCachedMessages(threadId, messages);
+  }, [messages, threadId]);
 
   /* ══════════════════════════════════════════════════════════
      AUTO-SCROLL
@@ -638,7 +669,6 @@ export default function Chat({ user }) {
           id   : tempId,
           patch: { _temp: false, _failed: true, _timedOut: false },
         });
-        /* restore text so user can retry */
         setNewMsg(trimmed);
       }
     } finally {
@@ -745,84 +775,6 @@ export default function Chat({ user }) {
   }, [threadId, user?.id, replyTo, safe]);
 
   /* ══════════════════════════════════════════════════════════
-     VIDEO UPLOAD
-  ══════════════════════════════════════════════════════════ */
-  const handleVideoChange = useCallback(async (e) => {
-    const raw = Array.from(e.target.files || []);
-    e.target.value = "";
-    setShowAttach(false);
-    if (!raw.length) return;
-
-    const { valid, errors } = await validateVideos(raw);
-    if (errors.length) { alert(errors.join("\n")); return; }
-    if (!valid.length) return;
-
-    const clientMsgId = `${user.id}_${Date.now()}`;
-    const tempId      = `temp_${clientMsgId}`;
-    const localUrls   = valid.map((f) => URL.createObjectURL(f));
-    const count       = valid.length;
-    const preview     = count === 1 ? "Video" : `${count} Videos`;
-
-    dispatch({
-      type: "APPEND",
-      payload: {
-        id               : tempId,
-        client_message_id: clientMsgId,
-        thread_id        : threadId,
-        sender_id        : user.id,
-        message          : preview,
-        message_type     : MESSAGE_TYPES.VIDEO,
-        media_url        : localUrls,
-        created_at       : new Date().toISOString(),
-        status           : "sending",
-        _temp            : true,
-        _failed          : false,
-        _timedOut        : false,
-        ...(replyTo ? { reply_to_id: replyTo.id } : {}),
-      },
-    });
-
-    setUploadingVideos(true);
-    setReplyTo(null);
-
-    try {
-      const form = new FormData();
-      valid.forEach((f) => form.append("files", f));
-      form.append("threadId",        threadId);
-      form.append("senderId",        user.id);
-      form.append("clientMessageId", clientMsgId);
-      if (replyTo) form.append("reply_to_id", replyTo.id);
-
-      const { data: saved } = await axios.post(
-        `${API}/messages/upload-video`,
-        form,
-        {
-          headers: { ...authH(), "Content-Type": "multipart/form-data" },
-          timeout: 60_000,
-        }
-      );
-
-      localUrls.forEach((u) => URL.revokeObjectURL(u));
-      if (mounted.current)
-        dispatch({ type: "REPLACE", tempId, payload: saved });
-
-      socketRef.current?.emit("sendMessage", saved);
-
-    } catch (err) {
-      console.error("Video upload failed:", err.message);
-      localUrls.forEach((u) => URL.revokeObjectURL(u));
-      if (mounted.current)
-        dispatch({
-          type : "PATCH",
-          id   : tempId,
-          patch: { _temp: false, _failed: true },
-        });
-    } finally {
-      safe(() => setUploadingVideos(false));
-    }
-  }, [threadId, user?.id, replyTo, safe]);
-
-  /* ══════════════════════════════════════════════════════════
      OFFER HANDLERS
   ══════════════════════════════════════════════════════════ */
   const handleSendOffer = useCallback((offerMeta) => {
@@ -919,6 +871,7 @@ export default function Chat({ user }) {
         data   : { userId: user.id },
         headers: authH(),
       });
+      clearCachedMessages(threadId);
       navigate(-1);
     } catch (err) {
       console.error("Delete chat failed:", err.message);
@@ -960,21 +913,15 @@ export default function Chat({ user }) {
   const retryMessage = useCallback((fm) => {
     dispatch({ type: "REMOVE", id: fm.id });
     setNewMsg(fm.message);
-    /* trigger resize after state settles */
     setTimeout(() => resizeTextarea(inputRef.current), 0);
     inputRef.current?.focus();
   }, []);
 
-  /* ── Keyboard (textarea) ── */
+  /* ── Keyboard (textarea) — Enter = newline, Send button = send ── */
   const handleKeyDown = useCallback((e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      /* plain Enter → send */
-      e.preventDefault();
-      handleSend(e);
-    }
-    /* Shift+Enter → textarea inserts \n naturally (no action needed) */
     if (e.key === "Escape") setReplyTo(null);
-  }, [handleSend]);
+    /* Enter always inserts newline naturally on mobile */
+  }, []);
 
   /* ── Input change with auto-resize ── */
   const handleInputChange = useCallback((e) => {
@@ -1022,7 +969,6 @@ export default function Chat({ user }) {
   const handleMute           = useCallback(() => setMuted((v) => !v),         []);
   const openCamera           = useCallback(() => cameraRef.current?.click(),  []);
   const openGallery          = useCallback(() => imageFileRef.current?.click(),[]);
-  const openVideoGallery     = useCallback(() => videoFileRef.current?.click(),[]);
   const clearReply           = useCallback(() => setReplyTo(null),             []);
   const openDeleteConfirm    = useCallback(() => setShowDeleteConfirm(true),   []);
   const closeDeleteConfirm   = useCallback(() => setShowDeleteConfirm(false),  []);
@@ -1139,13 +1085,6 @@ export default function Chat({ user }) {
           </div>
         )}
 
-        {uploadingVideos && (
-          <div className="upload-progress-banner">
-            <div className="chat-btn-spinner" />
-            <span>Uploading videos…</span>
-          </div>
-        )}
-
         <div ref={bottomRef} />
       </main>
 
@@ -1217,19 +1156,6 @@ export default function Chat({ user }) {
                     : "Photo"}
                 </span>
               </div>
-            ) : replyTo.message_type === MESSAGE_TYPES.VIDEO &&
-              Array.isArray(replyTo.media_url) &&
-              replyTo.media_url.length > 0 ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div className="footer-reply-video-thumb">
-                  {Icon.video || "▶"}
-                </div>
-                <span className="footer-reply-msg">
-                  {replyTo.media_url.length > 1
-                    ? `${replyTo.media_url.length} Videos`
-                    : "Video"}
-                </span>
-              </div>
             ) : (
               <div className="footer-reply-msg">
                 {truncate(replyTo.message)}
@@ -1262,16 +1188,6 @@ export default function Chat({ user }) {
               </span>
             </button>
 
-            <button className="attach-option" onClick={openVideoGallery}>
-              {Icon.video || "🎥"}
-              <span>
-                Video
-                <small style={{ display: "block", fontSize: 10, opacity: 0.6 }}>
-                  max {VIDEO_MAX_COUNT} · 10 MB · 60 s
-                </small>
-              </span>
-            </button>
-
             <button className="attach-option" onClick={openLocationModal}>
               {Icon.location}
               <span>Location</span>
@@ -1296,14 +1212,6 @@ export default function Chat({ user }) {
           className="hidden-input"
           onChange={handleImageChange}
         />
-        <input
-          ref={videoFileRef}
-          type="file"
-          accept="video/*"
-          multiple
-          className="hidden-input"
-          onChange={handleVideoChange}
-        />
 
         <button
           className="chat-icon-btn"
@@ -1313,14 +1221,15 @@ export default function Chat({ user }) {
           {Icon.plus}
         </button>
 
-        {/* ── Textarea (replaces <input type="text">) ── */}
+        {/* ── Textarea — Enter = newline, tap Send to send ── */}
         <textarea
           ref={inputRef}
           className="chat-input"
           value={newMsg}
           onChange={handleInputChange}
           onKeyDown={handleKeyDown}
-          placeholder={replyTo ? "Write a reply… (Shift+Enter for new line)" : "Type a message… (Shift+Enter for new line)"}
+          enterKeyHint="enter"
+          placeholder={replyTo ? "Write a reply…" : "Type a message…"}
           aria-label="Message"
           maxLength={5000}
           rows={1}
@@ -1399,7 +1308,6 @@ export default function Chat({ user }) {
         />
       )}
 
-      {/* Custom themed "Delete this message?" */}
       {deleteMsgTarget && (
         <DeleteMessageConfirm
           onConfirm={confirmDeleteMessage}
