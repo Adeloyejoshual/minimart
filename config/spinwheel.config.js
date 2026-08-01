@@ -54,7 +54,7 @@ export const WHEEL_SEGMENTS = Object.freeze([
     color       : "#0891b2",
     bg          : "#f0f9ff",
     emoji       : "📱",
-    probability : 14,
+    probability : 23,
     is_big_win  : false,
   },
   {
@@ -65,7 +65,7 @@ export const WHEEL_SEGMENTS = Object.freeze([
     color       : "#e8630a",
     bg          : "#fff0e6",
     emoji       : "🎟️",
-    probability : 23,
+    probability : 14,
     is_big_win  : false,
   },
   {
