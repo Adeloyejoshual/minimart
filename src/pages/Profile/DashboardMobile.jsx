@@ -15,6 +15,7 @@ import { Ic } from "./components/icons";
 
 import Overview      from "./components/Overview";
 import Listings      from "./components/Listings";
+import Payments      from "./components/Payments";      /* ✅ NEW */
 import Analytics     from "./components/Analytics";
 import ConfirmDialog from "./components/ConfirmDialog";
 import PromoteModal  from "./components/PromoteModal";
@@ -241,11 +242,13 @@ class SectionErrorBoundary extends Component {
 
 /* ─────────────────────────────────────────────
    Constants
+   ✅ Added Payments to nav
 ───────────────────────────────────────────── */
 const NAV_ITEMS = [
-  { key: "overview",  label: "Overview",  icon: "Chart"   },
-  { key: "products",  label: "Listings",  icon: "Package" },
-  { key: "analytics", label: "Analytics", icon: "TrendUp" },
+  { key: "overview",  label: "Overview",  icon: "Chart"      },
+  { key: "products",  label: "Listings",  icon: "Package"    },
+  { key: "payments",  label: "Payments",  icon: "CreditCard" },  /* ✅ NEW */
+  { key: "analytics", label: "Analytics", icon: "TrendUp"    },
 ];
 
 const GREETING = (() => {
@@ -256,35 +259,12 @@ const GREETING = (() => {
 })();
 
 /* ─────────────────────────────────────────────
-   Helper — resolve user email from any storage
-───────────────────────────────────────────── */
-const resolveEmail = (propEmail) => {
-  if (propEmail && propEmail.includes("@")) return propEmail;
-
-  const plainKeys = ["user_email", "userEmail", "email", "marketplace_email"];
-  for (const key of plainKeys) {
-    const val = localStorage.getItem(key);
-    if (val && val.includes("@")) return val;
-  }
-
-  const jsonKeys = ["user", "userData", "marketplace_user", "auth_user", "currentUser"];
-  for (const key of jsonKeys) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      const parsed = JSON.parse(raw);
-      const email  = parsed?.email || parsed?.user?.email;
-      if (email && email.includes("@")) return email;
-    } catch { /* skip */ }
-  }
-
-  return "";
-};
-
-/* ─────────────────────────────────────────────
    useDashboard — all data & mutations
+   ✅ Removed userEmail param (backend handles it)
+   ✅ Fixed handlePayNow (no more client email)
+   ✅ Fixed verifyPayment (uses /payment/verify-by-product)
 ───────────────────────────────────────────── */
-function useDashboard(showToast, userEmail, navigate) {
+function useDashboard(showToast, navigate) {
 
   /* ── data ── */
   const [stats,        setStats]        = useState(null);
@@ -460,18 +440,13 @@ function useDashboard(showToast, userEmail, navigate) {
 
   /* ═══════════════════════════════════════════════════════════
      DELETE
-     ✅ v2: Auto-pause active products before delete
-            Backend requires pausing before delete for active listings.
   ═══════════════════════════════════════════════════════════ */
   const deleteProduct = useCallback(
     async (product) => {
       setDeleting(product.id);
-
-      /* Optimistic UI — remove immediately */
       setProducts((prev) => prev.filter((p) => p.id !== product.id));
 
       try {
-        /* ✅ Step 1: If active, pause it first */
         const isActive =
           product.is_active === true || product.status === "active";
 
@@ -482,14 +457,10 @@ function useDashboard(showToast, userEmail, navigate) {
               { method: "PATCH", headers: authH() }
             );
           } catch {
-            /* Non-fatal — continue to delete anyway */
-            console.warn(
-              "[dashboard] auto-pause failed, attempting delete anyway"
-            );
+            console.warn("[dashboard] auto-pause failed, attempting delete anyway");
           }
         }
 
-        /* ✅ Step 2: Delete */
         const res = await fetch(
           `${API}/seller-dashboard/products/${product.id}`,
           { method: "DELETE", headers: authH() }
@@ -504,7 +475,6 @@ function useDashboard(showToast, userEmail, navigate) {
             5000
           );
         } else {
-          /* Rollback optimistic UI on failure */
           setProducts((prev) => [product, ...prev]);
           showToast(d.message || "Could not delete.", "error");
         }
@@ -646,67 +616,298 @@ function useDashboard(showToast, userEmail, navigate) {
     [fetchStats, showToast, navigate]
   );
 
+  /* ═══════════════════════════════════════════════════════════
+     handlePayNow — Initiate Paystack payment
+     ✅ No client email — backend fetches from users table
+     ✅ Shows real errors
+  ═══════════════════════════════════════════════════════════ */
   const handlePayNow = useCallback(
     async (product) => {
-      const email = resolveEmail(userEmail);
-      if (!email) {
-        showToast("We couldn't find your email. Please log out and log in again.", "error");
+      if (!product?.id) {
+        showToast("Invalid product.", "error");
         return;
       }
+
+      const planId = product.plan_id ?? product.promotion_id ?? null;
+
       try {
         const res = await fetch(`${API}/payment/initiate`, {
           method : "POST",
           headers: authH(),
-          body   : JSON.stringify({ product_id: product.id, email }),
+          body   : JSON.stringify({
+            product_id: product.id,
+            ...(planId && { plan_id: planId }),
+          }),
         });
+
         const d = await res.json();
-        if (res.ok && d.authorization_url) {
-          window.location.href = d.authorization_url;
-        } else {
-          showToast(d.message || "Could not initiate payment.", "error");
+
+        if (!res.ok) {
+          console.error("[payment] initiate failed:", res.status, d);
+          showToast(
+            d.message || `Payment failed (${res.status}). Please try again.`,
+            "error",
+            6000
+          );
+          return;
         }
-      } catch {
-        showToast("Network error. Try again.", "error");
+
+        /* Free plan → auto-activated */
+        if (d.success && d.is_free) {
+          setProducts((prev) =>
+            prev.map((p) =>
+              p.id === product.id
+                ? {
+                    ...p,
+                    status      : d.status,
+                    is_active   : true,
+                    is_promoted : true,
+                    active_until: d.active_until,
+                  }
+                : p
+            )
+          );
+          fetchStats();
+          showToast("Listing activated! 🚀", "success");
+          return;
+        }
+
+        /* Paid plan → redirect to Paystack */
+        if (d.success && d.authorization_url) {
+          window.location.href = d.authorization_url;
+          return;
+        }
+
+        showToast(
+          d.message || "Could not start payment. Please try again.",
+          "error"
+        );
+      } catch (err) {
+        console.error("[payment] initiate network error:", err);
+        showToast(
+          err.message
+            ? `Network error: ${err.message}`
+            : "Network error. Check your connection and try again.",
+          "error",
+          6000
+        );
       }
     },
-    [userEmail, showToast]
+    [showToast, fetchStats]
   );
 
+  /* ═══════════════════════════════════════════════════════════
+     verifyPayment — "Check Status" button
+     ✅ Uses correct /payment/verify-by-product endpoint
+     ✅ Shows REAL server errors
+     ✅ Handles all payment states properly
+  ═══════════════════════════════════════════════════════════ */
   const verifyPayment = useCallback(
     async (product) => {
+      if (!product?.id) {
+        showToast("Invalid product.", "error");
+        return;
+      }
+
       setVerifying(product.id);
+
       try {
-        const res = await fetch(
-          `${API}/seller-dashboard/products/${product.id}/verify-payment`,
-          { method: "POST", headers: authH() }
-        );
-        const d = await res.json();
-        if (res.ok && d.success) {
-          if (d.status === "active") {
-            setProducts((prev) =>
-              prev.map((p) =>
-                p.id === product.id
-                  ? { ...p, status: "active", is_active: true }
-                  : p
-              )
-            );
-            fetchStats();
-            showToast("Payment verified! Your listing is now live.", "success");
-          } else if (d.status === "pending") {
-            showToast("Payment is still processing. Please wait a few minutes.", "info");
-          } else {
-            showToast(d.message || "Payment not confirmed. Please complete payment.", "warning");
-          }
-        } else {
-          showToast(d.message || "Could not verify payment.", "error");
+        const res = await fetch(`${API}/payment/verify-by-product`, {
+          method : "POST",
+          headers: authH(),
+          body   : JSON.stringify({ product_id: product.id }),
+        });
+
+        let d;
+        try {
+          d = await res.json();
+        } catch (parseErr) {
+          console.error("[verify] JSON parse error:", parseErr);
+          showToast(
+            `Server returned invalid response (HTTP ${res.status}). ` +
+            "Please try again in a moment.",
+            "error",
+            6000
+          );
+          return;
         }
-      } catch {
-        showToast("Network error. Try again.", "error");
+
+        console.log("[verify] response:", res.status, d);
+
+        /* HTTP ERROR STATES */
+        if (!res.ok) {
+          if (res.status === 401) {
+            showToast("Session expired. Please log in again.", "error");
+            setTimeout(() => navigate("/auth"), 1500);
+            return;
+          }
+          if (res.status === 404) {
+            showToast(
+              d.message || "No payment found. Try 'Pay Now' instead.",
+              "warning",
+              6000
+            );
+            return;
+          }
+          if (res.status === 429) {
+            showToast(
+              d.message || "Too many attempts. Wait a moment.",
+              "warning",
+              5000
+            );
+            return;
+          }
+          if (res.status === 402) {
+            showToast(
+              d.message || "Payment amount mismatch. Contact support.",
+              "error",
+              8000
+            );
+            return;
+          }
+          if (res.status === 502) {
+            showToast(
+              "Payment provider unreachable. Try again shortly.",
+              "error",
+              5000
+            );
+            return;
+          }
+          if (res.status >= 500) {
+            showToast(
+              d.message || `Server error (${res.status}). Try again.`,
+              "error",
+              6000
+            );
+            return;
+          }
+          showToast(
+            d.message || `Error ${res.status}. Please try again.`,
+            "error",
+            5000
+          );
+          return;
+        }
+
+        /* SUCCESS STATES */
+
+        /* ✅ Payment confirmed */
+        if (d.success && d.status === "success") {
+          setProducts((prev) =>
+            prev.map((p) =>
+              p.id === product.id
+                ? {
+                    ...p,
+                    status         : d.needs_verification ? "active_limited" : "active",
+                    is_active      : true,
+                    is_promoted    : d.is_promoted ?? true,
+                    active_until   : d.active_until  ?? p.active_until,
+                    promotion_end  : d.promoted_until ?? p.promotion_end,
+                  }
+                : p
+            )
+          );
+          fetchStats();
+
+          if (d.already_confirmed || d.already_active) {
+            showToast("✅ Your listing is already live!", "success");
+          } else {
+            showToast(
+              `🚀 Payment confirmed — your listing is now live${
+                d.days_remaining ? ` for ${d.days_remaining} days` : ""
+              }!`,
+              "success",
+              5000
+            );
+          }
+          return;
+        }
+
+        /* ⏳ Still pending */
+        if (d.status === "pending") {
+          showToast(
+            d.message ||
+              "⏳ Payment is still processing. Please wait a few minutes.",
+            "info",
+            6000
+          );
+          return;
+        }
+
+        /* ❌ Failed */
+        if (d.status === "failed") {
+          setProducts((prev) =>
+            prev.map((p) =>
+              p.id === product.id
+                ? { ...p, status: "draft", is_active: false }
+                : p
+            )
+          );
+          fetchStats();
+          showToast(
+            d.message || "❌ Payment failed. Try Pay Now again.",
+            "error",
+            6000
+          );
+          return;
+        }
+
+        /* 🚫 Cancelled */
+        if (d.status === "cancelled") {
+          setProducts((prev) =>
+            prev.map((p) =>
+              p.id === product.id
+                ? { ...p, status: "draft", is_active: false }
+                : p
+            )
+          );
+          fetchStats();
+          showToast(
+            d.message || "Payment was cancelled. Listing saved as draft.",
+            "warning",
+            5000
+          );
+          return;
+        }
+
+        /* ⏰ Expired */
+        if (d.status === "expired") {
+          setProducts((prev) =>
+            prev.map((p) =>
+              p.id === product.id
+                ? { ...p, status: "draft", is_active: false }
+                : p
+            )
+          );
+          fetchStats();
+          showToast(
+            "⏰ Payment session expired. Please initiate a new payment.",
+            "warning",
+            5000
+          );
+          return;
+        }
+
+        /* Unknown */
+        showToast(
+          d.message || `Unknown status: ${d.status || "no status returned"}`,
+          "warning",
+          5000
+        );
+      } catch (err) {
+        console.error("[verify] network error:", err);
+        showToast(
+          err.message
+            ? `Network error: ${err.message}`
+            : "Network error. Check your connection and try again.",
+          "error",
+          6000
+        );
       } finally {
         setVerifying(null);
       }
     },
-    [fetchStats, showToast]
+    [fetchStats, showToast, navigate]
   );
 
   const tabCounts = useMemo(
@@ -743,6 +944,7 @@ function useDashboard(showToast, userEmail, navigate) {
 
 /* ─────────────────────────────────────────────
    DashboardHeader
+   ✅ Nav badge now shows for products AND payments
 ───────────────────────────────────────────── */
 function DashboardHeader({
   greeting,
@@ -824,7 +1026,16 @@ function DashboardHeader({
 
       <nav className="dashboard__nav" aria-label="Dashboard sections">
         {NAV_ITEMS.map(({ key, label, icon }) => {
-          const Icon = Ic[icon] ?? (() => null);
+          const Icon = Ic[icon] ?? Ic.Fallback ?? (() => null);
+
+          /* ✅ Show badge for products AND payments */
+          const badgeCount =
+            key === "products" ? tabCounts.all      :
+            key === "payments" ? tabCounts.pending  :
+            0;
+
+          const isPaymentBadge = key === "payments";
+
           return (
             <button
               key={key}
@@ -836,9 +1047,13 @@ function DashboardHeader({
             >
               <Icon />
               <span>{label}</span>
-              {key === "products" && tabCounts.all > 0 && (
-                <span className="dashboard__nav-badge">
-                  {tabCounts.all}
+              {badgeCount > 0 && (
+                <span
+                  className={`dashboard__nav-badge${
+                    isPaymentBadge ? " dashboard__nav-badge--alert" : ""
+                  }`}
+                >
+                  {badgeCount}
                 </span>
               )}
             </button>
@@ -880,11 +1095,11 @@ export default function Dashboard({ user }) {
     if (!getToken()) navigate("/auth?redirect=/dashboard");
   }, [navigate]);
 
-  const db = useDashboard(showToast, user?.email, navigate);
+  /* ✅ No more userEmail passing — backend handles it */
+  const db = useDashboard(showToast, navigate);
 
   /* ═══════════════════════════════════════════════════════════
      DELETE FLOW
-     ✅ v2: Better warning if product is active
   ═══════════════════════════════════════════════════════════ */
   const handleDeleteRequest = useCallback(
     (product) => {
@@ -946,7 +1161,10 @@ export default function Dashboard({ user }) {
 
   const userName = user?.name || user?.full_name || user?.username || "Seller";
 
-  /* ── sections — each wrapped in its own error boundary ── */
+  /* ─────────────────────────────────────────────
+     Sections — each wrapped in its own error boundary
+     ✅ Added Payments section
+  ───────────────────────────────────────────── */
   const sections = useMemo(
     () => ({
       overview: (
@@ -990,6 +1208,16 @@ export default function Dashboard({ user }) {
           />
         </SectionErrorBoundary>
       ),
+      /* ✅ NEW: Payments section */
+      payments: (
+        <SectionErrorBoundary section="Payments">
+          <Payments
+            onNavigate={navigate}
+            onSetSection={setSection}
+            showToast={showToast}
+          />
+        </SectionErrorBoundary>
+      ),
       analytics: (
         <SectionErrorBoundary section="Analytics">
           <Analytics
@@ -1004,7 +1232,7 @@ export default function Dashboard({ user }) {
         </SectionErrorBoundary>
       ),
     }),
-    [db, user?.id, navigate, productActions]
+    [db, user?.id, navigate, productActions, showToast]
   );
 
   return (
