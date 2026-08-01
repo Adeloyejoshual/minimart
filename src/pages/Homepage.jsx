@@ -26,7 +26,7 @@ import "../styles/Homepage.css";
 ══════════════════════════════════════════════════════════ */
 const BASE_URL  = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API       = `${BASE_URL}/api`;
-const PAGE_SIZE = 80;                       // ⚡ 80 products per page
+const PAGE_SIZE = 80;
 const PH        = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
 const STALE_MS  = 5 * 60_000;
 
@@ -100,6 +100,7 @@ const BellIcon      = ({ size = 22 }) => <Ico size={size}><path d="M18 8A6 6 0 0
 const CartIcon      = ({ size = 18 }) => <Ico size={size}><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 002 1.61h9.72a2 2 0 002-1.61L23 6H6"/></Ico>;
 const PlusIcon      = ({ size = 18 }) => <Ico size={size} sw={2.5}><path d="M12 5v14M5 12h14"/></Ico>;
 const ChevRightIcon = ({ size = 14 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z"/></Ico>;
+const ChevLeftIcon  = ({ size = 14 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M15.41 16.59L10.83 12l4.58-4.59L14 6l-6 6 6 6z"/></Ico>;
 const ChevDownIcon  = ({ size = 13 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></Ico>;
 const ChevUpIcon    = ({ size = 16 }) => <Ico size={size} sw={2.5}><path d="M18 15l-6-6-6 6"/></Ico>;
 const DiamondIcon   = ({ size = 14 }) => <Ico size={size}><path d="M6 3h12l4 6-10 13L2 9z"/><path d="M2 9h20"/><path d="M10 3l-4 6 6 13 6-13-4-6"/></Ico>;
@@ -207,10 +208,12 @@ const MasonrySkeleton = memo(() => (
 ));
 
 const FeaturedSkeleton = memo(() => (
-  <div className="hm-feat-row" aria-busy="true">
-    {[1, 2, 3].map((i) => (
-      <div key={i} className="hm-sk hm-sk-feat hm-shimmer" aria-hidden="true" />
-    ))}
+  <div className="hm-feat-scroll" aria-busy="true">
+    <div className="hm-feat-track">
+      {[1, 2, 3, 4].map((i) => (
+        <div key={i} className="hm-sk hm-sk-feat hm-shimmer" aria-hidden="true" />
+      ))}
+    </div>
   </div>
 ));
 
@@ -334,13 +337,13 @@ const VerifiedBadge = memo(function VerifiedBadge({ seller }) {
       aria-label={`Verified seller — ${plan} plan`}
     >
       <ShieldIcon size={11} />
-      Verified Seller
+      Verified
     </span>
   );
 });
 
 /* ══════════════════════════════════════════════════════════
-   FEATURED CARD
+   FEATURED CARD (compact for horizontal scroll)
 ══════════════════════════════════════════════════════════ */
 const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
   if (!product) return null;
@@ -362,29 +365,28 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
           className="hm-feat-img"
           src={imgUrl}
           alt={product.title || "Featured listing"}
-          loading="eager"
+          loading="lazy"
           onError={(e) => { e.currentTarget.src = PH; }}
         />
         <div className="hm-feat-overlay" aria-hidden="true" />
+
+        <span className={`hm-feat-tag hm-feat-tag--${badge}`}>
+          {badge === "featured" ? <><DiamondIcon size={10} /> Featured</>
+            : badge === "premium" ? <><SponsoredIcon size={10} /> Premium</>
+            : <><FlashIcon size={10} /> Promoted</>}
+        </span>
+
+        {disc && <span className="hm-feat-disc">{disc}</span>}
       </div>
 
       <div className="hm-feat-body">
-        <div className="hm-feat-top">
-          <span className={`hm-feat-tag hm-feat-tag--${badge}`}>
-            {badge === "featured" ? <><DiamondIcon size={11} /> Featured</>
-              : badge === "premium" ? <><SponsoredIcon size={11} /> Premium</>
-              : <><FlashIcon size={11} /> Promoted</>}
-          </span>
-          {disc && <span className="hm-feat-disc">{disc}</span>}
-        </div>
-
         <p className="hm-feat-title">{product.title}</p>
 
         <div className="hm-feat-bottom">
           <span className="hm-feat-price">{naira(product.price)}</span>
           {loc && (
             <span className="hm-feat-loc">
-              <PinIcon size={10} /> {loc}
+              <PinIcon size={9} /> {loc}
             </span>
           )}
         </div>
@@ -396,41 +398,71 @@ const FeaturedCard = memo(function FeaturedCard({ product, onClick }) {
 });
 
 /* ══════════════════════════════════════════════════════════
-   DEAL CARD
+   HORIZONTAL SCROLLER WITH ARROW CONTROLS (desktop)
 ══════════════════════════════════════════════════════════ */
-const DealCard = memo(function DealCard({ product, onClick }) {
-  if (!product) return null;
-  const imgUrl = getImageUrl(product);
-  const disc   = discountPct(product);
+const FeaturedScroller = memo(function FeaturedScroller({ items, onClick }) {
+  const scrollRef = useRef(null);
+  const [canLeft,  setCanLeft]  = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  const updateArrows = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    setCanLeft(el.scrollLeft > 4);
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 4);
+  }, []);
+
+  useEffect(() => {
+    updateArrows();
+    const el = scrollRef.current;
+    if (!el) return;
+    el.addEventListener("scroll", updateArrows, { passive: true });
+    window.addEventListener("resize", updateArrows);
+    return () => {
+      el.removeEventListener("scroll", updateArrows);
+      window.removeEventListener("resize", updateArrows);
+    };
+  }, [updateArrows, items.length]);
+
+  const scrollBy = (dir) => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const amount = el.clientWidth * 0.85;
+    el.scrollBy({ left: dir * amount, behavior: "smooth" });
+  };
 
   return (
-    <article
-      className="hm-deal-card"
-      role="button"
-      tabIndex={0}
-      onClick={() => onClick(product)}
-      onKeyDown={(e) => e.key === "Enter" && onClick(product)}
-    >
-      <div className="hm-deal-img-wrap">
-        <img
-          src={imgUrl}
-          alt={product.title || "Deal"}
-          className="hm-deal-img"
-          loading="lazy"
-          onError={(e) => { e.currentTarget.src = PH; }}
-        />
-        {disc && (
-          <span className="hm-deal-disc">
-            <TagIcon size={11} /> {disc}
-          </span>
-        )}
+    <div className="hm-feat-wrap">
+      {canLeft && (
+        <button
+          className="hm-feat-arrow hm-feat-arrow--left"
+          onClick={() => scrollBy(-1)}
+          aria-label="Scroll left"
+          type="button"
+        >
+          <ChevLeftIcon size={18} />
+        </button>
+      )}
+
+      <div className="hm-feat-scroll" ref={scrollRef}>
+        <div className="hm-feat-track">
+          {items.map((p) => p && (
+            <FeaturedCard key={p.id} product={p} onClick={onClick} />
+          ))}
+        </div>
       </div>
-      <div className="hm-deal-body">
-        <p className="hm-deal-title">{product.title}</p>
-        <span className="hm-deal-price">{naira(product.price)}</span>
-        <VerifiedBadge seller={product.seller} />
-      </div>
-    </article>
+
+      {canRight && (
+        <button
+          className="hm-feat-arrow hm-feat-arrow--right"
+          onClick={() => scrollBy(1)}
+          aria-label="Scroll right"
+          type="button"
+        >
+          <ChevRightIcon size={18} />
+        </button>
+      )}
+    </div>
   );
 });
 
@@ -495,7 +527,7 @@ export default function Homepage({ user }) {
   const sentinelRef  = useRef(null);
   const hiddenAtRef  = useRef(null);
   const gpsAttempted = useRef(false);
-  const abortRef     = useRef(null);      // ⚡ cancel in-flight requests
+  const abortRef     = useRef(null);
 
   /* ── Auto-dismiss fallback banner ── */
   useEffect(() => {
@@ -540,7 +572,7 @@ export default function Homepage({ user }) {
   }, [savedLocation, gpsCoords]);
 
   /* ══════════════════════════════════════════════════════
-     APPLY DATA — fast, batched, resilient
+     APPLY DATA
   ══════════════════════════════════════════════════════ */
   const applyData = useCallback((data, append = false) => {
     const raw        = Array.isArray(data.products) ? data.products : [];
@@ -557,7 +589,7 @@ export default function Homepage({ user }) {
     const incomingFeat = Array.isArray(data.featured) ? data.featured : [];
     const feat = incomingFeat.length > 0
       ? incomingFeat.map(normalizeProduct).filter(Boolean)
-      : merged.filter((p) => p.is_promoted).slice(0, 4);
+      : merged.filter((p) => p.is_promoted).slice(0, 12);
 
     const cheap = merged
       .filter((p) => {
@@ -568,7 +600,6 @@ export default function Homepage({ user }) {
 
     const nonPromoted = merged.filter((p) => !p.is_promoted);
 
-    /* React 18 auto-batches all setters below into one render */
     setFeatured(feat);
     setDeals(cheap);
     setProducts(nonPromoted);
@@ -577,7 +608,6 @@ export default function Homepage({ user }) {
       data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE
     );
 
-    /* Total: functional, never regress */
     const incomingTotal = Number(data.meta?.total);
     const hasValidTotal = Number.isFinite(incomingTotal) && incomingTotal > 0;
 
@@ -593,10 +623,9 @@ export default function Homepage({ user }) {
   }, [setCachedProducts, setCacheLoaded]);
 
   /* ══════════════════════════════════════════════════════
-     LOAD FEED — doesn't blank UI, aborts stale requests
+     LOAD FEED
   ══════════════════════════════════════════════════════ */
   const loadFeed = useCallback(async (catId = "all") => {
-    /* Cancel any in-flight request */
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -612,11 +641,10 @@ export default function Homepage({ user }) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
-      /* Reset ref only right before applying new data */
       productsRef.current = [];
       applyData(data, false);
     } catch (err) {
-      if (err.name === "AbortError") return;   // silent ignore
+      if (err.name === "AbortError") return;
       console.error("[Homepage] loadFeed:", err);
       setError("Could not load listings. Check your connection and try again.");
     } finally {
@@ -700,7 +728,7 @@ export default function Homepage({ user }) {
     return () => document.removeEventListener("visibilitychange", onVis);
   }, [loading, category, loadFeed]);
 
-  /* Infinite scroll sentinel — pre-load 800px early */
+  /* Infinite scroll sentinel */
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || !hasMore) return;
@@ -765,7 +793,6 @@ export default function Homepage({ user }) {
   const currentCatName =
     CAT_LIST.find((c) => c.id === category)?.name || "Products";
 
-  /* Always-valid listing count — prefer server total, fall back to live data */
   const displayCount = useMemo(() => {
     if (total > 0) return total;
     return products.length + featured.length;
@@ -832,7 +859,6 @@ export default function Homepage({ user }) {
             </button>
           )}
 
-          {/* Stats row — always shows real count once we have data */}
           <div className="hm-hero-stats" aria-label="Marketplace stats">
             {showStatsSkeleton ? (
               [1, 2, 3].map((i) => (
@@ -908,26 +934,29 @@ export default function Homepage({ user }) {
           </div>
         )}
 
-        {/* ══ FEATURED ══ */}
+        {/* ══ FEATURED (horizontal scroll) ══ */}
         {(loading || featured.length > 0) && (
           <section className="hm-section" aria-label="Featured listings">
             <div className="hm-section-head">
               <h2 className="hm-section-title">
                 <DiamondIcon size={15} /> Featured
               </h2>
+              {featured.length > 4 && (
+                <button
+                  className="hm-section-link"
+                  onClick={() => navigate("/promoted")}
+                >
+                  See all →
+                </button>
+              )}
             </div>
             {loading && featured.length === 0
               ? <FeaturedSkeleton />
               : (
-                <div className="hm-feat-row">
-                  {featured.map((p) => p && (
-                    <FeaturedCard
-                      key={p.id}
-                      product={p}
-                      onClick={handleProductClick}
-                    />
-                  ))}
-                </div>
+                <FeaturedScroller
+                  items={featured}
+                  onClick={handleProductClick}
+                />
               )}
           </section>
         )}
@@ -949,11 +978,34 @@ export default function Homepage({ user }) {
             <div className="hm-deals-scroll">
               <div className="hm-deals-track">
                 {deals.map((p) => p && (
-                  <DealCard
+                  <article
                     key={p.id}
-                    product={p}
-                    onClick={handleProductClick}
-                  />
+                    className="hm-deal-card"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleProductClick(p)}
+                    onKeyDown={(e) => e.key === "Enter" && handleProductClick(p)}
+                  >
+                    <div className="hm-deal-img-wrap">
+                      <img
+                        src={getImageUrl(p)}
+                        alt={p.title || "Deal"}
+                        className="hm-deal-img"
+                        loading="lazy"
+                        onError={(e) => { e.currentTarget.src = PH; }}
+                      />
+                      {discountPct(p) && (
+                        <span className="hm-deal-disc">
+                          <TagIcon size={11} /> {discountPct(p)}
+                        </span>
+                      )}
+                    </div>
+                    <div className="hm-deal-body">
+                      <p className="hm-deal-title">{p.title}</p>
+                      <span className="hm-deal-price">{naira(p.price)}</span>
+                      <VerifiedBadge seller={p.seller} />
+                    </div>
+                  </article>
                 ))}
               </div>
             </div>
