@@ -22,12 +22,43 @@ import {
   sanitizeInviteCode,
 } from "./constants";
 
+/* ════════════════════════════════════════════════════════════
+   REDIRECT SAFETY
+   Prevent open-redirect attacks — only allow same-origin paths.
+════════════════════════════════════════════════════════════ */
+function sanitizeRedirect(raw) {
+  if (!raw || typeof raw !== "string") return "/";
+  // Must start with a single "/" and not "//" (protocol-relative)
+  if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
+  // Block anything that tries to embed a URL
+  if (/^\/https?:/i.test(raw)) return "/";
+  return raw;
+}
+
+/* ════════════════════════════════════════════════════════════
+   ERROR MESSAGE EXTRACTOR
+   Only produce a user-facing message for real HTTP errors.
+   Client-side/programming errors are logged, not toasted,
+   so we never show "Login failed" when login actually worked.
+════════════════════════════════════════════════════════════ */
+function extractApiError(err, fallback) {
+  // Real HTTP response from server
+  if (err?.response) {
+    return err.response.data?.message || fallback;
+  }
+  // Request was made but no response (network / CORS / timeout)
+  if (err?.request) {
+    return "Network error. Please check your connection.";
+  }
+  // Something else — likely a client-side bug. Don't toast.
+  if (import.meta.env.DEV) {
+    console.error("[useAuthLogic] non-HTTP error:", err);
+  }
+  return null;
+}
+
 export function useAuthLogic({ setUser, navigate }) {
   const [params] = useSearchParams();
-
-  /* Sanitise the redirect target to prevent open-redirect */
-  /* NOTE: location is not directly accessible in a hook without
-     being passed in, so we read it from the navigate state below */
 
   /* ── Mode ── */
   const [mode,     setMode]     = useState("login");
@@ -55,6 +86,12 @@ export function useAuthLogic({ setUser, navigate }) {
   const [authToken,    setAuthToken]    = useState("");
   const [devOtp,       setDevOtp]       = useState("");
   const [isVerifying,  setIsVerifying]  = useState(false);
+
+  /* ── Post-login redirect (sanitised) ── */
+  const redirectTo = useMemo(
+    () => sanitizeRedirect(params.get("redirect")),
+    [params]
+  );
 
   /* ── Password strength ── */
   const pw = useMemo(() => getStrength(form.password), [form.password]);
@@ -92,7 +129,7 @@ export function useAuthLogic({ setUser, navigate }) {
     }
   }, []);
 
-  /* ── Auto-fill from URL ── */
+  /* ── Auto-fill invite from URL ── */
   useEffect(() => {
     const raw =
       params.get("ref")    ||
@@ -173,41 +210,69 @@ export function useAuthLogic({ setUser, navigate }) {
       if (typeof data.remaining === "number") setResendLeft(data.remaining);
       if (data.dev_otp)                       setDevOtp(data.dev_otp);
     } catch (err) {
-      toast.error(err.response?.data?.message || "Failed to send OTP.");
+      const msg = extractApiError(err, "Failed to send OTP.");
+      if (msg) toast.error(msg);
     }
   }, [authToken]);
 
   /* ════════════════════════════════════════════════════════
      LOGIN
+     ✅ Split into two try/catch blocks:
+        1. Network call — errors here mean login failed.
+        2. Post-login handoff — errors here are client-side
+           bugs; log them but never show "Login failed" to
+           the user because login already succeeded.
   ════════════════════════════════════════════════════════ */
   const handleLogin = useCallback(async () => {
-    const err = validateLogin(form);
-    if (err) return toast.error(err);
+    const validationError = validateLogin(form);
+    if (validationError) return toast.error(validationError);
 
     setLoading(true);
+
+    // ─── 1. Perform login ───────────────────────────────
+    let loginResult;
     try {
       const { data } = await axios.post(`${API}/login`, {
         email    : form.email.trim().toLowerCase(),
         password : form.password,
         remember,
       });
-      setUser(data.user, data.token);
-      navigate("/", { replace: true });
+      loginResult = data;
     } catch (err) {
-      toast.error(err.response?.data?.message || "Login failed.");
+      const msg = extractApiError(err, "Login failed.");
+      if (msg) toast.error(msg);
+      setLoading(false);
+      return;
+    }
+
+    // ─── 2. Hand off to App.jsx (setUser === handleAuthSuccess)
+    //        This is the fix for the double-toast bug:
+    //        pass ALL 4 args (user, token, navigate, from).
+    try {
+      setUser(loginResult.user, loginResult.token, navigate, redirectTo);
+    } catch (err) {
+      // App-side handoff failure — don't show "Login failed"
+      // because the login itself worked.
+      if (import.meta.env.DEV) {
+        console.error("[handleLogin] post-login handoff failed:", err);
+      }
+      toast.error("Signed in, but something went wrong. Please refresh.");
     } finally {
       setLoading(false);
     }
-  }, [form, remember, setUser, navigate]);
+  }, [form, remember, setUser, navigate, redirectTo]);
 
   /* ════════════════════════════════════════════════════════
      REGISTER
   ════════════════════════════════════════════════════════ */
   const handleRegister = useCallback(async () => {
-    const err = validateRegister(form);
-    if (err) return toast.error(err);
+    const validationError = validateRegister(form);
+    if (validationError) return toast.error(validationError);
 
     setLoading(true);
+
+    // ─── 1. Perform registration ────────────────────────
+    let registerResult;
     try {
       const payload = {
         name         : form.name.trim(),
@@ -224,8 +289,22 @@ export function useAuthLogic({ setUser, navigate }) {
       }
 
       const { data } = await axios.post(`${API}/register`, payload);
+      registerResult = data;
+    } catch (err) {
+      const msg = extractApiError(err, "Registration failed.");
+      if (msg) toast.error(msg);
 
-      const token = data.token;
+      if (err?.response?.data?.code === "INVALID_INVITE_CODE") {
+        setInviteStatus("invalid");
+        setInvitePreview(null);
+      }
+      setLoading(false);
+      return;
+    }
+
+    // ─── 2. Move to OTP screen ──────────────────────────
+    try {
+      const token = registerResult.token;
       setAuthToken(token);
       sessionStorage.setItem("marketplace_token", token);
 
@@ -241,12 +320,11 @@ export function useAuthLogic({ setUser, navigate }) {
 
       toast.success("Account created! Check your email for the verification code.");
     } catch (err) {
-      const msg = err.response?.data?.message || "Registration failed.";
-      toast.error(msg);
-      if (err.response?.data?.code === "INVALID_INVITE_CODE") {
-        setInviteStatus("invalid");
-        setInvitePreview(null);
+      // Registration succeeded but OTP send / state setup failed.
+      if (import.meta.env.DEV) {
+        console.error("[handleRegister] post-register handoff failed:", err);
       }
+      toast.error("Account created, but we couldn't send the code. Try resending.");
     } finally {
       setLoading(false);
     }
@@ -254,36 +332,65 @@ export function useAuthLogic({ setUser, navigate }) {
 
   /* ════════════════════════════════════════════════════════
      VERIFY OTP
+     After success: hand off to App via setUser so we don't
+     require a page refresh for the app to know we're logged in.
   ════════════════════════════════════════════════════════ */
   const verifyOtp = useCallback(async (code) => {
     if (isVerifying) return;
     setIsVerifying(true);
     setOtpErrMsg("");
 
+    // ─── 1. Verify code ────────────────────────────────
+    let verifyResult;
     try {
       const { data } = await axios.post(
         `${VAPI}/verify-email-otp`,
         { otp: code },
         { headers: { Authorization: `Bearer ${authToken}` } }
       );
-      if (data.success) {
-        toast.success("Email verified! Welcome to Loemart 🎉");
-        setTimeout(() => navigate("/"), 800);
-      }
+      verifyResult = data;
     } catch (err) {
-      const msg  = err.response?.data?.message || "Incorrect code.";
-      const left = err.response?.data?.attemptsLeft;
+      const msg  = err?.response?.data?.message || "Incorrect code.";
+      const left = err?.response?.data?.attemptsLeft;
       setOtpError(true);
       setOtp("");
       setOtpErrMsg(msg);
       if (typeof left === "number") setAttemptsLeft(left);
       setTimeout(() => setOtpError(false), 700);
+      setIsVerifying(false);
+      return;
+    }
+
+    // ─── 2. Hand off to App ────────────────────────────
+    try {
+      if (verifyResult?.success) {
+        toast.success("Email verified! Welcome to Loemart 🎉");
+
+        // Prefer server-returned user; fall back to a minimal shape.
+        const user  = verifyResult.user  ?? { email: maskedEmail };
+        const token = verifyResult.token ?? authToken;
+
+        // Clean up the temporary session token
+        sessionStorage.removeItem("marketplace_token");
+
+        // Small delay so the success toast is visible
+        setTimeout(() => {
+          try {
+            setUser(user, token, navigate, redirectTo);
+          } catch (err) {
+            if (import.meta.env.DEV) {
+              console.error("[verifyOtp] handoff failed:", err);
+            }
+            navigate("/", { replace: true });
+          }
+        }, 600);
+      }
     } finally {
       setIsVerifying(false);
     }
-  }, [authToken, navigate, isVerifying]);
+  }, [authToken, navigate, isVerifying, setUser, redirectTo, maskedEmail]);
 
-  /* Auto-submit */
+  /* Auto-submit OTP when full length reached */
   useEffect(() => {
     if (otp.length !== OTP_LENGTH || mode !== "otp" || isVerifying) return;
     const t = setTimeout(() => verifyOtp(otp), 180);
