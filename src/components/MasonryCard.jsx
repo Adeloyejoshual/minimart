@@ -10,27 +10,11 @@ const HOVER_DELAY = 900;
 
 /* ══════════════════════════════════════════════════════════════
    SUBSCRIPTION — which plan names count as FREE (no badge)
-   Mirrors the same set used in Homepage.jsx normalizeProduct.
-   Edit here to add / remove tiers.
    ══════════════════════════════════════════════════════════════ */
 const FREE_PLAN_NAMES = new Set(["free", "none", "", "basic"]);
 
-/**
- * isPaidSubscriber
- * Returns true ONLY when the seller object satisfies ALL three:
- *   1. subscriptionRank > 0
- *   2. subscriptionPlan is not in FREE_PLAN_NAMES
- *   3. subscriptionStatus is "active" (absent → treated as active)
- *
- * This is the single source of truth inside MasonryCard.
- * Homepage.jsx also runs the same check in normalizeProduct so
- * seller.verified is already correct by the time it arrives here,
- * but we double-check from raw fields so MasonryCard stays safe
- * even if used outside Homepage.
- */
 const isPaidSubscriber = (seller) => {
   if (!seller) return false;
-
   const rank = Number(
     seller.subscriptionRank ?? seller.subscription_rank ?? 0
   );
@@ -47,7 +31,6 @@ const isPaidSubscriber = (seller) => {
 /* ══════════════════════════════════════════════════════════════
    EXPORTED HELPERS
    ══════════════════════════════════════════════════════════════ */
-
 export const naira = (n) =>
   "₦" + Number(n || 0).toLocaleString("en-NG", {
     minimumFractionDigits: 0,
@@ -101,24 +84,57 @@ export const getDiscount = (p) => {
 const isFresh = (d) =>
   !!d && Date.now() - new Date(d).getTime() < 86_400_000;
 
+/* ══════════════════════════════════════════════════════════════
+   BADGE RESOLVER  (v7-aware)
+
+   Priority order — highest visual weight first:
+     1. Featured   (Elite paid promotion)     → gold diamond
+     2. Premium    (Premium paid promotion)   → purple star
+     3. Promoted   (any other paid promotion) → orange bolt
+     4. Flash      (flash-sale promotion)     → red bolt
+     5. Hot        (organic — high CTR)       → red flame
+     6. Trending   (organic — high engagement)→ blue trend
+     7. New        (posted < 24h ago)         → green sparkle
+     8. Discovery  (random pick from v7)      → soft grey
+   ══════════════════════════════════════════════════════════════ */
 export const getBadge = (p) => {
   if (!p) return null;
+
+  /* ── 1–4  Paid / promoted variants ── */
   if (p.is_promoted) {
+    // Flash promotions get their own colour regardless of tier
     if (p.promotion_type === "flash")
-      return { text: "⚡ Flash",   cls: "bd-flash" };
-    return   { text: "Sponsored", cls: "bd-feat"  };
+      return { text: "⚡ Flash",    cls: "bd-flash",    icon: "flash"    };
+
+    // Prefer the backend-supplied badge type when present
+    const badgeKey = String(p.promotion_badge || "").toLowerCase();
+
+    if (badgeKey === "featured")
+      return { text: "Featured",   cls: "bd-featured", icon: "diamond"  };
+    if (badgeKey === "premium")
+      return { text: "Premium",    cls: "bd-premium",  icon: "star"     };
+
+    // Default paid → generic "Promoted"
+    return   { text: "Promoted",   cls: "bd-promoted", icon: "flash"    };
   }
+
+  /* ── 5–7  Organic quality signals ── */
   if (Number(p.conversion_rate  || 0) > 0.15)
-    return { text: "🔥 Hot",   cls: "bd-hot"  };
+    return { text: "🔥 Hot",       cls: "bd-hot",      icon: null       };
   if (Number(p.engagement_score || 0) > 80)
-    return { text: "Trending", cls: "bd-trnd" };
+    return { text: "Trending",     cls: "bd-trnd",     icon: null       };
   if (isFresh(p.created_at))
-    return { text: "New",      cls: "bd-new"  };
+    return { text: "New",          cls: "bd-new",      icon: null       };
+
+  /* ── 8  Discovery (random pick) ── */
+  if (p.is_random_pick || p.feed_slot === "discovery")
+    return { text: "Discover",     cls: "bd-discover", icon: "sparkle"  };
+
   return null;
 };
 
 /* ══════════════════════════════════════════════════════════════
-   PIN ICON
+   ICONS
    ══════════════════════════════════════════════════════════════ */
 export const PinIcon = ({ size = 12, style, className }) => (
   <svg
@@ -137,16 +153,10 @@ export const PinIcon = ({ size = 12, style, className }) => (
   </svg>
 );
 
-/* ══════════════════════════════════════════════════════════════
-   SHIELD ICON  (used in verified badge)
-   ══════════════════════════════════════════════════════════════ */
 const ShieldIcon = ({ size = 10 }) => (
   <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="currentColor"
-    aria-hidden="true"
+    width={size} height={size} viewBox="0 0 24 24"
+    fill="currentColor" aria-hidden="true"
     style={{ flexShrink: 0, display: "inline-block" }}
   >
     <path d="M12 1l9 4v5c0 5.25-3.75 10.15-9 11.35C6.75
@@ -154,21 +164,65 @@ const ShieldIcon = ({ size = 10 }) => (
   </svg>
 );
 
+const DiamondIcon = ({ size = 10 }) => (
+  <svg
+    width={size} height={size} viewBox="0 0 24 24"
+    fill="none" stroke="currentColor" strokeWidth={2.2}
+    strokeLinecap="round" strokeLinejoin="round"
+    aria-hidden="true"
+    style={{ flexShrink: 0, display: "inline-block" }}
+  >
+    <path d="M6 3h12l4 6-10 13L2 9z" />
+    <path d="M2 9h20" />
+    <path d="M10 3l-4 6 6 13 6-13-4-6" />
+  </svg>
+);
+
+const StarIcon = ({ size = 10 }) => (
+  <svg
+    width={size} height={size} viewBox="0 0 24 24"
+    fill="currentColor" aria-hidden="true"
+    style={{ flexShrink: 0, display: "inline-block" }}
+  >
+    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12
+             17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+  </svg>
+);
+
+const FlashIcon = ({ size = 10 }) => (
+  <svg
+    width={size} height={size} viewBox="0 0 24 24"
+    fill="currentColor" aria-hidden="true"
+    style={{ flexShrink: 0, display: "inline-block" }}
+  >
+    <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
+  </svg>
+);
+
+const SparkleIcon = ({ size = 10 }) => (
+  <svg
+    width={size} height={size} viewBox="0 0 24 24"
+    fill="currentColor" aria-hidden="true"
+    style={{ flexShrink: 0, display: "inline-block" }}
+  >
+    <path d="M12 0l2.4 7.6L22 10l-7.6 2.4L12 20l-2.4-7.6L2 10l7.6-2.4z" />
+  </svg>
+);
+
+/* Icon lookup for badges */
+const BADGE_ICONS = {
+  diamond : DiamondIcon,
+  star    : StarIcon,
+  flash   : FlashIcon,
+  sparkle : SparkleIcon,
+};
+
 /* ══════════════════════════════════════════════════════════════
    VERIFIED SELLER BADGE
-   Renders ONLY when the seller is a confirmed paid subscriber.
-   Accepts the raw seller object — runs isPaidSubscriber itself
-   as a final safety check so the badge can never appear for a
-   free / expired seller even if upstream data is wrong.
    ══════════════════════════════════════════════════════════════ */
 const VerifiedBadge = memo(function VerifiedBadge({ seller }) {
-  /*
-    Gate 1 — seller.verified set by normalizeProduct in Homepage.jsx
-    Gate 2 — isPaidSubscriber re-checks raw subscription fields here
-    Both must pass → badge renders.
-  */
-  if (!seller?.verified)        return null;   // normalizeProduct said no
-  if (!isPaidSubscriber(seller)) return null;  // raw fields disagree → hide
+  if (!seller?.verified)         return null;
+  if (!isPaidSubscriber(seller)) return null;
 
   const plan = (seller.subscriptionPlan || "").trim() || "Verified";
 
@@ -206,6 +260,9 @@ const MasonryCard = memo(function MasonryCard({
   const cityLabel = formatCity(product);
   const discount  = getDiscount(product);
 
+  /* Resolve the icon component (if any) for the badge */
+  const BadgeIcon = badge?.icon ? BADGE_ICONS[badge.icon] : null;
+
   const handleMouseEnter = () => {
     if (onView) {
       timerRef.current = setTimeout(
@@ -227,6 +284,7 @@ const MasonryCard = memo(function MasonryCard({
       className="masonry-card"
       role="button"
       tabIndex={0}
+      data-slot={product.feed_slot || (product.is_promoted ? "promoted" : "organic")}
       aria-label={`${product.title || "Product"} — ${naira(product.price)}`}
       onClick={() => onClick?.(product)}
       onKeyDown={(e) => e.key === "Enter" && onClick?.(product)}
@@ -246,11 +304,21 @@ const MasonryCard = memo(function MasonryCard({
         />
 
         {badge && (
-          <span className={`bd ${badge.cls}`}>{badge.text}</span>
+          <span className={`bd ${badge.cls}`}>
+            {BadgeIcon && <BadgeIcon size={10} />}
+            <span>{badge.text}</span>
+          </span>
         )}
 
         {discount && !badge && (
           <span className="masonry-disc">{discount.pct}% off</span>
+        )}
+
+        {/* Show discount pill in a secondary position when a badge already exists */}
+        {discount && badge && (
+          <span className="masonry-disc masonry-disc--secondary">
+            {discount.pct}% off
+          </span>
         )}
       </div>
 
@@ -284,10 +352,6 @@ const MasonryCard = memo(function MasonryCard({
           )}
         </div>
 
-        {/*
-          VerifiedBadge handles all subscription checks internally.
-          It will render nothing for free / unsubscribed / expired sellers.
-        */}
         <VerifiedBadge seller={product.seller} />
 
       </div>
