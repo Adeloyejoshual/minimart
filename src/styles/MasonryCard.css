@@ -47,6 +47,18 @@
     0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
+/* ── Optional subtle feed-slot accents (very light) ── */
+.masonry-card[data-slot="promoted"] {
+  border-color: rgba(255, 107, 53, 0.28);
+}
+.masonry-card[data-slot="promoted"]:hover {
+  border-color: rgba(255, 107, 53, 0.45);
+}
+
+.masonry-card[data-slot="discovery"] {
+  border-color: rgba(107, 114, 128, 0.25);
+}
+
 @media (prefers-color-scheme: dark) {
   .masonry-card {
     background   : rgba(30, 30, 48, 0.82);
@@ -61,6 +73,13 @@
     box-shadow  :
       0 12px 36px rgba(0, 0, 0, 0.32),
       0 2px 8px  rgba(0, 0, 0, 0.16);
+  }
+
+  .masonry-card[data-slot="promoted"] {
+    border-color: rgba(255, 107, 53, 0.35);
+  }
+  .masonry-card[data-slot="discovery"] {
+    border-color: rgba(255, 255, 255, 0.10);
   }
 }
 
@@ -89,13 +108,26 @@
 }
 
 /* ══════════════════════════════════════════════════════════════
-   BADGES
+   BADGES  (v7 — one pill per card, top-left)
+
+   Priority styling — highest visual weight first:
+     .bd-featured  Elite paid promotion       (gold)
+     .bd-premium   Premium paid promotion     (purple)
+     .bd-promoted  Any other paid promotion   (orange)
+     .bd-flash     Flash sale promotion       (red, pulsing)
+     .bd-hot       Organic — high CTR         (deep red)
+     .bd-trnd      Organic — high engagement  (blue)
+     .bd-new       Posted < 24 h ago          (green)
+     .bd-discover  Random discovery pick      (soft dark)
    ══════════════════════════════════════════════════════════════ */
 .bd {
   position        : absolute;
   top             : 5px;
   left            : 5px;
   z-index         : 3;
+  display         : inline-flex;
+  align-items     : center;
+  gap             : 3px;
   padding         : 2px 6px;
   border-radius   : 5px;
   font-size       : 0.55rem;
@@ -107,15 +139,80 @@
   -webkit-backdrop-filter: blur(10px);
   border          : 1px solid rgba(255, 255, 255, 0.18);
   pointer-events  : none;
+  white-space     : nowrap;
 }
 
-.bd-feat  { background: rgba(21,  101, 192, 0.88); color: #fff; }
-.bd-flash { background: rgba(234, 88,  12,  0.92); color: #fff; }
+.bd svg {
+  flex-shrink: 0;
+}
+
+/* ── Paid tiers ── */
+.bd-featured {
+  background: linear-gradient(135deg,
+              rgba(255, 215, 0,  0.95),
+              rgba(255, 165, 0,  0.95));
+  color     : #4a2c00;
+  border-color: rgba(255, 220, 100, 0.55);
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.35);
+}
+
+.bd-premium {
+  background: linear-gradient(135deg,
+              rgba(168, 85,  247, 0.94),
+              rgba(124, 58,  237, 0.94));
+  color     : #fff;
+}
+
+.bd-promoted {
+  background: linear-gradient(135deg,
+              rgba(255, 107, 53,  0.94),
+              rgba(247, 147, 30,  0.94));
+  color     : #fff;
+}
+
+.bd-flash {
+  background: linear-gradient(135deg,
+              rgba(255, 65,  108, 0.94),
+              rgba(255, 75,  43,  0.94));
+  color     : #fff;
+  animation : bd-flash-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes bd-flash-pulse {
+  0%, 100% { box-shadow: 0 2px 8px  rgba(255, 65, 108, 0.35); }
+  50%      { box-shadow: 0 2px 14px rgba(255, 65, 108, 0.65); }
+}
+
+/* ── Organic signals ── */
 .bd-hot   { background: rgba(220, 38,  38,  0.88); color: #fff; }
-.bd-trnd  { background: rgba(234, 88,  12,  0.88); color: #fff; }
+.bd-trnd  { background: rgba(59,  130, 246, 0.88); color: #fff; }
 .bd-new   { background: rgba(22,  163, 74,  0.88); color: #fff; }
 
-/* Discount pill — top right */
+/* Legacy alias — kept so pre-v7 data still renders */
+.bd-feat  { background: rgba(21,  101, 192, 0.88); color: #fff; }
+
+/* ── Discovery (random pick) ── */
+.bd-discover {
+  background : rgba(17, 24, 39, 0.72);
+  color      : #fff;
+  border-color: rgba(255, 255, 255, 0.22);
+  font-weight: 700;
+}
+
+/* Reduce motion — kill the flash pulse for accessibility */
+@media (prefers-reduced-motion: reduce) {
+  .bd-flash { animation: none !important; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   DISCOUNT PILL  (top-right)
+
+   Rendered in TWO scenarios:
+     1. No badge exists → .masonry-disc alone
+     2. Badge exists    → .masonry-disc.masonry-disc--secondary
+        (identical position; both live top-right,
+         while the badge sits top-left)
+   ══════════════════════════════════════════════════════════════ */
 .masonry-disc {
   position        : absolute;
   top             : 5px;
@@ -128,11 +225,21 @@
   text-transform  : uppercase;
   letter-spacing  : 0.04em;
   line-height     : 1.4;
-  background      : rgba(220, 38, 38, 0.88);
+  background      : linear-gradient(135deg,
+                    rgba(17, 153, 142, 0.92),
+                    rgba(56, 239, 125, 0.92));
   color           : #fff;
   backdrop-filter  : blur(8px);
-  border          : 1px solid rgba(255, 255, 255, 0.15);
+  -webkit-backdrop-filter: blur(8px);
+  border          : 1px solid rgba(255, 255, 255, 0.18);
   pointer-events  : none;
+  text-shadow     : 0 1px 0 rgba(0, 0, 0, 0.15);
+}
+
+/* Secondary state — same position, but named for clarity in JSX */
+.masonry-disc--secondary {
+  /* position identical to base; no override needed —
+     kept as a hook for future tweaks (e.g., smaller size) */
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -229,11 +336,18 @@
 
 /* ✅ Green verified */
 .vfd {
+  display    : inline-flex;
+  align-items: center;
+  gap        : 3px;
   font-size  : 0.62rem;
   font-weight: 700;
   color      : #16a34a;
   line-height: 1.4;
   margin-top : 1px;
+}
+
+.vfd svg {
+  flex-shrink: 0;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -265,7 +379,7 @@
   .bd,
   .masonry-disc   { padding: 2px 7px; font-size: 0.57rem; }
 
-  .bd             { top: 6px; left: 6px; }
+  .bd             { top: 6px; left: 6px; gap: 4px; }
   .masonry-disc   { top: 6px; right: 6px; }
 }
 
@@ -310,7 +424,7 @@
   .bd,
   .masonry-disc     { padding: 3px 8px; font-size: 0.58rem; }
 
-  .bd               { top: 7px; left: 7px; border-radius: 6px; }
+  .bd               { top: 7px; left: 7px; border-radius: 6px; gap: 4px; }
   .masonry-disc     { top: 7px; right: 7px; border-radius: 6px; }
 }
 
@@ -357,7 +471,7 @@
   .bd,
   .masonry-disc     { padding: 3px 9px; font-size: 0.6rem; }
 
-  .bd               { top: 8px; left: 8px; border-radius: 6px; }
+  .bd               { top: 8px; left: 8px; border-radius: 6px; gap: 4px; }
   .masonry-disc     { top: 8px; right: 8px; border-radius: 6px; }
 }
 
@@ -418,7 +532,10 @@
   .vfd              { font-size: 0.58rem; }
 
   .bd,
-  .masonry-disc     { padding: 2px 5px; font-size: 0.52rem; }
+  .masonry-disc     { padding: 2px 5px; font-size: 0.52rem; gap: 2px; }
+
+  /* Hide the icon on very tight cards — the text carries the meaning */
+  .bd svg           { display: none; }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -432,6 +549,7 @@
 
   .masonry-card:hover              { transform: none; }
   .masonry-card:hover .masonry-img { transform: none; }
+  .bd-flash                        { animation: none !important; }
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -440,4 +558,12 @@
 @media (forced-colors: active) {
   .masonry-card            { border: 2px solid ButtonText; }
   .masonry-card:focus-visible { outline: 2px solid Highlight; }
+
+  .bd,
+  .masonry-disc,
+  .vfd {
+    border : 1px solid ButtonText;
+    color  : ButtonText;
+    background: ButtonFace;
+  }
 }
