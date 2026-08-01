@@ -164,6 +164,27 @@ const PlusIcon = ({ size = 16 }: { size?: number }) => (
   </svg>
 );
 
+const WifiOffIcon = ({ size = 14 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+       stroke="currentColor" strokeWidth={2} strokeLinecap="round"
+       strokeLinejoin="round" aria-hidden="true">
+    <line x1="1" y1="1" x2="23" y2="23" />
+    <path d="M16.72 11.06A10.94 10.94 0 0119 12.55" />
+    <path d="M5 12.55a10.94 10.94 0 015.17-2.39" />
+    <path d="M10.71 5.05A16 16 0 0122.58 9" />
+    <path d="M1.42 9a15.91 15.91 0 014.7-2.88" />
+    <path d="M8.53 16.11a6 6 0 016.95 0" />
+    <line x1="12" y1="20" x2="12.01" y2="20" />
+  </svg>
+);
+
+const SparkleIcon = ({ size = 12 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor"
+       aria-hidden="true">
+    <path d="M12 0l2.4 7.6L22 10l-7.6 2.4L12 20l-2.4-7.6L2 10l7.6-2.4z" />
+  </svg>
+);
+
 /* ══════════════════════════════════════════════════════════════
    HELPERS
 ══════════════════════════════════════════════════════════════ */
@@ -200,6 +221,29 @@ const GridSkeleton = memo(function GridSkeleton({ cols = 4 }: { cols?: number })
 });
 
 /* ══════════════════════════════════════════════════════════════
+   OFFLINE BANNER (soft — only when cache still visible)
+══════════════════════════════════════════════════════════════ */
+const OfflineBanner = memo(function OfflineBanner({
+  visible, onRetry, onDismiss,
+}: {
+  visible : boolean;
+  onRetry : () => void;
+  onDismiss: () => void;
+}) {
+  if (!visible) return null;
+  return (
+    <div className="dsk-offline-banner" role="status" aria-live="polite">
+      <span className="dsk-offline-icon"><WifiOffIcon size={14} /></span>
+      <p className="dsk-offline-text">
+        You're offline — showing saved listings.
+      </p>
+      <button className="dsk-offline-btn" onClick={onRetry}>Retry</button>
+      <button className="dsk-offline-close" onClick={onDismiss} aria-label="Dismiss">×</button>
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════
    LEFT SIDEBAR
 ══════════════════════════════════════════════════════════════ */
 interface SidebarProps {
@@ -222,13 +266,8 @@ const LeftSidebar = memo(function LeftSidebar({
   const [priceMax,       setPriceMax]       = useState("");
   const [localCondition, setLocalCondition] = useState("all");
 
-  /*
-   * FIX: formatLocationLabel returns null when no location is set.
-   * Falls back to empty string — never shows "Ife" or any default.
-   */
   const locLabel = formatLocationLabel(savedLocation) || "";
 
-  /* Sync from external filters */
   useEffect(() => {
     setPriceMin(filters.priceMin != null ? String(filters.priceMin) : "");
     setPriceMax(filters.priceMax != null ? String(filters.priceMax) : "");
@@ -266,7 +305,6 @@ const LeftSidebar = memo(function LeftSidebar({
   return (
     <aside className="dsk-sidebar-left" aria-label="Filters">
 
-      {/* Active filters */}
       {hasActiveFilters && (
         <div className="dsk-sb-active-filters">
           <div className="dsk-sb-active-head">
@@ -312,7 +350,6 @@ const LeftSidebar = memo(function LeftSidebar({
         </div>
       )}
 
-      {/* Categories */}
       <section className="dsk-sb-section">
         <h3 className="dsk-sb-title">Categories</h3>
         <ul className="dsk-sb-cat-list" role="list">
@@ -331,7 +368,6 @@ const LeftSidebar = memo(function LeftSidebar({
         </ul>
       </section>
 
-      {/* Location — empty fallback, never shows stale location */}
       <section className="dsk-sb-section">
         <h3 className="dsk-sb-title">Location</h3>
         <button className="dsk-sb-loc-btn" onClick={onOpenPicker}>
@@ -345,7 +381,6 @@ const LeftSidebar = memo(function LeftSidebar({
         )}
       </section>
 
-      {/* Price Range */}
       <section className="dsk-sb-section">
         <h3 className="dsk-sb-title">Price Range (₦)</h3>
         <div className="dsk-sb-price-row">
@@ -374,7 +409,6 @@ const LeftSidebar = memo(function LeftSidebar({
         </button>
       </section>
 
-      {/* Condition */}
       <section className="dsk-sb-section">
         <h3 className="dsk-sb-title">Condition</h3>
         {[
@@ -404,15 +438,13 @@ const LeftSidebar = memo(function LeftSidebar({
 });
 
 /* ══════════════════════════════════════════════════════════════
-   RIGHT SIDEBAR  (SVG icons)
+   RIGHT SIDEBAR
 ══════════════════════════════════════════════════════════════ */
 interface RightSidebarProps { navigate: (path: string) => void }
 
 const RightSidebar = memo(function RightSidebar({ navigate }: RightSidebarProps) {
   return (
     <aside className="dsk-sidebar-right" aria-label="Trending">
-
-      {/* Trending searches */}
       <section className="dsk-sb-section">
         <h3 className="dsk-sb-title">
           <TrendingIcon size={14} /> Trending Searches
@@ -433,7 +465,6 @@ const RightSidebar = memo(function RightSidebar({ navigate }: RightSidebarProps)
         </ul>
       </section>
 
-      {/* Popular categories */}
       <section className="dsk-sb-section">
         <h3 className="dsk-sb-title">Popular Categories</h3>
         <div className="dsk-pop-cats">
@@ -450,7 +481,6 @@ const RightSidebar = memo(function RightSidebar({ navigate }: RightSidebarProps)
         </div>
       </section>
 
-      {/* Ad slot */}
       <section className="dsk-sb-section dsk-sb-ad">
         <p className="dsk-sb-ad-label">Sponsored</p>
         <div className="dsk-sb-ad-slot">
@@ -464,13 +494,13 @@ const RightSidebar = memo(function RightSidebar({ navigate }: RightSidebarProps)
 });
 
 /* ══════════════════════════════════════════════════════════════
-   FEATURED CARD  (SVG icons, promotion_badge aware)
+   FEATURED CARD
 ══════════════════════════════════════════════════════════════ */
 const FeatCard = memo(function FeatCard({
   product, onClick,
 }: { product: Product; onClick: (p: Product) => void }) {
   const disc  = discountLabel(product);
-  const badge = (product as any).promotion_badge || "promoted";
+  const badge = product.promotion_badge || "promoted";
 
   return (
     <article
@@ -485,7 +515,7 @@ const FeatCard = memo(function FeatCard({
           src={getImageUrl(product) || PH}
           alt={product.title}
           loading="eager"
-          onError={(e) => { e.currentTarget.src = PH; }}
+          onError={(e) => { (e.currentTarget as HTMLImageElement).src = PH; }}
         />
         <div className="dsk-feat-overlay" aria-hidden="true" />
         {disc && <span className="dsk-feat-disc"><TagIcon size={11} /> {disc}</span>}
@@ -513,7 +543,7 @@ const FeatCard = memo(function FeatCard({
 });
 
 /* ══════════════════════════════════════════════════════════════
-   DEAL CARD  (SVG tag icon)
+   DEAL CARD
 ══════════════════════════════════════════════════════════════ */
 const DealCard = memo(function DealCard({
   product, onClick,
@@ -532,7 +562,7 @@ const DealCard = memo(function DealCard({
           alt={product.title}
           className="dsk-deal-img"
           loading="lazy"
-          onError={(e) => { e.currentTarget.src = PH; }}
+          onError={(e) => { (e.currentTarget as HTMLImageElement).src = PH; }}
         />
         {disc && (
           <span className="dsk-deal-disc">
@@ -570,8 +600,10 @@ export default function HomepageDesktop({ user }: Props) {
     loading, loadingMore, error,
     hasMore, total, category,
     filters,
+    showOfflineBar,
     loadFeed, loadMore, switchCategory,
     updateFilters, clearFilters,
+    dismissOfflineBar,
   } = useDesktopFeed(savedLocation);
 
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -601,21 +633,15 @@ export default function HomepageDesktop({ user }: Props) {
     navigator.sendBeacon?.(`${API}/homepage/products/${id}/view`);
   }, []);
 
-  /*
-   * FIX: feedTitle falls back to "Recommended for You" when
-   * no location is set. Never uses a hardcoded city name.
-   */
   const feedTitle = useMemo(() => {
     if (category !== "all")
       return CAT_LIST.find((c) => c.id === category)?.name || "Products";
     const loc = formatLocationLabel(savedLocation);
-    return loc ? `Near ${loc}` : "Recommended for You";
-  }, [category, savedLocation]);
+    if (loc) return `Near ${loc}`;
+    if (meta.personalised) return "Recommended for You";
+    return "Discover";
+  }, [category, savedLocation, meta.personalised]);
 
-  /*
-   * FIX: heroLoc only shows when a real location exists.
-   * Returns null (not "Ife" or any default) when nothing is set.
-   */
   const heroLoc = useMemo(() => {
     const manual = formatLocationLabel(savedLocation);
     if (manual) return manual;
@@ -643,7 +669,6 @@ export default function HomepageDesktop({ user }: Props) {
           <div className="dsk-hero-blob dsk-hero-blob--2" aria-hidden="true" />
 
           <div className="dsk-hero-copy">
-            {/* SVG icon instead of 🛒 emoji */}
             <span className="dsk-hero-kicker">
               <CartIcon size={15} /> Loemart Marketplace
             </span>
@@ -655,7 +680,6 @@ export default function HomepageDesktop({ user }: Props) {
               Thousands of verified listings from sellers across Nigeria.
             </p>
 
-            {/* Location label — only when set */}
             {heroLoc && (
               <p className="dsk-hero-loc">
                 <LocationIcon size={13} /> {heroLoc}
@@ -673,9 +697,8 @@ export default function HomepageDesktop({ user }: Props) {
               </button>
             </div>
 
-            {/* Stats */}
             <div className="dsk-hero-stats">
-              {loading ? (
+              {loading && total === 0 ? (
                 [1, 2, 3].map((i) => (
                   <div key={i} className="dsk-hero-stat">
                     <div className="dsk-sk dsk-shimmer"
@@ -699,17 +722,15 @@ export default function HomepageDesktop({ user }: Props) {
             </div>
           </div>
 
-          {/* Featured preview in hero */}
           <div className="dsk-hero-right" aria-hidden={loading}>
-            {loading ? (
+            {loading && featured.length === 0 ? (
               <div className="dsk-sk dsk-shimmer dsk-hero-img-sk" />
             ) : featured.slice(0, 1).map((p) => (
               <button key={p.id} className="dsk-hero-feat-preview"
                       onClick={() => handleProductClick(p)}>
                 <img src={getImageUrl(p) || PH} alt={p.title}
-                     onError={(e) => { e.currentTarget.src = PH; }} />
+                     onError={(e) => { (e.currentTarget as HTMLImageElement).src = PH; }} />
                 <div className="dsk-hero-feat-info">
-                  {/* SVG instead of 💎 */}
                   <span className="dsk-hero-feat-tag">
                     <DiamondIcon size={12} /> Featured
                   </span>
@@ -740,10 +761,18 @@ export default function HomepageDesktop({ user }: Props) {
           </div>
         </section>
 
+        {/* ══ OFFLINE BANNER (soft) ══ */}
+        <div className="dsk-inner">
+          <OfflineBanner
+            visible={showOfflineBar && products.length > 0}
+            onRetry={() => loadFeed(category, filters)}
+            onDismiss={dismissOfflineBar}
+          />
+        </div>
+
         {/* ══ 3-COLUMN LAYOUT ══ */}
         <div className="dsk-inner dsk-layout">
 
-          {/* Left Sidebar */}
           <LeftSidebar
             category={category}
             onCategory={switchCategory}
@@ -756,15 +785,17 @@ export default function HomepageDesktop({ user }: Props) {
             resultCount={products.length}
           />
 
-          {/* Centre Feed */}
           <main className="dsk-feed" id="dsk-main">
 
-            {error && (
+            {/* Hard error — only when nothing cached to show */}
+            {error && products.length === 0 && (
               <div className="dsk-error" role="alert">
-                {/* SVG instead of ⚡ */}
                 <span className="dsk-error-icon"><ZapIcon size={20} /></span>
+                <p className="dsk-error-title">Marketplace unavailable</p>
                 <p>{error}</p>
-                <button onClick={() => loadFeed(category)}>Try again</button>
+                <button onClick={() => loadFeed(category, filters, { forceSpinner: true })}>
+                  Try again
+                </button>
               </div>
             )}
 
@@ -772,12 +803,11 @@ export default function HomepageDesktop({ user }: Props) {
             {(loading || featured.length > 0) && (
               <section className="dsk-section">
                 <div className="dsk-section-head">
-                  {/* SVG instead of 💎 */}
                   <h2 className="dsk-section-title">
                     <DiamondIcon size={15} /> Featured
                   </h2>
                 </div>
-                {loading ? (
+                {loading && featured.length === 0 ? (
                   <div className="dsk-feat-grid">
                     {[1, 2, 3, 4].map((i) => (
                       <div key={i} className="dsk-sk dsk-shimmer"
@@ -799,7 +829,6 @@ export default function HomepageDesktop({ user }: Props) {
             {!loading && deals.length > 0 && (
               <section className="dsk-section">
                 <div className="dsk-section-head">
-                  {/* SVG instead of 💸 */}
                   <h2 className="dsk-section-title">
                     <DealsIcon size={15} /> Cheap Deals
                   </h2>
@@ -817,10 +846,20 @@ export default function HomepageDesktop({ user }: Props) {
               </section>
             )}
 
-            {/* Main Feed */}
+            {/* Main Feed — blended (organic + promoted + random) */}
             <section className="dsk-section">
               <div className="dsk-section-head">
-                <h2 className="dsk-section-title">{feedTitle}</h2>
+                <h2 className="dsk-section-title">
+                  {feedTitle}
+                  {meta.personalised && (
+                    <span
+                      className="dsk-feed-personalised"
+                      title="Tailored to your recent activity"
+                    >
+                      <SparkleIcon size={11} /> For you
+                    </span>
+                  )}
+                </h2>
                 {category !== "all" && (
                   <button className="dsk-cat-clear"
                           onClick={() => switchCategory("all")}>
@@ -829,11 +868,10 @@ export default function HomepageDesktop({ user }: Props) {
                 )}
               </div>
 
-              {loading ? (
+              {loading && products.length === 0 ? (
                 <GridSkeleton cols={cols} />
-              ) : error ? null : products.length === 0 ? (
+              ) : (error && products.length === 0) ? null : products.length === 0 ? (
                 <div className="dsk-empty">
-                  {/* SVG instead of 🛍️ */}
                   <span className="dsk-empty-icon"><BagIcon size={36} /></span>
                   <h3>No listings found</h3>
                   <p>Try adjusting your filters or location.</p>
@@ -853,7 +891,7 @@ export default function HomepageDesktop({ user }: Props) {
                        style={{ "--cols": cols } as React.CSSProperties}
                        role="list">
                     {products.map((p, i) => (
-                      <div key={p.id} role="listitem">
+                      <div key={p.id} role="listitem" data-slot={p.feed_slot}>
                         <MasonryCard
                           product={p}
                           priority={i < 8}
@@ -906,7 +944,6 @@ export default function HomepageDesktop({ user }: Props) {
             {!loading && <Footer />}
           </main>
 
-          {/* Right Sidebar */}
           <RightSidebar navigate={navigate} />
         </div>
       </div>
