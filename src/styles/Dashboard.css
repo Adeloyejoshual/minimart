@@ -327,6 +327,22 @@
   }
 }
 
+/* Alert badge — draws attention to pending payments */
+.dashboard__nav-badge--alert {
+  background: #ef4444 !important;
+  color: #fff !important;
+  animation: nav-pulse 2s infinite;
+}
+
+@keyframes nav-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════════
    BUTTON SYSTEM
 ═══════════════════════════════════════════════════════════════ */
