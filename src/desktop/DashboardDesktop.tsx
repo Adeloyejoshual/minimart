@@ -22,6 +22,7 @@ import { Ic } from "../pages/Profile/components/icons";
 import Toast from "../pages/Profile/components/Toast";
 import ConfirmDialog from "../pages/Profile/components/ConfirmDialog";
 import PromoteModal from "../pages/Profile/components/PromoteModal";
+import Payments from "../pages/Profile/components/Payments";  /* ✅ NEW */
 
 import DeskOverview from "./components/DeskOverview";
 import DeskListings from "./components/DeskListings";
@@ -31,8 +32,6 @@ import "./DashboardDesktop.css";
 
 /* ═══════════════════════════════════════════════════════
    SECTION ERROR BOUNDARY
-   Same as mobile — shows the real error instead of
-   a blank screen when a section component crashes.
 ═══════════════════════════════════════════════════════ */
 interface SectionErrorBoundaryProps {
   section: string;
@@ -255,46 +254,14 @@ class SectionErrorBoundary extends Component<
 
 /* ═══════════════════════════════════════════════════════
    NAV
+   ✅ Added Payments item
 ═══════════════════════════════════════════════════════ */
 const NAV_ITEMS = [
-  { key: "overview", label: "Overview", icon: <Ic.Chart /> },
-  { key: "products", label: "Listings", icon: <Ic.Package /> },
-  { key: "analytics", label: "Analytics", icon: <Ic.TrendUp /> },
+  { key: "overview",  label: "Overview",  icon: <Ic.Chart />      },
+  { key: "products",  label: "Listings",  icon: <Ic.Package />    },
+  { key: "payments",  label: "Payments",  icon: <Ic.CreditCard /> },  /* ✅ NEW */
+  { key: "analytics", label: "Analytics", icon: <Ic.TrendUp />    },
 ];
-
-/* ═══════════════════════════════════════════════════════
-   HELPER — resolve user email from any storage
-═══════════════════════════════════════════════════════ */
-const resolveEmail = (propEmail?: string): string => {
-  if (propEmail && propEmail.includes("@")) return propEmail;
-
-  const plainKeys = ["user_email", "userEmail", "email", "marketplace_email"];
-  for (const key of plainKeys) {
-    const val = localStorage.getItem(key);
-    if (val && val.includes("@")) return val;
-  }
-
-  const jsonKeys = [
-    "user",
-    "userData",
-    "marketplace_user",
-    "auth_user",
-    "currentUser",
-  ];
-  for (const key of jsonKeys) {
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) continue;
-      const parsed = JSON.parse(raw);
-      const email = parsed?.email || parsed?.user?.email;
-      if (email && email.includes("@")) return email;
-    } catch {
-      /* skip */
-    }
-  }
-
-  return "";
-};
 
 /* ═══════════════════════════════════════════════════════
    MAIN
@@ -392,14 +359,27 @@ export default function DashboardDesktop({ user }: Props) {
     }
   }, []);
 
+  /* ══════════════════════════════════════════════════════
+     ✅ FIXED: loadProducts with proper Load More support
+     - Doesn't abort ongoing load-more requests
+     - Deduplicates on merge
+     - Better logging for debugging
+  ══════════════════════════════════════════════════════ */
   const loadProducts = useCallback(
     async (
       currentTab = "all",
       cursor: string | null = null,
       searchQ = ""
     ) => {
-      if (abortRef.current) abortRef.current.abort();
-      abortRef.current = new AbortController();
+      /* Only abort fresh fetches — never abort a load-more */
+      if (!cursor && abortRef.current) {
+        abortRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      if (!cursor) {
+        abortRef.current = controller;
+      }
 
       if (cursor) setLoadingMore(true);
       else setProdLoading(true);
@@ -409,25 +389,56 @@ export default function DashboardDesktop({ user }: Props) {
         if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
         if (searchQ) url += `&search=${encodeURIComponent(searchQ)}`;
 
+        console.log("[dkd] loadProducts →", {
+          tab: currentTab,
+          cursor: cursor ? cursor.slice(0, 30) + "…" : null,
+          search: searchQ || "(none)",
+        });
+
         const res = await fetch(url, {
           headers: authH(),
-          signal: abortRef.current.signal,
+          signal: controller.signal,
         });
         const d = await res.json();
 
         if (!res.ok) {
+          console.error("[dkd] products fetch error:", res.status, d);
           showToast(d.message || `Error ${res.status}`, "error");
           return;
         }
 
         const list = Array.isArray(d.products) ? d.products : [];
-        if (cursor) setProducts((p) => [...p, ...list]);
-        else setProducts(list);
+
+        console.log("[dkd] ← received", {
+          count: list.length,
+          has_more: d.has_more,
+          next_cursor: d.next_cursor
+            ? String(d.next_cursor).slice(0, 30) + "…"
+            : null,
+        });
+
+        /* ✅ Append when cursor exists, replace otherwise */
+        setProducts((prev) => {
+          if (!cursor) return list;
+
+          /* Deduplicate — merge without duplicates */
+          const existingIds = new Set(prev.map((p) => p.id));
+          const newItems = list.filter((p: any) => !existingIds.has(p.id));
+
+          if (newItems.length !== list.length) {
+            console.warn(
+              `[dkd] filtered ${list.length - newItems.length} duplicate(s)`
+            );
+          }
+
+          return [...prev, ...newItems];
+        });
 
         setHasMore(!!d.has_more);
         setNextCursor(d.next_cursor || null);
       } catch (e: any) {
         if (e.name === "AbortError") return;
+        console.error("[dkd] loadProducts error:", e);
         showToast("Failed to load listings.", "error");
       } finally {
         setProdLoading(false);
@@ -476,13 +487,15 @@ export default function DashboardDesktop({ user }: Props) {
   }, [loadAll]);
 
   /* ══════════════════════════════════════
-     TAB / SEARCH
+     TAB / SEARCH / LOAD MORE
   ══════════════════════════════════════ */
   const handleTabChange = useCallback(
     (newTab: string) => {
+      console.log("[dkd] tab change →", newTab);
       setTab(newTab);
       setSearch("");
       setNextCursor(null);
+      setHasMore(false);
       loadProducts(newTab);
     },
     [loadProducts]
@@ -494,21 +507,42 @@ export default function DashboardDesktop({ user }: Props) {
       clearTimeout(searchTimer.current);
       searchTimer.current = setTimeout(() => {
         setNextCursor(null);
+        setHasMore(false);
         loadProducts(tab, null, value);
       }, 400);
     },
     [tab, loadProducts]
   );
 
+  /* ✅ FIXED: handleLoadMore with proper validation */
   const handleLoadMore = useCallback(() => {
-    if (!hasMore || loadingMore || !nextCursor) return;
+    console.log("[dkd] Load More clicked:", {
+      hasMore,
+      loadingMore,
+      hasCursor: !!nextCursor,
+      tab,
+      search: search || "(none)",
+    });
+
+    if (!hasMore) {
+      console.warn("[dkd] ⚠ No more items to load");
+      return;
+    }
+    if (loadingMore) {
+      console.warn("[dkd] ⚠ Already loading more");
+      return;
+    }
+    if (!nextCursor) {
+      console.warn("[dkd] ⚠ No next cursor — cannot load more");
+      showToast("No more listings to load.", "info");
+      return;
+    }
+
     loadProducts(tab, nextCursor, search);
-  }, [hasMore, loadingMore, nextCursor, tab, search, loadProducts]);
+  }, [hasMore, loadingMore, nextCursor, tab, search, loadProducts, showToast]);
 
   /* ══════════════════════════════════════
      DELETE FLOW
-     ✅ v2: Auto-pause active products before delete
-            Warns user in confirm dialog if product is live
   ══════════════════════════════════════ */
   const handleDelete = useCallback((product: any) => {
     pendingDelete.current = product;
@@ -530,12 +564,9 @@ export default function DashboardDesktop({ user }: Props) {
     setConfirm(null);
     setDeleting(product.id);
 
-    /* Optimistic UI — remove immediately */
     setProducts((p) => p.filter((x) => x.id !== product.id));
 
     try {
-      /* ✅ Step 1: If active, pause it first
-         Backend requires pausing before delete for active listings. */
       const isActive =
         product.is_active === true || product.status === "active";
 
@@ -546,12 +577,10 @@ export default function DashboardDesktop({ user }: Props) {
             { method: "PATCH", headers: authH() }
           );
         } catch {
-          /* Non-fatal — continue to delete anyway */
           console.warn("[dkd] auto-pause failed, attempting delete anyway");
         }
       }
 
-      /* ✅ Step 2: Delete */
       const res = await fetch(
         `${API}/seller-dashboard/products/${product.id}`,
         { method: "DELETE", headers: authH() }
@@ -566,7 +595,6 @@ export default function DashboardDesktop({ user }: Props) {
           5000
         );
       } else {
-        /* Rollback optimistic UI on failure */
         setProducts((p) => [product, ...p]);
         showToast(d.message || "Could not delete.", "error");
       }
@@ -672,76 +700,295 @@ export default function DashboardDesktop({ user }: Props) {
     []
   );
 
+  /* ══════════════════════════════════════════════════════
+     ✅ FIXED: handlePayNow
+     - No client email (backend fetches from users table)
+     - Shows real errors
+     - Handles free plan auto-activation
+  ══════════════════════════════════════════════════════ */
   const handlePayNow = useCallback(
     async (product: any) => {
-      const email = resolveEmail(user?.email);
-      if (!email) {
-        showToast(
-          "We couldn't find your email. Please log out and log in again.",
-          "error"
-        );
+      if (!product?.id) {
+        showToast("Invalid product.", "error");
         return;
       }
+
+      const planId = product.plan_id ?? product.promotion_id ?? null;
+
       try {
         const res = await fetch(`${API}/payment/initiate`, {
           method: "POST",
           headers: authH(),
-          body: JSON.stringify({ product_id: product.id, email }),
+          body: JSON.stringify({
+            product_id: product.id,
+            ...(planId && { plan_id: planId }),
+          }),
         });
+
         const d = await res.json();
-        if (res.ok && d.authorization_url) {
-          window.location.href = d.authorization_url;
-        } else {
-          showToast(d.message || "Could not initiate payment.", "error");
+
+        if (!res.ok) {
+          console.error("[payment] initiate failed:", res.status, d);
+          showToast(
+            d.message || `Payment failed (${res.status}). Please try again.`,
+            "error",
+            6000
+          );
+          return;
         }
-      } catch {
-        showToast("Network error. Try again.", "error");
+
+        /* Free plan → auto-activated */
+        if (d.success && d.is_free) {
+          setProducts((p) =>
+            p.map((x) =>
+              x.id === product.id
+                ? {
+                    ...x,
+                    status: d.status,
+                    is_active: true,
+                    is_promoted: true,
+                    active_until: d.active_until,
+                  }
+                : x
+            )
+          );
+          loadStats();
+          showToast("Listing activated! 🚀", "success");
+          return;
+        }
+
+        /* Paid plan → redirect to Paystack */
+        if (d.success && d.authorization_url) {
+          window.location.href = d.authorization_url;
+          return;
+        }
+
+        showToast(
+          d.message || "Could not start payment. Please try again.",
+          "error"
+        );
+      } catch (err: any) {
+        console.error("[payment] initiate network error:", err);
+        showToast(
+          err.message
+            ? `Network error: ${err.message}`
+            : "Network error. Check your connection and try again.",
+          "error",
+          6000
+        );
       }
     },
-    [user?.email, showToast]
+    [showToast, loadStats]
   );
 
+  /* ══════════════════════════════════════════════════════
+     ✅ FIXED: handleVerifyPayment
+     - Uses correct /payment/verify-by-product endpoint
+     - Shows REAL server errors with HTTP status handling
+     - Handles all payment states properly
+  ══════════════════════════════════════════════════════ */
   const handleVerifyPayment = useCallback(
     async (product: any) => {
+      if (!product?.id) {
+        showToast("Invalid product.", "error");
+        return;
+      }
+
       setVerifying(product.id);
+
       try {
-        const res = await fetch(
-          `${API}/seller-dashboard/products/${product.id}/verify-payment`,
-          { method: "POST", headers: authH() }
-        );
-        const d = await res.json();
-        if (res.ok && d.success) {
-          if (d.status === "active") {
-            setProducts((p) =>
-              p.map((x) =>
-                x.id === product.id
-                  ? { ...x, status: "active", is_active: true }
-                  : x
-              )
-            );
-            loadStats();
-            showToast("Payment verified! Your listing is now live.", "success");
-          } else if (d.status === "pending") {
+        const res = await fetch(`${API}/payment/verify-by-product`, {
+          method: "POST",
+          headers: authH(),
+          body: JSON.stringify({ product_id: product.id }),
+        });
+
+        let d: any;
+        try {
+          d = await res.json();
+        } catch (parseErr) {
+          console.error("[verify] JSON parse error:", parseErr);
+          showToast(
+            `Server returned invalid response (HTTP ${res.status}). Try again.`,
+            "error",
+            6000
+          );
+          return;
+        }
+
+        console.log("[verify] response:", res.status, d);
+
+        /* HTTP ERROR STATES */
+        if (!res.ok) {
+          if (res.status === 401) {
+            showToast("Session expired. Please log in again.", "error");
+            setTimeout(() => navigate("/auth"), 1500);
+            return;
+          }
+          if (res.status === 404) {
             showToast(
-              "Payment is still processing. Please wait a few minutes.",
-              "info"
+              d.message || "No payment found. Try 'Pay Now' instead.",
+              "warning",
+              6000
             );
+            return;
+          }
+          if (res.status === 429) {
+            showToast(
+              d.message || "Too many attempts. Wait a moment.",
+              "warning",
+              5000
+            );
+            return;
+          }
+          if (res.status === 402) {
+            showToast(
+              d.message || "Payment amount mismatch. Contact support.",
+              "error",
+              8000
+            );
+            return;
+          }
+          if (res.status === 502) {
+            showToast(
+              "Payment provider unreachable. Try again shortly.",
+              "error",
+              5000
+            );
+            return;
+          }
+          if (res.status >= 500) {
+            showToast(
+              d.message || `Server error (${res.status}). Try again.`,
+              "error",
+              6000
+            );
+            return;
+          }
+          showToast(
+            d.message || `Error ${res.status}. Please try again.`,
+            "error",
+            5000
+          );
+          return;
+        }
+
+        /* ✅ Payment confirmed */
+        if (d.success && d.status === "success") {
+          setProducts((p) =>
+            p.map((x) =>
+              x.id === product.id
+                ? {
+                    ...x,
+                    status: d.needs_verification ? "active_limited" : "active",
+                    is_active: true,
+                    is_promoted: d.is_promoted ?? true,
+                    active_until: d.active_until ?? x.active_until,
+                    promotion_end: d.promoted_until ?? x.promotion_end,
+                  }
+                : x
+            )
+          );
+          loadStats();
+
+          if (d.already_confirmed || d.already_active) {
+            showToast("✅ Your listing is already live!", "success", 5000);
           } else {
             showToast(
-              d.message || "Payment not confirmed. Please complete payment.",
-              "warning"
+              `🚀 Payment confirmed — your listing is now live${
+                d.days_remaining ? ` for ${d.days_remaining} days` : ""
+              }!`,
+              "success",
+              5000
             );
           }
-        } else {
-          showToast(d.message || "Could not verify payment.", "error");
+          return;
         }
-      } catch {
-        showToast("Network error. Try again.", "error");
+
+        /* ⏳ Still pending */
+        if (d.status === "pending") {
+          showToast(
+            d.message ||
+              "⏳ Payment is still processing. Please wait a few minutes.",
+            "info",
+            7000
+          );
+          return;
+        }
+
+        /* ❌ Failed */
+        if (d.status === "failed") {
+          setProducts((p) =>
+            p.map((x) =>
+              x.id === product.id
+                ? { ...x, status: "draft", is_active: false }
+                : x
+            )
+          );
+          loadStats();
+          showToast(
+            d.message || "❌ Payment failed. Try Pay Now again.",
+            "error",
+            6000
+          );
+          return;
+        }
+
+        /* 🚫 Cancelled */
+        if (d.status === "cancelled") {
+          setProducts((p) =>
+            p.map((x) =>
+              x.id === product.id
+                ? { ...x, status: "draft", is_active: false }
+                : x
+            )
+          );
+          loadStats();
+          showToast(
+            d.message || "Payment was cancelled. Listing saved as draft.",
+            "warning",
+            5000
+          );
+          return;
+        }
+
+        /* ⏰ Expired */
+        if (d.status === "expired") {
+          setProducts((p) =>
+            p.map((x) =>
+              x.id === product.id
+                ? { ...x, status: "draft", is_active: false }
+                : x
+            )
+          );
+          loadStats();
+          showToast(
+            "⏰ Payment session expired. Please initiate a new payment.",
+            "warning",
+            5000
+          );
+          return;
+        }
+
+        showToast(
+          d.message || `Unknown status: ${d.status || "no status returned"}`,
+          "warning",
+          5000
+        );
+      } catch (err: any) {
+        console.error("[verify] network error:", err);
+        showToast(
+          err.message
+            ? `Network error: ${err.message}`
+            : "Network error. Check your connection and try again.",
+          "error",
+          6000
+        );
       } finally {
         setVerifying(null);
       }
     },
-    [loadStats, showToast]
+    [loadStats, showToast, navigate]
   );
 
   /* ── derived ── */
@@ -788,24 +1035,48 @@ export default function DashboardDesktop({ user }: Props) {
         </div>
 
         <nav className="dkd-sidebar-nav">
-          {NAV_ITEMS.map((n) => (
-            <button
-              key={n.key}
-              className={`dkd-sidebar-item${
-                section === n.key ? " dkd-sidebar-item--active" : ""
-              }`}
-              onClick={() => setSection(n.key)}
-              title={sidebarCollapsed ? n.label : undefined}
-            >
-              {n.icon}
-              {!sidebarCollapsed && <span>{n.label}</span>}
-              {!sidebarCollapsed &&
-                n.key === "products" &&
-                tabCounts.all > 0 && (
-                  <span className="dkd-sidebar-badge">{tabCounts.all}</span>
+          {NAV_ITEMS.map((n) => {
+            /* ✅ Show badge for products AND payments */
+            const badgeCount =
+              n.key === "products"
+                ? tabCounts.all
+                : n.key === "payments"
+                ? tabCounts.pending
+                : 0;
+
+            const isAlertBadge = n.key === "payments";
+
+            return (
+              <button
+                key={n.key}
+                className={`dkd-sidebar-item${
+                  section === n.key ? " dkd-sidebar-item--active" : ""
+                }`}
+                onClick={() => setSection(n.key)}
+                title={sidebarCollapsed ? n.label : undefined}
+              >
+                {n.icon}
+                {!sidebarCollapsed && <span>{n.label}</span>}
+                {!sidebarCollapsed && badgeCount > 0 && (
+                  <span
+                    className={`dkd-sidebar-badge${
+                      isAlertBadge ? " dkd-sidebar-badge--alert" : ""
+                    }`}
+                  >
+                    {badgeCount}
+                  </span>
                 )}
-            </button>
-          ))}
+                {/* Show mini dot on collapsed sidebar */}
+                {sidebarCollapsed && badgeCount > 0 && (
+                  <span
+                    className={`dkd-sidebar-dot${
+                      isAlertBadge ? " dkd-sidebar-dot--alert" : ""
+                    }`}
+                  />
+                )}
+              </button>
+            );
+          })}
         </nav>
 
         <div className="dkd-sidebar-footer">
@@ -951,6 +1222,19 @@ export default function DashboardDesktop({ user }: Props) {
                   onPromote={handlePromote}
                   onPayNow={handlePayNow}
                   onVerifyPayment={handleVerifyPayment}
+                />
+              </SectionErrorBoundary>
+            </div>
+          )}
+
+          {/* ✅ NEW: Payments section */}
+          {section === "payments" && (
+            <div className="dkd-section dkd-fade-in">
+              <SectionErrorBoundary section="Payments">
+                <Payments
+                  onNavigate={navigate}
+                  onSetSection={setSection}
+                  showToast={showToast}
                 />
               </SectionErrorBoundary>
             </div>
