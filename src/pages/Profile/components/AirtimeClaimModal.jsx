@@ -5,15 +5,14 @@ import "../styles/AirtimeClaimModal.css";
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || window.location.origin;
 const API      = `${BASE_URL}/api`;
 
-/* Toggle to true for debugging network / API issues */
 const SHOW_DEBUG = false;
 
 /* ═══════════════════════════════════════════════════════════════
    AUTH
 ═══════════════════════════════════════════════════════════════ */
 const TOKEN_KEYS = [
-  "marketplace_token","token","auth_token","authToken",
-  "access_token","accessToken","jwt",
+  "marketplace_token", "token", "auth_token", "authToken",
+  "access_token", "accessToken", "jwt",
 ];
 
 const getToken = () => {
@@ -49,26 +48,34 @@ const normalisePhone = (raw) => {
 
 const isValidPhone = (p) => /^0[789][01]\d{8}$/.test(p);
 
-const detectNetwork = (phone) => {
-  const prefix = normalisePhone(phone).slice(0, 4);
-  const map = {
-    "0703":"MTN","0704":"MTN","0706":"MTN","0803":"MTN","0806":"MTN",
-    "0810":"MTN","0813":"MTN","0814":"MTN","0816":"MTN","0903":"MTN",
-    "0906":"MTN","0913":"MTN","0916":"MTN",
-    "0701":"Airtel","0708":"Airtel","0802":"Airtel","0808":"Airtel",
-    "0812":"Airtel","0901":"Airtel","0902":"Airtel","0904":"Airtel",
-    "0907":"Airtel","0912":"Airtel",
-    "0705":"Glo","0805":"Glo","0807":"Glo","0811":"Glo",
-    "0815":"Glo","0905":"Glo","0915":"Glo",
-    "0809":"9mobile","0817":"9mobile","0818":"9mobile",
-    "0908":"9mobile","0909":"9mobile",
-  };
-  return map[prefix] || null;
+const NETWORK_PREFIX_MAP = {
+  "0703":"MTN",  "0704":"MTN",  "0706":"MTN",  "0803":"MTN",
+  "0806":"MTN",  "0810":"MTN",  "0813":"MTN",  "0814":"MTN",
+  "0816":"MTN",  "0903":"MTN",  "0906":"MTN",  "0913":"MTN",
+  "0916":"MTN",
+  "0701":"Airtel","0708":"Airtel","0802":"Airtel","0808":"Airtel",
+  "0812":"Airtel","0901":"Airtel","0902":"Airtel","0904":"Airtel",
+  "0907":"Airtel","0912":"Airtel",
+  "0705":"Glo",  "0805":"Glo",  "0807":"Glo",  "0811":"Glo",
+  "0815":"Glo",  "0905":"Glo",  "0915":"Glo",
+  "0809":"9mobile","0817":"9mobile","0818":"9mobile",
+  "0908":"9mobile","0909":"9mobile",
 };
 
+const detectNetwork = (phone) => {
+  if (!phone) return null;
+  const prefix = normalisePhone(phone).slice(0, 4);
+  return NETWORK_PREFIX_MAP[prefix] ?? null;
+};
+
+/*
+ * maskPhone — used only in success screen and notifications.
+ * The saved-phone card now shows the FULL number.
+ */
 const maskPhone = (phone) => {
   if (!phone) return "";
   const d = normalisePhone(phone);
+  if (d.length < 7) return d;
   return d.slice(0, 4) + "****" + d.slice(-3);
 };
 
@@ -92,8 +99,13 @@ const NETWORK_COLORS = {
 };
 
 /* ═══════════════════════════════════════════════════════════════
-   FLOATING DEBUG PANEL (only when SHOW_DEBUG = true)
+   DEBUG PANEL
 ═══════════════════════════════════════════════════════════════ */
+const debugBtnStyle = (c) => ({
+  background: "#000", color: c, border: `1px solid ${c}`,
+  padding: "2px 8px", fontSize: 10, cursor: "pointer", borderRadius: 4,
+});
+
 function DebugPanel({ logs, onClear, onCopy, onClose }) {
   return (
     <div style={{
@@ -111,24 +123,23 @@ function DebugPanel({ logs, onClear, onCopy, onClose }) {
       }}>
         <span>🔧 DEBUG ({logs.length})</span>
         <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={onCopy}  style={btnStyle("#0f0")}>📋</button>
-          <button onClick={onClear} style={btnStyle("#0f0")}>🗑</button>
-          <button onClick={onClose} style={btnStyle("#f00")}>✕</button>
+          <button onClick={onCopy}  style={debugBtnStyle("#0f0")}>📋</button>
+          <button onClick={onClear} style={debugBtnStyle("#0f0")}>🗑</button>
+          <button onClick={onClose} style={debugBtnStyle("#f00")}>✕</button>
         </div>
       </div>
       <div style={{
         flex: 1, overflow: "auto", padding: "6px 10px",
-        lineHeight: 1.5, wordBreak: "break-all",
-        whiteSpace: "pre-wrap",
+        lineHeight: 1.5, wordBreak: "break-all", whiteSpace: "pre-wrap",
         WebkitOverflowScrolling: "touch",
       }}>
         {logs.length === 0
           ? <div style={{ color: "#666", fontStyle: "italic" }}>Waiting…</div>
           : logs.map((log, i) => (
               <div key={i} style={{
-                color: log.level === "error" ? "#f66"
-                     : log.level === "warn"  ? "#fc0"
-                     : "#0f0",
+                color : log.level === "error" ? "#f66"
+                      : log.level === "warn"  ? "#fc0"
+                      : "#0f0",
                 marginBottom: 2,
               }}>
                 [{log.time}] {log.line}
@@ -140,22 +151,233 @@ function DebugPanel({ logs, onClear, onCopy, onClose }) {
   );
 }
 
-const btnStyle = (c) => ({
-  background: "#000", color: c, border: `1px solid ${c}`,
-  padding: "2px 8px", fontSize: 10, cursor: "pointer", borderRadius: 4,
-});
+/* ═══════════════════════════════════════════════════════════════
+   NETWORK BADGE (reusable)
+═══════════════════════════════════════════════════════════════ */
+function NetworkBadge({ network, className = "acm-network-badge" }) {
+  const style = network ? NETWORK_COLORS[network] : null;
+  if (!style) return null;
+  return (
+    <div
+      className={className}
+      style={{ background: style.bg, color: style.color }}
+    >
+      {style.emoji} {network} detected
+    </div>
+  );
+}
 
 /* ═══════════════════════════════════════════════════════════════
-   MAIN COMPONENT
+   SAVED PHONE CARD
+   Shows the FULL phone number (not masked).
+═══════════════════════════════════════════════════════════════ */
+function SavedPhoneCard({
+  savedPhone,
+  inCooldown,
+  daysLeft,
+  nextChangeDate,
+  loading,
+  onClickChange,
+}) {
+  const netStyle = savedPhone?.network ? NETWORK_COLORS[savedPhone.network] : null;
+
+  /*
+   * Prefer the raw phone from the API so the user sees their full number.
+   * Fall back to normalised form if the API only returned a masked string.
+   */
+  const displayPhone = normalisePhone(savedPhone.phone) || savedPhone.phone;
+
+  return (
+    <div className="acm-saved-card">
+      {/* ── Phone row ── */}
+      <div className="acm-saved-row">
+        <span className="acm-saved-flag">🇳🇬</span>
+
+        <div className="acm-saved-main">
+          {/* Full number — no masking */}
+          <div className="acm-saved-phone">{displayPhone}</div>
+
+          {netStyle && (
+            <div
+              className="acm-saved-net"
+              style={{ color: netStyle.color }}
+            >
+              {netStyle.emoji} {savedPhone.network}
+            </div>
+          )}
+        </div>
+
+        <span className="acm-saved-badge">💾 Saved</span>
+      </div>
+
+      {/* ── Cooldown notice ── */}
+      {inCooldown && (
+        <div className="acm-cooldown-info">
+          <span>🔒</span>
+          <div>
+            <strong>Locked until {nextChangeDate}</strong>
+            <br />
+            You can change your default number in{" "}
+            <strong>{daysLeft} day{daysLeft !== 1 ? "s" : ""}</strong>.
+          </div>
+        </div>
+      )}
+
+      {/* ── Change button ── */}
+      <button
+        type="button"
+        className="acm-change-btn"
+        onClick={onClickChange}
+        disabled={loading}
+      >
+        {inCooldown
+          ? "Send to a different number (one-time)"
+          : "Change number"}
+      </button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   PHONE INPUT FIELD
+═══════════════════════════════════════════════════════════════ */
+function PhoneInputField({
+  inputRef,
+  phone,
+  network,
+  loading,
+  checking,
+  phoneCheck,
+  hasSavedPhone,
+  wasEdited,
+  inCooldown,
+  daysLeft,
+  saveAsDefault,
+  saveToggleDisabled,
+  effectiveSave,
+  onChange,
+  onSaveToggle,
+}) {
+  const netStyle = network ? NETWORK_COLORS[network] : null;
+
+  return (
+    <div className="acm-field">
+      <label className="acm-label" htmlFor="acm-phone">
+        Airtime recipient number
+      </label>
+
+      {/* Input row */}
+      <div className="acm-phone-wrap">
+        <span className="acm-prefix">🇳🇬 +234</span>
+        <input
+          ref={inputRef}
+          id="acm-phone"
+          className="acm-phone-input"
+          type="tel"
+          inputMode="numeric"
+          placeholder="08012345678"
+          value={phone}
+          onChange={onChange}
+          maxLength={11}
+          disabled={loading}
+          autoComplete="tel"
+        />
+      </div>
+
+      {/* Network detection */}
+      {network && netStyle && (
+        <NetworkBadge network={network} />
+      )}
+      {phone.length >= 7 && !network && (
+        <div className="acm-network-unknown">
+          ⚠️ Network not detected — check your number
+        </div>
+      )}
+
+      {/* Availability check */}
+      {checking && (
+        <div className="acm-phone-checking">
+          <span className="acm-spin-dot" />
+          Checking availability…
+        </div>
+      )}
+      {phoneCheck && !checking && phoneCheck.message && (
+        phoneCheck.available
+          ? <div className="acm-phone-ok">✓ {phoneCheck.message}</div>
+          : <div className="acm-phone-blocked">🚫 {phoneCheck.message}</div>
+      )}
+
+      {/* Save-as-default toggle — only when editing an existing saved number */}
+      {hasSavedPhone && wasEdited && (
+        inCooldown ? (
+          <div className="acm-cooldown-warn">
+            🔒 You can update your default in{" "}
+            <strong>{daysLeft} day{daysLeft !== 1 ? "s" : ""}</strong>.
+            <br />
+            This claim will use the new number{" "}
+            <strong>this time only</strong>.
+          </div>
+        ) : (
+          <label className="acm-save-toggle">
+            <input
+              type="checkbox"
+              checked={effectiveSave}
+              onChange={onSaveToggle}
+              disabled={loading || saveToggleDisabled}
+            />
+            <span>Save as my default airtime number</span>
+          </label>
+        )
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   SUCCESS SCREEN
+═══════════════════════════════════════════════════════════════ */
+function SuccessScreen({ amount, phone, network }) {
+  const netStyle = network ? NETWORK_COLORS[network] : null;
+
+  return (
+    <div className="acm-success">
+      <div className="acm-success-icon">✓</div>
+      <h2 className="acm-title">Claim submitted!</h2>
+
+      <p className="acm-sub">
+        {naira(amount)} airtime will be sent to{" "}
+        {/* Show masked number on success screen for security */}
+        <strong>{maskPhone(phone) || phone}</strong> shortly.
+      </p>
+
+      {netStyle && (
+        <div
+          className="acm-success-network"
+          style={{ background: netStyle.bg, color: netStyle.color }}
+        >
+          {netStyle.emoji} {network}
+        </div>
+      )}
+
+      <p className="acm-sub-small">
+        You'll receive an email confirmation once processed.
+      </p>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   MAIN MODAL
 ═══════════════════════════════════════════════════════════════ */
 export default function AirtimeClaimModal({
   isOpen,
   coupon,
-  savedPhone     = null,      // { phone, masked, network, in_cooldown, days_left, next_change_at }
-  prefilledPhone = "",         // fallback if no saved phone
+  savedPhone     = null,   // { phone, masked, network, in_cooldown, days_left, next_change_at }
+  prefilledPhone = "",
   onClose,
   onSuccess,
 }) {
+  /* ── Core state ── */
   const [phone,         setPhone]         = useState("");
   const [network,       setNetwork]       = useState(null);
   const [loading,       setLoading]       = useState(false);
@@ -163,10 +385,19 @@ export default function AirtimeClaimModal({
   const [errorCode,     setErrorCode]     = useState(null);
   const [submitted,     setSubmitted]     = useState(false);
   const [saveAsDefault, setSaveAsDefault] = useState(true);
-  const [wasEdited,     setWasEdited]     = useState(false);
-  const [showChangeBtn, setShowChangeBtn] = useState(false);
-  const [checking,      setChecking]      = useState(false);
-  const [phoneCheck,    setPhoneCheck]    = useState(null);
+
+  /*
+   * wasEdited  — true once the user types anything in the input
+   * showInput  — true once "Change number" is clicked
+   *              (distinct from wasEdited so we can show the input
+   *               without marking the number as changed yet)
+   */
+  const [wasEdited,  setWasEdited]  = useState(false);
+  const [showInput,  setShowInput]  = useState(false);
+
+  /* Availability check */
+  const [checking,   setChecking]   = useState(false);
+  const [phoneCheck, setPhoneCheck] = useState(null);
 
   /* Debug */
   const [debugLogs, setDebugLogs] = useState([]);
@@ -175,85 +406,101 @@ export default function AirtimeClaimModal({
   const checkTimer = useRef(null);
   const inputRef   = useRef(null);
 
+  /* ── Debug logger ── */
   const addLog = useCallback((level, ...args) => {
     if (!SHOW_DEBUG) return;
     const line = args.map((a) =>
       typeof a === "object" ? JSON.stringify(a) : String(a)
     ).join(" ");
     const stamp = new Date().toLocaleTimeString("en-GB", { hour12: false });
-    setDebugLogs((prev) => {
-      const next = [...prev, { time: stamp, level, line }];
-      return next.slice(-40);
-    });
+    setDebugLogs((prev) => [...prev, { time: stamp, level, line }].slice(-40));
   }, []);
 
-  /* ── Derived from savedPhone ── */
+  /* ── Derived values ── */
   const hasSavedPhone  = !!savedPhone?.phone;
-  const inCooldown     = savedPhone?.in_cooldown;
+  const inCooldown     = !!savedPhone?.in_cooldown;
   const daysLeft       = savedPhone?.days_left ?? 0;
-  const nextChangeDate = savedPhone?.next_change_at
-    ? fmtDate(savedPhone.next_change_at)
-    : null;
+  const nextChangeDate = savedPhone?.next_change_at ? fmtDate(savedPhone.next_change_at) : null;
+
+  const saveToggleDisabled = wasEdited && inCooldown;
+  const effectiveSave      = saveToggleDisabled ? false : saveAsDefault;
+
+  /*
+   * Show the phone input when:
+   *   1. No saved phone (first-time user), OR
+   *   2. User clicked "Change number", OR
+   *   3. User has typed something
+   */
+  const inputVisible = !hasSavedPhone || showInput || wasEdited;
+
+  /* ── Sub-header copy ── */
+  const subLabel = hasSavedPhone && !showInput && !wasEdited
+    ? "Using your saved airtime number."
+    : hasSavedPhone && (showInput || wasEdited)
+      ? "Sending to a different number this time?"
+      : "Enter the number that should receive the airtime.";
 
   /* ══════════════════════════════════════════════
-     RESET on open
-     Priority: savedPhone.phone → prefilledPhone → empty
+     RESET when modal opens
   ══════════════════════════════════════════════ */
   useEffect(() => {
-    if (isOpen) {
-      const initialPhone = savedPhone?.phone || prefilledPhone || "";
-      const p = normalisePhone(initialPhone);
-      setPhone(p);
-      setNetwork(p ? detectNetwork(p) : null);
-      setError(null);
-      setErrorCode(null);
-      setLoading(false);
-      setSubmitted(false);
-      setSaveAsDefault(true);
-      setWasEdited(false);
-      setShowChangeBtn(false);
-      setPhoneCheck(null);
+    if (!isOpen) return;
 
-      if (SHOW_DEBUG) {
-        setTimeout(() => {
-          addLog("log", "════ OPENED ════");
-          addLog("log", `API: ${API}`);
-          addLog("log", `Token: ${getToken() ? "✓ present" : "✗ MISSING"}`);
-          addLog("log", `Coupon: ${coupon?.code}`);
-          addLog("log", `SavedPhone: ${hasSavedPhone ? maskPhone(savedPhone.phone) : "none"}`);
-          addLog("log", `Cooldown: ${inCooldown ? `yes (${daysLeft}d left)` : "no"}`);
-          addLog("log", `Online: ${navigator.onLine}`);
-        }, 50);
-      }
+    /*
+     * Seed the input with the saved phone (full number) or prefilled value.
+     * This means when the user clicks "Change number" the field already
+     * contains their current number, ready to edit.
+     */
+    const seed = normalisePhone(savedPhone?.phone || prefilledPhone || "");
+
+    setPhone(seed);
+    setNetwork(seed ? detectNetwork(seed) : null);
+    setError(null);
+    setErrorCode(null);
+    setLoading(false);
+    setSubmitted(false);
+    setSaveAsDefault(true);
+    setWasEdited(false);
+    setShowInput(false);
+    setPhoneCheck(null);
+
+    if (SHOW_DEBUG) {
+      setTimeout(() => {
+        addLog("log", "════ OPENED ════");
+        addLog("log", `API: ${API}`);
+        addLog("log", `Token: ${getToken() ? "✓ present" : "✗ MISSING"}`);
+        addLog("log", `Coupon: ${coupon?.code}`);
+        addLog("log", `SavedPhone: ${hasSavedPhone ? savedPhone.phone : "none"}`);
+        addLog("log", `Cooldown: ${inCooldown ? `yes (${daysLeft}d left)` : "no"}`);
+      }, 50);
     }
-  }, [isOpen, savedPhone, prefilledPhone, coupon, hasSavedPhone, inCooldown, daysLeft, addLog]);
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* Body scroll lock */
+  /* ── Body scroll lock ── */
   useEffect(() => {
-    if (isOpen) {
-      const prev = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-      return () => { document.body.style.overflow = prev; };
-    }
+    if (!isOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
   }, [isOpen]);
 
   /* ══════════════════════════════════════════════
-     LIVE PHONE CHECK
+     LIVE PHONE AVAILABILITY CHECK
   ══════════════════════════════════════════════ */
   useEffect(() => {
     clearTimeout(checkTimer.current);
     setPhoneCheck(null);
 
+    /* Only check when user has actually edited the field */
     if (!wasEdited || !isValidPhone(phone)) return;
 
-    /* Skip check if phone matches saved phone */
-    if (savedPhone?.phone && normalisePhone(savedPhone.phone) === phone) {
+    /* No need to check if it's the same as the saved number */
+    if (hasSavedPhone && normalisePhone(savedPhone.phone) === phone) {
       setPhoneCheck({ available: true, message: "" });
       return;
     }
 
-    const token = getToken();
-    if (!token) {
+    if (!getToken()) {
       setPhoneCheck({ available: true, message: "" });
       return;
     }
@@ -262,40 +509,33 @@ export default function AirtimeClaimModal({
     addLog("log", `check queued: ${phone}`);
 
     checkTimer.current = setTimeout(async () => {
-      const url = `${API}/airtime-coupons/check-phone/${phone}`;
-      addLog("log", `→ GET check-phone`);
-
-      const ctrl = new AbortController();
+      const ctrl    = new AbortController();
       const timeout = setTimeout(() => {
         ctrl.abort();
         addLog("error", "check: TIMEOUT 8s");
       }, 8000);
 
       try {
-        const res = await fetch(url, {
-          method : "GET",
+        addLog("log", `→ GET check-phone/${phone}`);
+        const res = await fetch(`${API}/airtime-coupons/check-phone/${phone}`, {
           headers: authH(),
           signal : ctrl.signal,
         });
         clearTimeout(timeout);
-
         addLog("log", `← ${res.status} check-phone`);
 
         let data = {};
         try {
           const text = await res.text();
           if (text) data = JSON.parse(text);
-        } catch { /* silent */ }
+        } catch { /* ignore parse errors */ }
 
-        if (!res.ok) {
-          setPhoneCheck({ available: true, message: "" });
-          return;
-        }
-
-        setPhoneCheck(data);
+        /* On any HTTP error, fail open (don't block the user) */
+        setPhoneCheck(res.ok ? data : { available: true, message: "" });
       } catch (err) {
         clearTimeout(timeout);
         addLog("error", `check err: ${err.name} — ${err.message}`);
+        /* Network error → fail open */
         setPhoneCheck({ available: true, message: "" });
       } finally {
         setChecking(false);
@@ -303,8 +543,9 @@ export default function AirtimeClaimModal({
     }, 500);
 
     return () => clearTimeout(checkTimer.current);
-  }, [phone, wasEdited, savedPhone, addLog]);
+  }, [phone, wasEdited]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  /* ── Phone input handler ── */
   const handlePhoneChange = (e) => {
     const raw = e.target.value.replace(/\D/g, "").slice(0, 11);
     setPhone(raw);
@@ -314,9 +555,16 @@ export default function AirtimeClaimModal({
     setWasEdited(true);
   };
 
-  const handleShowChange = () => {
-    setShowChangeBtn(true);
-    setTimeout(() => inputRef.current?.focus(), 100);
+  /* ── "Change number" button ── */
+  const handleShowInput = () => {
+    setShowInput(true);
+    /* Pre-fill with their saved number so they can edit from it */
+    const seed = normalisePhone(savedPhone?.phone || "");
+    if (seed) {
+      setPhone(seed);
+      setNetwork(detectNetwork(seed));
+    }
+    setTimeout(() => inputRef.current?.focus(), 80);
   };
 
   /* ══════════════════════════════════════════════
@@ -325,101 +573,87 @@ export default function AirtimeClaimModal({
   const handleSubmit = useCallback(async () => {
     const p = normalisePhone(phone);
     addLog("log", "════ SUBMIT ════");
-    addLog("log", `phone=${p}`);
+    addLog("log", `phone=${p} wasEdited=${wasEdited}`);
 
     if (!p || !isValidPhone(p)) {
       setError("Enter a valid 11-digit Nigerian number.");
       return;
     }
-
-    if (phoneCheck && phoneCheck.available === false) {
+    if (phoneCheck?.available === false) {
       setError(phoneCheck.message || "This number cannot be used.");
       return;
     }
-
-    const token = getToken();
-    if (!token) {
+    if (!getToken()) {
       setError("Not logged in. Please refresh.");
       return;
     }
 
-    /* If editing during cooldown, force save=false (one-time only) */
-    const shouldSave = wasEdited && inCooldown ? false : saveAsDefault;
+    /*
+     * If the user is in cooldown and edited the number,
+     * force save_as_default = false (one-time use).
+     */
+    const shouldSave = wasEdited && inCooldown ? false : effectiveSave;
 
     setLoading(true);
     setError(null);
     setErrorCode(null);
 
-    const url = `${API}/airtime-coupons/redeem`;
-    addLog("log", `→ POST redeem`);
-
-    const ctrl = new AbortController();
-    const timeoutId = setTimeout(() => {
-      ctrl.abort();
-      addLog("error", "submit: HARD TIMEOUT 20s");
-    }, 20000);
-
+    const ctrl     = new AbortController();
+    const hardId   = setTimeout(() => { ctrl.abort(); addLog("error", "HARD TIMEOUT 20s"); }, 20_000);
     const safetyId = setTimeout(() => {
       addLog("error", "SAFETY NET — forcing loading=false");
       setLoading(false);
       setError("Request took too long. Please try again.");
-    }, 25000);
+    }, 25_000);
 
     try {
-      addLog("log", "fetch() starting...");
-
-      const res = await fetch(url, {
-        method : "POST",
-        headers: authH(),
-        signal : ctrl.signal,
-        body   : JSON.stringify({
+      addLog("log", "→ POST redeem");
+      const res = await fetch(`${API}/airtime-coupons/redeem`, {
+        method  : "POST",
+        headers : authH(),
+        signal  : ctrl.signal,
+        body    : JSON.stringify({
           code            : coupon.code,
           phone           : p,
           save_as_default : shouldSave,
         }),
       });
 
-      clearTimeout(timeoutId);
+      clearTimeout(hardId);
       clearTimeout(safetyId);
-
       addLog("log", `← ${res.status} redeem`);
 
       let data = {};
       try {
         const text = await res.text();
         if (text) {
-          addLog("log", `body: ${text.slice(0, 150)}`);
+          addLog("log", `body: ${text.slice(0, 200)}`);
           data = JSON.parse(text);
         }
-      } catch (e) {
-        throw new Error("Server returned invalid response");
+      } catch {
+        throw new Error("Server returned an invalid response.");
       }
 
       if (!res.ok || !data.success) {
         setErrorCode(data.code || null);
         addLog("error", `fail code=${data.code} msg=${data.message}`);
 
-        if (data.code === "PHONE_COOLDOWN_ACTIVE") {
-          throw new Error(
+        const errorMessages = {
+          PHONE_COOLDOWN_ACTIVE :
             `You can change your default number in ${data.cooldown?.days_left ?? "?"} days. ` +
-            `Uncheck "Save as default" to send just this once.`
-          );
+            `Uncheck "Save as default" to send just this once.`,
+          PHONE_LIMIT_REACHED   : "This phone number has reached the maximum allowed accounts.",
+          GIVEAWAYS_SUSPENDED   : "Giveaways are suspended. Please contact support.",
+          EMAIL_NOT_VERIFIED    : "Please verify your email address first.",
+          CLAIM_LIMIT_REACHED   : "You've reached your claim limit. Try again later.",
+        };
+
+        if (errorMessages[data.code]) {
+          throw new Error(errorMessages[data.code]);
         }
-        if (data.code === "PHONE_LIMIT_REACHED") {
-          throw new Error("This phone number has reached the maximum allowed accounts.");
-        }
-        if (data.code === "GIVEAWAYS_SUSPENDED") {
-          throw new Error("Giveaways suspended. Contact support.");
-        }
-        if (data.code === "EMAIL_NOT_VERIFIED") {
-          throw new Error("Please verify your email first.");
-        }
-        if (data.code === "CLAIM_LIMIT_REACHED") {
-          throw new Error("You've reached your claim limit.");
-        }
-        if (res.status === 401) throw new Error("Not logged in.");
+        if (res.status === 401) throw new Error("Not logged in. Please refresh.");
         if (res.status === 429) throw new Error("Too many attempts. Try again in a moment.");
-        throw new Error(data.message || `HTTP ${res.status}`);
+        throw new Error(data.message || `Unexpected error (HTTP ${res.status}).`);
       }
 
       addLog("log", "✓ SUCCESS");
@@ -430,21 +664,19 @@ export default function AirtimeClaimModal({
           phone  : p,
           network: network || detectNetwork(p),
           claim  : data.claim,
-          coupon : data.claim,
           saved  : data.airtime_phone_saved,
         });
       }, 1800);
 
     } catch (err) {
-      clearTimeout(timeoutId);
+      clearTimeout(hardId);
       clearTimeout(safetyId);
-
       addLog("error", `catch: ${err.name} — ${err.message}`);
 
       if (err.name === "AbortError") {
-        setError("Timed out. Please try again.");
+        setError("Request timed out. Please try again.");
       } else if (err.message === "Failed to fetch") {
-        setError("Network error. Check connection.");
+        setError("Network error. Check your connection and try again.");
       } else {
         setError(err.message);
       }
@@ -452,278 +684,176 @@ export default function AirtimeClaimModal({
       addLog("log", "finally: loading=false");
       setLoading(false);
     }
-  }, [phone, coupon, network, saveAsDefault, wasEdited, inCooldown, phoneCheck, onSuccess, addLog]);
+  }, [phone, coupon, network, effectiveSave, wasEdited, inCooldown, phoneCheck, onSuccess, addLog]);
 
-  if (!isOpen || !coupon) return null;
-
-  const amount        = coupon.amount ?? coupon.value ?? 0;
-  const netStyle      = network ? NETWORK_COLORS[network] : null;
-  const savedNetStyle = savedPhone?.network ? NETWORK_COLORS[savedPhone.network] : null;
-
+  /* ── Submit button availability ── */
   const canSubmit =
     !loading &&
     phone.length >= 10 &&
     isValidPhone(phone) &&
-    !(phoneCheck && phoneCheck.available === false);
+    !(phoneCheck?.available === false);
 
-  /* ── Sub-header text ── */
-  const subLabel =
-    hasSavedPhone && !wasEdited && !showChangeBtn
-      ? "Using your saved airtime number."
-      : hasSavedPhone && (wasEdited || showChangeBtn)
-        ? "Sending to a different number this time?"
-        : "Enter the number that should receive the airtime.";
-
-  const saveToggleDisabled = wasEdited && inCooldown;
-  const effectiveSave      = saveToggleDisabled ? false : saveAsDefault;
-
+  /* ── Debug helpers ── */
   const copyLogs = () => {
-    const text = debugLogs.map((l) =>
-      `[${l.time}] ${l.level.toUpperCase()}: ${l.line}`
-    ).join("\n");
+    const text = debugLogs
+      .map((l) => `[${l.time}] ${l.level.toUpperCase()}: ${l.line}`)
+      .join("\n");
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(text).then(
-        () => alert("✓ Logs copied!"),
-        () => fallbackCopy(text)
-      );
+      navigator.clipboard.writeText(text)
+        .then(() => alert("✓ Logs copied!"))
+        .catch(() => fallbackCopy(text));
     } else {
       fallbackCopy(text);
     }
   };
 
   const fallbackCopy = (text) => {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.style.cssText = "position:fixed;top:0;left:0;opacity:0";
+    const ta = Object.assign(document.createElement("textarea"), {
+      value   : text,
+      style   : "position:fixed;top:0;left:0;opacity:0",
+    });
     document.body.appendChild(ta);
     ta.select();
     try { document.execCommand("copy"); alert("✓ Copied!"); }
-    catch { alert("Copy failed."); }
+    catch { alert("Copy failed — copy manually from console."); }
     document.body.removeChild(ta);
   };
 
+  /* ══════════════════════════════════════════════
+     RENDER GUARD
+  ══════════════════════════════════════════════ */
+  if (!isOpen || !coupon) return null;
+
+  const amount = Number(coupon.amount ?? coupon.value ?? 0);
+
   return (
     <>
-      {/* Debug */}
-      {showDebug && (
-        <DebugPanel
-          logs={debugLogs}
-          onClear={() => setDebugLogs([])}
-          onCopy={copyLogs}
-          onClose={() => setShowDebug(false)}
-        />
+      {/* ── Debug panel ── */}
+      {SHOW_DEBUG && (
+        showDebug
+          ? (
+            <DebugPanel
+              logs={debugLogs}
+              onClear={() => setDebugLogs([])}
+              onCopy={copyLogs}
+              onClose={() => setShowDebug(false)}
+            />
+          ) : (
+            <button
+              onClick={() => setShowDebug(true)}
+              style={{
+                position: "fixed", top: 10, right: 10, zIndex: 9999999,
+                background: "#000", color: "#0f0", border: "2px solid #0f0",
+                borderRadius: "50%", width: 44, height: 44,
+                fontSize: 20, cursor: "pointer",
+              }}
+            >🔧</button>
+          )
       )}
 
-      {SHOW_DEBUG && !showDebug && (
-        <button
-          onClick={() => setShowDebug(true)}
-          style={{
-            position: "fixed", top: 10, right: 10, zIndex: 9999999,
-            background: "#000", color: "#0f0", border: "2px solid #0f0",
-            borderRadius: "50%", width: 44, height: 44, fontSize: 20,
-            cursor: "pointer",
-          }}>🔧</button>
-      )}
-
+      {/* ── Overlay ── */}
       <div
         className="acm-overlay"
         role="dialog"
         aria-modal="true"
+        aria-label={`Claim ${naira(amount)} airtime`}
         onClick={(e) => e.target === e.currentTarget && !loading && onClose()}
       >
         <div className="acm-sheet">
 
+          {/* Close button */}
           <button
             className="acm-close"
             onClick={onClose}
             disabled={loading}
             aria-label="Close"
-          >
-            ✕
-          </button>
+          >✕</button>
 
+          {/* ══════════ SUCCESS STATE ══════════ */}
           {submitted ? (
-            /* ══════════════ SUCCESS STATE ══════════════ */
-            <div className="acm-success">
-              <div className="acm-success-icon">✓</div>
-              <h2 className="acm-title">Claim submitted!</h2>
-              <p className="acm-sub">
-                {naira(amount)} airtime will be sent to{" "}
-                <strong>{phone}</strong> shortly.
-              </p>
-              <p className="acm-sub-small">
-                You'll get an email once processed.
-              </p>
-            </div>
+            <SuccessScreen
+              amount={amount}
+              phone={phone}
+              network={network || detectNetwork(phone)}
+            />
           ) : (
             <>
-              {/* ══════════════ HEADER ══════════════ */}
+              {/* ══════════ HEADER ══════════ */}
               <div className="acm-header">
                 <span className="acm-emoji">📱</span>
                 <h2 className="acm-title">Claim {naira(amount)} Airtime</h2>
                 <p className="acm-sub">{subLabel}</p>
               </div>
 
-              {/* ══════════════ SAVED PHONE CARD ══════════════
-                   Shown when there's a saved number AND user hasn't opted to edit
-              ══════════════════════════════════════════════════ */}
-              {hasSavedPhone && !wasEdited && !showChangeBtn && (
-                <div className="acm-saved-card">
-                  <div className="acm-saved-row">
-                    <span className="acm-saved-flag">🇳🇬</span>
-                    <div className="acm-saved-main">
-                      <div className="acm-saved-phone">
-                        {normalisePhone(savedPhone.phone)}
-                      </div>
-                      {savedNetStyle && (
-                        <div className="acm-saved-net"
-                             style={{ color: savedNetStyle.color }}>
-                          {savedNetStyle.emoji} {savedPhone.network}
-                        </div>
-                      )}
-                    </div>
-                    <span className="acm-saved-badge">💾 Saved</span>
-                  </div>
-
-                  {inCooldown && (
-                    <div className="acm-cooldown-info">
-                      <span>🔒</span>
-                      <div>
-                        <strong>Locked until {nextChangeDate}</strong>
-                        <br />
-                        You can change your default number in{" "}
-                        <strong>{daysLeft} day{daysLeft !== 1 ? "s" : ""}</strong>.
-                      </div>
-                    </div>
-                  )}
-
-                  <button
-                    type="button"
-                    className="acm-change-btn"
-                    onClick={handleShowChange}
-                    disabled={loading}
-                  >
-                    {inCooldown
-                      ? "Send to different number (one-time)"
-                      : "Change number"}
-                  </button>
-                </div>
+              {/* ══════════ SAVED PHONE CARD ══════════
+                   Shown when there IS a saved number AND
+                   the user hasn't clicked "Change" or typed yet.
+              ════════════════════════════════════════════ */}
+              {hasSavedPhone && !showInput && !wasEdited && (
+                <SavedPhoneCard
+                  savedPhone={savedPhone}
+                  inCooldown={inCooldown}
+                  daysLeft={daysLeft}
+                  nextChangeDate={nextChangeDate}
+                  loading={loading}
+                  onClickChange={handleShowInput}
+                />
               )}
 
-              {/* ══════════════ PHONE INPUT ══════════════
-                   Shown when:
-                   - No saved phone (first-time user), OR
-                   - User clicked "Change number", OR
-                   - User has already edited
-              ══════════════════════════════════════════════════ */}
-              {(!hasSavedPhone || wasEdited || showChangeBtn) && (
-                <div className="acm-field">
-                  <label className="acm-label" htmlFor="acm-phone">
-                    Airtime recipient number
-                  </label>
-                  <div className="acm-phone-wrap">
-                    <span className="acm-prefix">🇳🇬 +234</span>
-                    <input
-                      ref={inputRef}
-                      id="acm-phone"
-                      className="acm-phone-input"
-                      type="tel"
-                      inputMode="numeric"
-                      placeholder="08012345678"
-                      value={phone}
-                      onChange={handlePhoneChange}
-                      maxLength={11}
-                      disabled={loading}
-                      autoComplete="tel"
-                    />
-                  </div>
-
-                  {network && netStyle && (
-                    <div
-                      className="acm-network-badge"
-                      style={{ background: netStyle.bg, color: netStyle.color }}
-                    >
-                      {netStyle.emoji} {network} detected
-                    </div>
-                  )}
-
-                  {phone.length >= 7 && !network && (
-                    <div className="acm-network-unknown">
-                      ⚠️ Network not detected — check your number
-                    </div>
-                  )}
-
-                  {checking && (
-                    <div className="acm-phone-checking">
-                      <span className="acm-spin-dot" />
-                      Checking availability…
-                    </div>
-                  )}
-
-                  {phoneCheck && !checking && phoneCheck.message && (
-                    phoneCheck.available ? (
-                      <div className="acm-phone-ok">
-                        ✓ {phoneCheck.message}
-                      </div>
-                    ) : (
-                      <div className="acm-phone-blocked">
-                        🚫 {phoneCheck.message}
-                      </div>
-                    )
-                  )}
-
-                  {/* Save toggle — only when user edited a saved number */}
-                  {hasSavedPhone && wasEdited && (
-                    <>
-                      {inCooldown ? (
-                        <div className="acm-cooldown-warn">
-                          🔒 You can update your default in{" "}
-                          <strong>{daysLeft} day{daysLeft !== 1 ? "s" : ""}</strong>.
-                          <br />
-                          This claim will use the new number{" "}
-                          <strong>this time only</strong>.
-                        </div>
-                      ) : (
-                        <label className="acm-save-toggle">
-                          <input
-                            type="checkbox"
-                            checked={effectiveSave}
-                            onChange={(e) => setSaveAsDefault(e.target.checked)}
-                            disabled={loading || saveToggleDisabled}
-                          />
-                          <span>Save as my default airtime number</span>
-                        </label>
-                      )}
-                    </>
-                  )}
-                </div>
+              {/* ══════════ PHONE INPUT ══════════
+                   Shown when: no saved phone, OR change clicked, OR typing started.
+              ════════════════════════════════════════════ */}
+              {inputVisible && (
+                <PhoneInputField
+                  inputRef={inputRef}
+                  phone={phone}
+                  network={network}
+                  loading={loading}
+                  checking={checking}
+                  phoneCheck={phoneCheck}
+                  hasSavedPhone={hasSavedPhone}
+                  wasEdited={wasEdited}
+                  inCooldown={inCooldown}
+                  daysLeft={daysLeft}
+                  saveAsDefault={saveAsDefault}
+                  saveToggleDisabled={saveToggleDisabled}
+                  effectiveSave={effectiveSave}
+                  onChange={handlePhoneChange}
+                  onSaveToggle={(e) => setSaveAsDefault(e.target.checked)}
+                />
               )}
 
-              {/* ══════════════ ERROR ══════════════ */}
+              {/* ══════════ ERROR ══════════ */}
               {error && (
-                <div className={`acm-error ${errorCode ? `acm-error--${errorCode.toLowerCase()}` : ""}`}>
+                <div
+                  className={[
+                    "acm-error",
+                    errorCode ? `acm-error--${errorCode.toLowerCase()}` : "",
+                  ].join(" ").trim()}
+                  role="alert"
+                >
                   <span className="acm-error-icon">⚠️</span>
                   <span>{error}</span>
                 </div>
               )}
 
-              {/* ══════════════ INFO NOTE ══════════════ */}
+              {/* ══════════ INFO NOTE ══════════ */}
               <div className="acm-note">
                 ℹ️ Send airtime to any Nigerian number — yours, family, or friends.
                 Processed shortly after submission.
               </div>
 
-              {/* ══════════════ ACTIONS ══════════════ */}
+              {/* ══════════ ACTIONS ══════════ */}
               <button
                 className="acm-btn acm-btn--primary"
                 onClick={handleSubmit}
                 disabled={!canSubmit}
+                aria-busy={loading}
               >
-                {loading ? (
-                  <><span className="acm-spin-white" /> Submitting…</>
-                ) : (
-                  `Claim ${naira(amount)} Airtime`
-                )}
+                {loading
+                  ? <><span className="acm-spin-white" /> Submitting…</>
+                  : `Claim ${naira(amount)} Airtime`
+                }
               </button>
 
               <button
