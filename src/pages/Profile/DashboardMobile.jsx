@@ -15,7 +15,7 @@ import { Ic } from "./components/icons";
 
 import Overview      from "./components/Overview";
 import Listings      from "./components/Listings";
-import Payments      from "./components/Payments";      /* ✅ NEW */
+import Payments      from "./components/Payments";
 import Analytics     from "./components/Analytics";
 import ConfirmDialog from "./components/ConfirmDialog";
 import PromoteModal  from "./components/PromoteModal";
@@ -25,8 +25,6 @@ import "../../styles/Dashboard.css";
 
 /* ─────────────────────────────────────────────
    SectionErrorBoundary
-   Catches render crashes inside any section and
-   shows the REAL error instead of a blank screen.
 ───────────────────────────────────────────── */
 class SectionErrorBoundary extends Component {
   constructor(props) {
@@ -242,12 +240,11 @@ class SectionErrorBoundary extends Component {
 
 /* ─────────────────────────────────────────────
    Constants
-   ✅ Added Payments to nav
 ───────────────────────────────────────────── */
 const NAV_ITEMS = [
   { key: "overview",  label: "Overview",  icon: "Chart"      },
   { key: "products",  label: "Listings",  icon: "Package"    },
-  { key: "payments",  label: "Payments",  icon: "CreditCard" },  /* ✅ NEW */
+  { key: "payments",  label: "Payments",  icon: "CreditCard" },
   { key: "analytics", label: "Analytics", icon: "TrendUp"    },
 ];
 
@@ -260,9 +257,8 @@ const GREETING = (() => {
 
 /* ─────────────────────────────────────────────
    useDashboard — all data & mutations
-   ✅ Removed userEmail param (backend handles it)
-   ✅ Fixed handlePayNow (no more client email)
-   ✅ Fixed verifyPayment (uses /payment/verify-by-product)
+   ✅ Fixed Load More pagination
+   ✅ Fixed payment handlers
 ───────────────────────────────────────────── */
 function useDashboard(showToast, navigate) {
 
@@ -338,10 +334,23 @@ function useDashboard(showToast, navigate) {
     }
   }, []);
 
+  /* ═══════════════════════════════════════════════════════════
+     ✅ FIXED: fetchProducts with proper Load More support
+     - Doesn't abort when loading more (append mode)
+     - Deduplicates items on merge
+     - Better logging for debugging
+  ═══════════════════════════════════════════════════════════ */
   const fetchProducts = useCallback(
     async (currentTab = "all", cursor = null, query = "") => {
-      abortRef.current?.abort();
-      abortRef.current = new AbortController();
+      /* Only abort ongoing fresh fetches — never abort a load-more */
+      if (!cursor && abortRef.current) {
+        abortRef.current.abort();
+      }
+
+      const controller = new AbortController();
+      if (!cursor) {
+        abortRef.current = controller;
+      }
 
       cursor ? setLoadingMore(true) : setProdLoading(true);
 
@@ -350,23 +359,56 @@ function useDashboard(showToast, navigate) {
         if (cursor) params.set("cursor", cursor);
         if (query)  params.set("search", query);
 
+        console.log("[dashboard] fetchProducts →", {
+          tab   : currentTab,
+          cursor: cursor ? cursor.slice(0, 30) + "…" : null,
+          query : query || "(none)",
+        });
+
         const res = await fetch(
           `${API}/seller-dashboard/products?${params}`,
-          { headers: authH(), signal: abortRef.current.signal }
+          { headers: authH(), signal: controller.signal }
         );
         const d = await res.json();
 
         if (!res.ok) {
+          console.error("[dashboard] products fetch error:", res.status, d);
           showToast(d.message || `Error ${res.status}`, "error");
           return;
         }
 
         const list = Array.isArray(d.products) ? d.products : [];
-        setProducts((prev) => (cursor ? [...prev, ...list] : list));
+
+        console.log("[dashboard] ← received", {
+          count      : list.length,
+          has_more   : d.has_more,
+          next_cursor: d.next_cursor
+            ? String(d.next_cursor).slice(0, 30) + "…"
+            : null,
+        });
+
+        /* ✅ Append when cursor exists, replace otherwise */
+        setProducts((prev) => {
+          if (!cursor) return list;
+
+          /* Deduplicate — merge without duplicates */
+          const existingIds = new Set(prev.map((p) => p.id));
+          const newItems    = list.filter((p) => !existingIds.has(p.id));
+
+          if (newItems.length !== list.length) {
+            console.warn(
+              `[dashboard] filtered ${list.length - newItems.length} duplicate(s)`
+            );
+          }
+
+          return [...prev, ...newItems];
+        });
+
         setHasMore(!!d.has_more);
         setNextCursor(d.next_cursor ?? null);
       } catch (err) {
         if (err.name !== "AbortError") {
+          console.error("[dashboard] fetchProducts error:", err);
           showToast("Failed to load listings.", "error");
         }
       } finally {
@@ -413,9 +455,11 @@ function useDashboard(showToast, navigate) {
 
   const handleTabChange = useCallback(
     (newTab) => {
+      console.log("[dashboard] tab change →", newTab);
       setTab(newTab);
       setSearch("");
       setNextCursor(null);
+      setHasMore(false);
       fetchProducts(newTab);
     },
     [fetchProducts]
@@ -427,16 +471,41 @@ function useDashboard(showToast, navigate) {
       clearTimeout(searchTimer.current);
       searchTimer.current = setTimeout(() => {
         setNextCursor(null);
+        setHasMore(false);
         fetchProducts(tab, null, value);
       }, 400);
     },
     [tab, fetchProducts]
   );
 
+  /* ═══════════════════════════════════════════════════════════
+     ✅ FIXED: handleLoadMore with proper state validation
+  ═══════════════════════════════════════════════════════════ */
   const handleLoadMore = useCallback(() => {
-    if (!hasMore || loadingMore || !nextCursor) return;
+    console.log("[dashboard] Load More clicked:", {
+      hasMore,
+      loadingMore,
+      hasCursor: !!nextCursor,
+      tab,
+      search: search || "(none)",
+    });
+
+    if (!hasMore) {
+      console.warn("[dashboard] ⚠ No more items to load");
+      return;
+    }
+    if (loadingMore) {
+      console.warn("[dashboard] ⚠ Already loading more");
+      return;
+    }
+    if (!nextCursor) {
+      console.warn("[dashboard] ⚠ No next cursor — cannot load more");
+      showToast("No more listings to load.", "info");
+      return;
+    }
+
     fetchProducts(tab, nextCursor, search);
-  }, [hasMore, loadingMore, nextCursor, tab, search, fetchProducts]);
+  }, [hasMore, loadingMore, nextCursor, tab, search, fetchProducts, showToast]);
 
   /* ═══════════════════════════════════════════════════════════
      DELETE
@@ -619,7 +688,6 @@ function useDashboard(showToast, navigate) {
   /* ═══════════════════════════════════════════════════════════
      handlePayNow — Initiate Paystack payment
      ✅ No client email — backend fetches from users table
-     ✅ Shows real errors
   ═══════════════════════════════════════════════════════════ */
   const handlePayNow = useCallback(
     async (product) => {
@@ -652,7 +720,6 @@ function useDashboard(showToast, navigate) {
           return;
         }
 
-        /* Free plan → auto-activated */
         if (d.success && d.is_free) {
           setProducts((prev) =>
             prev.map((p) =>
@@ -672,7 +739,6 @@ function useDashboard(showToast, navigate) {
           return;
         }
 
-        /* Paid plan → redirect to Paystack */
         if (d.success && d.authorization_url) {
           window.location.href = d.authorization_url;
           return;
@@ -700,7 +766,6 @@ function useDashboard(showToast, navigate) {
      verifyPayment — "Check Status" button
      ✅ Uses correct /payment/verify-by-product endpoint
      ✅ Shows REAL server errors
-     ✅ Handles all payment states properly
   ═══════════════════════════════════════════════════════════ */
   const verifyPayment = useCallback(
     async (product) => {
@@ -724,8 +789,7 @@ function useDashboard(showToast, navigate) {
         } catch (parseErr) {
           console.error("[verify] JSON parse error:", parseErr);
           showToast(
-            `Server returned invalid response (HTTP ${res.status}). ` +
-            "Please try again in a moment.",
+            `Server returned invalid response (HTTP ${res.status}). Try again.`,
             "error",
             6000
           );
@@ -734,7 +798,6 @@ function useDashboard(showToast, navigate) {
 
         console.log("[verify] response:", res.status, d);
 
-        /* HTTP ERROR STATES */
         if (!res.ok) {
           if (res.status === 401) {
             showToast("Session expired. Please log in again.", "error");
@@ -789,8 +852,6 @@ function useDashboard(showToast, navigate) {
           return;
         }
 
-        /* SUCCESS STATES */
-
         /* ✅ Payment confirmed */
         if (d.success && d.status === "success") {
           setProducts((prev) =>
@@ -810,7 +871,7 @@ function useDashboard(showToast, navigate) {
           fetchStats();
 
           if (d.already_confirmed || d.already_active) {
-            showToast("✅ Your listing is already live!", "success");
+            showToast("✅ Your listing is already live!", "success", 5000);
           } else {
             showToast(
               `🚀 Payment confirmed — your listing is now live${
@@ -829,7 +890,7 @@ function useDashboard(showToast, navigate) {
             d.message ||
               "⏳ Payment is still processing. Please wait a few minutes.",
             "info",
-            6000
+            7000
           );
           return;
         }
@@ -888,7 +949,6 @@ function useDashboard(showToast, navigate) {
           return;
         }
 
-        /* Unknown */
         showToast(
           d.message || `Unknown status: ${d.status || "no status returned"}`,
           "warning",
@@ -944,7 +1004,6 @@ function useDashboard(showToast, navigate) {
 
 /* ─────────────────────────────────────────────
    DashboardHeader
-   ✅ Nav badge now shows for products AND payments
 ───────────────────────────────────────────── */
 function DashboardHeader({
   greeting,
@@ -1028,7 +1087,6 @@ function DashboardHeader({
         {NAV_ITEMS.map(({ key, label, icon }) => {
           const Icon = Ic[icon] ?? Ic.Fallback ?? (() => null);
 
-          /* ✅ Show badge for products AND payments */
           const badgeCount =
             key === "products" ? tabCounts.all      :
             key === "payments" ? tabCounts.pending  :
@@ -1081,6 +1139,7 @@ function ErrorBanner({ message, onRetry }) {
 
 /* ─────────────────────────────────────────────
    Dashboard
+   ✅ FAB hides when toasts are showing
 ───────────────────────────────────────────── */
 export default function Dashboard({ user }) {
   const navigate                    = useNavigate();
@@ -1090,12 +1149,14 @@ export default function Dashboard({ user }) {
   const [confirm,   setConfirm]   = useState(null);
   const [promoting, setPromoting] = useState(null);
 
+  /* ✅ Detect if any toast is showing */
+  const hasActiveToast = toasts.length > 0;
+
   /* ── auth guard ── */
   useEffect(() => {
     if (!getToken()) navigate("/auth?redirect=/dashboard");
   }, [navigate]);
 
-  /* ✅ No more userEmail passing — backend handles it */
   const db = useDashboard(showToast, navigate);
 
   /* ═══════════════════════════════════════════════════════════
@@ -1162,8 +1223,7 @@ export default function Dashboard({ user }) {
   const userName = user?.name || user?.full_name || user?.username || "Seller";
 
   /* ─────────────────────────────────────────────
-     Sections — each wrapped in its own error boundary
-     ✅ Added Payments section
+     Sections
   ───────────────────────────────────────────── */
   const sections = useMemo(
     () => ({
@@ -1208,7 +1268,6 @@ export default function Dashboard({ user }) {
           />
         </SectionErrorBoundary>
       ),
-      /* ✅ NEW: Payments section */
       payments: (
         <SectionErrorBoundary section="Payments">
           <Payments
@@ -1273,9 +1332,11 @@ export default function Dashboard({ user }) {
         </footer>
       </main>
 
-      {/* FAB */}
+      {/* ✅ FAB — hides when toast is showing */}
       <button
-        className="dashboard__fab"
+        className={`dashboard__fab${
+          hasActiveToast ? " dashboard__fab--hidden" : ""
+        }`}
         onClick={() => navigate("/minimart/add")}
         title="Create Listing"
         aria-label="Create new listing"
