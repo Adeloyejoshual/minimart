@@ -1,11 +1,11 @@
 // src/pages/Profile/components/Listings.jsx
-import { memo } from "react";
+import { memo, useState, useCallback, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Ic } from "./icons";
 import ProductCard from "./ProductCard";
 import EmptyState from "./EmptyState";
 import { ProdSkeleton } from "./Skeletons";
-import ErrorBoundary from "./ErrorBoundary"; // 👈 import
+import ErrorBoundary from "./ErrorBoundary";
 import "./Listings.css";
 
 /* ─────────────────────────────────────────────
@@ -160,18 +160,65 @@ const emptyDescription = (tab, search) => {
 };
 
 /* ─────────────────────────────────────────────
-   ProductRow — one card wrapped in error boundary
-   Shows the REAL error if ProductCard crashes
+   LoadMoreError — inline error shown below list
 ───────────────────────────────────────────── */
+const LoadMoreError = memo(({ message, onRetry }) => (
+  <div className="listings__load-more-error" role="alert">
+    <Ic.AlertCircle />
+    <span>{message || "Failed to load more listings."}</span>
+    <button
+      className="btn btn--ghost btn--sm"
+      onClick={onRetry}
+    >
+      Retry
+    </button>
+  </div>
+));
+LoadMoreError.displayName = "LoadMoreError";
+
+/* ─────────────────────────────────────────────
+   ProductRow — one card wrapped in error boundary
+   Shows a minimal inline fallback instead of
+   crashing the whole list.
+───────────────────────────────────────────── */
+function ProductRowFallback({ product, error }) {
+  return (
+    <div className="listings__card-error" role="alert">
+      <Ic.AlertCircle />
+      <div className="listings__card-error-text">
+        <strong>Could not display this listing</strong>
+        {product?.title && (
+          <span className="listings__card-error-title">
+            "{product.title}"
+          </span>
+        )}
+        {/* Only show raw error in dev */}
+        {process.env.NODE_ENV !== "production" && error?.message && (
+          <code className="listings__card-error-detail">
+            {error.message}
+          </code>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function ProductRow({ product, ...props }) {
-  /* Guard: completely skip malformed products */
+  /* Guard: skip malformed products silently */
   if (!product || !product.id) {
-    console.warn("[Listings] Malformed product skipped:", product);
+    if (process.env.NODE_ENV !== "production") {
+      console.warn("[Listings] Malformed product skipped:", product);
+    }
     return null;
   }
 
   return (
-    <ErrorBoundary label={`Product #${product.id} — "${product.title ?? "?"}"`}>
+    <ErrorBoundary
+      label={`Product #${product.id}`}
+      fallback={(error) => (
+        <ProductRowFallback product={product} error={error} />
+      )}
+    >
       <ProductCard product={product} {...props} />
     </ErrorBoundary>
   );
@@ -205,6 +252,66 @@ export default function Listings({
   onPayNow,
   onVerifyPayment,
 }) {
+  /* ── Local load-more error state ── */
+  const [loadMoreError, setLoadMoreError] = useState(null);
+  const [retryCount,    setRetryCount]    = useState(0);
+
+  /*
+   * Reset the load-more error whenever:
+   *   - the tab changes
+   *   - the search query changes
+   *   - a fresh set of products arrives (prodLoading flips)
+   */
+  const prevTabRef    = useRef(tab);
+  const prevSearchRef = useRef(search);
+
+  useEffect(() => {
+    if (
+      prevTabRef.current    !== tab    ||
+      prevSearchRef.current !== search ||
+      prodLoading
+    ) {
+      setLoadMoreError(null);
+      setRetryCount(0);
+      prevTabRef.current    = tab;
+      prevSearchRef.current = search;
+    }
+  }, [tab, search, prodLoading]);
+
+  /* ── Safe load-more handler ── */
+  const handleLoadMore = useCallback(async () => {
+    if (loadingMore || !onLoadMore) return;
+    setLoadMoreError(null);
+
+    try {
+      await onLoadMore();
+    } catch (err) {
+      console.error("[Listings] Load more failed:", err);
+
+      /* Friendly message based on error type */
+      let message = "Failed to load more listings. Please try again.";
+      if (err?.response?.status === 401) {
+        message = "Your session has expired. Please log in again.";
+      } else if (err?.response?.status === 429) {
+        message = "Too many requests. Please wait a moment and try again.";
+      } else if (err?.response?.status >= 500) {
+        message = "A server error occurred. Please try again shortly.";
+      } else if (!navigator.onLine) {
+        message = "You appear to be offline. Check your connection.";
+      }
+
+      setLoadMoreError(message);
+      setRetryCount((c) => c + 1);
+    }
+  }, [loadingMore, onLoadMore]);
+
+  /* ── Retry handler ── */
+  const handleRetry = useCallback(() => {
+    setLoadMoreError(null);
+    handleLoadMore();
+  }, [handleLoadMore]);
+
+  /* ── Computed values ── */
   const visibleTabs = TABS.filter((t) => {
     if (t.key === "active_limited") {
       return (tabCounts[t.key] ?? 0) > 0 || tier === "unverified";
@@ -215,6 +322,7 @@ export default function Listings({
   const totalCount  = tabCounts.all ?? products.length ?? 0;
   const hasProducts = !prodLoading && products.length > 0;
 
+  /* ── Render ── */
   return (
     <div className="listings">
       <div className="listings__card">
@@ -278,7 +386,11 @@ export default function Listings({
         </div>
 
         {/* ── Tab banners ── */}
-        <TabInfoBanner tab={tab} tier={tier} hasProducts={hasProducts} />
+        <TabInfoBanner
+          tab={tab}
+          tier={tier}
+          hasProducts={hasProducts}
+        />
 
         {/* ── Skeleton ── */}
         {prodLoading && <ProdSkeleton />}
@@ -322,22 +434,40 @@ export default function Listings({
           </div>
         )}
 
-        {/* ── Load more ── */}
-        {!prodLoading && hasMore && (
+        {/* ── Load-more error ── */}
+        {loadMoreError && (
+          <LoadMoreError
+            message={loadMoreError}
+            onRetry={handleRetry}
+          />
+        )}
+
+        {/* ── Load more button ── */}
+        {!prodLoading && hasMore && !loadMoreError && (
           <div className="listings__load-more">
             <button
               className="btn btn--ghost"
-              onClick={() => onLoadMore?.()}
+              onClick={handleLoadMore}
               disabled={loadingMore}
+              aria-busy={loadingMore}
             >
               {loadingMore ? (
-                <><span className="spinner" /> Loading…</>
+                <><span className="spinner" aria-hidden="true" /> Loading…</>
               ) : (
-                "Load More"
+                `Load More${retryCount > 0 ? " (retry)" : ""}`
               )}
             </button>
           </div>
         )}
+
+        {/*
+         * ── Show Load More button again after error
+         *    so the user can retry without the error
+         *    banner disappearing on its own.
+         *    We keep the error banner visible AND
+         *    the retry button inside it — this block
+         *    is intentionally omitted to avoid duplication.
+         */}
 
         {/* ── Count ── */}
         {hasProducts && (
