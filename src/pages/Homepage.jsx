@@ -30,6 +30,11 @@ const PAGE_SIZE = 80;
 const PH        = "https://placehold.co/600x500/e8e4dc/b0a89e?text=No+Image";
 const STALE_MS  = 5 * 60_000;
 
+/* Local cache (per-user perceived) */
+const LS_CACHE_PREFIX = "loemart:hp:v2";
+const LS_CACHE_MAX_MS = 10 * 60_000;   // fall back to cache up to 10 min old
+const LS_STALE_MS     = 60_000;        // >1 min ⇒ silently refresh in bg
+
 const ALL_CAT  = { id: "all", name: "All", icon: "✦" };
 const CAT_LIST = [ALL_CAT, ...CATEGORIES];
 
@@ -75,6 +80,43 @@ const authedFetch = (url, opts = {}) => {
 };
 
 /* ══════════════════════════════════════════════════════════
+   LOCAL CACHE (offline resilience)
+══════════════════════════════════════════════════════════ */
+const buildLocalCacheKey = (catId, savedLocation) => {
+  const st = savedLocation?.state ? String(savedLocation.state).toLowerCase() : "";
+  const cy = savedLocation?.city  ? String(savedLocation.city).toLowerCase()  : "";
+  return `${LS_CACHE_PREFIX}:${catId}:${st}:${cy}`;
+};
+
+const readLocalCache = (key) => {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed?.savedAt || !parsed?.data) return null;
+    return parsed;
+  } catch { return null; }
+};
+
+const writeLocalCache = (key, data) => {
+  try {
+    const payload = JSON.stringify({ savedAt: Date.now(), data });
+    localStorage.setItem(key, payload);
+  } catch (err) {
+    if (err?.name === "QuotaExceededError") {
+      // Purge any old homepage caches, then retry once
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const k = localStorage.key(i);
+        if (k?.startsWith(LS_CACHE_PREFIX)) localStorage.removeItem(k);
+      }
+      try {
+        localStorage.setItem(key, JSON.stringify({ savedAt: Date.now(), data }));
+      } catch { /* give up silently */ }
+    }
+  }
+};
+
+/* ══════════════════════════════════════════════════════════
    ICONS
 ══════════════════════════════════════════════════════════ */
 const Ico = ({
@@ -112,6 +154,8 @@ const GlobeIcon     = ({ size = 14 }) => <Ico size={size}><circle cx="12" cy="12
 const SponsoredIcon = ({ size = 12 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></Ico>;
 const AlertIcon     = ({ size = 14 }) => <Ico size={size} sw={1.5}><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16" strokeWidth={2.5}/></Ico>;
 const ShieldIcon    = ({ size = 11 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M12 1l9 4v5c0 5.25-3.75 10.15-9 11.35C6.75 20.15 3 15.25 3 10V5l9-4z"/></Ico>;
+const WifiOffIcon   = ({ size = 14 }) => <Ico size={size} sw={2}><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0119 12.55"/><path d="M5 12.55a10.94 10.94 0 015.17-2.39"/><path d="M10.71 5.05A16 16 0 0122.58 9"/><path d="M1.42 9a15.91 15.91 0 014.7-2.88"/><path d="M8.53 16.11a6 6 0 016.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></Ico>;
+const SparkleIcon   = ({ size = 11 }) => <Ico size={size} fill="currentColor" stroke="none"><path d="M12 0l2.4 7.6L22 10l-7.6 2.4L12 20l-2.4-7.6L2 10l7.6-2.4z"/></Ico>;
 
 /* ══════════════════════════════════════════════════════════
    SECTION CARDS CONFIG
@@ -148,6 +192,10 @@ const normalizeProduct = (p) => {
     search_priority   : Number(p.search_priority    || 0),
     favorites_count   : Number(p.favorites_count    || 0),
     is_promoted       : !!p.is_promoted,
+    is_random_pick    : !!p.is_random_pick,
+    personalised      : !!p.personalised,
+    affinity_boost    : Number(p.affinity_boost     || 0),
+    feed_slot         : p.feed_slot || (p.is_promoted ? "promoted" : "organic"),
     promotion_badge   : p.promotion_badge || null,
     image:
       p.image ||
@@ -270,6 +318,30 @@ const FallbackBanner = memo(function FallbackBanner({ info, onDismiss }) {
         aria-label="Dismiss notice"
       >
         ✕
+      </button>
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════
+   OFFLINE BANNER (soft — only when cache still visible)
+══════════════════════════════════════════════════════════ */
+const OfflineBanner = memo(function OfflineBanner({ visible, onRetry }) {
+  if (!visible) return null;
+  return (
+    <div className="hm-offline-banner" role="status" aria-live="polite">
+      <span className="hm-offline-banner-icon" aria-hidden="true">
+        <WifiOffIcon size={14} />
+      </span>
+      <p className="hm-offline-banner-text">
+        You're offline — showing saved listings.
+      </p>
+      <button
+        className="hm-offline-banner-btn"
+        onClick={onRetry}
+        aria-label="Retry loading listings"
+      >
+        Retry
       </button>
     </div>
   );
@@ -523,11 +595,18 @@ export default function Homepage({ user }) {
   const [page,        setPage]        = useState(0);
   const [total,       setTotal]       = useState(0);
 
+  /* Offline + cache state */
+  const [isOffline,      setIsOffline]      = useState(
+    typeof navigator !== "undefined" && navigator.onLine === false
+  );
+  const [showOfflineBar, setShowOfflineBar] = useState(false);
+
   const productsRef  = useRef([]);
   const sentinelRef  = useRef(null);
   const hiddenAtRef  = useRef(null);
   const gpsAttempted = useRef(false);
   const abortRef     = useRef(null);
+  const hasHydratedFromCacheRef = useRef(false);
 
   /* ── Auto-dismiss fallback banner ── */
   useEffect(() => {
@@ -572,9 +651,9 @@ export default function Homepage({ user }) {
   }, [savedLocation, gpsCoords]);
 
   /* ══════════════════════════════════════════════════════
-     APPLY DATA
+     APPLY DATA (used by both network and cache paths)
   ══════════════════════════════════════════════════════ */
-  const applyData = useCallback((data, append = false) => {
+  const applyData = useCallback((data, { append = false, fromCache = false } = {}) => {
     const raw        = Array.isArray(data.products) ? data.products : [];
     const normalized = dedup(raw).map(normalizeProduct).filter(Boolean);
 
@@ -598,12 +677,13 @@ export default function Homepage({ user }) {
       })
       .slice(0, 12);
 
-    const nonPromoted = merged.filter((p) => !p.is_promoted);
+    /* v7: keep the blended order from the server — don't filter out promoted */
+    const feedList = merged.filter((p) => !feat.some((f) => f.id === p.id));
 
     setFeatured(feat);
     setDeals(cheap);
-    setProducts(nonPromoted);
-    setMeta(data.meta || {});
+    setProducts(feedList);
+    setMeta({ ...(data.meta || {}), _fromCache: fromCache });
     setHasMore(
       data.hasMore ?? data.meta?.has_more ?? raw.length >= PAGE_SIZE
     );
@@ -623,14 +703,35 @@ export default function Homepage({ user }) {
   }, [setCachedProducts, setCacheLoaded]);
 
   /* ══════════════════════════════════════════════════════
-     LOAD FEED
+     HYDRATE FROM LOCAL CACHE (instant paint)
   ══════════════════════════════════════════════════════ */
-  const loadFeed = useCallback(async (catId = "all") => {
+  const hydrateFromCache = useCallback((catId, loc) => {
+    const key    = buildLocalCacheKey(catId, loc);
+    const cached = readLocalCache(key);
+    if (!cached) return { hit: false, stale: false };
+
+    const age = Date.now() - cached.savedAt;
+    // If we have any cache, show it — even old — so users never see a
+    // blank/error screen while the network round-trips.
+    applyData(cached.data, { append: false, fromCache: true });
+    hasHydratedFromCacheRef.current = true;
+    setLoading(false);
+    return { hit: true, stale: age > LS_STALE_MS, expired: age > LS_CACHE_MAX_MS };
+  }, [applyData]);
+
+  /* ══════════════════════════════════════════════════════
+     LOAD FEED  (cache-first + network-refresh)
+  ══════════════════════════════════════════════════════ */
+  const loadFeed = useCallback(async (catId = "all", { forceSpinner = false } = {}) => {
     if (abortRef.current) abortRef.current.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
-    setLoading(true);
+    /* 1️⃣  Hydrate from localStorage first for instant paint */
+    const { hit } = hydrateFromCache(catId, savedLocation);
+
+    // Only show the full-page spinner when we have NOTHING to show
+    if (!hit || forceSpinner) setLoading(true);
     setError(null);
     setPage(0);
 
@@ -642,18 +743,31 @@ export default function Homepage({ user }) {
       const data = await res.json();
 
       productsRef.current = [];
-      applyData(data, false);
+      applyData(data, { append: false, fromCache: false });
+
+      /* 2️⃣  Persist fresh copy for offline resilience */
+      writeLocalCache(buildLocalCacheKey(catId, savedLocation), data);
+
+      // Clear soft offline banner if network came back
+      setShowOfflineBar(false);
     } catch (err) {
       if (err.name === "AbortError") return;
-      console.error("[Homepage] loadFeed:", err);
-      setError("Could not load listings. Check your connection and try again.");
+      console.warn("[Homepage] loadFeed:", err.message);
+
+      /* 3️⃣  Only show the hard error if we have NOTHING cached */
+      if (!hit) {
+        setError("Could not load listings. Check your connection and try again.");
+      } else {
+        // We already showed cached data — offer a soft banner instead
+        setShowOfflineBar(true);
+      }
     } finally {
       if (abortRef.current === controller) {
         setLoading(false);
         abortRef.current = null;
       }
     }
-  }, [buildUrl, applyData]);
+  }, [buildUrl, applyData, hydrateFromCache, savedLocation]);
 
   /* ══════════════════════════════════════════════════════
      LOAD MORE
@@ -668,9 +782,9 @@ export default function Homepage({ user }) {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setPage(next);
-      applyData(data, true);
+      applyData(data, { append: true, fromCache: false });
     } catch (err) {
-      console.error("[Homepage] loadMore:", err);
+      console.warn("[Homepage] loadMore:", err.message);
     } finally {
       setLoadingMore(false);
     }
@@ -712,6 +826,25 @@ export default function Homepage({ user }) {
     const h = () => loadFeed(category);
     window.addEventListener("locationChanged", h);
     return () => window.removeEventListener("locationChanged", h);
+  }, [category, loadFeed]);
+
+  /* Online/offline listeners — auto-refresh on reconnect */
+  useEffect(() => {
+    const onOnline = () => {
+      setIsOffline(false);
+      // Silently refresh in background
+      loadFeed(category);
+    };
+    const onOffline = () => {
+      setIsOffline(true);
+      if (productsRef.current.length > 0) setShowOfflineBar(true);
+    };
+    window.addEventListener("online",  onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online",  onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
   }, [category, loadFeed]);
 
   /* Refresh stale feed on tab focus */
@@ -787,8 +920,10 @@ export default function Homepage({ user }) {
   const feedTitle = useMemo(() => {
     if (category !== "all")
       return CAT_LIST.find((c) => c.id === category)?.name || "Products";
-    return locationLabel ? `Near ${locationLabel}` : "Recommended for You";
-  }, [category, locationLabel]);
+    if (locationLabel) return `Near ${locationLabel}`;
+    if (meta.personalised) return "Recommended for You";
+    return "Discover";
+  }, [category, locationLabel, meta.personalised]);
 
   const currentCatName =
     CAT_LIST.find((c) => c.id === category)?.name || "Products";
@@ -913,21 +1048,27 @@ export default function Homepage({ user }) {
           onDismiss={() => setFallbackInfo(null)}
         />
 
+        {/* ══ OFFLINE BANNER (soft — only when cache is showing) ══ */}
+        <OfflineBanner
+          visible={showOfflineBar && products.length > 0}
+          onRetry={() => loadFeed(category)}
+        />
+
         {/* ══ CATEGORIES ══ */}
         <CategoryStrip current={category} onChange={switchCategory} />
 
         {/* ══ SECTION CARDS ══ */}
         <SectionCards onNavigate={navigate} />
 
-        {/* ══ ERROR ══ */}
-        {error && (
+        {/* ══ HARD ERROR — only when nothing cached ══ */}
+        {error && products.length === 0 && (
           <div className="hm-error" role="alert">
             <span className="hm-error-icon"><ZapIcon size={20} /></span>
             <p className="hm-error-title">Marketplace unavailable</p>
             <p className="hm-error-msg">{error}</p>
             <button
               className="hm-error-btn"
-              onClick={() => loadFeed(category)}
+              onClick={() => loadFeed(category, { forceSpinner: true })}
             >
               Try again
             </button>
@@ -1012,10 +1153,17 @@ export default function Homepage({ user }) {
           </section>
         )}
 
-        {/* ══ MAIN FEED ══ */}
+        {/* ══ MAIN FEED — blended (organic + promoted + random) ══ */}
         <section className="hm-section" aria-label="Product listings">
           <div className="hm-section-head">
-            <h2 className="hm-section-title">{feedTitle}</h2>
+            <h2 className="hm-section-title">
+              {feedTitle}
+              {meta.personalised && (
+                <span className="hm-feed-personalised" title="Tailored to your recent activity">
+                  <SparkleIcon size={11} /> For you
+                </span>
+              )}
+            </h2>
             {category !== "all" && (
               <button
                 className="hm-cat-clear"
@@ -1028,7 +1176,7 @@ export default function Homepage({ user }) {
 
           {loading && products.length === 0 ? (
             <MasonrySkeleton />
-          ) : error ? null : products.length === 0 ? (
+          ) : (error && products.length === 0) ? null : products.length === 0 ? (
             <div className="hm-empty" role="status">
               <span className="hm-empty-icon"><BagIcon size={40} /></span>
               <h3 className="hm-empty-title">
@@ -1065,7 +1213,7 @@ export default function Homepage({ user }) {
                 {!savedLocation && category === "all" && (
                   <button
                     className="hm-empty-btn"
-                    onClick={() => loadFeed("all")}
+                    onClick={() => loadFeed("all", { forceSpinner: true })}
                   >
                     Reload
                   </button>
@@ -1076,7 +1224,7 @@ export default function Homepage({ user }) {
             <>
               <div className="hm-masonry" role="list">
                 {products.map((p, i) => p && (
-                  <div key={p.id} role="listitem">
+                  <div key={p.id} role="listitem" data-slot={p.feed_slot}>
                     <MasonryCard
                       product={p}
                       priority={i < 6}
