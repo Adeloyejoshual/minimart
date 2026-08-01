@@ -149,7 +149,7 @@ const destroyR2Assets = async (keys) => {
 ═══════════════════════════════════════════════════════════════ */
 const ALLOWED_STATUSES    = new Set(["active", "draft", "pending_payment"]);
 const ALLOWED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
-const MAX_IMAGES          = 6;
+const MAX_IMAGES          = 8;
 const MAX_JSON_BYTES      = 8_192;
 const SLUG_MAX            = 60;
 const PRICE_MAX           = 1_000_000_000;
