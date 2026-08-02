@@ -15,9 +15,9 @@ const IS_PROD = process.env.NODE_ENV === "production";
    CONFIG
 ════════════════════════════════════════════════════════════ */
 const MONTHLY_REWARDS = {
-  1 : { amount: 15_000, label: "₦10,000", emoji: "🥇" },
-  2 : { amount: 10_000, label: "₦5,000", emoji: "🥈" },
-  3 : { amount:  5_000, label: "₦3,000",  emoji: "🥉" },
+  1 : { amount: 10_000, label: "₦10,000", emoji: "🥇" },
+  2 : { amount: 5_000, label: "₦5,000", emoji: "🥈" },
+  3 : { amount:  3_000, label: "₦3,000",  emoji: "🥉" },
 };
 
 const YEARLY_REWARDS = {
