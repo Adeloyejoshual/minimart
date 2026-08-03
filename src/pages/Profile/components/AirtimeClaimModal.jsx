@@ -68,6 +68,10 @@ const detectNetwork = (phone) => {
   return NETWORK_PREFIX_MAP[prefix] ?? null;
 };
 
+/*
+ * maskPhone — used only in success screen and notifications.
+ * The saved-phone card now shows the FULL number.
+ */
 const maskPhone = (phone) => {
   if (!phone) return "";
   const d = normalisePhone(phone);
@@ -88,10 +92,10 @@ const fmtDate = (iso) => {
 };
 
 const NETWORK_COLORS = {
-  MTN      : { bg: "#fef9c3", color: "#854d0e", emoji: "🟡" },
-  Airtel   : { bg: "#fee2e2", color: "#991b1b", emoji: "🔴" },
-  Glo      : { bg: "#dcfce7", color: "#166534", emoji: "🟢" },
-  "9mobile": { bg: "#e0f2fe", color: "#075985", emoji: "🔵" },
+  MTN     : { bg: "#fef9c3", color: "#854d0e", emoji: "🟡" },
+  Airtel  : { bg: "#fee2e2", color: "#991b1b", emoji: "🔴" },
+  Glo     : { bg: "#dcfce7", color: "#166534", emoji: "🟢" },
+  "9mobile":{ bg: "#e0f2fe", color: "#075985", emoji: "🔵" },
 };
 
 /* ═══════════════════════════════════════════════════════════════
@@ -133,9 +137,9 @@ function DebugPanel({ logs, onClear, onCopy, onClose }) {
           ? <div style={{ color: "#666", fontStyle: "italic" }}>Waiting…</div>
           : logs.map((log, i) => (
               <div key={i} style={{
-                color       : log.level === "error" ? "#f66"
-                            : log.level === "warn"  ? "#fc0"
-                            : "#0f0",
+                color : log.level === "error" ? "#f66"
+                      : log.level === "warn"  ? "#fc0"
+                      : "#0f0",
                 marginBottom: 2,
               }}>
                 [{log.time}] {log.line}
@@ -148,13 +152,16 @@ function DebugPanel({ logs, onClear, onCopy, onClose }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════
-   NETWORK BADGE
+   NETWORK BADGE (reusable)
 ═══════════════════════════════════════════════════════════════ */
 function NetworkBadge({ network, className = "acm-network-badge" }) {
   const style = network ? NETWORK_COLORS[network] : null;
   if (!style) return null;
   return (
-    <div className={className} style={{ background: style.bg, color: style.color }}>
+    <div
+      className={className}
+      style={{ background: style.bg, color: style.color }}
+    >
       {style.emoji} {network} detected
     </div>
   );
@@ -162,7 +169,7 @@ function NetworkBadge({ network, className = "acm-network-badge" }) {
 
 /* ═══════════════════════════════════════════════════════════════
    SAVED PHONE CARD
-   Shows the full number from the API — no masking.
+   Shows the FULL phone number (not masked).
 ═══════════════════════════════════════════════════════════════ */
 function SavedPhoneCard({
   savedPhone,
@@ -175,21 +182,26 @@ function SavedPhoneCard({
   const netStyle = savedPhone?.network ? NETWORK_COLORS[savedPhone.network] : null;
 
   /*
-   * savedPhone.phone is the raw number from the API (e.g. "08012345678").
-   * We normalise it as a safety net in case the API ever returns a
-   * differently formatted string.
+   * Prefer the raw phone from the API so the user sees their full number.
+   * Fall back to normalised form if the API only returned a masked string.
    */
   const displayPhone = normalisePhone(savedPhone.phone) || savedPhone.phone;
 
   return (
     <div className="acm-saved-card">
+      {/* ── Phone row ── */}
       <div className="acm-saved-row">
         <span className="acm-saved-flag">🇳🇬</span>
 
         <div className="acm-saved-main">
+          {/* Full number — no masking */}
           <div className="acm-saved-phone">{displayPhone}</div>
+
           {netStyle && (
-            <div className="acm-saved-net" style={{ color: netStyle.color }}>
+            <div
+              className="acm-saved-net"
+              style={{ color: netStyle.color }}
+            >
               {netStyle.emoji} {savedPhone.network}
             </div>
           )}
@@ -198,6 +210,7 @@ function SavedPhoneCard({
         <span className="acm-saved-badge">💾 Saved</span>
       </div>
 
+      {/* ── Cooldown notice ── */}
       {inCooldown && (
         <div className="acm-cooldown-info">
           <span>🔒</span>
@@ -210,6 +223,7 @@ function SavedPhoneCard({
         </div>
       )}
 
+      {/* ── Change button ── */}
       <button
         type="button"
         className="acm-change-btn"
@@ -218,8 +232,7 @@ function SavedPhoneCard({
       >
         {inCooldown
           ? "Send to a different number (one-time)"
-          : "Change number"
-        }
+          : "Change number"}
       </button>
     </div>
   );
@@ -236,7 +249,7 @@ function PhoneInputField({
   checking,
   phoneCheck,
   hasSavedPhone,
-  inputMode,       // "editing" when the user is actively changing the number
+  wasEdited,
   inCooldown,
   daysLeft,
   saveAsDefault,
@@ -265,17 +278,16 @@ function PhoneInputField({
           placeholder="08012345678"
           value={phone}
           onChange={onChange}
+          maxLength={11}
           disabled={loading}
           autoComplete="tel"
-          /*
-           * No maxLength on a controlled input — truncation is handled
-           * in onChange so the browser never rejects a keypress silently.
-           */
         />
       </div>
 
       {/* Network detection */}
-      {network && netStyle && <NetworkBadge network={network} />}
+      {network && netStyle && (
+        <NetworkBadge network={network} />
+      )}
       {phone.length >= 7 && !network && (
         <div className="acm-network-unknown">
           ⚠️ Network not detected — check your number
@@ -295,11 +307,8 @@ function PhoneInputField({
           : <div className="acm-phone-blocked">🚫 {phoneCheck.message}</div>
       )}
 
-      {/*
-        Save-as-default toggle — only when the user is actively editing
-        a number that differs from their saved one.
-      */}
-      {hasSavedPhone && inputMode === "editing" && (
+      {/* Save-as-default toggle — only when editing an existing saved number */}
+      {hasSavedPhone && wasEdited && (
         inCooldown ? (
           <div className="acm-cooldown-warn">
             🔒 You can update your default in{" "}
@@ -337,6 +346,7 @@ function SuccessScreen({ amount, phone, network }) {
 
       <p className="acm-sub">
         {naira(amount)} airtime will be sent to{" "}
+        {/* Show masked number on success screen for security */}
         <strong>{maskPhone(phone) || phone}</strong> shortly.
       </p>
 
@@ -377,17 +387,13 @@ export default function AirtimeClaimModal({
   const [saveAsDefault, setSaveAsDefault] = useState(true);
 
   /*
-   * inputMode drives which UI is shown:
-   *
-   *   "saved"   — saved-phone card is visible, input is hidden
-   *   "fresh"   — no saved phone; input is visible, empty, ready to type
-   *   "editing" — user clicked "Change number"; input is visible and
-   *               pre-filled with their saved number ready to edit from
-   *
-   * "editing" is the only mode that shows the save-as-default toggle
-   * and runs the phone-availability check.
+   * wasEdited  — true once the user types anything in the input
+   * showInput  — true once "Change number" is clicked
+   *              (distinct from wasEdited so we can show the input
+   *               without marking the number as changed yet)
    */
-  const [inputMode, setInputMode] = useState("saved");
+  const [wasEdited,  setWasEdited]  = useState(false);
+  const [showInput,  setShowInput]  = useState(false);
 
   /* Availability check */
   const [checking,   setChecking]   = useState(false);
@@ -416,58 +422,47 @@ export default function AirtimeClaimModal({
   const daysLeft       = savedPhone?.days_left ?? 0;
   const nextChangeDate = savedPhone?.next_change_at ? fmtDate(savedPhone.next_change_at) : null;
 
-  /*
-   * saveToggleDisabled — the toggle is disabled (and forced off) when
-   * the user is in cooldown and is editing their number.
-   */
-  const saveToggleDisabled = inputMode === "editing" && inCooldown;
+  const saveToggleDisabled = wasEdited && inCooldown;
   const effectiveSave      = saveToggleDisabled ? false : saveAsDefault;
 
-  /* Which panels are visible */
-  const showSavedCard = hasSavedPhone && inputMode === "saved";
-  const showInput     = inputMode === "editing" || inputMode === "fresh";
+  /*
+   * Show the phone input when:
+   *   1. No saved phone (first-time user), OR
+   *   2. User clicked "Change number", OR
+   *   3. User has typed something
+   */
+  const inputVisible = !hasSavedPhone || showInput || wasEdited;
 
   /* ── Sub-header copy ── */
-  const subLabel =
-    inputMode === "saved"
-      ? "Using your saved airtime number."
-      : inputMode === "editing"
-        ? "Sending to a different number?"
-        : "Enter the number that should receive the airtime.";
+  const subLabel = hasSavedPhone && !showInput && !wasEdited
+    ? "Using your saved airtime number."
+    : hasSavedPhone && (showInput || wasEdited)
+      ? "Sending to a different number this time?"
+      : "Enter the number that should receive the airtime.";
 
   /* ══════════════════════════════════════════════
-     RESET when modal opens or savedPhone changes
+     RESET when modal opens
   ══════════════════════════════════════════════ */
   useEffect(() => {
     if (!isOpen) return;
 
-    if (hasSavedPhone) {
-      /*
-       * There is a saved phone — show the saved-phone card.
-       * Pre-load phone state with the saved number so that when
-       * the user switches to "editing" mode the input is ready.
-       */
-      setInputMode("saved");
-      setPhone(normalisePhone(savedPhone.phone));
-      setNetwork(detectNetwork(savedPhone.phone));
-    } else {
-      /*
-       * No saved phone — go straight to the input.
-       * Seed with prefilled value if provided.
-       */
-      const seed = normalisePhone(prefilledPhone || "");
-      setInputMode("fresh");
-      setPhone(seed);
-      setNetwork(seed ? detectNetwork(seed) : null);
-    }
+    /*
+     * Seed the input with the saved phone (full number) or prefilled value.
+     * This means when the user clicks "Change number" the field already
+     * contains their current number, ready to edit.
+     */
+    const seed = normalisePhone(savedPhone?.phone || prefilledPhone || "");
 
+    setPhone(seed);
+    setNetwork(seed ? detectNetwork(seed) : null);
     setError(null);
     setErrorCode(null);
     setLoading(false);
     setSubmitted(false);
     setSaveAsDefault(true);
+    setWasEdited(false);
+    setShowInput(false);
     setPhoneCheck(null);
-    setChecking(false);
 
     if (SHOW_DEBUG) {
       setTimeout(() => {
@@ -479,7 +474,7 @@ export default function AirtimeClaimModal({
         addLog("log", `Cooldown: ${inCooldown ? `yes (${daysLeft}d left)` : "no"}`);
       }, 50);
     }
-  }, [isOpen, savedPhone?.phone]); // re-run if the parent updates savedPhone while open
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Body scroll lock ── */
   useEffect(() => {
@@ -491,20 +486,15 @@ export default function AirtimeClaimModal({
 
   /* ══════════════════════════════════════════════
      LIVE PHONE AVAILABILITY CHECK
-     Only runs when inputMode === "editing" so we
-     never check the saved number against itself.
   ══════════════════════════════════════════════ */
   useEffect(() => {
     clearTimeout(checkTimer.current);
     setPhoneCheck(null);
 
-    if (inputMode !== "editing") return;
-    if (!isValidPhone(phone))    return;
+    /* Only check when user has actually edited the field */
+    if (!wasEdited || !isValidPhone(phone)) return;
 
-    /*
-     * If the user has typed their saved number back in,
-     * mark it available without hitting the API.
-     */
+    /* No need to check if it's the same as the saved number */
     if (hasSavedPhone && normalisePhone(savedPhone.phone) === phone) {
       setPhoneCheck({ available: true, message: "" });
       return;
@@ -523,13 +513,13 @@ export default function AirtimeClaimModal({
       const timeout = setTimeout(() => {
         ctrl.abort();
         addLog("error", "check: TIMEOUT 8s");
-      }, 8_000);
+      }, 8000);
 
       try {
         addLog("log", `→ GET check-phone/${phone}`);
         const res = await fetch(`${API}/airtime-coupons/check-phone/${phone}`, {
-          headers : authH(),
-          signal  : ctrl.signal,
+          headers: authH(),
+          signal : ctrl.signal,
         });
         clearTimeout(timeout);
         addLog("log", `← ${res.status} check-phone`);
@@ -540,10 +530,12 @@ export default function AirtimeClaimModal({
           if (text) data = JSON.parse(text);
         } catch { /* ignore parse errors */ }
 
+        /* On any HTTP error, fail open (don't block the user) */
         setPhoneCheck(res.ok ? data : { available: true, message: "" });
       } catch (err) {
         clearTimeout(timeout);
         addLog("error", `check err: ${err.name} — ${err.message}`);
+        /* Network error → fail open */
         setPhoneCheck({ available: true, message: "" });
       } finally {
         setChecking(false);
@@ -551,71 +543,37 @@ export default function AirtimeClaimModal({
     }, 500);
 
     return () => clearTimeout(checkTimer.current);
-  }, [phone, inputMode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [phone, wasEdited]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* ── Phone input handler ── */
   const handlePhoneChange = (e) => {
-    /*
-     * Strip non-digits and cap at 11 characters.
-     * We do NOT use maxLength on the input element because
-     * React's controlled inputs ignore that attribute — capping
-     * here in the handler is the only reliable approach.
-     *
-     * We replace e.target.value rather than appending to phone
-     * so that paste, autocomplete, and backspace all work correctly.
-     */
     const raw = e.target.value.replace(/\D/g, "").slice(0, 11);
     setPhone(raw);
     setNetwork(raw.length >= 4 ? detectNetwork(raw) : null);
     setError(null);
     setErrorCode(null);
+    setWasEdited(true);
   };
 
   /* ── "Change number" button ── */
   const handleShowInput = () => {
-    /*
-     * Switch to editing mode. The phone state is already seeded with
-     * the saved number from the reset effect, so the input appears
-     * pre-filled. We then select-all so the user's first keystroke
-     * replaces the entire number rather than appending to it.
-     */
-    setInputMode("editing");
-    setPhoneCheck(null);
-
-    setTimeout(() => {
-      if (inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.select(); // select-all so first keystroke replaces
-      }
-    }, 60);
-  };
-
-  /* ── "Use saved number" — lets user go back after clicking Change ── */
-  const handleUseSaved = () => {
-    setInputMode("saved");
-    setPhone(normalisePhone(savedPhone?.phone || ""));
-    setNetwork(detectNetwork(savedPhone?.phone));
-    setPhoneCheck(null);
-    setError(null);
-    setErrorCode(null);
+    setShowInput(true);
+    /* Pre-fill with their saved number so they can edit from it */
+    const seed = normalisePhone(savedPhone?.phone || "");
+    if (seed) {
+      setPhone(seed);
+      setNetwork(detectNetwork(seed));
+    }
+    setTimeout(() => inputRef.current?.focus(), 80);
   };
 
   /* ══════════════════════════════════════════════
      SUBMIT
   ══════════════════════════════════════════════ */
   const handleSubmit = useCallback(async () => {
-    /*
-     * Determine the phone to submit:
-     *   "saved"   → use savedPhone.phone directly
-     *   "editing" → use whatever is in the input
-     *   "fresh"   → use whatever is in the input
-     */
-    const p = inputMode === "saved"
-      ? normalisePhone(savedPhone?.phone || "")
-      : normalisePhone(phone);
-
+    const p = normalisePhone(phone);
     addLog("log", "════ SUBMIT ════");
-    addLog("log", `mode=${inputMode} phone=${p}`);
+    addLog("log", `phone=${p} wasEdited=${wasEdited}`);
 
     if (!p || !isValidPhone(p)) {
       setError("Enter a valid 11-digit Nigerian number.");
@@ -631,25 +589,17 @@ export default function AirtimeClaimModal({
     }
 
     /*
-     * save_as_default logic:
-     *   "saved"   → same number, no change needed → false
-     *   "editing" → use effectiveSave (may be forced false by cooldown)
-     *   "fresh"   → always save the first number
+     * If the user is in cooldown and edited the number,
+     * force save_as_default = false (one-time use).
      */
-    const shouldSave =
-      inputMode === "saved"   ? false :
-      inputMode === "editing" ? effectiveSave :
-      true; // fresh
+    const shouldSave = wasEdited && inCooldown ? false : effectiveSave;
 
     setLoading(true);
     setError(null);
     setErrorCode(null);
 
     const ctrl     = new AbortController();
-    const hardId   = setTimeout(() => {
-      ctrl.abort();
-      addLog("error", "HARD TIMEOUT 20s");
-    }, 20_000);
+    const hardId   = setTimeout(() => { ctrl.abort(); addLog("error", "HARD TIMEOUT 20s"); }, 20_000);
     const safetyId = setTimeout(() => {
       addLog("error", "SAFETY NET — forcing loading=false");
       setLoading(false);
@@ -696,12 +646,13 @@ export default function AirtimeClaimModal({
           GIVEAWAYS_SUSPENDED   : "Giveaways are suspended. Please contact support.",
           EMAIL_NOT_VERIFIED    : "Please verify your email address first.",
           CLAIM_LIMIT_REACHED   : "You've reached your claim limit. Try again later.",
-          UNKNOWN_NETWORK       : "Could not detect the network for this number. Please check it and try again.",
         };
 
-        if (errorMessages[data.code]) throw new Error(errorMessages[data.code]);
-        if (res.status === 401)       throw new Error("Not logged in. Please refresh.");
-        if (res.status === 429)       throw new Error("Too many attempts. Try again in a moment.");
+        if (errorMessages[data.code]) {
+          throw new Error(errorMessages[data.code]);
+        }
+        if (res.status === 401) throw new Error("Not logged in. Please refresh.");
+        if (res.status === 429) throw new Error("Too many attempts. Try again in a moment.");
         throw new Error(data.message || `Unexpected error (HTTP ${res.status}).`);
       }
 
@@ -710,12 +661,12 @@ export default function AirtimeClaimModal({
 
       setTimeout(() => {
         onSuccess?.(coupon.code, {
-          phone   : p,
-          network : network || detectNetwork(p),
-          claim   : data.claim,
-          saved   : data.airtime_phone_saved,
+          phone  : p,
+          network: network || detectNetwork(p),
+          claim  : data.claim,
+          saved  : data.airtime_phone_saved,
         });
-      }, 1_800);
+      }, 1800);
 
     } catch (err) {
       clearTimeout(hardId);
@@ -733,24 +684,14 @@ export default function AirtimeClaimModal({
       addLog("log", "finally: loading=false");
       setLoading(false);
     }
-  }, [
-    phone, inputMode, coupon, network,
-    effectiveSave, savedPhone, phoneCheck, onSuccess, addLog,
-  ]);
+  }, [phone, coupon, network, effectiveSave, wasEdited, inCooldown, phoneCheck, onSuccess, addLog]);
 
   /* ── Submit button availability ── */
-  const canSubmit = (() => {
-    if (loading) return false;
-    if (phoneCheck?.available === false) return false;
-
-    if (inputMode === "saved") {
-      /* Saved-card mode — we know we have a valid saved number */
-      return hasSavedPhone;
-    }
-
-    /* fresh or editing — validate what's in the input */
-    return phone.length >= 10 && isValidPhone(phone);
-  })();
+  const canSubmit =
+    !loading &&
+    phone.length >= 10 &&
+    isValidPhone(phone) &&
+    !(phoneCheck?.available === false);
 
   /* ── Debug helpers ── */
   const copyLogs = () => {
@@ -768,8 +709,8 @@ export default function AirtimeClaimModal({
 
   const fallbackCopy = (text) => {
     const ta = Object.assign(document.createElement("textarea"), {
-      value : text,
-      style : "position:fixed;top:0;left:0;opacity:0",
+      value   : text,
+      style   : "position:fixed;top:0;left:0;opacity:0",
     });
     document.body.appendChild(ta);
     ta.select();
@@ -832,14 +773,8 @@ export default function AirtimeClaimModal({
           {submitted ? (
             <SuccessScreen
               amount={amount}
-              phone={
-                inputMode === "saved"
-                  ? savedPhone?.phone
-                  : phone
-              }
-              network={network || detectNetwork(
-                inputMode === "saved" ? savedPhone?.phone : phone
-              )}
+              phone={phone}
+              network={network || detectNetwork(phone)}
             />
           ) : (
             <>
@@ -850,8 +785,11 @@ export default function AirtimeClaimModal({
                 <p className="acm-sub">{subLabel}</p>
               </div>
 
-              {/* ══════════ SAVED PHONE CARD ══════════ */}
-              {showSavedCard && (
+              {/* ══════════ SAVED PHONE CARD ══════════
+                   Shown when there IS a saved number AND
+                   the user hasn't clicked "Change" or typed yet.
+              ════════════════════════════════════════════ */}
+              {hasSavedPhone && !showInput && !wasEdited && (
                 <SavedPhoneCard
                   savedPhone={savedPhone}
                   inCooldown={inCooldown}
@@ -862,39 +800,27 @@ export default function AirtimeClaimModal({
                 />
               )}
 
-              {/* ══════════ PHONE INPUT ══════════ */}
-              {showInput && (
-                <>
-                  <PhoneInputField
-                    inputRef={inputRef}
-                    phone={phone}
-                    network={network}
-                    loading={loading}
-                    checking={checking}
-                    phoneCheck={phoneCheck}
-                    hasSavedPhone={hasSavedPhone}
-                    inputMode={inputMode}
-                    inCooldown={inCooldown}
-                    daysLeft={daysLeft}
-                    saveAsDefault={saveAsDefault}
-                    saveToggleDisabled={saveToggleDisabled}
-                    effectiveSave={effectiveSave}
-                    onChange={handlePhoneChange}
-                    onSaveToggle={(e) => setSaveAsDefault(e.target.checked)}
-                  />
-
-                  {/* Back link — only in editing mode */}
-                  {inputMode === "editing" && (
-                    <button
-                      type="button"
-                      className="acm-back-btn"
-                      onClick={handleUseSaved}
-                      disabled={loading}
-                    >
-                      ← Use my saved number instead
-                    </button>
-                  )}
-                </>
+              {/* ══════════ PHONE INPUT ══════════
+                   Shown when: no saved phone, OR change clicked, OR typing started.
+              ════════════════════════════════════════════ */}
+              {inputVisible && (
+                <PhoneInputField
+                  inputRef={inputRef}
+                  phone={phone}
+                  network={network}
+                  loading={loading}
+                  checking={checking}
+                  phoneCheck={phoneCheck}
+                  hasSavedPhone={hasSavedPhone}
+                  wasEdited={wasEdited}
+                  inCooldown={inCooldown}
+                  daysLeft={daysLeft}
+                  saveAsDefault={saveAsDefault}
+                  saveToggleDisabled={saveToggleDisabled}
+                  effectiveSave={effectiveSave}
+                  onChange={handlePhoneChange}
+                  onSaveToggle={(e) => setSaveAsDefault(e.target.checked)}
+                />
               )}
 
               {/* ══════════ ERROR ══════════ */}
