@@ -1,170 +1,157 @@
 /* ═══════════════════════════════════════════════════════════════
    RESPONSIVE — Mobile / Tablet / Dark Mode
-   Chat Design System
 ═══════════════════════════════════════════════════════════════ */
 
-/* ═══════════════════════════════════════════════════════════════
-   BREAKPOINT TOKENS
-   Used as comments throughout — single source of truth
-   --bp-tablet : 768px
-   --bp-mobile : 480px
-   --bp-small  : 360px
-═══════════════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════════════
-   1. TABLET  (≤ 768px)
+   TABLET  (≤ 768px)
 ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 768px) {
-
-  /* ── Header ── */
   .chat-header {
-    padding:    8px 10px;
+    padding: 8px 10px;
     min-height: 58px;
   }
 
   .chat-avatar {
-    width:  40px;
+    width: 40px;
     height: 40px;
   }
 
-  .chat-header-name { font-size: 15px; }
+  .chat-header-name {
+    font-size: 15px;
+  }
 
-  /* ── Dropdown ── */
   .chat-menu {
-    right:     10px;
-    top:       54px;
+    right: 10px;
+    top: 54px;
     min-width: 220px;
   }
 }
 
+
 /* ═══════════════════════════════════════════════════════════════
-   2. MOBILE  (≤ 480px)
+   MOBILE  (≤ 480px)
 ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 480px) {
 
-  /* ────────────────────────────────
-     2a. Header
-  ──────────────────────────────── */
+  /* ── HEADER ── */
   .chat-header {
-    gap:        8px;
-    padding:    6px 8px;
+    gap: 8px;
+    padding: 6px 8px;
     min-height: 56px;
   }
 
   .chat-icon-btn {
-    width:  38px;
+    width: 38px;
     height: 38px;
   }
 
   .chat-avatar {
-    width:     38px;
-    height:    38px;
+    width: 38px;
+    height: 38px;
     font-size: 14px;
   }
 
   .chat-online-dot {
-    width:        10px;
-    height:       10px;
+    width: 10px;
+    height: 10px;
     border-width: 2px;
   }
 
   .chat-header-name {
     font-size: 14.5px;
-    gap:       4px;
+    gap: 4px;
   }
 
   .chat-header-store {
     font-size: 9px;
-    padding:   1px 5px;
+    padding: 1px 5px;
   }
 
-  .chat-header-status { font-size: 11.5px; }
+  .chat-header-status {
+    font-size: 11.5px;
+  }
 
   .chat-product-thumb {
-    width:         36px;
-    height:        36px;
+    width: 36px;
+    height: 36px;
     border-radius: 6px;
   }
 
-  /* Hidden — too small to be useful */
-  .chat-sock-dot { display: none; }
+  .chat-sock-dot {
+    display: none; /* Hide on very small screens */
+  }
 
-  /* ────────────────────────────────
-     2b. Dropdown menu
-  ──────────────────────────────── */
+  /* ── DROPDOWN MENU ── */
   .chat-menu {
-    top:       52px;
-    right:     6px;
-    left:      6px;
+    top: 52px;
+    right: 6px;
+    left: 6px;
     max-width: none;
     min-width: 0;
   }
 
   .chat-menu-item {
-    padding:   13px 14px;
+    padding: 13px 14px;
     font-size: 15px;
   }
 
-  /* ────────────────────────────────
-     2c. Body
-  ──────────────────────────────── */
+  /* ── BODY ── */
   .chat-body { padding: 8px; }
 
-  /* ────────────────────────────────
-     2d. Bubbles — constrain padding
-         so text never hits the edge
-  ──────────────────────────────── */
+  /* ── BUBBLES ── */
   .chat-row--me,
-  .chat-bubble-row.mine   { padding-left:  40px !important; }
-
+  .chat-bubble-row.mine   { padding-left: 40px !important; }
   .chat-row--them,
   .chat-bubble-row.theirs { padding-right: 40px !important; }
 
-  .chat-bubble        { max-width: 100%;   }
-  .chat-bubble--media { max-width: 280px;  }
-  .mgrid              { max-width: 274px;  }
+  .chat-bubble        { max-width: 100%; }
+  .chat-bubble--media { max-width: 280px; }
+  .mgrid              { max-width: 274px; }
 
-  /* ────────────────────────────────
-     2e. Attachment popover
-  ──────────────────────────────── */
+  /* ── ATTACHMENTS ── */
   .attach-popover {
-    left:      6px;
-    right:     6px;
+    left: 6px;
+    right: 6px;
     min-width: 0;
   }
 }
 
+
 /* ═══════════════════════════════════════════════════════════════
-   3. VERY SMALL  (≤ 360px — budget / compact phones)
+   VERY SMALL  (≤ 360px — budget phones)
 ═══════════════════════════════════════════════════════════════ */
 @media (max-width: 360px) {
-
   .chat-header {
-    padding: 6px;
-    gap:     6px;
+    padding: 6px 6px;
+    gap: 6px;
   }
 
-  .chat-avatar { width: 36px; height: 36px; }
+  .chat-avatar {
+    width: 36px;
+    height: 36px;
+  }
 
-  .chat-header-name { font-size: 14px; }
+  .chat-header-name {
+    font-size: 14px;
+  }
 
-  /* Hidden — no horizontal space */
-  .chat-header-store { display: none; }
+  .chat-header-store {
+    display: none; /* Save space */
+  }
 
   .chat-product-thumb {
-    width:  32px;
+    width: 32px;
     height: 32px;
   }
 }
 
+
 /* ═══════════════════════════════════════════════════════════════
-   4. DARK MODE
+   DARK MODE
 ═══════════════════════════════════════════════════════════════ */
 @media (prefers-color-scheme: dark) {
 
-  /* ────────────────────────────────
-     4a. Colour tokens
-  ──────────────────────────────── */
   :root {
     --chat-bg:           #0b141a;
     --chat-surface:      #1f2c33;
@@ -175,354 +162,199 @@
     --text-primary:      #e9edef;
     --text-secondary:    #aebac1;
     --text-muted:        #8696a0;
-
-    /* Internal palette aliases — keeps rules below DRY */
-    --dk-surface-1: #1f2c33;
-    --dk-surface-2: #202c33;
-    --dk-surface-3: #2a3942;
-    --dk-surface-4: #37474f;
-    --dk-text-1:    #e9edef;
-    --dk-text-2:    #aebac1;
-    --dk-text-3:    #8696a0;
   }
 
-  /* ────────────────────────────────
-     4b. Header
-  ──────────────────────────────── */
-  .chat-header {
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-  }
+  /* ─────────────────────────────────────────────
+     HEADER
+  ───────────────────────────────────────────── */
+  .chat-header              { box-shadow: 0 1px 3px rgba(0, 0, 0, .3); }
+  .chat-icon-btn:hover      { background: #2a3942; }
+  .chat-icon-btn:active     { background: #37474f; }
+  .chat-avatar              { border-color: #1f2c33; }
+  .chat-online-dot          { border-color: #1f2c33; }
+  .chat-header-store        { background: rgba(249, 115, 22, .18); }
+  .chat-product-thumb       { border-color: #2a3942; }
+  .chat-product-thumb:hover { border-color: var(--brand); }
+  .chat-sock-dot            { background: #37474f; }
 
-  .chat-icon-btn:hover  { background: var(--dk-surface-3); }
-  .chat-icon-btn:active { background: var(--dk-surface-4); }
-
-  .chat-avatar      { border-color: var(--dk-surface-1); }
-  .chat-online-dot  { border-color: var(--dk-surface-1); }
-
-  .chat-header-store {
-    background: rgba(249, 115, 22, 0.18);
-  }
-
-  .chat-product-thumb {
-    border-color: var(--dk-surface-3);
-  }
-  .chat-product-thumb:hover {
-    border-color: var(--brand);
-  }
-
-  .chat-sock-dot { background: var(--dk-surface-4); }
-
-  /* ────────────────────────────────
-     4c. Dropdown menu
-  ──────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     DROPDOWN MENU
+  ───────────────────────────────────────────── */
   .chat-menu {
-    background:  var(--dk-surface-1);
-    border-color: var(--dk-surface-3);
-    box-shadow:  0 10px 40px rgba(0, 0, 0, 0.5);
+    background: #1f2c33;
+    border-color: #2a3942;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, .5);
   }
-
-  .chat-menu-item {
-    color: var(--dk-text-1);
-  }
-  .chat-menu-item:hover  { background: var(--dk-surface-3); }
-  .chat-menu-item:active { background: var(--dk-surface-4); }
-  .chat-menu-item svg    { color: var(--dk-text-2); }
-
+  .chat-menu-item          { color: #e9edef; }
+  .chat-menu-item:hover    { background: #2a3942; }
+  .chat-menu-item:active   { background: #37474f; }
+  .chat-menu-item svg      { color: #aebac1; }
   .chat-menu-danger:hover  { background: #2d1515; }
   .chat-menu-danger:active { background: #451717; }
+  .chat-menu-item + .chat-menu-danger::before { background: #2a3942; }
 
-  .chat-menu-item + .chat-menu-danger::before {
-    background: var(--dk-surface-3);
-  }
-
-  /* ────────────────────────────────
-     4d. Reply box (inside bubble)
-         Fixed contrast vs. original
-  ──────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     REPLY BOX (inside bubble)  ★ FIX contrast
+  ───────────────────────────────────────────── */
   .chat-reply-box {
-    background:        rgba(255, 255, 255, 0.08);
-    border-left-color: rgba(255, 255, 255, 0.5);
+    background: rgba(255, 255, 255, .08);
+    border-left-color: rgba(255, 255, 255, .5);
   }
-
   .chat-bubble--them .chat-reply-box {
-    background:        rgba(249, 115, 22, 0.12);
+    background: rgba(249, 115, 22, .12);
     border-left-color: var(--brand);
   }
-
-  .chat-reply-box__sender              { color: var(--dk-text-1); }
+  .chat-reply-box__sender { color: #e9edef; }
   .chat-bubble--them .chat-reply-box__sender { color: var(--brand); }
-  .chat-reply-box__msg                 { color: var(--dk-text-2); opacity: 1; }
+  .chat-reply-box__msg    { color: #aebac1; opacity: 1; }
 
-  /* ────────────────────────────────
-     4e. Footer reply preview
-  ──────────────────────────────── */
-  .footer-reply-preview {
-    background: var(--dk-surface-1);
-  }
-  .footer-reply-close:hover {
-    background: var(--dk-surface-3);
-  }
-  .footer-reply-msg { color: var(--dk-text-2); }
+  /* ─────────────────────────────────────────────
+     FOOTER REPLY PREVIEW
+  ───────────────────────────────────────────── */
+  .footer-reply-preview     { background: #1f2c33; }
+  .footer-reply-close:hover { background: #2a3942; }
+  .footer-reply-msg         { color: #aebac1; }
 
-  /* ────────────────────────────────
-     4f. Input field
-  ──────────────────────────────── */
-  .chat-input {
-    background: var(--dk-surface-3);
-    color:      var(--dk-text-1);
-  }
-  .chat-input:focus {
-    background: var(--dk-surface-1);
-  }
+  /* ─────────────────────────────────────────────
+     INPUTS
+  ───────────────────────────────────────────── */
+  .chat-input          { background: #2a3942; color: #e9edef; }
+  .chat-input:focus    { background: #1f2c33; }
 
-  /* ────────────────────────────────
-     4g. Attachment popover
-  ──────────────────────────────── */
-  .attach-popover {
-    background:   var(--dk-surface-1);
-    border-color: var(--dk-surface-3);
-  }
-  .attach-option:hover {
-    background: var(--dk-surface-3);
-  }
+  /* ─────────────────────────────────────────────
+     ATTACHMENTS
+  ───────────────────────────────────────────── */
+  .attach-popover      { background: #1f2c33; border-color: #2a3942; }
+  .attach-option:hover { background: #2a3942; }
 
-  /* ────────────────────────────────
-     4h. Modal / bottom sheet
-  ──────────────────────────────── */
-  .modal-sheet { background: var(--dk-surface-1); }
+  /* ─────────────────────────────────────────────
+     MODAL
+  ───────────────────────────────────────────── */
+  .modal-sheet        { background: #1f2c33; }
+  .modal-close        { background: #2a3942; color: #aebac1; }
+  .modal-input-wrap   { background: #2a3942; border-color: #37474f; }
+  .modal-textarea     { background: #2a3942; border-color: #37474f; color: #e9edef; }
+  .modal-quick-btn    { background: #2a3942; border-color: #37474f; color: #e9edef; }
+  .modal-cancel       { background: #1f2c33; border-color: #2a3942; color: #aebac1; }
+  .modal-product-chip { background: #2a3942; }
 
-  .modal-close {
-    background: var(--dk-surface-3);
-    color:      var(--dk-text-2);
-  }
+  /* ─────────────────────────────────────────────
+     BUBBLES / OFFER / LOCATION / PRODUCT
+  ───────────────────────────────────────────── */
+  .chat-offer                 { background: #1f2c33; color: #e9edef; }
+  .chat-offer__title          { color: #aebac1; }
+  .chat-offer__amount         { color: #e9edef; }
+  .chat-offer__note           { color: #aebac1; border-left-color: #2a3942; }
+  .chat-shared-product__info  { background: #202c33; }
+  .chat-location              { background: #202c33; }
 
-  .modal-input-wrap {
-    background:   var(--dk-surface-3);
-    border-color: var(--dk-surface-4);
-  }
-
-  .modal-textarea {
-    background:   var(--dk-surface-3);
-    border-color: var(--dk-surface-4);
-    color:        var(--dk-text-1);
-  }
-
-  .modal-quick-btn {
-    background:   var(--dk-surface-3);
-    border-color: var(--dk-surface-4);
-    color:        var(--dk-text-1);
-  }
-
-  .modal-cancel {
-    background:   var(--dk-surface-1);
-    border-color: var(--dk-surface-3);
-    color:        var(--dk-text-2);
-  }
-
-  .modal-product-chip { background: var(--dk-surface-3); }
-
-  /* ────────────────────────────────
-     4i. Bubbles — offer / product / location
-  ──────────────────────────────── */
-  .chat-offer {
-    background: var(--dk-surface-1);
-    color:      var(--dk-text-1);
-  }
-  .chat-offer__title  { color: var(--dk-text-2); }
-  .chat-offer__amount { color: var(--dk-text-1); }
-  .chat-offer__note {
-    color:             var(--dk-text-2);
-    border-left-color: var(--dk-surface-3);
-  }
-
-  .chat-shared-product__info { background: var(--dk-surface-2); }
-
-  /* ────────────────────────────────
-     4j. Location bubble
-  ──────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     LOCATION BUBBLE — Dark Mode
+  ───────────────────────────────────────────── */
   .chat-location {
-    background: rgba(255, 255, 255, 0.08);
-    color:      var(--dk-text-1);
+    background: rgba(255, 255, 255, .08);
+    color: #e9edef;
   }
   .chat-bubble--them .chat-location {
-    background: var(--dk-surface-3);
+    background: #2a3942;
   }
-  .chat-location__text { color: var(--dk-text-1); }
-  .chat-location__pin  { color: var(--brand);     }
+  .chat-location__text {
+    color: #e9edef;
+  }
+  .chat-location__pin {
+    color: var(--brand);
+  }
 
-  /* ────────────────────────────────
-     4k. Media tiles
-  ──────────────────────────────── */
-  .mtile { background: var(--dk-surface-3); }
-
+  /* ─────────────────────────────────────────────
+     MEDIA TILES
+  ───────────────────────────────────────────── */
+  .mtile { background: #2a3942; }
   .mtile__shimmer {
-    background: linear-gradient(
-      90deg,
-      var(--dk-surface-3) 0%,
-      var(--dk-surface-4) 50%,
-      var(--dk-surface-3) 100%
-    );
+    background: linear-gradient(90deg, #2a3942 0%, #37474f 50%, #2a3942 100%);
     background-size: 200% 100%;
   }
+  .mtile__spinner { border-color: rgba(255,255,255,.15); border-top-color: #e9edef; }
+  .mtile__error   { background: #2a3942; color: #667781; }
+  .upload-progress-banner { background: #1f2c33; color: #aebac1; }
 
-  .mtile__spinner {
-    border-color:     rgba(255, 255, 255, 0.15);
-    border-top-color: var(--dk-text-1);
-  }
-
-  .mtile__error {
-    background: var(--dk-surface-3);
-    color:      #667781;
-  }
-
-  .upload-progress-banner {
-    background: var(--dk-surface-1);
-    color:      var(--dk-text-2);
-  }
-
-  /* ────────────────────────────────
-     4l. Date separator
-  ──────────────────────────────── */
+  /* ─────────────────────────────────────────────
+     DATE SEPARATOR
+  ───────────────────────────────────────────── */
   .chat-date-sep span {
-    background: rgba(31, 44, 51, 0.95);
-    color:      var(--dk-text-2);
+    background: rgba(31, 44, 51, .95);
+    color: #aebac1;
   }
 
-  /* ────────────────────────────────
-     4m. Toolbar + quick suggestions
-  ──────────────────────────────── */
-  .chat-toolbar {
-    background:       var(--dk-surface-1);
-    border-top-color: var(--dk-surface-3);
-  }
-
-  .toolbar-btn {
-    background:   var(--dk-surface-1);
-    border-color: var(--dk-surface-3);
-    color:        var(--dk-text-2);
-  }
-  .toolbar-btn:hover {
-    background:   var(--dk-text-1);
-    border-color: var(--dk-text-1);
-    color:        #111b21;
-  }
-  .toolbar-btn.offer {
-    background:   rgba(99, 102, 241, 0.15);
-    border-color: var(--accent-purple);
-    color:        #a5b4fc;
-  }
+  /* ─────────────────────────────────────────────
+     TOOLBAR + SUGGESTIONS
+  ───────────────────────────────────────────── */
+  .chat-toolbar       { background: #1f2c33; border-top-color: #2a3942; }
+  .toolbar-btn        { background: #1f2c33; border-color: #2a3942; color: #aebac1; }
+  .toolbar-btn:hover  { background: #e9edef; color: #111b21; border-color: #e9edef; }
+  .toolbar-btn.offer  { background: rgba(99, 102, 241, .15); border-color: var(--accent-purple); color: #a5b4fc; }
   .toolbar-btn.share-product {
-    background:   rgba(34, 197, 94, 0.12);
+    background: rgba(34, 197, 94, .12);
     border-color: var(--accent-green);
-    color:        #86efac;
+    color: #86efac;
   }
 
-  .suggestions-wrap {
-    background:       var(--dk-surface-1);
-    border-top-color: var(--dk-surface-3);
-  }
-
-  .suggestion-chip {
-    background:   var(--dk-surface-1);
-    border-color: var(--dk-surface-3);
-    color:        var(--dk-text-2);
-  }
+  .suggestions-wrap   { background: #1f2c33; border-top-color: #2a3942; }
+  .suggestion-chip    { background: #1f2c33; border-color: #2a3942; color: #aebac1; }
   .suggestion-chip:hover {
-    background:   rgba(249, 115, 22, 0.15);
+    background: rgba(249, 115, 22, .15);
     border-color: var(--brand);
-    color:        var(--brand);
+    color: var(--brand);
   }
 
-  /* ────────────────────────────────
-     4n. Delete confirm sheet
-  ──────────────────────────────── */
-  .delete-chat-sheet { background: var(--dk-surface-1); }
+  /* ─────────────────────────────────────────────
+     CONTEXT MENU (already dark by default — no change)
+  ───────────────────────────────────────────── */
 
-  .delete-chat-cancel {
-    background:   var(--dk-surface-3);
-    border-color: var(--dk-surface-4);
-    color:        var(--dk-text-2);
-  }
+  /* ─────────────────────────────────────────────
+     DELETE CONFIRM
+  ───────────────────────────────────────────── */
+  .delete-chat-sheet  { background: #1f2c33; }
+  .delete-chat-cancel { background: #2a3942; border-color: #37474f; color: #aebac1; }
 
-  /* ────────────────────────────────
-     4o. Report modal
-  ──────────────────────────────── */
-  .report-reason-btn {
-    background:   var(--dk-surface-1);
-    border-color: var(--dk-surface-3);
-  }
-  .report-reason-btn:hover {
-    background:   #2d1515;
-    border-color: var(--accent-red);
-  }
+  /* ─────────────────────────────────────────────
+     REPORT MODAL
+  ───────────────────────────────────────────── */
+  .report-reason-btn       { background: #1f2c33; border-color: #2a3942; }
+  .report-reason-btn:hover { background: #2d1515; border-color: var(--accent-red); }
+  .report-selected-card    { background: #2d1515; border-color: #7f1d1d; }
+  .report-warning-box      { background: #2a2000; border-color: #3d3000; color: #d4a800; }
+  .report-success-note     { background: #2a3942; }
 
-  .report-selected-card {
-    background:   #2d1515;
-    border-color: #7f1d1d;
-  }
-
-  .report-warning-box {
-    background:   #2a2000;
-    border-color: #3d3000;
-    color:        #d4a800;
-  }
-
-  .report-success-note { background: var(--dk-surface-3); }
-
-  /* ────────────────────────────────
-     4p. Mute banner
-  ──────────────────────────────── */
-  .mute-banner {
-    background:          #3d2f00;
-    border-bottom-color: #5c4600;
-    color:               #fde68a;
-  }
+  /* ─────────────────────────────────────────────
+     MUTE BANNER
+  ───────────────────────────────────────────── */
+  .mute-banner        { background: #3d2f00; border-bottom-color: #5c4600; color: #fde68a; }
   .mute-banner button { color: #fde68a; }
 }
 
+
 /* ═══════════════════════════════════════════════════════════════
-   5. ACCESSIBILITY — Reduced motion
+   ACCESSIBILITY — Reduced motion
 ═══════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
-    animation-duration:        0.01ms !important;
-    animation-iteration-count: 1      !important;
-    transition-duration:       0.01ms !important;
-    scroll-behavior:           auto   !important;
+    animation-duration: .01ms !important;
+    transition-duration: .01ms !important;
   }
 }
 
+
 /* ═══════════════════════════════════════════════════════════════
-   6. ACCESSIBILITY — Keyboard focus outlines
+   ACCESSIBILITY — Keyboard focus outlines
 ═══════════════════════════════════════════════════════════════ */
 .chat-icon-btn:focus-visible,
 .chat-send-btn:focus-visible,
 .suggestion-chip:focus-visible,
 .toolbar-btn:focus-visible,
 .chat-offer__btn:focus-visible,
-.chat-menu-item:focus-visible,
-.attach-option:focus-visible,
-.modal-quick-btn:focus-visible,
-.modal-cancel:focus-visible,
-.report-reason-btn:focus-visible {
-  outline:        2.5px solid var(--brand);
+.chat-menu-item:focus-visible {
+  outline: 2.5px solid var(--brand);
   outline-offset: 2px;
-}
-
-/* High-contrast mode support */
-@media (forced-colors: active) {
-  .chat-icon-btn:focus-visible,
-  .chat-send-btn:focus-visible,
-  .suggestion-chip:focus-visible,
-  .toolbar-btn:focus-visible,
-  .chat-offer__btn:focus-visible,
-  .chat-menu-item:focus-visible,
-  .attach-option:focus-visible,
-  .modal-quick-btn:focus-visible,
-  .modal-cancel:focus-visible,
-  .report-reason-btn:focus-visible {
-    outline: 3px solid ButtonText;
-  }
 }
