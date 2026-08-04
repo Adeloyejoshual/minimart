@@ -10,7 +10,7 @@ import { writeAudit }   from "../lib/audit.js";
 
 import {
   WHEEL_SEGMENTS,
-  EARN_TASKS,
+  EARN_TASKS_DEF,   // ← actual export name from spinwheel.config.js
   TASK_MAP,
   SPIN_CONSTANTS,
 } from "../config/spinwheel.config.js";
@@ -23,6 +23,13 @@ const {
 
 const router  = express.Router();
 const IS_PROD = process.env.NODE_ENV === "production";
+
+/*
+ * Pre-computed from config — avoids repeated .reduce() / .length
+ * on every request.
+ */
+const TASK_COUNT     = EARN_TASKS_DEF.length;
+const MAX_TASK_SPINS = EARN_TASKS_DEF.reduce((s, t) => s + t.spins_reward, 0);
 
 /* ════════════════════════════════════════════════════════════
    HELPERS
@@ -114,7 +121,7 @@ const makeLimiter = ({ windowMin, max, message }) =>
   });
 
 const configLimiter  = makeLimiter({ windowMin: 1, max: 30, message: "Too many requests."                    });
-const spinLimiter    = (_req, _res, next) => next(); // ⬅️ disabled — daily caps enforced in DB
+const spinLimiter    = (_req, _res, next) => next(); // daily caps enforced in DB
 const historyLimiter = makeLimiter({ windowMin: 1, max: 20, message: "Too many requests."                    });
 const taskLimiter    = makeLimiter({ windowMin: 1, max: 20, message: "Too many requests."                    });
 const claimLimiter   = makeLimiter({ windowMin: 5, max: 10, message: "Too many claim attempts. Please wait." });
@@ -125,7 +132,6 @@ const claimLimiter   = makeLimiter({ windowMin: 5, max: 10, message: "Too many c
 async function ensureTables() {
   console.log("[spinwheel] ensuring tables…");
 
-  /* ── spin_history ── */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.spin_history (
       id          UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -153,7 +159,6 @@ async function ensureTables() {
     ON public.spin_history (user_id, spun_at DESC)
   `);
 
-  /* ── spin_config ── */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.spin_config (
       id               UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -173,7 +178,6 @@ async function ensureTables() {
     ON public.spin_config (user_id)
   `);
 
-  /* ── spin_task_completions ── */
   await pool.query(`
     CREATE TABLE IF NOT EXISTS public.spin_task_completions (
       id            UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -199,21 +203,16 @@ async function ensureTables() {
 
   /* ── Safe column migrations ── */
   const migrations = [
-    /* spin_history */
     `ALTER TABLE public.spin_history ADD COLUMN IF NOT EXISTS is_win      BOOLEAN NOT NULL DEFAULT false`,
     `ALTER TABLE public.spin_history ADD COLUMN IF NOT EXISTS spin_type   TEXT    NOT NULL DEFAULT 'free'`,
-    /* spin_config */
     `ALTER TABLE public.spin_config  ADD COLUMN IF NOT EXISTS total_wins       INT8 NOT NULL DEFAULT 0`,
     `ALTER TABLE public.spin_config  ADD COLUMN IF NOT EXISTS streak           INT8 NOT NULL DEFAULT 0`,
     `ALTER TABLE public.spin_config  ADD COLUMN IF NOT EXISTS last_streak_date DATE NULL`,
-    /* users */
     `ALTER TABLE public.users        ADD COLUMN IF NOT EXISTS bonus_spins     INT8    NOT NULL DEFAULT 0`,
     `ALTER TABLE public.users        ADD COLUMN IF NOT EXISTS total_referrals INT8    NOT NULL DEFAULT 0`,
     `ALTER TABLE public.users        ADD COLUMN IF NOT EXISTS referred_by     UUID    NULL`,
-    /* coupons */
     `ALTER TABLE public.coupons      ADD COLUMN IF NOT EXISTS created_by  UUID    NULL`,
     `ALTER TABLE public.coupons      ADD COLUMN IF NOT EXISTS is_private  BOOLEAN NOT NULL DEFAULT false`,
-    /* backfill spin coupons that are missing is_private = true */
     `UPDATE public.coupons
        SET is_private = true
      WHERE is_private  = false
@@ -251,7 +250,7 @@ async function getSpinStatus(userId) {
      VALUES ($1, 0, NULL, 0, 0, 0, NULL)
      ON CONFLICT (user_id) DO UPDATE
        SET spins_today = CASE
-         WHEN spin_config.last_spin_at IS NULL            THEN 0
+         WHEN spin_config.last_spin_at IS NULL              THEN 0
          WHEN DATE(spin_config.last_spin_at) < CURRENT_DATE THEN 0
          ELSE spin_config.spins_today
        END
@@ -266,11 +265,11 @@ async function getSpinStatus(userId) {
 
   if (!user) throw new Error(`User not found: ${userId}`);
 
-  const bonusSpins = Math.min(Number(user.bonus_spins ?? 0), MAX_BONUS_STACKED);
-  const lastSpinAt = config.last_spin_at ? new Date(config.last_spin_at) : null;
-  const today      = new Date();
-  const isNewDay   = !lastSpinAt || lastSpinAt.toDateString() !== today.toDateString();
-  const spinsToday = isNewDay ? 0 : Number(config.spins_today || 0);
+  const bonusSpins  = Math.min(Number(user.bonus_spins ?? 0), MAX_BONUS_STACKED);
+  const lastSpinAt  = config.last_spin_at ? new Date(config.last_spin_at) : null;
+  const today       = new Date();
+  const isNewDay    = !lastSpinAt || lastSpinAt.toDateString() !== today.toDateString();
+  const spinsToday  = isNewDay ? 0 : Number(config.spins_today || 0);
   const canFreeSpin = spinsToday < MAX_FREE_DAILY;
   const canSpin     = canFreeSpin || bonusSpins > 0;
   const midnight    = timeUntilMidnight();
@@ -493,7 +492,7 @@ router.post("/spin", authenticate, spinLimiter, async (req, res) => {
             expiry,
             `🎡 Spin & Win — ${result.label}`,
             userId,
-            true,   // is_private: only the winner can see / use this coupon
+            true,
           ]
         );
         couponId = coupon?.id ?? null;
@@ -802,8 +801,31 @@ router.get("/tasks", authenticate, taskLimiter, async (req, res) => {
       (sum, r) => sum + Number(r.spins_awarded || 0), 0
     );
 
+    const completedSet    = new Set(completedTaskIds);
+    const completedDetail = Object.fromEntries(
+      rows.map((r) => [r.task_id, r])
+    );
+
+    /*
+     * Merge task definitions with each user's completion status
+     * so the frontend gets everything it needs in one response.
+     */
+    const tasks = EARN_TASKS_DEF.map((t) => ({
+      id           : t.id,
+      label        : t.label,
+      platform     : t.platform,
+      type         : t.type,
+      category     : t.category,
+      spins_reward : t.spins_reward,
+      verify_type  : t.verify_type,
+      url          : t.url,
+      completed    : completedSet.has(t.id),
+      completed_at : completedDetail[t.id]?.completed_at ?? null,
+    }));
+
     return res.json({
       success            : true,
+      tasks,
       completed_task_ids : completedTaskIds,
       completed_detail   : rows.map((r) => ({
         task_id       : r.task_id,
@@ -811,11 +833,11 @@ router.get("/tasks", authenticate, taskLimiter, async (req, res) => {
         completed_at  : r.completed_at,
       })),
       stats: {
-        total_tasks     : EARN_TASKS_DEF.length,
+        total_tasks     : TASK_COUNT,
         completed_count : completedTaskIds.length,
-        pending_count   : EARN_TASKS_DEF.length - completedTaskIds.length,
+        pending_count   : TASK_COUNT - completedTaskIds.length,
         total_earned    : totalEarned,
-        max_possible    : EARN_TASKS_DEF.reduce((s, t) => s + t.spins_reward, 0),
+        max_possible    : MAX_TASK_SPINS,
       },
     });
 
@@ -981,8 +1003,8 @@ router.get("/tasks/all", authenticate, async (req, res) => {
     return res.json({
       success            : true,
       tasks,
-      total_tasks        : tasks.length,
-      max_spins_possible : EARN_TASKS_DEF.reduce((s, t) => s + t.spins_reward, 0),
+      total_tasks        : TASK_COUNT,
+      max_spins_possible : MAX_TASK_SPINS,
     });
 
   } catch (err) {
