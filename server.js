@@ -80,14 +80,14 @@ export const getCache = (key) => {
   return item.value;
 };
 
-export const deleteCache = (key) => _cache.delete(key);
+export const deleteCache  = (key)    => _cache.delete(key);
 
 export const clearCachePattern = (prefix) => {
   for (const key of _cache.keys())
     if (key.startsWith(prefix)) _cache.delete(key);
 };
 
-/* Periodic cache eviction — unref so it doesn't block shutdown */
+/* Periodic cache eviction */
 const _cacheEviction = setInterval(() => {
   const now = Date.now();
   for (const [k, v] of _cache.entries())
@@ -238,8 +238,11 @@ import spinwheelRouter     from "./routes/spinwheel.js";
 import referralRoutes      from "./routes/referrals.js";
 import leaderboardRoutes   from "./routes/leaderboard.js";
 import favoritesRouter     from "./routes/favorites.js";
-import airtimeCouponRoutes from "./routes/airtimeCoupons.js";
 import subscriptionRouter  from "./routes/subscription/index.js";
+
+/* ── Airtime — import router AND initSchema from the same file ── */
+import airtimeCouponRoutes, { initSchema as initAirtimeSchema }
+  from "./routes/airtimeCoupons.js";
 
 /* ── Settings ── */
 import settingsRouter from "./routes/settings.js";
@@ -325,7 +328,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
    REQUEST ID
 ════════════════════════════════════════════════════════════ */
 app.use((req, res, next) => {
-  const id    = req.headers["x-request-id"] || crypto.randomUUID();
+  const id      = req.headers["x-request-id"] || crypto.randomUUID();
   req.requestId = id;
   res.setHeader("X-Request-Id", id);
   next();
@@ -404,10 +407,7 @@ app.use("/api/subscription",    subscriptionRouter);
 /* ── Settings ── */
 app.use("/api/settings", settingsRouter);
 
-/* ── Support ──────────────────────────────────────────────
-   User-facing : /api/support/*
-   Admin-facing: /api/admin/support/* (mounted inside adminRouter)
-──────────────────────────────────────────────────────────*/
+/* ── Support ── */
 app.use("/api/support", supportRouter);
 
 /* ════════════════════════════════════════════════════════════
@@ -467,10 +467,7 @@ app.get("/api/health", async (_req, res) => {
 if (IS_PROD) {
   const dist = path.join(__dirname, "dist");
 
-  /* SSR before static — handles SEO / social-preview routes */
   app.use(ssrRouter);
-
-  /* Sitemap before static — handles dynamic sitemap routes */
   app.use(sitemapRouter);
 
   app.use(
@@ -518,7 +515,6 @@ app.use((err, req, res, _next) => {
   console.error(`🔥 [${reqId}] ${err.message}`);
   if (!IS_PROD) console.error(err.stack);
 
-  /* Known error codes */
   const PG_ERRORS = {
     "23505" : [409, "Duplicate entry"],
     "23503" : [400, "Referenced record not found"],
@@ -586,65 +582,86 @@ process.on("uncaughtException",  (err) => {
 });
 
 /* ════════════════════════════════════════════════════════════
-   START
+   START — everything that must complete before accepting
+   requests is awaited here, in order, before server.listen()
 ════════════════════════════════════════════════════════════ */
-try {
-  const { rows } = await pool.query("SELECT version()");
-  console.log("✅ CockroachDB:", rows[0].version.split(" ")[0]);
-} catch (err) {
-  console.error("❌ DB connection failed:", err.message);
-  process.exit(1);
-}
-
-/* ── Background jobs ── */
-startListingExpiryJob();
-startCleanupJob();
-initLeaderboardCron();
-
-/* ── Cron jobs — loaded dynamically so missing node-cron doesn't crash ── */
-(async () => {
-  let cron;
+async function start() {
+  /* ── 1. Verify DB reachability ── */
   try {
-    ({ default: cron } = await import("node-cron"));
-  } catch (_e) {
-    console.warn(
-      "[cron] node-cron not available — scheduled jobs disabled.\n" +
-      "       Run: npm install node-cron"
-    );
-    return;
+    const { rows } = await pool.query("SELECT version()");
+    console.log("✅ CockroachDB:", rows[0].version.split(" ")[0]);
+  } catch (err) {
+    console.error("❌ DB connection failed:", err.message);
+    process.exit(1);
   }
 
-  /* ── Account purge — daily 02:00 UTC ── */
-  cron.schedule("0 2 * * *", () => {
-    purgeDeletedAccounts().catch((err) =>
-      console.error("[cron] purgeDeletedAccounts:", err.message)
-    );
-  });
-  console.log("✅ [cron] Account purge       → daily 02:00 UTC");
+  /* ── 2. Schema initializations ──
+        Add any other route initSchema() calls here.
+        All must resolve before the HTTP server opens.
+  ── */
+  try {
+    await initAirtimeSchema();
+    console.log("✅ [airtime] schema ready");
+  } catch (err) {
+    /*
+     * A schema init failure is fatal in production — we would rather
+     * crash loudly at startup than serve 503s to every user.
+     * In development, log and continue so work is not blocked.
+     */
+    if (IS_PROD) {
+      console.error("❌ [airtime] schema init failed — aborting:", err.message);
+      process.exit(1);
+    } else {
+      console.error("⚠️  [airtime] schema init failed (non-fatal in dev):", err.message);
+    }
+  }
 
-  /* ── Weekly newsletter — every Monday 08:00 UTC (09:00 WAT) ── */
-  cron.schedule("0 8 * * 1", () => {
-    sendWeeklyNewsletter().catch((err) =>
-      console.error("[cron] weeklyNewsletter:", err.message)
-    );
-  });
-  console.log("✅ [cron] Weekly newsletter   → Monday 08:00 UTC");
+  /* ── 3. Background jobs ── */
+  startListingExpiryJob();
+  startCleanupJob();
+  initLeaderboardCron();
 
-  /* ── Inactive user re-engagement — daily 09:00 UTC (10:00 WAT) ── */
-  cron.schedule("0 9 * * *", () => {
-    processInactiveUsers().catch((err) =>
-      console.error("[cron] inactiveUsers:", err.message)
-    );
-  });
-  console.log("✅ [cron] Inactive users      → daily 09:00 UTC");
-})();
+  /* ── 4. Cron jobs ── */
+  await (async () => {
+    let cron;
+    try {
+      ({ default: cron } = await import("node-cron"));
+    } catch (_e) {
+      console.warn(
+        "[cron] node-cron not available — scheduled jobs disabled.\n" +
+        "       Run: npm install node-cron"
+      );
+      return;
+    }
 
-/* ── HTTP server ── */
-server.listen(PORT, () => {
-  const env = process.env.NODE_ENV || "development";
-  console.log(`\n🚀 Loemart server  |  port=${PORT}  |  env=${env}`);
+    cron.schedule("0 2 * * *", () => {
+      purgeDeletedAccounts().catch((err) =>
+        console.error("[cron] purgeDeletedAccounts:", err.message)
+      );
+    });
+    console.log("✅ [cron] Account purge       → daily 02:00 UTC");
 
-  console.log(`
+    cron.schedule("0 8 * * 1", () => {
+      sendWeeklyNewsletter().catch((err) =>
+        console.error("[cron] weeklyNewsletter:", err.message)
+      );
+    });
+    console.log("✅ [cron] Weekly newsletter   → Monday 08:00 UTC");
+
+    cron.schedule("0 9 * * *", () => {
+      processInactiveUsers().catch((err) =>
+        console.error("[cron] inactiveUsers:", err.message)
+      );
+    });
+    console.log("✅ [cron] Inactive users      → daily 09:00 UTC");
+  })();
+
+  /* ── 5. Open the HTTP server LAST ── */
+  server.listen(PORT, () => {
+    const env = process.env.NODE_ENV || "development";
+    console.log(`\n🚀 Loemart server  |  port=${PORT}  |  env=${env}`);
+
+    console.log(`
   ── Auth ───────────────────────────────────────────
     /api/auth
 
@@ -695,7 +712,13 @@ server.listen(PORT, () => {
     Account purge     → daily    02:00 UTC
     Weekly newsletter → Monday   08:00 UTC
     Inactive users    → daily    09:00 UTC
-  `);
+    `);
+  });
+}
+
+start().catch((err) => {
+  console.error("❌ Fatal startup error:", err.message);
+  process.exit(1);
 });
 
 export default app;
