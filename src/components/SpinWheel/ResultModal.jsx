@@ -1,10 +1,13 @@
 import { useState, useEffect } from "react";
-import Icon from "./Icon.jsx";
-import { isBigWin, naira } from "./helpers.js";
+import { useNavigate }         from "react-router-dom";
+import Icon                    from "./Icon.jsx";
+import { isBigWin, naira }     from "./helpers.js";
 
 export default function ResultModal({ result, onClose }) {
   const [copied, setCopied] = useState(false);
-  const big = isBigWin(result);
+  const navigate            = useNavigate();
+  const big                 = isBigWin(result);
+  const isAirtime           = result?.type === "airtime";
 
   const handleCopy = () => {
     if (!result?.coupon_code) return;
@@ -26,6 +29,16 @@ export default function ResultModal({ result, onClose }) {
     } catch (_) {}
   };
 
+  /*
+   * Navigate to the airtime coupons tab and close the modal.
+   * The Profile page reads the `tab` query-param to pre-select
+   * the correct panel on mount.
+   */
+  const handleClaimAirtime = () => {
+    onClose();
+    navigate("/coupons");
+  };
+
   useEffect(() => {
     if (big && "vibrate" in navigator)
       navigator.vibrate([200, 100, 200, 100, 400]);
@@ -45,22 +58,18 @@ export default function ResultModal({ result, onClose }) {
         className={`sw-modal${big ? " sw-modal--big-win" : ""}`}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Animation ring */}
+        {/* ── Animation ring ── */}
         <div className="sw-modal-anim">
           {result.is_win ? (
             <div className="sw-modal-win-ring">
-              <Icon
-                name="party"
-                size={48}
-                style={{ color: "#e8630a" }}
-              />
+              <Icon name="party" size={48} style={{ color: "#e8630a" }} />
             </div>
           ) : (
             <Icon name="frown" size={60} style={{ color: "#9ca3af" }} />
           )}
         </div>
 
-        {/* Title */}
+        {/* ── Title ── */}
         <h2 className="sw-modal-title">
           {result.is_win ? (
             <>
@@ -72,14 +81,13 @@ export default function ResultModal({ result, onClose }) {
           )}
         </h2>
 
-        {/* Prize details */}
+        {/* ── Prize details ── */}
         {result.is_win && (
           <div className="sw-modal-prize">
             <p className="sw-modal-prize-label">{result.label}</p>
+
             {result.type === "fixed" && (
-              <p className="sw-modal-prize-val">
-                {naira(result.value)} OFF
-              </p>
+              <p className="sw-modal-prize-val">{naira(result.value)} OFF</p>
             )}
             {result.type === "percentage" && (
               <p className="sw-modal-prize-val">{result.value}% OFF</p>
@@ -90,7 +98,7 @@ export default function ResultModal({ result, onClose }) {
                 Free Delivery
               </p>
             )}
-            {result.type === "airtime" && (
+            {isAirtime && (
               <p className="sw-modal-prize-val">
                 <Icon name="phone" size={18} style={{ marginRight: 4 }} />
                 {naira(result.value)} Airtime
@@ -99,7 +107,7 @@ export default function ResultModal({ result, onClose }) {
           </div>
         )}
 
-        {/* Spin type badge */}
+        {/* ── Spin type badge ── */}
         {result.spin_type && (
           <div
             className={`sw-modal-spin-type ${
@@ -116,8 +124,40 @@ export default function ResultModal({ result, onClose }) {
 
         <p className="sw-modal-msg">{result.message}</p>
 
-        {/* Coupon */}
-        {result.coupon_code && (
+        {/* ── Airtime claim banner ──────────────────────────────────
+             Shown instead of the generic coupon block when the prize
+             is airtime. The coupon code is stored server-side on the
+             airtime_coupons table — the user redeems it from the
+             Airtime Coupons page in their profile.
+        ─────────────────────────────────────────────────────────── */}
+        {isAirtime && result.is_win && (
+          <div className="sw-modal-airtime-banner">
+            <div className="sw-modal-airtime-icon">📱</div>
+
+            <p className="sw-modal-airtime-title">
+              Your {naira(result.value)} airtime is ready!
+            </p>
+
+            <p className="sw-modal-airtime-sub">
+              Your airtime coupon has been added to your account.
+              Go to your Airtime Coupons to redeem it.
+            </p>
+
+            <button
+              className="sw-modal-airtime-btn"
+              onClick={handleClaimAirtime}
+              aria-label="Go to Airtime Coupons to claim your airtime"
+            >
+              <Icon name="phone" size={16} />
+              Claim Airtime Now
+            </button>
+          </div>
+        )}
+
+        {/* ── Discount coupon block ─────────────────────────────────
+             Only shown for non-airtime wins that have a coupon code.
+        ─────────────────────────────────────────────────────────── */}
+        {!isAirtime && result.coupon_code && (
           <div className="sw-modal-coupon">
             <p className="sw-modal-coupon-label">Your coupon code</p>
             <div className="sw-modal-coupon-row">
@@ -144,7 +184,7 @@ export default function ResultModal({ result, onClose }) {
           </div>
         )}
 
-        {/* Spins remaining */}
+        {/* ── Spins remaining ── */}
         {typeof result.spins_remaining === "number" &&
           result.spins_remaining > 0 && (
             <div className="sw-modal-remaining" aria-live="polite">
@@ -154,7 +194,7 @@ export default function ResultModal({ result, onClose }) {
             </div>
           )}
 
-        {/* Share */}
+        {/* ── Share ── */}
         {result.is_win && (
           <button
             className="sw-modal-share"
@@ -165,7 +205,7 @@ export default function ResultModal({ result, onClose }) {
           </button>
         )}
 
-        {/* Close */}
+        {/* ── Close ── */}
         <button
           className="sw-modal-close"
           onClick={onClose}
