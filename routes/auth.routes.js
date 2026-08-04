@@ -37,6 +37,50 @@ const BANNED_STATUSES = Object.freeze(["banned", "suspended", "flagged"]);
 const INVITE_CODE_RE  = /^[A-Z0-9]{4,20}$/;
 const EMAIL_RE        = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
+/* ════════════════════════════════════════════════════════════
+   ALLOWED TRAFFIC SOURCES
+════════════════════════════════════════════════════════════ */
+const ALLOWED_SOURCES = Object.freeze([
+  // Social Media
+  "tiktok",
+  "instagram",
+  "facebook",
+  "twitter",
+  "snapchat",
+  "pinterest",
+  "linkedin",
+  "reddit",
+  "youtube",
+  "threads",
+
+  // Messaging Apps
+  "whatsapp",
+  "telegram",
+  "discord",
+  "signal",
+  "viber",
+  "wechat",
+  "slack",
+  "line",
+  "skype",
+  "kakao",
+
+  // Search Engines
+  "google",
+  "bing",
+  "yahoo",
+  "duckduckgo",
+
+  // Other Traffic
+  "email",
+  "sms",
+  "blog",
+  "podcast",
+  "referral",
+  "direct",
+  "other",
+]);
+
 /* Columns returned to the client — never add sensitive cols here */
 const AUTH_FIELDS = `
   id, name, email, phone_number,
@@ -47,6 +91,7 @@ const AUTH_FIELDS = `
   verified, "role",
   is_online, email_verified,
   seller_type, referral_code,
+  source,
   created_at
 `;
 
@@ -69,6 +114,7 @@ const AUTH_FIELD_NAMES = new Set([
   "verified", "role",
   "is_online", "email_verified",
   "seller_type", "referral_code",
+  "source",
   "created_at",
 ]);
 
@@ -108,6 +154,21 @@ const toPublicUser = (row) =>
   Object.fromEntries(
     Object.entries(row).filter(([k]) => AUTH_FIELD_NAMES.has(k))
   );
+
+/*
+  cleanSource
+  ─────────────────────────────────────────────────────────────
+  Sanitises the raw utm_source value coming from the frontend.
+  • Trims whitespace and lowercases
+  • Only accepts values in ALLOWED_SOURCES
+  • Falls back to "direct" for anything unknown or missing
+  • Never throws — always returns a safe string
+*/
+const cleanSource = (raw) => {
+  if (!raw) return "direct";
+  const val = String(raw).trim().toLowerCase();
+  return ALLOWED_SOURCES.includes(val) ? val : "direct";
+};
 
 /* ════════════════════════════════════════════════════════════
    STRUCTURED LOGGER
@@ -407,7 +468,8 @@ router.post("/register", authLimiter, async (req, res, next) => {
     email        : req.body.email,
     phone_number : req.body.phone_number,
     country      : req.body.country,
-    invite_code  : req.body.invite_code ?? "(not sent)",
+    invite_code  : req.body.invite_code  ?? "(not sent)",
+    source       : req.body.source       ?? "(not sent)",
   });
 
   /* 1. Validate */
@@ -418,6 +480,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
     name, email, password,
     phone_number, country, state, city,
     invite_code,
+    source,
   } = req.body;
 
   const cleanEmail      = normalizeEmail(email);
@@ -426,10 +489,12 @@ router.post("/register", authLimiter, async (req, res, next) => {
   const cleanInviteCode = invite_code
     ? String(invite_code).trim().toUpperCase()
     : null;
+  const cleanSourceVal  = cleanSource(source);
 
   log.info(
     `[auth] register — email=${cleanEmail}  ` +
-    `invite_code=${cleanInviteCode ?? "(none)"}`
+    `invite_code=${cleanInviteCode ?? "(none)"}  ` +
+    `source=${cleanSourceVal}`
   );
 
   const client = await pool.connect();
@@ -481,12 +546,13 @@ router.post("/register", authLimiter, async (req, res, next) => {
       );
     }
 
-    /* 6. Insert user */
+    /* 6. Insert user — source column included */
     const { rows: [userRow] } = await client.query(
       `INSERT INTO users
          (name, email, password_hash, phone_number,
-          country, state, city, referral_code)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          country, state, city, referral_code,
+          source)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
        RETURNING ${SAFE_FIELDS}`,
       [
         cleanName,
@@ -497,10 +563,11 @@ router.post("/register", authLimiter, async (req, res, next) => {
         nullIfEmpty(state),
         nullIfEmpty(city),
         newReferralCode,
+        cleanSourceVal,
       ]
     );
 
-    log.info(`[auth] user inserted: id=${userRow.id}`);
+    log.info(`[auth] user inserted: id=${userRow.id}  source=${userRow.source}`);
 
     /* 7. Record referral (inside transaction) */
     if (cleanInviteCode) {
@@ -546,6 +613,7 @@ router.post("/register", authLimiter, async (req, res, next) => {
       `   Expiry      : 10 minutes\n` +
       `   Referral    : ${newReferralCode  ?? "(none — gen failed)"}\n` +
       `   Invite Code : ${cleanInviteCode  ?? "(none)"}\n` +
+      `   Source      : ${cleanSourceVal}\n` +
       `   Email sent  : ${emailSent}\n` +
       (otpResult.error ? `   OTP error   : ${otpResult.error}\n` : "") +
       "═".repeat(60)
@@ -559,16 +627,18 @@ router.post("/register", authLimiter, async (req, res, next) => {
       targetId   : userRow.id,
       ipAddress  : ip,
       metadata   : {
-        invite_code   : cleanInviteCode ?? null,
-        referral_code : newReferralCode ?? null,
+        invite_code   : cleanInviteCode  ?? null,
+        referral_code : newReferralCode  ?? null,
         email_sent    : emailSent,
+        source        : cleanSourceVal,
       },
     }).catch((e) => log.error(`[auth] audit failed: ${e.message}`));
 
     log.info(
       `[auth] ✓ registered  user=${userRow.id}  email=${cleanEmail}` +
       (cleanInviteCode ? `  invite=${cleanInviteCode}`   : "") +
-      (newReferralCode ? `  referral=${newReferralCode}` : "")
+      (newReferralCode ? `  referral=${newReferralCode}` : "") +
+      `  source=${cleanSourceVal}`
     );
 
     /* 13. Response */
