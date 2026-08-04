@@ -4,7 +4,7 @@
 
 /* ── Social links (set to null to auto-hide that task) ── */
 export const SOCIAL_LINKS = {
-  instagram : "https://www.instagram.com/officialloemart?igsh=MW9vazJoajZkYmxhaw==",
+  instagram : null,   // ← hidden until new page is ready
   tiktok    : "https://www.tiktok.com/@loemartmarketplace?_r=1&_t=ZS-98Oc4twCrv5",
   facebook  : null,
   telegram  : "https://t.me/loemartmarketplace",
@@ -40,8 +40,8 @@ export const fmtCountdown = (secs) => {
 
 /* ── Win check ── */
 export const isBigWin = (result) => {
-  if (!result?.is_win)                                              return false;
-  if (result.is_big_win)                                            return true;
+  if (!result?.is_win)                                               return false;
+  if (result.is_big_win)                                             return true;
   if (result.type === "fixed"       && Number(result.value) >= 2000) return true;
   if (result.type === "percentage"  && Number(result.value) >= 20)   return true;
   if (result.type === "free_shipping")                               return true;
@@ -51,78 +51,89 @@ export const isBigWin = (result) => {
 /* ── Earn tasks ── */
 const ALL_EARN_TASKS = [
   {
-    id          : "follow_instagram",
-    type        : "follow",
-    platform    : "Instagram",
-    label       : "Follow on Instagram",
-    description : "Follow @officialloemart Instagram and earn 3 bonus spins",
-    spins_reward: 3,
-    iconName    : "instagram",
-    color       : "#e1306c",
-    bg          : "#fff0f5",
-    url         : SOCIAL_LINKS.instagram,
-    category    : "social",
-    verifyDelay : 10_000,
+    id           : "follow_instagram",
+    type         : "follow",
+    platform     : "Instagram",
+    label        : "Follow on Instagram",
+    description  : "Follow @officialloemart on Instagram and earn 3 bonus spins",
+    spins_reward : 3,
+    iconName     : "instagram",
+    color        : "#e1306c",
+    bg           : "#fff0f5",
+    url          : SOCIAL_LINKS.instagram,
+    category     : "social",
+    verifyDelay  : 10_000,
   },
   {
-    id          : "follow_tiktok",
-    type        : "follow",
-    platform    : "TikTok",
-    label       : "Follow on TikTok",
-    description : "Follow @loemartmarketplace on TikTok and earn 3 bonus spins",
-    spins_reward: 3,
-    iconName    : "tiktok",
-    color       : "#010101",
-    bg          : "#f5f5f5",
-    url         : SOCIAL_LINKS.tiktok,
-    category    : "social",
-    verifyDelay : 10_000,
+    id           : "follow_tiktok",
+    type         : "follow",
+    platform     : "TikTok",
+    label        : "Follow on TikTok",
+    description  : "Follow @loemartmarketplace on TikTok and earn 3 bonus spins",
+    spins_reward : 3,
+    iconName     : "tiktok",
+    color        : "#010101",
+    bg           : "#f5f5f5",
+    url          : SOCIAL_LINKS.tiktok,
+    category     : "social",
+    verifyDelay  : 10_000,
   },
   {
-    id          : "follow_facebook",
-    type        : "follow",
-    platform    : "Facebook",
-    label       : "Follow on Facebook",
-    description : "Follow Loemart on Facebook and earn 5 bonus spins",
-    spins_reward: 5,
-    iconName    : "facebook",
-    color       : "#1877f2",
-    bg          : "#f0f5ff",
-    url         : SOCIAL_LINKS.facebook,   // null → auto-hidden
-    category    : "social",
-    verifyDelay : 10_000,
+    id           : "follow_facebook",
+    type         : "follow",
+    platform     : "Facebook",
+    label        : "Follow on Facebook",
+    description  : "Follow Loemart on Facebook and earn 5 bonus spins",
+    spins_reward : 5,
+    iconName     : "facebook",
+    color        : "#1877f2",
+    bg           : "#f0f5ff",
+    url          : SOCIAL_LINKS.facebook,
+    category     : "social",
+    verifyDelay  : 10_000,
   },
   {
-    id          : "join_telegram",
-    type        : "join",
-    platform    : "Telegram",
-    label       : "Join Telegram Group",
-    description : "Join Loemart's Telegram group and earn 3 bonus spins",
-    spins_reward: 3,
-    iconName    : "telegram",
-    color       : "#0088cc",
-    bg          : "#f0f8ff",
-    url         : SOCIAL_LINKS.telegram,
-    category    : "community",
-    verifyDelay : 15_000,
+    id           : "join_telegram",
+    type         : "join",
+    platform     : "Telegram",
+    label        : "Join Telegram Group",
+    description  : "Join Loemart's Telegram group and earn 3 bonus spins",
+    spins_reward : 3,
+    iconName     : "telegram",
+    color        : "#0088cc",
+    bg           : "#f0f8ff",
+    url          : SOCIAL_LINKS.telegram,
+    category     : "community",
+    verifyDelay  : 15_000,
   },
   {
-    id          : "join_whatsapp",
-    type        : "join",
-    platform    : "WhatsApp Channel",
-    label       : "Join WhatsApp Channel",
-    description : "Join Loemart's WhatsApp channel and earn 3 bonus spins",
-    spins_reward: 3,
-    iconName    : "whatsapp",
-    color       : "#25d366",
-    bg          : "#f0fff8",
-    url         : SOCIAL_LINKS.whatsapp,
-    category    : "community",
-    verifyDelay : 15_000,
+    id           : "join_whatsapp",
+    type         : "join",
+    platform     : "WhatsApp Channel",
+    label        : "Join WhatsApp Channel",
+    description  : "Join Loemart's WhatsApp channel and earn 3 bonus spins",
+    spins_reward : 3,
+    iconName     : "whatsapp",
+    color        : "#25d366",
+    bg           : "#f0fff8",
+    url          : SOCIAL_LINKS.whatsapp,
+    category     : "community",
+    verifyDelay  : 15_000,
   },
 ];
 
-/* Auto-hide any task whose url is null / empty */
+/*
+ * Auto-hide any task whose url is null / empty.
+ *
+ * With instagram and facebook both null, EARN_TASKS now contains:
+ *   • follow_tiktok     (social)
+ *   • join_telegram      (community)
+ *   • join_whatsapp      (community)
+ *
+ * When you're ready to bring Instagram back, just change
+ * SOCIAL_LINKS.instagram from null to the URL string.
+ * The task auto-appears — no other code changes needed.
+ */
 export const EARN_TASKS = ALL_EARN_TASKS.filter((task) => hasLink(task.url));
 
 /* ── Task categories ── */
@@ -132,7 +143,13 @@ const ALL_TASK_CATEGORIES = [
   { key: "community", label: "Groups",    iconName: "users" },
 ];
 
-/* Auto-hide categories that have no active tasks */
+/*
+ * Auto-hide categories that have no active tasks.
+ *
+ * With instagram + facebook both null, only "follow_tiktok" is
+ * in the "social" category. If you also set tiktok to null, the
+ * "Social" tab auto-hides — only "All Tasks" and "Groups" remain.
+ */
 export const TASK_CATEGORIES = ALL_TASK_CATEGORIES.filter(
   (cat) =>
     cat.key === "all" ||
