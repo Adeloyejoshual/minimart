@@ -3,16 +3,18 @@
    Single-column mobile layout.
    Shares all logic via useAuthLogic() and all fields via
    FormFields — only the chrome (header, layout) differs.
+
+   UTM source tracking:
+   • Reads utm_source from localStorage (set by App.jsx)
+   • Passes it into useAuthLogic → backend on register
 ════════════════════════════════════════════════════════════ */
-import { useMemo }               from "react";
-import { useNavigate, Navigate } from "react-router-dom";
+import { useMemo, useEffect, useRef } from "react";
+import { useNavigate, Navigate }      from "react-router-dom";
 
 import { locationsByState }  from "../../config/locationsByState";
 import "../../styles/AuthPage.css";
 
-import {
-  Ic,
-} from "./constants.jsx";
+import { Ic } from "./constants.jsx";
 
 import {
   OtpPanel,
@@ -27,10 +29,27 @@ import { useAuthLogic } from "./useAuthLogic";
 import { FormFields }   from "./AuthPageDesktop";
 
 /* ════════════════════════════════════════════════════════════
+   SOURCE HELPER
+   Reads utm_source from localStorage.
+   Always returns a non-empty string — "direct" as fallback.
+   Never throws.
+════════════════════════════════════════════════════════════ */
+function readUtmSource() {
+  try {
+    return localStorage.getItem("utm_source")?.trim() || "direct";
+  } catch {
+    return "direct";
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
    MOBILE LAYOUT
 ════════════════════════════════════════════════════════════ */
 export default function AuthPageMobile({ setUser }) {
   const navigate = useNavigate();
+
+  /* ── Capture utm_source once on mount ── */
+  const sourceRef = useRef(readUtmSource());
 
   const {
     mode, switchMode,
@@ -50,7 +69,11 @@ export default function AuthPageMobile({ setUser }) {
     devOtp,
     isVerifying,
     onSubmit, handleResend,
-  } = useAuthLogic({ setUser, navigate });
+  } = useAuthLogic({
+    setUser,
+    navigate,
+    source: sourceRef.current,   /* ← passed into logic hook */
+  });
 
   /* ── Derived location data ── */
   const isNigeria     = form.country === "Nigeria";
