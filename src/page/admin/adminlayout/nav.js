@@ -28,12 +28,12 @@ export const NAV = [
   { id: "reports",      icon: "⚑", label: "Reports" },
   { id: "verification", icon: "✦", label: "Verification" },
 
-  // ✅ NEW GROUP
   { g: "Support" },
   { id: "support", icon: "🎧", label: "Support Center" },
 
   { g: "Growth" },
-  { id: "leaderboard", icon: "⬖", label: "Leaderboard" },
+  { id: "leaderboard",    icon: "⬖", label: "Leaderboard" },
+  { id: "source_analytics", icon: "📊", label: "Source Analytics" },
 
   { g: "Config" },
   { id: "promotions", icon: "◈", label: "Promotions" },
