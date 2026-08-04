@@ -2,17 +2,22 @@
    FILE: src/pages/AuthPage/AuthPageDesktop.jsx
    Full two-column desktop layout (left panel + right form).
    All state and API logic lives in useAuthLogic().
-════════════════════════════════════════════════════════════ */
-import { useMemo }       from "react";
-import { useNavigate, Navigate } from "react-router-dom";
 
-import { locationsByState } from "../../config/locationsByState";
-import { countries, getFlag } from "../../config/countries";
+   UTM source tracking:
+   • Reads utm_source from localStorage (set by App.jsx)
+   • Passes it into useAuthLogic → backend on register
+════════════════════════════════════════════════════════════ */
+import { useMemo, useRef }              from "react";
+import { useNavigate, Navigate, useParams } from "react-router-dom";
+
+import { locationsByState }          from "../../config/locationsByState";
+import { countries, getFlag }        from "../../config/countries";
 import "../../styles/AuthPage.css";
 
 import {
   Ic, MAX_INVITE_LEN,
   OTP_LENGTH,
+  sanitizeInviteCode,
 } from "./constants";
 
 import {
@@ -27,9 +32,21 @@ import {
   Chevron,
 } from "./components";
 
-import { useAuthLogic }    from "./useAuthLogic";
-import { useParams }       from "react-router-dom";
-import { sanitizeInviteCode } from "./constants";
+import { useAuthLogic } from "./useAuthLogic";
+
+/* ════════════════════════════════════════════════════════════
+   SOURCE HELPER
+   Reads utm_source from localStorage.
+   Always returns a non-empty string — "direct" as fallback.
+   Never throws.
+════════════════════════════════════════════════════════════ */
+function readUtmSource() {
+  try {
+    return localStorage.getItem("utm_source")?.trim() || "direct";
+  } catch {
+    return "direct";
+  }
+}
 
 /* ── Invite redirect helper ── */
 export function InviteRedirect() {
@@ -43,6 +60,9 @@ export function InviteRedirect() {
 ════════════════════════════════════════════════════════════ */
 export default function AuthPageDesktop({ setUser }) {
   const navigate = useNavigate();
+
+  /* ── Capture utm_source once on mount ── */
+  const sourceRef = useRef(readUtmSource());
 
   const {
     /* mode */
@@ -70,7 +90,11 @@ export default function AuthPageDesktop({ setUser }) {
     isVerifying,
     /* handlers */
     onSubmit, handleResend, sendOtp,
-  } = useAuthLogic({ setUser, navigate });
+  } = useAuthLogic({
+    setUser,
+    navigate,
+    source: sourceRef.current,    /* ← passed into logic hook */
+  });
 
   /* ── Derived location data ── */
   const isNigeria     = form.country === "Nigeria";
@@ -239,6 +263,8 @@ export default function AuthPageDesktop({ setUser }) {
    FORM FIELDS
    Extracted so both desktop and mobile can share the same
    field logic without duplicating JSX.
+   source is NOT a prop here — it is handled entirely inside
+   useAuthLogic and is invisible to the form rendering layer.
 ════════════════════════════════════════════════════════════ */
 export function FormFields({
   mode,
@@ -341,7 +367,7 @@ export function FormFields({
         )}
       </div>
 
-      {/* ── Register-only ── */}
+      {/* ── Register-only fields ── */}
       {mode === "register" && (
         <>
           {/* Invite Code */}
