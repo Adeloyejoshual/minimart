@@ -27,7 +27,8 @@ import Leaderboard        from "./SuperAdmin/Leaderboard";
 import AirtimeCoupons     from "./SuperAdmin/AirtimeCoupons";
 import CouponRedemption   from "./SuperAdmin/CouponRedemption";
 import AdminSubscriptions from "./SuperAdmin/AdminSubscriptions";
-import SupportAdmin       from "./Support";   // ✅ NEW — resolves to Support/index.jsx
+import SupportAdmin       from "./Support";
+import SourceAnalytics    from "./SuperAdmin/SourceAnalytics"; /* ← NEW */
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
@@ -49,11 +50,11 @@ const LOG_POLL_INTERVAL = 5_000;
 const createApi = (token) => {
   const h = { Authorization: `Bearer ${token}` };
   return {
-    get   : (p, base = BASE)         => axios.get   (base + p,      { headers: h }),
-    post  : (p, b = {}, base = BASE) => axios.post  (base + p, b,   { headers: h }),
-    put   : (p, b = {}, base = BASE) => axios.put   (base + p, b,   { headers: h }),
-    patch : (p, b = {}, base = BASE) => axios.patch (base + p, b,   { headers: h }),
-    del   : (p, base = BASE)         => axios.delete(base + p,      { headers: h }),
+    get   : (p, base = BASE)         => axios.get   (base + p,    { headers: h }),
+    post  : (p, b = {}, base = BASE) => axios.post  (base + p, b, { headers: h }),
+    put   : (p, b = {}, base = BASE) => axios.put   (base + p, b, { headers: h }),
+    patch : (p, b = {}, base = BASE) => axios.patch (base + p, b, { headers: h }),
+    del   : (p, base = BASE)         => axios.delete(base + p,    { headers: h }),
   };
 };
 
@@ -100,6 +101,18 @@ function useData(api) {
       total: 0, active: 0, expired: 0, cancelled: 0,
       mrr: 0, arr: 0, today: 0, byPlan: {},
     },
+    /*
+      source_stats is populated from /api/admin/stats
+      and used by the Overview card for a quick summary.
+      The full analytics are fetched on-demand by SourceAnalytics.jsx.
+    */
+    source_stats: {
+      breakdown  : [],
+      today      : [],
+      this_week  : [],
+      this_month : [],
+      top_source : "direct",
+    },
   });
 
   const [users,    setUsers]    = useState([]);
@@ -120,7 +133,7 @@ function useData(api) {
   const [vendorPendingCount,       setVendorPendingCount]       = useState(0);
   const [withdrawalPendingCount,   setWithdrawalPendingCount]   = useState(0);
   const [airtimePendingCount,      setAirtimePendingCount]      = useState(0);
-  const [supportPendingCount,      setSupportPendingCount]      = useState(0); // ✅ NEW
+  const [supportPendingCount,      setSupportPendingCount]      = useState(0);
   const [subscriptionStats,        setSubscriptionStats]        = useState(null);
   const [loading,                  setLoading]                  = useState(true);
 
@@ -134,7 +147,7 @@ function useData(api) {
     }
   }, [api]);
 
-  /* ── list fetcher that handles both wrapped + plain arrays ─ */
+  /* ── list fetcher ─────────────────────────────────────── */
   const safeList = useCallback(async (path, setter, key) => {
     try {
       const { data } = await api.get(path);
@@ -215,7 +228,6 @@ function useData(api) {
   const reloadSupportCount = useCallback(async () => {
     try {
       const { data } = await api.get("/support/tickets/stats");
-      // Sum every "action-needed" state — adjust to match your backend
       const open     = data?.open     ?? 0;
       const pending  = data?.pending  ?? 0;
       const awaiting = data?.awaiting ?? 0;
@@ -265,7 +277,7 @@ function useData(api) {
     vendorCount       : reloadVendorCount,
     withdrawalCount   : reloadWithdrawalCount,
     airtimeCount      : reloadAirtimeCount,
-    supportCount      : reloadSupportCount,          // ✅ NEW
+    supportCount      : reloadSupportCount,
     subscriptionStats : reloadSubscriptionStats,
   }), [
     safe,
@@ -277,7 +289,7 @@ function useData(api) {
     reloadVendorCount,
     reloadWithdrawalCount,
     reloadAirtimeCount,
-    reloadSupportCount,                              // ✅ NEW
+    reloadSupportCount,
     reloadSubscriptionStats,
   ]);
 
@@ -300,7 +312,7 @@ function useData(api) {
       reloadVendorCount(),
       reloadWithdrawalCount(),
       reloadAirtimeCount(),
-      reloadSupportCount(),                          // ✅ NEW
+      reloadSupportCount(),
       reloadSubscriptionStats(),
     ]);
     setLoading(false);
@@ -314,7 +326,7 @@ function useData(api) {
     reloadVendorCount,
     reloadWithdrawalCount,
     reloadAirtimeCount,
-    reloadSupportCount,                              // ✅ NEW
+    reloadSupportCount,
     reloadSubscriptionStats,
   ]);
 
@@ -324,7 +336,7 @@ function useData(api) {
     reportCount, marketPendingCount,
     verificationPendingCount, vendorPendingCount,
     withdrawalPendingCount, airtimePendingCount,
-    supportPendingCount,                             // ✅ NEW
+    supportPendingCount,
     subscriptionStats, loading, loadAll, reload,
   };
 }
@@ -575,7 +587,7 @@ export default function AdminDashboard() {
     data.vendorPendingCount       +
     data.withdrawalPendingCount   +
     data.airtimePendingCount      +
-    data.supportPendingCount;   // ✅ NEW
+    data.supportPendingCount;
 
   if (data.loading) {
     return (
@@ -764,7 +776,6 @@ export default function AdminDashboard() {
       />
     ),
 
-    // ✅ NEW — Support Center shell
     support: (
       <SupportAdmin
         api={api}
@@ -772,6 +783,18 @@ export default function AdminDashboard() {
         currentUser={currentUser}
         onMutation={data.reload.supportCount}
       />
+    ),
+
+    /*
+      source_analytics:
+      Self-contained — fetches its own data on mount.
+      Receives no props from the dashboard because it calls
+      /api/admin/users/source-stats directly via axios.
+      The stats.source_stats field on the Overview card
+      comes from /api/admin/stats which already includes it.
+    */
+    source_analytics: (
+      <SourceAnalytics />
     ),
   };
 
@@ -790,7 +813,7 @@ export default function AdminDashboard() {
           withdrawalPendingCount={data.withdrawalPendingCount}
           airtimePendingCount={data.airtimePendingCount}
           subscriptionActiveCount={data.subscriptionStats?.active ?? 0}
-          supportPendingCount={data.supportPendingCount}   // ✅ NEW
+          supportPendingCount={data.supportPendingCount}
         />
         <div className="main">
           <Topbar
