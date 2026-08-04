@@ -1,5 +1,10 @@
 // ════════════════════════════════════════════════════════════
 // FILE: App.jsx
+//
+// UTM source tracking:
+// • Captures utm_source from URL query string on every page load
+// • Saves to localStorage so AuthPage can read it on register
+// • Silently ignored if localStorage is blocked
 // ════════════════════════════════════════════════════════════
 
 import { useEffect, useState, useCallback, memo, useRef } from "react";
@@ -40,6 +45,34 @@ applyTheme(
     catch { return "system"; }
   })()
 );
+
+/* ════════════════════════════════════════════════════════════
+   UTM SOURCE CAPTURE
+   ─────────────────────────────────────────────────────────
+   Runs once at module level — before any component mounts.
+   This means even if the user lands on any page with
+   ?utm_source=tiktok, we capture it immediately regardless
+   of which route they hit first.
+
+   Rules:
+   • Only saves if utm_source is present in the URL
+   • Trims and lowercases before saving
+   • Never overwrites an existing value if none in URL
+     (user might land on a sub-page after the initial click)
+   • Silently swallowed if localStorage is blocked
+     (private/incognito mode on some browsers)
+════════════════════════════════════════════════════════════ */
+(() => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const source = params.get("utm_source");
+    if (source) {
+      localStorage.setItem("utm_source", source.trim().toLowerCase());
+    }
+  } catch {
+    /* localStorage blocked — silently ignore */
+  }
+})();
 
 /* ════════════════════════════════════════════════════════════
    PAGES — PUBLIC
@@ -306,6 +339,14 @@ function clearAllAuthStorage() {
   sessionStorage.removeItem(TOKEN_KEYS.marketplace);
   sessionStorage.removeItem("token");
   sessionStorage.removeItem("user");
+  /*
+    NOTE: utm_source is intentionally NOT cleared here.
+    It is only cleared in useAuthLogic after a successful
+    registration — not on logout — so that if the same
+    user logs back in on the same device, the source is
+    already gone. A new visitor will re-capture their own
+    source from the URL when they land.
+  */
 }
 
 /* ════════════════════════════════════════════════════════════
@@ -518,7 +559,7 @@ function AppInner() {
   const [authChecked, setAuthChecked] = useState(false);
 
   const { resetCache } = useProductCache();
-  const queryClient    = useQueryClient();   // ← available here (inside QueryClientProvider)
+  const queryClient    = useQueryClient();
   const loggingOutRef  = useRef(false);
   const navigate       = useNavigate();
 
@@ -529,11 +570,9 @@ function AppInner() {
      Call this on logout AND before setting a new user
   ───────────────────────────────────────────────────────── */
   const clearQueryCache = useCallback(() => {
-    // removeQueries wipes data immediately — no stale flash
     PROFILE_QUERY_KEYS.forEach((key) =>
       queryClient.removeQueries({ queryKey: key })
     );
-    // Also nuke everything else that might carry user data
     queryClient.clear();
   }, [queryClient]);
 
@@ -617,6 +656,8 @@ function AppInner() {
   /* ════════════════════════════════════════════════════════
      LOGOUT
      ─ Wipe state + cache + storage atomically
+     ─ utm_source is intentionally preserved here —
+       it was already cleared on register success
   ════════════════════════════════════════════════════════ */
   const handleLogout = useCallback(
     async (navigateFn) => {
@@ -634,7 +675,6 @@ function AppInner() {
       }
 
       // 1. Kill React Query cache — must happen before setUser(null)
-      //    so nothing re-fetches with the old token in-flight
       clearQueryCache();
 
       // 2. Clear storage
@@ -671,8 +711,6 @@ function AppInner() {
       return merged;
     });
 
-    // Also update the React Query cache so Profile page reflects
-    // the edit immediately without a full refetch
     queryClient.setQueryData(["profile-user"], (old) =>
       old ? { ...old, ...updatedData } : old
     );
