@@ -167,3 +167,147 @@ export const trustColor = (score) => {
   if ((score ?? 0) >= 30) return "#d97706";
   return "#dc2626";
 };
+
+/* ════════════════════════════════════════════════════════════
+   SOURCE ANALYTICS HELPERS
+   Used by SourceAnalytics.jsx and any Overview summary card.
+════════════════════════════════════════════════════════════ */
+
+/*
+  SOURCE_ICONS
+  Emoji icon for every known traffic platform.
+  Matches the ALLOWED_SOURCES list in auth.routes.js —
+  keep both in sync if you add new platforms.
+*/
+export const SOURCE_ICONS = {
+  // Social Media
+  tiktok     : "🎵",
+  instagram  : "📸",
+  facebook   : "📘",
+  twitter    : "🐦",
+  snapchat   : "👻",
+  pinterest  : "📌",
+  linkedin   : "💼",
+  reddit     : "🤖",
+  youtube    : "▶️",
+  threads    : "🧵",
+  // Messaging Apps
+  whatsapp   : "💬",
+  telegram   : "✈️",
+  discord    : "🎮",
+  signal     : "🔒",
+  viber      : "📞",
+  wechat     : "💚",
+  slack      : "💛",
+  line       : "🟢",
+  skype      : "🔵",
+  kakao      : "💛",
+  // Search Engines
+  google     : "🔍",
+  bing       : "🔎",
+  yahoo      : "🟣",
+  duckduckgo : "🦆",
+  // Other Traffic
+  email      : "📧",
+  sms        : "📱",
+  blog       : "📝",
+  podcast    : "🎙️",
+  referral   : "🔗",
+  direct     : "🌐",
+  other      : "❓",
+};
+
+/*
+  SOURCE_COLORS
+  Consistent accent colour per source — used in charts and bars.
+  Falls back to the default accent colour if source not listed.
+*/
+export const SOURCE_COLORS = {
+  tiktok     : "#010101",
+  instagram  : "#e1306c",
+  facebook   : "#1877f2",
+  twitter    : "#1da1f2",
+  snapchat   : "#fffc00",
+  pinterest  : "#e60023",
+  linkedin   : "#0a66c2",
+  reddit     : "#ff4500",
+  youtube    : "#ff0000",
+  threads    : "#000000",
+  whatsapp   : "#25d366",
+  telegram   : "#229ed9",
+  discord    : "#5865f2",
+  signal     : "#3a76f0",
+  viber      : "#7360f2",
+  wechat     : "#07c160",
+  slack      : "#4a154b",
+  line       : "#00c300",
+  skype      : "#00aff0",
+  kakao      : "#fee500",
+  google     : "#4285f4",
+  bing       : "#008373",
+  yahoo      : "#720e9e",
+  duckduckgo : "#de5833",
+  email      : "#6366f1",
+  sms        : "#10b981",
+  blog       : "#f59e0b",
+  podcast    : "#8b5cf6",
+  referral   : "#ec4899",
+  direct     : "#6b7280",
+  other      : "#9ca3af",
+};
+
+/*
+  KNOWN_SOURCES
+  Ordered list of all valid platforms.
+  Used to detect zero-traffic platforms and build marketing links.
+*/
+export const KNOWN_SOURCES = Object.freeze([
+  "tiktok", "instagram", "facebook", "twitter",
+  "snapchat", "pinterest", "linkedin", "reddit",
+  "youtube", "threads",
+  "whatsapp", "telegram", "discord", "signal",
+  "viber", "wechat", "slack", "line", "skype", "kakao",
+  "google", "bing", "yahoo", "duckduckgo",
+  "email", "sms", "blog", "podcast",
+  "referral", "direct", "other",
+]);
+
+/*
+  capSource
+  Capitalises a source slug for display.
+  "tiktok" → "Tiktok"  |  undefined → "—"
+*/
+export const capSource = (s) =>
+  s ? s.charAt(0).toUpperCase() + s.slice(1) : "—";
+
+/*
+  sourceIcon
+  Returns the emoji icon for a source, falling back to 🌐.
+*/
+export const sourceIcon = (s) => SOURCE_ICONS[s] ?? "🌐";
+
+/*
+  sourceColor
+  Returns the brand colour for a source, falling back to accent.
+*/
+export const sourceColor = (s) => SOURCE_COLORS[s] ?? "var(--accent)";
+
+/*
+  buildMarketingLink
+  Generates a utm_source link for a given platform.
+  origin defaults to window.location.origin in the browser.
+*/
+export const buildMarketingLink = (source, origin) => {
+  const base = origin ?? (typeof window !== "undefined"
+    ? window.location.origin
+    : "");
+  return `${base}/auth?utm_source=${source}`;
+};
+
+/*
+  safeSources
+  Ensures a source breakdown array is always an array,
+  even if the API returned null or undefined.
+*/
+export const safeSources = (arr) =>
+  Array.isArray(arr) ? arr : [];
