@@ -28,7 +28,7 @@ import AirtimeCoupons     from "./SuperAdmin/AirtimeCoupons";
 import CouponRedemption   from "./SuperAdmin/CouponRedemption";
 import AdminSubscriptions from "./SuperAdmin/AdminSubscriptions";
 import SupportAdmin       from "./Support";
-import SourceAnalytics    from "./SuperAdmin/SourceAnalytics"; /* ← NEW */
+import SourceAnalytics    from "./tabs/SourceAnalytics"; /* ← NEW */
 
 // ── Helpers ───────────────────────────────────────────────────
 import { safeFeatures } from "./adminlayout/helpers";
