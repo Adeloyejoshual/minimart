@@ -1357,7 +1357,7 @@ export default function Coupons() {
           main content down. User taps the header to expand.
           ═══════════════════════════════════════════════════════
         */}
-        {!loading && <HowToUseRewards />}
+        {!loading && <HowToUseRewards defaultOpen />}
 
       </div>
 
