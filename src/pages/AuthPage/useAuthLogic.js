@@ -2,6 +2,12 @@
    FILE: src/pages/AuthPage/useAuthLogic.js
    All state + API calls extracted into one hook.
    Both desktop and mobile consume this — zero duplication.
+
+   UTM source tracking:
+   • Accepts source prop from the parent layout component
+   • Attaches it to the register API payload
+   • Clears localStorage after successful registration
+   • Falls back to "direct" if nothing was passed
 ════════════════════════════════════════════════════════════ */
 import {
   useState, useEffect, useRef,
@@ -57,8 +63,48 @@ function extractApiError(err, fallback) {
   return null;
 }
 
-export function useAuthLogic({ setUser, navigate }) {
+/* ════════════════════════════════════════════════════════════
+   SOURCE SANITISER
+   Mirrors the backend ALLOWED_SOURCES list.
+   • Trims whitespace and lowercases
+   • Only accepts known platform names
+   • Always returns a safe non-empty string
+   • Never throws
+════════════════════════════════════════════════════════════ */
+const ALLOWED_SOURCES = new Set([
+  // Social Media
+  "tiktok", "instagram", "facebook", "twitter",
+  "snapchat", "pinterest", "linkedin", "reddit",
+  "youtube", "threads",
+  // Messaging Apps
+  "whatsapp", "telegram", "discord", "signal",
+  "viber", "wechat", "slack", "line", "skype", "kakao",
+  // Search Engines
+  "google", "bing", "yahoo", "duckduckgo",
+  // Other Traffic
+  "email", "sms", "blog", "podcast",
+  "referral", "direct", "other",
+]);
+
+function sanitizeSource(raw) {
+  if (!raw) return "direct";
+  const val = String(raw).trim().toLowerCase();
+  return ALLOWED_SOURCES.has(val) ? val : "direct";
+}
+
+/* ════════════════════════════════════════════════════════════
+   HOOK
+════════════════════════════════════════════════════════════ */
+export function useAuthLogic({ setUser, navigate, source }) {
   const [params] = useSearchParams();
+
+  /*
+    Sanitise source once on mount via a ref so it:
+    • Never triggers re-renders
+    • Is stable across the entire session
+    • Always holds a backend-safe value
+  */
+  const sourceRef = useRef(sanitizeSource(source));
 
   /* ── Mode ── */
   const [mode,     setMode]     = useState("login");
@@ -264,6 +310,9 @@ export function useAuthLogic({ setUser, navigate }) {
 
   /* ════════════════════════════════════════════════════════
      REGISTER
+     source is read from sourceRef.current — stable, sanitised,
+     set once on mount. After success the localStorage entry
+     is cleared so future signups start fresh.
   ════════════════════════════════════════════════════════ */
   const handleRegister = useCallback(async () => {
     const validationError = validateRegister(form);
@@ -282,14 +331,20 @@ export function useAuthLogic({ setUser, navigate }) {
         country      : form.country      || null,
         state        : form.state        || null,
         city         : form.city         || null,
+        source       : sourceRef.current,          /* ← utm_source */
       };
 
       if (inviteStatus === "valid" && form.invite_code) {
         payload.invite_code = form.invite_code;
       }
 
+      if (import.meta.env.DEV) {
+        console.log("[handleRegister] payload source:", sourceRef.current);
+      }
+
       const { data } = await axios.post(`${API}/register`, payload);
       registerResult = data;
+
     } catch (err) {
       const msg = extractApiError(err, "Registration failed.");
       if (msg) toast.error(msg);
@@ -318,7 +373,22 @@ export function useAuthLogic({ setUser, navigate }) {
       setDevOtp("");
       setMode("otp");
 
+      /*
+        Clear utm_source from localStorage after a successful
+        registration so the next user on the same device
+        is not attributed to the same source.
+      */
+      try {
+        localStorage.removeItem("utm_source");
+        if (import.meta.env.DEV) {
+          console.log("[handleRegister] utm_source cleared from localStorage");
+        }
+      } catch {
+        /* localStorage might be blocked in private mode — ignore */
+      }
+
       toast.success("Account created! Check your email for the verification code.");
+
     } catch (err) {
       // Registration succeeded but OTP send / state setup failed.
       if (import.meta.env.DEV) {
