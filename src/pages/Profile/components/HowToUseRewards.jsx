@@ -1,6 +1,6 @@
 // src/pages/components/HowToUseRewards.jsx
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate }         from "react-router-dom";
 import "../styles/HowToUseRewards.css";
 
 /*
@@ -10,12 +10,60 @@ import "../styles/HowToUseRewards.css";
  */
 const SELLER_USERNAME = "loemart";
 
+/*
+ * localStorage key used to remember the user's open/closed choice.
+ * Bumping the suffix (v1 → v2) is a clean way to force the panel
+ * open again after a major content update.
+ */
+const STORAGE_KEY = "htu_panel_open_v1";
+
+/*
+ * Read the persisted open/closed state from localStorage.
+ * Runs synchronously during initial render via useState's lazy initializer
+ * so there's no flash of the wrong state.
+ */
+function readPersistedState(fallback) {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw === "1") return true;
+    if (raw === "0") return false;
+  } catch { /* ignore quota / privacy-mode errors */ }
+  return fallback;
+}
+
 export default function HowToUseRewards({
-  defaultOpen    = false,
+  defaultOpen    = true,
   sellerUsername = SELLER_USERNAME,
+  /*
+   * persist=true  → remember the user's choice across page loads (default)
+   * persist=false → always start from defaultOpen, ignore localStorage
+   */
+  persist        = true,
 }) {
-  const [open, setOpen] = useState(defaultOpen);
-  const navigate        = useNavigate();
+  /*
+   * Lazy initializer reads from storage exactly once on mount.
+   * If persistence is disabled we just use defaultOpen.
+   */
+  const [open, setOpen] = useState(() =>
+    persist ? readPersistedState(defaultOpen) : defaultOpen
+  );
+
+  const navigate = useNavigate();
+
+  /*
+   * Write the current state back to storage whenever it changes.
+   * Wrapped in try/catch because localStorage can throw in:
+   *   – Safari private mode
+   *   – iframes with cookies disabled
+   *   – enterprise browsers with storage locked down
+   */
+  useEffect(() => {
+    if (!persist) return;
+    try {
+      localStorage.setItem(STORAGE_KEY, open ? "1" : "0");
+    } catch { /* non-fatal */ }
+  }, [open, persist]);
 
   /*
    * Navigate to the seller profile inside the app.
