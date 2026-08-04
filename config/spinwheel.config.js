@@ -124,7 +124,7 @@ export const WHEEL_SEGMENTS = Object.freeze([
     is_big_win  : true,
   },
 ]);
-// Segment probability total: 14+23+15+7+33+5+3 = 100 ✓
+// Segment probability total: 23+14+15+7+33+5+3 = 100 ✓
 
 /* ════════════════════════════════════════════════════════════
    SOCIAL LINKS
@@ -146,13 +146,16 @@ export const SOCIAL_LINKS = Object.freeze({
 /* ════════════════════════════════════════════════════════════
    EARN TASKS
    ▸ Single source of truth — must mirror backend reward logic.
-   ▸ url must reference a key that exists in SOCIAL_LINKS.
+   ▸ url must reference a value that exists in SOCIAL_LINKS.
    ▸ verify_type "honor" = user self-reports; no API check.
    ▸ To temporarily disable a task, remove it from this array.
+   ▸ Exported as EARN_TASKS_DEF — the canonical name used by
+     both the route file and the frontend. Also re-exported as
+     EARN_TASKS for backward compatibility.
 ════════════════════════════════════════════════════════════ */
 
 /** @type {Readonly<EarnTask[]>} */
-export const EARN_TASKS = Object.freeze([
+export const EARN_TASKS_DEF = Object.freeze([
   {
     id           : "follow_instagram",
     label        : "Follow on Instagram",
@@ -175,7 +178,7 @@ export const EARN_TASKS = Object.freeze([
   },
   // follow_facebook is intentionally omitted until the page is live.
   // Restore by uncommenting SOCIAL_LINKS.facebook above and adding
-  // the task entry below:
+  // the task entry here:
   //
   // {
   //   id           : "follow_facebook",
@@ -209,13 +212,20 @@ export const EARN_TASKS = Object.freeze([
   },
 ]);
 
+/*
+ * Backward-compatibility alias.
+ * Any file that imports EARN_TASKS instead of EARN_TASKS_DEF
+ * will still work without changes.
+ */
+export const EARN_TASKS = EARN_TASKS_DEF;
+
 /* ════════════════════════════════════════════════════════════
    TASK MAP  — O(1) lookup by task id
 ════════════════════════════════════════════════════════════ */
 
 /** @type {Readonly<Record<string, EarnTask>>} */
 export const TASK_MAP = Object.freeze(
-  Object.fromEntries(EARN_TASKS.map((task) => [task.id, task]))
+  Object.fromEntries(EARN_TASKS_DEF.map((task) => [task.id, task]))
 );
 
 /* ════════════════════════════════════════════════════════════
@@ -249,7 +259,7 @@ export function validateConfig() {
   const errors   = /** @type {string[]} */ ([]);
   const warnings = /** @type {string[]} */ ([]);
 
-  /* ── 1. Wheel segment probability sum ─────────────────── */
+  /* ── 1. Wheel segment probability sum ── */
   const probTotal = WHEEL_SEGMENTS.reduce((sum, s) => sum + s.probability, 0);
   if (probTotal !== 100) {
     errors.push(
@@ -257,8 +267,8 @@ export function validateConfig() {
     );
   }
 
-  /* ── 2. Duplicate segment ids ──────────────────────────── */
-  const segmentIds = WHEEL_SEGMENTS.map((s) => s.id);
+  /* ── 2. Duplicate segment ids ── */
+  const segmentIds    = WHEEL_SEGMENTS.map((s) => s.id);
   const dupSegmentIds = segmentIds.filter(
     (id, idx) => segmentIds.indexOf(id) !== idx
   );
@@ -268,7 +278,7 @@ export function validateConfig() {
     );
   }
 
-  /* ── 3. Segment probability values are positive integers ─ */
+  /* ── 3. Segment probability values are positive integers ── */
   const badProbs = WHEEL_SEGMENTS.filter(
     (s) => !Number.isInteger(s.probability) || s.probability <= 0
   );
@@ -279,31 +289,31 @@ export function validateConfig() {
     );
   }
 
-  /* ── 4. Duplicate task ids ─────────────────────────────── */
-  const taskIds = EARN_TASKS.map((t) => t.id);
+  /* ── 4. Duplicate task ids ── */
+  const taskIds    = EARN_TASKS_DEF.map((t) => t.id);
   const dupTaskIds = taskIds.filter(
     (id, idx) => taskIds.indexOf(id) !== idx
   );
   if (dupTaskIds.length > 0) {
     errors.push(
-      `Duplicate EARN_TASKS id(s): ${dupTaskIds.join(", ")}.`
+      `Duplicate EARN_TASKS_DEF id(s): ${dupTaskIds.join(", ")}.`
     );
   }
 
-  /* ── 5. Tasks must have a non-empty string URL ─────────── */
-  const badUrlTasks = EARN_TASKS.filter(
+  /* ── 5. Tasks must have a non-empty string URL ── */
+  const badUrlTasks = EARN_TASKS_DEF.filter(
     (t) => typeof t.url !== "string" || t.url.trim() === ""
   );
   if (badUrlTasks.length > 0) {
     errors.push(
-      `EARN_TASKS entries with missing or empty url: ` +
+      `EARN_TASKS_DEF entries with missing or empty url: ` +
       badUrlTasks.map((t) => `"${t.id}"`).join(", ") +
       `. Remove the task or add a valid URL.`
     );
   }
 
-  /* ── 6. Social links referenced by tasks must exist ───── */
-  EARN_TASKS.forEach((task) => {
+  /* ── 6. Social links referenced by tasks should exist in SOCIAL_LINKS ── */
+  EARN_TASKS_DEF.forEach((task) => {
     const matched = Object.values(SOCIAL_LINKS).includes(task.url);
     if (!matched) {
       warnings.push(
@@ -313,12 +323,26 @@ export function validateConfig() {
     }
   });
 
-  /* ── 7. Emit warnings ──────────────────────────────────── */
+  /* ── 7. Spin constants must be positive integers ── */
+  const { MAX_FREE_DAILY, MAX_BONUS_STACKED, COUPON_EXPIRY_DAYS } = SPIN_CONSTANTS;
+  [
+    ["MAX_FREE_DAILY",     MAX_FREE_DAILY],
+    ["MAX_BONUS_STACKED",  MAX_BONUS_STACKED],
+    ["COUPON_EXPIRY_DAYS", COUPON_EXPIRY_DAYS],
+  ].forEach(([name, val]) => {
+    if (!Number.isInteger(val) || val <= 0) {
+      errors.push(
+        `SPIN_CONSTANTS.${name} must be a positive integer — got ${val}.`
+      );
+    }
+  });
+
+  /* ── 8. Emit warnings ── */
   warnings.forEach((msg) =>
     console.warn(`[spinwheel.config] ⚠️  ${msg}`)
   );
 
-  /* ── 8. Throw aggregated errors ────────────────────────── */
+  /* ── 9. Throw aggregated errors ── */
   if (errors.length > 0) {
     throw new Error(
       `[spinwheel.config] Configuration invalid:\n` +
