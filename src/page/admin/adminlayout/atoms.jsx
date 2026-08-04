@@ -10,6 +10,14 @@ import {
   riskColor,
   overdueDays,
   trustColor,
+  SOURCE_ICONS,
+  SOURCE_COLORS,
+  KNOWN_SOURCES,
+  capSource,
+  sourceIcon,
+  sourceColor,
+  buildMarketingLink,
+  safeSources,
 } from "./helpers";
 
 /* ── Basic pill / status badge ─────────────────────────────────
@@ -210,33 +218,33 @@ export const Drawer = ({ onClose, header, children, width = 580 }) => (
       boxShadow     : "-8px 0 32px rgba(0,0,0,.15)",
     }}>
       <div style={{
-        padding         : "16px 20px",
-        borderBottom    : "1px solid #f0eeea",
-        display         : "flex",
-        alignItems      : "center",
-        justifyContent  : "space-between",
-        position        : "sticky",
-        top             : 0,
-        background      : "#fff",
-        zIndex          : 1,
+        padding        : "16px 20px",
+        borderBottom   : "1px solid #f0eeea",
+        display        : "flex",
+        alignItems     : "center",
+        justifyContent : "space-between",
+        position       : "sticky",
+        top            : 0,
+        background     : "#fff",
+        zIndex         : 1,
       }}>
         <div style={{ flex: 1 }}>{header}</div>
         <button
           onClick={onClose}
           style={{
-            border          : "1.5px solid #e8e6e0",
-            background      : "#fafaf8",
-            borderRadius    : "50%",
-            width           : 32,
-            height          : 32,
-            cursor          : "pointer",
-            fontSize        : 16,
-            color           : "#555",
-            display         : "flex",
-            alignItems      : "center",
-            justifyContent  : "center",
-            flexShrink      : 0,
-            marginLeft      : 12,
+            border         : "1.5px solid #e8e6e0",
+            background     : "#fafaf8",
+            borderRadius   : "50%",
+            width          : 32,
+            height         : 32,
+            cursor         : "pointer",
+            fontSize       : 16,
+            color          : "#555",
+            display        : "flex",
+            alignItems     : "center",
+            justifyContent : "center",
+            flexShrink     : 0,
+            marginLeft     : 12,
           }}
         >
           &times;
@@ -299,3 +307,311 @@ export const DetailRow = ({ label, value, children }) => (
     {children ?? <strong>{value ?? "—"}</strong>}
   </div>
 );
+
+/* ════════════════════════════════════════════════════════════
+   SOURCE ANALYTICS ATOMS
+   Reusable components for source tracking UI.
+   Used by SourceAnalytics.jsx and Overview summary cards.
+════════════════════════════════════════════════════════════ */
+
+/*
+  SourceBadge
+  Compact inline badge showing platform icon + name.
+  Used in tables and user detail views.
+
+  <SourceBadge source="tiktok" />
+  → 🎵 Tiktok
+*/
+export const SourceBadge = ({ source }) => {
+  if (!source) return <span style={{ color: "#aaa" }}>—</span>;
+  const color = SOURCE_COLORS[source] ?? "#6b7280";
+  return (
+    <span style={{
+      display      : "inline-flex",
+      alignItems   : "center",
+      gap          : 5,
+      padding      : "2px 10px",
+      borderRadius : 999,
+      fontSize     : 11,
+      fontWeight   : 700,
+      background   : `${color}15`,
+      color,
+      border       : `1px solid ${color}35`,
+    }}>
+      {SOURCE_ICONS[source] ?? "🌐"} {capSource(source)}
+    </span>
+  );
+};
+
+/*
+  SourceBar
+  Horizontal bar chart row — used in period cards.
+
+  <SourceBar source="telegram" value={42} max={200} />
+*/
+export const SourceBar = ({ source, value, max = 1 }) => {
+  const pct   = max > 0 ? (value / max) * 100 : 0;
+  const color = SOURCE_COLORS[source] ?? "var(--accent)";
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{
+        display        : "flex",
+        justifyContent : "space-between",
+        fontSize       : ".78rem",
+        marginBottom   : 4,
+      }}>
+        <span>
+          {SOURCE_ICONS[source] ?? "🌐"}{" "}
+          {capSource(source)}
+        </span>
+        <b style={{ color }}>{value}</b>
+      </div>
+      <div style={{
+        height       : 6,
+        background   : "var(--card2)",
+        borderRadius : 3,
+        overflow     : "hidden",
+      }}>
+        <div style={{
+          height       : "100%",
+          width        : `${Math.min(pct, 100)}%`,
+          background   : color,
+          borderRadius : 3,
+          transition   : "width .3s",
+        }} />
+      </div>
+    </div>
+  );
+};
+
+/*
+  SourceProgressBar
+  Percentage bar — used in all-time breakdown table.
+
+  <SourceProgressBar percentage={38.5} source="tiktok" />
+*/
+export const SourceProgressBar = ({ percentage, source }) => {
+  const color = SOURCE_COLORS[source] ?? "var(--accent)";
+  return (
+    <div style={{
+      height       : 8,
+      background   : "var(--card2)",
+      borderRadius : 4,
+      overflow     : "hidden",
+      minWidth     : 80,
+    }}>
+      <div style={{
+        height       : "100%",
+        width        : `${Math.min(Number(percentage ?? 0), 100)}%`,
+        background   : color,
+        borderRadius : 4,
+        transition   : "width .3s",
+      }} />
+    </div>
+  );
+};
+
+/*
+  SourceMiniBar
+  Used in drill-down split panels (verified/status).
+
+  <SourceMiniBar label="Verified" value={120} total={200} color="#22c55e" />
+*/
+export const SourceMiniBar = ({ label, value, total, color = "var(--accent)" }) => {
+  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+  return (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{
+        display        : "flex",
+        justifyContent : "space-between",
+        fontSize       : ".75rem",
+        marginBottom   : 3,
+      }}>
+        <span style={{ color: "var(--muted)" }}>
+          {capSource(label)}
+        </span>
+        <span style={{ fontWeight: 700 }}>
+          {value}{" "}
+          <span style={{ color: "var(--muted)", fontWeight: 400 }}>
+            ({pct}%)
+          </span>
+        </span>
+      </div>
+      <div style={{
+        height       : 6,
+        background   : "var(--card2)",
+        borderRadius : 3,
+        overflow     : "hidden",
+      }}>
+        <div style={{
+          height       : "100%",
+          width        : `${pct}%`,
+          background   : color,
+          borderRadius : 3,
+          transition   : "width .3s",
+        }} />
+      </div>
+    </div>
+  );
+};
+
+/*
+  SourceSummaryCard
+  Quick top-source card for the Overview dashboard.
+
+  <SourceSummaryCard sourceStats={stats.source_stats} onViewAll={() => setPage("source_analytics")} />
+*/
+export const SourceSummaryCard = ({ sourceStats, onViewAll }) => {
+  const breakdown = safeSources(sourceStats?.breakdown).slice(0, 5);
+  const topSource = sourceStats?.top_source ?? "direct";
+  const max       = breakdown[0]?.total ?? 1;
+
+  if (!breakdown.length) {
+    return (
+      <div className="card">
+        <div className="card-hd">
+          <span className="card-title">📊 Traffic Sources</span>
+          {onViewAll && (
+            <button className="btn b-ghost" style={{ fontSize: ".7rem" }} onClick={onViewAll}>
+              View All
+            </button>
+          )}
+        </div>
+        <div style={{
+          textAlign : "center",
+          padding   : "20px 0",
+          color     : "var(--muted)",
+          fontSize  : ".8rem",
+        }}>
+          No source data yet
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card">
+      <div className="card-hd">
+        <span className="card-title">
+          📊 Traffic Sources
+          <span style={{
+            marginLeft : 8,
+            fontSize   : ".72rem",
+            color      : "var(--muted)",
+            fontWeight : 400,
+          }}>
+            Top: {SOURCE_ICONS[topSource] ?? "🌐"} {capSource(topSource)}
+          </span>
+        </span>
+        {onViewAll && (
+          <button
+            className="btn b-ghost"
+            style={{ fontSize: ".7rem" }}
+            onClick={onViewAll}
+          >
+            View All →
+          </button>
+        )}
+      </div>
+
+      <div style={{ marginTop: 8 }}>
+        {breakdown.map((row) => (
+          <SourceBar
+            key={row.source}
+            source={row.source}
+            value={row.total}
+            max={max}
+          />
+        ))}
+      </div>
+
+      {/* Today quick row */}
+      {(safeSources(sourceStats?.today)).length > 0 && (
+        <div style={{
+          marginTop    : 10,
+          paddingTop   : 10,
+          borderTop    : "1px solid var(--border)",
+          display      : "flex",
+          gap          : 6,
+          flexWrap     : "wrap",
+        }}>
+          <span style={{
+            fontSize   : ".68rem",
+            color      : "var(--muted)",
+            fontWeight : 600,
+            alignSelf  : "center",
+          }}>
+            Today:
+          </span>
+          {safeSources(sourceStats?.today).slice(0, 4).map((r) => (
+            <span
+              key={r.source}
+              style={{
+                fontSize     : ".68rem",
+                padding      : "2px 8px",
+                borderRadius : 999,
+                background   : "var(--card2)",
+                border       : "1px solid var(--border)",
+              }}
+            >
+              {SOURCE_ICONS[r.source] ?? "🌐"} {capSource(r.source)}{" "}
+              <b>{r.total}</b>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/*
+  ZeroSourcesChips
+  Shows platforms that have no signups yet.
+
+  <ZeroSourcesChips sources={data.zero_sources} />
+*/
+export const ZeroSourcesChips = ({ sources = [] }) => {
+  if (!sources.length) return null;
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {sources.map((s) => (
+        <span
+          key={s}
+          style={{
+            padding      : "3px 10px",
+            background   : "var(--card2)",
+            borderRadius : 20,
+            fontSize     : ".7rem",
+            color        : "var(--muted)",
+            border       : "1px solid var(--border)",
+          }}
+        >
+          {SOURCE_ICONS[s] ?? "🌐"} {s}
+        </span>
+      ))}
+    </div>
+  );
+};
+
+/*
+  CopyLinkButton
+  Copies a marketing link to clipboard with a toast.
+  Import toast where you use this, or pass onCopy callback.
+
+  <CopyLinkButton source="tiktok" onCopy={(link) => toast.success(`Copied!`)} />
+*/
+export const CopyLinkButton = ({ source, onCopy }) => {
+  const link = buildMarketingLink(source);
+  return (
+    <button
+      className="btn b-ghost"
+      style={{ fontSize: ".68rem", padding: "2px 8px" }}
+      onClick={() => {
+        navigator.clipboard.writeText(link).catch(() => {});
+        if (onCopy) onCopy(link, source);
+      }}
+    >
+      📋 Copy
+    </button>
+  );
+};
