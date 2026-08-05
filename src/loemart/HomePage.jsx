@@ -31,7 +31,7 @@ import {
 } from "react-icons/fi";
 
 import categories from "../config/categories";
-import "../styles/HomePage.css";
+import "./styles/HomePage.css";
 
 /* ═══════════════════════════════════════════════════════════════
    ENV + API  — mirrors PostAds.jsx pattern
