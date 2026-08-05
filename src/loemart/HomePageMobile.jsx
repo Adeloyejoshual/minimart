@@ -1,4 +1,3 @@
-
 /**
  * src/loemart/HomePageMobile.jsx
  *
@@ -21,6 +20,7 @@ import MobileHero     from "./mobile/MobileHero";
 import MobileSections from "./mobile/MobileSections";
 import MobileGrid     from "./mobile/MobileGrid";
 import MobileFooter   from "./mobile/MobileFooter";
+import Footer         from "../components/Footer";   // ← ADD THIS
 import {
   SearchSheet, FilterSheet, fireCartToast,
 } from "./mobile/MobileSheets";
@@ -254,7 +254,10 @@ export default function HomePageMobile({ user }) {
         onPostAd={goPostAd}
       />
 
-      {/* 6. Sheets */}
+      {/* 6. ★ NEW — Site-wide Footer ★ */}
+      <Footer />
+
+      {/* 7. Sheets */}
       <SearchSheet
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
