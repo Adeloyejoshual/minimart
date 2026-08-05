@@ -2,19 +2,36 @@
 import React        from "react";
 import { Navigate } from "react-router-dom";
 import { useSellerFlow, STEPS } from "../hooks/useSellerFlow";
-import RegisterStep     from "../components/seller/RegisterStep";
-import StoreSetup       from "../components/seller/StoreSetup";
-import VerificationStep from "../components/seller/VerificationStep";
+import RegisterStep       from "../components/seller/RegisterStep";
+import OtpStep            from "../components/seller/OtpStep";
+import ForgotPasswordStep from "../components/seller/ForgotPasswordStep";
+import ResetPasswordStep  from "../components/seller/ResetPasswordStep";
+import StoreSetup         from "../components/seller/StoreSetup";
+import VerificationStep   from "../components/seller/VerificationStep";
 import "../style/Seller.css";
 
+// ─────────────────────────────────────────────────────────────
+// Progress bar only shows for the main onboarding flow
+// Forgot / Reset password steps are outside the main flow
+// ─────────────────────────────────────────────────────────────
 const PROGRESS_STEPS = [
   { key: STEPS.REGISTER,     label: "Register",     icon: "👤" },
+  { key: STEPS.OTP_VERIFY,   label: "Verify Email", icon: "📬" },
   { key: STEPS.STORE_SETUP,  label: "Store Setup",  icon: "🏪" },
   { key: STEPS.VERIFICATION, label: "Verification", icon: "🔍" },
   { key: STEPS.REVIEW,       label: "Under Review", icon: "⏳" },
   { key: STEPS.APPROVED,     label: "Approved",     icon: "✅" },
 ];
 
+// Steps that are outside the main flow — no progress bar
+const OUTSIDE_FLOW = [
+  STEPS.FORGOT_PASSWORD,
+  STEPS.RESET_PASSWORD,
+];
+
+// ─────────────────────────────────────────────────────────────
+// PROGRESS BAR
+// ─────────────────────────────────────────────────────────────
 const ProgressBar = ({ currentStep }) => (
   <div className="seller-progress">
     {PROGRESS_STEPS.map((s, idx) => {
@@ -50,6 +67,9 @@ const ProgressBar = ({ currentStep }) => (
   </div>
 );
 
+// ─────────────────────────────────────────────────────────────
+// MOUNT LOADER
+// ─────────────────────────────────────────────────────────────
 const MountLoader = () => (
   <div style={st.loaderWrap}>
     <div style={st.spinner} />
@@ -57,10 +77,15 @@ const MountLoader = () => (
   </div>
 );
 
+// ─────────────────────────────────────────────────────────────
+// GMAIL / MARKETPLACE USER SCREEN
+// ─────────────────────────────────────────────────────────────
 const GmailUserScreen = ({ onSignOut }) => (
   <div className="seller-wrapper">
-    <div className="seller-card"
-      style={{ textAlign: "center", padding: "2.5rem 2rem" }}>
+    <div
+      className="seller-card"
+      style={{ textAlign: "center", padding: "2.5rem 2rem" }}
+    >
       <div style={{ fontSize: "3.5rem", marginBottom: "1rem" }}>
         🏪
       </div>
@@ -93,12 +118,14 @@ const GmailUserScreen = ({ onSignOut }) => (
         >
           📝 Create / Sign In to Seller Account
         </button>
-        <a href="/"
+        <a
+          href="/"
           style={{
             color:          "#9ca3af",
             textDecoration: "none",
             fontSize:       "0.9rem",
-          }}>
+          }}
+        >
           ← Back to Marketplace
         </a>
       </div>
@@ -106,24 +133,49 @@ const GmailUserScreen = ({ onSignOut }) => (
   </div>
 );
 
+// ─────────────────────────────────────────────────────────────
+// REVIEW SCREEN
+// ─────────────────────────────────────────────────────────────
 const ReviewScreen = ({ vendor }) => {
   const status = vendor?.status ?? "pending";
-  const items  = [
-    { icon:"📋", text:"Account created",
-      done: true },
-    { icon:"🏪", text:"Store setup complete",
-      done: true },
-    { icon:"🔍", text:"Documents under review",
-      done: status !== "pending" },
-    { icon:"✅", text:"Store activation",
-      done: ["approved","active"].includes(status) },
-    { icon:"🚀", text:"Start selling",
-      done: status === "active" },
+
+  const items = [
+    {
+      icon: "📋",
+      text: "Account created",
+      done: true,
+    },
+    {
+      icon: "📬",
+      text: "Email verified",
+      done: true,
+    },
+    {
+      icon: "🏪",
+      text: "Store setup complete",
+      done: true,
+    },
+    {
+      icon: "🔍",
+      text: "Documents under review",
+      done: status !== "pending",
+    },
+    {
+      icon: "✅",
+      text: "Store activation",
+      done: ["approved", "active"].includes(status),
+    },
+    {
+      icon: "🚀",
+      text: "Start selling",
+      done: status === "active",
+    },
   ];
 
   return (
     <div className="seller-card review-screen">
       <div className="review-icon">⏳</div>
+
       <h2 style={st.reviewTitle}>Application Under Review</h2>
       <p style={st.reviewDesc}>
         Our team is reviewing your application.
@@ -160,10 +212,32 @@ const ReviewScreen = ({ vendor }) => {
       <p style={st.emailNote}>
         📧 We'll notify you by email once reviewed.
       </p>
-      <a href="/" style={st.homeLink}>← Back to Marketplace</a>
+      <a href="/" style={st.homeLink}>
+        ← Back to Marketplace
+      </a>
     </div>
   );
 };
+
+// ─────────────────────────────────────────────────────────────
+// FORGOT / RESET HEADER
+// Shown instead of the main "Become a Seller" header
+// when user is in the password reset flow
+// ─────────────────────────────────────────────────────────────
+const PasswordFlowHeader = ({ step }) => (
+  <div style={st.header}>
+    <h1 style={st.title}>
+      {step === STEPS.FORGOT_PASSWORD
+        ? "Forgot Password"
+        : "Reset Password"}
+    </h1>
+    <p style={st.subtitle}>
+      {step === STEPS.FORGOT_PASSWORD
+        ? "Enter your email to receive a reset code"
+        : "Enter your reset code and new password"}
+    </p>
+  </div>
+);
 
 // ─────────────────────────────────────────────────────────────
 // MAIN
@@ -171,14 +245,12 @@ const ReviewScreen = ({ vendor }) => {
 const BecomeSeller = () => {
   const flow = useSellerFlow();
 
-  // ── 1. Still syncing with server ────────────────────────
-  // step === null means syncFromServer hasn't finished
-  // This prevents showing the wrong step for half a second
+  // ── 1. Still initializing ──────────────────────────────────
   if (flow.initializing || flow.step === null) {
     return <MountLoader />;
   }
 
-  // ── 2. Already approved → go to dashboard ───────────────
+  // ── 2. Already approved → go to dashboard ──────────────────
   if (flow.step === STEPS.APPROVED) {
     return <Navigate to="/seller/dashboard" replace />;
   }
@@ -190,47 +262,73 @@ const BecomeSeller = () => {
     return <Navigate to="/seller/dashboard" replace />;
   }
 
-  // ── 3. Marketplace/Gmail user ────────────────────────────
+  // ── 3. Marketplace / Gmail user ────────────────────────────
   if (flow.isGmailUser) {
     return (
-      <GmailUserScreen
-        onSignOut={flow.signOut}
-      />
+      <GmailUserScreen onSignOut={flow.signOut} />
     );
   }
 
-  // ── 4. Normal seller flow ────────────────────────────────
+  // ── 4. Normal seller flow ──────────────────────────────────
+  const isOutsideFlow   = OUTSIDE_FLOW.includes(flow.step);
+  const showProgressBar = !isOutsideFlow;
+
+  // Step badge counts — only count main flow steps
+  const mainFlowStep    = Math.min(flow.step, PROGRESS_STEPS.length - 1);
+
   return (
     <div className="seller-wrapper">
 
-      <div style={st.header}>
-        <h1 style={st.title}>Become a Seller</h1>
-        <p style={st.subtitle}>
-          Set up your store and start selling
-        </p>
-        <div style={st.stepBadge}>
-          Step {flow.step + 1} of {PROGRESS_STEPS.length}
+      {/* ── Header ─────────────────────────────────────── */}
+      {isOutsideFlow ? (
+        <PasswordFlowHeader step={flow.step} />
+      ) : (
+        <div style={st.header}>
+          <h1 style={st.title}>Become a Seller</h1>
+          <p style={st.subtitle}>
+            Set up your store and start selling
+          </p>
+          <div style={st.stepBadge}>
+            Step {mainFlowStep + 1} of {PROGRESS_STEPS.length}
+          </div>
         </div>
-      </div>
+      )}
 
-      <ProgressBar currentStep={flow.step} />
+      {/* ── Progress bar (main flow only) ──────────────── */}
+      {showProgressBar && (
+        <ProgressBar currentStep={flow.step} />
+      )}
 
-      {/* Server error banner */}
+      {/* ── Global server error banner ─────────────────── */}
       {flow.serverErr && (
         <div style={st.errBanner}>
           ⚠️ {flow.serverErr}
         </div>
       )}
 
-      {/* Success banner */}
+      {/* ── Global success banner ──────────────────────── */}
       {flow.serverMsg && (
         <div style={st.okBanner}>
           ✅ {flow.serverMsg}
         </div>
       )}
 
+      {/* ── Step renders ───────────────────────────────── */}
+
       {flow.step === STEPS.REGISTER && (
         <RegisterStep flow={flow} />
+      )}
+
+      {flow.step === STEPS.OTP_VERIFY && (
+        <OtpStep flow={flow} />
+      )}
+
+      {flow.step === STEPS.FORGOT_PASSWORD && (
+        <ForgotPasswordStep flow={flow} />
+      )}
+
+      {flow.step === STEPS.RESET_PASSWORD && (
+        <ResetPasswordStep flow={flow} />
       )}
 
       {flow.step === STEPS.STORE_SETUP && (
@@ -249,8 +347,14 @@ const BecomeSeller = () => {
   );
 };
 
+// ─────────────────────────────────────────────────────────────
+// STYLES
+// ─────────────────────────────────────────────────────────────
 const st = {
-  header: { textAlign:"center", marginBottom:"2rem" },
+  header: {
+    textAlign:    "center",
+    marginBottom: "2rem",
+  },
   title: {
     fontSize:             "2rem",
     fontWeight:           800,
@@ -260,7 +364,11 @@ const st = {
     margin:               0,
     lineHeight:           1.2,
   },
-  subtitle: { color:"#6b7280", marginTop:"0.5rem", fontSize:"0.95rem" },
+  subtitle: {
+    color:     "#6b7280",
+    marginTop: "0.5rem",
+    fontSize:  "0.95rem",
+  },
   stepBadge: {
     display:      "inline-block",
     marginTop:    "0.75rem",
@@ -288,20 +396,28 @@ const st = {
     borderRadius: "50%",
     animation:    "spin 0.8s linear infinite",
   },
-  loaderText: { color:"#9ca3af", fontWeight:500, margin:0 },
+  loaderText: {
+    color:      "#9ca3af",
+    fontWeight: 500,
+    margin:     0,
+  },
   reviewTitle: {
-    fontSize:  "1.75rem",
-    fontWeight:800,
-    color:     "#1f2937",
-    margin:    "0 0 0.25rem",
+    fontSize:   "1.75rem",
+    fontWeight: 800,
+    color:      "#1f2937",
+    margin:     "0 0 0.25rem",
   },
   reviewDesc: {
-    color:     "#6b7280",
-    marginTop: "0.75rem",
-    lineHeight:1.6,
-    fontSize:  "0.9rem",
+    color:      "#6b7280",
+    marginTop:  "0.75rem",
+    lineHeight: 1.6,
+    fontSize:   "0.9rem",
   },
-  emailNote: { color:"#9ca3af", fontSize:"0.875rem", marginTop:"1.5rem" },
+  emailNote: {
+    color:     "#9ca3af",
+    fontSize:  "0.875rem",
+    marginTop: "1.5rem",
+  },
   rejectionBox: {
     background:   "#fef2f2",
     border:       "1px solid #fecaca",
