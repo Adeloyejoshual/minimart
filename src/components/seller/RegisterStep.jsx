@@ -4,10 +4,10 @@ import axios from "axios";
 import { STEPS, SELLER_TOKEN_KEY } from "../../hooks/useSellerFlow";
 
 // ─────────────────────────────────────────────────────────────
-// TOKEN HELPERS — must match useSellerFlow + SellerDashboard
+// TOKEN HELPERS
 // ─────────────────────────────────────────────────────────────
-const getToken   = ()    => localStorage.getItem(SELLER_TOKEN_KEY);
-const saveToken  = (t)   => localStorage.setItem(SELLER_TOKEN_KEY, t);
+const getToken  = ()    => localStorage.getItem(SELLER_TOKEN_KEY);
+const saveToken = (t)   => localStorage.setItem(SELLER_TOKEN_KEY, t);
 
 // ─────────────────────────────────────────────────────────────
 // Map vendor status → step
@@ -96,7 +96,13 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
 
       <div style={s.form}>
 
-        <Field label="Full Name" icon="👤" required error={errors.name}>
+        {/* Full Name */}
+        <Field
+          label="Full Name"
+          icon="👤"
+          required
+          error={errors.name}
+        >
           <input
             name="name"
             type="text"
@@ -109,7 +115,13 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           />
         </Field>
 
-        <Field label="Email Address" icon="📧" required error={errors.email}>
+        {/* Email */}
+        <Field
+          label="Email Address"
+          icon="📧"
+          required
+          error={errors.email}
+        >
           <input
             name="email"
             type="email"
@@ -121,6 +133,7 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           />
         </Field>
 
+        {/* Phone */}
         <Field
           label="Phone Number"
           icon="📱"
@@ -139,7 +152,13 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           />
         </Field>
 
-        <Field label="Password" icon="🔒" required error={errors.password}>
+        {/* Password */}
+        <Field
+          label="Password"
+          icon="🔒"
+          required
+          error={errors.password}
+        >
           <div style={s.passwordWrap}>
             <input
               name="password"
@@ -164,6 +183,7 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           )}
         </Field>
 
+        {/* Confirm Password */}
         <Field
           label="Confirm Password"
           icon="🔒"
@@ -178,7 +198,9 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
               onChange={handleRegisterChange}
               placeholder="Repeat your password"
               autoComplete="new-password"
-              className={`seller-input ${errors.confirm_password ? "error" : ""}`}
+              className={`seller-input ${
+                errors.confirm_password ? "error" : ""
+              }`}
               style={{ paddingRight: "3rem" }}
             />
             <EyeBtn
@@ -194,19 +216,22 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
           )}
         </Field>
 
+        {/* Server messages */}
         {serverErr && <ServerAlert msg={serverErr} isError />}
         {serverMsg && <ServerAlert msg={serverMsg} />}
 
+        {/* Submit */}
         <button
           onClick={submitRegister}
           disabled={loading}
           className="btn-seller-primary"
         >
           {loading
-            ? <><Spinner /> Creating Account...</>
+            ? <><Spinner /> Creating Account…</>
             : "Create Account & Continue →"}
         </button>
 
+        {/* Switch to sign in */}
         <p style={s.switchText}>
           Already have a seller account?{" "}
           <button
@@ -227,7 +252,7 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
 // SIGN IN FORM
 // ══════════════════════════════════════════════════════════════
 const SignInForm = ({ flow, onSwitchToRegister }) => {
-  const { setStep, setVendorData } = flow;
+  const { setStep, setVendorData, setPendingEmail } = flow;
 
   const [formData,     setFormData]     = useState({ email: "", password: "" });
   const [errors,       setErrors]       = useState({});
@@ -268,7 +293,7 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
     setIsError(false);
 
     try {
-      // ── Step 1: Login ──────────────────────────────────
+      // ── Step 1: Login ────────────────────────────────────
       const { data: loginData } = await axios.post(
         "/api/auth/login",
         {
@@ -283,45 +308,37 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
         return;
       }
 
-      // ✅ CRITICAL FIX: save as "seller_token" not "token"
-      // This is what SellerDashboard reads via getSellerToken()
       saveToken(loginData.token);
 
-      // ── Step 2: Fetch vendor status ────────────────────
+      // ── Step 2: Fetch vendor status ──────────────────────
       try {
         const { data: statusData } = await axios.get(
           "/api/seller-onboarding/status",
           {
-            headers:  { Authorization: `Bearer ${loginData.token}` },
-            timeout:  10_000,
+            headers: { Authorization: `Bearer ${loginData.token}` },
+            timeout: 10_000,
           }
         );
 
         if (statusData?.vendor) {
           const { status } = statusData.vendor;
 
-          // Update vendor data in parent hook
           if (typeof setVendorData === "function") {
             setVendorData(statusData.vendor);
           }
 
-          // Approved / active → navigate to dashboard
           if (["active", "approved"].includes(status)) {
             setServerMsg("Welcome back! Redirecting to dashboard…");
-            // Small delay so user sees the message
             setTimeout(() => {
               window.location.replace("/seller/dashboard");
             }, 800);
             return;
           }
 
-          // Other statuses → go to correct step
-          const nextStep =
-            STATUS_TO_STEP[status] ?? STEPS.STORE_SETUP;
+          const nextStep = STATUS_TO_STEP[status] ?? STEPS.STORE_SETUP;
           setStep(nextStep);
 
         } else {
-          // No vendor yet → store setup
           setStep(STEPS.STORE_SETUP);
         }
 
@@ -330,11 +347,18 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
         const code       = statusErr.response?.data?.code;
 
         if (httpStatus === 404) {
-          // Logged in, no vendor yet
           setStep(STEPS.STORE_SETUP);
+
+        } else if (httpStatus === 403 && code === "EMAIL_NOT_VERIFIED") {
+          // Email not verified → go to OTP screen
+          const email = statusErr.response?.data?.email
+            ?? formData.email.trim().toLowerCase();
+          if (typeof setPendingEmail === "function") {
+            setPendingEmail(email);
+          }
+          setStep(STEPS.OTP_VERIFY);
+
         } else if (httpStatus === 403 && code === "NOT_SELLER_ACCOUNT") {
-          // They logged in with a marketplace account
-          // Clear the wrong token and show error
           localStorage.removeItem(SELLER_TOKEN_KEY);
           setIsError(true);
           setServerMsg(
@@ -342,18 +366,28 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
             + "Please create a separate seller account."
           );
         } else {
-          // Status check failed — still go to store setup
           console.warn("[SignIn] status check failed:", statusErr.message);
           setStep(STEPS.STORE_SETUP);
         }
       }
 
     } catch (err) {
-      const msg = err.response?.data?.message;
+      const msg    = err.response?.data?.message;
       const status = err.response?.status;
+      const code   = err.response?.data?.code;
 
       if (status === 401) {
         setServerMsg("Incorrect email or password.");
+      } else if (status === 403 && code === "EMAIL_NOT_VERIFIED") {
+        // Login blocked — not verified yet
+        // Push to OTP screen
+        const email = err.response?.data?.email
+          ?? formData.email.trim().toLowerCase();
+        if (typeof setPendingEmail === "function") {
+          setPendingEmail(email);
+        }
+        setStep(STEPS.OTP_VERIFY);
+        return;
       } else if (status === 403) {
         setServerMsg(
           "Access denied. Make sure you are using your seller credentials."
@@ -362,6 +396,7 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
         setServerMsg(msg ?? "Sign in failed. Please try again.");
       }
       setIsError(true);
+
     } finally {
       setLoading(false);
     }
@@ -383,7 +418,13 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
 
       <div style={s.form}>
 
-        <Field label="Email Address" icon="📧" required error={errors.email}>
+        {/* Email */}
+        <Field
+          label="Email Address"
+          icon="📧"
+          required
+          error={errors.email}
+        >
           <input
             name="email"
             type="email"
@@ -397,7 +438,13 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           />
         </Field>
 
-        <Field label="Password" icon="🔒" required error={errors.password}>
+        {/* Password */}
+        <Field
+          label="Password"
+          icon="🔒"
+          required
+          error={errors.password}
+        >
           <div style={s.passwordWrap}>
             <input
               name="password"
@@ -417,26 +464,34 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           </div>
         </Field>
 
+        {/* Forgot password — triggers inline flow */}
         <div style={{ textAlign: "right", marginTop: "-0.5rem" }}>
-          <a href="/forgot-password" style={s.forgotLink}>
+          <button
+            type="button"
+            style={s.forgotBtn}
+            onClick={() => setStep(STEPS.FORGOT_PASSWORD)}
+          >
             Forgot password?
-          </a>
+          </button>
         </div>
 
+        {/* Server message */}
         {serverMsg && (
           <ServerAlert msg={serverMsg} isError={isError} />
         )}
 
+        {/* Submit */}
         <button
           onClick={handleSignIn}
           disabled={loading}
           className="btn-seller-primary"
         >
           {loading
-            ? <><Spinner /> Signing In...</>
+            ? <><Spinner /> Signing In…</>
             : "Sign In & Continue →"}
         </button>
 
+        {/* Switch to register */}
         <p style={s.switchText}>
           Don't have a seller account?{" "}
           <button
@@ -448,6 +503,7 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           </button>
         </p>
 
+        {/* Info note */}
         <div style={s.noteBox}>
           <p style={s.noteText}>
             🔒 <strong>Seller accounts are separate</strong> from
@@ -516,9 +572,9 @@ const StrengthMeter = ({ strength }) => (
 
 const MatchIndicator = ({ a, b }) => (
   <span style={{
-    fontSize:  "0.8rem",
-    fontWeight:500,
-    color:     a === b ? "#10b981" : "#ef4444",
+    fontSize:   "0.8rem",
+    fontWeight: 500,
+    color:      a === b ? "#10b981" : "#ef4444",
   }}>
     {a === b ? "✓ Passwords match" : "✗ Passwords do not match"}
   </span>
@@ -565,15 +621,15 @@ const ServerAlert = ({ msg, isError }) => {
 
 const Spinner = () => (
   <span style={{
-    width:        "18px",
-    height:       "18px",
-    border:       "3px solid rgba(255,255,255,0.3)",
-    borderTop:    "3px solid white",
-    borderRadius: "50%",
-    display:      "inline-block",
-    animation:    "spin 0.7s linear infinite",
-    marginRight:  "0.4rem",
-    verticalAlign:"middle",
+    width:         "18px",
+    height:        "18px",
+    border:        "3px solid rgba(255,255,255,0.3)",
+    borderTop:     "3px solid white",
+    borderRadius:  "50%",
+    display:       "inline-block",
+    animation:     "spin 0.7s linear infinite",
+    marginRight:   "0.4rem",
+    verticalAlign: "middle",
   }} />
 );
 
@@ -587,12 +643,12 @@ const s = {
     paddingBottom: "1.5rem",
     borderBottom:  "1px solid #f3f4f6",
   },
-  headerIcon:   { fontSize: "3rem", marginBottom: "0.75rem" },
-  cardTitle:    {
-    fontSize:  "1.5rem",
-    fontWeight:800,
-    color:     "#1f2937",
-    margin:    0,
+  headerIcon: { fontSize: "3rem", marginBottom: "0.75rem" },
+  cardTitle: {
+    fontSize:   "1.5rem",
+    fontWeight: 800,
+    color:      "#1f2937",
+    margin:     0,
   },
   cardSubtitle: {
     color:     "#6b7280",
@@ -662,10 +718,15 @@ const s = {
     textDecoration: "underline",
     fontFamily:     "inherit",
   },
-  forgotLink: {
+  forgotBtn: {
+    background:     "none",
+    border:         "none",
     color:          "#6366f1",
     fontSize:       "0.85rem",
     fontWeight:     600,
+    cursor:         "pointer",
+    padding:        0,
+    fontFamily:     "inherit",
     textDecoration: "none",
   },
   noteBox: {
@@ -675,10 +736,10 @@ const s = {
     padding:      "0.875rem 1rem",
   },
   noteText: {
-    color:     "#92400e",
-    fontSize:  "0.82rem",
-    lineHeight:1.5,
-    margin:    0,
+    color:      "#92400e",
+    fontSize:   "0.82rem",
+    lineHeight: 1.5,
+    margin:     0,
   },
 };
 
