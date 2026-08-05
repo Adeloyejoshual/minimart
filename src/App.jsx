@@ -85,9 +85,11 @@ import ProductDetailDesktop from "./desktop/ProductDetailDesktop";
 import MarketDetail         from "./pages/MarketDetail";
 import SellerProfile        from "./pages/SellerProfile";
 import TermsAndConditions   from "./pages/TermsAndConditions";
-import MinimartPage         from "./pages/MinimartPage";
 import P2P                  from "./pages/P2P";
 import MenuPage             from "./pages/MenuPage";
+
+/* Minimart now points at the new loemart HomePage */
+import HomePage              from "./loemart/HomePage";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — LEGAL
@@ -739,7 +741,7 @@ function AppInner() {
         <Route path="/terms"
           element={<TermsAndConditions />} />
         <Route path="/minimart"
-          element={<MinimartPage  user={user} />} />
+          element={<HomePage      user={user} />} />
         <Route path="/p2p"
           element={<P2P           user={user} />} />
         <Route path="/menu"
