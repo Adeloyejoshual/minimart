@@ -85,11 +85,14 @@ import ProductDetailDesktop from "./desktop/ProductDetailDesktop";
 import MarketDetail         from "./pages/MarketDetail";
 import SellerProfile        from "./pages/SellerProfile";
 import TermsAndConditions   from "./pages/TermsAndConditions";
+import MinimartPage         from "./pages/MinimartPage";
 import P2P                  from "./pages/P2P";
 import MenuPage             from "./pages/MenuPage";
 
-/* Minimart now points at the new loemart HomePage */
-import HomePage              from "./loemart/HomePage";
+/* ════════════════════════════════════════════════════════════
+   PAGES — LOEMART
+════════════════════════════════════════════════════════════ */
+import HomePage from "./loemart/HomePage";
 
 /* ════════════════════════════════════════════════════════════
    PAGES — LEGAL
@@ -741,7 +744,7 @@ function AppInner() {
         <Route path="/terms"
           element={<TermsAndConditions />} />
         <Route path="/minimart"
-          element={<HomePage      user={user} />} />
+          element={<MinimartPage  user={user} />} />
         <Route path="/p2p"
           element={<P2P           user={user} />} />
         <Route path="/menu"
@@ -752,6 +755,10 @@ function AppInner() {
           element={<CommunityGuidelines />} />
         <Route path="/hall-of-fame"
           element={<HallOfFame />} />
+
+        {/* ── LOEMART ── */}
+        <Route path="/loemart"
+          element={<HomePage user={user} />} />
 
         {/* ── HOMEPAGE SUB-PAGES ── */}
         <Route path="/trending"
