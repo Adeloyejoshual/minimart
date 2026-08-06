@@ -80,7 +80,7 @@ export const getCache = (key) => {
   return item.value;
 };
 
-export const deleteCache  = (key)    => _cache.delete(key);
+export const deleteCache       = (key)    => _cache.delete(key);
 
 export const clearCachePattern = (prefix) => {
   for (const key of _cache.keys())
@@ -198,6 +198,7 @@ import checkoutRouter                   from "./routes/checkout/index.js";
 import authRouter           from "./routes/auth.routes.js";
 import forgotPasswordRouter from "./routes/forgotPassword.js";
 import resetPasswordRouter  from "./routes/resetPassword.js";
+import sellerAuthRouter     from "./routes/sellerAuth.routes.js"; // ← NEW
 
 /* ── Seller ── */
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
@@ -240,7 +241,7 @@ import leaderboardRoutes   from "./routes/leaderboard.js";
 import favoritesRouter     from "./routes/favorites.js";
 import subscriptionRouter  from "./routes/subscription/index.js";
 
-/* ── Airtime — import router AND initSchema from the same file ── */
+/* ── Airtime ── */
 import airtimeCouponRoutes, { initSchema as initAirtimeSchema }
   from "./routes/airtimeCoupons.js";
 
@@ -358,10 +359,19 @@ app.use(globalLimiter);
 app.use("/api/payment",  paymentRouter);
 app.use("/api/checkout", checkoutRouter);
 
-/* ── Auth ── */
+/* ── Auth ──────────────────────────────────────────────────
+   Order matters:
+   - authRouter           → marketplace auth (public.users)
+   - forgotPasswordRouter → marketplace forgot password
+   - resetPasswordRouter  → marketplace reset password
+   - sellerAuthRouter     → seller auth (market.users) ← NEW
+   All share the /api/auth prefix.
+   sellerAuthRouter is last to avoid shadowing marketplace routes.
+─────────────────────────────────────────────────────────── */
 app.use("/api/auth", authRouter);
 app.use("/api/auth", forgotPasswordRouter);
 app.use("/api/auth", resetPasswordRouter);
+app.use("/api/auth", sellerAuthRouter);              // ← NEW
 
 /* ── Users ── */
 app.use("/api/users",        userRouter);
@@ -582,11 +592,10 @@ process.on("uncaughtException",  (err) => {
 });
 
 /* ════════════════════════════════════════════════════════════
-   START — everything that must complete before accepting
-   requests is awaited here, in order, before server.listen()
+   START
 ════════════════════════════════════════════════════════════ */
 async function start() {
-  /* ── 1. Verify DB reachability ── */
+  /* ── 1. Verify DB ── */
   try {
     const { rows } = await pool.query("SELECT version()");
     console.log("✅ CockroachDB:", rows[0].version.split(" ")[0]);
@@ -595,19 +604,11 @@ async function start() {
     process.exit(1);
   }
 
-  /* ── 2. Schema initializations ──
-        Add any other route initSchema() calls here.
-        All must resolve before the HTTP server opens.
-  ── */
+  /* ── 2. Schema initializations ── */
   try {
     await initAirtimeSchema();
     console.log("✅ [airtime] schema ready");
   } catch (err) {
-    /*
-     * A schema init failure is fatal in production — we would rather
-     * crash loudly at startup than serve 503s to every user.
-     * In development, log and continue so work is not blocked.
-     */
     if (IS_PROD) {
       console.error("❌ [airtime] schema init failed — aborting:", err.message);
       process.exit(1);
@@ -656,14 +657,22 @@ async function start() {
     console.log("✅ [cron] Inactive users      → daily 09:00 UTC");
   })();
 
-  /* ── 5. Open the HTTP server LAST ── */
+  /* ── 5. Start server ── */
   server.listen(PORT, () => {
     const env = process.env.NODE_ENV || "development";
     console.log(`\n🚀 Loemart server  |  port=${PORT}  |  env=${env}`);
 
     console.log(`
   ── Auth ───────────────────────────────────────────
-    /api/auth
+    /api/auth                       (marketplace)
+    POST /api/auth/register         (seller)
+    POST /api/auth/verify-email     (seller)
+    POST /api/auth/resend-verification (seller)
+    POST /api/auth/login            (seller)
+    POST /api/auth/forgot-password  (seller)
+    POST /api/auth/verify-reset-code (seller)
+    POST /api/auth/reset-password   (seller)
+    GET  /api/auth/me               (seller)
 
   ── Settings ───────────────────────────────────────
     GET    /api/settings/profile
