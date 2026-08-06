@@ -1,18 +1,23 @@
 // hooks/useSellerFlow.js
+// ─────────────────────────────────────────────────────────────
+// Central state machine for the seller onboarding flow.
+//
+// Auth endpoints   → /api/seller-auth   (market.users)
+// Onboarding       → /api/seller-onboarding
+//
+// NEVER touches /api/auth or public.users
+// ─────────────────────────────────────────────────────────────
 import { useState, useCallback, useEffect, useRef } from "react";
 import axios from "axios";
 
 // ─────────────────────────────────────────────────────────────
-// API BASE
-// Seller auth is on a separate prefix from marketplace auth.
-// Marketplace: /api/auth          → public.users
-// Seller:      /api/seller-auth   → market.users
+// CONSTANTS
 // ─────────────────────────────────────────────────────────────
-const AUTH_API = "/api/seller-auth";
+const AUTH_API       = "/api/seller-auth";
+const ONBOARDING_API = "/api/seller-onboarding";
 
-// ─────────────────────────────────────────────────────────────
-// STEPS
-// ─────────────────────────────────────────────────────────────
+export const SELLER_TOKEN_KEY = "seller_token";
+
 export const STEPS = {
   REGISTER:           0,
   OTP_VERIFY:         1,
@@ -25,7 +30,7 @@ export const STEPS = {
   RESET_NEW_PASSWORD: 8,
 };
 
-// Map vendor DB status → step
+// Vendor DB status → UI step
 const STATUS_TO_STEP = {
   pending:      STEPS.VERIFICATION,
   under_review: STEPS.REVIEW,
@@ -35,18 +40,6 @@ const STATUS_TO_STEP = {
   suspended:    STEPS.APPROVED,
 };
 
-// ─────────────────────────────────────────────────────────────
-// TOKEN HELPERS
-// ─────────────────────────────────────────────────────────────
-export const SELLER_TOKEN_KEY = "seller_token";
-
-const getToken   = ()  => localStorage.getItem(SELLER_TOKEN_KEY);
-const saveToken  = (t) => localStorage.setItem(SELLER_TOKEN_KEY, t);
-const clearToken = ()  => localStorage.removeItem(SELLER_TOKEN_KEY);
-
-// ─────────────────────────────────────────────────────────────
-// STORE CATEGORIES
-// ─────────────────────────────────────────────────────────────
 export const STORE_CATEGORIES = [
   "Electronics",
   "Fashion & Apparel",
@@ -61,9 +54,16 @@ export const STORE_CATEGORIES = [
 ];
 
 // ─────────────────────────────────────────────────────────────
-// INITIAL STATE
+// TOKEN HELPERS
 // ─────────────────────────────────────────────────────────────
-const INITIAL_REGISTER_DATA = {
+const getToken   = ()    => localStorage.getItem(SELLER_TOKEN_KEY);
+const saveToken  = (tok) => localStorage.setItem(SELLER_TOKEN_KEY, tok);
+const clearToken = ()    => localStorage.removeItem(SELLER_TOKEN_KEY);
+
+// ─────────────────────────────────────────────────────────────
+// INITIAL STATE SHAPES
+// ─────────────────────────────────────────────────────────────
+const INIT_REGISTER = {
   name:             "",
   email:            "",
   phone:            "",
@@ -71,7 +71,7 @@ const INITIAL_REGISTER_DATA = {
   confirm_password: "",
 };
 
-const INITIAL_STORE_DATA = {
+const INIT_STORE = {
   store_name:        "",
   store_description: "",
   store_category:    "",
@@ -84,7 +84,7 @@ const INITIAL_STORE_DATA = {
   account_name:      "",
 };
 
-const INITIAL_VERIFY_DATA = {
+const INIT_VERIFY = {
   id_card:       null,
   id_card_back:  null,
   selfie:        null,
@@ -96,19 +96,44 @@ const INITIAL_VERIFY_DATA = {
 };
 
 // ─────────────────────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────────────────────
+const EMAIL_RX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const PHONE_RX = /^\+?[\d\s\-()]{7,15}$/;
+
+/** Extract a user-facing message from an axios error */
+const apiMsg = (err, fallback) =>
+  err?.response?.data?.message ?? fallback;
+
+/** Extract error code from an axios error */
+const apiCode = (err) =>
+  err?.response?.data?.code ?? null;
+
+/** Extract HTTP status from an axios error */
+const httpStatus = (err) =>
+  err?.response?.status ?? 0;
+
+// ─────────────────────────────────────────────────────────────
 // HOOK
 // ─────────────────────────────────────────────────────────────
 export const useSellerFlow = () => {
 
-  const [step,              setStep]              = useState(null);
-  const [registerData,      setRegisterData]      = useState(INITIAL_REGISTER_DATA);
-  const [storeData,         setStoreData]         = useState(INITIAL_STORE_DATA);
-  const [verifyData,        setVerifyData]        = useState(INITIAL_VERIFY_DATA);
-  const [errors,            setErrors]            = useState({});
-  const [loading,           setLoading]           = useState(false);
-  const [initializing,      setInitializing]      = useState(true);
-  const [serverMsg,         setServerMsg]         = useState("");
-  const [serverErr,         setServerErr]         = useState("");
+  // ── Core UI state ─────────────────────────────────────────
+  const [step,         setStepRaw]    = useState(null);
+  const [initializing, setInitializing] = useState(true);
+  const [loading,      setLoading]    = useState(false);
+
+  // ── Form data ─────────────────────────────────────────────
+  const [registerData, setRegisterData] = useState(INIT_REGISTER);
+  const [storeData,    setStoreData]    = useState(INIT_STORE);
+  const [verifyData,   setVerifyData]   = useState(INIT_VERIFY);
+
+  // ── Feedback ──────────────────────────────────────────────
+  const [errors,    setErrors]    = useState({});
+  const [serverMsg, setServerMsg] = useState("");
+  const [serverErr, setServerErr] = useState("");
+
+  // ── Misc ──────────────────────────────────────────────────
   const [previewLogo,       setPreviewLogo]       = useState(null);
   const [vendorData,        setVendorData]        = useState(null);
   const [showPassword,      setShowPassword]      = useState(false);
@@ -117,85 +142,91 @@ export const useSellerFlow = () => {
   const [pendingEmail,      setPendingEmail]      = useState("");
   const [verifiedResetCode, setVerifiedResetCode] = useState("");
 
+  // Prevent double-sync on StrictMode double-mount
   const syncedRef = useRef(false);
 
-  // ── Clear messages whenever step changes ──────────────────
-  useEffect(() => {
-    if (step === null) return;
+  // ── Step setter — clears feedback on every navigation ─────
+  // FIX: previously a useEffect on `step` wiped the success
+  // message set by submitNewPassword's setTimeout because the
+  // effect ran after setState, so the message was gone before
+  // the user saw it. Now we control clearing explicitly here.
+  const setStep = useCallback((nextStep, opts = {}) => {
+    const { keepMsg = false } = opts;
+    setStepRaw(nextStep);
+    setErrors({});
+    if (!keepMsg) {
+      setServerMsg("");
+      setServerErr("");
+    }
+  }, []);
+
+  // Expose a plain clearMessages helper for components
+  const clearMessages = useCallback(() => {
     setServerMsg("");
     setServerErr("");
     setErrors({});
-  }, [step]);
+  }, []);
 
   // ─────────────────────────────────────────────────────────
-  // MOUNT — sync step from server
+  // MOUNT — sync step from server token
   // ─────────────────────────────────────────────────────────
   useEffect(() => {
     if (syncedRef.current) return;
     syncedRef.current = true;
 
     const syncFromServer = async () => {
-      const t = getToken();
+      const tok = getToken();
 
-      // No token — show register immediately, skip API call
-      if (!t) {
-        setStep(STEPS.REGISTER);
+      // No token → straight to register
+      if (!tok) {
+        setStepRaw(STEPS.REGISTER);
         setInitializing(false);
         return;
       }
 
       try {
         const { data } = await axios.get(
-          "/api/seller-onboarding/status",
+          `${ONBOARDING_API}/status`,
           {
-            headers: { Authorization: `Bearer ${t}` },
+            headers: { Authorization: `Bearer ${tok}` },
             timeout: 10_000,
           }
         );
 
         if (data?.vendor) {
           setVendorData(data.vendor);
-          const restored = STATUS_TO_STEP[data.vendor.status];
-          setStep(restored ?? STEPS.STORE_SETUP);
+          setStepRaw(STATUS_TO_STEP[data.vendor.status] ?? STEPS.STORE_SETUP);
         } else {
-          // Valid token, no vendor yet
-          setStep(STEPS.STORE_SETUP);
+          // Valid token, no vendor record yet
+          setStepRaw(STEPS.STORE_SETUP);
         }
 
       } catch (err) {
-        const httpStatus = err.response?.status;
-        const code       = err.response?.data?.code;
+        const status = httpStatus(err);
+        const code   = apiCode(err);
 
-        if (
-          httpStatus === 401 ||
-          code === "INVALID_TOKEN" ||
-          code === "TOKEN_EXPIRED"
-        ) {
-          // Stale token → clear + show register
+        if (status === 401 || code === "INVALID_TOKEN" || code === "TOKEN_EXPIRED") {
           clearToken();
-          setStep(STEPS.REGISTER);
+          setStepRaw(STEPS.REGISTER);
 
-        } else if (httpStatus === 403 && code === "NOT_SELLER_ACCOUNT") {
-          // Marketplace account tried to use seller routes
+        } else if (status === 403 && code === "NOT_SELLER_ACCOUNT") {
           clearToken();
           setIsGmailUser(true);
-          setStep(STEPS.REGISTER);
+          setStepRaw(STEPS.REGISTER);
 
-        } else if (httpStatus === 403 && code === "EMAIL_NOT_VERIFIED") {
-          // Has token but email not verified yet
-          const email = err.response?.data?.email ?? "";
-          setPendingEmail(email);
-          setStep(STEPS.OTP_VERIFY);
+        } else if (status === 403 && code === "EMAIL_NOT_VERIFIED") {
+          setPendingEmail(err.response?.data?.email ?? "");
+          setStepRaw(STEPS.OTP_VERIFY);
 
-        } else if (httpStatus === 404) {
-          // Valid token, no vendor record yet
-          setStep(STEPS.STORE_SETUP);
+        } else if (status === 404) {
+          // Token valid, no vendor yet
+          setStepRaw(STEPS.STORE_SETUP);
 
         } else {
-          // Network error / 500 — clear token, restart
+          // Network / 500 — clear and restart
           console.warn("[useSellerFlow] sync error:", err.message);
           clearToken();
-          setStep(STEPS.REGISTER);
+          setStepRaw(STEPS.REGISTER);
         }
 
       } finally {
@@ -204,17 +235,17 @@ export const useSellerFlow = () => {
     };
 
     syncFromServer();
-  }, []);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────
-  // SIGN OUT
+  // SIGN OUT — full reset
   // ─────────────────────────────────────────────────────────
   const signOut = useCallback(() => {
     clearToken();
-    setStep(STEPS.REGISTER);
-    setRegisterData(INITIAL_REGISTER_DATA);
-    setStoreData(INITIAL_STORE_DATA);
-    setVerifyData(INITIAL_VERIFY_DATA);
+    setStepRaw(STEPS.REGISTER);
+    setRegisterData(INIT_REGISTER);
+    setStoreData(INIT_STORE);
+    setVerifyData(INIT_VERIFY);
     setVendorData(null);
     setErrors({});
     setServerMsg("");
@@ -234,51 +265,54 @@ export const useSellerFlow = () => {
   // ─────────────────────────────────────────────────────────
   const handleRegisterChange = useCallback((e) => {
     const { name, value } = e.target;
-    setRegisterData((p) => ({ ...p, [name]: value }));
-    setErrors((p)       => ({ ...p, [name]: ""    }));
+    setRegisterData((prev) => ({ ...prev, [name]: value }));
+    setErrors((prev)       => ({ ...prev, [name]: "" }));
     setServerErr("");
   }, []);
 
   const handleStoreChange = useCallback((e) => {
     const { name, value, files } = e.target;
+
     if (files?.[0]) {
       const file = files[0];
-      setStoreData((p) => ({ ...p, [name]: file }));
+      setStoreData((prev) => ({ ...prev, [name]: file }));
+
       if (name === "store_logo") {
         const reader = new FileReader();
         reader.onloadend = () => setPreviewLogo(reader.result);
         reader.readAsDataURL(file);
       }
     } else {
-      setStoreData((p) => ({ ...p, [name]: value }));
+      setStoreData((prev) => ({ ...prev, [name]: value }));
     }
-    setErrors((p) => ({ ...p, [name]: "" }));
+
+    setErrors((prev) => ({ ...prev, [name]: "" }));
     setServerErr("");
   }, []);
 
   const handleVerifyChange = useCallback((e) => {
     const { name, value, files } = e.target;
+
     if (files?.[0]) {
-      setVerifyData((p) => ({ ...p, [name]: files[0] }));
+      setVerifyData((prev) => ({ ...prev, [name]: files[0] }));
     } else if (value !== undefined) {
-      setVerifyData((p) => ({ ...p, [name]: value }));
+      setVerifyData((prev) => ({ ...prev, [name]: value }));
     }
-    setErrors((p) => ({ ...p, [name]: "" }));
+
+    setErrors((prev) => ({ ...prev, [name]: "" }));
     setServerErr("");
   }, []);
 
   const setBankField = useCallback((field, value) => {
-    setStoreData((p) => ({ ...p, [field]: value }));
-    setErrors((p)   => ({ ...p, [field]: "" }));
+    setStoreData((prev) => ({ ...prev, [field]: value }));
+    setErrors((prev)   => ({ ...prev, [field]: "" }));
   }, []);
 
   // ─────────────────────────────────────────────────────────
   // VALIDATION
   // ─────────────────────────────────────────────────────────
   const validateRegister = () => {
-    const e       = {};
-    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const phoneRx = /^\+?[\d\s\-()]{7,15}$/;
+    const e = {};
 
     if (!registerData.name.trim())
       e.name = "Full name is required";
@@ -287,22 +321,22 @@ export const useSellerFlow = () => {
 
     if (!registerData.email.trim())
       e.email = "Email is required";
-    else if (!emailRx.test(registerData.email))
+    else if (!EMAIL_RX.test(registerData.email.trim()))
       e.email = "Enter a valid email address";
 
     if (!registerData.phone.trim())
       e.phone = "Phone number is required";
-    else if (!phoneRx.test(registerData.phone))
-      e.phone = "Enter a valid phone number";
+    else if (!PHONE_RX.test(registerData.phone.trim()))
+      e.phone = "Enter a valid phone number (e.g. +234 800 000 0000)";
 
     if (!registerData.password)
       e.password = "Password is required";
     else if (registerData.password.length < 8)
-      e.password = "At least 8 characters";
+      e.password = "At least 8 characters required";
     else if (!/[A-Z]/.test(registerData.password))
-      e.password = "Must contain one uppercase letter";
+      e.password = "Must contain at least one uppercase letter";
     else if (!/\d/.test(registerData.password))
-      e.password = "Must contain one number";
+      e.password = "Must contain at least one number";
 
     if (!registerData.confirm_password)
       e.confirm_password = "Please confirm your password";
@@ -318,8 +352,8 @@ export const useSellerFlow = () => {
 
     if (!storeData.store_name.trim())
       e.store_name = "Store name is required";
-    else if (storeData.store_name.length > 100)
-      e.store_name = "Max 100 characters";
+    else if (storeData.store_name.trim().length > 100)
+      e.store_name = "Store name must be under 100 characters";
 
     if (!storeData.store_category)
       e.store_category = "Please select a category";
@@ -351,25 +385,23 @@ export const useSellerFlow = () => {
     if (!verifyData.id_number?.trim()) {
       e.id_number = "ID number is required";
     } else {
-      const ID_DIGITS = {
-        nin: 11, passport: 9, drivers: 12, voters: 19,
-      };
       const cleaned  = verifyData.id_number.replace(/\s/g, "").toUpperCase();
-      const expected = ID_DIGITS[verifyData.id_type];
+      const ID_RULES = {
+        nin:      { digits: 11,  label: "NIN" },
+        passport: { digits: 9,   label: "Passport", alphanumeric: true },
+        drivers:  { digits: 12,  label: "Driver's Licence" },
+        voters:   { digits: 19,  label: "Voter's Card" },
+      };
+      const rule = ID_RULES[verifyData.id_type];
 
-      if (verifyData.id_type === "passport") {
-        if (!/^[A-Z0-9]{9}$/.test(cleaned))
-          e.id_number = "Passport must be 9 characters";
-      } else if (expected) {
-        const actual = cleaned.replace(/\D/g, "").length;
-        if (actual !== expected) {
-          const labels = {
-            nin:     "NIN",
-            drivers: "Driver's Licence",
-            voters:  "Voter's Card",
-          };
-          e.id_number =
-            `${labels[verifyData.id_type]} must be ${expected} digits`;
+      if (rule) {
+        if (rule.alphanumeric) {
+          if (!/^[A-Z0-9]{9}$/.test(cleaned))
+            e.id_number = "Passport must be 9 alphanumeric characters";
+        } else {
+          const digitCount = cleaned.replace(/\D/g, "").length;
+          if (digitCount !== rule.digits)
+            e.id_number = `${rule.label} must be ${rule.digits} digits`;
         }
       }
     }
@@ -391,8 +423,9 @@ export const useSellerFlow = () => {
   // API: REGISTER
   // POST /api/seller-auth/register → market.users
   // ─────────────────────────────────────────────────────────
-  const submitRegister = async () => {
+  const submitRegister = useCallback(async () => {
     if (!validateRegister()) return;
+
     setLoading(true);
     setServerMsg("");
     setServerErr("");
@@ -403,50 +436,54 @@ export const useSellerFlow = () => {
         email:    registerData.email.trim().toLowerCase(),
         phone:    registerData.phone.trim(),
         password: registerData.password,
+        // Never trim password — hash must match exactly
       });
 
-      setPendingEmail(registerData.email.trim().toLowerCase());
+      const email = registerData.email.trim().toLowerCase();
+      setPendingEmail(email);
+      setStep(STEPS.OTP_VERIFY, { keepMsg: true });
       setServerMsg(
         data.message ??
-        "Account created! Check your email for the verification code."
+        "Account created! Check your email for a 6-digit verification code."
       );
-      setStep(STEPS.OTP_VERIFY);
 
     } catch (err) {
-      const code = err.response?.data?.code;
+      const code = apiCode(err);
 
-      // Unverified account already exists — redirect to OTP screen
+      // Unverified account exists → redirect to OTP with fresh code
       if (code === "EMAIL_TAKEN_UNVERIFIED") {
-        setPendingEmail(
+        const email =
           err.response?.data?.email ??
-          registerData.email.trim().toLowerCase()
-        );
+          registerData.email.trim().toLowerCase();
+        setPendingEmail(email);
+        setStep(STEPS.OTP_VERIFY, { keepMsg: true });
         setServerMsg(
           err.response?.data?.message ??
-          "We've resent your verification code."
+          "Account found! We've resent your verification code."
         );
-        setStep(STEPS.OTP_VERIFY);
         return;
       }
 
       setServerErr(
-        err.response?.data?.message ?? "Registration failed. Try again."
+        apiMsg(err, "Registration failed. Please try again.")
       );
     } finally {
       setLoading(false);
     }
-  };
+  }, [registerData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────
   // API: VERIFY EMAIL OTP
   // POST /api/seller-auth/verify-email
   // ─────────────────────────────────────────────────────────
-  const submitOtp = async (code) => {
-    if (!code?.trim()) {
-      setServerErr("Please enter the verification code.");
+  const submitOtp = useCallback(async (code) => {
+    const trimmed = code?.trim() ?? "";
+
+    if (!trimmed) {
+      setServerErr("Please enter the 6-digit verification code.");
       return;
     }
-    if (code.trim().length !== 6) {
+    if (trimmed.length !== 6 || !/^\d{6}$/.test(trimmed)) {
       setServerErr("Code must be exactly 6 digits.");
       return;
     }
@@ -458,11 +495,13 @@ export const useSellerFlow = () => {
     try {
       await axios.post(`${AUTH_API}/verify-email`, {
         email: pendingEmail,
-        code:  code.trim(),
+        code:  trimmed,
       });
 
-      // Silent login to get seller token immediately
-      // Uses password still in registerData (just filled in)
+      // ── Silent login immediately after verification ──────
+      // Uses the password still in registerData.
+      // If registerData.password is empty (e.g. page refresh),
+      // we skip silently — user will be asked to sign in.
       if (registerData.password) {
         try {
           const { data: loginData } = await axios.post(
@@ -470,40 +509,44 @@ export const useSellerFlow = () => {
             {
               email:    pendingEmail,
               password: registerData.password,
+              // No trim on password — must match stored hash exactly
             }
           );
           if (loginData.token) saveToken(loginData.token);
-        } catch {
-          // Silent — they'll be prompted to log in at store setup
-          // if token is missing
+        } catch (silentErr) {
+          // Non-fatal — user will see sign-in form at store setup
+          // if token is missing. Log for debugging only.
+          console.warn(
+            "[submitOtp] silent login failed:",
+            silentErr.response?.data?.message ?? silentErr.message
+          );
         }
       }
 
-      setServerMsg("Email verified! Setting up your store…");
-      setStep(STEPS.STORE_SETUP);
+      setStep(STEPS.STORE_SETUP, { keepMsg: true });
+      setServerMsg("Email verified! Let's set up your store.");
 
     } catch (err) {
-      const c = err.response?.data?.code;
-      if (c === "CODE_EXPIRED") {
-        setServerErr("Your code has expired. Please request a new one.");
-      } else if (c === "INVALID_CODE") {
-        setServerErr("Invalid code. Please check and try again.");
+      const code = apiCode(err);
+      if (code === "CODE_EXPIRED") {
+        setServerErr("Code has expired. Please request a new one.");
+      } else if (code === "INVALID_CODE") {
+        setServerErr("Incorrect code. Please check and try again.");
       } else {
-        setServerErr(
-          err.response?.data?.message ?? "Verification failed."
-        );
+        setServerErr(apiMsg(err, "Verification failed. Please try again."));
       }
     } finally {
       setLoading(false);
     }
-  };
+  }, [pendingEmail, registerData.password]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────
   // API: RESEND EMAIL OTP
   // POST /api/seller-auth/resend-verification
   // ─────────────────────────────────────────────────────────
-  const resendOtp = async () => {
+  const resendOtp = useCallback(async () => {
     if (!pendingEmail) return;
+
     setLoading(true);
     setServerMsg("");
     setServerErr("");
@@ -512,24 +555,22 @@ export const useSellerFlow = () => {
       await axios.post(`${AUTH_API}/resend-verification`, {
         email: pendingEmail,
       });
-      setServerMsg(
-        "A new verification code has been sent to your email."
-      );
+      setServerMsg("A new code has been sent to your email.");
     } catch (err) {
-      setServerErr(
-        err.response?.data?.message ?? "Failed to resend code."
-      );
+      setServerErr(apiMsg(err, "Failed to resend code. Please try again."));
     } finally {
       setLoading(false);
     }
-  };
+  }, [pendingEmail]);
 
   // ─────────────────────────────────────────────────────────
-  // API: LOGIN (returning sellers / sign-in form)
-  // POST /api/seller-auth/login → market.users
-  // Used by RegisterStep SignInForm
+  // API: LOGIN  (returning sellers / sign-in form)
+  // POST /api/seller-auth/login → market.users ONLY
+  //
+  // FIX: password is passed in raw — never trimmed.
+  // Email is lowercased + trimmed (safe, emails are case-insensitive).
   // ─────────────────────────────────────────────────────────
-  const submitLogin = async (email, password) => {
+  const submitLogin = useCallback(async (email, password) => {
     setLoading(true);
     setServerMsg("");
     setServerErr("");
@@ -539,21 +580,21 @@ export const useSellerFlow = () => {
         `${AUTH_API}/login`,
         {
           email:    email.trim().toLowerCase(),
-          password,
+          password, // ← intentionally not trimmed
         }
       );
 
       if (!loginData.token) {
-        setServerErr("Login failed — no token received.");
+        setServerErr("Login failed — no token received. Please try again.");
         return;
       }
 
       saveToken(loginData.token);
 
-      // Fetch vendor status to restore correct step
+      // ── Fetch vendor status to restore correct step ──────
       try {
         const { data: statusData } = await axios.get(
-          "/api/seller-onboarding/status",
+          `${ONBOARDING_API}/status`,
           {
             headers: { Authorization: `Bearer ${loginData.token}` },
             timeout: 10_000,
@@ -564,92 +605,91 @@ export const useSellerFlow = () => {
           setVendorData(statusData.vendor);
           const { status } = statusData.vendor;
 
-          // Active / approved → redirect to dashboard
-          if (["active", "approved"].includes(status)) {
+          // Fully approved → go straight to dashboard
+          if (status === "active" || status === "approved") {
             window.location.replace("/seller/dashboard");
             return;
           }
 
-          const nextStep = STATUS_TO_STEP[status] ?? STEPS.STORE_SETUP;
-          setStep(nextStep);
+          setStep(STATUS_TO_STEP[status] ?? STEPS.STORE_SETUP);
 
         } else {
-          // No vendor yet → go to store setup
+          // Logged in, no vendor yet
           setStep(STEPS.STORE_SETUP);
         }
 
       } catch (statusErr) {
-        const httpStatus = statusErr.response?.status;
-        const code       = statusErr.response?.data?.code;
+        const status = httpStatus(statusErr);
+        const code   = apiCode(statusErr);
 
-        if (httpStatus === 404) {
-          // Logged in but no vendor record
+        if (status === 404) {
           setStep(STEPS.STORE_SETUP);
 
-        } else if (httpStatus === 403 && code === "EMAIL_NOT_VERIFIED") {
-          // Logged in but email not verified
-          const unverifiedEmail =
-            statusErr.response?.data?.email ??
-            email.trim().toLowerCase();
-          setPendingEmail(unverifiedEmail);
+        } else if (status === 403 && code === "EMAIL_NOT_VERIFIED") {
+          setPendingEmail(
+            statusErr.response?.data?.email ?? email.trim().toLowerCase()
+          );
           setStep(STEPS.OTP_VERIFY);
 
-        } else if (httpStatus === 403 && code === "NOT_SELLER_ACCOUNT") {
-          // Marketplace account used on seller route
+        } else if (status === 403 && code === "NOT_SELLER_ACCOUNT") {
           clearToken();
           setServerErr(
-            "This is a marketplace account. " +
+            "This email belongs to a marketplace account. " +
             "Please create a separate seller account."
           );
         } else {
-          // Status check failed — still navigate to store setup
+          // Status check failed — safe fallback
           console.warn("[submitLogin] status check failed:", statusErr.message);
           setStep(STEPS.STORE_SETUP);
         }
       }
 
     } catch (err) {
-      const status = err.response?.status;
-      const code   = err.response?.data?.code;
-      const msg    = err.response?.data?.message;
+      const status = httpStatus(err);
+      const code   = apiCode(err);
 
       if (status === 401) {
+        // ── Wrong password — most common post-reset issue ──
+        // Shown as-is: "Incorrect email or password."
         setServerErr("Incorrect email or password.");
 
       } else if (status === 403 && code === "EMAIL_NOT_VERIFIED") {
-        // Login blocked — email not verified
-        // Go straight to OTP screen
         const unverifiedEmail =
           err.response?.data?.email ?? email.trim().toLowerCase();
         setPendingEmail(unverifiedEmail);
         setStep(STEPS.OTP_VERIFY);
-        return;
 
       } else if (status === 403 && code === "ACCOUNT_SUSPENDED") {
-        setServerErr("Your seller account has been suspended.");
+        setServerErr(
+          "Your seller account has been suspended. Please contact support."
+        );
+
+      } else if (status === 429) {
+        setServerErr(
+          "Too many sign-in attempts. Please wait 15 minutes and try again."
+        );
 
       } else {
-        setServerErr(msg ?? "Sign in failed. Please try again.");
+        setServerErr(apiMsg(err, "Sign in failed. Please try again."));
       }
     } finally {
       setLoading(false);
     }
-  };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────
   // API: FORGOT PASSWORD
   // POST /api/seller-auth/forgot-password → market.users
-  // Sends 6-digit OTP — separate from marketplace forgot pw
   // ─────────────────────────────────────────────────────────
-  const submitForgotPassword = async (email) => {
-    if (!email?.trim()) {
-      setServerErr("Email is required.");
+  const submitForgotPassword = useCallback(async (email) => {
+    const cleanEmail = email?.trim().toLowerCase() ?? "";
+
+    if (!cleanEmail) {
+      setServerErr("Email address is required.");
       return;
     }
-
-    const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRx.test(email.trim())) {
-      setServerErr("Enter a valid email address.");
+    if (!EMAIL_RX.test(cleanEmail)) {
+      setServerErr("Please enter a valid email address.");
       return;
     }
 
@@ -659,44 +699,43 @@ export const useSellerFlow = () => {
 
     try {
       await axios.post(`${AUTH_API}/forgot-password`, {
-        email: email.trim().toLowerCase(),
+        email: cleanEmail,
       });
-
-      setPendingEmail(email.trim().toLowerCase());
-      setServerMsg(
-        "If a seller account exists, a reset code has been sent."
-      );
-      setStep(STEPS.RESET_CODE);
-
     } catch (err) {
-      if (err.response?.status === 403) {
-        setServerErr(
-          "Your account has been suspended. Contact support."
-        );
-      } else {
-        // Always go to RESET_CODE — don't reveal if email exists
-        setPendingEmail(email.trim().toLowerCase());
-        setServerMsg(
-          "If a seller account exists, a reset code has been sent."
-        );
-        setStep(STEPS.RESET_CODE);
+      // 403 Suspended is the only status worth surfacing
+      if (httpStatus(err) === 403) {
+        setServerErr("Your account has been suspended. Contact support.");
+        setLoading(false);
+        return;
       }
+      // All other errors — fall through to generic success.
+      // We never reveal whether the email exists.
     } finally {
       setLoading(false);
     }
-  };
+
+    // Always navigate + show generic message
+    // regardless of whether the email exists
+    setPendingEmail(cleanEmail);
+    setStep(STEPS.RESET_CODE, { keepMsg: true });
+    setServerMsg(
+      "If a seller account exists with this email, " +
+      "a 6-digit reset code has been sent."
+    );
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────
-  // API: VERIFY RESET CODE (step 1 of password reset)
+  // API: VERIFY RESET CODE  (step 1 of 2)
   // POST /api/seller-auth/verify-reset-code → market.users
-  // Validates OTP without changing password yet
   // ─────────────────────────────────────────────────────────
-  const submitResetCode = async (code) => {
-    if (!code?.trim()) {
-      setServerErr("Please enter the reset code.");
+  const submitResetCode = useCallback(async (code) => {
+    const trimmed = code?.trim() ?? "";
+
+    if (!trimmed) {
+      setServerErr("Please enter the 6-digit reset code.");
       return;
     }
-    if (code.trim().length !== 6) {
+    if (trimmed.length !== 6 || !/^\d{6}$/.test(trimmed)) {
       setServerErr("Code must be exactly 6 digits.");
       return;
     }
@@ -708,40 +747,39 @@ export const useSellerFlow = () => {
     try {
       await axios.post(`${AUTH_API}/verify-reset-code`, {
         email: pendingEmail,
-        code:  code.trim(),
+        code:  trimmed,
       });
 
-      // Store verified code for step 2
-      setVerifiedResetCode(code.trim());
-      setServerMsg("Code verified! Now set your new password.");
-      setStep(STEPS.RESET_NEW_PASSWORD);
+      // Store verified code so step 2 can re-send it
+      setVerifiedResetCode(trimmed);
+      setStep(STEPS.RESET_NEW_PASSWORD, { keepMsg: true });
+      setServerMsg("Code verified! Please set your new password below.");
 
     } catch (err) {
-      const c = err.response?.data?.code;
-      if (c === "CODE_EXPIRED") {
-        setServerErr(
-          "Reset code has expired. Please request a new one."
-        );
-      } else if (c === "INVALID_CODE") {
-        setServerErr(
-          "Invalid reset code. Please check and try again."
-        );
+      const code = apiCode(err);
+      if (code === "CODE_EXPIRED") {
+        setServerErr("Reset code has expired. Please request a new one.");
+      } else if (code === "INVALID_CODE" || code === "NO_RESET_REQUESTED") {
+        setServerErr("Invalid or expired reset code. Please try again.");
       } else {
-        setServerErr(
-          err.response?.data?.message ?? "Verification failed."
-        );
+        setServerErr(apiMsg(err, "Verification failed. Please try again."));
       }
     } finally {
       setLoading(false);
     }
-  };
+  }, [pendingEmail]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────
-  // API: SET NEW PASSWORD (step 2 of password reset)
+  // API: SET NEW PASSWORD  (step 2 of 2)
   // POST /api/seller-auth/reset-password → market.users
-  // Re-verifies code + sets new password in one request
+  //
+  // FIX: Previously used setTimeout to set serverMsg AFTER
+  // setStep which caused the useEffect to wipe the message.
+  // Now we use setStep with keepMsg:true so the success
+  // message survives the step transition.
   // ─────────────────────────────────────────────────────────
-  const submitNewPassword = async (newPassword, confirmPassword) => {
+  const submitNewPassword = useCallback(async (newPassword, confirmPassword) => {
+    // ── Client-side validation ───────────────────────────
     if (!newPassword) {
       setServerErr("New password is required.");
       return;
@@ -751,11 +789,11 @@ export const useSellerFlow = () => {
       return;
     }
     if (!/[A-Z]/.test(newPassword)) {
-      setServerErr("Must contain at least one uppercase letter.");
+      setServerErr("Password must contain at least one uppercase letter.");
       return;
     }
     if (!/\d/.test(newPassword)) {
-      setServerErr("Must contain at least one number.");
+      setServerErr("Password must contain at least one number.");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -772,47 +810,57 @@ export const useSellerFlow = () => {
         email:       pendingEmail,
         code:        verifiedResetCode,
         newPassword,
+        // Never trim newPassword — the hash must match exactly
       });
 
-      setServerMsg(
-        "Password reset successfully! Redirecting to sign in…"
-      );
+      // Clear reset flow state
+      const resetEmail = pendingEmail;
       setPendingEmail("");
       setVerifiedResetCode("");
 
-      // Short delay so user sees the success message
-      setTimeout(() => {
-        setStep(STEPS.REGISTER);
-        setServerMsg(
-          "Password reset! Sign in with your new password."
-        );
-      }, 1500);
+      // FIX: Navigate with keepMsg:true so the success banner
+      // is visible on the sign-in screen. The user sees:
+      // "Password reset! Sign in with your new password."
+      setStep(STEPS.REGISTER, { keepMsg: true });
+      setServerMsg(
+        "✅ Password reset successfully! Please sign in with your new password."
+      );
+
+      // Pre-fill the email so the user doesn't have to retype it
+      // We do this AFTER setStep to avoid it being cleared
+      setPendingEmail(resetEmail);
 
     } catch (err) {
-      const c = err.response?.data?.code;
-      if (c === "CODE_EXPIRED") {
-        setServerErr("Code expired. Please start the reset over.");
-        setTimeout(() => setStep(STEPS.FORGOT_PASSWORD), 2000);
-      } else if (c === "INVALID_CODE") {
-        setServerErr("Invalid code. Please start the reset over.");
-        setTimeout(() => setStep(STEPS.FORGOT_PASSWORD), 2000);
-      } else {
+      const code = apiCode(err);
+
+      if (code === "CODE_EXPIRED") {
         setServerErr(
-          err.response?.data?.message ?? "Reset failed. Please try again."
+          "Your reset code has expired. Please start the process again."
         );
+        // Give user time to read the message before redirecting
+        setTimeout(() => setStep(STEPS.FORGOT_PASSWORD), 2500);
+
+      } else if (code === "INVALID_CODE" || code === "NO_RESET_REQUESTED") {
+        setServerErr(
+          "Invalid reset code. Please start the process again."
+        );
+        setTimeout(() => setStep(STEPS.FORGOT_PASSWORD), 2500);
+
+      } else {
+        setServerErr(apiMsg(err, "Password reset failed. Please try again."));
       }
     } finally {
       setLoading(false);
     }
-  };
+  }, [pendingEmail, verifiedResetCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────
   // API: RESEND RESET CODE
-  // POST /api/seller-auth/forgot-password (same endpoint)
-  // Reuses forgot-password to issue a fresh OTP
+  // Reuses /forgot-password (issues fresh OTP)
   // ─────────────────────────────────────────────────────────
-  const resendResetCode = async () => {
+  const resendResetCode = useCallback(async () => {
     if (!pendingEmail) return;
+
     setLoading(true);
     setServerMsg("");
     setServerErr("");
@@ -821,25 +869,22 @@ export const useSellerFlow = () => {
       await axios.post(`${AUTH_API}/forgot-password`, {
         email: pendingEmail,
       });
-      setServerMsg(
-        "A new reset code has been sent to your email."
-      );
     } catch {
-      // Always show success — don't reveal if email exists
-      setServerMsg(
-        "A new reset code has been sent to your email."
-      );
+      // Always show generic success — never reveal if email exists
     } finally {
       setLoading(false);
     }
-  };
+
+    setServerMsg("A new reset code has been sent to your email.");
+  }, [pendingEmail]);
 
   // ─────────────────────────────────────────────────────────
   // API: SETUP STORE
   // POST /api/seller-onboarding/setup-store
   // ─────────────────────────────────────────────────────────
-  const submitStore = async () => {
+  const submitStore = useCallback(async () => {
     if (!validateStore()) return;
+
     setLoading(true);
     setServerMsg("");
     setServerErr("");
@@ -862,7 +907,7 @@ export const useSellerFlow = () => {
         form.append("store_banner", storeData.store_banner);
 
       const { data } = await axios.post(
-        "/api/seller-onboarding/setup-store",
+        `${ONBOARDING_API}/setup-store`,
         form,
         {
           headers: {
@@ -873,11 +918,11 @@ export const useSellerFlow = () => {
       );
 
       if (data.vendor) setVendorData(data.vendor);
-      setServerMsg(data.message ?? "Store created!");
-      setStep(STEPS.VERIFICATION);
+      setStep(STEPS.VERIFICATION, { keepMsg: true });
+      setServerMsg(data.message ?? "Store created! Let's verify your identity.");
 
     } catch (err) {
-      const code           = err.response?.data?.code;
+      const code           = apiCode(err);
       const existingStatus = err.response?.data?.status;
 
       if (code === "VENDOR_EXISTS") {
@@ -889,26 +934,25 @@ export const useSellerFlow = () => {
           setStep(STEPS.REVIEW);
           return;
         }
-        if (["active", "approved"].includes(existingStatus)) {
+        if (existingStatus === "active" || existingStatus === "approved") {
           window.location.replace("/seller/dashboard");
           return;
         }
       }
 
-      setServerErr(
-        err.response?.data?.message ?? "Store setup failed. Try again."
-      );
+      setServerErr(apiMsg(err, "Store setup failed. Please try again."));
     } finally {
       setLoading(false);
     }
-  };
+  }, [storeData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────
   // API: SUBMIT IDENTITY VERIFICATION
   // POST /api/seller-onboarding/verify
   // ─────────────────────────────────────────────────────────
-  const submitVerification = async () => {
+  const submitVerification = useCallback(async () => {
     if (!validateVerification()) return;
+
     setLoading(true);
     setServerMsg("");
     setServerErr("");
@@ -916,22 +960,23 @@ export const useSellerFlow = () => {
     try {
       const form = new FormData();
 
-      [
-        "id_card", "id_card_back", "selfie",
-        "business_doc", "address_proof",
-      ].forEach((k) => {
-        if (verifyData[k]) form.append(k, verifyData[k]);
-      });
+      ["id_card", "id_card_back", "selfie", "business_doc", "address_proof"]
+        .forEach((key) => {
+          if (verifyData[key]) form.append(key, verifyData[key]);
+        });
 
-      form.append("id_type",   verifyData.id_type);
-      form.append(
-        "id_number",
+      form.append("id_type",
+        verifyData.id_type
+      );
+      form.append("id_number",
         verifyData.id_number.replace(/\s/g, "").toUpperCase()
       );
-      form.append("address",   verifyData.address.trim());
+      form.append("address",
+        verifyData.address.trim()
+      );
 
       const { data } = await axios.post(
-        "/api/seller-onboarding/verify",
+        `${ONBOARDING_API}/verify`,
         form,
         {
           headers: {
@@ -942,41 +987,47 @@ export const useSellerFlow = () => {
       );
 
       if (data.vendor) setVendorData(data.vendor);
+      setStep(STEPS.REVIEW, { keepMsg: true });
       setServerMsg(
         data.message ??
-        "Documents submitted! We'll review within 1–3 days."
+        "Documents submitted! We'll review within 1–3 business days."
       );
-      setStep(STEPS.REVIEW);
 
     } catch (err) {
-      setServerErr(
-        err.response?.data?.message ?? "Verification failed. Try again."
-      );
+      setServerErr(apiMsg(err, "Verification submission failed. Please try again."));
     } finally {
       setLoading(false);
     }
-  };
+  }, [verifyData]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─────────────────────────────────────────────────────────
-  // RETURN
+  // RETURN — public API of the hook
   // ─────────────────────────────────────────────────────────
   return {
-    // ── State ──────────────────────────────────────────────
-    step,               setStep,
+    // ── UI state ───────────────────────────────────────────
+    step,
+    setStep,
+    initializing,
+    loading,
+
+    // ── Form data (read) ───────────────────────────────────
     registerData,
     storeData,
     verifyData,
+
+    // ── Feedback ──────────────────────────────────────────
     errors,
-    loading,
-    initializing,
-    serverMsg,          setServerMsg,
-    serverErr,          setServerErr,
+    serverMsg,  setServerMsg,
+    serverErr,  setServerErr,
+    clearMessages,
+
+    // ── Misc state ─────────────────────────────────────────
     previewLogo,
-    vendorData,         setVendorData,
-    showPassword,       setShowPassword,
-    showConfirm,        setShowConfirm,
+    vendorData,   setVendorData,
+    showPassword, setShowPassword,
+    showConfirm,  setShowConfirm,
     isGmailUser,
-    pendingEmail,       setPendingEmail,
+    pendingEmail, setPendingEmail,
     verifiedResetCode,
 
     // ── Field handlers ─────────────────────────────────────
@@ -989,7 +1040,7 @@ export const useSellerFlow = () => {
     submitRegister,
     submitOtp,
     resendOtp,
-    submitLogin,         // ← used by RegisterStep SignInForm
+    submitLogin,
 
     // ── Password reset API ─────────────────────────────────
     submitForgotPassword,
