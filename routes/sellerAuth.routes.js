@@ -14,8 +14,7 @@ const JWT_SECRET     = process.env.JWT_SECRET     || "supersecretkey";
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || "7d";
 
 // ─────────────────────────────────────────────────────────────
-// RATE LIMITER
-// In-memory — replace with redis-based limiter in production
+// RATE LIMITER — in-memory, per IP
 // ─────────────────────────────────────────────────────────────
 const _attempts = new Map();
 
@@ -25,7 +24,7 @@ const authLimiter = (req, res, next) => {
     req.socket.remoteAddress ??
     "unknown";
   const now = Date.now();
-  const key = `auth:${ip}`;
+  const key = `seller-auth:${ip}`;
   let   rec = _attempts.get(key);
 
   if (!rec || now - rec.time > 15 * 60_000) {
@@ -51,15 +50,14 @@ const authLimiter = (req, res, next) => {
 // HELPERS
 // ─────────────────────────────────────────────────────────────
 
-// Generic success response for sensitive endpoints
+// Always return a generic success for sensitive endpoints
 // Prevents email enumeration attacks
-const genericSuccess = (res, message) =>
+const genericOk = (res, message) =>
   res.json({ success: true, message });
 
 // ════════════════════════════════════════════════════════════
-// POST /api/auth/register
-// Creates a new seller account in market.users
-// Sends a 6-digit OTP to verify email
+// POST /api/seller-auth/register
+// Creates seller in market.users + sends email OTP
 // ════════════════════════════════════════════════════════════
 router.post("/register", authLimiter, async (req, res) => {
   const { name, email, phone, password } = req.body;
@@ -97,7 +95,7 @@ router.post("/register", authLimiter, async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ── Check duplicate ──────────────────────────────────
+    // ── Check duplicate in market.users ─────────────────
     const { rows: existing } = await client.query(
       `SELECT id, is_verified FROM market.users WHERE email = $1`,
       [email.toLowerCase().trim()]
@@ -106,8 +104,7 @@ router.post("/register", authLimiter, async (req, res) => {
     if (existing.length) {
       await client.query("ROLLBACK");
 
-      // If account exists but not verified → resend OTP
-      // so user can continue without registering again
+      // Account exists but not verified → resend OTP
       if (!existing[0].is_verified) {
         const otp        = generateOTP();
         const hashedCode = hashCode(otp);
@@ -134,7 +131,7 @@ router.post("/register", authLimiter, async (req, res) => {
           success: false,
           code:    "EMAIL_TAKEN_UNVERIFIED",
           message:
-            "An unverified account with this email already exists. " +
+            "An unverified account exists. " +
             "We've resent your verification code — please check your email.",
           email: email.toLowerCase().trim(),
         });
@@ -150,12 +147,12 @@ router.post("/register", authLimiter, async (req, res) => {
     // ── Hash password ────────────────────────────────────
     const password_hash = await bcrypt.hash(password, 12);
 
-    // ── Generate verification OTP ────────────────────────
+    // ── Generate email verification OTP ─────────────────
     const otp        = generateOTP();
     const hashedCode = hashCode(otp);
     const expires    = new Date(Date.now() + 60 * 60_000); // 1 hour
 
-    // ── Insert user ──────────────────────────────────────
+    // ── INSERT into market.users ─────────────────────────
     const { rows: [user] } = await client.query(
       `INSERT INTO market.users
          (name, email, password_hash, phone_number, status,
@@ -183,10 +180,9 @@ router.post("/register", authLimiter, async (req, res) => {
       });
     } catch (mailErr) {
       console.error("[register] ⚠️ Email failed:", mailErr.message);
-      // Don't fail registration if email fails
     }
 
-    console.log("[register] ✅ created:", user.id);
+    console.log("[seller-auth][register] ✅ created:", user.id);
 
     return res.status(201).json({
       success: true,
@@ -197,7 +193,7 @@ router.post("/register", authLimiter, async (req, res) => {
 
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("[register] ❌", {
+    console.error("[seller-auth][register] ❌", {
       message: err.message,
       code:    err.code,
       detail:  err.detail,
@@ -221,9 +217,9 @@ router.post("/register", authLimiter, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-// POST /api/auth/verify-email
+// POST /api/seller-auth/verify-email
 // Body: { email, code }
-// Verifies the 6-digit OTP sent on registration
+// Verifies email OTP — market.users only
 // ════════════════════════════════════════════════════════════
 router.post("/verify-email", async (req, res) => {
   const { email, code } = req.body;
@@ -240,46 +236,42 @@ router.post("/verify-email", async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT id, is_verified, verify_code, verify_expires, name
+      `SELECT id, is_verified, verify_code, verify_expires
        FROM market.users
        WHERE email = $1`,
       [email.toLowerCase().trim()]
     );
 
-    if (!rows.length) {
+    if (!rows.length)
       return res.status(404).json({
         success: false,
-        message: "No account found with this email",
+        message: "No seller account found with this email",
       });
-    }
 
     const user = rows[0];
 
     // ── Already verified ─────────────────────────────────
-    if (user.is_verified) {
+    if (user.is_verified)
       return res.json({
         success: true,
         message: "Email already verified. You can log in.",
       });
-    }
 
     // ── Expired ──────────────────────────────────────────
-    if (new Date() > new Date(user.verify_expires)) {
+    if (new Date() > new Date(user.verify_expires))
       return res.status(400).json({
         success: false,
         code:    "CODE_EXPIRED",
         message: "Verification code has expired. Please request a new one.",
       });
-    }
 
     // ── Wrong code ───────────────────────────────────────
-    if (hashCode(code.trim()) !== user.verify_code) {
+    if (hashCode(code.trim()) !== user.verify_code)
       return res.status(400).json({
         success: false,
         code:    "INVALID_CODE",
         message: "Invalid verification code. Please check and try again.",
       });
-    }
 
     // ── Mark verified ────────────────────────────────────
     await pool.query(
@@ -291,7 +283,7 @@ router.post("/verify-email", async (req, res) => {
       [user.id]
     );
 
-    console.log("[verify-email] ✅ verified:", user.id);
+    console.log("[seller-auth][verify-email] ✅ verified:", user.id);
 
     return res.json({
       success: true,
@@ -299,7 +291,7 @@ router.post("/verify-email", async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[verify-email] ❌", err.message);
+    console.error("[seller-auth][verify-email] ❌", err.message);
     return res.status(500).json({
       success: false,
       message: "Verification failed. Please try again.",
@@ -308,9 +300,9 @@ router.post("/verify-email", async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-// POST /api/auth/resend-verification
+// POST /api/seller-auth/resend-verification
 // Body: { email }
-// Resends the email OTP for unverified accounts
+// Resends email OTP — market.users only
 // ════════════════════════════════════════════════════════════
 router.post("/resend-verification", authLimiter, async (req, res) => {
   const { email } = req.body;
@@ -328,9 +320,9 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
       [email.toLowerCase().trim()]
     );
 
-    // Generic response — don't reveal if email exists
+    // Generic — never reveal if email exists
     if (!rows.length || rows[0].is_verified) {
-      return genericSuccess(
+      return genericOk(
         res,
         "If an unverified account exists, a new code has been sent."
       );
@@ -338,10 +330,9 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
 
     const user = rows[0];
 
-    // ── Generate new OTP ─────────────────────────────────
     const otp        = generateOTP();
     const hashedCode = hashCode(otp);
-    const expires    = new Date(Date.now() + 60 * 60_000); // 1 hour
+    const expires    = new Date(Date.now() + 60 * 60_000);
 
     await pool.query(
       `UPDATE market.users
@@ -357,18 +348,18 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
         code: otp,
       });
     } catch (mailErr) {
-      console.error("[resend-verification] ⚠️ Email failed:", mailErr.message);
+      console.error("[seller-auth][resend-verification] ⚠️ Email failed:", mailErr.message);
     }
 
-    console.log("[resend-verification] ✅ sent to:", user.id);
+    console.log("[seller-auth][resend-verification] ✅ sent to:", user.id);
 
-    return genericSuccess(
+    return genericOk(
       res,
       "If an unverified account exists, a new code has been sent."
     );
 
   } catch (err) {
-    console.error("[resend-verification] ❌", err.message);
+    console.error("[seller-auth][resend-verification] ❌", err.message);
     return res.status(500).json({
       success: false,
       message: "Failed to resend verification code.",
@@ -377,9 +368,8 @@ router.post("/resend-verification", authLimiter, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-// POST /api/auth/login
-// Body: { email, password }
-// Checks market.users ONLY — seller accounts
+// POST /api/seller-auth/login
+// Checks market.users ONLY
 // ════════════════════════════════════════════════════════════
 router.post("/login", authLimiter, async (req, res) => {
   const { email, password } = req.body;
@@ -398,45 +388,38 @@ router.post("/login", authLimiter, async (req, res) => {
       [email.toLowerCase().trim()]
     );
 
-    // ── Not found ────────────────────────────────────────
-    if (!rows.length) {
+    if (!rows.length)
       return res.status(401).json({
         success: false,
-        message:
-          "No seller account found with this email. Please create one.",
+        message: "No seller account found with this email. Please create one.",
       });
-    }
 
     const user = rows[0];
 
     // ── Suspended ────────────────────────────────────────
-    if (user.status !== "active") {
+    if (user.status !== "active")
       return res.status(403).json({
         success: false,
         code:    "ACCOUNT_SUSPENDED",
         message: "Your seller account has been suspended",
       });
-    }
 
     // ── Wrong password ───────────────────────────────────
     const valid = await bcrypt.compare(password, user.password_hash);
-    if (!valid) {
+    if (!valid)
       return res.status(401).json({
         success: false,
         message: "Invalid email or password",
       });
-    }
 
     // ── Email not verified ───────────────────────────────
-    // Return 403 with email so frontend can navigate to OTP screen
-    if (!user.is_verified) {
+    if (!user.is_verified)
       return res.status(403).json({
         success: false,
         code:    "EMAIL_NOT_VERIFIED",
         message: "Please verify your email before logging in.",
         email:   user.email,
       });
-    }
 
     // ── Issue token ──────────────────────────────────────
     const token = jwt.sign(
@@ -445,7 +428,7 @@ router.post("/login", authLimiter, async (req, res) => {
       { expiresIn: JWT_EXPIRES_IN }
     );
 
-    console.log("[login] ✅ market.users:", user.id);
+    console.log("[seller-auth][login] ✅ market.users:", user.id);
 
     return res.json({
       success: true,
@@ -459,7 +442,7 @@ router.post("/login", authLimiter, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[login] ❌", err.message);
+    console.error("[seller-auth][login] ❌", err.message);
     return res.status(500).json({
       success: false,
       message: "Login failed. Please try again.",
@@ -468,9 +451,9 @@ router.post("/login", authLimiter, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-// POST /api/auth/forgot-password
-// Body: { email }
-// Sends a 6-digit reset OTP — 15-minute expiry
+// POST /api/seller-auth/forgot-password
+// Sends 6-digit reset OTP to seller — market.users ONLY
+// Never touches public.users or password_reset_otps table
 // ════════════════════════════════════════════════════════════
 router.post("/forgot-password", authLimiter, async (req, res) => {
   const { email } = req.body;
@@ -486,15 +469,17 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
       success: false, message: "Enter a valid email address",
     });
 
+  const cleanEmail = email.toLowerCase().trim();
+
   try {
     const { rows } = await pool.query(
       `SELECT id, name, email, status
        FROM market.users
        WHERE email = $1`,
-      [email.toLowerCase().trim()]
+      [cleanEmail]
     );
 
-    // ── Suspended account ────────────────────────────────
+    // ── Suspended ────────────────────────────────────────
     if (rows.length && rows[0].status !== "active") {
       return res.status(403).json({
         success: false,
@@ -502,7 +487,7 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
       });
     }
 
-    // ── User not found → still return generic ────────────
+    // ── User found → generate and send OTP ───────────────
     if (rows.length) {
       const user = rows[0];
 
@@ -510,9 +495,11 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
       const hashedCode = hashCode(otp);
       const expires    = new Date(Date.now() + 15 * 60_000); // 15 minutes
 
+      // Writes reset_code to market.users — NOT to password_reset_otps
       await pool.query(
         `UPDATE market.users
-         SET reset_code = $1, reset_expires = $2
+         SET reset_code    = $1,
+             reset_expires = $2
          WHERE id = $3`,
         [hashedCode, expires, user.id]
       );
@@ -523,21 +510,23 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
           name: user.name,
           code: otp,
         });
+        console.log("[seller-auth][forgot-password] ✅ sent to:", user.id);
       } catch (mailErr) {
-        console.error("[forgot-password] ⚠️ Email failed:", mailErr.message);
+        console.error("[seller-auth][forgot-password] ⚠️ Email failed:", mailErr.message);
       }
-
-      console.log("[forgot-password] ✅ sent to:", user.id);
+    } else {
+      // No account found — still return generic, don't reveal
+      console.log("[seller-auth][forgot-password] no account:", cleanEmail);
     }
 
-    // Always return generic — never reveal if email exists
-    return genericSuccess(
+    // Always return generic response
+    return genericOk(
       res,
-      "If an account exists with this email, a reset code has been sent."
+      "If a seller account exists with this email, a reset code has been sent."
     );
 
   } catch (err) {
-    console.error("[forgot-password] ❌", err.message);
+    console.error("[seller-auth][forgot-password] ❌", err.message);
     return res.status(500).json({
       success: false,
       message: "Failed to send reset code.",
@@ -546,9 +535,10 @@ router.post("/forgot-password", authLimiter, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-// POST /api/auth/verify-reset-code
+// POST /api/seller-auth/verify-reset-code
 // Body: { email, code }
-// Step 1 of reset — validates OTP WITHOUT changing password
+// Step 1 of reset — validates OTP without changing password
+// Reads from market.users — NOT from password_reset_otps
 // ════════════════════════════════════════════════════════════
 router.post("/verify-reset-code", authLimiter, async (req, res) => {
   const { email, code } = req.body;
@@ -572,45 +562,42 @@ router.post("/verify-reset-code", authLimiter, async (req, res) => {
     );
 
     // ── Not found ────────────────────────────────────────
-    if (!rows.length) {
-      return res.status(404).json({
+    if (!rows.length)
+      return res.status(400).json({
         success: false,
-        message: "No account found with this email",
+        code:    "INVALID_CODE",
+        message: "Invalid or expired reset code",
       });
-    }
 
     const user = rows[0];
 
     // ── No reset requested ───────────────────────────────
-    if (!user.reset_code) {
+    if (!user.reset_code || !user.reset_expires)
       return res.status(400).json({
         success: false,
         code:    "NO_RESET_REQUESTED",
         message: "No password reset was requested. Please use forgot password.",
       });
-    }
 
     // ── Expired ──────────────────────────────────────────
-    if (new Date() > new Date(user.reset_expires)) {
+    if (new Date() > new Date(user.reset_expires))
       return res.status(400).json({
         success: false,
         code:    "CODE_EXPIRED",
         message: "Reset code has expired. Please request a new one.",
       });
-    }
 
     // ── Wrong code ───────────────────────────────────────
-    if (hashCode(code.trim()) !== user.reset_code) {
+    if (hashCode(code.trim()) !== user.reset_code)
       return res.status(400).json({
         success: false,
         code:    "INVALID_CODE",
         message: "Invalid reset code. Please check and try again.",
       });
-    }
 
-    // ── Code valid ───────────────────────────────────────
-    // Don't clear the code yet — needed for the next step
-    console.log("[verify-reset-code] ✅ code verified:", user.id);
+    // ── Code is valid ────────────────────────────────────
+    // Don't clear yet — needed for the next step
+    console.log("[seller-auth][verify-reset-code] ✅ code verified:", user.id);
 
     return res.json({
       success: true,
@@ -618,7 +605,7 @@ router.post("/verify-reset-code", authLimiter, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[verify-reset-code] ❌", err.message);
+    console.error("[seller-auth][verify-reset-code] ❌", err.message);
     return res.status(500).json({
       success: false,
       message: "Verification failed. Please try again.",
@@ -627,10 +614,10 @@ router.post("/verify-reset-code", authLimiter, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-// POST /api/auth/reset-password
+// POST /api/seller-auth/reset-password
 // Body: { email, code, newPassword }
-// Step 2 of reset — verifies code again + sets new password
-// Double-checks the code so the endpoint can't be hit directly
+// Step 2 of reset — re-verifies code + sets new password
+// Reads/writes market.users — NOT public.users
 // ════════════════════════════════════════════════════════════
 router.post("/reset-password", authLimiter, async (req, res) => {
   const { email, code, newPassword } = req.body;
@@ -659,45 +646,40 @@ router.post("/reset-password", authLimiter, async (req, res) => {
       [email.toLowerCase().trim()]
     );
 
-    // ── Not found ────────────────────────────────────────
-    if (!rows.length) {
-      return res.status(404).json({
+    if (!rows.length)
+      return res.status(400).json({
         success: false,
-        message: "No account found with this email",
+        message: "Invalid or expired reset code",
       });
-    }
 
     const user = rows[0];
 
     // ── No reset requested ───────────────────────────────
-    if (!user.reset_code) {
+    if (!user.reset_code || !user.reset_expires)
       return res.status(400).json({
         success: false,
         code:    "NO_RESET_REQUESTED",
         message: "No password reset was requested.",
       });
-    }
 
     // ── Expired ──────────────────────────────────────────
-    if (new Date() > new Date(user.reset_expires)) {
+    if (new Date() > new Date(user.reset_expires))
       return res.status(400).json({
         success: false,
         code:    "CODE_EXPIRED",
         message: "Reset code has expired. Please request a new one.",
       });
-    }
 
-    // ── Wrong code ───────────────────────────────────────
-    // Re-verify — prevents direct hits to this endpoint
-    if (hashCode(code.trim()) !== user.reset_code) {
+    // ── Re-verify code ───────────────────────────────────
+    // Prevents hitting this endpoint directly without step 1
+    if (hashCode(code.trim()) !== user.reset_code)
       return res.status(400).json({
         success: false,
         code:    "INVALID_CODE",
         message: "Invalid reset code.",
       });
-    }
 
-    // ── Hash new password & clear reset code ─────────────
+    // ── Hash new password + clear reset fields ────────────
     const password_hash = await bcrypt.hash(newPassword, 12);
 
     await pool.query(
@@ -709,7 +691,7 @@ router.post("/reset-password", authLimiter, async (req, res) => {
       [password_hash, user.id]
     );
 
-    console.log("[reset-password] ✅ password updated:", user.id);
+    console.log("[seller-auth][reset-password] ✅ password updated:", user.id);
 
     return res.json({
       success: true,
@@ -717,7 +699,7 @@ router.post("/reset-password", authLimiter, async (req, res) => {
     });
 
   } catch (err) {
-    console.error("[reset-password] ❌", err.message);
+    console.error("[seller-auth][reset-password] ❌", err.message);
     return res.status(500).json({
       success: false,
       message: "Password reset failed. Please try again.",
@@ -726,17 +708,16 @@ router.post("/reset-password", authLimiter, async (req, res) => {
 });
 
 // ════════════════════════════════════════════════════════════
-// GET /api/auth/me
-// Returns the current seller from market.users
+// GET /api/seller-auth/me
+// Returns seller from market.users ONLY
 // ════════════════════════════════════════════════════════════
 router.get("/me", async (req, res) => {
   try {
     const header = req.headers.authorization;
-    if (!header?.startsWith("Bearer ")) {
+    if (!header?.startsWith("Bearer "))
       return res.status(401).json({
         success: false, message: "No token provided",
       });
-    }
 
     const token   = header.split(" ")[1];
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -749,12 +730,10 @@ router.get("/me", async (req, res) => {
       [decoded.id]
     );
 
-    if (!rows.length) {
+    if (!rows.length)
       return res.status(404).json({
-        success: false,
-        message: "Seller account not found",
+        success: false, message: "Seller account not found",
       });
-    }
 
     return res.json({ success: true, user: rows[0] });
 
@@ -764,8 +743,7 @@ router.get("/me", async (req, res) => {
       err.name === "TokenExpiredError"
     ) {
       return res.status(401).json({
-        success: false,
-        message: "Invalid or expired token",
+        success: false, message: "Invalid or expired token",
       });
     }
     return res.status(500).json({
