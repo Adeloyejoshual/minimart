@@ -1,25 +1,11 @@
 // components/seller/RegisterStep.jsx
 import React, { useState, useCallback } from "react";
-import axios from "axios";
 import { STEPS, SELLER_TOKEN_KEY } from "../../hooks/useSellerFlow";
 
 // ─────────────────────────────────────────────────────────────
-// TOKEN HELPERS
+// Seller auth uses /api/seller-auth — separate from marketplace
 // ─────────────────────────────────────────────────────────────
-const getToken  = ()    => localStorage.getItem(SELLER_TOKEN_KEY);
-const saveToken = (t)   => localStorage.setItem(SELLER_TOKEN_KEY, t);
-
-// ─────────────────────────────────────────────────────────────
-// Map vendor status → step
-// ─────────────────────────────────────────────────────────────
-const STATUS_TO_STEP = {
-  pending:      STEPS.VERIFICATION,
-  under_review: STEPS.REVIEW,
-  approved:     STEPS.APPROVED,
-  active:       STEPS.APPROVED,
-  rejected:     STEPS.STORE_SETUP,
-  suspended:    STEPS.APPROVED,
-};
+const AUTH_API = "/api/seller-auth";
 
 // ─────────────────────────────────────────────────────────────
 // PASSWORD STRENGTH
@@ -28,11 +14,11 @@ const getPasswordStrength = (password) => {
   if (!password) return { score: 0, label: "", color: "" };
 
   let score = 0;
-  if (password.length >= 8)           score++;
-  if (password.length >= 12)          score++;
-  if (/[A-Z]/.test(password))         score++;
-  if (/[0-9]/.test(password))         score++;
-  if (/[^A-Za-z0-9]/.test(password))  score++;
+  if (password.length >= 8)          score++;
+  if (password.length >= 12)         score++;
+  if (/[A-Z]/.test(password))        score++;
+  if (/[0-9]/.test(password))        score++;
+  if (/[^A-Za-z0-9]/.test(password)) score++;
 
   const levels = [
     { score: 0, label: "",            color: ""        },
@@ -218,7 +204,7 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
 
         {/* Server messages */}
         {serverErr && <ServerAlert msg={serverErr} isError />}
-        {serverMsg && <ServerAlert msg={serverMsg} />}
+        {serverMsg && !serverErr && <ServerAlert msg={serverMsg} />}
 
         {/* Submit */}
         <button
@@ -250,23 +236,26 @@ const RegisterForm = ({ flow, onSwitchToSignIn }) => {
 
 // ══════════════════════════════════════════════════════════════
 // SIGN IN FORM
+// Uses flow.submitLogin which calls /api/seller-auth/login
+// Never touches /api/auth (marketplace)
 // ══════════════════════════════════════════════════════════════
 const SignInForm = ({ flow, onSwitchToRegister }) => {
-  const { setStep, setVendorData, setPendingEmail } = flow;
+  const {
+    loading,
+    serverMsg,
+    serverErr,
+    setStep,
+    submitLogin,
+  } = flow;
 
   const [formData,     setFormData]     = useState({ email: "", password: "" });
   const [errors,       setErrors]       = useState({});
-  const [loading,      setLoading]      = useState(false);
-  const [serverMsg,    setServerMsg]    = useState("");
-  const [isError,      setIsError]      = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
   const handleChange = useCallback((e) => {
     const { name, value } = e.target;
     setFormData((p) => ({ ...p, [name]: value }));
     setErrors((p)   => ({ ...p, [name]: ""    }));
-    setServerMsg("");
-    setIsError(false);
   }, []);
 
   const validate = () => {
@@ -285,122 +274,12 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
     return Object.keys(errs).length === 0;
   };
 
-  const handleSignIn = async () => {
+  const handleSignIn = useCallback(() => {
     if (!validate()) return;
-
-    setLoading(true);
-    setServerMsg("");
-    setIsError(false);
-
-    try {
-      // ── Step 1: Login ────────────────────────────────────
-      const { data: loginData } = await axios.post(
-        "/api/auth/login",
-        {
-          email:    formData.email.trim().toLowerCase(),
-          password: formData.password,
-        }
-      );
-
-      if (!loginData.token) {
-        setIsError(true);
-        setServerMsg("Login failed — no token received.");
-        return;
-      }
-
-      saveToken(loginData.token);
-
-      // ── Step 2: Fetch vendor status ──────────────────────
-      try {
-        const { data: statusData } = await axios.get(
-          "/api/seller-onboarding/status",
-          {
-            headers: { Authorization: `Bearer ${loginData.token}` },
-            timeout: 10_000,
-          }
-        );
-
-        if (statusData?.vendor) {
-          const { status } = statusData.vendor;
-
-          if (typeof setVendorData === "function") {
-            setVendorData(statusData.vendor);
-          }
-
-          if (["active", "approved"].includes(status)) {
-            setServerMsg("Welcome back! Redirecting to dashboard…");
-            setTimeout(() => {
-              window.location.replace("/seller/dashboard");
-            }, 800);
-            return;
-          }
-
-          const nextStep = STATUS_TO_STEP[status] ?? STEPS.STORE_SETUP;
-          setStep(nextStep);
-
-        } else {
-          setStep(STEPS.STORE_SETUP);
-        }
-
-      } catch (statusErr) {
-        const httpStatus = statusErr.response?.status;
-        const code       = statusErr.response?.data?.code;
-
-        if (httpStatus === 404) {
-          setStep(STEPS.STORE_SETUP);
-
-        } else if (httpStatus === 403 && code === "EMAIL_NOT_VERIFIED") {
-          // Email not verified → go to OTP screen
-          const email = statusErr.response?.data?.email
-            ?? formData.email.trim().toLowerCase();
-          if (typeof setPendingEmail === "function") {
-            setPendingEmail(email);
-          }
-          setStep(STEPS.OTP_VERIFY);
-
-        } else if (httpStatus === 403 && code === "NOT_SELLER_ACCOUNT") {
-          localStorage.removeItem(SELLER_TOKEN_KEY);
-          setIsError(true);
-          setServerMsg(
-            "This is a marketplace account. "
-            + "Please create a separate seller account."
-          );
-        } else {
-          console.warn("[SignIn] status check failed:", statusErr.message);
-          setStep(STEPS.STORE_SETUP);
-        }
-      }
-
-    } catch (err) {
-      const msg    = err.response?.data?.message;
-      const status = err.response?.status;
-      const code   = err.response?.data?.code;
-
-      if (status === 401) {
-        setServerMsg("Incorrect email or password.");
-      } else if (status === 403 && code === "EMAIL_NOT_VERIFIED") {
-        // Login blocked — not verified yet
-        // Push to OTP screen
-        const email = err.response?.data?.email
-          ?? formData.email.trim().toLowerCase();
-        if (typeof setPendingEmail === "function") {
-          setPendingEmail(email);
-        }
-        setStep(STEPS.OTP_VERIFY);
-        return;
-      } else if (status === 403) {
-        setServerMsg(
-          "Access denied. Make sure you are using your seller credentials."
-        );
-      } else {
-        setServerMsg(msg ?? "Sign in failed. Please try again.");
-      }
-      setIsError(true);
-
-    } finally {
-      setLoading(false);
-    }
-  };
+    // Delegates entirely to useSellerFlow.submitLogin
+    // which calls POST /api/seller-auth/login → market.users
+    submitLogin(formData.email, formData.password);
+  }, [formData, submitLogin]);
 
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && !loading) handleSignIn();
@@ -464,7 +343,7 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           </div>
         </Field>
 
-        {/* Forgot password — triggers inline flow */}
+        {/* Forgot password */}
         <div style={{ textAlign: "right", marginTop: "-0.5rem" }}>
           <button
             type="button"
@@ -475,10 +354,11 @@ const SignInForm = ({ flow, onSwitchToRegister }) => {
           </button>
         </div>
 
-        {/* Server message */}
-        {serverMsg && (
-          <ServerAlert msg={serverMsg} isError={isError} />
-        )}
+        {/* Server messages — from flow state (managed by submitLogin) */}
+        {serverErr && <ServerAlert msg={serverErr} isError />}
+        {serverMsg && !serverErr && <ServerAlert msg={serverMsg} />}
+
+        {/* Local field errors only shown above — no duplicate here */}
 
         {/* Submit */}
         <button
@@ -679,7 +559,7 @@ const s = {
     gap:        "0.75rem",
     marginTop:  "0.5rem",
   },
-  strengthBar:     { display: "flex", gap: "3px", flex: 1 },
+  strengthBar: { display: "flex", gap: "3px", flex: 1 },
   strengthSegment: {
     height:       "4px",
     flex:         1,
@@ -687,9 +567,9 @@ const s = {
     transition:   "background 0.3s ease",
   },
   strengthLabel: {
-    fontSize:  "0.8rem",
-    fontWeight:700,
-    whiteSpace:"nowrap",
+    fontSize:   "0.8rem",
+    fontWeight: 700,
+    whiteSpace: "nowrap",
   },
   rulesWrap: {
     display:             "grid",
