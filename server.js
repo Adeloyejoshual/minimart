@@ -171,7 +171,10 @@ const globalLimiter = rateLimit({
   legacyHeaders   : false,
   keyGenerator    : ipKey,
   handler         : (_req, res) =>
-    res.status(429).json({ success: false, message: "Too many requests." }),
+    res.status(429).json({
+      success : false,
+      message : "Too many requests.",
+    }),
 });
 
 const uploadLimiter = rateLimit({
@@ -181,7 +184,10 @@ const uploadLimiter = rateLimit({
   legacyHeaders   : false,
   keyGenerator    : ipKey,
   handler         : (_req, res) =>
-    res.status(429).json({ success: false, message: "Too many upload requests." }),
+    res.status(429).json({
+      success : false,
+      message : "Too many upload requests.",
+    }),
 });
 
 /* ════════════════════════════════════════════════════════════
@@ -194,11 +200,13 @@ import flwWebhookRouter                 from "./routes/webhooks/flutterwave.js";
 import checkoutWebhookRouter            from "./routes/checkout/webhook.js";
 import checkoutRouter                   from "./routes/checkout/index.js";
 
-/* ── Auth ── */
+/* ── Marketplace auth (public.users) ── */
 import authRouter           from "./routes/auth.routes.js";
 import forgotPasswordRouter from "./routes/forgotPassword.js";
 import resetPasswordRouter  from "./routes/resetPassword.js";
-import sellerAuthRouter     from "./routes/sellerAuth.routes.js"; // ← NEW
+
+/* ── Seller auth (market.users) — separate prefix /api/seller-auth ── */
+import sellerAuthRouter from "./routes/sellerAuth.routes.js";
 
 /* ── Seller ── */
 import sellerOnboardingRouter from "./routes/sellerOnboarding.routes.js";
@@ -266,7 +274,7 @@ import { sendWeeklyNewsletter } from "./services/weeklyNewsletter.js";
 import { processInactiveUsers } from "./services/inactiveUsers.js";
 
 /* ════════════════════════════════════════════════════════════
-   WEBHOOKS  — must be BEFORE body parsers
+   WEBHOOKS — must be BEFORE body parsers
 ════════════════════════════════════════════════════════════ */
 app.use(
   "/api/payment/webhook",
@@ -320,7 +328,7 @@ app.use(
 );
 
 /* ════════════════════════════════════════════════════════════
-   BODY PARSERS  — after webhooks
+   BODY PARSERS — after webhooks
 ════════════════════════════════════════════════════════════ */
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
@@ -359,19 +367,32 @@ app.use(globalLimiter);
 app.use("/api/payment",  paymentRouter);
 app.use("/api/checkout", checkoutRouter);
 
-/* ── Auth ──────────────────────────────────────────────────
-   Order matters:
-   - authRouter           → marketplace auth (public.users)
-   - forgotPasswordRouter → marketplace forgot password
-   - resetPasswordRouter  → marketplace reset password
-   - sellerAuthRouter     → seller auth (market.users) ← NEW
-   All share the /api/auth prefix.
-   sellerAuthRouter is last to avoid shadowing marketplace routes.
+/* ── Marketplace auth — public.users ───────────────────────
+   POST /api/auth/...                  → authRouter
+   POST /api/auth/forgot-password      → forgotPasswordRouter
+   POST /api/auth/forgot-password/verify
+   POST /api/auth/reset-password       → resetPasswordRouter
+   All three routers operate on public.users ONLY.
+   Completely untouched — no seller logic here.
 ─────────────────────────────────────────────────────────── */
 app.use("/api/auth", authRouter);
 app.use("/api/auth", forgotPasswordRouter);
 app.use("/api/auth", resetPasswordRouter);
-app.use("/api/auth", sellerAuthRouter);              // ← NEW
+
+/* ── Seller auth — market.users ────────────────────────────
+   Mounted on /api/seller-auth — completely separate prefix.
+   Never conflicts with marketplace auth above.
+
+   POST /api/seller-auth/register
+   POST /api/seller-auth/verify-email
+   POST /api/seller-auth/resend-verification
+   POST /api/seller-auth/login
+   POST /api/seller-auth/forgot-password     → market.users
+   POST /api/seller-auth/verify-reset-code   → market.users
+   POST /api/seller-auth/reset-password      → market.users
+   GET  /api/seller-auth/me
+─────────────────────────────────────────────────────────── */
+app.use("/api/seller-auth", sellerAuthRouter);
 
 /* ── Users ── */
 app.use("/api/users",        userRouter);
@@ -460,7 +481,11 @@ app.get("/api/health", async (_req, res) => {
     success      : true,
     status       : dbOk ? "healthy" : "degraded",
     timestamp    : new Date().toISOString(),
-    database     : { ok: dbOk, latency_ms: dbLatency, error: dbError ?? undefined },
+    database     : {
+      ok         : dbOk,
+      latency_ms : dbLatency,
+      error      : dbError ?? undefined,
+    },
     process      : {
       uptime_s   : Math.floor(process.uptime()),
       memory_mb  : Math.round(process.memoryUsage().rss / 1_048_576),
@@ -472,7 +497,7 @@ app.get("/api/health", async (_req, res) => {
 });
 
 /* ════════════════════════════════════════════════════════════
-   SSR + SPA FALLBACK  — production only
+   SSR + SPA FALLBACK — production only
 ════════════════════════════════════════════════════════════ */
 if (IS_PROD) {
   const dist = path.join(__dirname, "dist");
@@ -485,7 +510,10 @@ if (IS_PROD) {
       maxAge     : "1d",
       setHeaders(res, fp) {
         if (/\.html?$/i.test(fp))
-          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+          res.setHeader(
+            "Cache-Control",
+            "no-cache, no-store, must-revalidate"
+          );
       },
     })
   );
@@ -507,7 +535,7 @@ if (IS_PROD) {
 }
 
 /* ════════════════════════════════════════════════════════════
-   404  — development only
+   404 — development only
 ════════════════════════════════════════════════════════════ */
 app.use((req, res) =>
   res.status(404).json({
@@ -533,13 +561,29 @@ app.use((err, req, res, _next) => {
   };
 
   if (err.code === "LIMIT_FILE_SIZE")
-    return res.status(400).json({ success: false, message: "File too large",        reqId });
+    return res.status(400).json({
+      success : false,
+      message : "File too large",
+      reqId,
+    });
   if (err.code === "LIMIT_FILE_COUNT")
-    return res.status(400).json({ success: false, message: "Too many files",        reqId });
+    return res.status(400).json({
+      success : false,
+      message : "Too many files",
+      reqId,
+    });
   if (err.code === "LIMIT_UNEXPECTED_FILE")
-    return res.status(400).json({ success: false, message: "Unexpected file field", reqId });
+    return res.status(400).json({
+      success : false,
+      message : "Unexpected file field",
+      reqId,
+    });
   if (err.message?.startsWith("CORS"))
-    return res.status(403).json({ success: false, message: err.message,             reqId });
+    return res.status(403).json({
+      success : false,
+      message : err.message,
+      reqId,
+    });
 
   if (PG_ERRORS[err.code]) {
     const [status, message] = PG_ERRORS[err.code];
@@ -595,7 +639,8 @@ process.on("uncaughtException",  (err) => {
    START
 ════════════════════════════════════════════════════════════ */
 async function start() {
-  /* ── 1. Verify DB ── */
+
+  /* ── 1. Verify DB reachability ── */
   try {
     const { rows } = await pool.query("SELECT version()");
     console.log("✅ CockroachDB:", rows[0].version.split(" ")[0]);
@@ -610,10 +655,14 @@ async function start() {
     console.log("✅ [airtime] schema ready");
   } catch (err) {
     if (IS_PROD) {
-      console.error("❌ [airtime] schema init failed — aborting:", err.message);
+      console.error(
+        "❌ [airtime] schema init failed — aborting:", err.message
+      );
       process.exit(1);
     } else {
-      console.error("⚠️  [airtime] schema init failed (non-fatal in dev):", err.message);
+      console.error(
+        "⚠️  [airtime] schema init failed (non-fatal in dev):", err.message
+      );
     }
   }
 
@@ -657,22 +706,39 @@ async function start() {
     console.log("✅ [cron] Inactive users      → daily 09:00 UTC");
   })();
 
-  /* ── 5. Start server ── */
+  /* ── 5. Open HTTP server LAST ── */
   server.listen(PORT, () => {
     const env = process.env.NODE_ENV || "development";
     console.log(`\n🚀 Loemart server  |  port=${PORT}  |  env=${env}`);
 
     console.log(`
-  ── Auth ───────────────────────────────────────────
-    /api/auth                       (marketplace)
-    POST /api/auth/register         (seller)
-    POST /api/auth/verify-email     (seller)
-    POST /api/auth/resend-verification (seller)
-    POST /api/auth/login            (seller)
-    POST /api/auth/forgot-password  (seller)
-    POST /api/auth/verify-reset-code (seller)
-    POST /api/auth/reset-password   (seller)
-    GET  /api/auth/me               (seller)
+  ════════════════════════════════════════════════════
+  ROUTE MAP
+  ════════════════════════════════════════════════════
+
+  ── Marketplace Auth  (public.users) ───────────────
+    POST   /api/auth/...
+    POST   /api/auth/forgot-password
+    POST   /api/auth/forgot-password/verify
+    POST   /api/auth/reset-password
+
+  ── Seller Auth  (market.users) ────────────────────
+    POST   /api/seller-auth/register
+    POST   /api/seller-auth/verify-email
+    POST   /api/seller-auth/resend-verification
+    POST   /api/seller-auth/login
+    POST   /api/seller-auth/forgot-password
+    POST   /api/seller-auth/verify-reset-code
+    POST   /api/seller-auth/reset-password
+    GET    /api/seller-auth/me
+
+  ── Seller Onboarding ──────────────────────────────
+    /api/seller-onboarding
+
+  ── Seller Dashboard ───────────────────────────────
+    /api/seller-dashboard
+    /api/seller/payout
+    /api/seller/settings
 
   ── Settings ───────────────────────────────────────
     GET    /api/settings/profile
@@ -695,7 +761,7 @@ async function start() {
     DELETE /api/settings/delete-account
     POST   /api/settings/restore-account
 
-  ── Support (user) ──────────────────────────────────
+  ── Support (user) ─────────────────────────────────
     POST   /api/support/tickets
     GET    /api/support/tickets
     GET    /api/support/tickets/:id
@@ -710,17 +776,19 @@ async function start() {
     GET    /api/support/faq/categories
     GET    /api/support/faq/articles
 
-  ── Support (admin) ─────────────────────────────────
+  ── Support (admin) ────────────────────────────────
     GET    /api/admin/support/tickets
     PATCH  /api/admin/support/tickets/:id
     POST   /api/admin/support/tickets/:id/reply
     POST   /api/admin/support/tickets/:id/escalate
     GET    /api/admin/support/analytics
 
-  ── Crons ───────────────────────────────────────────
+  ── Crons ──────────────────────────────────────────
     Account purge     → daily    02:00 UTC
     Weekly newsletter → Monday   08:00 UTC
     Inactive users    → daily    09:00 UTC
+
+  ════════════════════════════════════════════════════
     `);
   });
 }
