@@ -6,14 +6,15 @@ import axios from "axios";
 // STEPS
 // ─────────────────────────────────────────────────────────────
 export const STEPS = {
-  REGISTER:        0,
-  OTP_VERIFY:      1,
-  STORE_SETUP:     2,
-  VERIFICATION:    3,
-  REVIEW:          4,
-  APPROVED:        5,
-  FORGOT_PASSWORD: 6,
-  RESET_PASSWORD:  7,
+  REGISTER:           0,
+  OTP_VERIFY:         1,
+  STORE_SETUP:        2,
+  VERIFICATION:       3,
+  REVIEW:             4,
+  APPROVED:           5,
+  FORGOT_PASSWORD:    6,
+  RESET_CODE:         7,
+  RESET_NEW_PASSWORD: 8,
 };
 
 const STATUS_TO_STEP = {
@@ -80,21 +81,22 @@ const INITIAL_VERIFY_DATA = {
 // HOOK
 // ─────────────────────────────────────────────────────────────
 export const useSellerFlow = () => {
-  const [step,         setStep]         = useState(null);
-  const [registerData, setRegisterData] = useState(INITIAL_REGISTER_DATA);
-  const [storeData,    setStoreData]    = useState(INITIAL_STORE_DATA);
-  const [verifyData,   setVerifyData]   = useState(INITIAL_VERIFY_DATA);
-  const [errors,       setErrors]       = useState({});
-  const [loading,      setLoading]      = useState(false);
-  const [initializing, setInitializing] = useState(true);
-  const [serverMsg,    setServerMsg]    = useState("");
-  const [serverErr,    setServerErr]    = useState("");
-  const [previewLogo,  setPreviewLogo]  = useState(null);
-  const [vendorData,   setVendorData]   = useState(null);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showConfirm,  setShowConfirm]  = useState(false);
-  const [isGmailUser,  setIsGmailUser]  = useState(false);
-  const [pendingEmail, setPendingEmail] = useState("");
+  const [step,               setStep]               = useState(null);
+  const [registerData,       setRegisterData]       = useState(INITIAL_REGISTER_DATA);
+  const [storeData,          setStoreData]          = useState(INITIAL_STORE_DATA);
+  const [verifyData,         setVerifyData]         = useState(INITIAL_VERIFY_DATA);
+  const [errors,             setErrors]             = useState({});
+  const [loading,            setLoading]            = useState(false);
+  const [initializing,       setInitializing]       = useState(true);
+  const [serverMsg,          setServerMsg]          = useState("");
+  const [serverErr,          setServerErr]          = useState("");
+  const [previewLogo,        setPreviewLogo]        = useState(null);
+  const [vendorData,         setVendorData]         = useState(null);
+  const [showPassword,       setShowPassword]       = useState(false);
+  const [showConfirm,        setShowConfirm]        = useState(false);
+  const [isGmailUser,        setIsGmailUser]        = useState(false);
+  const [pendingEmail,       setPendingEmail]       = useState("");
+  const [verifiedResetCode,  setVerifiedResetCode]  = useState("");
 
   const syncedRef = useRef(false);
 
@@ -195,6 +197,7 @@ export const useSellerFlow = () => {
     setIsGmailUser(false);
     setLoading(false);
     setPendingEmail("");
+    setVerifiedResetCode("");
     syncedRef.current = false;
   }, []);
 
@@ -321,40 +324,27 @@ export const useSellerFlow = () => {
       e.id_number = "ID number is required";
     } else {
       const ID_DIGITS = {
-        nin:      11,
-        passport: 9,
-        drivers:  12,
-        voters:   19,
+        nin: 11, passport: 9, drivers: 12, voters: 19,
       };
-      const cleaned  = verifyData.id_number
-        .replace(/\s/g, "").toUpperCase();
+      const cleaned  = verifyData.id_number.replace(/\s/g, "").toUpperCase();
       const expected = ID_DIGITS[verifyData.id_type];
 
       if (verifyData.id_type === "passport") {
         if (!/^[A-Z0-9]{9}$/.test(cleaned))
-          e.id_number = "Passport must be 9 characters (e.g. A12345678)";
+          e.id_number = "Passport must be 9 characters";
       } else if (expected) {
         const actual = cleaned.replace(/\D/g, "").length;
         if (actual !== expected) {
-          const labels = {
-            nin:     "NIN",
-            drivers: "Driver's Licence",
-            voters:  "Voter's Card",
-          };
-          e.id_number =
-            `${labels[verifyData.id_type]} must be ${expected} digits`;
+          const labels = { nin: "NIN", drivers: "Driver's Licence", voters: "Voter's Card" };
+          e.id_number = `${labels[verifyData.id_type]} must be ${expected} digits`;
         }
       }
     }
 
-    if (!verifyData.id_card)
-      e.id_card = "ID card front photo is required";
-    if (!verifyData.id_card_back)
-      e.id_card_back = "ID card back photo is required";
-    if (!verifyData.selfie)
-      e.selfie = "Selfie with ID is required";
-    if (!verifyData.address?.trim())
-      e.address = "Home address is required";
+    if (!verifyData.id_card)      e.id_card      = "ID card front photo is required";
+    if (!verifyData.id_card_back) e.id_card_back = "ID card back photo is required";
+    if (!verifyData.selfie)       e.selfie       = "Selfie with ID is required";
+    if (!verifyData.address?.trim()) e.address    = "Home address is required";
 
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -379,8 +369,7 @@ export const useSellerFlow = () => {
 
       setPendingEmail(registerData.email.trim().toLowerCase());
       setServerMsg(
-        data.message ??
-        "Account created! Check your email for the verification code."
+        data.message ?? "Account created! Check your email for the verification code."
       );
       setStep(STEPS.OTP_VERIFY);
 
@@ -394,7 +383,7 @@ export const useSellerFlow = () => {
   };
 
   // ─────────────────────────────────────────────────────────
-  // API: VERIFY OTP (email verification)
+  // API: VERIFY EMAIL OTP
   // ─────────────────────────────────────────────────────────
   const submitOtp = async (code) => {
     if (!code?.trim()) {
@@ -421,32 +410,23 @@ export const useSellerFlow = () => {
         try {
           const { data: loginData } = await axios.post(
             "/api/auth/login",
-            {
-              email:    pendingEmail,
-              password: registerData.password,
-            }
+            { email: pendingEmail, password: registerData.password }
           );
           if (loginData.token) saveToken(loginData.token);
-        } catch {
-          // Silent — handled at store setup
-        }
+        } catch { /* silent */ }
       }
 
-      setServerMsg(
-        "Email verified! Setting up your store…"
-      );
+      setServerMsg("Email verified! Setting up your store…");
       setStep(STEPS.STORE_SETUP);
 
     } catch (err) {
-      const code = err.response?.data?.code;
-      if (code === "CODE_EXPIRED") {
+      const c = err.response?.data?.code;
+      if (c === "CODE_EXPIRED") {
         setServerErr("Your code has expired. Please request a new one.");
-      } else if (code === "INVALID_CODE") {
+      } else if (c === "INVALID_CODE") {
         setServerErr("Invalid code. Please check and try again.");
       } else {
-        setServerErr(
-          err.response?.data?.message ?? "Verification failed. Try again."
-        );
+        setServerErr(err.response?.data?.message ?? "Verification failed.");
       }
     } finally {
       setLoading(false);
@@ -454,7 +434,7 @@ export const useSellerFlow = () => {
   };
 
   // ─────────────────────────────────────────────────────────
-  // API: RESEND OTP (email verification)
+  // API: RESEND EMAIL OTP
   // ─────────────────────────────────────────────────────────
   const resendOtp = async () => {
     if (!pendingEmail) return;
@@ -463,28 +443,23 @@ export const useSellerFlow = () => {
     setServerErr("");
 
     try {
-      await axios.post("/api/auth/resend-verification", {
-        email: pendingEmail,
-      });
+      await axios.post("/api/auth/resend-verification", { email: pendingEmail });
       setServerMsg("A new verification code has been sent to your email.");
     } catch (err) {
-      setServerErr(
-        err.response?.data?.message ?? "Failed to resend code. Try again."
-      );
+      setServerErr(err.response?.data?.message ?? "Failed to resend code.");
     } finally {
       setLoading(false);
     }
   };
 
   // ─────────────────────────────────────────────────────────
-  // API: FORGOT PASSWORD
+  // API: FORGOT PASSWORD (sends reset OTP)
   // ─────────────────────────────────────────────────────────
   const submitForgotPassword = async (email) => {
     if (!email?.trim()) {
       setServerErr("Email is required.");
       return;
     }
-
     const emailRx = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRx.test(email.trim())) {
       setServerErr("Enter a valid email address.");
@@ -501,23 +476,17 @@ export const useSellerFlow = () => {
       });
 
       setPendingEmail(email.trim().toLowerCase());
-      setServerMsg(
-        "If an account exists, a reset code has been sent to your email."
-      );
-      setStep(STEPS.RESET_PASSWORD);
+      setServerMsg("If an account exists, a reset code has been sent.");
+      setStep(STEPS.RESET_CODE);
 
     } catch (err) {
       if (err.response?.status === 403) {
-        setServerErr(
-          "Your account has been suspended. Contact support."
-        );
+        setServerErr("Your account has been suspended. Contact support.");
       } else {
-        // Always show generic — don't reveal if email exists
+        // Always go to RESET_CODE — don't reveal if email exists
         setPendingEmail(email.trim().toLowerCase());
-        setServerMsg(
-          "If an account exists, a reset code has been sent to your email."
-        );
-        setStep(STEPS.RESET_PASSWORD);
+        setServerMsg("If an account exists, a reset code has been sent.");
+        setStep(STEPS.RESET_CODE);
       }
     } finally {
       setLoading(false);
@@ -525,14 +494,50 @@ export const useSellerFlow = () => {
   };
 
   // ─────────────────────────────────────────────────────────
-  // API: RESET PASSWORD
+  // API: VERIFY RESET CODE (step 1 — OTP only)
   // ─────────────────────────────────────────────────────────
-  const submitResetPassword = async (code, newPassword, confirmPassword) => {
-    // Validate
-    if (!code?.trim() || code.trim().length !== 6) {
-      setServerErr("Please enter the 6-digit reset code.");
+  const submitResetCode = async (code) => {
+    if (!code?.trim()) {
+      setServerErr("Please enter the reset code.");
       return;
     }
+    if (code.trim().length !== 6) {
+      setServerErr("Code must be exactly 6 digits.");
+      return;
+    }
+
+    setLoading(true);
+    setServerMsg("");
+    setServerErr("");
+
+    try {
+      await axios.post("/api/auth/verify-reset-code", {
+        email: pendingEmail,
+        code:  code.trim(),
+      });
+
+      setVerifiedResetCode(code.trim());
+      setServerMsg("Code verified! Now set your new password.");
+      setStep(STEPS.RESET_NEW_PASSWORD);
+
+    } catch (err) {
+      const c = err.response?.data?.code;
+      if (c === "CODE_EXPIRED") {
+        setServerErr("Reset code has expired. Please request a new one.");
+      } else if (c === "INVALID_CODE") {
+        setServerErr("Invalid reset code. Please check and try again.");
+      } else {
+        setServerErr(err.response?.data?.message ?? "Verification failed.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // ─────────────────────────────────────────────────────────
+  // API: SET NEW PASSWORD (step 2 — password only)
+  // ─────────────────────────────────────────────────────────
+  const submitNewPassword = async (newPassword, confirmPassword) => {
     if (!newPassword) {
       setServerErr("New password is required.");
       return;
@@ -542,11 +547,11 @@ export const useSellerFlow = () => {
       return;
     }
     if (!/[A-Z]/.test(newPassword)) {
-      setServerErr("Password must contain at least one uppercase letter.");
+      setServerErr("Must contain at least one uppercase letter.");
       return;
     }
     if (!/\d/.test(newPassword)) {
-      setServerErr("Password must contain at least one number.");
+      setServerErr("Must contain at least one number.");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -561,34 +566,29 @@ export const useSellerFlow = () => {
     try {
       await axios.post("/api/auth/reset-password", {
         email:       pendingEmail,
-        code:        code.trim(),
+        code:        verifiedResetCode,
         newPassword,
       });
 
       setServerMsg("Password reset successfully! Redirecting to sign in…");
       setPendingEmail("");
+      setVerifiedResetCode("");
 
-      // Go back to sign-in after short delay
       setTimeout(() => {
         setStep(STEPS.REGISTER);
-        setServerMsg(
-          "Password reset! Please sign in with your new password."
-        );
+        setServerMsg("Password reset! Sign in with your new password.");
       }, 1500);
 
     } catch (err) {
-      const errCode = err.response?.data?.code;
-      if (errCode === "CODE_EXPIRED") {
-        setServerErr(
-          "Reset code has expired. Please request a new one."
-        );
-      } else if (errCode === "INVALID_CODE") {
-        setServerErr("Invalid reset code. Please check and try again.");
+      const c = err.response?.data?.code;
+      if (c === "CODE_EXPIRED") {
+        setServerErr("Code expired. Please start over.");
+        setTimeout(() => setStep(STEPS.FORGOT_PASSWORD), 2000);
+      } else if (c === "INVALID_CODE") {
+        setServerErr("Invalid code. Please start over.");
+        setTimeout(() => setStep(STEPS.FORGOT_PASSWORD), 2000);
       } else {
-        setServerErr(
-          err.response?.data?.message ??
-          "Password reset failed. Please try again."
-        );
+        setServerErr(err.response?.data?.message ?? "Reset failed.");
       }
     } finally {
       setLoading(false);
@@ -605,12 +605,9 @@ export const useSellerFlow = () => {
     setServerErr("");
 
     try {
-      await axios.post("/api/auth/forgot-password", {
-        email: pendingEmail,
-      });
+      await axios.post("/api/auth/forgot-password", { email: pendingEmail });
       setServerMsg("A new reset code has been sent to your email.");
     } catch {
-      // Generic — always show success to avoid enumeration
       setServerMsg("A new reset code has been sent to your email.");
     } finally {
       setLoading(false);
@@ -636,12 +633,9 @@ export const useSellerFlow = () => {
       form.append("bank_name",         storeData.bank_name.trim());
       form.append("account_name",      storeData.account_name.trim());
 
-      if (storeData.bank_code)
-        form.append("bank_code",    storeData.bank_code.trim());
-      if (storeData.store_logo)
-        form.append("store_logo",   storeData.store_logo);
-      if (storeData.store_banner)
-        form.append("store_banner", storeData.store_banner);
+      if (storeData.bank_code)    form.append("bank_code",    storeData.bank_code.trim());
+      if (storeData.store_logo)   form.append("store_logo",   storeData.store_logo);
+      if (storeData.store_banner) form.append("store_banner", storeData.store_banner);
 
       const { data } = await axios.post(
         "/api/seller-onboarding/setup-store",
@@ -663,20 +657,15 @@ export const useSellerFlow = () => {
       const existingStatus = err.response?.data?.status;
 
       if (code === "VENDOR_EXISTS") {
-        if (existingStatus === "pending") {
-          setStep(STEPS.VERIFICATION); return;
-        }
-        if (existingStatus === "under_review") {
-          setStep(STEPS.REVIEW); return;
-        }
-        if (["active", "approved"].includes(existingStatus)) {
-          window.location.replace("/seller/dashboard"); return;
+        if (existingStatus === "pending")      { setStep(STEPS.VERIFICATION); return; }
+        if (existingStatus === "under_review") { setStep(STEPS.REVIEW);       return; }
+        if (["active","approved"].includes(existingStatus)) {
+          window.location.replace("/seller/dashboard");
+          return;
         }
       }
 
-      setServerErr(
-        err.response?.data?.message ?? "Store setup failed. Try again."
-      );
+      setServerErr(err.response?.data?.message ?? "Store setup failed.");
     } finally {
       setLoading(false);
     }
@@ -694,17 +683,12 @@ export const useSellerFlow = () => {
     try {
       const form = new FormData();
 
-      [
-        "id_card", "id_card_back", "selfie",
-        "business_doc", "address_proof",
-      ].forEach((k) => {
+      ["id_card","id_card_back","selfie","business_doc","address_proof"].forEach((k) => {
         if (verifyData[k]) form.append(k, verifyData[k]);
       });
 
       form.append("id_type",   verifyData.id_type);
-      form.append("id_number",
-        verifyData.id_number.replace(/\s/g, "").toUpperCase()
-      );
+      form.append("id_number", verifyData.id_number.replace(/\s/g, "").toUpperCase());
       form.append("address",   verifyData.address.trim());
 
       const { data } = await axios.post(
@@ -719,16 +703,11 @@ export const useSellerFlow = () => {
       );
 
       if (data.vendor) setVendorData(data.vendor);
-      setServerMsg(
-        data.message ??
-        "Documents submitted! We'll review within 1–3 days."
-      );
+      setServerMsg(data.message ?? "Documents submitted!");
       setStep(STEPS.REVIEW);
 
     } catch (err) {
-      setServerErr(
-        err.response?.data?.message ?? "Verification failed. Try again."
-      );
+      setServerErr(err.response?.data?.message ?? "Verification failed.");
     } finally {
       setLoading(false);
     }
@@ -738,21 +717,22 @@ export const useSellerFlow = () => {
   // RETURN
   // ─────────────────────────────────────────────────────────
   return {
-    step,         setStep,
+    step,               setStep,
     registerData,
     storeData,
     verifyData,
     errors,
     loading,
     initializing,
-    serverMsg,    setServerMsg,
-    serverErr,    setServerErr,
+    serverMsg,          setServerMsg,
+    serverErr,          setServerErr,
     previewLogo,
-    vendorData,   setVendorData,
-    showPassword, setShowPassword,
-    showConfirm,  setShowConfirm,
+    vendorData,         setVendorData,
+    showPassword,       setShowPassword,
+    showConfirm,        setShowConfirm,
     isGmailUser,
-    pendingEmail, setPendingEmail,
+    pendingEmail,       setPendingEmail,
+    verifiedResetCode,
 
     handleRegisterChange,
     handleStoreChange,
@@ -763,7 +743,8 @@ export const useSellerFlow = () => {
     submitOtp,
     resendOtp,
     submitForgotPassword,
-    submitResetPassword,
+    submitResetCode,
+    submitNewPassword,
     resendResetCode,
     submitStore,
     submitVerification,
